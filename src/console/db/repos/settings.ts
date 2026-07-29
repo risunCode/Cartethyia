@@ -6,7 +6,6 @@
 import { getDb } from "../client";
 import { getConsoleEnv, type TrackMode, type ProxyAuthMode } from "../../env";
 import { hashPassword } from "../../auth/password";
-import type { OpenCodeFreeAccess } from "../../../config";
 
 export const DEFAULT_CONSOLE_PASSWORD = "carte1234";
 
@@ -25,7 +24,6 @@ export interface RuntimeSettings {
   maxFlightsPerIp: number;
   trustProxy: boolean;
   cacheMarkersEnabled: boolean;
-  opencodeFreeAccess: OpenCodeFreeAccess;
   systemPrompt: string;
   sessionTtlHours: number;
   rtk: RtkSettings;
@@ -83,7 +81,6 @@ function envDefaults(): RuntimeSettings {
     maxFlightsPerIp: 20,
     trustProxy: false,
     cacheMarkersEnabled: true,
-    opencodeFreeAccess: "local",
     // Deployment-level defaults; a console PATCH persists an explicit value
     // in settings_json that then takes precedence on every future read.
     systemPrompt: Bun.env.CARTETHYIA_SYSTEM_PROMPT?.trim() ?? "",

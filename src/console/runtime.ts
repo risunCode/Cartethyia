@@ -6,7 +6,6 @@
 import { getSettings, type RuntimeSettings } from "./db/repos/settings";
 import { listActiveSanitizerRules } from "./db/repos/sanitizer-rules";
 import { getConsoleEnv } from "./env";
-import type { OpenCodeFreeAccess } from "../config";
 import type { RequestTransformSettings, SanitizerFilterRule } from "../upstream/outbound";
 
 const TTL_MS = 5_000;
@@ -25,7 +24,6 @@ export function defaultRuntimeSettings(): RuntimeSettings {
     maxFlightsPerIp: 20,
     trustProxy: false,
     cacheMarkersEnabled: true,
-    opencodeFreeAccess: "local" as OpenCodeFreeAccess,
     systemPrompt: "",
     sessionTtlHours: env.sessionTtlHours,
     costPerMillionInputTokens: 0,

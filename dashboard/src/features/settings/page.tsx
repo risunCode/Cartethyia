@@ -21,7 +21,6 @@ import { useInFlightSnapshot } from "../../lib/hooks/use-inflight-stream";
 
 interface RuntimeSettings {
   proxyAuthMode: "open" | "api_key";
-  opencodeFreeAccess: "local" | "all" | "disabled";
   trackPayloads: "none" | "meta" | "store";
   trackAssets: "none" | "meta" | "store";
   logRetentionDays: number;

@@ -84,7 +84,6 @@ Copy `.env.example` for local development. For production, configure secrets in 
 | `BOOTSTRAP_PROXY_API_KEY` | Recommended | Optional first proxy API key. |
 | `MAX_FLIGHTS_PER_IP` | No | Per-IP concurrent request limit; defaults to `20`. |
 | `TRUST_PROXY` | Railway | Set `true` when Railway is the trusted reverse proxy. |
-| `OPENCODE_FREE_ACCESS` | No | `all`, `local`, or `none`; defaults to `all`. |
 
 ## Railway deployment
 

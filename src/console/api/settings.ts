@@ -41,9 +41,7 @@ function validateRuntimePatch(patch: Partial<RuntimeSettings>): string | null {
   if (patch.cacheMarkersEnabled !== undefined && typeof patch.cacheMarkersEnabled !== "boolean") {
     return "cacheMarkersEnabled must be a boolean";
   }
-  if (patch.opencodeFreeAccess !== undefined && !["local", "all", "disabled"].includes(patch.opencodeFreeAccess)) {
-    return "opencodeFreeAccess must be local, all, or disabled";
-  }
+  // opencode-free models are always accessible to any valid API key — no access-mode setting exists.
   if (patch.systemPrompt !== undefined && typeof patch.systemPrompt !== "string") {
     return "systemPrompt must be a string";
   }
