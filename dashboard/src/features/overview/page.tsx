@@ -231,6 +231,16 @@ export function OverviewPage() {
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to delete key"),
   });
 
+  const credentialCopy = useMutation({
+    mutationFn: async (keyId: string) => {
+      const { key } = await apiGet<{ key: string }>(`/keys/${keyId}/credential`);
+      const ok = await copyText(key);
+      if (!ok) throw new Error("Clipboard unavailable on this origin");
+    },
+    onSuccess: () => toast.success("Copied API key to clipboard"),
+    onError: (err) => toast.error(err instanceof Error ? err.message : "failed to copy key"),
+  });
+
   const submitCreate = () => {
     const input: { name: string; rateLimitRpm?: number; dailyTokenLimit?: number } = { name: name.trim() };
     if (rpm.trim()) {
@@ -404,7 +414,7 @@ export function OverviewPage() {
       </Card>
 
       <Card>
-        <CardHeader title="API Keys" icon={KeyRound} iconColor="#ff9f0a" sub="Client keys for proxy access — stored hashed, revealed once on create">
+        <CardHeader title="API Keys" icon={KeyRound} iconColor="#ff9f0a" sub="Client keys for proxy access — stored as plaintext; revealed on demand via dedicated endpoint">
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus size={14} /> New key
           </Button>
@@ -454,7 +464,20 @@ export function OverviewPage() {
                     <td className="px-3 py-2.5"><Badge tone={key.active ? "ok" : "default"}>{key.active ? "active" : "revoked"}</Badge></td>
                     <td className="px-3 py-2.5 text-right">
                       {key.active ? (
-                        <Button variant="ghost" size="sm" className="text-[#ff453a]" onClick={() => setRevokeTarget(key)}><Trash2 size={13} /> Revoke</Button>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={credentialCopy.isPending}
+                            onClick={() => credentialCopy.mutate(key.id)}
+                            title="Copy API key"
+                            aria-label={`Copy API key ${key.name}`}
+                          >
+                            <Copy size={13} />
+                            Copy
+                          </Button>
+                          <Button variant="ghost" size="sm" className="text-[#ff453a]" onClick={() => setRevokeTarget(key)}><Trash2 size={13} /> Revoke</Button>
+                        </div>
                       ) : (
                         <Button variant="ghost" size="sm" className="text-[#ff453a]" onClick={() => setDeleteTarget(key)}><Trash2 size={13} /> Delete</Button>
                       )}

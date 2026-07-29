@@ -1,5 +1,5 @@
 /**
- * API key repo — keys are stored as SHA-256 hashes only; the full key is
+ * API key repo — keys are stored as plaintext; the full key is
  * returned exactly once at creation time.
  */
 
@@ -8,7 +8,7 @@ import { getDb } from "../client";
 export interface ApiKeyRow {
   id: string;
   name: string;
-  key_hash: string;
+  key: string;
   key_prefix: string;
   active: number;
   rate_limit_rpm: number | null;
@@ -40,16 +40,6 @@ export interface ApiKeyCreateInput {
   dailyTokenLimit?: number;
   providerAllowlist?: string[];
   modelAllowlist?: string[];
-}
-
-function hashKey(key: string): string {
-  const hasher = new Bun.CryptoHasher("sha256");
-  hasher.update(key);
-  return hasher.digest("hex");
-}
-
-export function hashApiKey(key: string): string {
-  return hashKey(key);
 }
 
 function toPublic(row: ApiKeyRow): ApiKeyPublic {
@@ -89,12 +79,12 @@ export function createApiKey(input: ApiKeyCreateInput): { key: string; record: A
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   db.query(
-    `INSERT INTO api_keys (id, name, key_hash, key_prefix, active, rate_limit_rpm, daily_token_limit, provider_allowlist, model_allowlist, created_at)
+    `INSERT INTO api_keys (id, name, key, key_prefix, active, rate_limit_rpm, daily_token_limit, provider_allowlist, model_allowlist, created_at)
      VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`
   ).run(
     id,
     input.name,
-    hashKey(key),
+    key,
     key.slice(0, 12),
     input.rateLimitRpm ?? null,
     input.dailyTokenLimit ?? null,
@@ -123,8 +113,13 @@ export function deleteApiKey(id: string): boolean {
   return result.changes > 0;
 }
 
+export function getApiKeyById(id: string): { key: string } | undefined {
+  const row = getDb().query("SELECT key FROM api_keys WHERE id = ?").get(id) as ApiKeyRow | null;
+  return row ? { key: row.key } : undefined;
+}
+
 export function findApiKeyBySecret(key: string): ApiKeyPublic | null {
-  const row = getDb().query("SELECT * FROM api_keys WHERE key_hash = ?").get(hashKey(key)) as ApiKeyRow | null;
+  const row = getDb().query("SELECT * FROM api_keys WHERE key = ?").get(key) as ApiKeyRow | null;
   return row ? toPublic(row) : null;
 }
 

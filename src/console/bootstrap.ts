@@ -19,14 +19,13 @@ export async function ensureConsoleBootstrap(): Promise<void> {
   seedDefaultSanitizerRules();
   if (env.bootstrapKey && !findApiKeyBySecret(env.bootstrapKey)) {
     if (!listApiKeys().some((k) => k.name === env.bootstrapKeyName)) {
-      // Store the operator-provided key by hash; never log or return it.
+      // Store the operator-provided key verbatim.
       const created = createApiKey({ name: env.bootstrapKeyName });
       if (!("error" in created)) {
-        // Replace generated secret with the provided one (hash only).
+        // Replace generated secret with the provided one.
         const { getDb } = await import("./db/client");
-        const { hashApiKey } = await import("./db/repos/api-keys");
-        getDb().query("UPDATE api_keys SET key_hash = ?, key_prefix = ? WHERE id = ?").run(
-          hashApiKey(env.bootstrapKey),
+        getDb().query("UPDATE api_keys SET key = ?, key_prefix = ? WHERE id = ?").run(
+          env.bootstrapKey,
           env.bootstrapKey.slice(0, 12),
           created.record.id
         );

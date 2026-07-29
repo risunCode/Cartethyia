@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE TABLE IF NOT EXISTS api_keys (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
-  key_hash TEXT NOT NULL,
+  key TEXT NOT NULL,
   key_prefix TEXT NOT NULL,
   active INTEGER NOT NULL DEFAULT 1,
   rate_limit_rpm INTEGER,

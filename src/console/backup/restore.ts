@@ -12,7 +12,7 @@ type Row = Record<string, unknown>;
 const TABLE_COLUMNS: Record<BackupTable, string[]> = {
   settings: ["id", "password_hash", "password_version", "jwt_secret", "settings_json", "initialized_at", "updated_at"],
   api_keys: [
-    "id", "name", "key_hash", "key_prefix", "active", "rate_limit_rpm", "daily_token_limit",
+    "id", "name", "key", "key_prefix", "active", "rate_limit_rpm", "daily_token_limit",
     "provider_allowlist", "model_allowlist", "last_used_at", "created_at", "revoked_at",
   ],
   model_aliases: ["alias", "model", "created_at"],

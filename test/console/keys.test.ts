@@ -48,6 +48,23 @@ describe("console keys API", () => {
     expect(dup.status).toBe(409);
   });
 
+  test("the credential endpoint reveals the plaintext key only to an authenticated session", async () => {
+    const cookie = await loginAndGetCookie();
+    const created = await app.handle(postJson("/console/api/keys", { name: "reveal-key" }, { cookie }));
+    expect(created.status).toBe(201);
+    const { id, key } = (await created.json()) as { id: string; key: string };
+
+    const revealed = await app.handle(authed(`/console/api/keys/${id}/credential`, cookie));
+    expect(revealed.status).toBe(200);
+    expect(((await revealed.json()) as { key: string }).key).toBe(key);
+
+    const anonymous = await app.handle(new Request(`http://localhost/console/api/keys/${id}/credential`));
+    expect(anonymous.status).toBe(401);
+
+    const ghost = await app.handle(authed("/console/api/keys/ghost/credential", cookie));
+    expect(ghost.status).toBe(404);
+  });
+
   test("password change invalidates the old session (stale pv)", async () => {
     const cookie = await loginAndGetCookie();
     const changed = await app.handle(

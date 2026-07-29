@@ -3,7 +3,7 @@
 import { Elysia } from "elysia";
 import { consoleError } from "../errors";
 import { addAuditEvent } from "../db/repos/audit";
-import { createApiKey, listApiKeys, revokeApiKey, deleteApiKey } from "../db/repos/api-keys";
+import { createApiKey, listApiKeys, revokeApiKey, deleteApiKey, getApiKeyById } from "../db/repos/api-keys";
 
 export const keysRoutes = new Elysia({ prefix: "/console/api" })
   .get("/keys", async () => ({ items: listApiKeys() }))
@@ -43,4 +43,18 @@ export const keysRoutes = new Elysia({ prefix: "/console/api" })
     }
     addAuditEvent("key.deleted", { id: params.id });
     return { ok: true };
+  })
+  .get("/keys/:id/credential", async ({ params, set }) => {
+    const key = listApiKeys().find((k) => k.id === params.id);
+    if (!key) {
+      set.status = 404;
+      return consoleError("not_found", "key not found");
+    }
+    const row = getApiKeyById(params.id);
+    if (!row || !row.key) {
+      set.status = 404;
+      return consoleError("not_found", "key not found");
+    }
+    addAuditEvent("key.credential_revealed", { id: params.id, name: key.name });
+    return { key: row.key };
   });
