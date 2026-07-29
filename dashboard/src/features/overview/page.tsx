@@ -2,13 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   Activity,
-  ArrowDownToLine,
-  ArrowUpFromLine,
   Check,
   Copy,
   Cpu,
   Database,
-  DollarSign,
   Gauge,
   Globe,
   KeyRound,
@@ -22,8 +19,7 @@ import {
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ApiError, api, apiGet, apiPost } from "../../lib/api";
-import { formatDuration, formatMemoryMb, formatNumber, formatTime, formatTokens, formatUsd } from "../../lib/format";
-import { useInFlightStream } from "../../lib/hooks/use-inflight-stream";
+import { formatDuration, formatMemoryMb, formatTime } from "../../lib/format";
 import { staggerItem } from "../../lib/motion";
 import { Badge, Skeleton } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -102,15 +98,6 @@ interface CreatedKey extends ApiKeyRecord {
   note: string;
 }
 
-const STAT_CARDS = [
-  { key: "requests", label: "Total Requests", icon: Activity, color: "#0a84ff", format: formatNumber },
-  { key: "inputTokens", label: "Input Tokens", icon: ArrowDownToLine, color: "#64d2ff", format: formatTokens },
-  { key: "cachedTokens", label: "Cached Tokens", icon: Database, color: "#bf5af2", format: formatTokens },
-  { key: "outputTokens", label: "Output Tokens", icon: ArrowUpFromLine, color: "#30d158", format: formatTokens },
-  { key: "errors", label: "Errors", icon: TriangleAlert, color: "#ff453a", format: formatNumber },
-  { key: "estimatedCostUsd", label: "Est. Cost (24h)", icon: DollarSign, color: "#ffd60a", format: formatUsd },
-] as const;
-
 /** Clipboard is undefined on insecure origins — never let that throw. */
 async function copyText(value: string): Promise<boolean> {
   if (!navigator.clipboard) return false;
@@ -147,8 +134,6 @@ function CopyButton({ value }: { value: string }) {
 
 export function OverviewPage() {
   const queryClient = useQueryClient();
-  const inFlight = useInFlightStream();
-
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
   const [rpm, setRpm] = useState("");
@@ -261,11 +246,10 @@ export function OverviewPage() {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-5">
-        {STAT_CARDS.map((card) => (
-          <Skeleton key={card.key} className="h-28 rounded-[var(--radius-card)]" />
-        ))}
-      </div>
+      <Card>
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="mt-4 h-24 w-full" />
+      </Card>
     );
   }
   if (isError || !data) {
@@ -289,30 +273,6 @@ export function OverviewPage() {
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-6">
-        {STAT_CARDS.map((card) => (
-          <Card key={card.key} className="flex items-center gap-3 p-3.5">
-            <span
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-              style={{ backgroundColor: `color-mix(in srgb, ${card.color} 15%, transparent)`, color: card.color }}
-            >
-              <card.icon size={17} />
-            </span>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 truncate text-[11px] text-[var(--text-3)]">
-                {card.label}
-                {card.key === "requests" && inFlight > 0 && (
-                  <span className="inline-flex items-center gap-0.5 rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[9.5px] font-semibold text-[var(--accent)]">
-                    <span className="size-1.5 animate-pulse rounded-full bg-[var(--accent)]" />+{inFlight} in flight
-                  </span>
-                )}
-              </div>
-              <div className="text-base font-bold tabular-nums">{card.format(totals[card.key])}</div>
-            </div>
-          </Card>
-        ))}
-      </div>
-
       <Card>
         <CardHeader title="API Endpoint" icon={Globe} sub="Base URL for OpenAI- and Anthropic-compatible clients" />
         <div className="flex flex-wrap items-center gap-2.5">
@@ -345,38 +305,64 @@ export function OverviewPage() {
             <Sparkles size={13} /> {gcMutation.isPending ? "Clearing…" : "Clear RAM usage"}
           </Button>
         </CardHeader>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-4">
-          <div className="flex items-center justify-between">
-            <span className="text-[var(--text-2)]">Avg duration</span>
-            <span className="font-semibold tabular-nums">{formatDuration(totals.avgDurationMs)}</span>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(10,132,255,0.13)] text-[#0a84ff]"><Activity size={14} /></span>
+              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Latency</span>
+            </div>
+            <div className="text-lg font-bold tabular-nums">{formatDuration(totals.avgDurationMs)}</div>
+            <div className="mt-0.5 text-[11px] text-[var(--text-2)]">Avg duration</div>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[var(--text-2)]">Cache rate</span>
-            <span className="font-semibold tabular-nums">{cacheRate}%</span>
+          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(191,90,242,0.13)] text-[#bf5af2]"><Database size={14} /></span>
+              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Cache</span>
+            </div>
+            <div className="text-lg font-bold tabular-nums">{cacheRate}%</div>
+            <div className="mt-0.5 text-[11px] text-[var(--text-2)]">Cache rate</div>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[var(--text-2)]">Error rate</span>
-            <span className="font-semibold tabular-nums">{errorRate}%</span>
+          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(255,69,58,0.13)] text-[var(--red)]"><TriangleAlert size={14} /></span>
+              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Errors</span>
+            </div>
+            <div className="text-lg font-bold tabular-nums">{errorRate}%</div>
+            <div className="mt-0.5 text-[11px] text-[var(--text-2)]">Error rate</div>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[var(--text-2)]">Providers</span>
-            <span className="font-semibold tabular-nums">{data.registry.length}</span>
+          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(48,209,88,0.13)] text-[#30d158]"><Globe size={14} /></span>
+              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Registry</span>
+            </div>
+            <div className="text-lg font-bold tabular-nums">{data.registry.length}</div>
+            <div className="mt-0.5 text-[11px] text-[var(--text-2)]">Providers</div>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="flex items-center gap-1.5 text-[var(--text-2)]"><MemoryStick size={13} /> RAM — global</span>
-<span className="font-semibold tabular-nums">
+          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3 sm:col-span-2">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(10,132,255,0.13)] text-[#0a84ff]"><MemoryStick size={14} /></span>
+              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">System</span>
+            </div>
+            <div className="text-base font-bold tabular-nums sm:text-lg">
               {healthQuery.data ? `${formatMemoryMb(healthQuery.data.memorySystemUsedMb)} used / ${formatMemoryMb(healthQuery.data.memoryTotalMb)} total` : "—"}
-            </span>
+            </div>
+            <div className="mt-0.5 text-[11px] text-[var(--text-2)]">RAM — global</div>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="flex items-center gap-1.5 text-[var(--text-2)]"><MemoryStick size={13} /> RAM — this program</span>
-<span className="font-semibold tabular-nums">
-              {healthQuery.data ? formatMemoryMb(healthQuery.data.memoryUsedMb) : "—"}
-            </span>
+          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(191,90,242,0.13)] text-[#bf5af2]"><MemoryStick size={14} /></span>
+              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Process</span>
+            </div>
+            <div className="text-lg font-bold tabular-nums">{healthQuery.data ? formatMemoryMb(healthQuery.data.memoryUsedMb) : "—"}</div>
+            <div className="mt-0.5 text-[11px] text-[var(--text-2)]">RAM — this program</div>
           </div>
-          <div className="flex items-center justify-between">
-<span className="flex items-center gap-1.5 text-[var(--text-2)]"><Cpu size={13} /> CPU — this program</span>
-            <span className="font-semibold tabular-nums">{healthQuery.data ? `${healthQuery.data.cpuPercent.toFixed(1)}%` : "—"}</span>
+          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(255,159,10,0.14)] text-[#ff9f0a]"><Cpu size={14} /></span>
+              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Process</span>
+            </div>
+            <div className="text-lg font-bold tabular-nums">{healthQuery.data ? `${healthQuery.data.cpuPercent.toFixed(1)}%` : "—"}</div>
+            <div className="mt-0.5 text-[11px] text-[var(--text-2)]">CPU — this program</div>
           </div>
         </div>
       </Card>

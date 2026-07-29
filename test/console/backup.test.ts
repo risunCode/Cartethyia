@@ -56,6 +56,13 @@ describe("backup payload validation", () => {
     if (!nested.ok) expect(nested.error).toContain("primitive");
   });
 
+  test("accepts custom provider headers from current backups", () => {
+    const result = validateRestorePayload(validPayload({
+      custom_providers: [{ id: "awok", slug: "awok", name: "Awok", type: "openai-compatible", base_url: "https://example.com/v1", credential_enc: "enc", timeout_seconds: 30, models_json: "[]", headers_json: "{}", created_at: "2026-01-01", updated_at: "2026-01-01" }],
+    }));
+    expect(result.ok).toBe(true);
+  });
+
   test("settings may be a single object or an array", () => {
     const asObject = validateRestorePayload(validPayload({ settings: { id: 1, password_version: 1, settings_json: "{}" } }));
     expect(asObject.ok).toBe(true);

@@ -1,6 +1,6 @@
 /** App assembly — request logging, public routes, and friendly error boundaries. */
 
-import { Elysia } from "elysia";
+import { Elysia, redirect } from "elysia";
 import { invalidRequestError, unexpectedClientError, unknownRouteError } from "./http/errors";
 import { requestLogger } from "./http/middleware";
 import { healthRoute, modelsRoute } from "./routes/status";
@@ -30,6 +30,7 @@ export const app = new Elysia({
     set.status = 500;
     return unexpectedClientError(path);
   })
+  .get("/", () => redirect("/console/"))
   .use(requestLogger)
   .use(consoleApiRoutes)
   .use(consoleWebRoutes)

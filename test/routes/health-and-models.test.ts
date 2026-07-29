@@ -16,6 +16,15 @@ afterEach(() => {
   fetchSpy.mockRestore();
 });
 
+describe("GET /", () => {
+  test("redirects visitors into the authenticated console", async () => {
+    const res = await app.handle(new Request("http://localhost/"));
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/console/");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe("GET /health", () => {
   test("returns ok without ever calling fetch", async () => {
     const res = await app.handle(new Request("http://localhost/health"));

@@ -26,7 +26,7 @@ const TABLE_COLUMNS: Record<BackupTable, string[]> = {
   ],
   filter_rules: ["id", "provider", "mode", "patterns_json", "created_at", "updated_at"],
   sanitizer_rules: ["id", "rule_id", "pattern", "replacement", "is_active", "is_regex", "sort_order", "created_at", "updated_at"],
-  custom_providers: ["id", "slug", "name", "type", "base_url", "credential_enc", "timeout_seconds", "models_json", "created_at", "updated_at"],
+  custom_providers: ["id", "slug", "name", "type", "base_url", "credential_enc", "timeout_seconds", "models_json", "headers_json", "created_at", "updated_at"],
 };
 
 const KNOWN_TABLES = new Set<string>(CONFIG_TABLES);
