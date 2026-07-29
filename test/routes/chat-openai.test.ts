@@ -75,6 +75,26 @@ describe("POST /v1/chat/completions with openai namespace", () => {
     expect(sentBody.model).toBe("some-brand-new-model-2099");
   });
 
+  test("retries an image request as text when the provider rejects image input", async () => {
+    fetchSpy
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "images are not supported" } }), { status: 400 }))
+      .mockResolvedValueOnce(chatResponse("I cannot read images with this model."));
+
+    const res = await postChat({
+      model: "openai/gpt-5.6-sol",
+      messages: [{ role: "user", content: [{ type: "text", text: "What is in this screenshot?" }, { type: "image_url", image_url: { url: "https://example.com/screenshot.png" } }] }],
+    });
+
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const [, retryInit] = fetchSpy.mock.calls[1]!;
+    const retryBody = JSON.parse(String(retryInit?.body)) as { messages: [{ content: Array<{ type: string; text?: string }> }] };
+    expect(retryBody.messages[0].content).toEqual([
+      { type: "text", text: "What is in this screenshot?" },
+      { type: "text", text: "[Image attachment omitted: the selected model cannot process image input. Respond using the available text only.]" },
+    ]);
+  });
+
   test("rejects a request with no credential", async () => {
     const res = await app.handle(
       new Request("http://localhost/v1/chat/completions", {

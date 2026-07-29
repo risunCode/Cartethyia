@@ -9,7 +9,7 @@ import { resolveAllComboTargets, resolveQualifiedTarget, credentialKindOf } from
 import { isProviderId } from "../routing/providerMeta";
 import { prepareOutboundRequest } from "./outbound";
 import { resolveCredential } from "./credentials";
-import { providerRegistry } from "./providers";
+import { ProviderCallError, providerRegistry } from "./providers";
 import { getRequestTransformSettings } from "../console/runtime";
 import {
   pickAccountForRotation,
@@ -51,6 +51,55 @@ export interface DispatchOutcome {
 
 /** Proxy-pool entry rotation state, keyed by pool id — shares the same primitive as account rotation (REQ-6). */
 const poolRotationState = createRotationStore<string>();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasImageContent(body: Record<string, unknown>): boolean {
+  const messages = body.messages;
+  if (!Array.isArray(messages)) return false;
+  return messages.some((message) => {
+    if (!isRecord(message) || !Array.isArray(message.content)) return false;
+    return message.content.some((part) => isRecord(part) && (part.type === "image_url" || part.type === "image"));
+  });
+}
+
+const IMAGE_FALLBACK_TEXT = "[Image attachment omitted: the selected model cannot process image input. Respond using the available text only.]";
+
+function omitImagesFromBody(body: Record<string, unknown>): Record<string, unknown> {
+  const messages = body.messages;
+  if (!Array.isArray(messages)) return body;
+  return {
+    ...body,
+    messages: messages.map((message) => {
+      if (!isRecord(message) || !Array.isArray(message.content)) return message;
+      const hasImage = message.content.some((part) => isRecord(part) && (part.type === "image_url" || part.type === "image"));
+      if (!hasImage) return message;
+      return {
+        ...message,
+        content: message.content.map((part) =>
+          isRecord(part) && (part.type === "image_url" || part.type === "image")
+            ? { type: "text", text: IMAGE_FALLBACK_TEXT }
+            : part,
+        ),
+      };
+    }),
+  };
+}
+
+async function dispatchWithImageFallback(
+  registry: ProviderRegistry,
+  route: DispatchableRoute,
+  signal: AbortSignal,
+): Promise<DispatchOutcome> {
+  try {
+    return await dispatchProvider(registry, route, signal);
+  } catch (error) {
+    if (!(error instanceof ProviderCallError) || error.status !== 400 || !hasImageContent(route.request.body)) throw error;
+    return dispatchProvider(registry, { ...route, request: { ...route.request, body: omitImagesFromBody(route.request.body) } }, signal);
+  }
+}
 
 export async function dispatchProvider(
   registry: ProviderRegistry,
@@ -189,7 +238,7 @@ export async function dispatchQualifiedRoute(input: QualifiedDispatchInput): Pro
   if (!credential) return { kind: "error", status: 401, message: "This provider requires a valid bearer credential." };
 
   try {
-    const outcome = await dispatchProvider(providerRegistry, { target, request: providerRequest, credential }, input.request.signal);
+    const outcome = await dispatchWithImageFallback(providerRegistry, { target, request: providerRequest, credential }, input.request.signal);
     if ("accountId" in credential && credential.accountId) clearAccountCooldown(credential.accountId as string);
     return { kind: "result", result: outcome.result, proxyPoolName: outcome.proxyPoolName };
   } catch (err) {
@@ -233,7 +282,7 @@ async function tryComboFailover(
     if (!credential) continue;
 
     try {
-      const outcome = await dispatchProvider(providerRegistry, { target, request: providerRequest, credential }, input.request.signal);
+      const outcome = await dispatchWithImageFallback(providerRegistry, { target, request: providerRequest, credential }, input.request.signal);
       if ("accountId" in credential && credential.accountId) clearAccountCooldown(credential.accountId as string);
       return { kind: "result", result: outcome.result, proxyPoolName: outcome.proxyPoolName };
     } catch {
