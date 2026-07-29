@@ -192,6 +192,23 @@ function useAccountConnectionTest(providerId: string, models: ModelEntry[], onSt
   };
 }
 
+/**
+ * Copies one account's credential. The secret is fetched on demand rather
+ * than carried in the accounts list, so it only crosses the wire when the
+ * operator actually clicks copy.
+ */
+function useCredentialCopy(providerId: string) {
+  return useMutation({
+    mutationFn: async (account: AccountEntry) => {
+      const { credential } = await apiGet<{ credential: string }>(`/providers/${providerId}/accounts/${account.id}/credential`);
+      await navigator.clipboard.writeText(credential);
+      return account.name;
+    },
+    onSuccess: (name) => toast.success(`Copied ${name}'s credential`),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+}
+
 function useModelTest(providerId: string, authKind: "none" | "session" | "api-key", accounts: AccountEntry[], onAddAccount: () => void) {
   const activeAccounts = accounts.filter((a) => a.active);
   const needsAccount = authKind !== "none" && activeAccounts.length === 0;
@@ -471,6 +488,7 @@ export function ProviderDetailPage() {
     setAccountTestStatus((previous) => ({ ...previous, [accountId]: status }));
   }, []);
   const accountConnectionTest = useAccountConnectionTest(id ?? "", data?.models ?? [], updateAccountTestStatus);
+  const credentialCopy = useCredentialCopy(id ?? "");
 
   if (!id) return null;
 
@@ -727,7 +745,7 @@ export function ProviderDetailPage() {
         {!noAuth && (
           <div className="overflow-hidden rounded-xl border border-[var(--inner-border)]">
             {data.accounts.length === 0 ? (
-              <div className="py-8 text-center text-xs text-[var(--text-3)]">No connections — credentials are encrypted at rest (AES-256-GCM).</div>
+              <div className="py-8 text-center text-xs text-[var(--text-3)]">No connections yet — add one to start routing requests.</div>
             ) : (
               <div className="max-h-[21rem] overflow-auto">
                 <table className="w-full text-left text-[11px]">
@@ -805,6 +823,9 @@ export function ProviderDetailPage() {
                           <div className="flex justify-end gap-0.5 whitespace-nowrap">
                             <Button variant="ghost" size="sm" title="Test connection" aria-label={`Test ${account.name}`} disabled={accountConnectionTest.isPending || data.models.length === 0} onClick={() => accountConnectionTest.testAccount(account)}>
                               <FlaskConical size={12} /> Test
+                            </Button>
+                            <Button variant="ghost" size="sm" title="Copy credential" aria-label={`Copy ${account.name}'s credential`} disabled={credentialCopy.isPending} onClick={() => credentialCopy.mutate(account)}>
+                              <Copy size={12} /> Copy
                             </Button>
                             <Button variant="ghost" size="sm" title="Edit connection" aria-label={`Edit ${account.name}`} onClick={() => setAccountModal({ open: true, existing: account })}>
                               <Pencil size={12} /> Edit

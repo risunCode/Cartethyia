@@ -33,7 +33,7 @@
 
 - `DATA_DIR` is the deployment persistence boundary. Production mounts it at `/app/data`.
 - Runtime request/error logs are JSONL under `DATA_DIR/logs`; do not persist runtime logs in SQLite.
-- SQLite is configuration state only. Preserve encrypted credential behavior and avoid schema migrations unless explicitly required.
+- SQLite is configuration state only. Provider credentials are stored as plaintext; only the console login password is hashed. Avoid schema migrations unless explicitly required.
 - Never commit `data/`, `.env`, credentials, API keys, tokens, generated runtime payloads, or database files.
 
 ## Testing and delivery

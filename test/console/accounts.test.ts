@@ -1,9 +1,8 @@
-/** Provider accounts tests — CRUD, encryption at rest, key rotation (REQ-3.7, REQ-20). */
+/** Provider accounts tests - CRUD and plaintext credential storage (REQ-3.7, REQ-20). */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { app } from "../../src/app";
 import { getDb } from "../../src/console/db/client";
-import { decryptCredential } from "../../src/console/crypto/credential-key";
 import { loginAndGetCookie, postJson, useIsolatedDataDir } from "./helpers";
 import { resetOpenCodeFreeCatalogForTests } from "../../src/upstream/providers/opencode-free/catalog";
 
@@ -131,7 +130,7 @@ describe("provider accounts CRUD", () => {
     expect(unknown.status).toBe(404);
   });
 
-  test("patch with new credential re-encrypts; hint updates", async () => {
+  test("patch with new credential replaces it; hint updates", async () => {
     const cookie = await loginAndGetCookie();
     const created = await app.handle(
       postJson("/console/api/providers/opencode-free/accounts", { name: "recred", credential: "first-value" }, { cookie })
@@ -143,12 +142,12 @@ describe("provider accounts CRUD", () => {
     );
     expect(patched.status).toBe(200);
 
-    const row = getDb().query("SELECT credential_enc, credential_hint FROM provider_accounts WHERE id = ?").get(id) as {
-      credential_enc: string;
+    const row = getDb().query("SELECT credential, credential_hint FROM provider_accounts WHERE id = ?").get(id) as {
+      credential: string;
       credential_hint: string;
     };
     expect(row.credential_hint).toBe("…-xyz");
-    expect(await decryptCredential(row.credential_enc)).toBe("second-value-xyz");
+    expect(row.credential).toBe("second-value-xyz");
   });
 
   test("proxyPoolId must reference an existing pool", async () => {
@@ -170,40 +169,56 @@ describe("provider accounts CRUD", () => {
   });
 });
 
-describe("credential encryption at rest + rotation", () => {
-  test("stored credential is AES-GCM ciphertext, decryptable to plaintext", async () => {
+describe("credential storage + model test", () => {
+  test("stored credential is plaintext and readable as-is", async () => {
     const cookie = await loginAndGetCookie();
     const created = await app.handle(
-      postJson("/console/api/providers/opencode-free/accounts", { name: "enc-check", credential: "super-secret-abc123" }, { cookie })
+      postJson("/console/api/providers/opencode-free/accounts", { name: "plain-check", credential: "super-secret-abc123" }, { cookie })
     );
     const { id } = (await created.json()) as { id: string };
 
-    const row = getDb().query("SELECT credential_enc FROM provider_accounts WHERE id = ?").get(id) as { credential_enc: string };
-    expect(row.credential_enc.startsWith("v1.")).toBe(true);
-    expect(row.credential_enc).not.toContain("super-secret-abc123");
-    expect(await decryptCredential(row.credential_enc)).toBe("super-secret-abc123");
+    const row = getDb().query("SELECT credential, credential_hint FROM provider_accounts WHERE id = ?").get(id) as {
+      credential: string;
+      credential_hint: string;
+    };
+    expect(row.credential).toBe("super-secret-abc123");
+    expect(row.credential_hint).toBe("…c123");
   });
 
-  test("rotate-credential-key requires password and re-encrypts all accounts", async () => {
+  test("the credential endpoint reveals the secret only to an authenticated session", async () => {
     const cookie = await loginAndGetCookie();
-    await app.handle(postJson("/console/api/providers/opencode-free/accounts", { name: "rot-1", credential: "alpha-secret" }, { cookie }));
-    await app.handle(postJson("/console/api/providers/qoder/accounts", { name: "rot-2", credential: "beta-secret" }, { cookie }));
+    const created = await app.handle(
+      postJson("/console/api/providers/opencode-free/accounts", { name: "copy-me", credential: "copy-this-value-4321" }, { cookie })
+    );
+    const { id } = (await created.json()) as { id: string };
 
-    const denied = await app.handle(postJson("/console/api/settings/rotate-credential-key", { password: "wrong" }, { cookie }));
-    expect(denied.status).toBe(401);
+    const revealed = await app.handle(authed(`/console/api/providers/opencode-free/accounts/${id}/credential`, cookie));
+    expect(revealed.status).toBe(200);
+    expect(((await revealed.json()) as { credential: string }).credential).toBe("copy-this-value-4321");
 
-    const rotated = await app.handle(postJson("/console/api/settings/rotate-credential-key", { password: "carte1234" }, { cookie }));
-    expect(rotated.status).toBe(200);
-    expect(((await rotated.json()) as { reEncrypted: number }).reEncrypted).toBe(2);
+    // No session at all.
+    const anonymous = await app.handle(new Request(`http://localhost/console/api/providers/opencode-free/accounts/${id}/credential`));
+    expect(anonymous.status).toBe(401);
 
-    // Every row still decrypts to its original plaintext with the NEW key.
-    const rows = getDb().query("SELECT name, credential_enc FROM provider_accounts ORDER BY name").all() as {
-      name: string;
-      credential_enc: string;
-    }[];
-    expect(rows.length).toBe(2);
-    expect(await decryptCredential(rows[0]!.credential_enc)).toBe("alpha-secret");
-    expect(await decryptCredential(rows[1]!.credential_enc)).toBe("beta-secret");
+    // Right account id, wrong provider namespace.
+    const crossProvider = await app.handle(authed(`/console/api/providers/kimchi/accounts/${id}/credential`, cookie));
+    expect(crossProvider.status).toBe(404);
+
+    const ghost = await app.handle(authed("/console/api/providers/opencode-free/accounts/ghost/credential", cookie));
+    expect(ghost.status).toBe(404);
+  });
+
+  test("the API never echoes a stored credential back to the client", async () => {
+    const cookie = await loginAndGetCookie();
+    await app.handle(
+      postJson("/console/api/providers/opencode-free/accounts", { name: "no-echo", credential: "leak-me-not-9999" }, { cookie })
+    );
+
+    const listed = await app.handle(authed("/console/api/providers/opencode-free/accounts", cookie));
+    expect(listed.status).toBe(200);
+    const raw = await listed.text();
+    expect(raw).not.toContain("leak-me-not-9999");
+    expect(raw).toContain("…9999");
   });
 
   test("model test endpoint validates inputs without touching upstream", async () => {

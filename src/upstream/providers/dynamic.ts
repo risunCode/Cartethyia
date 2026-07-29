@@ -18,7 +18,6 @@ import type { RouteTarget } from "../../routing/types";
 import { ProviderCallError } from "./index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./index";
 import { decodeAnthropicStream, decodeOpenAIChatStream } from "../bridge";
-import { decryptCredential } from "../../console/crypto/credential-key";
 import { getCustomProviderBySlug, type CustomProviderRecord } from "../../console/db/repos/custom-providers";
 import type { ProviderModelEntry } from "./models";
 import { translateAnthropicResponseToChat, translateChatRequestToAnthropic } from "../../translate/openai-anthropic";
@@ -46,7 +45,7 @@ function withTimeout(signal: AbortSignal, timeoutSeconds: number): AbortSignal {
 }
 
 async function callOpenAICompatible(record: CustomProviderRecord, model: string, body: Record<string, unknown>, signal: AbortSignal, proxy: string | undefined): Promise<ProviderResult> {
-  const apiKey = await decryptCredential(record.credentialEnc);
+  const apiKey = record.credential;
   const outboundBody: Record<string, unknown> = { ...body, model };
   const isStreaming = outboundBody.stream === true;
 
@@ -73,7 +72,7 @@ async function callOpenAICompatible(record: CustomProviderRecord, model: string,
 }
 
 async function callAnthropicCompatible(record: CustomProviderRecord, model: string, body: Record<string, unknown>, signal: AbortSignal, proxy: string | undefined): Promise<ProviderResult> {
-  const apiKey = await decryptCredential(record.credentialEnc);
+  const apiKey = record.credential;
   const anthropicReq = translateChatRequestToAnthropic({ ...body, model } as OpenAIChatRequest);
   const isStreaming = anthropicReq.stream === true;
 

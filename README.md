@@ -8,7 +8,7 @@ Cartethyia is a Bun + Elysia AI proxy with an authenticated console. It exposes 
 
 - OpenAI / Anthropic request and streaming translation.
 - Built-in providers: OpenCode Free, OpenCode Zen, Command Code, Kimchi, Devin, Qoder, Cursor, OpenAI, Anthropic, Xiaomi MiMo PAYG, OpenRouter, Ollama, Cerebras, DeepSeek, SiliconFlow, Mistral, and OpenCode Go.
-- Console-managed encrypted credentials with priority or round-robin routing, cooldowns, and per-connection testing.
+- Console-managed provider credentials with priority or round-robin routing, cooldowns, and per-connection testing.
 - Batch account entry: paste API keys, PATs, or session tokens one per line.
 - Live console log, in-memory usage dashboard, and JSONL runtime request/error logs under `DATA_DIR/logs`.
 - Custom OpenAI-compatible and Anthropic-compatible upstreams.
@@ -81,7 +81,6 @@ Copy `.env.example` for local development. For production, configure secrets in 
 | `DATA_DIR` | Yes | Persistent data directory; use `/app/data` on Railway. |
 | `CONSOLE_PASSWORD` | Yes | Console login password. |
 | `CONSOLE_JWT_SECRET` | Yes | Long random secret for console sessions. |
-| `CREDENTIAL_ENCRYPTION_KEY` | Recommended | Base64/hex secret for encrypted provider credentials. If omitted, a key file is stored in `DATA_DIR`. |
 | `BOOTSTRAP_PROXY_API_KEY` | Recommended | Optional first proxy API key. |
 | `MAX_FLIGHTS_PER_IP` | No | Per-IP concurrent request limit; defaults to `20`. |
 | `TRUST_PROXY` | Railway | Set `true` when Railway is the trusted reverse proxy. |
@@ -90,13 +89,12 @@ Copy `.env.example` for local development. For production, configure secrets in 
 ## Railway deployment
 
 1. Push this repository to GitHub and create a Railway service from it. Railway detects `railway.toml` and builds `Dockerfile`.
-2. Create a Railway **Volume** and mount it at **`/app/data`**. The volume is required for console configuration, encrypted provider credentials, logs, and the credential key file to survive redeployments.
+2. Create a Railway **Volume** and mount it at **`/app/data`**. The volume is required for console configuration, provider credentials, and logs to survive redeployments.
 3. Add Railway variables:
    ```text
    DATA_DIR=/app/data
    CONSOLE_PASSWORD=<strong unique password>
    CONSOLE_JWT_SECRET=<long random secret>
-   CREDENTIAL_ENCRYPTION_KEY=<long random secret>
    TRUST_PROXY=true
    ```
    Railway sets `PORT`; do not hard-code it.

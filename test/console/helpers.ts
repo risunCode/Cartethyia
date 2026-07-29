@@ -7,7 +7,6 @@ import { expect } from "bun:test";
 import { app } from "../../src/app";
 import { closeDbForTests } from "../../src/console/db/client";
 import { resetBootstrapForTests } from "../../src/console/bootstrap";
-import { resetCredentialKeyForTests } from "../../src/console/crypto/credential-key";
 import { loginLimiter } from "../../src/console/auth/limiter";
 import { resetRuntimeSettingsForTests } from "../../src/console/runtime";
 import { resetProxyAuthForTests } from "../../src/console/proxy-auth";
@@ -20,7 +19,6 @@ export function useIsolatedDataDir(): string {
   Bun.env.PROXY_AUTH_MODE = "open";
   closeDbForTests();
   resetBootstrapForTests();
-  resetCredentialKeyForTests();
   loginLimiter.resetAll();
   resetRuntimeSettingsForTests();
   resetProxyAuthForTests();

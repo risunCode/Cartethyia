@@ -1,10 +1,15 @@
 /**
- * Provider accounts — CRUD with AES-GCM encrypted credentials (REQ-3.7, REQ-20).
- * Stores `credential_enc` (encrypted), `credential_hint` (masked display).
+ * Provider accounts — CRUD. Credentials are stored as plaintext in
+ * `credential`; only the console login password is hashed. `credential_hint`
+ * keeps the masked tail for display so the UI never has to echo the full key.
  */
 
 import { getDb } from "../client";
-import { encryptCredential, decryptCredential, credentialHint } from "../../crypto/credential-key";
+
+/** Masked display hint: last 4 chars only. */
+function credentialHint(value: string): string {
+  return `…${value.slice(-4)}`;
+}
 import type { ResolvedCredential } from "../../../upstream/providers";
 import { createRotationStore, pickRotationIndex } from "../../../upstream/rotation";
 
@@ -22,7 +27,7 @@ export interface ProviderAccountRow {
   provider: string;
   name: string;
   credential_kind: string; // stored lowercase
-  credential_enc: string;
+  credential: string;
   credential_hint: string;
   proxy_pool_id: string | null;
   use_direct: number;
@@ -77,24 +82,17 @@ export function getAccount(id: string): ProviderAccountRow | null {
   return row;
 }
 
-/** Decrypt active credentials in routing order for server-side model discovery. */
-export async function listActiveAccountCredentials(provider: string): Promise<string[]> {
-  const rows = getDb()
-    .query("SELECT credential_enc FROM provider_accounts WHERE provider = ? AND active = 1 ORDER BY priority ASC, name ASC")
-    .all(provider) as Array<Pick<ProviderAccountRow, "credential_enc">>;
-  const credentials: string[] = [];
-  for (const row of rows) {
-    try {
-      credentials.push(await decryptCredential(row.credential_enc));
-    } catch {
-      // A corrupted credential must not prevent a later account from discovery.
-    }
-  }
-  return credentials;
+/** Active credentials in routing order for server-side model discovery. */
+export function listActiveAccountCredentials(provider: string): string[] {
+  return (
+    getDb()
+      .query("SELECT credential FROM provider_accounts WHERE provider = ? AND active = 1 ORDER BY priority ASC, name ASC")
+      .all(provider) as Array<Pick<ProviderAccountRow, "credential">>
+  ).map((row) => row.credential);
 }
 
 /** Create a new account; returns only public fields (+ hint). */
-export async function createAccount(input: {
+export function createAccount(input: {
   provider: string;
   name: string;
   credentialKind: CredentialKind;
@@ -103,10 +101,9 @@ export async function createAccount(input: {
   useDirect?: boolean;
   priority?: number;
   active?: boolean;
-}): Promise<{ id: string; credentialHint: string }> {
+}): { id: string; credentialHint: string } {
   const db = getDb();
   const now = new Date().toISOString();
-  const enc = await encryptCredential(input.credential);
   const hint = credentialHint(input.credential);
   const id = crypto.randomUUID();
   const active = input.active ?? true;
@@ -115,13 +112,13 @@ export async function createAccount(input: {
   const proxyPoolId = input.proxyPoolId ?? null;
 
   db.query(
-    "INSERT INTO provider_accounts (id, provider, name, credential_kind, credential_enc, credential_hint, proxy_pool_id, use_direct, priority, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).run(id, input.provider, input.name, input.credentialKind.toLowerCase(), enc, hint, proxyPoolId, useDirect ? 1 : 0, priority, active ? 1 : 0, now, now);
+    "INSERT INTO provider_accounts (id, provider, name, credential_kind, credential, credential_hint, proxy_pool_id, use_direct, priority, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(id, input.provider, input.name, input.credentialKind.toLowerCase(), input.credential, hint, proxyPoolId, useDirect ? 1 : 0, priority, active ? 1 : 0, now, now);
 
   return { id, credentialHint: hint };
 }
 
-export async function patchAccount(id: string, patch: {
+export function patchAccount(id: string, patch: {
   provider?: string;
   name?: string;
   credentialKind?: CredentialKind;
@@ -130,7 +127,7 @@ export async function patchAccount(id: string, patch: {
   useDirect?: boolean;
   priority?: number;
   active?: boolean;
-}): Promise<void> {
+}): void {
   const current = getAccount(id);
   if (!current) throw new Error("account not found");
 
@@ -150,8 +147,8 @@ export async function patchAccount(id: string, patch: {
     values.push(patch.credentialKind.toLowerCase());
   }
   if (patch.credential !== undefined) {
-    updateFields.push("credential_enc = ?");
-    values.push(await encryptCredential(patch.credential));
+    updateFields.push("credential = ?");
+    values.push(patch.credential);
     updateFields.push("credential_hint = ?");
     values.push(credentialHint(patch.credential));
   }
@@ -305,28 +302,4 @@ export async function pickAccountForRotation(provider: string, stickyLimit: numb
   });
 }
 
-export interface DecryptedCredential {
-  id: string;
-  plain: string;
-}
 
-/** Phase 1 of key rotation: decrypt every credential with the CURRENT key. */
-export async function decryptAllCredentials(): Promise<DecryptedCredential[]> {
-  const rows = getDb().query("SELECT id, credential_enc FROM provider_accounts").all() as Pick<ProviderAccountRow, "id" | "credential_enc">[];
-  const result: DecryptedCredential[] = [];
-  for (const row of rows) {
-    result.push({ id: row.id, plain: await decryptCredential(row.credential_enc) });
-  }
-  return result;
-}
-
-/** Phase 2 of key rotation: write credentials back encrypted with the CURRENT (new) key. */
-export async function writeEncryptedCredentials(items: DecryptedCredential[]): Promise<number> {
-  const db = getDb();
-  const now = new Date().toISOString();
-  for (const item of items) {
-    const enc = await encryptCredential(item.plain);
-    db.query("UPDATE provider_accounts SET credential_enc = ?, updated_at = ? WHERE id = ?").run(enc, now, item.id);
-  }
-  return items.length;
-}

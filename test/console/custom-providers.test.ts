@@ -21,7 +21,7 @@ describe("custom providers CRUD", () => {
     expect(created.slug).toBe("my-local-vllm");
     expect(created.name).toBe("My Local vLLM");
     expect(created.baseUrl).toBe("https://vllm.example.com/v1");
-    expect(created.credentialEnc).not.toBe("sk-test");
+    expect(created.credential).toBe("sk-test");
 
     const bySlug = getCustomProviderBySlug("my-local-vllm");
     expect(bySlug?.id).toBe(created.id);
@@ -35,16 +35,16 @@ describe("custom providers CRUD", () => {
   });
 
   test("rejects a slug colliding with another custom provider", async () => {
-    await createCustomProvider({ name: "Dup", type: "openai-compatible", baseUrl: "https://a.example.com", credential: "x" });
-    await expect(createCustomProvider({ name: "Dup", type: "openai-compatible", baseUrl: "https://b.example.com", credential: "y" })).rejects.toThrow(SlugConflictError);
+    createCustomProvider({ name: "Dup", type: "openai-compatible", baseUrl: "https://a.example.com", credential: "x" });
+    expect(() => createCustomProvider({ name: "Dup", type: "openai-compatible", baseUrl: "https://b.example.com", credential: "y" })).toThrow(SlugConflictError);
   });
 
   test("rejects a slug colliding with a built-in provider prefix", async () => {
-    await expect(createCustomProvider({ name: "Kimchi Clone", type: "openai-compatible", baseUrl: "https://x.example.com", credential: "x", slug: "kimchi" })).rejects.toThrow(SlugConflictError);
+    expect(() => createCustomProvider({ name: "Kimchi Clone", type: "openai-compatible", baseUrl: "https://x.example.com", credential: "x", slug: "kimchi" })).toThrow(SlugConflictError);
   });
 
   test("rejects the reserved \"custom\" slug itself", async () => {
-    await expect(createCustomProvider({ name: "Custom", type: "openai-compatible", baseUrl: "https://x.example.com", credential: "x", slug: "custom" })).rejects.toThrow(SlugConflictError);
+    expect(() => createCustomProvider({ name: "Custom", type: "openai-compatible", baseUrl: "https://x.example.com", credential: "x", slug: "custom" })).toThrow(SlugConflictError);
   });
 
   test("deletes a provider by id", async () => {

@@ -19,7 +19,6 @@ import { consoleError } from "../errors";
 import { addAuditEvent } from "../db/repos/audit";
 import { pushConsoleLog } from "../logs/ring";
 import { assertPublicUrl } from "../../upstream/ssrf-guard";
-import { decryptCredential as decryptCustomProviderCredential } from "../crypto/credential-key";
 import { dynamicProviderRouter } from "../../upstream/providers/dynamic";
 import { lookupKnownModelMeta } from "../../upstream/providers/model-catalog-index";
 import {
@@ -149,10 +148,8 @@ async function collectSample(result: Awaited<ReturnType<typeof dynamicProviderRo
 }
 
 export const customProvidersRoutes = new Elysia({ prefix: "/console/api/custom-providers" })
-  .get("/", async () => {
-    const items = await Promise.all(
-      listCustomProviders().map(async (record) => ({ ...record, credentialHint: await credentialHintFor(record), credentialEnc: undefined })),
-    );
+  .get("/", () => {
+    const items = listCustomProviders().map((record) => ({ ...record, credentialHint: credentialHintFor(record), credential: undefined }));
     return { items };
   })
   .get("/:id", async ({ params, set }) => {
@@ -161,7 +158,7 @@ export const customProvidersRoutes = new Elysia({ prefix: "/console/api/custom-p
       set.status = 404;
       return consoleError("not_found", "custom provider not found");
     }
-    return { ...record, credentialHint: await credentialHintFor(record), credentialEnc: undefined };
+    return { ...record, credentialHint: credentialHintFor(record), credential: undefined };
   })
   .post("/", async ({ body, set }) => {
     const input = (body ?? {}) as CreateInput;
@@ -190,7 +187,7 @@ export const customProvidersRoutes = new Elysia({ prefix: "/console/api/custom-p
       const record = await createCustomProvider({ name: input.name, type: input.type, baseUrl: input.baseUrl, credential: input.credential, slug: input.slug, timeoutSeconds, models, customHeaders });
       addAuditEvent("custom_provider.create", { id: record.id, slug: record.slug, type: record.type, modelsDiscovered: models.length });
       set.status = 201;
-      return { ...record, credentialHint: await credentialHintFor(record), credentialEnc: undefined };
+      return { ...record, credentialHint: credentialHintFor(record), credential: undefined };
     } catch (err) {
       if (err instanceof SlugConflictError) {
         set.status = 409;
@@ -222,7 +219,7 @@ export const customProvidersRoutes = new Elysia({ prefix: "/console/api/custom-p
       customHeaders: sanitizeHeaders(input.customHeaders),
     });
     addAuditEvent("custom_provider.update", { id: params.id, credentialRotated: Boolean(input.credential?.trim()) });
-    return { ...record!, credentialHint: await credentialHintFor(record!), credentialEnc: undefined };
+    return { ...record!, credentialHint: credentialHintFor(record!), credential: undefined };
   })
   .post("/:id/models/fetch", async ({ params, set }) => {
     const record = getCustomProviderById(params.id);
@@ -230,7 +227,7 @@ export const customProvidersRoutes = new Elysia({ prefix: "/console/api/custom-p
       set.status = 404;
       return consoleError("not_found", "custom provider not found");
     }
-    const credential = await decryptCustomProviderCredential(record.credentialEnc);
+    const credential = record.credential;
     const fetched = await fetchModels({ type: record.type, baseUrl: record.baseUrl, credential, timeoutSeconds: record.timeoutSeconds, customHeaders: record.customHeaders });
     if (fetched.ok) {
       await updateCustomProvider(params.id, { models: fetched.models });

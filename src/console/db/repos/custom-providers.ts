@@ -6,7 +6,6 @@
  */
 
 import { getDb } from "../client";
-import { encryptCredential, decryptCredential, credentialHint } from "../../crypto/credential-key";
 import { ADDED_PROVIDER_IDS, PROVIDER_PREFIXES } from "../../../routing/types";
 import type { ModelCapability } from "../../../upstream/providers/models";
 
@@ -26,7 +25,7 @@ interface CustomProviderRow {
   name: string;
   type: string;
   base_url: string;
-  credential_enc: string;
+  credential: string;
   timeout_seconds: number;
   models_json: string;
   headers_json: string;
@@ -40,8 +39,7 @@ export interface CustomProviderRecord {
   name: string;
   type: CustomProviderType;
   baseUrl: string;
-  credentialEnc: string;
-  credentialHint: string;
+  credential: string;
   timeoutSeconds: number;
   /** Models discovered via the last successful /models auto-fetch (empty if never fetched). */
   models: CustomProviderModel[];
@@ -120,8 +118,7 @@ function toRecord(row: CustomProviderRow): CustomProviderRecord {
     name: row.name,
     type: row.type as CustomProviderType,
     baseUrl: row.base_url,
-    credentialEnc: row.credential_enc,
-    credentialHint: "", // populated by callers that decrypt; DB never stores the hint separately
+    credential: row.credential,
     timeoutSeconds: row.timeout_seconds,
     models: parseModels(row.models_json),
     customHeaders: parseHeaders(row.headers_json),
@@ -179,22 +176,21 @@ export interface CreateCustomProviderInput {
   customHeaders?: Record<string, string>;
 }
 
-export async function createCustomProvider(input: CreateCustomProviderInput): Promise<CustomProviderRecord> {
+export function createCustomProvider(input: CreateCustomProviderInput): CustomProviderRecord {
   const slug = (input.slug ? slugify(input.slug) : slugify(input.name)) || "provider";
   if (!SLUG_PATTERN.test(slug) || isReservedSlug(slug) || getCustomProviderBySlug(slug)) {
     throw new SlugConflictError(slug);
   }
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  const credentialEnc = await encryptCredential(input.credential);
   const timeoutSeconds = clampTimeoutSeconds(input.timeoutSeconds);
   const modelsJson = JSON.stringify(input.models ?? []);
   const headersJson = JSON.stringify(input.customHeaders ?? {});
   getDb()
     .query(
-      "INSERT INTO custom_providers (id, slug, name, type, base_url, credential_enc, timeout_seconds, models_json, headers_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO custom_providers (id, slug, name, type, base_url, credential, timeout_seconds, models_json, headers_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
-    .run(id, slug, input.name.trim(), input.type, input.baseUrl.trim().replace(/\/+$/, ""), credentialEnc, timeoutSeconds, modelsJson, headersJson, now, now);
+    .run(id, slug, input.name.trim(), input.type, input.baseUrl.trim().replace(/\/+$/, ""), input.credential, timeoutSeconds, modelsJson, headersJson, now, now);
   return getCustomProviderById(id)!;
 }
 
@@ -215,13 +211,13 @@ export interface UpdateCustomProviderInput {
   customHeaders?: Record<string, string>;
 }
 
-export async function updateCustomProvider(id: string, patch: UpdateCustomProviderInput): Promise<CustomProviderRecord | null> {
+export function updateCustomProvider(id: string, patch: UpdateCustomProviderInput): CustomProviderRecord | null {
   const existing = getCustomProviderById(id);
   if (!existing) return null;
 
   const name = patch.name?.trim() || existing.name;
   const baseUrl = patch.baseUrl?.trim() ? patch.baseUrl.trim().replace(/\/+$/, "") : existing.baseUrl;
-  const credentialEnc = patch.credential?.trim() ? await encryptCredential(patch.credential.trim()) : existing.credentialEnc;
+  const credential = patch.credential?.trim() ? patch.credential.trim() : existing.credential;
   const timeoutSeconds = patch.timeoutSeconds === undefined ? existing.timeoutSeconds : clampTimeoutSeconds(patch.timeoutSeconds);
   const modelsJson = JSON.stringify(patch.models ?? existing.models);
   const headersJson = JSON.stringify(patch.customHeaders ?? existing.customHeaders);
@@ -229,17 +225,13 @@ export async function updateCustomProvider(id: string, patch: UpdateCustomProvid
 
   getDb()
     .query(
-      "UPDATE custom_providers SET name = ?, base_url = ?, credential_enc = ?, timeout_seconds = ?, models_json = ?, headers_json = ?, updated_at = ? WHERE id = ?",
+      "UPDATE custom_providers SET name = ?, base_url = ?, credential = ?, timeout_seconds = ?, models_json = ?, headers_json = ?, updated_at = ? WHERE id = ?",
     )
-    .run(name, baseUrl, credentialEnc, timeoutSeconds, modelsJson, headersJson, now, id);
+    .run(name, baseUrl, credential, timeoutSeconds, modelsJson, headersJson, now, id);
   return getCustomProviderById(id);
 }
 
-/** Masked hint (last 4 chars) for display — decrypts once, never stores or logs the plaintext. */
-export async function credentialHintFor(record: CustomProviderRecord): Promise<string> {
-  try {
-    return credentialHint(await decryptCredential(record.credentialEnc));
-  } catch {
-    return "????";
-  }
+/** Masked hint (last 4 chars) for display. */
+export function credentialHintFor(record: CustomProviderRecord): string {
+  return `…${record.credential.slice(-4)}`;
 }

@@ -28,8 +28,6 @@ export interface ConsoleEnv {
   trackAssets: TrackMode;
   logRetentionDays: number;
   assetRetentionDays: number;
-  credentialKey: string | undefined;
-  credentialKeyFile: string;
 }
 
 function boundedNumber(raw: string | undefined, fallback: number, min: number, max: number): number {
@@ -65,7 +63,5 @@ export function getConsoleEnv(): ConsoleEnv {
     trackAssets: parseTrackMode(e.TRACK_ASSETS, "meta"),
     logRetentionDays: boundedNumber(e.LOG_RETENTION_DAYS, 14, 1, 365),
     assetRetentionDays: boundedNumber(e.ASSET_RETENTION_DAYS, 7, 1, 365),
-    credentialKey: e.CREDENTIAL_ENCRYPTION_KEY,
-    credentialKeyFile: e.CREDENTIAL_ENCRYPTION_KEY_FILE ?? join(dataDir, ".credential-key"),
   };
 }

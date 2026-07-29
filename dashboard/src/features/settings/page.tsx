@@ -5,7 +5,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { Activity, ArrowLeftRight, Download, KeyRound, LogOut, RotateCw, ShieldCheck, Trash2, TriangleAlert, Upload } from "lucide-react";
+import { Activity, ArrowLeftRight, Download, KeyRound, ShieldCheck, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError, apiGet, apiPost } from "../../lib/api";
 import { cn } from "../../lib/cn";
@@ -43,7 +43,7 @@ interface SettingsResponse {
   settings: RuntimeSettings;
 }
 
-type SensitiveAction = "backup" | "restore" | "rotate-jwt" | "rotate-credential" | "logout-all" | null;
+type SensitiveAction = "backup" | "restore" | null;
 
 function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.message : "request failed";
@@ -274,20 +274,6 @@ export function SettingsPage() {
         setAction(null);
         setRestoreFile(null);
         void queryClient.invalidateQueries();
-      } else if (action === "rotate-jwt") {
-        await apiPost<{ ok: boolean }>("/settings/rotate-jwt-secret", { password });
-        toast.success("JWT secret rotated — all sessions invalidated");
-        setAction(null);
-        setTimeout(() => window.location.reload(), 800);
-      } else if (action === "rotate-credential") {
-        const res = await apiPost<{ ok: boolean; reEncrypted: number }>("/settings/rotate-credential-key", { password });
-        toast.success(`Credential key rotated — ${res.reEncrypted} accounts re-encrypted`);
-        setAction(null);
-      } else if (action === "logout-all") {
-        await apiPost<{ ok: boolean }>("/settings/logout-all", { password });
-        toast.success("All sessions invalidated");
-        setAction(null);
-        setTimeout(() => window.location.reload(), 800);
       }
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "action failed");
@@ -302,18 +288,6 @@ export function SettingsPage() {
     restore: {
       title: "Restore Backup",
       description: `Replace the current configuration with "${restoreFile?.name ?? "the selected file"}". This overwrites settings, keys and accounts.`,
-    },
-    "rotate-jwt": {
-      title: "Rotate JWT Secret",
-      description: "Generate a new session signing secret. Every active console session is logged out immediately.",
-    },
-    "rotate-credential": {
-      title: "Rotate Credential Key",
-      description: "Generate a new AES-256-GCM key and re-encrypt all stored provider credentials.",
-    },
-    "logout-all": {
-      title: "Log Out All Sessions",
-      description: "Bump the password version so every existing console JWT stops working.",
     },
   };
 
@@ -357,9 +331,6 @@ export function SettingsPage() {
             onClick={() => passwordMutation.mutate()}
           >
             <KeyRound size={13} /> {passwordMutation.isPending ? "Changing…" : "Change password"}
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => setAction("logout-all")}>
-            <LogOut size={13} /> Log out all sessions
           </Button>
         </div>
         {newPassword.length > 0 && newPassword.length < 8 && (
@@ -568,22 +539,9 @@ export function SettingsPage() {
               </Button>
             </div>
             <p className="mt-2 text-[11px] text-[var(--text-3)]">
-              Contains settings (keeps login state), API keys, aliases, combos, proxy pools, access rules, routing and accounts
-              (credentials remain encrypted). History only with ?includeHistory=true.
+              Contains settings (keeps login state), API keys, aliases, combos, proxy pools, access rules, routing and
+              accounts. History only with ?includeHistory=true.
             </p>
-          </Card>
-
-          {/* Danger zone */}
-          <Card className="border-[rgba(255,69,58,0.35)]">
-            <CardHeader title="Danger Zone" icon={TriangleAlert} iconColor="#ff453a" sub="These actions invalidate sessions or re-encrypt secrets." />
-            <div className="flex flex-wrap gap-2">
-              <Button variant="danger" size="sm" onClick={() => setAction("rotate-jwt")}>
-                <RotateCw size={13} /> Rotate JWT secret
-              </Button>
-              <Button variant="danger" size="sm" onClick={() => setAction("rotate-credential")}>
-                <RotateCw size={13} /> Rotate credential key
-              </Button>
-            </div>
           </Card>
         </>
       )}

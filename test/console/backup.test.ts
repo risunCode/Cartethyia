@@ -58,7 +58,7 @@ describe("backup payload validation", () => {
 
   test("accepts custom provider headers from current backups", () => {
     const result = validateRestorePayload(validPayload({
-      custom_providers: [{ id: "awok", slug: "awok", name: "Awok", type: "openai-compatible", base_url: "https://example.com/v1", credential_enc: "enc", timeout_seconds: 30, models_json: "[]", headers_json: "{}", created_at: "2026-01-01", updated_at: "2026-01-01" }],
+      custom_providers: [{ id: "awok", slug: "awok", name: "Awok", type: "openai-compatible", base_url: "https://example.com/v1", credential: "plain", timeout_seconds: 30, models_json: "[]", headers_json: "{}", created_at: "2026-01-01", updated_at: "2026-01-01" }],
     }));
     expect(result.ok).toBe(true);
   });
@@ -191,7 +191,7 @@ describe("backup restore API", () => {
     expect(afterItems[0]!.name).toBe("round-trip-key");
     expect(afterItems[0]!.active).toBe(true);
 
-    // Account credential survived the round-trip (still decryptable).
+    // Account credential survived the round-trip.
     const accts = await app.handle(authed("/console/api/providers/opencode-free/accounts", cookie));
     const acctItems = ((await accts.json()) as { items: { name: string }[] }).items;
     expect(acctItems.length).toBe(1);

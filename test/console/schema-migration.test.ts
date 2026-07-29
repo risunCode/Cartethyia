@@ -15,7 +15,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeDbForTests, getDb } from "../../src/console/db/client";
 import { createCustomProvider } from "../../src/console/db/repos/custom-providers";
-import { resetCredentialKeyForTests } from "../../src/console/crypto/credential-key";
 
 let dir: string;
 
@@ -23,7 +22,6 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "cth-schema-migration-"));
   Bun.env.DATA_DIR = dir;
   closeDbForTests();
-  resetCredentialKeyForTests();
 });
 
 afterEach(() => {
@@ -42,7 +40,7 @@ test("adding headers_json to an already-existing custom_providers table doesn't 
       name            TEXT NOT NULL,
       type            TEXT NOT NULL CHECK (type IN ('openai-compatible','anthropic-compatible')),
       base_url        TEXT NOT NULL,
-      credential_enc  TEXT NOT NULL,
+      credential      TEXT NOT NULL,
       timeout_seconds INTEGER NOT NULL DEFAULT 30,
       models_json     TEXT NOT NULL DEFAULT '[]',
       created_at      TEXT NOT NULL,
@@ -54,7 +52,7 @@ test("adding headers_json to an already-existing custom_providers table doesn't 
   // getDb() runs the migration path on first open of this DATA_DIR.
   getDb();
 
-  const created = await createCustomProvider({
+  const created = createCustomProvider({
     name: "Post-Migration",
     type: "openai-compatible",
     baseUrl: "https://post-migration.example.com/v1",

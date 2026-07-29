@@ -1,5 +1,5 @@
 /**
- * Settings API — runtime toggles, backup/restore, credential rotation (REQ-5).
+ * Settings API — runtime toggles and backup/restore (REQ-5).
  */
 
 import { Elysia } from "elysia";
@@ -10,8 +10,6 @@ import { addAuditEvent } from "../db/repos/audit";
 import { confirmPassword } from "../auth/reauth";
 import { exportBackup } from "../backup/export";
 import { validateRestorePayload, applyRestore } from "../backup/restore";
-import { rotateCredentialKeyFile } from "../crypto/credential-key";
-import { decryptAllCredentials, writeEncryptedCredentials } from "../db/repos/accounts";
 import type { RuntimeSettings } from "../db/repos/settings";
 import type { TrackMode, ProxyAuthMode } from "../env";
 
@@ -131,24 +129,4 @@ export const settingsRoutes = new Elysia({ prefix: "/console/api" })
     invalidateRuntimeSettings();
     addAuditEvent("settings.rotate_jwt", {});
     return { ok: true };
-  })
-  .post("/settings/rotate-credential-key", async ({ body, set }) => {
-    const { password } = (body ?? {}) as { password?: string };
-    if (!(await confirmPassword(password))) {
-      set.status = 401;
-      addAuditEvent("settings.rotate_credential_key.denied", {});
-      return consoleError("unauthorized", "invalid password");
-    }
-    try {
-      // Order matters: decrypt with OLD key → rotate key file → re-encrypt with NEW key.
-      const decrypted = await decryptAllCredentials();
-      await rotateCredentialKeyFile();
-      const reEncrypted = await writeEncryptedCredentials(decrypted);
-      addAuditEvent("settings.rotate_credential_key", { reEncrypted });
-      return { ok: true, reEncrypted };
-    } catch (err) {
-      set.status = 500;
-      addAuditEvent("settings.rotate_credential_key.failed", { error: String(err) });
-      return consoleError("internal", String(err));
-    }
   });

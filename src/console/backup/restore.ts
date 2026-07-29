@@ -21,12 +21,12 @@ const TABLE_COLUMNS: Record<BackupTable, string[]> = {
   access_rules: ["scope", "mode", "entries_json", "updated_at"],
   provider_routing: ["provider", "strategy", "sticky_limit", "proxy_mode", "proxy_pool_id", "updated_at"],
   provider_accounts: [
-    "id", "provider", "name", "credential_kind", "credential_enc", "credential_hint",
+    "id", "provider", "name", "credential_kind", "credential", "credential_hint",
     "proxy_pool_id", "use_direct", "priority", "active", "created_at", "updated_at",
   ],
   filter_rules: ["id", "provider", "mode", "patterns_json", "created_at", "updated_at"],
   sanitizer_rules: ["id", "rule_id", "pattern", "replacement", "is_active", "is_regex", "sort_order", "created_at", "updated_at"],
-  custom_providers: ["id", "slug", "name", "type", "base_url", "credential_enc", "timeout_seconds", "models_json", "headers_json", "created_at", "updated_at"],
+  custom_providers: ["id", "slug", "name", "type", "base_url", "credential", "timeout_seconds", "models_json", "headers_json", "created_at", "updated_at"],
 };
 
 const KNOWN_TABLES = new Set<string>(CONFIG_TABLES);

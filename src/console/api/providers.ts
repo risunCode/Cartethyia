@@ -13,7 +13,6 @@ import { isProviderId, prefixOf, accountCredentialKindOf } from "../../routing/p
 import { buildProviderOverview } from "./overview";
 import { addAuditEvent } from "../db/repos/audit";
 import { pushConsoleLog } from "../logs/ring";
-import { decryptCredential } from "../crypto/credential-key";
 import {
   listAccounts,
   listActiveAccountCredentials,
@@ -229,15 +228,8 @@ export const providersRoutes = new Elysia({ prefix: "/console/api" })
         set.status = 400;
         return consoleError("invalid_request", "account not found for this provider");
       }
-      let plain: string;
-      try {
-        plain = await decryptCredential(account.credential_enc);
-      } catch {
-        set.status = 500;
-        return consoleError("internal", "stored credential could not be decrypted");
-      }
       const kind = RESOLVED_KIND_BY_ACCOUNT_KIND[account.credential_kind as CredentialKind] ?? "provider-bearer";
-      credential = { kind, value: plain };
+      credential = { kind, value: account.credential };
     } else if (input.mode === "manual") {
       if (target.credential !== "none" && !input.credential) {
         set.status = 400;
@@ -440,6 +432,26 @@ export const providersRoutes = new Elysia({ prefix: "/console/api" })
       return consoleError("not_found", "unknown provider");
     }
     return { items: listAccounts(params.id) };
+  })
+  /**
+   * Reveals one account's credential so the console can offer a copy action.
+   * Deliberately a separate endpoint from the account list: the list is polled
+   * on every provider page render, and the secret should only cross the wire
+   * when the operator explicitly asks for it. Access is already gated by the
+   * console session guard, and the read is audited.
+   */
+  .get("/providers/:id/accounts/:accountId/credential", ({ params, set }) => {
+    if (!isProviderId(params.id)) {
+      set.status = 404;
+      return consoleError("not_found", "unknown provider");
+    }
+    const account = getAccount(params.accountId);
+    if (!account || account.provider !== params.id) {
+      set.status = 404;
+      return consoleError("not_found", "account not found");
+    }
+    addAuditEvent("provider.account.credential_revealed", { provider: params.id, id: account.id, name: account.name });
+    return { credential: account.credential };
   })
   .post("/providers/:id/accounts", async ({ params, body, set }) => {
     if (!isProviderId(params.id)) {

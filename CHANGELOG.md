@@ -2,6 +2,29 @@
 
 All notable changes to Cartethyia are documented here.
 
+## [Unreleased]
+
+### Changed
+
+- Provider credentials are stored as plaintext in `provider_accounts.credential` and `custom_providers.credential`; only the console login password remains hashed. Credential-at-rest encryption, the `CREDENTIAL_ENCRYPTION_KEY`/`CREDENTIAL_ENCRYPTION_KEY_FILE` settings, the on-disk credential key file, and the "Rotate credential key" console action are removed.
+
+### Fixed
+
+- Testing a provider connection no longer fails with a generic 500 "Something unexpected interrupted this request" error. Credential reads previously threw an unguarded decryption error whenever the stored key no longer matched the running server's key (for example after a redeploy that reset the key file), which broke both the console's Test action and live account-rotated proxy traffic.
+
+### Added
+
+- Copy action on each provider connection, backed by `GET /console/api/providers/:id/accounts/:accountId/credential`. The secret is fetched only when the operator clicks copy (never in the polled accounts list) and the read is audited.
+
+### Removed
+
+- `POST /console/api/settings/rotate-credential-key` and the credential-key rotation UI.
+- The settings Danger Zone section, its "Rotate JWT secret" button, and the "Log out all sessions" button. The `/console/api/settings/rotate-jwt-secret` and `/console/api/settings/logout-all` endpoints remain available.
+
+### Migration
+
+- The `credential_enc` columns are renamed to `credential`. Existing databases carry unreadable ciphertext under the old key, so reset the database (delete `DATA_DIR/cartethyia.sqlite*` and `DATA_DIR/.credential-key`) and re-add provider connections.
+
 ## [1.0.0-alpha] - 2026-07-30
 
 This is the first release-line marker for the feature-complete alpha. It is intended for local and self-hosted testing while upstream provider behavior and operational hardening continue to mature.
@@ -16,7 +39,7 @@ This is the first release-line marker for the feature-complete alpha. It is inte
 - Aliases, combos, filter rules, account routing, failover, cooldowns, priority routing, and round-robin routing.
 - Runtime usage, estimated cost, in-flight request, per-IP active-flight, health, CPU, and memory metrics.
 - Cross-platform RAM clearing through Bun garbage collection.
-- Encrypted provider credential storage, API-key access control, console JWT sessions, and schema migration support.
+- Provider credential storage, API-key access control, console JWT sessions, and schema migration support.
 - Responsive themed dropdowns and compact mobile app-bar navigation.
 - Route-chunk prefetching and direct route rendering to keep console navigation responsive.
 

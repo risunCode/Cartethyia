@@ -19,7 +19,6 @@ import {
   RESOLVED_KIND_BY_ACCOUNT_KIND,
   type CredentialKind,
 } from "../console/db/repos/accounts";
-import { decryptCredential } from "../console/crypto/credential-key";
 import { createRotationStore, pickRotationIndex } from "./rotation";
 
 export interface DispatchableRoute {
@@ -188,7 +187,7 @@ export async function resolveCredentialForDispatch(
   // are always consulted before falling back to header-only resolution.
   const picked = await pickAccountForRotation(provider, routing.strategy === "round-robin" ? routing.stickyLimit : 0, modelId);
   if (picked) {
-    const plain = await decryptCredential(picked.credential_enc);
+    const plain = picked.credential;
     const kind = RESOLVED_KIND_BY_ACCOUNT_KIND[picked.credential_kind as CredentialKind] ?? "provider-bearer";
     return { kind, value: plain, accountId: picked.id };
   }
