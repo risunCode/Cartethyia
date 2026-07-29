@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: TypeScript check (root)
+        run: bunx tsc --noEmit --noUnusedLocals --noUnusedParameters
+
+      - name: Run tests
+        run: bun test
+
+  build-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: |
+          bun install
+          cd dashboard && bun install
+
+      - name: TypeScript check (dashboard)
+        run: cd dashboard && bunx tsc --noEmit
+
+      - name: Build dashboard
+        run: cd dashboard && bun run build
+
+  build-binary:
+    runs-on: ubuntu-latest
+    needs: [test, build-dashboard]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build binary
+        run: bun run build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cartethyia-linux
+          path: dist/cartethyia
+          retention-days: 7

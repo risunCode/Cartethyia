@@ -152,7 +152,7 @@ export function translateResponsesRequestToChat(req: OpenAIResponsesRequest): Op
 }
 
 export function translateChatResponseToResponses(resp: OpenAIChatResponse): OpenAIResponsesResponse {
-  const choice = resp.choices[0];
+  const choice = resp.choices?.[0];
   const message = choice?.message;
   const output = buildResponsesOutput(message);
   const outputText = output

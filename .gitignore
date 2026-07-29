@@ -3,3 +3,5 @@ dist/
 bun.lock
 .env
 *.log
+data/
+.codegraph/

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fixMissingToolResults, sanitizeAnthropicToolIds } from "../../src/translate/concerns/toolIntegrity";
+import { fixMissingToolResults, sanitizeAnthropicToolIds } from "../../src/translate/concerns/tools";
 import { isToolResultBlock } from "../../src/translate/concerns/blocks";
 import type { UnifiedMessage, UnifiedToolCallBlock, UnifiedToolResultBlock } from "../../src/translate/concerns/blocks";
 

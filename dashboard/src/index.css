@@ -1,0 +1,174 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --radius-card: 18px;
+  --radius-sidebar: 22px;
+  --radius-control: 11px;
+}
+
+:root {
+  --text-1: #2d2926;
+  --text-2: #746b65;
+  --text-3: #a49a92;
+  --accent: #d97757;
+  --accent-soft: rgba(217, 119, 87, 0.14);
+  --green: #4c9368;
+  --red: #c95145;
+  --orange: #ca7b32;
+  --purple: #8769a4;
+  --teal: #448f8d;
+
+  --glass-bg: rgba(255, 252, 247, 0.76);
+  --glass-bg-2: rgba(255, 253, 249, 0.9);
+  --glass-border: rgba(119, 94, 72, 0.12);
+  --glass-border-2: rgba(255, 255, 255, 0.78);
+  --inner-border: rgba(78, 58, 42, 0.09);
+  --hover: rgba(119, 83, 55, 0.07);
+  --active-pill: rgba(255, 248, 240, 0.92);
+  --track: rgba(113, 82, 57, 0.1);
+  --kbd-bg: rgba(113, 82, 57, 0.08);
+  --shadow-card: 0 1px 2px rgba(83, 56, 36, 0.05), 0 12px 32px rgba(83, 56, 36, 0.1);
+  color-scheme: light;
+}
+
+.dark {
+  --text-1: #f5f5f7;
+  --text-2: #a1a1a6;
+  --text-3: #6e6e73;
+  --accent-soft: rgba(10, 132, 255, 0.18);
+
+  --glass-bg: rgba(28, 28, 32, 0.55);
+  --glass-bg-2: rgba(34, 34, 40, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-border-2: rgba(255, 255, 255, 0.16);
+  --inner-border: rgba(255, 255, 255, 0.07);
+  --hover: rgba(255, 255, 255, 0.07);
+  --active-pill: rgba(255, 255, 255, 0.12);
+  --track: rgba(255, 255, 255, 0.12);
+  --kbd-bg: rgba(255, 255, 255, 0.1);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--text-1);
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Native dropdown menus are rendered outside the page surface by the browser.
+   Give both the closed control and its option popup the active theme colors so
+   dark mode never falls back to a white system menu. */
+select {
+  color: var(--text-1);
+  color-scheme: light;
+}
+.dark select {
+  color-scheme: dark;
+}
+select option,
+select optgroup {
+  background-color: var(--glass-bg-2);
+  color: var(--text-1);
+}
+
+/* Mesh background layer — the "material" that blur works on. */
+.app-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(55rem 38rem at 8% -12%, rgba(250, 212, 178, 0.42), transparent 60%),
+    radial-gradient(48rem 34rem at 108% 6%, rgba(246, 222, 182, 0.4), transparent 60%),
+    radial-gradient(42rem 42rem at 50% 118%, rgba(240, 192, 169, 0.27), transparent 60%),
+    #f7f3ed;
+}
+.dark .app-bg {
+  background:
+    radial-gradient(55rem 38rem at 8% -12%, rgba(14, 165, 233, 0.2), transparent 60%),
+    radial-gradient(48rem 34rem at 108% 6%, rgba(139, 92, 246, 0.18), transparent 60%),
+    radial-gradient(42rem 42rem at 50% 118%, rgba(190, 24, 93, 0.14), transparent 60%),
+    #08080b;
+}
+
+.glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  backdrop-filter: blur(24px) saturate(1.6);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-card), inset 0 1px 0 var(--glass-border-2);
+}
+.glass-2 {
+  background: var(--glass-bg-2);
+  -webkit-backdrop-filter: blur(28px) saturate(1.7);
+  backdrop-filter: blur(28px) saturate(1.7);
+  border: 1px solid var(--glass-border-2);
+  box-shadow: var(--shadow-card);
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--hover) 25%, var(--track) 50%, var(--hover) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Theme wipe ─────────────────────────────────────────────────────────────
+   The toggle sets the origin/radius custom properties and flips
+   `data-theme-wipe` before starting a view transition. The outgoing snapshot
+   stays put while the incoming one is revealed by an expanding circle, so the
+   new theme appears to flood the screen from the button that was pressed.
+   Scoped behind the data attribute so route transitions are untouched. */
+html[data-theme-wipe]::view-transition-old(root),
+html[data-theme-wipe]::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+html[data-theme-wipe]::view-transition-old(root) {
+  z-index: 0;
+}
+html[data-theme-wipe]::view-transition-new(root) {
+  z-index: 1;
+  animation: theme-wipe 520ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes theme-wipe {
+  from {
+    clip-path: circle(0 at var(--theme-wipe-x) var(--theme-wipe-y));
+  }
+  to {
+    clip-path: circle(var(--theme-wipe-r) at var(--theme-wipe-x) var(--theme-wipe-y));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme-wipe]::view-transition-new(root) {
+    animation: none;
+  }
+}
+
+

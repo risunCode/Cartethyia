@@ -1,70 +1,54 @@
 /**
  * POST /v1/chat/completions — client speaks OpenAI Chat Completions.
- * Routes to OpenAI or Anthropic upstream by model name (see upstream/providers.ts).
+ * Routes legacy model names to OpenAI or Anthropic upstream by model name,
+ * and provider-qualified models to the new provider registry.
  */
 
 import { Elysia } from "elysia";
 import { ChatRequestSchema } from "./schemas";
-import { selectProvider, resolveOpenAIAuth, resolveAnthropicAuth, callChatCompletions, callMessages, UpstreamError } from "../upstream/providers";
-import { translateChatRequestToAnthropic, translateAnthropicResponseToChat } from "../translate/openai-anthropic";
-import { decodeAnthropicStream, encodeOpenAIChatStream } from "../upstream/bridge";
+import { encodeOpenAIChatStream, withStreamErrorHandling } from "../upstream/bridge";
 import { toSSEResponseStream } from "../upstream/sse";
-import { asObject } from "../upstream/jsonGuards";
 import { openAIClientError, openAIUpstreamError } from "../http/errors";
-import type { AnthropicResponse, OpenAIChatRequest } from "../translate/types";
+import type { OpenAIChatRequest } from "../translate/types";
+import { dispatchQualifiedRoute } from "../upstream/dispatch";
+import { withProxyRequest } from "./middleware/proxyRequest";
 
 export const chatRoute = new Elysia().post(
   "/v1/chat/completions",
-  async ({ body, headers, set }) => {
-    // `body` was runtime-validated by ChatRequestSchema (TypeBox, at the
-    // route boundary) for `model`/`messages`; the wider OpenAIChatRequest
-    // shape below is read field-by-field with optional chaining downstream
-    // (translate/types.ts's `[key: string]: unknown` catch-all), so no
-    // field here is ever trusted un-narrowed past what schema already checked.
+  async ({ body, headers: rawHeaders, set, request, server }) => {
     const req = body as OpenAIChatRequest;
-    const provider = selectProvider(req.model);
-    const isStreaming = req.stream === true;
+    const headers = rawHeaders as Record<string, string | undefined>;
 
-    try {
-      if (provider === "openai") {
-        const auth = resolveOpenAIAuth(headers);
-        const res = await callChatCompletions(req, { authorizationHeader: auth });
-        if (isStreaming) {
-          set.headers["content-type"] = "text/event-stream";
-          return res.body ?? new ReadableStream();
+    return withProxyRequest(
+      { endpoint: "/v1/chat/completions", surface: "chat", model: req.model, stream: req.stream === true, request, server, set, errorMapper: openAIUpstreamError },
+      async ({ tracker, recordRequestBody }) => {
+        recordRequestBody(req);
+
+        const qualified = await dispatchQualifiedRoute({
+          model: req.model,
+          body: req as Record<string, unknown>,
+          headers,
+          request,
+          surface: "openai-chat",
+        });
+        if (qualified.kind === "error") {
+          set.status = qualified.status;
+          if (qualified.status === 429 || qualified.status === 503) (set as Record<string, unknown>).headers = { ...(set as Record<string, unknown>).headers as Record<string, string>, "retry-after": "60" };
+          tracker.fail(qualified.status, "dispatch_error", req);
+          return openAIClientError(qualified.status, qualified.status === 401 || qualified.status === 403 ? "authentication_error" : qualified.status === 429 ? "rate_limit_error" : "invalid_request_error", qualified.message);
         }
-        return await res.json();
-      }
 
-      // Anthropic upstream, OpenAI-shape client.
-      const anthropicReq = translateChatRequestToAnthropic(req);
-      const auth = resolveAnthropicAuth(headers);
-      const res = await callMessages(anthropicReq, { apiKeyHeader: auth });
+        if (qualified.proxyPoolName) tracker.setProxyPool(qualified.proxyPoolName);
+        const { result } = qualified;
+        if (result.type === "stream") {
+          set.headers["content-type"] = "text/event-stream";
+          const meta = { id: `chatcmpl-${crypto.randomUUID()}`, model: req.model, createdAt: Math.floor(Date.now() / 1000) };
+          return tracker.wrapSse(toSSEResponseStream(withStreamErrorHandling(encodeOpenAIChatStream(result.events, meta), "openai-chat")), undefined, req);
+        }
 
-      if (isStreaming) {
-        set.headers["content-type"] = "text/event-stream";
-        const meta = { id: `chatcmpl-${crypto.randomUUID()}`, model: req.model, createdAt: Math.floor(Date.now() / 1000) };
-        const events = decodeAnthropicStream(res.body ?? new ReadableStream());
-        return toSSEResponseStream(encodeOpenAIChatStream(events, meta));
-      }
-
-      const parsedBody = asObject(await res.json());
-      if (!parsedBody) {
-        set.status = 502;
-        return openAIClientError(502, "internal_error", "The provider answered, but its response was incomplete or unreadable. Please retry this request in a moment.");
-      }
-      // Anthropic's own API contract guarantees this shape on a 2xx response
-      // (checked structurally above); narrowing the validated object here.
-      const anthropicBody = parsedBody as unknown as AnthropicResponse;
-      return translateAnthropicResponseToChat(anthropicBody);
-    } catch (err) {
-      if (err instanceof UpstreamError) {
-        const friendly = openAIUpstreamError(err);
-        set.status = friendly.status;
-        return friendly.body;
-      }
-      throw err;
-    }
+        return tracker.finishJson(200, result.body, undefined, req);
+      },
+    );
   },
-  { body: ChatRequestSchema }
+  { body: ChatRequestSchema },
 );

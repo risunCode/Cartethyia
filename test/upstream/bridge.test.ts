@@ -220,6 +220,7 @@ describe("bridge — encodeOpenAIChatStream", () => {
     const usageFrame = frames.find((f) => f.includes('"prompt_tokens"'));
     expect(usageFrame).toContain('"prompt_tokens":140'); // inputTokens + cacheReadTokens, per normalizeOpenAIUsage's inverse
     expect(usageFrame).toContain('"cached_tokens":40');
+    expect(usageFrame).toContain('"choices":[{"index":0,"delta":{},"finish_reason":null}]');
   });
 });
 
@@ -243,6 +244,36 @@ describe("bridge — encodeResponsesStream", () => {
     expect(final).toContain('"max_output_tokens"');
   });
 });
+
+  test("thinking_delta events produce a thinking content block that closes before any text block", async () => {
+    const events: StreamEvent[] = [
+      { type: "thinking_delta", text: "I need to think about this..." },
+      { type: "thinking_delta", text: " OK, done thinking." },
+      { type: "text_delta", text: "Here is the answer." },
+      { type: "finish", stopReason: "end_turn" },
+    ];
+    const frames = await collect(encodeAnthropicStream(fromArray(events), META));
+    const all = frames.join("");
+    expect(all).toContain('"type":"thinking","thinking":""');
+    expect(all).toContain('"thinking_delta","thinking":"I need to think about this..."');
+    expect(all).toContain('"type":"text","text":""');
+    expect(all).toContain('"text_delta","text":"Here is the answer."');
+    // Thinking block (index 0) must close before text block (index 1) starts.
+    const thinkingClose = frames.findIndex((f) => f.includes('"content_block_stop"') && f.includes('"index":0'));
+    const textStart = frames.findIndex((f) => f.includes('"content_block_start"') && f.includes('"type":"text"'));
+    expect(thinkingClose).toBeLessThan(textStart);
+  });
+
+  test("fallback text block fires only when the stream produced zero blocks (no thinking, text, or tool_use)", async () => {
+    const events: StreamEvent[] = [{ type: "finish", stopReason: "end_turn" }];
+    const frames = await collect(encodeAnthropicStream(fromArray(events), META));
+    const starts = frames.filter((f) => f.includes('"content_block_start"'));
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toContain('"type":"text","text":""');
+    const deltas = frames.filter((f) => f.includes('"content_block_delta"'));
+    expect(deltas).toHaveLength(1);
+    expect(deltas[0]).toContain('(model produced no visible output)');
+  });
 
 describe("bridge — decode → encode round trip", () => {
   test("a full Anthropic tool-call SSE transcript decodes and re-encodes to an equivalent OpenAI Chat stream", async () => {

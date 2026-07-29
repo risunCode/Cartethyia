@@ -1,0 +1,16 @@
+.git
+.codegraph
+node_modules
+dashboard/node_modules
+dashboard/dist
+dist
+data
+.env
+.env.*
+!.env.example
+coverage
+*.log
+*.sqlite
+*.sqlite-*
+test
+.kiro

@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { compressToolResults, injectSystemPrompt, prepareOutboundRequest } from "../../src/upstream/outbound";
+import { applyFilterRules, compressToolResults, injectSystemPrompt, prepareOutboundRequest } from "../../src/upstream/outbound";
+import type { SanitizerFilterRule } from "../../src/upstream/outbound";
 
 const noPromptSettings = {
   rtk: { enabled: true, minChars: 500, maxReductionPercent: 35 },
   systemPrompt: undefined,
+  filterRules: [],
 };
 
 describe("adaptive RTK tool-result compression", () => {
@@ -134,8 +136,57 @@ describe("configured system prompt injection", () => {
     const prepared = prepareOutboundRequest(body, "openai", {
       rtk: { enabled: false, minChars: 1_500, maxReductionPercent: 35 },
       systemPrompt: undefined,
+      filterRules: [],
     });
 
     expect(prepared).toBe(body);
+  });
+});
+
+describe("Filter Rules sanitizer (applyFilterRules)", () => {
+  test("replaces a literal match in a message's string content", () => {
+    const body = { messages: [{ role: "user", content: "I am using Claude Code today." }] };
+    const rules: SanitizerFilterRule[] = [{ pattern: "Claude Code", replacement: "a CLI tool", isRegex: false }];
+
+    applyFilterRules(body, "openai", rules);
+
+    expect(body.messages[0]!.content).toBe("I am using a CLI tool today.");
+  });
+
+  test("applies a regex rule to the Anthropic system string", () => {
+    const body: { system?: string } = { system: "You are Claude Code, Anthropic's official CLI for Claude." };
+    const rules: SanitizerFilterRule[] = [{ pattern: "You are Claude Code, Anthropic's official CLI for Claude\\.", replacement: "", isRegex: true }];
+
+    applyFilterRules(body, "anthropic", rules);
+
+    expect(body.system).toBe("");
+  });
+
+  test("applies rules to OpenAI-shaped instructions", () => {
+    const body = { instructions: "powered by Claude, the assistant." };
+    const rules: SanitizerFilterRule[] = [{ pattern: "powered by (Claude|Anthropic)", replacement: "built on a model", isRegex: true }];
+
+    applyFilterRules(body, "openai", rules);
+
+    expect(body.instructions).toBe("built on a model, the assistant.");
+  });
+
+  test("skips a malformed rule at runtime and still applies the remaining rules", () => {
+    const body = { messages: [{ role: "user", content: "remove-me keep-me" }] };
+    const rules: SanitizerFilterRule[] = [
+      { pattern: "(unterminated", replacement: "x", isRegex: true },
+      { pattern: "remove-me ", replacement: "", isRegex: false },
+    ];
+
+    expect(() => applyFilterRules(body, "openai", rules)).not.toThrow();
+    expect(body.messages[0]!.content).toBe("keep-me");
+  });
+
+  test("is a no-op with an empty rule list", () => {
+    const body = { messages: [{ role: "user", content: "unchanged" }] };
+
+    applyFilterRules(body, "openai", []);
+
+    expect(body.messages[0]!.content).toBe("unchanged");
   });
 });

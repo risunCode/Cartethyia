@@ -19,6 +19,14 @@ export interface RequestTransformSettings {
     maxReductionPercent: number;
   };
   systemPrompt: string | undefined;
+  filterRules: SanitizerFilterRule[];
+}
+
+/** Console-managed "Filter Rules" (REQ-9) — kept DB-agnostic here; the console repo type maps onto this. */
+export interface SanitizerFilterRule {
+  pattern: string;
+  replacement: string;
+  isRegex: boolean;
 }
 
 export interface RtkStats {
@@ -586,17 +594,81 @@ export function injectSystemPrompt(body: unknown, format: UpstreamFormat, prompt
 }
 
 /**
+ * Applies one active rule to `text`, in order. A rule that throws (e.g. a
+ * pathological regex on specific input) is skipped — the text stays exactly
+ * as prior rules left it, and the remaining rules still run (REQ-9.7).
+ */
+function applyRulesToText(text: string, rules: SanitizerFilterRule[]): string {
+  let result = text;
+  for (const rule of rules) {
+    if (!rule.pattern) continue;
+    try {
+      result = rule.isRegex ? result.replace(new RegExp(rule.pattern, "gi"), rule.replacement) : result.split(rule.pattern).join(rule.replacement);
+    } catch {
+      // malformed at runtime — keep result as-is for this rule, try the next one
+    }
+  }
+  return result;
+}
+
+function applyRulesToContentParts(parts: JsonObject[], rules: SanitizerFilterRule[]): void {
+  for (const part of parts) {
+    if (!isTextPart(part)) continue;
+    const text = stringField(part, "text");
+    if (text !== undefined) setField(part, "text", applyRulesToText(text, rules));
+  }
+}
+
+function applyRulesToMessageContent(message: JsonObject, rules: SanitizerFilterRule[]): void {
+  const content = field(message, "content");
+  if (typeof content === "string") {
+    setField(message, "content", applyRulesToText(content, rules));
+    return;
+  }
+  const parts = objectArray(content);
+  if (parts) applyRulesToContentParts(parts, rules);
+}
+
+/**
+ * Sanitizes outbound text against console-configured Filter Rules (REQ-9):
+ * the system prompt/instructions and every message's text content, before
+ * dispatch. Runs after RTK compression and before the server's own
+ * system-prompt injection, so a rule can never mangle text the server itself
+ * appended.
+ */
+export function applyFilterRules(body: unknown, format: UpstreamFormat, rules: SanitizerFilterRule[]): void {
+  if (!isObject(body) || rules.length === 0) return;
+
+  if (format === "anthropic") {
+    const system = field(body, "system");
+    if (typeof system === "string") setField(body, "system", applyRulesToText(system, rules));
+    else {
+      const blocks = objectArray(system);
+      if (blocks) applyRulesToContentParts(blocks, rules);
+    }
+  } else {
+    const instructions = stringField(body, "instructions");
+    if (instructions !== undefined) setField(body, "instructions", applyRulesToText(instructions, rules));
+  }
+
+  const messages = objectArray(field(body, "messages"));
+  if (messages) for (const message of messages) applyRulesToMessageContent(message, rules);
+}
+
+/**
  * Returns an outgoing request ready for upstream dispatch. Disabled transforms
  * return the original object without allocating a clone; enabled transforms
  * operate on a structured clone so route-local request data stays untouched.
  */
 export function prepareOutboundRequest(body: unknown, format: UpstreamFormat, settings: RequestTransformSettings): unknown {
-  if (!settings.rtk.enabled && settings.systemPrompt === undefined) return body;
+  const hasFilterRules = settings.filterRules.length > 0;
+  if (!settings.rtk.enabled && settings.systemPrompt === undefined && !hasFilterRules) return body;
   try {
     const transformed = structuredClone(body);
     if (settings.rtk.enabled) {
       compressToolResults(transformed, settings.rtk.minChars, settings.rtk.maxReductionPercent);
     }
+    if (hasFilterRules) applyFilterRules(transformed, format, settings.filterRules);
     if (settings.systemPrompt !== undefined) injectSystemPrompt(transformed, format, settings.systemPrompt);
     return transformed;
   } catch (error) {

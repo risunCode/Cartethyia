@@ -30,8 +30,9 @@ import {
   openAIToolChoiceToAnthropic,
   unifiedToolToAnthropic,
   unifiedToolToOpenAIChat,
+  fixMissingToolResults,
+  sanitizeAnthropicToolIds,
 } from "./concerns/tools";
-import { fixMissingToolResults, sanitizeAnthropicToolIds } from "./concerns/toolIntegrity";
 import type {
   AnthropicRequest,
   AnthropicResponse,
@@ -119,6 +120,15 @@ export function translateAnthropicResponseToChat(resp: AnthropicResponse): OpenA
   const [chatMsg] = denormalizeToOpenAIChatMessages([unifiedMsg]);
   const usage = normalizeAnthropicUsage(resp.usage);
 
+  // Extract thinking blocks → reasoning_content (L1)
+  const thinkingBlocks = resp.content.filter((b) => (b as unknown as Record<string, unknown>).type === "thinking");
+  const reasoningContent = thinkingBlocks.length > 0
+    ? thinkingBlocks.map((b) => (b as unknown as Record<string, unknown>).thinking as string ?? "").join("\n")
+    : undefined;
+
+  const message = chatMsg ?? { role: "assistant" as const, content: "" };
+  if (reasoningContent) (message as unknown as Record<string, unknown>).reasoning_content = reasoningContent;
+
   return {
     id: resp.id,
     object: "chat.completion",
@@ -127,7 +137,7 @@ export function translateAnthropicResponseToChat(resp: AnthropicResponse): OpenA
     choices: [
       {
         index: 0,
-        message: chatMsg ?? { role: "assistant", content: "" },
+        message,
         finish_reason: anthropicStopToOpenAIFinish(resp.stop_reason),
       },
     ],
@@ -178,22 +188,29 @@ export function translateMessagesRequestToChat(req: AnthropicRequest): OpenAICha
 }
 
 export function translateChatResponseToMessages(resp: OpenAIChatResponse): AnthropicResponse {
-  const choice = resp.choices[0];
+  const choice = resp.choices?.[0];
   const message = choice?.message;
   const unified = message ? normalizeOpenAIChatMessages([message])[0] : undefined;
   const usage = normalizeOpenAIUsage(resp.usage);
 
+  // When the upstream returns no choices (e.g. reasoning consumed the entire
+  // token budget), produce a valid but minimal Anthropic response instead of
+  // crashing or returning an empty content array that confuses clients.
+  const content = unified && unified.blocks.length > 0
+    ? unified.blocks.map((b) => denormalizeToAnthropicBlock(b))
+    : [{ type: "text" as const, text: "(model produced no visible output — reasoning tokens may have been exhausted)" }];
+
   return {
-    id: resp.id,
+    id: resp.id ?? `msg-${crypto.randomUUID()}`,
     type: "message",
     role: "assistant",
-    model: resp.model,
-    content: unified ? unified.blocks.map((b) => denormalizeToAnthropicBlock(b)) : [],
+    model: resp.model ?? "unknown",
+    content,
     stop_reason: choice && isOpenAIFinishReason(choice.finish_reason) ? openAIFinishToAnthropicStop(choice.finish_reason) : "end_turn",
     stop_sequence: null,
     usage: {
       input_tokens: usage.freshInputTokens,
-      output_tokens: resp.usage.completion_tokens,
+      output_tokens: resp.usage?.completion_tokens ?? 0,
       cache_read_input_tokens: usage.cacheReadTokens,
       cache_creation_input_tokens: usage.cacheWriteTokens,
     },

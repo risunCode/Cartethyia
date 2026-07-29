@@ -1,63 +1,235 @@
 /**
  * POST /v1/messages — client speaks Anthropic Messages.
  * Routes to Anthropic or OpenAI upstream by model name.
+ * Supports context_management compact edits (REQ-23, compact-2026-01-12).
  */
 
 import { Elysia } from "elysia";
 import { MessagesRequestSchema } from "./schemas";
-import { selectProvider, resolveOpenAIAuth, resolveAnthropicAuth, callMessages, callChatCompletions, UpstreamError } from "../upstream/providers";
+import { selectProvider, resolveOpenAIAuth, resolveAnthropicAuth, callMessages, callChatCompletions } from "../upstream/providers";
 import { translateMessagesRequestToChat, translateChatResponseToMessages } from "../translate/openai-anthropic";
-import { decodeOpenAIChatStream, encodeAnthropicStream } from "../upstream/bridge";
+import { decodeOpenAIChatStream, encodeAnthropicStream, withStreamErrorHandling } from "../upstream/bridge";
 import { toSSEResponseStream } from "../upstream/sse";
+import { formatSSEFrame } from "../upstream/sse";
 import { asObject } from "../upstream/jsonGuards";
 import { anthropicClientError, anthropicUpstreamError } from "../http/errors";
-import type { AnthropicRequest, OpenAIChatResponse } from "../translate/types";
+import type { AnthropicRequest, AnthropicResponse, OpenAIChatResponse } from "../translate/types";
+import { dispatchQualifiedRoute } from "../upstream/dispatch";
+import { withProxyRequest } from "./middleware/proxyRequest";
+import { runEmulatedCompact, CompactError } from "./compact-core";
+
+// ── Compaction helpers (REQ-23, §10.3) ────────────────────────────────────
+
+interface CompactEdit {
+  trigger?: { type: string; value?: number };
+  instructions?: string;
+  pause_after_compaction?: boolean;
+}
+
+function parseCompactEdits(req: AnthropicRequest): CompactEdit[] {
+  const cm = (req as Record<string, unknown>)["context_management"];
+  if (!cm || typeof cm !== "object") return [];
+  const edits = (cm as Record<string, unknown>)["edits"];
+  if (!Array.isArray(edits)) return [];
+  return edits.filter(
+    (e): e is Record<string, unknown> =>
+      typeof e === "object" && e !== null && typeof (e as Record<string, unknown>).type === "string" && /^compact_/.test((e as Record<string, unknown>).type as string),
+  ) as unknown as CompactEdit[];
+}
+
+function buildCompactionResponse(model: string, summaryText: string, pause: boolean): AnthropicResponse {
+  return {
+    id: `msg-compact-${crypto.randomUUID()}`,
+    type: "message",
+    role: "assistant",
+    model,
+    content: [{ type: "text", text: `[Compacted]\n\n${summaryText}` }],
+    stop_reason: pause ? "pause_turn" : "end_turn",
+    stop_sequence: null,
+    usage: { input_tokens: 0, output_tokens: 0 },
+  };
+}
+
+async function* buildCompactionSSE(model: string, summaryText: string, pause: boolean): AsyncGenerator<string> {
+  const msgId = `msg-compact-${crypto.randomUUID()}`;
+  yield formatSSEFrame({
+    event: "message_start",
+    data: JSON.stringify({
+      type: "message_start",
+      message: { id: msgId, type: "message", role: "assistant", model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } },
+    }),
+  });
+
+  // Summary content block: server_tool_use with summary type (Anthropic compact protocol)
+  yield formatSSEFrame({
+    event: "content_block_start",
+    data: JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "server_tool_use", id: `compact-${crypto.randomUUID()}`, name: "summary", input: {} } }),
+  });
+
+  // Send summary text in chunks to avoid oversized frames
+  const CHUNK = 4096;
+  for (let offset = 0; offset < summaryText.length; offset += CHUNK) {
+    yield formatSSEFrame({
+      event: "content_block_delta",
+      data: JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(summaryText.slice(offset, offset + CHUNK)).slice(1, -1) } }),
+    });
+  }
+
+  yield formatSSEFrame({
+    event: "content_block_stop",
+    data: JSON.stringify({ type: "content_block_stop", index: 0 }),
+  });
+
+  yield formatSSEFrame({
+    event: "message_delta",
+    data: JSON.stringify({ type: "message_delta", delta: { stop_reason: pause ? "pause_turn" : "end_turn", stop_sequence: null }, usage: {} }),
+  });
+
+  yield formatSSEFrame({
+    event: "message_stop",
+    data: JSON.stringify({ type: "message_stop" }),
+  });
+}
+
+// ── Main route ────────────────────────────────────────────────────────────
 
 export const messagesRoute = new Elysia().post(
   "/v1/messages",
-  async ({ body, headers, set }) => {
+  async ({ body, headers, set, request, server }) => {
     const req = body as AnthropicRequest;
     const provider = selectProvider(req.model);
     const isStreaming = req.stream === true;
 
-    try {
-      if (provider === "anthropic") {
-        const auth = resolveAnthropicAuth(headers);
-        const res = await callMessages(req, { apiKeyHeader: auth });
+    return withProxyRequest(
+      { endpoint: "/v1/messages", surface: "anthropic", model: req.model, stream: isStreaming, request, server, set, errorMapper: anthropicUpstreamError },
+      async ({ tracker, recordRequestBody }) => {
+        recordRequestBody(req);
+
+        try {
+          // ── Compaction detection (REQ-23) ──
+          const compactEdits = parseCompactEdits(req);
+          if (compactEdits.length > 0) {
+            const edit = compactEdits[0]!;
+            const trigger = edit.trigger;
+            const hasTrigger = trigger && typeof trigger.value === "number" && trigger.value > 0;
+
+            // Estimate input tokens (chars / 4) to check trigger
+            const msgChars = JSON.stringify(req.messages).length;
+            const estimatedTokens = Math.floor(msgChars / 4);
+
+            if (hasTrigger && estimatedTokens < trigger!.value!) {
+              // Trigger not yet met — strip context_management and continue normally
+              const stripped = { ...req } as Record<string, unknown>;
+              delete stripped["context_management"];
+              // Fall through to standard message handling below with stripped request
+              const chatReq = translateMessagesRequestToChat(stripped as unknown as AnthropicRequest);
+              const qualified = await dispatchQualifiedRoute({
+                model: req.model,
+                body: chatReq as unknown as Record<string, unknown>,
+                headers,
+                request,
+                surface: "openai-chat",
+              });
+              if (qualified.kind === "error") {
+                set.status = qualified.status;
+                tracker.fail(qualified.status, "dispatch_error", req);
+                return anthropicClientError(qualified.status, qualified.status === 401 || qualified.status === 403 ? "authentication_error" : "invalid_request_error", qualified.message);
+              }
+              if (qualified.kind === "result") {
+                if (qualified.proxyPoolName) tracker.setProxyPool(qualified.proxyPoolName);
+                if (qualified.result.type === "stream") {
+                  set.headers["content-type"] = "text/event-stream";
+                  const meta = { id: `msg-${crypto.randomUUID()}`, model: req.model, createdAt: Math.floor(Date.now() / 1000) };
+                  return tracker.wrapSse(toSSEResponseStream(withStreamErrorHandling(encodeAnthropicStream(qualified.result.events, meta), "anthropic")), undefined, req);
+                }
+                return tracker.finishJson(200, translateChatResponseToMessages(qualified.result.body as unknown as OpenAIChatResponse), undefined, req);
+              }
+            }
+
+            // Trigger met or no trigger — run emulated compaction
+            const chatReq = translateMessagesRequestToChat(req);
+            const { text: summaryText } = await runEmulatedCompact({
+              model: req.model,
+              chatReq,
+              headers,
+              request,
+              instruction: edit.instructions,
+            });
+
+            const pause = edit.pause_after_compaction === true;
+
+            if (isStreaming) {
+              set.headers["content-type"] = "text/event-stream";
+              return tracker.wrapSse(toSSEResponseStream(buildCompactionSSE(req.model, summaryText, pause)), undefined, req);
+            }
+
+            const result = buildCompactionResponse(req.model, summaryText, pause);
+            return tracker.finishJson(200, result, undefined, req);
+          }
+        } catch (err) {
+          if (err instanceof CompactError) {
+            set.status = err.status;
+            tracker.fail(err.status, "compact_error", req);
+            return anthropicClientError(err.status, err.status === 401 || err.status === 403 ? "authentication_error" : "invalid_request_error", err.message);
+          }
+          throw err;
+        }
+
+        // ── Standard message flow ──
+        const chatReq = translateMessagesRequestToChat(req);
+        const qualified = await dispatchQualifiedRoute({
+          model: req.model,
+          body: chatReq as unknown as Record<string, unknown>,
+          headers,
+          request,
+          surface: "openai-chat",
+        });
+        if (qualified.kind === "error") {
+          set.status = qualified.status;
+          tracker.fail(qualified.status, "dispatch_error", req);
+          return anthropicClientError(qualified.status, qualified.status === 401 || qualified.status === 403 ? "authentication_error" : "invalid_request_error", qualified.message);
+        }
+        if (qualified.kind === "result") {
+          if (qualified.proxyPoolName) tracker.setProxyPool(qualified.proxyPoolName);
+          if (qualified.result.type === "stream") {
+            set.headers["content-type"] = "text/event-stream";
+            const meta = { id: `msg-${crypto.randomUUID()}`, model: req.model, createdAt: Math.floor(Date.now() / 1000) };
+            return tracker.wrapSse(toSSEResponseStream(withStreamErrorHandling(encodeAnthropicStream(qualified.result.events, meta), "anthropic")), undefined, req);
+          }
+          return tracker.finishJson(200, translateChatResponseToMessages(qualified.result.body as unknown as OpenAIChatResponse), undefined, req);
+        }
+
+        if (provider === "anthropic") {
+          const auth = resolveAnthropicAuth(headers);
+          const res = await callMessages(req, { apiKeyHeader: auth });
+          if (isStreaming) {
+            set.headers["content-type"] = "text/event-stream";
+            return tracker.wrapSse(res.body ?? new ReadableStream(), undefined, req);
+          }
+          return tracker.finishJson(200, await res.json(), undefined, req);
+        }
+
+        // OpenAI upstream, Anthropic-shape client.
+        const auth = resolveOpenAIAuth(headers);
+        const res = await callChatCompletions(chatReq, { authorizationHeader: auth });
+
         if (isStreaming) {
           set.headers["content-type"] = "text/event-stream";
-          return res.body ?? new ReadableStream();
+          const meta = { id: `msg-${crypto.randomUUID()}`, model: req.model, createdAt: Math.floor(Date.now() / 1000) };
+          const events = decodeOpenAIChatStream(res.body ?? new ReadableStream());
+          return tracker.wrapSse(toSSEResponseStream(withStreamErrorHandling(encodeAnthropicStream(events, meta), "anthropic")), undefined, req);
         }
-        return await res.json();
-      }
 
-      // OpenAI upstream, Anthropic-shape client.
-      const chatReq = translateMessagesRequestToChat(req);
-      const auth = resolveOpenAIAuth(headers);
-      const res = await callChatCompletions(chatReq, { authorizationHeader: auth });
-
-      if (isStreaming) {
-        set.headers["content-type"] = "text/event-stream";
-        const meta = { id: `msg-${crypto.randomUUID()}`, model: req.model, createdAt: Math.floor(Date.now() / 1000) };
-        const events = decodeOpenAIChatStream(res.body ?? new ReadableStream());
-        return toSSEResponseStream(encodeAnthropicStream(events, meta));
-      }
-
-      const parsedBody = asObject(await res.json());
-      if (!parsedBody) {
-        set.status = 502;
-        return anthropicClientError(502, "internal_error", "The provider answered, but its response was incomplete or unreadable. Please retry this request in a moment.");
-      }
-      const chatBody = parsedBody as unknown as OpenAIChatResponse;
-      return translateChatResponseToMessages(chatBody);
-    } catch (err) {
-      if (err instanceof UpstreamError) {
-        const friendly = anthropicUpstreamError(err);
-        set.status = friendly.status;
-        return friendly.body;
-      }
-      throw err;
-    }
+        const parsedBody = asObject(await res.json());
+        if (!parsedBody) {
+          set.status = 502;
+          tracker.fail(502, "internal_error", req);
+          return anthropicClientError(502, "internal_error", "The provider answered, but its response was incomplete or unreadable. Please retry this request in a moment.");
+        }
+        const chatBody = parsedBody as unknown as OpenAIChatResponse;
+        return tracker.finishJson(200, translateChatResponseToMessages(chatBody), undefined, req);
+      },
+    );
   },
-  { body: MessagesRequestSchema }
+  { body: MessagesRequestSchema },
 );

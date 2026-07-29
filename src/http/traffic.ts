@@ -89,6 +89,11 @@ export class ActiveFlightTracker {
     return this.activeByIp.get(ip) ?? 0;
   }
 
+  /** Every IP with at least one active flight right now, sorted busiest-first — lets the console show `maxFlightsPerIp` actually being enforced. */
+  snapshot(): Array<{ ip: string; active: number }> {
+    return [...this.activeByIp.entries()].map(([ip, active]) => ({ ip, active })).sort((a, b) => b.active - a.active);
+  }
+
   clear(): void {
     this.activeByIp.clear();
   }
@@ -96,6 +101,10 @@ export class ActiveFlightTracker {
 
 export function isFlightRejection(value: FlightPermit | FlightRejection): value is FlightRejection {
   return "limit" in value;
+}
+
+export function isLocalIp(ip: string): boolean {
+  return ip === "127.0.0.1" || ip === "::1" || ip === "localhost";
 }
 
 export const activeFlights = new ActiveFlightTracker();

@@ -10,15 +10,33 @@ export interface SSEFrame {
 }
 
 /** Parse a raw SSE byte stream into frames, one at a time, as bytes arrive. */
+/** Stream stall timeout — abort if no chunk received within this window (C4). */
+const STREAM_STALL_TIMEOUT_MS = 360_000; // 6 minutes
+
 export async function* parseSSEStream(body: ReadableStream<Uint8Array>): AsyncGenerator<SSEFrame> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let lastChunkTime = Date.now();
+  let stallTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const resetStallTimer = () => {
+    if (stallTimer) clearTimeout(stallTimer);
+    lastChunkTime = Date.now();
+    stallTimer = setTimeout(() => {
+      const elapsed = Date.now() - lastChunkTime;
+      if (elapsed >= STREAM_STALL_TIMEOUT_MS) {
+        reader.cancel("stream stall timeout").catch(() => {});
+      }
+    }, STREAM_STALL_TIMEOUT_MS);
+  };
 
   try {
+    resetStallTimer();
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      resetStallTimer();
       buffer += decoder.decode(value, { stream: true });
 
       // SSE frames are separated by a blank line (\n\n or \r\n\r\n).
@@ -31,6 +49,7 @@ export async function* parseSSEStream(body: ReadableStream<Uint8Array>): AsyncGe
       }
     }
   } finally {
+    if (stallTimer) clearTimeout(stallTimer);
     reader.releaseLock();
   }
 }

@@ -5,6 +5,8 @@
  * object; nothing re-reads `process.env` on the hot path.
  */
 
+export type OpenCodeFreeAccess = "none" | "local" | "all";
+
 export interface CartethyiaConfig {
   port: number;
   /** Per-IP in-flight request control and reverse-proxy trust settings. */
@@ -17,17 +19,9 @@ export interface CartethyiaConfig {
   cache: {
     markersEnabled: boolean;
   };
-  transforms: {
-    rtk: {
-      /** Lossy tool-result compression; explicitly disabled unless RTK_ENABLED=true. */
-      enabled: boolean;
-      /** Ignore small results where compression provides little token benefit. */
-      minChars: number;
-      /** Reject candidates that would remove more than this share of original text. */
-      maxReductionPercent: number;
-    };
-    /** Server-owned instruction appended to every upstream request when non-empty. */
-    systemPrompt: string | undefined;
+  opencodeFree: {
+    /** Inbound access posture for the OpenCode Free provider namespace. */
+    access: OpenCodeFreeAccess;
   };
 }
 
@@ -48,15 +42,17 @@ function loadConfig(env: Record<string, string | undefined>): CartethyiaConfig {
     cache: {
       markersEnabled: env.CACHE_MARKERS_ENABLED !== "false",
     },
-    transforms: {
-      rtk: {
-        enabled: env.RTK_ENABLED === "true",
-        minChars: parseBoundedNumber(env.RTK_MIN_CHARS, 1_500, 500, 1_000_000),
-        maxReductionPercent: parseBoundedNumber(env.RTK_MAX_REDUCTION_PERCENT, 35, 1, 90),
-      },
-      systemPrompt: env.CARTETHYIA_SYSTEM_PROMPT?.trim() || undefined,
+    opencodeFree: {
+      access: parseOpenCodeFreeAccess(env.OPENCODE_FREE_ACCESS),
     },
   };
+}
+
+function parseOpenCodeFreeAccess(raw: string | undefined): OpenCodeFreeAccess {
+  if (raw === "all") return "all";
+  if (raw === "local") return "local";
+  if (raw === "none") return "none";
+  return "all"; // default: anyone with valid API key can access
 }
 
 export const config: CartethyiaConfig = loadConfig(Bun.env);

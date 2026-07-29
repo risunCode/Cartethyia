@@ -7,6 +7,11 @@
 
 import { app } from "./app";
 import { config } from "./config";
+import { ensureConsoleBootstrap } from "./console/bootstrap";
+import { hydrateConsoleLogs } from "./console/logs/ring";
+
+await ensureConsoleBootstrap();
+hydrateConsoleLogs();
 
 const server = Bun.serve({
   port: config.port,

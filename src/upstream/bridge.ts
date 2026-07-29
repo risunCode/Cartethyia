@@ -19,6 +19,7 @@ import type { AnthropicStopReason } from "../translate/concerns/finishReasons";
 
 export type StreamEvent =
   | { type: "text_delta"; text: string }
+  | { type: "thinking_delta"; text: string }
   | { type: "tool_call_start"; id: string; name: string }
   | { type: "tool_call_args_delta"; id: string; argumentsDelta: string }
   | { type: "tool_call_end"; id: string }
@@ -53,7 +54,7 @@ function usageEventFrom(usage: Record<string, unknown>, readKey: string, writeKe
 // ── Decode: Anthropic SSE → StreamEvent ──────────────────────────────────
 
 interface AnthropicBlockState {
-  type: "text" | "tool_use";
+  type: "text" | "tool_use" | "thinking";
   toolId?: string;
 }
 
@@ -75,6 +76,8 @@ export async function* decodeAnthropicStream(body: ReadableStream<Uint8Array>): 
         const toolName = asString(field(block, "name")) ?? "";
         blocks.set(index, { type: "tool_use", toolId });
         yield { type: "tool_call_start", id: toolId, name: toolName };
+      } else if (blockType === "thinking") {
+        blocks.set(index, { type: "thinking" } as AnthropicBlockState);
       } else {
         blocks.set(index, { type: "text" });
       }
@@ -84,7 +87,8 @@ export async function* decodeAnthropicStream(body: ReadableStream<Uint8Array>): 
       const deltaType = asString(field(delta, "type"));
       const state = blocks.get(index);
       if (deltaType === "text_delta") {
-        yield { type: "text_delta", text: asString(field(delta, "text")) ?? "" };
+        if (state && (state as { type: string }).type === "thinking") yield { type: "thinking_delta", text: asString(field(delta, "text")) ?? "" };
+        else yield { type: "text_delta", text: asString(field(delta, "text")) ?? "" };
       } else if (deltaType === "input_json_delta" && state?.toolId) {
         yield { type: "tool_call_args_delta", id: state.toolId, argumentsDelta: asString(field(delta, "partial_json")) ?? "" };
       }
@@ -124,6 +128,8 @@ export async function* decodeOpenAIChatStream(body: ReadableStream<Uint8Array>):
 
     const content = delta ? asString(field(delta, "content")) : undefined;
     if (content) yield { type: "text_delta", text: content };
+    const reasoningContent = delta ? asString(field(delta, "reasoning_content")) : undefined;
+    if (reasoningContent) yield { type: "thinking_delta", text: reasoningContent };
 
     const toolCalls = delta ? asArray(field(delta, "tool_calls")) : undefined;
     for (const raw of toolCalls ?? []) {
@@ -206,6 +212,7 @@ function responsesStatusToAnthropicStop(status: string, incompleteReason: string
 
 export async function* encodeAnthropicStream(events: AsyncGenerator<StreamEvent>, meta: StreamMeta): AsyncGenerator<string> {
   let blockIndex = -1;
+  let thinkingOpen = false;
   let textOpen = false;
   const toolBlockIndexById = new Map<string, number>();
 
@@ -217,19 +224,35 @@ export async function* encodeAnthropicStream(events: AsyncGenerator<StreamEvent>
     }),
   });
 
+  // Closes any open content block (thinking, text, or tool_use) so the
+  // finish handler doesn't open a spurious fallback text block when
+  // reasoning or tool_use consumed the entire token budget.
+  function* closeOpenBlocks(): Generator<string> {
+    if (thinkingOpen) { yield formatSSEFrame({ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index: blockIndex }) }); thinkingOpen = false; }
+    if (textOpen) { yield formatSSEFrame({ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index: blockIndex }) }); textOpen = false; }
+    for (const idx of toolBlockIndexById.values()) { yield formatSSEFrame({ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index: idx }) }); }
+    toolBlockIndexById.clear();
+  }
+
   for await (const ev of events) {
-    if (ev.type === "text_delta") {
+    if (ev.type === "thinking_delta") {
+      if (!thinkingOpen) {
+        yield* closeOpenBlocks();
+        blockIndex++;
+        thinkingOpen = true;
+        yield formatSSEFrame({ event: "content_block_start", data: JSON.stringify({ type: "content_block_start", index: blockIndex, content_block: { type: "thinking", thinking: "" } }) });
+      }
+      yield formatSSEFrame({ event: "content_block_delta", data: JSON.stringify({ type: "content_block_delta", index: blockIndex, delta: { type: "thinking_delta", thinking: ev.text } }) });
+    } else if (ev.type === "text_delta") {
       if (!textOpen) {
+        yield* closeOpenBlocks();
         blockIndex++;
         textOpen = true;
         yield formatSSEFrame({ event: "content_block_start", data: JSON.stringify({ type: "content_block_start", index: blockIndex, content_block: { type: "text", text: "" } }) });
       }
       yield formatSSEFrame({ event: "content_block_delta", data: JSON.stringify({ type: "content_block_delta", index: blockIndex, delta: { type: "text_delta", text: ev.text } }) });
     } else if (ev.type === "tool_call_start") {
-      if (textOpen) {
-        yield formatSSEFrame({ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index: blockIndex }) });
-        textOpen = false;
-      }
+      yield* closeOpenBlocks();
       blockIndex++;
       toolBlockIndexById.set(ev.id, blockIndex);
       yield formatSSEFrame({ event: "content_block_start", data: JSON.stringify({ type: "content_block_start", index: blockIndex, content_block: { type: "tool_use", id: ev.id, name: ev.name, input: {} } }) });
@@ -242,9 +265,13 @@ export async function* encodeAnthropicStream(events: AsyncGenerator<StreamEvent>
       const index = toolBlockIndexById.get(ev.id);
       if (index !== undefined) yield formatSSEFrame({ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index }) });
     } else if (ev.type === "finish") {
-      if (textOpen) {
+      const hadAnyBlock = thinkingOpen || textOpen || toolBlockIndexById.size > 0;
+      yield* closeOpenBlocks();
+      if (!hadAnyBlock) {
+        blockIndex++;
+        yield formatSSEFrame({ event: "content_block_start", data: JSON.stringify({ type: "content_block_start", index: blockIndex, content_block: { type: "text", text: "" } }) });
+        yield formatSSEFrame({ event: "content_block_delta", data: JSON.stringify({ type: "content_block_delta", index: blockIndex, delta: { type: "text_delta", text: "(model produced no visible output)" } }) });
         yield formatSSEFrame({ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index: blockIndex }) });
-        textOpen = false;
       }
       yield formatSSEFrame({ event: "message_delta", data: JSON.stringify({ type: "message_delta", delta: { stop_reason: ev.stopReason, stop_sequence: null }, usage: {} }) });
     } else if (ev.type === "usage") {
@@ -282,7 +309,9 @@ export async function* encodeOpenAIChatStream(events: AsyncGenerator<StreamEvent
   yield chunk({ role: "assistant", content: "" });
 
   for await (const ev of events) {
-    if (ev.type === "text_delta") {
+    if (ev.type === "thinking_delta") {
+      yield chunk({ reasoning_content: ev.text });
+    } else if (ev.type === "text_delta") {
       yield chunk({ content: ev.text });
     } else if (ev.type === "tool_call_start") {
       const index = nextToolIndex++;
@@ -302,7 +331,9 @@ export async function* encodeOpenAIChatStream(events: AsyncGenerator<StreamEvent
           object: "chat.completion.chunk",
           created: meta.createdAt,
           model: meta.model,
-          choices: [],
+          // Some coding clients (including Copilot's strict stream parser)
+          // reject OpenAI's optional empty-choices usage chunk.
+          choices: [{ index: 0, delta: {}, finish_reason: null }],
           usage: {
             prompt_tokens: ev.inputTokens + ev.cacheReadTokens,
             completion_tokens: ev.outputTokens,
@@ -375,4 +406,26 @@ export async function* encodeResponsesStream(events: AsyncGenerator<StreamEvent>
   }
 
   yield formatSSEFrame({ data: JSON.stringify({ type: status === "completed" ? "response.completed" : "response.incomplete", sequence_number: seq(), response: responseBody }) });
+}
+
+/**
+ * Wraps an SSE stream generator with error handling (M2).
+ * If the source generator throws, yields a formatted error event
+ * before the stream ends, so the client knows why it disconnected.
+ */
+export function withStreamErrorHandling(
+  source: AsyncGenerator<string>,
+  format: "openai-chat" | "anthropic" | "openai-responses",
+): AsyncGenerator<string> {
+  return (async function* () {
+    try {
+      yield* source;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Stream interrupted";
+      const errorPayload = format === "anthropic"
+        ? JSON.stringify({ type: "error", error: { type: "stream_error", message } })
+        : JSON.stringify({ error: { type: "stream_error", message } });
+      yield formatSSEFrame({ event: format === "anthropic" ? "error" : undefined, data: errorPayload });
+    }
+  })();
 }

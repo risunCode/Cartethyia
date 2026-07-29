@@ -103,6 +103,13 @@ export function unexpectedClientError(pathname: string): OpenAIErrorResponse | A
   return openAIClientError(500, "internal_error", message);
 }
 
+/** A friendly response for routes this server does not serve. */
+export function unknownRouteError(pathname: string): OpenAIErrorResponse | AnthropicErrorResponse {
+  const message = "This server has no route at that path. Please check the URL against the supported endpoints and try again.";
+  if (pathname === "/v1/messages") return anthropicClientError(404, "invalid_request_error", message);
+  return openAIClientError(404, "invalid_request_error", message);
+}
+
 /** A friendly default for request-schema failures without echoing framework internals. */
 export function invalidRequestError(pathname: string): OpenAIErrorResponse | AnthropicErrorResponse {
   const message = "I couldn’t read this request in the expected API format. Please check the required fields and their types, then try again.";

@@ -31,6 +31,10 @@ export function createRequestTrafficMiddleware(options: TrafficControlOptions, t
       const identity = identifyClient(request.headers, directIp, options.trustProxy);
       const isLimitedRoute = url.pathname.startsWith("/v1/") && options.maxFlightsPerIp > 0;
 
+      // Per-request correlation ID (L5)
+      const requestId = crypto.randomUUID();
+      (set as Record<string, unknown>).headers = { ...(set as Record<string, unknown>).headers as Record<string, string>, "x-request-id": requestId };
+
       if (!isLimitedRoute) {
         activeRequests.set(request, { identity, permit: undefined, startedAt: performance.now() });
         return;

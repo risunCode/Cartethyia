@@ -1,162 +1,138 @@
 # Cartethyia
 
-OpenAI ⇄ Anthropic compatibility reverse proxy. One server, three client-facing
-API shapes — **OpenAI Chat Completions**, **OpenAI Responses**, and
-**Anthropic Messages** — each of which can be routed to *either* upstream by
-model name, translated on the fly.
+Cartethyia is a Bun + Elysia AI proxy with an authenticated console. It exposes OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages while routing models to managed provider accounts, custom compatible providers, aliases, and combos.
 
-```
-client (any of the 3 shapes) → Cartethyia → OpenAI or Anthropic upstream
-```
+**Current release: `1.0.0-alpha`** — feature-complete alpha for local and self-hosted testing. Review the [changelog](./CHANGELOG.md) for the release scope and known alpha-level caveats.
 
-## Why
+## Features
 
-If your client only speaks OpenAI's Chat Completions API, you can still call
-Claude models through it — Cartethyia translates the request to Anthropic
-Messages, calls Anthropic, and translates the response back. The same holds
-in every direction: Anthropic-shape client → OpenAI upstream, OpenAI
-Responses-shape client → Anthropic upstream (via Chat as the intermediate),
-and so on. Native pairs (OpenAI client → OpenAI upstream, Anthropic client →
-Anthropic upstream) pass through untouched — no translation overhead.
+- OpenAI / Anthropic request and streaming translation.
+- Built-in providers: OpenCode Free, OpenCode Zen, Command Code, Kimchi, Devin, Qoder, Cursor, OpenAI, Anthropic, Xiaomi MiMo PAYG, OpenRouter, Ollama, Cerebras, DeepSeek, SiliconFlow, Mistral, and OpenCode Go.
+- Console-managed encrypted credentials with priority or round-robin routing, cooldowns, and per-connection testing.
+- Batch account entry: paste API keys, PATs, or session tokens one per line.
+- Live console log, in-memory usage dashboard, and JSONL runtime request/error logs under `DATA_DIR/logs`.
+- Custom OpenAI-compatible and Anthropic-compatible upstreams.
 
-## Quickstart
+## Quick start
 
 ```bash
 bun install
+cd dashboard && bun install && cd ..
 cp .env.example .env
-bun run dev            # bun --watch src/server.ts, listens on :12800
+bun run dev
 ```
+
+Open `http://localhost:12800/console` and set up the console. Check health:
 
 ```bash
 curl http://localhost:12800/health
-# {"status":"ok","service":"cartethyia"}
-
-# The caller supplies its own provider key; Cartethyia never reads it from .env.
-curl -X POST http://localhost:12800/v1/chat/completions \
-  -H "content-type: application/json" \
-  -H "authorization: Bearer $ANTHROPIC_API_KEY" \
-  -d '{"model":"claude-3-5-sonnet-20241022","messages":[{"role":"user","content":"hi"}]}'
-# ^ OpenAI-shape request, model name routes it to Anthropic; the Bearer value
-#   is adapted to Anthropic's x-api-key header and the response comes back in
-#   OpenAI Chat shape.
 ```
+
+## API
+
+| Route | Shape |
+| --- | --- |
+| `POST /v1/chat/completions` | OpenAI Chat Completions |
+| `POST /v1/responses` | OpenAI Responses |
+| `POST /v1/messages` | Anthropic Messages |
+| `GET /v1/models` | Unified model list |
+| `GET /health` | Liveness probe |
+| `GET /console` | Management console |
+
+Use the proxy API key created in the console:
+
+```bash
+curl http://localhost:12800/v1/chat/completions \
+  -H "content-type: application/json" \
+  -H "authorization: Bearer $CARTETHYIA_API_KEY" \
+  -d '{"model":"foc/big-pickle","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+## Qualified provider prefixes
+
+| Provider | Prefix |
+| --- | --- |
+| OpenCode Free | `foc/` |
+| OpenCode Zen | `opencodezen/` |
+| Command Code | `cmd/` |
+| Kimchi | `kimchi/` |
+| Devin | `devin/` |
+| Qoder | `qoder/` |
+| Cursor | `cursor/` |
+| OpenAI | `openai/` |
+| Anthropic | `anthropic/` |
+| Xiaomi MiMo PAYG | `pmimo/` |
+| OpenRouter | `openrouter/` |
+| Ollama | `ollama/` |
+| Cerebras | `cerebras/` |
+| DeepSeek | `deepseek/` |
+| SiliconFlow | `siliconflow/` |
+| Mistral | `mistral/` |
+| OpenCode Go | `opencodego/` |
+| Custom compatible provider | `<its own slug>/` — no `custom/` wrapper, e.g. `awok/gpt-4o-mini` |
 
 ## Configuration
 
-All config is env vars, loaded once at boot (`src/config.ts`). See
-`.env.example` for the full list. This core build is direct **BYOK**:
+Copy `.env.example` for local development. For production, configure secrets in the platform instead of committing an `.env` file.
 
-- Each request supplies its real upstream credential: `Authorization: Bearer …`
-  for OpenAI, or `x-api-key` for Anthropic. For Anthropic routing, an
-  OpenAI-style Bearer credential is adapted to Anthropic's `x-api-key` header.
-- Cartethyia has no provider registry, server-side upstream credentials,
-  custom base URLs, or inbound access-key layer yet. Upstream endpoints are
-  intentionally fixed to the official OpenAI and Anthropic APIs.
-- `/health` remains unauthenticated; any `/v1/*` request missing the needed
-  upstream credential returns an upstream-shaped 401 before it reaches the
-  network.
+| Variable | Required in production | Purpose |
+| --- | --- | --- |
+| `PORT` | Platform-provided | HTTP listener; Railway injects this automatically. |
+| `DATA_DIR` | Yes | Persistent data directory; use `/app/data` on Railway. |
+| `CONSOLE_PASSWORD` | Yes | Console login password. |
+| `CONSOLE_JWT_SECRET` | Yes | Long random secret for console sessions. |
+| `CREDENTIAL_ENCRYPTION_KEY` | Recommended | Base64/hex secret for encrypted provider credentials. If omitted, a key file is stored in `DATA_DIR`. |
+| `BOOTSTRAP_PROXY_API_KEY` | Recommended | Optional first proxy API key. |
+| `MAX_FLIGHTS_PER_IP` | No | Per-IP concurrent request limit; defaults to `20`. |
+| `TRUST_PROXY` | Railway | Set `true` when Railway is the trusted reverse proxy. |
+| `OPENCODE_FREE_ACCESS` | No | `all`, `local`, or `none`; defaults to `all`. |
 
-### Client traffic controls
+## Railway deployment
 
-Cartethyia resolves a client identity for observability (`ip`, a short hashed
-fingerprint, and a coarse client label) and logs **none** of the raw
-fingerprint headers or credentials. `/v1/*` requests count as active flights
-until their response—including an SSE stream—actually closes.
+1. Push this repository to GitHub and create a Railway service from it. Railway detects `railway.toml` and builds `Dockerfile`.
+2. Create a Railway **Volume** and mount it at **`/app/data`**. The volume is required for console configuration, encrypted provider credentials, logs, and the credential key file to survive redeployments.
+3. Add Railway variables:
+   ```text
+   DATA_DIR=/app/data
+   CONSOLE_PASSWORD=<strong unique password>
+   CONSOLE_JWT_SECRET=<long random secret>
+   CREDENTIAL_ENCRYPTION_KEY=<long random secret>
+   TRUST_PROXY=true
+   ```
+   Railway sets `PORT`; do not hard-code it.
+4. Because Railway volumes are mounted as root, set `RAILWAY_RUN_UID=0` for this service so the mounted `/app/data` stays writable. The application itself has no shell or package manager in its runtime workflow.
+5. Deploy and confirm Railway health checks `GET /health` successfully. Then open `/console`, create a proxy API key, and add provider accounts.
 
-- `MAX_FLIGHTS_PER_IP=20` is the default ceiling; set `0` to disable it.
-  A request beyond the ceiling gets a friendly `429 rate_limit_error` telling
-  the caller to wait for an in-flight request or reduce parallel work.
-- Direct deployments use Bun's transport IP. `TRUST_PROXY=false` stays the
-  safe default: clients cannot spoof `X-Forwarded-For`.
-- Set `TRUST_PROXY=true` **only** when Cartethyia is behind a reverse proxy
-  you control; then it accepts `CF-Connecting-IP`, `X-Real-IP`, or the first
-  `X-Forwarded-For` value as the client IP.
+Railway volume attachment is configured in the Railway UI/CLI, not in `railway.toml`; the config file supplies the Docker build, health check, and restart policy.
 
-### Outbound transforms
-
-Both transforms run **after** any cross-provider translation and immediately
-before the upstream fetch, so native and translated requests behave the same:
-
-- **`CARTETHYIA_SYSTEM_PROMPT`** appends a server-owned instruction to every
-  request. It joins the existing OpenAI system/developer message, Responses
-  `instructions`, or Anthropic `system`; it is not client-controlled.
-- **RTK** (`RTK_ENABLED=true`) is adaptive, not a blanket truncator. It only
-  considers successful tool results that unmistakably look like structured
-  command output (git diff/status/log, build output, grep, find, tree, ls, or
-  search lists). Ordinary prose and error traces always pass untouched. A
-  candidate is retained only when it meets `RTK_MIN_CHARS` and removes no more
-  than `RTK_MAX_REDUCTION_PERCENT` (defaults: `1500`, `35`), preserving a
-  deliberately conservative quality budget. RTK defaults off.
-
-## Routes
-
-| Route | Client shape | Native upstream | Cross-provider upstream |
-|---|---|---|---|
-| `POST /v1/chat/completions` | OpenAI Chat Completions | OpenAI | Anthropic (`claude*` models) |
-| `POST /v1/responses` | OpenAI Responses | OpenAI | Anthropic, via Chat as the intermediate |
-| `POST /v1/messages` | Anthropic Messages | Anthropic | OpenAI Chat Completions |
-| `GET /v1/models` | — | merges both providers' lists | — |
-| `GET /health` | — | — | — |
-
-Provider selection is a naming convention (`src/upstream/providers.ts`):
-`claude*` model names → Anthropic, everything else → OpenAI.
-
-Streaming (`stream: true`) is supported on every route and every
-cross-provider pair — see [`FORMATS.md`](./docs/FORMATS.md).
-
-## Project layout
-
-```
-src/
-├── server.ts, app.ts, config.ts     entry point, Elysia app assembly, env config
-├── http/
-│   ├── errors.ts                    friendly OpenAI / Anthropic error envelopes
-│   ├── traffic.ts                   privacy-safe client identity + per-IP active-flight tracker
-│   └── middleware.ts                request observability + per-IP active-flight gate
-├── routes/                          4 route files (chat/messages/responses/status) + TypeBox schemas
-├── translate/
-│   ├── types.ts                     wire-shape types for all 3 surfaces
-│   ├── openai-anthropic.ts          OpenAI Chat ⇄ Anthropic Messages, both route directions
-│   ├── openai-responses.ts          OpenAI Chat ⇄ OpenAI Responses, both route directions
-│   └── concerns/                    block-level translation building blocks (see below)
-└── upstream/
-    ├── providers.ts                 provider selection + official API fetch wrappers
-    ├── outbound.ts                  configurable system injection + adaptive RTK before fetch
-    └── bridge.ts, jsonGuards.ts, sse.ts
-```
-
-`translate/concerns/` holds the shared building blocks every translator is
-built from, instead of six bespoke pairwise converters:
-
-- `blocks.ts` — the unified content-block model every surface normalizes
-  through (`UnifiedTextBlock` / `UnifiedImageBlock` / `UnifiedToolCallBlock` /
-  `UnifiedToolResultBlock`), plus the Anthropic role-mapping helper
-  (`toAnthropicRole`).
-- `normalize.ts` — per-surface normalize (wire shape → unified) and
-  denormalize (unified → wire shape) functions.
-- `finishReasons.ts` — stop/finish-reason vocabulary mapping tables.
-- `toolIntegrity.ts` — pre-upstream Anthropic request repair: filling in
-  missing tool results and sanitizing tool-call ids. See
-  [`TOOL_CALLING.md`](./docs/TOOL_CALLING.md).
-- `tools.ts` — tool schema conversion, `tool_choice` translation, and
-  `arguments`(string)⇄`input`(object) correlation. See
-  [`TOOL_CALLING.md`](./docs/TOOL_CALLING.md).
-- `image.ts` — magic-byte media-type sniffing, base64 decode/validate,
-  data-URI helpers.
-- `cache.ts` — prompt-cache breakpoint placement and usage normalization.
-  See [`CACHING.md`](./docs/CACHING.md).
-
-## Development
+### Local Docker smoke test
 
 ```bash
-bun run dev             # watch mode
-bunx tsc --noEmit       # typecheck (strict mode)
-bun test                # 165 tests: concerns/unit transforms, client traffic,
-                         # route integration, and streaming bridge tests
+docker build -t cartethyia .
+docker run --rm -p 12800:8080 \
+  -e PORT=8080 \
+  -e DATA_DIR=/app/data \
+  -e CONSOLE_PASSWORD=change-me \
+  -e CONSOLE_JWT_SECRET=replace-with-a-long-random-secret \
+  -v cartethyia-data:/app/data \
+  cartethyia
 ```
 
-## Further reading
+## Development and verification
 
-- [`FORMATS.md`](./docs/FORMATS.md) — request/response and streaming translation details per route.
-- [`CACHING.md`](./docs/CACHING.md) — how prompt-cache breakpoints are chosen and usage is normalized.
-- [`TOOL_CALLING.md`](./docs/TOOL_CALLING.md) — tool schema and call-id correlation across the three surfaces.
+```bash
+bun test
+bunx tsc --noEmit -p .
+cd dashboard && bun run build
+```
+
+## Architecture
+
+- `src/routes/` — public API handlers.
+- `src/routing/` — provider-prefix, alias, combo, and filter resolution.
+- `src/upstream/` — provider adapters, retry logic, stream bridge, and request transforms.
+- `src/console/` — authenticated console API, encrypted account storage, runtime tracking, and SPA serving.
+- `dashboard/` — React/Vite management console.
+- `data/` — runtime state; mount this directory in production and never commit it.
+
+See [`docs/FORMATS.md`](./docs/FORMATS.md), [`docs/TOOL_CALLING.md`](./docs/TOOL_CALLING.md), and [`docs/CACHING.md`](./docs/CACHING.md) for protocol details.

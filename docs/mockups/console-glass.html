@@ -1,0 +1,877 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cartethyia Console — Glass Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================
+   Cartethyia Console — Apple-style Frost Glass Mockup
+   Single file. No build. Dark/light toggle + responsive drawer.
+   ============================================================ */
+
+:root {
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+
+  --text-1: #1d1d1f;
+  --text-2: #6e6e73;
+  --text-3: #98989d;
+
+  --accent: #0a84ff;
+  --accent-soft: rgba(10, 132, 255, 0.12);
+  --green: #30d158;
+  --red: #ff453a;
+  --orange: #ff9f0a;
+  --purple: #bf5af2;
+  --teal: #64d2ff;
+
+  --glass-bg: rgba(255, 255, 255, 0.62);
+  --glass-bg-2: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.55);
+  --glass-border-2: rgba(255, 255, 255, 0.7);
+  --inner-border: rgba(0, 0, 0, 0.06);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 32px rgba(0, 0, 0, 0.08);
+  --hover: rgba(0, 0, 0, 0.045);
+  --active-pill: rgba(255, 255, 255, 0.72);
+  --track: rgba(0, 0, 0, 0.08);
+  --kbd-bg: rgba(0, 0, 0, 0.06);
+
+  color-scheme: light;
+}
+
+.dark {
+  --text-1: #f5f5f7;
+  --text-2: #a1a1a6;
+  --text-3: #6e6e73;
+
+  --accent: #0a84ff;
+  --accent-soft: rgba(10, 132, 255, 0.18);
+
+  --glass-bg: rgba(28, 28, 32, 0.55);
+  --glass-bg-2: rgba(34, 34, 40, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.10);
+  --glass-border-2: rgba(255, 255, 255, 0.16);
+  --inner-border: rgba(255, 255, 255, 0.07);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.45);
+  --hover: rgba(255, 255, 255, 0.07);
+  --active-pill: rgba(255, 255, 255, 0.12);
+  --track: rgba(255, 255, 255, 0.12);
+  --kbd-bg: rgba(255, 255, 255, 0.1);
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font);
+  color: var(--text-1);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+  transition: color 0.3s ease;
+}
+
+/* ---------- Mesh background (bahan buat blur) ---------- */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(55rem 38rem at 8% -12%, rgba(125, 211, 252, 0.38), transparent 60%),
+    radial-gradient(48rem 34rem at 108% 6%, rgba(196, 181, 253, 0.36), transparent 60%),
+    radial-gradient(42rem 42rem at 50% 118%, rgba(253, 164, 175, 0.28), transparent 60%),
+    #f2f2f5;
+  transition: opacity 0.4s ease;
+}
+.dark body::before {
+  background:
+    radial-gradient(55rem 38rem at 8% -12%, rgba(14, 165, 233, 0.20), transparent 60%),
+    radial-gradient(48rem 34rem at 108% 6%, rgba(139, 92, 246, 0.18), transparent 60%),
+    radial-gradient(42rem 42rem at 50% 118%, rgba(190, 24, 93, 0.14), transparent 60%),
+    #08080b;
+}
+
+/* ---------- Glass primitives ---------- */
+.glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  backdrop-filter: blur(24px) saturate(1.6);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow), inset 0 1px 0 var(--glass-border-2);
+}
+.glass-2 {
+  background: var(--glass-bg-2);
+  -webkit-backdrop-filter: blur(28px) saturate(1.7);
+  backdrop-filter: blur(28px) saturate(1.7);
+  border: 1px solid var(--glass-border-2);
+  box-shadow: var(--shadow);
+}
+
+/* ---------- App shell ---------- */
+.app {
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px;
+  max-width: 1560px;
+  margin: 0 auto;
+  min-height: 100vh;
+}
+
+/* ---------- Sidebar ---------- */
+.sidebar {
+  border-radius: 22px;
+  padding: 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: sticky;
+  top: 16px;
+  height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 6px 8px 14px;
+}
+.brand-logo {
+  width: 36px; height: 36px;
+  border-radius: 11px;
+  display: grid; place-items: center;
+  color: #fff;
+  background: linear-gradient(145deg, #0a84ff, #5e5ce6);
+  box-shadow: 0 6px 16px rgba(10, 132, 255, 0.35);
+  flex: none;
+}
+.brand-name { font-weight: 700; font-size: 16px; line-height: 1.1; }
+.brand-sub { font-size: 11px; color: var(--text-2); }
+
+.nav-group-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  padding: 14px 10px 6px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 10px;
+  border-radius: 11px;
+  color: var(--text-2);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.12s ease;
+  user-select: none;
+  text-decoration: none;
+}
+.nav-item i { width: 18px; height: 18px; flex: none; }
+.nav-item:hover { background: var(--hover); color: var(--text-1); }
+.nav-item:active { transform: scale(0.98); }
+.nav-item.active {
+  background: var(--active-pill);
+  color: var(--text-1);
+  border-color: var(--inner-border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  font-weight: 600;
+}
+.nav-item .badge {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.sidebar-footer { margin-top: auto; padding-top: 12px; }
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 13px;
+  border: 1px solid var(--inner-border);
+  background: var(--hover);
+}
+.avatar {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #ff9f0a, #ff375f);
+  display: grid; place-items: center;
+  color: #fff; font-size: 12px; font-weight: 700;
+  flex: none;
+}
+.user-name { font-size: 13px; font-weight: 600; line-height: 1.2; }
+.user-role { font-size: 11px; color: var(--text-2); }
+.user-chip .logout {
+  margin-left: auto;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 8px;
+  display: grid; place-items: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.user-chip .logout:hover { background: var(--hover); color: var(--red); }
+
+/* ---------- Main column ---------- */
+.main-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+/* ---------- Header ---------- */
+.topbar {
+  border-radius: 18px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: sticky;
+  top: 16px;
+  z-index: 40;
+}
+.menu-btn {
+  display: none;
+  border: 1px solid var(--inner-border);
+  background: var(--hover);
+  color: var(--text-1);
+  width: 38px; height: 38px;
+  border-radius: 11px;
+  place-items: center;
+  cursor: pointer;
+  flex: none;
+}
+.page-title h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+.page-title p { margin: 1px 0 0; font-size: 12px; color: var(--text-2); }
+
+.search {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--inner-border);
+  background: var(--hover);
+  color: var(--text-3);
+  width: 250px;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.search:focus-within { border-color: var(--accent); background: var(--glass-bg-2); }
+.search input {
+  border: 0; outline: 0; background: transparent;
+  font-family: var(--font); font-size: 13px;
+  color: var(--text-1); width: 100%;
+}
+.search kbd {
+  font-family: var(--font);
+  font-size: 10.5px;
+  color: var(--text-3);
+  background: var(--kbd-bg);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-weight: 600;
+}
+
+.icon-btn {
+  width: 38px; height: 38px;
+  border-radius: 11px;
+  border: 1px solid var(--inner-border);
+  background: var(--hover);
+  color: var(--text-1);
+  display: grid; place-items: center;
+  cursor: pointer;
+  flex: none;
+  transition: transform 0.15s ease, background 0.2s ease;
+}
+.icon-btn:hover { background: var(--active-pill); }
+.icon-btn:active { transform: scale(0.94); }
+.dark .icon-btn .i-sun { display: block; }
+.dark .icon-btn .i-moon { display: none; }
+.icon-btn .i-sun { display: none; }
+.icon-btn .i-moon { display: block; }
+
+/* ---------- Content grid ---------- */
+.content { display: flex; flex-direction: column; gap: 16px; }
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+}
+.stat {
+  border-radius: 18px;
+  padding: 15px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: transform 0.2s ease;
+}
+.stat:hover { transform: translateY(-2px); }
+.stat-top { display: flex; align-items: center; justify-content: space-between; }
+.stat-icon {
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  display: grid; place-items: center;
+}
+.sq-blue   { background: rgba(10, 132, 255, 0.14); color: var(--accent); }
+.sq-teal   { background: rgba(100, 210, 255, 0.16); color: #0fa3d1; }
+.dark .sq-teal { color: var(--teal); }
+.sq-purple { background: rgba(191, 90, 242, 0.14); color: var(--purple); }
+.sq-green  { background: rgba(48, 209, 88, 0.14); color: #1fa84a; }
+.dark .sq-green { color: var(--green); }
+.sq-red    { background: rgba(255, 69, 58, 0.13); color: var(--red); }
+.delta {
+  font-size: 11px; font-weight: 600;
+  padding: 3px 8px; border-radius: 999px;
+}
+.delta.up { background: rgba(48, 209, 88, 0.14); color: #1fa84a; }
+.dark .delta.up { color: var(--green); }
+.delta.down { background: rgba(255, 69, 58, 0.12); color: var(--red); }
+.stat-value { font-size: 24px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+.stat-label { font-size: 12px; color: var(--text-2); margin-top: 3px; }
+
+.mid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 14px;
+}
+.card { border-radius: 18px; padding: 18px; min-width: 0; }
+.card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px; gap: 10px;
+}
+.card-title { font-size: 14px; font-weight: 700; }
+.card-sub { font-size: 11.5px; color: var(--text-2); margin-top: 2px; }
+.chip {
+  font-size: 11px; font-weight: 600;
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--inner-border);
+  background: var(--hover);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.chip:hover { background: var(--active-pill); color: var(--text-1); }
+.chip.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+
+/* fake chart */
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+  height: 168px;
+  padding-top: 8px;
+}
+.bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px; height: 100%; justify-content: flex-end; }
+.bar {
+  width: 100%;
+  border-radius: 7px 7px 4px 4px;
+  background: linear-gradient(180deg, rgba(10, 132, 255, 0.85), rgba(94, 92, 230, 0.55));
+  transform-origin: bottom;
+  animation: grow 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  min-height: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.bar.hot { background: linear-gradient(180deg, #0a84ff, #5e5ce6); box-shadow: 0 6px 18px rgba(10, 132, 255, 0.4); }
+.bar-label { font-size: 9.5px; color: var(--text-3); }
+@keyframes grow { from { transform: scaleY(0); } }
+
+/* usage-by-model list */
+.model-row { display: flex; flex-direction: column; gap: 7px; padding: 10px 0; border-bottom: 1px solid var(--inner-border); }
+.model-row:last-child { border-bottom: 0; padding-bottom: 2px; }
+.model-line { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; }
+.model-name { font-weight: 600; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
+.model-val { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.track { height: 6px; border-radius: 999px; background: var(--track); overflow: hidden; }
+.fill { height: 100%; border-radius: 999px; animation: widen 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+@keyframes widen { from { width: 0 !important; } }
+.f-blue { background: linear-gradient(90deg, #0a84ff, #64d2ff); }
+.f-purple { background: linear-gradient(90deg, #bf5af2, #ff375f); }
+.f-green { background: linear-gradient(90deg, #30d158, #64d2ff); }
+.f-orange { background: linear-gradient(90deg, #ff9f0a, #ff375f); }
+
+/* provider chips */
+.providers { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.provider {
+  border-radius: 15px;
+  border: 1px solid var(--inner-border);
+  background: var(--hover);
+  padding: 13px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+.provider:hover { background: var(--active-pill); transform: translateY(-1px); }
+.provider-top { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.dot.ok { background: var(--green); box-shadow: 0 0 0 3px rgba(48, 209, 88, 0.18); }
+.dot.warn { background: var(--orange); box-shadow: 0 0 0 3px rgba(255, 159, 10, 0.18); }
+.provider-meta { font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.provider-prefix {
+  margin-left: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px; font-weight: 600;
+  color: var(--text-3);
+  background: var(--kbd-bg);
+  padding: 2px 7px; border-radius: 6px;
+}
+
+/* table */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th {
+  text-align: left;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-3);
+  font-weight: 600;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--inner-border);
+  white-space: nowrap;
+}
+td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--inner-border);
+  color: var(--text-1);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+tr:last-child td { border-bottom: 0; }
+tbody tr { transition: background 0.12s ease; }
+tbody tr:hover { background: var(--hover); }
+td.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
+td.dim { color: var(--text-2); }
+.pill {
+  font-size: 10.5px; font-weight: 700;
+  padding: 3px 9px; border-radius: 999px;
+}
+.pill.ok { background: rgba(48, 209, 88, 0.14); color: #1fa84a; }
+.dark .pill.ok { color: var(--green); }
+.pill.err { background: rgba(255, 69, 58, 0.13); color: var(--red); }
+.pill.stream { background: rgba(100, 210, 255, 0.15); color: #0fa3d1; }
+.dark .pill.stream { color: var(--teal); }
+
+/* ---------- Footer ---------- */
+.footer {
+  border-radius: 16px;
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-2);
+  flex-wrap: wrap;
+}
+.footer .status { display: flex; align-items: center; gap: 7px; font-weight: 600; color: var(--text-1); }
+.pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s ease infinite; }
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(48, 209, 88, 0.45); }
+  70% { box-shadow: 0 0 0 7px rgba(48, 209, 88, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(48, 209, 88, 0); }
+}
+.footer .sep { opacity: 0.4; }
+.footer a { color: var(--text-2); text-decoration: none; }
+.footer a:hover { color: var(--accent); }
+.footer .right { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* ---------- Toast ---------- */
+.toast-zone { position: fixed; right: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 100; }
+.toast {
+  border-radius: 14px;
+  padding: 12px 15px;
+  display: flex; align-items: center; gap: 11px;
+  font-size: 13px; font-weight: 500;
+  min-width: 240px;
+  animation: toast-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) backwards;
+}
+.toast.hide { animation: toast-out 0.25s ease forwards; }
+.toast .t-icon { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; flex: none; background: var(--accent-soft); color: var(--accent); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(14px) scale(0.96); } }
+@keyframes toast-out { to { opacity: 0; transform: translateY(8px) scale(0.97); } }
+
+/* ---------- Mobile drawer ---------- */
+.backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.32);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  z-index: 60;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.backdrop.show { opacity: 1; pointer-events: auto; }
+
+@media (max-width: 1023px) {
+  .app { grid-template-columns: 1fr; }
+  .menu-btn { display: grid; }
+  .sidebar {
+    position: fixed;
+    top: 12px; bottom: 12px; left: 12px;
+    height: auto;
+    width: 272px;
+    z-index: 70;
+    transform: translateX(calc(-100% - 20px));
+    transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .mid { grid-template-columns: 1fr; }
+  .search { width: 170px; }
+  .search kbd { display: none; }
+}
+@media (max-width: 640px) {
+  .app { padding: 10px; gap: 10px; }
+  .search { display: none; }
+  .page-title p { display: none; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .footer .right { margin-left: 0; width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<div class="backdrop" id="backdrop"></div>
+
+<div class="app">
+
+  <!-- ======================= SIDEBAR ======================= -->
+  <aside class="sidebar glass" id="sidebar">
+    <div class="brand">
+      <div class="brand-logo"><i data-lucide="boxes" style="width:19px;height:19px"></i></div>
+      <div>
+        <div class="brand-name">Cartethyia</div>
+        <div class="brand-sub">Internal Console</div>
+      </div>
+    </div>
+
+    <div class="nav-group-label">Main</div>
+    <a class="nav-item active" data-title="Overview" data-sub="Ringkasan traffic dan provider"><i data-lucide="layout-dashboard"></i>Overview</a>
+    <a class="nav-item" data-title="Usage" data-sub="Usage + requests dalam satu halaman"><i data-lucide="chart-spline"></i>Usage<span class="badge">live</span></a>
+    <a class="nav-item" data-title="Providers" data-sub="Kimchi, Command Code, OpenCode, Devin, Qoder"><i data-lucide="cable"></i>Providers</a>
+
+    <div class="nav-group-label">Control</div>
+    <a class="nav-item" data-title="API Keys" data-sub="Client key untuk akses proxy"><i data-lucide="key-round"></i>Keys</a>
+    <a class="nav-item" data-title="Combos & Alias" data-sub="Fallback, round-robin, alias model"><i data-lucide="layers"></i>Combos</a>
+    <a class="nav-item" data-title="Proxy Pools" data-sub="HTTP, HTTPS, SOCKS5"><i data-lucide="globe"></i>Proxy Pools</a>
+    <a class="nav-item" data-title="Access Control" data-sub="ACL proxy dan console"><i data-lucide="shield-check"></i>Access</a>
+
+    <div class="nav-group-label">System</div>
+    <a class="nav-item" data-title="Console Log" data-sub="Live log stream"><i data-lucide="terminal"></i>Console Log</a>
+    <a class="nav-item" data-title="Settings" data-sub="Security, backup, runtime toggles"><i data-lucide="settings"></i>Settings</a>
+
+    <div class="sidebar-footer">
+      <div class="user-chip">
+        <div class="avatar">AD</div>
+        <div>
+          <div class="user-name">Admin</div>
+          <div class="user-role">role: admin · JWT</div>
+        </div>
+        <span class="logout" title="Logout"><i data-lucide="log-out" style="width:15px;height:15px"></i></span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ======================= MAIN ======================= -->
+  <div class="main-col">
+
+    <!-- Header -->
+    <header class="topbar glass">
+      <button class="menu-btn" id="menuBtn" aria-label="Open menu"><i data-lucide="menu" style="width:18px;height:18px"></i></button>
+      <div class="page-title">
+        <h1 id="pageTitle">Overview</h1>
+        <p id="pageSub">Ringkasan traffic dan provider</p>
+      </div>
+      <label class="search">
+        <i data-lucide="search" style="width:15px;height:15px"></i>
+        <input placeholder="Search model, key, trace…" />
+        <kbd>⌘K</kbd>
+      </label>
+      <button class="icon-btn" id="themeBtn" aria-label="Toggle theme">
+        <i data-lucide="moon" class="i-moon" style="width:17px;height:17px"></i>
+        <i data-lucide="sun" class="i-sun" style="width:17px;height:17px"></i>
+      </button>
+      <button class="icon-btn" aria-label="Notifications"><i data-lucide="bell" style="width:17px;height:17px"></i></button>
+    </header>
+
+    <!-- Content -->
+    <main class="content">
+
+      <!-- Stat cards -->
+      <section class="stats">
+        <div class="stat glass">
+          <div class="stat-top">
+            <div class="stat-icon sq-blue"><i data-lucide="activity" style="width:17px;height:17px"></i></div>
+            <span class="delta up">+12.4%</span>
+          </div>
+          <div>
+            <div class="stat-value">48,210</div>
+            <div class="stat-label">Total Requests</div>
+          </div>
+        </div>
+        <div class="stat glass">
+          <div class="stat-top">
+            <div class="stat-icon sq-teal"><i data-lucide="arrow-down-to-line" style="width:17px;height:17px"></i></div>
+            <span class="delta up">+8.1%</span>
+          </div>
+          <div>
+            <div class="stat-value">18.4M</div>
+            <div class="stat-label">Input Tokens</div>
+          </div>
+        </div>
+        <div class="stat glass">
+          <div class="stat-top">
+            <div class="stat-icon sq-purple"><i data-lucide="database" style="width:17px;height:17px"></i></div>
+            <span class="delta up">+21.7%</span>
+          </div>
+          <div>
+            <div class="stat-value">6.2M</div>
+            <div class="stat-label">Cached Tokens</div>
+          </div>
+        </div>
+        <div class="stat glass">
+          <div class="stat-top">
+            <div class="stat-icon sq-green"><i data-lucide="arrow-up-from-line" style="width:17px;height:17px"></i></div>
+            <span class="delta up">+5.3%</span>
+          </div>
+          <div>
+            <div class="stat-value">4.9M</div>
+            <div class="stat-label">Output Tokens</div>
+          </div>
+        </div>
+        <div class="stat glass">
+          <div class="stat-top">
+            <div class="stat-icon sq-red"><i data-lucide="triangle-alert" style="width:17px;height:17px"></i></div>
+            <span class="delta down">+0.4%</span>
+          </div>
+          <div>
+            <div class="stat-value">132</div>
+            <div class="stat-label">Errors</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Chart + usage by model -->
+      <section class="mid">
+        <div class="card glass">
+          <div class="card-head">
+            <div>
+              <div class="card-title">Traffic</div>
+              <div class="card-sub">Requests per jam · 12 jam terakhir</div>
+            </div>
+            <div style="display:flex;gap:7px">
+              <span class="chip on">Requests</span>
+              <span class="chip">Tokens</span>
+              <span class="chip">Cached</span>
+            </div>
+          </div>
+          <div class="chart" id="chart"></div>
+        </div>
+
+        <div class="card glass">
+          <div class="card-head">
+            <div>
+              <div class="card-title">Usage by Model</div>
+              <div class="card-sub">Total tokens · hari ini</div>
+            </div>
+            <span class="chip">Top 5</span>
+          </div>
+          <div class="model-row">
+            <div class="model-line"><span class="model-name">kc/kimi-k2.7</span><span class="model-val">8.4M</span></div>
+            <div class="track"><div class="fill f-blue" style="width:88%"></div></div>
+          </div>
+          <div class="model-row">
+            <div class="model-line"><span class="model-name">cmd/gpt-5-codex</span><span class="model-val">6.1M</span></div>
+            <div class="track"><div class="fill f-purple" style="width:64%"></div></div>
+          </div>
+          <div class="model-row">
+            <div class="model-line"><span class="model-name">qd/ultimate</span><span class="model-val">4.7M</span></div>
+            <div class="track"><div class="fill f-green" style="width:49%"></div></div>
+          </div>
+          <div class="model-row">
+            <div class="model-line"><span class="model-name">ocf/big-pickle</span><span class="model-val">2.9M</span></div>
+            <div class="track"><div class="fill f-orange" style="width:31%"></div></div>
+          </div>
+          <div class="model-row">
+            <div class="model-line"><span class="model-name">dv/devin-2</span><span class="model-val">1.2M</span></div>
+            <div class="track"><div class="fill f-blue" style="width:14%"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Providers -->
+      <section class="card glass">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Providers</div>
+            <div class="card-sub">Status upstream · klik untuk detail + model test</div>
+          </div>
+          <span class="chip">5 aktif</span>
+        </div>
+        <div class="providers">
+          <div class="provider">
+            <div class="provider-top"><span class="dot ok"></span>Kimchi<span class="provider-prefix">kc/</span></div>
+            <div class="provider-meta">12,480 req · 4.1M tok · err 0.1%</div>
+          </div>
+          <div class="provider">
+            <div class="provider-top"><span class="dot ok"></span>Command Code<span class="provider-prefix">cmd/</span></div>
+            <div class="provider-meta">9,204 req · 3.6M tok · err 0.3%</div>
+          </div>
+          <div class="provider">
+            <div class="provider-top"><span class="dot ok"></span>OpenCode Free<span class="provider-prefix">ocf/</span></div>
+            <div class="provider-meta">7,811 req · 2.2M tok · err 0.0%</div>
+          </div>
+          <div class="provider">
+            <div class="provider-top"><span class="dot warn"></span>Qoder<span class="provider-prefix">qd/</span></div>
+            <div class="provider-meta">5,322 req · 1.9M tok · err 1.8%</div>
+          </div>
+          <div class="provider">
+            <div class="provider-top"><span class="dot ok"></span>Devin<span class="provider-prefix">dv/</span></div>
+            <div class="provider-meta">1,190 req · 0.6M tok · err 0.2%</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Recent requests -->
+      <section class="card glass">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Recent Requests</div>
+            <div class="card-sub">Detail lengkap ada di halaman Usage</div>
+          </div>
+          <span class="chip">View all →</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Time</th><th>Key</th><th>Model</th><th>Mode</th><th>Status</th><th>Tokens</th><th>Dur</th></tr>
+            </thead>
+            <tbody>
+              <tr><td class="dim">14:02:11</td><td class="mono">ctk_9f3a…</td><td class="mono">kc/kimi-k2.7</td><td><span class="pill stream">stream</span></td><td><span class="pill ok">200</span></td><td>14,208</td><td class="dim">3.2s</td></tr>
+              <tr><td class="dim">14:01:47</td><td class="mono">ctk_2b71…</td><td class="mono">cmd/gpt-5-codex</td><td><span class="pill stream">stream</span></td><td><span class="pill ok">200</span></td><td>8,930</td><td class="dim">6.8s</td></tr>
+              <tr><td class="dim">14:01:12</td><td class="mono">ctk_9f3a…</td><td class="mono">qd/ultimate</td><td><span class="pill">json</span></td><td><span class="pill ok">200</span></td><td>2,114</td><td class="dim">1.1s</td></tr>
+              <tr><td class="dim">14:00:58</td><td class="mono">anon</td><td class="mono">ocf/big-pickle</td><td><span class="pill stream">stream</span></td><td><span class="pill err">429</span></td><td>—</td><td class="dim">0.4s</td></tr>
+              <tr><td class="dim">14:00:31</td><td class="mono">ctk_c4d8…</td><td class="mono">kc/minimax-m3</td><td><span class="pill">json</span></td><td><span class="pill ok">200</span></td><td>5,781</td><td class="dim">2.0s</td></tr>
+              <tr><td class="dim">13:59:57</td><td class="mono">ctk_2b71…</td><td class="mono">dv/devin-2</td><td><span class="pill stream">stream</span></td><td><span class="pill ok">200</span></td><td>22,406</td><td class="dim">11.4s</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer glass">
+      <div class="status"><span class="pulse"></span>All systems nominal</div>
+      <span class="sep">·</span>
+      <span>Cartethyia v0.9.0</span>
+      <span class="sep">·</span>
+      <a href="#">docs</a>
+      <a href="#">audit log</a>
+      <span class="right">uptime 14d 06:12:44 · db 2.1 MB</span>
+    </footer>
+
+  </div>
+</div>
+
+<div class="toast-zone" id="toastZone"></div>
+
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+  lucide.createIcons();
+
+  /* ---------- dark / light ---------- */
+  const root = document.documentElement;
+  const saved = localStorage.getItem("cth-theme");
+  if (saved === "dark" || (!saved && matchMedia("(prefers-color-scheme: dark)").matches)) {
+    root.classList.add("dark");
+  }
+  document.getElementById("themeBtn").addEventListener("click", () => {
+    root.classList.toggle("dark");
+    const dark = root.classList.contains("dark");
+    localStorage.setItem("cth-theme", dark ? "dark" : "light");
+    toast(dark ? "Dark mode" : "Light mode", dark ? "moon" : "sun");
+  });
+
+  /* ---------- mobile drawer ---------- */
+  const sidebar = document.getElementById("sidebar");
+  const backdrop = document.getElementById("backdrop");
+  const setDrawer = (open) => {
+    sidebar.classList.toggle("open", open);
+    backdrop.classList.toggle("show", open);
+  };
+  document.getElementById("menuBtn").addEventListener("click", () => setDrawer(true));
+  backdrop.addEventListener("click", () => setDrawer(false));
+
+  /* ---------- nav active + title ---------- */
+  const title = document.getElementById("pageTitle");
+  const sub = document.getElementById("pageSub");
+  document.querySelectorAll(".nav-item").forEach((item) => {
+    item.addEventListener("click", (e) => {
+      e.preventDefault();
+      document.querySelector(".nav-item.active")?.classList.remove("active");
+      item.classList.add("active");
+      title.textContent = item.dataset.title;
+      sub.textContent = item.dataset.sub;
+      setDrawer(false);
+    });
+  });
+
+  /* ---------- fake chart ---------- */
+  const chart = document.getElementById("chart");
+  const heights = [34, 48, 40, 62, 55, 74, 66, 88, 79, 96, 84, 70];
+  const now = new Date();
+  heights.forEach((h, i) => {
+    const wrap = document.createElement("div");
+    wrap.className = "bar-wrap";
+    const bar = document.createElement("div");
+    bar.className = "bar" + (i === 9 ? " hot" : "");
+    bar.style.height = h + "%";
+    bar.style.animationDelay = (i * 40) + "ms";
+    const label = document.createElement("div");
+    label.className = "bar-label";
+    const t = new Date(now - (11 - i) * 3600e3);
+    label.textContent = String(t.getHours()).padStart(2, "0");
+    wrap.append(bar, label);
+    chart.appendChild(wrap);
+  });
+
+  /* ---------- toast ---------- */
+  function toast(msg, icon = "check") {
+    const zone = document.getElementById("toastZone");
+    const el = document.createElement("div");
+    el.className = "toast glass-2";
+    el.innerHTML = `<span class="t-icon"><i data-lucide="${icon}" style="width:15px;height:15px"></i></span>${msg}`;
+    zone.appendChild(el);
+    lucide.createIcons({ nodes: [el] });
+    setTimeout(() => {
+      el.classList.add("hide");
+      setTimeout(() => el.remove(), 260);
+    }, 2200);
+  }
+
+  /* chip toggle demo */
+  document.querySelectorAll(".card-head .chip").forEach((c) => {
+    c.addEventListener("click", () => {
+      const sibs = c.parentElement.querySelectorAll(".chip");
+      if (sibs.length > 1) sibs.forEach((s) => s.classList.remove("on"));
+      c.classList.add("on");
+    });
+  });
+</script>
+</body>
+</html>
