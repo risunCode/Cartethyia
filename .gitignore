@@ -1,6 +1,8 @@
 node_modules/
 dist/
 bun.lock
+!bun.lock
+!dashboard/bun.lock
 .env
 *.log
 data/
