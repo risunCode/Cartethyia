@@ -615,19 +615,22 @@ export function ProviderDetailPage() {
         <Card className={cn("flex h-full flex-col gap-1 p-2 transition-transform duration-150 hover:-translate-y-0.5 sm:gap-1.5 sm:p-2.5", !model.enabled && "opacity-65")}>
           <div className="flex items-start gap-1.5 sm:gap-2">
             <Bot size={13} className="mt-0.5 shrink-0 text-[var(--text-3)]" />
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="break-all font-mono text-[10px] font-semibold text-[var(--text-1)] sm:text-[11px]">{qualified}</div>
               <div className="mt-0.5 break-all text-[9px] text-[var(--text-3)] sm:text-[10px]">{model.id}</div>
             </div>
+            <Button variant="ghost" size="sm" className="shrink-0" aria-label={`Copy ${qualified}`} onClick={() => void copyToClipboard(qualified)}>
+              <Copy size={12} />
+            </Button>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             {model.source !== "built-in" && <Badge tone="info">{model.source}</Badge>}
-            <span title="Reasoning" aria-label="Reasoning" className="grid h-5 w-5 place-items-center rounded-md bg-[var(--hover)] text-[var(--accent)]">
-              <Brain size={11} aria-hidden="true" />
+            <span className="inline-flex items-center gap-0.5 rounded-md bg-[var(--hover)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--accent)]">
+              <Brain size={10} aria-hidden="true" /> Reasoning
             </span>
             {model.vision && (
-              <span title="Vision" aria-label="Vision" className="grid h-5 w-5 place-items-center rounded-md bg-[var(--hover)] text-[var(--teal)]">
-                <Eye size={11} aria-hidden="true" />
+              <span className="inline-flex items-center gap-0.5 rounded-md bg-[var(--hover)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--teal)]">
+                <Eye size={10} aria-hidden="true" /> Vision
               </span>
             )}
           </div>
@@ -651,9 +654,6 @@ export function ProviderDetailPage() {
                 <Trash2 size={12} />
               </Button>
             )}
-            <Button variant="ghost" size="sm" aria-label={`Copy ${qualified}`} onClick={() => void copyToClipboard(qualified)}>
-              <Copy size={12} />
-            </Button>
           </div>
         </Card>
       </div>
