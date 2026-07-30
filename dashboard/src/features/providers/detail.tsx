@@ -4,7 +4,7 @@
  */
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUpDown, Bot, Brain, Cable, Copy, ExternalLink, Eye, FileUp, FlaskConical, Info, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, Bot, Brain, Cable, Copy, ExternalLink, Eye, FileUp, FlaskConical, Info, Loader2, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -643,8 +643,9 @@ export function ProviderDetailPage() {
           )}
           {priceLabel && <div className="text-[9px] text-[var(--text-2)]">{priceLabel}</div>}
           <div className="mt-auto flex flex-wrap gap-1 pt-0.5 sm:gap-1.5">
-            <Button variant="secondary" size="sm" className="flex-1" disabled={!model.enabled || pendingModelId === model.id} onClick={() => runTest(model.id)}>
-              <FlaskConical size={12} /> {pendingModelId === model.id ? "Testing…" : "Test"}
+            <Button variant="secondary" size="sm" className="min-w-0 flex-1" disabled={!model.enabled || pendingModelId === model.id} onClick={() => runTest(model.id)}>
+              {pendingModelId === model.id ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />}
+              <span className="truncate">{pendingModelId === model.id ? "Testing…" : "Test"}</span>
             </Button>
             <Button variant="secondary" size="sm" disabled={modelMutation.isPending} onClick={() => modelMutation.mutate({ path: `/${encodeURIComponent(model.id)}/enabled`, body: { enabled: !model.enabled } })}>
               {model.enabled ? "Disable" : "Enable"}
