@@ -3,7 +3,7 @@ import { decodeOpenAIChatStream } from "../bridge";
 import { ProviderCallError, classifyUpstreamStatus } from "./index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./index";
 import { createModelCatalog } from "./models";
-import type { ModelCapability, ProviderModelCatalog, ProviderModelEntry } from "./models";
+import type { ProviderModelCatalog, ProviderModelEntry } from "./models";
 
 export interface OpenAICompatibleProviderConfig {
   id: Exclude<Provider["id"], "opencode-free" | "commandcode" | "kimchi" | "devin" | "qoder" | "custom" | "cursor" | "anthropic">;
@@ -25,12 +25,12 @@ export interface OpenAICompatibleProviderConfig {
 
 function passthroughCatalog(models: ProviderModelEntry[]): ProviderModelCatalog {
   const known = new Map(models.map((model) => [model.id, model]));
-  const capabilities: ModelCapability[] = ["text", "vision", "reasoning", "tools", "streaming", "json"];
 
+  // Any non-blank model id routes (the vendor's own /models endpoint is the
+  // real gate); an id outside the curated list just has no known vision flag.
   return {
     list: () => models,
-    resolve: (modelId) => known.get(modelId) ?? (modelId.trim() ? { id: modelId, capabilities } : undefined),
-    hasCapability: (modelId, capability) => (known.get(modelId)?.capabilities ?? capabilities).includes(capability),
+    resolve: (modelId) => known.get(modelId) ?? (modelId.trim() ? { id: modelId } : undefined),
   };
 }
 

@@ -109,7 +109,7 @@ describe("POST /v1/chat/completions with openai namespace", () => {
 
   test("a console-configured system prompt is injected exactly once, not doubled", async () => {
     // Regression: dispatchQualifiedRoute already runs prepareOutboundRequest
-    // once, centrally, before provider.call() — the openai/anthropic/xmimo/
+    // once, centrally, before provider.call(), the openai/anthropic/pgxiaomi/
     // openai-compatible providers used to re-run it themselves, doubling the
     // injected system prompt (and, more generally, double-applying RTK
     // compression and filter rules) for every qualified request.

@@ -114,13 +114,14 @@ describe("custom provider model discovery enrichment", () => {
 
     const fetchRes = await app.handle(postJson(`/console/api/custom-providers/${created.id}/models/fetch`, {}, { cookie }));
     expect(fetchRes.status).toBe(200);
-    const result = (await fetchRes.json()) as { models: Array<{ id: string; capabilities: string[]; contextWindow?: number }> };
+    const result = (await fetchRes.json()) as { models: Array<{ id: string; reasoning?: boolean; vision?: boolean; contextWindow?: number }> };
 
     const known = result.models.find((m) => m.id === "gpt-oss-120b")!;
-    expect(known.capabilities).toContain("reasoning");
-    expect(known.capabilities).toContain("tools");
+    expect(known.reasoning).toBe(true);
+    expect(known.vision).toBeUndefined();
 
     const unknown = result.models.find((m) => m.id === "totally-unknown-model-xyz")!;
-    expect(unknown.capabilities).toEqual(["text", "streaming"]);
+    expect(unknown.reasoning).toBeUndefined();
+    expect(unknown.vision).toBeUndefined();
   });
 });

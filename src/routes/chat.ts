@@ -1,7 +1,8 @@
 /**
  * POST /v1/chat/completions — client speaks OpenAI Chat Completions.
- * Routes legacy model names to OpenAI or Anthropic upstream by model name,
- * and provider-qualified models to the new provider registry.
+ * Every model routes through the provider registry (`dispatchQualifiedRoute`);
+ * a bare, unqualified model name is rejected rather than falling back to a
+ * direct OpenAI/Anthropic upstream call.
  */
 
 import { Elysia } from "elysia";

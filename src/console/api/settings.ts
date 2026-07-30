@@ -44,12 +44,6 @@ function validateRuntimePatch(patch: Partial<RuntimeSettings>): string | null {
   if (patch.systemPrompt !== undefined && typeof patch.systemPrompt !== "string") {
     return "systemPrompt must be a string";
   }
-  if (patch.costPerMillionInputTokens !== undefined && (!Number.isFinite(patch.costPerMillionInputTokens) || patch.costPerMillionInputTokens < 0)) {
-    return "costPerMillionInputTokens must be a non-negative number";
-  }
-  if (patch.costPerMillionOutputTokens !== undefined && (!Number.isFinite(patch.costPerMillionOutputTokens) || patch.costPerMillionOutputTokens < 0)) {
-    return "costPerMillionOutputTokens must be a non-negative number";
-  }
   return null;
 }
 

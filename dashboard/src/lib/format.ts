@@ -26,7 +26,7 @@ export function formatMemoryMb(mb: number | null | undefined): string {
   return `${mb.toLocaleString("en-US", { maximumFractionDigits: 0 })} MB`;
 }
 
-/** Renders "—" for exactly 0 — an unconfigured cost rate should read as "no estimate", not a real $0.00 spend. */
+/** Renders "—" for exactly 0 — no matching usage (or none of it had a known rate) reads as "no estimate", not a confirmed $0.00 spend. */
 export function formatUsd(value: number | null | undefined): string {
   if (value === null || value === undefined || value === 0) return "—";
   if (value < 0.01) return `$${value.toFixed(4)}`;

@@ -17,13 +17,13 @@ describe("provider model catalogs", () => {
     expect(providerRegistry.get("qoder")?.models.resolve("qmodel-latest")).toBeUndefined();
   });
 
-  test("reports capabilities", () => {
-    expect(providerRegistry.get("devin")?.models.hasCapability("swe-1-6-slow", "reasoning")).toBe(true);
-    expect(providerRegistry.get("devin")?.models.hasCapability("swe-1-6-slow", "vision")).toBe(true);
-    expect(providerRegistry.get("opencode-free")?.models.hasCapability("north-mini-code-free", "vision")).toBe(false);
-    expect(providerRegistry.get("opencode-free")?.models.hasCapability("big-pickle", "vision")).toBe(true);
-    expect(providerRegistry.get("opencode-free")?.models.hasCapability("big-pickle", "reasoning")).toBe(true);
-    expect(providerRegistry.get("commandcode")?.models.hasCapability("moonshotai/Kimi-K2.6", "tools")).toBe(true);
+  test("reports reasoning/vision flags", () => {
+    expect(providerRegistry.get("devin")?.models.resolve("swe-1-6-slow")?.reasoning).toBe(true);
+    expect(providerRegistry.get("devin")?.models.resolve("swe-1-6-slow")?.vision).toBe(true);
+    expect(providerRegistry.get("opencode-free")?.models.resolve("north-mini-code-free")?.vision).toBeUndefined();
+    expect(providerRegistry.get("opencode-free")?.models.resolve("big-pickle")?.vision).toBe(true);
+    expect(providerRegistry.get("opencode-free")?.models.resolve("big-pickle")?.reasoning).toBe(true);
+    expect(providerRegistry.get("commandcode")?.models.resolve("moonshotai/Kimi-K2.6")?.reasoning).toBe(true);
   });
 
   test("lists provider models", () => {

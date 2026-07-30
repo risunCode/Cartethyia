@@ -6,12 +6,9 @@
 
 import { Elysia } from "elysia";
 import { MessagesRequestSchema } from "./schemas";
-import { selectProvider, resolveOpenAIAuth, resolveAnthropicAuth, callMessages, callChatCompletions } from "../upstream/providers";
 import { translateMessagesRequestToChat, translateChatResponseToMessages } from "../translate/openai-anthropic";
-import { decodeOpenAIChatStream, encodeAnthropicStream, withStreamErrorHandling } from "../upstream/bridge";
-import { toSSEResponseStream } from "../upstream/sse";
-import { formatSSEFrame } from "../upstream/sse";
-import { asObject } from "../upstream/jsonGuards";
+import { encodeAnthropicStream, withStreamErrorHandling } from "../upstream/bridge";
+import { toSSEResponseStream, formatSSEFrame } from "../upstream/sse";
 import { anthropicClientError, anthropicUpstreamError } from "../http/errors";
 import type { AnthropicRequest, AnthropicResponse, OpenAIChatResponse } from "../translate/types";
 import { dispatchQualifiedRoute } from "../upstream/dispatch";
@@ -97,7 +94,6 @@ export const messagesRoute = new Elysia().post(
   "/v1/messages",
   async ({ body, headers, set, request, server }) => {
     const req = body as AnthropicRequest;
-    const provider = selectProvider(req.model);
     const isStreaming = req.stream === true;
 
     return withProxyRequest(
@@ -198,36 +194,6 @@ export const messagesRoute = new Elysia().post(
           }
           return tracker.finishJson(200, translateChatResponseToMessages(qualified.result.body as unknown as OpenAIChatResponse), undefined, req);
         }
-
-        if (provider === "anthropic") {
-          const auth = resolveAnthropicAuth(headers);
-          const res = await callMessages(req, { apiKeyHeader: auth });
-          if (isStreaming) {
-            set.headers["content-type"] = "text/event-stream";
-            return tracker.wrapSse(res.body ?? new ReadableStream(), undefined, req);
-          }
-          return tracker.finishJson(200, await res.json(), undefined, req);
-        }
-
-        // OpenAI upstream, Anthropic-shape client.
-        const auth = resolveOpenAIAuth(headers);
-        const res = await callChatCompletions(chatReq, { authorizationHeader: auth });
-
-        if (isStreaming) {
-          set.headers["content-type"] = "text/event-stream";
-          const meta = { id: `msg-${crypto.randomUUID()}`, model: req.model, createdAt: Math.floor(Date.now() / 1000) };
-          const events = decodeOpenAIChatStream(res.body ?? new ReadableStream());
-          return tracker.wrapSse(toSSEResponseStream(withStreamErrorHandling(encodeAnthropicStream(events, meta), "anthropic")), undefined, req);
-        }
-
-        const parsedBody = asObject(await res.json());
-        if (!parsedBody) {
-          set.status = 502;
-          tracker.fail(502, "internal_error", req);
-          return anthropicClientError(502, "internal_error", "The provider answered, but its response was incomplete or unreadable. Please retry this request in a moment.");
-        }
-        const chatBody = parsedBody as unknown as OpenAIChatResponse;
-        return tracker.finishJson(200, translateChatResponseToMessages(chatBody), undefined, req);
       },
     );
   },

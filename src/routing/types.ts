@@ -1,6 +1,6 @@
 // Display order in the console's Providers list — not alphabetical, curated
 // manually (see user-requested ordering); rest are appended in original order.
-export const ADDED_PROVIDER_IDS = ["kimchi", "qoder", "openai", "anthropic", "commandcode", "opencode-go", "opencode-zen", "deepseek", "ollama", "mistral", "cerebras", "opencode-free", "agentrouter", "devin", "custom", "cursor", "xmimo", "xiaomi-tokenplan", "openrouter", "siliconflow"] as const;
+export const ADDED_PROVIDER_IDS = ["kimchi", "qoder", "openai", "anthropic", "commandcode", "opencode-go", "opencode-zen", "deepseek", "ollama", "mistral", "cerebras", "opencode-free", "agentrouter", "devin", "custom", "cursor", "pgxiaomi", "tpxiaomi", "openrouter", "siliconflow"] as const;
 
 export type AddedProviderId = (typeof ADDED_PROVIDER_IDS)[number];
 
@@ -8,7 +8,7 @@ export const PROVIDER_PREFIXES = {
   foc: "opencode-free",
   opencodezen: "opencode-zen",
   agentrouter: "agentrouter",
-  mimosgtp: "xiaomi-tokenplan",
+  mimosgtp: "tpxiaomi",
   cmd: "commandcode",
   kimchi: "kimchi",
   devin: "devin",
@@ -16,7 +16,7 @@ export const PROVIDER_PREFIXES = {
   cursor: "cursor",
   openai: "openai",
   anthropic: "anthropic",
-  pmimo: "xmimo",
+  pmimo: "pgxiaomi",
   openrouter: "openrouter",
   ollama: "ollama",
   cerebras: "cerebras",

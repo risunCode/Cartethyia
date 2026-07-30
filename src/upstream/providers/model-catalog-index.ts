@@ -1,24 +1,24 @@
 /**
  * Cross-provider known-model metadata index (REQ-8 follow-up).
  *
- * Discovery (`GET {baseUrl}/models`) only ever returns bare model ids — no
- * capabilities, context window, or max output tokens. When a discovered id
- * happens to name a model we already know about from another provider's
- * curated catalog (e.g. `gpt-oss-120b` on both Cerebras and Ollama), we can
- * back-fill the same specs instead of showing a bare "text, streaming"
+ * Discovery (`GET {baseUrl}/models`) only ever returns bare model ids, no
+ * reasoning/vision flags, context window, or max output tokens. When a
+ * discovered id happens to name a model we already know about from another
+ * provider's curated catalog (e.g. `gpt-oss-120b` on both Cerebras and
+ * Ollama), we can back-fill the same specs instead of showing an empty
  * placeholder. Falls back to that placeholder when nothing matches.
  */
 
 import { providerRegistry } from "./index";
-import type { ModelCapability } from "./models";
 
 export interface KnownModelMeta {
-  capabilities: ModelCapability[];
+  reasoning?: boolean;
+  vision?: boolean;
   contextWindow?: number;
   maxOutputTokens?: number;
 }
 
-const FALLBACK_META: KnownModelMeta = { capabilities: ["text", "streaming"] };
+const FALLBACK_META: KnownModelMeta = {};
 
 let cachedIndex: Map<string, KnownModelMeta> | undefined;
 
@@ -35,17 +35,17 @@ function buildIndex(): Map<string, KnownModelMeta> {
   for (const provider of providerRegistry.all()) {
     for (const model of provider.models.list()) {
       const key = normalize(model.id);
-      // First writer wins — providers are registered in a stable order and a
+      // First writer wins, providers are registered in a stable order and a
       // collision is expected to describe the same real-world model.
       if (!index.has(key)) {
-        index.set(key, { capabilities: model.capabilities, contextWindow: model.contextWindow, maxOutputTokens: model.maxOutputTokens });
+        index.set(key, { reasoning: model.reasoning, vision: model.vision, contextWindow: model.contextWindow, maxOutputTokens: model.maxOutputTokens });
       }
     }
   }
   return index;
 }
 
-/** Best-effort metadata for a bare discovered model id — exact/normalized match against every known catalog, else the text+streaming fallback. */
+/** Best-effort metadata for a bare discovered model id, exact/normalized match against every known catalog, else an empty placeholder. */
 export function lookupKnownModelMeta(modelId: string): KnownModelMeta {
   if (!cachedIndex) cachedIndex = buildIndex();
   return cachedIndex.get(normalize(modelId)) ?? FALLBACK_META;

@@ -4,6 +4,7 @@ import { Elysia } from "elysia";
 import { consoleError } from "../errors";
 import {
   queryUsageSummary,
+  queryUsageCost,
   queryUsageChart,
   queryUsageBy,
   queryUsageRequests,
@@ -15,8 +16,6 @@ import {
 } from "../db/repos/usage";
 import { getRequestDetailBundle, getStoredRequestPayload, purgeAllStoredData } from "../db/repos/details";
 import { addAuditEvent } from "../db/repos/audit";
-import { getRuntimeSettings } from "../runtime";
-import { estimateCostUsd } from "../tracking/cost";
 import { getInFlightCount } from "../tracking/in-flight";
 
 const PERIODS: UsagePeriod[] = ["1h", "24h", "7d", "30d"];
@@ -36,10 +35,9 @@ export const usageRoutes = new Elysia({ prefix: "/console/api" })
     const period = parsePeriod(query.period);
     if (!period) return badPeriod(set);
     const summary = queryUsageSummary(period);
-    const runtime = getRuntimeSettings();
     return {
       ...summary,
-      estimatedCostUsd: estimateCostUsd(summary.inputTokens, summary.outputTokens, runtime.costPerMillionInputTokens, runtime.costPerMillionOutputTokens),
+      ...queryUsageCost(period),
       inFlight: getInFlightCount(),
     };
   })

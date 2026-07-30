@@ -27,15 +27,6 @@ export interface RuntimeSettings {
   systemPrompt: string;
   sessionTtlHours: number;
   rtk: RtkSettings;
-  /**
-   * Blended USD-per-1M-token rates used for the "Est. Cost" stat card.
-   * Per-model billing is genuinely provider-specific and not something this
-   * app has a reliable live rate card for, so cost is a single configurable
-   * blended estimate rather than fabricated per-model pricing. 0 (the
-   * default) means "unconfigured" — the card shows a hint instead of $0.00.
-   */
-  costPerMillionInputTokens: number;
-  costPerMillionOutputTokens: number;
 }
 
 export interface SettingsRow {
@@ -85,8 +76,6 @@ function envDefaults(): RuntimeSettings {
     // in settings_json that then takes precedence on every future read.
     systemPrompt: Bun.env.CARTETHYIA_SYSTEM_PROMPT?.trim() ?? "",
     sessionTtlHours: env.sessionTtlHours,
-    costPerMillionInputTokens: parseBoundedNumber(Bun.env.COST_PER_MILLION_INPUT_TOKENS, 0, 0, 1_000_000),
-    costPerMillionOutputTokens: parseBoundedNumber(Bun.env.COST_PER_MILLION_OUTPUT_TOKENS, 0, 0, 1_000_000),
     rtk: {
       enabled: Bun.env.RTK_ENABLED === "true",
       minChars: parseBoundedNumber(Bun.env.RTK_MIN_CHARS, 1500, 500, 1_000_000),

@@ -26,8 +26,6 @@ export function defaultRuntimeSettings(): RuntimeSettings {
     cacheMarkersEnabled: true,
     systemPrompt: "",
     sessionTtlHours: env.sessionTtlHours,
-    costPerMillionInputTokens: 0,
-    costPerMillionOutputTokens: 0,
     rtk: { enabled: false, minChars: 1500, maxReductionPercent: 35 },
   };
 }

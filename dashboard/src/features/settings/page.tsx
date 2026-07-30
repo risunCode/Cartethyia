@@ -30,8 +30,6 @@ interface RuntimeSettings {
   cacheMarkersEnabled: boolean;
   systemPrompt: string;
   sessionTtlHours: number;
-  costPerMillionInputTokens: number;
-  costPerMillionOutputTokens: number;
   rtk: { enabled: boolean; minChars: number; maxReductionPercent: number };
 }
 
@@ -397,31 +395,9 @@ export function SettingsPage() {
                   onChange={() => undefined}
                 />
               </div>
-              <div>
-                <Label>Cost estimate — $ per 1M input tokens</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={String(settings.costPerMillionInputTokens)}
-                  onBlur={(e) => patch({ costPerMillionInputTokens: Math.max(0, Number(e.target.value) || 0) })}
-                  onChange={() => undefined}
-                />
-              </div>
-              <div>
-                <Label>Cost estimate — $ per 1M output tokens</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={String(settings.costPerMillionOutputTokens)}
-                  onBlur={(e) => patch({ costPerMillionOutputTokens: Math.max(0, Number(e.target.value) || 0) })}
-                  onChange={() => undefined}
-                />
-              </div>
             </div>
             <p className="mt-2 text-[11px] text-[var(--text-3)]">
-              A single blended rate, not per-model billing — there's no live rate card for every provider/model here. Leave at 0 to hide the Est. Cost figure.
+              Est. Cost is calculated automatically from each request's own provider/model rate card, no manual rate configuration needed.
             </p>
             <div className="mt-3 flex items-center justify-between rounded-xl border border-dashed border-[var(--inner-border)] p-3">
               <div>

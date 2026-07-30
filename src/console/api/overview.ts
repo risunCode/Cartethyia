@@ -5,13 +5,11 @@ import { networkInterfaces } from "node:os";
 import { consoleError } from "../errors";
 import { ensureSettings, patchRuntimeSettings } from "../db/repos/settings";
 import { invalidateRuntimeSettings } from "../runtime";
-import { queryUsageSummary, queryProviderToday, queryLastProviderError } from "../db/repos/usage";
+import { queryUsageSummary, queryUsageCost, queryProviderToday, queryLastProviderError } from "../db/repos/usage";
 import { providerRegistry } from "../../upstream/providers";
 import { ADDED_PROVIDER_IDS, type AddedProviderId } from "../../routing/types";
 import { prefixOf } from "../../routing/providerMeta";
 import { addAuditEvent } from "../db/repos/audit";
-import { getRuntimeSettings } from "../runtime";
-import { estimateCostUsd } from "../tracking/cost";
 import { getInFlightCount } from "../tracking/in-flight";
 
 export interface ProviderOverview {
@@ -63,11 +61,10 @@ export const overviewRoutes = new Elysia({ prefix: "/console/api" })
   .get("/overview", async () => {
     const settings = await ensureSettings();
     const totals = queryUsageSummary("24h");
-    const runtime = getRuntimeSettings();
     return {
       totals: {
         ...totals,
-        estimatedCostUsd: estimateCostUsd(totals.inputTokens, totals.outputTokens, runtime.costPerMillionInputTokens, runtime.costPerMillionOutputTokens),
+        ...queryUsageCost("24h"),
       },
       inFlight: getInFlightCount(),
       providers: buildProviderOverview(),

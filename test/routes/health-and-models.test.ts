@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
 import { app } from "../../src/app";
+import { providerRegistry } from "../../src/upstream/providers";
 
 let fetchSpy: Mock<typeof fetch>;
 
@@ -35,38 +36,19 @@ describe("GET /health", () => {
 });
 
 describe("GET /v1/models", () => {
-  test("merges OpenAI and Anthropic model lists into one OpenAI-shape envelope", async () => {
-    fetchSpy.mockImplementation((async (input: Parameters<typeof fetch>[0]) => {
-      const url = String(input);
-      if (url.includes("api.openai.com")) {
-        return new Response(JSON.stringify({ object: "list", data: [{ id: "gpt-4o-mini", object: "model" }] }), { status: 200 });
-      }
-      return new Response(JSON.stringify({ data: [{ id: "claude-3-5-sonnet-20241022", type: "model" }] }), { status: 200 });
-    }) as typeof fetch);
-
-    const res = await app.handle(
-      new Request("http://localhost/v1/models", { headers: { authorization: "Bearer sk-test-openai", "x-api-key": "sk-ant-test" } })
-    );
+  test("merges the OpenAI and Anthropic provider registry catalogs into one OpenAI-shape envelope, without calling fetch or requiring a credential", async () => {
+    const res = await app.handle(new Request("http://localhost/v1/models"));
     expect(res.status).toBe(200);
+    expect(fetchSpy).not.toHaveBeenCalled();
+
     const body = (await res.json()) as { object: string; data: { id: string; object: string; owned_by: string }[] };
     expect(body.object).toBe("list");
-    expect(body.data).toContainEqual({ id: "gpt-4o-mini", object: "model", owned_by: "openai" });
-    expect(body.data).toContainEqual({ id: "claude-3-5-sonnet-20241022", object: "model", owned_by: "anthropic" });
-  });
 
-  test("a failing provider is skipped rather than failing the whole request", async () => {
-    fetchSpy.mockImplementation((async (input: Parameters<typeof fetch>[0]) => {
-      const url = String(input);
-      if (url.includes("api.openai.com")) throw new Error("network down");
-      return new Response(JSON.stringify({ data: [{ id: "claude-3-5-sonnet-20241022" }] }), { status: 200 });
-    }) as typeof fetch);
-
-    const res = await app.handle(
-      new Request("http://localhost/v1/models", { headers: { authorization: "Bearer sk-test-openai", "x-api-key": "sk-ant-test" } })
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: { id: string }[] };
-    expect(body.data).toHaveLength(1);
-    expect(body.data[0]!.id).toBe("claude-3-5-sonnet-20241022");
+    const openaiIds = providerRegistry.get("openai")!.models.list().map((m) => m.id);
+    const anthropicIds = providerRegistry.get("anthropic")!.models.list().map((m) => m.id);
+    expect(body.data.filter((m) => m.owned_by === "openai").map((m) => m.id).sort()).toEqual(openaiIds.sort());
+    expect(body.data.filter((m) => m.owned_by === "anthropic").map((m) => m.id).sort()).toEqual(anthropicIds.sort());
+    expect(body.data).toHaveLength(openaiIds.length + anthropicIds.length);
+    expect(body.data.every((m) => m.object === "model")).toBe(true);
   });
 });

@@ -2,12 +2,11 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft, Bot, Brain, Copy, Eye, FlaskConical, Link2, ListChecks, Pencil, RefreshCw, Trash2, Wrench, X } from "lucide-react";
+import { ArrowLeft, Bot, Copy, Eye, FlaskConical, Link2, ListChecks, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api, apiGet, apiPost } from "../../lib/api";
-import { cn } from "../../lib/cn";
 import { formatTokens, formatDuration } from "../../lib/format";
 import { staggerItem } from "../../lib/motion";
 import { Badge } from "../../components/ui/badge";
@@ -19,7 +18,8 @@ import { HeaderPairsEditor, headersToPairs, pairsToHeaders, type HeaderPair } fr
 
 interface CustomProviderModel {
   id: string;
-  capabilities: string[];
+  reasoning?: boolean;
+  vision?: boolean;
   contextWindow?: number;
   maxOutputTokens?: number;
 }
@@ -54,12 +54,9 @@ interface ModelTestResult {
   error?: string;
 }
 
-/** Capabilities worth surfacing — mirrors the built-in provider grid's icon set. */
-const CAPABILITY_ICONS = [
-  { key: "reasoning", label: "Thinking", Icon: Brain, className: "text-[var(--accent)]" },
-  { key: "vision", label: "Vision", Icon: Eye, className: "text-[var(--teal)]" },
-  { key: "tools", label: "Tools", Icon: Wrench, className: "text-[var(--text-2)]" },
-];
+// Reasoning is assumed for every model here; vision is the one flag that
+// actually varies, so it's the only badge worth surfacing (mirrors the
+// built-in provider grid).
 
 async function copyToClipboard(text: string) {
   try {
@@ -326,7 +323,6 @@ export function CustomProviderDetailPage() {
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
             {data.models.map((model, index) => {
               const qualified = `${data.slug}/${model.id}`;
-              const caps = CAPABILITY_ICONS.filter((capability) => model.capabilities.includes(capability.key));
               const testStatus = modelTestStatus[model.id];
               return (
                 <motion.div key={model.id} {...staggerItem(index)}>
@@ -339,11 +335,11 @@ export function CustomProviderDetailPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      {caps.map(({ key, label, Icon, className }) => (
-                        <span key={key} title={label} aria-label={label} className={cn("grid h-5 w-5 place-items-center rounded-md bg-[var(--hover)]", className)}>
-                          <Icon size={11} aria-hidden="true" />
+                      {model.vision && (
+                        <span title="Vision" aria-label="Vision" className="grid h-5 w-5 place-items-center rounded-md bg-[var(--hover)] text-[var(--teal)]">
+                          <Eye size={11} aria-hidden="true" />
                         </span>
-                      ))}
+                      )}
                       {testStatus?.ok && <Badge tone="ok">passed · {formatDuration(testStatus.latencyMs)}</Badge>}
                       {testStatus && !testStatus.ok && testStatus.latencyMs > 0 && <Badge tone="err" title={testStatus.error}>failed</Badge>}
                     </div>

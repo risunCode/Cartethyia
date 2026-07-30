@@ -31,13 +31,10 @@ describe("POST /console/api/custom-providers/validate", () => {
       postJson("/console/api/custom-providers/validate", { type: "openai-compatible", baseUrl: "https://api.example.com/v1", credential: "sk-test" }, { cookie }),
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; models: Array<{ id: string; capabilities: string[] }> };
+    const body = (await res.json()) as { ok: boolean; models: Array<{ id: string; reasoning?: boolean; vision?: boolean }> };
     expect(body.ok).toBe(true);
-    // Neither id matches a known catalog model, so both fall back to the plain text+streaming placeholder.
-    expect(body.models).toEqual([
-      { id: "gpt-4o", capabilities: ["text", "streaming"] },
-      { id: "gpt-4o-mini", capabilities: ["text", "streaming"] },
-    ]);
+    // Neither id matches a known catalog model, so both fall back to no declared reasoning/vision.
+    expect(body.models).toEqual([{ id: "gpt-4o" }, { id: "gpt-4o-mini" }]);
 
     const [url] = fetchSpy.mock.calls[0]!;
     expect(String(url)).toBe("https://api.example.com/v1/models");
@@ -113,8 +110,8 @@ describe("POST /console/api/custom-providers with autoFetchModels", () => {
       ),
     );
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { models: Array<{ id: string; capabilities: string[] }>; timeoutSeconds: number };
-    expect(body.models).toEqual([{ id: "llama-3", capabilities: ["text", "streaming"] }]);
+    const body = (await res.json()) as { models: Array<{ id: string; reasoning?: boolean; vision?: boolean }>; timeoutSeconds: number };
+    expect(body.models).toEqual([{ id: "llama-3" }]);
     expect(body.timeoutSeconds).toBe(10);
   });
 

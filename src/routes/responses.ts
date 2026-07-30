@@ -7,14 +7,11 @@
 
 import { Elysia } from "elysia";
 import { ResponsesRequestSchema } from "./schemas";
-import { selectProvider, resolveOpenAIAuth, resolveAnthropicAuth, callResponses, callMessages } from "../upstream/providers";
 import { translateResponsesRequestToChat, translateChatResponseToResponses } from "../translate/openai-responses";
-import { translateChatRequestToAnthropic, translateAnthropicResponseToChat } from "../translate/openai-anthropic";
-import { decodeAnthropicStream, encodeResponsesStream, withStreamErrorHandling } from "../upstream/bridge";
+import { encodeResponsesStream, withStreamErrorHandling } from "../upstream/bridge";
 import { toSSEResponseStream } from "../upstream/sse";
-import { asObject } from "../upstream/jsonGuards";
 import { openAIClientError, openAIUpstreamError } from "../http/errors";
-import type { AnthropicResponse, OpenAIResponsesRequest } from "../translate/types";
+import type { OpenAIResponsesRequest } from "../translate/types";
 import { dispatchQualifiedRoute } from "../upstream/dispatch";
 import { withProxyRequest } from "./middleware/proxyRequest";
 
@@ -22,7 +19,6 @@ export const responsesRoute = new Elysia().post(
   "/v1/responses",
   async ({ body, headers: rawHeaders, set, request, server }) => {
     const req = body as OpenAIResponsesRequest;
-    const provider = selectProvider(req.model);
     const isStreaming = req.stream === true;
     const headers = rawHeaders as Record<string, string | undefined>;
 
@@ -53,38 +49,6 @@ export const responsesRoute = new Elysia().post(
           }
           return tracker.finishJson(200, translateChatResponseToResponses(qualified.result.body as never), undefined, req);
         }
-
-        if (provider === "openai") {
-          const auth = resolveOpenAIAuth(headers);
-          const res = await callResponses(req, { authorizationHeader: auth });
-          if (isStreaming) {
-            set.headers["content-type"] = "text/event-stream";
-            return tracker.wrapSse(res.body ?? new ReadableStream(), undefined, req);
-          }
-          return tracker.finishJson(200, await res.json(), undefined, req);
-        }
-
-        // Anthropic upstream, Responses-shape client: Responses → Chat → Anthropic.
-        const anthropicReq = translateChatRequestToAnthropic(chatReq);
-        const auth = resolveAnthropicAuth(headers);
-        const res = await callMessages(anthropicReq, { apiKeyHeader: auth });
-
-        if (isStreaming) {
-          set.headers["content-type"] = "text/event-stream";
-          const meta = { id: `resp-${crypto.randomUUID()}`, model: req.model, createdAt: Math.floor(Date.now() / 1000) };
-          const events = decodeAnthropicStream(res.body ?? new ReadableStream());
-          return tracker.wrapSse(toSSEResponseStream(withStreamErrorHandling(encodeResponsesStream(events, meta), "openai-responses")), undefined, req);
-        }
-
-        const parsedBody = asObject(await res.json());
-        if (!parsedBody) {
-          set.status = 502;
-          tracker.fail(502, "internal_error", req);
-          return openAIClientError(502, "internal_error", "The provider answered, but its response was incomplete or unreadable. Please retry this request in a moment.");
-        }
-        const anthropicBody = parsedBody as unknown as AnthropicResponse;
-        const chatResp = translateAnthropicResponseToChat(anthropicBody);
-        return tracker.finishJson(200, translateChatResponseToResponses(chatResp), undefined, req);
       },
     );
   },

@@ -102,7 +102,6 @@ class DynamicProviderRouter implements Provider {
     // endpoint — there is no fixed catalog to list or resolve against.
     list: (): ProviderModelEntry[] => [],
     resolve: (): ProviderModelEntry | undefined => undefined,
-    hasCapability: (): boolean => false,
   };
 
   resolveTarget(modelId: string): RouteTarget | undefined {

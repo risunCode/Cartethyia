@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { getConsoleEnv } from "../../env";
 import { finiteOrNull, orZero } from "../../../utils/number-guards";
 import { utcNow, utcDateOf, periodStartUtc, type UsagePeriod } from "../../../utils/date-utils";
+import { providerRegistry } from "../../../upstream/providers";
+import type { Provider } from "../../../upstream/providers";
 
 export { utcNow, utcDateOf, periodStartUtc, type UsagePeriod };
 
@@ -170,6 +172,33 @@ export function queryUsageSummary(period: UsagePeriod): UsageSummary {
     errors: items.filter((record) => record.status >= 400).length,
     avgDurationMs: items.length ? Math.round(duration / items.length) : 0,
   };
+}
+
+export interface UsageCost {
+  estimatedCostUsd: number;
+  /** True when at least one matching request used a provider/model with no published per-token rate (subscription/aggregator providers), so the total under-counts those requests rather than guessing. */
+  partial: boolean;
+}
+
+/**
+ * Sum of each request's actual cost, using its own provider/model's real
+ * per-token rate (`ProviderModelEntry.pricing`) rather than one blended
+ * estimate across every request regardless of which model served it.
+ */
+export function queryUsageCost(period: UsagePeriod): UsageCost {
+  hydrateHistory();
+  const items = records.filter((record) => afterPeriod(record, period));
+  let estimatedCostUsd = 0;
+  let partial = false;
+  for (const record of items) {
+    const pricing = record.provider && record.model ? providerRegistry.get(record.provider as Provider["id"])?.models.resolve(record.model)?.pricing : undefined;
+    if (!pricing) {
+      partial = true;
+      continue;
+    }
+    estimatedCostUsd += (orZero(record.inputTokens) * pricing.input + orZero(record.outputTokens) * pricing.output) / 1_000_000;
+  }
+  return { estimatedCostUsd, partial };
 }
 
 export type ChartMetric = "requests" | "tokens" | "cached";

@@ -6,9 +6,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { app } from "../../src/app";
 import { loginAndGetCookie, postJson, useIsolatedDataDir } from "./helpers";
-import { insertUsageHistory, utcNow } from "../../src/console/db/repos/usage";
+import { insertUsageHistory, queryUsageCost, utcNow } from "../../src/console/db/repos/usage";
 import { getInFlightCount, resetInFlightForTests, subscribeInFlight } from "../../src/console/tracking/in-flight";
-import { estimateCostUsd } from "../../src/console/tracking/cost";
 import { createRequestTracker } from "../../src/console/tracking/tracker";
 import { activeFlights } from "../../src/http/traffic";
 
@@ -47,45 +46,62 @@ describe("POST /console/api/health/gc", () => {
 });
 
 describe("estimated cost", () => {
-  test("estimateCostUsd blends input/output rates over the given token counts", () => {
-    expect(estimateCostUsd(1_000_000, 500_000, 1, 2)).toBe(2); // 1*1 + 0.5*2
-    expect(estimateCostUsd(100, 100, 0, 0)).toBe(0);
-  });
-
-  test("/overview and /usage/summary report $0 estimatedCostUsd while cost rates are unconfigured", async () => {
+  test("a request against an unpriced provider (aggregator/subscription, no per-token rate card) contributes $0 and marks the total partial", async () => {
     insertUsageHistory({
       traceId: "cost-trace-1", endpoint: "/v1/chat/completions", surface: "chat", apiKeyId: null, apiKeyPrefix: null,
-      provider: "kimchi", model: "kimchi/kimi-k2.7", status: 200, errorKind: null, stream: false,
+      provider: "kimchi", model: "kimi-k2.7", status: 200, errorKind: null, stream: false,
       startedAt: utcNow(), finishedAt: utcNow(), durationMs: 500,
       inputTokens: 1000, outputTokens: 500, cachedTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 1500,
       usageSource: "provider", meta: {},
     });
 
     const overviewRes = await app.handle(new Request("http://localhost/console/api/overview", { headers: { cookie } }));
-    const overview = (await overviewRes.json()) as { totals: { estimatedCostUsd: number } };
+    const overview = (await overviewRes.json()) as { totals: { estimatedCostUsd: number; partial: boolean } };
     expect(overview.totals.estimatedCostUsd).toBe(0);
+    expect(overview.totals.partial).toBe(true);
 
     const summaryRes = await app.handle(new Request("http://localhost/console/api/usage/summary?period=24h", { headers: { cookie } }));
-    const summary = (await summaryRes.json()) as { estimatedCostUsd: number };
+    const summary = (await summaryRes.json()) as { estimatedCostUsd: number; partial: boolean };
     expect(summary.estimatedCostUsd).toBe(0);
+    expect(summary.partial).toBe(true);
   });
 
-  test("configuring cost rates makes /overview and /usage/summary report a non-zero estimate", async () => {
+  test("a request against a priced provider is costed from that model's own real rate, no settings involved", async () => {
     insertUsageHistory({
       traceId: "cost-trace-2", endpoint: "/v1/chat/completions", surface: "chat", apiKeyId: null, apiKeyPrefix: null,
-      provider: "kimchi", model: "kimchi/kimi-k2.7", status: 200, errorKind: null, stream: false,
+      provider: "openai", model: "gpt-5.6-sol", status: 200, errorKind: null, stream: false,
       startedAt: utcNow(), finishedAt: utcNow(), durationMs: 500,
       inputTokens: 1_000_000, outputTokens: 1_000_000, cachedTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 2_000_000,
       usageSource: "provider", meta: {},
     });
 
-    const patchRes = await app.handle(postJson("/console/api/settings", { costPerMillionInputTokens: 1, costPerMillionOutputTokens: 3 }, { cookie }));
-    expect(patchRes.status).toBe(200);
-
     const summaryRes = await app.handle(new Request("http://localhost/console/api/usage/summary?period=24h", { headers: { cookie } }));
-    const summary = (await summaryRes.json()) as { estimatedCostUsd: number };
-    // 1M input @ $1/M + 1M output @ $3/M = $4
-    expect(summary.estimatedCostUsd).toBe(4);
+    const summary = (await summaryRes.json()) as { estimatedCostUsd: number; partial: boolean };
+    // gpt-5.6-sol: $5/M input + $30/M output → 1M input + 1M output = $35
+    expect(summary.estimatedCostUsd).toBe(35);
+    expect(summary.partial).toBe(false);
+  });
+
+  test("queryUsageCost mixes priced and unpriced requests correctly, only the priced one contributes", () => {
+    insertUsageHistory({
+      traceId: "cost-trace-3", endpoint: "/v1/chat/completions", surface: "chat", apiKeyId: null, apiKeyPrefix: null,
+      provider: "openai", model: "gpt-5.4-mini", status: 200, errorKind: null, stream: false,
+      startedAt: utcNow(), finishedAt: utcNow(), durationMs: 500,
+      inputTokens: 1_000_000, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 1_000_000,
+      usageSource: "provider", meta: {},
+    });
+    insertUsageHistory({
+      traceId: "cost-trace-4", endpoint: "/v1/chat/completions", surface: "chat", apiKeyId: null, apiKeyPrefix: null,
+      provider: "ollama", model: "gpt-oss:20b", status: 200, errorKind: null, stream: false,
+      startedAt: utcNow(), finishedAt: utcNow(), durationMs: 500,
+      inputTokens: 1_000_000, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 1_000_000,
+      usageSource: "provider", meta: {},
+    });
+
+    const cost = queryUsageCost("24h");
+    // gpt-5.4-mini: $0.75/M input → $0.75; ollama has no rate card, contributes $0 and flips partial.
+    expect(cost.estimatedCostUsd).toBe(0.75);
+    expect(cost.partial).toBe(true);
   });
 });
 

@@ -16,7 +16,6 @@ import { redactPayload } from "./redact";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseQualifiedModel } from "../../routing/resolve";
-import { selectProvider } from "../../upstream/providers";
 import { incrementInFlight, decrementInFlight } from "./in-flight";
 
 export type TrackSurface = "chat" | "anthropic" | "responses";
@@ -52,11 +51,16 @@ export interface RequestTracker {
   setProxyPool(name: string): void;
 }
 
+/** Best-effort provider label for a bare (unqualified) model name that never resolves through the registry — log/usage display only, never used to route or dispatch a request. */
+function guessProviderLabel(model: string): "openai" | "anthropic" {
+  return model.startsWith("claude") ? "anthropic" : "openai";
+}
+
 export function providerForModel(model: string | undefined): string | undefined {
   if (!model) return undefined;
   const parsed = parseQualifiedModel(model);
   if (parsed.kind === "qualified") return parsed.model.provider;
-  return selectProvider(model);
+  return guessProviderLabel(model);
 }
 
 export function createRequestTracker(start: TrackerStartInput): RequestTracker {

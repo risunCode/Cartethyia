@@ -62,8 +62,8 @@ const STATIC_TARGETS: Record<AddedProviderId, StaticTargetDefinition> = {
     surfaces: { default: "openai-chat" },
     credential: "provider-bearer",
   },
-  xmimo: {
-    provider: "xmimo",
+  pgxiaomi: {
+    provider: "pgxiaomi",
     surfaces: { default: "openai-chat" },
     credential: "provider-bearer",
   },
@@ -85,7 +85,7 @@ const STATIC_TARGETS: Record<AddedProviderId, StaticTargetDefinition> = {
   mistral: { provider: "mistral", surfaces: { default: "openai-chat" }, credential: "provider-bearer" },
   "opencode-go": { provider: "opencode-go", surfaces: { default: "openai-chat" }, credential: "provider-bearer" },
   agentrouter: { provider: "agentrouter", surfaces: { default: "openai-chat" }, credential: "provider-bearer" },
-  "xiaomi-tokenplan": { provider: "xiaomi-tokenplan", surfaces: { default: "openai-chat" }, credential: "provider-bearer" },
+  tpxiaomi: { provider: "tpxiaomi", surfaces: { default: "openai-chat" }, credential: "provider-bearer" },
 };
 
 /** Expected credential kind per provider (REQ-1) — the same table STATIC_TARGETS resolves targets from, so this can never drift from live routing behavior. */

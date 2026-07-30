@@ -35,6 +35,8 @@ interface Summary {
   errors: number;
   avgDurationMs: number;
   estimatedCostUsd: number;
+  /** True when at least one request in this period used a provider/model with no published rate card, so estimatedCostUsd under-counts. */
+  partial: boolean;
 }
 
 interface ChartBucket {
@@ -492,6 +494,11 @@ export function UsagePage() {
               {card.key === "requests" && inFlight > 0 && (
                 <span className="inline-flex items-center gap-0.5 rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[9.5px] font-semibold text-[var(--accent)]">
                   <span className="size-1.5 animate-pulse rounded-full bg-[var(--accent)]" />+{inFlight} in flight
+                </span>
+              )}
+              {card.key === "estimatedCostUsd" && summary?.partial && (
+                <span title="Some requests used a provider with no published rate card and aren't included" className="text-[9.5px] font-semibold text-[#ffd60a]">
+                  partial
                 </span>
               )}
             </div>

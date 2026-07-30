@@ -5,7 +5,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft, ArrowUpDown, Bot, Brain, Cable, Copy, ExternalLink, Eye, FlaskConical, Info, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2, Wrench } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, Bot, Cable, Copy, ExternalLink, Eye, FlaskConical, Info, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { useCallback, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -25,13 +25,30 @@ import { StatusDot } from "../../components/status-dot";
 import { ProviderIcon } from "../../components/provider-icon";
 import { ConfirmDialog } from "../../components/shared";
 
+interface ModelPricing {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}
+
 interface ModelEntry {
   id: string;
-  capabilities: string[];
+  reasoning?: boolean;
+  vision?: boolean;
   contextWindow?: number;
   maxOutputTokens?: number;
   enabled: boolean;
   source: "built-in" | "manual" | "imported";
+  pricing?: ModelPricing;
+}
+
+/** "$5 / $30 per 1M" style, or "Free" for a genuinely $0 flat-plan model, distinct from no pricing data at all. */
+function formatModelPricing(pricing: ModelPricing | undefined): string | null {
+  if (!pricing) return null;
+  if (pricing.input === 0 && pricing.output === 0) return "Free";
+  const fmt = (n: number) => (n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`);
+  return `${fmt(pricing.input)} / ${fmt(pricing.output)} per 1M`;
 }
 
 interface AccountEntry {
@@ -124,12 +141,8 @@ async function copyToClipboard(text: string): Promise<void> {
   }
 }
 
-/** Capabilities worth surfacing — text/streaming/json are universal noise. */
-const CAPABILITY_ICONS = [
-  { key: "reasoning", label: "Thinking", Icon: Brain, className: "text-[var(--accent)]" },
-  { key: "vision", label: "Vision", Icon: Eye, className: "text-[var(--teal)]" },
-  { key: "tools", label: "Tools", Icon: Wrench, className: "text-[var(--text-2)]" },
-];
+// Reasoning is assumed for every model here; vision is the one flag that
+// actually varies, so it's the only badge worth surfacing.
 
 // ── Model test modal ─────────────────────────────────────────────────────
 /**
@@ -539,7 +552,7 @@ export function ProviderDetailPage() {
   };
   const renderModel = (model: ModelEntry, index: number) => {
     const qualified = `${data.prefix}/${model.id}`;
-    const caps = CAPABILITY_ICONS.filter((capability) => model.capabilities.includes(capability.key));
+    const priceLabel = formatModelPricing(model.pricing);
     return (
       <motion.div key={model.id} {...staggerItem(index)}>
         <Card className={cn("flex h-full flex-col gap-1 p-2 transition-transform duration-150 hover:-translate-y-0.5 sm:gap-1.5 sm:p-2.5", !model.enabled && "opacity-65")}>
@@ -552,19 +565,20 @@ export function ProviderDetailPage() {
           </div>
           <div className="flex items-center gap-1">
             {model.source !== "built-in" && <Badge tone="info">{model.source}</Badge>}
-            {caps.map(({ key, label, Icon, className }) => (
-              <span key={key} title={label} aria-label={label} className={cn("grid h-5 w-5 place-items-center rounded-md bg-[var(--hover)]", className)}>
-                <Icon size={11} aria-hidden="true" />
+            {model.vision && (
+              <span title="Vision" aria-label="Vision" className="grid h-5 w-5 place-items-center rounded-md bg-[var(--hover)] text-[var(--teal)]">
+                <Eye size={11} aria-hidden="true" />
               </span>
-            ))}
+            )}
           </div>
           {Boolean(model.contextWindow || model.maxOutputTokens) && (
             <div className="hidden text-[9px] text-[var(--text-2)] sm:block">
               {model.contextWindow ? `${formatTokens(model.contextWindow)} context` : null}
-              {model.contextWindow && model.maxOutputTokens ? " · " : null}
+              {model.contextWindow && model.maxOutputTokens ? " \u00b7 " : null}
               {model.maxOutputTokens ? `${formatTokens(model.maxOutputTokens)} max output` : null}
             </div>
           )}
+          {priceLabel && <div className="hidden text-[9px] text-[var(--text-2)] sm:block">{priceLabel}</div>}
           <div className="mt-auto flex gap-1 pt-0.5 sm:gap-1.5">
             <Button variant="secondary" size="sm" className="flex-1" disabled={!model.enabled || pendingModelId === model.id} onClick={() => runTest(model.id)}>
               <FlaskConical size={12} /> {pendingModelId === model.id ? "Testing…" : "Test"}

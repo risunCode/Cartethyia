@@ -7,14 +7,14 @@
 
 import { getDb } from "../client";
 import { ADDED_PROVIDER_IDS, PROVIDER_PREFIXES } from "../../../routing/types";
-import type { ModelCapability } from "../../../upstream/providers/models";
 
 export type CustomProviderType = "openai-compatible" | "anthropic-compatible";
 
-/** A discovered/enriched model — see `upstream/providers/model-catalog-index.ts` for how capabilities/context get filled in when the upstream `/models` response doesn't include them. */
+/** A discovered/enriched model, see `upstream/providers/model-catalog-index.ts` for how reasoning/vision/context get filled in when the upstream `/models` response doesn't include them. */
 export interface CustomProviderModel {
   id: string;
-  capabilities: ModelCapability[];
+  reasoning?: boolean;
+  vision?: boolean;
   contextWindow?: number;
   maxOutputTokens?: number;
 }
@@ -80,13 +80,14 @@ function parseModels(json: string): CustomProviderModel[] {
     return parsed
       .map((entry): CustomProviderModel | undefined => {
         // Back-compat: an older build stored `models_json` as a bare string[].
-        if (typeof entry === "string") return { id: entry, capabilities: ["text", "streaming"] };
+        if (typeof entry === "string") return { id: entry };
         if (!entry || typeof entry !== "object" || Array.isArray(entry)) return undefined;
         const row = entry as Record<string, unknown>;
         if (typeof row.id !== "string") return undefined;
         return {
           id: row.id,
-          capabilities: Array.isArray(row.capabilities) ? row.capabilities.filter((c): c is ModelCapability => typeof c === "string") : ["text", "streaming"],
+          reasoning: row.reasoning === true ? true : undefined,
+          vision: row.vision === true ? true : undefined,
           contextWindow: typeof row.contextWindow === "number" ? row.contextWindow : undefined,
           maxOutputTokens: typeof row.maxOutputTokens === "number" ? row.maxOutputTokens : undefined,
         };

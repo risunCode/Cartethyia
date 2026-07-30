@@ -1,14 +1,14 @@
 /**
- * Unified upstream provider module — provider registry (Cartethyia-managed
- * providers) plus pass-through OpenAI/Anthropic fetch wrappers (legacy BYOK
- * path). Single import point for all upstream dispatch concerns.
+ * Unified upstream provider module. The provider registry for every
+ * Cartethyia-managed provider (built-in API-key, session-based, and custom).
+ * Single import point for all upstream dispatch concerns; every model, bare
+ * or provider-qualified, resolves and dispatches through this registry, not
+ * a direct fetch to an upstream API.
  */
 
-import { getRequestTransformSettings } from "../../console/runtime";
 import type { RouteTarget } from "../../routing/types";
 import type { StreamEvent } from "../bridge";
 import { UpstreamError } from "../error";
-import { prepareOutboundRequest } from "../outbound";
 import type { ProviderModelCatalog } from "./models";
 import { commandCodeProvider } from "./commandcode/index";
 import { kimchiProvider } from "./kimchi/index";
@@ -20,6 +20,10 @@ import { dynamicProviderRouter } from "./dynamic";
 import { cursorProvider } from "./cursor/index";
 import { anthropicProvider } from "./anthropic/index";
 import { agentRouterProvider } from "./agentrouter/index";
+import { openaiProvider } from "./openai/index";
+import { opencodeGoProvider } from "./opencode-go/index";
+import { xiaomiPaygProvider } from "./xiaomi-payg/index";
+import { xiaomiTokenPlanProvider } from "./xiaomi-tokenplan/index";
 import { createOpenAICompatibleProvider } from "./openai-compatible";
 
 export { UpstreamError } from "../error";
@@ -70,7 +74,7 @@ export interface ProviderDisplay {
 }
 
 export interface Provider {
-  readonly id: "opencode-free" | "opencode-zen" | "commandcode" | "kimchi" | "devin" | "qoder" | "custom" | "cursor" | "openai" | "anthropic" | "xmimo" | "openrouter" | "ollama" | "cerebras" | "deepseek" | "siliconflow" | "mistral" | "opencode-go" | "agentrouter" | "xiaomi-tokenplan";
+  readonly id: "opencode-free" | "opencode-zen" | "commandcode" | "kimchi" | "devin" | "qoder" | "custom" | "cursor" | "openai" | "anthropic" | "pgxiaomi" | "openrouter" | "ollama" | "cerebras" | "deepseek" | "siliconflow" | "mistral" | "opencode-go" | "agentrouter" | "tpxiaomi";
   readonly display: ProviderDisplay;
   readonly models: ProviderModelCatalog;
 
@@ -133,42 +137,13 @@ export function providerHttpError(status: number, provider: string, authMessage?
 
 const OPENAI_COMPATIBLE_PROVIDERS = [
   createOpenAICompatibleProvider({
-    id: "openai",
-    name: "OpenAI",
-    icon: "openai",
-    baseUrl: "https://api.openai.com/v1",
-    credentialUrl: "https://platform.openai.com/api-keys",
-    authHint: "Paste your official OpenAI API key (starts with sk-...) from platform.openai.com.",
-    // Display-only — official BYOK provider, routing accepts any model id since
-    // OpenAI's catalog moves faster than a curated list can (matches prior dedicated impl).
-    // GPT-5.6 family (Sol/Terra/Luna) released 2026-07-09; GPT-5.5 (2026-04) and
-    // GPT-5.4 mini (2026-03-17) remain live in the API and are kept as prior-gen options
-    // (developers.openai.com/api/docs/models).
-    models: [
-      { id: "gpt-5.6-sol", capabilities: ["text", "streaming", "json", "tools", "reasoning", "vision"], contextWindow: 400000, maxOutputTokens: 128000, description: "Flagship — frontier coding, knowledge work, cybersecurity, science." },
-      { id: "gpt-5.6-terra", capabilities: ["text", "streaming", "json", "tools", "reasoning", "vision"], contextWindow: 400000, maxOutputTokens: 128000, description: "Balanced — lower cost per performance." },
-      { id: "gpt-5.6-luna", capabilities: ["text", "streaming", "json", "tools", "reasoning"], contextWindow: 400000, maxOutputTokens: 128000, description: "Fastest, most cost-efficient tier." },
-      { id: "gpt-5.5", capabilities: ["text", "streaming", "json", "tools", "reasoning", "vision"], contextWindow: 1000000, maxOutputTokens: 128000, description: "Prior-gen frontier — complex professional and agentic work." },
-      { id: "gpt-5.4-mini", capabilities: ["text", "streaming", "json", "tools", "reasoning", "vision"], contextWindow: 400000, maxOutputTokens: 128000, description: "Strongest mini tier — coding, computer use, high-volume subagents." },
-    ],
+    id: "openrouter",
+    name: "OpenRouter",
+    icon: "openrouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+    credentialUrl: "https://openrouter.ai/settings/keys",
+    models: [{ id: "openai/gpt-4.1", vision: true, contextWindow: 1047576, maxOutputTokens: 32768, pricing: { input: 2, output: 8, cacheRead: 0.5 } }],
   }),
-  createOpenAICompatibleProvider({
-    id: "xmimo",
-    name: "Xiaomi MiMo (PAYG)",
-    icon: "mimo",
-    baseUrl: "https://api.xiaomimimo.com/v1",
-    credentialUrl: "https://xiaomimimo.com",
-    authHint: "Paste your Xiaomi MiMo pay-as-you-go API key from xiaomimimo.com.",
-    // Pay-as-you-go tier, distinct from Token Plan (`xiaomi-tokenplan` below).
-    // Strict: gated to exactly this curated pair per operator preference —
-    // unlike the other entries here, an unlisted model id must be rejected.
-    strict: true,
-    models: [
-      { id: "mimo-v2.5-pro", capabilities: ["text", "streaming", "json", "tools"], contextWindow: 1000000, maxOutputTokens: 128000 },
-      { id: "mimo-v2.5", capabilities: ["text", "streaming", "json", "tools"], contextWindow: 1000000, maxOutputTokens: 128000 },
-    ],
-  }),
-  createOpenAICompatibleProvider({ id: "openrouter", name: "OpenRouter", icon: "openrouter", baseUrl: "https://openrouter.ai/api/v1", credentialUrl: "https://openrouter.ai/settings/keys", models: [{ id: "openai/gpt-4.1", capabilities: ["text", "vision", "tools", "streaming", "json"] }] }),
   createOpenAICompatibleProvider({
     id: "ollama",
     name: "Ollama",
@@ -176,13 +151,15 @@ const OPENAI_COMPATIBLE_PROVIDERS = [
     baseUrl: "https://ollama.com/v1",
     credentialUrl: "https://ollama.com/settings/keys",
     // gpt-oss + cloud-offloaded large open-weight models (docs.ollama.com/cloud).
+    // No pricing here: Ollama Cloud isn't metered per token the way the other
+    // providers on this list are (models.dev carries no cost figure for it).
     models: [
-      { id: "gpt-oss:20b", capabilities: ["text", "tools", "streaming", "json", "reasoning"] },
-      { id: "gpt-oss:120b", capabilities: ["text", "tools", "streaming", "json", "reasoning"] },
-      { id: "gpt-oss:20b-cloud", capabilities: ["text", "tools", "streaming", "json", "reasoning"] },
-      { id: "gpt-oss:120b-cloud", capabilities: ["text", "tools", "streaming", "json", "reasoning"] },
-      { id: "qwen3-coder:480b-cloud", capabilities: ["text", "tools", "streaming", "json"] },
-      { id: "deepseek-v3.1:671b-cloud", capabilities: ["text", "tools", "streaming", "json", "reasoning"] },
+      { id: "gpt-oss:20b", reasoning: true },
+      { id: "gpt-oss:120b", reasoning: true },
+      { id: "gpt-oss:20b-cloud", reasoning: true },
+      { id: "gpt-oss:120b-cloud", reasoning: true },
+      { id: "qwen3-coder:480b-cloud", reasoning: true },
+      { id: "deepseek-v3.1:671b-cloud", reasoning: true },
     ],
   }),
   createOpenAICompatibleProvider({
@@ -191,11 +168,12 @@ const OPENAI_COMPATIBLE_PROVIDERS = [
     icon: "cerebras",
     baseUrl: "https://api.cerebras.ai/v1",
     credentialUrl: "https://cloud.cerebras.ai/platform/",
-    // Free-tier public endpoint catalog (inference-docs.cerebras.ai/models/overview) —
-    // curated down to gpt-oss-120b and zai-glm-4.7 per operator preference.
+    // Free-tier public endpoint catalog, curated down to gpt-oss-120b and
+    // zai-glm-4.7 per operator preference. Verified against models.dev
+    // (cerebras) 2026-07-30.
     models: [
-      { id: "gpt-oss-120b", capabilities: ["text", "tools", "streaming", "json", "reasoning"] },
-      { id: "zai-glm-4.7", capabilities: ["text", "tools", "streaming", "json"] },
+      { id: "gpt-oss-120b", reasoning: true, contextWindow: 131072, maxOutputTokens: 40960, pricing: { input: 0.35, output: 0.75 } },
+      { id: "zai-glm-4.7", reasoning: true, contextWindow: 131072, maxOutputTokens: 40960, pricing: { input: 2.25, output: 2.75, cacheRead: 2.25 } },
     ],
   }),
   createOpenAICompatibleProvider({
@@ -205,11 +183,12 @@ const OPENAI_COMPATIBLE_PROVIDERS = [
     baseUrl: "https://api.deepseek.com",
     credentialUrl: "https://platform.deepseek.com/api_keys",
     // deepseek-chat/deepseek-reasoner were discontinued 2026-07-24 in favor of
-    // V4 (api-docs.deepseek.com/updates) — v4-flash covers both non-thinking
-    // and thinking mode (former -chat/-reasoner split), v4-pro is the frontier tier.
+    // V4, v4-flash covers both non-thinking and thinking mode (former
+    // -chat/-reasoner split), v4-pro is the frontier tier. Verified against
+    // models.dev (deepseek) 2026-07-30.
     models: [
-      { id: "deepseek-v4-pro", capabilities: ["text", "tools", "streaming", "json", "reasoning"] },
-      { id: "deepseek-v4-flash", capabilities: ["text", "tools", "streaming", "json", "reasoning"] },
+      { id: "deepseek-v4-pro", reasoning: true, contextWindow: 1000000, maxOutputTokens: 384000, pricing: { input: 0.435, output: 0.87, cacheRead: 0.003625 } },
+      { id: "deepseek-v4-flash", reasoning: true, contextWindow: 1000000, maxOutputTokens: 384000, pricing: { input: 0.14, output: 0.28, cacheRead: 0.0028 } },
     ],
   }),
   createOpenAICompatibleProvider({
@@ -218,12 +197,13 @@ const OPENAI_COMPATIBLE_PROVIDERS = [
     icon: "siliconflow",
     baseUrl: "https://api.siliconflow.com/v1",
     credentialUrl: "https://cloud.siliconflow.cn/account/ak",
-    // Free-tier models (docs.siliconflow.com/en/userguide/rate-limits) — free
-    // versions use the bare id; "Pro/" prefix is the paid tier of the same model.
+    // Free-tier models, free versions use the bare id; "Pro/" prefix is the
+    // paid tier of the same model. Pricing verified against models.dev
+    // (siliconflow) 2026-07-30 where a matching entry exists.
     models: [
-      { id: "Qwen/Qwen3-8B", capabilities: ["text", "tools", "streaming", "json"] },
-      { id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", capabilities: ["text", "reasoning", "streaming"] },
-      { id: "deepseek-ai/DeepSeek-V3", capabilities: ["text", "tools", "streaming", "json"] },
+      { id: "Qwen/Qwen3-8B", reasoning: true, contextWindow: 131000, maxOutputTokens: 131000, pricing: { input: 0.06, output: 0.06 } },
+      { id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", reasoning: true },
+      { id: "deepseek-ai/DeepSeek-V3", reasoning: true, contextWindow: 164000, maxOutputTokens: 164000, pricing: { input: 0.25, output: 1 } },
     ],
   }),
   createOpenAICompatibleProvider({
@@ -232,49 +212,13 @@ const OPENAI_COMPATIBLE_PROVIDERS = [
     icon: "mistral",
     baseUrl: "https://api.mistral.ai/v1",
     credentialUrl: "https://console.mistral.ai/api-keys/",
-    // Latest generation only, via Mistral's "-latest" rolling aliases
-    // (docs.mistral.ai/models) — always resolves to the newest release per tier.
+    // Latest generation only, via Mistral's "-latest" rolling aliases, always
+    // resolves to the newest release per tier. Verified against models.dev
+    // (mistral) 2026-07-30.
     models: [
-      { id: "mistral-large-latest", capabilities: ["text", "vision", "tools", "streaming", "json"] },
-      { id: "mistral-medium-latest", capabilities: ["text", "vision", "tools", "streaming", "json"] },
-      { id: "mistral-small-latest", capabilities: ["text", "tools", "streaming", "json"] },
-    ],
-  }),
-  createOpenAICompatibleProvider({
-    id: "xiaomi-tokenplan",
-    name: "Xiaomi MiMo (Token Plan)",
-    icon: "mimo",
-    // Token Plan keys are cluster-specific; Singapore is the default region
-    // (matches the reference registry). Operators on a different region can
-    // reach it via a Custom Provider entry pointed at their cluster's base URL.
-    baseUrl: "https://token-plan-sgp.xiaomimimo.com/v1",
-    credentialUrl: "https://mimo.xiaomi.com",
-    models: [
-      { id: "mimo-v2.5-pro", capabilities: ["text", "tools", "streaming", "json"], contextWindow: 1000000, maxOutputTokens: 128000 },
-      { id: "mimo-v2.5", capabilities: ["text", "tools", "streaming", "json"], contextWindow: 1000000, maxOutputTokens: 128000 },
-      { id: "mimo-v2-pro", capabilities: ["text", "tools", "streaming", "json"] },
-      { id: "mimo-v2-omni", capabilities: ["text", "vision", "tools", "streaming", "json"] },
-    ],
-  }),
-  createOpenAICompatibleProvider({
-    id: "opencode-go",
-    name: "OpenCode Go",
-    icon: "opencode-go",
-    baseUrl: "https://opencode.ai/zen/go/v1",
-    credentialUrl: "https://opencode.ai/auth",
-    // Curated subset of the live Go catalog (opencode.ai/docs/go) — the full,
-    // current list is always available via the console's "Fetch models" action.
-    models: [
-      { id: "grok-4.5", capabilities: ["text", "tools", "streaming", "json", "reasoning"] },
-      { id: "glm-5.2", capabilities: ["text", "tools", "streaming", "json", "reasoning"] },
-      { id: "kimi-k3", capabilities: ["text", "vision", "tools", "streaming", "json", "reasoning"] },
-      { id: "kimi-k2.7-code", capabilities: ["text", "tools", "streaming", "json"] },
-      { id: "mimo-v2.5-pro", capabilities: ["text", "tools", "streaming", "json"] },
-      { id: "qwen3.7-max", capabilities: ["text", "tools", "streaming", "json"] },
-      { id: "minimax-m3", capabilities: ["text", "tools", "streaming", "json", "reasoning"] },
-      { id: "deepseek-v4-pro", capabilities: ["text", "tools", "streaming", "json", "reasoning"] },
-      { id: "deepseek-v4-flash", capabilities: ["text", "tools", "streaming", "json", "reasoning"] },
-      { id: "hy3", capabilities: ["text", "tools", "streaming", "json"] },
+      { id: "mistral-large-latest", reasoning: true, vision: true, contextWindow: 262144, maxOutputTokens: 262144, pricing: { input: 0.5, output: 1.5 } },
+      { id: "mistral-medium-latest", reasoning: true, vision: true, contextWindow: 262144, maxOutputTokens: 262144, pricing: { input: 1.5, output: 7.5 } },
+      { id: "mistral-small-latest", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 256000, pricing: { input: 0.15, output: 0.6 } },
     ],
   }),
 ] as const;
@@ -290,6 +234,10 @@ const PROVIDERS = new Map<Provider["id"], Provider>([
   ["custom", dynamicProviderRouter],
   ["cursor", cursorProvider],
   ["anthropic", anthropicProvider],
+  ["openai", openaiProvider],
+  ["opencode-go", opencodeGoProvider],
+  ["pgxiaomi", xiaomiPaygProvider],
+  ["tpxiaomi", xiaomiTokenPlanProvider],
   ...OPENAI_COMPATIBLE_PROVIDERS.map((provider) => [provider.id, provider] as const),
 ]);
 
@@ -303,115 +251,4 @@ export const providerRegistry = {
   },
 };
 
-// ── Provider selection (legacy pass-through routing) ─────────────────────
 
-const OPENAI_BASE_URL = "https://api.openai.com/v1";
-const ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
-const ANTHROPIC_VERSION = "2023-06-01";
-
-export type PassThroughProvider = "openai" | "anthropic";
-
-export function selectProvider(model: string): PassThroughProvider {
-  return model.startsWith("claude") ? "anthropic" : "openai";
-}
-
-export interface InboundHeaders {
-  authorization?: string;
-  "x-api-key"?: string;
-}
-
-/** For the core build, forward the caller's OpenAI credential unchanged. */
-export function resolveOpenAIAuth(headers: InboundHeaders): string | undefined {
-  return headers.authorization;
-}
-
-/** For Anthropic, accept x-api-key or adapt an OpenAI-style bearer credential. */
-export function resolveAnthropicAuth(headers: InboundHeaders): string | undefined {
-  if (headers["x-api-key"]) return headers["x-api-key"];
-  if (headers.authorization?.startsWith("Bearer ")) return headers.authorization.slice(7);
-  return undefined;
-}
-
-// ── OpenAI pass-through ──────────────────────────────────────────────────
-
-export interface UpstreamCallOptions {
-  authorizationHeader: string | undefined;
-}
-
-async function callOpenAI(path: string, body: unknown, opts: UpstreamCallOptions): Promise<Response> {
-  const apiKey = opts.authorizationHeader;
-  if (!apiKey) throw new UpstreamError("no OpenAI credential supplied", 401, "");
-  const outboundBody = prepareOutboundRequest(body, "openai", getRequestTransformSettings());
-
-  const res = await fetch(`${OPENAI_BASE_URL}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: apiKey },
-    body: JSON.stringify(outboundBody),
-  });
-
-  if (!res.ok) {
-    const errBody = await res.text();
-    throw new UpstreamError(`OpenAI upstream ${path} returned ${res.status}`, res.status, errBody);
-  }
-  return res;
-}
-
-export async function callChatCompletions(body: unknown, opts: UpstreamCallOptions): Promise<Response> {
-  return callOpenAI("/chat/completions", body, opts);
-}
-
-export async function callResponses(body: unknown, opts: UpstreamCallOptions): Promise<Response> {
-  return callOpenAI("/responses", body, opts);
-}
-
-export async function listOpenAIModels(opts: UpstreamCallOptions): Promise<Response> {
-  const apiKey = opts.authorizationHeader;
-  if (!apiKey) throw new UpstreamError("no OpenAI credential supplied", 401, "");
-
-  const res = await fetch(`${OPENAI_BASE_URL}/models`, { headers: { authorization: apiKey } });
-  if (!res.ok) throw new UpstreamError(`OpenAI upstream /models returned ${res.status}`, res.status, await res.text());
-  return res;
-}
-
-// ── Anthropic pass-through ───────────────────────────────────────────────
-
-export interface AnthropicUpstreamCallOptions {
-  apiKeyHeader: string | undefined;
-}
-
-async function callAnthropic(path: string, body: unknown, opts: AnthropicUpstreamCallOptions): Promise<Response> {
-  const apiKey = opts.apiKeyHeader;
-  if (!apiKey) throw new UpstreamError("no Anthropic credential supplied", 401, "");
-  const outboundBody = prepareOutboundRequest(body, "anthropic", getRequestTransformSettings());
-
-  const res = await fetch(`${ANTHROPIC_BASE_URL}${path}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": ANTHROPIC_VERSION,
-    },
-    body: JSON.stringify(outboundBody),
-  });
-
-  if (!res.ok) {
-    const errBody = await res.text();
-    throw new UpstreamError(`Anthropic upstream ${path} returned ${res.status}`, res.status, errBody);
-  }
-  return res;
-}
-
-export async function callMessages(body: unknown, opts: AnthropicUpstreamCallOptions): Promise<Response> {
-  return callAnthropic("/messages", body, opts);
-}
-
-export async function listAnthropicModels(opts: AnthropicUpstreamCallOptions): Promise<Response> {
-  const apiKey = opts.apiKeyHeader;
-  if (!apiKey) throw new UpstreamError("no Anthropic credential supplied", 401, "");
-
-  const res = await fetch(`${ANTHROPIC_BASE_URL}/models`, {
-    headers: { "x-api-key": apiKey, "anthropic-version": ANTHROPIC_VERSION },
-  });
-  if (!res.ok) throw new UpstreamError(`Anthropic upstream /models returned ${res.status}`, res.status, await res.text());
-  return res;
-}

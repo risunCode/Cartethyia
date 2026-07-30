@@ -58,7 +58,7 @@ const MODEL_ENDPOINTS: Partial<Record<AddedProviderId, string>> = {
   siliconflow: "https://api.siliconflow.com/v1",
   mistral: "https://api.mistral.ai/v1",
   "opencode-go": "https://opencode.ai/zen/go/v1",
-  "xiaomi-tokenplan": "https://token-plan-sgp.xiaomimimo.com/v1",
+  tpxiaomi: "https://token-plan-sgp.xiaomimimo.com/v1",
   openai: "https://api.openai.com/v1",
   anthropic: "https://api.anthropic.com/v1",
 };

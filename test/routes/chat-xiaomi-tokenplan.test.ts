@@ -34,7 +34,7 @@ function chatResponse(content: string) {
   );
 }
 
-describe("POST /v1/chat/completions with mimosgtp (xiaomi-tokenplan) namespace", () => {
+describe("POST /v1/chat/completions with mimosgtp (tpxiaomi) namespace", () => {
   test("routes to the Singapore token-plan cluster with the caller's bearer credential", async () => {
     fetchSpy.mockResolvedValueOnce(chatResponse("hello from token plan"));
 
