@@ -3,7 +3,7 @@ import type { RouteTarget } from "../../../routing/types";
 import type { OpenAIChatRequest } from "../../../translate/types";
 import { decodeOpenAIChatStream } from "../../bridge";
 import { materializeFromStream, materializedToChatResponse } from "../../result";
-import { ProviderCallError, providerHttpError } from "../index";
+import { ProviderCallError, providerHttpError, safeReadText } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
 import { qoderModelCatalog, QODER_MODEL_CONFIGS, type QoderModelConfig } from "./models";
 import { callQoder, exchangeQoderPat, QODER_CHAT_URL, type QoderAuth } from "./protocol";
@@ -53,7 +53,7 @@ class QoderProvider implements Provider {
     const qoderBody = buildQoderRequest(target.modelId, chatBody, modelConfig, auth);
     const response = await callQoder(QODER_CHAT_URL, qoderBody, target.modelId, auth, signal);
     if (!response.ok) {
-      throw providerHttpError(response.status, "Qoder");
+      throw providerHttpError(response.status, "Qoder", undefined, await safeReadText(response));
     }
     if (!response.body) {
       throw new ProviderCallError(502, "unavailable", "Qoder returned an empty response body.");

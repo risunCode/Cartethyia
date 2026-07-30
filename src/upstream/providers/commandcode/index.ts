@@ -1,6 +1,6 @@
 import type { RouteTarget } from "../../../routing/types";
 import type { OpenAIChatRequest } from "../../../translate/types";
-import { ProviderCallError, providerHttpError } from "../index";
+import { ProviderCallError, providerHttpError, safeReadText } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
 import { commandCodeModelCatalog } from "./models";
 import { buildCommandCodeHeaders, buildCommandCodeRequest, decodeCommandCodeNdjsonStream } from "./transport";
@@ -59,7 +59,7 @@ class CommandCodeProvider implements Provider {
     });
 
     if (!res.ok) {
-      throw providerHttpError(res.status, "Command Code");
+      throw providerHttpError(res.status, "Command Code", undefined, await safeReadText(res));
     }
 
     if (!res.body) {

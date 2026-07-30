@@ -1,5 +1,5 @@
 import type { RouteTarget } from "../../../routing/types";
-import { ProviderCallError } from "../index";
+import { ProviderCallError, providerHttpError, safeReadText } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
 import { decodeOpenAIChatStream, decodeAnthropicStream } from "../../bridge";
 import { fetchOpenCodeFreeCatalog, findOpenCodeModel, selectCapability } from "./catalog";
@@ -73,9 +73,7 @@ class OpenCodeFreeProvider implements Provider {
     });
 
     if (!res.ok) {
-      if (res.status === 429) throw new ProviderCallError(429, "rate_limited", "OpenCode Free is rate-limiting this request.");
-      if (res.status >= 400 && res.status < 500) throw new ProviderCallError(res.status, "invalid_request", "OpenCode Free rejected this request.");
-      throw new ProviderCallError(502, "unavailable", "OpenCode Free is unavailable.");
+      throw providerHttpError(res.status, "OpenCode Free", undefined, await safeReadText(res));
     }
 
     if (!res.body) {

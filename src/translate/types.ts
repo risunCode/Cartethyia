@@ -138,6 +138,8 @@ export interface AnthropicRequest {
   top_p?: number;
   stop_sequences?: string[];
   stream?: boolean;
+  /** Extended thinking, translated in from an OpenAI-shaped `reasoning_effort`. */
+  thinking?: { type: "enabled"; budget_tokens: number };
   [key: string]: unknown;
 }
 

@@ -16,12 +16,13 @@ import { Dialog } from "./ui/dialog";
 import { Input, Label } from "./ui/input";
 import { ProviderIcon } from "./provider-icon";
 
-interface ProviderSummary {
+export interface ProviderSummary {
   id: string;
   name: string;
   icon: string;
   prefix: string;
   modelCount: number;
+  connections: number;
 }
 
 interface CatalogModel {
@@ -34,16 +35,16 @@ interface ProviderCatalogDetail {
   models: CatalogModel[];
 }
 
-interface ComboSummary {
+export interface ComboSummary {
   name: string;
 }
 
-interface FlatModelEntry {
+export interface FlatModelEntry {
   provider: ProviderSummary;
   qualified: string;
 }
 
-function useProviders() {
+export function useProviders() {
   return useQuery({
     queryKey: ["providers"],
     queryFn: () => apiGet<{ items: ProviderSummary[] }>("/providers"),
@@ -54,7 +55,7 @@ function useProviders() {
 /** Flattens every provider's enabled models into one searchable list. Reuses
  * the same `["provider", id]` cache entries as the provider detail page —
  * visiting either populates the other. */
-function useModelCatalog(providers: ProviderSummary[], enabled: boolean): FlatModelEntry[] {
+export function useModelCatalog(providers: ProviderSummary[], enabled: boolean): FlatModelEntry[] {
   const results = useQueries({
     queries: providers.map((provider) => ({
       queryKey: ["provider", provider.id],
@@ -78,7 +79,7 @@ function useModelCatalog(providers: ProviderSummary[], enabled: boolean): FlatMo
   }, [providers, enabled, ...results.map((r) => r.dataUpdatedAt)]);
 }
 
-function useCombos(enabled: boolean) {
+export function useCombos(enabled: boolean) {
   return useQuery({
     queryKey: ["console", "combos"],
     queryFn: () => apiGet<{ items: ComboSummary[] }>("/combos"),

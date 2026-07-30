@@ -20,6 +20,7 @@ import { filterSanitizeRoutes } from "./sanitizer-rules";
 import { customProvidersRoutes } from "./custom-providers";
 import { healthRoutes } from "./health";
 import { liveRoutes } from "./live";
+import { modelStudioRoutes } from "./model-studio";
 
 export const consoleApiRoutes = new Elysia()
   .onStart(async () => {
@@ -45,5 +46,6 @@ export const consoleApiRoutes = new Elysia()
           .use(customProvidersRoutes)
           .use(healthRoutes)
           .use(liveRoutes)
+          .use(modelStudioRoutes)
       )
   );

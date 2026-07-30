@@ -14,6 +14,8 @@ export interface ProviderModelEntry {
   reasoning?: boolean;
   /** True when the model accepts image/PDF input. */
   vision?: boolean;
+  /** True when the model supports web search / grounding. */
+  websearch?: boolean;
   contextWindow?: number;
   maxOutputTokens?: number;
   description?: string;

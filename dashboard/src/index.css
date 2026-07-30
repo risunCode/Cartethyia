@@ -126,6 +126,16 @@ select optgroup {
   box-shadow: var(--shadow-card);
 }
 
+/* Keeps a container scrollable without a visible scrollbar track — used by
+   the sidebar, which is tight enough that a scrollbar reads as clutter. */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }

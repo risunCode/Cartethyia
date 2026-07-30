@@ -4,7 +4,7 @@
  */
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUpDown, Bot, Brain, Cable, Copy, ExternalLink, Eye, FileUp, FlaskConical, Info, Loader2, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, Bot, Brain, Cable, Copy, ExternalLink, Eye, FileUp, FlaskConical, Globe, Info, Loader2, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -36,6 +36,7 @@ interface ModelEntry {
   id: string;
   reasoning?: boolean;
   vision?: boolean;
+  websearch?: boolean;
   contextWindow?: number;
   maxOutputTokens?: number;
   enabled: boolean;
@@ -401,45 +402,12 @@ function AccountModal({
   );
 }
 
-function AccountImportDialog({ providerId, onClose }: { providerId: string; onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const [text, setText] = useState("");
-  const [result, setResult] = useState<{ imported: number; skipped: Array<{ line: number; reason: string }>; renamed: Array<{ line: number; name: string }> } | null>(null);
-  const mutation = useMutation({
-    mutationFn: () => apiPost<typeof result>(`/providers/${providerId}/accounts/import`, { text }),
-    onSuccess: (summary) => {
-      setResult(summary);
-      void queryClient.invalidateQueries({ queryKey: ["provider", providerId] });
-    },
-    onError: (error) => toast.error(errorMessage(error)),
-  });
-  const close = () => { setText(""); setResult(null); onClose(); };
-
-  return (
-    <Dialog open onClose={close} title="Import connections" wide footer={result ? <Button onClick={close}>Done</Button> : <><Button variant="secondary" onClick={close}>Cancel</Button><Button disabled={!text.trim() || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? "Importing…" : "Import"}</Button></>}>
-      {result ? (
-        <div className="space-y-3 text-sm">
-          <p className="font-semibold">{result.imported} connection{result.imported === 1 ? "" : "s"} imported</p>
-          {result.renamed.length > 0 && <p className="text-xs text-[var(--text-2)]">{result.renamed.length} duplicate name{result.renamed.length === 1 ? " was" : "s were"} auto-suffixed.</p>}
-          {result.skipped.length > 0 && <div className="rounded-lg bg-[rgba(255,159,10,0.1)] p-3 text-xs text-[var(--orange)]"><div className="mb-1 font-semibold">{result.skipped.length} lines skipped:</div>{result.skipped.map((entry) => <div key={entry.line}>Line {entry.line}: {entry.reason}</div>)}</div>}
-        </div>
-      ) : (
-        <div>
-          <Label htmlFor="account-import-text">Paste one credential or exported account per line</Label>
-          <textarea id="account-import-text" className="mt-1 min-h-48 w-full rounded-xl border border-[var(--inner-border)] bg-[var(--input-bg)] px-3 py-2 font-mono text-xs outline-none placeholder:text-[var(--text-3)] focus:border-[var(--accent)]" placeholder={"token-one\naccess_token: token-two\n{\"access\": \"token-three\"}"} value={text} onChange={(event) => setText(event.target.value)} spellCheck={false} />
-        </div>
-      )}
-    </Dialog>
-  );
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────
 
 export function ProviderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const [accountModal, setAccountModal] = useState<{ open: boolean; existing: AccountEntry | null }>({ open: false, existing: null });
-  const [accountImportOpen, setAccountImportOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AccountEntry | null>(null);
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
@@ -550,10 +518,34 @@ export function ProviderDetailPage() {
   });
 
   const bulkDeleteMutation = useMutation({
-    mutationFn: (ids: string[]) =>
-      Promise.all(ids.map((accountId) => api<{ ok: boolean }>(`/providers/${id}/accounts/${accountId}`, { method: "DELETE", body: "{}" }))),
-    onSuccess: (_res, ids) => {
-      toast.success(`${ids.length} account${ids.length === 1 ? "" : "s"} deleted`);
+    // `Promise.all` fails the whole batch the instant *one* delete rejects —
+    // every already-in-flight request still completes and deletes server-side
+    // regardless, so that read as "nothing was deleted" when everything (or
+    // almost everything) actually was. A bounded worker pool (same pattern as
+    // the connection tester above) plus per-item try/catch reports the real
+    // outcome instead, and avoids hammering SQLite with dozens of concurrent
+    // deletes for a large batch.
+    mutationFn: async (ids: string[]) => {
+      const failed: string[] = [];
+      const workerCount = Math.min(ids.length, 4);
+      let nextIndex = 0;
+      const worker = async () => {
+        while (nextIndex < ids.length) {
+          const accountId = ids[nextIndex++]!;
+          try {
+            await api<{ ok: boolean }>(`/providers/${id}/accounts/${accountId}`, { method: "DELETE", body: "{}" });
+          } catch {
+            failed.push(accountId);
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: workerCount }, worker));
+      return { total: ids.length, failed: failed.length };
+    },
+    onSuccess: ({ total, failed }) => {
+      const deleted = total - failed;
+      if (failed === 0) toast.success(`${total} account${total === 1 ? "" : "s"} deleted`);
+      else toast.error(`${failed} of ${total} account${total === 1 ? "" : "s"} failed to delete`, { description: `${deleted} deleted successfully.` });
       setSelectedAccounts(new Set());
       setBulkDeleteConfirm(false);
       void queryClient.invalidateQueries({ queryKey: ["provider", id] });
@@ -624,13 +616,18 @@ export function ProviderDetailPage() {
             </Button>
           </div>
           <div className="flex flex-wrap items-center gap-1">
-            {model.source !== "built-in" && <Badge tone="info">{model.source}</Badge>}
+            {model.source !== "built-in" && <FileUp size={11} className="text-[var(--text-3)]" />}
             <span className="inline-flex items-center gap-0.5 rounded-md bg-[var(--hover)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--accent)]">
               <Brain size={10} aria-hidden="true" /> Reasoning
             </span>
             {model.vision && (
               <span className="inline-flex items-center gap-0.5 rounded-md bg-[var(--hover)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--teal)]">
                 <Eye size={10} aria-hidden="true" /> Vision
+              </span>
+            )}
+            {model.websearch && (
+              <span className="inline-flex items-center gap-0.5 rounded-md bg-[var(--hover)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--green)]">
+                <Globe size={10} aria-hidden="true" /> Web
               </span>
             )}
           </div>
@@ -642,14 +639,21 @@ export function ProviderDetailPage() {
             </div>
           )}
           {priceLabel && <div className="text-[9px] text-[var(--text-2)]">{priceLabel}</div>}
-          <div className="mt-auto flex flex-wrap gap-1 pt-0.5 sm:gap-1.5">
-            <Button variant="secondary" size="sm" className="min-w-0 flex-1" disabled={!model.enabled || pendingModelId === model.id} onClick={() => runTest(model.id)}>
-              {pendingModelId === model.id ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />}
+          <div className="mt-auto flex flex-wrap items-center gap-1 pt-0.5">
+            <Button variant="secondary" size="sm" className="h-6 min-w-0 flex-1 gap-1 px-2 text-[10px]" disabled={!model.enabled || pendingModelId === model.id} onClick={() => runTest(model.id)}>
+              {pendingModelId === model.id ? <Loader2 size={10} className="animate-spin" /> : <FlaskConical size={10} />}
               <span className="truncate">{pendingModelId === model.id ? "Testing…" : "Test"}</span>
             </Button>
-            <Button variant="secondary" size="sm" disabled={modelMutation.isPending} onClick={() => modelMutation.mutate({ path: `/${encodeURIComponent(model.id)}/enabled`, body: { enabled: !model.enabled } })}>
-              {model.enabled ? "Disable" : "Enable"}
-            </Button>
+            <button
+              type="button"
+              disabled={modelMutation.isPending}
+              onClick={() => modelMutation.mutate({ path: `/${encodeURIComponent(model.id)}/enabled`, body: { enabled: !model.enabled } })}
+              title={model.enabled ? "Disable" : "Enable"}
+              aria-label={model.enabled ? "Disable" : "Enable"}
+              className={`inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors ${model.enabled ? "bg-[var(--green-soft,theme(colors.green.900))] text-[var(--green)] hover:bg-[var(--green)] hover:text-white" : "bg-[var(--surface)] text-[var(--text-3)] hover:bg-[var(--hover)]"}`}
+            >
+              {model.enabled ? <PowerOff size={10} /> : <LockOpen size={10} />}
+            </button>
             {model.source !== "built-in" && (
               <Button variant="ghost" size="sm" className="text-[var(--red)]" aria-label={`Delete ${qualified}`} disabled={modelMutation.isPending} onClick={() => modelMutation.mutate({ path: `/${encodeURIComponent(model.id)}`, method: "DELETE" })}>
                 <Trash2 size={12} />
@@ -736,7 +740,6 @@ export function ProviderDetailPage() {
                   <FlaskConical size={13} /> Test all
                 </Button>
               )}
-              <Button variant="secondary" size="sm" onClick={() => setAccountImportOpen(true)}><FileUp size={13} /> Import</Button>
               <Button size="sm" onClick={() => setAccountModal({ open: true, existing: null })}>
                 <Plus size={14} /> New account
               </Button>
@@ -769,14 +772,21 @@ export function ProviderDetailPage() {
               className="mt-1 w-full"
               value={routing.proxyMode}
               onChange={(v) => {
-                const next = { ...routing, proxyMode: v as RoutingConfig["proxyMode"] };
+                const proxyMode = v as RoutingConfig["proxyMode"];
+                // Switching into a pool-requiring mode without a pool picked
+                // yet would round-trip a guaranteed "proxyPoolId is required"
+                // error — default to the first configured pool instead so the
+                // save just succeeds when one already exists.
+                const proxyPoolId =
+                  proxyMode !== "direct" && !routing.proxyPoolId ? (pools[0]?.id ?? null) : routing.proxyPoolId;
+                const next = { ...routing, proxyMode, proxyPoolId };
                 setRouting(next);
                 routingMutation.mutate(next);
               }}
               options={[
                 { value: "direct", label: "Direct" },
-                { value: "proxy-pool", label: "Proxy pool" },
-                { value: "mixed", label: "Mixed" },
+                { value: "proxy-pool", label: "Round Robin" },
+                { value: "mixed", label: "Round Robin Mix" },
               ]}
             />
           </div>
@@ -802,6 +812,11 @@ export function ProviderDetailPage() {
                 })),
               ]}
             />
+            <p className="mt-1.5 text-[11px] text-[var(--text-2)]">
+              {routing.proxyMode === "mixed"
+                ? "Requests round-robin across this pool's entries and a direct connection. A failed attempt automatically retries through the next candidate."
+                : "Requests round-robin across this pool's entries. A failed attempt automatically retries through the next entry."}
+            </p>
           </div>
         )}
 
@@ -993,7 +1008,7 @@ export function ProviderDetailPage() {
           onClose={() => setAccountModal({ open: false, existing: null })}
         />
       )}
-      {accountImportOpen && <AccountImportDialog providerId={data.id} onClose={() => setAccountImportOpen(false)} />}
+
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}

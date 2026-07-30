@@ -49,6 +49,42 @@ function countMessages(surface: string, body: Record<string, unknown>): number {
   return Array.isArray(body.messages) ? body.messages.length : 0;
 }
 
+/** Flattens an OpenAI/Anthropic-shaped `content` (string or content-parts array) down to its text, ignoring images/tool payloads. */
+function textFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      const p = asObj(part);
+      if (!p) return "";
+      if (typeof p.text === "string") return p.text;
+      if (typeof p.content === "string") return p.content;
+      return "";
+    })
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * A short, single-line preview of the *last user turn* — cheap enough to run
+ * unconditionally for the console log tail (unlike the redacted payload copy
+ * kept under TRACK_PAYLOADS, this never touches disk).
+ */
+export function extractLastUserMessagePreview(surface: string, body: unknown, maxLen = 60): string | undefined {
+  const root = asObj(body);
+  if (!root) return undefined;
+  const list = surface === "responses" ? root.input : root.messages;
+  if (!Array.isArray(list)) return undefined;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const entry = asObj(list[i]);
+    if (!entry || entry.role !== "user") continue;
+    const text = textFromContent(entry.content).trim().replace(/\s+/g, " ");
+    if (!text) continue;
+    return text.length > maxLen ? `${text.slice(0, maxLen)}\u2026` : text;
+  }
+  return undefined;
+}
+
 export function computePayloadMeta(surface: string, body: unknown): PayloadMeta {
   const root = asObj(body) ?? {};
   const json = (() => {

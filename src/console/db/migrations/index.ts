@@ -117,6 +117,25 @@ export const MIGRATIONS: readonly Migration[] = [
       addColumnIfMissing(database, "api_keys", "model_denylist", "model_denylist TEXT");
     },
   },
+  {
+    version: 8,
+    name: "model-studio-sessions",
+    destructive: false,
+    up: (database) => {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS model_studio_sessions (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          model TEXT NOT NULL DEFAULT '',
+          system_prompt TEXT NOT NULL DEFAULT '',
+          messages_json TEXT NOT NULL DEFAULT '[]',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `);
+      database.exec("CREATE INDEX IF NOT EXISTS idx_model_studio_sessions_updated ON model_studio_sessions(updated_at DESC)");
+    },
+  },
 ];
 
 export const LATEST_MIGRATION_VERSION = MIGRATIONS.at(-1)?.version ?? 0;

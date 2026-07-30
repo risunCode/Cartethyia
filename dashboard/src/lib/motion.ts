@@ -13,6 +13,17 @@ export const fadeSlide = {
   transition: { duration: duration.base, ease: easeOut },
 };
 
+/**
+ * Route-level crossfade — mirrors macOS pane switching (System Settings):
+ * a quick fade+scale dissolve where the outgoing view leaves faster than the
+ * incoming one arrives. Only opacity/scale animate (REQ-24).
+ */
+export const pageTransition = {
+  initial: { opacity: 0, scale: 0.985 },
+  animate: { opacity: 1, scale: 1, transition: { duration: duration.base, ease: easeOut } },
+  exit: { opacity: 0, scale: 1.01, transition: { duration: duration.fast, ease: easeOut } },
+};
+
 export const staggerItem = (index: number) => ({
   initial: { opacity: 0, y: 6 },
   animate: { opacity: 1, y: 0 },

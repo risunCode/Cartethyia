@@ -1,5 +1,5 @@
 import type { RouteTarget } from "../../../routing/types";
-import { ProviderCallError, providerHttpError } from "../index";
+import { ProviderCallError, providerHttpError, safeReadText } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
 import { kimchiModelCatalog } from "./models";
 
@@ -57,7 +57,7 @@ class KimchiProvider implements Provider {
     });
 
     if (!res.ok) {
-      throw providerHttpError(res.status, "Kimchi");
+      throw providerHttpError(res.status, "Kimchi", undefined, await safeReadText(res));
     }
 
     if (!res.body) {

@@ -38,17 +38,51 @@ import { appendJsonl, insertUsageHistory, utcNow } from "../db/repos/usage";
 import { extractUsage } from "../tracking/usage-extractor";
 import { deleteProviderModel, isProviderModelEnabled, listProviderModelStates, setAllKnownProviderModels, setProviderModelEnabled, upsertProviderModel } from "../db/repos/provider-models";
 import { extractModelIds, extractResponseSample } from "../../shared/text-utils";
+import { extractStatus } from "../../upstream/retry";
 
 async function collectSample(result: ProviderResult): Promise<string> {
   if (result.type === "json") return extractResponseSample(result.body);
   let sample = "";
+  let thinking = "";
   for await (const event of result.events) {
     if (event.type === "text_delta") {
       sample += event.text;
       if (sample.length > 400) break;
+    } else if (event.type === "thinking_delta") {
+      thinking += event.text;
     }
   }
-  return sample;
+  // Fall back to reasoning output if no visible text was emitted.
+  return sample || thinking.slice(0, 400);
+}
+
+/**
+ * Model-test console log lines now match the same shape real proxy traffic
+ * gets (see console/tracking/tracker.ts) instead of their own separate,
+ * terser "<provider>/<model> failed in Nms: <message>" format — same
+ * success glyph, endpoint, status, and duration, plus the real upstream
+ * error text on failure (never a generic "<Provider> rejected this
+ * request." wrapper) instead of a canned message.
+ */
+function formatModelTestLogLine(args: {
+  provider: string;
+  model: string;
+  status: number;
+  latencyMs: number;
+  usage?: { inputTokens: number | null; outputTokens: number | null; cachedTokens?: number | null; reasoningTokens?: number | null };
+  message?: string;
+}): string {
+  const parts = [`${args.status < 400 ? "\u2713" : "\u2717"} /console/provider-test ${args.provider}/${args.model} via ${args.provider} \u2192 ${args.status}`, `${args.latencyMs}ms`, "direct"];
+  if (args.usage) {
+    const tok: string[] = [];
+    if (args.usage.inputTokens) tok.push(`in:${args.usage.inputTokens}`);
+    if (args.usage.outputTokens) tok.push(`out:${args.usage.outputTokens}`);
+    if (args.usage.cachedTokens) tok.push(`cached:${args.usage.cachedTokens}`);
+    if (args.usage.reasoningTokens) tok.push(`reason:${args.usage.reasoningTokens}`);
+    if (tok.length > 0) parts.push(tok.join(" "));
+  }
+  if (args.message) parts.push(args.message);
+  return parts.join(" \u00b7 ");
 }
 
 const MODEL_ENDPOINTS: Partial<Record<AddedProviderId, string>> = {
@@ -228,10 +262,13 @@ export const providersRoutes = new Elysia({ prefix: "/console/api" })
           body: {
             model: modelId,
             stream: false,
-            // Keep the test tight — short prompt, capped output so
-            // reasoning models don't burn their whole budget thinking.
-            max_tokens: 256,
-            messages: [{ role: "user", content: "Who are you? State your exact model name and version if you know. Be honest — don't claim to be something you're not." }],
+            // Large budget so reasoning models still emit visible text
+            // after thinking. System message nudges direct answers.
+            max_tokens: 4096,
+            messages: [
+              { role: "system", content: "Answer directly in 2-4 sentences. Do not explain your reasoning." },
+              { role: "user", content: "Hey there! Who are you? If you know your exact model name and version, feel free to share. If not, just tell me your knowledge cutoff date — no worries either way!" },
+            ],
           },
         },
         credential,
@@ -266,13 +303,14 @@ export const providersRoutes = new Elysia({ prefix: "/console/api" })
         meta: { kind: "provider-test", accountId: input.accountId ?? null },
       });
       appendJsonl("requests", { traceId, endpoint: "/console/provider-test", provider: params.id, model: modelId, status: 200, durationMs: latencyMs, usage: usage ?? null });
-      pushConsoleLog("info", "model-test", `${params.id}/${modelId} ok in ${latencyMs}ms`);
+      pushConsoleLog("info", "request", formatModelTestLogLine({ provider: params.id, model: modelId, status: 200, latencyMs, usage }));
       addAuditEvent("provider.model_test", { provider: params.id, model: modelId, mode: input.mode, ok: true, latencyMs });
       return { resolveOk: true, latencyMs, ok: true, sample: sample || undefined };
     } catch (err) {
       const latencyMs = Math.round(performance.now() - started);
       const message = err instanceof Error ? err.message : String(err);
-      pushConsoleLog("warn", "model-test", `${params.id}/${modelId} failed in ${latencyMs}ms: ${message}`);
+      const status = extractStatus(err) ?? 502;
+      pushConsoleLog(status >= 500 ? "error" : "warn", "request", formatModelTestLogLine({ provider: params.id, model: modelId, status, latencyMs, message }));
       addAuditEvent("provider.model_test", { provider: params.id, model: modelId, mode: input.mode, ok: false, error: message });
       return { resolveOk: true, latencyMs, ok: false, error: message };
     }

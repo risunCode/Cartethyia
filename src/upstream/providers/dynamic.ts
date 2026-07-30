@@ -15,7 +15,7 @@
  */
 
 import type { RouteTarget } from "../../routing/types";
-import { ProviderCallError, classifyUpstreamStatus } from "./index";
+import { ProviderCallError, providerHttpError, safeReadText } from "./index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./index";
 import { decodeAnthropicStream, decodeOpenAIChatStream } from "../bridge";
 import { fetchWithSsrfGuard } from "../../http/ssrf-guard";
@@ -53,7 +53,7 @@ async function callOpenAICompatible(record: CustomProviderRecord, model: string,
     ...(proxy ? { proxy } : {}),
   });
 
-  if (!res.ok) throw new ProviderCallError(res.status, classifyUpstreamStatus(res.status), `Custom provider "${record.name}" returned ${res.status}.`);
+  if (!res.ok) throw providerHttpError(res.status, `Custom provider "${record.name}"`, undefined, await safeReadText(res));
   if (!res.body) throw new ProviderCallError(502, "unavailable", `Custom provider "${record.name}" returned an empty response body.`);
 
   if (isStreaming) return { type: "stream", events: decodeOpenAIChatStream(res.body) };
@@ -78,7 +78,7 @@ async function callAnthropicCompatible(record: CustomProviderRecord, model: stri
     ...(proxy ? { proxy } : {}),
   });
 
-  if (!res.ok) throw new ProviderCallError(res.status, classifyUpstreamStatus(res.status), `Custom provider "${record.name}" returned ${res.status}.`);
+  if (!res.ok) throw providerHttpError(res.status, `Custom provider "${record.name}"`, undefined, await safeReadText(res));
   if (!res.body) throw new ProviderCallError(502, "unavailable", `Custom provider "${record.name}" returned an empty response body.`);
 
   if (isStreaming) return { type: "stream", events: decodeAnthropicStream(res.body) };

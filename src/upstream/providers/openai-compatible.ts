@@ -1,6 +1,6 @@
 import type { RouteTarget } from "../../routing/types";
 import { decodeOpenAIChatStream } from "../bridge";
-import { ProviderCallError, classifyUpstreamStatus } from "./index";
+import { ProviderCallError, providerHttpError, safeReadText } from "./index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./index";
 import { createModelCatalog } from "./models";
 import type { ProviderModelCatalog, ProviderModelEntry } from "./models";
@@ -67,7 +67,7 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleProviderC
         ...(proxy ? { proxy } : {}),
       });
 
-      if (!response.ok) throw new ProviderCallError(response.status, classifyUpstreamStatus(response.status), `${config.name} returned ${response.status}.`);
+      if (!response.ok) throw providerHttpError(response.status, config.name, undefined, await safeReadText(response));
       if (!response.body) throw new ProviderCallError(502, "unavailable", `${config.name} returned an empty response body.`);
       if (body.stream === true) return { type: "stream", events: decodeOpenAIChatStream(response.body) };
 

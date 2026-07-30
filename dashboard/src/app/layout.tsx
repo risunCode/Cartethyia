@@ -10,8 +10,10 @@ import {
   Layers,
   LayoutDashboard,
   LogOut,
+  MessageSquare,
   Menu,
   Moon,
+  Palette,
   Rocket,
   Search,
   Settings,
@@ -21,9 +23,10 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
 import { useTheme } from "next-themes";
 import { cn } from "../lib/cn";
+import { pageTransition } from "../lib/motion";
 import { apiGet, apiPost } from "../lib/api";
 import { formatUptime } from "../lib/format";
 import { Dialog } from "../components/ui/dialog";
@@ -119,6 +122,7 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
       { to: "/overview", label: "Overview", icon: LayoutDashboard },
       { to: "/usage", label: "Usage", icon: ChartSpline, badge: "live" },
       { to: "/providers", label: "Providers", icon: Cable },
+      { to: "/model-studio", label: "Model Studio", icon: MessageSquare },
     ],
   },
   {
@@ -133,6 +137,7 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
     label: "System",
     items: [
       { to: "/console-log", label: "Console Log", icon: Terminal },
+      { to: "/customization", label: "Customization", icon: Palette },
       { to: "/settings", label: "Settings", icon: Settings },
     ],
   },
@@ -142,12 +147,31 @@ const TITLES: Record<string, { title: string; sub: string }> = {
   "/overview": { title: "Overview", sub: "Traffic, endpoints, and API keys" },
   "/usage": { title: "Usage", sub: "Usage summary and request overview" },
   "/providers": { title: "Providers", sub: "All supported AI providers" },
+  "/model-studio": { title: "Model Studio", sub: "Chat-test any provider, model, or combo live" },
   "/combos": { title: "Combos & Alias", sub: "Fallback, round-robin, alias model" },
   "/proxy-pools": { title: "Proxy Pools", sub: "HTTP, HTTPS, SOCKS5" },
   "/filter-rules": { title: "Filter Rules", sub: "Sanitize client-identity text before dispatch" },
   "/console-log": { title: "Console Log", sub: "Live log stream" },
+  "/customization": { title: "Customization", sub: "Theme and cosmetic preferences" },
   "/settings": { title: "Settings", sub: "Security, backup, runtime toggles" },
 };
+
+/**
+ * `<Outlet />` re-renders reactively off router context the instant
+ * `location` changes, which fights a key-based AnimatePresence: the
+ * *outgoing* motion.div (still mounted, mid-exit) would swap to the *new*
+ * route's content underneath its exit animation, leaving the freshly
+ * navigated page stuck invisible at the exit's final opacity/scale until a
+ * hard refresh. Freezing the resolved element in state (computed once per
+ * mount, since the initializer only runs on first render) keeps the exiting
+ * instance showing its own page while a separate, freshly keyed instance
+ * renders the new one.
+ */
+function AnimatedOutlet() {
+  const outlet = useOutlet();
+  const [frozen] = useState(outlet);
+  return frozen;
+}
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
@@ -297,7 +321,7 @@ export function AppShell() {
   const sidebar = (
     <aside
       className={cn(
-        "glass flex h-full flex-col gap-1.5 overflow-y-auto rounded-[var(--radius-sidebar)] p-[18px_14px]",
+        "glass scrollbar-none flex h-full flex-col gap-1.5 overflow-y-auto rounded-[var(--radius-sidebar)] p-[18px_14px]",
         "lg:sticky lg:top-4 lg:h-[calc(100vh-32px)] lg:translate-x-0",
         // Off-canvas offsets match the shell's p-4 so the drawer lines up with
         // the content edges instead of sitting 4px proud of them.
@@ -348,18 +372,28 @@ export function AppShell() {
               to={item.to}
               className={({ isActive }) =>
                 cn(
-                  "relative flex items-center gap-2.5 rounded-[11px] border border-transparent px-2.5 py-[9px] text-[13.5px] font-medium text-[var(--text-2)] transition-all duration-150 hover:bg-[var(--hover)] hover:text-[var(--text-1)] active:scale-[0.98]",
-                  isActive &&
-                    "border-[var(--inner-border)] bg-[var(--active-pill)] font-semibold text-[var(--text-1)] shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
+                  "relative flex items-center gap-2.5 rounded-[11px] px-2.5 py-[9px] text-[13.5px] font-medium transition-colors duration-150 active:scale-[0.98]",
+                  isActive ? "font-semibold text-[var(--text-1)]" : "text-[var(--text-2)] hover:bg-[var(--hover)] hover:text-[var(--text-1)]"
                 )
               }
             >
-              <item.icon size={18} className="shrink-0" />
-              {item.label}
-              {item.badge && (
-                <span className="ml-auto rounded-full bg-[var(--accent-soft)] px-[7px] py-0.5 text-[10.5px] font-semibold text-[var(--accent)]">
-                  {item.badge}
-                </span>
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <motion.span
+                      layoutId="nav-active-pill"
+                      className="absolute inset-0 rounded-[11px] border border-[var(--inner-border)] bg-[var(--active-pill)] shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
+                      transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                    />
+                  )}
+                  <item.icon size={18} className="relative shrink-0" />
+                  <span className="relative">{item.label}</span>
+                  {item.badge && (
+                    <span className="relative ml-auto rounded-full bg-[var(--accent-soft)] px-[7px] py-0.5 text-[10.5px] font-semibold text-[var(--accent)]">
+                      {item.badge}
+                    </span>
+                  )}
+                </>
               )}
             </NavLink>
           ))}
@@ -435,8 +469,12 @@ export function AppShell() {
           </button>
         </header>
 
-        <main className="flex min-w-0 flex-col gap-4">
-          <Outlet />
+        <main className="relative min-w-0">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div key={location.pathname} {...pageTransition} className="flex min-w-0 flex-col gap-4">
+              <AnimatedOutlet />
+            </motion.div>
+          </AnimatePresence>
         </main>
 
         {/* `mt-auto` drops it to the bottom on short pages; `sticky bottom-4`

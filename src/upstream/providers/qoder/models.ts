@@ -11,19 +11,19 @@ export interface QoderModelConfig {
 }
 
 const MODELS: ProviderModelEntry[] = [
-  { id: "auto", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, description: "Qoder Auto" },
-  { id: "ultimate", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, description: "Qoder Ultimate" },
-  { id: "performance", reasoning: true, vision: true, contextWindow: 272000, maxOutputTokens: 64000, description: "Qoder Performance" },
-  { id: "efficient", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, description: "Qoder Efficient" },
-  { id: "lite", reasoning: true, contextWindow: 256000, maxOutputTokens: 64000, description: "Qoder Lite" },
-  { id: "qmodel", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, description: "Qoder Qwen 3.6 Plus" },
-  { id: "qmodel_latest", reasoning: true, vision: true, contextWindow: 1000000, maxOutputTokens: 64000, description: "Qoder Qwen 3.7 Max" },
-  { id: "qmodel_preview", reasoning: true, vision: true, contextWindow: 1000000, maxOutputTokens: 64000, description: "Qoder Qwen 3.8 Max" },
-  { id: "dmodel", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, description: "Qoder DeepSeek V4 Pro" },
-  { id: "dfmodel", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, description: "Qoder DeepSeek V4 Flash" },
-  { id: "gm51model", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, description: "Qoder GLM 5.2" },
-  { id: "kmodel", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, description: "Qoder Kimi K2.7" },
-  { id: "mmodel", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, description: "Qoder MiniMax M2.7" },
+  { id: "auto", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, pricing: { input: 0, output: 0 }, description: "Qoder Auto" },
+  { id: "ultimate", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, pricing: { input: 0, output: 0 }, description: "Qoder Ultimate" },
+  { id: "performance", reasoning: true, vision: true, contextWindow: 272000, maxOutputTokens: 64000, pricing: { input: 0, output: 0 }, description: "Qoder Performance" },
+  { id: "efficient", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, pricing: { input: 0, output: 0 }, description: "Qoder Efficient" },
+  { id: "lite", reasoning: true, contextWindow: 256000, maxOutputTokens: 64000, pricing: { input: 0, output: 0 }, description: "Qoder Lite" },
+  { id: "qmodel", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, pricing: { input: 0, output: 0 }, description: "Qoder Qwen 3.6 Plus" },
+  { id: "qmodel_latest", reasoning: true, vision: true, contextWindow: 1000000, maxOutputTokens: 64000, pricing: { input: 0, output: 0 }, description: "Qoder Qwen 3.7 Max" },
+  { id: "qmodel_preview", reasoning: true, vision: true, contextWindow: 1000000, maxOutputTokens: 64000, pricing: { input: 0, output: 0 }, description: "Qoder Qwen 3.8 Max" },
+  { id: "dmodel", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, pricing: { input: 0, output: 0 }, description: "Qoder DeepSeek V4 Pro" },
+  { id: "dfmodel", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, pricing: { input: 0, output: 0 }, description: "Qoder DeepSeek V4 Flash" },
+  { id: "gm51model", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, pricing: { input: 0, output: 0 }, description: "Qoder GLM 5.2" },
+  { id: "kmodel", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, pricing: { input: 0, output: 0 }, description: "Qoder Kimi K2.7" },
+  { id: "mmodel", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 64000, pricing: { input: 0, output: 0 }, description: "Qoder MiniMax M2.7" },
 ];
 
 export const qoderModelCatalog: ProviderModelCatalog = createModelCatalog(MODELS);

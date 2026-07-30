@@ -49,7 +49,10 @@ describe("estimated cost", () => {
   test("a request against an unpriced provider (aggregator/subscription, no per-token rate card) contributes $0 and marks the total partial", async () => {
     insertUsageHistory({
       traceId: "cost-trace-1", endpoint: "/v1/chat/completions", surface: "chat", apiKeyId: null, apiKeyPrefix: null,
-      provider: "kimchi", model: "kimi-k2.7", status: 200, errorKind: null, stream: false,
+      // Kimchi's own catalog now carries an explicit $0 rate card (a priced
+      // model that just happens to bill nothing), which no longer represents
+      // "no rate card at all" — cursor's "default" has no pricing field.
+      provider: "cursor", model: "default", status: 200, errorKind: null, stream: false,
       startedAt: utcNow(), finishedAt: utcNow(), durationMs: 500,
       inputTokens: 1000, outputTokens: 500, cachedTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 1500,
       usageSource: "provider", meta: {},
@@ -92,14 +95,16 @@ describe("estimated cost", () => {
     });
     insertUsageHistory({
       traceId: "cost-trace-4", endpoint: "/v1/chat/completions", surface: "chat", apiKeyId: null, apiKeyPrefix: null,
-      provider: "ollama", model: "gpt-oss:20b", status: 200, errorKind: null, stream: false,
+      // Cursor's "default" (server auto-picks the model) genuinely has no
+      // rate card — unlike ollama's models, which now carry real pricing.
+      provider: "cursor", model: "default", status: 200, errorKind: null, stream: false,
       startedAt: utcNow(), finishedAt: utcNow(), durationMs: 500,
       inputTokens: 1_000_000, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 1_000_000,
       usageSource: "provider", meta: {},
     });
 
     const cost = queryUsageCost("24h");
-    // gpt-5.4-mini: $0.75/M input → $0.75; ollama has no rate card, contributes $0 and flips partial.
+    // gpt-5.4-mini: $0.75/M input → $0.75; cursor's "default" has no rate card, contributes $0 and flips partial.
     expect(cost.estimatedCostUsd).toBe(0.75);
     expect(cost.partial).toBe(true);
   });

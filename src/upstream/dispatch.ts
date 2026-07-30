@@ -86,7 +86,7 @@ export interface DispatchOutcome {
   proxyPoolName?: string;
 }
 
-/** Proxy-pool entry rotation state, keyed by pool id — shares the same primitive as account rotation (REQ-6). */
+/** Proxy-pool entry rotation state, keyed by "poolId:proxyMode" (mode changes what index 0 means) — shares the same primitive as account rotation (REQ-6). */
 const poolRotationState = createRotationStore<string>();
 const accountModelFailures = new Map<string, number>();
 const ACCOUNT_MODEL_FAILURE_THRESHOLD = 3;
@@ -157,21 +157,42 @@ export async function dispatchProvider(
   // Create a combined signal: connect timeout + client abort (C3)
   const timeoutSignal = createTimeoutSignal(FETCH_CONNECT_TIMEOUT_MS, signal);
 
-  // Resolve proxy pool for this provider's routing config.
+  // Build this request's rotation candidates from the provider's routing
+  // config. "proxy-pool" (Round Robin) rotates through the pool's entries
+  // only; "mixed" (Round Robin Mix) also puts `undefined` (direct, no proxy)
+  // in the same rotation, so a request can land on either. `direct` mode, or
+  // a pool with no usable entries, is just the single `[undefined]` slot —
+  // identical to the old always-direct behavior.
   const routing = getProviderRouting(route.target.provider);
-  let proxyUrl: string | undefined;
-  if (routing.proxyPoolId) {
+  let candidates: (string | undefined)[] = [undefined];
+  let poolName: string | undefined;
+  if (routing.proxyMode !== "direct" && routing.proxyPoolId) {
     const pool = getPool(routing.proxyPoolId);
     if (pool && pool.entries.length > 0) {
-      const idx = pickRotationIndex(poolRotationState, pool.id, pool.entries.length, 1);
-      proxyUrl = pool.entries[idx]!.url;
-      await assertPublicUrlAtDispatch(proxyUrl);
-      route.proxyPoolName = pool.name;
+      const proxyUrls = pool.entries.map((entry) => entry.url);
+      candidates = routing.proxyMode === "mixed" ? [undefined, ...proxyUrls] : proxyUrls;
+      poolName = pool.name;
     }
   }
 
+  // Persistent index balances load across *requests* (round-robins forward
+  // each call, same as before); `attemptOffset` walks to the *next* candidate
+  // on every retry *within* this one request, so a dead proxy entry gets
+  // failed over to a different candidate instead of being retried against
+  // itself for the whole backoff schedule.
+  const rotationKey = `${routing.proxyPoolId ?? "direct"}:${routing.proxyMode}`;
+  const startIndex = pickRotationIndex(poolRotationState, rotationKey, candidates.length, 1);
+  let attemptOffset = 0;
+  let usedProxyUrl: string | undefined;
+
   const result = await withRetry(
-    () => provider.call(route.target, route.request, route.credential, timeoutSignal, proxyUrl),
+    async () => {
+      const proxyUrl = candidates[(startIndex + attemptOffset) % candidates.length];
+      attemptOffset += 1;
+      usedProxyUrl = proxyUrl;
+      if (proxyUrl) await assertPublicUrlAtDispatch(proxyUrl);
+      return provider.call(route.target, route.request, route.credential, timeoutSignal, proxyUrl);
+    },
     DISPATCH_RETRY_CONFIG,
     (attempt, delayMs, error) => {
       void attempt;
@@ -179,6 +200,7 @@ export async function dispatchProvider(
       void error;
     },
   );
+  route.proxyPoolName = usedProxyUrl ? poolName : undefined;
   return { result, proxyPoolName: route.proxyPoolName };
 }
 

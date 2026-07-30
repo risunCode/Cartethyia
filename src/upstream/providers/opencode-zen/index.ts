@@ -7,7 +7,7 @@
  */
 
 import type { RouteTarget } from "../../../routing/types";
-import { ProviderCallError, providerHttpError } from "../index";
+import { ProviderCallError, providerHttpError, safeReadText } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
 import { decodeOpenAIChatStream, decodeAnthropicStream } from "../../bridge";
 import { fetchOpenCodeZenCatalog, findOpenCodeModel, selectCapability } from "./catalog";
@@ -83,7 +83,9 @@ class OpenCodeZenProvider implements Provider {
     });
 
     if (!res.ok) {
-      throw providerHttpError(res.status, "OpenCode Zen", "OpenCode Zen rejected this API key.");
+      // The real upstream error text (via `bodyText`) is preferred over this
+      // hardcoded fallback whenever OpenCode Zen's response actually says why.
+      throw providerHttpError(res.status, "OpenCode Zen", undefined, await safeReadText(res));
     }
 
     if (!res.body) {

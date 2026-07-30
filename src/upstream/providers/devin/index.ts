@@ -1,5 +1,5 @@
 import type { RouteTarget } from "../../../routing/types";
-import { ProviderCallError } from "../index";
+import { ProviderCallError, extractUpstreamErrorMessage, safeReadText } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
 import { buildDevinChatRequest, decodeDevinChatStream, fetchDevinAuthMetadata } from "./transport";
 import { materializeFromStream, materializedToChatResponse } from "../../result";
@@ -55,10 +55,11 @@ class DevinProvider implements Provider {
     });
 
     if (!res.ok) {
+      const upstreamMessage = extractUpstreamErrorMessage(await safeReadText(res));
       throw new ProviderCallError(
         res.status >= 400 && res.status < 500 ? 401 : 502,
         res.status >= 400 && res.status < 500 ? "authentication" : "unavailable",
-        "Devin chat request failed."
+        upstreamMessage ?? "Devin chat request failed."
       );
     }
 

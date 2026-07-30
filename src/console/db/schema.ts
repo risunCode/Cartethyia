@@ -153,4 +153,18 @@ CREATE TABLE IF NOT EXISTS custom_providers (
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL
 );
+
+-- Model Studio — saved chat sessions for the console's built-in model tester
+-- (system prompt + message history, so switching sessions preserves
+-- provider prompt caching across turns).
+CREATE TABLE IF NOT EXISTS model_studio_sessions (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  model TEXT NOT NULL DEFAULT '',
+  system_prompt TEXT NOT NULL DEFAULT '',
+  messages_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_model_studio_sessions_updated ON model_studio_sessions(updated_at DESC);
 `;

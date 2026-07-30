@@ -46,6 +46,25 @@ import type {
 const MIN_TOKENS_FOR_TOOL_CALLING = 4096;
 
 /**
+ * OpenAI-shaped `reasoning_effort` has no Anthropic equivalent in the request
+ * body verbatim — Anthropic controls reasoning depth via a `thinking` block
+ * with a manual `budget_tokens` (min 1024, must stay under `max_tokens`).
+ * Any client that already sends `reasoning_effort` (Model Studio's "Think"
+ * selector, or a future OpenAI-shaped caller) gets real extended thinking on
+ * Anthropic-family targets instead of the field being silently dropped.
+ * A provider that doesn't understand `thinking` at all just ignores the
+ * extra field — the same graceful passthrough every unrecognized JSON field
+ * already gets, so nothing breaks for models that don't support it.
+ */
+const REASONING_EFFORT_TO_THINKING_BUDGET: Record<string, number> = {
+  low: 2000,
+  medium: 6000,
+  high: 12000,
+  xhigh: 24000,
+  max: 32000,
+};
+
+/**
  * Anthropic's Messages API has no grammar-enforced structured-output mode
  * reachable through this proxy, so `response_format` (OpenAI Chat only) is
  * folded into the Anthropic `system` prompt as a BEST-EFFORT instruction —
@@ -91,11 +110,18 @@ export function translateChatRequestToAnthropic(req: OpenAIChatRequest): Anthrop
   // mid-argument-JSON (which produces unparsable, unrecoverable arguments).
   const requestedMaxTokens = req.max_completion_tokens ?? req.max_tokens ?? 4096;
   const hasTools = (req.tools?.length ?? 0) > 0;
+  const thinkingBudget = typeof req.reasoning_effort === "string" ? REASONING_EFFORT_TO_THINKING_BUDGET[req.reasoning_effort] : undefined;
   const out: AnthropicRequest = {
     model: req.model,
-    max_tokens: hasTools ? Math.max(requestedMaxTokens, MIN_TOKENS_FOR_TOOL_CALLING) : requestedMaxTokens,
+    // budget_tokens must stay under max_tokens, so a thinking request also
+    // floors max_tokens — same reasoning as the tool-calling floor above.
+    max_tokens: Math.max(
+      hasTools ? Math.max(requestedMaxTokens, MIN_TOKENS_FOR_TOOL_CALLING) : requestedMaxTokens,
+      thinkingBudget !== undefined ? thinkingBudget + 1024 : 0
+    ),
     messages: denormalizeToAnthropicMessages(breakpoint.messages),
   };
+  if (thinkingBudget !== undefined) out.thinking = { type: "enabled", budget_tokens: thinkingBudget };
 
   if (breakpoint.system !== undefined) {
     out.system = breakpoint.systemCached

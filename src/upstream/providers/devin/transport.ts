@@ -19,7 +19,7 @@ import {
 } from "./generated/exa/chat_pb/chat_pb";
 import type { OpenAIChatMessage } from "../../../translate/types";
 import type { StreamEvent } from "../../bridge";
-import { ProviderCallError } from "../index";
+import { ProviderCallError, extractUpstreamErrorMessage } from "../index";
 import { flattenMessageText } from "../../../shared/text-utils";
 import { COMPRESSED_FLAG, decompressPayload, parseConnectTrailer, readConnectFrames } from "./connect";
 
@@ -86,10 +86,14 @@ export async function fetchDevinAuthMetadata(sessionToken: string, signal?: Abor
 
   const payload = new Uint8Array(await res.arrayBuffer());
   if (!res.ok) {
+    // Connect-RPC returns a JSON error body on failure even though the
+    // success path is protobuf, so the raw bytes already read above decode
+    // as text just fine here.
+    const upstreamMessage = extractUpstreamErrorMessage(new TextDecoder().decode(payload));
     throw new ProviderCallError(
       res.status >= 400 && res.status < 500 ? 401 : 502,
       res.status >= 400 && res.status < 500 ? "authentication" : "unavailable",
-      "Devin authentication request failed."
+      upstreamMessage ?? "Devin authentication request failed."
     );
   }
 

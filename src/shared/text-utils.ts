@@ -57,8 +57,13 @@ export function extractResponseSample(body: Record<string, unknown>): string {
     if (first && typeof first === "object") {
       const message = (first as Record<string, unknown>).message;
       if (message && typeof message === "object") {
-        const content = (message as Record<string, unknown>).content;
-        if (typeof content === "string") return content;
+        const msg = message as Record<string, unknown>;
+        // Prefer final content; fall back to reasoning_content if the
+        // model spent its entire budget thinking and emitted no visible text.
+        const content = typeof msg.content === "string" ? msg.content : "";
+        if (content) return content;
+        const reasoning = typeof msg.reasoning_content === "string" ? msg.reasoning_content : "";
+        if (reasoning) return reasoning;
       }
       const text = (first as Record<string, unknown>).text;
       if (typeof text === "string") return text;
@@ -66,5 +71,5 @@ export function extractResponseSample(body: Record<string, unknown>): string {
   }
   const outputText = body.output_text;
   if (typeof outputText === "string") return outputText;
-  return "";
+  return ""
 }

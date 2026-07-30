@@ -2,7 +2,7 @@
 
 Cartethyia is a Bun + Elysia AI proxy with an authenticated console. It exposes OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages while routing models to managed provider accounts, custom compatible providers, aliases, and combos.
 
-**Current release: `1.0.1-alpha`** — feature-complete alpha for local and self-hosted testing. Review the [changelog](./CHANGELOG.md) for the release scope and known alpha-level caveats.
+**Current release: `1.0.2-alpha`** - feature-complete alpha for local and self-hosted testing. Review the [changelog](./CHANGELOG.md) for the release scope and known alpha-level caveats.
 
 ## Features
 

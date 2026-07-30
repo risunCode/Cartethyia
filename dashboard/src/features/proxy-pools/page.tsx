@@ -1,8 +1,8 @@
 /** Proxy pools — CRUD, checklist batch ops, platform toggle, inline test results. */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ExternalLink, FileUp, Globe, Info, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { ExternalLink, Globe, Info, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api, apiGet, apiPost } from "../../lib/api";
 import { formatTime } from "../../lib/format";
@@ -30,6 +30,18 @@ interface EntryTestResult { url: string; ok: boolean; latencyMs: number; error?:
 
 // ── Pool form dialog ──────────────────────────────────────────────────────
 
+/** Finds the first `${base}${n}` (n >= 1) not already taken, mutating `taken` as it goes so a batch never assigns the same name twice. */
+function nextAvailableName(base: string, taken: Set<string>): string {
+  let index = 1;
+  let candidate = `${base}${index}`;
+  while (taken.has(candidate)) {
+    index += 1;
+    candidate = `${base}${index}`;
+  }
+  taken.add(candidate);
+  return candidate;
+}
+
 function PoolFormDialog({ open, onClose, editTarget }: { open: boolean; onClose: () => void; editTarget: PoolRecord | null }) {
   const qc = useQueryClient();
   const [name, setName] = useState(editTarget?.name ?? "");
@@ -39,104 +51,78 @@ function PoolFormDialog({ open, onClose, editTarget }: { open: boolean; onClose:
   const [isRelay, setIsRelay] = useState(editTarget?.platform === "vercel" || editTarget?.platform === "cloudflare");
 
   const entries = entriesText.split("\n").map((l) => l.trim()).filter(Boolean);
+  const poolsQuery = useQuery({ queryKey: ["console", "proxy-pools"], queryFn: () => apiGet<{ items: PoolRecord[] }>("/proxy-pools") });
+
+  const namePreview = useMemo(() => {
+    if (editTarget || entries.length <= 1) return [];
+    const base = name.trim() || "proxy";
+    const taken = new Set((poolsQuery.data?.items ?? []).map((p) => p.name));
+    return entries.map(() => nextAvailableName(base, taken));
+  }, [editTarget, entries.length, name, poolsQuery.data]);
 
   const mut = useMutation({
-    mutationFn: () => apiPost(editTarget ? `/proxy-pools/${editTarget.id}` : "/proxy-pools", {
-      name: name.trim(), entries: entries.map((url) => ({ url, scheme: new URL(url).protocol.replace(":", "") })),
-      noProxy: noProxy.trim(), strictProxy, platform: isRelay ? "vercel" : "custom",
-    }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["console", "proxy-pools"] }); onClose(); toast.success(editTarget ? "Pool updated" : "Pool created"); },
+    mutationFn: async () => {
+      const shared = { noProxy: noProxy.trim(), strictProxy, platform: isRelay ? ("vercel" as const) : ("custom" as const) };
+      const toEntry = (url: string) => ({ url, scheme: new URL(url).protocol.replace(":", "") });
+
+      if (editTarget) {
+        return apiPost(`/proxy-pools/${editTarget.id}`, { name: name.trim(), entries: entries.map(toEntry), ...shared });
+      }
+      if (entries.length <= 1) {
+        return apiPost("/proxy-pools", { name: name.trim(), entries: entries.map(toEntry), ...shared });
+      }
+      // Multiple pasted URLs -> one pool per URL, auto-named (base1, base2, …)
+      // instead of one pool holding every URL as a rotation candidate. Each
+      // pool can then be assigned independently, e.g. one relay per account.
+      const base = name.trim() || "proxy";
+      const taken = new Set((poolsQuery.data?.items ?? []).map((p) => p.name));
+      for (const url of entries) {
+        await apiPost("/proxy-pools", { name: nextAvailableName(base, taken), entries: [toEntry(url)], ...shared });
+      }
+      return { created: entries.length };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["console", "proxy-pools"] });
+      onClose();
+      toast.success(editTarget ? "Pool updated" : entries.length > 1 ? `${entries.length} pools created` : "Pool created");
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
   return (
     <Dialog open={open} onClose={onClose} title={editTarget ? "Edit Proxy Pool" : "New Proxy Pool"} wide
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!name.trim() || entries.length === 0 || mut.isPending} onClick={() => mut.mutate()}>{mut.isPending ? "Saving…" : editTarget ? "Save" : "Create"}</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!name.trim() || entries.length === 0 || mut.isPending} onClick={() => mut.mutate()}>{mut.isPending ? "Saving…" : editTarget ? "Save" : entries.length > 1 ? `Create ${entries.length} pools` : "Create"}</Button></>}>
       <div className="space-y-3">
         <div>
-          <Label htmlFor="pool-name">Name</Label>
-          <Input id="pool-name" placeholder="e.g. us-proxies" value={name} onChange={(e) => setName(e.target.value)} />
+          <Label htmlFor="pool-name">{editTarget || entries.length <= 1 ? "Name" : "Name prefix"}</Label>
+          <Input id="pool-name" placeholder="e.g. proxy" value={name} onChange={(e) => setName(e.target.value)} />
+          {namePreview.length > 0 && (
+            <p className="mt-1 text-[10.5px] text-[var(--text-3)]">
+              {entries.length} lines pasted → {entries.length} separate pools will be created: {namePreview.slice(0, 3).join(", ")}
+              {namePreview.length > 3 ? ", …" : ""}
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => setIsRelay(!isRelay)} className={`flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${isRelay ? "bg-[var(--accent)]" : "bg-[var(--inner-border)]"}`}>
-            <span className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${isRelay ? "translate-x-4" : "translate-x-0.5"}`} />
-          </button>
+        <label className="flex cursor-pointer items-center gap-3">
+          <Switch checked={isRelay} onChange={setIsRelay} />
           <span className="text-xs text-[var(--text-2)]">Vercel / Cloudflare relay</span>
-        </div>
+        </label>
         <div>
           <Label htmlFor="pool-entries">Entries (one proxy URL per line)</Label>
           <Textarea id="pool-entries" placeholder={"http://proxy1.example.com:8080\nhttps://proxy2.example.com:443\nsocks5://proxy3.example.com:1080"} value={entriesText} onChange={(e) => setEntriesText(e.target.value)} rows={5} />
+          {!editTarget && (
+            <p className="mt-1 text-[10.5px] text-[var(--text-3)]">Paste multiple lines to create one pool per URL, auto-named from the prefix above — paste one line to create a single pool under that exact name.</p>
+          )}
         </div>
         <div>
           <Label htmlFor="pool-noproxy">No-proxy bypass list (comma-separated)</Label>
           <Input id="pool-noproxy" placeholder="localhost,127.0.0.1,.internal" value={noProxy} onChange={(e) => setNoProxy(e.target.value)} />
         </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => setStrictProxy(!strictProxy)} className={`flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${strictProxy ? "bg-[var(--accent)]" : "bg-[var(--inner-border)]"}`}>
-            <span className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${strictProxy ? "translate-x-4" : "translate-x-0.5"}`} />
-          </button>
+        <label className="flex cursor-pointer items-center gap-3">
+          <Switch checked={strictProxy} onChange={setStrictProxy} />
           <span className="text-xs text-[var(--text-2)]">Reject requests when proxy is unreachable</span>
-        </div>
+        </label>
       </div>
-    </Dialog>
-  );
-}
-
-// ── Import dialog ─────────────────────────────────────────────────────────
-
-function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [text, setText] = useState("");
-  const [name, setName] = useState("");
-  const [isRelay, setIsRelay] = useState(false);
-  const [result, setResult] = useState<{ added: Array<{ url: string; scheme: string }>; skipped: Array<{ line: number; reason: string }> } | null>(null);
-
-  const importMut = useMutation({
-    mutationFn: async () => {
-      const parsed = await apiPost<{ added: Array<{ url: string; scheme: string }>; skipped: Array<{ line: number; reason: string }> }>("/proxy-pools/import", { text });
-      if (parsed.added.length === 0) return parsed;
-      await apiPost("/proxy-pools", {
-        name: name.trim() || "Imported pool",
-        entries: parsed.added,
-        noProxy: "",
-        strictProxy: false,
-        platform: isRelay ? "vercel" as const : "custom" as const,
-      });
-      return parsed;
-    },
-    onSuccess: (data) => { setResult(data); qc.invalidateQueries({ queryKey: ["console", "proxy-pools"] }); },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  return (
-    <Dialog open={open} onClose={() => { onClose(); setText(""); setName(""); setIsRelay(false); setResult(null); }} title="Import Proxies" wide
-      footer={<>{!result ? (<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!text.trim() || importMut.isPending} onClick={() => importMut.mutate()}>{importMut.isPending ? "Importing…" : "Import"}</Button></>) : (<Button onClick={onClose}>Done</Button>)}</>}>
-      {!result ? (
-        <div className="space-y-3">
-          <div>
-            <Label htmlFor="import-name">Pool name</Label>
-            <Input id="import-name" placeholder="e.g. My proxy pool" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <label className="flex cursor-pointer items-center gap-3">
-            <Switch checked={isRelay} onChange={setIsRelay} />
-            <span className="text-xs text-[var(--text-2)]">Vercel / Cloudflare relay</span>
-          </label>
-          <div>
-            <Label htmlFor="import-text">Paste one proxy URL per line</Label>
-            <Textarea id="import-text" placeholder={"http://proxy1.example.com:8080\nhttps://proxy2.example.com:443"} value={text} onChange={(e) => setText(e.target.value)} rows={8} />
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2"><CheckCircle2 size={16} className="text-[var(--green)]" /><span className="text-sm font-semibold">{result.added.length} proxy entries added to "{name.trim() || "Imported pool"}"</span></div>
-          {result.skipped.length > 0 && (
-            <div className="rounded-lg bg-[rgba(255,159,10,0.1)] p-3 text-xs text-[var(--orange)]">
-              <div className="mb-1 font-semibold">{result.skipped.length} lines skipped:</div>
-              {result.skipped.map((s) => <div key={s.line} className="break-all">Line {s.line}: {s.reason}</div>)}
-            </div>
-          )}
-        </div>
-      )}
     </Dialog>
   );
 }
@@ -148,7 +134,6 @@ export function ProxyPoolsPage() {
   const { data, isLoading } = useQuery({ queryKey: ["console", "proxy-pools"], queryFn: () => apiGet<{ items: PoolRecord[] }>("/proxy-pools") });
   const [formOpen, setFormOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<PoolRecord | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<PoolRecord | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -241,10 +226,7 @@ export function ProxyPoolsPage() {
       {/* Pool list */}
       <Card>
         <CardHeader title="Proxy Pools" icon={Globe} sub={`${items.length} pool${items.length === 1 ? "" : "s"} configured`}>
-          <div className="flex gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}><FileUp size={14} /> Import</Button>
-            <Button size="sm" onClick={() => { setEditTarget(null); setFormOpen(true); }}><Plus size={14} /> New Pool</Button>
-          </div>
+          <Button size="sm" onClick={() => { setEditTarget(null); setFormOpen(true); }}><Plus size={14} /> New Pool</Button>
         </CardHeader>
 
         {/* Batch actions bar */}
@@ -324,7 +306,6 @@ export function ProxyPoolsPage() {
       </Card>
 
       {formOpen && <PoolFormDialog open={formOpen} onClose={() => { setFormOpen(false); setEditTarget(null); }} editTarget={editTarget} />}
-      <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
       <ConfirmDialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)} onConfirm={() => deleteTarget && deleteMut.mutate(deleteTarget.id)} title="Delete proxy pool?" message={`Remove pool "${deleteTarget?.name}"? Providers using this pool will fall back to direct connections.`} confirmLabel="Delete" danger />
     </div>
   );

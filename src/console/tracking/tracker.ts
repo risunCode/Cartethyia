@@ -11,7 +11,7 @@ import type { ApiKeyPublic } from "../db/repos/api-keys";
 import { insertUsageHistory, upsertUsageDaily, appendJsonl, utcNow, utcDateOf } from "../db/repos/usage";
 import { insertRequestDetails, insertAssetMeta, insertToolCall } from "../db/repos/details";
 import { extractUsage, extractUsageFromSseText, extractToolCalls, type UsageTotals } from "./usage-extractor";
-import { computePayloadMeta } from "./payload-meta";
+import { computePayloadMeta, extractLastUserMessagePreview } from "./payload-meta";
 import { redactPayload } from "./redact";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -77,32 +77,9 @@ export function createRequestTracker(start: TrackerStartInput): RequestTracker {
     if (finished) return;
     finished = true;
     decrementInFlight();
-    void persistAsync(start, traceId, startedAt, startedMs, provider, finish)
-      .then(() => {
-        const level = finish.status >= 500 ? "error" : finish.status >= 400 ? "warn" : "info";
-        const modelLabel = start.model ?? "unknown";
-        const providerLabel = provider ?? "unknown";
-        const durationMs = Date.now() - startedMs;
-        const usage = finish.usage ?? (finish.body !== undefined ? extractUsage(start.surface, finish.body) : null);
-        const parts: string[] = [
-          `${start.endpoint} ${modelLabel} via ${providerLabel} → ${finish.status}`,
-          `${durationMs}ms`,
-        ];
-        if (start.stream) parts.push("stream");
-        if (proxyPoolName) parts.push(`proxy:${proxyPoolName}`);
-        if (usage) {
-          const tok: string[] = [];
-          if (usage.inputTokens) tok.push(`in:${usage.inputTokens}`);
-          if (usage.outputTokens) tok.push(`out:${usage.outputTokens}`);
-          if (usage.cachedTokens) tok.push(`cached:${usage.cachedTokens}`);
-          if (usage.reasoningTokens) tok.push(`reason:${usage.reasoningTokens}`);
-          if (tok.length > 0) parts.push(tok.join(" "));
-        }
-        pushConsoleLog(level, "request", parts.join(" · "));
-      })
-      .catch((err) => {
-        pushConsoleLog("error", "tracking", `persist failed: ${err instanceof Error ? err.message : String(err)}`);
-      });
+    void persistAsync(start, traceId, startedAt, startedMs, provider, proxyPoolName, finish).catch((err) => {
+      pushConsoleLog("error", "tracking", `persist failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
   };
 
   return {
@@ -154,6 +131,7 @@ async function persistAsync(
   startedAt: string,
   startedMs: number,
   provider: string | undefined,
+  proxyPoolName: string | undefined,
   finish: FinishInput
 ): Promise<void> {
   const runtime = getRuntimeSettings();
@@ -161,6 +139,11 @@ async function persistAsync(
   const finishedAt = utcNow();
   const durationMs = Date.now() - startedMs;
   const usage = finish.usage ?? (finish.body !== undefined ? extractUsage(start.surface, finish.body) : null);
+  // Computed unconditionally (cheap, no disk write) so the console log tail
+  // always shows what was asked and which tools ran, regardless of the
+  // heavier TRACK_PAYLOADS storage setting.
+  const toolCalls = finish.body !== undefined && finish.status < 400 ? extractToolCalls(start.surface, finish.body) : [];
+  const messagePreview = finish.requestBody !== undefined ? extractLastUserMessagePreview(start.surface, finish.requestBody) : undefined;
 
   const id = insertUsageHistory({
     traceId,
@@ -261,15 +244,34 @@ async function persistAsync(
     }
   }
 
-  // Tool calls from the response body.
-  if (runtime.trackPayloads !== "none" && finish.body !== undefined && finish.status < 400) {
-    const toolCalls = extractToolCalls(start.surface, finish.body);
+  // Tool calls from the response body — already computed above; only
+  // persisted to the details DB when TRACK_PAYLOADS allows it.
+  if (runtime.trackPayloads !== "none" && toolCalls.length > 0) {
     for (const call of toolCalls) {
       insertToolCall({ requestId: id, name: call.name, bytes: call.bytes, sha256: call.sha256, durationMs: null, status: call.status });
     }
-    if (toolCalls.length > 0) tracking.toolCalls = toolCalls;
+    tracking.toolCalls = toolCalls;
   }
 
   appendJsonl("requests", { ...logRecord, tracking });
   if (finish.status >= 400) appendJsonl("errors", { ...logRecord, tracking });
+
+  const level = finish.status >= 500 ? "error" : finish.status >= 400 ? "warn" : "info";
+  const parts: string[] = [
+    `${finish.status < 400 ? "\u2713" : "\u2717"} ${start.endpoint} ${start.model ?? "unknown"} via ${finish.provider ?? provider ?? "unknown"} \u2192 ${finish.status}`,
+    `${durationMs}ms`,
+  ];
+  if (start.stream) parts.push("stream");
+  parts.push(proxyPoolName ? `proxy:${proxyPoolName}` : "direct");
+  if (usage) {
+    const tok: string[] = [];
+    if (usage.inputTokens) tok.push(`in:${usage.inputTokens}`);
+    if (usage.outputTokens) tok.push(`out:${usage.outputTokens}`);
+    if (usage.cachedTokens) tok.push(`cached:${usage.cachedTokens}`);
+    if (usage.reasoningTokens) tok.push(`reason:${usage.reasoningTokens}`);
+    if (tok.length > 0) parts.push(tok.join(" "));
+  }
+  if (toolCalls.length > 0) parts.push(`tools:${toolCalls.map((c) => c.name).join(",")}`);
+  if (messagePreview) parts.push(`msg:"${messagePreview}"`);
+  pushConsoleLog(level, "request", parts.join(" \u00b7 "));
 }

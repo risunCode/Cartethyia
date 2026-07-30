@@ -122,17 +122,67 @@ export function classifyUpstreamStatus(status: number): "authentication" | "inva
 }
 
 /**
+ * Reads a Response body for error-message extraction without ever throwing —
+ * a body can legitimately fail to read (already consumed, connection reset
+ * mid-stream, a test double reusing one Response instance across calls) and
+ * that failure must never mask the real HTTP status/error being reported.
+ */
+export async function safeReadText(res: Response): Promise<string> {
+  try {
+    return await res.text();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Best-effort extraction of the actual error text an upstream API returned,
+ * so a caller sees e.g. "Insufficient balance" instead of a generic
+ * "<Provider> rejected this request." wrapper that hides what's actually
+ * wrong. Handles the common OpenAI/Anthropic-style `{error:{message}}`
+ * shape, a bare `{message}`/`{error:"..."}}`, and falls back to the raw
+ * body text (truncated) for a plain-text error response.
+ */
+export function extractUpstreamErrorMessage(bodyText: string, maxLen = 300): string | undefined {
+  const trimmed = bodyText.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object") {
+      const obj = parsed as Record<string, unknown>;
+      const err = obj.error;
+      if (typeof err === "string" && err.trim()) return err.trim().slice(0, maxLen);
+      if (err && typeof err === "object") {
+        const msg = (err as Record<string, unknown>).message;
+        if (typeof msg === "string" && msg.trim()) return msg.trim().slice(0, maxLen);
+      }
+      if (typeof obj.message === "string" && obj.message.trim()) return obj.message.trim().slice(0, maxLen);
+      if (typeof obj.detail === "string" && obj.detail.trim()) return obj.detail.trim().slice(0, maxLen);
+    }
+  } catch {
+    // Not JSON — fall through to the raw text below.
+  }
+  return trimmed.length > maxLen ? `${trimmed.slice(0, maxLen)}\u2026` : trimmed;
+}
+
+/**
  * Canonical provider HTTP failure factory. Every simple provider transport
  * (Kimchi, Qoder, Command Code, OpenCode Zen) threw the same four-branch
  * template with only the provider name — and occasionally the auth
- * message — varying; this is the single source for that shape.
+ * message — varying; this is the single source for that shape. Prefers the
+ * upstream's own error text (from `bodyText`) over the generic wrapper
+ * whenever the response body actually says something.
  */
-export function providerHttpError(status: number, provider: string, authMessage?: string): ProviderCallError {
+export function providerHttpError(status: number, provider: string, authMessage?: string, bodyText?: string): ProviderCallError {
   const kind = classifyUpstreamStatus(status);
-  if (kind === "authentication") return new ProviderCallError(status, kind, authMessage ?? `${provider} rejected the supplied credential.`);
-  if (kind === "rate_limited") return new ProviderCallError(status, kind, `${provider} is rate-limiting this request.`);
-  if (kind === "invalid_request") return new ProviderCallError(status, kind, `${provider} rejected this request.`);
-  return new ProviderCallError(502, kind, `${provider} is unavailable.`);
+  const upstreamMessage = bodyText ? extractUpstreamErrorMessage(bodyText) : undefined;
+  if (kind === "authentication") return new ProviderCallError(status, kind, authMessage ?? upstreamMessage ?? `${provider} rejected the supplied credential.`);
+  if (kind === "rate_limited") return new ProviderCallError(status, kind, upstreamMessage ?? `${provider} is rate-limiting this request.`);
+  if (kind === "invalid_request") return new ProviderCallError(status, kind, upstreamMessage ?? `${provider} rejected this request.`);
+  // Preserve the upstream's own status (500, 503, ...) instead of collapsing
+  // every non-4xx failure to a hardcoded 502 — callers checking for a
+  // specific relayed status (retry logic, tests) rely on it coming through.
+  return new ProviderCallError(status, kind, upstreamMessage ?? `${provider} is unavailable.`);
 }
 
 const OPENAI_COMPATIBLE_PROVIDERS = [
@@ -151,15 +201,14 @@ const OPENAI_COMPATIBLE_PROVIDERS = [
     baseUrl: "https://ollama.com/v1",
     credentialUrl: "https://ollama.com/settings/keys",
     // gpt-oss + cloud-offloaded large open-weight models (docs.ollama.com/cloud).
-    // No pricing here: Ollama Cloud isn't metered per token the way the other
-    // providers on this list are (models.dev carries no cost figure for it).
+    // Reference vendor pricing per 1M tokens (USD).
     models: [
-      { id: "gpt-oss:20b", reasoning: true },
-      { id: "gpt-oss:120b", reasoning: true },
-      { id: "gpt-oss:20b-cloud", reasoning: true },
-      { id: "gpt-oss:120b-cloud", reasoning: true },
-      { id: "qwen3-coder:480b-cloud", reasoning: true },
-      { id: "deepseek-v3.1:671b-cloud", reasoning: true },
+      { id: "gpt-oss:20b", reasoning: true, contextWindow: 131072, pricing: { input: 0.1, output: 0.3 } },
+      { id: "gpt-oss:120b", reasoning: true, contextWindow: 131072, pricing: { input: 0.35, output: 0.75 } },
+      { id: "gemma4:31b", reasoning: true, contextWindow: 131072, pricing: { input: 0.075, output: 0.3 } },
+      { id: "minimax-m2.5", reasoning: true, contextWindow: 1000000, pricing: { input: 0.2, output: 0.8 } },
+      { id: "minimax-m3", reasoning: true, contextWindow: 1000000, pricing: { input: 0.3, output: 1.2 } },
+      { id: "nemotron-3-super", reasoning: true, contextWindow: 131072, pricing: { input: 0.15, output: 0.6 } },
     ],
   }),
   createOpenAICompatibleProvider({
@@ -202,7 +251,7 @@ const OPENAI_COMPATIBLE_PROVIDERS = [
     // (siliconflow) 2026-07-30 where a matching entry exists.
     models: [
       { id: "Qwen/Qwen3-8B", reasoning: true, contextWindow: 131000, maxOutputTokens: 131000, pricing: { input: 0.06, output: 0.06 } },
-      { id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", reasoning: true },
+      { id: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B", reasoning: true, contextWindow: 131000, maxOutputTokens: 16384, pricing: { input: 0.07, output: 0.07 } },
       { id: "deepseek-ai/DeepSeek-V3", reasoning: true, contextWindow: 164000, maxOutputTokens: 164000, pricing: { input: 0.25, output: 1 } },
     ],
   }),
@@ -219,6 +268,7 @@ const OPENAI_COMPATIBLE_PROVIDERS = [
       { id: "mistral-large-latest", reasoning: true, vision: true, contextWindow: 262144, maxOutputTokens: 262144, pricing: { input: 0.5, output: 1.5 } },
       { id: "mistral-medium-latest", reasoning: true, vision: true, contextWindow: 262144, maxOutputTokens: 262144, pricing: { input: 1.5, output: 7.5 } },
       { id: "mistral-small-latest", reasoning: true, vision: true, contextWindow: 256000, maxOutputTokens: 256000, pricing: { input: 0.15, output: 0.6 } },
+      { id: "codestral-latest", reasoning: true, contextWindow: 256000, maxOutputTokens: 256000, pricing: { input: 0.3, output: 0.9 } },
     ],
   }),
 ] as const;
