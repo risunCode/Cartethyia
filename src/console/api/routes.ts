@@ -16,7 +16,7 @@ import { logsRoutes } from "./logs";
 import { combosRoutes } from "./combos";
 import { proxyPoolsRoutes } from "./proxy-pools";
 import { accessRoutes } from "./access";
-import { sanitizerRulesRoutes } from "./sanitizer-rules";
+import { filterSanitizeRoutes } from "./sanitizer-rules";
 import { customProvidersRoutes } from "./custom-providers";
 import { healthRoutes } from "./health";
 import { liveRoutes } from "./live";
@@ -41,7 +41,7 @@ export const consoleApiRoutes = new Elysia()
           .use(combosRoutes)
           .use(proxyPoolsRoutes)
           .use(accessRoutes)
-          .use(sanitizerRulesRoutes)
+          .use(filterSanitizeRoutes)
           .use(customProvidersRoutes)
           .use(healthRoutes)
           .use(liveRoutes)

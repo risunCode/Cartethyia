@@ -33,6 +33,20 @@ export function formatUsd(value: number | null | undefined): string {
   return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/** Renders whole-second uptime as "2d 4h", "4h 12m", "12m 05s", or "05s" — coarsest two units, matching how uptime is conventionally read. */
+export function formatUptime(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || seconds < 0 || !Number.isFinite(seconds)) return "—";
+  const whole = Math.floor(seconds);
+  const days = Math.floor(whole / 86_400);
+  const hours = Math.floor((whole % 86_400) / 3600);
+  const minutes = Math.floor((whole % 3600) / 60);
+  const secs = whole % 60;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${String(secs).padStart(2, "0")}s`;
+  return `${secs}s`;
+}
+
 export function formatTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const date = new Date(iso.includes("T") ? iso : `${iso.replace(" ", "T")}Z`);

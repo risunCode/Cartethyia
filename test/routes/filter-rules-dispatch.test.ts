@@ -7,14 +7,12 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
 import { app } from "../../src/app";
 import { loginAndGetCookie, postJson, useIsolatedDataDir } from "../console/helpers";
-import { seedDefaultSanitizerRules } from "../../src/console/db/repos/sanitizer-rules";
 import { invalidateRuntimeSettings } from "../../src/console/runtime";
 
 let fetchSpy: Mock<typeof fetch>;
 
 beforeEach(() => {
   useIsolatedDataDir();
-  seedDefaultSanitizerRules();
   invalidateRuntimeSettings();
   fetchSpy = spyOn(globalThis, "fetch");
 });
@@ -65,11 +63,11 @@ describe("seeded Filter Rules sanitize outbound requests", () => {
 
   test("console can deactivate a seeded rule and the next dispatch stops sanitizing", async () => {
     const cookie = await loginAndGetCookie();
-    const listRes = await app.handle(new Request("http://localhost/console/api/sanitizer-rules", { headers: { cookie } }));
+    const listRes = await app.handle(new Request("http://localhost/console/api/filter.sanitize", { headers: { cookie } }));
     const { items } = (await listRes.json()) as { items: Array<{ id: number; ruleId: string }> };
     const entrypointRule = items.find((r) => r.ruleId === "cc-entrypoint")!;
 
-    const patchRes = await app.handle(postJson(`/console/api/sanitizer-rules/${entrypointRule.id}`, { isActive: false }, { cookie }));
+    const patchRes = await app.handle(postJson(`/console/api/filter.sanitize/${entrypointRule.id}`, { isActive: false }, { cookie }));
     expect(patchRes.status).toBe(200);
 
     fetchSpy.mockResolvedValueOnce(chatResponse("ok"));

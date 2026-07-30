@@ -4,6 +4,7 @@ import {
   Boxes,
   Cable,
   ChartSpline,
+  Clock,
   Filter,
   Globe,
   Layers,
@@ -11,18 +12,84 @@ import {
   LogOut,
   Menu,
   Moon,
+  Rocket,
   Search,
   Settings,
   Sun,
   Terminal,
+  Timer,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import { cn } from "../lib/cn";
-import { apiPost } from "../lib/api";
+import { apiGet, apiPost } from "../lib/api";
+import { formatUptime } from "../lib/format";
 import { Dialog } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
+
+interface HealthStatus {
+  version: string;
+  startedAt: number;
+  uptimeSeconds: number;
+  now: number;
+  timezoneOffsetMinutes: number;
+}
+
+const GITHUB_REPO = "risunCode/Cartethyia";
+
+// ---------------------------------------------------------------------------
+// FooterClock — isolated so the 1-second tick never re-renders AppShell or
+// any page inside <Outlet />.
+// ---------------------------------------------------------------------------
+function FooterClock({ statusData }: { statusData: HealthStatus | undefined }) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const clockOffsetRef = useRef(0);
+  const tzOffsetRef = useRef(0);
+  const startedAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!statusData) return;
+    clockOffsetRef.current = statusData.now - Date.now();
+    tzOffsetRef.current = statusData.timezoneOffsetMinutes;
+    startedAtRef.current = statusData.startedAt;
+  }, [statusData]);
+
+  const serverNowMs = nowMs + clockOffsetRef.current;
+  const serverNow = new Date(serverNowMs);
+  const serverLocalNow = new Date(serverNowMs - tzOffsetRef.current * 60_000);
+  const liveUptimeSeconds = startedAtRef.current !== null
+    ? (serverNowMs - startedAtRef.current) / 1000
+    : null;
+
+  const fmt = (d: Date) => d.toLocaleTimeString("en-GB", { timeZone: "UTC", hour12: false });
+
+  return (
+    <footer className="glass sticky bottom-4 z-30 mt-auto grid grid-cols-2 items-center gap-x-4 gap-y-1.5 rounded-2xl px-4 py-3 text-xs text-[var(--text-2)] sm:gap-x-8 sm:px-5 sm:py-3.5">
+      <div className="flex items-center gap-1.5 font-semibold text-[var(--text-1)]">
+        <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[var(--green)]" />
+        All systems operational
+      </div>
+      <div className="flex items-center justify-end gap-1.5" title="UTC time">
+        <Globe size={13} className="shrink-0" />
+        {fmt(serverNow)} UTC
+      </div>
+      <div className="flex items-center gap-1.5" title="Server system time">
+        <Clock size={13} className="shrink-0" />
+        {fmt(serverLocalNow)} system
+      </div>
+      <div className="flex items-center justify-end gap-1.5" title="Uptime since server start">
+        <Timer size={13} className="shrink-0" />
+        uptime {formatUptime(liveUptimeSeconds)}
+      </div>
+    </footer>
+  );
+}
 
 interface NavEntry {
   to: string;
@@ -174,8 +241,6 @@ export function AppShell() {
   const navigate = useNavigate();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [now, setNow] = useState(() => new Date());
-
   const pathKey = `/${location.pathname.split("/").filter(Boolean)[0] ?? "overview"}`;
   const meta = TITLES[pathKey] ?? { title: "Cartethyia", sub: "Internal console" };
 
@@ -194,10 +259,26 @@ export function AppShell() {
     setDrawerOpen(false);
   }, [location.pathname]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  // Server clock (not the browser's) drives "system time"; refetched
+  // periodically and interpolated locally by the 1s `now` ticker above.
+  const statusQuery = useQuery({
+    queryKey: ["health-status"],
+    queryFn: () => apiGet<HealthStatus>("/health/status"),
+    refetchInterval: 30_000,
+  });
+  const releaseQuery = useQuery({
+    queryKey: ["github-latest-release"],
+    queryFn: async () => {
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+      if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+      return (await res.json()) as { tag_name: string; html_url: string };
+    },
+    staleTime: 30 * 60_000,
+    retry: false,
+  });
+  const localVersion = statusQuery.data?.version;
+  const latestTag = releaseQuery.data?.tag_name?.replace(/^v/, "");
+  const updateAvailable = Boolean(localVersion && latestTag && latestTag !== localVersion);
 
   const sidebar = (
     <aside
@@ -216,9 +297,29 @@ export function AppShell() {
           alt="Cartethyia"
           className="h-9 w-9 shrink-0 rounded-[11px] object-cover"
         />
-        <div>
-          <div className="text-base font-bold leading-tight">Cartethyia</div>
-          <div className="text-[11px] text-[var(--text-2)]">Internal Console</div>
+        <div className="min-w-0">
+          <a
+            href={`https://github.com/${GITHUB_REPO}`}
+            target="_blank"
+            rel="noreferrer"
+            className="truncate text-base font-bold leading-tight transition-colors hover:text-[var(--accent)]"
+          >
+            Cartethyia Router
+          </a>
+          <a
+            href={releaseQuery.data?.html_url ?? `https://github.com/${GITHUB_REPO}/releases`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 text-[11px] text-[var(--text-2)] transition-colors hover:text-[var(--accent)]"
+            title={updateAvailable ? `Update available on GitHub: v${latestTag}` : "View releases on GitHub"}
+          >
+            v{localVersion ?? "\u2026"}
+            {updateAvailable && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-[var(--accent-soft)] px-1.5 py-[1px] text-[9.5px] font-semibold text-[var(--accent)]">
+                <Rocket size={9} className="shrink-0" /> update
+              </span>
+            )}
+          </a>
         </div>
       </div>
 
@@ -326,16 +427,7 @@ export function AppShell() {
 
         {/* `mt-auto` drops it to the bottom on short pages; `sticky bottom-4`
             keeps it parked there while long pages scroll behind it. */}
-        <footer className="glass sticky bottom-4 z-30 mt-auto flex flex-wrap items-center gap-3 rounded-2xl px-[18px] py-3 text-xs text-[var(--text-2)]">
-          <div className="flex items-center gap-1.5 font-semibold text-[var(--text-1)]">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--green)]" />
-            All systems operational
-          </div>
-          <span className="opacity-40">·</span>
-          <span>System {now.toLocaleTimeString("en-GB", { hour12: false })}</span>
-          <span>UTC {now.toLocaleTimeString("en-GB", { timeZone: "UTC", hour12: false })}</span>
-          <span className="ml-auto font-medium text-[var(--text-1)]">Cartethyia Console</span>
-        </footer>
+        <FooterClock statusData={statusQuery.data} />
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />

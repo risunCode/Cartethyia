@@ -1,13 +1,12 @@
 /** Proxy pools — CRUD, checklist batch ops, platform toggle, inline test results. */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import { CheckCircle2, ExternalLink, FileUp, Globe, Info, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api, apiGet, apiPost } from "../../lib/api";
 import { formatTime } from "../../lib/format";
-import { staggerItem } from "../../lib/motion";
+import { staggerClass } from "../../lib/motion";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
@@ -255,7 +254,7 @@ export function ProxyPoolsPage() {
             </div>
 
             {items.map((pool, i) => (
-              <motion.div key={pool.id} {...staggerItem(i)} className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3.5">
+              <div key={pool.id} {...staggerClass(i)} className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3.5">
                 <div className="flex items-start gap-3">
                   <input type="checkbox" className="mt-1 h-3.5 w-3.5 shrink-0 accent-[var(--accent)]" checked={selected.has(pool.id)} onChange={() => toggleSelect(pool.id)} />
                   <div className="min-w-0 flex-1">
@@ -294,7 +293,7 @@ export function ProxyPoolsPage() {
                     <Button variant="ghost" size="icon" className="text-[#ff453a]" onClick={() => setDeleteTarget(pool)}><Trash2 size={13} /></Button>
                   </div>
                 </div>
-              </motion.div>
+              </div>
             ))}
           </div>
         )}

@@ -15,7 +15,7 @@ import {
 import { apiGet } from "../../lib/api";
 import { formatDuration, formatNumber, formatTime, formatTokens, formatUsd } from "../../lib/format";
 import { useInFlightStream } from "../../lib/hooks/use-inflight-stream";
-import { staggerItem } from "../../lib/motion";
+import { staggerClass } from "../../lib/motion";
 import { Badge, Skeleton } from "../../components/ui/badge";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Drawer } from "../../components/ui/drawer";
@@ -234,7 +234,7 @@ function ByDimension({ period, dimension }: { period: Period; dimension: Dimensi
   return (
     <div className="flex flex-col">
       {rows.slice(0, 5).map((row, index) => (
-        <motion.div key={row.name} {...staggerItem(index)} className="border-b border-[var(--inner-border)] py-2.5 last:border-0">
+        <div key={row.name} {...staggerClass(index)} className="border-b border-[var(--inner-border)] py-2.5 last:border-0">
           <div className="flex items-center justify-between text-xs">
             <span className="truncate font-mono text-[11.5px] font-semibold">{row.name}</span>
             <span className="tabular-nums text-[var(--text-2)]">{formatTokens(row.total)}</span>
@@ -247,7 +247,7 @@ function ByDimension({ period, dimension }: { period: Period; dimension: Dimensi
               transition={{ duration: 0.6, ease: [0.2, 0.8, 0.2, 1] }}
             />
           </div>
-        </motion.div>
+        </div>
       ))}
     </div>
   );
@@ -482,7 +482,7 @@ export function UsagePage() {
       {/* Stat cards + selectors — pinned below appbar */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {STAT_CARDS.map((card, index) => (
-          <motion.div key={card.label} {...staggerItem(index)} className="glass rounded-2xl p-3.5 transition-transform duration-200 hover:-translate-y-0.5">
+          <div key={card.label} {...staggerClass(index)} className="glass rounded-2xl p-3.5 transition-transform duration-200 hover:-translate-y-0.5">
             <span className="mb-2.5 grid h-8 w-8 place-items-center rounded-[10px]" style={{ background: `${card.color}24`, color: card.color }}>
               <card.icon size={15} />
             </span>
@@ -502,7 +502,7 @@ export function UsagePage() {
                 </span>
               )}
             </div>
-          </motion.div>
+          </div>
         ))}
       </div>
 

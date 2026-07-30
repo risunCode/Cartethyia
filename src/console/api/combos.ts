@@ -27,6 +27,7 @@ import { providerRegistry } from "../../upstream/providers";
 import type { AddedProviderId } from "../../routing/types";
 import { isProviderId } from "../../routing/providerMeta";
 import { isRotationStrategy } from "../../routing/strategy";
+import { isProviderModelEnabled } from "../db/repos/provider-models";
 
 /** Parse "prefix/model" via the shared routing parser, discarding invalid-reason detail. */
 function parseQualified(model: string): { provider: AddedProviderId; modelId: string } | null {
@@ -180,7 +181,7 @@ export const combosRoutes = new Elysia({ prefix: "/console/api" })
     return { ok: true };
   })
   // ── Resolve preview ────────────────────────────────────────────
-  .post("/resolve-preview", ({ body, set }) => {
+  .post("/resolve-preview", async ({ body, set }) => {
     const { model } = (body ?? {}) as { model?: string };
     if (!model?.trim()) {
       set.status = 400;
@@ -188,6 +189,18 @@ export const combosRoutes = new Elysia({ prefix: "/console/api" })
     }
     const trace: string[] = [`input: ${model}`];
     let current = model.trim();
+
+    const isModelEffectivelyAvailable = (providerId: AddedProviderId, provider: unknown, modelId: string): boolean => {
+      // Keep behavior consistent with src/routing/resolve.ts:
+      // opencode-free/custom accept dynamic model ids,
+      // openai/anthropic skip static catalog existence checks.
+      if (providerId === "opencode-free" || providerId === "custom" || providerId === "openai" || providerId === "anthropic") return true;
+      return Boolean(
+        provider &&
+          typeof provider === "object" &&
+          (provider as { models?: { resolve: (id: string) => unknown } }).models?.resolve(modelId)
+      );
+    };
 
     // 1. Qualified prefix
     let qualified = parseQualified(current);
@@ -207,21 +220,37 @@ export const combosRoutes = new Elysia({ prefix: "/console/api" })
     const combo = !qualified ? getComboByName(current) : null;
     if (combo) {
       trace.push(`combo "${combo.name}" → [${combo.models.join(", ")}] (${combo.strategy})`);
-      const candidates = combo.models.map((m) => {
-        const q = parseQualified(m);
-        if (!q) return { model: m, provider: null, modelId: null, filter: { result: "denied" as const, reason: "invalid model in combo" } };
-        const provider = providerRegistry.get(q.provider);
-        const modelExists = provider ? Boolean(provider.models.resolve(q.modelId)) : false;
-        const filter = evaluateFilter(q.provider, q.modelId);
-        return {
-          model: m,
-          provider: q.provider,
-          modelId: q.modelId,
-          modelExists,
-          filter,
-        };
-      });
-      return { ok: true, trace, resolved: { kind: "combo", strategy: combo.strategy, candidates } };
+      const candidates = await Promise.all(
+        combo.models.map(async (m) => {
+          const q = parseQualified(m);
+          if (!q)
+            return {
+              model: m,
+              provider: null,
+              modelId: null,
+              enabled: false,
+              modelExists: false,
+              filter: { result: "denied" as const, reason: "invalid model in combo" },
+            };
+          const provider = providerRegistry.get(q.provider);
+          const modelExists = provider ? isModelEffectivelyAvailable(q.provider, provider, q.modelId) : false;
+          const enabled = isProviderModelEnabled(q.provider, q.modelId);
+          const filter = evaluateFilter(q.provider, q.modelId);
+          const target = provider && modelExists && filter.result === "allowed" ? await provider.resolveTarget(q.modelId) : undefined;
+          return {
+            model: m,
+            provider: q.provider,
+            modelId: target?.modelId ?? q.modelId,
+            enabled,
+            modelExists,
+            filter,
+          };
+        })
+      );
+
+      const eligible = candidates.filter((c) => c.provider && c.enabled && c.modelExists && c.filter.result === "allowed");
+      trace.push(`resolved targets → ${eligible.length ? eligible.map((c) => `${c.provider}/${c.modelId}`).join(", ") : "none"}`);
+      return { ok: eligible.length > 0, trace, resolved: { kind: "combo", strategy: combo.strategy, candidates } };
     }
 
     if (!qualified) {
@@ -231,14 +260,18 @@ export const combosRoutes = new Elysia({ prefix: "/console/api" })
     }
 
     const provider = providerRegistry.get(qualified.provider);
-    const modelExists = provider ? Boolean(provider.models.resolve(qualified.modelId)) : false;
+    const modelExists = isModelEffectivelyAvailable(qualified.provider, provider, qualified.modelId);
     if (!modelExists) trace.push(`model "${qualified.modelId}" not found in ${qualified.provider} catalog`);
+    const enabled = isProviderModelEnabled(qualified.provider, qualified.modelId);
     const filter = evaluateFilter(qualified.provider, qualified.modelId);
     trace.push(`filter check → ${filter.result}${filter.reason ? ` (${filter.reason})` : ""}`);
 
+    const target = provider && enabled && modelExists && filter.result === "allowed" ? await provider.resolveTarget(qualified.modelId) : undefined;
+    trace.push(target ? `resolved target → ${target.provider}/${target.modelId} (${target.surface})` : "resolved target → unavailable");
+
     return {
-      ok: modelExists && filter.result === "allowed",
+      ok: enabled && modelExists && filter.result === "allowed" && Boolean(target),
       trace,
-      resolved: { kind: "single", provider: qualified.provider, modelId: qualified.modelId, modelExists, filter },
+      resolved: { kind: "single", provider: qualified.provider, modelId: target?.modelId ?? qualified.modelId, modelExists, filter },
     };
   });

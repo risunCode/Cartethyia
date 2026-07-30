@@ -7,8 +7,6 @@ import { getConsoleEnv } from "./env";
 import { ensureSettings } from "./db/repos/settings";
 import { createApiKey, findApiKeyBySecret, listApiKeys } from "./db/repos/api-keys";
 import { addAuditEvent } from "./db/repos/audit";
-import { seedDefaultSanitizerRules } from "./db/repos/sanitizer-rules";
-
 let done = false;
 
 export async function ensureConsoleBootstrap(): Promise<void> {
@@ -16,7 +14,6 @@ export async function ensureConsoleBootstrap(): Promise<void> {
   const env = getConsoleEnv();
   if (!env.enabled) return;
   await ensureSettings();
-  seedDefaultSanitizerRules();
   if (env.bootstrapKey && !findApiKeyBySecret(env.bootstrapKey)) {
     if (!listApiKeys().some((k) => k.name === env.bootstrapKeyName)) {
       // Store the operator-provided key verbatim.

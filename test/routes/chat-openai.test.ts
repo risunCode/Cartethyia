@@ -137,8 +137,9 @@ describe("POST /v1/chat/completions with openai namespace", () => {
     expect(res.status).toBe(200);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     const [, retryInit] = fetchSpy.mock.calls[1]!;
-    const retryBody = JSON.parse(String(retryInit?.body)) as { messages: [{ content: Array<{ type: string; text?: string }> }] };
-    expect(retryBody.messages[0].content).toEqual([
+    const retryBody = JSON.parse(String(retryInit?.body)) as { messages: Array<{ role: string; content: Array<{ type: string; text?: string }> }> };
+    const userMessage = retryBody.messages.find((m) => m.role === "user");
+    expect(userMessage?.content).toEqual([
       { type: "text", text: "What is in this screenshot?" },
       { type: "text", text: "[Image attachment omitted: the selected model cannot process image input. Respond using the available text only.]" },
     ]);

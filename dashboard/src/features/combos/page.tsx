@@ -1,19 +1,19 @@
 /** Combos page — alias CRUD, combo builder, resolve preview (REQ-13). */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import { ArrowRight, Pencil, Plus, Route, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { apiGet, apiPost } from "../../lib/api";
-import { staggerItem } from "../../lib/motion";
+import { api, apiGet, apiPost } from "../../lib/api";
+import { staggerClass } from "../../lib/motion";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Dialog } from "../../components/ui/dialog";
-import { Input, Label, Textarea } from "../../components/ui/input";
+import { Input, Label } from "../../components/ui/input";
 import { Tabs } from "../../components/ui/tabs";
 import { ConfirmDialog } from "../../components/shared";
+import { ModelPickerField, ModelTargetPicker } from "../../components/model-picker";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -27,21 +27,32 @@ function AliasesTab() {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ["console", "aliases"], queryFn: () => apiGet<{ items: AliasRecord[] }>("/aliases") });
   const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<AliasRecord | null>(null);
   const [alias, setAlias] = useState("");
   const [model, setModel] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
+  const resetForm = () => {
+    setEditTarget(null);
+    setAlias("");
+    setModel("");
+  };
+
   const createMut = useMutation({
     mutationFn: () => apiPost("/aliases", { alias: alias.trim(), model: model.trim() }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["console", "aliases"] }); setCreateOpen(false); setAlias(""); setModel(""); toast.success("Alias created"); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["console", "aliases"] });
+      setCreateOpen(false);
+      resetForm();
+      toast.success(editTarget ? "Alias updated" : "Alias created");
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const deleteMut = useMutation({
-    mutationFn: (a: string) => apiPost(`/aliases/${encodeURIComponent(a)}`, undefined),
+    mutationFn: (a: string) => api<{ ok: boolean }>(`/aliases/${encodeURIComponent(a)}`, { method: "DELETE", body: "{}" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["console", "aliases"] }); setDeleteTarget(null); toast.success("Alias deleted"); },
     onError: (e: Error) => toast.error(e.message),
-    meta: { method: "DELETE" as const },
   });
 
   const items = data?.items ?? [];
@@ -57,22 +68,36 @@ function AliasesTab() {
       ) : (
         <div className="mt-3 space-y-2">
           {items.map((a, i) => (
-            <motion.div key={a.alias} {...staggerItem(i)} className="flex items-center justify-between rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-4 py-2.5">
+            <div key={a.alias} {...staggerClass(i)} className="flex items-center justify-between rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-4 py-2.5">
               <div className="flex items-center gap-2 text-sm">
                 <code className="rounded bg-[var(--accent-soft)] px-1.5 py-0.5 text-xs font-semibold text-[var(--accent)]">{a.alias}</code>
                 <ArrowRight size={14} className="text-[var(--text-3)]" />
                 <code className="text-xs text-[var(--text-2)]">{a.model}</code>
               </div>
-              <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(a.alias)}><Trash2 size={14} /></Button>
-            </motion.div>
+              <div className="flex gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    setEditTarget(a);
+                    setAlias(a.alias);
+                    setModel(a.model);
+                    setCreateOpen(true);
+                  }}
+                >
+                  <Pencil size={14} />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(a.alias)}><Trash2 size={14} /></Button>
+              </div>
+            </div>
           ))}
         </div>
       )}
-      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} title="New Alias"
-        footer={<><Button variant="secondary" onClick={() => setCreateOpen(false)}>Cancel</Button><Button disabled={!alias.trim() || !model.trim()} onClick={() => createMut.mutate()}>Create</Button></>}>
+      <Dialog open={createOpen} onClose={() => { setCreateOpen(false); resetForm(); }} title={editTarget ? "Edit Alias" : "New Alias"}
+        footer={<><Button variant="secondary" onClick={() => { setCreateOpen(false); resetForm(); }}>Cancel</Button><Button disabled={!alias.trim() || !model.trim()} onClick={() => createMut.mutate()}>{editTarget ? "Save" : "Create"}</Button></>}>
         <div className="space-y-3">
-          <div><Label htmlFor="alias-name">Alias name</Label><Input id="alias-name" placeholder="e.g. fast" value={alias} onChange={(e) => setAlias(e.target.value)} /></div>
-          <div><Label htmlFor="alias-model">Target model (qualified or combo name)</Label><Input id="alias-model" placeholder="e.g. kimchi/kimi-k2.7" value={model} onChange={(e) => setModel(e.target.value)} /></div>
+          <div><Label htmlFor="alias-name">Alias name</Label><Input id="alias-name" placeholder="e.g. fast" value={alias} onChange={(e) => setAlias(e.target.value)} disabled={!!editTarget} /></div>
+          <div><Label htmlFor="alias-model">Target model (qualified or combo name)</Label><ModelTargetPicker value={model} onChange={setModel} placeholder="e.g. kimchi/kimi-k2.7" /></div>
         </div>
       </Dialog>
       <ConfirmDialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)} onConfirm={() => deleteTarget && deleteMut.mutate(deleteTarget)} title="Delete alias?" message={`Remove alias "${deleteTarget}"? Requests using this alias will need their full model name.`} confirmLabel="Delete" danger />
@@ -88,14 +113,12 @@ function CombosTab() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ComboRecord | null>(null);
   const [name, setName] = useState("");
-  const [modelsText, setModelsText] = useState("");
+  const [models, setModels] = useState<string[]>([]);
   const [strategy, setStrategy] = useState<"fallback" | "round-robin">("fallback");
   const [stickyLimit, setStickyLimit] = useState("0");
   const [deleteTarget, setDeleteTarget] = useState<ComboRecord | null>(null);
 
-  const resetForm = () => { setName(""); setModelsText(""); setStrategy("fallback"); setStickyLimit("0"); setEditTarget(null); };
-
-  const models = modelsText.split("\n").map((m) => m.trim()).filter(Boolean);
+  const resetForm = () => { setName(""); setModels([]); setStrategy("fallback"); setStickyLimit("0"); setEditTarget(null); };
 
   const createMut = useMutation({
     mutationFn: () => apiPost(editTarget ? `/combos/${editTarget.id}` : "/combos", {
@@ -106,21 +129,17 @@ function CombosTab() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: async (id: string) => {
-      await apiPost(`/combos/${id}`, undefined).catch(() => {});
+    mutationFn: (id: string) => api<{ ok: boolean }>(`/combos/${id}`, { method: "DELETE", body: "{}" }),
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["console", "combos"] });
       setDeleteTarget(null);
       toast.success("Combo deleted");
     },
-    onSuccess: () => {},
+    onError: (e: Error) => toast.error(e.message),
   });
 
-  const handleDelete = async (id: string) => {
-    deleteMut.mutate(id);
-  };
-
   const openEdit = (c: ComboRecord) => {
-    setEditTarget(c); setName(c.name); setModelsText(c.models.join("\n")); setStrategy(c.strategy); setStickyLimit(String(c.stickyLimit)); setCreateOpen(true);
+    setEditTarget(c); setName(c.name); setModels(c.models); setStrategy(c.strategy); setStickyLimit(String(c.stickyLimit)); setCreateOpen(true);
   };
 
   const items = data?.items ?? [];
@@ -136,7 +155,7 @@ function CombosTab() {
       ) : (
         <div className="mt-3 space-y-2">
           {items.map((c, i) => (
-            <motion.div key={c.id} {...staggerItem(i)} className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-4 py-3">
+            <div key={c.id} {...staggerClass(i)} className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-4 py-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-bold">{c.name}</span>
@@ -151,7 +170,7 @@ function CombosTab() {
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {c.models.map((m) => <code key={m} className="rounded bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10.5px] text-[var(--accent)]">{m}</code>)}
               </div>
-            </motion.div>
+            </div>
           ))}
         </div>
       )}
@@ -159,7 +178,7 @@ function CombosTab() {
         footer={<><Button variant="secondary" onClick={() => { setCreateOpen(false); resetForm(); }}>Cancel</Button><Button disabled={!name.trim() || models.length < 2} onClick={() => createMut.mutate()}>{editTarget ? "Save" : "Create"}</Button></>}>
         <div className="space-y-3">
           <div><Label htmlFor="combo-name">Name</Label><Input id="combo-name" placeholder="e.g. fast-combo" value={name} onChange={(e) => setName(e.target.value)} disabled={!!editTarget} /></div>
-          <div><Label htmlFor="combo-models">Models (one per line, qualified prefix/model)</Label><Textarea id="combo-models" placeholder={"kimchi/kimi-k2.7\nfoc/deepseek-v4-flash-free"} value={modelsText} onChange={(e) => setModelsText(e.target.value)} rows={4} /></div>
+          <ModelPickerField label="Models (at least 2, qualified prefix/model)" values={models} onChange={setModels} mode="models" manualPlaceholder="e.g. kimchi/kimi-k2.7" />
           <div className="flex gap-4">
             <div><Label htmlFor="combo-strategy">Strategy</Label>
               <select id="combo-strategy" value={strategy} onChange={(e) => setStrategy(e.target.value as "fallback" | "round-robin")} className="h-8 rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] px-2 text-xs font-medium text-[var(--text-1)]"><option value="fallback">Fallback</option><option value="round-robin">Round-robin</option></select>
@@ -168,7 +187,7 @@ function CombosTab() {
           </div>
         </div>
       </Dialog>
-      <ConfirmDialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)} onConfirm={() => deleteTarget && handleDelete(deleteTarget.id)} title="Delete combo?" message={`Remove combo "${deleteTarget?.name}"? Any aliases pointing to it will no longer resolve.`} confirmLabel="Delete" danger />
+      <ConfirmDialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)} onConfirm={() => deleteTarget && deleteMut.mutate(deleteTarget.id)} title="Delete combo?" message={`Remove combo "${deleteTarget?.name}"? Any aliases pointing to it will no longer resolve.`} confirmLabel="Delete" danger />
     </>
   );
 }

@@ -4,8 +4,9 @@
  */
 
 import { getSettings, type RuntimeSettings } from "./db/repos/settings";
-import { listActiveSanitizerRules } from "./db/repos/sanitizer-rules";
+import { resolveEffectiveFilterRules } from "./db/repos/sanitizer-rules";
 import { getConsoleEnv } from "./env";
+import { DEFAULT_SYSTEM_PROMPT } from "./default-system-prompt";
 import type { RequestTransformSettings, SanitizerFilterRule } from "../upstream/outbound";
 
 const TTL_MS = 5_000;
@@ -24,7 +25,7 @@ export function defaultRuntimeSettings(): RuntimeSettings {
     maxFlightsPerIp: 20,
     trustProxy: false,
     cacheMarkersEnabled: true,
-    systemPrompt: "",
+    systemPrompt: DEFAULT_SYSTEM_PROMPT,
     sessionTtlHours: env.sessionTtlHours,
     rtk: { enabled: false, minChars: 1500, maxReductionPercent: 35 },
   };
@@ -46,7 +47,7 @@ export function getRuntimeSettings(): RuntimeSettings {
  */
 function getFilterRules(): SanitizerFilterRule[] {
   if (filterRulesCache && Date.now() - filterRulesCache.at < TTL_MS) return filterRulesCache.value;
-  const value = listActiveSanitizerRules().map((r) => ({ pattern: r.pattern, replacement: r.replacement, isRegex: r.isRegex }));
+  const value = resolveEffectiveFilterRules();
   filterRulesCache = { at: Date.now(), value };
   return value;
 }

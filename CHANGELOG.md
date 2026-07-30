@@ -4,6 +4,28 @@ All notable changes to Cartethyia are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Unified model/provider picker (browse the live catalog or type a value manually) replacing raw newline-separated textareas for API key allowed-providers/allowed-models/denied-models, combo model lists, and the alias target field.
+- Edit action for aliases in Console \u2192 Combos (previously create/delete only).
+- `GET /console/api/health/status`: version, process uptime, and a server-clock timestamp the dashboard uses to render its own system time and uptime instead of trusting the browser's clock.
+- Health metrics now break down process memory into JS heap (used/total), native/JIT, external (native bindings), and ArrayBuffer segments, plus CPU core count, PID, and CPU model \u2014 shown as live bars on the Overview \u201cHealth\u201d card.
+
+### Changed
+
+- System prompt is now a built-in default injected on every request; `CARTETHYIA_SYSTEM_PROMPT` is no longer read from the environment. Override or clear it from Console \u2192 Settings.
+- Filter Rules defaults are hardcoded in code (`src/console/default-sanitizer-rules.ts`) and are no longer seeded into SQLite; the `sanitizer_rules` table stores only operator overrides of built-ins and fully custom rules. The console API and route prefix are renamed to `filter.sanitize` for naming consistency with the dashboard's \u201cFilter Rules\u201d label.
+- `POST /console/api/combos/resolve-preview` now resolves and reports the actual routed target (provider/model/surface) after alias/combo/filter resolution, instead of stopping at the filter-check step.
+- Console sidebar shows the product name, current version (from `package.json`), and a GitHub release-update badge/link instead of static \u201cInternal Console\u201d branding.
+- Console footer redesigned into a compact grid (2\u00d72 on mobile, single row on desktop): server-synced UTC and system-local clocks (not the browser's clock), and live uptime.
+- List-item entrance animations across Providers, Overview, Combos, Filter Rules, Proxy Pools, and Usage now use CSS keyframes instead of framer-motion `motion.div`, avoiding a known `visualElement` retention issue on navigation.
+
+### Fixed
+
+- Provider detail page (`/console/providers/:id`) crashed with a React error on every visit (state update during render, then a hook-count mismatch from a hook called after a conditional early return).
+- Alias edit/delete buttons in Console \u2192 Combos were missing/non-functional; delete previously sent the wrong HTTP method.
+- `resolveEffectiveFilterRules()` queried the database twice per call.
+
 ## [1.0.1-alpha] - 2026-07-30
 
 ### Changed

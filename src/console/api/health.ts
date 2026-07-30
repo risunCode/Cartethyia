@@ -10,6 +10,13 @@
 import { Elysia } from "elysia";
 import { cpus, freemem, totalmem } from "node:os";
 import { addAuditEvent } from "../db/repos/audit";
+const SERVER_STARTED_AT = Date.now();
+let _version: string | undefined;
+function getVersion(): string {
+  if (_version) return _version;
+  try { _version = (JSON.parse(require("fs").readFileSync(new URL("../../../package.json", import.meta.url), "utf8")).version) as string; } catch { _version = "unknown"; }
+  return _version;
+}
 
 let lastCpuUsage: NodeJS.CpuUsage | undefined;
 let lastSampleAt: number | undefined;
@@ -36,23 +43,49 @@ function sampleCpuPercent(): number {
 }
 
 function memorySnapshot() {
-  const rss = process.memoryUsage().rss;
+  const mem = process.memoryUsage();
   const total = totalmem();
   const free = freemem();
+  const toMb = (b: number) => Math.round((b / 1024 / 1024) * 10) / 10;
   return {
-    // This process only (what "Clear RAM usage" / Bun.gc affects).
-    memoryUsedMb: Math.round((rss / 1024 / 1024) * 10) / 10,
-    // Whole machine — every process, not just ours.
-    memorySystemUsedMb: Math.round(((total - free) / 1024 / 1024) * 10) / 10,
+    memoryUsedMb: toMb(mem.rss),
+    memorySystemUsedMb: toMb(total - free),
     memoryTotalMb: Math.round(total / 1024 / 1024),
+    heapUsedMb: toMb(mem.heapUsed),
+    heapTotalMb: toMb(mem.heapTotal),
+    // Native C++ / NAPI: SQLite prepared statements, Bun internals
+    externalMb: toMb(mem.external),
+    // ArrayBuffer backing stores: SSE response chunks, body buffers
+    arrayBuffersMb: toMb(mem.arrayBuffers),
   };
 }
 
 export const healthRoutes = new Elysia({ prefix: "/console/api/health" })
-  .get("/metrics", () => ({
-    ...memorySnapshot(),
-    cpuPercent: sampleCpuPercent(),
-  }))
+  .get("/status", () => {
+    const now = Date.now();
+    return {
+      version: getVersion(),
+      startedAt: SERVER_STARTED_AT,
+      uptimeSeconds: Math.floor((now - SERVER_STARTED_AT) / 1000),
+      // Lets the client compute a clock-drift offset so displayed "system
+      // time" reflects this server's clock, not the browser's.
+      now,
+      // JS convention (Date.prototype.getTimezoneOffset): minutes to ADD to
+      // local time to reach UTC. Lets the client render the server's own
+      // wall-clock time (not the browser's timezone) alongside UTC.
+      timezoneOffsetMinutes: new Date().getTimezoneOffset(),
+    };
+  })
+  .get("/metrics", () => {
+    const cores = cpus();
+    return {
+      ...memorySnapshot(),
+      cpuPercent: sampleCpuPercent(),
+      coreCount: cores.length,
+      cpuModel: cores[0]?.model?.replace(/\s+/g, " ").trim() ?? "Unknown",
+      pid: process.pid,
+    };
+  })
   .post("/gc", () => {
     const before = memorySnapshot();
     Bun.gc(true);

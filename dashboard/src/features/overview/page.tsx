@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
+
 import {
   Activity,
   Check,
@@ -21,14 +21,15 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ApiError, api, apiGet, apiPatch, apiPost } from "../../lib/api";
 import { formatDuration, formatMemoryMb, formatTime } from "../../lib/format";
-import { staggerItem } from "../../lib/motion";
+import { staggerClass } from "../../lib/motion";
 import { Badge, Skeleton } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Dialog } from "../../components/ui/dialog";
-import { Input, Label, Textarea } from "../../components/ui/input";
+import { Input, Label } from "../../components/ui/input";
 import { Switch } from "../../components/ui/switch";
 import { ConfirmDialog } from "../../components/shared";
+import { ModelPickerField } from "../../components/model-picker";
 
 interface ProviderOverview {
   id: string;
@@ -72,12 +73,17 @@ interface SettingsResponse {
 }
 
 interface HealthMetrics {
-  /** This process only — what "Clear RAM usage" affects. */
   memoryUsedMb: number;
-  /** Whole machine, every process. */
   memorySystemUsedMb: number;
   memoryTotalMb: number;
   cpuPercent: number;
+  heapUsedMb: number;
+  heapTotalMb: number;
+  externalMb: number;
+  arrayBuffersMb: number;
+  coreCount: number;
+  cpuModel: string;
+  pid: number;
 }
 
 interface ApiKeyRecord {
@@ -124,27 +130,20 @@ function parseOptionalLimit(raw: string): number | undefined {
   return Math.floor(parsed);
 }
 
-function parseLineList(raw: string): string[] | undefined {
-  const items = raw
-    .split(/[\n,]+/)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+function normalizeList(values: string[]): string[] | undefined {
+  const items = [...new Set(values.map((entry) => entry.trim()).filter(Boolean))];
   return items.length > 0 ? items : undefined;
 }
 
-function formatLineList(values: string[] | null): string {
-  return values?.join("\n") ?? "";
-}
-
-function buildKeyLimitsInput(rpm: string, daily: string, monthly: string, concurrent: string, providers: string, allowed: string, denied: string): KeyLimitsInput {
+function buildKeyLimitsInput(rpm: string, daily: string, monthly: string, concurrent: string, providers: string[], allowed: string[], denied: string[]): KeyLimitsInput {
   const input: KeyLimitsInput = {};
   const rateLimitRpm = parseOptionalLimit(rpm);
   const dailyTokenLimit = parseOptionalLimit(daily);
   const monthlyTokenLimit = parseOptionalLimit(monthly);
   const maxConcurrentRequests = parseOptionalLimit(concurrent);
-  const providerAllowlist = parseLineList(providers);
-  const modelAllowlist = parseLineList(allowed);
-  const modelDenylist = parseLineList(denied);
+  const providerAllowlist = normalizeList(providers);
+  const modelAllowlist = normalizeList(allowed);
+  const modelDenylist = normalizeList(denied);
   if (rateLimitRpm) input.rateLimitRpm = rateLimitRpm;
   if (dailyTokenLimit) input.dailyTokenLimit = dailyTokenLimit;
   if (monthlyTokenLimit) input.monthlyTokenLimit = monthlyTokenLimit;
@@ -203,16 +202,16 @@ function KeyLimitsFields({
   daily: string;
   monthly: string;
   concurrent: string;
-  providers: string;
-  allowedModels: string;
-  deniedModels: string;
+  providers: string[];
+  allowedModels: string[];
+  deniedModels: string[];
   setRpm: (value: string) => void;
   setDaily: (value: string) => void;
   setMonthly: (value: string) => void;
   setConcurrent: (value: string) => void;
-  setProviders: (value: string) => void;
-  setAllowedModels: (value: string) => void;
-  setDeniedModels: (value: string) => void;
+  setProviders: (values: string[]) => void;
+  setAllowedModels: (values: string[]) => void;
+  setDeniedModels: (values: string[]) => void;
   disabled?: boolean;
 }) {
   return (
@@ -235,18 +234,9 @@ function KeyLimitsFields({
           <Input type="number" min={1} value={monthly} onChange={(e) => setMonthly(e.target.value)} placeholder="30000000" disabled={disabled} />
         </div>
       </div>
-      <div>
-        <Label>Allowed providers (optional)</Label>
-        <Textarea value={providers} onChange={(e) => setProviders(e.target.value)} placeholder={"kimchi\nopenai"} rows={3} disabled={disabled} />
-      </div>
-      <div>
-        <Label>Allowed models (optional)</Label>
-        <Textarea value={allowedModels} onChange={(e) => setAllowedModels(e.target.value)} placeholder={"kimchi/kimi-k2.7\nmy-fast-model"} rows={3} disabled={disabled} />
-      </div>
-      <div>
-        <Label>Denied models (optional)</Label>
-        <Textarea value={deniedModels} onChange={(e) => setDeniedModels(e.target.value)} placeholder={"cmd/gpt-5-codex\nlegacy-model"} rows={3} disabled={disabled} />
-      </div>
+      <ModelPickerField label="Allowed providers (optional)" values={providers} onChange={setProviders} mode="providers" manualPlaceholder="e.g. kimchi" disabled={disabled} />
+      <ModelPickerField label="Allowed models (optional)" values={allowedModels} onChange={setAllowedModels} mode="models" manualPlaceholder="e.g. kimchi/kimi-k2.7" disabled={disabled} />
+      <ModelPickerField label="Denied models (optional)" values={deniedModels} onChange={setDeniedModels} mode="models" manualPlaceholder="e.g. cmd/gpt-5-codex" disabled={disabled} />
       <p className="text-xs text-[var(--text-3)]">Leave limits and lists empty to allow all routeable models. Denied models take precedence over allowed lists.</p>
     </>
   );
@@ -284,9 +274,9 @@ export function OverviewPage() {
   const [daily, setDaily] = useState("");
   const [monthly, setMonthly] = useState("");
   const [concurrent, setConcurrent] = useState("");
-  const [providers, setProviders] = useState("");
-  const [allowedModels, setAllowedModels] = useState("");
-  const [deniedModels, setDeniedModels] = useState("");
+  const [providers, setProviders] = useState<string[]>([]);
+  const [allowedModels, setAllowedModels] = useState<string[]>([]);
+  const [deniedModels, setDeniedModels] = useState<string[]>([]);
   const [revealed, setRevealed] = useState<CreatedKey | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiKeyRecord | null>(null);
@@ -297,9 +287,9 @@ export function OverviewPage() {
     setDaily("");
     setMonthly("");
     setConcurrent("");
-    setProviders("");
-    setAllowedModels("");
-    setDeniedModels("");
+    setProviders([]);
+    setAllowedModels([]);
+    setDeniedModels([]);
   };
 
   const openEdit = (key: ApiKeyRecord) => {
@@ -308,9 +298,9 @@ export function OverviewPage() {
     setDaily(key.dailyTokenLimit ? String(key.dailyTokenLimit) : "");
     setMonthly(key.monthlyTokenLimit ? String(key.monthlyTokenLimit) : "");
     setConcurrent(key.maxConcurrentRequests ? String(key.maxConcurrentRequests) : "");
-    setProviders(formatLineList(key.providerAllowlist));
-    setAllowedModels(formatLineList(key.modelAllowlist));
-    setDeniedModels(formatLineList(key.modelDenylist));
+    setProviders(key.providerAllowlist ?? []);
+    setAllowedModels(key.modelAllowlist ?? []);
+    setDeniedModels(key.modelDenylist ?? []);
   };
 
   const closeEdit = () => {
@@ -539,31 +529,68 @@ export function OverviewPage() {
             <div className="text-lg font-bold tabular-nums">{data.registry.length}</div>
             <div className="mt-0.5 text-[11px] text-[var(--text-2)]">Providers</div>
           </div>
-          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3 sm:col-span-2">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(10,132,255,0.13)] text-[#0a84ff]"><MemoryStick size={14} /></span>
-              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">System</span>
+          <div className="col-span-2 grid grid-cols-1 overflow-hidden rounded-[14px] border border-[var(--inner-border)] sm:col-span-4 sm:grid-cols-2">
+            {/* RAM — left */}
+            <div className="border-b border-[var(--inner-border)] bg-[var(--hover)] p-3 sm:border-b-0 sm:border-r">
+              <div className="mb-2 flex items-center gap-2">
+                <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(191,90,242,0.13)] text-[#bf5af2]"><MemoryStick size={14} /></span>
+                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">RAM</span>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-lg font-bold tabular-nums">{healthQuery.data ? formatMemoryMb(healthQuery.data.memoryUsedMb) : "—"}</span>
+                <span className="text-[10.5px] text-[var(--text-3)]">RSS</span>
+              </div>
+              <div className="mb-2 text-[10.5px] text-[var(--text-2)]">
+                {healthQuery.data ? `${formatMemoryMb(healthQuery.data.memorySystemUsedMb)} / ${formatMemoryMb(healthQuery.data.memoryTotalMb)} system` : ""}
+              </div>
+              {healthQuery.data && (() => {
+                const d = healthQuery.data;
+                const nativeMb = Math.max(0, d.memoryUsedMb - d.heapTotalMb - d.externalMb - d.arrayBuffersMb);
+                const rss = d.memoryUsedMb;
+                return (
+                  <div className="space-y-1">
+                    {([
+                      { label: "JS heap", used: d.heapUsedMb, bar: d.heapTotalMb, color: "#bf5af2" },
+                      { label: "Native/JIT", used: nativeMb, bar: nativeMb, color: "#30d158" },
+                      { label: "External", used: d.externalMb, bar: d.externalMb, color: "#ff9f0a" },
+                      { label: "ArrayBuf", used: d.arrayBuffersMb, bar: d.arrayBuffersMb, color: "#0a84ff" },
+                    ] as const).map(({ label, used, bar, color }) => (
+                      <div key={label}>
+                        <div className="mb-0.5 flex justify-between text-[9.5px] text-[var(--text-3)]">
+                          <span>{label}</span>
+                          <span className="tabular-nums">{formatMemoryMb(used)}</span>
+                        </div>
+                        <div className="h-1 overflow-hidden rounded-full bg-[var(--track)]">
+                          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (bar / rss) * 100)}%`, background: color }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
-            <div className="text-base font-bold tabular-nums sm:text-lg">
-              {healthQuery.data ? `${formatMemoryMb(healthQuery.data.memorySystemUsedMb)} used / ${formatMemoryMb(healthQuery.data.memoryTotalMb)} total` : "—"}
+            {/* CPU — right */}
+            <div className="bg-[var(--hover)] p-3">
+              <div className="mb-2 flex items-center gap-2">
+                <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(255,159,10,0.14)] text-[#ff9f0a]"><Cpu size={14} /></span>
+                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">CPU</span>
+              </div>
+              <div className="text-lg font-bold tabular-nums">{healthQuery.data ? `${healthQuery.data.cpuPercent.toFixed(1)}%` : "—"}</div>
+              <div className="mt-0.5 text-[10.5px] text-[var(--text-2)]">this process</div>
+              {healthQuery.data && (
+                <div className="mt-3 space-y-1.5">
+                  <div className="flex items-center justify-between text-[9.5px]">
+                    <span className="text-[var(--text-3)]">Cores</span>
+                    <span className="font-semibold tabular-nums text-[var(--text-1)]">{healthQuery.data.coreCount} logical</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[9.5px]">
+                    <span className="text-[var(--text-3)]">PID</span>
+                    <span className="font-mono font-semibold text-[var(--text-1)]">{healthQuery.data.pid}</span>
+                  </div>
+                  <div className="mt-1 truncate text-[9px] text-[var(--text-3)]" title={healthQuery.data.cpuModel}>{healthQuery.data.cpuModel}</div>
+                </div>
+              )}
             </div>
-            <div className="mt-0.5 text-[11px] text-[var(--text-2)]">RAM — global</div>
-          </div>
-          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(191,90,242,0.13)] text-[#bf5af2]"><MemoryStick size={14} /></span>
-              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Process</span>
-            </div>
-            <div className="text-lg font-bold tabular-nums">{healthQuery.data ? formatMemoryMb(healthQuery.data.memoryUsedMb) : "—"}</div>
-            <div className="mt-0.5 text-[11px] text-[var(--text-2)]">RAM — this program</div>
-          </div>
-          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(255,159,10,0.14)] text-[#ff9f0a]"><Cpu size={14} /></span>
-              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Process</span>
-            </div>
-            <div className="text-lg font-bold tabular-nums">{healthQuery.data ? `${healthQuery.data.cpuPercent.toFixed(1)}%` : "—"}</div>
-            <div className="mt-0.5 text-[11px] text-[var(--text-2)]">CPU — this program</div>
           </div>
         </div>
       </Card>
@@ -644,7 +671,7 @@ export function OverviewPage() {
                 <tr><td colSpan={7} className="px-4 py-10 text-center text-[var(--text-3)]">No keys yet — create one to enforce proxy authentication.</td></tr>
               ) : (
                 keys.map((key, index) => (
-                  <motion.tr key={key.id} {...staggerItem(index)} className="transition-colors hover:bg-[var(--hover)]">
+                  <tr key={key.id} {...staggerClass(index)} className="transition-colors hover:bg-[var(--hover)]">
                     <td className="px-4 py-2.5 font-semibold">{key.name}</td>
                     <td className="px-3 py-2.5 font-mono text-[11px] text-[var(--text-2)]">{key.keyPrefix}…</td>
                     <td className="px-3 py-2.5 text-[var(--text-2)]">{formatKeyLimits(key)}</td>
@@ -675,7 +702,7 @@ export function OverviewPage() {
                         <Button variant="ghost" size="sm" className="text-[#ff453a]" onClick={() => setDeleteTarget(key)}><Trash2 size={13} /> Delete</Button>
                       )}
                     </td>
-                  </motion.tr>
+                  </tr>
                 ))
               )}
             </tbody>

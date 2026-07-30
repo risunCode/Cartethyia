@@ -14,7 +14,8 @@ import {
   deleteSanitizerRule,
   getSanitizerRuleById,
   InvalidPatternError,
-  listSanitizerRules,
+  listEffectiveSanitizerRules,
+  ReservedBuiltinRuleIdError,
   updateSanitizerRule,
 } from "../db/repos/sanitizer-rules";
 
@@ -27,8 +28,8 @@ interface RuleInput {
   sortOrder?: number;
 }
 
-export const sanitizerRulesRoutes = new Elysia({ prefix: "/console/api/sanitizer-rules" })
-  .get("/", () => ({ items: listSanitizerRules() }))
+export const filterSanitizeRoutes = new Elysia({ prefix: "/console/api/filter.sanitize" })
+  .get("/", () => ({ items: listEffectiveSanitizerRules() }))
   .post("/", ({ body, set }) => {
     const input = (body ?? {}) as RuleInput;
     if (!input.ruleId?.trim() || !input.pattern) {
@@ -45,13 +46,17 @@ export const sanitizerRulesRoutes = new Elysia({ prefix: "/console/api/sanitizer
         sortOrder: input.sortOrder,
       });
       invalidateRuntimeSettings();
-      addAuditEvent("sanitizer_rule.create", { id: rule.id, ruleId: rule.ruleId });
+      addAuditEvent("filter.sanitize.create", { id: rule.id, ruleId: rule.ruleId });
       set.status = 201;
       return rule;
     } catch (err) {
       if (err instanceof InvalidPatternError) {
         set.status = 400;
         return consoleError("invalid_request", err.message);
+      }
+      if (err instanceof ReservedBuiltinRuleIdError) {
+        set.status = 409;
+        return consoleError("conflict", err.message);
       }
       set.status = 409;
       return consoleError("conflict", "a rule with this ruleId already exists");
@@ -77,7 +82,7 @@ export const sanitizerRulesRoutes = new Elysia({ prefix: "/console/api/sanitizer
         return consoleError("not_found", "rule not found");
       }
       invalidateRuntimeSettings();
-      addAuditEvent("sanitizer_rule.update", { id });
+      addAuditEvent("filter.sanitize.update", { id });
       return updated;
     } catch (err) {
       if (err instanceof InvalidPatternError) {
@@ -95,6 +100,6 @@ export const sanitizerRulesRoutes = new Elysia({ prefix: "/console/api/sanitizer
     }
     deleteSanitizerRule(id);
     invalidateRuntimeSettings();
-    addAuditEvent("sanitizer_rule.delete", { id });
+    addAuditEvent("filter.sanitize.delete", { id });
     return { ok: true };
   });

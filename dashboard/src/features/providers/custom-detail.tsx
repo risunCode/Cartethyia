@@ -1,14 +1,13 @@
 /** Custom provider detail page (REQ-8) — console-registered OpenAI/Anthropic-compatible endpoint. */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import { ArrowLeft, Bot, Copy, Eye, FlaskConical, Link2, ListChecks, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api, apiGet, apiPost } from "../../lib/api";
 import { formatTokens, formatDuration } from "../../lib/format";
-import { staggerItem } from "../../lib/motion";
+import { staggerClass } from "../../lib/motion";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
@@ -325,7 +324,7 @@ export function CustomProviderDetailPage() {
               const qualified = `${data.slug}/${model.id}`;
               const testStatus = modelTestStatus[model.id];
               return (
-                <motion.div key={model.id} {...staggerItem(index)}>
+                <div key={model.id} {...staggerClass(index)}>
                   <Card className="flex h-full flex-col gap-1.5 p-2.5">
                     <div className="flex items-start gap-1.5">
                       <Bot size={13} className="mt-0.5 shrink-0 text-[var(--text-3)]" />
@@ -359,7 +358,7 @@ export function CustomProviderDetailPage() {
                       </Button>
                     </div>
                   </Card>
-                </motion.div>
+                </div>
               );
             })}
           </div>

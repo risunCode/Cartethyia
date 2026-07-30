@@ -474,11 +474,14 @@ export function SettingsPage() {
               </label>
             </div>
             <div className="mt-3">
-              <Label>System prompt override</Label>
+              <Label>System prompt</Label>
+              <p className="mb-2 text-[11px] text-[var(--text-3)]">
+                Built-in by default. Edit here to replace, or clear to disable injection.
+              </p>
               <Textarea
                 rows={3}
                 value={promptDraft}
-                placeholder="Injected before upstream dispatch when non-empty…"
+                placeholder="Built-in prompt is active when this field matches Settings…"
                 onChange={(e) => setPromptDraft(e.target.value)}
                 onBlur={() => {
                   if (settings && promptDraft !== settings.systemPrompt) {

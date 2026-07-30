@@ -18,3 +18,15 @@ export const staggerItem = (index: number) => ({
   animate: { opacity: 1, y: 0 },
   transition: { duration: duration.fast, ease: easeOut, delay: Math.min(index, 12) * 0.03 },
 });
+
+/**
+ * CSS-only stagger — zero JS overhead, zero framer-motion visualElement
+ * instances, no memory leak on navigation. Use `staggerClass(i)` on a plain
+ * `<div>` instead of `motion.div + staggerItem(i)` for list items.
+ */
+export function staggerClass(index: number): { className: string; style: React.CSSProperties } {
+  return {
+    className: "stagger-item",
+    style: { animationDelay: `${Math.min(index, 12) * 30}ms` },
+  };
+}

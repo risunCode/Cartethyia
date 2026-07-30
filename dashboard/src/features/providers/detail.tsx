@@ -4,16 +4,15 @@
  */
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import { ArrowLeft, ArrowUpDown, Bot, Cable, Copy, ExternalLink, Eye, FileUp, FlaskConical, Info, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { ApiError, apiGet, apiPost, api } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { extractCredentialFromPaste } from "../../lib/credentialExtract";
 import { formatDuration, formatTokens } from "../../lib/format";
-import { staggerItem } from "../../lib/motion";
+import { staggerClass } from "../../lib/motion";
 import { useWindowedList } from "../../hooks/useWindowedList";
 import { Badge, Skeleton } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -466,7 +465,31 @@ export function ProviderDetailPage() {
   });
   const pagedAccounts = accountsQuery.data?.pages.flatMap((page) => page.items) ?? data?.accounts ?? [];
 
-  if (data && !routing) setRouting(data.routing);
+  // Hooks must run unconditionally on every render — hoisted above the
+  // loading-state early return below so hook order never changes once data
+  // arrives (previously caused "Rendered fewer hooks than expected").
+  const accountStatusRank = (account: AccountEntry) => {
+    const state = accountTestStatus[account.id]?.state;
+    if (state === "testing") return 0;
+    if (state === "passed") return 1;
+    if (state === "failed") return 2;
+    return account.active ? 3 : 4;
+  };
+  const sortedAccounts = [...pagedAccounts].sort((left, right) => {
+    const comparison = accountSort.key === "name"
+      ? left.name.localeCompare(right.name)
+      : accountSort.key === "priority"
+        ? left.priority - right.priority
+        : accountStatusRank(left) - accountStatusRank(right);
+    return accountSort.direction === "asc" ? comparison : -comparison;
+  });
+  const accountWindow = useWindowedList(sortedAccounts, 56);
+
+  useEffect(() => {
+    if (data && !routing) {
+      setRouting(data.routing);
+    }
+  }, [data, routing]);
 
   const routingMutation = useMutation({
     mutationFn: (config: RoutingConfig) => apiPost<{ ok: boolean; routing: RoutingConfig }>(`/providers/${id}/routing`, config),
@@ -566,22 +589,6 @@ export function ProviderDetailPage() {
   const noAuth = data.authKind === "none";
   const activeModels = data.models.filter((model) => model.enabled);
   const disabledModels = data.models.filter((model) => !model.enabled);
-  const accountStatusRank = (account: AccountEntry) => {
-    const state = accountTestStatus[account.id]?.state;
-    if (state === "testing") return 0;
-    if (state === "passed") return 1;
-    if (state === "failed") return 2;
-    return account.active ? 3 : 4;
-  };
-  const sortedAccounts = [...pagedAccounts].sort((left, right) => {
-    const comparison = accountSort.key === "name"
-      ? left.name.localeCompare(right.name)
-      : accountSort.key === "priority"
-        ? left.priority - right.priority
-        : accountStatusRank(left) - accountStatusRank(right);
-    return accountSort.direction === "asc" ? comparison : -comparison;
-  });
-  const accountWindow = useWindowedList(sortedAccounts, 56);
   const toggleAccountSort = (key: AccountSortKey) => {
     setAccountSort((current) => current.key === key
       ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
@@ -598,7 +605,7 @@ export function ProviderDetailPage() {
     const qualified = `${data.prefix}/${model.id}`;
     const priceLabel = formatModelPricing(model.pricing);
     return (
-      <motion.div key={model.id} {...staggerItem(index)}>
+      <div key={model.id} {...staggerClass(index)}>
         <Card className={cn("flex h-full flex-col gap-1 p-2 transition-transform duration-150 hover:-translate-y-0.5 sm:gap-1.5 sm:p-2.5", !model.enabled && "opacity-65")}>
           <div className="flex items-start gap-1.5 sm:gap-2">
             <Bot size={13} className="mt-0.5 shrink-0 text-[var(--text-3)]" />
@@ -640,7 +647,7 @@ export function ProviderDetailPage() {
             </Button>
           </div>
         </Card>
-      </motion.div>
+      </div>
     );
   };
 

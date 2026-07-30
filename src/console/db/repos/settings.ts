@@ -6,6 +6,7 @@
 import { getDb } from "../client";
 import { getConsoleEnv, type TrackMode, type ProxyAuthMode } from "../../env";
 import { hashPassword } from "../../auth/password";
+import { DEFAULT_SYSTEM_PROMPT } from "../../default-system-prompt";
 
 export const DEFAULT_CONSOLE_PASSWORD = "carte1234";
 
@@ -72,9 +73,8 @@ function envDefaults(): RuntimeSettings {
     maxFlightsPerIp: 20,
     trustProxy: false,
     cacheMarkersEnabled: true,
-    // Deployment-level defaults; a console PATCH persists an explicit value
-    // in settings_json that then takes precedence on every future read.
-    systemPrompt: Bun.env.CARTETHYIA_SYSTEM_PROMPT?.trim() ?? "",
+    // Built-in default; Console → Settings can replace or clear (empty disables).
+    systemPrompt: DEFAULT_SYSTEM_PROMPT,
     sessionTtlHours: env.sessionTtlHours,
     rtk: {
       enabled: Bun.env.RTK_ENABLED === "true",

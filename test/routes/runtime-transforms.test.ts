@@ -119,10 +119,23 @@ describe("console runtime settings reach the live dispatch path", () => {
     expect(systemMessage?.content).toContain("ALWAYS SIGN OFF WITH A FLOWER");
   });
 
+  test("injects the built-in system prompt on a fresh install without console override", async () => {
+    fetchSpy.mockResolvedValueOnce(chatResponse("ok"));
+
+    const res = await postChat({
+      model: "kimchi/kimi-k2.7",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(res.status).toBe(200);
+
+    const [, chatInit] = fetchSpy.mock.calls[0]!;
+    const systemMessage = sentMessages(chatInit).find((m) => m.role === "system");
+    expect(systemMessage?.content).toContain("Before acting");
+    expect(systemMessage?.content).toContain("never assume a past year is current");
+  });
+
   test("clearing the system-prompt override via the settings API removes injection on the next dispatch", async () => {
     const cookie = await loginAndGetCookie();
-    // Set a non-empty override first, then explicitly clear it — this must
-    // hold regardless of any CARTETHYIA_SYSTEM_PROMPT baked into deployment env.
     await app.handle(postJson("/console/api/settings", { systemPrompt: "temporary" }, { cookie }));
     const clearRes = await app.handle(postJson("/console/api/settings", { systemPrompt: "" }, { cookie }));
     expect(clearRes.status).toBe(200);

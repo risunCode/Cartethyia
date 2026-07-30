@@ -5,12 +5,24 @@
  * before dispatch, so upstream providers are less likely to fingerprint
  * automated coding-agent traffic.
  *
+ * Built-in defaults live in `default-sanitizer-rules.ts` and are never seeded
+ * into SQLite. The `sanitizer_rules` table stores operator overrides for
+ * built-ins and fully custom rules only.
+ *
  * Named `sanitizer_rules` (not `filter_rules`) to avoid colliding with the
  * existing, unrelated `filter_rules` table (combo model-eligibility allow/deny,
  * `console/db/repos/combos.ts`) that already owns that name in this codebase.
  */
 
 import { getDb } from "../client";
+import type { SanitizerFilterRule } from "../../../upstream/outbound";
+import {
+  builtinRuleIdFromSyntheticId,
+  builtinSanitizerRule,
+  DEFAULT_SANITIZER_RULES,
+  isBuiltinSanitizerRuleId,
+  syntheticBuiltinRuleId,
+} from "../../default-sanitizer-rules";
 
 interface SanitizerRuleRow {
   id: number;
@@ -34,6 +46,7 @@ export interface SanitizerRuleRecord {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  builtin: boolean;
 }
 
 export interface SanitizerRuleInput {
@@ -51,6 +64,12 @@ export class InvalidPatternError extends Error {
   }
 }
 
+export class ReservedBuiltinRuleIdError extends Error {
+  constructor(ruleId: string) {
+    super(`"${ruleId}" is a built-in rule id — toggle or override it instead of creating a duplicate`);
+  }
+}
+
 function validatePattern(pattern: string, isRegex: boolean): void {
   if (!isRegex) return;
   try {
@@ -60,7 +79,7 @@ function validatePattern(pattern: string, isRegex: boolean): void {
   }
 }
 
-function toRecord(row: SanitizerRuleRow): SanitizerRuleRecord {
+function toRecord(row: SanitizerRuleRow, builtin = false): SanitizerRuleRecord {
   return {
     id: row.id,
     ruleId: row.rule_id,
@@ -71,20 +90,70 @@ function toRecord(row: SanitizerRuleRow): SanitizerRuleRecord {
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    builtin,
   };
 }
 
+function getSanitizerRuleRowByRuleId(ruleId: string): SanitizerRuleRow | null {
+  return getDb().query("SELECT * FROM sanitizer_rules WHERE rule_id = ?").get(ruleId) as SanitizerRuleRow | null;
+}
+
+/** Raw DB rows only — operator overrides and custom rules. */
 export function listSanitizerRules(): SanitizerRuleRecord[] {
   const rows = getDb().query("SELECT * FROM sanitizer_rules ORDER BY sort_order ASC, id ASC").all() as SanitizerRuleRow[];
-  return rows.map(toRecord);
+  return rows.map((row) => toRecord(row, isBuiltinSanitizerRuleId(row.rule_id)));
 }
 
-/** Active rules only, in application order — what `applyFilterRules` (outbound.ts) consumes. */
-export function listActiveSanitizerRules(): SanitizerRuleRecord[] {
-  return listSanitizerRules().filter((r) => r.isActive);
+function mergeBuiltinRule(index: number, override: SanitizerRuleRow | null): SanitizerRuleRecord {
+  const builtin = DEFAULT_SANITIZER_RULES[index]!;
+  return {
+    id: override?.id ?? syntheticBuiltinRuleId(index),
+    ruleId: builtin.ruleId,
+    pattern: override?.pattern ?? builtin.pattern,
+    replacement: override?.replacement ?? builtin.replacement,
+    isActive: override ? override.is_active === 1 : true,
+    isRegex: override ? override.is_regex === 1 : builtin.isRegex,
+    sortOrder: override?.sort_order ?? index,
+    createdAt: override?.created_at ?? "",
+    updatedAt: override?.updated_at ?? "",
+    builtin: true,
+  };
 }
 
-export function createSanitizerRule(input: SanitizerRuleInput): SanitizerRuleRecord {
+/** Built-in defaults merged with DB overrides plus custom rules — for the console API. */
+export function listEffectiveSanitizerRules(): SanitizerRuleRecord[] {
+  const dbRules = listSanitizerRules();
+  const dbByRuleId = new Map(dbRules.map((rule) => [rule.ruleId, rule]));
+  const builtins = DEFAULT_SANITIZER_RULES.map((_, index) => mergeBuiltinRule(index, getSanitizerRuleRowByRuleId(DEFAULT_SANITIZER_RULES[index]!.ruleId)));
+  const custom = dbRules.filter((rule) => !rule.builtin);
+  return [...builtins, ...custom].sort((a, b) => a.sortOrder - b.sortOrder || a.ruleId.localeCompare(b.ruleId));
+}
+
+/** Active rules for the outbound hot path — defaults from code, overrides from DB. */
+export function resolveEffectiveFilterRules(): SanitizerFilterRule[] {
+  const dbRules = listSanitizerRules();
+  const dbByRuleId = new Map(dbRules.map((rule) => [rule.ruleId, rule]));
+  const rules: SanitizerFilterRule[] = [];
+
+  for (const builtin of DEFAULT_SANITIZER_RULES) {
+    const override = dbByRuleId.get(builtin.ruleId);
+    if (override && !override.isActive) continue;
+    rules.push({
+      pattern: override?.pattern ?? builtin.pattern,
+      replacement: override?.replacement ?? builtin.replacement,
+      isRegex: override?.isRegex ?? builtin.isRegex,
+    });
+  }
+
+  for (const custom of dbRules) {
+    if (custom.builtin || !custom.isActive) continue;
+    rules.push({ pattern: custom.pattern, replacement: custom.replacement, isRegex: custom.isRegex });
+  }
+
+  return rules;
+}
+
+function insertSanitizerRuleRow(input: SanitizerRuleInput): SanitizerRuleRecord {
   validatePattern(input.pattern, input.isRegex ?? false);
   const now = new Date().toISOString();
   const result = getDb()
@@ -92,15 +161,57 @@ export function createSanitizerRule(input: SanitizerRuleInput): SanitizerRuleRec
       "INSERT INTO sanitizer_rules (rule_id, pattern, replacement, is_active, is_regex, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .run(input.ruleId, input.pattern, input.replacement ?? "", input.isActive === false ? 0 : 1, input.isRegex ? 1 : 0, input.sortOrder ?? 0, now, now);
-  return getSanitizerRuleById(Number(result.lastInsertRowid))!;
+  const row = getDb().query("SELECT * FROM sanitizer_rules WHERE id = ?").get(Number(result.lastInsertRowid)) as SanitizerRuleRow;
+  return toRecord(row, isBuiltinSanitizerRuleId(row.rule_id));
+}
+
+export function createSanitizerRule(input: SanitizerRuleInput): SanitizerRuleRecord {
+  if (isBuiltinSanitizerRuleId(input.ruleId)) throw new ReservedBuiltinRuleIdError(input.ruleId);
+  return insertSanitizerRuleRow(input);
 }
 
 export function getSanitizerRuleById(id: number): SanitizerRuleRecord | null {
+  if (id < 0) {
+    const ruleId = builtinRuleIdFromSyntheticId(id);
+    if (!ruleId) return null;
+    const index = DEFAULT_SANITIZER_RULES.findIndex((rule) => rule.ruleId === ruleId);
+    if (index < 0) return null;
+    return mergeBuiltinRule(index, getSanitizerRuleRowByRuleId(ruleId));
+  }
   const row = getDb().query("SELECT * FROM sanitizer_rules WHERE id = ?").get(id) as SanitizerRuleRow | null;
-  return row ? toRecord(row) : null;
+  return row ? toRecord(row, isBuiltinSanitizerRuleId(row.rule_id)) : null;
+}
+
+export function upsertBuiltinSanitizerOverride(
+  ruleId: string,
+  patch: Partial<Pick<SanitizerRuleInput, "pattern" | "replacement" | "isActive" | "isRegex" | "sortOrder">>,
+): SanitizerRuleRecord {
+  const builtin = builtinSanitizerRule(ruleId);
+  if (!builtin) throw new Error(`unknown built-in sanitizer rule: ${ruleId}`);
+
+  const existing = getSanitizerRuleRowByRuleId(ruleId);
+  if (existing) {
+    return updateSanitizerRule(existing.id, patch)!;
+  }
+
+  const index = DEFAULT_SANITIZER_RULES.findIndex((rule) => rule.ruleId === ruleId);
+  return insertSanitizerRuleRow({
+    ruleId,
+    pattern: patch.pattern ?? builtin.pattern,
+    replacement: patch.replacement ?? builtin.replacement,
+    isActive: patch.isActive ?? true,
+    isRegex: patch.isRegex ?? builtin.isRegex,
+    sortOrder: patch.sortOrder ?? index,
+  });
 }
 
 export function updateSanitizerRule(id: number, patch: Partial<SanitizerRuleInput>): SanitizerRuleRecord | null {
+  if (id < 0) {
+    const ruleId = builtinRuleIdFromSyntheticId(id);
+    if (!ruleId) return null;
+    return upsertBuiltinSanitizerOverride(ruleId, patch);
+  }
+
   if (patch.pattern !== undefined || patch.isRegex !== undefined) {
     const existing = getSanitizerRuleById(id);
     if (!existing) return null;
@@ -122,43 +233,19 @@ export function updateSanitizerRule(id: number, patch: Partial<SanitizerRuleInpu
 }
 
 export function deleteSanitizerRule(id: number): boolean {
+  if (id < 0) {
+    const ruleId = builtinRuleIdFromSyntheticId(id);
+    if (!ruleId) return false;
+    const existing = getSanitizerRuleRowByRuleId(ruleId);
+    if (!existing) return false;
+    return getDb().query("DELETE FROM sanitizer_rules WHERE id = ?").run(existing.id).changes > 0;
+  }
   const result = getDb().query("DELETE FROM sanitizer_rules WHERE id = ?").run(id);
   return result.changes > 0;
 }
 
-// ─────────────────── Default seed set ──────────────────────────────────
-// Mirrors etteum-pool's PUDIDIL_FILTERS (Public/etteum-pool/src/proxy/filters.ts).
-
-const DEFAULT_RULES: Array<Omit<SanitizerRuleInput, "sortOrder">> = [
-  { ruleId: "billing-header", pattern: "x-(?:anthropic-)?billing-header:?\\s*[^\\n]*", replacement: "", isRegex: true },
-  { ruleId: "cc-entrypoint", pattern: "cc_entrypoint=\\w+", replacement: "", isRegex: true },
-  { ruleId: "cc-version", pattern: "cc_version=[\\w.]+", replacement: "", isRegex: true },
-  { ruleId: "cc-hash", pattern: "c?ch=[a-f0-9]+", replacement: "", isRegex: true },
-  { ruleId: "claude-code-github", pattern: "https?://github\\.com/anthropics/claude-code[^\\s]*", replacement: "", isRegex: true },
-  { ruleId: "claude-code-identity", pattern: "You are Claude Code[^.]*\\.", replacement: "", isRegex: true },
-  { ruleId: "anthropic-cli-identity", pattern: "Anthropic'?s official (?:CLI|tool|agent)[^.]*\\.?", replacement: "", isRegex: true },
-  { ruleId: "anxthxropic-identity", pattern: "Anxthxropic'?s official[^.]*\\.?", replacement: "", isRegex: true },
-  { ruleId: "cursor-identity", pattern: "You are (?:a )?(?:powerful )?(?:AI )?(?:assistant|agent) (?:made|built|created) by (?:Cursor|Anysphere)[^.]*\\.?", replacement: "", isRegex: true },
-  { ruleId: "windsurf-identity", pattern: "You are (?:Windsurf|Cascade|Codeium)[^.]*\\.", replacement: "", isRegex: true },
-  { ruleId: "cline-identity", pattern: "You are Cline[^.]*\\.", replacement: "", isRegex: true },
-  { ruleId: "github-identity", pattern: "You are GitHub Copilot[^.]*\\.", replacement: "", isRegex: true },
-  { ruleId: "github-copilot-vscode-identity", pattern: "You are an expert AI programming assistant, working with a user in the VS Code editor\\.?", replacement: "", isRegex: true },
-  { ruleId: "github-copilot-name", pattern: "When asked for your name, you must respond with \\\"GitHub Copilot\\\"\\.?", replacement: "", isRegex: true },
-  { ruleId: "github-copilot-model", pattern: "When asked about the model you are using, you must state that you are using (?:an? )?Aliased Model\\.?", replacement: "", isRegex: true },
-  { ruleId: "github-copilot-microsoft-policy", pattern: "Follow Microsoft content policies\\.?", replacement: "", isRegex: true },
-  { ruleId: "github-copilot-response-style", pattern: "Keep your answers short and impersonal\\.?", replacement: "", isRegex: true },
-  { ruleId: "agentic-identity", pattern: "(?:autonomous|agentic) (?:AI |coding )?(?:agent|assistant)[^.]*\\.", replacement: "", isRegex: true },
-  { ruleId: "mcp-reference", pattern: "MCP (?:server|client|protocol)[^.]*\\.?", replacement: "", isRegex: true },
-  { ruleId: "powered-by-anthropic", pattern: "powered by (?:Claude|Anthropic|Anxthxropic)[^.]*\\.?", replacement: "", isRegex: true },
-  { ruleId: "claude-feedback", pattern: "Claude Code. To give feedback, users should report the issue at https://github.com/anthropics/claude-code/issues", replacement: "", isRegex: false },
-  { ruleId: "advanced-ai-agent", pattern: "Advanced AI Agent", replacement: "", isRegex: false },
-  { ruleId: "claude-code-literal", pattern: "You are Claude Code, Anxthxropic's official CLI for Claude.", replacement: "", isRegex: false },
-  { ruleId: "claude-code-mention", pattern: "Claude Code", replacement: "the assistant", isRegex: false },
-];
-
-export function seedDefaultSanitizerRules(): void {
-  for (const [index, rule] of DEFAULT_RULES.entries()) {
-    const existing = getDb().query("SELECT id FROM sanitizer_rules WHERE rule_id = ?").get(rule.ruleId);
-    if (!existing) createSanitizerRule({ ...rule, sortOrder: index });
-  }
+export function resetBuiltinSanitizerOverride(ruleId: string): boolean {
+  const existing = getSanitizerRuleRowByRuleId(ruleId);
+  if (!existing) return false;
+  return getDb().query("DELETE FROM sanitizer_rules WHERE id = ?").run(existing.id).changes > 0;
 }

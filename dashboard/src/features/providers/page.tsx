@@ -1,14 +1,13 @@
 /** Providers page — registry list grouped by credential kind (REQ-11). */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import { ChevronRight, Plus, Trash2 } from "lucide-react";
 import { HeaderPairsEditor, pairsToHeaders, type HeaderPair } from "../../components/header-pairs-editor";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api, apiGet, apiPost } from "../../lib/api";
-import { staggerItem } from "../../lib/motion";
+import { staggerClass } from "../../lib/motion";
 import { StatusDot } from "../../components/status-dot";
 import { ProviderIcon } from "../../components/provider-icon";
 import { Badge, Skeleton } from "../../components/ui/badge";
@@ -333,9 +332,9 @@ export function ProvidersPage() {
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {section.providers.map((provider) => (
-                  <motion.div key={provider.id} {...staggerItem(staggerIndex++)}>
+                  <div key={provider.id} {...staggerClass(staggerIndex++)}>
                     <ProviderCard provider={provider} />
-                  </motion.div>
+                  </div>
                 ))}
               </div>
             </section>
