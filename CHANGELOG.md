@@ -4,6 +4,8 @@ All notable changes to Cartethyia are documented here.
 
 ## [Unreleased]
 
+## [1.0.1-alpha] - 2026-07-30
+
 ### Changed
 
 - Provider credentials are stored as plaintext in `provider_accounts.credential` and `custom_providers.credential`; only the console login password remains hashed. Credential-at-rest encryption, the `CREDENTIAL_ENCRYPTION_KEY`/`CREDENTIAL_ENCRYPTION_KEY_FILE` settings, the on-disk credential key file, and the "Rotate credential key" console action are removed.
@@ -13,9 +15,24 @@ All notable changes to Cartethyia are documented here.
 
 ### Fixed
 
+- Hardened every user-configured upstream and proxy URL against private IPv4/IPv6 targets, DNS rebinding, and unsafe redirect chains. Custom-provider dispatch now validates resolved targets immediately before network I/O.
+- Stored provider-account authentication failures now fail over to the next eligible account; repeated account/model failures are isolated with per-model locks instead of taking down the entire account.
+- Interrupted streaming responses now emit protocol-correct terminal error events, terminal sentinels, and cancel their upstream reader when the client disconnects.
+
 - Testing a provider connection no longer fails with a generic 500 "Something unexpected interrupted this request" error. Credential reads previously threw an unguarded decryption error whenever the stored key no longer matched the running server's key (for example after a redeploy that reset the key file), which broke both the console's Test action and live account-rotated proxy traffic.
 
 ### Added
+
+- ACL-aware `GET /v1/models`: when `PROXY_AUTH_MODE=api_key`, a valid proxy key is required; the response includes only models permitted by that key's provider/model allowlists and denylist (aliases and combos included). In open mode the catalog is public, but an optional key still filters the list.
+- Extended proxy API key limits and ACL: monthly token cap, max concurrent in-flight requests, model denylist, and `PATCH /console/api/keys/:id` for editing limits after creation.
+- Overview dashboard **Edit** action for API keys (limits, provider allowlist, model allow/deny lists).
+
+- `GET /v1/models` now advertises all locally routeable built-in provider models, custom-provider models, aliases, and combos using the same IDs accepted by dispatch.
+- Versioned SQLite migrations, persisted account cooldown/model-lock state, periodic WAL checkpoints, and graceful DB shutdown.
+- Opt-in `CORS_ALLOWED_ORIGINS` support for public `/v1/*` APIs only.
+- Bulk provider-account import from pasted exports, with worker parsing, duplicate-name handling, line-level reporting, and an Import dialog in provider detail.
+- Cursor-paginated provider connections with incremental/windowed dashboard rendering for large account collections.
+- Bounded runtime rate-limit and request-detail tracking, scheduled memory cleanup, and a documented local memory smoke test.
 
 - Copy action on each provider connection, backed by `GET /console/api/providers/:id/accounts/:accountId/credential`. The secret is fetched only when the operator clicks copy (never in the polled accounts list) and the read is audited.
 
@@ -27,6 +44,12 @@ All notable changes to Cartethyia are documented here.
 ### Migration
 
 - The `credential_enc` columns are renamed to `credential`. Existing databases carry unreadable ciphertext under the old key, so reset the database (delete `DATA_DIR/cartethyia.sqlite*` and `DATA_DIR/.credential-key`) and re-add provider connections.
+- Migration v7 adds `monthly_token_limit`, `max_concurrent_requests`, and `model_denylist` to `api_keys`. Existing databases upgrade automatically on startup.
+
+### Verification
+
+- Backend test suite: 464 tests passing, 1 skipped.
+- Dashboard TypeScript typecheck and production build passing.
 
 ## [1.0.0-alpha] - 2026-07-30
 

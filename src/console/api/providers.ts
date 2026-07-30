@@ -3,7 +3,7 @@
  * account CRUD (REQ-3.7, REQ-11, REQ-20).
  */
 
-import { Elysia } from "elysia";
+import { Elysia, t } from "elysia";
 import { consoleError } from "../errors";
 import { providerRegistry } from "../../upstream/providers";
 import type { ProviderResult, ResolvedCredential } from "../../upstream/providers";
@@ -11,10 +11,13 @@ import { lookupKnownModelMeta } from "../../upstream/providers/model-catalog-ind
 import { ADDED_PROVIDER_IDS, type AddedProviderId } from "../../routing/types";
 import { isProviderId, prefixOf, accountCredentialKindOf } from "../../routing/providerMeta";
 import { buildProviderOverview } from "./overview";
+import { importAccountsForProvider } from "../import/importAccounts";
 import { addAuditEvent } from "../db/repos/audit";
 import { pushConsoleLog } from "../logs/ring";
 import {
+  accountsVersion,
   listAccounts,
+  listAccountsPage,
   listActiveAccountCredentials,
   getAccount,
   createAccount,
@@ -401,12 +404,16 @@ export const providersRoutes = new Elysia({ prefix: "/console/api" })
     addAuditEvent("provider.routing", { provider: params.id, strategy: next.strategy, stickyLimit: next.stickyLimit, proxyMode: next.proxyMode, proxyPoolId: next.proxyPoolId });
     return { ok: true, routing: next };
   })
-  .get("/providers/:id/accounts", ({ params, set }) => {
+  .get("/providers/:id/accounts", ({ params, query, set }) => {
     if (!isProviderId(params.id)) {
       set.status = 404;
       return consoleError("not_found", "unknown provider");
     }
-    return { items: listAccounts(params.id) };
+    const version = accountsVersion(params.id);
+    if (query.since === version) return { unchanged: true, version };
+    const limit = query.limit === undefined ? 50 : Number(query.limit);
+    const page = listAccountsPage(params.id, Number.isFinite(limit) ? limit : 50, query.cursor);
+    return { items: page.items, nextCursor: page.nextCursor, version: page.version };
   })
   /**
    * Reveals one account's credential so the console can offer a copy action.
@@ -427,6 +434,26 @@ export const providersRoutes = new Elysia({ prefix: "/console/api" })
     }
     addAuditEvent("provider.account.credential_revealed", { provider: params.id, id: account.id, name: account.name });
     return { credential: account.credential };
+  })
+  .post("/providers/:id/accounts/import", async ({ params, body, set }) => {
+    if (!isProviderId(params.id)) {
+      set.status = 404;
+      return { error: { message: `Unknown provider: ${params.id}` } };
+    }
+    if (body.text.length > 1_000_000) {
+      set.status = 413;
+      return { error: { message: "Import text exceeds the 1 MB limit" } };
+    }
+    try {
+      const summary = await importAccountsForProvider(params.id, body.text);
+      addAuditEvent("provider.account.imported", { provider: params.id, imported: summary.imported, skipped: summary.skipped.length, renamed: summary.renamed.length });
+      return summary;
+    } catch (error) {
+      set.status = 400;
+      return { error: { message: error instanceof Error ? error.message : "Account import failed" } };
+    }
+  }, {
+    body: t.Object({ text: t.String() }),
   })
   .post("/providers/:id/accounts", async ({ params, body, set }) => {
     if (!isProviderId(params.id)) {

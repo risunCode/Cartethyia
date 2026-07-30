@@ -10,32 +10,43 @@ export interface SSEFrame {
 }
 
 /** Parse a raw SSE byte stream into frames, one at a time, as bytes arrive. */
-/** Stream stall timeout — abort if no chunk received within this window (C4). */
-const STREAM_STALL_TIMEOUT_MS = 360_000; // 6 minutes
+/** Stream stall timeout — abort if no chunk arrives within this configurable window. */
+function streamStallTimeoutMs(): number {
+  const configured = Number(process.env.STREAM_STALL_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : 30_000;
+}
 
 export async function* parseSSEStream(body: ReadableStream<Uint8Array>): AsyncGenerator<SSEFrame> {
+  const stallTimeoutMs = streamStallTimeoutMs();
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let lastChunkTime = Date.now();
-  let stallTimer: ReturnType<typeof setTimeout> | null = null;
+  let stallTimer: ReturnType<typeof setTimeout> | undefined;
+  let stalled = false;
+  let completed = false;
 
   const resetStallTimer = () => {
     if (stallTimer) clearTimeout(stallTimer);
     lastChunkTime = Date.now();
     stallTimer = setTimeout(() => {
       const elapsed = Date.now() - lastChunkTime;
-      if (elapsed >= STREAM_STALL_TIMEOUT_MS) {
+      if (elapsed >= stallTimeoutMs) {
+        stalled = true;
         reader.cancel("stream stall timeout").catch(() => {});
       }
-    }, STREAM_STALL_TIMEOUT_MS);
+    }, stallTimeoutMs);
   };
 
   try {
     resetStallTimer();
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (stalled) throw new Error("Upstream stream stalled and is temporarily unavailable.");
+      if (done) {
+        completed = true;
+        break;
+      }
       resetStallTimer();
       buffer += decoder.decode(value, { stream: true });
 
@@ -49,7 +60,8 @@ export async function* parseSSEStream(body: ReadableStream<Uint8Array>): AsyncGe
       }
     }
   } finally {
-    if (stallTimer) clearTimeout(stallTimer);
+    clearTimeout(stallTimer);
+    if (!completed) await reader.cancel("downstream stream cancelled").catch(() => {});
     reader.releaseLock();
   }
 }

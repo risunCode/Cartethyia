@@ -387,3 +387,12 @@ export function sumDailyTokensForKey(apiKeyId: string): number {
     .filter((record) => record.apiKeyId === apiKeyId && utcDateOf(record.startedAt) === today)
     .reduce((total, record) => total + orZero(record.inputTokens) + orZero(record.outputTokens), 0);
 }
+
+/** UTC calendar month token total for a key — mirrors daily limit boundaries. */
+export function sumMonthlyTokensForKey(apiKeyId: string): number {
+  hydrateHistory();
+  const month = new Date().toISOString().slice(0, 7);
+  return records
+    .filter((record) => record.apiKeyId === apiKeyId && utcDateOf(record.startedAt).slice(0, 7) === month)
+    .reduce((total, record) => total + orZero(record.inputTokens) + orZero(record.outputTokens), 0);
+}

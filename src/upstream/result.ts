@@ -4,6 +4,7 @@
  * protocol is streaming-only (commandcode, devin, qoder).
  */
 
+import { anthropicStopToOpenAIFinishWithTools } from "../translate/concerns/finishReasons";
 import type { AnthropicStopReason } from "../translate/concerns/finishReasons";
 import type { OpenAIChatResponse } from "../translate/types";
 import type { StreamEvent } from "./bridge";
@@ -65,7 +66,7 @@ export async function materializeFromStream(events: AsyncGenerator<StreamEvent>)
 }
 
 export function materializedToChatResponse(result: MaterializedResult, model: string): OpenAIChatResponse {
-  const finishReason = anthropicStopToOpenAIFinish(result.finishReason, result.toolCalls.length > 0);
+  const finishReason = anthropicStopToOpenAIFinishWithTools(result.finishReason, result.toolCalls.length > 0);
 
   const message: OpenAIChatResponse["choices"][0]["message"] = {
     role: "assistant",
@@ -94,11 +95,4 @@ export function materializedToChatResponse(result: MaterializedResult, model: st
       cache_write_tokens: result.usage.cacheWriteTokens,
     },
   };
-}
-
-function anthropicStopToOpenAIFinish(reason: AnthropicStopReason, hadToolCalls: boolean): string {
-  if (hadToolCalls) return "tool_calls";
-  if (reason === "max_tokens") return "length";
-  if (reason === "refusal") return "content_filter";
-  return "stop";
 }

@@ -36,30 +36,60 @@ export interface NormalizedCacheUsage {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   freshInputTokens: number;
+  outputTokens: number;
+  /** True when the upstream response carried no usage block at all and every count above is a rough estimate. */
+  estimated: boolean;
 }
 
-export function normalizeAnthropicUsage(usage: {
-  input_tokens: number;
-  cache_creation_input_tokens?: number;
-  cache_read_input_tokens?: number;
-}): NormalizedCacheUsage {
+/**
+ * Rough token estimate (~4 chars/token) used only as a last resort when an
+ * upstream response omits its usage block entirely — never a substitute for
+ * real provider-reported counts.
+ */
+export function estimateUsageFromText(text: string): number {
+  return text.length === 0 ? 0 : Math.max(1, Math.ceil(text.length / 4));
+}
+
+export function normalizeAnthropicUsage(
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  } | undefined,
+  responseText = "",
+): NormalizedCacheUsage {
+  if (!usage) {
+    return { cacheReadTokens: 0, cacheWriteTokens: 0, freshInputTokens: 0, outputTokens: estimateUsageFromText(responseText), estimated: true };
+  }
   return {
     cacheReadTokens: usage.cache_read_input_tokens ?? 0,
     cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
     freshInputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    estimated: false,
   };
 }
 
-export function normalizeOpenAIUsage(usage: {
-  prompt_tokens: number;
-  prompt_tokens_details?: { cached_tokens?: number };
-  cache_write_tokens?: number;
-}): NormalizedCacheUsage {
+export function normalizeOpenAIUsage(
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+    cache_write_tokens?: number;
+  } | undefined,
+  responseText = "",
+): NormalizedCacheUsage {
+  if (!usage) {
+    return { cacheReadTokens: 0, cacheWriteTokens: 0, freshInputTokens: 0, outputTokens: estimateUsageFromText(responseText), estimated: true };
+  }
   const cacheReadTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
   return {
     cacheReadTokens,
     cacheWriteTokens: usage.cache_write_tokens ?? 0,
     freshInputTokens: Math.max(0, usage.prompt_tokens - cacheReadTokens),
+    outputTokens: usage.completion_tokens,
+    estimated: false,
   };
 }
 

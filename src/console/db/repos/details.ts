@@ -5,8 +5,29 @@ import { join } from "node:path";
 import { getConsoleEnv } from "../../env";
 
 const details = new Map<number, Record<string, unknown>>();
+const detailCreatedAt = new Map<number, number>();
 const assets: Array<Record<string, unknown> & { request_id: number; created_at: string; storage_path: string | null }> = [];
-const toolCalls: Array<Record<string, unknown> & { request_id: number }> = [];
+const toolCalls: Array<Record<string, unknown> & { request_id: number; created_at: string }> = [];
+const MAX_TRACKED_REQUESTS = 5_000;
+const REQUEST_DETAIL_TTL_MS = 30 * 60_000;
+
+/** Purges expired detail metadata and enforces the bounded in-process index. */
+export function purgeRequestDetailTracking(now = Date.now()): void {
+  for (const [requestId, createdAt] of detailCreatedAt) {
+    if (now - createdAt <= REQUEST_DETAIL_TTL_MS) continue;
+    detailCreatedAt.delete(requestId);
+    details.delete(requestId);
+  }
+  while (details.size > MAX_TRACKED_REQUESTS) {
+    const oldest = details.keys().next().value;
+    if (oldest === undefined) break;
+    details.delete(oldest);
+    detailCreatedAt.delete(oldest);
+  }
+  const cutoff = new Date(now - REQUEST_DETAIL_TTL_MS).toISOString();
+  for (let index = assets.length - 1; index >= 0; index--) if (assets[index]!.created_at < cutoff) assets.splice(index, 1);
+  for (let index = toolCalls.length - 1; index >= 0; index--) if (toolCalls[index]!.created_at < cutoff) toolCalls.splice(index, 1);
+}
 
 export interface RequestDetailInsert {
   requestId: number;
@@ -20,6 +41,7 @@ export interface RequestDetailInsert {
 }
 
 export function insertRequestDetails(input: RequestDetailInsert): void {
+  details.delete(input.requestId);
   details.set(input.requestId, {
     request_id: input.requestId,
     redacted_request: input.redactedRequest,
@@ -30,6 +52,8 @@ export function insertRequestDetails(input: RequestDetailInsert): void {
     tool_names: input.toolNames ? JSON.stringify(input.toolNames) : null,
     image_count: input.imageCount,
   });
+  detailCreatedAt.set(input.requestId, Date.now());
+  purgeRequestDetailTracking();
 }
 
 export interface AssetMetaInsert {
@@ -51,6 +75,8 @@ export function insertAssetMeta(input: AssetMetaInsert): void {
     storage_path: input.storagePath,
     created_at: new Date().toISOString(),
   });
+  while (assets.length > MAX_TRACKED_REQUESTS) assets.shift();
+  purgeRequestDetailTracking();
 }
 
 export interface ToolCallInsert {
@@ -72,6 +98,8 @@ export function insertToolCall(input: ToolCallInsert): void {
     status: input.status,
     created_at: new Date().toISOString(),
   });
+  while (toolCalls.length > MAX_TRACKED_REQUESTS) toolCalls.shift();
+  purgeRequestDetailTracking();
 }
 
 export interface StoredRequestPayload {
@@ -112,6 +140,7 @@ export function getRequestDetailBundle(requestId: number): RequestDetailBundle {
 export function purgeAllStoredData(): { details: number; assets: number; toolCalls: number } {
   const count = { details: details.size, assets: assets.length, toolCalls: toolCalls.length };
   details.clear();
+  detailCreatedAt.clear();
   assets.length = 0;
   toolCalls.length = 0;
   return count;

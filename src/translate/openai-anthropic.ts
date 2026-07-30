@@ -118,7 +118,8 @@ export function translateChatRequestToAnthropic(req: OpenAIChatRequest): Anthrop
 export function translateAnthropicResponseToChat(resp: AnthropicResponse): OpenAIChatResponse {
   const unifiedMsg = { role: "assistant" as const, blocks: resp.content.map((b) => normalizeAnthropicBlock(b)) };
   const [chatMsg] = denormalizeToOpenAIChatMessages([unifiedMsg]);
-  const usage = normalizeAnthropicUsage(resp.usage);
+  const responseText = resp.content.filter((b) => (b as unknown as Record<string, unknown>).type === "text").map((b) => (b as unknown as Record<string, unknown>).text as string ?? "").join("");
+  const usage = normalizeAnthropicUsage(resp.usage, responseText);
 
   // Extract thinking blocks → reasoning_content (L1)
   const thinkingBlocks = resp.content.filter((b) => (b as unknown as Record<string, unknown>).type === "thinking");
@@ -143,9 +144,10 @@ export function translateAnthropicResponseToChat(resp: AnthropicResponse): OpenA
     ],
     usage: {
       prompt_tokens: usage.freshInputTokens + usage.cacheReadTokens,
-      completion_tokens: resp.usage.output_tokens,
-      total_tokens: usage.freshInputTokens + usage.cacheReadTokens + resp.usage.output_tokens,
+      completion_tokens: usage.outputTokens,
+      total_tokens: usage.freshInputTokens + usage.cacheReadTokens + usage.outputTokens,
       prompt_tokens_details: { cached_tokens: usage.cacheReadTokens },
+      ...(usage.estimated ? { estimated: true } : {}),
     },
   };
 }
@@ -191,7 +193,8 @@ export function translateChatResponseToMessages(resp: OpenAIChatResponse): Anthr
   const choice = resp.choices?.[0];
   const message = choice?.message;
   const unified = message ? normalizeOpenAIChatMessages([message])[0] : undefined;
-  const usage = normalizeOpenAIUsage(resp.usage);
+  const responseText = typeof message?.content === "string" ? message.content : "";
+  const usage = normalizeOpenAIUsage(resp.usage, responseText);
 
   // When the upstream returns no choices (e.g. reasoning consumed the entire
   // token budget), produce a valid but minimal Anthropic response instead of
@@ -210,9 +213,10 @@ export function translateChatResponseToMessages(resp: OpenAIChatResponse): Anthr
     stop_sequence: null,
     usage: {
       input_tokens: usage.freshInputTokens,
-      output_tokens: resp.usage?.completion_tokens ?? 0,
+      output_tokens: usage.outputTokens,
       cache_read_input_tokens: usage.cacheReadTokens,
       cache_creation_input_tokens: usage.cacheWriteTokens,
+      ...(usage.estimated ? { estimated: true } : {}),
     },
   };
 }

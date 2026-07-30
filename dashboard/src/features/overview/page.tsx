@@ -10,6 +10,7 @@ import {
   Globe,
   KeyRound,
   MemoryStick,
+  Pencil,
   Plus,
   Scissors,
   Sparkles,
@@ -18,14 +19,14 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ApiError, api, apiGet, apiPost } from "../../lib/api";
+import { ApiError, api, apiGet, apiPatch, apiPost } from "../../lib/api";
 import { formatDuration, formatMemoryMb, formatTime } from "../../lib/format";
 import { staggerItem } from "../../lib/motion";
 import { Badge, Skeleton } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Dialog } from "../../components/ui/dialog";
-import { Input, Label } from "../../components/ui/input";
+import { Input, Label, Textarea } from "../../components/ui/input";
 import { Switch } from "../../components/ui/switch";
 import { ConfirmDialog } from "../../components/shared";
 
@@ -86,11 +87,83 @@ interface ApiKeyRecord {
   active: boolean;
   rateLimitRpm: number | null;
   dailyTokenLimit: number | null;
+  monthlyTokenLimit: number | null;
+  maxConcurrentRequests: number | null;
   providerAllowlist: string[] | null;
   modelAllowlist: string[] | null;
+  modelDenylist: string[] | null;
   lastUsedAt: string | null;
   createdAt: string;
   revokedAt: string | null;
+}
+
+type KeyUpdatePatch = {
+  rateLimitRpm?: number | null;
+  dailyTokenLimit?: number | null;
+  monthlyTokenLimit?: number | null;
+  maxConcurrentRequests?: number | null;
+  providerAllowlist?: string[] | null;
+  modelAllowlist?: string[] | null;
+  modelDenylist?: string[] | null;
+};
+
+type KeyLimitsInput = {
+  rateLimitRpm?: number;
+  dailyTokenLimit?: number;
+  monthlyTokenLimit?: number;
+  maxConcurrentRequests?: number;
+  providerAllowlist?: string[];
+  modelAllowlist?: string[];
+  modelDenylist?: string[];
+};
+
+function parseOptionalLimit(raw: string): number | undefined {
+  if (!raw.trim()) return undefined;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return Math.floor(parsed);
+}
+
+function parseLineList(raw: string): string[] | undefined {
+  const items = raw
+    .split(/[\n,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return items.length > 0 ? items : undefined;
+}
+
+function formatLineList(values: string[] | null): string {
+  return values?.join("\n") ?? "";
+}
+
+function buildKeyLimitsInput(rpm: string, daily: string, monthly: string, concurrent: string, providers: string, allowed: string, denied: string): KeyLimitsInput {
+  const input: KeyLimitsInput = {};
+  const rateLimitRpm = parseOptionalLimit(rpm);
+  const dailyTokenLimit = parseOptionalLimit(daily);
+  const monthlyTokenLimit = parseOptionalLimit(monthly);
+  const maxConcurrentRequests = parseOptionalLimit(concurrent);
+  const providerAllowlist = parseLineList(providers);
+  const modelAllowlist = parseLineList(allowed);
+  const modelDenylist = parseLineList(denied);
+  if (rateLimitRpm) input.rateLimitRpm = rateLimitRpm;
+  if (dailyTokenLimit) input.dailyTokenLimit = dailyTokenLimit;
+  if (monthlyTokenLimit) input.monthlyTokenLimit = monthlyTokenLimit;
+  if (maxConcurrentRequests) input.maxConcurrentRequests = maxConcurrentRequests;
+  if (providerAllowlist) input.providerAllowlist = providerAllowlist;
+  if (modelAllowlist) input.modelAllowlist = modelAllowlist;
+  if (modelDenylist) input.modelDenylist = modelDenylist;
+  return input;
+}
+
+function formatKeyLimits(key: ApiKeyRecord): string {
+  const parts: string[] = [];
+  if (key.rateLimitRpm) parts.push(`${key.rateLimitRpm} rpm`);
+  if (key.dailyTokenLimit) parts.push(`${(key.dailyTokenLimit / 1000).toFixed(0)}K/day`);
+  if (key.monthlyTokenLimit) parts.push(`${(key.monthlyTokenLimit / 1000).toFixed(0)}K/mo`);
+  if (key.maxConcurrentRequests) parts.push(`${key.maxConcurrentRequests} concurrent`);
+  if (key.modelAllowlist?.length) parts.push(`${key.modelAllowlist.length} allowed`);
+  if (key.modelDenylist?.length) parts.push(`${key.modelDenylist.length} denied`);
+  return parts.length > 0 ? parts.join(" · ") : "—";
 }
 
 interface CreatedKey extends ApiKeyRecord {
@@ -107,6 +180,76 @@ async function copyText(value: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function KeyLimitsFields({
+  rpm,
+  daily,
+  monthly,
+  concurrent,
+  providers,
+  allowedModels,
+  deniedModels,
+  setRpm,
+  setDaily,
+  setMonthly,
+  setConcurrent,
+  setProviders,
+  setAllowedModels,
+  setDeniedModels,
+  disabled,
+}: {
+  rpm: string;
+  daily: string;
+  monthly: string;
+  concurrent: string;
+  providers: string;
+  allowedModels: string;
+  deniedModels: string;
+  setRpm: (value: string) => void;
+  setDaily: (value: string) => void;
+  setMonthly: (value: string) => void;
+  setConcurrent: (value: string) => void;
+  setProviders: (value: string) => void;
+  setAllowedModels: (value: string) => void;
+  setDeniedModels: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Max RPM (optional)</Label>
+          <Input type="number" min={1} value={rpm} onChange={(e) => setRpm(e.target.value)} placeholder="60" disabled={disabled} />
+        </div>
+        <div>
+          <Label>Max concurrent (optional)</Label>
+          <Input type="number" min={1} value={concurrent} onChange={(e) => setConcurrent(e.target.value)} placeholder="10" disabled={disabled} />
+        </div>
+        <div>
+          <Label>Daily token limit (optional)</Label>
+          <Input type="number" min={1} value={daily} onChange={(e) => setDaily(e.target.value)} placeholder="1000000" disabled={disabled} />
+        </div>
+        <div>
+          <Label>Monthly token limit (optional)</Label>
+          <Input type="number" min={1} value={monthly} onChange={(e) => setMonthly(e.target.value)} placeholder="30000000" disabled={disabled} />
+        </div>
+      </div>
+      <div>
+        <Label>Allowed providers (optional)</Label>
+        <Textarea value={providers} onChange={(e) => setProviders(e.target.value)} placeholder={"kimchi\nopenai"} rows={3} disabled={disabled} />
+      </div>
+      <div>
+        <Label>Allowed models (optional)</Label>
+        <Textarea value={allowedModels} onChange={(e) => setAllowedModels(e.target.value)} placeholder={"kimchi/kimi-k2.7\nmy-fast-model"} rows={3} disabled={disabled} />
+      </div>
+      <div>
+        <Label>Denied models (optional)</Label>
+        <Textarea value={deniedModels} onChange={(e) => setDeniedModels(e.target.value)} placeholder={"cmd/gpt-5-codex\nlegacy-model"} rows={3} disabled={disabled} />
+      </div>
+      <p className="text-xs text-[var(--text-3)]">Leave limits and lists empty to allow all routeable models. Denied models take precedence over allowed lists.</p>
+    </>
+  );
 }
 
 function CopyButton({ value }: { value: string }) {
@@ -135,12 +278,45 @@ function CopyButton({ value }: { value: string }) {
 export function OverviewPage() {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<ApiKeyRecord | null>(null);
   const [name, setName] = useState("");
   const [rpm, setRpm] = useState("");
   const [daily, setDaily] = useState("");
+  const [monthly, setMonthly] = useState("");
+  const [concurrent, setConcurrent] = useState("");
+  const [providers, setProviders] = useState("");
+  const [allowedModels, setAllowedModels] = useState("");
+  const [deniedModels, setDeniedModels] = useState("");
   const [revealed, setRevealed] = useState<CreatedKey | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiKeyRecord | null>(null);
+
+  const resetKeyForm = () => {
+    setName("");
+    setRpm("");
+    setDaily("");
+    setMonthly("");
+    setConcurrent("");
+    setProviders("");
+    setAllowedModels("");
+    setDeniedModels("");
+  };
+
+  const openEdit = (key: ApiKeyRecord) => {
+    setEditTarget(key);
+    setRpm(key.rateLimitRpm ? String(key.rateLimitRpm) : "");
+    setDaily(key.dailyTokenLimit ? String(key.dailyTokenLimit) : "");
+    setMonthly(key.monthlyTokenLimit ? String(key.monthlyTokenLimit) : "");
+    setConcurrent(key.maxConcurrentRequests ? String(key.maxConcurrentRequests) : "");
+    setProviders(formatLineList(key.providerAllowlist));
+    setAllowedModels(formatLineList(key.modelAllowlist));
+    setDeniedModels(formatLineList(key.modelDenylist));
+  };
+
+  const closeEdit = () => {
+    setEditTarget(null);
+    resetKeyForm();
+  };
 
   const baseUrl = useMemo(() => `${window.location.origin}/v1`, []);
 
@@ -198,17 +374,24 @@ export function OverviewPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (input: { name: string; rateLimitRpm?: number; dailyTokenLimit?: number }) =>
-      apiPost<CreatedKey>("/keys", input),
+    mutationFn: (input: { name: string } & KeyLimitsInput) => apiPost<CreatedKey>("/keys", input),
     onSuccess: (created) => {
       setRevealed(created);
       setCreateOpen(false);
-      setName("");
-      setRpm("");
-      setDaily("");
+      resetKeyForm();
       void queryClient.invalidateQueries({ queryKey: ["keys"] });
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to create key"),
+  });
+
+  const editMutation = useMutation({
+    mutationFn: (input: { id: string; patch: KeyUpdatePatch }) => apiPatch<ApiKeyRecord>(`/keys/${input.id}`, input.patch),
+    onSuccess: () => {
+      toast.success("Key updated");
+      closeEdit();
+      void queryClient.invalidateQueries({ queryKey: ["keys"] });
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to update key"),
   });
 
   const revokeMutation = useMutation({
@@ -242,16 +425,24 @@ export function OverviewPage() {
   });
 
   const submitCreate = () => {
-    const input: { name: string; rateLimitRpm?: number; dailyTokenLimit?: number } = { name: name.trim() };
-    if (rpm.trim()) {
-      const parsed = Number(rpm);
-      if (Number.isFinite(parsed) && parsed > 0) input.rateLimitRpm = Math.floor(parsed);
-    }
-    if (daily.trim()) {
-      const parsed = Number(daily);
-      if (Number.isFinite(parsed) && parsed > 0) input.dailyTokenLimit = Math.floor(parsed);
-    }
-    createMutation.mutate(input);
+    createMutation.mutate({ name: name.trim(), ...buildKeyLimitsInput(rpm, daily, monthly, concurrent, providers, allowedModels, deniedModels) });
+  };
+
+  const submitEdit = () => {
+    if (!editTarget) return;
+    const limits = buildKeyLimitsInput(rpm, daily, monthly, concurrent, providers, allowedModels, deniedModels);
+    editMutation.mutate({
+      id: editTarget.id,
+      patch: {
+        rateLimitRpm: limits.rateLimitRpm ?? null,
+        dailyTokenLimit: limits.dailyTokenLimit ?? null,
+        monthlyTokenLimit: limits.monthlyTokenLimit ?? null,
+        maxConcurrentRequests: limits.maxConcurrentRequests ?? null,
+        providerAllowlist: limits.providerAllowlist ?? null,
+        modelAllowlist: limits.modelAllowlist ?? null,
+        modelDenylist: limits.modelDenylist ?? null,
+      },
+    });
   };
 
   if (isLoading) {
@@ -456,9 +647,7 @@ export function OverviewPage() {
                   <motion.tr key={key.id} {...staggerItem(index)} className="transition-colors hover:bg-[var(--hover)]">
                     <td className="px-4 py-2.5 font-semibold">{key.name}</td>
                     <td className="px-3 py-2.5 font-mono text-[11px] text-[var(--text-2)]">{key.keyPrefix}…</td>
-                    <td className="px-3 py-2.5 text-[var(--text-2)]">
-                      {key.rateLimitRpm ? `${key.rateLimitRpm} rpm` : "—"}{key.dailyTokenLimit ? ` · ${(key.dailyTokenLimit / 1000).toFixed(0)}K/day` : ""}
-                    </td>
+                    <td className="px-3 py-2.5 text-[var(--text-2)]">{formatKeyLimits(key)}</td>
                     <td className="px-3 py-2.5 text-[var(--text-2)]">{formatTime(key.lastUsedAt)}</td>
                     <td className="px-3 py-2.5 text-[var(--text-2)]">{formatTime(key.createdAt)}</td>
                     <td className="px-3 py-2.5"><Badge tone={key.active ? "ok" : "default"}>{key.active ? "active" : "revoked"}</Badge></td>
@@ -475,6 +664,10 @@ export function OverviewPage() {
                           >
                             <Copy size={13} />
                             Copy
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => openEdit(key)} title="Edit limits and ACL">
+                            <Pencil size={13} />
+                            Edit
                           </Button>
                           <Button variant="ghost" size="sm" className="text-[#ff453a]" onClick={() => setRevokeTarget(key)}><Trash2 size={13} /> Revoke</Button>
                         </div>
@@ -510,16 +703,60 @@ export function OverviewPage() {
             <Label>Name</Label>
             <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="ci-key" disabled={createMutation.isPending} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Max RPM (optional)</Label>
-              <Input type="number" min={1} value={rpm} onChange={(e) => setRpm(e.target.value)} placeholder="60" disabled={createMutation.isPending} />
-            </div>
-            <div>
-              <Label>Daily Token Limit (optional)</Label>
-              <Input type="number" min={1} value={daily} onChange={(e) => setDaily(e.target.value)} placeholder="1000000" disabled={createMutation.isPending} />
-            </div>
-          </div>
+          <KeyLimitsFields
+            rpm={rpm}
+            daily={daily}
+            monthly={monthly}
+            concurrent={concurrent}
+            providers={providers}
+            allowedModels={allowedModels}
+            deniedModels={deniedModels}
+            setRpm={setRpm}
+            setDaily={setDaily}
+            setMonthly={setMonthly}
+            setConcurrent={setConcurrent}
+            setProviders={setProviders}
+            setAllowedModels={setAllowedModels}
+            setDeniedModels={setDeniedModels}
+            disabled={createMutation.isPending}
+          />
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={!!editTarget}
+        onClose={closeEdit}
+        title={editTarget ? `Edit API Key — ${editTarget.name}` : "Edit API Key"}
+        wide
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={closeEdit}>
+              Cancel
+            </Button>
+            <Button size="sm" disabled={!editTarget || editMutation.isPending} onClick={submitEdit}>
+              {editMutation.isPending ? "Saving…" : "Save changes"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <KeyLimitsFields
+            rpm={rpm}
+            daily={daily}
+            monthly={monthly}
+            concurrent={concurrent}
+            providers={providers}
+            allowedModels={allowedModels}
+            deniedModels={deniedModels}
+            setRpm={setRpm}
+            setDaily={setDaily}
+            setMonthly={setMonthly}
+            setConcurrent={setConcurrent}
+            setProviders={setProviders}
+            setAllowedModels={setAllowedModels}
+            setDeniedModels={setDeniedModels}
+            disabled={editMutation.isPending}
+          />
         </div>
       </Dialog>
 

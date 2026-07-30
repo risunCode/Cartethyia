@@ -50,6 +50,19 @@ export function anthropicStopToOpenAIFinish(reason: AnthropicStopReason): OpenAI
   return ANTHROPIC_TO_OPENAI[reason] ?? "stop";
 }
 
+/**
+ * Same mapping as `anthropicStopToOpenAIFinish`, but a stream/materialized
+ * result's own tracked tool-call state wins over the reported stop reason
+ * (an upstream that reports e.g. `end_turn` while it actually emitted tool
+ * calls should still surface as `tool_calls`). Used by providers that
+ * reconstruct a Chat response from a raw event stream (bridge.ts,
+ * result.ts) rather than translating an already-well-formed Anthropic body.
+ */
+export function anthropicStopToOpenAIFinishWithTools(reason: AnthropicStopReason, hadToolCalls: boolean): OpenAIFinishReason {
+  if (hadToolCalls) return "tool_calls";
+  return anthropicStopToOpenAIFinish(reason);
+}
+
 export function openAIFinishToAnthropicStop(reason: OpenAIFinishReason): Exclude<AnthropicStopReason, null> {
   return OPENAI_TO_ANTHROPIC[reason] ?? "end_turn";
 }

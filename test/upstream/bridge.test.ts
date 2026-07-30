@@ -15,6 +15,7 @@ import {
   encodeAnthropicStream,
   encodeOpenAIChatStream,
   encodeResponsesStream,
+  withStreamErrorHandling,
 } from "../../src/upstream/bridge";
 import type { StreamEvent, StreamMeta } from "../../src/upstream/bridge";
 import { formatSSEFrame } from "../../src/upstream/sse";
@@ -230,16 +231,18 @@ describe("bridge — encodeResponsesStream", () => {
     const frames = await collect(encodeResponsesStream(fromArray(events), META));
     expect(frames[0]).toContain('"response.created"');
     expect(frames.some((f) => f.includes('"response.output_text.delta"'))).toBe(true);
-    const completed = frames.at(-1)!;
+    const completed = frames.at(-2)!;
     expect(completed).toContain('"response.completed"');
     expect(completed).toContain('"output_text":"Hi there"');
+    expect(frames.at(-1)).toBe("data: [DONE]\n\n");
   });
 
   test("max_tokens finish reason maps to status: incomplete with incomplete_details.reason", async () => {
     const events: StreamEvent[] = [{ type: "text_delta", text: "cut off" }, { type: "finish", stopReason: "max_tokens" }];
     const frames = await collect(encodeResponsesStream(fromArray(events), META));
-    const final = frames.at(-1)!;
+    const final = frames.at(-2)!;
     expect(final).toContain('"response.incomplete"');
+    expect(frames.at(-1)).toBe("data: [DONE]\n\n");
     expect(final).toContain('"status":"incomplete"');
     expect(final).toContain('"max_output_tokens"');
   });
@@ -288,5 +291,32 @@ describe("bridge — decode → encode round trip", () => {
     expect(chatFrames).toContain('"name":"get_weather"');
     expect(chatFrames).toContain('"arguments":"{\\"city\\":\\"Jakarta\\"}"');
     expect(chatFrames).toContain('"finish_reason":"tool_calls"');
+  });
+});
+
+describe("bridge — withStreamErrorHandling / synthesizeFailureEvent", () => {
+  async function* throwing(): AsyncGenerator<string> {
+    yield formatSSEFrame({ data: "partial" });
+    throw new Error("upstream disconnected");
+  }
+
+  test("Chat: abnormal termination emits a finish_reason: error chunk followed by [DONE]", async () => {
+    const frames = await collect(withStreamErrorHandling(throwing(), "openai-chat"));
+    expect(frames[0]).toBe(formatSSEFrame({ data: "partial" }));
+    expect(frames[1]).toContain('"finish_reason":"error"');
+    expect(frames[1]).toContain("upstream disconnected");
+    expect(frames.at(-1)).toBe("data: [DONE]\n\n");
+  });
+
+  test("Anthropic: abnormal termination emits an event: error block", async () => {
+    const frames = await collect(withStreamErrorHandling(throwing(), "anthropic"));
+    expect(frames.at(-1)).toBe(formatSSEFrame({ event: "error", data: JSON.stringify({ type: "error", error: { type: "stream_error", message: "upstream disconnected" } }) }));
+  });
+
+  test("Responses: abnormal termination emits response.failed followed by [DONE]", async () => {
+    const frames = await collect(withStreamErrorHandling(throwing(), "openai-responses"));
+    expect(frames.at(-2)).toContain('"response.failed"');
+    expect(frames.at(-2)).toContain("upstream disconnected");
+    expect(frames.at(-1)).toBe("data: [DONE]\n\n");
   });
 });

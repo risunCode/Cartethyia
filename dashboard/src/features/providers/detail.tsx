@@ -3,9 +3,9 @@
  * accounts CRUD (REQ-11, REQ-20).
  */
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft, ArrowUpDown, Bot, Cable, Copy, ExternalLink, Eye, FlaskConical, Info, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, Bot, Cable, Copy, ExternalLink, Eye, FileUp, FlaskConical, Info, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { useCallback, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -14,6 +14,7 @@ import { cn } from "../../lib/cn";
 import { extractCredentialFromPaste } from "../../lib/credentialExtract";
 import { formatDuration, formatTokens } from "../../lib/format";
 import { staggerItem } from "../../lib/motion";
+import { useWindowedList } from "../../hooks/useWindowedList";
 import { Badge, Skeleton } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
@@ -401,12 +402,45 @@ function AccountModal({
   );
 }
 
+function AccountImportDialog({ providerId, onClose }: { providerId: string; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [text, setText] = useState("");
+  const [result, setResult] = useState<{ imported: number; skipped: Array<{ line: number; reason: string }>; renamed: Array<{ line: number; name: string }> } | null>(null);
+  const mutation = useMutation({
+    mutationFn: () => apiPost<typeof result>(`/providers/${providerId}/accounts/import`, { text }),
+    onSuccess: (summary) => {
+      setResult(summary);
+      void queryClient.invalidateQueries({ queryKey: ["provider", providerId] });
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  const close = () => { setText(""); setResult(null); onClose(); };
+
+  return (
+    <Dialog open onClose={close} title="Import connections" wide footer={result ? <Button onClick={close}>Done</Button> : <><Button variant="secondary" onClick={close}>Cancel</Button><Button disabled={!text.trim() || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? "Importing…" : "Import"}</Button></>}>
+      {result ? (
+        <div className="space-y-3 text-sm">
+          <p className="font-semibold">{result.imported} connection{result.imported === 1 ? "" : "s"} imported</p>
+          {result.renamed.length > 0 && <p className="text-xs text-[var(--text-2)]">{result.renamed.length} duplicate name{result.renamed.length === 1 ? " was" : "s were"} auto-suffixed.</p>}
+          {result.skipped.length > 0 && <div className="rounded-lg bg-[rgba(255,159,10,0.1)] p-3 text-xs text-[var(--orange)]"><div className="mb-1 font-semibold">{result.skipped.length} lines skipped:</div>{result.skipped.map((entry) => <div key={entry.line}>Line {entry.line}: {entry.reason}</div>)}</div>}
+        </div>
+      ) : (
+        <div>
+          <Label htmlFor="account-import-text">Paste one credential or exported account per line</Label>
+          <textarea id="account-import-text" className="mt-1 min-h-48 w-full rounded-xl border border-[var(--inner-border)] bg-[var(--input-bg)] px-3 py-2 font-mono text-xs outline-none placeholder:text-[var(--text-3)] focus:border-[var(--accent)]" placeholder={"token-one\naccess_token: token-two\n{\"access\": \"token-three\"}"} value={text} onChange={(event) => setText(event.target.value)} spellCheck={false} />
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────
 
 export function ProviderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const [accountModal, setAccountModal] = useState<{ open: boolean; existing: AccountEntry | null }>({ open: false, existing: null });
+  const [accountImportOpen, setAccountImportOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AccountEntry | null>(null);
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
@@ -422,6 +456,15 @@ export function ProviderDetailPage() {
     queryFn: () => apiGet<ProviderDetail>(`/providers/${id}`),
     enabled: Boolean(id),
   });
+
+  const accountsQuery = useInfiniteQuery({
+    queryKey: ["provider-accounts", id],
+    queryFn: ({ pageParam }) => apiGet<{ items: AccountEntry[]; nextCursor: string | null }>(`/providers/${id}/accounts?limit=50${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""}`),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.nextCursor,
+    enabled: Boolean(id),
+  });
+  const pagedAccounts = accountsQuery.data?.pages.flatMap((page) => page.items) ?? data?.accounts ?? [];
 
   if (data && !routing) setRouting(data.routing);
 
@@ -530,7 +573,7 @@ export function ProviderDetailPage() {
     if (state === "failed") return 2;
     return account.active ? 3 : 4;
   };
-  const sortedAccounts = [...data.accounts].sort((left, right) => {
+  const sortedAccounts = [...pagedAccounts].sort((left, right) => {
     const comparison = accountSort.key === "name"
       ? left.name.localeCompare(right.name)
       : accountSort.key === "priority"
@@ -538,6 +581,7 @@ export function ProviderDetailPage() {
         : accountStatusRank(left) - accountStatusRank(right);
     return accountSort.direction === "asc" ? comparison : -comparison;
   });
+  const accountWindow = useWindowedList(sortedAccounts, 56);
   const toggleAccountSort = (key: AccountSortKey) => {
     setAccountSort((current) => current.key === key
       ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
@@ -675,6 +719,7 @@ export function ProviderDetailPage() {
                   <FlaskConical size={13} /> Test all
                 </Button>
               )}
+              <Button variant="secondary" size="sm" onClick={() => setAccountImportOpen(true)}><FileUp size={13} /> Import</Button>
               <Button size="sm" onClick={() => setAccountModal({ open: true, existing: null })}>
                 <Plus size={14} /> New account
               </Button>
@@ -761,7 +806,7 @@ export function ProviderDetailPage() {
             {data.accounts.length === 0 ? (
               <div className="py-8 text-center text-xs text-[var(--text-3)]">No connections yet — add one to start routing requests.</div>
             ) : (
-              <div className="max-h-[21rem] overflow-auto">
+              <div ref={accountWindow.containerRef} onScroll={accountWindow.onScroll} className="max-h-[21rem] overflow-auto">
                 <table className="w-full text-left text-[11px]">
                   <thead className="sticky top-0 z-10 bg-[var(--hover)] text-[10px] font-semibold uppercase tracking-wide text-[var(--text-3)]">
                     <tr>
@@ -802,7 +847,8 @@ export function ProviderDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedAccounts.map((account) => (
+                    {accountWindow.topPadding > 0 && <tr aria-hidden="true" style={{ height: accountWindow.topPadding }}><td colSpan={6} /></tr>}
+                    {accountWindow.visibleItems.map((account) => (
                       <tr key={account.id} className="border-t border-[var(--inner-border)] transition-colors hover:bg-[var(--hover)]">
                         <td className="px-2 py-2.5 align-top">
                           <input
@@ -851,8 +897,10 @@ export function ProviderDetailPage() {
                         </td>
                       </tr>
                     ))}
+                    {accountWindow.bottomPadding > 0 && <tr aria-hidden="true" style={{ height: accountWindow.bottomPadding }}><td colSpan={6} /></tr>}
                   </tbody>
                 </table>
+                {accountsQuery.hasNextPage && <div className="border-t border-[var(--inner-border)] p-2 text-center"><Button variant="secondary" size="sm" disabled={accountsQuery.isFetchingNextPage} onClick={() => void accountsQuery.fetchNextPage()}>{accountsQuery.isFetchingNextPage ? "Loading…" : "Load more"}</Button></div>}
               </div>
             )}
           </div>
@@ -909,6 +957,7 @@ export function ProviderDetailPage() {
           onClose={() => setAccountModal({ open: false, existing: null })}
         />
       )}
+      {accountImportOpen && <AccountImportDialog providerId={data.id} onClose={() => setAccountImportOpen(false)} />}
       <ConfirmDialog
         open={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}

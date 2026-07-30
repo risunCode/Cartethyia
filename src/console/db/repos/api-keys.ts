@@ -4,6 +4,7 @@
  */
 
 import { getDb } from "../client";
+import { purgeRateLimitState } from "../../proxy-auth";
 
 export interface ApiKeyRow {
   id: string;
@@ -13,8 +14,11 @@ export interface ApiKeyRow {
   active: number;
   rate_limit_rpm: number | null;
   daily_token_limit: number | null;
+  monthly_token_limit: number | null;
+  max_concurrent_requests: number | null;
   provider_allowlist: string | null;
   model_allowlist: string | null;
+  model_denylist: string | null;
   last_used_at: string | null;
   created_at: string;
   revoked_at: string | null;
@@ -27,8 +31,11 @@ export interface ApiKeyPublic {
   active: boolean;
   rateLimitRpm: number | null;
   dailyTokenLimit: number | null;
+  monthlyTokenLimit: number | null;
+  maxConcurrentRequests: number | null;
   providerAllowlist: string[] | null;
   modelAllowlist: string[] | null;
+  modelDenylist: string[] | null;
   lastUsedAt: string | null;
   createdAt: string;
   revokedAt: string | null;
@@ -38,20 +45,34 @@ export interface ApiKeyCreateInput {
   name: string;
   rateLimitRpm?: number;
   dailyTokenLimit?: number;
+  monthlyTokenLimit?: number;
+  maxConcurrentRequests?: number;
   providerAllowlist?: string[];
   modelAllowlist?: string[];
+  modelDenylist?: string[];
+}
+
+export interface ApiKeyUpdateInput {
+  rateLimitRpm?: number | null;
+  dailyTokenLimit?: number | null;
+  monthlyTokenLimit?: number | null;
+  maxConcurrentRequests?: number | null;
+  providerAllowlist?: string[] | null;
+  modelAllowlist?: string[] | null;
+  modelDenylist?: string[] | null;
+}
+
+function parseList(raw: string | null): string[] | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as string[]) : null;
+  } catch {
+    return null;
+  }
 }
 
 function toPublic(row: ApiKeyRow): ApiKeyPublic {
-  const parseList = (raw: string | null): string[] | null => {
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      return Array.isArray(parsed) ? (parsed as string[]) : null;
-    } catch {
-      return null;
-    }
-  };
   return {
     id: row.id,
     name: row.name,
@@ -59,41 +80,93 @@ function toPublic(row: ApiKeyRow): ApiKeyPublic {
     active: row.active === 1 && !row.revoked_at,
     rateLimitRpm: row.rate_limit_rpm,
     dailyTokenLimit: row.daily_token_limit,
+    monthlyTokenLimit: row.monthly_token_limit,
+    maxConcurrentRequests: row.max_concurrent_requests,
     providerAllowlist: parseList(row.provider_allowlist),
     modelAllowlist: parseList(row.model_allowlist),
+    modelDenylist: parseList(row.model_denylist),
     lastUsedAt: row.last_used_at,
     createdAt: row.created_at,
     revokedAt: row.revoked_at,
   };
 }
 
+function serializeList(value: string[] | null | undefined): string | null {
+  if (value === undefined) return null;
+  if (value === null) return null;
+  return value.length > 0 ? JSON.stringify(value) : null;
+}
+
 /** Returns the full key exactly once; caller must show it immediately. */
 export function createApiKey(input: ApiKeyCreateInput): { key: string; record: ApiKeyPublic } | { error: "duplicate" } {
   const db = getDb();
-  const existing = db.query("SELECT id FROM api_keys WHERE name = ?").get(input.name);
-  if (existing) return { error: "duplicate" };
   const raw = crypto.getRandomValues(new Uint8Array(24));
   let suffix = "";
   for (const byte of raw) suffix += byte.toString(16).padStart(2, "0");
   const key = `ctk_${suffix}`;
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  db.query(
-    `INSERT INTO api_keys (id, name, key, key_prefix, active, rate_limit_rpm, daily_token_limit, provider_allowlist, model_allowlist, created_at)
-     VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`
-  ).run(
-    id,
-    input.name,
-    key,
-    key.slice(0, 12),
-    input.rateLimitRpm ?? null,
-    input.dailyTokenLimit ?? null,
-    input.providerAllowlist ? JSON.stringify(input.providerAllowlist) : null,
-    input.modelAllowlist ? JSON.stringify(input.modelAllowlist) : null,
-    now
-  );
+  try {
+    db.query(
+      `INSERT INTO api_keys (
+        id, name, key, key_prefix, active, rate_limit_rpm, daily_token_limit, monthly_token_limit,
+        max_concurrent_requests, provider_allowlist, model_allowlist, model_denylist, created_at
+      ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      input.name,
+      key,
+      key.slice(0, 12),
+      input.rateLimitRpm ?? null,
+      input.dailyTokenLimit ?? null,
+      input.monthlyTokenLimit ?? null,
+      input.maxConcurrentRequests ?? null,
+      serializeList(input.providerAllowlist),
+      serializeList(input.modelAllowlist),
+      serializeList(input.modelDenylist),
+      now
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("UNIQUE constraint failed: api_keys.name")) return { error: "duplicate" };
+    throw error;
+  }
   const row = db.query("SELECT * FROM api_keys WHERE id = ?").get(id) as ApiKeyRow;
   return { key, record: toPublic(row) };
+}
+
+export function updateApiKey(id: string, patch: ApiKeyUpdateInput): ApiKeyPublic | null {
+  const db = getDb();
+  const existing = db.query("SELECT * FROM api_keys WHERE id = ?").get(id) as ApiKeyRow | null;
+  if (!existing) return null;
+
+  const fields: string[] = [];
+  const values: (string | number | null)[] = [];
+
+  const setNullableInt = (column: string, value: number | null | undefined) => {
+    if (value === undefined) return;
+    fields.push(`${column} = ?`);
+    values.push(value);
+  };
+  const setNullableList = (column: string, value: string[] | null | undefined) => {
+    if (value === undefined) return;
+    fields.push(`${column} = ?`);
+    values.push(serializeList(value));
+  };
+
+  setNullableInt("rate_limit_rpm", patch.rateLimitRpm);
+  setNullableInt("daily_token_limit", patch.dailyTokenLimit);
+  setNullableInt("monthly_token_limit", patch.monthlyTokenLimit);
+  setNullableInt("max_concurrent_requests", patch.maxConcurrentRequests);
+  setNullableList("provider_allowlist", patch.providerAllowlist);
+  setNullableList("model_allowlist", patch.modelAllowlist);
+  setNullableList("model_denylist", patch.modelDenylist);
+
+  if (fields.length === 0) return toPublic(existing);
+
+  values.push(id);
+  db.query(`UPDATE api_keys SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+  const row = db.query("SELECT * FROM api_keys WHERE id = ?").get(id) as ApiKeyRow;
+  return toPublic(row);
 }
 
 export function listApiKeys(): ApiKeyPublic[] {
@@ -110,6 +183,7 @@ export function revokeApiKey(id: string): boolean {
 
 export function deleteApiKey(id: string): boolean {
   const result = getDb().query("DELETE FROM api_keys WHERE id = ?").run(id);
+  if (result.changes > 0) purgeRateLimitState(id);
   return result.changes > 0;
 }
 

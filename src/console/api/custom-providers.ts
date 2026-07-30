@@ -18,7 +18,7 @@ import { Elysia } from "elysia";
 import { consoleError } from "../errors";
 import { addAuditEvent } from "../db/repos/audit";
 import { pushConsoleLog } from "../logs/ring";
-import { assertPublicUrl } from "../../upstream/ssrf-guard";
+import { assertPublicUrl } from "../../http/ssrf-guard";
 import { dynamicProviderRouter } from "../../upstream/providers/dynamic";
 import { lookupKnownModelMeta } from "../../upstream/providers/model-catalog-index";
 import { extractModelIds } from "../../shared/text-utils";

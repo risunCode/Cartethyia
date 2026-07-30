@@ -77,6 +77,48 @@ export function listAccounts(provider?: string): ProviderAccount[] {
   return rows.map(fromRow);
 }
 
+interface AccountCursor { priority: number; name: string; id: string; }
+
+function decodeAccountCursor(cursor: string | undefined): AccountCursor | null {
+  if (!cursor) return null;
+  try {
+    const parsed: unknown = JSON.parse(atob(cursor));
+    if (parsed && typeof parsed === "object" && "priority" in parsed && "name" in parsed && "id" in parsed) {
+      const value = parsed as Record<string, unknown>;
+      if (typeof value.priority === "number" && typeof value.name === "string" && typeof value.id === "string") return { priority: value.priority, name: value.name, id: value.id };
+    }
+  } catch {
+    // Invalid cursors behave as the first page.
+  }
+  return null;
+}
+
+function encodeAccountCursor(row: ProviderAccountRow): string {
+  return btoa(JSON.stringify({ priority: row.priority, name: row.name, id: row.id }));
+}
+
+export interface AccountPage { items: ProviderAccount[]; nextCursor: string | null; version: string; }
+
+/** Version token changes whenever a provider's account collection changes. */
+export function accountsVersion(provider: string): string {
+  const state = getDb().query("SELECT COUNT(*) AS count, COALESCE(MAX(updated_at), '') AS updated_at FROM provider_accounts WHERE provider = ?").get(provider) as { count: number; updated_at: string };
+  return `${state.count}:${state.updated_at}`;
+}
+
+/** Returns provider accounts using a stable, index-backed priority/name/id keyset. */
+export function listAccountsPage(provider: string, limit: number, cursor?: string): AccountPage {
+  const db = getDb();
+  const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 100);
+  const after = decodeAccountCursor(cursor);
+  const rows = (after
+    ? db.query("SELECT * FROM provider_accounts WHERE provider = ? AND (priority > ? OR (priority = ? AND (name > ? OR (name = ? AND id > ?)))) ORDER BY priority ASC, name ASC, id ASC LIMIT ?").all(provider, after.priority, after.priority, after.name, after.name, after.id, boundedLimit + 1)
+    : db.query("SELECT * FROM provider_accounts WHERE provider = ? ORDER BY priority ASC, name ASC, id ASC LIMIT ?").all(provider, boundedLimit + 1)
+  ) as ProviderAccountRow[];
+  const hasNext = rows.length > boundedLimit;
+  const pageRows = hasNext ? rows.slice(0, boundedLimit) : rows;
+  return { items: pageRows.map(fromRow), nextCursor: hasNext ? encodeAccountCursor(pageRows.at(-1)!) : null, version: accountsVersion(provider) };
+}
+
 export function getAccount(id: string): ProviderAccountRow | null {
   const row = getDb().query("SELECT * FROM provider_accounts WHERE id = ?").get(id) as ProviderAccountRow | null;
   return row;
@@ -193,23 +235,48 @@ interface AccountCooldown {
 }
 
 const cooldowns = new Map<string, AccountCooldown>();
+let cooldownsHydrated = false;
 
 const COOLDOWN_BASE_MS = 2_000;       // 2s base
 const COOLDOWN_MAX_MS = 30 * 60_000;  // 30 min hard cap
 const COOLDOWN_MAX_LEVEL = 15;
 
+/** Rebuilds the in-memory cooldown and model-lock indexes from persisted state. */
+export function hydrateCooldownCache(): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+  cooldowns.clear();
+  modelLocks.clear();
+
+  const cooldownRows = db.query("SELECT id, cooldown_until, cooldown_level FROM provider_accounts WHERE cooldown_until > ?").all(now) as Array<{ id: string; cooldown_until: string; cooldown_level: number }>;
+  for (const row of cooldownRows) cooldowns.set(row.id, { unavailableUntil: Date.parse(row.cooldown_until), backoffLevel: row.cooldown_level });
+
+  const lockRows = db.query("SELECT account_id, model_id, locked_until FROM account_model_locks WHERE locked_until > ?").all(now) as Array<{ account_id: string; model_id: string; locked_until: string }>;
+  for (const row of lockRows) modelLocks.set(`${row.account_id}:${row.model_id}`, Date.parse(row.locked_until));
+
+  db.query("UPDATE provider_accounts SET cooldown_until = NULL, cooldown_level = 0 WHERE cooldown_until <= ?").run(now);
+  db.query("DELETE FROM account_model_locks WHERE locked_until <= ?").run(now);
+  cooldownsHydrated = true;
+}
+
+function ensureCooldownCache(): void {
+  if (!cooldownsHydrated) hydrateCooldownCache();
+}
+
 /** Mark an account as unavailable (called on 429/upstream failure). */
-export function markAccountUnavailable(accountId: string): void {
+export function markAccountUnavailable(accountId: string, _kind: "rate-limit" | "auth" = "rate-limit"): void {
   const existing = cooldowns.get(accountId);
   const level = existing ? existing.backoffLevel + 1 : 0;
   const clampedLevel = Math.min(level, COOLDOWN_MAX_LEVEL);
-  const delay = Math.min(COOLDOWN_BASE_MS * Math.pow(2, clampedLevel), COOLDOWN_MAX_MS);
-  cooldowns.set(accountId, { unavailableUntil: Date.now() + delay, backoffLevel: clampedLevel });
+  const unavailableUntil = Date.now() + Math.min(COOLDOWN_BASE_MS * Math.pow(2, clampedLevel), COOLDOWN_MAX_MS);
+  cooldowns.set(accountId, { unavailableUntil, backoffLevel: clampedLevel });
+  getDb().query("UPDATE provider_accounts SET cooldown_until = ?, cooldown_level = ? WHERE id = ?").run(new Date(unavailableUntil).toISOString(), clampedLevel, accountId);
 }
 
 /** Clear cooldown for an account (called on successful request). */
 export function clearAccountCooldown(accountId: string): void {
   cooldowns.delete(accountId);
+  getDb().query("UPDATE provider_accounts SET cooldown_until = NULL, cooldown_level = 0 WHERE id = ?").run(accountId);
 }
 
 /** Check if an account is currently in cooldown. */
@@ -263,7 +330,11 @@ const MODEL_LOCK_MS = 5 * 60_000; // 5 min lock per model
 
 /** Lock an account for a specific model (called on repeated errors). */
 export function lockAccountModel(accountId: string, modelId: string): void {
-  modelLocks.set(`${accountId}:${modelId}`, Date.now() + MODEL_LOCK_MS);
+  const lockedUntil = Date.now() + MODEL_LOCK_MS;
+  modelLocks.set(`${accountId}:${modelId}`, lockedUntil);
+  getDb().query(
+    "INSERT INTO account_model_locks (account_id, model_id, locked_until) VALUES (?, ?, ?) ON CONFLICT(account_id, model_id) DO UPDATE SET locked_until = excluded.locked_until"
+  ).run(accountId, modelId, new Date(lockedUntil).toISOString());
 }
 
 /** Check if an account is locked for a specific model. */
@@ -282,6 +353,7 @@ function isModelLocked(accountId: string, modelId: string): boolean {
 export function resetCooldownForTests(): void {
   cooldowns.clear();
   modelLocks.clear();
+  cooldownsHydrated = false;
 }
 
 /**
@@ -293,6 +365,7 @@ export function resetCooldownForTests(): void {
  * Skips accounts that are in cooldown (C5) or locked for the given model (M1).
  */
 export async function pickAccountForRotation(provider: string, stickyLimit: number, modelId?: string): Promise<ProviderAccountRow | null> {
+  ensureCooldownCache();
   return withProviderLock(provider, () => {
     const active = listAccounts(provider).filter((a) => a.active && !isAccountCooledDown(a.id) && (modelId === undefined || !isModelLocked(a.id, modelId)));
     if (active.length === 0) return null;

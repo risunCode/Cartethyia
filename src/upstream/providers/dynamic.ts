@@ -18,6 +18,7 @@ import type { RouteTarget } from "../../routing/types";
 import { ProviderCallError, classifyUpstreamStatus } from "./index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./index";
 import { decodeAnthropicStream, decodeOpenAIChatStream } from "../bridge";
+import { fetchWithSsrfGuard } from "../../http/ssrf-guard";
 import { getCustomProviderBySlug, type CustomProviderRecord } from "../../console/db/repos/custom-providers";
 import type { ProviderModelEntry } from "./models";
 import { translateAnthropicResponseToChat, translateChatRequestToAnthropic } from "../../translate/openai-anthropic";
@@ -42,7 +43,7 @@ async function callOpenAICompatible(record: CustomProviderRecord, model: string,
   const outboundBody: Record<string, unknown> = { ...body, model };
   const isStreaming = outboundBody.stream === true;
 
-  const res = await fetch(`${record.baseUrl}/chat/completions`, {
+  const res = await fetchWithSsrfGuard(`${record.baseUrl}/chat/completions`, {
     method: "POST",
     // Custom headers apply last so an operator's org/routing/WAF-bypass
     // header wins over the built-in auth/content-type on collision.
@@ -69,7 +70,7 @@ async function callAnthropicCompatible(record: CustomProviderRecord, model: stri
   const anthropicReq = translateChatRequestToAnthropic({ ...body, model } as OpenAIChatRequest);
   const isStreaming = anthropicReq.stream === true;
 
-  const res = await fetch(`${record.baseUrl}/messages`, {
+  const res = await fetchWithSsrfGuard(`${record.baseUrl}/messages`, {
     method: "POST",
     headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json", ...record.customHeaders },
     body: JSON.stringify(anthropicReq),

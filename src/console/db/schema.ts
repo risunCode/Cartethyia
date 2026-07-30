@@ -22,8 +22,11 @@ CREATE TABLE IF NOT EXISTS api_keys (
   active INTEGER NOT NULL DEFAULT 1,
   rate_limit_rpm INTEGER,
   daily_token_limit INTEGER,
+  monthly_token_limit INTEGER,
+  max_concurrent_requests INTEGER,
   provider_allowlist TEXT,
   model_allowlist TEXT,
+  model_denylist TEXT,
   last_used_at TEXT,
   created_at TEXT NOT NULL,
   revoked_at TEXT
@@ -83,9 +86,21 @@ CREATE TABLE IF NOT EXISTS provider_accounts (
   use_direct INTEGER NOT NULL DEFAULT 0,
   priority INTEGER NOT NULL DEFAULT 100,
   active INTEGER NOT NULL DEFAULT 1,
+  cooldown_until TEXT,
+  cooldown_level INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   UNIQUE (provider, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider_priority ON provider_accounts(provider, priority, name, id);
+
+CREATE TABLE IF NOT EXISTS account_model_locks (
+  account_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  locked_until TEXT NOT NULL,
+  PRIMARY KEY (account_id, model_id),
+  FOREIGN KEY (account_id) REFERENCES provider_accounts(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS provider_models (

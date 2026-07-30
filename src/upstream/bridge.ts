@@ -14,9 +14,36 @@
  */
 
 import { parseSSEStream, formatSSEFrame, SSE_DONE } from "./sse";
-import { asArray, asNumber, asObject, asString, field } from "./jsonGuards";
-import { openAIFinishToAnthropicStop, isOpenAIFinishReason } from "../translate/concerns/finishReasons";
+import { openAIFinishToAnthropicStop, isOpenAIFinishReason, anthropicStopToOpenAIFinishWithTools } from "../translate/concerns/finishReasons";
 import type { AnthropicStopReason } from "../translate/concerns/finishReasons";
+
+/**
+ * Runtime-checked field readers for untyped JSON parsed off the wire (SSE
+ * frames, upstream responses). Every reader does a real `typeof`/shape
+ * check and returns `undefined` on mismatch instead of trusting an inline
+ * `as` cast, a malformed or version-drifted upstream event degrades to
+ * "field missing" instead of a silently wrong value.
+ */
+
+function asObject(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+}
+
+function asArray(value: unknown): unknown[] | undefined {
+  return Array.isArray(value) ? value : undefined;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
+function field(obj: Record<string, unknown> | undefined, key: string): unknown {
+  return obj?.[key];
+}
 
 export type StreamEvent =
   | { type: "text_delta"; text: string }
@@ -321,7 +348,7 @@ export async function* encodeOpenAIChatStream(events: AsyncGenerator<StreamEvent
     } else if (ev.type === "tool_call_end") {
       // Chat Completions has no per-tool-call end marker — folded into finish_reason.
     } else if (ev.type === "finish") {
-      yield chunk({}, anthropicStopToChatFinish(ev.stopReason, toolIndexById.size > 0));
+      yield chunk({}, anthropicStopToOpenAIFinishWithTools(ev.stopReason, toolIndexById.size > 0));
     } else if (ev.type === "usage") {
       yield formatSSEFrame({
         data: JSON.stringify({
@@ -344,13 +371,6 @@ export async function* encodeOpenAIChatStream(events: AsyncGenerator<StreamEvent
   }
 
   yield SSE_DONE;
-}
-
-function anthropicStopToChatFinish(reason: AnthropicStopReason, hadToolCalls: boolean): string {
-  if (hadToolCalls) return "tool_calls";
-  if (reason === "max_tokens") return "length";
-  if (reason === "refusal") return "content_filter";
-  return "stop";
 }
 
 // ── Encode: StreamEvent → OpenAI Responses SSE ───────────────────────────
@@ -404,12 +424,45 @@ export async function* encodeResponsesStream(events: AsyncGenerator<StreamEvent>
   }
 
   yield formatSSEFrame({ data: JSON.stringify({ type: status === "completed" ? "response.completed" : "response.incomplete", sequence_number: seq(), response: responseBody }) });
+  yield formatSSEFrame({ data: "[DONE]" });
+}
+
+/**
+ * Synthesizes the format-specific terminal frame(s) for an upstream stream
+ * that ended abnormally, so a client parsing that vocabulary sees a
+ * recognized failure event instead of a silently truncated stream. Each
+ * surface's normal terminal frame is mirrored here (finish_reason for Chat,
+ * message_stop-equivalent event for Anthropic, response.failed for
+ * Responses), followed by that surface's own terminal sentinel.
+ */
+export function synthesizeFailureEvent(
+  format: "openai-chat" | "anthropic" | "openai-responses",
+  error: unknown,
+): string[] {
+  const message = error instanceof Error ? error.message : "Stream interrupted";
+
+  if (format === "openai-chat") {
+    return [
+      formatSSEFrame({ data: JSON.stringify({ error: { message, type: "stream_error" }, choices: [{ index: 0, delta: {}, finish_reason: "error" }] }) }),
+      SSE_DONE,
+    ];
+  }
+
+  if (format === "openai-responses") {
+    return [
+      formatSSEFrame({ data: JSON.stringify({ type: "response.failed", response: { status: "failed", error: { message } } }) }),
+      formatSSEFrame({ data: "[DONE]" }),
+    ];
+  }
+
+  return [formatSSEFrame({ event: "error", data: JSON.stringify({ type: "error", error: { type: "stream_error", message } }) })];
 }
 
 /**
  * Wraps an SSE stream generator with error handling (M2).
- * If the source generator throws, yields a formatted error event
- * before the stream ends, so the client knows why it disconnected.
+ * If the source generator throws, yields the format-specific synthesized
+ * failure frame(s) before the stream ends, so the client knows why it
+ * disconnected instead of seeing a silently truncated stream.
  */
 export function withStreamErrorHandling(
   source: AsyncGenerator<string>,
@@ -419,11 +472,7 @@ export function withStreamErrorHandling(
     try {
       yield* source;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Stream interrupted";
-      const errorPayload = format === "anthropic"
-        ? JSON.stringify({ type: "error", error: { type: "stream_error", message } })
-        : JSON.stringify({ error: { type: "stream_error", message } });
-      yield formatSSEFrame({ event: format === "anthropic" ? "error" : undefined, data: errorPayload });
+      yield* synthesizeFailureEvent(format, err);
     }
   })();
 }

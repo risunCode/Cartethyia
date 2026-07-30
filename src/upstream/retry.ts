@@ -81,7 +81,7 @@ export function isRetryableError(error: unknown, config: RetryConfig = DEFAULT_R
  * Extracts HTTP status from an error object.
  * Supports UpstreamError, ProviderCallError, and plain Error with status.
  */
-function extractStatus(error: unknown): number | null {
+export function extractStatus(error: unknown): number | null {
   if (error !== null && typeof error === "object") {
     const obj = error as Record<string, unknown>;
     if (typeof obj.status === "number") return obj.status;

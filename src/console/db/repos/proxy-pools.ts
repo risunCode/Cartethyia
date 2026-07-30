@@ -4,7 +4,7 @@
  */
 
 import { getDb } from "../client";
-import { assertPublicUrl } from "../../../upstream/ssrf-guard";
+import { assertPublicUrl } from "../../../http/ssrf-guard";
 
 export interface ProxyEntry {
   url: string;

@@ -11,13 +11,16 @@ import { app } from "../../src/app";
 import { loginAndGetCookie, postJson, useIsolatedDataDir } from "../console/helpers";
 
 let fetchSpy: Mock<typeof fetch>;
+let dnsLookupSpy: ReturnType<typeof spyOn<typeof Bun.dns, "lookup">>;
 
 beforeEach(() => {
   useIsolatedDataDir();
   fetchSpy = spyOn(globalThis, "fetch");
+  dnsLookupSpy = spyOn(Bun.dns, "lookup").mockResolvedValue([{ address: "93.184.216.34", family: 4, ttl: 0 }]);
 });
 
 afterEach(() => {
+  dnsLookupSpy.mockRestore();
   fetchSpy.mockRestore();
 });
 

@@ -6,7 +6,9 @@
  */
 
 import { enforceProxyAuth } from "../../console/proxy-auth";
+import { openAIClientError } from "../../http/errors";
 import { createRequestTracker, type RequestTracker, type TrackSurface } from "../../console/tracking/tracker";
+import { tryAcquireKeySlot, releaseKeySlot } from "../../console/tracking/key-in-flight";
 import { UpstreamError, ProviderCallError } from "../../upstream/providers";
 
 type UpstreamErrorMapper = (err: UpstreamError) => { status: number; body: unknown };
@@ -37,6 +39,13 @@ export async function withProxyRequest<T>(opts: ProxyRequestOptions, handler: (c
     return auth.error.body;
   }
 
+  const keyId = auth.key?.id;
+  const maxConcurrent = auth.key?.maxConcurrentRequests;
+  if (keyId && maxConcurrent && !tryAcquireKeySlot(keyId, maxConcurrent)) {
+    opts.set.status = 429;
+    return openAIClientError(429, "rate_limit_error", "This key exceeded its concurrent request limit.");
+  }
+
   const tracker = createRequestTracker({
     endpoint: opts.endpoint,
     surface: opts.surface,
@@ -59,5 +68,7 @@ export async function withProxyRequest<T>(opts: ProxyRequestOptions, handler: (c
     }
     tracker.fail(500, "internal_error", requestBody);
     throw err;
+  } finally {
+    if (keyId && maxConcurrent) releaseKeySlot(keyId);
   }
 }

@@ -2,7 +2,8 @@
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { app } from "../../src/app";
-import { getDb } from "../../src/console/db/client";
+import { closeDbForTests, getDb } from "../../src/console/db/client";
+import { createAccount, markAccountUnavailable, pickAccountForRotation, resetCooldownForTests } from "../../src/console/db/repos/accounts";
 import { loginAndGetCookie, postJson, useIsolatedDataDir } from "./helpers";
 import { resetOpenCodeFreeCatalogForTests } from "../../src/upstream/providers/opencode-free/catalog";
 
@@ -39,6 +40,28 @@ function seedProxyPool(name: string): string {
     .run(id, name, JSON.stringify([{ url: "http://localhost:8080", scheme: "http" }]), now, now);
   return id;
 }
+
+describe("persisted account availability", () => {
+  test("keeps an account unavailable after reopening the database", async () => {
+    const account = createAccount({ provider: "opencode-free", name: "cooling", credentialKind: "bearer", credential: "token" });
+    markAccountUnavailable(account.id);
+
+    closeDbForTests();
+    resetCooldownForTests();
+
+    await expect(pickAccountForRotation("opencode-free", 0)).resolves.toBeNull();
+  });
+});
+
+describe("provider account import", () => {
+  test("imports pasted account credentials and returns the summary", async () => {
+    const cookie = await loginAndGetCookie();
+    const response = await app.handle(postJson("/console/api/providers/opencode-free/accounts/import", { text: "token-one\n\naccess_token: token-two" }, { cookie }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ imported: 2, skipped: [{ line: 2, reason: "blank line" }] });
+  });
+});
 
 describe("provider accounts CRUD", () => {
   test("create → list → patch → delete on opencode-free (bearer default)", async () => {

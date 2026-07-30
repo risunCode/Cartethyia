@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applyCacheBreakpoint, looksCacheable, normalizeAnthropicUsage, normalizeOpenAIUsage } from "../../src/translate/concerns/cache";
+import { applyCacheBreakpoint, estimateUsageFromText, looksCacheable, normalizeAnthropicUsage, normalizeOpenAIUsage } from "../../src/translate/concerns/cache";
 import type { UnifiedMessage } from "../../src/translate/concerns/blocks";
 import { textBlock } from "../../src/translate/concerns/blocks";
 
@@ -28,29 +28,65 @@ describe("cache concern — looksCacheable", () => {
 
 describe("cache concern — usage normalization", () => {
   test("normalizeAnthropicUsage maps cache_read/cache_creation onto the common shape", () => {
-    expect(normalizeAnthropicUsage({ input_tokens: 50, cache_creation_input_tokens: 1200, cache_read_input_tokens: 300 })).toEqual({
+    expect(normalizeAnthropicUsage({ input_tokens: 50, output_tokens: 20, cache_creation_input_tokens: 1200, cache_read_input_tokens: 300 })).toEqual({
       cacheReadTokens: 300,
       cacheWriteTokens: 1200,
       freshInputTokens: 50,
+      outputTokens: 20,
+      estimated: false,
     });
   });
 
   test("normalizeAnthropicUsage defaults missing cache fields to 0", () => {
-    expect(normalizeAnthropicUsage({ input_tokens: 50 })).toEqual({ cacheReadTokens: 0, cacheWriteTokens: 0, freshInputTokens: 50 });
+    expect(normalizeAnthropicUsage({ input_tokens: 50, output_tokens: 20 })).toEqual({
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      freshInputTokens: 50,
+      outputTokens: 20,
+      estimated: false,
+    });
+  });
+
+  test("normalizeAnthropicUsage estimates from response text when the usage block is entirely absent", () => {
+    expect(normalizeAnthropicUsage(undefined, "a response of some length")).toEqual({
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      freshInputTokens: 0,
+      outputTokens: estimateUsageFromText("a response of some length"),
+      estimated: true,
+    });
   });
 
   test("normalizeOpenAIUsage derives freshInputTokens as prompt_tokens minus cached_tokens", () => {
     expect(
-      normalizeOpenAIUsage({ prompt_tokens: 1000, prompt_tokens_details: { cached_tokens: 400 }, cache_write_tokens: 100 })
-    ).toEqual({ cacheReadTokens: 400, cacheWriteTokens: 100, freshInputTokens: 600 });
+      normalizeOpenAIUsage({ prompt_tokens: 1000, completion_tokens: 40, prompt_tokens_details: { cached_tokens: 400 }, cache_write_tokens: 100 })
+    ).toEqual({ cacheReadTokens: 400, cacheWriteTokens: 100, freshInputTokens: 600, outputTokens: 40, estimated: false });
   });
 
   test("normalizeOpenAIUsage never returns negative freshInputTokens", () => {
-    expect(normalizeOpenAIUsage({ prompt_tokens: 10, prompt_tokens_details: { cached_tokens: 999 } })).toEqual({
+    expect(normalizeOpenAIUsage({ prompt_tokens: 10, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 999 } })).toEqual({
       cacheReadTokens: 999,
       cacheWriteTokens: 0,
       freshInputTokens: 0,
+      outputTokens: 5,
+      estimated: false,
     });
+  });
+
+  test("normalizeOpenAIUsage estimates from response text when the usage block is entirely absent", () => {
+    expect(normalizeOpenAIUsage(undefined, "hi")).toEqual({
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      freshInputTokens: 0,
+      outputTokens: estimateUsageFromText("hi"),
+      estimated: true,
+    });
+  });
+
+  test("estimateUsageFromText returns 0 for empty text and a rough ~4-chars-per-token count otherwise", () => {
+    expect(estimateUsageFromText("")).toBe(0);
+    expect(estimateUsageFromText("abcd")).toBe(1);
+    expect(estimateUsageFromText("a".repeat(40))).toBe(10);
   });
 });
 

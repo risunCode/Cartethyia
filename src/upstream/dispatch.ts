@@ -3,12 +3,11 @@ import type { Provider, ProviderRequest, ProviderResult } from "./providers/inde
 import type { ResolvedCredential } from "./providers/index";
 import { getProviderRouting } from "../console/db/repos/routing";
 import { getPool } from "../console/db/repos/proxy-pools";
-import { withRetry, createTimeoutSignal, DEFAULT_RETRY_CONFIG, type RetryConfig } from "./retry";
+import { withRetry, createTimeoutSignal, DEFAULT_RETRY_CONFIG, extractStatus, type RetryConfig } from "./retry";
 import { isRetryableError } from "./retry";
 import { resolveAllComboTargets, resolveQualifiedTarget, credentialKindOf } from "../routing/resolve";
 import { isProviderId } from "../routing/providerMeta";
 import { prepareOutboundRequest } from "./outbound";
-import { resolveCredential } from "./credentials";
 import { ProviderCallError, providerRegistry } from "./providers";
 import { getRequestTransformSettings } from "../console/runtime";
 import {
@@ -16,16 +15,55 @@ import {
   markAccountUnavailable,
   clearAccountCooldown,
   getRetryAfterSeconds,
+  lockAccountModel,
   RESOLVED_KIND_BY_ACCOUNT_KIND,
   type CredentialKind,
 } from "../console/db/repos/accounts";
 import { createRotationStore, pickRotationIndex } from "./rotation";
+import { assertPublicUrlAtDispatch } from "../http/ssrf-guard";
 
 export interface DispatchableRoute {
   target: RouteTarget;
   request: ProviderRequest;
   credential: ResolvedCredential;
   proxyPoolName?: string;
+}
+
+// ── Credential resolution ─────────────────────────────────────────
+
+interface InboundHeaders {
+  authorization?: string;
+  "x-api-key"?: string;
+}
+
+function extractBearer(headers: InboundHeaders): string | undefined {
+  if (headers.authorization?.startsWith("Bearer ")) return headers.authorization.slice(7);
+  return undefined;
+}
+
+/** Resolves the client-supplied credential a target's routing calls for (BYOK bearer/api-key, or none for auth-free providers). */
+function resolveCredential(target: RouteTarget, headers: InboundHeaders): ResolvedCredential | undefined {
+  if (target.credential === "none") return { kind: "none", value: "" };
+
+  if (target.credential === "provider-bearer") {
+    const value = extractBearer(headers);
+    if (!value) return undefined;
+    return { kind: "provider-bearer", value };
+  }
+
+  if (target.credential === "devin-session") {
+    const value = extractBearer(headers);
+    if (!value) return undefined;
+    return { kind: "devin-session", value };
+  }
+
+  if (target.credential === "qoder-pat") {
+    const value = extractBearer(headers);
+    if (!value) return undefined;
+    return { kind: "qoder-pat", value };
+  }
+
+  return undefined;
 }
 
 export interface ProviderRegistry {
@@ -50,6 +88,12 @@ export interface DispatchOutcome {
 
 /** Proxy-pool entry rotation state, keyed by pool id — shares the same primitive as account rotation (REQ-6). */
 const poolRotationState = createRotationStore<string>();
+const accountModelFailures = new Map<string, number>();
+const ACCOUNT_MODEL_FAILURE_THRESHOLD = 3;
+
+function accountModelFailureKey(accountId: string, modelId: string): string {
+  return `${accountId}:${modelId}`;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -121,6 +165,7 @@ export async function dispatchProvider(
     if (pool && pool.entries.length > 0) {
       const idx = pickRotationIndex(poolRotationState, pool.id, pool.entries.length, 1);
       proxyUrl = pool.entries[idx]!.url;
+      await assertPublicUrlAtDispatch(proxyUrl);
       route.proxyPoolName = pool.name;
     }
   }
@@ -192,8 +237,8 @@ export async function resolveCredentialForDispatch(
     return { kind, value: plain, accountId: picked.id };
   }
 
-  // No stored accounts for this provider — fall back to the credential
-  // the client supplied in the request header (BYOK / legacy pass-through).
+  // No stored accounts for this provider, fall back to the credential the
+  // client supplied directly in the request header (BYOK).
   if (!isProviderId(provider)) return undefined;
   const defaultTarget = {
     provider,
@@ -203,19 +248,6 @@ export async function resolveCredentialForDispatch(
     weight: 1,
   };
   return resolveCredential(defaultTarget, headers);
-}
-
-function isUpstream429(err: unknown): boolean {
-  if (err !== null && typeof err === "object") {
-    const obj = err as Record<string, unknown>;
-    if (typeof obj.status === "number" && obj.status === 429) return true;
-  }
-  return false;
-}
-
-/** Check if an error warrants combo failover (retryable status or fetch error). */
-function isRetryableForCombo(err: unknown): boolean {
-  return isRetryableError(err);
 }
 
 /** Resolves and calls a provider-qualified model after its request is normalized to OpenAI Chat. */
@@ -238,24 +270,52 @@ export async function dispatchQualifiedRoute(input: QualifiedDispatchInput): Pro
 
   try {
     const outcome = await dispatchWithImageFallback(providerRegistry, { target, request: providerRequest, credential }, input.request.signal);
-    if ("accountId" in credential && credential.accountId) clearAccountCooldown(credential.accountId as string);
+    if ("accountId" in credential && credential.accountId) {
+      const accountId = credential.accountId as string;
+      clearAccountCooldown(accountId);
+      accountModelFailures.delete(accountModelFailureKey(accountId, target.modelId));
+    }
     return { kind: "result", result: outcome.result, proxyPoolName: outcome.proxyPoolName };
   } catch (err) {
-    // On 429: mark account unavailable and try combo failover (C5+C6)
-    if ("accountId" in credential && credential.accountId && isUpstream429(err)) {
-      markAccountUnavailable(credential.accountId as string);
+    const status = extractStatus(err);
+    const isCredentialFailure = status === 401 || status === 403;
+    if ("accountId" in credential && credential.accountId) {
+      const accountId = credential.accountId as string;
+      if (status === 429 || isCredentialFailure) markAccountUnavailable(accountId, isCredentialFailure ? "auth" : "rate-limit");
+      const key = accountModelFailureKey(accountId, target.modelId);
+      const failures = (accountModelFailures.get(key) ?? 0) + 1;
+      accountModelFailures.set(key, failures);
+      if (failures >= ACCOUNT_MODEL_FAILURE_THRESHOLD) {
+        lockAccountModel(accountId, target.modelId);
+        accountModelFailures.delete(key);
+      }
     }
-    // Combo failover: try next candidate on retryable error (C6)
-    if (isRetryableForCombo(err)) {
+    // A rejected stored credential is account-specific: immediately retry the
+    // next eligible account for this provider before trying combo targets.
+    if (isCredentialFailure && "accountId" in credential && credential.accountId) {
+      const nextCredential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId);
+      if (nextCredential && "accountId" in nextCredential && nextCredential.accountId !== credential.accountId) {
+        try {
+          const outcome = await dispatchWithImageFallback(providerRegistry, { target, request: providerRequest, credential: nextCredential }, input.request.signal);
+          clearAccountCooldown(nextCredential.accountId);
+          return { kind: "result", result: outcome.result, proxyPoolName: outcome.proxyPoolName };
+        } catch {
+          // Continue to combo failover after the next stored account also fails.
+        }
+      }
+    }
+    // Combo failover: try next candidate on retryable or stored-credential auth error.
+    if (isRetryableError(err) || isCredentialFailure) {
       const fallback = await tryComboFailover(input, providerRequest);
       if (fallback) return fallback;
     }
     // Propagate 429 with Retry-After
-    if (isUpstream429(err)) {
+    if (extractStatus(err) === 429) {
       const retryAfter = getRetryAfterSeconds(target.provider);
       return { kind: "error", status: 429, message: retryAfter ? `Rate limited. Retry after ${retryAfter}s.` : "Rate limited by upstream provider." };
     }
-    throw err;
+    const message = err instanceof Error ? err.message : "Upstream provider request failed.";
+    return { kind: "error", status: status ?? 502, message };
   }
 }
 

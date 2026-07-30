@@ -2,7 +2,7 @@
 
 Cartethyia is a Bun + Elysia AI proxy with an authenticated console. It exposes OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages while routing models to managed provider accounts, custom compatible providers, aliases, and combos.
 
-**Current release: `1.0.0-alpha`** — feature-complete alpha for local and self-hosted testing. Review the [changelog](./CHANGELOG.md) for the release scope and known alpha-level caveats.
+**Current release: `1.0.1-alpha`** — feature-complete alpha for local and self-hosted testing. Review the [changelog](./CHANGELOG.md) for the release scope and known alpha-level caveats.
 
 ## Features
 
@@ -35,11 +35,16 @@ curl http://localhost:12800/health
 | `POST /v1/chat/completions` | OpenAI Chat Completions |
 | `POST /v1/responses` | OpenAI Responses |
 | `POST /v1/messages` | Anthropic Messages |
-| `GET /v1/models` | Unified model list |
+| `GET /v1/models` | Unified model list (providers, aliases, combos); ACL-filtered when a proxy API key is presented |
 | `GET /health` | Liveness probe |
 | `GET /console` | Management console |
 
-Use the proxy API key created in the console:
+Use the proxy API key created in the console. Keys support per-minute request limits, daily/monthly token caps, concurrent in-flight limits, and provider/model allow/deny lists. Edit limits from **Overview → API Keys → Edit**.
+
+```bash
+curl http://localhost:12800/v1/models \
+  -H "authorization: Bearer $CARTETHYIA_API_KEY"
+```
 
 ```bash
 curl http://localhost:12800/v1/chat/completions \
@@ -128,7 +133,7 @@ cd dashboard && bun run build
 - `src/routes/` — public API handlers.
 - `src/routing/` — provider-prefix, alias, combo, and filter resolution.
 - `src/upstream/` — provider adapters, retry logic, stream bridge, and request transforms.
-- `src/console/` — authenticated console API, encrypted account storage, runtime tracking, and SPA serving.
+- `src/console/` — authenticated console API, plaintext credential storage, runtime tracking, and SPA serving.
 - `dashboard/` — React/Vite management console.
 - `data/` — runtime state; mount this directory in production and never commit it.
 

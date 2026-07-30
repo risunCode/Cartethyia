@@ -19,6 +19,7 @@ export interface CartethyiaConfig {
   cache: {
     markersEnabled: boolean;
   };
+  corsAllowedOrigins: string[];
 }
 
 
@@ -32,6 +33,10 @@ function loadConfig(env: Record<string, string | undefined>): CartethyiaConfig {
     cache: {
       markersEnabled: env.CACHE_MARKERS_ENABLED !== "false",
     },
+    corsAllowedOrigins: (env.CORS_ALLOWED_ORIGINS ?? "")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean),
   };
 }
 

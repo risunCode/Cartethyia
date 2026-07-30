@@ -3,6 +3,8 @@
 import { Elysia, redirect } from "elysia";
 import { invalidRequestError, unexpectedClientError, unknownRouteError } from "./http/errors";
 import { requestLogger } from "./http/middleware";
+import { createCorsMiddleware } from "./http/cors";
+import { config } from "./config";
 import { healthRoute, modelsRoute } from "./routes/status";
 import { chatRoute } from "./routes/chat";
 import { messagesRoute } from "./routes/messages";
@@ -31,6 +33,7 @@ export const app = new Elysia({
     return unexpectedClientError(path);
   })
   .get("/", () => redirect("/console/"))
+  .use(createCorsMiddleware(config.corsAllowedOrigins))
   .use(requestLogger)
   .use(consoleApiRoutes)
   .use(consoleWebRoutes)

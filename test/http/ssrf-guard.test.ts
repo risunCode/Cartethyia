@@ -1,7 +1,7 @@
 /** SSRF guard tests — blocks private/loopback/metadata IPs. */
 
 import { describe, expect, test } from "bun:test";
-import { assertPublicUrl, validatePublicUrl } from "../../src/upstream/ssrf-guard";
+import { assertPublicUrl, validatePublicUrl } from "../../src/http/ssrf-guard";
 
 describe("assertPublicUrl", () => {
   test("allows valid public http URLs", () => {
@@ -40,6 +40,12 @@ describe("assertPublicUrl", () => {
 
   test("blocks IPv6 loopback", () => {
     expect(() => assertPublicUrl("http://[::1]:8080")).toThrow("blocked");
+  });
+
+  test("blocks IPv6 link-local and unique-local ranges", () => {
+    expect(() => assertPublicUrl("http://[fe80::1]:8080")).toThrow("blocked");
+    expect(() => assertPublicUrl("http://[fc00::1]:8080")).toThrow("blocked");
+    expect(() => assertPublicUrl("http://[fd12:3456::1]:8080")).toThrow("blocked");
   });
 
   test("blocks IPv4-mapped IPv6 loopback", () => {

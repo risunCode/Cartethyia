@@ -44,43 +44,59 @@ function isPrivateIPv4(ip: string): boolean {
  * Checks if a hostname (IP literal or domain) is private/blocked.
  * For domain names, checks known patterns. For IP literals, checks ranges.
  */
-function isBlockedHost(hostname: string): boolean {
-  // Strip IPv6 brackets — URL constructor preserves them in hostname
-  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+function isBlockedIp(address: string): boolean {
+  const ip = address.toLowerCase().replace(/^\[|\]$/g, "");
 
-  // Known non-routable hostnames
-  if (BLOCKED_HOSTNAMES.has(h)) return true;
+  if (ip === "::1") return true;
 
-  // Internal domain suffixes
-  for (const suffix of BLOCKED_SUFFIXES) {
-    if (h.endsWith(suffix)) return true;
+  const firstHextet = /^([0-9a-f]{1,4}):/.exec(ip)?.[1];
+  if (firstHextet) {
+    const value = Number.parseInt(firstHextet, 16);
+    if ((value >= 0xfe80 && value <= 0xfebf) || (value >= 0xfc00 && value <= 0xfdff)) return true;
   }
 
-  // Cloud metadata hostnames
-  if (h === "metadata.google.internal" || h === "instance-data") return true;
-
-  // IPv6 loopback
-  if (h === "::1") return true;
-
   // IPv4-mapped IPv6 (URL constructor normalizes to hex: ::ffff:7f00:1)
-  if (h.startsWith("::ffff:")) {
-    const inner = h.slice(7);
-    // Could be hex (7f00:1) or dotted (127.0.0.1)
+  if (ip.startsWith("::ffff:")) {
+    const inner = ip.slice(7);
     if (inner.includes(":")) {
-      // Hex form — check common loopback/private patterns
       if (inner.startsWith("7f") || inner.startsWith("a9fe") || inner.startsWith("a") || inner.startsWith("c0a8")) return true;
     } else if (isPrivateIPv4(inner)) {
       return true;
     }
   }
 
-  // IPv4 literal check
-  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) {
-    if (h === "169.254.169.254") return true;
-    if (isPrivateIPv4(h)) return true;
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) {
+    return isPrivateIPv4(ip);
   }
 
   return false;
+}
+
+function assertPublicIp(address: string): void {
+  if (isBlockedIp(address)) throw new Error(`Blocked private IP address: "${address}"`);
+}
+
+/**
+ * Checks if a hostname (IP literal or domain) is private/blocked.
+ * For domain names, checks known patterns. For IP literals, checks ranges.
+ */
+function isBlockedHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+
+  if (BLOCKED_HOSTNAMES.has(h)) return true;
+
+  for (const suffix of BLOCKED_SUFFIXES) {
+    if (h.endsWith(suffix)) return true;
+  }
+
+  if (h === "metadata.google.internal" || h === "instance-data") return true;
+
+  try {
+    assertPublicIp(h);
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 /**
@@ -107,6 +123,44 @@ export function assertPublicUrl(raw: string, label = "URL"): void {
   if (isBlockedHost(hostname)) {
     throw new Error(`Invalid ${label}: "${hostname}" is blocked (private/loopback/internal)`);
   }
+}
+
+function isIpLiteral(hostname: string): boolean {
+  const address = hostname.replace(/^\[|\]$/g, "");
+  return address.includes(":") || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(address);
+}
+
+/**
+ * Validates a URL immediately before dispatch, including all DNS-resolved
+ * targets, to prevent DNS rebinding after configuration-time validation.
+ */
+export async function assertPublicUrlAtDispatch(raw: string): Promise<void> {
+  assertPublicUrl(raw);
+
+  const hostname = new URL(raw).hostname;
+  if (isIpLiteral(hostname)) return;
+
+  const records = await Bun.dns.lookup(hostname, { family: 0 });
+  for (const record of records) assertPublicIp(record.address);
+}
+
+/**
+ * Fetches a user-supplied URL only after dispatch-time validation and follows
+ * redirects manually so every redirect target receives the same validation.
+ */
+export async function fetchWithSsrfGuard(url: string, init: RequestInit, maxRedirects = 5): Promise<Response> {
+  let target = url;
+
+  for (let redirects = 0; redirects <= maxRedirects; redirects++) {
+    await assertPublicUrlAtDispatch(target);
+    const response = await fetch(target, { ...init, redirect: "manual" });
+    const location = response.headers.get("location");
+
+    if (response.status < 300 || response.status >= 400 || !location) return response;
+    target = new URL(location, target).toString();
+  }
+
+  throw new Error("Too many redirects while fetching user-supplied URL");
 }
 
 /**

@@ -48,6 +48,52 @@ describe("console keys API", () => {
     expect(dup.status).toBe(409);
   });
 
+  test("PATCH updates limits and ACL fields", async () => {
+    const cookie = await loginAndGetCookie();
+    const created = await app.handle(postJson("/console/api/keys", { name: "editable-key" }, { cookie }));
+    expect(created.status).toBe(201);
+    const { id } = (await created.json()) as { id: string };
+
+    const updated = await app.handle(
+      new Request(`http://localhost/console/api/keys/${id}`, {
+        method: "PATCH",
+        headers: { cookie, "content-type": "application/json" },
+        body: JSON.stringify({
+          rateLimitRpm: 30,
+          monthlyTokenLimit: 5000,
+          maxConcurrentRequests: 2,
+          modelAllowlist: ["kimchi/kimi-k2.7"],
+          modelDenylist: ["cmd/gpt-5-codex"],
+        }),
+      })
+    );
+    expect(updated.status).toBe(200);
+    const body = (await updated.json()) as {
+      rateLimitRpm: number | null;
+      monthlyTokenLimit: number | null;
+      maxConcurrentRequests: number | null;
+      modelAllowlist: string[] | null;
+      modelDenylist: string[] | null;
+    };
+    expect(body.rateLimitRpm).toBe(30);
+    expect(body.monthlyTokenLimit).toBe(5000);
+    expect(body.maxConcurrentRequests).toBe(2);
+    expect(body.modelAllowlist).toEqual(["kimchi/kimi-k2.7"]);
+    expect(body.modelDenylist).toEqual(["cmd/gpt-5-codex"]);
+  });
+
+  test("concurrent requests for the same key name produce one record and one conflict", async () => {
+    const cookie = await loginAndGetCookie();
+    const [first, second] = await Promise.all([
+      app.handle(postJson("/console/api/keys", { name: "concurrent" }, { cookie })),
+      app.handle(postJson("/console/api/keys", { name: "concurrent" }, { cookie })),
+    ]);
+
+    expect([first.status, second.status].sort()).toEqual([201, 409]);
+    const listed = await app.handle(authed("/console/api/keys", cookie));
+    expect(((await listed.json()) as { items: unknown[] }).items).toHaveLength(1);
+  });
+
   test("the credential endpoint reveals the plaintext key only to an authenticated session", async () => {
     const cookie = await loginAndGetCookie();
     const created = await app.handle(postJson("/console/api/keys", { name: "reveal-key" }, { cookie }));

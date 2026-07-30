@@ -13,7 +13,8 @@ const TABLE_COLUMNS: Record<BackupTable, string[]> = {
   settings: ["id", "password_hash", "password_version", "jwt_secret", "settings_json", "initialized_at", "updated_at"],
   api_keys: [
     "id", "name", "key", "key_prefix", "active", "rate_limit_rpm", "daily_token_limit",
-    "provider_allowlist", "model_allowlist", "last_used_at", "created_at", "revoked_at",
+    "monthly_token_limit", "max_concurrent_requests", "provider_allowlist", "model_allowlist",
+    "model_denylist", "last_used_at", "created_at", "revoked_at",
   ],
   model_aliases: ["alias", "model", "created_at"],
   combos: ["id", "name", "models_json", "strategy", "sticky_limit", "created_at", "updated_at"],
@@ -22,7 +23,7 @@ const TABLE_COLUMNS: Record<BackupTable, string[]> = {
   provider_routing: ["provider", "strategy", "sticky_limit", "proxy_mode", "proxy_pool_id", "updated_at"],
   provider_accounts: [
     "id", "provider", "name", "credential_kind", "credential", "credential_hint",
-    "proxy_pool_id", "use_direct", "priority", "active", "created_at", "updated_at",
+    "proxy_pool_id", "use_direct", "priority", "active", "cooldown_until", "cooldown_level", "created_at", "updated_at",
   ],
   filter_rules: ["id", "provider", "mode", "patterns_json", "created_at", "updated_at"],
   sanitizer_rules: ["id", "rule_id", "pattern", "replacement", "is_active", "is_regex", "sort_order", "created_at", "updated_at"],

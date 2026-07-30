@@ -58,6 +58,43 @@ describe("sse concern — parseSSEStream", () => {
     expect(frames).toEqual([{ event: undefined, data: "real" }]);
   });
 
+  test("cancels the upstream reader when downstream stops consuming", async () => {
+    let cancelled = false;
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("data: first\n\n"));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const frames = parseSSEStream(stream);
+
+    await frames.next();
+    await frames.return(undefined);
+
+    expect(cancelled).toBeTrue();
+  });
+
+  test("fails when an upstream stream stalls after emitting data", async () => {
+    const previousTimeout = process.env.STREAM_STALL_TIMEOUT_MS;
+    process.env.STREAM_STALL_TIMEOUT_MS = "10";
+    const encoder = new TextEncoder();
+    const stalled = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("data: first\n\n"));
+      },
+    });
+
+    try {
+      await expect(collect(parseSSEStream(stalled))).rejects.toThrow("stream stalled");
+    } finally {
+      if (previousTimeout === undefined) delete process.env.STREAM_STALL_TIMEOUT_MS;
+      else process.env.STREAM_STALL_TIMEOUT_MS = previousTimeout;
+    }
+  });
+
   test("empty stream yields no frames", async () => {
     const frames = await collect(parseSSEStream(streamOf("")));
     expect(frames).toEqual([]);
@@ -100,6 +137,29 @@ describe("sse concern — toSSEResponseStream", () => {
       out += decoder.decode(value);
     }
     expect(out).toBe("data: 1\n\ndata: 2\n\ndata: [DONE]\n\n");
+  });
+
+  test("does not pull an unbounded number of source frames while the consumer is slow", async () => {
+    let nextCalls = 0;
+    async function* counted(): AsyncGenerator<string> {
+      for (;;) {
+        nextCalls++;
+        yield `data: ${nextCalls}\\n\\n`;
+      }
+    }
+    const stream = toSSEResponseStream(counted());
+    const reader = stream.getReader();
+
+    await reader.read();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(nextCalls).toBeLessThanOrEqual(2);
+
+    await reader.read();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(nextCalls).toBeLessThanOrEqual(3);
+    await reader.cancel();
   });
 
   test("cancelling the response stream returns the source generator (stops pulling)", async () => {

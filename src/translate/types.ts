@@ -62,6 +62,8 @@ export interface OpenAIChatUsage {
   total_tokens: number;
   prompt_tokens_details?: { cached_tokens?: number };
   cache_write_tokens?: number;
+  /** True when the upstream response omitted a usage block and these counts are a rough estimate. */
+  estimated?: boolean;
 }
 
 export interface OpenAIChatResponse {
@@ -144,6 +146,8 @@ export interface AnthropicUsage {
   output_tokens: number;
   cache_creation_input_tokens?: number;
   cache_read_input_tokens?: number;
+  /** True when the upstream response omitted a usage block and these counts are a rough estimate. */
+  estimated?: boolean;
 }
 
 export interface AnthropicResponse {

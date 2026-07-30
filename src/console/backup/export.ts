@@ -39,18 +39,20 @@ export interface BackupPayload {
 /** Export a JSON backup payload from the current database state. */
 export function exportBackup(_includeHistory = false): BackupPayload {
   const db = getDb();
-  const tables: Record<string, unknown> = {};
+  const tables = db.transaction(() => {
+    const snapshot: Record<string, unknown> = {};
 
-  for (const table of CONFIG_TABLES) {
-    if (table === "settings") {
-      // Single-row table → plain object (empty when missing).
-      const row = db.query("SELECT * FROM settings WHERE id = 1").get();
-      tables[table] = row ?? {};
-    } else {
-      tables[table] = db.query(`SELECT * FROM ${table}`).all();
+    for (const table of CONFIG_TABLES) {
+      if (table === "settings") {
+        const row = db.query("SELECT * FROM settings WHERE id = 1").get();
+        snapshot[table] = row ?? {};
+      } else {
+        snapshot[table] = db.query(`SELECT * FROM ${table}`).all();
+      }
     }
-  }
 
+    return snapshot;
+  })();
 
   return { app: BACKUP_APP, version: BACKUP_VERSION, exportedAt: new Date().toISOString(), tables };
 }

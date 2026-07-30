@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
 import { app } from "../../src/app";
+import { createAccount } from "../../src/console/db/repos/accounts";
 import { loginAndGetCookie, postJson, useIsolatedDataDir } from "../console/helpers";
 
 let fetchSpy: Mock<typeof fetch>;
@@ -62,6 +63,54 @@ describe("POST /v1/chat/completions with openai namespace", () => {
     expect(headers.authorization).toBe("Bearer sk-test-openai");
     const sentBody = JSON.parse(String(init?.body)) as { model: string };
     expect(sentBody.model).toBe("gpt-5.6-sol");
+  });
+
+  test("fails over to the next stored account after a 401", async () => {
+    createAccount({ provider: "openai", name: "first", credentialKind: "bearer", credential: "sk-first", priority: 1 });
+    createAccount({ provider: "openai", name: "second", credentialKind: "bearer", credential: "sk-second", priority: 2 });
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "invalid key" } }), { status: 401 }));
+    fetchSpy.mockResolvedValueOnce(chatResponse("retried with second account"));
+
+    const res = await postChat({ model: "openai/gpt-5.6-sol", messages: [{ role: "user", content: "hi" }] }, "");
+
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect((fetchSpy.mock.calls[0]![1]?.headers as Record<string, string>).authorization).toBe("Bearer sk-first");
+    expect((fetchSpy.mock.calls[1]![1]?.headers as Record<string, string>).authorization).toBe("Bearer sk-second");
+  });
+
+  test("locks a repeatedly failing account only for that model", async () => {
+    createAccount({ provider: "openai", name: "model-lock", credentialKind: "bearer", credential: "sk-lock", priority: 1 });
+    fetchSpy.mockResolvedValue(new Response(JSON.stringify({ error: { message: "unavailable" } }), { status: 500 }));
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const failed = await postChat({ model: "openai/locked-model", messages: [{ role: "user", content: "hi" }] }, "");
+      expect(failed.status).toBe(500);
+    }
+
+    const locked = await postChat({ model: "openai/locked-model", messages: [{ role: "user", content: "hi" }] }, "");
+    expect(locked.status).toBe(401);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+
+    fetchSpy.mockResolvedValueOnce(chatResponse("available for another model"));
+    const otherModel = await postChat({ model: "openai/other-model", messages: [{ role: "user", content: "hi" }] }, "");
+    expect(otherModel.status).toBe(200);
+  });
+
+  test("does not retry once an upstream stream has yielded bytes", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"partial"},"finish_reason":null}]}\n\n'));
+        controller.error(new Error("upstream disconnected"));
+      },
+    });
+    fetchSpy.mockResolvedValueOnce(new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } }));
+
+    const response = await postChat({ model: "openai/gpt-5.6-sol", stream: true, messages: [{ role: "user", content: "hi" }] });
+    await response.text();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   test("routes an uncatalogued model id too — openai accepts any model, no static allowlist", async () => {

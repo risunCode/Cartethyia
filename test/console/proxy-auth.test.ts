@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
 import { app } from "../../src/app";
+import { createApiKey, deleteApiKey } from "../../src/console/db/repos/api-keys";
+import { insertUsageHistory } from "../../src/console/db/repos/usage";
+import { enforceProxyAuth, proxyRateLimitStateSizeForTests } from "../../src/console/proxy-auth";
+import { resetKeyInFlightForTests, tryAcquireKeySlot } from "../../src/console/tracking/key-in-flight";
 import { queryUsageRequests } from "../../src/console/db/repos/usage";
 import { patchRuntimeSettings, ensureSettings } from "../../src/console/db/repos/settings";
 import { invalidateRuntimeSettings } from "../../src/console/runtime";
@@ -15,6 +19,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fetchSpy.mockRestore();
+  resetKeyInFlightForTests();
 });
 
 function postV1Chat(model: string, headers: Record<string, string>) {
@@ -37,6 +42,27 @@ async function waitForHistory(): Promise<void> {
     await new Promise((r) => setTimeout(r, 25));
   }
 }
+
+describe("proxy rate-limit state bounds", () => {
+  test("purges a deleted key and caps synthetic RPM state at 10,000 entries", async () => {
+    const created = createApiKey({ name: "limited", rateLimitRpm: 10 });
+    if ("error" in created) throw new Error("key fixture collision");
+    await ensureSettings();
+    patchRuntimeSettings({ proxyAuthMode: "api_key" });
+    invalidateRuntimeSettings();
+    enforceProxyAuth(undefined, new Request("http://localhost", { headers: { "x-api-key": created.key } }));
+    expect(proxyRateLimitStateSizeForTests()).toBe(1);
+    expect(deleteApiKey(created.record.id)).toBeTrue();
+    expect(proxyRateLimitStateSizeForTests()).toBe(0);
+
+    for (let index = 0; index < 10_100; index++) {
+      const result = createApiKey({ name: `synthetic-${index}`, rateLimitRpm: 1 });
+      if ("error" in result) throw new Error("synthetic key fixture collision");
+      enforceProxyAuth(undefined, new Request("http://localhost", { headers: { "x-api-key": result.key } }));
+    }
+    expect(proxyRateLimitStateSizeForTests()).toBeLessThanOrEqual(10_000);
+  });
+});
 
 describe("proxy auth enforcement (PROXY_AUTH_MODE)", () => {
   test("open mode: request proceeds without x-api-key", async () => {
@@ -111,5 +137,68 @@ describe("proxy auth enforcement (PROXY_AUTH_MODE)", () => {
     const { key } = (await created.json()) as { key: string };
     const res = await postV1Chat("cmd/gpt-5-codex", { "x-api-key": key });
     expect(res.status).toBe(403);
+  });
+
+  test("model denylist returns 403", async () => {
+    await ensureSettings();
+    patchRuntimeSettings({ proxyAuthMode: "api_key" });
+    invalidateRuntimeSettings();
+    const cookie = await loginAndGetCookie();
+    const created = await app.handle(
+      postJson("/console/api/keys", { name: "deny-key", modelDenylist: ["kimchi/kimi-k2.7"] }, { cookie })
+    );
+    const { key } = (await created.json()) as { key: string };
+    const res = await postV1Chat("kimchi/kimi-k2.7", { "x-api-key": key });
+    expect(res.status).toBe(403);
+  });
+
+  test("monthly token limit returns 429", async () => {
+    await ensureSettings();
+    patchRuntimeSettings({ proxyAuthMode: "api_key" });
+    invalidateRuntimeSettings();
+    const cookie = await loginAndGetCookie();
+    const created = await app.handle(
+      postJson("/console/api/keys", { name: "monthly-key", monthlyTokenLimit: 100 }, { cookie })
+    );
+    const { key, id } = (await created.json()) as { key: string; id: string };
+    insertUsageHistory({
+      traceId: crypto.randomUUID(),
+      endpoint: "/v1/chat/completions",
+      surface: "chat",
+      apiKeyId: id,
+      apiKeyPrefix: key.slice(0, 12),
+      provider: "kimchi",
+      model: "kimchi/kimi-k2.7",
+      status: 200,
+      errorKind: null,
+      stream: false,
+      startedAt: new Date().toISOString().replace("T", " ").replace("Z", ""),
+      finishedAt: new Date().toISOString().replace("T", " ").replace("Z", ""),
+      durationMs: 10,
+      inputTokens: 60,
+      outputTokens: 50,
+      cachedTokens: null,
+      cacheWriteTokens: null,
+      reasoningTokens: null,
+      totalTokens: 110,
+      usageSource: "test",
+      meta: {},
+    });
+    const res = await postV1Chat("kimchi/kimi-k2.7", { "x-api-key": key });
+    expect(res.status).toBe(429);
+  });
+
+  test("concurrent request limit returns 429", async () => {
+    await ensureSettings();
+    patchRuntimeSettings({ proxyAuthMode: "api_key" });
+    invalidateRuntimeSettings();
+    const cookie = await loginAndGetCookie();
+    const created = await app.handle(
+      postJson("/console/api/keys", { name: "concurrent-key", maxConcurrentRequests: 1 }, { cookie })
+    );
+    const { key, id } = (await created.json()) as { key: string; id: string };
+    expect(tryAcquireKeySlot(id, 1)).toBeTrue();
+    const blocked = await postV1Chat("kimchi/kimi-k2.7", { "x-api-key": key });
+    expect(blocked.status).toBe(429);
   });
 });

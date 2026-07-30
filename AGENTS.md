@@ -2,7 +2,7 @@
 
 ## Release status
 
-- Current release line: `1.0.0-alpha`.
+- Current release line: `1.0.1-alpha`.
 - Keep the root and dashboard package versions aligned with the current release line.
 - Record user-visible changes in `CHANGELOG.md` under the matching version before a release is declared.
 - Alpha status means local/self-hosted testing is supported; avoid presenting the release as production-stable until the alpha caveats are cleared.
@@ -33,7 +33,9 @@
 
 - `DATA_DIR` is the deployment persistence boundary. Production mounts it at `/app/data`.
 - Runtime request/error logs are JSONL under `DATA_DIR/logs`; do not persist runtime logs in SQLite.
-- SQLite is configuration state only. Provider credentials are stored as plaintext; only the console login password is hashed. Avoid schema migrations unless explicitly required.
+- SQLite is configuration state only. Provider credentials and proxy API keys are stored as plaintext; only the console login password is hashed. Avoid schema migrations unless explicitly required.
+- Proxy API key ACL lives in `api_keys` (`provider_allowlist`, `model_allowlist`, `model_denylist`, RPM, daily/monthly token limits, `max_concurrent_requests`). Shared enforcement is in `src/console/key-acl.ts` and `src/console/proxy-auth.ts`; `/v1/models` filters through the same helper when a key is presented.
+- Console key management: `POST /console/api/keys` (create), `PATCH /console/api/keys/:id` (update limits/ACL), `POST /console/api/keys/:id/revoke`, `DELETE /console/api/keys/:id`, `GET /console/api/keys/:id/credential`.
 - Never commit `data/`, `.env`, credentials, API keys, tokens, generated runtime payloads, or database files.
 
 ## Testing and delivery
