@@ -43,7 +43,7 @@ const GITHUB_REPO = "risunCode/Cartethyia";
 // FooterClock — isolated so the 1-second tick never re-renders AppShell or
 // any page inside <Outlet />.
 // ---------------------------------------------------------------------------
-function FooterClock({ statusData }: { statusData: HealthStatus | undefined }) {
+function FooterClock({ statusData, isError }: { statusData: HealthStatus | undefined; isError: boolean }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 1_000);
@@ -72,8 +72,22 @@ function FooterClock({ statusData }: { statusData: HealthStatus | undefined }) {
   return (
     <footer className="glass sticky bottom-4 z-30 mt-auto grid grid-cols-2 items-center gap-x-4 gap-y-1.5 rounded-2xl px-4 py-3 text-xs text-[var(--text-2)] sm:gap-x-8 sm:px-5 sm:py-3.5">
       <div className="flex items-center gap-1.5 font-semibold text-[var(--text-1)]">
-        <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[var(--green)]" />
-        All systems operational
+        {isError ? (
+          <>
+            <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[var(--red)]" />
+            System offline
+          </>
+        ) : statusData ? (
+          <>
+            <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[var(--green)]" />
+            All systems operational
+          </>
+        ) : (
+          <>
+            <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[var(--yellow,theme(colors.amber.400))]" />
+            Connecting…
+          </>
+        )}
       </div>
       <div className="flex items-center justify-end gap-1.5" title="UTC time">
         <Globe size={13} className="shrink-0" />
@@ -125,9 +139,9 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
 ];
 
 const TITLES: Record<string, { title: string; sub: string }> = {
-  "/overview": { title: "Overview", sub: "Traffic, endpoint, dan API key" },
-  "/usage": { title: "Usage", sub: "Usage + requests dalam satu halaman" },
-  "/providers": { title: "Providers", sub: "Kimchi, Command Code, OpenCode, Devin, Qoder, MiMo" },
+  "/overview": { title: "Overview", sub: "Traffic, endpoints, and API keys" },
+  "/usage": { title: "Usage", sub: "Usage summary and request overview" },
+  "/providers": { title: "Providers", sub: "All supported AI providers" },
   "/combos": { title: "Combos & Alias", sub: "Fallback, round-robin, alias model" },
   "/proxy-pools": { title: "Proxy Pools", sub: "HTTP, HTTPS, SOCKS5" },
   "/filter-rules": { title: "Filter Rules", sub: "Sanitize client-identity text before dispatch" },
@@ -427,7 +441,7 @@ export function AppShell() {
 
         {/* `mt-auto` drops it to the bottom on short pages; `sticky bottom-4`
             keeps it parked there while long pages scroll behind it. */}
-        <FooterClock statusData={statusQuery.data} />
+        <FooterClock statusData={statusQuery.data} isError={statusQuery.isError} />
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />

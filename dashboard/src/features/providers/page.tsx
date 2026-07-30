@@ -225,7 +225,7 @@ function CustomProvidersSection() {
                 </div>
                 <Link to={`/providers/custom/${cp.id}`} className="mt-2 block space-y-0.5">
                   <div className="flex items-center gap-1.5">
-                    <code className="rounded bg-[var(--kbd-bg)] px-1 py-0.5 font-mono text-[10px] text-[var(--text-3)]">{cp.slug}/</code>
+                    <code className="max-w-full truncate rounded bg-[var(--kbd-bg)] px-1 py-0.5 font-mono text-[10px] text-[var(--text-3)]">{cp.slug}/</code>
                     <span className="text-[10px] text-[var(--text-3)]">{cp.models.length} model{cp.models.length === 1 ? "" : "s"}</span>
                   </div>
                   <p className="truncate text-[10px] text-[var(--text-3)]">{cp.baseUrl}</p>

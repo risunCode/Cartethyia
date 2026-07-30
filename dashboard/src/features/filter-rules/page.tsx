@@ -83,9 +83,9 @@ export function FilterRulesPage() {
               {...staggerClass(i)}
               className="flex items-center justify-between gap-3 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-4 py-2.5"
             >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-[var(--text-1)]">{rule.ruleId}</span>
+              <div className="min-w-0 flex-1 overflow-hidden">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 truncate text-sm font-medium text-[var(--text-1)]">{rule.ruleId}</span>
                   {rule.builtin && <Badge tone="default">built-in</Badge>}
                   <Badge tone={rule.isRegex ? "accent" : "default"}>{rule.isRegex ? "regex" : "literal"}</Badge>
                   {!rule.isActive && <Badge tone="default">disabled</Badge>}

@@ -28,9 +28,9 @@ export function HeaderPairsEditor({ pairs, onChange }: { pairs: HeaderPair[]; on
       <Label>Custom headers (optional) — sent with every request, override built-in auth/content-type on a name collision</Label>
       <div className="space-y-1.5">
         {pairs.map(([key, value], index) => (
-          <div key={index} className="flex gap-1.5">
-            <Input placeholder="Header-Name" value={key} onChange={(e) => setPair(index, [e.target.value, value])} className="flex-1 font-mono text-xs" />
-            <Input placeholder="value" value={value} onChange={(e) => setPair(index, [key, e.target.value])} className="flex-1 font-mono text-xs" />
+          <div key={index} className="flex min-w-0 gap-1.5">
+            <Input placeholder="Header-Name" value={key} onChange={(e) => setPair(index, [e.target.value, value])} className="min-w-0 flex-1 font-mono text-xs" />
+            <Input placeholder="value" value={value} onChange={(e) => setPair(index, [key, e.target.value])} className="min-w-0 flex-1 font-mono text-xs" />
             <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${key || "header"}`} onClick={() => removePair(index)}>
               <Trash2 size={13} />
             </Button>

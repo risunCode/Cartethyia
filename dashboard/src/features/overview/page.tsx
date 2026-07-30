@@ -135,22 +135,22 @@ function normalizeList(values: string[]): string[] | undefined {
   return items.length > 0 ? items : undefined;
 }
 
-function buildKeyLimitsInput(rpm: string, daily: string, monthly: string, concurrent: string, providers: string[], allowed: string[], denied: string[]): KeyLimitsInput {
+function buildKeyLimitsInput(rpm: string, daily: string, monthly: string, concurrent: string, allowed: string[]): KeyLimitsInput {
   const input: KeyLimitsInput = {};
   const rateLimitRpm = parseOptionalLimit(rpm);
   const dailyTokenLimit = parseOptionalLimit(daily);
   const monthlyTokenLimit = parseOptionalLimit(monthly);
   const maxConcurrentRequests = parseOptionalLimit(concurrent);
-  const providerAllowlist = normalizeList(providers);
-  const modelAllowlist = normalizeList(allowed);
-  const modelDenylist = normalizeList(denied);
+  // Auto-detect: entries without "/" are providers, with "/" are models.
+  const allAllowed = normalizeList(allowed);
+  const providerAllowlist = allAllowed ? allAllowed.filter((e) => !e.includes("/")) : undefined;
+  const modelAllowlist = allAllowed ? allAllowed.filter((e) => e.includes("/")) : undefined;
   if (rateLimitRpm) input.rateLimitRpm = rateLimitRpm;
   if (dailyTokenLimit) input.dailyTokenLimit = dailyTokenLimit;
   if (monthlyTokenLimit) input.monthlyTokenLimit = monthlyTokenLimit;
   if (maxConcurrentRequests) input.maxConcurrentRequests = maxConcurrentRequests;
-  if (providerAllowlist) input.providerAllowlist = providerAllowlist;
-  if (modelAllowlist) input.modelAllowlist = modelAllowlist;
-  if (modelDenylist) input.modelDenylist = modelDenylist;
+  if (providerAllowlist?.length) input.providerAllowlist = providerAllowlist;
+  if (modelAllowlist?.length) input.modelAllowlist = modelAllowlist;
   return input;
 }
 
@@ -161,7 +161,6 @@ function formatKeyLimits(key: ApiKeyRecord): string {
   if (key.monthlyTokenLimit) parts.push(`${(key.monthlyTokenLimit / 1000).toFixed(0)}K/mo`);
   if (key.maxConcurrentRequests) parts.push(`${key.maxConcurrentRequests} concurrent`);
   if (key.modelAllowlist?.length) parts.push(`${key.modelAllowlist.length} allowed`);
-  if (key.modelDenylist?.length) parts.push(`${key.modelDenylist.length} denied`);
   return parts.length > 0 ? parts.join(" · ") : "—";
 }
 
@@ -186,32 +185,24 @@ function KeyLimitsFields({
   daily,
   monthly,
   concurrent,
-  providers,
-  allowedModels,
-  deniedModels,
+  allowed,
   setRpm,
   setDaily,
   setMonthly,
   setConcurrent,
-  setProviders,
-  setAllowedModels,
-  setDeniedModels,
+  setAllowed,
   disabled,
 }: {
   rpm: string;
   daily: string;
   monthly: string;
   concurrent: string;
-  providers: string[];
-  allowedModels: string[];
-  deniedModels: string[];
+  allowed: string[];
   setRpm: (value: string) => void;
   setDaily: (value: string) => void;
   setMonthly: (value: string) => void;
   setConcurrent: (value: string) => void;
-  setProviders: (values: string[]) => void;
-  setAllowedModels: (values: string[]) => void;
-  setDeniedModels: (values: string[]) => void;
+  setAllowed: (values: string[]) => void;
   disabled?: boolean;
 }) {
   return (
@@ -234,10 +225,8 @@ function KeyLimitsFields({
           <Input type="number" min={1} value={monthly} onChange={(e) => setMonthly(e.target.value)} placeholder="30000000" disabled={disabled} />
         </div>
       </div>
-      <ModelPickerField label="Allowed providers (optional)" values={providers} onChange={setProviders} mode="providers" manualPlaceholder="e.g. kimchi" disabled={disabled} />
-      <ModelPickerField label="Allowed models (optional)" values={allowedModels} onChange={setAllowedModels} mode="models" manualPlaceholder="e.g. kimchi/kimi-k2.7" disabled={disabled} />
-      <ModelPickerField label="Denied models (optional)" values={deniedModels} onChange={setDeniedModels} mode="models" manualPlaceholder="e.g. cmd/gpt-5-codex" disabled={disabled} />
-      <p className="text-xs text-[var(--text-3)]">Leave limits and lists empty to allow all routeable models. Denied models take precedence over allowed lists.</p>
+      <ModelPickerField label="Allowed (optional)" values={allowed} onChange={setAllowed} mode="models" manualPlaceholder="e.g. kimchi or kimchi/kimi-k2.7" disabled={disabled} />
+      <p className="text-xs text-[var(--text-3)]">Empty = all models allowed. Add providers (no slash) or models (with slash) to restrict.</p>
     </>
   );
 }
@@ -274,9 +263,7 @@ export function OverviewPage() {
   const [daily, setDaily] = useState("");
   const [monthly, setMonthly] = useState("");
   const [concurrent, setConcurrent] = useState("");
-  const [providers, setProviders] = useState<string[]>([]);
-  const [allowedModels, setAllowedModels] = useState<string[]>([]);
-  const [deniedModels, setDeniedModels] = useState<string[]>([]);
+  const [allowed, setAllowed] = useState<string[]>([]);
   const [revealed, setRevealed] = useState<CreatedKey | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiKeyRecord | null>(null);
@@ -287,9 +274,7 @@ export function OverviewPage() {
     setDaily("");
     setMonthly("");
     setConcurrent("");
-    setProviders([]);
-    setAllowedModels([]);
-    setDeniedModels([]);
+    setAllowed([]);
   };
 
   const openEdit = (key: ApiKeyRecord) => {
@@ -298,9 +283,7 @@ export function OverviewPage() {
     setDaily(key.dailyTokenLimit ? String(key.dailyTokenLimit) : "");
     setMonthly(key.monthlyTokenLimit ? String(key.monthlyTokenLimit) : "");
     setConcurrent(key.maxConcurrentRequests ? String(key.maxConcurrentRequests) : "");
-    setProviders(key.providerAllowlist ?? []);
-    setAllowedModels(key.modelAllowlist ?? []);
-    setDeniedModels(key.modelDenylist ?? []);
+    setAllowed([...(key.providerAllowlist ?? []), ...(key.modelAllowlist ?? [])]);
   };
 
   const closeEdit = () => {
@@ -415,12 +398,12 @@ export function OverviewPage() {
   });
 
   const submitCreate = () => {
-    createMutation.mutate({ name: name.trim(), ...buildKeyLimitsInput(rpm, daily, monthly, concurrent, providers, allowedModels, deniedModels) });
+    createMutation.mutate({ name: name.trim(), ...buildKeyLimitsInput(rpm, daily, monthly, concurrent, allowed) });
   };
 
   const submitEdit = () => {
     if (!editTarget) return;
-    const limits = buildKeyLimitsInput(rpm, daily, monthly, concurrent, providers, allowedModels, deniedModels);
+    const limits = buildKeyLimitsInput(rpm, daily, monthly, concurrent, allowed);
     editMutation.mutate({
       id: editTarget.id,
       patch: {
@@ -430,7 +413,6 @@ export function OverviewPage() {
         maxConcurrentRequests: limits.maxConcurrentRequests ?? null,
         providerAllowlist: limits.providerAllowlist ?? null,
         modelAllowlist: limits.modelAllowlist ?? null,
-        modelDenylist: limits.modelDenylist ?? null,
       },
     });
   };
@@ -672,9 +654,9 @@ export function OverviewPage() {
               ) : (
                 keys.map((key, index) => (
                   <tr key={key.id} {...staggerClass(index)} className="transition-colors hover:bg-[var(--hover)]">
-                    <td className="px-4 py-2.5 font-semibold">{key.name}</td>
+                    <td className="max-w-[200px] truncate px-4 py-2.5 font-semibold">{key.name}</td>
                     <td className="px-3 py-2.5 font-mono text-[11px] text-[var(--text-2)]">{key.keyPrefix}…</td>
-                    <td className="px-3 py-2.5 text-[var(--text-2)]">{formatKeyLimits(key)}</td>
+                    <td className="max-w-[200px] truncate px-3 py-2.5 text-[var(--text-2)]">{formatKeyLimits(key)}</td>
                     <td className="px-3 py-2.5 text-[var(--text-2)]">{formatTime(key.lastUsedAt)}</td>
                     <td className="px-3 py-2.5 text-[var(--text-2)]">{formatTime(key.createdAt)}</td>
                     <td className="px-3 py-2.5"><Badge tone={key.active ? "ok" : "default"}>{key.active ? "active" : "revoked"}</Badge></td>
@@ -735,16 +717,12 @@ export function OverviewPage() {
             daily={daily}
             monthly={monthly}
             concurrent={concurrent}
-            providers={providers}
-            allowedModels={allowedModels}
-            deniedModels={deniedModels}
+            allowed={allowed}
             setRpm={setRpm}
             setDaily={setDaily}
             setMonthly={setMonthly}
             setConcurrent={setConcurrent}
-            setProviders={setProviders}
-            setAllowedModels={setAllowedModels}
-            setDeniedModels={setDeniedModels}
+            setAllowed={setAllowed}
             disabled={createMutation.isPending}
           />
         </div>
@@ -772,16 +750,12 @@ export function OverviewPage() {
             daily={daily}
             monthly={monthly}
             concurrent={concurrent}
-            providers={providers}
-            allowedModels={allowedModels}
-            deniedModels={deniedModels}
+            allowed={allowed}
             setRpm={setRpm}
             setDaily={setDaily}
             setMonthly={setMonthly}
             setConcurrent={setConcurrent}
-            setProviders={setProviders}
-            setAllowedModels={setAllowedModels}
-            setDeniedModels={setDeniedModels}
+            setAllowed={setAllowed}
             disabled={editMutation.isPending}
           />
         </div>

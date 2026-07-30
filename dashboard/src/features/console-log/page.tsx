@@ -93,7 +93,7 @@ export function ConsoleLogPage() {
       </div>
 
       <Card className="overflow-hidden p-0">
-        <div ref={scrollRef} onScroll={onScroll} className="max-h-[calc(100vh-220px)] overflow-y-auto p-3 font-mono text-[11.5px] leading-relaxed">
+        <div ref={scrollRef} onScroll={onScroll} className="max-h-[calc(100vh-220px)] overflow-auto p-3 font-mono text-[11.5px] leading-relaxed">
           {visible.length === 0 ? (
             <p className="py-10 text-center font-sans text-sm text-[var(--text-3)]">No log lines{filter !== "all" ? ` at level "${filter}"` : ""}.</p>
           ) : (

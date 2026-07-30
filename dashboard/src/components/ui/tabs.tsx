@@ -10,7 +10,7 @@ export function Tabs({
   onChange: (id: string) => void;
 }) {
   return (
-    <div className="flex gap-1.5" role="tablist">
+    <div className="flex flex-wrap gap-1.5" role="tablist">
       {tabs.map((tab) => (
         <button
           key={tab.id}

@@ -47,14 +47,14 @@ export function Dialog({
             role="dialog"
             aria-modal="true"
             aria-label={title}
-            className={`glass-2 relative w-full ${wide ? "max-w-2xl" : "max-w-md"} rounded-2xl p-5`}
+            className={`glass-2 relative flex max-h-[85vh] w-full flex-col ${wide ? "max-w-2xl" : "max-w-md"} rounded-2xl p-5`}
             initial={{ opacity: 0, scale: 0.96, y: 8 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 6 }}
             transition={{ duration: duration.base, ease: easeOut }}
           >
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-bold">{title}</h2>
+            <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
+              <h2 className="min-w-0 truncate text-base font-bold">{title}</h2>
               <button
                 onClick={onClose}
                 aria-label="Close"
@@ -63,7 +63,7 @@ export function Dialog({
                 <X size={16} />
               </button>
             </div>
-            <div>{children}</div>
+            <div className="min-w-0 flex-1 overflow-y-auto">{children}</div>
             {footer && <div className="mt-4 flex justify-end gap-2">{footer}</div>}
           </motion.div>
         </motion.div>

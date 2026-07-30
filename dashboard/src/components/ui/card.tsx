@@ -2,7 +2,7 @@ import type { HTMLAttributes, ComponentType } from "react";
 import { cn } from "../../lib/cn";
 
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("glass rounded-[var(--radius-card)] p-[18px]", className)} {...props} />;
+  return <div className={cn("glass overflow-hidden rounded-[var(--radius-card)] p-[18px]", className)} {...props} />;
 }
 
 export function CardHeader({
@@ -31,9 +31,9 @@ export function CardHeader({
             <Icon size={15} />
           </span>
         )}
-        <div>
-          <div className="text-sm font-bold">{title}</div>
-          {sub && <div className="mt-0.5 text-[11.5px] text-[var(--text-2)]">{sub}</div>}
+        <div className="min-w-0">
+          <div className="truncate text-sm font-bold">{title}</div>
+          {sub && <div className="mt-0.5 truncate text-[11.5px] text-[var(--text-2)]">{sub}</div>}
         </div>
       </div>
       {children}

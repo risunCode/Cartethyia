@@ -69,10 +69,10 @@ function AliasesTab() {
         <div className="mt-3 space-y-2">
           {items.map((a, i) => (
             <div key={a.alias} {...staggerClass(i)} className="flex items-center justify-between rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-4 py-2.5">
-              <div className="flex items-center gap-2 text-sm">
-                <code className="rounded bg-[var(--accent-soft)] px-1.5 py-0.5 text-xs font-semibold text-[var(--accent)]">{a.alias}</code>
-                <ArrowRight size={14} className="text-[var(--text-3)]" />
-                <code className="text-xs text-[var(--text-2)]">{a.model}</code>
+              <div className="flex min-w-0 items-center gap-2 text-sm">
+                <code className="max-w-[40%] truncate rounded bg-[var(--accent-soft)] px-1.5 py-0.5 text-xs font-semibold text-[var(--accent)]">{a.alias}</code>
+                <ArrowRight size={14} className="shrink-0 text-[var(--text-3)]" />
+                <code className="min-w-0 truncate text-xs text-[var(--text-2)]">{a.model}</code>
               </div>
               <div className="flex gap-1">
                 <Button
@@ -157,8 +157,8 @@ function CombosTab() {
           {items.map((c, i) => (
             <div key={c.id} {...staggerClass(i)} className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-4 py-3">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold">{c.name}</span>
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 truncate text-sm font-bold">{c.name}</span>
                   <Badge tone={c.strategy === "fallback" ? "info" : "accent"}>{c.strategy}</Badge>
                   {c.stickyLimit > 0 && <Badge>sticky:{c.stickyLimit}</Badge>}
                 </div>
@@ -230,7 +230,7 @@ function ResolvePreview() {
           </div>
           {result.trace && (
             <div className="rounded-lg bg-[var(--hover)] p-3 text-[11px] leading-relaxed text-[var(--text-2)]">
-              {result.trace.map((line, i) => <div key={i} className="flex gap-1.5"><ArrowRight size={10} className="mt-0.5 shrink-0 text-[var(--text-3)]" /><span>{line}</span></div>)}
+              {result.trace.map((line, i) => <div key={i} className="flex gap-1.5"><ArrowRight size={10} className="mt-0.5 shrink-0 text-[var(--text-3)]" /><span className="break-all">{line}</span></div>)}
             </div>
           )}
         </div>

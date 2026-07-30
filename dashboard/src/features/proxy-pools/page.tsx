@@ -12,6 +12,7 @@ import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Dialog } from "../../components/ui/dialog";
 import { Input, Label, Textarea } from "../../components/ui/input";
+import { Switch } from "../../components/ui/switch";
 import { ConfirmDialog } from "../../components/shared";
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -86,29 +87,52 @@ function PoolFormDialog({ open, onClose, editTarget }: { open: boolean; onClose:
 function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const [text, setText] = useState("");
-  const [result, setResult] = useState<{ added: ProxyEntry[]; skipped: Array<{ line: number; reason: string }> } | null>(null);
+  const [name, setName] = useState("");
+  const [isRelay, setIsRelay] = useState(false);
+  const [result, setResult] = useState<{ added: Array<{ url: string; scheme: string }>; skipped: Array<{ line: number; reason: string }> } | null>(null);
 
-  const mut = useMutation({
-    mutationFn: () => apiPost<{ added: ProxyEntry[]; skipped: Array<{ line: number; reason: string }> }>("/proxy-pools/import", { text }),
+  const importMut = useMutation({
+    mutationFn: async () => {
+      const parsed = await apiPost<{ added: Array<{ url: string; scheme: string }>; skipped: Array<{ line: number; reason: string }> }>("/proxy-pools/import", { text });
+      if (parsed.added.length === 0) return parsed;
+      await apiPost("/proxy-pools", {
+        name: name.trim() || "Imported pool",
+        entries: parsed.added,
+        noProxy: "",
+        strictProxy: false,
+        platform: isRelay ? "vercel" as const : "custom" as const,
+      });
+      return parsed;
+    },
     onSuccess: (data) => { setResult(data); qc.invalidateQueries({ queryKey: ["console", "proxy-pools"] }); },
     onError: (e: Error) => toast.error(e.message),
   });
 
   return (
-    <Dialog open={open} onClose={() => { onClose(); setText(""); setResult(null); }} title="Import Proxies" wide
-      footer={<>{!result ? (<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!text.trim() || mut.isPending} onClick={() => mut.mutate()}>{mut.isPending ? "Importing…" : "Import"}</Button></>) : (<Button onClick={onClose}>Done</Button>)}</>}>
+    <Dialog open={open} onClose={() => { onClose(); setText(""); setName(""); setIsRelay(false); setResult(null); }} title="Import Proxies" wide
+      footer={<>{!result ? (<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button disabled={!text.trim() || importMut.isPending} onClick={() => importMut.mutate()}>{importMut.isPending ? "Importing…" : "Import"}</Button></>) : (<Button onClick={onClose}>Done</Button>)}</>}>
       {!result ? (
-        <div>
-          <Label htmlFor="import-text">Paste one proxy URL per line</Label>
-          <Textarea id="import-text" placeholder={"http://proxy1.example.com:8080\nhttps://proxy2.example.com:443"} value={text} onChange={(e) => setText(e.target.value)} rows={8} />
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="import-name">Pool name</Label>
+            <Input id="import-name" placeholder="e.g. My proxy pool" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <label className="flex cursor-pointer items-center gap-3">
+            <Switch checked={isRelay} onChange={setIsRelay} />
+            <span className="text-xs text-[var(--text-2)]">Vercel / Cloudflare relay</span>
+          </label>
+          <div>
+            <Label htmlFor="import-text">Paste one proxy URL per line</Label>
+            <Textarea id="import-text" placeholder={"http://proxy1.example.com:8080\nhttps://proxy2.example.com:443"} value={text} onChange={(e) => setText(e.target.value)} rows={8} />
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="flex items-center gap-2"><CheckCircle2 size={16} className="text-[var(--green)]" /><span className="text-sm font-semibold">{result.added.length} proxy entries added</span></div>
+          <div className="flex items-center gap-2"><CheckCircle2 size={16} className="text-[var(--green)]" /><span className="text-sm font-semibold">{result.added.length} proxy entries added to "{name.trim() || "Imported pool"}"</span></div>
           {result.skipped.length > 0 && (
             <div className="rounded-lg bg-[rgba(255,159,10,0.1)] p-3 text-xs text-[var(--orange)]">
               <div className="mb-1 font-semibold">{result.skipped.length} lines skipped:</div>
-              {result.skipped.map((s) => <div key={s.line}>Line {s.line}: {s.reason}</div>)}
+              {result.skipped.map((s) => <div key={s.line} className="break-all">Line {s.line}: {s.reason}</div>)}
             </div>
           )}
         </div>
@@ -258,8 +282,8 @@ export function ProxyPoolsPage() {
                 <div className="flex items-start gap-3">
                   <input type="checkbox" className="mt-1 h-3.5 w-3.5 shrink-0 accent-[var(--accent)]" checked={selected.has(pool.id)} onChange={() => toggleSelect(pool.id)} />
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-bold">{pool.name}</span>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="min-w-0 truncate text-sm font-bold">{pool.name}</span>
                       <Badge>{pool.entries.length} {pool.entries.length === 1 ? "entry" : "entries"}</Badge>
                       {pool.platform !== "custom" && <Badge tone="info">{pool.platform}</Badge>}
                       {pool.strictProxy && <Badge tone="warn">strict</Badge>}
@@ -281,7 +305,7 @@ export function ProxyPoolsPage() {
                       ))}
                     </div>
 
-                    {pool.noProxy && <div className="mt-1 text-[10px] text-[var(--text-3)]">no-proxy: {pool.noProxy}</div>}
+                    {pool.noProxy && <div className="mt-1 break-all text-[10px] text-[var(--text-3)]">no-proxy: {pool.noProxy}</div>}
                   </div>
 
                   <div className="flex shrink-0 gap-1">

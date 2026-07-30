@@ -615,8 +615,8 @@ export function UsagePage() {
                   className="cursor-pointer border-b border-[var(--inner-border)] transition-colors last:border-0 hover:bg-[var(--hover)]"
                 >
                   <td className="px-3 py-2.5 tabular-nums text-[var(--text-2)]">{formatTime(row.started_at)}</td>
-                  <td className="px-3 py-2.5 font-mono">{row.api_key_prefix ?? "anon"}</td>
-                  <td className="px-3 py-2.5 font-mono">{row.model ?? "—"}</td>
+                  <td className="max-w-[160px] truncate px-3 py-2.5 font-mono">{row.api_key_prefix ?? "anon"}</td>
+                  <td className="max-w-[200px] truncate px-3 py-2.5 font-mono">{row.model ?? "—"}</td>
                   <td className="px-3 py-2.5">
                     <Badge tone={row.stream === 1 ? "info" : "default"}>{row.stream === 1 ? "stream" : "json"}</Badge>
                   </td>

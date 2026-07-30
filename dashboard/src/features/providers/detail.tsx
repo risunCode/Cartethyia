@@ -4,7 +4,7 @@
  */
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUpDown, Bot, Cable, Copy, ExternalLink, Eye, FileUp, FlaskConical, Info, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, Bot, Brain, Cable, Copy, ExternalLink, Eye, FileUp, FlaskConical, Info, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -465,6 +465,12 @@ export function ProviderDetailPage() {
   });
   const pagedAccounts = accountsQuery.data?.pages.flatMap((page) => page.items) ?? data?.accounts ?? [];
 
+  const poolsQuery = useQuery({
+    queryKey: ["console", "proxy-pools"],
+    queryFn: () => apiGet<{ items: Array<{ id: string; name: string; platform: string }> }>("/proxy-pools"),
+  });
+  const pools = poolsQuery.data?.items ?? [];
+
   // Hooks must run unconditionally on every render — hoisted above the
   // loading-state early return below so hook order never changes once data
   // arrives (previously caused "Rendered fewer hooks than expected").
@@ -616,6 +622,9 @@ export function ProviderDetailPage() {
           </div>
           <div className="flex items-center gap-1">
             {model.source !== "built-in" && <Badge tone="info">{model.source}</Badge>}
+            <span title="Reasoning" aria-label="Reasoning" className="grid h-5 w-5 place-items-center rounded-md bg-[var(--hover)] text-[var(--accent)]">
+              <Brain size={11} aria-hidden="true" />
+            </span>
             {model.vision && (
               <span title="Vision" aria-label="Vision" className="grid h-5 w-5 place-items-center rounded-md bg-[var(--hover)] text-[var(--teal)]">
                 <Eye size={11} aria-hidden="true" />
@@ -623,14 +632,14 @@ export function ProviderDetailPage() {
             )}
           </div>
           {Boolean(model.contextWindow || model.maxOutputTokens) && (
-            <div className="hidden text-[9px] text-[var(--text-2)] sm:block">
+            <div className="text-[9px] text-[var(--text-2)]">
               {model.contextWindow ? `${formatTokens(model.contextWindow)} context` : null}
-              {model.contextWindow && model.maxOutputTokens ? " \u00b7 " : null}
-              {model.maxOutputTokens ? `${formatTokens(model.maxOutputTokens)} max output` : null}
+              {model.contextWindow && model.maxOutputTokens ? " · " : null}
+              {model.maxOutputTokens ? `${formatTokens(model.maxOutputTokens)} max out` : null}
             </div>
           )}
-          {priceLabel && <div className="hidden text-[9px] text-[var(--text-2)] sm:block">{priceLabel}</div>}
-          <div className="mt-auto flex gap-1 pt-0.5 sm:gap-1.5">
+          {priceLabel && <div className="text-[9px] text-[var(--text-2)]">{priceLabel}</div>}
+          <div className="mt-auto flex flex-wrap gap-1 pt-0.5 sm:gap-1.5">
             <Button variant="secondary" size="sm" className="flex-1" disabled={!model.enabled || pendingModelId === model.id} onClick={() => runTest(model.id)}>
               <FlaskConical size={12} /> {pendingModelId === model.id ? "Testing…" : "Test"}
             </Button>
@@ -773,7 +782,26 @@ export function ProviderDetailPage() {
         </div>
 
         {routing.proxyMode !== "direct" && (
-          <p className="text-[10.5px] text-[var(--orange)]">Proxy pools arrive in M6 — set the pool id via API for now.</p>
+          <div className="mt-2">
+            <Label>Proxy pool</Label>
+            <Select
+              ariaLabel="Proxy pool"
+              className="mt-1 w-full"
+              value={routing.proxyPoolId ?? ""}
+              onChange={(v) => {
+                const next = { ...routing, proxyPoolId: v || null };
+                setRouting(next);
+                routingMutation.mutate(next);
+              }}
+              options={[
+                { value: "", label: "— Select a pool —" },
+                ...pools.map((p) => ({
+                  value: p.id,
+                  label: `${p.name}${p.platform !== "custom" ? ` (${p.platform})` : ""}`,
+                })),
+              ]}
+            />
+          </div>
         )}
 
         {!noAuth && selectedAccounts.size > 0 && (

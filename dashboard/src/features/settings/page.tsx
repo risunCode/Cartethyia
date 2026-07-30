@@ -342,7 +342,7 @@ export function SettingsPage() {
             <CardHeader title="Tracking" icon={Activity} sub="What the usage history stores per request." />
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="flex items-center justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs font-semibold">Payloads</div>
                   <div className="text-[11px] text-[var(--text-3)]">Redacted request/response bodies.</div>
                 </div>
@@ -358,7 +358,7 @@ export function SettingsPage() {
                 />
               </div>
               <div className="flex items-center justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs font-semibold">Assets</div>
                   <div className="text-[11px] text-[var(--text-3)]">Images & attachments to disk.</div>
                 </div>
@@ -438,8 +438,8 @@ export function SettingsPage() {
                   onChange={() => undefined}
                 />
               </div>
-              <label className="flex items-center justify-between gap-3">
-                <div>
+              <label className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
                   <div className="text-xs font-semibold">Trust proxy headers</div>
                   <div className="text-[11px] text-[var(--text-3)]">Use X-Forwarded-For for client IPs.</div>
                 </div>
@@ -456,7 +456,7 @@ export function SettingsPage() {
                   <div className="mt-1.5 space-y-1">
                     {flights.byIp.map(({ ip, active }) => (
                       <div key={ip} className="flex items-center justify-between text-[11.5px]">
-                        <code className="font-mono text-[var(--text-2)]">{ip}</code>
+                        <code className="min-w-0 truncate font-mono text-[var(--text-2)]">{ip}</code>
                         <span className={cn("font-semibold tabular-nums", active >= flights.maxFlightsPerIp && "text-[var(--red)]")}>
                           {active} / {flights.maxFlightsPerIp}
                         </span>
@@ -509,8 +509,8 @@ export function SettingsPage() {
                 className="hidden"
                 onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)}
               />
-              <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()}>
-                <Upload size={13} /> {restoreFile ? restoreFile.name : "Choose backup file…"}
+              <Button variant="secondary" size="sm" className="min-w-0" onClick={() => fileInputRef.current?.click()}>
+                <Upload size={13} className="shrink-0" /> <span className="truncate">{restoreFile ? restoreFile.name : "Choose backup file…"}</span>
               </Button>
               <Button variant="secondary" size="sm" disabled={!restoreFile} onClick={() => setAction("restore")}>
                 Restore…
