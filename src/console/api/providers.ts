@@ -228,10 +228,10 @@ export const providersRoutes = new Elysia({ prefix: "/console/api" })
           body: {
             model: modelId,
             stream: false,
-            // Big Pickle spends a substantial part of its completion budget
-            // reasoning. 1,024 tokens can end before it emits visible text.
-            max_tokens: 4_096,
-            messages: [{ role: "user", content: "Briefly say who you are." }],
+            // Keep the test tight — short prompt, capped output so
+            // reasoning models don't burn their whole budget thinking.
+            max_tokens: 256,
+            messages: [{ role: "user", content: "Who are you? State your exact model name and version if you know. Be honest — don't claim to be something you're not." }],
           },
         },
         credential,
