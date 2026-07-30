@@ -1,16 +1,26 @@
 import type { RouteTarget } from "../../routing/types";
 import { decodeOpenAIChatStream } from "../bridge";
-import { ProviderCallError } from "./index";
+import { ProviderCallError, classifyUpstreamStatus } from "./index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./index";
+import { createModelCatalog } from "./models";
 import type { ModelCapability, ProviderModelCatalog, ProviderModelEntry } from "./models";
 
 export interface OpenAICompatibleProviderConfig {
-  id: Exclude<Provider["id"], "opencode-free" | "commandcode" | "kimchi" | "devin" | "qoder" | "custom" | "cursor" | "openai" | "anthropic" | "xmimo">;
+  id: Exclude<Provider["id"], "opencode-free" | "commandcode" | "kimchi" | "devin" | "qoder" | "custom" | "cursor" | "anthropic">;
   name: string;
   icon: string;
   baseUrl: string;
   credentialUrl: string;
   models: ProviderModelEntry[];
+  /** Override the generated "Paste an API key from {host}." auth hint with custom copy. */
+  authHint?: string;
+  /**
+   * Gate routing to exactly the curated `models` list (via the shared
+   * strict `createModelCatalog`) instead of accepting any non-blank model
+   * id. Used by providers whose curated list is an intentional allowlist,
+   * not just a display sample of a larger open catalog.
+   */
+  strict?: boolean;
 }
 
 function passthroughCatalog(models: ProviderModelEntry[]): ProviderModelCatalog {
@@ -24,15 +34,8 @@ function passthroughCatalog(models: ProviderModelEntry[]): ProviderModelCatalog 
   };
 }
 
-function errorKind(status: number): "authentication" | "invalid_request" | "rate_limited" | "unavailable" {
-  if (status === 401 || status === 403) return "authentication";
-  if (status === 429) return "rate_limited";
-  if (status >= 400 && status < 500) return "invalid_request";
-  return "unavailable";
-}
-
 export function createOpenAICompatibleProvider(config: OpenAICompatibleProviderConfig): Provider {
-  const models = passthroughCatalog(config.models);
+  const models = config.strict ? createModelCatalog(config.models) : passthroughCatalog(config.models);
 
   return {
     id: config.id,
@@ -40,7 +43,7 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleProviderC
       name: config.name,
       icon: config.icon,
       authKind: "api-key",
-      authHint: `Paste an API key from ${new URL(config.credentialUrl).hostname}.`,
+      authHint: config.authHint ?? `Paste an API key from ${new URL(config.credentialUrl).hostname}.`,
       credentialUrl: config.credentialUrl,
     },
     models,
@@ -64,7 +67,7 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleProviderC
         ...(proxy ? { proxy } : {}),
       });
 
-      if (!response.ok) throw new ProviderCallError(response.status, errorKind(response.status), `${config.name} returned ${response.status}.`);
+      if (!response.ok) throw new ProviderCallError(response.status, classifyUpstreamStatus(response.status), `${config.name} returned ${response.status}.`);
       if (!response.body) throw new ProviderCallError(502, "unavailable", `${config.name} returned an empty response body.`);
       if (body.stream === true) return { type: "stream", events: decodeOpenAIChatStream(response.body) };
 

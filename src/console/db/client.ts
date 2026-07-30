@@ -25,7 +25,21 @@ function ensureColumn(database: Database, table: string, column: string, ddl: st
   }
 }
 
+function dropIfLegacySchema(database: Database, table: string, legacyColumn: string, currentColumn: string): void {
+  const columns = database.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (columns.length === 0) return;
+  const hasLegacyColumn = columns.some((c) => c.name === legacyColumn);
+  const hasCurrentColumn = columns.some((c) => c.name === currentColumn);
+  if (hasLegacyColumn && !hasCurrentColumn) {
+    database.exec(`DROP TABLE ${table}`);
+  }
+}
+
 function initialize(database: Database): void {
+  dropIfLegacySchema(database, "api_keys", "key_hash", "key");
+  dropIfLegacySchema(database, "provider_accounts", "credential_enc", "credential");
+  dropIfLegacySchema(database, "custom_providers", "credential_enc", "credential");
+
   database.exec(INIT_SQL);
   ensureColumn(database, "custom_providers", "headers_json", "headers_json TEXT NOT NULL DEFAULT '{}'");
 }

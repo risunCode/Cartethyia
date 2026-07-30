@@ -18,9 +18,7 @@ import { devinProvider } from "./devin/index";
 import { qoderProvider } from "./qoder/index";
 import { dynamicProviderRouter } from "./dynamic";
 import { cursorProvider } from "./cursor/index";
-import { openaiProvider } from "./openai/index";
 import { anthropicProvider } from "./anthropic/index";
-import { xiaomiMimoProvider } from "./xiaomi-mimo/index";
 import { agentRouterProvider } from "./agentrouter/index";
 import { createOpenAICompatibleProvider } from "./openai-compatible";
 
@@ -134,6 +132,42 @@ export function providerHttpError(status: number, provider: string, authMessage?
 }
 
 const OPENAI_COMPATIBLE_PROVIDERS = [
+  createOpenAICompatibleProvider({
+    id: "openai",
+    name: "OpenAI",
+    icon: "openai",
+    baseUrl: "https://api.openai.com/v1",
+    credentialUrl: "https://platform.openai.com/api-keys",
+    authHint: "Paste your official OpenAI API key (starts with sk-...) from platform.openai.com.",
+    // Display-only — official BYOK provider, routing accepts any model id since
+    // OpenAI's catalog moves faster than a curated list can (matches prior dedicated impl).
+    // GPT-5.6 family (Sol/Terra/Luna) released 2026-07-09; GPT-5.5 (2026-04) and
+    // GPT-5.4 mini (2026-03-17) remain live in the API and are kept as prior-gen options
+    // (developers.openai.com/api/docs/models).
+    models: [
+      { id: "gpt-5.6-sol", capabilities: ["text", "streaming", "json", "tools", "reasoning", "vision"], contextWindow: 400000, maxOutputTokens: 128000, description: "Flagship — frontier coding, knowledge work, cybersecurity, science." },
+      { id: "gpt-5.6-terra", capabilities: ["text", "streaming", "json", "tools", "reasoning", "vision"], contextWindow: 400000, maxOutputTokens: 128000, description: "Balanced — lower cost per performance." },
+      { id: "gpt-5.6-luna", capabilities: ["text", "streaming", "json", "tools", "reasoning"], contextWindow: 400000, maxOutputTokens: 128000, description: "Fastest, most cost-efficient tier." },
+      { id: "gpt-5.5", capabilities: ["text", "streaming", "json", "tools", "reasoning", "vision"], contextWindow: 1000000, maxOutputTokens: 128000, description: "Prior-gen frontier — complex professional and agentic work." },
+      { id: "gpt-5.4-mini", capabilities: ["text", "streaming", "json", "tools", "reasoning", "vision"], contextWindow: 400000, maxOutputTokens: 128000, description: "Strongest mini tier — coding, computer use, high-volume subagents." },
+    ],
+  }),
+  createOpenAICompatibleProvider({
+    id: "xmimo",
+    name: "Xiaomi MiMo (PAYG)",
+    icon: "mimo",
+    baseUrl: "https://api.xiaomimimo.com/v1",
+    credentialUrl: "https://xiaomimimo.com",
+    authHint: "Paste your Xiaomi MiMo pay-as-you-go API key from xiaomimimo.com.",
+    // Pay-as-you-go tier, distinct from Token Plan (`xiaomi-tokenplan` below).
+    // Strict: gated to exactly this curated pair per operator preference —
+    // unlike the other entries here, an unlisted model id must be rejected.
+    strict: true,
+    models: [
+      { id: "mimo-v2.5-pro", capabilities: ["text", "streaming", "json", "tools"], contextWindow: 1000000, maxOutputTokens: 128000 },
+      { id: "mimo-v2.5", capabilities: ["text", "streaming", "json", "tools"], contextWindow: 1000000, maxOutputTokens: 128000 },
+    ],
+  }),
   createOpenAICompatibleProvider({ id: "openrouter", name: "OpenRouter", icon: "openrouter", baseUrl: "https://openrouter.ai/api/v1", credentialUrl: "https://openrouter.ai/settings/keys", models: [{ id: "openai/gpt-4.1", capabilities: ["text", "vision", "tools", "streaming", "json"] }] }),
   createOpenAICompatibleProvider({
     id: "ollama",
@@ -255,9 +289,7 @@ const PROVIDERS = new Map<Provider["id"], Provider>([
   ["qoder", qoderProvider],
   ["custom", dynamicProviderRouter],
   ["cursor", cursorProvider],
-  ["openai", openaiProvider],
   ["anthropic", anthropicProvider],
-  ["xmimo", xiaomiMimoProvider],
   ...OPENAI_COMPATIBLE_PROVIDERS.map((provider) => [provider.id, provider] as const),
 ]);
 
