@@ -6,15 +6,14 @@ import { Elysia } from "elysia";
 import { consoleError } from "../errors";
 import { addAuditEvent } from "../db/repos/audit";
 import { getAccessRules, setAccessRule, validateAccessEntry, type AccessScope } from "../db/repos/access";
+import { isOneOf } from "../../shared/guards";
 
-function isScope(raw: unknown): raw is AccessScope {
-  return raw === "proxy" || raw === "console";
-}
+const ACCESS_SCOPES: AccessScope[] = ["proxy", "console"];
 
 export const accessRoutes = new Elysia({ prefix: "/console/api/access" })
   .get("/", () => getAccessRules())
   .post("/:scope", ({ params, body, set }) => {
-    if (!isScope(params.scope)) {
+    if (!isOneOf(params.scope, ACCESS_SCOPES)) {
       set.status = 400;
       return consoleError("invalid_request", "scope must be 'proxy' or 'console'");
     }

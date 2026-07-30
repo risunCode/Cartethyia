@@ -5,6 +5,7 @@
 
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { validateNumeric } from "../utils/config-helpers";
 
 export type TrackMode = "none" | "meta" | "store";
 export type ProxyAuthMode = "open" | "api_key";
@@ -30,12 +31,6 @@ export interface ConsoleEnv {
   assetRetentionDays: number;
 }
 
-function boundedNumber(raw: string | undefined, fallback: number, min: number, max: number): number {
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(max, Math.max(min, parsed));
-}
-
 function parseTrackMode(raw: string | undefined, fallback: TrackMode): TrackMode {
   if (raw === "store" || raw === "meta" || raw === "none") return raw;
   return fallback;
@@ -50,7 +45,7 @@ export function getConsoleEnv(): ConsoleEnv {
     path: e.CONSOLE_PATH ?? "/console",
     password: e.CONSOLE_PASSWORD,
     jwtSecret: e.CONSOLE_JWT_SECRET,
-    sessionTtlHours: boundedNumber(e.CONSOLE_SESSION_TTL_HOURS, 12, 1, 720),
+    sessionTtlHours: validateNumeric(e.CONSOLE_SESSION_TTL_HOURS, { fallback: 12, min: 1, max: 720 }),
     dataDir,
     dbPath: e.DB_PATH ?? join(dataDir, "cartethyia.sqlite"),
     logDir: e.LOG_DIR ?? join(dataDir, "logs"),
@@ -61,7 +56,7 @@ export function getConsoleEnv(): ConsoleEnv {
     bootstrapKeyName: e.BOOTSTRAP_PROXY_API_KEY_NAME ?? "bootstrap",
     trackPayloads: parseTrackMode(e.TRACK_PAYLOADS, "store"),
     trackAssets: parseTrackMode(e.TRACK_ASSETS, "meta"),
-    logRetentionDays: boundedNumber(e.LOG_RETENTION_DAYS, 14, 1, 365),
-    assetRetentionDays: boundedNumber(e.ASSET_RETENTION_DAYS, 7, 1, 365),
+    logRetentionDays: validateNumeric(e.LOG_RETENTION_DAYS, { fallback: 14, min: 1, max: 365 }),
+    assetRetentionDays: validateNumeric(e.ASSET_RETENTION_DAYS, { fallback: 7, min: 1, max: 365 }),
   };
 }

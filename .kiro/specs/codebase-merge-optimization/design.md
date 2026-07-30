@@ -211,31 +211,9 @@ export function coerceToPositiveInt(value: unknown): number {
 
 ### 4. `src/utils/date-utils.ts`
 
-**Purpose:** Centralized date manipulation with cache optimization.
+**Purpose:** Centralized UTC formatting and period arithmetic. Current timestamps are intentionally not cached: caching a timestamp produces incorrect usage records.
 
 ```typescript
-let cachedToday: string | undefined = undefined;
-const CACHE_TTL_MS = 86_400_000; // one day
-
-/** Get today's date in YYYY-MM-DD format (cached at midnight boundary) */
-export function utcDate(): string {
-  const now = Date.now();
-  const threshold = now % CACHE_TTL_MS;
-  
-  if (cachedToday && now - cachedDateAt < CACHE_TTL_MS) {
-    return cachedToday;
-  }
-  
-  cachedToday = new Date(now).toISOString().slice(0, 10);
-  return cachedToday;
-}
-
-/** Calculate period start time from epoch offset */
-export function periodStartFromOffset(offsetMs: number): string {
-  return new Date(Date.now() - offsetMs).toISOString();
-}
-
-/** Predefined offsets for common usage periods */
 export const PERIOD_OFFSETS = {
   "1h": 3_600_000,
   "24h": 86_400_000,
@@ -243,9 +221,22 @@ export const PERIOD_OFFSETS = {
   "30d": 2_592_000_000,
 } as const;
 
-/** Get period start timestamp as ISO string */
-export function getPeriodStart(period: keyof typeof PERIOD_OFFSETS): string {
-  return periodStartFromOffset(PERIOD_OFFSETS[period]);
+export type UsagePeriod = keyof typeof PERIOD_OFFSETS;
+
+export function formatUtc(ms: number): string {
+  return new Date(ms).toISOString().replace("T", " ").replace("Z", "");
+}
+
+export function utcNow(): string {
+  return formatUtc(Date.now());
+}
+
+export function periodStartUtc(period: UsagePeriod): string {
+  return formatUtc(Date.now() - PERIOD_OFFSETS[period]);
+}
+
+export function cutoffDate(days: number): string {
+  return new Date(Date.now() - days * PERIOD_OFFSETS["24h"]).toISOString().slice(0, 10);
 }
 ```
 
@@ -371,32 +362,11 @@ export function parseAccessMode(raw: string | undefined): "none" | "local" | "al
 
 **Speed Impact:** Up to 3× faster for hot-path validation
 
-#### 2. Date Caching Strategy
+#### 2. Shared Date Arithmetic
 
-**Before:** Fresh allocation every call
-```typescript
-export function utcNow(): string {
-  return new Date().toISOString().replace("T", " ").replace("Z", "");
-  // Allocates new Date object + formats string each call
-}
-```
+Current timestamps must not be cached: every usage record needs the actual request time. The optimization is structural instead—one `PERIOD_OFFSETS` lookup and shared UTC formatting/cutoff functions eliminate repeated date arithmetic without changing timestamp fidelity.
 
-**After:** Daily cache with timestamp check
-```typescript
-let cachedDate: string | undefined;
-let cacheExpiry = 0;
-
-export function utcNow(): string {
-  const now = Date.now();
-  if (now < cacheExpiry) return cachedDate!;
-  
-  cachedDate = new Date(now).toISOString().slice(0, 10);
-  cacheExpiry = new Date(cachedDate + "T00:00:00Z").getTime() + 86_400_000;
-  return cachedDate;
-}
-```
-
-**Impact:** ~30% fewer Date allocations during high-throughput operation
+**Impact:** consistent usage-period and retention boundaries, with no stale timestamp risk.
 
 ---
 

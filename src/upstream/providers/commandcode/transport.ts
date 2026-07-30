@@ -2,6 +2,7 @@ import type { AnthropicStopReason } from "../../../translate/concerns/finishReas
 import type { OpenAIChatMessage, OpenAIChatRequest } from "../../../translate/types";
 import type { StreamEvent } from "../../bridge";
 import { ProviderCallError } from "../index";
+import { flattenMessageText } from "../../../shared/text-utils";
 
 const CLI_ENVIRONMENT = "cli";
 const COMMAND_CODE_VERSION = "1.4.4";
@@ -128,26 +129,12 @@ export async function* decodeCommandCodeNdjsonStream(body: ReadableStream<Uint8A
   }
 }
 
-function hasTextField(value: unknown): value is { text: unknown } {
-  return value !== null && typeof value === "object" && "text" in value;
-}
-
 function hasTypeAndText(value: unknown): value is { type: unknown; text: unknown } {
   return value !== null && typeof value === "object" && "type" in value && "text" in value;
 }
 
 function flattenText(content: unknown): string {
-  if (content == null) return "";
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    const parts: string[] = [];
-    for (const part of content) {
-      if (typeof part === "string") parts.push(part);
-      else if (hasTextField(part) && typeof part.text === "string") parts.push(part.text);
-    }
-    return parts.join("\n");
-  }
-  return String(content);
+  return flattenMessageText(content, "\n");
 }
 
 function toContentBlocks(content: unknown): Array<{ type: "text"; text: string }> {

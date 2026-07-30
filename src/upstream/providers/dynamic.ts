@@ -15,7 +15,7 @@
  */
 
 import type { RouteTarget } from "../../routing/types";
-import { ProviderCallError } from "./index";
+import { ProviderCallError, classifyUpstreamStatus } from "./index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./index";
 import { decodeAnthropicStream, decodeOpenAIChatStream } from "../bridge";
 import { getCustomProviderBySlug, type CustomProviderRecord } from "../../console/db/repos/custom-providers";
@@ -30,13 +30,6 @@ function splitSlugModel(modelId: string): { slug: string; model: string } | unde
   const model = modelId.slice(slashIndex + 1);
   if (!slug || !model) return undefined;
   return { slug, model };
-}
-
-function upstreamErrorKind(status: number): "authentication" | "invalid_request" | "rate_limited" | "unavailable" {
-  if (status === 401 || status === 403) return "authentication";
-  if (status === 429) return "rate_limited";
-  if (status >= 400 && status < 500) return "invalid_request";
-  return "unavailable";
 }
 
 /** Combines the caller's abort signal with the provider's configured request timeout (REQ-8). */
@@ -59,7 +52,7 @@ async function callOpenAICompatible(record: CustomProviderRecord, model: string,
     ...(proxy ? { proxy } : {}),
   });
 
-  if (!res.ok) throw new ProviderCallError(res.status, upstreamErrorKind(res.status), `Custom provider "${record.name}" returned ${res.status}.`);
+  if (!res.ok) throw new ProviderCallError(res.status, classifyUpstreamStatus(res.status), `Custom provider "${record.name}" returned ${res.status}.`);
   if (!res.body) throw new ProviderCallError(502, "unavailable", `Custom provider "${record.name}" returned an empty response body.`);
 
   if (isStreaming) return { type: "stream", events: decodeOpenAIChatStream(res.body) };
@@ -84,7 +77,7 @@ async function callAnthropicCompatible(record: CustomProviderRecord, model: stri
     ...(proxy ? { proxy } : {}),
   });
 
-  if (!res.ok) throw new ProviderCallError(res.status, upstreamErrorKind(res.status), `Custom provider "${record.name}" returned ${res.status}.`);
+  if (!res.ok) throw new ProviderCallError(res.status, classifyUpstreamStatus(res.status), `Custom provider "${record.name}" returned ${res.status}.`);
   if (!res.body) throw new ProviderCallError(502, "unavailable", `Custom provider "${record.name}" returned an empty response body.`);
 
   if (isStreaming) return { type: "stream", events: decodeAnthropicStream(res.body) };

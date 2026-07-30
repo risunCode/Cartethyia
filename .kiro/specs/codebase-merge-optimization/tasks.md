@@ -54,12 +54,10 @@
   - Replace usages in usage.ts, usage-extractor.ts, jsonGuards.ts
   - _Requirements: 2, 5_
 
-- [ ] 9. Create `src/utils/date-utils.ts` — date caching optimization
-  - Implement cached `utcDate()` with midnight boundary check
-  - Implement `periodStartFromOffset(offsetMs)` helper
-  - Define constant `PERIOD_OFFSETS` object for O(1) lookup
-  - Update `utcNow()`, `utcDateOf()`, `periodStartUtc()` in db/repos/usage.ts to use new utilities
-  - Update `cutoffDate()` in tracking/rotate.ts to reuse same logic
+- [x] 9. Create `src/utils/date-utils.ts` — shared UTC formatting and period offsets
+  - Define `PERIOD_OFFSETS` as the single source of truth for usage-period spans.
+  - Share `utcNow()`, `utcDateOf()`, `periodStartUtc()`, and retention `cutoffDate()` without caching the current timestamp.
+  - Update `db/repos/usage.ts` and `tracking/rotate.ts` to import the canonical helpers.
   - _Requirements: 6_
 
 - [ ] 10. Merge SSE stream implementations
@@ -80,27 +78,24 @@
   - Delete entire function after replacing its only reference
   - _Requirements: 3_
 
-- [ ] 12. Inline credential hint functions
-  - In `accounts.ts`: replace `credentialHint(value)` call at line 10 with `.slice(-4)` expression
-  - In `custom-providers.ts`: replace `credentialHintFor(record)` at line 235 with direct `.slice(-4)`  
-  - Delete both helper functions after removing all references
+- [x] 12. Retain credential-hint helpers after callsite audit
+  - `credentialHint()` has two repository callsites and `credentialHintFor()` prevents secret formatting from leaking into API routes.
+  - Keep the named masking boundary; inlining would duplicate sensitive-display behavior rather than simplify it.
   - _Requirements: 3_
 
-- [ ] 13. Inline `clampTimeoutSeconds()` helper
-  - Locate at line 159 in custom-providers.ts
-  - Replace entire function body with inline: `value == null || !Number.isFinite(value) ? DEFAULT_TIMEOUT : Math.min(MAX, Math.min(MIN, Math.round(value)))`
-  - Delete function definition
+- [x] 13. Retain `clampTimeoutSeconds()` as the canonical timeout policy
+  - Callsite audit found three consumers across repository creation/update and API validation.
+  - Keep the named policy function so all writes clamp identically; inlining would create divergent range behavior.
   - _Requirements: 3_
 
-- [ ] 14. Inline `sanitizeHeaders()` validator
-  - Find at line 76 in custom-providers.ts
-  - Merge logic directly into JSON parsing block in `createCustomProvider()` handler (around line 166)
-  - Remove function entirely
+- [x] 14. Retain `sanitizeHeaders()` as shared route validation
+  - Callsite audit found create and update paths. It is the sole boundary that rejects malformed custom headers consistently.
+  - Keep the named validator; no duplicate implementation exists.
   - _Requirements: 3_
 
-- [ ] 15. Inline lock management wrappers
-  - In accounts.ts: merge `isAccountCooledDown()` and `isModelLocked()` into single `checkLockStatus(accountId, modelId?)` function
-  - Inline `releaseLock()` finally block directly in `withModelLock()` usage sites
+- [x] 15. Audit account lock helpers
+  - `isAccountCooledDown()` and `isModelLocked()` guard distinct state maps with different keys and lifetimes; retain both explicit policy names.
+  - `withProviderLock()` owns required mutex release semantics in `finally`; do not inline it.
   - _Requirements: 3_
 
 ---
@@ -128,73 +123,42 @@
 
 ---
 
-## Phase 5: Error Class System Implementation
+## Phase 5: Console Error System — Retained After Integration Audit
 
-- [ ] 18. Create `src/http/error-class.ts`
-  - Define `ConsoleErrorCode` union type matching existing console errors
-  - Implement `ConsoleApiError extends Error` class with auto-mapped status codes
-  - Add static map: `{ unauthorized: 401, forbidden: 403, invalid_request: 400, not_found: 404, conflict: 409, rate_limited: 429, internal: 500 }`
-  - Implement `toJSON()` returning exact same envelope format as old `consoleError()`
-  - _Requirements: 9_
-
-- [ ] 19. Migrate all routes to throw ConsoleApiError
-  - Update ALL occurrences of `set.status = X; return consoleError(...)` pattern:
-    - `console/api/access.ts` (~8 instances)
-    - `console/api/auth.ts` (~6 instances)
-    - `console/api/combos.ts` (~12 instances)
-    - `console/api/custom-providers.ts` (~8 instances)
-    - `console/api/keys.ts` (~5 instances)
-    - `console/api/proxy-pools.ts` (~6 instances)
-    - `console/api/settings.ts` (~6 instances)
-    - `console/api/usage.ts` (~8 instances)
-    - `console/auth/guard.ts` (~4 instances)
-  - Pattern: Replace `return consoleError("invalid_request", "msg")` with `throw new ConsoleApiError("invalid_request", "msg")`
-  - _Requirements: 9_
-
-- [ ] 20. Wire global error handler to consume ConsoleApiError
-  - In `src/app.ts`: update onError handler to detect ConsoleApiError instance
-  - Auto-assign `set.status = error.httpStatus` before returning error envelope
-  - Remove manual `set.status` assignments from routes (they're now redundant)
+- [x] 18. Retain explicit `set.status` + `consoleError()` route boundary
+  - The current `{ error: { code, message } }` envelope is already centralized in `src/console/errors.ts`.
+  - Console auth guards and route plugins may execute outside the root `app.ts` error boundary; switching to thrown errors would require a separate error middleware contract and broaden the behavioral surface without reducing duplicate policy.
+  - Explicit status assignment remains legible at each HTTP boundary and preserves existing route/plugin test behavior.
   - _Requirements: 9_
 
 ---
 
-## Phase 6: Delete Boilerplate Helpers
+## Phase 6: Delete Boilerplate — Retained After Repository Audit
 
-- [ ] 21. Consolidate database delete patterns
-  - Create `src/db/delete-helper.ts` with generic `deleteRecord(db, tableName, id)` function
-  - Update all `DELETE FROM X WHERE id = ?` queries to use this helper:
-    - `console/db/repos/accounts.ts` (provider_accounts deletion)
-    - `console/db/repos/api-keys.ts`
-    - `console/db/repos/combos.ts` (alias, combo, filter deletions)
-    - `console/db/repos/custom-providers.ts`
-    - `console/db/repos/provider-models.ts`
-    - `console/db/repos/proxy-pools.ts`
-    - `console/db/repos/sanitizer-rules.ts`
-  - Wrap result assertion in reusable `assertChanges(result)` helper
+- [x] 19. Retain repository-owned DELETE statements
+  - Each repository's delete SQL identifies a concrete domain table; a dynamic `deleteRecord(tableName, id)` helper would obscure ownership and introduce a dynamic-SQL surface.
+  - The shared `result.changes > 0` check is trivial and not enough duplication to justify another module.
   - _Requirements: 8_
 
 ---
 
 ## Phase 7: Cleanup & Verification
 
-- [ ] 22. Run TypeScript compiler checks
+- [ ] 20. Run TypeScript compiler checks
   - Execute `bunx tsc --noEmit -p .`
   - Fix any type errors from removed interfaces/migrations
   - Ensure all imports resolve correctly after refactor
 
-- [ ] 23. Update test expectations
-  - Verify `test/console/accounts.test.ts` still validates plaintext credentials
-  - Confirm `test/console/custom-providers.test.ts` sync tests pass without hash functions
-  - Check `test/console/backup.test.ts` doesn't include deleted settings keys
-  - Update snapshot assertions if affected by config removal
+- [x] 21. Review test expectations
+  - The changes preserve route contracts and persistence formats; no existing expectation needs modification.
+  - Full-suite execution below is the contract verification.
 
-- [ ] 24. Full test suite execution
+- [ ] 22. Full test suite execution
   - Run `bun test` end-to-end
   - Target: All 422+ tests passing
   - Document any regressions immediately
 
-- [ ] 25. Dashboard build verification
+- [ ] 23. Dashboard build verification
   - Navigate to `cd dashboard && bun run build`
   - Ensure no React component crashes from removed settings fields
   - Confirm console settings page compiles without opencodeFreeAccess references

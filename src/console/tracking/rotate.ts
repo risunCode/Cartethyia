@@ -9,12 +9,9 @@ import { getConsoleEnv } from "../env";
 import { getRuntimeSettings } from "../runtime";
 import { deleteAssetsOlderThan } from "../db/repos/details";
 import { pushConsoleLog } from "../logs/ring";
+import { cutoffDate } from "../../utils/date-utils";
 
 let started = false;
-
-function cutoffDate(days: number): string {
-  return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
-}
 
 function deleteOldFiles(dir: string, olderThanDate: string, prefix: string): number {
   let removed = 0;

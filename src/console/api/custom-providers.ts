@@ -21,6 +21,8 @@ import { pushConsoleLog } from "../logs/ring";
 import { assertPublicUrl } from "../../upstream/ssrf-guard";
 import { dynamicProviderRouter } from "../../upstream/providers/dynamic";
 import { lookupKnownModelMeta } from "../../upstream/providers/model-catalog-index";
+import { extractModelIds } from "../../shared/text-utils";
+import { isOneOf } from "../../shared/guards";
 import {
   clampTimeoutSeconds,
   createCustomProvider,
@@ -68,9 +70,7 @@ interface ModelsFetchResult {
   error?: string;
 }
 
-function isValidType(type: unknown): type is CustomProviderType {
-  return type === "openai-compatible" || type === "anthropic-compatible";
-}
+const CUSTOM_PROVIDER_TYPES: CustomProviderType[] = ["openai-compatible", "anthropic-compatible"];
 
 /** A plain object of string->string, rejecting anything with a non-string value or a blank key. */
 function sanitizeHeaders(input: unknown): Record<string, string> | undefined {
@@ -81,22 +81,6 @@ function sanitizeHeaders(input: unknown): Record<string, string> | undefined {
     if (typeof value === "string" && key.trim()) out[key.trim()] = value;
   }
   return out;
-}
-
-function modelsErrorMessage(status: number): string {
-  if (status === 401 || status === 403) return "API key unauthorized";
-  if (status === 404) return "/models endpoint not found on this base URL";
-  if (status >= 500) return "Server error — try again later";
-  return `Unexpected response (${status})`;
-}
-
-function extractModelIds(payload: unknown): string[] {
-  const data = payload && typeof payload === "object" ? ((payload as Record<string, unknown>).data ?? (payload as Record<string, unknown>).models) : undefined;
-  if (!Array.isArray(data)) return [];
-  return data
-    .map((entry) => (entry && typeof entry === "object" ? ((entry as Record<string, unknown>).id ?? (entry as Record<string, unknown>).name) : entry))
-    .filter((id): id is string => typeof id === "string")
-    .slice(0, 200);
 }
 
 /** `GET {baseUrl}/models` with the given credential and timeout — the sole validation/discovery mechanism. Enriches each bare id with known capabilities/context via `lookupKnownModelMeta`. */
@@ -125,7 +109,11 @@ async function fetchModels(input: { type: CustomProviderType; baseUrl: string; c
       const models = ids.map((id) => ({ id, ...lookupKnownModelMeta(id) }));
       return { ok: true, status: res.status, latencyMs: elapsed(), models };
     }
-    return { ok: false, status: res.status, latencyMs: elapsed(), models: [], error: modelsErrorMessage(res.status) };
+    let error = `Unexpected response (${res.status})`;
+    if (res.status === 401 || res.status === 403) error = "API key unauthorized";
+    else if (res.status === 404) error = "/models endpoint not found on this base URL";
+    else if (res.status >= 500) error = "Server error — try again later";
+    return { ok: false, status: res.status, latencyMs: elapsed(), models: [], error };
   } catch (err) {
     const timedOut = err instanceof Error && err.name === "TimeoutError";
     return { ok: false, status: 0, latencyMs: elapsed(), models: [], error: timedOut ? `Timed out after ${input.timeoutSeconds}s` : err instanceof Error ? err.message : String(err) };
@@ -162,7 +150,7 @@ export const customProvidersRoutes = new Elysia({ prefix: "/console/api/custom-p
   })
   .post("/", async ({ body, set }) => {
     const input = (body ?? {}) as CreateInput;
-    if (!input.name?.trim() || !isValidType(input.type) || !input.baseUrl?.trim() || !input.credential?.trim()) {
+    if (!input.name?.trim() || !isOneOf(input.type, CUSTOM_PROVIDER_TYPES) || !input.baseUrl?.trim() || !input.credential?.trim()) {
       set.status = 400;
       return consoleError("invalid_request", "name, type (openai-compatible|anthropic-compatible), baseUrl, and credential are required");
     }
@@ -274,7 +262,7 @@ export const customProvidersRoutes = new Elysia({ prefix: "/console/api/custom-p
   })
   .post("/validate", async ({ body, set }) => {
     const input = (body ?? {}) as ValidateInput;
-    if (!isValidType(input.type) || !input.baseUrl?.trim() || !input.credential?.trim()) {
+    if (!isOneOf(input.type, CUSTOM_PROVIDER_TYPES) || !input.baseUrl?.trim() || !input.credential?.trim()) {
       set.status = 400;
       return consoleError("invalid_request", "type, baseUrl, and credential are required");
     }

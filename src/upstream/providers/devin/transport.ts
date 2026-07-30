@@ -20,6 +20,7 @@ import {
 import type { OpenAIChatMessage } from "../../../translate/types";
 import type { StreamEvent } from "../../bridge";
 import { ProviderCallError } from "../index";
+import { flattenMessageText } from "../../../shared/text-utils";
 import { COMPRESSED_FLAG, decompressPayload, parseConnectTrailer, readConnectFrames } from "./connect";
 
 const DEFAULT_MAX_TOKENS = 64000;
@@ -246,19 +247,7 @@ function buildMetadata(apiKey: string, userJwt: string): Metadata {
   });
 }
 
-function flattenText(content: unknown): string {
-  if (content == null) return "";
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    const parts: string[] = [];
-    for (const part of content) {
-      if (typeof part === "string") parts.push(part);
-      else if (part && typeof part === "object" && "text" in part && typeof part.text === "string") parts.push(part.text);
-    }
-    return parts.join("");
-  }
-  return String(content);
-}
+const flattenText = flattenMessageText;
 
 function buildChatMessagePrompts(messages: OpenAIChatMessage[], cascadeId: string): ChatMessagePrompt[] {
   const prompts: ChatMessagePrompt[] = [];

@@ -8,10 +8,12 @@
  * selection — a distinct, intentionally separate concept.
  */
 
+import { isOneOf } from "../shared/guards";
+
 export const ROTATION_STRATEGIES = ["fallback", "round-robin"] as const;
 
 export type RotationStrategy = (typeof ROTATION_STRATEGIES)[number];
 
 export function isRotationStrategy(value: unknown): value is RotationStrategy {
-  return typeof value === "string" && (ROTATION_STRATEGIES as readonly string[]).includes(value);
+  return isOneOf(value, ROTATION_STRATEGIES);
 }

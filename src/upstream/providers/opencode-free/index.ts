@@ -4,6 +4,7 @@ import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } fr
 import { decodeOpenAIChatStream, decodeAnthropicStream } from "../../bridge";
 import { fetchOpenCodeFreeCatalog, findOpenCodeModel, selectCapability } from "./catalog";
 import { openCodeFreeModelCatalog } from "./models";
+import { capabilityToSurface, surfaceToCapability, capabilityPath } from "../opencode-capability";
 
 const UPSTREAM_BASE_URL = "https://opencode.ai/zen/v1";
 
@@ -101,24 +102,6 @@ class OpenCodeFreeProvider implements Provider {
 
     throw new ProviderCallError(501, "invalid_request", "OpenCode Free responses capability is not yet implemented.");
   }
-}
-
-function capabilityToSurface(capability: "chat" | "messages" | "responses"): RouteTarget["surface"] {
-  if (capability === "chat") return "openai-chat";
-  if (capability === "messages") return "anthropic-messages";
-  return "openai-responses";
-}
-
-function surfaceToCapability(surface: ProviderRequest["surface"]): "chat" | "messages" | "responses" {
-  if (surface === "openai-chat") return "chat";
-  if (surface === "anthropic-messages") return "messages";
-  return "responses";
-}
-
-function capabilityPath(capability: "chat" | "messages" | "responses"): string {
-  if (capability === "chat") return "/chat/completions";
-  if (capability === "messages") return "/messages";
-  return "/responses";
 }
 
 export const openCodeFreeProvider = new OpenCodeFreeProvider();

@@ -15,6 +15,7 @@
 
 import { parseSSEStream, formatSSEFrame, SSE_DONE } from "./sse";
 import { asArray, asNumber, asObject, asString, field } from "./jsonGuards";
+import { openAIFinishToAnthropicStop, isOpenAIFinishReason } from "../translate/concerns/finishReasons";
 import type { AnthropicStopReason } from "../translate/concerns/finishReasons";
 
 export type StreamEvent =
@@ -162,10 +163,7 @@ export async function* decodeOpenAIChatStream(body: ReadableStream<Uint8Array>):
 }
 
 function chatFinishToAnthropicStop(reason: string): AnthropicStopReason {
-  if (reason === "length") return "max_tokens";
-  if (reason === "tool_calls" || reason === "function_call") return "tool_use";
-  if (reason === "content_filter") return "refusal";
-  return "end_turn";
+  return isOpenAIFinishReason(reason) ? openAIFinishToAnthropicStop(reason) : "end_turn";
 }
 
 // ── Decode: OpenAI Responses SSE → StreamEvent ───────────────────────────

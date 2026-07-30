@@ -106,6 +106,33 @@ export class ProviderCallError extends Error {
   }
 }
 
+/**
+ * Canonical HTTP status → `ProviderCallError` kind mapping. Every provider
+ * transport hits the same upstream failure classes (auth, rate limit,
+ * generic 4xx, everything else); this is the single place that decides how
+ * a raw status maps to one.
+ */
+export function classifyUpstreamStatus(status: number): "authentication" | "invalid_request" | "rate_limited" | "unavailable" {
+  if (status === 401 || status === 403) return "authentication";
+  if (status === 429) return "rate_limited";
+  if (status >= 400 && status < 500) return "invalid_request";
+  return "unavailable";
+}
+
+/**
+ * Canonical provider HTTP failure factory. Every simple provider transport
+ * (Kimchi, Qoder, Command Code, OpenCode Zen) threw the same four-branch
+ * template with only the provider name — and occasionally the auth
+ * message — varying; this is the single source for that shape.
+ */
+export function providerHttpError(status: number, provider: string, authMessage?: string): ProviderCallError {
+  const kind = classifyUpstreamStatus(status);
+  if (kind === "authentication") return new ProviderCallError(status, kind, authMessage ?? `${provider} rejected the supplied credential.`);
+  if (kind === "rate_limited") return new ProviderCallError(status, kind, `${provider} is rate-limiting this request.`);
+  if (kind === "invalid_request") return new ProviderCallError(status, kind, `${provider} rejected this request.`);
+  return new ProviderCallError(502, kind, `${provider} is unavailable.`);
+}
+
 const OPENAI_COMPATIBLE_PROVIDERS = [
   createOpenAICompatibleProvider({ id: "openrouter", name: "OpenRouter", icon: "openrouter", baseUrl: "https://openrouter.ai/api/v1", credentialUrl: "https://openrouter.ai/settings/keys", models: [{ id: "openai/gpt-4.1", capabilities: ["text", "vision", "tools", "streaming", "json"] }] }),
   createOpenAICompatibleProvider({

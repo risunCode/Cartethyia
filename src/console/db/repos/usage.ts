@@ -1,6 +1,10 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getConsoleEnv } from "../../env";
+import { finiteOrNull, orZero } from "../../../utils/number-guards";
+import { utcNow, utcDateOf, periodStartUtc, type UsagePeriod } from "../../../utils/date-utils";
+
+export { utcNow, utcDateOf, periodStartUtc, type UsagePeriod };
 
 const MAX_HISTORY = 10_000;
 let nextId = 1;
@@ -31,20 +35,8 @@ export interface UsageInsert {
   meta: Record<string, unknown>;
 }
 
-export function utcNow(): string {
-  return new Date().toISOString().replace("T", " ").replace("Z", "");
-}
-
-export function utcDateOf(ts: string): string {
-  return ts.slice(0, 10);
-}
-
 function trimHistory(): void {
   if (records.length > MAX_HISTORY) records.splice(0, records.length - MAX_HISTORY);
-}
-
-function nullableNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function hydrateHistory(): void {
@@ -79,9 +71,9 @@ function hydrateHistory(): void {
           stream: record.stream === true, startedAt: record.startedAt,
           finishedAt: typeof record.finishedAt === "string" ? record.finishedAt : record.startedAt,
           durationMs: typeof record.durationMs === "number" ? record.durationMs : 0,
-          inputTokens: nullableNumber(usage.inputTokens), outputTokens: nullableNumber(usage.outputTokens),
-          cachedTokens: nullableNumber(usage.cachedTokens), cacheWriteTokens: nullableNumber(usage.cacheWriteTokens),
-          reasoningTokens: nullableNumber(usage.reasoningTokens), totalTokens: nullableNumber(usage.totalTokens),
+          inputTokens: finiteOrNull(usage.inputTokens), outputTokens: finiteOrNull(usage.outputTokens),
+          cachedTokens: finiteOrNull(usage.cachedTokens), cacheWriteTokens: finiteOrNull(usage.cacheWriteTokens),
+          reasoningTokens: finiteOrNull(usage.reasoningTokens), totalTokens: finiteOrNull(usage.totalTokens),
           usageSource: typeof usage.source === "string" ? usage.source : "missing",
           meta: record.meta && typeof record.meta === "object" && !Array.isArray(record.meta) ? record.meta as Record<string, unknown> : {},
         });
@@ -153,19 +145,8 @@ export function getRequestTraceEvent(traceId: string): Record<string, unknown> |
   return null;
 }
 
-export type UsagePeriod = "1h" | "24h" | "7d" | "30d";
-
-export function periodStartUtc(period: UsagePeriod): string {
-  const ms = { "1h": 3_600_000, "24h": 86_400_000, "7d": 604_800_000, "30d": 2_592_000_000 }[period];
-  return new Date(Date.now() - ms).toISOString().replace("T", " ").replace("Z", "");
-}
-
 function afterPeriod(record: UsageInsert, period: UsagePeriod): boolean {
   return record.startedAt >= periodStartUtc(period);
-}
-
-function numberOrZero(value: number | null): number {
-  return value ?? 0;
 }
 
 export interface UsageSummary {
@@ -183,9 +164,9 @@ export function queryUsageSummary(period: UsagePeriod): UsageSummary {
   const duration = items.reduce((total, record) => total + record.durationMs, 0);
   return {
     requests: items.length,
-    inputTokens: items.reduce((total, record) => total + numberOrZero(record.inputTokens), 0),
-    cachedTokens: items.reduce((total, record) => total + numberOrZero(record.cachedTokens), 0),
-    outputTokens: items.reduce((total, record) => total + numberOrZero(record.outputTokens), 0),
+    inputTokens: items.reduce((total, record) => total + orZero(record.inputTokens), 0),
+    cachedTokens: items.reduce((total, record) => total + orZero(record.cachedTokens), 0),
+    outputTokens: items.reduce((total, record) => total + orZero(record.outputTokens), 0),
     errors: items.filter((record) => record.status >= 400).length,
     avgDurationMs: items.length ? Math.round(duration / items.length) : 0,
   };
@@ -217,9 +198,9 @@ export function queryUsageChart(period: UsagePeriod): ChartBucket[] {
     const key = bucketOf(record.startedAt, period);
     const bucket = buckets.get(key) ?? { t: key, requests: 0, input: 0, cached: 0, output: 0 };
     bucket.requests += 1;
-    bucket.input += numberOrZero(record.inputTokens);
-    bucket.cached += numberOrZero(record.cachedTokens);
-    bucket.output += numberOrZero(record.outputTokens);
+    bucket.input += orZero(record.inputTokens);
+    bucket.cached += orZero(record.cachedTokens);
+    bucket.output += orZero(record.outputTokens);
     buckets.set(key, bucket);
   }
   return [...buckets.values()].sort((a, b) => a.t.localeCompare(b.t));
@@ -244,10 +225,10 @@ export function queryUsageBy(dimension: UsageDimension, period: UsagePeriod): Us
     const name = dimension === "model" ? record.model ?? "unknown" : dimension === "provider" ? record.provider ?? "unknown" : record.apiKeyPrefix ?? "anonymous";
     const row = map.get(name) ?? { name, requests: 0, input: 0, output: 0, cached: 0, total: 0 };
     row.requests += 1;
-    row.input += numberOrZero(record.inputTokens);
-    row.output += numberOrZero(record.outputTokens);
-    row.cached += numberOrZero(record.cachedTokens);
-    row.total += numberOrZero(record.totalTokens);
+    row.input += orZero(record.inputTokens);
+    row.output += orZero(record.outputTokens);
+    row.cached += orZero(record.cachedTokens);
+    row.total += orZero(record.totalTokens);
     map.set(name, row);
   }
   return [...map.values()].sort((a, b) => b.total - a.total).slice(0, 20);
@@ -348,9 +329,9 @@ export function queryProviderToday(): ProviderTodayRow[] {
     if (!record.provider || utcDateOf(record.startedAt) !== today) continue;
     const row = rows.get(record.provider) ?? { provider: record.provider, requests: 0, input: 0, cached: 0, output: 0, errors: 0 };
     row.requests += 1;
-    row.input += numberOrZero(record.inputTokens);
-    row.cached += numberOrZero(record.cachedTokens);
-    row.output += numberOrZero(record.outputTokens);
+    row.input += orZero(record.inputTokens);
+    row.cached += orZero(record.cachedTokens);
+    row.output += orZero(record.outputTokens);
     row.errors += record.status >= 400 ? 1 : 0;
     rows.set(record.provider, row);
   }
@@ -375,5 +356,5 @@ export function sumDailyTokensForKey(apiKeyId: string): number {
   const today = new Date().toISOString().slice(0, 10);
   return records
     .filter((record) => record.apiKeyId === apiKeyId && utcDateOf(record.startedAt) === today)
-    .reduce((total, record) => total + numberOrZero(record.inputTokens) + numberOrZero(record.outputTokens), 0);
+    .reduce((total, record) => total + orZero(record.inputTokens) + orZero(record.outputTokens), 0);
 }

@@ -14,6 +14,7 @@
 import { create, toBinary, fromBinary } from "@bufbuild/protobuf";
 import http2 from "node:http2";
 import { ProviderCallError } from "../index";
+import { flattenMessageText } from "../../../shared/text-utils";
 import type { StreamEvent } from "../../bridge";
 import type { OpenAIChatMessage } from "../../../translate/types";
 import {
@@ -63,16 +64,7 @@ function deterministicUuid(seed: string): string {
   return `${hex}-${hex.slice(0, 4)}-4${hex.slice(1, 4)}-a${hex.slice(0, 3)}-${hex}${hex.slice(0, 4)}`;
 }
 
-function flattenText(content: unknown): string {
-  if (content == null) return "";
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((p) => (typeof p === "string" ? p : typeof p === "object" && p && "text" in p ? (p as { text: string }).text : ""))
-      .join("");
-  }
-  return String(content);
-}
+const flattenText = flattenMessageText;
 
 /** Builds the Connect-protocol HTTP/2 headers for a Cursor AgentService call. */
 function buildCursorHeaders(accessToken: string): Record<string, string> {

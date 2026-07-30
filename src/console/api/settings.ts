@@ -10,6 +10,8 @@ import { addAuditEvent } from "../db/repos/audit";
 import { confirmPassword } from "../auth/reauth";
 import { exportBackup } from "../backup/export";
 import { validateRestorePayload, applyRestore } from "../backup/restore";
+import { numericRangeError } from "../../utils/config-helpers";
+import { isOneOf } from "../../shared/guards";
 import type { RuntimeSettings } from "../db/repos/settings";
 import type { TrackMode, ProxyAuthMode } from "../env";
 
@@ -17,24 +19,21 @@ const TRACK_MODES: TrackMode[] = ["none", "meta", "store"];
 const PROXY_AUTH_MODES: ProxyAuthMode[] = ["open", "api_key"];
 
 function validateRuntimePatch(patch: Partial<RuntimeSettings>): string | null {
-  if (patch.proxyAuthMode !== undefined && !PROXY_AUTH_MODES.includes(patch.proxyAuthMode)) {
+  if (patch.proxyAuthMode !== undefined && !isOneOf(patch.proxyAuthMode, PROXY_AUTH_MODES)) {
     return `proxyAuthMode must be one of ${PROXY_AUTH_MODES.join(", ")}`;
   }
-  if (patch.trackPayloads !== undefined && !TRACK_MODES.includes(patch.trackPayloads)) {
+  if (patch.trackPayloads !== undefined && !isOneOf(patch.trackPayloads, TRACK_MODES)) {
     return `trackPayloads must be one of ${TRACK_MODES.join(", ")}`;
   }
-  if (patch.trackAssets !== undefined && !TRACK_MODES.includes(patch.trackAssets)) {
+  if (patch.trackAssets !== undefined && !isOneOf(patch.trackAssets, TRACK_MODES)) {
     return `trackAssets must be one of ${TRACK_MODES.join(", ")}`;
   }
-  if (patch.logRetentionDays !== undefined && (!Number.isFinite(patch.logRetentionDays) || patch.logRetentionDays < 1 || patch.logRetentionDays > 365)) {
-    return "logRetentionDays must be 1–365";
-  }
-  if (patch.assetRetentionDays !== undefined && (!Number.isFinite(patch.assetRetentionDays) || patch.assetRetentionDays < 1 || patch.assetRetentionDays > 365)) {
-    return "assetRetentionDays must be 1–365";
-  }
-  if (patch.maxFlightsPerIp !== undefined && (!Number.isFinite(patch.maxFlightsPerIp) || patch.maxFlightsPerIp < 1 || patch.maxFlightsPerIp > 100)) {
-    return "maxFlightsPerIp must be 1–100";
-  }
+  const rangeError =
+    numericRangeError(patch.logRetentionDays, "logRetentionDays", 1, 365) ??
+    numericRangeError(patch.assetRetentionDays, "assetRetentionDays", 1, 365) ??
+    numericRangeError(patch.maxFlightsPerIp, "maxFlightsPerIp", 1, 100) ??
+    numericRangeError(patch.sessionTtlHours, "sessionTtlHours", 1, 720);
+  if (rangeError) return rangeError;
   if (patch.trustProxy !== undefined && typeof patch.trustProxy !== "boolean") {
     return "trustProxy must be a boolean";
   }
@@ -44,9 +43,6 @@ function validateRuntimePatch(patch: Partial<RuntimeSettings>): string | null {
   // opencode-free models are always accessible to any valid API key — no access-mode setting exists.
   if (patch.systemPrompt !== undefined && typeof patch.systemPrompt !== "string") {
     return "systemPrompt must be a string";
-  }
-  if (patch.sessionTtlHours !== undefined && (!Number.isFinite(patch.sessionTtlHours) || patch.sessionTtlHours < 1 || patch.sessionTtlHours > 720)) {
-    return "sessionTtlHours must be 1–720";
   }
   if (patch.costPerMillionInputTokens !== undefined && (!Number.isFinite(patch.costPerMillionInputTokens) || patch.costPerMillionInputTokens < 0)) {
     return "costPerMillionInputTokens must be a non-negative number";

@@ -1,6 +1,6 @@
 import type { RouteTarget } from "../../../routing/types";
 import type { OpenAIChatRequest } from "../../../translate/types";
-import { ProviderCallError } from "../index";
+import { ProviderCallError, providerHttpError } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
 import { commandCodeModelCatalog } from "./models";
 import { buildCommandCodeHeaders, buildCommandCodeRequest, decodeCommandCodeNdjsonStream } from "./transport";
@@ -75,13 +75,6 @@ class CommandCodeProvider implements Provider {
     const materialized = await materializeFromStream(events);
     return { type: "json", body: materializedToChatResponse(materialized, chatBody.model) as unknown as Record<string, unknown> };
   }
-}
-
-function providerHttpError(status: number, provider: string): ProviderCallError {
-  if (status === 401 || status === 403) return new ProviderCallError(status, "authentication", `${provider} rejected the supplied credential.`);
-  if (status === 429) return new ProviderCallError(429, "rate_limited", `${provider} is rate-limiting this request.`);
-  if (status >= 400 && status < 500) return new ProviderCallError(status, "invalid_request", `${provider} rejected this request.`);
-  return new ProviderCallError(502, "unavailable", `${provider} is unavailable.`);
 }
 
 export const commandCodeProvider = new CommandCodeProvider();

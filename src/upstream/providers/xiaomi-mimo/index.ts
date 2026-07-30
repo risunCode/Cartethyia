@@ -5,19 +5,12 @@
  */
 
 import type { RouteTarget } from "../../../routing/types";
-import { ProviderCallError } from "../index";
+import { ProviderCallError, classifyUpstreamStatus } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
 import { decodeOpenAIChatStream } from "../../bridge";
 import { xiaomiMimoModelCatalog } from "./models";
 
 const XIAOMI_MIMO_BASE_URL = "https://api.xiaomimimo.com/v1";
-
-function upstreamErrorKind(status: number): "authentication" | "invalid_request" | "rate_limited" | "unavailable" {
-  if (status === 401 || status === 403) return "authentication";
-  if (status === 429) return "rate_limited";
-  if (status >= 400 && status < 500) return "invalid_request";
-  return "unavailable";
-}
 
 class XiaomiMimoProvider implements Provider {
   readonly id = "xmimo" as const;
@@ -53,7 +46,7 @@ class XiaomiMimoProvider implements Provider {
       ...(proxy ? { proxy } : {}),
     });
 
-    if (!res.ok) throw new ProviderCallError(res.status, upstreamErrorKind(res.status), `Xiaomi MiMo returned ${res.status}.`);
+    if (!res.ok) throw new ProviderCallError(res.status, classifyUpstreamStatus(res.status), `Xiaomi MiMo returned ${res.status}.`);
     if (!res.body) throw new ProviderCallError(502, "unavailable", "Xiaomi MiMo returned an empty response body.");
 
     if (isStreaming) return { type: "stream", events: decodeOpenAIChatStream(res.body) };

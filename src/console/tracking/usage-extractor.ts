@@ -3,6 +3,8 @@
  * terminal SSE payload, across the three client-facing shapes.
  */
 
+import { finiteOrNull as num } from "../../utils/number-guards";
+
 export interface UsageTotals {
   inputTokens: number | null;
   outputTokens: number | null;
@@ -24,10 +26,6 @@ const MISSING: UsageTotals = {
 };
 
 type SurfaceShape = "chat" | "anthropic" | "responses";
-
-function num(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
 
 function asObj(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;

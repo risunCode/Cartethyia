@@ -60,7 +60,7 @@ describe("provider accounts CRUD", () => {
     expect(items[0]!.credentialKind).toBe("bearer");
     expect(items[0]!.active).toBe(true);
     expect(JSON.stringify(items[0])).not.toContain("ocf-secret-token"); // never plaintext
-    expect(items[0]!.credential_enc).toBeUndefined();
+    expect(items[0]!.credential).toBeUndefined(); // list payload never carries the raw credential field
 
     const patched = await app.handle(
       postJson(`/console/api/providers/opencode-free/accounts/${createdBody.id}`, { name: "renamed", priority: 50, active: false }, { cookie })

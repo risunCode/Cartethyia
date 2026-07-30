@@ -8,7 +8,7 @@
  */
 
 import type { RouteTarget } from "../../../routing/types";
-import { ProviderCallError } from "../index";
+import { ProviderCallError, classifyUpstreamStatus } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
 import { decodeAnthropicStream } from "../../bridge";
 import { translateAnthropicResponseToChat, translateChatRequestToAnthropic } from "../../../translate/openai-anthropic";
@@ -57,13 +57,6 @@ function buildHeaders(apiKey: string, stream: boolean): Record<string, string> {
   };
 }
 
-function upstreamErrorKind(status: number): "authentication" | "invalid_request" | "rate_limited" | "unavailable" {
-  if (status === 401 || status === 403) return "authentication";
-  if (status === 429) return "rate_limited";
-  if (status >= 400 && status < 500) return "invalid_request";
-  return "unavailable";
-}
-
 class AgentRouterProvider implements Provider {
   readonly id = "agentrouter" as const;
   readonly display = {
@@ -95,7 +88,7 @@ class AgentRouterProvider implements Provider {
       ...(proxy ? { proxy } : {}),
     });
 
-    if (!res.ok) throw new ProviderCallError(res.status, upstreamErrorKind(res.status), `AgentRouter returned ${res.status}.`);
+    if (!res.ok) throw new ProviderCallError(res.status, classifyUpstreamStatus(res.status), `AgentRouter returned ${res.status}.`);
     if (!res.body) throw new ProviderCallError(502, "unavailable", "AgentRouter returned an empty response body.");
 
     if (isStreaming) return { type: "stream", events: decodeAnthropicStream(res.body) };

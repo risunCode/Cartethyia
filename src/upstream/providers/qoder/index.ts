@@ -3,7 +3,7 @@ import type { RouteTarget } from "../../../routing/types";
 import type { OpenAIChatRequest } from "../../../translate/types";
 import { decodeOpenAIChatStream } from "../../bridge";
 import { materializeFromStream, materializedToChatResponse } from "../../result";
-import { ProviderCallError } from "../index";
+import { ProviderCallError, providerHttpError } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
 import { qoderModelCatalog, QODER_MODEL_CONFIGS, type QoderModelConfig } from "./models";
 import { callQoder, exchangeQoderPat, QODER_CHAT_URL, type QoderAuth } from "./protocol";
@@ -53,10 +53,7 @@ class QoderProvider implements Provider {
     const qoderBody = buildQoderRequest(target.modelId, chatBody, modelConfig, auth);
     const response = await callQoder(QODER_CHAT_URL, qoderBody, target.modelId, auth, signal);
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) throw new ProviderCallError(response.status, "authentication", "Qoder rejected the supplied credential.");
-      if (response.status === 429) throw new ProviderCallError(429, "rate_limited", "Qoder is rate-limiting this request.");
-      if (response.status >= 400 && response.status < 500) throw new ProviderCallError(response.status, "invalid_request", "Qoder rejected this request.");
-      throw new ProviderCallError(502, "unavailable", "Qoder is unavailable.");
+      throw providerHttpError(response.status, "Qoder");
     }
     if (!response.body) {
       throw new ProviderCallError(502, "unavailable", "Qoder returned an empty response body.");

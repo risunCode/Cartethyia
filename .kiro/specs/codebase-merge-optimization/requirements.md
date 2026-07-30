@@ -85,8 +85,8 @@ Key objectives:
 #### Acceptance Criteria
 
 1. WHEN calculating period start times THEN use `Date.now() - offsetMs` arithmetic rather than constructing full ISO strings repeatedly
-2. IF `utcNow()` creates fresh Date every call AND returns same format THEN cache singleton timestamp until day boundary
-3. WHERE date subtraction occurs (>3 locations) THEN implement single `addDays(date, days)` utility
+2. WHEN current timestamps are requested THEN system SHALL format the current instant without caching, because cached timestamps would be incorrect.
+3. WHERE date subtraction occurs (>3 locations) THEN system SHALL implement shared period-offset/cutoff utilities
 
 ---
 

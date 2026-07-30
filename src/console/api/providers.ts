@@ -34,28 +34,10 @@ import { getDb } from "../db/client";
 import { appendJsonl, insertUsageHistory, utcNow } from "../db/repos/usage";
 import { extractUsage } from "../tracking/usage-extractor";
 import { deleteProviderModel, isProviderModelEnabled, listProviderModelStates, setAllKnownProviderModels, setProviderModelEnabled, upsertProviderModel } from "../db/repos/provider-models";
-
-function extractSample(body: Record<string, unknown>): string {
-  const choices = body.choices;
-  if (Array.isArray(choices)) {
-    const first = choices[0];
-    if (first && typeof first === "object") {
-      const message = (first as Record<string, unknown>).message;
-      if (message && typeof message === "object") {
-        const content = (message as Record<string, unknown>).content;
-        if (typeof content === "string") return content;
-      }
-      const text = (first as Record<string, unknown>).text;
-      if (typeof text === "string") return text;
-    }
-  }
-  const outputText = body.output_text;
-  if (typeof outputText === "string") return outputText;
-  return "";
-}
+import { extractModelIds, extractResponseSample } from "../../shared/text-utils";
 
 async function collectSample(result: ProviderResult): Promise<string> {
-  if (result.type === "json") return extractSample(result.body);
+  if (result.type === "json") return extractResponseSample(result.body);
   let sample = "";
   for await (const event of result.events) {
     if (event.type === "text_delta") {
@@ -85,13 +67,6 @@ function supportsModelFetch(providerId: AddedProviderId): boolean {
   return providerId in MODEL_ENDPOINTS;
 }
 
-function extractModelIds(payload: unknown): string[] {
-  const root = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : null;
-  const data = root?.data ?? root?.models;
-  if (!Array.isArray(data)) return [];
-  return [...new Set(data.map((entry) => entry && typeof entry === "object" && !Array.isArray(entry) ? (entry as Record<string, unknown>).id ?? (entry as Record<string, unknown>).name : entry).filter((id): id is string => typeof id === "string" && id.trim().length > 0))].slice(0, 200);
-}
-
 async function discoverProviderModels(providerId: AddedProviderId): Promise<string[]> {
   const provider = providerRegistry.get(providerId);
   if (!provider) return [];
@@ -109,7 +84,7 @@ async function discoverProviderModels(providerId: AddedProviderId): Promise<stri
       lastStatus = response.status;
       continue;
     }
-    const models = extractModelIds(await response.json());
+    const models = extractModelIds(await response.json(), true);
     if (models.length > 0) return models;
   }
   if (lastStatus > 0) throw new Error(`Model discovery returned ${lastStatus} for every active account.`);
