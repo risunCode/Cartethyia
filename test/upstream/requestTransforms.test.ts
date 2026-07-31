@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { applyFilterRules, compressToolResults, injectSystemPrompt, prepareOutboundRequest } from "../../src/upstream/outbound";
 import type { SanitizerFilterRule } from "../../src/upstream/outbound";
+import { DEFAULT_SANITIZER_RULES } from "../../src/console/default-sanitizer-rules";
 
 const noPromptSettings = {
   rtk: { enabled: true, minChars: 500, maxReductionPercent: 35 },
@@ -188,5 +189,66 @@ describe("Filter Rules sanitizer (applyFilterRules)", () => {
     applyFilterRules(body, "openai", []);
 
     expect(body.messages[0]!.content).toBe("unchanged");
+  });
+});
+
+// Regression: `agentic-identity` and `mcp-reference` used to be unanchored
+// (`"MCP (?:server|client|protocol)[^.]*\\.?"`, matching anywhere in the
+// text), so any sentence merely mentioning MCP or an "agentic"/"autonomous"
+// tool got deleted wholesale, stripping legitimate tool-use instructions from
+// client system prompts and breaking tool calling for MCP-style clients.
+// Both rules are now anchored to a
+// leading identity claim ("You are"/"Powered by"/"This is") so they only
+// strip self-identification, not capability instructions.
+describe("built-in Filter Rules do not eat tool-use instructions (regression)", () => {
+  test("preserves an MCP protocol capability sentence with a function-use instruction", () => {
+    const body = {
+      messages: [
+        {
+          role: "system",
+          content: "You are a helpful assistant. You have access to tools via the MCP protocol. Use the search_web function when needed.",
+        },
+      ],
+    };
+
+    applyFilterRules(body, "openai", DEFAULT_SANITIZER_RULES as unknown as SanitizerFilterRule[]);
+
+    expect(body.messages[0]!.content).toBe(
+      "You are a helpful assistant. You have access to tools via the MCP protocol. Use the search_web function when needed.",
+    );
+  });
+
+  test("preserves an MCP server capability sentence listing available functions", () => {
+    const body = {
+      messages: [{ role: "system", content: "This assistant can call tools through an MCP server. Available functions: get_weather, send_email." }],
+    };
+
+    applyFilterRules(body, "openai", DEFAULT_SANITIZER_RULES as unknown as SanitizerFilterRule[]);
+
+    expect(body.messages[0]!.content).toBe("This assistant can call tools through an MCP server. Available functions: get_weather, send_email.");
+  });
+
+  test("preserves a Model Context Protocol capability sentence", () => {
+    const body = { system: "Tools are exposed through the Model Context Protocol (MCP). Call functions as needed to complete tasks." };
+
+    applyFilterRules(body, "anthropic", DEFAULT_SANITIZER_RULES as unknown as SanitizerFilterRule[]);
+
+    expect(body.system).toBe("Tools are exposed through the Model Context Protocol (MCP). Call functions as needed to complete tasks.");
+  });
+
+  test("still strips an actual vendor identity claim mentioning MCP", () => {
+    const body = { system: "You are connected via the MCP protocol to a proprietary tool server." };
+
+    applyFilterRules(body, "anthropic", DEFAULT_SANITIZER_RULES as unknown as SanitizerFilterRule[]);
+
+    expect(body.system).toBe("");
+  });
+
+  test("still strips an autonomous/agentic identity claim", () => {
+    const body = { system: "You are an autonomous AI agent built by SomeVendor for coding tasks." };
+
+    applyFilterRules(body, "anthropic", DEFAULT_SANITIZER_RULES as unknown as SanitizerFilterRule[]);
+
+    expect(body.system).toBe("");
   });
 });

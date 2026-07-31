@@ -259,11 +259,6 @@ function responsesStatusToAnthropicStop(status: string, incompleteReason: string
 // ── Encode: StreamEvent → Anthropic SSE ──────────────────────────────────
 
 export async function* encodeAnthropicStream(events: AsyncGenerator<StreamEvent>, meta: StreamMeta): AsyncGenerator<string> {
-  let blockIndex = -1;
-  let thinkingOpen = false;
-  let textOpen = false;
-  const toolBlockIndexById = new Map<string, number>();
-
   yield formatSSEFrame({
     event: "message_start",
     data: JSON.stringify({
@@ -272,12 +267,34 @@ export async function* encodeAnthropicStream(events: AsyncGenerator<StreamEvent>
     }),
   });
 
-  // Closes any open content block (thinking, text, or tool_use) so the
-  // finish handler doesn't open a spurious fallback text block when
-  // reasoning or tool_use consumed the entire token budget.
-  function* closeOpenBlocks(): Generator<string> {
+  let blockIndex = -1;
+  let thinkingOpen = false;
+  let textOpen = false;
+  const toolBlockIndexById = new Map<string, number>();
+  // Sticky across the whole stream (unlike thinking/textOpen and the tool
+  // map, which reflect only currently-open blocks) - the `finish` handler
+  // needs to know whether ANY content block ever ran, not whether one
+  // happens to still be open, since a tool_call_end can close and remove its
+  // block from the map well before `finish` arrives.
+  let anyBlockOpened = false;
+
+  // Closes an open thinking/text block. Tool blocks are closed individually
+  // by their own `tool_call_end` (see below) - unlike thinking/text, more
+  // than one tool_use block can be genuinely open at once (parallel tool
+  // calls on an OpenAI-shaped upstream interleave argument deltas by id
+  // before any of them finish), so a text/thinking transition must not
+  // touch tool blocks that are still streaming.
+  function* closeTextLikeBlocks(): Generator<string> {
     if (thinkingOpen) { yield formatSSEFrame({ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index: blockIndex }) }); thinkingOpen = false; }
     if (textOpen) { yield formatSSEFrame({ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index: blockIndex }) }); textOpen = false; }
+  }
+
+  // Full close, used only at stream end: closes thinking/text plus any tool
+  // blocks still open (a safety net for a stream that ends before every
+  // tool_call_end arrives - normal completion already closes each tool via
+  // its own end event, per-id, so this is a no-op in the common case).
+  function* closeAllOpenBlocks(): Generator<string> {
+    yield* closeTextLikeBlocks();
     for (const idx of toolBlockIndexById.values()) { yield formatSSEFrame({ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index: idx }) }); }
     toolBlockIndexById.clear();
   }
@@ -285,9 +302,10 @@ export async function* encodeAnthropicStream(events: AsyncGenerator<StreamEvent>
   for await (const ev of events) {
     if (ev.type === "thinking_delta") {
       if (!thinkingOpen) {
-        yield* closeOpenBlocks();
+        yield* closeAllOpenBlocks();
         blockIndex++;
         thinkingOpen = true;
+        anyBlockOpened = true;
         yield formatSSEFrame({ event: "content_block_start", data: JSON.stringify({ type: "content_block_start", index: blockIndex, content_block: { type: "thinking", thinking: "" } }) });
       }
       yield formatSSEFrame({ event: "content_block_delta", data: JSON.stringify({ type: "content_block_delta", index: blockIndex, delta: { type: "thinking_delta", thinking: ev.text } }) });
@@ -300,15 +318,20 @@ export async function* encodeAnthropicStream(events: AsyncGenerator<StreamEvent>
       }
     } else if (ev.type === "text_delta") {
       if (!textOpen) {
-        yield* closeOpenBlocks();
+        yield* closeAllOpenBlocks();
         blockIndex++;
         textOpen = true;
+        anyBlockOpened = true;
         yield formatSSEFrame({ event: "content_block_start", data: JSON.stringify({ type: "content_block_start", index: blockIndex, content_block: { type: "text", text: "" } }) });
       }
       yield formatSSEFrame({ event: "content_block_delta", data: JSON.stringify({ type: "content_block_delta", index: blockIndex, delta: { type: "text_delta", text: ev.text } }) });
     } else if (ev.type === "tool_call_start") {
-      yield* closeOpenBlocks();
+      // Only thinking/text must yield before a tool block opens - other
+      // still-open tool blocks (parallel tool calls) are left alone so
+      // their argument deltas keep resolving by id instead of vanishing.
+      yield* closeTextLikeBlocks();
       blockIndex++;
+      anyBlockOpened = true;
       toolBlockIndexById.set(ev.id, blockIndex);
       yield formatSSEFrame({ event: "content_block_start", data: JSON.stringify({ type: "content_block_start", index: blockIndex, content_block: { type: "tool_use", id: ev.id, name: ev.name, input: {} } }) });
     } else if (ev.type === "tool_call_args_delta") {
@@ -318,11 +341,17 @@ export async function* encodeAnthropicStream(events: AsyncGenerator<StreamEvent>
       }
     } else if (ev.type === "tool_call_end") {
       const index = toolBlockIndexById.get(ev.id);
-      if (index !== undefined) yield formatSSEFrame({ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index }) });
+      if (index !== undefined) {
+        yield formatSSEFrame({ event: "content_block_stop", data: JSON.stringify({ type: "content_block_stop", index }) });
+        // Removed once closed - otherwise the next closeAllOpenBlocks() call
+        // (next tool-less transition, or stream finish) re-closes an index
+        // the client already considers stopped, corrupting the SSE stream
+        // with a stray content_block_stop for every tool call, parallel or not.
+        toolBlockIndexById.delete(ev.id);
+      }
     } else if (ev.type === "finish") {
-      const hadAnyBlock = thinkingOpen || textOpen || toolBlockIndexById.size > 0;
-      yield* closeOpenBlocks();
-      if (!hadAnyBlock) {
+      yield* closeAllOpenBlocks();
+      if (!anyBlockOpened) {
         blockIndex++;
         yield formatSSEFrame({ event: "content_block_start", data: JSON.stringify({ type: "content_block_start", index: blockIndex, content_block: { type: "text", text: "" } }) });
         yield formatSSEFrame({ event: "content_block_delta", data: JSON.stringify({ type: "content_block_delta", index: blockIndex, delta: { type: "text_delta", text: "(model produced no visible output)" } }) });
@@ -348,6 +377,7 @@ export async function* encodeAnthropicStream(events: AsyncGenerator<StreamEvent>
 
 export async function* encodeOpenAIChatStream(events: AsyncGenerator<StreamEvent>, meta: StreamMeta): AsyncGenerator<string> {
   const toolIndexById = new Map<string, number>();
+  const toolIdsWithArgs = new Set<string>();
   let nextToolIndex = 0;
 
   const chunk = (delta: Record<string, unknown>, finishReason: string | null = null) =>
@@ -374,9 +404,18 @@ export async function* encodeOpenAIChatStream(events: AsyncGenerator<StreamEvent
       yield chunk({ tool_calls: [{ index, id: ev.id, type: "function", function: { name: ev.name, arguments: "" } }] });
     } else if (ev.type === "tool_call_args_delta") {
       const index = toolIndexById.get(ev.id);
-      if (index !== undefined) yield chunk({ tool_calls: [{ index, function: { arguments: ev.argumentsDelta } }] });
+      if (index !== undefined) {
+        toolIdsWithArgs.add(ev.id);
+        yield chunk({ tool_calls: [{ index, function: { arguments: ev.argumentsDelta } }] });
+      }
     } else if (ev.type === "tool_call_end") {
-      // Chat Completions has no per-tool-call end marker — folded into finish_reason.
+      // Chat Completions has no per-tool-call end marker — folded into
+      // finish_reason. A tool call whose upstream never streamed any argument
+      // fragment (a genuinely zero-argument function) would otherwise leave
+      // the client-assembled `arguments` as "" - not valid JSON - since the
+      // opening chunk only ever sends "". Backfill "{}" once, here.
+      const index = toolIndexById.get(ev.id);
+      if (index !== undefined && !toolIdsWithArgs.has(ev.id)) yield chunk({ tool_calls: [{ index, function: { arguments: "{}" } }] });
     } else if (ev.type === "finish") {
       yield chunk({}, anthropicStopToOpenAIFinishWithTools(ev.stopReason, toolIndexById.size > 0));
     } else if (ev.type === "usage") {

@@ -241,6 +241,66 @@ describe("bridge — encodeAnthropicStream", () => {
     expect(starts[1]).toContain('"index":1');
     expect(starts[1]).toContain('"tool_use"');
   });
+
+  // Regression: `tool_call_end` never removed the tool's id from the open-block
+  // map, so the next block transition (another tool start, or `finish`) closed
+  // the same already-stopped index a second time - a stray content_block_stop
+  // the client never expects, on every single tool call.
+  test("a single tool call closes its content block exactly once, not twice at finish", async () => {
+    const events: StreamEvent[] = [
+      { type: "tool_call_start", id: "t1", name: "get_weather" },
+      { type: "tool_call_args_delta", id: "t1", argumentsDelta: '{"city":"Jakarta"}' },
+      { type: "tool_call_end", id: "t1" },
+      { type: "finish", stopReason: "tool_use" },
+    ];
+    const frames = await collect(encodeAnthropicStream(fromArray(events), META));
+    const stopsForIndex0 = frames.filter((f) => f.includes('"content_block_stop"') && f.includes('"index":0'));
+    expect(stopsForIndex0).toHaveLength(1);
+  });
+
+  // Regression: the same duplicate-stop bug, triggered by a second tool
+  // starting instead of by `finish` - closeOpenBlocks() used to re-close
+  // every previously-ended tool block still sitting in the map.
+  test("two sequential tool calls each close exactly once, no duplicate stop when the second one opens", async () => {
+    const events: StreamEvent[] = [
+      { type: "tool_call_start", id: "t1", name: "get_weather" },
+      { type: "tool_call_args_delta", id: "t1", argumentsDelta: "{}" },
+      { type: "tool_call_end", id: "t1" },
+      { type: "tool_call_start", id: "t2", name: "get_time" },
+      { type: "tool_call_args_delta", id: "t2", argumentsDelta: "{}" },
+      { type: "tool_call_end", id: "t2" },
+      { type: "finish", stopReason: "tool_use" },
+    ];
+    const frames = await collect(encodeAnthropicStream(fromArray(events), META));
+    const stops = frames.filter((f) => f.includes('"content_block_stop"'));
+    expect(stops).toHaveLength(2);
+    expect(stops.filter((f) => f.includes('"index":0'))).toHaveLength(1);
+    expect(stops.filter((f) => f.includes('"index":1'))).toHaveLength(1);
+  });
+
+  // Regression: a second tool_call_start used to close (and clear from the
+  // map) every other still-open tool block, so once two tool calls' argument
+  // deltas interleave by id (routine for parallel tool calls on an
+  // OpenAI-shaped upstream, per decodeOpenAIChatStream's own parallel-call
+  // handling), the earlier tool's later argument fragments were silently
+  // dropped instead of appended - truncated/invalid JSON on the client.
+  test("interleaved parallel tool-call argument deltas both accumulate in full, not truncated by the other's start", async () => {
+    const events: StreamEvent[] = [
+      { type: "tool_call_start", id: "t1", name: "get_weather" },
+      { type: "tool_call_args_delta", id: "t1", argumentsDelta: '{"city":' },
+      { type: "tool_call_start", id: "t2", name: "get_time" },
+      { type: "tool_call_args_delta", id: "t1", argumentsDelta: '"Jakarta"}' },
+      { type: "tool_call_args_delta", id: "t2", argumentsDelta: '{"tz":"WIB"}' },
+      { type: "tool_call_end", id: "t1" },
+      { type: "tool_call_end", id: "t2" },
+      { type: "finish", stopReason: "tool_use" },
+    ];
+    const frames = await collect(encodeAnthropicStream(fromArray(events), META));
+    const deltasForIndex0 = frames.filter((f) => f.includes('"content_block_delta"') && f.includes('"index":0')).map((f) => JSON.parse(f.split("data: ")[1]!).delta.partial_json);
+    expect(deltasForIndex0.join("")).toBe('{"city":"Jakarta"}');
+    const stops = frames.filter((f) => f.includes('"content_block_stop"'));
+    expect(stops).toHaveLength(2);
+  });
 });
 
 describe("bridge — encodeOpenAIChatStream", () => {

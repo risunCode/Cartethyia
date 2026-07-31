@@ -3,7 +3,12 @@
  * operator disables or overrides them from Console → Filter Rules. Not seeded
  * into SQLite; DB rows store operator overrides and custom rules only.
  *
- * Mirrors etteum-pool's PUDIDIL_FILTERS (Public/etteum-pool/src/proxy/filters.ts).
+ * Mirrors etteum-pool's PUDIDIL_FILTERS (Public/etteum-pool/src/proxy/filters.ts), with
+ * `agentic-identity` and `mcp-reference` anchored to a leading identity claim
+ * ("You are"/"Powered by"/"This is") — etteum-pool's unanchored versions strip
+ * any sentence merely mentioning MCP or an "agentic"/"autonomous" tool, which
+ * deleted legitimate tool-use instructions from client system prompts and
+ * broke tool calling for MCP-style clients.
  */
 
 export interface BuiltinSanitizerRule {
@@ -31,8 +36,8 @@ export const DEFAULT_SANITIZER_RULES: readonly BuiltinSanitizerRule[] = [
   { ruleId: "github-copilot-model", pattern: "When asked about the model you are using, you must state that you are using (?:an? )?Aliased Model\\.?", replacement: "", isRegex: true },
   { ruleId: "github-copilot-microsoft-policy", pattern: "Follow Microsoft content policies\\.?", replacement: "", isRegex: true },
   { ruleId: "github-copilot-response-style", pattern: "Keep your answers short and impersonal\\.?", replacement: "", isRegex: true },
-  { ruleId: "agentic-identity", pattern: "(?:autonomous|agentic) (?:AI |coding )?(?:agent|assistant)[^.]*\\.", replacement: "", isRegex: true },
-  { ruleId: "mcp-reference", pattern: "MCP (?:server|client|protocol)[^.]*\\.?", replacement: "", isRegex: true },
+  { ruleId: "agentic-identity", pattern: "You are (?:an? )?(?:autonomous|agentic) (?:AI |coding )?(?:agent|assistant)[^.]*\\.", replacement: "", isRegex: true },
+  { ruleId: "mcp-reference", pattern: "(?:You are|Powered by|This is)[^.]*\\bMCP (?:server|client|protocol)\\b[^.]*\\.?", replacement: "", isRegex: true },
   { ruleId: "powered-by-anthropic", pattern: "powered by (?:Claude|Anthropic|Anxthxropic)[^.]*\\.?", replacement: "", isRegex: true },
   { ruleId: "claude-feedback", pattern: "Claude Code. To give feedback, users should report the issue at https://github.com/anthropics/claude-code/issues", replacement: "", isRegex: false },
   { ruleId: "advanced-ai-agent", pattern: "Advanced AI Agent", replacement: "", isRegex: false },
