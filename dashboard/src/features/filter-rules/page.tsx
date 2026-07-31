@@ -25,9 +25,20 @@ interface RuleRecord {
   builtin: boolean;
 }
 
+interface SettingsResponse {
+  settings: { filterRulesEnabled: boolean };
+}
+
 export function FilterRulesPage() {
   const qc = useQueryClient();
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["console", "filter.sanitize"], queryFn: () => apiGet<{ items: RuleRecord[] }>("/filter.sanitize") });
+  const { data: settingsData } = useQuery({ queryKey: ["settings"], queryFn: () => apiGet<SettingsResponse>("/settings") });
+  const filterRulesEnabled = settingsData?.settings.filterRulesEnabled ?? false;
+  const globalToggleMut = useMutation({
+    mutationFn: (enabled: boolean) => apiPost("/settings", { filterRulesEnabled: enabled }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
   const [createOpen, setCreateOpen] = useState(false);
   const [ruleId, setRuleId] = useState("");
   const [pattern, setPattern] = useState("");
@@ -68,10 +79,21 @@ export function FilterRulesPage() {
             Built-in rules ship with Cartethyia and run from code. Disable or override them here; custom rules are stored in the database.
           </p>
         </div>
-        <Button size="sm" onClick={() => setCreateOpen(true)}>
-          <Plus size={14} /> New Rule
-        </Button>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 rounded-lg border border-[var(--inner-border)] px-3 py-1.5">
+            <span className="text-xs font-medium text-[var(--text-2)]">All rules</span>
+            <Switch checked={filterRulesEnabled} onChange={(v) => globalToggleMut.mutate(v)} label="Enable all filter rules" />
+          </div>
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus size={14} /> New Rule
+          </Button>
+        </div>
       </div>
+      {!filterRulesEnabled && (
+        <p className="mt-2 text-xs text-[var(--text-3)]">
+          Filter Rules are globally disabled - outbound requests are not sanitized, regardless of each rule's own toggle below.
+        </p>
+      )}
 
       {isLoading ? (
         <p className="py-8 text-center text-sm text-[var(--text-3)]">Loading…</p>

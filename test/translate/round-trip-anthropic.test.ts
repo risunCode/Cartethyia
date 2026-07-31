@@ -142,6 +142,38 @@ describe("OpenAI Chat → Anthropic — translateChatRequestToAnthropic structur
     expect(block!.type).toBe("tool_use");
   });
 
+  // Regression: the floor used to be 4096, nowhere near enough for a
+  // realistic coding-agent tool call (a create_file/str_replace-style call
+  // writing a few hundred lines routinely needs well over that many output
+  // tokens on its own). A client that didn't override max_tokens got its
+  // file-creation tool calls silently truncated into invalid, unrecoverable
+  // JSON, while short conversational replies never approached the old limit
+  // and looked fine - the tool-calling failure was easy to miss.
+  test("floors max_tokens generously when tools are present and the client didn't request more", () => {
+    const req: OpenAIChatRequest = {
+      ...base,
+      tools: [{ type: "function", function: { name: "create_file", parameters: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } } } } }],
+    };
+    const out = translateChatRequestToAnthropic(req);
+    expect(out.max_tokens).toBeGreaterThanOrEqual(32000);
+  });
+
+  test("never lowers a max_tokens the client explicitly requested above the tool-calling floor", () => {
+    const req: OpenAIChatRequest = {
+      ...base,
+      max_tokens: 64000,
+      tools: [{ type: "function", function: { name: "create_file", parameters: { type: "object", properties: {} } } }],
+    };
+    const out = translateChatRequestToAnthropic(req);
+    expect(out.max_tokens).toBe(64000);
+  });
+
+  test("leaves max_tokens untouched when no tools are present", () => {
+    const req: OpenAIChatRequest = { ...base, max_tokens: 512 };
+    const out = translateChatRequestToAnthropic(req);
+    expect(out.max_tokens).toBe(512);
+  });
+
   test("tool role messages become user messages with tool_result blocks", () => {
     const req: OpenAIChatRequest = {
       ...base,

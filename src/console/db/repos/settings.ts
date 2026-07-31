@@ -28,6 +28,8 @@ export interface RuntimeSettings {
   systemPrompt: string;
   sessionTtlHours: number;
   rtk: RtkSettings;
+  /** Master kill switch for Filter Rules sanitization (REQ-9) - off skips every rule (built-in and custom) on the outbound hot path regardless of each rule's own isActive flag. Individual rule state is preserved for when this is re-enabled. */
+  filterRulesEnabled: boolean;
 }
 
 export interface SettingsRow {
@@ -76,6 +78,7 @@ function envDefaults(): RuntimeSettings {
     // Built-in default; Console → Settings can replace or clear (empty disables).
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
     sessionTtlHours: env.sessionTtlHours,
+    filterRulesEnabled: Bun.env.FILTER_RULES_ENABLED === "true",
     rtk: {
       enabled: Bun.env.RTK_ENABLED === "true",
       minChars: parseBoundedNumber(Bun.env.RTK_MIN_CHARS, 1500, 500, 1_000_000),

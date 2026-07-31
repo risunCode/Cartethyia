@@ -62,6 +62,9 @@ describe("ensureSettings \u2014 first-run initialization", () => {
     expect(settings.runtime.proxyAuthMode).toBe("open");
     expect(settings.runtime.maxFlightsPerIp).toBe(20);
     expect(settings.runtime.rtk.enabled).toBe(false);
+    // Filter Rules are a global kill switch (REQ-9) - a fresh install must not
+    // silently start sanitizing outbound requests without an operator opting in.
+    expect(settings.runtime.filterRulesEnabled).toBe(false);
   });
 });
 

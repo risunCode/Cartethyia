@@ -43,8 +43,18 @@ import type {
   OpenAIResponseFormat,
 } from "./types";
 
-/** Floor so a tool call's `arguments` JSON has room to complete instead of being cut off mid-stream. */
-const MIN_TOKENS_FOR_TOOL_CALLING = 4096;
+// Floor so a tool call's `arguments` JSON has room to complete instead of
+// being cut off mid-stream - 4096 was nowhere near enough for a realistic
+// coding-agent tool call (a `create_file`/`str_replace`-style call writing a
+// few hundred lines routinely needs well over that many output tokens on its
+// own), so any client that didn't override the default got its file-creation
+// tool calls silently truncated into invalid, unrecoverable JSON while short
+// conversational replies never approached the limit and looked fine. Matches
+// 9router's own `DEFAULT_MIN_TOKENS` floor (`open-sse/config/runtimeConfig.js`),
+// comfortably under every current Claude model's real output ceiling (the
+// smallest, Haiku 4.5, still supports 64k) so this never turns truncation
+// into an outright 400 for exceeding a model's max_tokens ceiling.
+const MIN_TOKENS_FOR_TOOL_CALLING = 32000;
 
 /**
  * OpenAI-shaped `reasoning_effort` has no Anthropic equivalent in the request

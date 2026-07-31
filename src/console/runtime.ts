@@ -28,6 +28,7 @@ export function defaultRuntimeSettings(): RuntimeSettings {
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
     sessionTtlHours: env.sessionTtlHours,
     rtk: { enabled: false, minChars: 1500, maxReductionPercent: 35 },
+    filterRulesEnabled: false,
   };
 }
 
@@ -54,7 +55,12 @@ function getFilterRules(): SanitizerFilterRule[] {
 
 export function getRequestTransformSettings(): RequestTransformSettings {
   const settings = getRuntimeSettings();
-  return { rtk: settings.rtk, systemPrompt: settings.systemPrompt.trim() || undefined, filterRules: getFilterRules() };
+  // The global toggle short-circuits before the per-rule cache lookup -
+  // flipping it off/on takes effect immediately without waiting out the
+  // filter-rules cache's own TTL, and individual rules' isActive state is
+  // left untouched in the DB for whenever it's re-enabled.
+  const filterRules = settings.filterRulesEnabled ? getFilterRules() : [];
+  return { rtk: settings.rtk, systemPrompt: settings.systemPrompt.trim() || undefined, filterRules };
 }
 
 /** Clears both the runtime-settings and filter-rules caches (REQ-3, REQ-9) so the next read hits the DB. */
