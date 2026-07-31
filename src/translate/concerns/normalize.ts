@@ -17,10 +17,16 @@ import type {
   UnifiedMessage,
   UnifiedRole,
 } from "./blocks";
-import { isImageBlock, isTextBlock, isToolCallBlock, isToolResultBlock, toAnthropicRole } from "./blocks";
+import { isImageBlock, isOpaqueBlock, isTextBlock, isThinkingBlock, isToolCallBlock, isToolResultBlock, toAnthropicRole } from "./blocks";
 import type {
   AnthropicContentBlock,
+  AnthropicImageBlock,
   AnthropicMessage,
+  AnthropicRedactedThinkingBlock,
+  AnthropicTextBlock,
+  AnthropicThinkingBlock,
+  AnthropicToolResultBlock,
+  AnthropicToolUseBlock,
   OpenAIChatContentPart,
   OpenAIChatMessage,
   OpenAIResponsesInputItem,
@@ -62,6 +68,16 @@ export function normalizeOpenAIChatMessages(messages: OpenAIChatMessage[]): Unif
       return { role: "tool", blocks };
     }
 
+    // Chat Completions has no wire slot for extended-thinking content; a
+    // client echoing a prior assistant turn's `reasoning_content` /
+    // `reasoning_signature` extension fields back (Cartethyia's own carrier -
+    // see denormalizeToOpenAIChatMessages below) is reconstructed into a
+    // proper thinking block here so the signature survives round-tripping
+    // back to Anthropic instead of being silently dropped.
+    if (msg.reasoning_content) {
+      blocks.push({ type: "thinking", text: msg.reasoning_content, signature: msg.reasoning_signature, cache: false });
+    }
+
     if (typeof msg.content === "string") {
       if (msg.content.length > 0) blocks.push({ type: "text", text: msg.content, cache: false });
     } else if (Array.isArray(msg.content)) {
@@ -94,14 +110,31 @@ export function denormalizeToOpenAIChatMessages(messages: UnifiedMessage[]): Ope
       // OpenAI Chat's `role:"tool"` message has no error-flag field; prefix
       // visibly instead of silently dropping is_error — the model needs to
       // know this tool call FAILED, not assume the content is a success result.
-      out.push({ role: "tool", content: tr.isError ? `[tool_error] ${tr.content}` : tr.content, tool_call_id: tr.toolCallId });
+      const flat = flattenToolResultContent(tr.content);
+      out.push({ role: "tool", content: tr.isError ? `[tool_error] ${flat}` : flat, tool_call_id: tr.toolCallId });
     }
     if (toolResults.length === msg.blocks.length && toolResults.length > 0) continue;
 
     const contentParts: OpenAIChatContentPart[] = [];
+    const thinkingParts: string[] = [];
+    // First signature seen wins - blocks are flattened to one string, so a
+    // turn with multiple signed thinking blocks (interleaved thinking) can
+    // only carry one signature through this extension-field carrier anyway.
+    let thinkingSignature: string | undefined;
     for (const b of msg.blocks) {
       if (isTextBlock(b)) contentParts.push({ type: "text", text: b.text });
       else if (isImageBlock(b)) contentParts.push({ type: "image_url", image_url: { url: imageBlockToUrl(b) } });
+      // Chat Completions has no wire slot for reasoning content; thinking
+      // blocks are surfaced through the same `reasoning_content` extension
+      // field openai-anthropic.ts already populates, instead of vanishing.
+      else if (isThinkingBlock(b) && b.text) {
+        thinkingParts.push(b.text);
+        if (thinkingSignature === undefined) thinkingSignature = b.signature;
+      }
+      // Opaque blocks (server_tool_use, web_search_tool_result, ...) have no
+      // Chat Completions representation and are intentionally dropped here -
+      // unlike surfaces that DO have a slot for them (Anthropic-to-Anthropic
+      // round-trips), where denormalizeToAnthropicBlock round-trips them.
     }
 
     const toolCalls = msg.blocks.filter(isToolCallBlock).map((tc) => ({
@@ -110,7 +143,7 @@ export function denormalizeToOpenAIChatMessages(messages: UnifiedMessage[]): Ope
       function: { name: tc.name, arguments: stringifyToolArguments(tc.input) },
     }));
 
-    if (contentParts.length === 0 && toolCalls.length === 0) continue;
+    if (contentParts.length === 0 && toolCalls.length === 0 && thinkingParts.length === 0) continue;
 
     const allText = contentParts.every((p) => p.type === "text");
     const content: OpenAIChatMessage["content"] =
@@ -118,6 +151,10 @@ export function denormalizeToOpenAIChatMessages(messages: UnifiedMessage[]): Ope
 
     const chatMsg: OpenAIChatMessage = { role: msg.role === "tool" ? "assistant" : msg.role, content };
     if (toolCalls.length > 0) chatMsg.tool_calls = toolCalls;
+    if (thinkingParts.length > 0) {
+      chatMsg.reasoning_content = thinkingParts.join("\n");
+      if (thinkingSignature !== undefined) chatMsg.reasoning_signature = thinkingSignature;
+    }
     out.push(chatMsg);
   }
 
@@ -126,19 +163,57 @@ export function denormalizeToOpenAIChatMessages(messages: UnifiedMessage[]): Ope
 
 // ── Anthropic Messages ⇄ Unified ─────────────────────────────────────────
 
+/** Flattens tool-result sub-content into the plain string every surface except Anthropic's own tool_result accepts. Image/thinking/opaque sub-blocks become a short bracketed placeholder so the model still knows something was attached instead of it silently vanishing. */
+export function flattenToolResultContent(content: string | UnifiedBlock[]): string {
+  if (typeof content === "string") return content;
+  return content
+    .map((b) => {
+      if (isTextBlock(b)) return b.text;
+      if (isImageBlock(b)) return "[image attached]";
+      if (isThinkingBlock(b)) return b.text ?? "[redacted thinking]";
+      if (isOpaqueBlock(b)) return `[${b.originalType} attached]`;
+      return `[${b.type} attached]`;
+    })
+    .join("\n");
+}
+
+function normalizeAnthropicToolResultContent(content: string | AnthropicContentBlock[]): string | UnifiedBlock[] {
+  if (typeof content === "string") return content;
+  // Anthropic tool_result sub-blocks are text/image/document/search_result -
+  // never another tool_use/tool_result - but normalizeAnthropicBlock handles
+  // any shape gracefully (opaque passthrough) if that ever changes upstream.
+  return content.map((b) => normalizeAnthropicBlock(b));
+}
+
 export function normalizeAnthropicBlock(block: AnthropicContentBlock): UnifiedBlock {
-  const cache = block.cache_control !== undefined;
-  switch (block.type) {
-    case "text":
-      return { type: "text", text: block.text, cache };
-    case "image":
-      if (block.source.type === "url") return { type: "image", source: { kind: "url", url: block.source.url }, cache };
-      return { type: "image", source: { kind: "base64", mediaType: decodeImageBase64(block.source.data).mediaType, data: block.source.data }, cache };
-    case "tool_use":
-      return { type: "tool_call", id: block.id, name: block.name, input: block.input, cache };
-    case "tool_result":
-      return { type: "tool_result", toolCallId: block.tool_use_id, content: block.content, isError: block.is_error ?? false, cache };
+  const cache = "cache_control" in block && block.cache_control !== undefined;
+  if (block.type === "text") return { type: "text", text: (block as AnthropicTextBlock).text, cache };
+  if (block.type === "image") {
+    const source = (block as AnthropicImageBlock).source;
+    if (source.type === "url") return { type: "image", source: { kind: "url", url: source.url }, cache };
+    return { type: "image", source: { kind: "base64", mediaType: decodeImageBase64(source.data).mediaType, data: source.data }, cache };
   }
+  if (block.type === "tool_use") {
+    const b = block as AnthropicToolUseBlock;
+    return { type: "tool_call", id: b.id, name: b.name, input: b.input, cache };
+  }
+  if (block.type === "tool_result") {
+    const b = block as AnthropicToolResultBlock;
+    return { type: "tool_result", toolCallId: b.tool_use_id, content: normalizeAnthropicToolResultContent(b.content), isError: b.is_error ?? false, cache };
+  }
+  if (block.type === "thinking") {
+    const b = block as AnthropicThinkingBlock;
+    return { type: "thinking", text: b.thinking, signature: b.signature, cache };
+  }
+  if (block.type === "redacted_thinking") {
+    const b = block as AnthropicRedactedThinkingBlock;
+    return { type: "thinking", redactedData: b.data, cache };
+  }
+  // server_tool_use, web_search_tool_result, web_fetch_tool_result,
+  // code_execution_tool_result, document, search_result, and any future
+  // Anthropic block type - preserved verbatim instead of silently dropped
+  // (a bare `undefined` here used to crash every downstream consumer).
+  return { type: "opaque", originalType: block.type, raw: block as unknown as Record<string, unknown>, cache };
 }
 
 export function normalizeAnthropicMessages(messages: AnthropicMessage[]): UnifiedMessage[] {
@@ -166,9 +241,18 @@ export function denormalizeToAnthropicBlock(block: UnifiedBlock): AnthropicConte
     if (cache_control) b.cache_control = cache_control;
     return b;
   }
-  const b: AnthropicContentBlock = { type: "tool_result", tool_use_id: block.toolCallId, content: block.content, is_error: block.isError };
-  if (cache_control) b.cache_control = cache_control;
-  return b;
+  if (isToolResultBlock(block)) {
+    const content = typeof block.content === "string" ? block.content : block.content.map((sub) => denormalizeToAnthropicBlock(sub));
+    const b: AnthropicContentBlock = { type: "tool_result", tool_use_id: block.toolCallId, content, is_error: block.isError };
+    if (cache_control) b.cache_control = cache_control;
+    return b;
+  }
+  if (isThinkingBlock(block)) {
+    if (block.redactedData !== undefined) return { type: "redacted_thinking", data: block.redactedData };
+    return { type: "thinking", thinking: block.text ?? "", signature: block.signature };
+  }
+  // Opaque block - round-trip the original Anthropic shape verbatim.
+  return block.raw as unknown as AnthropicContentBlock;
 }
 
 /**
@@ -217,7 +301,7 @@ export function denormalizeToOpenAIResponsesInput(messages: UnifiedMessage[]): O
   const out: OpenAIResponsesInputItem[] = [];
   for (const msg of messages) {
     for (const tr of msg.blocks.filter(isToolResultBlock)) {
-      out.push({ type: "function_call_output", call_id: tr.toolCallId, output: tr.content });
+      out.push({ type: "function_call_output", call_id: tr.toolCallId, output: flattenToolResultContent(tr.content) });
     }
     for (const tc of msg.blocks.filter(isToolCallBlock)) {
       out.push({ type: "function_call", call_id: tc.id, name: tc.name, arguments: stringifyToolArguments(tc.input) });

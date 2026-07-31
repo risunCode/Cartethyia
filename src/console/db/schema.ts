@@ -167,4 +167,11 @@ CREATE TABLE IF NOT EXISTS model_studio_sessions (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_model_studio_sessions_updated ON model_studio_sessions(updated_at DESC);
+
+-- Performance indexes for hot query paths (api_keys.key, provider_accounts.cooldown_until,
+-- account_model_locks.locked_until, filter_rules.provider, custom_providers.slug) live in
+-- migration v9 (performance-indexes), not here: this INIT_SQL is replayed verbatim against
+-- partially-upgraded legacy tables mid-migration (see drop-legacy-credential-encryption),
+-- where those columns may not exist yet. Migration v9 always runs after the column-fixing
+-- migrations, so it can safely assume the columns are present.
 `;

@@ -1,6 +1,6 @@
 import type { RouteTarget } from "../../routing/types";
 import type { ProviderRequest } from "./index";
-import type { OpenCodeCapability } from "./opencode-free/catalog";
+import type { OpenCodeCapability } from "./opencode-catalog";
 
 /**
  * Surface/capability mapping shared by OpenCode Free and OpenCode Zen

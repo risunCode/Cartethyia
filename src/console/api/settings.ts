@@ -4,6 +4,7 @@
 
 import { Elysia } from "elysia";
 import { consoleError } from "../errors";
+import { mutationLimiter, checkMutationLimit } from "../rate-limit";
 import { ensureSettings, patchRuntimeSettings, rotateJwtSecret } from "../db/repos/settings";
 import { invalidateRuntimeSettings } from "../runtime";
 import { addAuditEvent } from "../db/repos/audit";
@@ -57,7 +58,9 @@ export const settingsRoutes = new Elysia({ prefix: "/console/api" })
       settings: settings.runtime,
     };
   })
-  .post("/settings", async ({ body, set }) => {
+  .post("/settings", async ({ body, set, request }) => {
+    const rateLimited = checkMutationLimit(request);
+    if (rateLimited) return rateLimited;
     const patch = (body ?? {}) as Partial<RuntimeSettings>;
     const error = validateRuntimePatch(patch);
     if (error) {
@@ -82,7 +85,9 @@ export const settingsRoutes = new Elysia({ prefix: "/console/api" })
     set.headers["Content-Disposition"] = `attachment; filename="cartethyia-backup-${new Date().toISOString().slice(0, 10)}.json"`;
     return backup;
   })
-  .post("/settings/restore", async ({ body, set }) => {
+  .post("/settings/restore", async ({ body, set, request }) => {
+    const rateLimited = checkMutationLimit(request);
+    if (rateLimited) return rateLimited;
     const { password, backup } = (body ?? {}) as { password?: string; backup?: unknown };
     if (!(await confirmPassword(password))) {
       set.status = 401;
@@ -106,7 +111,9 @@ export const settingsRoutes = new Elysia({ prefix: "/console/api" })
       return consoleError("internal", "restore failed");
     }
   })
-  .post("/settings/rotate-jwt-secret", async ({ body, set }) => {
+  .post("/settings/rotate-jwt-secret", async ({ body, set, request }) => {
+    const rateLimited = checkMutationLimit(request);
+    if (rateLimited) return rateLimited;
     const { password } = (body ?? {}) as { password?: string };
     if (!(await confirmPassword(password))) {
       set.status = 401;

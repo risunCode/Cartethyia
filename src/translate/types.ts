@@ -30,11 +30,18 @@ export interface OpenAIChatToolCall {
 export type OpenAIChatToolChoice = "auto" | "none" | "required" | { type: "function"; function: { name: string } };
 
 export interface OpenAIChatMessage {
-  role: "system" | "user" | "assistant" | "tool";
+  /** "developer" replaces "system" for o-series/gpt-5 models; Cartethyia treats it identically to "system" wherever the system prompt is extracted. */
+  role: "system" | "developer" | "user" | "assistant" | "tool";
   content: string | OpenAIChatContentPart[] | null;
   tool_calls?: OpenAIChatToolCall[];
   tool_call_id?: string;
   name?: string;
+  /** Set when the upstream model refused to answer (mirrors Anthropic's `stop_reason:"refusal"`); mutually exclusive with normal `content` in the official spec, but Cartethyia keeps both so no signal is lost in translation. */
+  refusal?: string;
+  /** Non-standard extension field: carries an Anthropic extended-thinking block's text through the internal Chat-shaped representation every provider dispatch goes through (Chat Completions has no native reasoning-content wire slot). */
+  reasoning_content?: string;
+  /** Non-standard extension field: the Anthropic thinking block's cryptographic `signature`, carried alongside `reasoning_content` so a replayed thinking block can round-trip back to Anthropic (extended thinking + tool use rejects an unsigned or re-typed thinking block on the next turn). Single-block scope - not modeled per-block, so multiple thinking blocks in one turn (interleaved thinking) keep only the first signature. */
+  reasoning_signature?: string;
 }
 
 export type OpenAIResponseFormat =
@@ -44,7 +51,7 @@ export type OpenAIResponseFormat =
 export interface OpenAIChatRequest {
   model: string;
   messages: OpenAIChatMessage[];
-  tools?: { type: "function"; function: { name: string; description?: string; parameters: Record<string, unknown> } }[];
+  tools?: { type: string; function?: { name: string; description?: string; parameters?: Record<string, unknown> } }[];
   tool_choice?: OpenAIChatToolChoice;
   response_format?: OpenAIResponseFormat;
   max_tokens?: number;
@@ -53,6 +60,8 @@ export interface OpenAIChatRequest {
   top_p?: number;
   stop?: string | string[];
   stream?: boolean;
+  /** `false` pins the model to at most one tool call per turn; translated to Anthropic's `tool_choice.disable_parallel_tool_use`. */
+  parallel_tool_calls?: boolean;
   [key: string]: unknown;
 }
 
@@ -83,6 +92,8 @@ export interface OpenAIChatResponse {
 
 export interface AnthropicCacheControl {
   type: "ephemeral";
+  /** Cache breakpoint lifetime; Anthropic defaults to "5m" when omitted. */
+  ttl?: "5m" | "1h";
 }
 
 export interface AnthropicTextBlock {
@@ -108,31 +119,62 @@ export interface AnthropicToolUseBlock {
 export interface AnthropicToolResultBlock {
   type: "tool_result";
   tool_use_id: string;
-  content: string;
+  /** Anthropic allows plain text or a list of blocks (text/image/document/...) inside a tool result. */
+  content: string | AnthropicContentBlock[];
   is_error?: boolean;
   cache_control?: AnthropicCacheControl;
+}
+
+/** Extended-thinking block — visible reasoning text, present when `thinking` is enabled on the request. */
+export interface AnthropicThinkingBlock {
+  type: "thinking";
+  thinking: string;
+  signature?: string;
+}
+
+/** Extended-thinking block with `display:"omitted"` - the text is redacted; the `data` payload is opaque and only meaningful back to Anthropic. */
+export interface AnthropicRedactedThinkingBlock {
+  type: "redacted_thinking";
+  data: string;
+}
+
+/**
+ * Catch-all for Anthropic content-block types this proxy does not model
+ * explicitly (`server_tool_use`, `web_search_tool_result`,
+ * `web_fetch_tool_result`, `code_execution_tool_result`, `document`,
+ * `search_result`, and any block type Anthropic adds later). Preserved
+ * verbatim so Anthropic\u2194Anthropic round-trips never silently drop data.
+ */
+export interface AnthropicOpaqueBlock {
+  type: string;
+  [key: string]: unknown;
 }
 
 export type AnthropicContentBlock =
   | AnthropicTextBlock
   | AnthropicImageBlock
   | AnthropicToolUseBlock
-  | AnthropicToolResultBlock;
+  | AnthropicToolResultBlock
+  | AnthropicThinkingBlock
+  | AnthropicRedactedThinkingBlock
+  | AnthropicOpaqueBlock;
 
 export interface AnthropicMessage {
   role: "user" | "assistant";
   content: string | AnthropicContentBlock[];
 }
 
-/** `"auto"` (default) / `"any"` (must call some tool) / `"none"` (never call) / pin to one named tool. */
-export type AnthropicToolChoice = { type: "auto" | "any" | "none" } | { type: "tool"; name: string };
+/** `"auto"` (default) / `"any"` (must call some tool) / `"none"` (never call) / pin to one named tool. `disable_parallel_tool_use` forces at most one tool call regardless of variant. */
+export type AnthropicToolChoice =
+  | { type: "auto" | "any" | "none"; disable_parallel_tool_use?: boolean }
+  | { type: "tool"; name: string; disable_parallel_tool_use?: boolean };
 
 export interface AnthropicRequest {
   model: string;
   max_tokens: number;
   system?: string | AnthropicTextBlock[];
   messages: AnthropicMessage[];
-  tools?: { name: string; description?: string; input_schema: Record<string, unknown>; cache_control?: AnthropicCacheControl }[];
+  tools?: { name: string; description?: string; input_schema?: Record<string, unknown>; type?: string; cache_control?: AnthropicCacheControl }[];
   tool_choice?: AnthropicToolChoice;
   temperature?: number;
   top_p?: number;
@@ -158,7 +200,7 @@ export interface AnthropicResponse {
   role: "assistant";
   model: string;
   content: AnthropicContentBlock[];
-  stop_reason: "end_turn" | "max_tokens" | "tool_use" | "stop_sequence" | "pause_turn" | "refusal" | null;
+  stop_reason: "end_turn" | "max_tokens" | "tool_use" | "stop_sequence" | "pause_turn" | "refusal" | "model_context_window_exceeded" | null;
   stop_sequence: string | null;
   usage: AnthropicUsage;
 }
@@ -179,7 +221,7 @@ export type OpenAIResponsesInputPart = OpenAIResponsesTextInput | OpenAIResponse
 
 export interface OpenAIResponsesMessageItem {
   type: "message";
-  role: "system" | "user" | "assistant";
+  role: "system" | "developer" | "user" | "assistant";
   content: string | OpenAIResponsesInputPart[];
 }
 
@@ -208,7 +250,7 @@ export interface OpenAIResponsesRequest {
   model: string;
   input: string | OpenAIResponsesInputItem[];
   instructions?: string;
-  tools?: { type: "function"; name: string; description?: string; parameters: Record<string, unknown> }[];
+  tools?: { type: string; name: string; description?: string; parameters?: Record<string, unknown> }[];
   tool_choice?: OpenAIResponsesToolChoice;
   max_output_tokens?: number;
   temperature?: number;
@@ -228,7 +270,32 @@ export interface OpenAIResponsesOutputMessageItem {
   content: OpenAIResponsesOutputTextPart[];
 }
 
-export type OpenAIResponsesOutputItem = OpenAIResponsesOutputMessageItem | OpenAIResponsesFunctionCallItem;
+/** Reasoning output item - model's internal reasoning, when requested via `reasoning.summary`/`include`. */
+export interface OpenAIResponsesReasoningItem {
+  type: "reasoning";
+  id?: string;
+  summary?: { type: "summary_text"; text: string }[];
+  content?: { type: "reasoning_text"; text: string }[];
+  encrypted_content?: string;
+}
+
+/**
+ * Catch-all for built-in-tool output items this proxy does not model
+ * explicitly (`web_search_call`, `file_search_call`, `code_interpreter_call`,
+ * `image_generation_call`, `mcp_call`, `computer_call`, ...). Recognized so
+ * they are never mistaken for a `function_call` (which has a different,
+ * incompatible shape) - see `buildChatMessageFromOutput`.
+ */
+export interface OpenAIResponsesOpaqueOutputItem {
+  type: string;
+  [key: string]: unknown;
+}
+
+export type OpenAIResponsesOutputItem =
+  | OpenAIResponsesOutputMessageItem
+  | OpenAIResponsesFunctionCallItem
+  | OpenAIResponsesReasoningItem
+  | OpenAIResponsesOpaqueOutputItem;
 
 export interface OpenAIResponsesUsage {
   input_tokens: number;

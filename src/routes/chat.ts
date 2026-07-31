@@ -7,12 +7,12 @@
 
 import { Elysia } from "elysia";
 import { ChatRequestSchema } from "./schemas";
-import { encodeOpenAIChatStream, withStreamErrorHandling } from "../upstream/bridge";
-import { toSSEResponseStream } from "../upstream/sse";
+import { encodeOpenAIChatStream } from "../upstream/bridge";
 import { openAIClientError, openAIUpstreamError } from "../http/errors";
 import type { OpenAIChatRequest } from "../translate/types";
 import { dispatchQualifiedRoute } from "../upstream/dispatch";
 import { withProxyRequest } from "./middleware/proxyRequest";
+import { finishSurfaceDispatch } from "./dispatch-surface";
 
 export const chatRoute = new Elysia().post(
   "/v1/chat/completions",
@@ -32,22 +32,18 @@ export const chatRoute = new Elysia().post(
           request,
           surface: "openai-chat",
         });
-        if (qualified.kind === "error") {
-          set.status = qualified.status;
-          if (qualified.status === 429 || qualified.status === 503) (set as Record<string, unknown>).headers = { ...(set as Record<string, unknown>).headers as Record<string, string>, "retry-after": "60" };
-          tracker.fail(qualified.status, "dispatch_error", req);
-          return openAIClientError(qualified.status, qualified.status === 401 || qualified.status === 403 ? "authentication_error" : qualified.status === 429 ? "rate_limit_error" : "invalid_request_error", qualified.message);
-        }
-
-        if (qualified.proxyPoolName) tracker.setProxyPool(qualified.proxyPoolName);
-        const { result } = qualified;
-        if (result.type === "stream") {
-          set.headers["content-type"] = "text/event-stream";
-          const meta = { id: `chatcmpl-${crypto.randomUUID()}`, model: req.model, createdAt: Math.floor(Date.now() / 1000) };
-          return tracker.wrapSse(toSSEResponseStream(withStreamErrorHandling(encodeOpenAIChatStream(result.events, meta), "openai-chat")), undefined, req);
-        }
-
-        return tracker.finishJson(200, result.body, undefined, req);
+        return finishSurfaceDispatch({
+          qualified,
+          set,
+          tracker,
+          requestBody: req,
+          clientError: openAIClientError,
+          streamFormat: "openai-chat",
+          encodeStream: encodeOpenAIChatStream,
+          idPrefix: "chatcmpl",
+          model: req.model,
+          toSurfaceJson: (body) => body,
+        });
       },
     );
   },

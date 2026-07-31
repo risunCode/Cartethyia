@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Pencil, Plus, Route, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { api, apiGet, apiPost } from "../../lib/api";
+import { apiGet, apiPost, apiDelete } from "../../lib/api";
 import { staggerClass } from "../../lib/motion";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -50,7 +50,7 @@ function AliasesTab() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: (a: string) => api<{ ok: boolean }>(`/aliases/${encodeURIComponent(a)}`, { method: "DELETE", body: "{}" }),
+    mutationFn: (a: string) => apiDelete<{ ok: boolean }>(`/aliases/${encodeURIComponent(a)}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["console", "aliases"] }); setDeleteTarget(null); toast.success("Alias deleted"); },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -129,7 +129,7 @@ function CombosTab() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: (id: string) => api<{ ok: boolean }>(`/combos/${id}`, { method: "DELETE", body: "{}" }),
+    mutationFn: (id: string) => apiDelete<{ ok: boolean }>(`/combos/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["console", "combos"] });
       setDeleteTarget(null);

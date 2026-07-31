@@ -52,6 +52,22 @@ describe("assertPublicUrl", () => {
     expect(() => assertPublicUrl("http://[::ffff:127.0.0.1]:8080")).toThrow("blocked");
   });
 
+  test("blocks IPv4-mapped IPv6 private ranges regardless of hex-group form", () => {
+    // The URL constructor compresses these to their hex-group form
+    // (e.g. ::ffff:a00:1) before the guard ever sees them - the guard used
+    // to only recognize that compressed form by string prefix, which broke
+    // the moment a caller supplied (or a runtime returned) an uncompressed
+    // hex group like `0a00:0001`. Parsing the hex numerically instead of
+    // prefix-matching closes that gap for every RFC 1918 / link-local range.
+    expect(() => assertPublicUrl("http://[::ffff:10.0.0.1]:8080")).toThrow("blocked");
+    expect(() => assertPublicUrl("http://[::ffff:172.16.0.1]:8080")).toThrow("blocked");
+    expect(() => assertPublicUrl("http://[::ffff:192.168.1.1]:8080")).toThrow("blocked");
+    expect(() => assertPublicUrl("http://[::ffff:169.254.169.254]:8080")).toThrow("blocked");
+    expect(() => assertPublicUrl("http://[::ffff:a00:1]:8080")).toThrow("blocked");
+    expect(() => assertPublicUrl("http://[::ffff:a9fe:a9fe]:8080")).toThrow("blocked");
+    expect(() => assertPublicUrl("http://[::ffff:c0a8:101]:8080")).toThrow("blocked");
+  });
+
   test("blocks internal domain suffixes", () => {
     expect(() => assertPublicUrl("http://my-service.internal:8080")).toThrow("blocked");
     expect(() => assertPublicUrl("http://my-host.local:8080")).toThrow("blocked");
@@ -65,6 +81,28 @@ describe("assertPublicUrl", () => {
   test("blocks disallowed protocols", () => {
     expect(() => assertPublicUrl("ftp://proxy.example.com:21")).toThrow("not allowed");
     expect(() => assertPublicUrl("file:///etc/passwd")).toThrow("not allowed");
+    expect(() => assertPublicUrl("javascript:alert(1)")).toThrow();
+  });
+
+  test("blocks instance-data (GCP metadata alias)", () => {
+    expect(() => assertPublicUrl("http://instance-data/")).toThrow("blocked");
+  });
+
+  test("blocks IPv4-mapped IPv6 loopback in hex-group form", () => {
+    expect(() => assertPublicUrl("http://[::ffff:7f00:1]:8080")).toThrow("blocked");
+  });
+
+  test("allows public IPv4 addresses", () => {
+    expect(() => assertPublicUrl("http://8.8.8.8")).not.toThrow();
+    expect(() => assertPublicUrl("http://1.1.1.1")).not.toThrow();
+  });
+
+  test("allows public IPv6 addresses", () => {
+    expect(() => assertPublicUrl("http://[2001:4860:4860::8888]")).not.toThrow();
+  });
+
+  test("allows public hostnames including nested subdomains", () => {
+    expect(() => assertPublicUrl("https://us-east1.api.example.com/v1")).not.toThrow();
   });
 
   test("blocks invalid URLs", () => {

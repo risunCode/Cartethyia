@@ -15,9 +15,10 @@
  */
 
 import type { RouteTarget } from "../../routing/types";
-import { ProviderCallError, providerHttpError, safeReadText } from "./index";
+import { ProviderCallError } from "./index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./index";
 import { decodeAnthropicStream, decodeOpenAIChatStream } from "../bridge";
+import { callSimpleProvider } from "./simple-call";
 import { fetchWithSsrfGuard } from "../../http/ssrf-guard";
 import { getCustomProviderBySlug, type CustomProviderRecord } from "../../console/db/repos/custom-providers";
 import type { ProviderModelEntry } from "./models";
@@ -39,55 +40,38 @@ function withTimeout(signal: AbortSignal, timeoutSeconds: number): AbortSignal {
 }
 
 async function callOpenAICompatible(record: CustomProviderRecord, model: string, body: Record<string, unknown>, signal: AbortSignal, proxy: string | undefined): Promise<ProviderResult> {
-  const apiKey = record.credential;
   const outboundBody: Record<string, unknown> = { ...body, model };
-  const isStreaming = outboundBody.stream === true;
 
-  const res = await fetchWithSsrfGuard(`${record.baseUrl}/chat/completions`, {
-    method: "POST",
+  return callSimpleProvider({
+    url: `${record.baseUrl}/chat/completions`,
     // Custom headers apply last so an operator's org/routing/WAF-bypass
     // header wins over the built-in auth/content-type on collision.
-    headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json", ...record.customHeaders },
-    body: JSON.stringify(outboundBody),
+    headers: { authorization: `Bearer ${record.credential}`, "content-type": "application/json", ...record.customHeaders },
+    body: outboundBody,
     signal: withTimeout(signal, record.timeoutSeconds),
-    ...(proxy ? { proxy } : {}),
+    proxy,
+    providerLabel: `Custom provider "${record.name}"`,
+    isStreaming: outboundBody.stream === true,
+    decodeStream: decodeOpenAIChatStream,
+    fetcher: fetchWithSsrfGuard,
   });
-
-  if (!res.ok) throw providerHttpError(res.status, `Custom provider "${record.name}"`, undefined, await safeReadText(res));
-  if (!res.body) throw new ProviderCallError(502, "unavailable", `Custom provider "${record.name}" returned an empty response body.`);
-
-  if (isStreaming) return { type: "stream", events: decodeOpenAIChatStream(res.body) };
-
-  const jsonBody: unknown = await res.json();
-  if (jsonBody === null || typeof jsonBody !== "object" || Array.isArray(jsonBody)) {
-    throw new ProviderCallError(502, "malformed_response", `Custom provider "${record.name}" returned an unreadable JSON response.`);
-  }
-  return { type: "json", body: jsonBody as Record<string, unknown> };
 }
 
 async function callAnthropicCompatible(record: CustomProviderRecord, model: string, body: Record<string, unknown>, signal: AbortSignal, proxy: string | undefined): Promise<ProviderResult> {
-  const apiKey = record.credential;
   const anthropicReq = translateChatRequestToAnthropic({ ...body, model } as OpenAIChatRequest);
-  const isStreaming = anthropicReq.stream === true;
 
-  const res = await fetchWithSsrfGuard(`${record.baseUrl}/messages`, {
-    method: "POST",
-    headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json", ...record.customHeaders },
-    body: JSON.stringify(anthropicReq),
+  return callSimpleProvider({
+    url: `${record.baseUrl}/messages`,
+    headers: { "x-api-key": record.credential, "anthropic-version": "2023-06-01", "content-type": "application/json", ...record.customHeaders },
+    body: anthropicReq,
     signal: withTimeout(signal, record.timeoutSeconds),
-    ...(proxy ? { proxy } : {}),
+    proxy,
+    providerLabel: `Custom provider "${record.name}"`,
+    isStreaming: anthropicReq.stream === true,
+    decodeStream: decodeAnthropicStream,
+    translateJson: (json) => translateAnthropicResponseToChat(json as unknown as AnthropicResponse) as unknown as Record<string, unknown>,
+    fetcher: fetchWithSsrfGuard,
   });
-
-  if (!res.ok) throw providerHttpError(res.status, `Custom provider "${record.name}"`, undefined, await safeReadText(res));
-  if (!res.body) throw new ProviderCallError(502, "unavailable", `Custom provider "${record.name}" returned an empty response body.`);
-
-  if (isStreaming) return { type: "stream", events: decodeAnthropicStream(res.body) };
-
-  const jsonBody: unknown = await res.json();
-  if (jsonBody === null || typeof jsonBody !== "object" || Array.isArray(jsonBody)) {
-    throw new ProviderCallError(502, "malformed_response", `Custom provider "${record.name}" returned an unreadable JSON response.`);
-  }
-  return { type: "json", body: translateAnthropicResponseToChat(jsonBody as AnthropicResponse) as unknown as Record<string, unknown> };
 }
 
 class DynamicProviderRouter implements Provider {
@@ -125,6 +109,35 @@ class DynamicProviderRouter implements Provider {
     return record.type === "anthropic-compatible"
       ? callAnthropicCompatible(record, split.model, request.body, signal, proxy)
       : callOpenAICompatible(record, split.model, request.body, signal, proxy);
+  }
+
+  async countTokens(target: RouteTarget, body: Record<string, unknown>, _credential: ResolvedCredential, signal: AbortSignal, proxy?: string): Promise<{ inputTokens: number }> {
+    const split = splitSlugModel(target.modelId);
+    if (!split) throw new ProviderCallError(400, "invalid_request", "Custom provider model must be qualified as <slug>/<model>.");
+
+    const record = getCustomProviderBySlug(split.slug);
+    if (!record) throw new ProviderCallError(404, "invalid_request", `Custom provider "${split.slug}" no longer exists.`);
+    if (record.type !== "anthropic-compatible") {
+      throw new ProviderCallError(400, "invalid_request", `Custom provider "${record.name}" is OpenAI-compatible; count_tokens requires an Anthropic-compatible endpoint.`);
+    }
+
+    const { stream: _stream, max_tokens: _maxTokens, ...rest } = body;
+    const outbound = { ...rest, model: split.model };
+
+    const result = await callSimpleProvider({
+      url: `${record.baseUrl}/messages/count_tokens`,
+      headers: { "x-api-key": record.credential, "anthropic-version": "2023-06-01", "content-type": "application/json", ...record.customHeaders },
+      body: outbound,
+      signal: withTimeout(signal, record.timeoutSeconds),
+      proxy,
+      providerLabel: `Custom provider "${record.name}"`,
+      isStreaming: false,
+      decodeStream: decodeAnthropicStream,
+      fetcher: fetchWithSsrfGuard,
+    });
+    const json = result.type === "json" ? result.body : {};
+    const inputTokens = typeof json.input_tokens === "number" ? json.input_tokens : 0;
+    return { inputTokens };
   }
 }
 

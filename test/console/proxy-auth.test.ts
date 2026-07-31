@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
 import { app } from "../../src/app";
 import { createApiKey, deleteApiKey } from "../../src/console/db/repos/api-keys";
+import { getReservedTokensForKey } from "../../src/console/tracking/key-in-flight";
 import { insertUsageHistory } from "../../src/console/db/repos/usage";
 import { enforceProxyAuth, proxyRateLimitStateSizeForTests } from "../../src/console/proxy-auth";
 import { resetKeyInFlightForTests, tryAcquireKeySlot } from "../../src/console/tracking/key-in-flight";
@@ -200,5 +201,34 @@ describe("proxy auth enforcement (PROXY_AUTH_MODE)", () => {
     expect(tryAcquireKeySlot(id, 1)).toBeTrue();
     const blocked = await postV1Chat("kimchi/kimi-k2.7", { "x-api-key": key });
     expect(blocked.status).toBe(429);
+  });
+
+  test("daily token limit: a second concurrent request is rejected by the first's reservation, not just committed usage", async () => {
+    // TOCTOU regression: before this reservation existed, two requests fired
+    // back-to-back (neither having finished, so neither's usage is in
+    // SQLite yet) both read the same committed sum and both passed the
+    // limit check. `enforceProxyAuth` now reserves an estimate the instant
+    // the first passes, so the second sees it without either request ever
+    // completing.
+    const created = createApiKey({ name: "reserve-key", dailyTokenLimit: 4096 });
+    await ensureSettings();
+    patchRuntimeSettings({ proxyAuthMode: "api_key" });
+    invalidateRuntimeSettings();
+    if ("error" in created) throw new Error("unexpected duplicate");
+    const { key, record } = created;
+    const req = new Request("http://localhost/v1/chat/completions", { headers: { "x-api-key": key } });
+
+    const first = enforceProxyAuth("kimchi/kimi-k2.7", req);
+    expect(first.error).toBeNull();
+    expect(first.tokensReserved).toBeGreaterThan(0);
+    expect(getReservedTokensForKey(record.id)).toBe(first.tokensReserved);
+
+    // No usage has been recorded for either request yet - a naive
+    // committed-sum-only check would let this one through too.
+    const second = enforceProxyAuth("kimchi/kimi-k2.7", req);
+    expect(second.error).not.toBeNull();
+    expect(second.error?.status).toBe(429);
+
+    deleteApiKey(record.id);
   });
 });

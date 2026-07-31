@@ -9,6 +9,7 @@ import { ensureSettings, setPasswordHash, bumpPasswordVersion } from "../db/repo
 import { hashPassword, verifyPassword } from "../auth/password";
 import { signConsoleJwt } from "../auth/jwt";
 import { loginLimiter } from "../auth/limiter";
+import { mutationLimiter, checkMutationLimit } from "../rate-limit";
 import { confirmPassword } from "../auth/reauth";
 import { buildSessionClearCookie, buildSessionCookie, clientIp, isHttps } from "../auth/http";
 
@@ -52,7 +53,9 @@ export const authProtectedRoutes = new Elysia({ prefix: "/console/api" })
     const settings = await ensureSettings();
     return { role: "admin", passwordVersion: settings.passwordVersion, hasPassword: settings.passwordHash !== null };
   })
-  .post("/settings/password", async ({ body, set }) => {
+  .post("/settings/password", async ({ body, set, request }) => {
+    const rateLimited = checkMutationLimit(request);
+    if (rateLimited) return rateLimited;
     const { currentPassword, newPassword, confirmPassword: confirm } = (body ?? {}) as {
       currentPassword?: string;
       newPassword?: string;
@@ -74,7 +77,9 @@ export const authProtectedRoutes = new Elysia({ prefix: "/console/api" })
     addAuditEvent("password.changed", {});
     return { ok: true, note: "all sessions invalidated; sign in again" };
   })
-  .post("/settings/logout-all", async ({ body, set }) => {
+  .post("/settings/logout-all", async ({ body, set, request }) => {
+    const rateLimited = checkMutationLimit(request);
+    if (rateLimited) return rateLimited;
     const { password } = (body ?? {}) as { password?: string };
     if (!(await confirmPassword(password))) {
       set.status = 401;

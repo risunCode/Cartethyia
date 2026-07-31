@@ -2,6 +2,53 @@
 
 All notable changes to Cartethyia are documented here.
 
+## [1.0.3-alpha] - 2026-07-31
+
+Hardening pass: protocol-fidelity fixes for tool calling and extended thinking across every OpenAI\u2194Anthropic streaming path, request-schema robustness against malformed/mixed tool arrays, security hardening (redaction, SSRF, login rate limiting, token-limit races), dashboard error handling, and a new Anthropic `count_tokens` endpoint. Precedes OAuth + credential-refresh worker support.
+
+### Added
+
+- `POST /v1/messages/count_tokens` - Anthropic's token-counting endpoint, native Anthropic wire shape end to end (no completion generated). Implemented for the built-in `anthropic` provider (forwards to `api.anthropic.com/v1/messages/count_tokens`) and `anthropic-compatible` custom providers (forwards to `<baseUrl>/messages/count_tokens`); every other provider returns a clean 400 instead of a dispatch that could never succeed.
+- Dashboard test suite (Vitest + Testing Library, `dashboard/vite.config.ts`'s `test` block, jsdom environment) - previously zero frontend tests existed. Covers `lib/format.ts`'s formatting edge cases and the login page's validation/error/redirect behavior.
+- `docker-compose.yml` - a `docker compose up --build` alternative to the manually-assembled `docker run` command, same image/port/volume/health check.
+
+### Fixed
+
+- **Tool calling**: streamed `tool_calls` argument deltas were correlated by \"the last tool_call id opened\" instead of the wire's `index` field. Two or more parallel tool calls in one turn (routine for agentic clients - Claude Code, GitHub Copilot, OpenCode) misrouted every argument fragment to whichever tool started last, corrupting the other tool(s)' JSON arguments; a single-tool curl smoke test never exercised the bug. Now keyed by `index`, matching the OpenAI Chat Completions wire spec.
+- **Extended thinking**: `decodeAnthropicStream` checked for a `text_delta` wire type (with a state-based relabel) on thinking content, but Anthropic's real streaming wire type for thinking is `thinking_delta` with a `thinking` field - the check never matched real traffic, so streamed thinking content was silently dropped entirely, not just its trailing signature.
+- **Extended thinking**: Anthropic's per-thinking-block cryptographic `signature` (`signature_delta` while streaming, present in every non-streaming thinking block) was never captured - `StreamEvent` had no signature-carrying variant, and the internal Chat-shaped intermediate representation (`reasoning_content`) was a flat string with no signature slot. Multi-turn extended-thinking + tool-use conversations proxied through Cartethyia (including Anthropic-native clients, since even same-format Anthropic\u2192Anthropic dispatch funnels through this same internal representation) failed Anthropic's replay validation on the next turn. Added `reasoning_signature` alongside `reasoning_content` and a `thinking_signature` `StreamEvent`, threaded through both the streaming bridge and the non-streaming translators.
+- **Tool schema**: a tool definition omitting `parameters`/`input_schema` entirely (a zero-argument tool some clients declare minimally instead of sending `{"type":"object","properties":{}}`) silently dropped the schema field from the wire on serialization - Anthropic requires `input_schema` and rejected the WHOLE request with a 400, not just the under-specified tool. All three tool-definition ingest points now default a missing/empty schema to `{"type":"object","properties":{}}`.
+- **Tool schema**: a request mixing custom function tools with a provider's own built-in tools (`web_search`, `code_interpreter`, `computer_use`, `web_search_preview`, Anthropic's `computer_20250124`/`bash_20250124`/`text_editor_20250124`/`web_search_20250305`, ...) crashed the Chat\u2194Anthropic and Chat\u2194Responses request translators outright with a raw `TypeError` (all four tool-array mapping sites assumed every entry was a function tool). Built-in tools are now filtered out cleanly before mapping instead of forwarded as corrupted data or crashing the request; an all-built-in tools array now omits the `tools` field entirely rather than sending an empty array (some providers reject that).
+- `/v1/messages`: an Anthropic response containing an extended-thinking (`thinking`), redacted-thinking (`redacted_thinking`), or server-tool (`server_tool_use`, `web_search_tool_result`, `web_fetch_tool_result`, `code_execution_tool_result`) content block crashed the Chat-shape translation instead of surfacing thinking as `reasoning_content` and preserving the rest.
+- `tool_result` blocks with array content (e.g. an image alongside text) are no longer flattened to `[object Object]`; each surface gets a faithful representation (Anthropic keeps the structured blocks, Chat gets a readable text summary).
+- `/v1/responses`: any non-message, non-function-call output item (a `reasoning` item, or a built-in tool call like `web_search_call`) was mis-typed as a `function_call` and synthesized a bogus tool call with `undefined` id/name/arguments; reasoning is now surfaced as `reasoning_content`, everything else is safely ignored instead of corrupting the response.
+- `/v1/messages` and `/v1/responses` now set `retry-after` and report `rate_limit_error` on a 429 dispatch failure, matching `/v1/chat/completions`'s existing behavior instead of silently omitting the header and misreporting the error kind.
+- `reasoning_effort: "minimal"` (Anthropic-family targets) no longer silently drops the thinking budget; `"developer"`-role messages (o-series/gpt-5) are now recognized as the system prompt, matching `"system"`.
+- `parallel_tool_calls: false` now maps to Anthropic's `tool_choice.disable_parallel_tool_use` instead of being silently dropped (and the reverse, for Anthropic clients routed to a Chat-shaped upstream).
+- Anthropic's `model_context_window_exceeded` stop reason no longer collapses to a generic `stop`; a `refusal` stop reason now also populates the Chat message's `refusal` field, not just `finish_reason`.
+- **Security**: `redactPayload` (request/response logging) only replaced a sensitive field's key label (`"api_key"` -> `[API_KEY_REDACTED]`), leaving the actual secret value sitting right next to the placeholder in every log line. It now redacts the value.
+- **Security**: the SSRF guard's IPv4-mapped-IPv6 check (`::ffff:10.0.0.1` etc.) matched private ranges by string prefix, which broke on an uncompressed hex form (`0a00:0001` instead of `a00:1`). Replaced with numeric hex parsing so it's correct regardless of formatting.
+- **Security**: `LoginLimiter`'s per-IP failure buckets were never cleaned up for an IP that failed once and never locked - internet-scanner traffic against `/console/login` grew this map forever. It now sweeps stale, unlocked, past-reset-window buckets periodically.
+- Daily/monthly proxy API key token limits were checked against only the already-committed database sum, so N concurrent requests on the same key all read the same sum and all passed - the key could overshoot its cap by roughly Nx. `enforceProxyAuth` now reserves a conservative estimate the instant a request passes, closing the race for concurrent requests (each request's estimate is released once its usage lands, or when it finishes for a streaming response).
+- Deleting a proxy pool left `provider_routing.proxy_pool_id`/`provider_accounts.proxy_pool_id` pointing at a pool id that no longer existed (SQLite has no FK on these columns and nothing else checked or cleaned up the reference). Deletion now clears both references in the same transaction.
+- Removed `upsertUsageDaily`, an empty no-op stub called on every request's completion with no backing table and no reader anywhere in the codebase.
+- `/console/api/providers/:id/accounts/import`'s error responses used a bespoke `{error:{message}}` shape instead of the `consoleError()` envelope every other console endpoint uses.
+- Dashboard: `/login` had no route `errorElement`, so a thrown error there fell through to React Router's raw fallback screen instead of the app's own error UI.
+- Dashboard: Providers, Provider Detail, Proxy Pools, Filter Rules, and the two Usage chart widgets only checked `isLoading`, so a failed fetch left them stuck on an empty/loading state (or, for Provider Detail, an infinite skeleton) with no visible error or retry.
+
+### Changed
+
+- Extracted a shared `dispatchSurfaceRoute`-style helper (`routes/dispatch-surface.ts`) for the qualified-dispatch error/stream/json branching duplicated across `chat.ts`, `messages.ts` (twice), and `responses.ts`.
+- Extracted a shared `callSimpleProvider` helper (`upstream/providers/simple-call.ts`) for the fetch+error+stream/json skeleton duplicated across the Anthropic, AgentRouter, Kimchi, OpenCode Free, OpenCode Zen, OpenAI-compatible, and custom-provider adapters.
+- Removed dead exports (`sseDataOnly`, `resolveRoute`, `selectTarget`, the unexported-but-still-`export`ed `dispatchProvider`) and two redundant `flattenText` aliases in the Cursor/Devin transports that already had a shared implementation.
+- `bun test` at the repo root is now scoped to `bun test test/` (backend only) - the dashboard's new Vitest-only test files are not valid under Bun's test runner and were being picked up by the previous unscoped invocation.
+
+### Verification
+
+- Backend test suite: 694 tests passing, 1 skipped.
+- `bunx tsc --noEmit -p .` clean.
+- `POST /v1/messages/count_tokens` additionally verified against the live `api.anthropic.com` endpoint (real network round trip, not mocked).
+
 ## [1.0.2-alpha] - 2026-07-31
 
 ### Added

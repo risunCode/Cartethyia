@@ -33,6 +33,7 @@ import {
   fixMissingToolResults,
   sanitizeAnthropicToolIds,
 } from "./concerns/tools";
+import type { AnthropicToolDef, OpenAIChatToolDef } from "./concerns/tools";
 import type {
   AnthropicRequest,
   AnthropicResponse,
@@ -57,6 +58,10 @@ const MIN_TOKENS_FOR_TOOL_CALLING = 4096;
  * already gets, so nothing breaks for models that don't support it.
  */
 const REASONING_EFFORT_TO_THINKING_BUDGET: Record<string, number> = {
+  // "none" is intentionally absent - it means "no thinking", the same as
+  // the field being unset, and must map to `undefined` rather than a real
+  // budget.
+  minimal: 1024,
   low: 2000,
   medium: 6000,
   high: 12000,
@@ -83,10 +88,14 @@ function responseFormatToSystemInstruction(format: OpenAIResponseFormat | undefi
 
 // ── OpenAI Chat request → Anthropic upstream ─────────────────────────────
 
-/** Chat Completions has no separate `system` field — a leading `role:"system"` message plays that role. */
+/**
+ * Chat Completions has no separate `system` field — a leading `role:"system"`
+ * message plays that role. `"developer"` is the o-series/gpt-5 replacement
+ * for `"system"` and is treated identically here.
+ */
 function extractSystemMessage(messages: OpenAIChatMessage[]): { system: string | undefined; rest: OpenAIChatMessage[] } {
   const first = messages[0];
-  if (first?.role === "system" && typeof first.content === "string") {
+  if ((first?.role === "system" || first?.role === "developer") && typeof first.content === "string") {
     return { system: first.content, rest: messages.slice(1) };
   }
   return { system: undefined, rest: messages };
@@ -129,11 +138,25 @@ export function translateChatRequestToAnthropic(req: OpenAIChatRequest): Anthrop
       : breakpoint.system;
   }
   if (req.tools && req.tools.length > 0) {
-    out.tools = req.tools.map((t) => unifiedToolToAnthropic(openAIChatToolToUnified(t)));
+    // A client can legally mix custom function tools with Responses-family
+    // built-in tools (web_search, code_interpreter, computer_use, ...) in
+    // the same array. Those have no `.function` field at all - reading it
+    // unconditionally used to crash the whole request with a raw TypeError
+    // instead of just dropping the tool this proxy can't represent.
+    const functionTools = req.tools.filter((t): t is OpenAIChatToolDef => t.type === "function" && t.function !== undefined);
+    if (functionTools.length > 0) out.tools = functionTools.map((t) => unifiedToolToAnthropic(openAIChatToolToUnified(t)));
   }
   if (req.temperature !== undefined) out.temperature = req.temperature;
   const toolChoice = openAIToolChoiceToAnthropic(req.tool_choice);
-  if (toolChoice !== undefined) out.tool_choice = toolChoice;
+  // `parallel_tool_calls: false` has no standalone Anthropic request field -
+  // it only exists as a flag on `tool_choice`, so a client that sets it
+  // without also pinning tool_choice still needs one synthesized (defaults
+  // to "auto") for the flag to have anywhere to live.
+  if (req.parallel_tool_calls === false) {
+    out.tool_choice = { ...(toolChoice ?? { type: "auto" }), disable_parallel_tool_use: true };
+  } else if (toolChoice !== undefined) {
+    out.tool_choice = toolChoice;
+  }
   if (req.top_p !== undefined) out.top_p = req.top_p;
   if (req.stop !== undefined) out.stop_sequences = Array.isArray(req.stop) ? req.stop : [req.stop];
   if (req.stream !== undefined) out.stream = req.stream;
@@ -147,14 +170,14 @@ export function translateAnthropicResponseToChat(resp: AnthropicResponse): OpenA
   const responseText = resp.content.filter((b) => (b as unknown as Record<string, unknown>).type === "text").map((b) => (b as unknown as Record<string, unknown>).text as string ?? "").join("");
   const usage = normalizeAnthropicUsage(resp.usage, responseText);
 
-  // Extract thinking blocks → reasoning_content (L1)
-  const thinkingBlocks = resp.content.filter((b) => (b as unknown as Record<string, unknown>).type === "thinking");
-  const reasoningContent = thinkingBlocks.length > 0
-    ? thinkingBlocks.map((b) => (b as unknown as Record<string, unknown>).thinking as string ?? "").join("\n")
-    : undefined;
-
+  // Thinking blocks are extracted into `reasoning_content` by
+  // denormalizeToOpenAIChatMessages itself now (see normalize.ts) - no
+  // separate ad-hoc scan needed here.
   const message = chatMsg ?? { role: "assistant" as const, content: "" };
-  if (reasoningContent) (message as unknown as Record<string, unknown>).reasoning_content = reasoningContent;
+  // A refusal has no dedicated content block - Anthropic signals it purely
+  // via stop_reason - so it's surfaced through Chat's own `refusal` field
+  // too, not just finish_reason, for a client that inspects message.refusal.
+  if (resp.stop_reason === "refusal") message.refusal = responseText || "The model declined to respond.";
 
   return {
     id: resp.id,
@@ -203,11 +226,18 @@ export function translateMessagesRequestToChat(req: AnthropicRequest): OpenAICha
   const out: OpenAIChatRequest = { model: req.model, messages, max_tokens: req.max_tokens };
 
   if (req.tools && req.tools.length > 0) {
-    out.tools = req.tools.map((t) => unifiedToolToOpenAIChat(anthropicToolToUnified(t)));
+    // Anthropic server-side tools (computer_20250124, bash_20250124,
+    // text_editor_20250124, web_search_20250305, ...) carry a `type` other
+    // than absent/"custom" and no client-schema slot - there is no OpenAI
+    // function-tool equivalent to translate them into, so they're dropped
+    // instead of forwarded with a synthesized, meaningless empty schema.
+    const functionTools = req.tools.filter((t) => t.type === undefined || t.type === "custom");
+    if (functionTools.length > 0) out.tools = functionTools.map((t) => unifiedToolToOpenAIChat(anthropicToolToUnified(t)));
   }
   if (req.temperature !== undefined) out.temperature = req.temperature;
   const toolChoice = anthropicToolChoiceToOpenAIChat(req.tool_choice);
   if (toolChoice !== undefined) out.tool_choice = toolChoice;
+  if (req.tool_choice?.disable_parallel_tool_use) out.parallel_tool_calls = false;
   if (req.top_p !== undefined) out.top_p = req.top_p;
   if (req.stop_sequences !== undefined) out.stop = req.stop_sequences;
   if (req.stream !== undefined) out.stream = req.stream;
@@ -216,6 +246,9 @@ export function translateMessagesRequestToChat(req: AnthropicRequest): OpenAICha
 }
 
 export function translateChatResponseToMessages(resp: OpenAIChatResponse): AnthropicResponse {
+  // Anthropic Messages has no multi-candidate concept - if the upstream Chat
+  // response carries `n > 1` choices, only the first is representable here
+  // (there is no lossless mapping for the rest).
   const choice = resp.choices?.[0];
   const message = choice?.message;
   const unified = message ? normalizeOpenAIChatMessages([message])[0] : undefined;

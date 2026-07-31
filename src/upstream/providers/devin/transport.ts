@@ -251,7 +251,6 @@ function buildMetadata(apiKey: string, userJwt: string): Metadata {
   });
 }
 
-const flattenText = flattenMessageText;
 
 function buildChatMessagePrompts(messages: OpenAIChatMessage[], cascadeId: string): ChatMessagePrompt[] {
   const prompts: ChatMessagePrompt[] = [];
@@ -262,7 +261,7 @@ function buildChatMessagePrompts(messages: OpenAIChatMessage[], cascadeId: strin
       prompts.push(create(ChatMessagePromptSchema, {
         messageId: deterministicUuid(`${cascadeId}\0${index}\0${message.role}`),
         source: ChatMessageSource.USER,
-        prompt: flattenText(message.content),
+        prompt: flattenMessageText(message.content),
       }));
       continue;
     }
@@ -282,7 +281,7 @@ function buildChatMessagePrompts(messages: OpenAIChatMessage[], cascadeId: strin
       prompts.push(create(ChatMessagePromptSchema, {
         messageId: `bot-${deterministicUuid(`${cascadeId}\0${index}\0assistant`)}`,
         source: ChatMessageSource.SYSTEM,
-        prompt: flattenText(message.content),
+        prompt: flattenMessageText(message.content),
         toolCalls,
       }));
       continue;
@@ -293,7 +292,7 @@ function buildChatMessagePrompts(messages: OpenAIChatMessage[], cascadeId: strin
         messageId: deterministicUuid(`${cascadeId}\0${index}\0tool\0${message.tool_call_id ?? ""}`),
         source: ChatMessageSource.TOOL,
         toolCallId: message.tool_call_id ?? "",
-        prompt: flattenText(message.content),
+        prompt: flattenMessageText(message.content),
       }));
     }
   }

@@ -2,7 +2,7 @@
 
 ## Release status
 
-- Current release line: `1.0.1-alpha`.
+- Current release line: `1.0.3-alpha`.
 - Keep the root and dashboard package versions aligned with the current release line.
 - Record user-visible changes in `CHANGELOG.md` under the matching version before a release is declared.
 - Alpha status means local/self-hosted testing is supported; avoid presenting the release as production-stable until the alpha caveats are cleared.
@@ -40,7 +40,7 @@
 
 ## Testing and delivery
 
-- For backend changes run `bunx tsc --noEmit -p .` and the narrowest relevant `bun test` target; run the full suite for cross-cutting changes.
-- For dashboard changes run `cd dashboard && bun run build`; use the browser for visible interaction changes when console authentication is available.
+- For backend changes run `bunx tsc --noEmit -p .` and the narrowest relevant `bun test` target; run the full suite for cross-cutting changes. Always scope backend runs to `bun test test/` (or a path under it) - a bare `bun test` at the repo root also walks `dashboard/src/**/*.test.tsx`, which use Vitest-only APIs (`vi.importActual`, etc.) that fail under Bun's test runner.
+- For dashboard changes run `cd dashboard && bun run build && bun run test`; use the browser for visible interaction changes when console authentication is available. Dashboard tests run under Vitest (`dashboard/vite.config.ts`'s `test` block, jsdom environment) - add new component/unit tests under `dashboard/src/**/*.test.{ts,tsx}`.
 - For Docker changes build the image and exercise `/health` before reporting completion.
 - For Railway changes keep `railway.toml`, `Dockerfile`, `.dockerignore`, and README deployment steps aligned. Do not place secrets in image layers or repository files.

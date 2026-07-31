@@ -48,6 +48,42 @@ describe("tools concern — schema round-trips", () => {
   });
 });
 
+describe("tools concern \u2014 missing schema defaults to an empty object schema", () => {
+  // A zero-argument tool that omits parameters/input_schema entirely (some
+  // clients don't fill in the empty-object default) must never leave the
+  // wire's schema field undefined - Anthropic requires input_schema, and
+  // JSON.stringify silently drops an undefined key, rejecting the WHOLE
+  // request instead of just that one under-specified tool.
+  const EMPTY_SCHEMA = { type: "object", properties: {} };
+
+  test("OpenAI Chat tool without `parameters` gets a default empty-object schema, not undefined", () => {
+    const unified = openAIChatToolToUnified({ type: "function", function: { name: "list_files" } });
+    expect(unified.schema).toEqual(EMPTY_SCHEMA);
+    expect(unifiedToolToAnthropic(unified).input_schema).toEqual(EMPTY_SCHEMA);
+  });
+
+  test("OpenAI Responses tool without `parameters` gets a default empty-object schema", () => {
+    const unified = openAIResponsesToolToUnified({ type: "function", name: "list_files" });
+    expect(unified.schema).toEqual(EMPTY_SCHEMA);
+  });
+
+  test("Anthropic tool without `input_schema` gets a default empty-object schema", () => {
+    const unified = anthropicToolToUnified({ name: "list_files" });
+    expect(unified.schema).toEqual(EMPTY_SCHEMA);
+    expect(unifiedToolToOpenAIChat(unified).function.parameters).toEqual(EMPTY_SCHEMA);
+  });
+
+  test("an empty object schema ({}) is also treated as missing and gets the default", () => {
+    const unified = openAIChatToolToUnified({ type: "function", function: { name: "ping", parameters: {} } });
+    expect(unified.schema).toEqual(EMPTY_SCHEMA);
+  });
+
+  test("a real, non-empty schema is never overwritten by the default", () => {
+    const unified = openAIChatToolToUnified({ type: "function", function: { name: "get_weather", parameters: schema } });
+    expect(unified.schema).toEqual(schema);
+  });
+});
+
 describe("tools concern — argument (de)serialization", () => {
   test("parseToolArguments parses well-formed JSON object", () => {
     expect(parseToolArguments('{"city":"Jakarta"}')).toEqual({ city: "Jakarta" });

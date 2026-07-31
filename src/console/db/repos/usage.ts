@@ -95,20 +95,6 @@ export function insertUsageHistory(row: UsageInsert): number {
   return id;
 }
 
-export function upsertUsageDaily(_input: {
-  date: string;
-  apiKeyId: string | null;
-  provider: string | null;
-  model: string | null;
-  inputTokens: number;
-  outputTokens: number;
-  cachedTokens: number;
-  cacheWriteTokens: number;
-  reasoningTokens: number;
-  error: boolean;
-  durationMs: number;
-}): void {}
-
 /** Append one runtime record to data/logs/<kind>-YYYY-MM-DD.jsonl. */
 export function appendJsonl(kind: "requests" | "errors", record: Record<string, unknown>): void {
   const env = getConsoleEnv();

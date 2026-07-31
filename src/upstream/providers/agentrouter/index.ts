@@ -8,9 +8,10 @@
  */
 
 import type { RouteTarget } from "../../../routing/types";
-import { ProviderCallError, providerHttpError, safeReadText } from "../index";
+import { ProviderCallError } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
 import { decodeAnthropicStream } from "../../bridge";
+import { callSimpleProvider } from "../simple-call";
 import { translateAnthropicResponseToChat, translateChatRequestToAnthropic } from "../../../translate/openai-anthropic";
 import type { AnthropicResponse, OpenAIChatRequest } from "../../../translate/types";
 import { agentRouterModelCatalog } from "./models";
@@ -80,24 +81,17 @@ class AgentRouterProvider implements Provider {
     const anthropicReq = reorderBody(translateChatRequestToAnthropic(chatBody as OpenAIChatRequest) as unknown as Record<string, unknown>);
     const isStreaming = anthropicReq.stream === true;
 
-    const res = await fetch(AGENTROUTER_URL, {
-      method: "POST",
+    return callSimpleProvider({
+      url: AGENTROUTER_URL,
       headers: buildHeaders(credential.value, isStreaming),
-      body: JSON.stringify(anthropicReq),
+      body: anthropicReq,
       signal,
-      ...(proxy ? { proxy } : {}),
+      proxy,
+      providerLabel: "AgentRouter",
+      isStreaming,
+      decodeStream: decodeAnthropicStream,
+      translateJson: (json) => translateAnthropicResponseToChat(json as unknown as AnthropicResponse) as unknown as Record<string, unknown>,
     });
-
-    if (!res.ok) throw providerHttpError(res.status, "AgentRouter", undefined, await safeReadText(res));
-    if (!res.body) throw new ProviderCallError(502, "unavailable", "AgentRouter returned an empty response body.");
-
-    if (isStreaming) return { type: "stream", events: decodeAnthropicStream(res.body) };
-
-    const jsonBody: unknown = await res.json();
-    if (jsonBody === null || typeof jsonBody !== "object" || Array.isArray(jsonBody)) {
-      throw new ProviderCallError(502, "malformed_response", "AgentRouter returned an unreadable JSON response.");
-    }
-    return { type: "json", body: translateAnthropicResponseToChat(jsonBody as AnthropicResponse) as unknown as Record<string, unknown> };
   }
 }
 

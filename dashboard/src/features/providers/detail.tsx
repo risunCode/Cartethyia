@@ -8,7 +8,7 @@ import { ArrowLeft, ArrowUpDown, Bot, Brain, Cable, Copy, ExternalLink, Eye, Fil
 import { Link, useParams } from "react-router-dom";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import { ApiError, apiGet, apiPost, api } from "../../lib/api";
+import { ApiError, apiGet, apiPost, apiDelete } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { extractCredentialFromPaste } from "../../lib/credentialExtract";
 import { formatDuration, formatTokens } from "../../lib/format";
@@ -418,7 +418,7 @@ export function ProviderDetailPage() {
   // Routing form state (synced from server on load)
   const [routing, setRouting] = useState<RoutingConfig | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["provider", id],
     queryFn: () => apiGet<ProviderDetail>(`/providers/${id}`),
     enabled: Boolean(id),
@@ -482,7 +482,7 @@ export function ProviderDetailPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (accountId: string) => api<{ ok: boolean }>(`/providers/${id}/accounts/${accountId}`, { method: "DELETE", body: "{}" }),
+    mutationFn: (accountId: string) => apiDelete<{ ok: boolean }>(`/providers/${id}/accounts/${accountId}`),
     onSuccess: () => {
       toast.success("Account deleted");
       setDeleteTarget(null);
@@ -508,7 +508,7 @@ export function ProviderDetailPage() {
   const modelMutation = useMutation({
     mutationFn: ({ path, body, method = "POST" }: { path: string; body?: Record<string, unknown>; method?: "POST" | "DELETE" }) =>
       method === "DELETE"
-        ? api<{ ok: boolean }>(`/providers/${id}/models${path}`, { method: "DELETE", body: "{}" })
+        ? apiDelete<{ ok: boolean }>(`/providers/${id}/models${path}`)
         : apiPost(`/providers/${id}/models${path}`, body ?? {}),
     onSuccess: (_result, { path }) => {
       if (path === "") setManualModelId("");
@@ -533,7 +533,7 @@ export function ProviderDetailPage() {
         while (nextIndex < ids.length) {
           const accountId = ids[nextIndex++]!;
           try {
-            await api<{ ok: boolean }>(`/providers/${id}/accounts/${accountId}`, { method: "DELETE", body: "{}" });
+            await apiDelete<{ ok: boolean }>(`/providers/${id}/accounts/${accountId}`);
           } catch {
             failed.push(accountId);
           }
@@ -568,6 +568,20 @@ export function ProviderDetailPage() {
   const credentialCopy = useCredentialCopy(id ?? "");
 
   if (!id) return null;
+
+  // `!data` alone can't distinguish "still loading" from "the fetch failed" -
+  // without this branch a failed request left the skeleton spinning forever
+  // instead of ever showing an error.
+  if (isError) {
+    return (
+      <Card className="text-center">
+        <p className="py-8 text-sm text-[var(--text-2)]">Failed to load this provider.</p>
+        <Button variant="secondary" onClick={() => refetch()}>
+          Retry
+        </Button>
+      </Card>
+    );
+  }
 
   if (isLoading || !data || !routing) {
     return (

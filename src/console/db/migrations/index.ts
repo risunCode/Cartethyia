@@ -136,6 +136,26 @@ export const MIGRATIONS: readonly Migration[] = [
       database.exec("CREATE INDEX IF NOT EXISTS idx_model_studio_sessions_updated ON model_studio_sessions(updated_at DESC)");
     },
   },
+  {
+    version: 9,
+    name: "performance-indexes",
+    destructive: false,
+    up: (database) => {
+      // Hot path: every proxy request resolves a key by its raw value.
+      database.exec("CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key)");
+      // Cleanup sweeps: expiry scans on cooldown and model locks.
+      if (!hasIndex(database, "idx_provider_accounts_cooldown")) {
+        database.exec("CREATE INDEX IF NOT EXISTS idx_provider_accounts_cooldown ON provider_accounts(cooldown_until) WHERE cooldown_until IS NOT NULL");
+      }
+      if (!hasIndex(database, "idx_account_model_locks_expiry")) {
+        database.exec("CREATE INDEX IF NOT EXISTS idx_account_model_locks_expiry ON account_model_locks(locked_until)");
+      }
+      // Filter rules: per-provider lookup on every request to a filtered provider.
+      database.exec("CREATE INDEX IF NOT EXISTS idx_filter_rules_provider ON filter_rules(provider)");
+      // Custom providers: slug is the lookup key used at request dispatch time.
+      database.exec("CREATE INDEX IF NOT EXISTS idx_custom_providers_slug ON custom_providers(slug)");
+    },
+  },
 ];
 
 export const LATEST_MIGRATION_VERSION = MIGRATIONS.at(-1)?.version ?? 0;

@@ -48,6 +48,7 @@ function field(obj: Record<string, unknown> | undefined, key: string): unknown {
 export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; text: string }
+  | { type: "thinking_signature"; signature: string }
   | { type: "tool_call_start"; id: string; name: string }
   | { type: "tool_call_args_delta"; id: string; argumentsDelta: string }
   | { type: "tool_call_end"; id: string }
@@ -115,10 +116,26 @@ export async function* decodeAnthropicStream(body: ReadableStream<Uint8Array>): 
       const deltaType = asString(field(delta, "type"));
       const state = blocks.get(index);
       if (deltaType === "text_delta") {
-        if (state && (state as { type: string }).type === "thinking") yield { type: "thinking_delta", text: asString(field(delta, "text")) ?? "" };
-        else yield { type: "text_delta", text: asString(field(delta, "text")) ?? "" };
+        yield { type: "text_delta", text: asString(field(delta, "text")) ?? "" };
+      } else if (deltaType === "thinking_delta") {
+        // Anthropic's real wire format never reuses text_delta for thinking
+        // content - it has its own delta type with a `thinking` field, not
+        // `text`. Checking `deltaType === "text_delta"` plus a state lookup
+        // here (the prior shape of this branch) never matches a real
+        // streaming response, so thinking content was silently dropped
+        // outright before this fix - not just its trailing signature.
+        yield { type: "thinking_delta", text: asString(field(delta, "thinking")) ?? "" };
       } else if (deltaType === "input_json_delta" && state?.toolId) {
         yield { type: "tool_call_args_delta", id: state.toolId, argumentsDelta: asString(field(delta, "partial_json")) ?? "" };
+      } else if (deltaType === "signature_delta" && state?.type === "thinking") {
+        // Terminal delta on an extended-thinking block, carrying the
+        // cryptographic signature Anthropic requires unmodified on replay
+        // (extended thinking + tool use rejects an unsigned/altered thinking
+        // block on the next turn). Dropping this silently used to strand
+        // every multi-turn thinking+tool-use conversation proxied through
+        // Cartethyia, including Anthropic-native clients (Claude Code) whose
+        // requests still funnel through this same StreamEvent bridge.
+        yield { type: "thinking_signature", signature: asString(field(delta, "signature")) ?? "" };
       }
     } else if (type === "content_block_stop") {
       const index = asNumber(field(payload, "index")) ?? -1;
@@ -143,7 +160,13 @@ export async function* decodeAnthropicStream(body: ReadableStream<Uint8Array>): 
 // ── Decode: OpenAI Chat Completions SSE → StreamEvent ────────────────────
 
 export async function* decodeOpenAIChatStream(body: ReadableStream<Uint8Array>): AsyncGenerator<StreamEvent> {
-  const openToolIds = new Set<string>();
+  // Chat Completions correlates streamed tool-call fragments by wire `index`,
+  // not `id` - continuation chunks omit `id`/`name` and carry only `index` +
+  // an `arguments` fragment. Keying off "the last id we saw" breaks the
+  // instant two tool calls are open at once (parallel_tool_calls), which
+  // agentic clients (Claude Code, GitHub Copilot, OpenCode) trigger routinely
+  // but a single-tool curl smoke test never does.
+  const toolIdByIndex = new Map<number, string>();
 
   for await (const frame of parseSSEStream(body)) {
     if (frame.data === "[DONE]") continue;
@@ -165,22 +188,22 @@ export async function* decodeOpenAIChatStream(body: ReadableStream<Uint8Array>):
       const fn = tc ? asObject(field(tc, "function")) : undefined;
       const id = tc ? asString(field(tc, "id")) : undefined;
       const name = fn ? asString(field(fn, "name")) : undefined;
-      if (id && name && !openToolIds.has(id)) {
-        openToolIds.add(id);
+      const index = asNumber(field(tc, "index")) ?? 0;
+      if (id && name && !toolIdByIndex.has(index)) {
+        toolIdByIndex.set(index, id);
         yield { type: "tool_call_start", id, name };
       }
       const args = fn ? asString(field(fn, "arguments")) : undefined;
       if (args) {
-        // Chat Completions omits `id` on continuation chunks — key off the last opened id.
-        const targetId = id ?? [...openToolIds].at(-1);
+        const targetId = toolIdByIndex.get(index);
         if (targetId) yield { type: "tool_call_args_delta", id: targetId, argumentsDelta: args };
       }
     }
 
     const finishReason = choice ? asString(field(choice, "finish_reason")) : undefined;
     if (finishReason) {
-      for (const id of openToolIds) yield { type: "tool_call_end", id };
-      openToolIds.clear();
+      for (const id of toolIdByIndex.values()) yield { type: "tool_call_end", id };
+      toolIdByIndex.clear();
       yield { type: "finish", stopReason: chatFinishToAnthropicStop(finishReason) };
     }
 
@@ -268,6 +291,13 @@ export async function* encodeAnthropicStream(events: AsyncGenerator<StreamEvent>
         yield formatSSEFrame({ event: "content_block_start", data: JSON.stringify({ type: "content_block_start", index: blockIndex, content_block: { type: "thinking", thinking: "" } }) });
       }
       yield formatSSEFrame({ event: "content_block_delta", data: JSON.stringify({ type: "content_block_delta", index: blockIndex, delta: { type: "thinking_delta", thinking: ev.text } }) });
+    } else if (ev.type === "thinking_signature") {
+      // Only meaningful while the thinking block it terminates is still
+      // open; a stray signature event with nothing open is a decode-side
+      // ordering violation, not something to synthesize a block for.
+      if (thinkingOpen) {
+        yield formatSSEFrame({ event: "content_block_delta", data: JSON.stringify({ type: "content_block_delta", index: blockIndex, delta: { type: "signature_delta", signature: ev.signature } }) });
+      }
     } else if (ev.type === "text_delta") {
       if (!textOpen) {
         yield* closeOpenBlocks();

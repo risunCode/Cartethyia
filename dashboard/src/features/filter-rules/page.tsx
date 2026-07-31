@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { api, apiGet, apiPost } from "../../lib/api";
+import { apiGet, apiPost, apiDelete } from "../../lib/api";
 import { staggerClass } from "../../lib/motion";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -27,7 +27,7 @@ interface RuleRecord {
 
 export function FilterRulesPage() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["console", "filter.sanitize"], queryFn: () => apiGet<{ items: RuleRecord[] }>("/filter.sanitize") });
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["console", "filter.sanitize"], queryFn: () => apiGet<{ items: RuleRecord[] }>("/filter.sanitize") });
   const [createOpen, setCreateOpen] = useState(false);
   const [ruleId, setRuleId] = useState("");
   const [pattern, setPattern] = useState("");
@@ -52,7 +52,7 @@ export function FilterRulesPage() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: (id: number) => api<{ ok: boolean }>(`/filter.sanitize/${id}`, { method: "DELETE", body: "{}" }),
+    mutationFn: (id: number) => apiDelete<{ ok: boolean }>(`/filter.sanitize/${id}`),
     onSuccess: () => { invalidate(); setDeleteTarget(null); toast.success("Filter rule deleted"); },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -75,6 +75,11 @@ export function FilterRulesPage() {
 
       {isLoading ? (
         <p className="py-8 text-center text-sm text-[var(--text-3)]">Loading…</p>
+      ) : isError ? (
+        <div className="space-y-3 py-8 text-center">
+          <p className="text-sm text-[var(--text-2)]">Failed to load filter rules.</p>
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>Retry</Button>
+        </div>
       ) : (
         <div className="mt-4 space-y-2">
           {items.map((rule, i) => (

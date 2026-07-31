@@ -8,6 +8,7 @@ import { config } from "./config";
 import { healthRoute, modelsRoute } from "./routes/status";
 import { chatRoute } from "./routes/chat";
 import { messagesRoute } from "./routes/messages";
+import { countTokensRoute } from "./routes/count-tokens";
 import { responsesRoute } from "./routes/responses";
 import { responsesCompactRoute } from "./routes/responses-compact";
 import { consoleApiRoutes } from "./console/api/routes";
@@ -41,5 +42,6 @@ export const app = new Elysia({
   .use(modelsRoute)
   .use(chatRoute)
   .use(messagesRoute)
+  .use(countTokensRoute)
   .use(responsesRoute)
   .use(responsesCompactRoute);

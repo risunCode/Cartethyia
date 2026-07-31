@@ -26,6 +26,7 @@ export type AnthropicStopReason =
   | "stop_sequence"
   | "pause_turn"
   | "refusal"
+  | "model_context_window_exceeded"
   | null;
 
 const ANTHROPIC_TO_OPENAI: Record<Exclude<AnthropicStopReason, null>, OpenAIFinishReason> = {
@@ -35,6 +36,11 @@ const ANTHROPIC_TO_OPENAI: Record<Exclude<AnthropicStopReason, null>, OpenAIFini
   tool_use: "tool_calls",
   pause_turn: "stop",
   refusal: "content_filter",
+  // No dedicated OpenAI finish_reason for a context-window overflow (as
+  // opposed to hitting max_tokens); "length" is the closest existing
+  // semantic (the model stopped because it ran out of room) instead of
+  // falling back to a plain "stop" that hides the real cause.
+  model_context_window_exceeded: "length",
 };
 
 const OPENAI_TO_ANTHROPIC: Record<OpenAIFinishReason, AnthropicStopReason> = {

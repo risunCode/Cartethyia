@@ -42,9 +42,24 @@ function extensionOf(path: string): string {
   return dot === -1 ? "" : path.slice(dot).toLowerCase();
 }
 
+const CSP_HEADER = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; font-src 'self'";
+// 2-year HSTS: only set on HTTPS responses (detected by the Secure cookie guard).
+// The header is harmless if accidentally served over HTTP (browsers require HTTPS for HSTS to activate).
+const HSTS_HEADER = "max-age=63072000; includeSubDomains";
+
+/** Injects security headers shared by all console HTML responses. */
+function applyConsoleSecurityHeaders(set: { headers: HTTPHeaders }, request: Request): void {
+  set.headers["content-security-policy"] = CSP_HEADER;
+  // HSTS — only meaningful for HTTPS; browsers ignore it on plain HTTP.
+  if (request.url.startsWith("https://") || request.headers.get("x-forwarded-proto") === "https") {
+    set.headers["strict-transport-security"] = HSTS_HEADER;
+  }
+}
+
 /** Serves the SPA shell; falls back to a placeholder when the dashboard is unbuilt. */
-function appShell(set: { headers: HTTPHeaders }): string {
+function appShell(set: { headers: HTTPHeaders }, request: Request): string {
   set.headers["content-type"] = "text/html; charset=utf-8";
+  applyConsoleSecurityHeaders(set, request);
   if (!existsSync(DIST)) return PLACEHOLDER_HTML;
   return readFileSync(join(DIST, "index.html"), "utf-8");
 }
@@ -54,9 +69,9 @@ export const consoleWebRoutes = new Elysia()
   // `/console/`. Redirecting unconditionally would loop, hence the path check.
   .get("/console", ({ request, set }) => {
     const { pathname } = new URL(request.url);
-    return pathname.endsWith("/") ? appShell(set) : redirect("/console/");
+    return pathname.endsWith("/") ? appShell(set, request) : redirect("/console/");
   })
-  .get("/console/*", ({ params, set }) => {
+  .get("/console/*", ({ params, set, request }) => {
     const wildcard = (params as Record<string, string>)["*"] ?? "";
     const safe = normalize(wildcard).replace(/^(\.\.[/\\])+/, "");
     const filePath = join(DIST, safe);
@@ -77,5 +92,5 @@ export const consoleWebRoutes = new Elysia()
     }
 
     // SPA fallback: unknown paths render the app shell (client router decides).
-    return appShell(set);
+    return appShell(set, request);
   });

@@ -1,0 +1,26 @@
+services:
+  cartethyia:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cartethyia
+    restart: unless-stopped
+    ports:
+      - "12800:8080"
+    environment:
+      - PORT=8080
+      - DATA_DIR=/app/data
+      # Required: change these before any non-local use.
+      - CONSOLE_PASSWORD=${CONSOLE_PASSWORD:-change-me}
+      - CONSOLE_JWT_SECRET=${CONSOLE_JWT_SECRET:-replace-with-a-long-random-secret}
+    volumes:
+      - cartethyia-data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  cartethyia-data:

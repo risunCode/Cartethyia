@@ -65,6 +65,32 @@ describe("normalize — OpenAI Chat ⇄ Unified", () => {
     expect(out[0]!.tool_calls).toEqual([{ id: "call_1", type: "function", function: { name: "get_weather", arguments: '{"city":"Jakarta"}' } }]);
     expect(out[0]!.content).toBeNull();
   });
+
+  test("denormalize carries a thinking block's signature into the reasoning_signature extension field alongside reasoning_content", () => {
+    const unified: UnifiedMessage[] = [
+      { role: "assistant", blocks: [{ type: "thinking", text: "Let me think.", signature: "sig_abc", cache: false }, textBlock("Answer.")] },
+    ];
+    const out = denormalizeToOpenAIChatMessages(unified);
+    expect(out[0]!.reasoning_content).toBe("Let me think.");
+    expect(out[0]!.reasoning_signature).toBe("sig_abc");
+  });
+
+  test("normalize reconstructs a thinking block (with signature) from reasoning_content/reasoning_signature - the round trip Anthropic replay depends on", () => {
+    const msgs: OpenAIChatMessage[] = [{ role: "assistant", content: "Answer.", reasoning_content: "Let me think.", reasoning_signature: "sig_abc" }];
+    const result = normalizeOpenAIChatMessages(msgs);
+    expect(result[0]!.blocks).toEqual([
+      { type: "thinking", text: "Let me think.", signature: "sig_abc", cache: false },
+      textBlock("Answer."),
+    ]);
+  });
+
+  test("full round trip: Anthropic thinking block -> Chat reasoning_content/reasoning_signature -> Anthropic thinking block preserves the signature", () => {
+    const anthropicBlock = normalizeAnthropicBlock({ type: "thinking", thinking: "Reasoning.", signature: "sig_full" });
+    const chatMsgs = denormalizeToOpenAIChatMessages([{ role: "assistant", blocks: [anthropicBlock] }]);
+    const backToUnified = normalizeOpenAIChatMessages(chatMsgs);
+    const restored = denormalizeToAnthropicBlock(backToUnified[0]!.blocks[0]!);
+    expect(restored).toEqual({ type: "thinking", thinking: "Reasoning.", signature: "sig_full" });
+  });
 });
 
 describe("normalize — Anthropic ⇄ Unified", () => {

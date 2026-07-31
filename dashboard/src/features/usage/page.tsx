@@ -166,11 +166,12 @@ function PayloadCode({ value, maxHeight = "max-h-64" }: { value: unknown; maxHei
 }
 
 function ChartPanel({ period, metric }: { period: Period; metric: Metric }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["usage-chart", period, metric],
     queryFn: () => apiGet<{ buckets: ChartBucket[] }>(`/usage/chart?period=${period}&metric=${metric}`),
   });
   if (isLoading) return <Skeleton className="h-56" />;
+  if (isError) return <p className="py-8 text-center text-sm text-[var(--text-3)]">Failed to load chart data.</p>;
   const buckets = data?.buckets ?? [];
   const value = (bucket: ChartBucket) =>
     metric === "requests" ? bucket.requests : metric === "cached" ? bucket.cached : bucket.input + bucket.output;
@@ -223,11 +224,12 @@ function ChartPanel({ period, metric }: { period: Period; metric: Metric }) {
 }
 
 function ByDimension({ period, dimension }: { period: Period; dimension: Dimension }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["usage-by", period, dimension],
     queryFn: () => apiGet<{ rows: ByRow[] }>(`/usage/by-${dimension}?period=${period}`),
   });
   if (isLoading) return <Skeleton className="h-40" />;
+  if (isError) return <p className="py-8 text-center text-sm text-[var(--text-3)]">Failed to load this data.</p>;
   const rows = data?.rows ?? [];
   const max = Math.max(1, ...rows.map((row) => row.total));
   if (rows.length === 0) return <p className="py-8 text-center text-sm text-[var(--text-3)]">No data for this period.</p>;

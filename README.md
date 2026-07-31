@@ -86,9 +86,27 @@ Copy `.env.example` for local development. For production, configure secrets in 
 | `DATA_DIR` | Yes | Persistent data directory; use `/app/data` on Railway. |
 | `CONSOLE_PASSWORD` | Yes | Console login password. |
 | `CONSOLE_JWT_SECRET` | Yes | Long random secret for console sessions. |
-| `BOOTSTRAP_PROXY_API_KEY` | Recommended | Optional first proxy API key. |
+| `BOOTSTRAP_PROXY_API_KEY` | Recommended | Optional first proxy API key created on startup. |
+| `BOOTSTRAP_PROXY_API_KEY_NAME` | No | Name for the bootstrap key; defaults to `bootstrap`. |
+| `PROXY_AUTH_MODE` | No | `open` (default) or `api_key` to require proxy API keys. |
 | `MAX_FLIGHTS_PER_IP` | No | Per-IP concurrent request limit; defaults to `20`. |
-| `TRUST_PROXY` | Railway | Set `true` when Railway is the trusted reverse proxy. |
+| `TRUST_PROXY` | Railway | Set `true` when behind a trusted reverse proxy (Railway, etc.). |
+| `CACHE_MARKERS_ENABLED` | No | Emit Anthropic cache-control markers; defaults to `true`. |
+| `CORS_ALLOWED_ORIGINS` | No | Comma-separated extra CORS origins; empty = same-origin only. |
+| `STREAM_STALL_TIMEOUT_MS` | No | Abort stalled SSE streams after this many ms; defaults to `30000`. |
+| `CONSOLE_PATH` | No | URL prefix for the console; defaults to `/console`. |
+| `CONSOLE_ENABLED` | No | Disable the console entirely by setting `false`. |
+| `CONSOLE_SESSION_TTL_HOURS` | No | Console session lifetime in hours; defaults to `12`. |
+| `RTK_ENABLED` | No | Enable request token compression; defaults to `false`. |
+| `RTK_MIN_CHARS` | No | Minimum content length to compress; defaults to `1500`. |
+| `RTK_MAX_REDUCTION_PERCENT` | No | Maximum token reduction allowed; defaults to `35`. |
+| `LOG_RETENTION_DAYS` | No | Days to keep JSONL request logs; defaults to `14`. |
+| `ASSET_RETENTION_DAYS` | No | Days to keep tracked assets; defaults to `7`. |
+| `TRACK_PAYLOADS` | No | `none`, `meta`, or `store` — request payload tracking level; defaults to `store`. |
+| `TRACK_ASSETS` | No | `none`, `meta`, or `store` — asset tracking level; defaults to `meta`. |
+| `DB_PATH` | No | Override SQLite database path (defaults to `DATA_DIR/cartethyia.db`). |
+| `LOG_DIR` | No | Override log directory (defaults to `DATA_DIR/logs`). |
+| `ASSET_DIR` | No | Override asset directory (defaults to `DATA_DIR/assets`). |
 
 ## Railway deployment
 
@@ -120,12 +138,24 @@ docker run --rm -p 12800:8080 \
   cartethyia
 ```
 
+Or with the bundled `docker-compose.yml` (same image, port, volume, and health check):
+
+```bash
+CONSOLE_PASSWORD=change-me CONSOLE_JWT_SECRET=replace-with-a-long-random-secret docker compose up --build
+```
+
+For production hardening (resource limits, read-only filesystem, security opts), layer in the production override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
 ## Development and verification
 
 ```bash
 bun test
 bunx tsc --noEmit -p .
-cd dashboard && bun run build
+cd dashboard && bun run build && bun run test
 ```
 
 ## Architecture

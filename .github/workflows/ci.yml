@@ -23,7 +23,10 @@ jobs:
         run: bunx tsc --noEmit --noUnusedLocals --noUnusedParameters
 
       - name: Run tests
-        run: bun test
+        # Scoped to test/ - a bare `bun test` at the repo root also walks
+        # dashboard/src/**/*.test.tsx, which use Vitest-only APIs that fail
+        # under Bun's test runner (see AGENTS.md).
+        run: bun test test/
 
   build-dashboard:
     runs-on: ubuntu-latest
@@ -60,6 +63,22 @@ jobs:
 
       - name: Build binary
         run: bun run build
+
+      - name: Healthcheck the built binary
+        run: |
+          CONSOLE_PASSWORD=ci-healthcheck CONSOLE_JWT_SECRET=ci-healthcheck-secret-value-32chars DATA_DIR=/tmp/cth-ci-data PORT=18080 ./dist/cartethyia &
+          PID=$!
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:18080/health > /dev/null; then
+              echo "healthcheck passed"
+              kill $PID
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "healthcheck failed: /health never became ready"
+          kill $PID 2>/dev/null || true
+          exit 1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

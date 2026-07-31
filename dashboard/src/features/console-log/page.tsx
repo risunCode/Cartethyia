@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowDown, Trash2, Wifi, WifiOff } from "lucide-react";
 import { toast } from "sonner";
-import { api, ApiError } from "../../lib/api";
+import { ApiError, apiDelete } from "../../lib/api";
 import { formatTime } from "../../lib/format";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -49,7 +49,7 @@ export function ConsoleLogPage() {
 
   const clearLogs = async () => {
     try {
-      await api<{ ok: boolean }>("/console-logs", { method: "DELETE", body: "{}" });
+      await apiDelete<{ ok: boolean }>("/console-logs");
       setClearOpen(false);
       toast.success("Console logs cleared");
     } catch (err) {

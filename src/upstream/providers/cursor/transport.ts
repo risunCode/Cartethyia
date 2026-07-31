@@ -64,7 +64,6 @@ function deterministicUuid(seed: string): string {
   return `${hex}-${hex.slice(0, 4)}-4${hex.slice(1, 4)}-a${hex.slice(0, 3)}-${hex}${hex.slice(0, 4)}`;
 }
 
-const flattenText = flattenMessageText;
 
 /** Builds the Connect-protocol HTTP/2 headers for a Cursor AgentService call. */
 function buildCursorHeaders(accessToken: string): Record<string, string> {
@@ -141,13 +140,13 @@ export function buildCursorChatRequest(
         currentSteps = [];
       }
       // Serialize user message to bytes using proper schema
-      currentUserMessageBytes = toBinary(UserMessageSchema, create(UserMessageSchema, { text: flattenText(msg.content) }));
+      currentUserMessageBytes = toBinary(UserMessageSchema, create(UserMessageSchema, { text: flattenMessageText(msg.content) }));
     } else if (msg.role === "assistant") {
       currentSteps.push(
         create(ConversationStepSchema, {
           message: {
             case: "assistantMessage",
-            value: create(AssistantMessageSchema, { text: flattenText(msg.content) }),
+            value: create(AssistantMessageSchema, { text: flattenMessageText(msg.content) }),
           },
         }),
       );
@@ -169,11 +168,11 @@ export function buildCursorChatRequest(
 
   // System prompt as custom system prompt
   const systemMessages = messages.filter((m) => m.role === "system");
-  const systemPromptText = systemMessages.map((m) => flattenText(m.content)).join("\n\n");
+  const systemPromptText = systemMessages.map((m) => flattenMessageText(m.content)).join("\n\n");
 
   // Active user message (last message)
   const lastMsg = messages[messages.length - 1];
-  const userText = lastMsg ? flattenText(lastMsg.content) : "";
+  const userText = lastMsg ? flattenMessageText(lastMsg.content) : "";
 
   const conversationState = create(ConversationStateStructureSchema, {
     turns,

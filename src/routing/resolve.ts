@@ -128,34 +128,6 @@ export function parseQualifiedModel(model: string): QualifiedModelParseResult {
   return { kind: "invalid", reason: "Use a supported provider prefix such as foc, opencodezen, cmd, kimchi, devin, qoder, cursor, openai, anthropic, pmimo, mimosgtp, agentrouter, openrouter, ollama, cerebras, deepseek, siliconflow, mistral, opencodego, or a custom provider's own slug." };
 }
 
-/**
- * Resolves a model string to its provider target. Goes through the full
- * chain: qualified prefix -> alias -> combo -> filter, so aliases can resolve
- * to provider-qualified model IDs such as `kimchi/kimi-k2.7`.
- */
-export function resolveRoute(model: string): RouteResolveResult {
-  // Bare names (no slash) are rejected outright.
-  if (!model.includes("/")) {
-    return { legacy: false, error: "All models must use a supported provider prefix or a registered alias/combo." };
-  }
-
-  const chain = resolveModelChain(model);
-  if (!chain) return { legacy: false, error: "The requested model is not available for this provider." };
-
-  if (chain.kind === "qualified") {
-    const target = lookupStaticTarget(chain.model.provider, chain.model.modelId);
-    if (!target) return { legacy: false, error: "The requested model is not available for this provider." };
-    return { legacy: false, target };
-  }
-
-  // Combo: use first candidate as the primary target.
-  if (chain.candidates.length === 0) return { legacy: false, error: "The requested model is not available for this provider." };
-  const first = chain.candidates[0]!;
-  const target = lookupStaticTarget(first.provider, first.modelId);
-  if (!target) return { legacy: false, error: "The requested model is not available for this provider." };
-  return { legacy: false, target };
-}
-
 // ─────────────────── Model chain resolution ─────────────────────────────────
 
 /**
@@ -329,9 +301,4 @@ export function lookupStaticTarget(provider: AddedProviderId, modelId: string): 
     credential: definition.credential,
     weight: 1,
   };
-}
-
-/** Selects the sole available target; retained as the selection boundary for future weighted routing. */
-export function selectTarget(targets: RouteTarget[]): RouteTarget | undefined {
-  return targets[0];
 }

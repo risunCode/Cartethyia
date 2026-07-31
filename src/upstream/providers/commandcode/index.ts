@@ -1,7 +1,8 @@
 import type { RouteTarget } from "../../../routing/types";
 import type { OpenAIChatRequest } from "../../../translate/types";
-import { ProviderCallError, providerHttpError, safeReadText } from "../index";
+import { ProviderCallError } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
+import { callMaterializingProvider } from "../simple-call";
 import { commandCodeModelCatalog } from "./models";
 import { buildCommandCodeHeaders, buildCommandCodeRequest, decodeCommandCodeNdjsonStream } from "./transport";
 import { materializeFromStream, materializedToChatResponse } from "../../result";
@@ -50,30 +51,21 @@ class CommandCodeProvider implements Provider {
     const upstreamBody = buildCommandCodeRequest(target.modelId, chatBody, sessionId);
     const headers = buildCommandCodeHeaders(sessionId, credential.value);
 
-    const res = await fetch(UPSTREAM_URL, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(upstreamBody),
-      signal,
-      ...(proxy ? { proxy } : {}),
-    });
-
-    if (!res.ok) {
-      throw providerHttpError(res.status, "Command Code", undefined, await safeReadText(res));
-    }
-
-    if (!res.body) {
-      throw new ProviderCallError(502, "unavailable", "Command Code upstream returned an empty response body.");
-    }
-
-    const events = decodeCommandCodeNdjsonStream(res.body);
-
-    if (chatBody.stream) {
-      return { type: "stream", events };
-    }
-
-    const materialized = await materializeFromStream(events);
-    return { type: "json", body: materializedToChatResponse(materialized, chatBody.model) as unknown as Record<string, unknown> };
+    return callMaterializingProvider(
+      {
+        url: UPSTREAM_URL,
+        headers,
+        body: upstreamBody,
+        signal,
+        proxy,
+        providerLabel: "Command Code",
+        isStreaming: !!chatBody.stream,
+        decodeStream: decodeCommandCodeNdjsonStream,
+        model: chatBody.model,
+      },
+      materializeFromStream,
+      materializedToChatResponse,
+    );
   }
 }
 

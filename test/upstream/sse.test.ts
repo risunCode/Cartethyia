@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatSSEFrame, parseSSEStream, sseDataOnly, toSSEResponseStream, SSE_DONE } from "../../src/upstream/sse";
+import { formatSSEFrame, parseSSEStream, toSSEResponseStream, SSE_DONE } from "../../src/upstream/sse";
 import type { SSEFrame } from "../../src/upstream/sse";
 
 function streamOf(text: string): ReadableStream<Uint8Array> {
@@ -101,7 +101,7 @@ describe("sse concern — parseSSEStream", () => {
   });
 });
 
-describe("sse concern — formatSSEFrame / sseDataOnly", () => {
+describe("sse concern \u2014 formatSSEFrame", () => {
   test("formatSSEFrame includes the event line when present", () => {
     expect(formatSSEFrame({ event: "message_stop", data: "{}" })).toBe("event: message_stop\ndata: {}\n\n");
   });
@@ -110,11 +110,7 @@ describe("sse concern — formatSSEFrame / sseDataOnly", () => {
     expect(formatSSEFrame({ data: "{}" })).toBe("data: {}\n\n");
   });
 
-  test("sseDataOnly JSON-encodes the payload with no event line", () => {
-    expect(sseDataOnly({ a: 1 })).toBe('data: {"a":1}\n\n');
-  });
-
-  test("format → parse round-trips a frame", async () => {
+  test("format \u2192 parse round-trips a frame", async () => {
     const formatted = formatSSEFrame({ event: "x", data: '{"y":2}' });
     const frames = await collect(parseSSEStream(streamOf(formatted)));
     expect(frames).toEqual([{ event: "x", data: '{"y":2}' } satisfies SSEFrame]);

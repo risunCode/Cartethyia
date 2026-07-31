@@ -27,6 +27,19 @@ export const MessagesRequestSchema = t.Object(
   { additionalProperties: true }
 );
 
+/**
+ * /v1/messages/count_tokens has no `max_tokens` field at all - it never
+ * generates a completion, just counts input tokens - so it gets its own
+ * schema instead of reusing MessagesRequestSchema's required max_tokens.
+ */
+export const CountTokensRequestSchema = t.Object(
+  {
+    model: t.String(),
+    messages: t.Array(t.Unknown(), { minItems: 1 }),
+  },
+  { additionalProperties: true }
+);
+
 export const ResponsesRequestSchema = t.Object(
   {
     model: t.String(),

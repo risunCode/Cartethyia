@@ -6,7 +6,7 @@ import { HeaderPairsEditor, pairsToHeaders, type HeaderPair } from "../../compon
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { api, apiGet, apiPost } from "../../lib/api";
+import { apiGet, apiPost, apiDelete } from "../../lib/api";
 import { staggerClass } from "../../lib/motion";
 import { StatusDot } from "../../components/status-dot";
 import { ProviderIcon } from "../../components/provider-icon";
@@ -168,7 +168,7 @@ function CustomProvidersSection() {
   const invalidate = () => qc.invalidateQueries({ queryKey: ["console", "custom-providers"] });
 
   const deleteMut = useMutation({
-    mutationFn: (id: string) => api<{ ok: boolean }>(`/custom-providers/${id}`, { method: "DELETE", body: "{}" }),
+    mutationFn: (id: string) => apiDelete<{ ok: boolean }>(`/custom-providers/${id}`),
     onSuccess: () => { invalidate(); setDeleteTarget(null); toast.success("Custom provider deleted"); },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -290,7 +290,7 @@ function ProviderCard({ provider }: { provider: ProviderInfo }) {
 }
 
 export function ProvidersPage() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["providers"],
     queryFn: () => apiGet<{ items: ProviderInfo[] }>("/providers"),
   });
@@ -319,6 +319,13 @@ export function ProvidersPage() {
             </Card>
           ))}
         </div>
+      ) : isError ? (
+        <Card className="text-center">
+          <p className="py-8 text-sm text-[var(--text-2)]">Failed to load providers.</p>
+          <Button variant="secondary" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </Card>
       ) : (
         <div className="space-y-6">
           <CustomProvidersSection />

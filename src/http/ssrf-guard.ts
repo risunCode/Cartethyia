@@ -41,6 +41,23 @@ function isPrivateIPv4(ip: string): boolean {
 }
 
 /**
+ * Converts the trailing two 16-bit hex groups of an IPv4-mapped IPv6
+ * address (the part after `::ffff:`, e.g. `a00:1` or `0a00:0001` for
+ * 10.0.0.1) into a dotted-quad string, or `null` if it isn't that shape.
+ */
+function ipv4MappedHextetsToDotted(inner: string): string | null {
+  const groups = inner.split(":");
+  if (groups.length !== 2) return null;
+  const [hi, lo] = groups;
+  if (hi === undefined || lo === undefined || hi.length > 4 || lo.length > 4) return null;
+  const hiNum = Number.parseInt(hi, 16);
+  const loNum = Number.parseInt(lo, 16);
+  if (!Number.isInteger(hiNum) || !Number.isInteger(loNum) || hiNum < 0 || hiNum > 0xffff || loNum < 0 || loNum > 0xffff) return null;
+  const combined = (hiNum << 16) | loNum;
+  return [(combined >>> 24) & 0xff, (combined >>> 16) & 0xff, (combined >>> 8) & 0xff, combined & 0xff].join(".");
+}
+
+/**
  * Checks if a hostname (IP literal or domain) is private/blocked.
  * For domain names, checks known patterns. For IP literals, checks ranges.
  */
@@ -55,11 +72,16 @@ function isBlockedIp(address: string): boolean {
     if ((value >= 0xfe80 && value <= 0xfebf) || (value >= 0xfc00 && value <= 0xfdff)) return true;
   }
 
-  // IPv4-mapped IPv6 (URL constructor normalizes to hex: ::ffff:7f00:1)
+  // IPv4-mapped IPv6 (URL constructor normalizes to hex, e.g. ::ffff:7f00:1
+  // or ::ffff:a00:1 for 10.0.0.1 - leading zeros may or may not be
+  // stripped depending on the caller, so the hex groups are parsed
+  // numerically into a dotted-quad instead of fragile prefix string
+  // matching, which silently let "0a00:0001"-style hex through before.
   if (ip.startsWith("::ffff:")) {
     const inner = ip.slice(7);
     if (inner.includes(":")) {
-      if (inner.startsWith("7f") || inner.startsWith("a9fe") || inner.startsWith("a") || inner.startsWith("c0a8")) return true;
+      const dotted = ipv4MappedHextetsToDotted(inner);
+      if (dotted && isPrivateIPv4(dotted)) return true;
     } else if (isPrivateIPv4(inner)) {
       return true;
     }

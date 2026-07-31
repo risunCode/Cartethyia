@@ -41,26 +41,17 @@ function extractBearer(headers: InboundHeaders): string | undefined {
   return undefined;
 }
 
+/** Credential kinds that require a bearer token from the inbound request. */
+const BEARER_CREDENTIAL_KINDS: ReadonlySet<string> = new Set(["provider-bearer", "devin-session", "qoder-pat"]);
+
 /** Resolves the client-supplied credential a target's routing calls for (BYOK bearer/api-key, or none for auth-free providers). */
 function resolveCredential(target: RouteTarget, headers: InboundHeaders): ResolvedCredential | undefined {
   if (target.credential === "none") return { kind: "none", value: "" };
 
-  if (target.credential === "provider-bearer") {
+  if (BEARER_CREDENTIAL_KINDS.has(target.credential)) {
     const value = extractBearer(headers);
     if (!value) return undefined;
-    return { kind: "provider-bearer", value };
-  }
-
-  if (target.credential === "devin-session") {
-    const value = extractBearer(headers);
-    if (!value) return undefined;
-    return { kind: "devin-session", value };
-  }
-
-  if (target.credential === "qoder-pat") {
-    const value = extractBearer(headers);
-    if (!value) return undefined;
-    return { kind: "qoder-pat", value };
+    return { kind: target.credential as ResolvedCredential["kind"], value };
   }
 
   return undefined;
@@ -144,7 +135,7 @@ async function dispatchWithImageFallback(
   }
 }
 
-export async function dispatchProvider(
+async function dispatchProvider(
   registry: ProviderRegistry,
   route: DispatchableRoute,
   signal: AbortSignal

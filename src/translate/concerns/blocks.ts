@@ -38,8 +38,33 @@ export interface UnifiedToolResultBlock {
   type: "tool_result";
   /** Matches the originating UnifiedToolCallBlock.id. */
   toolCallId: string;
-  content: string;
+  /** Anthropic tool results can carry rich content (text + images); a surface that only accepts plain text (OpenAI Chat's tool role) gets it flattened by the denormalizer. */
+  content: string | UnifiedBlock[];
   isError: boolean;
+  cache: boolean;
+}
+
+/** Extended-thinking / reasoning content. `text` is absent when this represents an Anthropic `redacted_thinking` block (opaque `redactedData` only). */
+export interface UnifiedThinkingBlock {
+  type: "thinking";
+  text?: string;
+  signature?: string;
+  /** Anthropic redacted_thinking's opaque encrypted payload - preserved verbatim for round-tripping back to Anthropic, never interpreted. */
+  redactedData?: string;
+  cache: boolean;
+}
+
+/**
+ * Passthrough for a source block type this proxy does not model explicitly
+ * (Anthropic server_tool_use/web_search_tool_result/document/... or OpenAI
+ * Responses' built-in-tool output items). Carries the original block
+ * verbatim so same-surface round-trips never silently drop data, at the
+ * cost of being opaque to any denormalizer targeting a different surface.
+ */
+export interface UnifiedOpaqueBlock {
+  type: "opaque";
+  originalType: string;
+  raw: Record<string, unknown>;
   cache: boolean;
 }
 
@@ -47,7 +72,9 @@ export type UnifiedBlock =
   | UnifiedTextBlock
   | UnifiedImageBlock
   | UnifiedToolCallBlock
-  | UnifiedToolResultBlock;
+  | UnifiedToolResultBlock
+  | UnifiedThinkingBlock
+  | UnifiedOpaqueBlock;
 
 export interface UnifiedMessage {
   role: UnifiedRole;
@@ -88,6 +115,14 @@ export function isToolCallBlock(b: UnifiedBlock): b is UnifiedToolCallBlock {
 
 export function isToolResultBlock(b: UnifiedBlock): b is UnifiedToolResultBlock {
   return b.type === "tool_result";
+}
+
+export function isThinkingBlock(b: UnifiedBlock): b is UnifiedThinkingBlock {
+  return b.type === "thinking";
+}
+
+export function isOpaqueBlock(b: UnifiedBlock): b is UnifiedOpaqueBlock {
+  return b.type === "opaque";
 }
 
 /** Concatenate all text blocks in a message — used when a target shape wants plain string content. */

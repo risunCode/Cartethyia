@@ -34,7 +34,11 @@ export function redactPayload(input: unknown): string | null {
   try {
     let str = typeof input === "string" ? input : JSON.stringify(input);
     for (const field of SENSITIVE_BODY_FIELDS) {
-      str = str.replaceAll(`"${field}"`, `[${field.toUpperCase()}_REDACTED]`);
+      // Redact the VALUE that follows a sensitive field's key, not just the
+      // key's own label - replacing only `"api_key"` left the actual secret
+      // (`"api_key":"sk-live-..."`) sitting right next to the placeholder.
+      const pattern = new RegExp(`("${field}"\\s*:\\s*)"[^"]*"`, "gi");
+      str = str.replace(pattern, `$1"[${field.toUpperCase()}_REDACTED]"`);
     }
     return redactText(str).slice(0, 50_000);
   } catch {

@@ -4,6 +4,7 @@
  */
 
 import { getDb } from "../client";
+import { parseJsonArray } from "../json-helpers";
 
 export type AccessScope = "proxy" | "console";
 export type AccessMode = "open" | "allowlist" | "denylist";
@@ -26,12 +27,7 @@ const DEFAULT_RULE: Omit<AccessRule, "scope"> = { mode: "open", entries: [], upd
 
 function toRule(scope: AccessScope, row: AccessRow | null): AccessRule {
   if (!row) return { scope, ...DEFAULT_RULE };
-  let entries: string[] = [];
-  try {
-    entries = JSON.parse(row.entries_json) as string[];
-  } catch {
-    // corrupt → empty
-  }
+  const entries = parseJsonArray(row.entries_json) ?? [];
   const mode: AccessMode = row.mode === "allowlist" || row.mode === "denylist" ? row.mode : "open";
   return { scope, mode, entries, updatedAt: row.updated_at };
 }

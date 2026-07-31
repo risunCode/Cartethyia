@@ -91,6 +91,27 @@ describe("bridge — decodeAnthropicStream", () => {
     const events = await collect(decodeAnthropicStream(streamOf(raw)));
     expect(events).toEqual([{ type: "text_delta", text: "ok" }]);
   });
+
+  test("extended-thinking turn: signature_delta terminates the thinking block as a thinking_signature event, not silently dropped", async () => {
+    const raw =
+      frame({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }) +
+      frame({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "Let me work through this." } }) +
+      frame({ type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig_abc123" } }) +
+      frame({ type: "content_block_stop", index: 0 }) +
+      frame({ type: "content_block_start", index: 1, content_block: { type: "text", text: "" } }) +
+      frame({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "Answer." } }) +
+      frame({ type: "content_block_stop", index: 1 }) +
+      frame({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: {} });
+
+    const events = await collect(decodeAnthropicStream(streamOf(raw)));
+    expect(events).toEqual([
+      { type: "thinking_delta", text: "Let me work through this." },
+      { type: "thinking_signature", signature: "sig_abc123" },
+      { type: "text_delta", text: "Answer." },
+      { type: "finish", stopReason: "end_turn" },
+      { type: "usage", inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    ]);
+  });
 });
 
 describe("bridge — decodeOpenAIChatStream", () => {
@@ -126,6 +147,34 @@ describe("bridge — decodeOpenAIChatStream", () => {
     const raw = frame({ choices: [], usage: { prompt_tokens: 100, completion_tokens: 20, prompt_tokens_details: { cached_tokens: 40 } } });
     const events = await collect(decodeOpenAIChatStream(streamOf(raw)));
     expect(events).toEqual([{ type: "usage", inputTokens: 100, outputTokens: 20, cacheReadTokens: 40, cacheWriteTokens: 0 }]);
+  });
+
+  test("two parallel tool calls: interleaved continuation chunks (no id/name) route by wire index, not by the last-opened id", async () => {
+    // Mirrors real agentic-client traffic (Claude Code, GitHub Copilot, OpenCode):
+    // both tool calls open before either finishes, and continuation chunks carry
+    // only `index` - never `id`/`name`. A "last opened id" heuristic would
+    // misroute every arg fragment to call_B once both are open.
+    const raw =
+      frame({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call_A", type: "function", function: { name: "read_file", arguments: "" } }] } }] }) +
+      frame({ choices: [{ index: 0, delta: { tool_calls: [{ index: 1, id: "call_B", type: "function", function: { name: "read_file", arguments: "" } }] } }] }) +
+      frame({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '{"path":' } }] } }] }) +
+      frame({ choices: [{ index: 0, delta: { tool_calls: [{ index: 1, function: { arguments: '{"path":' } }] } }] }) +
+      frame({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '"a.txt"}' } }] } }] }) +
+      frame({ choices: [{ index: 0, delta: { tool_calls: [{ index: 1, function: { arguments: '"b.txt"}' } }] } }] }) +
+      frame({ choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
+
+    const events = await collect(decodeOpenAIChatStream(streamOf(raw)));
+    expect(events).toEqual([
+      { type: "tool_call_start", id: "call_A", name: "read_file" },
+      { type: "tool_call_start", id: "call_B", name: "read_file" },
+      { type: "tool_call_args_delta", id: "call_A", argumentsDelta: '{"path":' },
+      { type: "tool_call_args_delta", id: "call_B", argumentsDelta: '{"path":' },
+      { type: "tool_call_args_delta", id: "call_A", argumentsDelta: '"a.txt"}' },
+      { type: "tool_call_args_delta", id: "call_B", argumentsDelta: '"b.txt"}' },
+      { type: "tool_call_end", id: "call_A" },
+      { type: "tool_call_end", id: "call_B" },
+      { type: "finish", stopReason: "tool_use" },
+    ]);
   });
 });
 
@@ -278,7 +327,49 @@ describe("bridge — encodeResponsesStream", () => {
     expect(deltas[0]).toContain('(model produced no visible output)');
   });
 
+  test("thinking_signature emits a signature_delta on the still-open thinking block before it closes", async () => {
+    const events: StreamEvent[] = [
+      { type: "thinking_delta", text: "Reasoning..." },
+      { type: "thinking_signature", signature: "sig_xyz" },
+      { type: "text_delta", text: "Answer." },
+      { type: "finish", stopReason: "end_turn" },
+    ];
+    const frames = await collect(encodeAnthropicStream(fromArray(events), META));
+    const sigFrameIndex = frames.findIndex((f) => f.includes('"signature_delta"'));
+    const thinkingCloseIndex = frames.findIndex((f) => f.includes('"content_block_stop"') && f.includes('"index":0'));
+    expect(sigFrameIndex).toBeGreaterThan(-1);
+    expect(frames[sigFrameIndex]).toContain('"index":0');
+    expect(frames[sigFrameIndex]).toContain('"signature":"sig_xyz"');
+    // Signature delta must land on the thinking block (index 0) before it closes.
+    expect(sigFrameIndex).toBeLessThan(thinkingCloseIndex);
+  });
+
+  test("a stray thinking_signature with no open thinking block is a no-op (no synthesized block)", async () => {
+    const events: StreamEvent[] = [{ type: "thinking_signature", signature: "orphan" }, { type: "finish", stopReason: "end_turn" }];
+    const frames = await collect(encodeAnthropicStream(fromArray(events), META));
+    expect(frames.some((f) => f.includes('"signature_delta"'))).toBe(false);
+  });
+
 describe("bridge — decode → encode round trip", () => {
+  test("an Anthropic extended-thinking SSE transcript preserves the signature end-to-end through the StreamEvent bridge", async () => {
+    // Same-surface case that mattered most in practice: an Anthropic-native
+    // client (Claude Code) dispatched to an Anthropic-family provider still
+    // funnels through this decode\u2192encode bridge (there is no raw passthrough
+    // fast path), so the signature must survive it or extended-thinking +
+    // tool-use replay breaks on the client's next turn.
+    const raw =
+      frame({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }) +
+      frame({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "Thinking..." } }) +
+      frame({ type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig_roundtrip" } }) +
+      frame({ type: "content_block_stop", index: 0 }) +
+      frame({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: {} });
+
+    const events = decodeAnthropicStream(streamOf(raw));
+    const anthropicFrames = (await collect(encodeAnthropicStream(events, META))).join("");
+    expect(anthropicFrames).toContain('"signature_delta"');
+    expect(anthropicFrames).toContain('"signature":"sig_roundtrip"');
+  });
+
   test("a full Anthropic tool-call SSE transcript decodes and re-encodes to an equivalent OpenAI Chat stream", async () => {
     const raw =
       frame({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "toolu_1", name: "get_weather" } }) +

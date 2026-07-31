@@ -13,14 +13,25 @@
  * shape, upstream is Chat Completions.
  */
 
-import { openAIChatToolChoiceToResponses, responsesToolChoiceToOpenAIChat } from "./concerns/tools";
+import {
+  openAIChatToolChoiceToResponses,
+  openAIChatToolToUnified,
+  openAIResponsesToolToUnified,
+  responsesToolChoiceToOpenAIChat,
+  unifiedToolToOpenAIChat,
+  unifiedToolToOpenAIResponses,
+} from "./concerns/tools";
+import type { OpenAIChatToolDef, OpenAIResponsesToolDef } from "./concerns/tools";
 import type {
   OpenAIChatContentPart,
   OpenAIChatMessage,
   OpenAIChatRequest,
   OpenAIChatResponse,
+  OpenAIResponsesFunctionCallItem,
   OpenAIResponsesInputItem,
   OpenAIResponsesOutputItem,
+  OpenAIResponsesOutputMessageItem,
+  OpenAIResponsesReasoningItem,
   OpenAIResponsesRequest,
   OpenAIResponsesResponse,
 } from "./types";
@@ -53,7 +64,16 @@ export function translateChatRequestToResponses(req: OpenAIChatRequest): OpenAIR
   const out: OpenAIResponsesRequest = { model: req.model, input };
 
   if (req.tools && req.tools.length > 0) {
-    out.tools = req.tools.map((t) => ({ type: "function", name: t.function.name, description: t.function.description, parameters: t.function.parameters }));
+    // A client can mix custom function tools with Chat-side built-in
+    // extensions in the same array; those have no `.function` field at all
+    // - reading it unconditionally used to crash the whole request instead
+    // of just dropping the tool this proxy can't represent. Routed through
+    // the shared tools.ts helpers (not reconstructed inline) so a
+    // zero-argument tool missing `parameters` also gets the same schema
+    // default Chat<->Anthropic already applies, instead of silently
+    // shipping `parameters: undefined` to the Responses API.
+    const functionTools = req.tools.filter((t): t is OpenAIChatToolDef => t.type === "function" && t.function !== undefined);
+    if (functionTools.length > 0) out.tools = functionTools.map((t) => unifiedToolToOpenAIResponses(openAIChatToolToUnified(t)));
   }
   if (req.max_completion_tokens !== undefined) out.max_output_tokens = req.max_completion_tokens;
   else if (req.max_tokens !== undefined) out.max_output_tokens = req.max_tokens;
@@ -88,18 +108,34 @@ export function translateResponsesResponseToChat(resp: OpenAIResponsesResponse):
 
 function buildChatMessageFromOutput(output: OpenAIResponsesOutputItem[]): OpenAIChatMessage {
   const textParts: string[] = [];
+  const reasoningParts: string[] = [];
   const toolCalls: NonNullable<OpenAIChatMessage["tool_calls"]> = [];
 
   for (const item of output) {
     if (item.type === "message") {
-      for (const part of item.content) textParts.push(part.text);
-    } else {
-      toolCalls.push({ id: item.call_id, type: "function", function: { name: item.name, arguments: item.arguments } });
+      const msg = item as OpenAIResponsesOutputMessageItem;
+      for (const part of msg.content) textParts.push(part.text);
+    } else if (item.type === "function_call") {
+      const call = item as OpenAIResponsesFunctionCallItem;
+      toolCalls.push({ id: call.call_id, type: "function", function: { name: call.name, arguments: call.arguments } });
+    } else if (item.type === "reasoning") {
+      const reasoning = item as OpenAIResponsesReasoningItem;
+      const summaryText = (reasoning.summary ?? []).map((s) => s.text).join("\n");
+      const contentText = (reasoning.content ?? []).map((c) => c.text).join("\n");
+      const text = [summaryText, contentText].filter((s) => s.length > 0).join("\n");
+      if (text) reasoningParts.push(text);
     }
+    // Any other built-in-tool output item (web_search_call, file_search_call,
+    // code_interpreter_call, image_generation_call, mcp_call, computer_call,
+    // ...) has no Chat Completions equivalent slot. Previously this branch
+    // mis-typed every non-message item as a function_call, synthesizing a
+    // bogus tool call with undefined id/name/arguments instead of dropping
+    // it cleanly - fixed by only handling the item types Chat can represent.
   }
 
   const message: OpenAIChatMessage = { role: "assistant", content: textParts.length > 0 ? textParts.join("") : null };
   if (toolCalls.length > 0) message.tool_calls = toolCalls;
+  if (reasoningParts.length > 0) (message as unknown as Record<string, unknown>).reasoning_content = reasoningParts.join("\n");
   return message;
 }
 
@@ -140,7 +176,14 @@ export function translateResponsesRequestToChat(req: OpenAIResponsesRequest): Op
   const out: OpenAIChatRequest = { model: req.model, messages };
 
   if (req.tools && req.tools.length > 0) {
-    out.tools = req.tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }));
+    // Built-in Responses tools (web_search_preview, code_interpreter,
+    // computer_use_preview, file_search, image_generation, ...) have a
+    // `type` other than "function" and no `name`/`parameters` at all -
+    // reading them unconditionally used to synthesize a garbage function
+    // tool named "undefined" with `parameters: undefined` instead of being
+    // dropped, since Chat Completions has no equivalent slot for them.
+    const functionTools = req.tools.filter((t): t is OpenAIResponsesToolDef => t.type === "function");
+    if (functionTools.length > 0) out.tools = functionTools.map((t) => unifiedToolToOpenAIChat(openAIResponsesToolToUnified(t)));
   }
   if (req.max_output_tokens !== undefined) out.max_completion_tokens = req.max_output_tokens;
   const toolChoice = responsesToolChoiceToOpenAIChat(req.tool_choice);
@@ -152,6 +195,9 @@ export function translateResponsesRequestToChat(req: OpenAIResponsesRequest): Op
 }
 
 export function translateChatResponseToResponses(resp: OpenAIChatResponse): OpenAIResponsesResponse {
+  // The Responses API has no multi-candidate concept - if the upstream Chat
+  // response carries `n > 1` choices, only the first is representable here
+  // and the rest are intentionally not sent (there is no lossless mapping).
   const choice = resp.choices?.[0];
   const message = choice?.message;
   const output = buildResponsesOutput(message);

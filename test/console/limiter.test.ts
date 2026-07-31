@@ -44,4 +44,32 @@ describe("login limiter", () => {
     const result = limiter.recordFailure("ip", t0 + much);
     expect(result.allowed).toBe(true);
   });
+
+  test("sweeps stale unlocked buckets so scanner traffic can't grow the map forever", () => {
+    const limiter = new LoginLimiter();
+    const t0 = 1_000_000;
+    // 200 distinct source IPs each fail once (below FAILURE_THRESHOLD, so
+    // never locked) - previously these buckets lived forever.
+    for (let i = 0; i < 200; i++) limiter.recordFailure(`ip-${i}`, t0);
+    expect(limiter.size()).toBe(200);
+
+    // Past both the reset window (1h) and the sweep interval (10min); the
+    // next lookup should trigger a sweep and drop every stale bucket.
+    const later = t0 + 3_700_000;
+    limiter.check("ip-0", later);
+    expect(limiter.size()).toBeLessThan(200);
+  });
+
+  test("does not sweep a bucket that is unlocked but still inside the 1h reset window", () => {
+    const limiter = new LoginLimiter();
+    const t0 = 1_000_000;
+    for (let i = 0; i < 5; i++) limiter.recordFailure("locked-ip", t0 + i);
+    expect(limiter.status("locked-ip", t0 + 5).locked).toBe(true);
+
+    // Past the sweep interval (10min) and the 30s lock, but well inside the
+    // 1h reset window - the bucket's escalation history must survive.
+    const later = t0 + 700_000;
+    limiter.check("other-ip", later);
+    expect(limiter.status("locked-ip", later).failures).toBe(5);
+  });
 });

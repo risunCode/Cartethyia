@@ -85,10 +85,6 @@ export function formatSSEFrame(frame: SSEFrame): string {
   return `${eventLine}data: ${frame.data}\n\n`;
 }
 
-export function sseDataOnly(data: unknown): string {
-  return formatSSEFrame({ event: undefined, data: JSON.stringify(data) });
-}
-
 export const SSE_DONE = "data: [DONE]\n\n";
 
 /** Turn an AsyncGenerator of already-formatted SSE text frames into a ReadableStream<Uint8Array>, for Elysia to hand back as the response body. */

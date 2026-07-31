@@ -5,7 +5,7 @@ import { ArrowLeft, Bot, Copy, Eye, FlaskConical, Link2, ListChecks, Pencil, Ref
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { api, apiGet, apiPost } from "../../lib/api";
+import { apiGet, apiPost, apiDelete } from "../../lib/api";
 import { formatTokens, formatDuration } from "../../lib/format";
 import { staggerClass } from "../../lib/motion";
 import { Badge } from "../../components/ui/badge";
@@ -134,7 +134,7 @@ export function CustomProviderDetailPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: () => api<{ ok: boolean }>(`/custom-providers/${id}`, { method: "DELETE", body: "{}" }),
+    mutationFn: () => apiDelete<{ ok: boolean }>(`/custom-providers/${id}`),
     onSuccess: () => {
       toast.success("Custom provider deleted");
       void queryClient.invalidateQueries({ queryKey: ["console", "custom-providers"] });

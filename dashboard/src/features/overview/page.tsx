@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ApiError, api, apiGet, apiPatch, apiPost } from "../../lib/api";
+import { ApiError, apiGet, apiPatch, apiPost, apiDelete } from "../../lib/api";
 import { formatDuration, formatMemoryMb, formatTime } from "../../lib/format";
 import { staggerClass } from "../../lib/motion";
 import { Badge, Skeleton } from "../../components/ui/badge";
@@ -378,7 +378,7 @@ export function OverviewPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api<{ ok: boolean }>(`/keys/${id}`, { method: "DELETE", body: "{}" }),
+    mutationFn: (id: string) => apiDelete<{ ok: boolean }>(`/keys/${id}`),
     onSuccess: () => {
       toast.success("Key deleted permanently");
       setDeleteTarget(null);

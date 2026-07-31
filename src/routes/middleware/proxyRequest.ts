@@ -8,7 +8,7 @@
 import { enforceProxyAuth } from "../../console/proxy-auth";
 import { openAIClientError } from "../../http/errors";
 import { createRequestTracker, type RequestTracker, type TrackSurface } from "../../console/tracking/tracker";
-import { tryAcquireKeySlot, releaseKeySlot } from "../../console/tracking/key-in-flight";
+import { tryAcquireKeySlot, releaseKeySlot, releaseTokenReservationForKey } from "../../console/tracking/key-in-flight";
 import { UpstreamError, ProviderCallError } from "../../upstream/providers";
 
 type UpstreamErrorMapper = (err: UpstreamError) => { status: number; body: unknown };
@@ -41,6 +41,7 @@ export async function withProxyRequest<T>(opts: ProxyRequestOptions, handler: (c
 
   const keyId = auth.key?.id;
   const maxConcurrent = auth.key?.maxConcurrentRequests;
+  const tokensReserved = auth.tokensReserved;
   if (keyId && maxConcurrent && !tryAcquireKeySlot(keyId, maxConcurrent)) {
     opts.set.status = 429;
     return openAIClientError(429, "rate_limit_error", "This key exceeded its concurrent request limit.");
@@ -70,5 +71,13 @@ export async function withProxyRequest<T>(opts: ProxyRequestOptions, handler: (c
     throw err;
   } finally {
     if (keyId && maxConcurrent) releaseKeySlot(keyId);
+    // For a JSON response the real usage already landed in SQLite by the
+    // time `handler()` resolves, so this just stops double-counting the
+    // estimate. For an SSE response the reservation is released here too
+    // (matching releaseKeySlot's existing per-key-slot behavior above,
+    // rather than holding until the stream drains) - a narrower window
+    // than before this reservation existed, but not a full close for
+    // long-lived streams.
+    if (keyId && tokensReserved > 0) releaseTokenReservationForKey(keyId, tokensReserved);
   }
 }

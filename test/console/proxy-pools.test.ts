@@ -3,6 +3,9 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { app } from "../../src/app";
 import { loginAndGetCookie, postJson, useIsolatedDataDir } from "./helpers";
+import { createPool, deletePool } from "../../src/console/db/repos/proxy-pools";
+import { upsertProviderRouting, getProviderRouting } from "../../src/console/db/repos/routing";
+import { createAccount, getAccount } from "../../src/console/db/repos/accounts";
 
 type MockFetch = ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
 
@@ -110,6 +113,30 @@ describe("proxy pools CRUD", () => {
 
     const delRes = await app.handle(deleteJson("/console/api/proxy-pools/nonexistent-id", cookie));
     expect(delRes.status).toBe(404);
+  });
+});
+
+describe("proxy pool deletion clears dangling references", () => {
+  test("deleting a pool clears proxy_pool_id on provider routing and accounts instead of leaving a dangling id", () => {
+    const pool = createPool({ name: "orphan-test-pool", entries: [{ url: "http://proxy.example.com:8080", scheme: "http" }] });
+    upsertProviderRouting("kimchi", { proxyMode: "proxy-pool", proxyPoolId: pool.id });
+    const { id: accountId } = createAccount({
+      provider: "kimchi",
+      name: "orphan-test-account",
+      credentialKind: "bearer",
+      credential: "sk-test",
+      proxyPoolId: pool.id,
+    });
+
+    expect(getProviderRouting("kimchi").proxyPoolId).toBe(pool.id);
+    expect(getAccount(accountId)?.proxy_pool_id).toBe(pool.id);
+
+    expect(deletePool(pool.id)).toBe(true);
+
+    const routingAfter = getProviderRouting("kimchi");
+    expect(routingAfter.proxyPoolId).toBeNull();
+    expect(routingAfter.proxyMode).toBe("direct");
+    expect(getAccount(accountId)?.proxy_pool_id).toBeNull();
   });
 });
 

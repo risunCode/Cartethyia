@@ -21,7 +21,7 @@ export interface AnthropicErrorResponse {
   };
 }
 
-type ClientErrorKind = "authentication_error" | "invalid_request_error" | "rate_limit_error" | "upstream_error" | "internal_error";
+export type ClientErrorKind = "authentication_error" | "invalid_request_error" | "rate_limit_error" | "upstream_error" | "internal_error";
 
 interface FriendlyError {
   status: number;

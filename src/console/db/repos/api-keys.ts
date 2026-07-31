@@ -5,6 +5,7 @@
 
 import { getDb } from "../client";
 import { purgeRateLimitState } from "../../proxy-auth";
+import { parseJsonArray, serializeJsonArray } from "../json-helpers";
 
 export interface ApiKeyRow {
   id: string;
@@ -62,16 +63,6 @@ export interface ApiKeyUpdateInput {
   modelDenylist?: string[] | null;
 }
 
-function parseList(raw: string | null): string[] | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? (parsed as string[]) : null;
-  } catch {
-    return null;
-  }
-}
-
 function toPublic(row: ApiKeyRow): ApiKeyPublic {
   return {
     id: row.id,
@@ -82,9 +73,9 @@ function toPublic(row: ApiKeyRow): ApiKeyPublic {
     dailyTokenLimit: row.daily_token_limit,
     monthlyTokenLimit: row.monthly_token_limit,
     maxConcurrentRequests: row.max_concurrent_requests,
-    providerAllowlist: parseList(row.provider_allowlist),
-    modelAllowlist: parseList(row.model_allowlist),
-    modelDenylist: parseList(row.model_denylist),
+    providerAllowlist: parseJsonArray(row.provider_allowlist),
+    modelAllowlist: parseJsonArray(row.model_allowlist),
+    modelDenylist: parseJsonArray(row.model_denylist),
     lastUsedAt: row.last_used_at,
     createdAt: row.created_at,
     revokedAt: row.revoked_at,
@@ -92,9 +83,7 @@ function toPublic(row: ApiKeyRow): ApiKeyPublic {
 }
 
 function serializeList(value: string[] | null | undefined): string | null {
-  if (value === undefined) return null;
-  if (value === null) return null;
-  return value.length > 0 ? JSON.stringify(value) : null;
+  return serializeJsonArray(value);
 }
 
 /** Returns the full key exactly once; caller must show it immediately. */

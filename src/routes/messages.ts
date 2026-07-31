@@ -7,13 +7,14 @@
 import { Elysia } from "elysia";
 import { MessagesRequestSchema } from "./schemas";
 import { translateMessagesRequestToChat, translateChatResponseToMessages } from "../translate/openai-anthropic";
-import { encodeAnthropicStream, withStreamErrorHandling } from "../upstream/bridge";
+import { encodeAnthropicStream } from "../upstream/bridge";
 import { toSSEResponseStream, formatSSEFrame } from "../upstream/sse";
 import { anthropicClientError, anthropicUpstreamError } from "../http/errors";
 import type { AnthropicRequest, AnthropicResponse, OpenAIChatResponse } from "../translate/types";
 import { dispatchQualifiedRoute } from "../upstream/dispatch";
 import { withProxyRequest } from "./middleware/proxyRequest";
 import { runEmulatedCompact, CompactError } from "./compact-core";
+import { finishSurfaceDispatch } from "./dispatch-surface";
 
 // ── Compaction helpers (REQ-23, §10.3) ────────────────────────────────────
 
@@ -101,6 +102,33 @@ export const messagesRoute = new Elysia().post(
       async ({ tracker, recordRequestBody }) => {
         recordRequestBody(req);
 
+        // Standard dispatch path - shared by the plain (no compact-edit) flow
+        // AND the compact-edit "trigger not yet met" fallthrough, which only
+        // differs in which (possibly context_management-stripped) request gets
+        // translated and dispatched.
+        const dispatchStandard = async (anthropicReq: AnthropicRequest) => {
+          const chatReq = translateMessagesRequestToChat(anthropicReq);
+          const qualified = await dispatchQualifiedRoute({
+            model: req.model,
+            body: chatReq as unknown as Record<string, unknown>,
+            headers,
+            request,
+            surface: "openai-chat",
+          });
+          return finishSurfaceDispatch({
+            qualified,
+            set,
+            tracker,
+            requestBody: req,
+            clientError: anthropicClientError,
+            streamFormat: "anthropic",
+            encodeStream: encodeAnthropicStream,
+            idPrefix: "msg",
+            model: req.model,
+            toSurfaceJson: (body) => translateChatResponseToMessages(body as unknown as OpenAIChatResponse),
+          });
+        };
+
         try {
           // ── Compaction detection (REQ-23) ──
           const compactEdits = parseCompactEdits(req);
@@ -114,32 +142,10 @@ export const messagesRoute = new Elysia().post(
             const estimatedTokens = Math.floor(msgChars / 4);
 
             if (hasTrigger && estimatedTokens < trigger!.value!) {
-              // Trigger not yet met — strip context_management and continue normally
+              // Trigger not yet met — strip context_management and dispatch normally
               const stripped = { ...req } as Record<string, unknown>;
               delete stripped["context_management"];
-              // Fall through to standard message handling below with stripped request
-              const chatReq = translateMessagesRequestToChat(stripped as unknown as AnthropicRequest);
-              const qualified = await dispatchQualifiedRoute({
-                model: req.model,
-                body: chatReq as unknown as Record<string, unknown>,
-                headers,
-                request,
-                surface: "openai-chat",
-              });
-              if (qualified.kind === "error") {
-                set.status = qualified.status;
-                tracker.fail(qualified.status, "dispatch_error", req);
-                return anthropicClientError(qualified.status, qualified.status === 401 || qualified.status === 403 ? "authentication_error" : "invalid_request_error", qualified.message);
-              }
-              if (qualified.kind === "result") {
-                if (qualified.proxyPoolName) tracker.setProxyPool(qualified.proxyPoolName);
-                if (qualified.result.type === "stream") {
-                  set.headers["content-type"] = "text/event-stream";
-                  const meta = { id: `msg-${crypto.randomUUID()}`, model: req.model, createdAt: Math.floor(Date.now() / 1000) };
-                  return tracker.wrapSse(toSSEResponseStream(withStreamErrorHandling(encodeAnthropicStream(qualified.result.events, meta), "anthropic")), undefined, req);
-                }
-                return tracker.finishJson(200, translateChatResponseToMessages(qualified.result.body as unknown as OpenAIChatResponse), undefined, req);
-              }
+              return dispatchStandard(stripped as unknown as AnthropicRequest);
             }
 
             // Trigger met or no trigger — run emulated compaction
@@ -171,29 +177,8 @@ export const messagesRoute = new Elysia().post(
           throw err;
         }
 
-        // ── Standard message flow ──
-        const chatReq = translateMessagesRequestToChat(req);
-        const qualified = await dispatchQualifiedRoute({
-          model: req.model,
-          body: chatReq as unknown as Record<string, unknown>,
-          headers,
-          request,
-          surface: "openai-chat",
-        });
-        if (qualified.kind === "error") {
-          set.status = qualified.status;
-          tracker.fail(qualified.status, "dispatch_error", req);
-          return anthropicClientError(qualified.status, qualified.status === 401 || qualified.status === 403 ? "authentication_error" : "invalid_request_error", qualified.message);
-        }
-        if (qualified.kind === "result") {
-          if (qualified.proxyPoolName) tracker.setProxyPool(qualified.proxyPoolName);
-          if (qualified.result.type === "stream") {
-            set.headers["content-type"] = "text/event-stream";
-            const meta = { id: `msg-${crypto.randomUUID()}`, model: req.model, createdAt: Math.floor(Date.now() / 1000) };
-            return tracker.wrapSse(toSSEResponseStream(withStreamErrorHandling(encodeAnthropicStream(qualified.result.events, meta), "anthropic")), undefined, req);
-          }
-          return tracker.finishJson(200, translateChatResponseToMessages(qualified.result.body as unknown as OpenAIChatResponse), undefined, req);
-        }
+        // ── Standard message flow (no compact edit present) ──
+        return dispatchStandard(req);
       },
     );
   },

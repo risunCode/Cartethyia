@@ -1,7 +1,8 @@
 import type { RouteTarget } from "../../routing/types";
 import { decodeOpenAIChatStream } from "../bridge";
-import { ProviderCallError, providerHttpError, safeReadText } from "./index";
+import { ProviderCallError } from "./index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./index";
+import { callSimpleProvider } from "./simple-call";
 import { createModelCatalog } from "./models";
 import type { ProviderModelCatalog, ProviderModelEntry } from "./models";
 
@@ -59,21 +60,16 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleProviderC
       // by dispatchQualifiedRoute before any provider.call() is reached — re-running
       // it here would double-inject the system prompt / RTK-compress / filter-rule pass.
       const body = { ...request.body, model: target.modelId } as Record<string, unknown>;
-      const response = await fetch(`${config.baseUrl}/chat/completions`, {
-        method: "POST",
+      return callSimpleProvider({
+        url: `${config.baseUrl}/chat/completions`,
         headers: { authorization: `Bearer ${credential.value}`, "content-type": "application/json" },
-        body: JSON.stringify(body),
+        body,
         signal,
-        ...(proxy ? { proxy } : {}),
+        proxy,
+        providerLabel: config.name,
+        isStreaming: body.stream === true,
+        decodeStream: decodeOpenAIChatStream,
       });
-
-      if (!response.ok) throw providerHttpError(response.status, config.name, undefined, await safeReadText(response));
-      if (!response.body) throw new ProviderCallError(502, "unavailable", `${config.name} returned an empty response body.`);
-      if (body.stream === true) return { type: "stream", events: decodeOpenAIChatStream(response.body) };
-
-      const json: unknown = await response.json();
-      if (!json || typeof json !== "object" || Array.isArray(json)) throw new ProviderCallError(502, "malformed_response", `${config.name} returned an unreadable JSON response.`);
-      return { type: "json", body: json as Record<string, unknown> };
     },
   };
 }

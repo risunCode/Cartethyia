@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Globe, Info, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { api, apiGet, apiPost } from "../../lib/api";
+import { apiGet, apiPost, apiDelete } from "../../lib/api";
 import { formatTime } from "../../lib/format";
 import { staggerClass } from "../../lib/motion";
 import { Badge } from "../../components/ui/badge";
@@ -131,7 +131,7 @@ function PoolFormDialog({ open, onClose, editTarget }: { open: boolean; onClose:
 
 export function ProxyPoolsPage() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["console", "proxy-pools"], queryFn: () => apiGet<{ items: PoolRecord[] }>("/proxy-pools") });
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["console", "proxy-pools"], queryFn: () => apiGet<{ items: PoolRecord[] }>("/proxy-pools") });
   const [formOpen, setFormOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<PoolRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PoolRecord | null>(null);
@@ -142,13 +142,13 @@ export function ProxyPoolsPage() {
   const items = data?.items ?? [];
 
   const deleteMut = useMutation({
-    mutationFn: (id: string) => api<{ ok: boolean }>(`/proxy-pools/${id}`, { method: "DELETE", body: "{}" }),
+    mutationFn: (id: string) => apiDelete<{ ok: boolean }>(`/proxy-pools/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["console", "proxy-pools"] }); setDeleteTarget(null); toast.success("Pool deleted"); },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const batchDeleteMut = useMutation({
-    mutationFn: (ids: string[]) => Promise.all(ids.map((id) => api<{ ok: boolean }>(`/proxy-pools/${id}`, { method: "DELETE", body: "{}" }).catch(() => {}))),
+    mutationFn: (ids: string[]) => Promise.all(ids.map((id) => apiDelete<{ ok: boolean }>(`/proxy-pools/${id}`).catch(() => {}))),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["console", "proxy-pools"] }); setSelected(new Set()); toast.success("Selected pools deleted"); },
   });
 
@@ -247,6 +247,11 @@ export function ProxyPoolsPage() {
 
         {isLoading ? (
           <div className="py-10 text-center text-sm text-[var(--text-3)]">Loading…</div>
+        ) : isError ? (
+          <div className="space-y-3 py-10 text-center">
+            <p className="text-sm text-[var(--text-2)]">Failed to load proxy pools.</p>
+            <Button variant="secondary" size="sm" onClick={() => refetch()}>Retry</Button>
+          </div>
         ) : items.length === 0 ? (
           <div className="py-10 text-center text-sm text-[var(--text-3)]">No proxy pools configured yet.</div>
         ) : (

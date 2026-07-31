@@ -32,7 +32,7 @@ import {
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
-import { api, ApiError, apiGet, apiPatch, apiPost } from "../../lib/api";
+import { ApiError, apiGet, apiPatch, apiPost, apiDelete } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
@@ -601,7 +601,7 @@ export function ModelStudioPage() {
   }, [messages]);
 
   const deleteSession = useMutation({
-    mutationFn: (id: string) => api<{ ok: boolean }>(`/model-studio/sessions/${id}`, { method: "DELETE", body: "{}" }),
+    mutationFn: (id: string) => apiDelete<{ ok: boolean }>(`/model-studio/sessions/${id}`),
     onSuccess: (_res, id) => {
       void queryClient.invalidateQueries({ queryKey: ["model-studio", "sessions"] });
       if (activeId === id) setActiveId(null);

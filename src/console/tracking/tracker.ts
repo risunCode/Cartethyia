@@ -8,7 +8,7 @@ import { getConsoleEnv } from "../env";
 import { getRuntimeSettings } from "../runtime";
 import { pushConsoleLog } from "../logs/ring";
 import type { ApiKeyPublic } from "../db/repos/api-keys";
-import { insertUsageHistory, upsertUsageDaily, appendJsonl, utcNow, utcDateOf } from "../db/repos/usage";
+import { insertUsageHistory, appendJsonl, utcNow } from "../db/repos/usage";
 import { insertRequestDetails, insertAssetMeta, insertToolCall } from "../db/repos/details";
 import { extractUsage, extractUsageFromSseText, extractToolCalls, type UsageTotals } from "./usage-extractor";
 import { computePayloadMeta, extractLastUserMessagePreview } from "./payload-meta";
@@ -167,20 +167,6 @@ async function persistAsync(
     totalTokens: usage?.totalTokens ?? null,
     usageSource: usage?.source ?? "missing",
     meta: start.meta ?? {},
-  });
-
-  upsertUsageDaily({
-    date: utcDateOf(startedAt),
-    apiKeyId: start.apiKey?.id ?? null,
-    provider: finish.provider ?? provider ?? null,
-    model: start.model ?? null,
-    inputTokens: usage?.inputTokens ?? 0,
-    outputTokens: usage?.outputTokens ?? 0,
-    cachedTokens: usage?.cachedTokens ?? 0,
-    cacheWriteTokens: usage?.cacheWriteTokens ?? 0,
-    reasoningTokens: usage?.reasoningTokens ?? 0,
-    error: finish.status >= 400,
-    durationMs,
   });
 
   const logRecord = {

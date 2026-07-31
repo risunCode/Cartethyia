@@ -66,7 +66,7 @@ function lazyPage<M>(load: () => Promise<M>, pick: (module: M) => ComponentType)
 
 export const router = createBrowserRouter(
   [
-    { path: "/login", element: <LoginPage /> },
+    { path: "/login", element: <LoginPage />, errorElement: <RouteError /> },
     {
       path: "/",
       element: <AppShell />,

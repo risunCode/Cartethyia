@@ -32,7 +32,10 @@ export interface UnifiedToolDef {
 export interface AnthropicToolDef {
   name: string;
   description?: string;
-  input_schema: Record<string, unknown>;
+  /** Absent on Anthropic's own server-side tools (`computer_20250124`, `bash_20250124`, `text_editor_20250124`, `web_search_20250305`, ...), which carry no client-schema slot at all - only present for client-defined function tools. */
+  input_schema?: Record<string, unknown>;
+  /** Present + non-"custom" marks a server-side tool with no OpenAI-function equivalent (see `input_schema` above). Absent, or `"custom"`, is a regular client-defined function tool - the only kind translatable cross-provider. */
+  type?: string;
 }
 
 export interface OpenAIChatToolDef {
@@ -40,7 +43,8 @@ export interface OpenAIChatToolDef {
   function: {
     name: string;
     description?: string;
-    parameters: Record<string, unknown>;
+    /** Some clients omit this entirely for a zero-argument tool instead of sending `{"type":"object","properties":{}}`. */
+    parameters?: Record<string, unknown>;
   };
 }
 
@@ -48,11 +52,27 @@ export interface OpenAIResponsesToolDef {
   type: "function";
   name: string;
   description?: string;
-  parameters: Record<string, unknown>;
+  /** Some clients omit this entirely for a zero-argument tool instead of sending `{"type":"object","properties":{}}`. */
+  parameters?: Record<string, unknown>;
+}
+
+/**
+ * Every wire format requires each tool to carry a present, valid object
+ * schema. Anthropic's `input_schema` in particular is a REQUIRED field on
+ * the wire: a client that omits `parameters`/`input_schema` for a
+ * zero-argument tool (common - not every generator fills in the empty-object
+ * default) leaves it `undefined`, which `JSON.stringify` then drops from the
+ * request body entirely. Anthropic rejects that with a 400 covering the
+ * WHOLE request, not just the one under-specified tool.
+ */
+const EMPTY_OBJECT_SCHEMA: Record<string, unknown> = { type: "object", properties: {} };
+
+function schemaOrDefault(schema: Record<string, unknown> | undefined): Record<string, unknown> {
+  return schema && Object.keys(schema).length > 0 ? schema : EMPTY_OBJECT_SCHEMA;
 }
 
 export function anthropicToolToUnified(t: AnthropicToolDef): UnifiedToolDef {
-  return { name: t.name, description: t.description, schema: t.input_schema };
+  return { name: t.name, description: t.description, schema: schemaOrDefault(t.input_schema) };
 }
 
 export function unifiedToolToAnthropic(t: UnifiedToolDef): AnthropicToolDef {
@@ -62,7 +82,7 @@ export function unifiedToolToAnthropic(t: UnifiedToolDef): AnthropicToolDef {
 }
 
 export function openAIChatToolToUnified(t: OpenAIChatToolDef): UnifiedToolDef {
-  return { name: t.function.name, description: t.function.description, schema: t.function.parameters };
+  return { name: t.function.name, description: t.function.description, schema: schemaOrDefault(t.function.parameters) };
 }
 
 export function unifiedToolToOpenAIChat(t: UnifiedToolDef): OpenAIChatToolDef {
@@ -72,7 +92,7 @@ export function unifiedToolToOpenAIChat(t: UnifiedToolDef): OpenAIChatToolDef {
 }
 
 export function openAIResponsesToolToUnified(t: OpenAIResponsesToolDef): UnifiedToolDef {
-  return { name: t.name, description: t.description, schema: t.parameters };
+  return { name: t.name, description: t.description, schema: schemaOrDefault(t.parameters) };
 }
 
 export function unifiedToolToOpenAIResponses(t: UnifiedToolDef): OpenAIResponsesToolDef {

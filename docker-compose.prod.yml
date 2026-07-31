@@ -1,0 +1,36 @@
+# Production docker-compose override — applies resource limits and security
+# hardening on top of the base docker-compose.yml.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Required env vars (set in .env or export):
+#   CONSOLE_PASSWORD   - console login password
+#   CONSOLE_JWT_SECRET - long random string for JWT signing
+
+services:
+  cartethyia:
+    deploy:
+      resources:
+        limits:
+          # Adjust to your host; these are conservative defaults for a shared VPS.
+          cpus: "2.0"
+          memory: 800
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      # Bun needs a writable /tmp for scratch space.
+      - /tmp:size=64M,mode=1777
+    volumes:
+      # Override: mount data volume in rw; everything else is read-only via read_only:true.
+      - cartethyia-data:/app/data:rw
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    restart: always

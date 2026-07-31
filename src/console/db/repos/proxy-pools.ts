@@ -137,9 +137,21 @@ export function updatePool(id: string, patch: Partial<PoolInput>): boolean {
   return true;
 }
 
+/**
+ * Deletes a pool and clears every `proxy_pool_id` reference to it in
+ * `provider_routing`/`provider_accounts` (SQLite has no FK on these columns
+ * - a bare DELETE left provider routing/accounts pointing at a pool id that
+ * no longer exists, with nothing else in the codebase ever checking for or
+ * cleaning up that dangling reference).
+ */
 export function deletePool(id: string): boolean {
-  const result = getDb().query("DELETE FROM proxy_pools WHERE id = ?").run(id);
-  return result.changes > 0;
+  const db = getDb();
+  return db.transaction(() => {
+    db.query("UPDATE provider_routing SET proxy_pool_id = NULL, proxy_mode = 'direct' WHERE proxy_pool_id = ?").run(id);
+    db.query("UPDATE provider_accounts SET proxy_pool_id = NULL WHERE proxy_pool_id = ?").run(id);
+    const result = db.query("DELETE FROM proxy_pools WHERE id = ?").run(id);
+    return result.changes > 0;
+  })();
 }
 
 // ─────────────────── Import ──────────────────────────────────────

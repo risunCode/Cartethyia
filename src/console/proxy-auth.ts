@@ -14,13 +14,18 @@ import { sumDailyTokensForKey, sumMonthlyTokensForKey } from "./db/repos/usage";
 import { getRuntimeSettings } from "./runtime";
 import { checkAccess } from "./db/repos/access";
 import { extractPresentedApiKey, isModelAllowedForKey } from "./key-acl";
-import { purgeKeyInFlightState } from "./tracking/key-in-flight";
+import { purgeKeyInFlightState, reserveTokensForKey, getReservedTokensForKey } from "./tracking/key-in-flight";
 
 export { extractPresentedApiKey, isModelAllowedForKey, filterModelsForKey } from "./key-acl";
+
+/** Conservative per-request token estimate reserved against a key's daily/monthly limit for the request's lifetime - matches the `max_tokens` default used elsewhere in this codebase (openai-anthropic.ts, model-studio.ts). */
+const RESERVED_TOKENS_ESTIMATE = 4096;
 
 export interface ProxyAuthOutcome {
   error: { status: number; body: unknown } | null;
   key: ApiKeyPublic | null;
+  /** Non-zero only when a daily/monthly limit was checked and reserved against - the caller must release exactly this amount via `releaseTokenReservationForKey` once the request finishes. */
+  tokensReserved: number;
 }
 
 const rpmBuckets = new Map<string, number[]>();
@@ -75,11 +80,12 @@ export function enforceProxyAuth(model: string | undefined, request: Request, di
         body: openAIClientError(403, "authentication_error", "Your IP is not allowed to use this proxy."),
       },
       key: null,
+      tokensReserved: 0,
     };
   }
 
   const runtime = getRuntimeSettings();
-  if (runtime.proxyAuthMode === "open") return { error: null, key: null };
+  if (runtime.proxyAuthMode === "open") return { error: null, key: null, tokensReserved: 0 };
 
   const presented = extractPresentedApiKey(request);
   const key = presented ? findApiKeyBySecret(presented) : null;
@@ -90,6 +96,7 @@ export function enforceProxyAuth(model: string | undefined, request: Request, di
         body: openAIClientError(401, "authentication_error", "A valid x-api-key header (or Authorization: Bearer token) is required to use this proxy."),
       },
       key: null,
+      tokensReserved: 0,
     };
   }
 
@@ -97,30 +104,42 @@ export function enforceProxyAuth(model: string | undefined, request: Request, di
     return {
       error: { status: 429, body: openAIClientError(429, "rate_limit_error", "This key exceeded its per-minute request limit.") },
       key: null,
+      tokensReserved: 0,
     };
   }
 
-  if (key.dailyTokenLimit && sumDailyTokensForKey(key.id) >= key.dailyTokenLimit) {
+  // Reservation closes the TOCTOU window: `sumDailyTokensForKey` only sees
+  // usage already committed after a response finishes, so N concurrent
+  // requests on the same key would otherwise all read the same committed
+  // sum and all pass. Adding the in-flight reservation to that sum before
+  // comparing means the 2nd, 3rd, ... concurrent request sees the 1st's
+  // reservation immediately - and since nothing here awaits, this whole
+  // check+reserve sequence is atomic with respect to other requests.
+  if (key.dailyTokenLimit && sumDailyTokensForKey(key.id) + getReservedTokensForKey(key.id) >= key.dailyTokenLimit) {
     return {
       error: { status: 429, body: openAIClientError(429, "rate_limit_error", "This key reached its daily token limit.") },
       key: null,
+      tokensReserved: 0,
     };
   }
 
-  if (key.monthlyTokenLimit && sumMonthlyTokensForKey(key.id) >= key.monthlyTokenLimit) {
+  if (key.monthlyTokenLimit && sumMonthlyTokensForKey(key.id) + getReservedTokensForKey(key.id) >= key.monthlyTokenLimit) {
     return {
       error: { status: 429, body: openAIClientError(429, "rate_limit_error", "This key reached its monthly token limit.") },
       key: null,
+      tokensReserved: 0,
     };
   }
 
   const allow = checkAllowlists(key, model);
   if (!allow.ok) {
-    return { error: { status: 403, body: openAIClientError(403, "authentication_error", allow.reason ?? "not allowed for this key") }, key: null };
+    return { error: { status: 403, body: openAIClientError(403, "authentication_error", allow.reason ?? "not allowed for this key") }, key: null, tokensReserved: 0 };
   }
 
   touchApiKey(key.id);
-  return { error: null, key };
+  const tokensReserved = key.dailyTokenLimit || key.monthlyTokenLimit ? RESERVED_TOKENS_ESTIMATE : 0;
+  if (tokensReserved > 0) reserveTokensForKey(key.id, tokensReserved);
+  return { error: null, key, tokensReserved };
 }
 
 /**
@@ -138,9 +157,10 @@ export function resolveModelsApiKey(request: Request): ProxyAuthOutcome {
           body: openAIClientError(401, "authentication_error", "A valid x-api-key header (or Authorization: Bearer token) is required to use this proxy."),
         },
         key: null,
+        tokensReserved: 0,
       };
     }
-    return { error: null, key: null };
+    return { error: null, key: null, tokensReserved: 0 };
   }
 
   const key = findApiKeyBySecret(presented);
@@ -151,11 +171,12 @@ export function resolveModelsApiKey(request: Request): ProxyAuthOutcome {
         body: openAIClientError(401, "authentication_error", "A valid x-api-key header (or Authorization: Bearer token) is required to use this proxy."),
       },
       key: null,
+      tokensReserved: 0,
     };
   }
 
   touchApiKey(key.id);
-  return { error: null, key };
+  return { error: null, key, tokensReserved: 0 };
 }
 
 /** Test-only: clear rpm buckets. */
