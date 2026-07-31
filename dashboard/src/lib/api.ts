@@ -56,4 +56,10 @@ export const apiPost = <T>(path: string, body?: unknown) =>
   api<T>(path, { method: "POST", body: body === undefined ? "{}" : JSON.stringify(body) });
 export const apiPatch = <T>(path: string, body?: unknown) =>
   api<T>(path, { method: "PATCH", body: body === undefined ? "{}" : JSON.stringify(body) });
-export const apiDelete = <T>(path: string) => api<T>(path, { method: "DELETE" });
+// Sends a body (like apiPost/apiPatch) so `content-type: application/json`
+// is set - the console's CSRF guard (src/console/auth/guard.ts) requires
+// that header on every mutating request, and `api()` only adds it when a
+// body is present. Without this, every DELETE from the dashboard was
+// silently rejected with 403 "mutating console requests require
+// Content-Type: application/json" - confirmed by a live report.
+export const apiDelete = <T>(path: string) => api<T>(path, { method: "DELETE", body: "{}" });

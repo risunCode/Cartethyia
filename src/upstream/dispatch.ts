@@ -193,6 +193,11 @@ async function dispatchProvider(
   let attemptOffset = 0;
   let usedProxyUrl: string | undefined;
 
+  // A pool with more entries than the default retry budget needs enough
+  // attempts to actually reach every candidate once, or the later proxies
+  // in the list would never get tried at all.
+  const retryConfig: RetryConfig = candidates.length > DISPATCH_RETRY_CONFIG.maxRetries + 1 ? { ...DISPATCH_RETRY_CONFIG, maxRetries: candidates.length - 1 } : DISPATCH_RETRY_CONFIG;
+
   try {
     const result = await withRetry(
       async () => {
@@ -202,12 +207,25 @@ async function dispatchProvider(
         if (proxyUrl) await assertPublicUrlAtDispatch(proxyUrl);
         return provider.call(route.target, route.request, route.credential, timeoutSignal, proxyUrl);
       },
-      DISPATCH_RETRY_CONFIG,
+      retryConfig,
       (attempt, delayMs, error) => {
         void attempt;
         void delayMs;
         void error;
       },
+      // A rotating pool (>1 candidate) forces a retry while candidates
+      // remain unvisited, regardless of whether the status looks
+      // "retryable" in general - a 400 from one proxy's edge/CDN gateway
+      // rejecting THAT specific connection says nothing about whether a
+      // DIFFERENT proxy in the pool would succeed with the same request.
+      // Confirmed via a live report: a proxy-pool dispatch hit a plain 400
+      // ("Bad request\n\nBAD_REQUEST" - an edge gateway's generic error
+      // page, not the upstream API's own error shape) and failed instantly
+      // without ever trying the pool's other entries. Once every candidate
+      // has been tried at least once, falls back to the normal status-based
+      // decision so a genuinely non-retryable failure still stops promptly
+      // instead of looping.
+      (error, attempt) => (candidates.length > 1 && attemptOffset < candidates.length) || isRetryableError(error, retryConfig),
     );
     route.proxyPoolName = usedProxyUrl ? poolName : undefined;
     return { result, proxyPoolName: route.proxyPoolName };

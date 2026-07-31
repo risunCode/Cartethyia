@@ -228,8 +228,17 @@ function KeyLimitsFields({
           <Input type="number" min={1} value={monthly} onChange={(e) => setMonthly(e.target.value)} placeholder="30000000" disabled={disabled} />
         </div>
       </div>
-      <ModelPickerField label="Allowed (optional)" values={allowed} onChange={setAllowed} mode="models" manualPlaceholder="e.g. kimchi or kimchi/kimi-k2.7" disabled={disabled} />
-      <p className="text-xs text-[var(--text-3)]">Empty = all models allowed. Add providers (no slash) or models (with slash) to restrict.</p>
+      <ModelPickerField
+        label="Allowed (optional)"
+        values={allowed}
+        onChange={setAllowed}
+        mode="models"
+        manualPlaceholder="e.g. kimchi or kimchi/kimi-k2.7"
+        disabled={disabled}
+        includeCombos
+        includeAliases
+      />
+      <p className="text-xs text-[var(--text-3)]">Empty = all models allowed. Add providers (no slash), models (with slash), combos, or aliases to restrict.</p>
     </>
   );
 }

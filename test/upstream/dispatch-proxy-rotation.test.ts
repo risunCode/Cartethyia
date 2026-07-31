@@ -103,6 +103,64 @@ describe("dispatchProvider \u2014 mixed round robin", () => {
   });
 });
 
+describe("dispatchProvider \u2014 proxy-pool round robin survives a non-retryable status from one candidate", () => {
+  // Regression: a plain 400 (not in the default retryable-status set, and
+  // not matched by any retryable-text pattern) from ONE proxy candidate -
+  // e.g. an edge/CDN gateway in front of that specific proxy rejecting the
+  // connection with a generic "Bad request\n\nBAD_REQUEST" page, unrelated
+  // to whether the actual request is valid - used to fail the whole
+  // dispatch instantly without ever trying the pool's other entries.
+  // Confirmed via a live report. A rotating pool must still try every
+  // candidate at least once before giving up, regardless of the specific
+  // status the failing candidate returned.
+  test("falls over to the next pool entry on a plain 400 from the first, instead of failing instantly", async () => {
+    const cookie = await loginAndGetCookie();
+    const { poolId } = await setup(cookie);
+    const routingRes = await app.handle(postJson(`/console/api/providers/${PROVIDER}/routing`, { proxyMode: "proxy-pool", proxyPoolId: poolId }, { cookie }));
+    expect(routingRes.status).toBe(200);
+
+    fetchSpy.mockResolvedValueOnce(new Response("Bad request\n\nBAD_REQUEST", { status: 400 }));
+    fetchSpy.mockResolvedValueOnce(chatResponse("ok"));
+
+    const res = await app.handle(
+      new Request("http://localhost/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: `${PROVIDER}/mistral-large-latest`, messages: [{ role: "user", content: "hi" }] }),
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const [firstProxy, secondProxy] = fetchSpy.mock.calls.map((call) => (call[1] as (RequestInit & { proxy?: string }) | undefined)?.proxy);
+    expect(firstProxy).toBeOneOf(["http://proxy-a.example.com:8080", "http://proxy-b.example.com:8080"]);
+    expect(secondProxy).toBeOneOf(["http://proxy-a.example.com:8080", "http://proxy-b.example.com:8080"]);
+    expect(secondProxy).not.toBe(firstProxy);
+  });
+
+  test("still fails once every pool entry has been tried and all return the same non-retryable status", async () => {
+    const cookie = await loginAndGetCookie();
+    const { poolId } = await setup(cookie);
+    const routingRes = await app.handle(postJson(`/console/api/providers/${PROVIDER}/routing`, { proxyMode: "proxy-pool", proxyPoolId: poolId }, { cookie }));
+    expect(routingRes.status).toBe(200);
+
+    fetchSpy.mockResolvedValue(new Response("Bad request\n\nBAD_REQUEST", { status: 400 }));
+
+    const res = await app.handle(
+      new Request("http://localhost/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: `${PROVIDER}/mistral-large-latest`, messages: [{ role: "user", content: "hi" }] }),
+      })
+    );
+
+    expect(res.status).toBe(400);
+    // Exactly the pool's two entries - not zero (fail-fast bug) and not an
+    // unbounded loop once every candidate has genuinely failed.
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("dispatchProvider \u2014 direct mode", () => {
   test("never attaches a proxy even when a pool is configured", async () => {
     const cookie = await loginAndGetCookie();

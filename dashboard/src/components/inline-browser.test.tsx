@@ -1,7 +1,20 @@
 import { describe, expect, test, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { InlineModelBrowser, ModelPickerField, ModelTargetPicker } from "./model-picker";
+
+vi.mock("../lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
+  return {
+    ...actual,
+    apiGet: vi.fn((path: string) => {
+      if (path === "/aliases") return Promise.resolve({ items: [{ alias: "fast", model: "kimchi/kimi-k2.7" }] });
+      if (path === "/combos") return Promise.resolve({ items: [{ name: "fast-combo" }] });
+      if (path === "/providers") return Promise.resolve({ items: [] });
+      return Promise.resolve({ items: [] });
+    }),
+  };
+});
 
 function withQueryClient(children: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -55,6 +68,37 @@ describe("InlineModelBrowser", () => {
     const input = screen.getByPlaceholderText("Search models\u2026");
     fireEvent.change(input, { target: { value: "already-selected" } });
     expect(screen.queryByRole("button", { name: /Add/ })).not.toBeInTheDocument();
+  });
+
+  // Regression: aliases were only addable by typing them manually - fetching/
+  // browsing the catalog always returned zero, since InlineModelBrowser had no
+  // concept of an alias catalog at all (only combos, and even those never
+  // rendered for API key allow/deny lists since ModelPickerField never passed
+  // includeCombos through). Aliases must appear above Combos, which must
+  // appear above the per-provider model sections.
+  test("fetches and renders aliases above combos and per-provider models when both are enabled", async () => {
+    render(withQueryClient(<InlineModelBrowser mode="models" selected={[]} onToggle={vi.fn()} includeCombos includeAliases />));
+    await waitFor(() => expect(screen.getByText("fast")).toBeInTheDocument());
+    expect(screen.getByText("fast-combo")).toBeInTheDocument();
+
+    const aliasesHeading = screen.getByText(/Aliases \(/);
+    const combosHeading = screen.getByText(/Combos \(/);
+    expect(aliasesHeading.compareDocumentPosition(combosHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  test("does not fetch or render aliases/combos when neither is enabled", async () => {
+    render(withQueryClient(<InlineModelBrowser mode="models" selected={[]} onToggle={vi.fn()} />));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText("fast")).not.toBeInTheDocument();
+    expect(screen.queryByText("fast-combo")).not.toBeInTheDocument();
+  });
+
+  test("selecting an alias calls onToggle with its bare name", async () => {
+    const onToggle = vi.fn();
+    render(withQueryClient(<InlineModelBrowser mode="models" selected={[]} onToggle={onToggle} includeAliases />));
+    await waitFor(() => expect(screen.getByText("fast")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("fast"));
+    expect(onToggle).toHaveBeenCalledWith("fast");
   });
 });
 

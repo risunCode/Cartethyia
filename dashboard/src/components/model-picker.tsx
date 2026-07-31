@@ -39,6 +39,11 @@ export interface ComboSummary {
   name: string;
 }
 
+export interface AliasSummary {
+  alias: string;
+  model: string;
+}
+
 export interface FlatModelEntry {
   provider: ProviderSummary;
   qualified: string;
@@ -83,6 +88,23 @@ export function useCombos(enabled: boolean) {
   return useQuery({
     queryKey: ["console", "combos"],
     queryFn: () => apiGet<{ items: ComboSummary[] }>("/combos"),
+    staleTime: 60_000,
+    enabled,
+  });
+}
+
+/**
+ * An alias resolves (bare, no provider prefix) exactly like a combo does -
+ * `resolveModelChain` checks qualified prefix, then `resolveAlias(name)`,
+ * then combo - so an alias's own name is a valid value anywhere a
+ * `provider/model` or combo name is (API key allow/deny lists, another
+ * alias's target). It was previously only addable by typing it manually;
+ * this exposes it as a browsable/fetchable catalog entry too.
+ */
+export function useAliases(enabled: boolean) {
+  return useQuery({
+    queryKey: ["console", "aliases"],
+    queryFn: () => apiGet<{ items: AliasSummary[] }>("/aliases"),
     staleTime: 60_000,
     enabled,
   });
@@ -286,12 +308,14 @@ export function InlineModelBrowser({
   onToggle,
   onSelectOne,
   includeCombos,
+  includeAliases,
 }: {
   mode: PickerMode;
   selected: string[];
   onToggle: (value: string) => void;
   onSelectOne?: (value: string) => void;
   includeCombos?: boolean;
+  includeAliases?: boolean;
 }) {
   const [search, setSearch] = useState("");
 
@@ -299,6 +323,7 @@ export function InlineModelBrowser({
   const providers = providersQuery.data?.items ?? [];
   const catalog = useModelCatalog(providers, mode === "models");
   const combosQuery = useCombos(mode === "models" && Boolean(includeCombos));
+  const aliasesQuery = useAliases(mode === "models" && Boolean(includeAliases));
 
   const pick = (value: string) => {
     if (onSelectOne) {
@@ -326,6 +351,12 @@ export function InlineModelBrowser({
     const q = search.trim().toLowerCase();
     return (combosQuery.data?.items ?? []).filter((combo) => !q || combo.name.toLowerCase().includes(q));
   }, [combosQuery.data, search, includeCombos]);
+
+  const filteredAliases = useMemo(() => {
+    if (!includeAliases) return [];
+    const q = search.trim().toLowerCase();
+    return (aliasesQuery.data?.items ?? []).filter((entry) => !q || entry.alias.toLowerCase().includes(q));
+  }, [aliasesQuery.data, search, includeAliases]);
 
   const filteredProviders = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -427,6 +458,28 @@ export function InlineModelBrowser({
                 </div>
               </Section>
             )}
+            {/* Aliases - shown above Combos and per-provider models */}
+            {includeAliases && filteredAliases.length > 0 && (
+              <Section title="Aliases" icon={<Boxes size={13} />} accent count={filteredAliases.length}>
+                <div className="flex flex-wrap gap-1.5">
+                  {filteredAliases.map((entry) => (
+                    <button
+                      key={`alias:${entry.alias}`}
+                      type="button"
+                      onClick={() => pick(entry.alias)}
+                      title={`\u2192 ${entry.model}`}
+                      className={cn(
+                        "inline-flex items-center rounded-full border border-[var(--inner-border)] bg-[var(--surface)] px-2.5 py-1 text-[10.5px] font-mono transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]",
+                        isSelected(entry.alias) && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                      )}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{entry.alias}</span>
+                      {isSelected(entry.alias) && <span className="text-[var(--accent)]">\u2713</span>}
+                    </button>
+                  ))}
+                </div>
+              </Section>
+            )}
             {/* Combos */}
             {includeCombos && filteredCombos.length > 0 && (
               <Section title="Combos" icon={<Boxes size={13} />} accent count={filteredCombos.length}>
@@ -463,7 +516,7 @@ export function InlineModelBrowser({
                 </div>
               </Section>
             ))}
-            {filteredModels.length === 0 && filteredCombos.length === 0 && filteredCustom.length === 0 && (
+            {filteredModels.length === 0 && filteredCombos.length === 0 && filteredAliases.length === 0 && filteredCustom.length === 0 && (
               <div className="py-6 text-center text-[11px] text-[var(--text-3)]">No models match.</div>
             )}
           </>
@@ -481,6 +534,8 @@ export function ModelPickerField({
   onChange,
   mode,
   disabled: _disabled,
+  includeCombos,
+  includeAliases,
 }: {
   label: string;
   hint?: string;
@@ -489,6 +544,9 @@ export function ModelPickerField({
   mode: PickerMode;
   manualPlaceholder?: string;
   disabled?: boolean;
+  /** Combo/alias member lists (e.g. building a combo) must NOT set these - combo members are resolved without alias/combo indirection, so offering them there would produce a config that silently behaves differently than picked. */
+  includeCombos?: boolean;
+  includeAliases?: boolean;
 }) {
   const remove = (value: string) => onChange(values.filter((v) => v !== value));
   const toggle = (value: string) =>
@@ -519,7 +577,7 @@ export function ModelPickerField({
           ))}
         </div>
       )}
-      <InlineModelBrowser mode={mode} selected={values} onToggle={toggle} />
+      <InlineModelBrowser mode={mode} selected={values} onToggle={toggle} includeCombos={includeCombos} includeAliases={includeAliases} />
     </div>
   );
 }
@@ -531,12 +589,14 @@ export function ModelTargetPicker({
   placeholder,
   disabled,
   includeCombos = true,
+  includeAliases = true,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   disabled?: boolean;
   includeCombos?: boolean;
+  includeAliases?: boolean;
 }) {
   return (
     <div className="space-y-2">
@@ -547,6 +607,7 @@ export function ModelTargetPicker({
         onToggle={() => {}}
         onSelectOne={onChange}
         includeCombos={includeCombos}
+        includeAliases={includeAliases}
       />
     </div>
   );

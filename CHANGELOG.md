@@ -2,6 +2,18 @@
 
 All notable changes to Cartethyia are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Model picker (API Keys allowed-models field and anywhere else that opts in): aliases are now a browsable/fetchable catalog entry, not just addable by typing the name manually - a new `useAliases` hook mirrors the existing `useCombos`, and `InlineModelBrowser` renders an "Aliases" section above "Combos", which is above the per-provider model sections. An alias's own bare name is a valid `modelAllowlist`/`modelDenylist` entry (`isModelAllowedForKey` checks the raw requested model string before alias/combo resolution runs), so this is functionally useful, not just cosmetic.
+
+### Fixed
+
+- API Keys console page: the "Allowed models" field (`ModelPickerField`) never passed `includeCombos` down to the catalog browser at all, so combos never appeared there either - only providers and raw qualified models. Both `includeCombos` and the new `includeAliases` are now explicit opt-in props on `ModelPickerField`/`ModelTargetPicker`, defaulted to off everywhere except where they're semantically valid (API key allow/deny lists) - a combo's own "Models" field intentionally still excludes both, since combo members are resolved without alias/combo indirection and offering them there would silently produce a different result than picked.
+- Dashboard: `apiDelete` (`dashboard/src/lib/api.ts`) sent no request body, unlike `apiPost`/`apiPatch` (which always default to `"{}"`) - so it was the only mutating helper that never got `content-type: application/json` set, and every DELETE from the dashboard (API keys, aliases, combos, filter rules, custom providers, provider accounts/models, proxy pools, model-studio sessions, console logs - all of them) was silently rejected by the console's CSRF guard with 403 "mutating console requests require Content-Type: application/json". Confirmed via a live report ("habis hapus apapun" - after deleting anything). Now sends the same `"{}"` body the other mutating helpers do.
+- Proxy pool dispatch: a plain 400 from one proxy candidate (e.g. an edge/CDN gateway in front of that specific proxy rejecting the connection with a generic "Bad request\n\nBAD_REQUEST" page, unrelated to whether the actual request is valid) failed the whole dispatch instantly without ever trying the pool's other entries - a bare HTTP-status retryability check has no way to express "this status doesn't matter, there are still untried proxies in the pool." `withRetry` (`src/upstream/retry.ts`) now accepts an optional `shouldRetry` override; `dispatchProvider` forces a retry while unvisited pool candidates remain, regardless of status, then falls back to the normal status-based decision once every candidate has been tried at least once (so a genuinely non-retryable failure across the whole pool still stops promptly). The retry budget also now scales to the pool size, so a pool with more entries than the default retry count can still reach every one of them.
+
 ## [1.0.4-alpha] - 2026-07-31
 
 Hotfix: GitHub Copilot tool calling. Four independent bugs, each confirmed against a live production request trace, compounded into "tool calling still doesn't work" reports across three different upstream models (Claude, Kimchi/Kimi, Devin) - a filter-rules regex eating capability instructions, a token floor too small for real file-creation calls, a stream encoder corrupting the wire on every tool call, a retry backoff silent long enough for the client to give up, a hard timeout killing successful long-running streams mid-generation, and (this round) a malformed upstream index Devin's own aggregator emits mid-stream. Also adds per-key usage visibility and custom secret prefixes to the API Keys console page.

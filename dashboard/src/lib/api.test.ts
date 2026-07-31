@@ -1,5 +1,5 @@
 import { describe, expect, test, vi, beforeEach, afterEach } from "vitest";
-import { ApiError, setUnauthorizedHandler, api } from "./api";
+import { ApiError, setUnauthorizedHandler, api, apiDelete } from "./api";
 
 describe("ApiError", () => {
   test("message, status, and code are set from constructor", () => {
@@ -92,6 +92,23 @@ describe("api — fetch wrapper", () => {
     const call = vi.mocked(global.fetch).mock.calls[0]!;
     const init = call[1] as RequestInit;
     expect((init.headers as Record<string, string>)?.["content-type"]).toBeUndefined();
+  });
+
+  // Regression: apiDelete previously sent no body at all, unlike
+  // apiPost/apiPatch (which always default to "{}"), so `api()`'s
+  // conditional content-type logic above never fired for it - every DELETE
+  // request from the dashboard was missing `content-type: application/json`
+  // and got rejected by the console's CSRF guard
+  // (src/console/auth/guard.ts) with 403 "mutating console requests
+  // require Content-Type: application/json".
+  test("apiDelete sends a body so content-type: application/json is set", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(makeResponse(200, { ok: true }));
+    await apiDelete("/keys/abc");
+    const call = vi.mocked(global.fetch).mock.calls[0]!;
+    const init = call[1] as RequestInit;
+    expect(init.method).toBe("DELETE");
+    expect((init.headers as Record<string, string>)?.["content-type"]).toBe("application/json");
+    expect(init.body).toBeDefined();
   });
 
   test("uses same-origin credentials", async () => {

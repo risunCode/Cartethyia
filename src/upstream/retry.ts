@@ -107,6 +107,15 @@ export function calculateBackoff(attempt: number, config: RetryConfig = DEFAULT_
  * @param operation - The async function to retry
  * @param config - Retry configuration
  * @param onRetry - Optional callback before each retry (for logging)
+ * @param shouldRetry - Optional override for the retry decision, called
+ *   instead of `isRetryableError`. Used by dispatch's proxy-pool rotation:
+ *   a status like 400 from one specific proxy candidate (e.g. an edge/CDN
+ *   gateway flagging that proxy's IP with a generic "Bad request" page,
+ *   not the upstream API's own validation) isn't retryable against the
+ *   SAME target, but trying the NEXT proxy candidate in the pool is a
+ *   completely different question and should still happen - a bare status
+ *   check has no way to express that distinction, only the caller knows
+ *   how many pool candidates remain unvisited.
  * @returns The result of the operation
  * @throws The last error if all retries are exhausted
  */
@@ -114,6 +123,7 @@ export async function withRetry<T>(
   operation: () => Promise<T>,
   config: RetryConfig = DEFAULT_RETRY_CONFIG,
   onRetry?: (attempt: number, delayMs: number, error: unknown) => void,
+  shouldRetry: (error: unknown, attempt: number) => boolean = (error) => isRetryableError(error, config),
 ): Promise<T> {
   let lastError: unknown;
 
@@ -126,8 +136,8 @@ export async function withRetry<T>(
       // Don't retry on the last attempt
       if (attempt >= config.maxRetries) break;
 
-      // Only retry if error is retryable
-      if (!isRetryableError(error, config)) break;
+      // Only retry if the error (or the caller's override) says to
+      if (!shouldRetry(error, attempt)) break;
 
       const delayMs = calculateBackoff(attempt, config);
       onRetry?.(attempt, delayMs, error);
