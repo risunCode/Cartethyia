@@ -382,3 +382,17 @@ export function sumMonthlyTokensForKey(apiKeyId: string): number {
     .filter((record) => record.apiKeyId === apiKeyId && utcDateOf(record.startedAt).slice(0, 7) === month)
     .reduce((total, record) => total + orZero(record.inputTokens) + orZero(record.outputTokens), 0);
 }
+
+/**
+ * All-time token total for a key, for display (not enforcement). Bounded by
+ * the same in-memory `records` window as the daily/monthly sums above
+ * (`MAX_HISTORY` most recent requests across all keys) - an instance with
+ * enough total traffic to roll that window past a key's oldest requests will
+ * undercount, same pre-existing limitation daily/monthly already have.
+ */
+export function sumAllTimeTokensForKey(apiKeyId: string): number {
+  hydrateHistory();
+  return records
+    .filter((record) => record.apiKeyId === apiKeyId)
+    .reduce((total, record) => total + orZero(record.inputTokens) + orZero(record.outputTokens), 0);
+}

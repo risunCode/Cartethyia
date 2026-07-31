@@ -4,9 +4,11 @@ import { Elysia } from "elysia";
 import { consoleError } from "../errors";
 import { addAuditEvent } from "../db/repos/audit";
 import { createApiKey, listApiKeys, revokeApiKey, deleteApiKey, getApiKeyById, updateApiKey } from "../db/repos/api-keys";
+import { sumDailyTokensForKey, sumAllTimeTokensForKey } from "../db/repos/usage";
 
 type KeyBody = {
   name?: string;
+  prefix?: string;
   rateLimitRpm?: number | null;
   dailyTokenLimit?: number | null;
   monthlyTokenLimit?: number | null;
@@ -31,7 +33,13 @@ function parseStringList(value: unknown): string[] | null | undefined {
 }
 
 export const keysRoutes = new Elysia({ prefix: "/console/api" })
-  .get("/keys", async () => ({ items: listApiKeys() }))
+  .get("/keys", async () => ({
+    items: listApiKeys().map((key) => ({
+      ...key,
+      todayTokens: sumDailyTokensForKey(key.id),
+      totalTokens: sumAllTimeTokensForKey(key.id),
+    })),
+  }))
   .post("/keys", async ({ body, set }) => {
     const input = (body ?? {}) as KeyBody;
     if (typeof input.name !== "string" || input.name.trim().length < 2) {
@@ -58,6 +66,7 @@ export const keysRoutes = new Elysia({ prefix: "/console/api" })
       return consoleError("invalid_request", "one or more limit or allowlist fields are invalid");
     }
     const created = createApiKey({
+      prefix: typeof input.prefix === "string" ? input.prefix : undefined,
       name: input.name.trim(),
       rateLimitRpm: rateLimitRpm ?? undefined,
       dailyTokenLimit: dailyTokenLimit ?? undefined,
@@ -73,7 +82,7 @@ export const keysRoutes = new Elysia({ prefix: "/console/api" })
     }
     addAuditEvent("key.created", { name: input.name, prefix: created.record.keyPrefix });
     set.status = 201;
-    return { ...created.record, key: created.key, note: "store this key now; it is shown only once" };
+    return { ...created.record, todayTokens: 0, totalTokens: 0, key: created.key, note: "store this key now; it is shown only once" };
   })
   .patch("/keys/:id", async ({ params, body, set }) => {
     const input = (body ?? {}) as KeyBody;

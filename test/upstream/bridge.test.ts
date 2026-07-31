@@ -176,9 +176,34 @@ describe("bridge — decodeOpenAIChatStream", () => {
       { type: "finish", stopReason: "tool_use" },
     ]);
   });
+
+  // Regression: confirmed via a live production trace. Devin SWE-1.6 split a
+  // single create_file call's own arguments across TWO tool_calls indices
+  // mid-stream - the second opened with `"id":"","function":{"name":""}}`
+  // (both empty strings, not absent fields). The `id && name` truthy check
+  // never registered that index (empty string is falsy), so every argument
+  // fragment routed to it vanished silently - the client received a
+  // create_file call with zero arguments and the file was never written.
+  test("a malformed upstream index opened with blank id/name mid-stream is treated as a continuation, not dropped", async () => {
+    const raw =
+      frame({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call_2957", type: "function", function: { name: "create_file", arguments: "" } }] } }] }) +
+      frame({ choices: [{ index: 0, delta: { tool_calls: [{ index: 1, id: "", type: "function", function: { name: "", arguments: "" } }] } }] }) +
+      frame({ choices: [{ index: 0, delta: { tool_calls: [{ index: 1, function: { arguments: 'content": "<!DOCTYPE' } }] } }] }) +
+      frame({ choices: [{ index: 0, delta: { tool_calls: [{ index: 1, function: { arguments: " html" } }] } }] }) +
+      frame({ choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
+
+    const events = await collect(decodeOpenAIChatStream(streamOf(raw)));
+    expect(events).toEqual([
+      { type: "tool_call_start", id: "call_2957", name: "create_file" },
+      { type: "tool_call_args_delta", id: "call_2957", argumentsDelta: 'content": "<!DOCTYPE' },
+      { type: "tool_call_args_delta", id: "call_2957", argumentsDelta: " html" },
+      { type: "tool_call_end", id: "call_2957" },
+      { type: "finish", stopReason: "tool_use" },
+    ]);
+  });
 });
 
-describe("bridge — decodeResponsesStream", () => {
+describe("bridge \u2014 decodeResponsesStream", () => {
   test("decodes a text turn to response.completed with usage", async () => {
     const raw =
       frame({ type: "response.output_text.delta", delta: "Hi" }) +

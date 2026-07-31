@@ -20,7 +20,7 @@ import {
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ApiError, apiGet, apiPatch, apiPost, apiDelete } from "../../lib/api";
-import { formatDuration, formatMemoryMb, formatTime } from "../../lib/format";
+import { formatDuration, formatMemoryMb, formatTime, formatTokens } from "../../lib/format";
 import { staggerClass } from "../../lib/motion";
 import { Badge, Skeleton } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -101,6 +101,9 @@ interface ApiKeyRecord {
   lastUsedAt: string | null;
   createdAt: string;
   revokedAt: string | null;
+  /** Tokens (input+output) this key has used today / all-time, from in-memory usage history. */
+  todayTokens: number;
+  totalTokens: number;
 }
 
 type KeyUpdatePatch = {
@@ -157,8 +160,8 @@ function buildKeyLimitsInput(rpm: string, daily: string, monthly: string, concur
 function formatKeyLimits(key: ApiKeyRecord): string {
   const parts: string[] = [];
   if (key.rateLimitRpm) parts.push(`${key.rateLimitRpm} rpm`);
-  if (key.dailyTokenLimit) parts.push(`${(key.dailyTokenLimit / 1000).toFixed(0)}K/day`);
-  if (key.monthlyTokenLimit) parts.push(`${(key.monthlyTokenLimit / 1000).toFixed(0)}K/mo`);
+  if (key.dailyTokenLimit) parts.push(`${formatTokens(key.dailyTokenLimit)}/day`);
+  if (key.monthlyTokenLimit) parts.push(`${formatTokens(key.monthlyTokenLimit)}/mo`);
   if (key.maxConcurrentRequests) parts.push(`${key.maxConcurrentRequests} concurrent`);
   if (key.modelAllowlist?.length) parts.push(`${key.modelAllowlist.length} allowed`);
   return parts.length > 0 ? parts.join(" · ") : "—";
@@ -259,6 +262,7 @@ export function OverviewPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ApiKeyRecord | null>(null);
   const [name, setName] = useState("");
+  const [prefix, setPrefix] = useState("");
   const [rpm, setRpm] = useState("");
   const [daily, setDaily] = useState("");
   const [monthly, setMonthly] = useState("");
@@ -270,6 +274,7 @@ export function OverviewPage() {
 
   const resetKeyForm = () => {
     setName("");
+    setPrefix("");
     setRpm("");
     setDaily("");
     setMonthly("");
@@ -347,7 +352,7 @@ export function OverviewPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (input: { name: string } & KeyLimitsInput) => apiPost<CreatedKey>("/keys", input),
+    mutationFn: (input: { name: string; prefix?: string } & KeyLimitsInput) => apiPost<CreatedKey>("/keys", input),
     onSuccess: (created) => {
       setRevealed(created);
       setCreateOpen(false);
@@ -398,7 +403,11 @@ export function OverviewPage() {
   });
 
   const submitCreate = () => {
-    createMutation.mutate({ name: name.trim(), ...buildKeyLimitsInput(rpm, daily, monthly, concurrent, allowed) });
+    createMutation.mutate({
+      name: name.trim(),
+      prefix: prefix.trim() || undefined,
+      ...buildKeyLimitsInput(rpm, daily, monthly, concurrent, allowed),
+    });
   };
 
   const submitEdit = () => {
@@ -640,6 +649,7 @@ export function OverviewPage() {
                 <th className="px-4 py-2.5">Name</th>
                 <th className="px-3 py-2.5">Prefix</th>
                 <th className="px-3 py-2.5">Limits</th>
+                <th className="px-3 py-2.5">Usage (today / total)</th>
                 <th className="px-3 py-2.5">Last used</th>
                 <th className="px-3 py-2.5">Created</th>
                 <th className="px-3 py-2.5">Status</th>
@@ -648,15 +658,18 @@ export function OverviewPage() {
             </thead>
             <tbody className="divide-y divide-[var(--inner-border)]">
               {keysQuery.isLoading ? (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-[var(--text-3)]">Loading…</td></tr>
+                <tr><td colSpan={8} className="px-4 py-10 text-center text-[var(--text-3)]">Loading\u2026</td></tr>
               ) : keys.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-[var(--text-3)]">No keys yet — create one to enforce proxy authentication.</td></tr>
+                <tr><td colSpan={8} className="px-4 py-10 text-center text-[var(--text-3)]">No keys yet \u2014 create one to enforce proxy authentication.</td></tr>
               ) : (
                 keys.map((key, index) => (
                   <tr key={key.id} {...staggerClass(index)} className="transition-colors hover:bg-[var(--hover)]">
                     <td className="max-w-[200px] truncate px-4 py-2.5 font-semibold">{key.name}</td>
                     <td className="px-3 py-2.5 font-mono text-[11px] text-[var(--text-2)]">{key.keyPrefix}…</td>
                     <td className="max-w-[200px] truncate px-3 py-2.5 text-[var(--text-2)]">{formatKeyLimits(key)}</td>
+                    <td className="px-3 py-2.5 tabular-nums text-[var(--text-2)]">
+                      {formatTokens(key.todayTokens)} / {formatTokens(key.totalTokens)}
+                    </td>
                     <td className="px-3 py-2.5 text-[var(--text-2)]">{formatTime(key.lastUsedAt)}</td>
                     <td className="px-3 py-2.5 text-[var(--text-2)]">{formatTime(key.createdAt)}</td>
                     <td className="px-3 py-2.5"><Badge tone={key.active ? "ok" : "default"}>{key.active ? "active" : "revoked"}</Badge></td>
@@ -711,6 +724,18 @@ export function OverviewPage() {
           <div>
             <Label>Name</Label>
             <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="ci-key" disabled={createMutation.isPending} />
+          </div>
+          <div>
+            <Label>Custom prefix (optional)</Label>
+            <Input
+              value={prefix}
+              onChange={(e) => setPrefix(e.target.value)}
+              placeholder="ctk (default) \u2014 e.g. sk-carte"
+              disabled={createMutation.isPending}
+            />
+            <p className="mt-1 text-[10.5px] text-[var(--text-3)]">
+              Replaces the default "ctk_" prefix on the generated secret, e.g. "sk-carte_a1b2\u2026". Letters, digits, "_" and "-" only; anything else is stripped.
+            </p>
           </div>
           <KeyLimitsFields
             rpm={rpm}

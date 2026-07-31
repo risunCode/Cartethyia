@@ -44,6 +44,8 @@ export interface ApiKeyPublic {
 
 export interface ApiKeyCreateInput {
   name: string;
+  /** Custom secret prefix (e.g. "sk-carte") in place of the default "ctk". Sanitized by `sanitizeKeyPrefix` before use. */
+  prefix?: string;
   rateLimitRpm?: number;
   dailyTokenLimit?: number;
   monthlyTokenLimit?: number;
@@ -86,13 +88,28 @@ function serializeList(value: string[] | null | undefined): string | null {
   return serializeJsonArray(value);
 }
 
+const DEFAULT_KEY_PREFIX = "ctk";
+
+/**
+ * Keeps a custom prefix safe to embed in an `Authorization: Bearer <key>`
+ * header: only token68-safe characters, capped to a sane length so one
+ * request can't blow up the secret. Anything left empty after stripping
+ * falls back to the default - no rejection, no validation error surfaced
+ * to the caller, per product decision (any non-empty result is accepted).
+ */
+function sanitizeKeyPrefix(raw: string | undefined): string {
+  if (!raw) return DEFAULT_KEY_PREFIX;
+  const cleaned = raw.trim().replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32);
+  return cleaned || DEFAULT_KEY_PREFIX;
+}
+
 /** Returns the full key exactly once; caller must show it immediately. */
 export function createApiKey(input: ApiKeyCreateInput): { key: string; record: ApiKeyPublic } | { error: "duplicate" } {
   const db = getDb();
   const raw = crypto.getRandomValues(new Uint8Array(24));
   let suffix = "";
   for (const byte of raw) suffix += byte.toString(16).padStart(2, "0");
-  const key = `ctk_${suffix}`;
+  const key = `${sanitizeKeyPrefix(input.prefix)}_${suffix}`;
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   try {

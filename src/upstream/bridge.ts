@@ -167,6 +167,9 @@ export async function* decodeOpenAIChatStream(body: ReadableStream<Uint8Array>):
   // agentic clients (Claude Code, GitHub Copilot, OpenCode) trigger routinely
   // but a single-tool curl smoke test never does.
   const toolIdByIndex = new Map<number, string>();
+  // Most recently opened tool call's id - used only for the malformed-index
+  // recovery below, never to override a well-formed id/name pair.
+  let lastToolId: string | undefined;
 
   for await (const frame of parseSSEStream(body)) {
     if (frame.data === "[DONE]") continue;
@@ -191,7 +194,20 @@ export async function* decodeOpenAIChatStream(body: ReadableStream<Uint8Array>):
       const index = asNumber(field(tc, "index")) ?? 0;
       if (id && name && !toolIdByIndex.has(index)) {
         toolIdByIndex.set(index, id);
+        lastToolId = id;
         yield { type: "tool_call_start", id, name };
+      } else if (!toolIdByIndex.has(index) && lastToolId) {
+        // Malformed upstream: a "new" index opened with id/name both blank
+        // (empty string, not absent - so the `id && name` check above never
+        // registers it) while a tool call is already in flight. Confirmed
+        // via a production trace: Devin SWE-1.6 split a single create_file
+        // call's own arguments across two tool_calls indices mid-stream,
+        // the second with `"id":"","function":{"name":""}}` - every
+        // argument fragment routed to that index silently vanished (dropped
+        // by the `if (targetId)` guard below, since the index was never in
+        // the map) instead of reaching the real tool call. Route it to
+        // whichever call most recently started instead of dropping it.
+        toolIdByIndex.set(index, lastToolId);
       }
       const args = fn ? asString(field(fn, "arguments")) : undefined;
       if (args) {
@@ -202,8 +218,11 @@ export async function* decodeOpenAIChatStream(body: ReadableStream<Uint8Array>):
 
     const finishReason = choice ? asString(field(choice, "finish_reason")) : undefined;
     if (finishReason) {
-      for (const id of toolIdByIndex.values()) yield { type: "tool_call_end", id };
+      // A malformed index recovered above maps to the SAME id as another
+      // index (see above) - dedupe so that id's tool_call_end fires once.
+      for (const id of new Set(toolIdByIndex.values())) yield { type: "tool_call_end", id };
       toolIdByIndex.clear();
+      lastToolId = undefined;
       yield { type: "finish", stopReason: chatFinishToAnthropicStop(finishReason) };
     }
 

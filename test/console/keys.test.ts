@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { app } from "../../src/app";
 import { findApiKeyBySecret } from "../../src/console/db/repos/api-keys";
+import { insertUsageHistory } from "../../src/console/db/repos/usage";
 import { loginAndGetCookie, postJson, useIsolatedDataDir } from "./helpers";
 
 beforeEach(() => {
@@ -12,6 +13,70 @@ function authed(path: string, cookie: string): Request {
 }
 
 describe("console keys API", () => {
+  test("accepts a custom secret prefix and sanitizes unsafe characters", async () => {
+    const cookie = await loginAndGetCookie();
+
+    const custom = await app.handle(postJson("/console/api/keys", { name: "custom-prefix-key", prefix: "sk-carte" }, { cookie }));
+    expect(custom.status).toBe(201);
+    const customBody = (await custom.json()) as { key: string; keyPrefix: string };
+    expect(customBody.key.startsWith("sk-carte_")).toBe(true);
+    expect(customBody.keyPrefix).toBe(customBody.key.slice(0, 12));
+
+    // Anything outside [A-Za-z0-9_-] is stripped rather than rejected -
+    // no validation error, per product decision ("ya valid aja").
+    const messy = await app.handle(postJson("/console/api/keys", { name: "messy-prefix-key", prefix: "sk carte!! \u2764" }, { cookie }));
+    expect(messy.status).toBe(201);
+    const messyBody = (await messy.json()) as { key: string };
+    expect(messyBody.key.startsWith("skcarte_")).toBe(true);
+
+    // A blank/whitespace-only prefix falls back to the default, not an empty segment.
+    const blank = await app.handle(postJson("/console/api/keys", { name: "blank-prefix-key", prefix: "   " }, { cookie }));
+    expect(blank.status).toBe(201);
+    const blankBody = (await blank.json()) as { key: string };
+    expect(blankBody.key.startsWith("ctk_")).toBe(true);
+  });
+
+  test("list includes today/total token usage per key from usage history", async () => {
+    const cookie = await loginAndGetCookie();
+    const created = await app.handle(postJson("/console/api/keys", { name: "usage-key" }, { cookie }));
+    const { id, key } = (await created.json()) as { id: string; key: string };
+
+    const fresh = await app.handle(authed("/console/api/keys", cookie));
+    const freshItems = ((await fresh.json()) as { items: { id: string; todayTokens: number; totalTokens: number }[] }).items;
+    expect(freshItems.find((item) => item.id === id)?.todayTokens).toBe(0);
+    expect(freshItems.find((item) => item.id === id)?.totalTokens).toBe(0);
+
+    insertUsageHistory({
+      traceId: crypto.randomUUID(),
+      endpoint: "/v1/chat/completions",
+      surface: "chat",
+      apiKeyId: id,
+      apiKeyPrefix: key.slice(0, 12),
+      provider: "kimchi",
+      model: "kimchi/kimi-k2.7",
+      status: 200,
+      errorKind: null,
+      stream: false,
+      startedAt: new Date().toISOString().replace("T", " ").replace("Z", ""),
+      finishedAt: new Date().toISOString().replace("T", " ").replace("Z", ""),
+      durationMs: 10,
+      inputTokens: 40,
+      outputTokens: 60,
+      cachedTokens: null,
+      cacheWriteTokens: null,
+      reasoningTokens: null,
+      totalTokens: 100,
+      usageSource: "test",
+      meta: {},
+    });
+
+    const after = await app.handle(authed("/console/api/keys", cookie));
+    const afterItems = ((await after.json()) as { items: { id: string; todayTokens: number; totalTokens: number }[] }).items;
+    const row = afterItems.find((item) => item.id === id);
+    expect(row?.todayTokens).toBe(100);
+    expect(row?.totalTokens).toBe(100);
+  });
+
   test("login → create → list → revoke → reject revoked", async () => {
     const cookie = await loginAndGetCookie();
 

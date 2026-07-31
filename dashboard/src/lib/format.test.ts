@@ -17,11 +17,12 @@ describe("formatNumber", () => {
 });
 
 describe("formatTokens", () => {
-  test("picks the largest unit whose threshold the value clears (K/M/B), not just >=1000", () => {
+  test("picks the largest unit whose threshold the value clears (K/M/B/T), not just >=1000", () => {
     expect(formatTokens(999)).toBe("999");
     expect(formatTokens(1_000)).toBe("1.0K");
     expect(formatTokens(1_500_000)).toBe("1.5M");
     expect(formatTokens(2_000_000_000)).toBe("2.0B");
+    expect(formatTokens(3_400_000_000_000)).toBe("3.4T");
   });
 
   test("renders an em-dash for null/undefined", () => {
