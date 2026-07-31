@@ -129,7 +129,7 @@ describe("withRetry", () => {
 
 describe("createTimeoutSignal", () => {
   test("fires on timeout", async () => {
-    const signal = createTimeoutSignal(50);
+    const { signal } = createTimeoutSignal(50);
     expect(signal.aborted).toBe(false);
     await new Promise((r) => setTimeout(r, 100));
     expect(signal.aborted).toBe(true);
@@ -137,7 +137,7 @@ describe("createTimeoutSignal", () => {
 
   test("fires on parent abort", async () => {
     const controller = new AbortController();
-    const signal = createTimeoutSignal(10000, controller.signal);
+    const { signal } = createTimeoutSignal(10000, controller.signal);
     expect(signal.aborted).toBe(false);
     controller.abort();
     expect(signal.aborted).toBe(true);
@@ -145,10 +145,31 @@ describe("createTimeoutSignal", () => {
 
   test("fires on whichever comes first", async () => {
     const controller = new AbortController();
-    const signal = createTimeoutSignal(50, controller.signal);
+    const { signal } = createTimeoutSignal(50, controller.signal);
     await new Promise((r) => setTimeout(r, 100));
     expect(signal.aborted).toBe(true);
     // Parent not aborted — timeout fired first
     expect(controller.signal.aborted).toBe(false);
+  });
+
+  // Regression: a fetch that resolved headers (e.g. an active, healthy
+  // streaming response) must not have its connection killed later by the
+  // SAME timeout deadline that only ever should have bounded connect/TTFB.
+  // Confirmed in production: a request trace showed durationMs: 60006 -
+  // AbortSignal.timeout(60_000) killing a successfully-streaming create_file
+  // tool call mid-generation, not an upstream error.
+  test("clear() disarms the timeout so it never fires afterward", async () => {
+    const { signal, clear } = createTimeoutSignal(50);
+    clear();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(signal.aborted).toBe(false);
+  });
+
+  test("clear() does not disarm the parent's own abort", async () => {
+    const controller = new AbortController();
+    const { signal, clear } = createTimeoutSignal(10000, controller.signal);
+    clear();
+    controller.abort();
+    expect(signal.aborted).toBe(true);
   });
 });

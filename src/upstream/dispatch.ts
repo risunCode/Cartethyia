@@ -64,12 +64,26 @@ export interface ProviderRegistry {
 /** Connect timeout for provider fetch calls (C3). */
 const FETCH_CONNECT_TIMEOUT_MS = 60_000;
 
-/** Retry config for dispatch (C2). Can be overridden per-provider if needed. */
+/**
+ * Retry config for dispatch (C2). Can be overridden per-provider if needed.
+ *
+ * A streaming client (chat.ts/messages.ts/responses.ts all `await
+ * dispatchQualifiedRoute(...)` in full - retries and all - before sending
+ * ANY bytes back, not even response headers) sees complete silence for the
+ * whole retry window. The old 2000ms base meant two retryable failures
+ * (408/502/503/504) burned ~2-5s of dead air each - ~7s total before a
+ * third attempt even started. That's long enough for a real client (e.g.
+ * GitHub Copilot Chat) to conclude the connection is dead and cancel it
+ * outright, which then wastes the retry entirely: the request still fails,
+ * just slower. Keeping the retries but shrinking the backoff (~150-500ms
+ * for two attempts) preserves resilience against a genuine transient blip
+ * while staying well under any reasonable client patience threshold.
+ */
 const DISPATCH_RETRY_CONFIG: RetryConfig = {
   ...DEFAULT_RETRY_CONFIG,
-  maxRetries: 3,
-  baseDelayMs: 2000,
-  maxDelayMs: 30_000,
+  maxRetries: 2,
+  baseDelayMs: 150,
+  maxDelayMs: 1500,
 };
 
 export interface DispatchOutcome {
@@ -145,8 +159,11 @@ async function dispatchProvider(
     throw new Error(`No provider implementation for ${route.target.provider}`);
   }
 
-  // Create a combined signal: connect timeout + client abort (C3)
-  const timeoutSignal = createTimeoutSignal(FETCH_CONNECT_TIMEOUT_MS, signal);
+  // Create a combined signal: connect timeout + client abort (C3). `clear`
+  // is called once `provider.call(...)` resolves (headers/full JSON in
+  // hand) so the deadline never fires against the rest of a streaming
+  // response body's lifetime - see `createTimeoutSignal`'s docstring.
+  const { signal: timeoutSignal, clear: clearConnectTimeout } = createTimeoutSignal(FETCH_CONNECT_TIMEOUT_MS, signal);
 
   // Build this request's rotation candidates from the provider's routing
   // config. "proxy-pool" (Round Robin) rotates through the pool's entries
@@ -176,23 +193,27 @@ async function dispatchProvider(
   let attemptOffset = 0;
   let usedProxyUrl: string | undefined;
 
-  const result = await withRetry(
-    async () => {
-      const proxyUrl = candidates[(startIndex + attemptOffset) % candidates.length];
-      attemptOffset += 1;
-      usedProxyUrl = proxyUrl;
-      if (proxyUrl) await assertPublicUrlAtDispatch(proxyUrl);
-      return provider.call(route.target, route.request, route.credential, timeoutSignal, proxyUrl);
-    },
-    DISPATCH_RETRY_CONFIG,
-    (attempt, delayMs, error) => {
-      void attempt;
-      void delayMs;
-      void error;
-    },
-  );
-  route.proxyPoolName = usedProxyUrl ? poolName : undefined;
-  return { result, proxyPoolName: route.proxyPoolName };
+  try {
+    const result = await withRetry(
+      async () => {
+        const proxyUrl = candidates[(startIndex + attemptOffset) % candidates.length];
+        attemptOffset += 1;
+        usedProxyUrl = proxyUrl;
+        if (proxyUrl) await assertPublicUrlAtDispatch(proxyUrl);
+        return provider.call(route.target, route.request, route.credential, timeoutSignal, proxyUrl);
+      },
+      DISPATCH_RETRY_CONFIG,
+      (attempt, delayMs, error) => {
+        void attempt;
+        void delayMs;
+        void error;
+      },
+    );
+    route.proxyPoolName = usedProxyUrl ? poolName : undefined;
+    return { result, proxyPoolName: route.proxyPoolName };
+  } finally {
+    clearConnectTimeout();
+  }
 }
 
 // ─────────────────── Qualified-route dispatch (REQ-4) ──────────────────────

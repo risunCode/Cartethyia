@@ -139,16 +139,36 @@ export async function withRetry<T>(
   throw lastError;
 }
 
+export interface TimeoutSignal {
+  /** Combined signal: fires on timeout OR when `parentSignal` aborts. Pass this straight to `fetch()`. */
+  signal: AbortSignal;
+  /**
+   * Disarms the timeout half of `signal` without touching `parentSignal`.
+   * MUST be called once the caller has what it needs from a bounded phase
+   * (e.g. response headers arrived) - otherwise the deadline keeps ticking
+   * for the signal's entire remaining lifetime, including a streaming
+   * response body read long after connection was established. A real
+   * 60s+ tool-call generation streamed from a genuinely slow-but-healthy
+   * upstream would otherwise get its connection killed mid-generation at
+   * the timeout mark - confirmed in production via a request trace showing
+   * `durationMs: 60006` (i.e. `AbortSignal.timeout`'s deadline, not an
+   * upstream error) cutting off an in-progress, successfully streaming
+   * `create_file` tool call.
+   */
+  clear: () => void;
+}
+
 /**
- * Creates a combined AbortSignal that fires when either:
- * - The timeout elapses
- * - The parent signal is aborted
- *
- * Used to add connect/total timeout to fetch calls while preserving
- * client abort propagation.
+ * Creates a disarmable timeout bound to `parentSignal`'s own abort. Unlike
+ * `AbortSignal.timeout()`, the timeout can be cancelled via `clear()` once
+ * whatever bounded phase it was guarding (e.g. connect/TTFB) has completed,
+ * so it never fires against unrelated later activity on the same signal
+ * (e.g. reading a long-lived streaming response body).
  */
-export function createTimeoutSignal(timeoutMs: number, parentSignal?: AbortSignal | null): AbortSignal {
-  const timeoutSignal = AbortSignal.timeout(timeoutMs);
-  if (!parentSignal) return timeoutSignal;
-  return AbortSignal.any([timeoutSignal, parentSignal]);
+export function createTimeoutSignal(timeoutMs: number, parentSignal?: AbortSignal | null): TimeoutSignal {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException(`Timed out after ${timeoutMs}ms`, "TimeoutError")), timeoutMs);
+  const clear = () => clearTimeout(timer);
+  const signal = parentSignal ? AbortSignal.any([controller.signal, parentSignal]) : controller.signal;
+  return { signal, clear };
 }
