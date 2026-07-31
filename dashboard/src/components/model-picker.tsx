@@ -474,7 +474,7 @@ export function InlineModelBrowser({
                       )}
                     >
                       <span className="min-w-0 flex-1 truncate">{entry.alias}</span>
-                      {isSelected(entry.alias) && <span className="text-[var(--accent)]">\u2713</span>}
+                      {isSelected(entry.alias) && <span className="text-[var(--accent)]">✓</span>}
                     </button>
                   ))}
                 </div>
