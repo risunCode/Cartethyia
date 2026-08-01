@@ -37,9 +37,6 @@ class AnthropicProvider implements Provider {
     if (request.surface !== "openai-chat") throw new ProviderCallError(400, "invalid_request", "Anthropic currently supports the OpenAI Chat shape.");
     if (!credential.value) throw new ProviderCallError(401, "authentication", "Anthropic requires an API key.");
 
-    // request.body already went through prepareOutboundRequest once, centrally, in
-    // dispatchQualifiedRoute — re-applying it here would double-inject the system
-    // prompt / RTK-compress twice / re-run filter rules on already-replaced text.
     const chatBody = { ...request.body, model: target.modelId };
     const anthropicReq = translateChatRequestToAnthropic(chatBody as OpenAIChatRequest);
 

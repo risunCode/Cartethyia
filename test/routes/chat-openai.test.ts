@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
 import { app } from "../../src/app";
 import { createAccount } from "../../src/console/db/repos/accounts";
-import { loginAndGetCookie, postJson, useIsolatedDataDir } from "../console/helpers";
+import { useIsolatedDataDir } from "../console/helpers";
 
 let fetchSpy: Mock<typeof fetch>;
 
@@ -155,27 +155,5 @@ describe("POST /v1/chat/completions with openai namespace", () => {
     );
     expect(res.status).toBe(401);
     expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  test("a console-configured system prompt is injected exactly once, not doubled", async () => {
-    // Regression: dispatchQualifiedRoute already runs prepareOutboundRequest
-    // once, centrally, before provider.call(), the openai/anthropic/pgxiaomi/
-    // openai-compatible providers used to re-run it themselves, doubling the
-    // injected system prompt (and, more generally, double-applying RTK
-    // compression and filter rules) for every qualified request.
-    const cookie = await loginAndGetCookie();
-    const patchRes = await app.handle(postJson("/console/api/settings", { systemPrompt: "ALWAYS SIGN OFF WITH A FLOWER" }, { cookie }));
-    expect(patchRes.status).toBe(200);
-
-    fetchSpy.mockResolvedValueOnce(chatResponse("ok"));
-
-    const res = await postChat({ model: "openai/gpt-5.6-sol", messages: [{ role: "user", content: "hi" }] });
-    expect(res.status).toBe(200);
-
-    const [, init] = fetchSpy.mock.calls[0]!;
-    const sentBody = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: string }> };
-    const systemMessages = sentBody.messages.filter((m) => m.role === "system");
-    expect(systemMessages).toHaveLength(1);
-    expect(systemMessages[0]!.content).toBe("ALWAYS SIGN OFF WITH A FLOWER");
   });
 });

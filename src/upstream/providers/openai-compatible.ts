@@ -56,9 +56,6 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleProviderC
       if (request.surface !== "openai-chat") throw new ProviderCallError(400, "invalid_request", `${config.name} supports the OpenAI Chat shape.`);
       if (!credential.value) throw new ProviderCallError(401, "authentication", `${config.name} requires an API key.`);
 
-      // request.body is already run through prepareOutboundRequest once, centrally,
-      // by dispatchQualifiedRoute before any provider.call() is reached — re-running
-      // it here would double-inject the system prompt / RTK-compress / filter-rule pass.
       const body = { ...request.body, model: target.modelId } as Record<string, unknown>;
       return callSimpleProvider({
         url: `${config.baseUrl}/chat/completions`,

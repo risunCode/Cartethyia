@@ -19,6 +19,25 @@ import type { TrackMode, ProxyAuthMode } from "../env";
 const TRACK_MODES: TrackMode[] = ["none", "meta", "store"];
 const PROXY_AUTH_MODES: ProxyAuthMode[] = ["open", "api_key"];
 
+const RUNTIME_SETTINGS_KEYS = [
+  "proxyAuthMode", "trackPayloads", "trackAssets", "logRetentionDays", "assetRetentionDays",
+  "maxFlightsPerIp", "trustProxy", "cacheMarkersEnabled", "sessionTtlHours",
+] as const satisfies readonly (keyof RuntimeSettings)[];
+
+/**
+ * Drops any key not in `RuntimeSettings` before it reaches `patchRuntimeSettings`.
+ * Without this, an unrecognized field (a stale client sending a since-removed
+ * setting, e.g. the deleted `systemPrompt`) would silently merge into and
+ * persist forever in `settings_json`, inert but never cleaned up.
+ */
+function stripUnknownSettingsKeys(patch: Record<string, unknown>): Partial<RuntimeSettings> {
+  const clean: Partial<RuntimeSettings> = {};
+  for (const key of RUNTIME_SETTINGS_KEYS) {
+    if (key in patch) (clean as Record<string, unknown>)[key] = patch[key];
+  }
+  return clean;
+}
+
 function validateRuntimePatch(patch: Partial<RuntimeSettings>): string | null {
   if (patch.proxyAuthMode !== undefined && !isOneOf(patch.proxyAuthMode, PROXY_AUTH_MODES)) {
     return `proxyAuthMode must be one of ${PROXY_AUTH_MODES.join(", ")}`;
@@ -41,10 +60,6 @@ function validateRuntimePatch(patch: Partial<RuntimeSettings>): string | null {
   if (patch.cacheMarkersEnabled !== undefined && typeof patch.cacheMarkersEnabled !== "boolean") {
     return "cacheMarkersEnabled must be a boolean";
   }
-  // opencode-free models are always accessible to any valid API key — no access-mode setting exists.
-  if (patch.systemPrompt !== undefined && typeof patch.systemPrompt !== "string") {
-    return "systemPrompt must be a string";
-  }
   return null;
 }
 
@@ -61,7 +76,7 @@ export const settingsRoutes = new Elysia({ prefix: "/console/api" })
   .post("/settings", async ({ body, set, request }) => {
     const rateLimited = checkMutationLimit(request);
     if (rateLimited) return rateLimited;
-    const patch = (body ?? {}) as Partial<RuntimeSettings>;
+    const patch = stripUnknownSettingsKeys((body ?? {}) as Record<string, unknown>);
     const error = validateRuntimePatch(patch);
     if (error) {
       set.status = 400;

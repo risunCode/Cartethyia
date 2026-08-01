@@ -21,6 +21,8 @@ Deep pass targeting sustained 5,000 req/sec on the proxy hot path, covering both
 ### Fixed
 
 - `src/console/tracking/rotate.ts`'s daily retention job (`startLogMaintenance`) was defined but never called from any entrypoint - `LOG_RETENTION_DAYS`/`ASSET_RETENTION_DAYS` had no effect in production. Discovered and fixed in the `runtime.sqlite` migration above; still worth calling out here since it was a standalone pre-existing bug independent of this pass's new work.
+- `bun test` silently inherited the developer's local `.env` (Bun auto-loads it the same as `bun run`), so results depended on whichever machine ran them - two tests failed only because a local `TRACK_PAYLOADS=meta` override leaked in. `test/preload.ts` now clears every optional config env var before the suite runs, so tests always exercise documented defaults regardless of local dev config; per-test overrides still work by setting `Bun.env.X` explicitly.
+- Removed the console-wide "inject a system prompt into every outbound request" feature entirely (`src/upstream/outbound.ts`, `getRequestTransformSettings`, `RuntimeSettings.systemPrompt`, the Console -> Settings prompt field, and the 3 tests exercising it) - it had already been half-removed (the dashboard's prompt-editor state was set but never rendered; `getRequestTransformSettings` was a stub always returning `undefined`) and was fully dead. `POST /console/api/settings` now also strips any key not in `RuntimeSettings` before persisting, so a stale client sending a since-removed field like `systemPrompt` can no longer resurrect it into `settings_json`. Model Studio's own per-session system prompt (a completely separate feature - the per-conversation prompt in the chat playground) is untouched.
 
 ### Removed
 

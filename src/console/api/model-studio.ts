@@ -34,8 +34,9 @@ const MessageSchema = t.Object({
 // The chat call itself never persists `ts` — only session PATCH does — so it
 // stays out of this schema instead of forcing every caller to fabricate one.
 // `content` accepts the plain-string shape or the OpenAI multimodal parts
-// array (dispatchQualifiedRoute → prepareOutboundRequest already understands
-// both, same as any real vision-capable client request).
+// array (dispatchQualifiedRoute forwards the request body as-is, so both
+// shapes reach the provider unchanged, same as any real vision-capable
+// client request).
 const ContentPartSchema = t.Union([
   t.Object({ type: t.Literal("text"), text: t.String() }),
   t.Object({ type: t.Literal("image_url"), image_url: t.Object({ url: t.String() }) }),

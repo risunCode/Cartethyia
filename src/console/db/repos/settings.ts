@@ -6,7 +6,6 @@
 import { getDb } from "../client";
 import { getConsoleEnv, type TrackMode, type ProxyAuthMode } from "../../env";
 import { hashPassword } from "../../auth/password";
-import { DEFAULT_SYSTEM_PROMPT } from "../../default-system-prompt";
 
 export const DEFAULT_CONSOLE_PASSWORD = "carte1234";
 
@@ -19,7 +18,6 @@ export interface RuntimeSettings {
   maxFlightsPerIp: number;
   trustProxy: boolean;
   cacheMarkersEnabled: boolean;
-  systemPrompt: string;
   sessionTtlHours: number;
 }
 
@@ -60,8 +58,6 @@ function envDefaults(): RuntimeSettings {
     maxFlightsPerIp: 20,
     trustProxy: false,
     cacheMarkersEnabled: true,
-    // Built-in default; Console → Settings can replace or clear (empty disables).
-    systemPrompt: DEFAULT_SYSTEM_PROMPT,
     sessionTtlHours: env.sessionTtlHours,
   };
 }

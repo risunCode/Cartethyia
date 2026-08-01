@@ -26,7 +26,6 @@ interface RuntimeSettings {
   maxFlightsPerIp: number;
   trustProxy: boolean;
   cacheMarkersEnabled: boolean;
-  systemPrompt: string;
   sessionTtlHours: number;
 }
 
@@ -112,22 +111,7 @@ export function SettingsPage() {
   const patch = (p: Partial<RuntimeSettings>) => patchMutation.mutate(p);
   const settings = data?.settings;
 
-  // Local draft for the system prompt textarea so typing doesn't fight the
-  // controlled-input pattern. Synced from the server on load; flushed on blur.
-  const [promptDraft, setPromptDraft] = useState("");
-  const promptSynced = useRef(false);
-  if (settings && !promptSynced.current) {
-    promptSynced.current = true;
-    setPromptDraft(settings.systemPrompt);
-  }
-  // Re-sync when the query refetches and the user isn't actively editing.
-  if (settings && promptSynced.current && promptDraft === "") {
-    if (settings.systemPrompt !== "") {
-      setPromptDraft(settings.systemPrompt);
-    }
-  }
-
-  // ── Sensitive action runner (password-gated) ───────────────────────────
+  // Sensitive action runner (password-gated) 
   const runSensitive = async (password: string) => {
     setActionError(null);
     try {

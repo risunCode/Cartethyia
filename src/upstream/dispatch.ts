@@ -6,9 +6,7 @@ import { withRetry, createTimeoutSignal, DEFAULT_RETRY_CONFIG, extractStatus, ty
 import { isRetryableError } from "./retry";
 import { resolveAllComboTargets, resolveQualifiedTarget, credentialKindOf } from "../routing/resolve";
 import { isProviderId } from "../routing/providerMeta";
-import { prepareOutboundRequest } from "./outbound";
 import { ProviderCallError, providerRegistry } from "./providers";
-import { getRequestTransformSettings } from "../console/runtime";
 import {
   pickAccountForRotation,
   markAccountUnavailable,
@@ -260,8 +258,7 @@ export async function dispatchQualifiedRoute(input: QualifiedDispatchInput): Pro
   if (!provider) return { kind: "error", status: 404, message: "Provider not found." };
 
   if (input.compact) injectCompactMessage(input.body, input.compact.instruction);
-  const transformedBody = prepareOutboundRequest(input.body, "openai", getRequestTransformSettings()) as Record<string, unknown>;
-  const providerRequest: ProviderRequest = { surface: input.surface, body: transformedBody };
+  const providerRequest: ProviderRequest = { surface: input.surface, body: input.body };
 
   // ── Credential resolution: account routing uses client IP affinity when sticky routing is enabled. ──
   const affinityKey = clientAffinityKey(input.request);

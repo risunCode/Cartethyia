@@ -5,8 +5,6 @@
 
 import { getSettings, type RuntimeSettings } from "./db/repos/settings";
 import { getConsoleEnv } from "./env";
-import { DEFAULT_SYSTEM_PROMPT } from "./default-system-prompt";
-import type { RequestTransformSettings } from "../upstream/outbound";
 
 const TTL_MS = 5_000;
 
@@ -23,7 +21,6 @@ function defaultRuntimeSettings(): RuntimeSettings {
     maxFlightsPerIp: 20,
     trustProxy: false,
     cacheMarkersEnabled: true,
-    systemPrompt: DEFAULT_SYSTEM_PROMPT,
     sessionTtlHours: env.sessionTtlHours,
   };
 }
@@ -34,16 +31,6 @@ export function getRuntimeSettings(): RuntimeSettings {
   const value = settings?.runtime ?? defaultRuntimeSettings();
   cache = { at: Date.now(), value };
   return value;
-}
-
-/**
- * Projects the live runtime settings into the shape `prepareOutboundRequest`
- * expects. This is the ONLY source `dispatchQualifiedRoute`/`runEmulatedCompact`/
- * the legacy pass-through providers should read for the system prompt —
- * `config.transforms` no longer exists (REQ-3.4).
- */
-export function getRequestTransformSettings(): RequestTransformSettings {
-  return { systemPrompt: undefined };
 }
 
 /** Clears the runtime-settings cache (REQ-3) so the next read hits the DB. */
