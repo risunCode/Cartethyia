@@ -610,8 +610,8 @@ export function ProviderDetailPage() {
     const priceLabel = formatModelPricing(model.pricing);
     return (
       <div key={model.id} {...staggerClass(index)}>
-        <Card className={cn("flex h-full flex-col gap-1 p-2 transition-transform duration-150 hover:-translate-y-0.5 sm:gap-1.5 sm:p-2.5", !model.enabled && "opacity-65")}>
-          <div className="flex items-start gap-1.5 sm:gap-2">
+        <Card className={cn("flex h-full flex-row items-center gap-2 rounded-xl p-2.5 transition-transform duration-150 hover:-translate-y-0.5 sm:flex-col sm:items-stretch sm:gap-1.5", !model.enabled && "opacity-65")}>
+          <div className="flex min-w-0 flex-1 items-start gap-1.5 sm:flex-none">
             <Bot size={13} className="mt-0.5 shrink-0 text-[var(--text-3)]" />
             <div className="min-w-0 flex-1">
               <div className="break-all font-mono text-[10px] font-semibold text-[var(--text-1)] sm:text-[11px]">{qualified}</div>
@@ -621,7 +621,7 @@ export function ProviderDetailPage() {
               <Copy size={12} />
             </Button>
           </div>
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="hidden flex-wrap items-center gap-1 sm:flex">
             {model.source !== "built-in" && <FileUp size={11} className="text-[var(--text-3)]" />}
             <span className="inline-flex items-center gap-0.5 rounded-md bg-[var(--hover)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--accent)]">
               <Brain size={10} aria-hidden="true" /> Reasoning
@@ -638,15 +638,15 @@ export function ProviderDetailPage() {
             )}
           </div>
           {Boolean(model.contextWindow || model.maxOutputTokens) && (
-            <div className="text-[9px] text-[var(--text-2)]">
+            <div className="hidden text-[9px] text-[var(--text-2)] sm:block">
               {model.contextWindow ? `${formatTokens(model.contextWindow)} context` : null}
               {model.contextWindow && model.maxOutputTokens ? " · " : null}
               {model.maxOutputTokens ? `${formatTokens(model.maxOutputTokens)} max out` : null}
             </div>
           )}
-          {priceLabel && <div className="text-[9px] text-[var(--text-2)]">{priceLabel}</div>}
-          <div className="mt-auto flex flex-wrap items-center gap-1 pt-0.5">
-            <Button variant="secondary" size="sm" className="h-6 min-w-0 flex-1 gap-1 px-2 text-[10px]" disabled={!model.enabled || pendingModelId === model.id} onClick={() => runTest(model.id)}>
+          {priceLabel && <div className="hidden text-[9px] text-[var(--text-2)] sm:block">{priceLabel}</div>}
+          <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1 sm:ml-0 sm:mt-auto sm:pt-0.5">
+            <Button variant="secondary" size="sm" className="h-7 min-w-0 gap-1 rounded-lg px-2 text-[10px] sm:h-6 sm:flex-1" disabled={!model.enabled || pendingModelId === model.id} onClick={() => runTest(model.id)}>
               {pendingModelId === model.id ? <Loader2 size={10} className="animate-spin" /> : <FlaskConical size={10} />}
               <span className="truncate">{pendingModelId === model.id ? "Testing…" : "Test"}</span>
             </Button>
@@ -656,9 +656,9 @@ export function ProviderDetailPage() {
               onClick={() => modelMutation.mutate({ path: `/${encodeURIComponent(model.id)}/enabled`, body: { enabled: !model.enabled } })}
               title={model.enabled ? "Disable" : "Enable"}
               aria-label={model.enabled ? "Disable" : "Enable"}
-              className={`inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors ${model.enabled ? "bg-[var(--green-soft,theme(colors.green.900))] text-[var(--green)] hover:bg-[var(--green)] hover:text-white" : "bg-[var(--surface)] text-[var(--text-3)] hover:bg-[var(--hover)]"}`}
+              className={`inline-flex h-7 items-center justify-center gap-1 rounded-lg px-2 text-[10px] font-medium transition-colors sm:h-6 sm:w-6 sm:px-0 ${model.enabled ? "bg-[var(--green-soft,theme(colors.green.900))] text-[var(--green)] hover:bg-[var(--green)] hover:text-white" : "bg-[var(--surface)] text-[var(--text-3)] hover:bg-[var(--hover)]"}`}
             >
-              {model.enabled ? <PowerOff size={10} /> : <LockOpen size={10} />}
+              {model.enabled ? <PowerOff size={10} /> : <LockOpen size={10} />}<span className="sm:hidden">{model.enabled ? "Disable" : "Enable"}</span>
             </button>
             {model.source !== "built-in" && (
               <Button variant="ghost" size="sm" className="text-[var(--red)]" aria-label={`Delete ${qualified}`} disabled={modelMutation.isPending} onClick={() => modelMutation.mutate({ path: `/${encodeURIComponent(model.id)}`, method: "DELETE" })}>
@@ -770,6 +770,14 @@ export function ProviderDetailPage() {
                 { value: "round-robin", label: "Round-robin" },
               ]}
             />
+          </div>
+          <div>
+            <Label>IP sticky limit</Label>
+            <Select ariaLabel="IP sticky limit" className="mt-1 w-full" value={String(routing.stickyLimit)} onChange={(value) => {
+              const next = { ...routing, stickyLimit: Number(value) };
+              setRouting(next);
+              routingMutation.mutate(next);
+            }} options={[{ value: "0", label: "Off" }, { value: "1", label: "1 IP per account" }, { value: "2", label: "2 IPs per account" }, { value: "3", label: "3 IPs per account" }]} />
           </div>
         </div>
 
@@ -940,11 +948,11 @@ export function ProviderDetailPage() {
           <Card className="py-8 text-center text-xs text-[var(--text-3)]">No models published by this provider yet.</Card>
         ) : (
           <>
-            {activeModels.length > 0 && <div className="grid grid-cols-2 gap-1.5 sm:gap-2 lg:grid-cols-3 xl:grid-cols-4">{activeModels.map(renderModel)}</div>}
+            {activeModels.length > 0 && <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{activeModels.map(renderModel)}</div>}
             {disabledModels.length > 0 && (
               <section className="mt-5 border-t border-[var(--inner-border)] pt-4">
                 <div className="mb-2 text-xs font-semibold text-[var(--text-2)]">Disabled models · {disabledModels.length}</div>
-                <div className="grid grid-cols-2 gap-1.5 sm:gap-2 lg:grid-cols-3 xl:grid-cols-4">{disabledModels.map((model, index) => renderModel(model, activeModels.length + index))}</div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{disabledModels.map((model, index) => renderModel(model, activeModels.length + index))}</div>
               </section>
             )}
           </>

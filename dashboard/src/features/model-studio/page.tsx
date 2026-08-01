@@ -8,7 +8,7 @@
  * across turns instead of restarting cold every time.
  */
 
-import { isValidElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { isValidElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Copy,
   ImagePlus,
+  Info,
   Loader2,
   MessageSquareText,
   Pencil,
@@ -40,7 +41,7 @@ import { Input, Textarea } from "../../components/ui/input";
 import { Select } from "../../components/ui/tabs";
 import { ConfirmDialog } from "../../components/shared";
 import { ProviderIcon } from "../../components/provider-icon";
-import { useProviders, useModelCatalog, useCombos, type ProviderSummary, type FlatModelEntry } from "../../components/model-picker";
+import { useProviders, useModelCatalog, useCombos, useAliases, useCustomProviders, useCustomProviderCatalog, type ProviderSummary, type FlatModelEntry } from "../../components/model-picker";
 
 interface StudioMessage {
   role: "system" | "user" | "assistant";
@@ -78,6 +79,26 @@ const THINK_LEVELS = [
   { value: "xhigh", label: "Think: X-High" },
   { value: "max", label: "Think: Max" },
 ];
+
+function estimateContextTokens(messages: StudioMessage[]): number {
+  return Math.ceil(messages.reduce((total, message) => total + message.content.length + (message.images?.length ?? 0) * 1_000, 0) / 4);
+}
+
+function ContextIndicator({ messages }: { messages: StudioMessage[] }) {
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  const ref = useOutsideClose(open, close);
+  const tokens = estimateContextTokens(messages);
+  const label = tokens >= 1_000 ? `${(tokens / 1_000).toFixed(tokens >= 10_000 ? 0 : 1)}k` : String(tokens);
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button type="button" onClick={() => setOpen((current) => !current)} aria-label="Chat context information" aria-expanded={open} className="group grid h-8 w-8 place-items-center rounded-full bg-[var(--hover)] transition-colors hover:bg-[var(--active-pill)]" title={`About ${tokens.toLocaleString()} tokens in this chat`}>
+        <span className="grid h-5 w-5 place-items-center rounded-full border-2 border-[var(--inner-border)] border-t-[var(--accent)] transition-transform group-hover:rotate-45"><span className="h-1 w-1 rounded-full bg-[var(--accent)]" /></span>
+      </button>
+      {open && <div className="absolute bottom-[calc(100%+8px)] right-0 z-50 w-52 max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--inner-border)] bg-[var(--glass-bg-2)] p-3 shadow-2xl backdrop-blur-xl"><div className="flex items-center gap-2"><span className="grid h-7 w-7 place-items-center rounded-full border-2 border-[var(--inner-border)] border-t-[var(--accent)]"><Info size={12} className="text-[var(--accent)]" /></span><div><p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-3)]">Current context</p><p className="text-sm font-bold">≈ {label} tokens</p></div></div><p className="mt-2 text-[10.5px] leading-relaxed text-[var(--text-3)]">Estimated from this chat's messages and images.</p></div>}
+    </div>
+  );
+}
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -163,6 +184,9 @@ function ModelDropdown({ value, onChange }: { value: string; onChange: (value: s
   const providersQuery = useProviders();
   const providers = providersQuery.data?.items ?? [];
   const catalog = useModelCatalog(providers, open);
+  const customProvidersQuery = useCustomProviders(open);
+  const customCatalog = useCustomProviderCatalog(customProvidersQuery.data?.items ?? []);
+  const aliasesQuery = useAliases(open);
   const combosQuery = useCombos(open);
 
   useEffect(() => {
@@ -174,16 +198,17 @@ function ModelDropdown({ value, onChange }: { value: string; onChange: (value: s
 
   const q = search.trim().toLowerCase();
   const combos = (combosQuery.data?.items ?? []).filter((c) => !q || c.name.toLowerCase().includes(q));
+  const aliases = (aliasesQuery.data?.items ?? []).filter((alias) => !q || alias.alias.toLowerCase().includes(q));
   const grouped = useMemo(() => {
     const map = new Map<string, { provider: ProviderSummary; models: FlatModelEntry[] }>();
-    for (const entry of catalog) {
+    for (const entry of [...catalog, ...customCatalog]) {
       if (q && !entry.qualified.toLowerCase().includes(q)) continue;
       const group = map.get(entry.provider.id);
       if (group) group.models.push(entry);
       else map.set(entry.provider.id, { provider: entry.provider, models: [entry] });
     }
     return [...map.values()];
-  }, [catalog, q]);
+  }, [catalog, customCatalog, q]);
 
   const selectedProvider = providers.find((p) => value.startsWith(`${p.prefix}/`));
   const pick = (qualified: string) => {
@@ -228,6 +253,16 @@ function ModelDropdown({ value, onChange }: { value: string; onChange: (value: s
             </div>
           </div>
           <div className="max-h-80 overflow-y-auto p-1.5">
+            {aliases.length > 0 && (
+              <div className="mb-1">
+                <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--text-3)]">Aliases</div>
+                {aliases.map((alias) => (
+                  <button key={alias.alias} type="button" onClick={() => pick(alias.alias)} className={cn("flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12.5px] transition-colors hover:bg-[var(--hover)]", value === alias.alias && "bg-[var(--accent-soft)] text-[var(--accent)]")}>
+                    <span className="min-w-0 flex-1 truncate font-mono">{alias.alias}</span>{value === alias.alias && <Check size={13} className="shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            )}
             {combos.length > 0 && (
               <div className="mb-1">
                 <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--text-3)]">Combos</div>
@@ -248,7 +283,7 @@ function ModelDropdown({ value, onChange }: { value: string; onChange: (value: s
                 ))}
               </div>
             )}
-            {grouped.length === 0 && combos.length === 0 ? (
+            {grouped.length === 0 && combos.length === 0 && aliases.length === 0 ? (
               <div className="py-8 text-center text-[11px] text-[var(--text-3)]">No models match.</div>
             ) : (
               grouped.map(({ provider, models }) => (
@@ -284,15 +319,17 @@ function ModelDropdown({ value, onChange }: { value: string; onChange: (value: s
 /** System prompt + max tokens, tucked behind one icon button instead of an
  * always-expanded panel eating vertical space. */
 function PromptPopover({
-  systemPrompt,
-  onSystemPrompt,
   maxTokens,
   onMaxTokens,
+  reasoningEffort,
+  onReasoningEffort,
+  compact = false,
 }: {
-  systemPrompt: string;
-  onSystemPrompt: (value: string) => void;
   maxTokens: number;
   onMaxTokens: (value: number) => void;
+  reasoningEffort: string;
+  onReasoningEffort: (value: string) => void;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -305,25 +342,19 @@ function PromptPopover({
         onClick={() => setOpen((v) => !v)}
         className={cn(
           "flex h-9.5 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] px-2.5 text-[12.5px] font-medium text-[var(--text-2)] transition-colors hover:border-[var(--accent)] hover:text-[var(--text-1)]",
-          systemPrompt.trim() && "border-[var(--accent)] text-[var(--accent)]"
+          reasoningEffort !== "none" && "border-[var(--accent)] text-[var(--accent)]"
         )}
-        title="System prompt & max tokens"
+        title="Thinking and max tokens"
       >
         <MessageSquareText size={15} className="shrink-0" />
-        <span className="whitespace-nowrap">{systemPrompt.trim() ? "Prompt set" : "System prompt"}</span>
+        <span className={cn("whitespace-nowrap", compact && "hidden sm:inline")}>{reasoningEffort !== "none" ? "Options set" : "Options"}</span>
       </button>
 
       {open && (
-        <div className={cn(panelClass, "w-[min(360px,90vw)] space-y-3 p-3")}>
-          <div>
-            <label className="mb-1.5 block text-[11px] font-semibold text-[var(--text-2)]">System prompt (optional)</label>
-            <Textarea
-              rows={4}
-              value={systemPrompt}
-              onChange={(e) => onSystemPrompt(e.target.value)}
-              placeholder="Sent as the first message. The server's configured system prompt (Settings → System prompt), if any, is appended after it — same as a real client request."
-              className="text-[12.5px]"
-            />
+        <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-64 space-y-3 rounded-2xl border border-[var(--inner-border)] bg-[var(--glass-bg-2)] p-3 shadow-2xl backdrop-blur-xl">
+          <div className="max-w-[180px]">
+            <label className="mb-1.5 block text-[11px] font-semibold text-[var(--text-2)]">Thinking</label>
+            <Select ariaLabel="Reasoning effort" value={reasoningEffort} onChange={onReasoningEffort} options={THINK_LEVELS} />
           </div>
           <div className="max-w-[140px]">
             <label className="mb-1.5 block text-[11px] font-semibold text-[var(--text-2)]">Max tokens</label>
@@ -502,6 +533,8 @@ export function ModelStudioPage() {
   const [activeId, setActiveId] = useState<string | null>(() => localStorage.getItem(ACTIVE_SESSION_KEY));
   const [editingTitle, setEditingTitle] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [messageActionIndex, setMessageActionIndex] = useState<number | null>(null);
+  const messageHoldTimer = useRef<number | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const sessionsQuery = useQuery({
@@ -595,10 +628,13 @@ export function ModelStudioPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, model, systemPrompt, messages, activeId]);
 
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  useLayoutEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeId, messages.length]);
 
   const deleteSession = useMutation({
     mutationFn: (id: string) => apiDelete<{ ok: boolean }>(`/model-studio/sessions/${id}`),
@@ -671,7 +707,6 @@ export function ModelStudioPage() {
       return parts;
     };
     const payloadMessages = [
-      ...(systemPrompt.trim() ? [{ role: "system", content: systemPrompt.trim() as string | ChatContentPart[] }] : []),
       ...history.map((msg) => ({ role: msg.role, content: toWireContent(msg) })),
     ];
 
@@ -722,17 +757,17 @@ export function ModelStudioPage() {
   const activeSummary = sessions.find((s) => s.id === activeId);
 
   return (
-    <Card className="flex flex-col gap-0 p-0">
+    <Card className="flex h-[calc(100dvh-102px)] min-h-0 flex-col gap-0 overflow-hidden p-0 sm:h-[calc(100dvh-118px)]">
       {/* Session bar */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--inner-border)] p-3">
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--inner-border)] p-2 sm:gap-2 sm:p-3">
         <Select
           ariaLabel="Session"
           value={activeId ?? ""}
           onChange={(value) => setActiveId(value || null)}
           options={sessions.map((s) => ({ value: s.id, label: `${s.title} · ${timeAgo(s.updatedAt)}` }))}
-          className="max-w-[220px]"
+          className="max-w-[190px] sm:max-w-[220px]"
         />
-        {editingTitle ? (
+        <div className="hidden sm:block">{editingTitle ? (
           <Input
             autoFocus
             value={title}
@@ -750,30 +785,32 @@ export function ModelStudioPage() {
           >
             <Pencil size={11} className="shrink-0" /> <span className="truncate">{title || "Untitled"}</span>
           </button>
-        )}
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="secondary" size="sm" onClick={() => createSession.mutate("New chat")} disabled={createSession.isPending}>
-            <Plus size={13} /> New
+        )}</div>
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+          <button type="button" onClick={() => setEditingTitle(true)} aria-label="Rename session" title="Rename session" className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--inner-border)] bg-[var(--hover)] text-[var(--text-2)] sm:hidden">
+            <Pencil size={13} />
+          </button>
+          <PromptPopover maxTokens={maxTokens} onMaxTokens={setMaxTokens} reasoningEffort={reasoningEffort} onReasoningEffort={setReasoningEffort} compact />
+          <Button variant="secondary" size="sm" onClick={() => createSession.mutate("New chat")} disabled={createSession.isPending} aria-label="New chat">
+            <Plus size={13} /><span className="hidden sm:inline">New</span>
           </Button>
           <Button variant="secondary" size="sm" className="text-[var(--red)]" onClick={() => activeId && setDeleteTarget(activeId)} disabled={!activeId}>
             <Trash2 size={13} />
           </Button>
         </div>
       </div>
-
-      {/* Model + system prompt — floating pickers, no accordion */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--inner-border)] p-3">
-        <ModelDropdown value={model} onChange={setModel} />
-        <Select ariaLabel="Reasoning effort" value={reasoningEffort} onChange={setReasoningEffort} options={THINK_LEVELS} className="h-9.5 max-w-full" />
-        <PromptPopover systemPrompt={systemPrompt} onSystemPrompt={setSystemPrompt} maxTokens={maxTokens} onMaxTokens={setMaxTokens} />
-      </div>
+      {editingTitle && (
+        <div className="border-b border-[var(--inner-border)] px-2 py-1.5 sm:hidden">
+          <Input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => setEditingTitle(false)} onKeyDown={(e) => e.key === "Enter" && setEditingTitle(false)} className="h-8 text-xs" />
+        </div>
+      )}
 
       {/* Messages */}
-      <div ref={scrollRef} className="max-h-[calc(100vh-420px)] min-h-[280px] flex-1 space-y-3 overflow-y-auto px-4 py-3">
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-3 py-2.5 sm:space-y-3 sm:px-4 sm:py-3">
         {messages.length === 0 ? (
-          <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-2 text-center text-[var(--text-3)]">
+          <div className="flex h-full min-h-[140px] flex-col items-center justify-center gap-2 text-center text-[var(--text-3)] sm:min-h-[240px]">
             <Bot size={26} />
-            <p className="text-xs">Pick a model above and send a message to start testing.</p>
+            <p className="text-xs">Pick a model below and send a message to start testing.</p>
           </div>
         ) : (
           messages.map((m, i) => {
@@ -781,7 +818,7 @@ export function ModelStudioPage() {
             const thinkingOpen = expandedThinking.has(i) || isStreamingThis;
             const hasAnyOutput = Boolean(m.content) || Boolean(m.reasoning);
             return (
-              <div key={i} className={cn("flex gap-2.5", m.role === "user" && "flex-row-reverse")}>
+              <div key={i} onContextMenu={(event) => { event.preventDefault(); setMessageActionIndex(i); }} onPointerDown={() => { messageHoldTimer.current = window.setTimeout(() => setMessageActionIndex(i), 500); }} onPointerUp={() => { clearTimeout(messageHoldTimer.current); messageHoldTimer.current = undefined; }} onPointerCancel={() => { clearTimeout(messageHoldTimer.current); messageHoldTimer.current = undefined; }} className={cn("relative flex gap-2.5", m.role === "user" && "flex-row-reverse")}>
                 <span
                   className={cn(
                     "grid h-7 w-7 shrink-0 place-items-center rounded-full",
@@ -791,6 +828,11 @@ export function ModelStudioPage() {
                   {m.role === "user" ? <User size={14} /> : <Bot size={14} />}
                 </span>
                 <div className="min-w-0 max-w-[80%] space-y-1.5">
+                  {messageActionIndex === i && (
+                    <div className={cn("absolute top-0 z-20 rounded-lg border border-[var(--inner-border)] bg-[var(--glass-bg-2)] p-1 shadow-xl", m.role === "user" ? "right-10" : "left-10")}>
+                      <button type="button" onClick={() => { setMessages((current) => current.filter((_, index) => index !== i)); setMessageActionIndex(null); }} className="rounded-md px-2 py-1 text-[11px] font-semibold text-[var(--red)] hover:bg-[var(--hover)]">Delete message</button>
+                    </div>
+                  )}
                   {m.role === "assistant" && m.reasoning && (
                     <div className="min-w-0">
                       <button
@@ -839,46 +881,26 @@ export function ModelStudioPage() {
         )}
       </div>
 
-      {/* Composer */}
-      <div className="border-t border-[var(--inner-border)] p-3">
-        {attachments.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {attachments.map((a) => (
-              <div key={a.id} className="group relative h-14 w-14 shrink-0">
-                <img src={a.dataUrl} alt={a.name} className="h-full w-full rounded-lg border border-[var(--inner-border)] object-cover" />
-                <button
-                  type="button"
-                  onClick={() => removeAttachment(a.id)}
-                  aria-label={`Remove ${a.name}`}
-                  className="absolute -right-1.5 -top-1.5 grid h-4.5 w-4.5 place-items-center rounded-full bg-[var(--red)] text-white shadow transition-transform group-hover:scale-110"
-                >
-                  <X size={10} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="flex items-end gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files) void addFiles(e.target.files);
-              e.target.value = "";
-            }}
-          />
-          <Button
-            variant="secondary"
-            size="icon"
-            onClick={() => fileInputRef.current?.click()}
-            aria-label="Attach image"
-            title="Attach image (or paste with Ctrl+V)"
-          >
-            <ImagePlus size={15} />
-          </Button>
+      {/* Claude-style composer: the prompt is primary; model and request controls stay in its footer. */}
+      <div className="shrink-0 border-t border-[var(--inner-border)] p-1.5 sm:p-2">
+        <div className="rounded-2xl border border-[var(--inner-border)] bg-[var(--hover)] p-2 shadow-[0_3px_12px_rgba(0,0,0,0.08)] transition-colors focus-within:border-[var(--accent)] focus-within:bg-[var(--glass-bg-2)]">
+          {attachments.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2 px-1 pt-1">
+              {attachments.map((a) => (
+                <div key={a.id} className="group relative h-14 w-14 shrink-0">
+                  <img src={a.dataUrl} alt={a.name} className="h-full w-full rounded-lg border border-[var(--inner-border)] object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(a.id)}
+                    aria-label={`Remove ${a.name}`}
+                    className="absolute -right-1.5 -top-1.5 grid h-4.5 w-4.5 place-items-center rounded-full bg-[var(--red)] text-white shadow transition-transform group-hover:scale-110"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -898,24 +920,51 @@ export function ModelStudioPage() {
                 void addFiles(files);
               }
             }}
-            placeholder="Message the model… (Enter to send, Shift+Enter for newline, Ctrl+V to paste an image)"
-            rows={2}
-            className="min-h-0 flex-1"
+            placeholder="Message the model…"
+            data-model-studio-composer
+            rows={1}
+            className="min-h-[40px] max-h-24 resize-none overflow-y-auto border-0 bg-transparent px-2 py-1.5 text-[13px] shadow-none focus:bg-transparent focus-visible:outline-0"
           />
-          {sending ? (
-            <Button variant="secondary" size="icon" onClick={() => abortRef.current?.abort()} aria-label="Stop">
-              <Square size={15} />
-            </Button>
-          ) : (
-            <Button
-              size="icon"
-              onClick={() => void send()}
-              disabled={(!draft.trim() && attachments.length === 0) || !model.trim()}
-              aria-label="Send"
-            >
-              <Send size={15} />
-            </Button>
-          )}
+          <div className="flex flex-wrap items-center gap-1 border-t border-[var(--inner-border)] pt-1.5">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files) void addFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <ModelDropdown value={model} onChange={setModel} />
+            <ContextIndicator messages={messages} />
+            <div className="ml-auto flex items-center gap-1">
+              <Button
+                variant="secondary"
+                size="icon"
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Attach image"
+                title="Attach image (or paste with Ctrl+V)"
+              >
+                <ImagePlus size={15} />
+              </Button>
+              {sending ? (
+                <Button variant="secondary" size="icon" onClick={() => abortRef.current?.abort()} aria-label="Stop">
+                  <Square size={15} />
+                </Button>
+              ) : (
+                <Button
+                  size="icon"
+                  onClick={() => void send()}
+                  disabled={(!draft.trim() && attachments.length === 0) || !model.trim()}
+                  aria-label="Send"
+                >
+                  <Send size={15} />
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

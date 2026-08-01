@@ -5,19 +5,17 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { Activity, ArrowLeftRight, Download, KeyRound, ShieldCheck, Trash2, Upload } from "lucide-react";
+import { Activity, Download, KeyRound, ShieldCheck, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError, apiGet, apiPost } from "../../lib/api";
-import { cn } from "../../lib/cn";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
-import { Input, Label, Textarea } from "../../components/ui/input";
+import { Input, Label } from "../../components/ui/input";
 import { Select } from "../../components/ui/tabs";
 import { ConfirmDialog } from "../../components/shared";
 import { Switch } from "../../components/ui/switch";
 import { PasswordModal } from "../../components/shared";
-import { useInFlightSnapshot } from "../../lib/hooks/use-inflight-stream";
 
 interface RuntimeSettings {
   proxyAuthMode: "open" | "api_key";
@@ -44,9 +42,6 @@ type SensitiveAction = "backup" | "restore" | null;
 function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.message : "request failed";
 }
-
-type AccessMode = "open" | "allowlist" | "denylist";
-interface AccessRule { scope: string; mode: AccessMode; entries: string[]; updatedAt: string }
 
 function PurgeStoredButton() {
   const [confirm, setConfirm] = useState(false);
@@ -76,116 +71,8 @@ function PurgeStoredButton() {
   );
 }
 
-function AccessControlSection() {
-  const qc = useQueryClient();
-  const { data } = useQuery({
-    queryKey: ["console", "access"],
-    queryFn: () => apiGet<{ proxy: AccessRule; console: AccessRule }>("/access"),
-  });
-  const [tab, setTab] = useState<"proxy" | "console">("proxy");
-  const rule = tab === "proxy" ? data?.proxy : data?.console;
-  const defaultRule: AccessRule = { scope: tab, mode: "open", entries: [], updatedAt: "" };
-  const activeRule = rule ?? defaultRule;
-
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-2">
-        {(["proxy", "console"] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setTab(s)}
-            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
-              tab === s
-                ? "border-transparent bg-[var(--accent-soft)] text-[var(--accent)]"
-                : "border-[var(--inner-border)] bg-[var(--hover)] text-[var(--text-2)] hover:bg-[var(--active-pill)]"
-            }`}
-          >
-            {s === "proxy" ? "Proxy API" : "Console"}
-          </button>
-        ))}
-      </div>
-      <ScopeEditor scope={tab} rule={activeRule} queryClient={qc} />
-    </div>
-  );
-}
-
-function ScopeEditor({
-  scope,
-  rule,
-  queryClient: qc,
-}: {
-  scope: "proxy" | "console";
-  rule: AccessRule;
-  queryClient: ReturnType<typeof useQueryClient>;
-}) {
-  const [mode, setMode] = useState<AccessMode>(rule.mode);
-  const [entriesText, setEntriesText] = useState(rule.entries.join("\n"));
-
-  const serverKey = `${rule.mode}:${rule.entries.join(",")}`;
-  const [prevKey, setPrevKey] = useState(serverKey);
-  if (serverKey !== prevKey) {
-    setPrevKey(serverKey);
-    setMode(rule.mode);
-    setEntriesText(rule.entries.join("\n"));
-  }
-
-  const mut = useMutation({
-    mutationFn: () => apiPost("/access", { scope, mode, entries: mode === "open" ? [] : entriesText.split("\n").map((e) => e.trim()).filter(Boolean) }),
-    onSuccess: () => {
-      toast.success(`${scope} access updated`);
-      void qc.invalidateQueries({ queryKey: ["console", "access"] });
-    },
-    onError: () => toast.error("Failed to update access rule"),
-  });
-
-  const isDirty = mode !== rule.mode || (mode !== "open" && entriesText.split("\n").map((e) => e.trim()).filter(Boolean).join("\n") !== rule.entries.join("\n"));
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <ShieldCheck size={16} className={mode === "open" ? "text-[var(--green)]" : mode === "allowlist" ? "text-[var(--accent)]" : "text-[var(--red)]"} />
-        <div className="text-xs font-semibold">
-          {scope === "proxy" ? "Controls which IPs can call /v1/* endpoints" : "Controls which IPs can access the console"}
-        </div>
-      </div>
-      <div className="flex gap-2">
-        {(["open", "allowlist", "denylist"] as const).map((m) => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
-              mode === m
-                ? "border-transparent bg-[var(--accent-soft)] text-[var(--accent)]"
-                : "border-[var(--inner-border)] bg-[var(--hover)] text-[var(--text-2)] hover:bg-[var(--active-pill)]"
-            }`}
-          >
-            {m === "open" ? "Open" : m === "allowlist" ? "Allowlist" : "Denylist"}
-          </button>
-        ))}
-      </div>
-      {mode !== "open" && (
-        <div className="space-y-2">
-          <Label>IP addresses or CIDR ranges (one per line)</Label>
-          <Textarea
-            placeholder="192.168.1.0/24\n10.0.0.1"
-            value={entriesText}
-            onChange={(e) => setEntriesText(e.target.value)}
-            rows={3}
-          />
-        </div>
-      )}
-      <div className="flex justify-end">
-        <Button size="sm" disabled={!isDirty || mut.isPending} onClick={() => mut.mutate()}>
-          {mut.isPending ? "Saving…" : "Save"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 export function SettingsPage() {
   const queryClient = useQueryClient();
-  const flights = useInFlightSnapshot();
   const [action, setAction] = useState<SensitiveAction>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [backupIncludeUsage, setBackupIncludeUsage] = useState(false);
@@ -288,7 +175,7 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
+    <div className="mx-auto max-w-6xl space-y-4">
       <div>
         <h1 className="text-lg font-bold tracking-tight">Settings</h1>
         <p className="text-xs text-[var(--text-2)]">Runtime configuration — changes apply without restart.</p>
@@ -338,12 +225,11 @@ export function SettingsPage() {
       {settings && (
         <>
           <Card>
-            <CardHeader title="Tracking" icon={Activity} sub="What the usage history stores per request." />
+            <CardHeader title="Logging & Retention" icon={Activity} />
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-xs font-semibold">Payloads</div>
-                  <div className="text-[11px] text-[var(--text-3)]">Redacted request/response bodies.</div>
                 </div>
                 <Select
                   ariaLabel="Track payloads"
@@ -359,7 +245,6 @@ export function SettingsPage() {
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-xs font-semibold">Assets</div>
-                  <div className="text-[11px] text-[var(--text-3)]">Images & attachments to disk.</div>
                 </div>
                 <Select
                   ariaLabel="Track assets"
@@ -395,9 +280,6 @@ export function SettingsPage() {
                 />
               </div>
             </div>
-            <p className="mt-2 text-[11px] text-[var(--text-3)]">
-              Est. Cost is calculated automatically from each request's own provider/model rate card, no manual rate configuration needed.
-            </p>
             <div className="mt-3 flex items-center justify-between rounded-xl border border-dashed border-[var(--inner-border)] p-3">
               <div>
                 <div className="text-xs font-semibold">Stored payloads & assets</div>
@@ -408,12 +290,7 @@ export function SettingsPage() {
           </Card>
 
           <Card>
-            <CardHeader title="Access Control" icon={ShieldCheck} iconColor="#30d158" sub="IP + CIDR ACL for proxy and console scopes." />
-            <AccessControlSection />
-          </Card>
-
-          <Card>
-            <CardHeader title="Traffic" icon={ArrowLeftRight} sub="Connection limits and session lifetime." />
+            <CardHeader title="Request Limits" icon={ShieldCheck} />
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label>Max in-flight per IP</Label>
@@ -437,33 +314,16 @@ export function SettingsPage() {
                   onChange={() => undefined}
                 />
               </div>
-              <label className="flex flex-wrap items-center justify-between gap-3">
+              <label className="flex flex-wrap items-center justify-between gap-3 sm:col-span-2">
                 <div className="min-w-0">
                   <div className="text-xs font-semibold">Trust proxy headers</div>
                   <div className="text-[11px] text-[var(--text-3)]">Use X-Forwarded-For for client IPs.</div>
                 </div>
                 <Switch checked={settings.trustProxy} onChange={(v) => patch({ trustProxy: v })} label="Trust proxy" />
               </label>
-              <div className="rounded-xl border border-dashed border-[var(--inner-border)] p-3 sm:col-span-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-semibold">Active flights right now</div>
-                  <span className="text-[10.5px] text-[var(--text-3)]">live · proves the limit above is actually enforced</span>
-                </div>
-                {flights.byIp.length === 0 ? (
-                  <p className="mt-1.5 text-[11px] text-[var(--text-3)]">No active /v1/* requests from any IP.</p>
-                ) : (
-                  <div className="mt-1.5 space-y-1">
-                    {flights.byIp.map(({ ip, active }) => (
-                      <div key={ip} className="flex items-center justify-between text-[11.5px]">
-                        <code className="min-w-0 truncate font-mono text-[var(--text-2)]">{ip}</code>
-                        <span className={cn("font-semibold tabular-nums", active >= flights.maxFlightsPerIp && "text-[var(--red)]")}>
-                          {active} / {flights.maxFlightsPerIp}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+            </div>
+            <div className="mt-4 border-t border-[var(--inner-border)] pt-4">
+              <CardHeader title="Response Cache" />
               <label className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-xs font-semibold">Cache markers</div>
@@ -471,26 +331,6 @@ export function SettingsPage() {
                 </div>
                 <Switch checked={settings.cacheMarkersEnabled} onChange={(v) => patch({ cacheMarkersEnabled: v })} label="Cache markers" />
               </label>
-            </div>
-            <div className="mt-3">
-              <Label>System prompt</Label>
-              <p className="mb-2 text-[11px] text-[var(--text-3)]">
-                Built-in by default. Edit here to replace, or clear to disable injection.
-              </p>
-              <Textarea
-                rows={3}
-                value={promptDraft}
-                placeholder="Built-in prompt is active when this field matches Settings…"
-                onChange={(e) => setPromptDraft(e.target.value)}
-                onBlur={() => {
-                  if (settings && promptDraft !== settings.systemPrompt) {
-                    patch({ systemPrompt: promptDraft });
-                  }
-                }}
-              />
-              {settings && promptDraft !== settings.systemPrompt && (
-                <p className="mt-1 text-[10.5px] text-[var(--accent)]">Unsaved — click outside to save.</p>
-              )}
             </div>
           </Card>
 

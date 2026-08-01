@@ -21,8 +21,14 @@ export function CardHeader({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="mb-4 flex items-start justify-between gap-2.5">
-      <div className="flex items-start gap-2.5">
+    // `flex-wrap` (not just `justify-between`) matters here: `Card` clips
+    // overflow, and a long `sub` sentence next to action buttons (Edit/
+    // Delete/Fetch, etc.) on a narrow viewport used to squeeze the button
+    // cluster past its min-content width instead of ever wrapping \u2014 the
+    // buttons rendered outside the card's width and were invisible, clipped
+    // by `overflow-hidden`, not just visually cramped.
+    <div className="mb-4 flex flex-wrap items-start justify-between gap-2.5">
+      <div className="flex min-w-0 flex-1 items-start gap-2.5">
         {Icon && (
           <span
             className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"

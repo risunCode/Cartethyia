@@ -14,7 +14,6 @@ import {
   Moon,
   Palette,
   Rocket,
-  Search,
   Settings,
   Sun,
   Terminal,
@@ -140,15 +139,15 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
   },
 ];
 
-const TITLES: Record<string, { title: string; sub: string }> = {
-  "/overview": { title: "Overview", sub: "Traffic, endpoints, and API keys" },
-  "/usage": { title: "Usage", sub: "Usage summary and request overview" },
-  "/providers": { title: "Providers", sub: "All supported AI providers" },
-  "/model-studio": { title: "Model Studio", sub: "Chat-test any provider, model, or combo live" },
-  "/combos": { title: "Combos & Alias", sub: "Fallback, round-robin, alias model" },
-  "/console-log": { title: "Console Log", sub: "Live log stream" },
-  "/customization": { title: "Customization", sub: "Theme and cosmetic preferences" },
-  "/settings": { title: "Settings", sub: "Security, backup, runtime toggles" },
+const TITLES: Record<string, { title: string; sub: string; mobileSub: string }> = {
+  "/overview": { title: "Overview", sub: "Traffic, endpoints, and API keys", mobileSub: "Traffic & API keys" },
+  "/usage": { title: "Usage", sub: "Usage summary and request overview", mobileSub: "Request activity" },
+  "/providers": { title: "Providers", sub: "All supported AI providers", mobileSub: "All AI providers" },
+  "/model-studio": { title: "Model Studio", sub: "Chat-test any provider, model, or combo live", mobileSub: "Test models live" },
+  "/combos": { title: "Combos & Alias", sub: "Fallback, round-robin, alias model", mobileSub: "Fallback & aliases" },
+  "/console-log": { title: "Console Log", sub: "Live log stream", mobileSub: "Live log stream" },
+  "/customization": { title: "Customization", sub: "Theme and cosmetic preferences", mobileSub: "Theme preferences" },
+  "/settings": { title: "Settings", sub: "Security, backup, runtime toggles", mobileSub: "Security & runtime" },
 };
 
 /**
@@ -225,6 +224,46 @@ function ThemeToggle() {
   );
 }
 
+function NotificationsDialog({
+  open,
+  onClose,
+  statusData,
+  isHealthError,
+  updateAvailable,
+  latestTag,
+}: {
+  open: boolean;
+  onClose: () => void;
+  statusData: HealthStatus | undefined;
+  isHealthError: boolean;
+  updateAvailable: boolean;
+  latestTag: string | undefined;
+}) {
+  if (!open) return null;
+  return (
+    <div role="dialog" aria-label="Notifications" className="absolute right-0 top-[calc(100%+10px)] z-50 w-[min(320px,calc(100vw-2rem))] rounded-2xl border border-[var(--inner-border)] bg-[var(--glass-bg-2)] p-3 shadow-[0_18px_45px_rgba(0,0,0,0.25)] backdrop-blur-xl">
+      <div className="mb-2 flex items-center justify-between px-1"><span className="text-sm font-bold">Notifications</span><button type="button" onClick={onClose} aria-label="Close notifications" className="text-xs text-[var(--text-3)] hover:text-[var(--text-1)]">Close</button></div>
+      <div className="space-y-2 text-sm">
+        <div className="flex items-start gap-2 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+          <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full", isHealthError ? "bg-[var(--red)]" : statusData ? "bg-[var(--green)]" : "animate-pulse bg-[var(--yellow,theme(colors.amber.400))]")} />
+          <div>
+            <p className="font-semibold text-[var(--text-1)]">{isHealthError ? "System status unavailable" : statusData ? "All systems operational" : "Checking system status"}</p>
+            <p className="mt-0.5 text-xs text-[var(--text-2)]">{isHealthError ? "The dashboard could not reach the local health endpoint." : "Live status from this Cartethyia instance."}</p>
+          </div>
+        </div>
+        {updateAvailable ? (
+          <div className="rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] p-3">
+            <p className="font-semibold text-[var(--accent)]">Update available</p>
+            <p className="mt-0.5 text-xs text-[var(--text-2)]">GitHub has {latestTag ? `v${latestTag}` : "a newer release"} available.</p>
+          </div>
+        ) : (
+          <p className="px-1 py-2 text-center text-xs text-[var(--text-3)]">No new notifications.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [query, setQuery] = useState("");
   const navigate = useNavigate();
@@ -274,8 +313,20 @@ export function AppShell() {
   const navigate = useNavigate();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [isStudioComposerFocused, setIsStudioComposerFocused] = useState(false);
+
+  useEffect(() => {
+    const onFocusChange = () => setIsStudioComposerFocused(document.activeElement?.matches("[data-model-studio-composer]") ?? false);
+    document.addEventListener("focusin", onFocusChange);
+    document.addEventListener("focusout", onFocusChange);
+    return () => {
+      document.removeEventListener("focusin", onFocusChange);
+      document.removeEventListener("focusout", onFocusChange);
+    };
+  }, []);
   const pathKey = `/${location.pathname.split("/").filter(Boolean)[0] ?? "overview"}`;
-  const meta = TITLES[pathKey] ?? { title: "Cartethyia", sub: "Internal console" };
+  const meta = TITLES[pathKey] ?? { title: "Cartethyia", sub: "Internal console", mobileSub: "Internal console" };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -443,25 +494,25 @@ export function AppShell() {
             alt="Cartethyia"
             className="h-7 w-7 shrink-0 rounded-[9px] object-cover sm:h-8 sm:w-8 sm:rounded-[10px]"
           />
-          <div className="min-w-0 shrink-0 max-w-28 sm:max-w-none">
+          <div className="min-w-0 flex-1">
             <h1 className="truncate text-[15px] font-bold tracking-tight sm:text-[17px]">{meta.title}</h1>
+            <p className="truncate text-[10.5px] text-[var(--text-2)] sm:hidden">{meta.mobileSub}</p>
             <p className="hidden truncate text-xs text-[var(--text-2)] sm:block">{meta.sub}</p>
           </div>
-          <button
-            onClick={() => setPaletteOpen(true)}
-            className="ml-auto flex min-w-0 flex-1 items-center gap-1.5 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-2.5 py-1.5 text-[12px] text-[var(--text-3)] transition-colors hover:border-[var(--accent)] sm:w-60 sm:flex-none sm:gap-2 sm:px-3 sm:py-2 sm:text-[13px]"
-          >
-            <Search size={15} />
-            <span className="truncate">Search…</span>
-            <kbd className="ml-auto hidden rounded-md bg-[var(--kbd-bg)] px-1.5 py-0.5 text-[10.5px] font-semibold sm:inline">⌘K</kbd>
-          </button>
           <ThemeToggle />
-          <button
-            aria-label="Notifications"
-            className="hidden h-9.5 w-9.5 place-items-center rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] transition-all hover:bg-[var(--active-pill)] active:scale-90 sm:grid"
-          >
-            <Bell size={17} />
-          </button>
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setNotificationsOpen((current) => !current)}
+              aria-label="Open notifications"
+              aria-expanded={notificationsOpen}
+              aria-haspopup="dialog"
+              className="grid h-9 w-9 place-items-center rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] transition-all hover:bg-[var(--active-pill)] active:scale-90 sm:h-9.5 sm:w-9.5"
+            >
+              <Bell size={17} />
+            </button>
+            <NotificationsDialog open={notificationsOpen} onClose={() => setNotificationsOpen(false)} statusData={statusQuery.data} isHealthError={statusQuery.isError} updateAvailable={updateAvailable} latestTag={latestTag} />
+          </div>
         </header>
 
         {/* `flex-1 min-h-0` lets a page opt into filling the remaining
@@ -481,7 +532,7 @@ export function AppShell() {
 
         {/* `mt-auto` drops it to the bottom on short pages; `sticky bottom-4`
             keeps it parked there while long pages scroll behind it. */}
-        <FooterClock statusData={statusQuery.data} isError={statusQuery.isError} />
+        {pathKey !== "/model-studio" && <div className={cn(isStudioComposerFocused && "hidden sm:block")}><FooterClock statusData={statusQuery.data} isError={statusQuery.isError} /></div>}
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />

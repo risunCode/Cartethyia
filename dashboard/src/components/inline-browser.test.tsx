@@ -11,6 +11,17 @@ vi.mock("../lib/api", async () => {
       if (path === "/aliases") return Promise.resolve({ items: [{ alias: "fast", model: "kimchi/kimi-k2.7" }] });
       if (path === "/combos") return Promise.resolve({ items: [{ name: "fast-combo" }] });
       if (path === "/providers") return Promise.resolve({ items: [] });
+      if (path === "/custom-providers") {
+        return Promise.resolve({
+          items: [
+            {
+              slug: "openrouter-custom",
+              name: "OpenRouter (custom)",
+              models: [{ id: "gpt-4" }, { id: "anthropic/claude-3-opus" }],
+            },
+          ],
+        });
+      }
       return Promise.resolve({ items: [] });
     }),
   };
@@ -99,6 +110,35 @@ describe("InlineModelBrowser", () => {
     await waitFor(() => expect(screen.getByText("fast")).toBeInTheDocument());
     fireEvent.click(screen.getByText("fast"));
     expect(onToggle).toHaveBeenCalledWith("fast");
+  });
+
+  // Regression: custom (BYOK) OpenAI/Anthropic-compatible providers live in a
+  // separate table/endpoint (`/custom-providers`) from the built-in registry
+  // (`/providers`) that InlineModelBrowser used to fetch exclusively - a
+  // custom provider's models could never be picked here at all, only typed
+  // in manually.
+  test("fetches and renders custom provider models grouped under their own provider name", async () => {
+    render(withQueryClient(<InlineModelBrowser mode="models" selected={[]} onToggle={vi.fn()} />));
+    await waitFor(() => expect(screen.getByText(/OpenRouter \(custom\)/)).toBeInTheDocument());
+    expect(screen.getByText("gpt-4")).toBeInTheDocument();
+  });
+
+  // Regression: some providers' own model ids embed a slash (OpenRouter's
+  // "owner/model" convention), so the qualified `provider/model` string can
+  // have two slashes total. Rendering `.split("/")[1]` truncated the chip to
+  // just the owner segment ("anthropic") for every such model instead of the
+  // full model id.
+  test("shows the full model id (not just the owner segment) for a model whose own id contains a slash", async () => {
+    render(withQueryClient(<InlineModelBrowser mode="models" selected={[]} onToggle={vi.fn()} />));
+    await waitFor(() => expect(screen.getByText("anthropic/claude-3-opus")).toBeInTheDocument());
+  });
+
+  test("selecting a custom provider model calls onToggle with the full qualified id", async () => {
+    const onToggle = vi.fn();
+    render(withQueryClient(<InlineModelBrowser mode="models" selected={[]} onToggle={onToggle} />));
+    await waitFor(() => expect(screen.getByText("gpt-4")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("gpt-4"));
+    expect(onToggle).toHaveBeenCalledWith("openrouter-custom/gpt-4");
   });
 });
 

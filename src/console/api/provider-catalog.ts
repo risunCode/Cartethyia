@@ -368,9 +368,9 @@ export const providerCatalogRoutes = new Elysia({ prefix: "/console/api" })
       set.status = 400;
       return consoleError("invalid_request", "strategy must be 'priority' or 'round-robin'");
     }
-    if (input.stickyLimit !== undefined && (!Number.isInteger(input.stickyLimit) || input.stickyLimit < 0)) {
+    if (input.stickyLimit !== undefined && ![0, 1, 2, 3].includes(input.stickyLimit)) {
       set.status = 400;
-      return consoleError("invalid_request", "stickyLimit must be a non-negative integer");
+      return consoleError("invalid_request", "stickyLimit must be 0, 1, 2, or 3");
     }
     const next = upsertProviderRouting(params.id, {
       strategy: input.strategy as RoutingStrategy | undefined,

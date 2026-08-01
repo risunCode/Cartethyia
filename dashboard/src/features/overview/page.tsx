@@ -28,7 +28,7 @@ import { Dialog } from "../../components/ui/dialog";
 import { Input, Label } from "../../components/ui/input";
 import { Switch } from "../../components/ui/switch";
 import { ConfirmDialog } from "../../components/shared";
-import { ModelPickerField } from "../../components/model-picker";
+import { ModelPickerField, useProviders } from "../../components/model-picker";
 
 interface ProviderOverview {
   id: string;
@@ -130,16 +130,23 @@ function normalizeList(values: string[]): string[] | undefined {
   return items.length > 0 ? items : undefined;
 }
 
-function buildKeyLimitsInput(rpm: string, daily: string, monthly: string, concurrent: string, allowed: string[]): KeyLimitsInput {
+export function buildKeyLimitsInput(rpm: string, daily: string, monthly: string, concurrent: string, allowed: string[], providerIds: Set<string>): KeyLimitsInput {
   const input: KeyLimitsInput = {};
   const rateLimitRpm = parseOptionalLimit(rpm);
   const dailyTokenLimit = parseOptionalLimit(daily);
   const monthlyTokenLimit = parseOptionalLimit(monthly);
   const maxConcurrentRequests = parseOptionalLimit(concurrent);
-  // Auto-detect: entries without "/" are providers, with "/" are models.
+  // Auto-detect: a bare (no "/") entry is a provider ACL entry only when it's
+  // an actual registered provider id. A bare alias or combo name (also no
+  // "/") is NOT a provider - it used to be misclassified into
+  // providerAllowlist here, which silently broke its ACL (a qualified
+  // request never matches a provider id that's really an alias name, and a
+  // bare alias request skips the providerAllowlist check entirely since it
+  // has no provider prefix to check against - modelAllowlist is the only
+  // list that gates it correctly).
   const allAllowed = normalizeList(allowed);
-  const providerAllowlist = allAllowed ? allAllowed.filter((e) => !e.includes("/")) : undefined;
-  const modelAllowlist = allAllowed ? allAllowed.filter((e) => e.includes("/")) : undefined;
+  const providerAllowlist = allAllowed ? allAllowed.filter((e) => !e.includes("/") && providerIds.has(e)) : undefined;
+  const modelAllowlist = allAllowed ? allAllowed.filter((e) => e.includes("/") || !providerIds.has(e)) : undefined;
   if (rateLimitRpm) input.rateLimitRpm = rateLimitRpm;
   if (dailyTokenLimit) input.dailyTokenLimit = dailyTokenLimit;
   if (monthlyTokenLimit) input.monthlyTokenLimit = monthlyTokenLimit;
@@ -317,6 +324,9 @@ export function OverviewPage() {
     queryFn: () => apiGet<{ items: ApiKeyRecord[] }>("/keys"),
   });
 
+  const providersQuery = useProviders();
+  const providerIds = useMemo(() => new Set((providersQuery.data?.items ?? []).map((p) => p.id)), [providersQuery.data]);
+
   const healthQuery = useQuery({
     queryKey: ["health-metrics"],
     queryFn: () => apiGet<HealthMetrics>("/health/metrics"),
@@ -398,13 +408,13 @@ export function OverviewPage() {
     createMutation.mutate({
       name: name.trim(),
       prefix: prefix.trim() || undefined,
-      ...buildKeyLimitsInput(rpm, daily, monthly, concurrent, allowed),
+      ...buildKeyLimitsInput(rpm, daily, monthly, concurrent, allowed, providerIds),
     });
   };
 
   const submitEdit = () => {
     if (!editTarget) return;
-    const limits = buildKeyLimitsInput(rpm, daily, monthly, concurrent, allowed);
+    const limits = buildKeyLimitsInput(rpm, daily, monthly, concurrent, allowed, providerIds);
     editMutation.mutate({
       id: editTarget.id,
       patch: {

@@ -127,6 +127,10 @@ export function listActiveAccountCredentials(provider: string): string[] {
   ).map((row) => row.credential);
 }
 
+interface NextAccountPriorityRow {
+  priority: number;
+}
+
 /** Create a new account; returns only public fields (+ hint). */
 export function createAccount(input: {
   provider: string;
@@ -141,7 +145,8 @@ export function createAccount(input: {
   const hint = credentialHint(input.credential);
   const id = crypto.randomUUID();
   const active = input.active ?? true;
-  const priority = typeof input.priority === "number" && Number.isFinite(input.priority) ? input.priority : 100;
+  const nextPriority = db.query("SELECT COALESCE(MAX(priority), 90) + 10 AS priority FROM provider_accounts WHERE provider = ?").get(input.provider) as NextAccountPriorityRow;
+  const priority = typeof input.priority === "number" && Number.isFinite(input.priority) ? input.priority : nextPriority.priority;
 
   db.query(
     "INSERT INTO provider_accounts (id, provider, name, credential_kind, credential, credential_hint, priority, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
@@ -207,6 +212,42 @@ export function deleteAccount(id: string): boolean {
 
 const rotationState = createRotationStore<string>();
 
+interface StickyAssignment {
+  accountId: string;
+  expiresAt: number;
+}
+
+const stickyAssignments = new Map<string, StickyAssignment>();
+const STICKY_ASSIGNMENT_TTL_MS = 30 * 60_000;
+
+function pickStickyAccount(provider: string, active: ProviderAccount[], clientKey: string, stickyLimit: number): ProviderAccount | null {
+  if (stickyLimit < 1 || stickyLimit > 3) return null;
+  const now = Date.now();
+  const assignmentKey = `${provider}\u0000${clientKey}`;
+  const accountIds = new Set(active.map((account) => account.id));
+  for (const [key, assignment] of stickyAssignments) {
+    if (assignment.expiresAt <= now || !accountIds.has(assignment.accountId)) stickyAssignments.delete(key);
+  }
+  const existing = stickyAssignments.get(assignmentKey);
+  if (existing) {
+    existing.expiresAt = now + STICKY_ASSIGNMENT_TTL_MS;
+    return active.find((account) => account.id === existing.accountId) ?? null;
+  }
+  const assignmentCounts = new Map<string, number>();
+  for (const assignment of stickyAssignments.values()) {
+    assignmentCounts.set(assignment.accountId, (assignmentCounts.get(assignment.accountId) ?? 0) + 1);
+  }
+  const candidates = active.filter((account) => (assignmentCounts.get(account.id) ?? 0) < stickyLimit);
+  const pool = candidates.length > 0 ? candidates : active;
+  const selected = pool.reduce((best, account) => {
+    const accountCount = assignmentCounts.get(account.id) ?? 0;
+    const bestCount = assignmentCounts.get(best.id) ?? 0;
+    return accountCount < bestCount ? account : best;
+  });
+  stickyAssignments.set(assignmentKey, { accountId: selected.id, expiresAt: now + STICKY_ASSIGNMENT_TTL_MS });
+  return selected;
+}
+
 // ── Account cooldown (C5) ────────────────────────────────────────────────
 
 interface AccountCooldown {
@@ -217,9 +258,11 @@ interface AccountCooldown {
 const cooldowns = new Map<string, AccountCooldown>();
 let cooldownsHydrated = false;
 
-const COOLDOWN_BASE_MS = 2_000;       // 2s base
-const COOLDOWN_MAX_MS = 30 * 60_000;  // 30 min hard cap
+const COOLDOWN_BASE_MS = 2_000;
+const COOLDOWN_MAX_MS = 30 * 60_000;
 const COOLDOWN_MAX_LEVEL = 15;
+const RATE_LIMIT_COOLDOWN_LEVEL = -1;
+const RATE_LIMIT_COOLDOWN_MS = 30 * 60_000;
 
 /** Rebuilds the in-memory cooldown and model-lock indexes from persisted state. */
 export function hydrateCooldownCache(): void {
@@ -243,18 +286,23 @@ function ensureCooldownCache(): void {
   if (!cooldownsHydrated) hydrateCooldownCache();
 }
 
-/** Mark an account as unavailable (called on 429/upstream failure). */
-export function markAccountUnavailable(accountId: string, _kind: "rate-limit" | "auth" = "rate-limit"): void {
+/** Marks a rate-limited account unavailable for a full 30 minutes; auth failures retain bounded exponential backoff. */
+export function markAccountUnavailable(accountId: string, kind: "rate-limit" | "auth" = "rate-limit"): void {
   const existing = cooldowns.get(accountId);
-  const level = existing ? existing.backoffLevel + 1 : 0;
-  const clampedLevel = Math.min(level, COOLDOWN_MAX_LEVEL);
-  const unavailableUntil = Date.now() + Math.min(COOLDOWN_BASE_MS * Math.pow(2, clampedLevel), COOLDOWN_MAX_MS);
-  cooldowns.set(accountId, { unavailableUntil, backoffLevel: clampedLevel });
-  getDb().query("UPDATE provider_accounts SET cooldown_until = ?, cooldown_level = ? WHERE id = ?").run(new Date(unavailableUntil).toISOString(), clampedLevel, accountId);
+  const backoffLevel = kind === "rate-limit"
+    ? RATE_LIMIT_COOLDOWN_LEVEL
+    : Math.min((existing?.backoffLevel ?? -1) + 1, COOLDOWN_MAX_LEVEL);
+  const unavailableUntil = Date.now() + (kind === "rate-limit"
+    ? RATE_LIMIT_COOLDOWN_MS
+    : Math.min(COOLDOWN_BASE_MS * Math.pow(2, backoffLevel), COOLDOWN_MAX_MS));
+  cooldowns.set(accountId, { unavailableUntil, backoffLevel });
+  getDb().query("UPDATE provider_accounts SET cooldown_until = ?, cooldown_level = ? WHERE id = ?").run(new Date(unavailableUntil).toISOString(), backoffLevel, accountId);
 }
 
-/** Clear cooldown for an account (called on successful request). */
+/** Clears transient cooldown only; a rate-limit cooldown always lasts the full 30 minutes. */
 export function clearAccountCooldown(accountId: string): void {
+  const cooldown = cooldowns.get(accountId);
+  if (cooldown?.backoffLevel === RATE_LIMIT_COOLDOWN_LEVEL) return;
   cooldowns.delete(accountId);
   getDb().query("UPDATE provider_accounts SET cooldown_until = NULL, cooldown_level = 0 WHERE id = ?").run(accountId);
 }
@@ -355,15 +403,15 @@ export function resetCooldownForTests(): void {
  *
  * Skips accounts that are in cooldown (C5) or locked for the given model (M1).
  */
-export async function pickAccountForRotation(provider: string, strategy: "priority" | "round-robin", stickyLimit: number, modelId?: string): Promise<ProviderAccountRow | null> {
+export async function pickAccountForRotation(provider: string, strategy: "priority" | "round-robin", stickyLimit: number, modelId?: string, clientKey?: string): Promise<ProviderAccountRow | null> {
   ensureCooldownCache();
   return withProviderLock(provider, () => {
-    const active = listAccounts(provider).filter((a) => a.active && !isAccountCooledDown(a.id) && (modelId === undefined || !isModelLocked(a.id, modelId)));
+    const active = listAccounts(provider).filter((account) => account.active && !isAccountCooledDown(account.id) && (modelId === undefined || !isModelLocked(account.id, modelId)));
     if (active.length === 0) return null;
-
+    const sticky = clientKey ? pickStickyAccount(provider, active, clientKey, stickyLimit) : null;
+    if (sticky) return getAccount(sticky.id);
     if (strategy !== "round-robin") return getAccount(active[0]!.id);
-
-    const index = pickRotationIndex(rotationState, provider, active.length, stickyLimit);
+    const index = pickRotationIndex(rotationState, provider, active.length, 1);
     return getAccount(active[index]!.id);
   });
 }

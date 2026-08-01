@@ -37,8 +37,8 @@ export function ConsoleLogPage() {
   useEffect(() => {
     if (!autoScroll) return;
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [visible.length, autoScroll]);
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
+  }, [visible.length, filter, autoScroll]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -58,7 +58,7 @@ export function ConsoleLogPage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
+    <div className="flex h-[calc(100dvh-180px)] min-h-0 flex-col gap-3 overflow-hidden sm:h-[calc(100dvh-196px)]">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <h1 className="text-lg font-bold tracking-tight">Console Log</h1>
@@ -81,19 +81,17 @@ export function ConsoleLogPage() {
             onChange={(value) => setFilter(value as ConsoleLogLevel | "all")}
             options={LEVELS.map((level) => ({ value: level, label: level === "all" ? "All levels" : level }))}
           />
-          {!autoScroll && (
-            <Button variant="secondary" size="sm" onClick={() => setAutoScroll(true)}>
-              <ArrowDown size={13} /> Follow
-            </Button>
-          )}
+          <Button variant="secondary" size="sm" onClick={() => setAutoScroll(true)} disabled={autoScroll} title={autoScroll ? "Following the latest log line" : "Resume following the latest log line"}>
+            <ArrowDown size={13} /> {autoScroll ? "Following" : "Follow"}
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => setClearOpen(true)}>
             <Trash2 size={13} /> Clear
           </Button>
         </div>
       </div>
 
-      <Card className="flex-1 min-h-0 overflow-hidden p-0">
-        <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-auto p-3 font-mono text-[11.5px] leading-relaxed">
+      <Card className="min-h-0 flex-1 overflow-hidden p-0">
+        <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto overscroll-contain p-3 font-mono text-[11.5px] leading-relaxed">
           {visible.length === 0 ? (
             <p className="py-10 text-center font-sans text-sm text-[var(--text-3)]">No log lines{filter !== "all" ? ` at level "${filter}"` : ""}.</p>
           ) : (

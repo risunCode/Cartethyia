@@ -44,6 +44,22 @@ describe("persisted account availability", () => {
   });
 });
 
+describe("IP-aware sticky account routing", () => {
+  test("spreads new client IPs across accounts and reassigns a cooled account", async () => {
+    const first = createAccount({ provider: "opencode-free", name: "first", credentialKind: "bearer", credential: "first" });
+    const second = createAccount({ provider: "opencode-free", name: "second", credentialKind: "bearer", credential: "second" });
+    const third = createAccount({ provider: "opencode-free", name: "third", credentialKind: "bearer", credential: "third" });
+
+    await expect(pickAccountForRotation("opencode-free", "priority", 1, undefined, "203.0.113.1")).resolves.toMatchObject({ id: first.id });
+    await expect(pickAccountForRotation("opencode-free", "priority", 1, undefined, "203.0.113.2")).resolves.toMatchObject({ id: second.id });
+    await expect(pickAccountForRotation("opencode-free", "priority", 1, undefined, "203.0.113.3")).resolves.toMatchObject({ id: third.id });
+    await expect(pickAccountForRotation("opencode-free", "priority", 1, undefined, "203.0.113.1")).resolves.toMatchObject({ id: first.id });
+
+    markAccountUnavailable(first.id, "rate-limit");
+    await expect(pickAccountForRotation("opencode-free", "priority", 1, undefined, "203.0.113.1")).resolves.toMatchObject({ id: second.id });
+  });
+});
+
 describe("provider account import", () => {
   test("imports pasted account credentials and returns the summary", async () => {
     const cookie = await loginAndGetCookie();

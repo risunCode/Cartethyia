@@ -43,8 +43,7 @@ export function getRuntimeSettings(): RuntimeSettings {
  * `config.transforms` no longer exists (REQ-3.4).
  */
 export function getRequestTransformSettings(): RequestTransformSettings {
-  const settings = getRuntimeSettings();
-  return { systemPrompt: settings.systemPrompt.trim() || undefined };
+  return { systemPrompt: undefined };
 }
 
 /** Clears the runtime-settings cache (REQ-3) so the next read hits the DB. */

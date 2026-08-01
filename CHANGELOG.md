@@ -2,7 +2,7 @@
 
 All notable changes to Cartethyia are documented here.
 
-## [Unreleased]
+## [1.0.5-alpha] - 2026-08-01
 
 ### Removed
 
@@ -13,10 +13,14 @@ All notable changes to Cartethyia are documented here.
 
 ### Added
 
+- Account routing: client-IP-aware sticky allocation with limits of one, two, or three active client affinities per provider account. Rate-limited accounts are removed from selection for 30 minutes, and new accounts receive the next automatic priority.
+- Model Studio: complete unified catalog support for built-in, BYOK/custom, alias, and combo models; per-message hold/right-click deletion; latest-message restoration when reopening a session; compact context indicator; image attachments beside Send; and responsive mobile composer controls.
 - Model picker (API Keys allowed-models field and anywhere else that opts in): aliases are now a browsable/fetchable catalog entry, not just addable by typing the name manually - a new `useAliases` hook mirrors the existing `useCombos`, and `InlineModelBrowser` renders an "Aliases" section above "Combos", which is above the per-provider model sections. An alias's own bare name is a valid `modelAllowlist`/`modelDenylist` entry (`isModelAllowedForKey` checks the raw requested model string before alias/combo resolution runs), so this is functionally useful, not just cosmetic.
 
 ### Fixed
 
+- Dashboard mobile: Console Log and Model Studio are viewport-bound with independently scrolling content; provider model cards no longer collapse names character-by-character on narrow screens; context/status popouts remain within the viewport.
+- Settings: removed active-flight telemetry and the dashboard IP/CIDR ACL editor; consolidated access-sensitive controls and response cache layout for a wider desktop canvas.
 - Account rotation: priority-strategy previously behaved identically to round-robin because it shared the same always-advancing rotation index instead of pinning to the highest-priority available account.
 - API Keys console page: the "Allowed models" field (`ModelPickerField`) never passed `includeCombos` down to the catalog browser at all, so combos never appeared there either - only providers and raw qualified models. Both `includeCombos` and the new `includeAliases` are now explicit opt-in props on `ModelPickerField`/`ModelTargetPicker`, defaulted to off everywhere except where they're semantically valid (API key allow/deny lists) - a combo's own "Models" field intentionally still excludes both, since combo members are resolved without alias/combo indirection and offering them there would silently produce a different result than picked.
 - Dashboard: `apiDelete` (`dashboard/src/lib/api.ts`) sent no request body, unlike `apiPost`/`apiPatch` (which always default to `"{}"`) - so it was the only mutating helper that never got `content-type: application/json` set, and every DELETE from the dashboard (API keys, aliases, combos, filter rules, custom providers, provider accounts/models, proxy pools, model-studio sessions, console logs - all of them) was silently rejected by the console's CSRF guard with 403 "mutating console requests require Content-Type: application/json". Confirmed via a live report ("habis hapus apapun" - after deleting anything). Now sends the same `"{}"` body the other mutating helpers do.

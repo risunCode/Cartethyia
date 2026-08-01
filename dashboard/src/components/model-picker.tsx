@@ -49,6 +49,53 @@ export interface FlatModelEntry {
   qualified: string;
 }
 
+interface CustomProviderCatalogEntry {
+  slug: string;
+  name: string;
+  models: Array<{ id: string }>;
+}
+
+/**
+ * Custom OpenAI/Anthropic-compatible providers (Console \u2192 Providers \u2192
+ * Custom) live in a separate table/endpoint from the built-in registry
+ * (`custom_providers`, not `provider_registry`). The list endpoint already
+ * embeds each provider's discovered `models`, so no per-id detail fetch is
+ * needed here the way built-in providers require.
+ */
+export function useCustomProviders(enabled: boolean) {
+  return useQuery({
+    queryKey: ["console", "custom-providers"],
+    queryFn: () => apiGet<{ items: CustomProviderCatalogEntry[] }>("/custom-providers"),
+    staleTime: 60_000,
+    enabled,
+  });
+}
+
+/**
+ * Flattens custom providers into the same `FlatModelEntry` shape built-in
+ * providers use, so both sources merge into one searchable/groupable list.
+ * Regression: this catalog was previously never fetched at all \u2014 a custom
+ * (BYOK) provider's models could never be picked for an API key's
+ * allowed/denied model list, only typed in manually.
+ */
+export function useCustomProviderCatalog(customProviders: CustomProviderCatalogEntry[]): FlatModelEntry[] {
+  return useMemo(
+    () =>
+      customProviders.flatMap((provider) => {
+        const summary: ProviderSummary = {
+          id: `custom:${provider.slug}`,
+          name: provider.name,
+          icon: provider.slug,
+          prefix: provider.slug,
+          modelCount: provider.models.length,
+          connections: 0,
+        };
+        return provider.models.map((model) => ({ provider: summary, qualified: `${provider.slug}/${model.id}` }));
+      }),
+    [customProviders]
+  );
+}
+
 export function useProviders() {
   return useQuery({
     queryKey: ["providers"],
@@ -321,7 +368,10 @@ export function InlineModelBrowser({
 
   const providersQuery = useProviders();
   const providers = providersQuery.data?.items ?? [];
-  const catalog = useModelCatalog(providers, mode === "models");
+  const builtinCatalog = useModelCatalog(providers, mode === "models");
+  const customProvidersQuery = useCustomProviders(mode === "models");
+  const customCatalog = useCustomProviderCatalog(customProvidersQuery.data?.items ?? []);
+  const catalog = useMemo(() => [...builtinCatalog, ...customCatalog], [builtinCatalog, customCatalog]);
   const combosQuery = useCombos(mode === "models" && Boolean(includeCombos));
   const aliasesQuery = useAliases(mode === "models" && Boolean(includeAliases));
 
@@ -371,10 +421,14 @@ export function InlineModelBrowser({
     return selected.filter((v) => !catalogSet.has(v));
   }, [selected, catalog]);
 
-  // Group filtered models by provider.
-  const grouped = useMemo(() => {
+  // Group filtered models by provider, keeping custom (BYOK) providers in
+  // their own map so they can render as their own section right after
+  // Aliases/Combos instead of wherever they land in provider-list order
+  // (they were previously appended to the end of the flattened catalog, so
+  // they'd sort dead last, after every built-in provider).
+  const groupModels = (entries: typeof filteredModels) => {
     const map = new Map<string, { icon: string; name: string; models: typeof filteredModels }>();
-    for (const entry of filteredModels) {
+    for (const entry of entries) {
       const existing = map.get(entry.provider.id);
       if (existing) {
         existing.models.push(entry);
@@ -383,7 +437,9 @@ export function InlineModelBrowser({
       }
     }
     return map;
-  }, [filteredModels]);
+  };
+  const groupedCustom = useMemo(() => groupModels(filteredModels.filter((e) => e.provider.id.startsWith("custom:"))), [filteredModels]);
+  const groupedBuiltin = useMemo(() => groupModels(filteredModels.filter((e) => !e.provider.id.startsWith("custom:"))), [filteredModels]);
 
   const matchesSearch = (value: string) => {
     const q = search.trim().toLowerCase();
@@ -498,8 +554,9 @@ export function InlineModelBrowser({
                 </div>
               </Section>
             )}
-            {/* Models grouped by provider */}
-            {[...grouped.entries()].map(([providerId, { icon, name: providerName, models }]) => (
+            {/* Custom (BYOK) providers \u2014 right after Aliases/Combos, ahead of
+                every built-in provider group. */}
+            {[...groupedCustom.entries()].map(([providerId, { icon, name: providerName, models }]) => (
               <Section key={providerId} title={providerName} icon={<ProviderIcon icon={icon} name={providerName} size={13} />} count={models.length}>
                 <div className="flex flex-wrap gap-1.5">
                   {models.map((entry) => (
@@ -509,8 +566,32 @@ export function InlineModelBrowser({
                       onClick={() => pick(entry.qualified)}
                       className={cn("inline-flex items-center rounded-full border border-[var(--inner-border)] bg-[var(--surface)] px-2.5 py-1 text-[10.5px] font-mono transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]", isSelected(entry.qualified) && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]")}
                     >
-                      <span className="min-w-0 flex-1 truncate">{entry.qualified.split("/")[1]}</span>
-                      {isSelected(entry.qualified) && <span className="text-[var(--accent)]">✓</span>}
+                      <span className="min-w-0 flex-1 truncate">{entry.qualified.slice(entry.qualified.indexOf("/") + 1)}</span>
+                      {isSelected(entry.qualified) && <span className="text-[var(--accent)]">\u2713</span>}
+                    </button>
+                  ))}
+                </div>
+              </Section>
+            ))}
+            {/* Built-in providers, grouped */}
+            {[...groupedBuiltin.entries()].map(([providerId, { icon, name: providerName, models }]) => (
+              <Section key={providerId} title={providerName} icon={<ProviderIcon icon={icon} name={providerName} size={13} />} count={models.length}>
+                <div className="flex flex-wrap gap-1.5">
+                  {models.map((entry) => (
+                    <button
+                      key={entry.qualified}
+                      type="button"
+                      onClick={() => pick(entry.qualified)}
+                      className={cn("inline-flex items-center rounded-full border border-[var(--inner-border)] bg-[var(--surface)] px-2.5 py-1 text-[10.5px] font-mono transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]", isSelected(entry.qualified) && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]")}
+                    >
+                      {/* Everything after the FIRST slash, not `.split("/")[1]` \u2014 some
+                          providers' own model ids embed a slash (OpenRouter's
+                          "owner/model" convention), so `qualified` can have
+                          two: `openrouter/anthropic/claude-3-opus`. Taking
+                          just index [1] silently truncated to the owner
+                          segment ("anthropic") for every such model. */}
+                      <span className="min-w-0 flex-1 truncate">{entry.qualified.slice(entry.qualified.indexOf("/") + 1)}</span>
+                      {isSelected(entry.qualified) && <span className="text-[var(--accent)]">\u2713</span>}
                     </button>
                   ))}
                 </div>

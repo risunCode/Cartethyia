@@ -351,7 +351,7 @@ function DetailDrawer({ id, onClose }: { id: number | null; onClose: () => void 
               </div>
 
               <div>
-                <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Incoming chat ({incomingMessages.length})</div>
+                <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Chat input ({incomingMessages.length})</div>
                 {incomingMessages.length > 0 ? (
                   <div className="max-h-56 space-y-1.5 overflow-auto rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
                     {incomingMessages.map((message, index) => {
@@ -393,7 +393,7 @@ function DetailDrawer({ id, onClose }: { id: number | null; onClose: () => void 
               </div>
 
               <div>
-                <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">End result</div>
+                <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Trace detail</div>
                 <PayloadCode value={data.trace ?? {
                   traceId: data.traceId,
                   endpoint: data.endpoint,

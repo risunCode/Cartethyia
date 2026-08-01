@@ -212,10 +212,16 @@ function injectCompactMessage(body: Record<string, unknown>, instruction: string
  * the existing inbound-headers path. Shared by live dispatch AND the console's
  * "test model" action so both rotate accounts identically (REQ-4.3).
  */
+function clientAffinityKey(request: Request): string | undefined {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return forwarded || request.headers.get("cf-connecting-ip")?.trim() || request.headers.get("x-real-ip")?.trim() || undefined;
+}
+
 export async function resolveCredentialForDispatch(
   provider: string,
   headers: { authorization?: string; "x-api-key"?: string },
   modelId?: string,
+  clientKey?: string,
 ) {
   const routing = getProviderRouting(provider);
 
@@ -223,7 +229,7 @@ export async function resolveCredentialForDispatch(
   // rotates across accounts; for any other strategy ("priority" by default)
   // it selects the highest-priority active account, so stored credentials
   // are always consulted before falling back to header-only resolution.
-  const picked = await pickAccountForRotation(provider, routing.strategy, routing.stickyLimit, modelId);
+  const picked = await pickAccountForRotation(provider, routing.strategy, routing.stickyLimit, modelId, clientKey);
   if (picked) {
     const plain = picked.credential;
     const kind = RESOLVED_KIND_BY_ACCOUNT_KIND[picked.credential_kind as CredentialKind] ?? "provider-bearer";
@@ -257,8 +263,9 @@ export async function dispatchQualifiedRoute(input: QualifiedDispatchInput): Pro
   const transformedBody = prepareOutboundRequest(input.body, "openai", getRequestTransformSettings()) as Record<string, unknown>;
   const providerRequest: ProviderRequest = { surface: input.surface, body: transformedBody };
 
-  // ── Credential resolution: DB account rotation (round-robin) or client-supplied ──
-  const credential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId);
+  // ── Credential resolution: account routing uses client IP affinity when sticky routing is enabled. ──
+  const affinityKey = clientAffinityKey(input.request);
+  const credential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId, affinityKey);
   if (!credential) return { kind: "error", status: 401, message: "This provider requires a valid bearer credential." };
 
   try {
@@ -286,7 +293,7 @@ export async function dispatchQualifiedRoute(input: QualifiedDispatchInput): Pro
     // A rejected stored credential is account-specific: immediately retry the
     // next eligible account for this provider before trying combo targets.
     if (isCredentialFailure && "accountId" in credential && credential.accountId) {
-      const nextCredential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId);
+      const nextCredential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId, affinityKey);
       if (nextCredential && "accountId" in nextCredential && nextCredential.accountId !== credential.accountId) {
         const oldLabel = "accountName" in credential ? credential.accountName : undefined;
         if (oldLabel) pushConsoleLog("warn", "request", `\u26a0\ufe0f FALLBACK \u21c4 ACC:${oldLabel} UNAVAILABLE (${status ?? "?"}) \u2192 NEXT ACCOUNT`);
@@ -332,7 +339,7 @@ async function tryComboFailover(
     const provider = providerRegistry.get(target.provider);
     if (!provider) continue;
 
-    const credential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId);
+    const credential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId, clientAffinityKey(input.request));
     if (!credential) continue;
 
     try {
