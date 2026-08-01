@@ -8,7 +8,7 @@
  * across turns instead of restarting cold every time.
  */
 
-import { isValidElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { isValidElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
@@ -72,6 +72,7 @@ const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 /** Sent as `reasoning_effort` on the outbound request (omitted when "none") —
  * the OpenAI-compatible knob most reasoning models now accept. */
 const THINK_LEVELS = [
+  { value: "auto", label: "Think: Auto" },
   { value: "none", label: "Think: None" },
   { value: "low", label: "Think: Low" },
   { value: "medium", label: "Think: Medium" },
@@ -342,12 +343,12 @@ function PromptPopover({
         onClick={() => setOpen((v) => !v)}
         className={cn(
           "flex h-9.5 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] px-2.5 text-[12.5px] font-medium text-[var(--text-2)] transition-colors hover:border-[var(--accent)] hover:text-[var(--text-1)]",
-          reasoningEffort !== "none" && "border-[var(--accent)] text-[var(--accent)]"
+          reasoningEffort !== "none" && reasoningEffort !== "auto" && "border-[var(--accent)] text-[var(--accent)]"
         )}
         title="Thinking and max tokens"
       >
         <MessageSquareText size={15} className="shrink-0" />
-        <span className={cn("whitespace-nowrap", compact && "hidden sm:inline")}>{reasoningEffort !== "none" ? "Options set" : "Options"}</span>
+        <span className={cn("whitespace-nowrap", compact && "hidden sm:inline")}>{reasoningEffort !== "none" && reasoningEffort !== "auto" ? "Options set" : "Options"}</span>
       </button>
 
       {open && (
@@ -534,6 +535,7 @@ export function ModelStudioPage() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [messageActionIndex, setMessageActionIndex] = useState<number | null>(null);
+  const [autoFollowMessages, setAutoFollowMessages] = useState(true);
   const messageHoldTimer = useRef<number | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -587,7 +589,7 @@ export function ModelStudioPage() {
   const [model, setModel] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [maxTokens, setMaxTokens] = useState(4096);
-  const [reasoningEffort, setReasoningEffort] = useState("none");
+  const [reasoningEffort, setReasoningEffort] = useState("auto");
   const [messages, setMessages] = useState<StudioMessage[]>([]);
   const syncedIdRef = useRef<string | null>(null);
   const skipSaveRef = useRef(true);
@@ -628,13 +630,21 @@ export function ModelStudioPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, model, systemPrompt, messages, activeId]);
 
+  useEffect(() => setAutoFollowMessages(true), [activeId]);
+
   useLayoutEffect(() => {
+    if (!autoFollowMessages) return;
     const frame = requestAnimationFrame(() => {
       const el = scrollRef.current;
       if (el) el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeId, messages.length]);
+  }, [activeId, messages.length, autoFollowMessages]);
+
+  const onMessagesScroll = (event: UIEvent<HTMLDivElement>) => {
+    const { scrollHeight, scrollTop, clientHeight } = event.currentTarget;
+    setAutoFollowMessages(scrollHeight - scrollTop - clientHeight < 24);
+  };
 
   const deleteSession = useMutation({
     mutationFn: (id: string) => apiDelete<{ ok: boolean }>(`/model-studio/sessions/${id}`),
@@ -724,7 +734,7 @@ export function ModelStudioPage() {
 
     try {
       await streamModelStudioChat(
-        { model: model.trim(), messages: payloadMessages, maxTokens, reasoningEffort: reasoningEffort === "none" ? undefined : reasoningEffort },
+        { model: model.trim(), messages: payloadMessages, maxTokens, reasoningEffort: reasoningEffort === "none" || reasoningEffort === "auto" ? undefined : reasoningEffort },
         {
           onText: (chunk) => {
             textAcc += chunk;
@@ -806,7 +816,7 @@ export function ModelStudioPage() {
       )}
 
       {/* Messages */}
-      <div ref={scrollRef} className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-3 py-2.5 sm:space-y-3 sm:px-4 sm:py-3">
+      <div ref={scrollRef} onScroll={onMessagesScroll} className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-3 py-2.5 sm:space-y-3 sm:px-4 sm:py-3">
         {messages.length === 0 ? (
           <div className="flex h-full min-h-[140px] flex-col items-center justify-center gap-2 text-center text-[var(--text-3)] sm:min-h-[240px]">
             <Bot size={26} />

@@ -15,6 +15,7 @@ import {
   Palette,
   Rocket,
   Settings,
+  SlidersHorizontal,
   Sun,
   Terminal,
   Timer,
@@ -127,6 +128,7 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
     label: "Control",
     items: [
       { to: "/combos", label: "Combos", icon: Layers },
+      { to: "/proxy-requests", label: "Proxy & Requests", icon: SlidersHorizontal },
     ],
   },
   {
@@ -145,6 +147,7 @@ const TITLES: Record<string, { title: string; sub: string; mobileSub: string }> 
   "/providers": { title: "Providers", sub: "All supported AI providers", mobileSub: "All AI providers" },
   "/model-studio": { title: "Model Studio", sub: "Chat-test any provider, model, or combo live", mobileSub: "Test models live" },
   "/combos": { title: "Combos & Alias", sub: "Fallback, round-robin, alias model", mobileSub: "Fallback & aliases" },
+  "/proxy-requests": { title: "Proxy & Requests", sub: "Routing and request policy controls", mobileSub: "Proxy controls" },
   "/console-log": { title: "Console Log", sub: "Live log stream", mobileSub: "Live log stream" },
   "/customization": { title: "Customization", sub: "Theme and cosmetic preferences", mobileSub: "Theme preferences" },
   "/settings": { title: "Settings", sub: "Security, backup, runtime toggles", mobileSub: "Security & runtime" },
@@ -315,6 +318,15 @@ export function AppShell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [isStudioComposerFocused, setIsStudioComposerFocused] = useState(false);
+  const [isCompactMotion, setIsCompactMotion] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px), (prefers-reduced-motion: reduce)");
+    const update = () => setIsCompactMotion(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     const onFocusChange = () => setIsStudioComposerFocused(document.activeElement?.matches("[data-model-studio-composer]") ?? false);
@@ -327,6 +339,9 @@ export function AppShell() {
   }, []);
   const pathKey = `/${location.pathname.split("/").filter(Boolean)[0] ?? "overview"}`;
   const meta = TITLES[pathKey] ?? { title: "Cartethyia", sub: "Internal console", mobileSub: "Internal console" };
+  const routeTransition = isCompactMotion
+    ? { initial: false, animate: { opacity: 1 }, exit: { opacity: 1 }, transition: { duration: 0 } }
+    : pageTransition;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -524,7 +539,7 @@ export function AppShell() {
             own `flex-1`/`h-full`. */}
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <AnimatePresence mode="wait" initial={false}>
-            <motion.div key={location.pathname} {...pageTransition} className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+            <motion.div key={location.pathname} {...routeTransition} className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
               <AnimatedOutlet />
             </motion.div>
           </AnimatePresence>

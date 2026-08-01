@@ -81,6 +81,7 @@ export const router = createBrowserRouter(
         { path: "providers/custom/:id", lazy: lazyPage(() => import("../features/providers/custom-detail"), (m) => m.CustomProviderDetailPage) },
         { path: "providers/:id", lazy: lazyPage(() => import("../features/providers/detail"), (m) => m.ProviderDetailPage) },
         { path: "combos", lazy: lazyPage(() => import("../features/combos/page"), (m) => m.CombosPage) },
+        { path: "proxy-requests", lazy: lazyPage(() => import("../features/proxy-requests/page"), (m) => m.ProxyRequestsPage) },
         { path: "console-log", lazy: lazyPage(() => import("../features/console-log/page"), (m) => m.ConsoleLogPage) },
         { path: "customization", lazy: lazyPage(() => import("../features/customization/page"), (m) => m.CustomizationPage) },
         { path: "settings", lazy: lazyPage(() => import("../features/settings/page"), (m) => m.SettingsPage) },

@@ -2,6 +2,12 @@
 
 All notable changes to Cartethyia are documented here.
 
+## [Unreleased]
+
+### Changed
+
+- Dashboard: added the Proxy & Requests navigation placeholder, reduced all mobile route/render effects, refined Settings controls, and improved Model Studio message actions, automatic thinking, mobile popout containment, and follow-latest scrolling.
+
 ## [1.0.5-alpha] - 2026-08-01
 
 ### Removed

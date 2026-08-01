@@ -156,6 +156,31 @@ select optgroup {
   }
 }
 
+/* Mobile prioritizes immediate interaction and scrolling over translucent blur and list choreography. */
+@media (max-width: 767px) {
+  .glass,
+  .glass-2 {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .stagger-item,
+  .skeleton {
+    animation: none;
+  }
+
+  .stagger-item {
+    opacity: 1;
+    transform: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ── Theme wipe ─────────────────────────────────────────────────────────────
    The toggle sets the origin/radius custom properties and flips
    `data-theme-wipe` before starting a view transition. The outgoing snapshot
