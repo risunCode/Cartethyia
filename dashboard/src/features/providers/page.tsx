@@ -1,7 +1,7 @@
 /** Providers page — registry list grouped by credential kind (REQ-11). */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Plus, Trash2 } from "lucide-react";
+import { Check, ChevronRight, Copy, Plus, Trash2 } from "lucide-react";
 import { HeaderPairsEditor, pairsToHeaders, type HeaderPair } from "../../components/header-pairs-editor";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -162,6 +162,18 @@ function CustomProvidersSection() {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ["console", "custom-providers"], queryFn: () => apiGet<{ items: CustomProviderRecord[] }>("/custom-providers") });
   const [showOpenAI, setShowOpenAI] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+
+  const copyBaseUrl = async (url: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedUrl(id);
+      toast.success("Base URL copied");
+      setTimeout(() => setCopiedUrl(null), 1500);
+    } catch {
+      toast.error("Clipboard access denied");
+    }
+  };
   const [showAnthropic, setShowAnthropic] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<CustomProviderRecord | null>(null);
 
@@ -228,7 +240,17 @@ function CustomProvidersSection() {
                     <code className="max-w-full truncate rounded bg-[var(--kbd-bg)] px-1 py-0.5 font-mono text-[10px] text-[var(--text-3)]">{cp.slug}/</code>
                     <span className="text-[10px] text-[var(--text-3)]">{cp.models.length} model{cp.models.length === 1 ? "" : "s"}</span>
                   </div>
-                  <p className="truncate text-[10px] text-[var(--text-3)]">{cp.baseUrl}</p>
+                  <div className="flex items-center gap-1">
+                    <p className="min-w-0 truncate text-[10px] text-[var(--text-3)]">{cp.baseUrl}</p>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); copyBaseUrl(cp.baseUrl, cp.id); }}
+                      className="shrink-0 rounded p-0.5 text-[var(--text-3)] transition-colors hover:text-[var(--accent)]"
+                      title="Copy base URL"
+                    >
+                      {copiedUrl === cp.id ? <Check size={11} /> : <Copy size={11} />}
+                    </button>
+                  </div>
                 </Link>
               </Card>
             );
