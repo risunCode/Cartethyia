@@ -107,3 +107,66 @@ describe("ModelPickerModal", () => {
     expect(screen.getByPlaceholderText("Search models\u2026")).toBeInTheDocument();
   });
 });
+
+describe("ModelPickerField \u2014 alias/combo selected values are not double-classified as Custom", () => {
+  function stubCatalogFetch() {
+    const responses: Record<string, unknown> = {
+      "/console/api/providers": { items: [] },
+      "/console/api/custom-providers": { items: [] },
+      "/console/api/aliases": { items: [{ alias: "gpt-5.6-sol", model: "openai/gpt-5.6-sol" }] },
+      "/console/api/combos": { items: [{ name: "fast-combo" }] },
+    };
+    return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      const path = url.replace(/^https?:\/\/[^/]+/, "");
+      const body = responses[path];
+      return new Response(JSON.stringify(body ?? { items: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+  }
+
+  test("a selected alias renders once, under Aliases, not under a spurious Custom section", async () => {
+    const fetchSpy = stubCatalogFetch();
+    const onChange = vi.fn();
+    render(
+      withQueryClient(
+        <ModelPickerField label="Allowed" values={["gpt-5.6-sol"]} onChange={onChange} mode="models" includeCombos includeAliases />
+      )
+    );
+
+    // Wait for the aliases query to resolve and the Aliases section to render.
+    expect(await screen.findByText("Aliases (1)")).toBeInTheDocument();
+    // No "Custom" section should render \u2014 the alias is fully accounted for above.
+    expect(screen.queryByText(/^Custom \(/)).not.toBeInTheDocument();
+
+    fetchSpy.mockRestore();
+  });
+
+  test("a selected combo renders once, under Combos, not under a spurious Custom section", async () => {
+    const fetchSpy = stubCatalogFetch();
+    const onChange = vi.fn();
+    render(
+      withQueryClient(
+        <ModelPickerField label="Allowed" values={["fast-combo"]} onChange={onChange} mode="models" includeCombos includeAliases />
+      )
+    );
+
+    expect(await screen.findByText("Combos (1)")).toBeInTheDocument();
+    expect(screen.queryByText(/^Custom \(/)).not.toBeInTheDocument();
+
+    fetchSpy.mockRestore();
+  });
+
+  test("a genuinely unrecognized selected value still renders under Custom", async () => {
+    const fetchSpy = stubCatalogFetch();
+    const onChange = vi.fn();
+    render(
+      withQueryClient(
+        <ModelPickerField label="Allowed" values={["totally-manual-value"]} onChange={onChange} mode="models" includeCombos includeAliases />
+      )
+    );
+
+    expect(await screen.findByText("Custom (1)")).toBeInTheDocument();
+
+    fetchSpy.mockRestore();
+  });
+});

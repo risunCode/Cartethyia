@@ -12,17 +12,24 @@ export function extractPresentedApiKey(request: Request): string {
       : "");
 }
 
-/** Returns whether a catalog entry or requested model id is permitted for this key. */
+/**
+ * Returns whether a catalog entry or requested model id is permitted for this
+ * key. Allow/deny lists match the exact identifier the client sent (or the
+ * catalog entry's exact id) — never the bare model-id tail of a qualified
+ * entry. Matching the tail alone would let an allowlisted alias (e.g.
+ * `gpt-5.6-sol`) transparently also permit the real qualified model it
+ * resolves to (`openai/gpt-5.6-sol`), silently granting direct provider
+ * access the key was never given and duplicating both entries in /v1/models.
+ */
 export function isModelAllowedForKey(key: ApiKeyPublic, model: string): boolean {
   const parsed = parseQualifiedModel(model);
   const providerId = parsed.kind === "qualified" ? parsed.model.provider : null;
-  const modelId = parsed.kind === "qualified" ? parsed.model.modelId : model;
 
-  if (key.modelDenylist?.some((entry) => entry === modelId || entry === model)) return false;
+  if (key.modelDenylist?.includes(model)) return false;
 
   if (key.providerAllowlist && providerId && !key.providerAllowlist.includes(providerId)) return false;
 
-  if (key.modelAllowlist && !key.modelAllowlist.includes(modelId) && !key.modelAllowlist.includes(model)) return false;
+  if (key.modelAllowlist && !key.modelAllowlist.includes(model)) return false;
 
   return true;
 }

@@ -415,11 +415,16 @@ export function InlineModelBrowser({
 
   const isSelected = (value: string) => selected.includes(value);
 
-  // Custom entries = selected items not in the catalog (manually added).
+  // Custom entries = selected items not represented anywhere else — not in
+  // the model catalog, and not an alias/combo name (those already render in
+  // their own sections below; counting them here too duplicated every
+  // selected alias/combo under a spurious "Custom" group).
   const customEntries = useMemo(() => {
     const catalogSet = new Set(catalog.map((e) => e.qualified));
-    return selected.filter((v) => !catalogSet.has(v));
-  }, [selected, catalog]);
+    const aliasSet = new Set(includeAliases ? (aliasesQuery.data?.items ?? []).map((entry) => entry.alias) : []);
+    const comboSet = new Set(includeCombos ? (combosQuery.data?.items ?? []).map((combo) => combo.name) : []);
+    return selected.filter((v) => !catalogSet.has(v) && !aliasSet.has(v) && !comboSet.has(v));
+  }, [selected, catalog, includeAliases, aliasesQuery.data, includeCombos, combosQuery.data]);
 
   // Group filtered models by provider, keeping custom (BYOK) providers in
   // their own map so they can render as their own section right after

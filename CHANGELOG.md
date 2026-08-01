@@ -8,6 +8,11 @@ All notable changes to Cartethyia are documented here.
 
 - Dashboard: added the Proxy & Requests navigation placeholder, reduced all mobile route/render effects, refined Settings controls, and improved Model Studio message actions, automatic thinking, mobile popout containment, and follow-latest scrolling.
 
+### Fixed
+
+- API key model ACL (`isModelAllowedForKey`, `src/console/key-acl.ts`): allow/deny lists matched a qualified entry's bare model-id tail as well as its full id, so allowlisting an alias (e.g. `gpt-5.6-sol`) transparently also permitted the real qualified model it resolves to (`openai/gpt-5.6-sol`) - silently granting direct provider access the key was never given, and duplicating both entries in `/v1/models`. Matching is now exact-string only against the identifier as requested/cataloged.
+- API Keys "Allowed models" picker (`InlineModelBrowser`, `dashboard/src/components/model-picker.tsx`): a selected alias or combo not present in the built-in/BYOK model catalog was misclassified as a manually-added "Custom" entry and rendered a second time there, on top of its correct Aliases/Combos section. Alias and combo names are now recognized before falling back to "Custom".
+
 ## [1.0.5-alpha] - 2026-08-01
 
 ### Removed
