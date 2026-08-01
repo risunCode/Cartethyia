@@ -1,12 +1,7 @@
 /**
- * Shared stateful round-robin primitive (REQ-6). Previously "round robin"
- * meant two different things: provider-account selection used a sticky,
- * `Map`-backed index (`console/db/repos/accounts.ts`), while proxy-pool
- * entry selection used a stateless `Date.now()`-modulo pick
- * (`upstream/dispatch.ts`) that isn't really rotation at all — it just
- * happens to change roughly once a second regardless of call volume.
- *
- * Both now advance the same `RotationState` via `nextRotationIndex()`.
+ * Shared stateful round-robin primitive (REQ-6): a sticky, `Map`-backed
+ * index used by provider-account round-robin selection
+ * (`console/db/repos/accounts.ts`), advanced via `nextRotationIndex()`.
  */
 
 export interface RotationState {

@@ -33,8 +33,7 @@ class QoderProvider implements Provider {
     target: RouteTarget,
     request: ProviderRequest,
     credential: ResolvedCredential,
-    signal: AbortSignal,
-    _proxy?: string
+    signal: AbortSignal
   ): Promise<ProviderResult> {
     if (credential.kind !== "qoder-pat") {
       throw new ProviderCallError(401, "authentication", "A Qoder personal access token is required.");

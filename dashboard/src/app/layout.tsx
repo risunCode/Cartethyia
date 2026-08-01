@@ -5,7 +5,6 @@ import {
   Cable,
   ChartSpline,
   Clock,
-  Filter,
   Globe,
   Layers,
   LayoutDashboard,
@@ -129,8 +128,6 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
     label: "Control",
     items: [
       { to: "/combos", label: "Combos", icon: Layers },
-      { to: "/proxy-pools", label: "Proxy Pools", icon: Globe },
-      { to: "/filter-rules", label: "Filter Rules", icon: Filter },
     ],
   },
   {
@@ -149,8 +146,6 @@ const TITLES: Record<string, { title: string; sub: string }> = {
   "/providers": { title: "Providers", sub: "All supported AI providers" },
   "/model-studio": { title: "Model Studio", sub: "Chat-test any provider, model, or combo live" },
   "/combos": { title: "Combos & Alias", sub: "Fallback, round-robin, alias model" },
-  "/proxy-pools": { title: "Proxy Pools", sub: "HTTP, HTTPS, SOCKS5" },
-  "/filter-rules": { title: "Filter Rules", sub: "Sanitize client-identity text before dispatch" },
   "/console-log": { title: "Console Log", sub: "Live log stream" },
   "/customization": { title: "Customization", sub: "Theme and cosmetic preferences" },
   "/settings": { title: "Settings", sub: "Security, backup, runtime toggles" },
@@ -425,7 +420,7 @@ export function AppShell() {
   );
 
   return (
-    <div className="mx-auto grid min-h-screen max-w-[1560px] grid-cols-1 gap-4 p-4 lg:grid-cols-[272px_minmax(0,1fr)]">
+    <div className="mx-auto grid min-h-dvh max-w-[1560px] grid-cols-1 gap-4 p-4 lg:grid-cols-[272px_minmax(0,1fr)]">
       {drawerOpen && (
         <div
           className="fixed inset-0 z-60 bg-black/30 backdrop-blur-[4px] lg:hidden"
@@ -469,9 +464,16 @@ export function AppShell() {
           </button>
         </header>
 
-        <main className="relative min-w-0">
+        {/* `flex-1 min-h-0` lets a page opt into filling the remaining
+            space between the sticky header and footer (e.g. Console Log's
+            `h-full` root) instead of the old `max-h-[calc(100vh-Npx)]`
+            magic-number hack; pages that don't opt in render at their
+            natural content height exactly as before \u2014 a column flex
+            child's main-axis size stays content-driven unless it sets its
+            own `flex-1`/`h-full`. */}
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <AnimatePresence mode="wait" initial={false}>
-            <motion.div key={location.pathname} {...pageTransition} className="flex min-w-0 flex-col gap-4">
+            <motion.div key={location.pathname} {...pageTransition} className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
               <AnimatedOutlet />
             </motion.div>
           </AnimatePresence>

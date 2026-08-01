@@ -30,7 +30,6 @@ interface RuntimeSettings {
   cacheMarkersEnabled: boolean;
   systemPrompt: string;
   sessionTtlHours: number;
-  rtk: { enabled: boolean; minChars: number; maxReductionPercent: number };
 }
 
 interface SettingsResponse {
@@ -517,7 +516,7 @@ export function SettingsPage() {
               </Button>
             </div>
             <p className="mt-2 text-[11px] text-[var(--text-3)]">
-              Contains settings (keeps login state), API keys, aliases, combos, proxy pools, access rules, routing and
+              Contains settings (keeps login state), API keys, aliases, combos, access rules, routing and
               accounts. History only with ?includeHistory=true.
             </p>
           </Card>

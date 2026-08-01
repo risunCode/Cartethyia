@@ -20,7 +20,6 @@ export interface SimpleProviderCallOptions {
   /** Already-transformed outbound request body (e.g. through translateChatRequestToAnthropic); JSON-stringified as-is. */
   body: unknown;
   signal: AbortSignal;
-  proxy?: string;
   /** Display name used in error messages ("Anthropic", `Custom provider "X"`). */
   providerLabel: string;
   isStreaming: boolean;
@@ -38,7 +37,6 @@ export async function callSimpleProvider(opts: SimpleProviderCallOptions): Promi
     headers: opts.headers,
     body: JSON.stringify(opts.body),
     signal: opts.signal,
-    ...(opts.proxy ? { proxy: opts.proxy } : {}),
   } as RequestInit);
 
   if (!res.ok) throw providerHttpError(res.status, opts.providerLabel, undefined, await safeReadText(res));
@@ -68,7 +66,6 @@ export interface MaterializingProviderCallOptions {
   headers: Record<string, string>;
   body: unknown;
   signal: AbortSignal;
-  proxy?: string;
   providerLabel: string;
   /** The stream is ALWAYS decoded; this field determines whether to return it raw or materialize. */
   isStreaming: boolean;
@@ -91,7 +88,6 @@ export async function callMaterializingProvider<M>(
     headers: opts.headers,
     body: JSON.stringify(opts.body),
     signal: opts.signal,
-    ...(opts.proxy ? { proxy: opts.proxy } : {}),
   } as RequestInit);
 
   if (!res.ok) throw providerHttpError(res.status, opts.providerLabel, undefined, await safeReadText(res));

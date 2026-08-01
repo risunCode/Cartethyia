@@ -58,23 +58,23 @@ export function ConsoleLogPage() {
   };
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <h1 className="text-lg font-bold tracking-tight">Console Log</h1>
           {status === "connected" ? (
             <Badge tone="ok">
               <Wifi size={11} className="mr-1" /> live
             </Badge>
           ) : status === "connecting" ? (
-            <Badge tone="info">connecting…</Badge>
+            <Badge tone="info">connecting\u2026</Badge>
           ) : (
             <Badge tone="err">
               <WifiOff size={11} className="mr-1" /> reconnecting ({attempts})
             </Badge>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Select
             ariaLabel="Filter level"
             value={filter}
@@ -92,17 +92,15 @@ export function ConsoleLogPage() {
         </div>
       </div>
 
-      <Card className="overflow-hidden p-0">
-        <div ref={scrollRef} onScroll={onScroll} className="max-h-[calc(100vh-220px)] overflow-auto p-3 font-mono text-[11.5px] leading-relaxed">
+      <Card className="flex-1 min-h-0 overflow-hidden p-0">
+        <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-auto p-3 font-mono text-[11.5px] leading-relaxed">
           {visible.length === 0 ? (
             <p className="py-10 text-center font-sans text-sm text-[var(--text-3)]">No log lines{filter !== "all" ? ` at level "${filter}"` : ""}.</p>
           ) : (
             visible.map((line, index) => (
-              <div key={`${line.ts}-${index}`} className="flex gap-2 whitespace-pre-wrap break-all py-0.5 hover:bg-[var(--hover)]">
+              <div key={`${line.ts}-${index}`} className="flex flex-col gap-0.5 whitespace-pre-wrap break-all py-1 hover:bg-[var(--hover)] sm:flex-row sm:gap-2 sm:py-0.5">
                 <span className="shrink-0 text-[var(--text-3)]">{formatTime(line.ts)}</span>
-                <span className={`w-12 shrink-0 font-semibold uppercase ${LEVEL_COLORS[line.level]}`}>{line.level}</span>
-                <span className="shrink-0 text-[var(--text-3)]">[{line.scope}]</span>
-                <span className="text-[var(--text-1)]">{line.msg}</span>
+                <span className={LEVEL_COLORS[line.level]}>{line.msg}</span>
               </div>
             ))
           )}

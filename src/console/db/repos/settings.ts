@@ -10,12 +10,6 @@ import { DEFAULT_SYSTEM_PROMPT } from "../../default-system-prompt";
 
 export const DEFAULT_CONSOLE_PASSWORD = "carte1234";
 
-export interface RtkSettings {
-  enabled: boolean;
-  minChars: number;
-  maxReductionPercent: number;
-}
-
 export interface RuntimeSettings {
   proxyAuthMode: ProxyAuthMode;
   trackPayloads: TrackMode;
@@ -27,9 +21,6 @@ export interface RuntimeSettings {
   cacheMarkersEnabled: boolean;
   systemPrompt: string;
   sessionTtlHours: number;
-  rtk: RtkSettings;
-  /** Master kill switch for Filter Rules sanitization (REQ-9) - off skips every rule (built-in and custom) on the outbound hot path regardless of each rule's own isActive flag. Individual rule state is preserved for when this is re-enabled. */
-  filterRulesEnabled: boolean;
 }
 
 export interface SettingsRow {
@@ -49,12 +40,6 @@ export interface Settings {
   runtime: RuntimeSettings;
   initializedAt: string;
   updatedAt: string;
-}
-
-function parseBoundedNumber(raw: string | undefined, fallback: number, minimum: number, maximum: number): number {
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(maximum, Math.max(minimum, parsed));
 }
 
 function randomSecret(): string {
@@ -78,12 +63,6 @@ function envDefaults(): RuntimeSettings {
     // Built-in default; Console → Settings can replace or clear (empty disables).
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
     sessionTtlHours: env.sessionTtlHours,
-    filterRulesEnabled: Bun.env.FILTER_RULES_ENABLED === "true",
-    rtk: {
-      enabled: Bun.env.RTK_ENABLED === "true",
-      minChars: parseBoundedNumber(Bun.env.RTK_MIN_CHARS, 1500, 500, 1_000_000),
-      maxReductionPercent: parseBoundedNumber(Bun.env.RTK_MAX_REDUCTION_PERCENT, 35, 1, 90),
-    },
   };
 }
 
@@ -91,7 +70,7 @@ function toSettings(row: SettingsRow): Settings {
   let runtime = envDefaults();
   try {
     const parsed = JSON.parse(row.settings_json) as Partial<RuntimeSettings>;
-    runtime = { ...runtime, ...parsed, rtk: { ...runtime.rtk, ...(parsed.rtk ?? {}) } };
+    runtime = { ...runtime, ...parsed };
   } catch {
     // corrupt JSON → fall back to defaults
   }
@@ -141,11 +120,7 @@ export function getSettings(): Settings | null {
 export function patchRuntimeSettings(patch: Partial<RuntimeSettings>): RuntimeSettings {
   const current = getSettings();
   if (!current) throw new Error("settings not initialized");
-  const next: RuntimeSettings = {
-    ...current.runtime,
-    ...patch,
-    rtk: { ...current.runtime.rtk, ...(patch.rtk ?? {}) },
-  };
+  const next: RuntimeSettings = { ...current.runtime, ...patch };
   getDb()
     .query("UPDATE settings SET settings_json = ?, updated_at = ? WHERE id = 1")
     .run(JSON.stringify(next), new Date().toISOString());

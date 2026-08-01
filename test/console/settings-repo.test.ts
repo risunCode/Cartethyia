@@ -61,10 +61,6 @@ describe("ensureSettings \u2014 first-run initialization", () => {
     const settings = await ensureSettings();
     expect(settings.runtime.proxyAuthMode).toBe("open");
     expect(settings.runtime.maxFlightsPerIp).toBe(20);
-    expect(settings.runtime.rtk.enabled).toBe(false);
-    // Filter Rules are a global kill switch (REQ-9) - a fresh install must not
-    // silently start sanitizing outbound requests without an operator opting in.
-    expect(settings.runtime.filterRulesEnabled).toBe(false);
   });
 });
 
@@ -86,14 +82,6 @@ describe("patchRuntimeSettings", () => {
     await ensureSettings();
     patchRuntimeSettings({ sessionTtlHours: 3 });
     expect(getSettings()?.runtime.sessionTtlHours).toBe(3);
-  });
-
-  test("merges the nested rtk object instead of replacing it wholesale", async () => {
-    await ensureSettings();
-    patchRuntimeSettings({ rtk: { enabled: true, minChars: 1500, maxReductionPercent: 35 } });
-    const next = patchRuntimeSettings({ rtk: { enabled: true, minChars: 999, maxReductionPercent: 35 } });
-    expect(next.rtk.minChars).toBe(999);
-    expect(next.rtk.enabled).toBe(true);
   });
 });
 

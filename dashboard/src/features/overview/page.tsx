@@ -12,7 +12,6 @@ import {
   MemoryStick,
   Pencil,
   Plus,
-  Scissors,
   Sparkles,
   Trash2,
   TriangleAlert,
@@ -43,12 +42,6 @@ interface ProviderOverview {
   lastError: string | null;
 }
 
-interface RtkSettings {
-  enabled: boolean;
-  minChars: number;
-  maxReductionPercent: number;
-}
-
 interface OverviewData {
   totals: {
     requests: number;
@@ -60,7 +53,6 @@ interface OverviewData {
     estimatedCostUsd: number;
   };
   providers: ProviderOverview[];
-  rtk: RtkSettings;
   registry: string[];
 }
 
@@ -341,15 +333,6 @@ export function OverviewPage() {
     onError: () => toast.error("Failed to run garbage collection"),
   });
 
-  const rtkMutation = useMutation({
-    mutationFn: (rtk: RtkSettings) => apiPost<{ ok: boolean }>("/overview/rtk", rtk),
-    onSuccess: () => {
-      toast.success("RTK settings saved");
-      void queryClient.invalidateQueries({ queryKey: ["overview"] });
-    },
-    onError: () => toast.error("Failed to save RTK settings"),
-  });
-
   const authModeMutation = useMutation({
     mutationFn: (proxyAuthMode: RuntimeSettings["proxyAuthMode"]) =>
       apiPost<{ ok: boolean }>("/settings", { proxyAuthMode }),
@@ -454,7 +437,7 @@ export function OverviewPage() {
     );
   }
 
-  const { totals, rtk } = data;
+  const { totals } = data;
   const errorRate = totals.requests > 0 ? ((totals.errors / totals.requests) * 100).toFixed(1) : "0.0";
   const cacheRate = totals.inputTokens > 0 ? Math.round((totals.cachedTokens / totals.inputTokens) * 100) : 0;
 
@@ -592,42 +575,6 @@ export function OverviewPage() {
               )}
             </div>
           </div>
-        </div>
-      </Card>
-
-      <Card>
-        <CardHeader title="RTK — Response Token Killer" icon={Scissors} iconColor="#bf5af2" sub="Compress long tool results before they hit upstream context" />
-        <div className="grid grid-cols-1 items-end gap-4 sm:grid-cols-4">
-          <div className="flex items-center gap-3">
-            <Switch
-              checked={rtk.enabled}
-              label="Enable RTK"
-              onChange={(enabled) => rtkMutation.mutate({ ...rtk, enabled })}
-            />
-            <span className="text-sm font-medium">{rtk.enabled ? "Enabled" : "Disabled"}</span>
-          </div>
-          <div>
-            <Label htmlFor="rtk-min">Min chars</Label>
-            <Input
-              id="rtk-min"
-              type="number"
-              min={0}
-              value={rtk.minChars}
-              onChange={(e) => rtkMutation.mutate({ ...rtk, minChars: Number(e.target.value) || 0 })}
-            />
-          </div>
-          <div>
-            <Label htmlFor="rtk-max">Max reduction %</Label>
-            <Input
-              id="rtk-max"
-              type="number"
-              min={1}
-              max={90}
-              value={rtk.maxReductionPercent}
-              onChange={(e) => rtkMutation.mutate({ ...rtk, maxReductionPercent: Number(e.target.value) || 35 })}
-            />
-          </div>
-          <p className="text-xs text-[var(--text-3)]">Applied live to outbound transforms — no restart needed.</p>
         </div>
       </Card>
 

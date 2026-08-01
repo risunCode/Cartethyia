@@ -43,14 +43,13 @@ export function finishSurfaceDispatch(opts: SurfaceDispatchOptions): unknown {
   if (qualified.kind === "error") {
     opts.set.status = qualified.status;
     if (qualified.status === 429 || qualified.status === 503) opts.set.headers["retry-after"] = "60";
-    opts.tracker.fail(qualified.status, "dispatch_error", opts.requestBody);
+    opts.tracker.fail(qualified.status, "dispatch_error", opts.requestBody, qualified.message);
     const kind: Exclude<ClientErrorKind, "upstream_error"> =
       qualified.status === 401 || qualified.status === 403 ? "authentication_error" : qualified.status === 429 ? "rate_limit_error" : "invalid_request_error";
     return opts.clientError(qualified.status, kind, qualified.message);
   }
 
-  if (qualified.proxyPoolName) opts.tracker.setProxyPool(qualified.proxyPoolName);
-  const { result } = qualified;
+  const { result, accountLabel } = qualified;
   if (result.type === "stream") {
     opts.set.headers["content-type"] = "text/event-stream";
     const meta = { id: `${opts.idPrefix}-${crypto.randomUUID()}`, model: opts.model, createdAt: Math.floor(Date.now() / 1000) };
@@ -58,7 +57,8 @@ export function finishSurfaceDispatch(opts: SurfaceDispatchOptions): unknown {
       toSSEResponseStream(withStreamErrorHandling(opts.encodeStream(result.events, meta), opts.streamFormat)),
       undefined,
       opts.requestBody,
+      accountLabel,
     );
   }
-  return opts.tracker.finishJson(200, opts.toSurfaceJson(result.body), undefined, opts.requestBody);
+  return opts.tracker.finishJson(200, opts.toSurfaceJson(result.body), undefined, opts.requestBody, accountLabel);
 }

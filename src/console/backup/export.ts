@@ -2,9 +2,9 @@
  * Backup export — JSON snapshot of the config tables (REQ-5).
  *
  * Contents follow the proposal: settings (single row, keeps login state),
- * api_keys, aliases, combos, pools, access, routing, accounts, filters and
- * custom providers. Runtime request logs are JSONL/in-memory and are never
- * included in a configuration backup.
+ * api_keys, aliases, combos, access, routing, accounts, combo eligibility
+ * filters and custom providers. Runtime request logs are JSONL/in-memory
+ * and are never included in a configuration backup.
  */
 
 import { getDb } from "../db/client";
@@ -18,12 +18,10 @@ export const CONFIG_TABLES = [
   "api_keys",
   "model_aliases",
   "combos",
-  "proxy_pools",
   "access_rules",
   "provider_routing",
   "provider_accounts",
   "filter_rules",
-  "sanitizer_rules",
   "custom_providers",
 ] as const;
 

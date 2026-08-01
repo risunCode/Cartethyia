@@ -1,15 +1,12 @@
-/** Overview API — totals + per-provider status + RTK runtime toggle. */
+/** Overview API — totals + per-provider status. */
 
 import { Elysia } from "elysia";
 import { networkInterfaces } from "node:os";
-import { consoleError } from "../errors";
-import { ensureSettings, patchRuntimeSettings } from "../db/repos/settings";
-import { invalidateRuntimeSettings } from "../runtime";
+import { ensureSettings } from "../db/repos/settings";
 import { queryUsageSummary, queryUsageCost, queryProviderToday, queryLastProviderError } from "../db/repos/usage";
 import { providerRegistry } from "../../upstream/providers";
 import { ADDED_PROVIDER_IDS, type AddedProviderId } from "../../routing/types";
 import { prefixOf } from "../../routing/providerMeta";
-import { addAuditEvent } from "../db/repos/audit";
 import { getInFlightCount } from "../tracking/in-flight";
 
 export interface ProviderOverview {
@@ -68,29 +65,7 @@ export const overviewRoutes = new Elysia({ prefix: "/console/api" })
       },
       inFlight: getInFlightCount(),
       providers: buildProviderOverview(),
-      rtk: settings.runtime.rtk,
       proxyAuthMode: settings.runtime.proxyAuthMode,
       registry: ADDED_PROVIDER_IDS.filter((id) => providerRegistry.get(id) !== undefined),
     };
-  })
-  .post("/overview/rtk", async ({ body, set }) => {
-    const input = (body ?? {}) as { enabled?: boolean; minChars?: number; maxReductionPercent?: number };
-    if (input.minChars !== undefined && (!Number.isFinite(input.minChars) || input.minChars < 0)) {
-      set.status = 400;
-      return consoleError("invalid_request", "minChars must be a non-negative number");
-    }
-    if (input.maxReductionPercent !== undefined && (!Number.isFinite(input.maxReductionPercent) || input.maxReductionPercent < 1 || input.maxReductionPercent > 90)) {
-      set.status = 400;
-      return consoleError("invalid_request", "maxReductionPercent must be between 1 and 90");
-    }
-    const next = patchRuntimeSettings({
-      rtk: {
-        enabled: input.enabled ?? false,
-        minChars: input.minChars ?? 1500,
-        maxReductionPercent: input.maxReductionPercent ?? 35,
-      },
-    });
-    invalidateRuntimeSettings();
-    addAuditEvent("settings.rtk", next.rtk as unknown as Record<string, unknown>);
-    return { ok: true, rtk: next.rtk };
   });

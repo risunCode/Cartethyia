@@ -18,6 +18,7 @@ import { Elysia } from "elysia";
 import { consoleError } from "../errors";
 import { addAuditEvent } from "../db/repos/audit";
 import { pushConsoleLog } from "../logs/ring";
+import { formatRequestLogLine } from "../tracking/tracker";
 import { assertPublicUrl } from "../../http/ssrf-guard";
 import { dynamicProviderRouter } from "../../upstream/providers/dynamic";
 import { lookupKnownModelMeta } from "../../upstream/providers/model-catalog-index";
@@ -240,13 +241,13 @@ export const customProvidersRoutes = new Elysia({ prefix: "/console/api/custom-p
       );
       const sample = (await collectSample(result)).slice(0, 400);
       const latencyMs = Math.round(performance.now() - started);
-      pushConsoleLog("info", "model-test", `${record.slug}/${params.model} ok in ${latencyMs}ms`);
+      pushConsoleLog("info", "request", formatRequestLogLine({ model: `${record.slug}/${params.model}`, provider: record.slug, status: 200, durationMs: latencyMs }));
       addAuditEvent("custom_provider.model_test", { id: params.id, model: params.model, ok: true, latencyMs });
       return { resolveOk: true, latencyMs, ok: true, sample: sample || undefined };
     } catch (err) {
       const latencyMs = Math.round(performance.now() - started);
       const message = err instanceof Error ? err.message : String(err);
-      pushConsoleLog("warn", "model-test", `${record.slug}/${params.model} failed in ${latencyMs}ms: ${message}`);
+      pushConsoleLog("warn", "request", formatRequestLogLine({ model: `${record.slug}/${params.model}`, provider: record.slug, status: 502, durationMs: latencyMs, errorMessage: message }));
       addAuditEvent("custom_provider.model_test", { id: params.id, model: params.model, ok: false, latencyMs, error: message });
       return { resolveOk: true, latencyMs, ok: false, error: message };
     }

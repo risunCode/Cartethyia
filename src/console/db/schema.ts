@@ -48,17 +48,6 @@ CREATE TABLE IF NOT EXISTS combos (
   updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS proxy_pools (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
-  entries_json TEXT NOT NULL,
-  no_proxy TEXT NOT NULL DEFAULT '',
-  strict_proxy INTEGER NOT NULL DEFAULT 0,
-  platform TEXT NOT NULL DEFAULT 'custom',
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS access_rules (
   scope TEXT PRIMARY KEY,
   mode TEXT NOT NULL DEFAULT 'open',
@@ -70,8 +59,6 @@ CREATE TABLE IF NOT EXISTS provider_routing (
   provider TEXT PRIMARY KEY,
   strategy TEXT NOT NULL DEFAULT 'priority',
   sticky_limit INTEGER NOT NULL DEFAULT 0,
-  proxy_mode TEXT NOT NULL DEFAULT 'direct',
-  proxy_pool_id TEXT,
   updated_at TEXT NOT NULL
 );
 
@@ -82,8 +69,6 @@ CREATE TABLE IF NOT EXISTS provider_accounts (
   credential_kind TEXT NOT NULL,
   credential TEXT NOT NULL,
   credential_hint TEXT NOT NULL,
-  proxy_pool_id TEXT,
-  use_direct INTEGER NOT NULL DEFAULT 0,
   priority INTEGER NOT NULL DEFAULT 100,
   active INTEGER NOT NULL DEFAULT 1,
   cooldown_until TEXT,
@@ -94,6 +79,8 @@ CREATE TABLE IF NOT EXISTS provider_accounts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider_priority ON provider_accounts(provider, priority, name, id);
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_cooldown ON provider_accounts(cooldown_until) WHERE cooldown_until IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
 
 CREATE TABLE IF NOT EXISTS account_model_locks (
   account_id TEXT NOT NULL,
@@ -113,6 +100,9 @@ CREATE TABLE IF NOT EXISTS provider_models (
   PRIMARY KEY (provider, model_id)
 );
 
+-- Combo model-eligibility allow/deny (console/db/repos/combos.ts) — unrelated
+-- to the removed "Filter Rules" outbound-text sanitizer feature; the name
+-- collision is historical, kept as-is since this table is still in use.
 CREATE TABLE IF NOT EXISTS filter_rules (
   id TEXT PRIMARY KEY,
   provider TEXT NOT NULL,
@@ -121,23 +111,7 @@ CREATE TABLE IF NOT EXISTS filter_rules (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
-
--- Outbound-text sanitizer rules (console "Filter Rules" page, REQ-9). Named
--- distinctly from filter_rules above (an unrelated allow/deny model-eligibility
--- concept, console/db/repos/combos.ts) to avoid two different things sharing
--- one name in the codebase.
-CREATE TABLE IF NOT EXISTS sanitizer_rules (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  rule_id TEXT NOT NULL UNIQUE,
-  pattern TEXT NOT NULL,
-  replacement TEXT NOT NULL DEFAULT '',
-  is_active INTEGER NOT NULL DEFAULT 1,
-  is_regex INTEGER NOT NULL DEFAULT 0,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_sanitizer_rules_sort ON sanitizer_rules(sort_order);
+CREATE INDEX IF NOT EXISTS idx_filter_rules_provider ON filter_rules(provider);
 
 -- Console-registered OpenAI/Anthropic-compatible providers (REQ-8).
 CREATE TABLE IF NOT EXISTS custom_providers (
@@ -167,11 +141,6 @@ CREATE TABLE IF NOT EXISTS model_studio_sessions (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_model_studio_sessions_updated ON model_studio_sessions(updated_at DESC);
-
--- Performance indexes for hot query paths (api_keys.key, provider_accounts.cooldown_until,
--- account_model_locks.locked_until, filter_rules.provider, custom_providers.slug) live in
--- migration v9 (performance-indexes), not here: this INIT_SQL is replayed verbatim against
--- partially-upgraded legacy tables mid-migration (see drop-legacy-credential-encryption),
--- where those columns may not exist yet. Migration v9 always runs after the column-fixing
--- migrations, so it can safely assume the columns are present.
+CREATE INDEX IF NOT EXISTS idx_account_model_locks_expiry ON account_model_locks(locked_until);
+CREATE INDEX IF NOT EXISTS idx_custom_providers_slug ON custom_providers(slug);
 `;

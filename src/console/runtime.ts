@@ -4,15 +4,13 @@
  */
 
 import { getSettings, type RuntimeSettings } from "./db/repos/settings";
-import { resolveEffectiveFilterRules } from "./db/repos/sanitizer-rules";
 import { getConsoleEnv } from "./env";
 import { DEFAULT_SYSTEM_PROMPT } from "./default-system-prompt";
-import type { RequestTransformSettings, SanitizerFilterRule } from "../upstream/outbound";
+import type { RequestTransformSettings } from "../upstream/outbound";
 
 const TTL_MS = 5_000;
 
 let cache: { at: number; value: RuntimeSettings } | null = null;
-let filterRulesCache: { at: number; value: SanitizerFilterRule[] } | null = null;
 
 export function defaultRuntimeSettings(): RuntimeSettings {
   const env = getConsoleEnv();
@@ -27,8 +25,6 @@ export function defaultRuntimeSettings(): RuntimeSettings {
     cacheMarkersEnabled: true,
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
     sessionTtlHours: env.sessionTtlHours,
-    rtk: { enabled: false, minChars: 1500, maxReductionPercent: 35 },
-    filterRulesEnabled: false,
   };
 }
 
@@ -43,34 +39,20 @@ export function getRuntimeSettings(): RuntimeSettings {
 /**
  * Projects the live runtime settings into the shape `prepareOutboundRequest`
  * expects. This is the ONLY source `dispatchQualifiedRoute`/`runEmulatedCompact`/
- * the legacy pass-through providers should read for RTK/system-prompt —
+ * the legacy pass-through providers should read for the system prompt —
  * `config.transforms` no longer exists (REQ-3.4).
  */
-function getFilterRules(): SanitizerFilterRule[] {
-  if (filterRulesCache && Date.now() - filterRulesCache.at < TTL_MS) return filterRulesCache.value;
-  const value = resolveEffectiveFilterRules();
-  filterRulesCache = { at: Date.now(), value };
-  return value;
-}
-
 export function getRequestTransformSettings(): RequestTransformSettings {
   const settings = getRuntimeSettings();
-  // The global toggle short-circuits before the per-rule cache lookup -
-  // flipping it off/on takes effect immediately without waiting out the
-  // filter-rules cache's own TTL, and individual rules' isActive state is
-  // left untouched in the DB for whenever it's re-enabled.
-  const filterRules = settings.filterRulesEnabled ? getFilterRules() : [];
-  return { rtk: settings.rtk, systemPrompt: settings.systemPrompt.trim() || undefined, filterRules };
+  return { systemPrompt: settings.systemPrompt.trim() || undefined };
 }
 
-/** Clears both the runtime-settings and filter-rules caches (REQ-3, REQ-9) so the next read hits the DB. */
+/** Clears the runtime-settings cache (REQ-3) so the next read hits the DB. */
 export function invalidateRuntimeSettings(): void {
   cache = null;
-  filterRulesCache = null;
 }
 
 /** Test-only. */
 export function resetRuntimeSettingsForTests(): void {
   cache = null;
-  filterRulesCache = null;
 }

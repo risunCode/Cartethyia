@@ -58,8 +58,6 @@ interface AccountEntry {
   name: string;
   credentialKind: string;
   credentialHint: string;
-  proxyPoolId: string | null;
-  useDirect: boolean;
   priority: number;
   active: boolean;
 }
@@ -67,8 +65,6 @@ interface AccountEntry {
 interface RoutingConfig {
   strategy: "priority" | "round-robin";
   stickyLimit: number;
-  proxyMode: "direct" | "proxy-pool" | "mixed";
-  proxyPoolId: string | null;
 }
 
 interface ProviderDetail {
@@ -433,11 +429,7 @@ export function ProviderDetailPage() {
   });
   const pagedAccounts = accountsQuery.data?.pages.flatMap((page) => page.items) ?? data?.accounts ?? [];
 
-  const poolsQuery = useQuery({
-    queryKey: ["console", "proxy-pools"],
-    queryFn: () => apiGet<{ items: Array<{ id: string; name: string; platform: string }> }>("/proxy-pools"),
-  });
-  const pools = poolsQuery.data?.items ?? [];
+
 
   // Hooks must run unconditionally on every render — hoisted above the
   // loading-state early return below so hook order never changes once data
@@ -779,60 +771,7 @@ export function ProviderDetailPage() {
               ]}
             />
           </div>
-          <div>
-            <Label>Proxy mode</Label>
-            <Select
-              ariaLabel="Proxy mode"
-              className="mt-1 w-full"
-              value={routing.proxyMode}
-              onChange={(v) => {
-                const proxyMode = v as RoutingConfig["proxyMode"];
-                // Switching into a pool-requiring mode without a pool picked
-                // yet would round-trip a guaranteed "proxyPoolId is required"
-                // error — default to the first configured pool instead so the
-                // save just succeeds when one already exists.
-                const proxyPoolId =
-                  proxyMode !== "direct" && !routing.proxyPoolId ? (pools[0]?.id ?? null) : routing.proxyPoolId;
-                const next = { ...routing, proxyMode, proxyPoolId };
-                setRouting(next);
-                routingMutation.mutate(next);
-              }}
-              options={[
-                { value: "direct", label: "Direct" },
-                { value: "proxy-pool", label: "Round Robin" },
-                { value: "mixed", label: "Round Robin Mix" },
-              ]}
-            />
-          </div>
         </div>
-
-        {routing.proxyMode !== "direct" && (
-          <div className="mt-2">
-            <Label>Proxy pool</Label>
-            <Select
-              ariaLabel="Proxy pool"
-              className="mt-1 w-full"
-              value={routing.proxyPoolId ?? ""}
-              onChange={(v) => {
-                const next = { ...routing, proxyPoolId: v || null };
-                setRouting(next);
-                routingMutation.mutate(next);
-              }}
-              options={[
-                { value: "", label: "— Select a pool —" },
-                ...pools.map((p) => ({
-                  value: p.id,
-                  label: `${p.name}${p.platform !== "custom" ? ` (${p.platform})` : ""}`,
-                })),
-              ]}
-            />
-            <p className="mt-1.5 text-[11px] text-[var(--text-2)]">
-              {routing.proxyMode === "mixed"
-                ? "Requests round-robin across this pool's entries and a direct connection. A failed attempt automatically retries through the next candidate."
-                : "Requests round-robin across this pool's entries. A failed attempt automatically retries through the next entry."}
-            </p>
-          </div>
-        )}
 
         {!noAuth && selectedAccounts.size > 0 && (
           <div className="flex flex-wrap items-center gap-2.5 rounded-xl bg-[var(--accent-soft)] px-3.5 py-2.5">
@@ -941,7 +880,7 @@ export function ProviderDetailPage() {
                         <td className="px-2 py-2.5 align-top">
                           <div className="flex flex-wrap gap-1">
                             {renderAccountStatus(account)}
-                            <span className="hidden sm:contents"><Badge tone="info">{account.credentialKind}</Badge>{account.useDirect && <Badge tone="info">direct</Badge>}</span>
+                            <span className="hidden sm:contents"><Badge tone="info">{account.credentialKind}</Badge></span>
                           </div>
                         </td>
                         <td className="px-2 py-2.5 align-top">

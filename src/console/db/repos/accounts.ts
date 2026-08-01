@@ -29,8 +29,6 @@ export interface ProviderAccountRow {
   credential_kind: string; // stored lowercase
   credential: string;
   credential_hint: string;
-  proxy_pool_id: string | null;
-  use_direct: number;
   priority: number;
   active: number;
   created_at: string;
@@ -43,8 +41,6 @@ export interface ProviderAccount {
   name: string;
   credentialKind: CredentialKind;
   credentialHint: string;
-  proxyPoolId: string | null;
-  useDirect: boolean;
   priority: number;
   active: boolean;
   createdAt: string;
@@ -58,8 +54,6 @@ function fromRow(row: ProviderAccountRow): ProviderAccount {
     name: row.name,
     credentialKind: row.credential_kind as CredentialKind,
     credentialHint: row.credential_hint,
-    proxyPoolId: row.proxy_pool_id ?? null,
-    useDirect: Boolean(row.use_direct),
     priority: row.priority,
     active: Boolean(row.active),
     createdAt: row.created_at,
@@ -139,8 +133,6 @@ export function createAccount(input: {
   name: string;
   credentialKind: CredentialKind;
   credential: string;
-  proxyPoolId?: string | null;
-  useDirect?: boolean;
   priority?: number;
   active?: boolean;
 }): { id: string; credentialHint: string } {
@@ -149,13 +141,11 @@ export function createAccount(input: {
   const hint = credentialHint(input.credential);
   const id = crypto.randomUUID();
   const active = input.active ?? true;
-  const useDirect = input.useDirect ?? false;
   const priority = typeof input.priority === "number" && Number.isFinite(input.priority) ? input.priority : 100;
-  const proxyPoolId = input.proxyPoolId ?? null;
 
   db.query(
-    "INSERT INTO provider_accounts (id, provider, name, credential_kind, credential, credential_hint, proxy_pool_id, use_direct, priority, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).run(id, input.provider, input.name, input.credentialKind.toLowerCase(), input.credential, hint, proxyPoolId, useDirect ? 1 : 0, priority, active ? 1 : 0, now, now);
+    "INSERT INTO provider_accounts (id, provider, name, credential_kind, credential, credential_hint, priority, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(id, input.provider, input.name, input.credentialKind.toLowerCase(), input.credential, hint, priority, active ? 1 : 0, now, now);
 
   return { id, credentialHint: hint };
 }
@@ -165,8 +155,6 @@ export function patchAccount(id: string, patch: {
   name?: string;
   credentialKind?: CredentialKind;
   credential?: string;
-  proxyPoolId?: string | null;
-  useDirect?: boolean;
   priority?: number;
   active?: boolean;
 }): void {
@@ -193,14 +181,6 @@ export function patchAccount(id: string, patch: {
     values.push(patch.credential);
     updateFields.push("credential_hint = ?");
     values.push(credentialHint(patch.credential));
-  }
-  if (patch.proxyPoolId !== undefined) {
-    updateFields.push("proxy_pool_id = ?");
-    values.push(patch.proxyPoolId ?? null);
-  }
-  if (patch.useDirect !== undefined) {
-    updateFields.push("use_direct = ?");
-    values.push(patch.useDirect ? 1 : 0);
   }
   if (patch.priority !== undefined) {
     updateFields.push("priority = ?");
@@ -357,18 +337,31 @@ export function resetCooldownForTests(): void {
 }
 
 /**
- * Round-robin + sticky-limit selection among active accounts for a provider
- * (REQ-20.5), ordered by priority then name (same order as `listAccounts`).
- * `stickyLimit <= 0` rotates on every call; `stickyLimit > 0` reuses the same
- * account for that many consecutive picks before advancing.
+ * Selects an active account for a provider (REQ-20.5), ordered by priority
+ * then name (same order as `listAccounts`).
+ *
+ * `strategy: "priority"` always returns the highest-priority available
+ * account (index 0 of the filtered/sorted list) — failover to the next
+ * account happens automatically once the top one lands in cooldown (C5) or
+ * gets model-locked (M1), since both are already excluded from `active`.
+ * Bugfix: this used to be encoded as `stickyLimit <= 0` passed into the same
+ * rotating index function round-robin uses, but that function treats
+ * `stickyLimit <= 0` as "advance every call" — so "priority" mode silently
+ * behaved exactly like round-robin instead of pinning to the top account.
+ *
+ * `strategy: "round-robin"` rotates via the shared index; `stickyLimit <= 0`
+ * advances on every call, `stickyLimit > 0` reuses the same account for that
+ * many consecutive picks before advancing.
  *
  * Skips accounts that are in cooldown (C5) or locked for the given model (M1).
  */
-export async function pickAccountForRotation(provider: string, stickyLimit: number, modelId?: string): Promise<ProviderAccountRow | null> {
+export async function pickAccountForRotation(provider: string, strategy: "priority" | "round-robin", stickyLimit: number, modelId?: string): Promise<ProviderAccountRow | null> {
   ensureCooldownCache();
   return withProviderLock(provider, () => {
     const active = listAccounts(provider).filter((a) => a.active && !isAccountCooledDown(a.id) && (modelId === undefined || !isModelLocked(a.id, modelId)));
     if (active.length === 0) return null;
+
+    if (strategy !== "round-robin") return getAccount(active[0]!.id);
 
     const index = pickRotationIndex(rotationState, provider, active.length, stickyLimit);
     return getAccount(active[index]!.id);

@@ -2,7 +2,6 @@ import type { RouteTarget } from "../routing/types";
 import type { Provider, ProviderRequest, ProviderResult } from "./providers/index";
 import type { ResolvedCredential } from "./providers/index";
 import { getProviderRouting } from "../console/db/repos/routing";
-import { getPool } from "../console/db/repos/proxy-pools";
 import { withRetry, createTimeoutSignal, DEFAULT_RETRY_CONFIG, extractStatus, type RetryConfig } from "./retry";
 import { isRetryableError } from "./retry";
 import { resolveAllComboTargets, resolveQualifiedTarget, credentialKindOf } from "../routing/resolve";
@@ -19,14 +18,12 @@ import {
   RESOLVED_KIND_BY_ACCOUNT_KIND,
   type CredentialKind,
 } from "../console/db/repos/accounts";
-import { createRotationStore, pickRotationIndex } from "./rotation";
-import { assertPublicUrlAtDispatch } from "../http/ssrf-guard";
+import { pushConsoleLog } from "../console/logs/ring";
 
 export interface DispatchableRoute {
   target: RouteTarget;
   request: ProviderRequest;
   credential: ResolvedCredential;
-  proxyPoolName?: string;
 }
 
 // ── Credential resolution ─────────────────────────────────────────
@@ -88,11 +85,8 @@ const DISPATCH_RETRY_CONFIG: RetryConfig = {
 
 export interface DispatchOutcome {
   result: ProviderResult;
-  proxyPoolName?: string;
 }
 
-/** Proxy-pool entry rotation state, keyed by "poolId:proxyMode" (mode changes what index 0 means) — shares the same primitive as account rotation (REQ-6). */
-const poolRotationState = createRotationStore<string>();
 const accountModelFailures = new Map<string, number>();
 const ACCOUNT_MODEL_FAILURE_THRESHOLD = 3;
 
@@ -165,70 +159,17 @@ async function dispatchProvider(
   // response body's lifetime - see `createTimeoutSignal`'s docstring.
   const { signal: timeoutSignal, clear: clearConnectTimeout } = createTimeoutSignal(FETCH_CONNECT_TIMEOUT_MS, signal);
 
-  // Build this request's rotation candidates from the provider's routing
-  // config. "proxy-pool" (Round Robin) rotates through the pool's entries
-  // only; "mixed" (Round Robin Mix) also puts `undefined` (direct, no proxy)
-  // in the same rotation, so a request can land on either. `direct` mode, or
-  // a pool with no usable entries, is just the single `[undefined]` slot —
-  // identical to the old always-direct behavior.
-  const routing = getProviderRouting(route.target.provider);
-  let candidates: (string | undefined)[] = [undefined];
-  let poolName: string | undefined;
-  if (routing.proxyMode !== "direct" && routing.proxyPoolId) {
-    const pool = getPool(routing.proxyPoolId);
-    if (pool && pool.entries.length > 0) {
-      const proxyUrls = pool.entries.map((entry) => entry.url);
-      candidates = routing.proxyMode === "mixed" ? [undefined, ...proxyUrls] : proxyUrls;
-      poolName = pool.name;
-    }
-  }
-
-  // Persistent index balances load across *requests* (round-robins forward
-  // each call, same as before); `attemptOffset` walks to the *next* candidate
-  // on every retry *within* this one request, so a dead proxy entry gets
-  // failed over to a different candidate instead of being retried against
-  // itself for the whole backoff schedule.
-  const rotationKey = `${routing.proxyPoolId ?? "direct"}:${routing.proxyMode}`;
-  const startIndex = pickRotationIndex(poolRotationState, rotationKey, candidates.length, 1);
-  let attemptOffset = 0;
-  let usedProxyUrl: string | undefined;
-
-  // A pool with more entries than the default retry budget needs enough
-  // attempts to actually reach every candidate once, or the later proxies
-  // in the list would never get tried at all.
-  const retryConfig: RetryConfig = candidates.length > DISPATCH_RETRY_CONFIG.maxRetries + 1 ? { ...DISPATCH_RETRY_CONFIG, maxRetries: candidates.length - 1 } : DISPATCH_RETRY_CONFIG;
-
   try {
     const result = await withRetry(
-      async () => {
-        const proxyUrl = candidates[(startIndex + attemptOffset) % candidates.length];
-        attemptOffset += 1;
-        usedProxyUrl = proxyUrl;
-        if (proxyUrl) await assertPublicUrlAtDispatch(proxyUrl);
-        return provider.call(route.target, route.request, route.credential, timeoutSignal, proxyUrl);
-      },
-      retryConfig,
+      () => provider.call(route.target, route.request, route.credential, timeoutSignal),
+      DISPATCH_RETRY_CONFIG,
       (attempt, delayMs, error) => {
         void attempt;
         void delayMs;
         void error;
       },
-      // A rotating pool (>1 candidate) forces a retry while candidates
-      // remain unvisited, regardless of whether the status looks
-      // "retryable" in general - a 400 from one proxy's edge/CDN gateway
-      // rejecting THAT specific connection says nothing about whether a
-      // DIFFERENT proxy in the pool would succeed with the same request.
-      // Confirmed via a live report: a proxy-pool dispatch hit a plain 400
-      // ("Bad request\n\nBAD_REQUEST" - an edge gateway's generic error
-      // page, not the upstream API's own error shape) and failed instantly
-      // without ever trying the pool's other entries. Once every candidate
-      // has been tried at least once, falls back to the normal status-based
-      // decision so a genuinely non-retryable failure still stops promptly
-      // instead of looping.
-      (error, attempt) => (candidates.length > 1 && attemptOffset < candidates.length) || isRetryableError(error, retryConfig),
     );
-    route.proxyPoolName = usedProxyUrl ? poolName : undefined;
-    return { result, proxyPoolName: route.proxyPoolName };
+    return { result };
   } finally {
     clearConnectTimeout();
   }
@@ -244,7 +185,7 @@ async function dispatchProvider(
 
 export type QualifiedDispatchResult =
   | { kind: "error"; status: number; message: string }
-  | { kind: "result"; result: ProviderResult; proxyPoolName?: string };
+  | { kind: "result"; result: ProviderResult; accountLabel?: string };
 
 export interface QualifiedDispatchInput {
   model: string;
@@ -282,11 +223,11 @@ export async function resolveCredentialForDispatch(
   // rotates across accounts; for any other strategy ("priority" by default)
   // it selects the highest-priority active account, so stored credentials
   // are always consulted before falling back to header-only resolution.
-  const picked = await pickAccountForRotation(provider, routing.strategy === "round-robin" ? routing.stickyLimit : 0, modelId);
+  const picked = await pickAccountForRotation(provider, routing.strategy, routing.stickyLimit, modelId);
   if (picked) {
     const plain = picked.credential;
     const kind = RESOLVED_KIND_BY_ACCOUNT_KIND[picked.credential_kind as CredentialKind] ?? "provider-bearer";
-    return { kind, value: plain, accountId: picked.id };
+    return { kind, value: plain, accountId: picked.id, accountName: picked.name };
   }
 
   // No stored accounts for this provider, fall back to the credential the
@@ -327,7 +268,7 @@ export async function dispatchQualifiedRoute(input: QualifiedDispatchInput): Pro
       clearAccountCooldown(accountId);
       accountModelFailures.delete(accountModelFailureKey(accountId, target.modelId));
     }
-    return { kind: "result", result: outcome.result, proxyPoolName: outcome.proxyPoolName };
+    return { kind: "result", result: outcome.result, accountLabel: "accountName" in credential ? credential.accountName : undefined };
   } catch (err) {
     const status = extractStatus(err);
     const isCredentialFailure = status === 401 || status === 403;
@@ -347,10 +288,12 @@ export async function dispatchQualifiedRoute(input: QualifiedDispatchInput): Pro
     if (isCredentialFailure && "accountId" in credential && credential.accountId) {
       const nextCredential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId);
       if (nextCredential && "accountId" in nextCredential && nextCredential.accountId !== credential.accountId) {
+        const oldLabel = "accountName" in credential ? credential.accountName : undefined;
+        if (oldLabel) pushConsoleLog("warn", "request", `\u26a0\ufe0f FALLBACK \u21c4 ACC:${oldLabel} UNAVAILABLE (${status ?? "?"}) \u2192 NEXT ACCOUNT`);
         try {
           const outcome = await dispatchWithImageFallback(providerRegistry, { target, request: providerRequest, credential: nextCredential }, input.request.signal);
           clearAccountCooldown(nextCredential.accountId);
-          return { kind: "result", result: outcome.result, proxyPoolName: outcome.proxyPoolName };
+          return { kind: "result", result: outcome.result, accountLabel: "accountName" in nextCredential ? nextCredential.accountName : undefined };
         } catch {
           // Continue to combo failover after the next stored account also fails.
         }
@@ -395,7 +338,7 @@ async function tryComboFailover(
     try {
       const outcome = await dispatchWithImageFallback(providerRegistry, { target, request: providerRequest, credential }, input.request.signal);
       if ("accountId" in credential && credential.accountId) clearAccountCooldown(credential.accountId as string);
-      return { kind: "result", result: outcome.result, proxyPoolName: outcome.proxyPoolName };
+      return { kind: "result", result: outcome.result, accountLabel: "accountName" in credential ? credential.accountName : undefined };
     } catch {
       // This candidate also failed, try next
       continue;

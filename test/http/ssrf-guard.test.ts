@@ -124,19 +124,3 @@ describe("validatePublicUrl", () => {
   });
 });
 
-describe("SSRF integration with proxy pools", () => {
-  test("parseProxyUrl rejects private IPs", async () => {
-    const { parseProxyUrl } = await import("../../src/console/db/repos/proxy-pools");
-    expect(parseProxyUrl("http://10.0.0.1:8080")).toBeNull();
-    expect(parseProxyUrl("http://localhost:3128")).toBeNull();
-    expect(parseProxyUrl("http://169.254.169.254:80")).toBeNull();
-    expect(parseProxyUrl("http://192.168.1.1:8080")).toBeNull();
-  });
-
-  test("parseProxyUrl accepts public URLs", async () => {
-    const { parseProxyUrl } = await import("../../src/console/db/repos/proxy-pools");
-    expect(parseProxyUrl("http://proxy.example.com:8080")).not.toBeNull();
-    expect(parseProxyUrl("https://secure-proxy.example.com:443")).not.toBeNull();
-    expect(parseProxyUrl("socks5://proxy.example.com:1080")).not.toBeNull();
-  });
-});

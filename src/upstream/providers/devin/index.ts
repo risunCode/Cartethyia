@@ -31,8 +31,7 @@ class DevinProvider implements Provider {
     target: RouteTarget,
     request: ProviderRequest,
     credential: ResolvedCredential,
-    signal: AbortSignal,
-    proxy?: string
+    signal: AbortSignal
   ): Promise<ProviderResult> {
     if (credential.kind !== "devin-session") {
       throw new ProviderCallError(401, "authentication", "A Devin session credential is required.");
@@ -51,7 +50,6 @@ class DevinProvider implements Provider {
       headers: upstreamRequest.headers,
       body: upstreamRequest.body,
       signal,
-      ...(proxy ? { proxy } : {}),
     });
 
     if (!res.ok) {

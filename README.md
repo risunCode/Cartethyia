@@ -2,7 +2,7 @@
 
 Cartethyia is a Bun + Elysia AI proxy with an authenticated console. It exposes OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages while routing models to managed provider accounts, custom compatible providers, aliases, and combos.
 
-**Current release: `1.0.2-alpha`** - feature-complete alpha for local and self-hosted testing. Review the [changelog](./CHANGELOG.md) for the release scope and known alpha-level caveats.
+**Current release: `1.0.4-alpha`** - feature-complete alpha for local and self-hosted testing. Review the [changelog](./CHANGELOG.md) for the release scope and known alpha-level caveats.
 
 ## Features
 
@@ -52,29 +52,7 @@ curl http://localhost:12800/v1/chat/completions \
   -H "authorization: Bearer $CARTETHYIA_API_KEY" \
   -d '{"model":"foc/big-pickle","messages":[{"role":"user","content":"Hello"}]}'
 ```
-
-## Qualified provider prefixes
-
-| Provider | Prefix |
-| --- | --- |
-| OpenCode Free | `foc/` |
-| OpenCode Zen | `opencodezen/` |
-| Command Code | `cmd/` |
-| Kimchi | `kimchi/` |
-| Devin | `devin/` |
-| Qoder | `qoder/` |
-| Cursor | `cursor/` |
-| OpenAI | `openai/` |
-| Anthropic | `anthropic/` |
-| Xiaomi MiMo PAYG | `pmimo/` |
-| OpenRouter | `openrouter/` |
-| Ollama | `ollama/` |
-| Cerebras | `cerebras/` |
-| DeepSeek | `deepseek/` |
-| SiliconFlow | `siliconflow/` |
-| Mistral | `mistral/` |
-| OpenCode Go | `opencodego/` |
-| Custom compatible provider | `<its own slug>/` — no `custom/` wrapper, e.g. `awok/gpt-4o-mini` |
+ 
 
 ## Configuration
 
@@ -97,9 +75,7 @@ Copy `.env.example` for local development. For production, configure secrets in 
 | `CONSOLE_PATH` | No | URL prefix for the console; defaults to `/console`. |
 | `CONSOLE_ENABLED` | No | Disable the console entirely by setting `false`. |
 | `CONSOLE_SESSION_TTL_HOURS` | No | Console session lifetime in hours; defaults to `12`. |
-| `RTK_ENABLED` | No | Enable request token compression; defaults to `false`. |
-| `RTK_MIN_CHARS` | No | Minimum content length to compress; defaults to `1500`. |
-| `RTK_MAX_REDUCTION_PERCENT` | No | Maximum token reduction allowed; defaults to `35`. |
+
 | `LOG_RETENTION_DAYS` | No | Days to keep JSONL request logs; defaults to `14`. |
 | `ASSET_RETENTION_DAYS` | No | Days to keep tracked assets; defaults to `7`. |
 | `TRACK_PAYLOADS` | No | `none`, `meta`, or `store` — request payload tracking level; defaults to `store`. |

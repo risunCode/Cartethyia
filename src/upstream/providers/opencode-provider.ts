@@ -76,7 +76,6 @@ class OpenCodeProvider implements Provider {
     request: ProviderRequest,
     credential: ResolvedCredential,
     signal: AbortSignal,
-    proxy?: string,
   ): Promise<ProviderResult> {
     this.cfg.validateCredential?.(credential);
 
@@ -117,7 +116,6 @@ class OpenCodeProvider implements Provider {
       },
       body,
       signal,
-      proxy,
       providerLabel: this.cfg.name,
       isStreaming: (body as Record<string, unknown>).stream === true,
       decodeStream: capability === "chat" ? decodeOpenAIChatStream : decodeAnthropicStream,

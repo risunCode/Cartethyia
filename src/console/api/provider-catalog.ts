@@ -18,10 +18,10 @@ import { isProviderId, prefixOf, accountCredentialKindOf } from "../../routing/p
 import { buildProviderOverview } from "./overview";
 import { addAuditEvent } from "../db/repos/audit";
 import { pushConsoleLog } from "../logs/ring";
+import { formatRequestLogLine } from "../tracking/tracker";
 import { listAccounts, listActiveAccountCredentials, getAccount, RESOLVED_KIND_BY_ACCOUNT_KIND, type CredentialKind } from "../db/repos/accounts";
 import { resolveCredentialForDispatch } from "../../upstream/dispatch";
-import { getProviderRouting, upsertProviderRouting, type ProxyMode, type RoutingStrategy } from "../db/repos/routing";
-import { getDb } from "../db/client";
+import { getProviderRouting, upsertProviderRouting, type RoutingStrategy } from "../db/repos/routing";
 import { appendJsonl, insertUsageHistory, utcNow } from "../db/repos/usage";
 import { extractUsage } from "../tracking/usage-extractor";
 import { deleteProviderModel, isProviderModelEnabled, listProviderModelStates, setAllKnownProviderModels, setProviderModelEnabled, upsertProviderModel } from "../db/repos/provider-models";
@@ -42,35 +42,6 @@ async function collectSample(result: ProviderResult): Promise<string> {
   }
   // Fall back to reasoning output if no visible text was emitted.
   return sample || thinking.slice(0, 400);
-}
-
-/**
- * Model-test console log lines now match the same shape real proxy traffic
- * gets (see console/tracking/tracker.ts) instead of their own separate,
- * terser "<provider>/<model> failed in Nms: <message>" format — same
- * success glyph, endpoint, status, and duration, plus the real upstream
- * error text on failure (never a generic "<Provider> rejected this
- * request." wrapper) instead of a canned message.
- */
-function formatModelTestLogLine(args: {
-  provider: string;
-  model: string;
-  status: number;
-  latencyMs: number;
-  usage?: { inputTokens: number | null; outputTokens: number | null; cachedTokens?: number | null; reasoningTokens?: number | null };
-  message?: string;
-}): string {
-  const parts = [`${args.status < 400 ? "\u2713" : "\u2717"} /console/provider-test ${args.provider}/${args.model} via ${args.provider} \u2192 ${args.status}`, `${args.latencyMs}ms`, "direct"];
-  if (args.usage) {
-    const tok: string[] = [];
-    if (args.usage.inputTokens) tok.push(`in:${args.usage.inputTokens}`);
-    if (args.usage.outputTokens) tok.push(`out:${args.usage.outputTokens}`);
-    if (args.usage.cachedTokens) tok.push(`cached:${args.usage.cachedTokens}`);
-    if (args.usage.reasoningTokens) tok.push(`reason:${args.usage.reasoningTokens}`);
-    if (tok.length > 0) parts.push(tok.join(" "));
-  }
-  if (args.message) parts.push(args.message);
-  return parts.join(" \u00b7 ");
 }
 
 const MODEL_ENDPOINTS: Partial<Record<AddedProviderId, string>> = {
@@ -177,8 +148,6 @@ export const providerCatalogRoutes = new Elysia({ prefix: "/console/api" })
       routing: {
         strategy: routing.strategy,
         stickyLimit: routing.stickyLimit,
-        proxyMode: routing.proxyMode,
-        proxyPoolId: routing.proxyPoolId,
       },
       accounts: listAccounts(params.id),
     };
@@ -291,14 +260,14 @@ export const providerCatalogRoutes = new Elysia({ prefix: "/console/api" })
         meta: { kind: "provider-test", accountId: input.accountId ?? null },
       });
       appendJsonl("requests", { traceId, endpoint: "/console/provider-test", provider: params.id, model: modelId, status: 200, durationMs: latencyMs, usage: usage ?? null });
-      pushConsoleLog("info", "request", formatModelTestLogLine({ provider: params.id, model: modelId, status: 200, latencyMs, usage }));
+      pushConsoleLog("info", "request", formatRequestLogLine({ model: `${params.id}/${modelId}`, provider: params.id, status: 200, durationMs: latencyMs, usage: usage ?? undefined }));
       addAuditEvent("provider.model_test", { provider: params.id, model: modelId, mode: input.mode, ok: true, latencyMs });
       return { resolveOk: true, latencyMs, ok: true, sample: sample || undefined };
     } catch (err) {
       const latencyMs = Math.round(performance.now() - started);
       const message = err instanceof Error ? err.message : String(err);
       const status = extractStatus(err) ?? 502;
-      pushConsoleLog(status >= 500 ? "error" : "warn", "request", formatModelTestLogLine({ provider: params.id, model: modelId, status, latencyMs, message }));
+      pushConsoleLog(status >= 500 ? "error" : "warn", "request", formatRequestLogLine({ model: `${params.id}/${modelId}`, provider: params.id, status, durationMs: latencyMs, errorMessage: message }));
       addAuditEvent("provider.model_test", { provider: params.id, model: modelId, mode: input.mode, ok: false, error: message });
       return { resolveOk: true, latencyMs, ok: false, error: message };
     }
@@ -394,8 +363,6 @@ export const providerCatalogRoutes = new Elysia({ prefix: "/console/api" })
     const input = (body ?? {}) as {
       strategy?: string;
       stickyLimit?: number;
-      proxyMode?: string;
-      proxyPoolId?: string | null;
     };
     if (input.strategy !== undefined && input.strategy !== "priority" && input.strategy !== "round-robin") {
       set.status = 400;
@@ -405,28 +372,10 @@ export const providerCatalogRoutes = new Elysia({ prefix: "/console/api" })
       set.status = 400;
       return consoleError("invalid_request", "stickyLimit must be a non-negative integer");
     }
-    if (input.proxyMode !== undefined && !["direct", "proxy-pool", "mixed"].includes(input.proxyMode)) {
-      set.status = 400;
-      return consoleError("invalid_request", "proxyMode must be 'direct', 'proxy-pool' or 'mixed'");
-    }
-    if (input.proxyMode === "proxy-pool" || input.proxyMode === "mixed") {
-      const poolId = input.proxyPoolId ?? getProviderRouting(params.id).proxyPoolId;
-      if (!poolId) {
-        set.status = 400;
-        return consoleError("invalid_request", "proxyPoolId is required when proxyMode uses a pool");
-      }
-      const pool = getDb().query("SELECT id FROM proxy_pools WHERE id = ?").get(poolId);
-      if (!pool) {
-        set.status = 400;
-        return consoleError("invalid_request", "proxy pool not found");
-      }
-    }
     const next = upsertProviderRouting(params.id, {
       strategy: input.strategy as RoutingStrategy | undefined,
       stickyLimit: input.stickyLimit,
-      proxyMode: input.proxyMode as ProxyMode | undefined,
-      proxyPoolId: input.proxyPoolId === undefined ? undefined : (input.proxyPoolId ?? null),
     });
-    addAuditEvent("provider.routing", { provider: params.id, strategy: next.strategy, stickyLimit: next.stickyLimit, proxyMode: next.proxyMode, proxyPoolId: next.proxyPoolId });
+    addAuditEvent("provider.routing", { provider: params.id, strategy: next.strategy, stickyLimit: next.stickyLimit });
     return { ok: true, routing: next };
   });

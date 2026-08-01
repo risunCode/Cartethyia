@@ -18,15 +18,13 @@ const TABLE_COLUMNS: Record<BackupTable, string[]> = {
   ],
   model_aliases: ["alias", "model", "created_at"],
   combos: ["id", "name", "models_json", "strategy", "sticky_limit", "created_at", "updated_at"],
-  proxy_pools: ["id", "name", "entries_json", "no_proxy", "strict_proxy", "platform", "created_at", "updated_at"],
   access_rules: ["scope", "mode", "entries_json", "updated_at"],
-  provider_routing: ["provider", "strategy", "sticky_limit", "proxy_mode", "proxy_pool_id", "updated_at"],
+  provider_routing: ["provider", "strategy", "sticky_limit", "updated_at"],
   provider_accounts: [
     "id", "provider", "name", "credential_kind", "credential", "credential_hint",
-    "proxy_pool_id", "use_direct", "priority", "active", "cooldown_until", "cooldown_level", "created_at", "updated_at",
+    "priority", "active", "cooldown_until", "cooldown_level", "created_at", "updated_at",
   ],
   filter_rules: ["id", "provider", "mode", "patterns_json", "created_at", "updated_at"],
-  sanitizer_rules: ["id", "rule_id", "pattern", "replacement", "is_active", "is_regex", "sort_order", "created_at", "updated_at"],
   custom_providers: ["id", "slug", "name", "type", "base_url", "credential", "timeout_seconds", "models_json", "headers_json", "created_at", "updated_at"],
 };
 
@@ -34,8 +32,8 @@ const KNOWN_TABLES = new Set<string>(CONFIG_TABLES);
 
 /** Delete dependent configuration before its providers, then restore in reverse. */
 const DELETE_ORDER: BackupTable[] = [
-  "provider_accounts", "provider_routing", "filter_rules", "sanitizer_rules", "custom_providers", "access_rules",
-  "proxy_pools", "combos", "model_aliases", "api_keys", "settings",
+  "provider_accounts", "provider_routing", "filter_rules", "custom_providers", "access_rules",
+  "combos", "model_aliases", "api_keys", "settings",
 ];
 const INSERT_ORDER: BackupTable[] = [...DELETE_ORDER].reverse();
 

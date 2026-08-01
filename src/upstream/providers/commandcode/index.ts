@@ -35,8 +35,7 @@ class CommandCodeProvider implements Provider {
     target: RouteTarget,
     request: ProviderRequest,
     credential: ResolvedCredential,
-    signal: AbortSignal,
-    proxy?: string
+    signal: AbortSignal
   ): Promise<ProviderResult> {
     if (credential.kind !== "provider-bearer") {
       throw new ProviderCallError(401, "authentication", "A Command Code bearer credential is required.");
@@ -57,7 +56,6 @@ class CommandCodeProvider implements Provider {
         headers,
         body: upstreamBody,
         signal,
-        proxy,
         providerLabel: "Command Code",
         isStreaming: !!chatBody.stream,
         decodeStream: decodeCommandCodeNdjsonStream,

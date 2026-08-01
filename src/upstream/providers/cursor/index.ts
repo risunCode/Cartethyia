@@ -30,7 +30,7 @@ class CursorProvider implements Provider {
     return { provider: "cursor", modelId, surface: "openai-chat", credential: "provider-bearer", weight: 1 };
   }
 
-  async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal, proxy?: string): Promise<ProviderResult> {
+  async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal): Promise<ProviderResult> {
     if (request.surface !== "openai-chat") {
       throw new ProviderCallError(400, "invalid_request", "Cursor CLI currently supports the OpenAI Chat shape.");
     }

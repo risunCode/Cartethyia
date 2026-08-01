@@ -21,7 +21,6 @@ import {
   deleteAccount,
   type CredentialKind,
 } from "../db/repos/accounts";
-import { getDb } from "../db/client";
 
 export const providerAccountsRoutes = new Elysia({ prefix: "/console/api" })
   .get("/providers/:id/accounts", ({ params, query, set }) => {
@@ -84,8 +83,6 @@ export const providerAccountsRoutes = new Elysia({ prefix: "/console/api" })
       name?: string;
       credentialKind?: string;
       credential?: string;
-      proxyPoolId?: string | null;
-      useDirect?: boolean;
       priority?: number;
       active?: boolean;
     };
@@ -103,21 +100,12 @@ export const providerAccountsRoutes = new Elysia({ prefix: "/console/api" })
       set.status = 400;
       return consoleError("invalid_request", `provider ${params.id} expects credential kind '${expectedKind}'`);
     }
-    if (input.proxyPoolId) {
-      const pool = getDb().query("SELECT id FROM proxy_pools WHERE id = ?").get(input.proxyPoolId);
-      if (!pool) {
-        set.status = 400;
-        return consoleError("invalid_request", "proxy pool not found");
-      }
-    }
     try {
       const created = await createAccount({
         provider: params.id,
         name: input.name.trim(),
         credentialKind,
         credential: input.credential,
-        proxyPoolId: input.proxyPoolId ?? null,
-        useDirect: input.useDirect,
         priority: input.priority,
         active: input.active,
       });
@@ -147,8 +135,6 @@ export const providerAccountsRoutes = new Elysia({ prefix: "/console/api" })
     const input = (body ?? {}) as {
       name?: string;
       credential?: string;
-      proxyPoolId?: string | null;
-      useDirect?: boolean;
       priority?: number;
       active?: boolean;
     };
@@ -160,19 +146,10 @@ export const providerAccountsRoutes = new Elysia({ prefix: "/console/api" })
       set.status = 400;
       return consoleError("invalid_request", "priority must be between 0 and 1000");
     }
-    if (input.proxyPoolId) {
-      const pool = getDb().query("SELECT id FROM proxy_pools WHERE id = ?").get(input.proxyPoolId);
-      if (!pool) {
-        set.status = 400;
-        return consoleError("invalid_request", "proxy pool not found");
-      }
-    }
     try {
       await patchAccount(params.accountId, {
         name: input.name?.trim(),
         credential: input.credential,
-        proxyPoolId: input.proxyPoolId === undefined ? undefined : (input.proxyPoolId ?? null),
-        useDirect: input.useDirect,
         priority: input.priority,
         active: input.active,
       });

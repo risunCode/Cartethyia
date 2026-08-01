@@ -73,7 +73,7 @@ class AgentRouterProvider implements Provider {
     return { provider: "agentrouter", modelId, surface: "openai-chat", credential: "provider-bearer", weight: 1 };
   }
 
-  async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal, proxy?: string): Promise<ProviderResult> {
+  async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal): Promise<ProviderResult> {
     if (request.surface !== "openai-chat") throw new ProviderCallError(400, "invalid_request", "AgentRouter currently supports the OpenAI Chat shape.");
     if (!credential.value) throw new ProviderCallError(401, "authentication", "AgentRouter requires an API key.");
 
@@ -86,7 +86,6 @@ class AgentRouterProvider implements Provider {
       headers: buildHeaders(credential.value, isStreaming),
       body: anthropicReq,
       signal,
-      proxy,
       providerLabel: "AgentRouter",
       isStreaming,
       decodeStream: decodeAnthropicStream,

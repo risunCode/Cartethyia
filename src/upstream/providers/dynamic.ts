@@ -39,7 +39,7 @@ function withTimeout(signal: AbortSignal, timeoutSeconds: number): AbortSignal {
   return AbortSignal.any([signal, AbortSignal.timeout(timeoutSeconds * 1000)]);
 }
 
-async function callOpenAICompatible(record: CustomProviderRecord, model: string, body: Record<string, unknown>, signal: AbortSignal, proxy: string | undefined): Promise<ProviderResult> {
+async function callOpenAICompatible(record: CustomProviderRecord, model: string, body: Record<string, unknown>, signal: AbortSignal): Promise<ProviderResult> {
   const outboundBody: Record<string, unknown> = { ...body, model };
 
   return callSimpleProvider({
@@ -49,7 +49,6 @@ async function callOpenAICompatible(record: CustomProviderRecord, model: string,
     headers: { authorization: `Bearer ${record.credential}`, "content-type": "application/json", ...record.customHeaders },
     body: outboundBody,
     signal: withTimeout(signal, record.timeoutSeconds),
-    proxy,
     providerLabel: `Custom provider "${record.name}"`,
     isStreaming: outboundBody.stream === true,
     decodeStream: decodeOpenAIChatStream,
@@ -57,7 +56,7 @@ async function callOpenAICompatible(record: CustomProviderRecord, model: string,
   });
 }
 
-async function callAnthropicCompatible(record: CustomProviderRecord, model: string, body: Record<string, unknown>, signal: AbortSignal, proxy: string | undefined): Promise<ProviderResult> {
+async function callAnthropicCompatible(record: CustomProviderRecord, model: string, body: Record<string, unknown>, signal: AbortSignal): Promise<ProviderResult> {
   const anthropicReq = translateChatRequestToAnthropic({ ...body, model } as OpenAIChatRequest);
 
   return callSimpleProvider({
@@ -65,7 +64,6 @@ async function callAnthropicCompatible(record: CustomProviderRecord, model: stri
     headers: { "x-api-key": record.credential, "anthropic-version": "2023-06-01", "content-type": "application/json", ...record.customHeaders },
     body: anthropicReq,
     signal: withTimeout(signal, record.timeoutSeconds),
-    proxy,
     providerLabel: `Custom provider "${record.name}"`,
     isStreaming: anthropicReq.stream === true,
     decodeStream: decodeAnthropicStream,
@@ -96,7 +94,7 @@ class DynamicProviderRouter implements Provider {
     return { provider: "custom", modelId, surface: "openai-chat", credential: "none", weight: 1 };
   }
 
-  async call(target: RouteTarget, request: ProviderRequest, _credential: ResolvedCredential, signal: AbortSignal, proxy?: string): Promise<ProviderResult> {
+  async call(target: RouteTarget, request: ProviderRequest, _credential: ResolvedCredential, signal: AbortSignal): Promise<ProviderResult> {
     if (request.surface !== "openai-chat") {
       throw new ProviderCallError(400, "invalid_request", "Custom providers currently support the OpenAI Chat shape.");
     }
@@ -107,11 +105,11 @@ class DynamicProviderRouter implements Provider {
     if (!record) throw new ProviderCallError(404, "invalid_request", `Custom provider "${split.slug}" no longer exists.`);
 
     return record.type === "anthropic-compatible"
-      ? callAnthropicCompatible(record, split.model, request.body, signal, proxy)
-      : callOpenAICompatible(record, split.model, request.body, signal, proxy);
+      ? callAnthropicCompatible(record, split.model, request.body, signal)
+      : callOpenAICompatible(record, split.model, request.body, signal);
   }
 
-  async countTokens(target: RouteTarget, body: Record<string, unknown>, _credential: ResolvedCredential, signal: AbortSignal, proxy?: string): Promise<{ inputTokens: number }> {
+  async countTokens(target: RouteTarget, body: Record<string, unknown>, _credential: ResolvedCredential, signal: AbortSignal): Promise<{ inputTokens: number }> {
     const split = splitSlugModel(target.modelId);
     if (!split) throw new ProviderCallError(400, "invalid_request", "Custom provider model must be qualified as <slug>/<model>.");
 
@@ -129,7 +127,6 @@ class DynamicProviderRouter implements Provider {
       headers: { "x-api-key": record.credential, "anthropic-version": "2023-06-01", "content-type": "application/json", ...record.customHeaders },
       body: outbound,
       signal: withTimeout(signal, record.timeoutSeconds),
-      proxy,
       providerLabel: `Custom provider "${record.name}"`,
       isStreaming: false,
       decodeStream: decodeAnthropicStream,

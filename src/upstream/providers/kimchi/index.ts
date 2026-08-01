@@ -32,8 +32,7 @@ class KimchiProvider implements Provider {
     target: RouteTarget,
     request: ProviderRequest,
     credential: ResolvedCredential,
-    signal: AbortSignal,
-    proxy?: string
+    signal: AbortSignal
   ): Promise<ProviderResult> {
     if (credential.kind !== "provider-bearer") {
       throw new ProviderCallError(401, "authentication", "A Kimchi bearer credential is required.");
@@ -55,7 +54,6 @@ class KimchiProvider implements Provider {
       },
       body,
       signal,
-      proxy,
       providerLabel: "Kimchi",
       isStreaming: (body as Record<string, unknown>).stream === true,
       decodeStream: decodeOpenAIChatStream,

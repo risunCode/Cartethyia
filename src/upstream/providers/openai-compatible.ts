@@ -52,7 +52,7 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleProviderC
       if (!models.resolve(modelId)) return undefined;
       return { provider: config.id, modelId, surface: "openai-chat", credential: "provider-bearer", weight: 1 };
     },
-    async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal, proxy?: string): Promise<ProviderResult> {
+    async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal): Promise<ProviderResult> {
       if (request.surface !== "openai-chat") throw new ProviderCallError(400, "invalid_request", `${config.name} supports the OpenAI Chat shape.`);
       if (!credential.value) throw new ProviderCallError(401, "authentication", `${config.name} requires an API key.`);
 
@@ -65,7 +65,6 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleProviderC
         headers: { authorization: `Bearer ${credential.value}`, "content-type": "application/json" },
         body,
         signal,
-        proxy,
         providerLabel: config.name,
         isStreaming: body.stream === true,
         decodeStream: decodeOpenAIChatStream,

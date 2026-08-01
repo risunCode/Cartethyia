@@ -23,8 +23,6 @@ window.setTimeout(() => {
     import("./features/providers/custom-detail"),
     import("./features/providers/detail"),
     import("./features/combos/page"),
-    import("./features/proxy-pools/page"),
-    import("./features/filter-rules/page"),
     import("./features/console-log/page"),
     import("./features/settings/page"),
   ]);

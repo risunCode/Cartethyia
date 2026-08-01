@@ -1,9 +1,9 @@
 /**
- * Regression tests for console-configured RTK / system-prompt reaching the
+ * Regression tests for the console-configured system prompt reaching the
  * live dispatch hot path. Prior to the fix, the console Settings API wrote
  * to `settings_json` (DB) but `dispatchQualifiedRoute`/`runEmulatedCompact`
- * read the boot-frozen `config.transforms` object, so toggling either
- * setting in the UI had no effect on outbound requests.
+ * read the boot-frozen `config.transforms` object, so toggling the setting
+ * in the UI had no effect on outbound requests.
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
@@ -93,50 +93,6 @@ function sentMessages(chatInit: RequestInit | undefined): SentMessage[] {
 }
 
 describe("console runtime settings reach the live dispatch path", () => {
-  test("enabling RTK via the settings API compresses a qualifying tool result on the next dispatch", async () => {
-    const cookie = await loginAndGetCookie();
-    const rtkRes = await app.handle(
-      postJson("/console/api/overview/rtk", { enabled: true, minChars: 10, maxReductionPercent: 90 }, { cookie })
-    );
-    expect(rtkRes.status).toBe(200);
-
-    fetchSpy.mockResolvedValueOnce(chatResponse("ok"));
-
-    const gitStatusOutput = ["On branch main", ...Array.from({ length: 80 }, (_, index) => ` M src/file-${index}.ts`)].join("\n");
-    const res = await postChat({
-      model: "kimchi/kimi-k2.7",
-      messages: [{ role: "tool", tool_call_id: "t1", content: gitStatusOutput }],
-    });
-    expect(res.status).toBe(200);
-
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [, chatInit] = fetchSpy.mock.calls[0]!;
-    const toolMessage = sentMessages(chatInit).find((m) => m.role === "tool");
-    expect(toolMessage?.content.length).toBeLessThan(gitStatusOutput.length);
-    expect(toolMessage?.content).toContain("~ Modified: 80 files");
-  });
-
-  test("leaves tool output untouched when RTK is explicitly disabled via the settings API", async () => {
-    const cookie = await loginAndGetCookie();
-    const rtkRes = await app.handle(
-      postJson("/console/api/overview/rtk", { enabled: false }, { cookie })
-    );
-    expect(rtkRes.status).toBe(200);
-
-    fetchSpy.mockResolvedValueOnce(chatResponse("ok"));
-
-    const gitStatusOutput = ["On branch main", ...Array.from({ length: 80 }, (_, index) => ` M src/file-${index}.ts`)].join("\n");
-    const res = await postChat({
-      model: "kimchi/kimi-k2.7",
-      messages: [{ role: "tool", tool_call_id: "t1", content: gitStatusOutput }],
-    });
-    expect(res.status).toBe(200);
-
-    const [, chatInit] = fetchSpy.mock.calls[0]!;
-    const toolMessage = sentMessages(chatInit).find((m) => m.role === "tool");
-    expect(toolMessage?.content).toBe(gitStatusOutput);
-  });
-
   test("setting a system-prompt override via the settings API injects it into the next dispatch", async () => {
     const cookie = await loginAndGetCookie();
     const patchRes = await app.handle(postJson("/console/api/settings", { systemPrompt: "ALWAYS SIGN OFF WITH A FLOWER" }, { cookie }));

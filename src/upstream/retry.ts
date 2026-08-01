@@ -108,14 +108,9 @@ export function calculateBackoff(attempt: number, config: RetryConfig = DEFAULT_
  * @param config - Retry configuration
  * @param onRetry - Optional callback before each retry (for logging)
  * @param shouldRetry - Optional override for the retry decision, called
- *   instead of `isRetryableError`. Used by dispatch's proxy-pool rotation:
- *   a status like 400 from one specific proxy candidate (e.g. an edge/CDN
- *   gateway flagging that proxy's IP with a generic "Bad request" page,
- *   not the upstream API's own validation) isn't retryable against the
- *   SAME target, but trying the NEXT proxy candidate in the pool is a
- *   completely different question and should still happen - a bare status
- *   check has no way to express that distinction, only the caller knows
- *   how many pool candidates remain unvisited.
+ *   instead of `isRetryableError`. Defaults to the status/error-shape based
+ *   check; pass an override when a caller has extra context a bare status
+ *   check can't express (e.g. how many equivalent candidates remain to try).
  * @returns The result of the operation
  * @throws The last error if all retries are exhausted
  */

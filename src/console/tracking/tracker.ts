@@ -36,19 +36,19 @@ interface FinishInput {
   body?: unknown;
   usage?: UsageTotals;
   errorKind?: string;
+  errorMessage?: string;
   requestBody?: unknown;
+  accountLabel?: string;
 }
 
 export interface RequestTracker {
   readonly traceId: string;
   /** Records a completed non-stream request; returns the body for the route to send. */
-  finishJson(status: number, body: unknown, provider: string | undefined, requestBody: unknown): unknown;
+  finishJson(status: number, body: unknown, provider: string | undefined, requestBody: unknown, accountLabel?: string): unknown;
   /** Wraps an SSE byte stream; usage is captured from the terminal frames. */
-  wrapSse(stream: ReadableStream<Uint8Array>, provider: string | undefined, requestBody: unknown): ReadableStream<Uint8Array>;
+  wrapSse(stream: ReadableStream<Uint8Array>, provider: string | undefined, requestBody: unknown, accountLabel?: string): ReadableStream<Uint8Array>;
   /** Records a failed request (no body available). */
-  fail(status: number, kind: string, requestBody?: unknown): void;
-  /** Sets the proxy pool name used for this request (for logging). */
-  setProxyPool(name: string): void;
+  fail(status: number, kind: string, requestBody?: unknown, errorMessage?: string): void;
 }
 
 /** Best-effort provider label for a bare (unqualified) model name that never resolves through the registry — log/usage display only, never used to route or dispatch a request. */
@@ -63,6 +63,46 @@ export function providerForModel(model: string | undefined): string | undefined 
   return guessProviderLabel(model);
 }
 
+/**
+ * Single glyph-first console log line, shared by every request source (proxy
+ * `/v1/*` traffic, Model Studio, and the console's provider Test Connection
+ * probe) so a request looks the same regardless of where it came from.
+ */
+export function formatRequestLogLine(args: {
+  model: string | undefined;
+  provider: string | undefined;
+  accountLabel?: string;
+  status: number;
+  durationMs: number;
+  stream?: boolean;
+  usage?: { inputTokens?: number | null; outputTokens?: number | null; cachedTokens?: number | null; reasoningTokens?: number | null };
+  toolNames?: string[];
+  messagePreview?: string;
+  errorMessage?: string;
+}): string {
+  const label = args.model ?? args.provider ?? "unknown";
+  const glyph = args.status < 400 ? "\u2705" : "\u274c";
+
+  if (args.status >= 400) {
+    return `${glyph} ${label} [${args.status}]${args.errorMessage ? `: ${args.errorMessage}` : ""}`;
+  }
+
+  const parts: string[] = [`${glyph} ${label}${args.provider ? ` via ${args.provider}` : ""} \u2192 ${args.status}`, `${args.durationMs}ms`];
+  if (args.accountLabel) parts.push(`ACC:${args.accountLabel}`);
+  if (args.stream) parts.push("stream");
+  if (args.usage) {
+    const tok: string[] = [];
+    if (args.usage.inputTokens) tok.push(`in:${args.usage.inputTokens}`);
+    if (args.usage.outputTokens) tok.push(`out:${args.usage.outputTokens}`);
+    if (args.usage.cachedTokens) tok.push(`cached:${args.usage.cachedTokens}`);
+    if (args.usage.reasoningTokens) tok.push(`reason:${args.usage.reasoningTokens}`);
+    if (tok.length > 0) parts.push(tok.join(" "));
+  }
+  if (args.toolNames && args.toolNames.length > 0) parts.push(`tools:${args.toolNames.join(",")}`);
+  if (args.messagePreview) parts.push(`msg:"${args.messagePreview}"`);
+  return parts.join(" \u00b7 ");
+}
+
 export function createRequestTracker(start: TrackerStartInput): RequestTracker {
   const traceId = crypto.randomUUID();
   const startedMs = Date.now();
@@ -71,13 +111,11 @@ export function createRequestTracker(start: TrackerStartInput): RequestTracker {
   let finished = false;
   incrementInFlight();
 
-  let proxyPoolName: string | undefined;
-
   const persist = (finish: FinishInput): void => {
     if (finished) return;
     finished = true;
     decrementInFlight();
-    void persistAsync(start, traceId, startedAt, startedMs, provider, proxyPoolName, finish).catch((err) => {
+    void persistAsync(start, traceId, startedAt, startedMs, provider, finish).catch((err) => {
       pushConsoleLog("error", "tracking", `persist failed: ${err instanceof Error ? err.message : String(err)}`);
     });
   };
@@ -85,12 +123,12 @@ export function createRequestTracker(start: TrackerStartInput): RequestTracker {
   return {
     traceId,
 
-    finishJson(status, body, providerOverride, requestBody) {
-      persist({ status, provider: providerOverride ?? provider, body, requestBody });
+    finishJson(status, body, providerOverride, requestBody, accountLabel) {
+      persist({ status, provider: providerOverride ?? provider, body, requestBody, accountLabel });
       return body;
     },
 
-    wrapSse(stream, providerOverride, requestBody) {
+    wrapSse(stream, providerOverride, requestBody, accountLabel) {
       const decoder = new TextDecoder();
       let sseText = "";
       const reader = stream.getReader();
@@ -101,7 +139,7 @@ export function createRequestTracker(start: TrackerStartInput): RequestTracker {
             controller.close();
             const usage = extractUsageFromSseText(start.surface, sseText);
             // Keep the redacted terminal SSE transcript as the completion stage for Request Detail.
-            persist({ status: 200, provider: providerOverride ?? provider, usage, body: sseText || undefined, requestBody });
+            persist({ status: 200, provider: providerOverride ?? provider, usage, body: sseText || undefined, requestBody, accountLabel });
             return;
           }
           sseText += decoder.decode(value, { stream: true });
@@ -110,17 +148,13 @@ export function createRequestTracker(start: TrackerStartInput): RequestTracker {
         },
         async cancel() {
           await reader.cancel();
-          persist({ status: 499, provider: providerOverride ?? provider, errorKind: "aborted", requestBody });
+          persist({ status: 499, provider: providerOverride ?? provider, errorKind: "aborted", requestBody, accountLabel });
         },
       });
     },
 
-    fail(status, kind, requestBody) {
-      persist({ status, errorKind: kind, requestBody });
-    },
-
-    setProxyPool(name) {
-      proxyPoolName = name;
+    fail(status, kind, requestBody, errorMessage) {
+      persist({ status, errorKind: kind, requestBody, errorMessage });
     },
   };
 }
@@ -131,7 +165,6 @@ async function persistAsync(
   startedAt: string,
   startedMs: number,
   provider: string | undefined,
-  proxyPoolName: string | undefined,
   finish: FinishInput
 ): Promise<void> {
   const runtime = getRuntimeSettings();
@@ -243,21 +276,20 @@ async function persistAsync(
   if (finish.status >= 400) appendJsonl("errors", { ...logRecord, tracking });
 
   const level = finish.status >= 500 ? "error" : finish.status >= 400 ? "warn" : "info";
-  const parts: string[] = [
-    `${finish.status < 400 ? "\u2713" : "\u2717"} ${start.endpoint} ${start.model ?? "unknown"} via ${finish.provider ?? provider ?? "unknown"} \u2192 ${finish.status}`,
-    `${durationMs}ms`,
-  ];
-  if (start.stream) parts.push("stream");
-  parts.push(proxyPoolName ? `proxy:${proxyPoolName}` : "direct");
-  if (usage) {
-    const tok: string[] = [];
-    if (usage.inputTokens) tok.push(`in:${usage.inputTokens}`);
-    if (usage.outputTokens) tok.push(`out:${usage.outputTokens}`);
-    if (usage.cachedTokens) tok.push(`cached:${usage.cachedTokens}`);
-    if (usage.reasoningTokens) tok.push(`reason:${usage.reasoningTokens}`);
-    if (tok.length > 0) parts.push(tok.join(" "));
-  }
-  if (toolCalls.length > 0) parts.push(`tools:${toolCalls.map((c) => c.name).join(",")}`);
-  if (messagePreview) parts.push(`msg:"${messagePreview}"`);
-  pushConsoleLog(level, "request", parts.join(" \u00b7 "));
+  pushConsoleLog(
+    level,
+    "request",
+    formatRequestLogLine({
+      model: start.model,
+      provider: finish.provider ?? provider,
+      accountLabel: finish.accountLabel,
+      status: finish.status,
+      durationMs,
+      stream: start.stream,
+      usage: usage ?? undefined,
+      toolNames: toolCalls.map((c) => c.name),
+      messagePreview,
+      errorMessage: finish.errorMessage,
+    })
+  );
 }

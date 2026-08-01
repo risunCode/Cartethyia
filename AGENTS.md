@@ -2,8 +2,7 @@
 
 ## Release status
 
-- Current release line: `1.0.3-alpha`.
-- Keep the root and dashboard package versions aligned with the current release line.
+- `package.json`'s `version` is the single source of truth for the release line; README surfaces it, nothing else restates it. Keep `dashboard/package.json` aligned with the root version.
 - Record user-visible changes in `CHANGELOG.md` under the matching version before a release is declared.
 - Alpha status means local/self-hosted testing is supported; avoid presenting the release as production-stable until the alpha caveats are cleared.
 

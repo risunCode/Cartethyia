@@ -33,7 +33,7 @@ class AnthropicProvider implements Provider {
     return { provider: "anthropic", modelId, surface: "openai-chat", credential: "provider-bearer", weight: 1 };
   }
 
-  async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal, proxy?: string): Promise<ProviderResult> {
+  async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal): Promise<ProviderResult> {
     if (request.surface !== "openai-chat") throw new ProviderCallError(400, "invalid_request", "Anthropic currently supports the OpenAI Chat shape.");
     if (!credential.value) throw new ProviderCallError(401, "authentication", "Anthropic requires an API key.");
 
@@ -48,7 +48,6 @@ class AnthropicProvider implements Provider {
       headers: { "x-api-key": credential.value, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json" },
       body: anthropicReq,
       signal,
-      proxy,
       providerLabel: "Anthropic",
       isStreaming: anthropicReq.stream === true,
       decodeStream: decodeAnthropicStream,
@@ -56,7 +55,7 @@ class AnthropicProvider implements Provider {
     });
   }
 
-  async countTokens(target: RouteTarget, body: Record<string, unknown>, credential: ResolvedCredential, signal: AbortSignal, proxy?: string): Promise<{ inputTokens: number }> {
+  async countTokens(target: RouteTarget, body: Record<string, unknown>, credential: ResolvedCredential, signal: AbortSignal): Promise<{ inputTokens: number }> {
     if (!credential.value) throw new ProviderCallError(401, "authentication", "Anthropic requires an API key.");
 
     // count_tokens is Anthropic's own native shape end to end - the caller
@@ -72,7 +71,6 @@ class AnthropicProvider implements Provider {
       headers: { "x-api-key": credential.value, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json" },
       body: outbound,
       signal,
-      proxy,
       providerLabel: "Anthropic",
       isStreaming: false,
       // count_tokens has no streaming variant - decodeStream is required by

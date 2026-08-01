@@ -61,8 +61,7 @@ export interface Provider {
     target: RouteTarget,
     request: ProviderRequest,
     credential: ResolvedCredential,
-    signal: AbortSignal,
-    proxy?: string
+    signal: AbortSignal
   ): Promise<ProviderResult>;
 
   /**
@@ -77,7 +76,6 @@ export interface Provider {
     target: RouteTarget,
     body: Record<string, unknown>,
     credential: ResolvedCredential,
-    signal: AbortSignal,
-    proxy?: string
+    signal: AbortSignal
   ): Promise<{ inputTokens: number }>;
 }

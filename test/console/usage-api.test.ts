@@ -157,7 +157,7 @@ describe("usage APIs", () => {
     expect(missing.status).toBe(404);
   });
 
-  test("overview returns totals, providers, rtk", async () => {
+  test("overview returns totals and providers", async () => {
     seedRows();
     const { status, body } = await getJson("/console/api/overview");
     expect(status).toBe(200);
@@ -165,6 +165,5 @@ describe("usage APIs", () => {
     expect(totals.requests).toBe(2);
     const providers = body.providers as { id: string }[];
     expect(providers.map((p) => p.id)).toContain("kimchi");
-    expect(body.rtk).toBeTruthy();
   });
 });

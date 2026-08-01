@@ -32,15 +32,6 @@ function deleteJson(path: string, cookie: string): Request {
   });
 }
 
-function seedProxyPool(name: string): string {
-  const id = crypto.randomUUID();
-  const now = new Date().toISOString();
-  getDb()
-    .query("INSERT INTO proxy_pools (id, name, entries_json, no_proxy, strict_proxy, created_at, updated_at) VALUES (?, ?, ?, '', 0, ?, ?)")
-    .run(id, name, JSON.stringify([{ url: "http://localhost:8080", scheme: "http" }]), now, now);
-  return id;
-}
-
 describe("persisted account availability", () => {
   test("keeps an account unavailable after reopening the database", async () => {
     const account = createAccount({ provider: "opencode-free", name: "cooling", credentialKind: "bearer", credential: "token" });
@@ -49,7 +40,7 @@ describe("persisted account availability", () => {
     closeDbForTests();
     resetCooldownForTests();
 
-    await expect(pickAccountForRotation("opencode-free", 0)).resolves.toBeNull();
+    await expect(pickAccountForRotation("opencode-free", "priority", 0)).resolves.toBeNull();
   });
 });
 
@@ -171,24 +162,6 @@ describe("provider accounts CRUD", () => {
     };
     expect(row.credential_hint).toBe("…-xyz");
     expect(row.credential).toBe("second-value-xyz");
-  });
-
-  test("proxyPoolId must reference an existing pool", async () => {
-    const cookie = await loginAndGetCookie();
-    const badPool = await app.handle(
-      postJson("/console/api/providers/commandcode/accounts", { name: "bad-pool", credential: "x", proxyPoolId: "ghost" }, { cookie })
-    );
-    expect(badPool.status).toBe(400);
-
-    const poolId = seedProxyPool("acct-pool");
-    const goodPool = await app.handle(
-      postJson("/console/api/providers/commandcode/accounts", { name: "good-pool", credential: "x", proxyPoolId: poolId }, { cookie })
-    );
-    expect(goodPool.status).toBe(201);
-
-    const listed = await app.handle(authed("/console/api/providers/commandcode/accounts", cookie));
-    const items = ((await listed.json()) as { items: { proxyPoolId: string | null }[] }).items;
-    expect(items[0]!.proxyPoolId).toBe(poolId);
   });
 });
 
