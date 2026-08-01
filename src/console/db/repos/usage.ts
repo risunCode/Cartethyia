@@ -2,11 +2,14 @@
  * Request/usage history - persisted in `runtime.sqlite` (see
  * `../runtime-client.ts`), a database file separate from the config db so
  * high-frequency traffic writes never contend with API key/provider/settings
- * reads and writes. Every query below runs directly against SQLite; there is
- * no in-memory cache and no JSONL file to hydrate or scan.
+ * reads and writes. Inserts go through `../runtime-write-buffer.ts` (batched
+ * commits); every read flushes that buffer first via `readRuntimeDb()` so a
+ * request is visible immediately after it's tracked, not after the next
+ * timed flush.
  */
 
 import { getRuntimeDb } from "../runtime-client";
+import { enqueueRuntimeWrite, readRuntimeDb } from "../runtime-write-buffer";
 import { orZero } from "../../../utils/number-guards";
 import { utcNow, utcDateOf, periodStartUtc, type UsagePeriod } from "../../../utils/date-utils";
 import { providerRegistry } from "../../../upstream/providers";
@@ -38,27 +41,51 @@ export interface UsageInsert {
   meta: Record<string, unknown>;
 }
 
+// request_history.id is assigned here (not left to AUTOINCREMENT) so
+// insertUsageHistory can return it synchronously without waiting for the
+// batched write to actually commit - request_details/tool_calls/assets need
+// it immediately to set their own foreign key. Seeded once per process from
+// the durable max id; safe because the seed only ever runs before this
+// process's first insert, when nothing is queued yet.
+let nextHistoryId: number | null = null;
+
+function allocateHistoryId(): number {
+  if (nextHistoryId === null) {
+    const row = getRuntimeDb().query("SELECT COALESCE(MAX(id), 0) AS maxId FROM request_history").get() as { maxId: number };
+    nextHistoryId = row.maxId + 1;
+  }
+  const id = nextHistoryId;
+  nextHistoryId += 1;
+  return id;
+}
+
 export function insertUsageHistory(row: UsageInsert): number {
-  const result = getRuntimeDb()
-    .query(
-      `INSERT INTO request_history (
-        trace_id, endpoint, surface, api_key_id, api_key_prefix, provider, model, status, error_kind,
-        stream, started_at, finished_at, duration_ms, input_tokens, output_tokens, cached_tokens,
-        cache_write_tokens, reasoning_tokens, total_tokens, usage_source, meta_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      row.traceId, row.endpoint, row.surface, row.apiKeyId, row.apiKeyPrefix, row.provider, row.model,
+  const id = allocateHistoryId();
+  enqueueRuntimeWrite(
+    `INSERT INTO request_history (
+      id, trace_id, endpoint, surface, api_key_id, api_key_prefix, provider, model, status, error_kind,
+      stream, started_at, finished_at, duration_ms, input_tokens, output_tokens, cached_tokens,
+      cache_write_tokens, reasoning_tokens, total_tokens, usage_source, meta_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id, row.traceId, row.endpoint, row.surface, row.apiKeyId, row.apiKeyPrefix, row.provider, row.model,
       row.status, row.errorKind, row.stream ? 1 : 0, row.startedAt, row.finishedAt, row.durationMs,
       row.inputTokens, row.outputTokens, row.cachedTokens, row.cacheWriteTokens, row.reasoningTokens,
       row.totalTokens, row.usageSource, JSON.stringify(row.meta ?? {}),
-    );
-  return Number(result.lastInsertRowid);
+    ],
+  );
+  if (row.apiKeyId) recordKeyTokenUsage(row.apiKeyId, orZero(row.inputTokens) + orZero(row.outputTokens));
+  return id;
 }
 
 /** Deletes request-history rows older than a "YYYY-MM-DD" cutoff (retention). Returns the row count removed. */
 export function deleteRequestHistoryOlderThan(cutoffDate: string): number {
-  return getRuntimeDb().query("DELETE FROM request_history WHERE started_at < ?").run(cutoffDate).changes;
+  return readRuntimeDb().query("DELETE FROM request_history WHERE started_at < ?").run(cutoffDate).changes;
+}
+
+/** Test-only: re-derive the id sequence from the (possibly freshly isolated) db. */
+export function resetHistoryIdAllocatorForTests(): void {
+  nextHistoryId = null;
 }
 
 export interface UsageSummary {
@@ -80,7 +107,7 @@ interface UsageSummaryRow {
 }
 
 export function queryUsageSummary(period: UsagePeriod): UsageSummary {
-  const row = getRuntimeDb()
+  const row = readRuntimeDb()
     .query(
       `SELECT
         COUNT(*) AS requests,
@@ -121,7 +148,7 @@ interface CostRow {
  * estimate across every request regardless of which model served it.
  */
 export function queryUsageCost(period: UsagePeriod): UsageCost {
-  const rows = getRuntimeDb()
+  const rows = readRuntimeDb()
     .query("SELECT provider, model, input_tokens, output_tokens FROM request_history WHERE started_at >= ?")
     .all(periodStartUtc(period)) as CostRow[];
   let estimatedCostUsd = 0;
@@ -163,7 +190,7 @@ interface ChartRow {
 }
 
 export function queryUsageChart(period: UsagePeriod): ChartBucket[] {
-  const rows = getRuntimeDb()
+  const rows = readRuntimeDb()
     .query("SELECT started_at, input_tokens, cached_tokens, output_tokens FROM request_history WHERE started_at >= ?")
     .all(periodStartUtc(period)) as ChartRow[];
   const buckets = new Map<string, ChartBucket>();
@@ -204,7 +231,7 @@ const DIMENSION_FALLBACK: Record<UsageDimension, string> = {
 export function queryUsageBy(dimension: UsageDimension, period: UsagePeriod): UsageByRow[] {
   const column = DIMENSION_COLUMN[dimension];
   const fallback = DIMENSION_FALLBACK[dimension];
-  const rows = getRuntimeDb()
+  const rows = readRuntimeDb()
     .query(
       `SELECT
         COALESCE(${column}, ?) AS name,
@@ -287,7 +314,7 @@ export function queryUsageRequests(filters: UsageRequestFilters): { items: Usage
     params.push(`%${filters.q}%`);
   }
   const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-  const rows = getRuntimeDb()
+  const rows = readRuntimeDb()
     .query(
       `SELECT
         id, trace_id, endpoint, surface, api_key_prefix, api_key_id, provider, model, status, error_kind,
@@ -303,7 +330,7 @@ export function queryUsageRequests(filters: UsageRequestFilters): { items: Usage
 }
 
 export function getUsageRequestById(id: number): Record<string, unknown> | null {
-  const row = getRuntimeDb().query("SELECT * FROM request_history WHERE id = ?").get(id) as Record<string, unknown> | null;
+  const row = readRuntimeDb().query("SELECT * FROM request_history WHERE id = ?").get(id) as Record<string, unknown> | null;
   if (!row) return null;
   return {
     id: row.id,
@@ -342,7 +369,7 @@ export interface ProviderTodayRow {
 
 export function queryProviderToday(): ProviderTodayRow[] {
   const today = new Date().toISOString().slice(0, 10);
-  return getRuntimeDb()
+  return readRuntimeDb()
     .query(
       `SELECT
         provider,
@@ -359,38 +386,90 @@ export function queryProviderToday(): ProviderTodayRow[] {
 }
 
 export function queryLastProviderError(provider: string): string | null {
-  const row = getRuntimeDb()
+  const row = readRuntimeDb()
     .query("SELECT error_kind FROM request_history WHERE provider = ? AND status >= 400 ORDER BY id DESC LIMIT 1")
     .get(provider) as { error_kind: string | null } | null;
   return row?.error_kind ?? null;
 }
 
-export function sumDailyTokensForKey(apiKeyId: string): number {
-  const today = new Date().toISOString().slice(0, 10);
-  const row = getRuntimeDb()
-    .query(
-      "SELECT COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0) AS total FROM request_history WHERE api_key_id = ? AND substr(started_at, 1, 10) = ?",
-    )
-    .get(apiKeyId, today) as { total: number };
+// ─────────────────── Daily/monthly token accumulator ──────────────────────
+//
+// sumDailyTokensForKey/sumMonthlyTokensForKey run on every request for a key
+// with a configured daily/monthly limit (enforceProxyAuth, before the request
+// is even dispatched) - a SQL SUM scanning that whole day's/month's history
+// on every single request, growing more expensive the more a key is used
+// within its window. An in-memory running total per key, updated the moment
+// insertUsageHistory tracks a request (independent of when the write-behind
+// buffer above actually commits, so it's always immediately consistent
+// within this process), turns both into an O(1) map lookup. It's seeded from
+// the durable table only once per key per UTC day/month boundary.
+
+interface KeyTokenAccumulator {
+  day: string;
+  dailyTokens: number;
+  month: string;
+  monthlyTokens: number;
+}
+
+const keyAccumulators = new Map<string, KeyTokenAccumulator>();
+
+function sumTokensFromDb(apiKeyId: string, clause: string, value: string): number {
+  const row = readRuntimeDb()
+    .query(`SELECT COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0) AS total FROM request_history WHERE api_key_id = ? AND ${clause} = ?`)
+    .get(apiKeyId, value) as { total: number };
   return row.total;
+}
+
+function ensureAccumulator(apiKeyId: string): KeyTokenAccumulator {
+  const today = new Date().toISOString().slice(0, 10);
+  const month = today.slice(0, 7);
+  let acc = keyAccumulators.get(apiKeyId);
+  if (!acc) {
+    acc = {
+      day: today,
+      dailyTokens: sumTokensFromDb(apiKeyId, "substr(started_at, 1, 10)", today),
+      month,
+      monthlyTokens: sumTokensFromDb(apiKeyId, "substr(started_at, 1, 7)", month),
+    };
+    keyAccumulators.set(apiKeyId, acc);
+    return acc;
+  }
+  if (acc.day !== today) {
+    acc.day = today;
+    acc.dailyTokens = sumTokensFromDb(apiKeyId, "substr(started_at, 1, 10)", today);
+  }
+  if (acc.month !== month) {
+    acc.month = month;
+    acc.monthlyTokens = sumTokensFromDb(apiKeyId, "substr(started_at, 1, 7)", month);
+  }
+  return acc;
+}
+
+function recordKeyTokenUsage(apiKeyId: string, tokens: number): void {
+  if (tokens === 0) return;
+  const acc = ensureAccumulator(apiKeyId);
+  acc.dailyTokens += tokens;
+  acc.monthlyTokens += tokens;
+}
+
+export function sumDailyTokensForKey(apiKeyId: string): number {
+  return ensureAccumulator(apiKeyId).dailyTokens;
 }
 
 /** UTC calendar month token total for a key — mirrors daily limit boundaries. */
 export function sumMonthlyTokensForKey(apiKeyId: string): number {
-  const month = new Date().toISOString().slice(0, 7);
-  const row = getRuntimeDb()
-    .query(
-      "SELECT COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0) AS total FROM request_history WHERE api_key_id = ? AND substr(started_at, 1, 7) = ?",
-    )
-    .get(apiKeyId, month) as { total: number };
-  return row.total;
+  return ensureAccumulator(apiKeyId).monthlyTokens;
 }
 
 /** All-time token total for a key, for display (not enforcement). Bounded only by the log retention window (`logRetentionDays`), same as every other usage query - no separate in-memory cap. */
 export function sumAllTimeTokensForKey(apiKeyId: string): number {
-  const row = getRuntimeDb()
+  const row = readRuntimeDb()
     .query("SELECT COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0) AS total FROM request_history WHERE api_key_id = ?")
     .get(apiKeyId) as { total: number };
   return row.total;
 }
 
+/** Test-only: drop the cached per-key token accumulators so isolated test databases don't leak into each other. */
+export function resetKeyTokenAccumulatorsForTests(): void {
+  keyAccumulators.clear();
+}

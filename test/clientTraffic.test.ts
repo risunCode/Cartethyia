@@ -1,13 +1,7 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
 import { ActiveFlightTracker, identifyClient } from "../src/http/traffic";
 import { createRequestTrafficMiddleware } from "../src/http/middleware";
-
-const logSpy = spyOn(console, "log").mockImplementation(() => undefined);
-
-afterEach(() => {
-  logSpy.mockClear();
-});
 
 describe("client identity", () => {
   test("does not trust spoofable forwarded headers unless trustProxy is enabled", () => {

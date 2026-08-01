@@ -4,6 +4,28 @@ All notable changes to Cartethyia are documented here.
 
 ## [Unreleased]
 
+### Performance
+
+Deep pass targeting sustained 5,000 req/sec on the proxy hot path, covering both `cartethyia.sqlite` (config) and `runtime.sqlite` (traffic telemetry). Benchmarked before/after with a live server, not just isolated unit numbers.
+
+- **`cartethyia.sqlite` was missing `PRAGMA synchronous=NORMAL`** (`src/console/db/client.ts`), defaulting to `FULL` - an fsync on every commit. Every proxied request wrote here at least once (`touchApiKey`), making this the single largest per-request cost.
+- **`touchApiKey`** (`api-keys.ts`) ran an `UPDATE` on every request just to bump `last_used_at`, a low-precision display field. Now coalesced in memory and flushed in one batched transaction every 10s.
+- **`findApiKeyBySecret`** (`api-keys.ts`), **`checkAccess`/`getAccessRule`** (`access.ts`), **`resolveAlias`/`getComboByName`/`evaluateFilter`** (`combos.ts`), **`isProviderModelEnabled`** (`provider-models.ts`), **`getProviderRouting`** (`routing.ts`), and **`isCustomProviderSlug`** (`custom-providers.ts`) all read the config db, uncached, on every request that touched them - some are the very first checks `enforceProxyAuth` runs. Added a shared 5s TTL cache (`src/console/db/ttl-cache.ts`, same tradeoff as the pre-existing `getRuntimeSettings` cache), cleared immediately on the matching mutation so admin edits (revoking a key, tightening an allowlist) take effect right away rather than waiting out the TTL.
+- **`GET /v1/models`** (`src/routes/status.ts`) rebuilt the entire model catalog - roughly 20 config-db reads (every built-in provider's model states, custom providers, aliases, combos) - from scratch on every single call. Now cached for 5s; per-key ACL filtering still runs per request. This alone raised sustained live-server throughput on that endpoint from ~5,000 to ~10,900 req/sec at 200-1,000 concurrent connections (0 errors) in a local benchmark.
+- **`pickAccountForRotation`** (`accounts.ts`) queried the account list once, then re-fetched the same row a second time via `getAccount` for whichever candidate rotation picked - now one query. **`pickStickyAccount`**'s cleanup/counting scanned every provider's sticky assignments on every call regardless of which provider the request targeted; now scoped per-provider (`Map<provider, Map<clientKey, assignment>>`).
+- **`runtime.sqlite` writes** (request history/detail/tool-calls/console-log line - up to 4 per proxied request) each committed as an independent `synchronous=NORMAL` transaction, capping unbatched throughput around 1,700-3,800 req/sec on a typical disk (benchmarked). A write-behind buffer (`src/console/db/runtime-write-buffer.ts`) now queues writes and commits them together every ~20ms or 200 rows, reaching 10,000+ req/sec (43,000+ individual writes/sec) in the same benchmark. `request_history.id` is assigned from an in-process sequence (seeded once from `MAX(id)`) so `insertUsageHistory` still returns synchronously without waiting for the batch to commit. Every read flushes the buffer first (`readRuntimeDb()`) so a request is visible to the dashboard immediately, not just after the next timed flush - verified live (tracked request → immediately queried via `/console/api/usage/requests`, present with 0 delay).
+- **`sumDailyTokensForKey`/`sumMonthlyTokensForKey`** (`usage.ts`) ran a `SUM(...)` over that key's entire day's/month's history on every request for a key with a configured token limit - a scan that grows the more a key is used within its window. Replaced with an in-memory running total per key, updated synchronously the moment a request is tracked (independent of when the write-behind buffer above actually commits, so it stays consistent regardless of flush timing) and seeded from the durable table only once per key per UTC day/month boundary.
+- **`middleware.ts`**'s per-request access-log line used `console.log`, which is a synchronous blocking write whenever stdout is piped rather than an interactive TTY - the normal case under Docker/Railway. Now batched through `src/http/request-log-buffer.ts` (flushes every ~50ms or 200 lines).
+- Live-server benchmark on `GET /v1/models` (exercises the api-key cache, access-rule cache, and catalog cache together): 200-1,000 concurrent connections, 0 errors, ~10,900 req/sec sustained (up from ~5,000 before the catalog cache, and from a much lower ceiling before the config-db fixes above). `PRAGMA` and cache changes require no schema/data migration.
+
+### Fixed
+
+- `src/console/tracking/rotate.ts`'s daily retention job (`startLogMaintenance`) was defined but never called from any entrypoint - `LOG_RETENTION_DAYS`/`ASSET_RETENTION_DAYS` had no effect in production. Discovered and fixed in the `runtime.sqlite` migration above; still worth calling out here since it was a standalone pre-existing bug independent of this pass's new work.
+
+### Removed
+
+- Dead code sweep across `src/`: `expandCombo` and `listProviderRoutings` (zero callers anywhere) deleted; `getAccessRule`, `normalizeClientIp` (`access.ts`), and `defaultRuntimeSettings` (`runtime.ts`) un-exported (used only within their own file). `listAuditEvents` was flagged as a candidate but kept - it has a live test caller (`test/console/backup.test.ts`) verifying audit-log behavior.
+
 ### Changed
 
 - Dashboard: added the Proxy & Requests navigation placeholder, reduced all mobile route/render effects, refined Settings controls, and improved Model Studio message actions, automatic thinking, mobile popout containment, and follow-latest scrolling.

@@ -6,6 +6,7 @@
 import { getDb } from "../client";
 import { purgeRateLimitState } from "../../proxy-auth";
 import { parseJsonArray, serializeJsonArray } from "../json-helpers";
+import { TtlCache } from "../ttl-cache";
 
 export interface ApiKeyRow {
   id: string;
@@ -137,6 +138,7 @@ export function createApiKey(input: ApiKeyCreateInput): { key: string; record: A
     throw error;
   }
   const row = db.query("SELECT * FROM api_keys WHERE id = ?").get(id) as ApiKeyRow;
+  secretCache.clear();
   return { key, record: toPublic(row) };
 }
 
@@ -171,6 +173,7 @@ export function updateApiKey(id: string, patch: ApiKeyUpdateInput): ApiKeyPublic
 
   values.push(id);
   db.query(`UPDATE api_keys SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+  secretCache.clear();
   const row = db.query("SELECT * FROM api_keys WHERE id = ?").get(id) as ApiKeyRow;
   return toPublic(row);
 }
@@ -181,6 +184,7 @@ export function listApiKeys(): ApiKeyPublic[] {
 }
 
 export function revokeApiKey(id: string): boolean {
+  secretCache.clear();
   const result = getDb()
     .query("UPDATE api_keys SET active = 0, revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
     .run(new Date().toISOString(), id);
@@ -188,6 +192,7 @@ export function revokeApiKey(id: string): boolean {
 }
 
 export function deleteApiKey(id: string): boolean {
+  secretCache.clear();
   const result = getDb().query("DELETE FROM api_keys WHERE id = ?").run(id);
   if (result.changes > 0) purgeRateLimitState(id);
   return result.changes > 0;
@@ -198,11 +203,58 @@ export function getApiKeyById(id: string): { key: string } | undefined {
   return row ? { key: row.key } : undefined;
 }
 
+// Every proxied request calls findApiKeyBySecret to authenticate its Bearer
+// token - a 5s TTL cache (matches getRuntimeSettings' pattern) turns that
+// into a SQLite read only once every 5s per distinct key instead of once per
+// request. secretCache.clear() below runs on every mutation so revoking or
+// editing a key takes effect immediately rather than waiting out the TTL.
+const secretCache = new TtlCache<string, ApiKeyPublic | null>(5_000);
+
 export function findApiKeyBySecret(key: string): ApiKeyPublic | null {
-  const row = getDb().query("SELECT * FROM api_keys WHERE key = ?").get(key) as ApiKeyRow | null;
-  return row ? toPublic(row) : null;
+  return secretCache.get(key, () => {
+    const row = getDb().query("SELECT * FROM api_keys WHERE key = ?").get(key) as ApiKeyRow | null;
+    return row ? toPublic(row) : null;
+  });
 }
 
+// last_used_at is a low-precision "last used X ago" display field, not an
+// audit trail - coalescing writes in memory and flushing them in one batched
+// transaction avoids one UPDATE (with its own commit/fsync) per proxied
+// request, which was the single largest per-request DB cost on the hot path.
+const pendingTouches = new Map<string, string>();
+let touchFlushTimer: Timer | null = null;
+const TOUCH_FLUSH_MS = 10_000;
+
 export function touchApiKey(id: string): void {
-  getDb().query("UPDATE api_keys SET last_used_at = ? WHERE id = ?").run(new Date().toISOString(), id);
+  pendingTouches.set(id, new Date().toISOString());
+  if (!touchFlushTimer) {
+    touchFlushTimer = setTimeout(flushApiKeyTouches, TOUCH_FLUSH_MS);
+    touchFlushTimer.unref?.();
+  }
+}
+
+/** Flushes coalesced last_used_at writes in one transaction. Called periodically and on graceful shutdown. */
+export function flushApiKeyTouches(): void {
+  if (touchFlushTimer) {
+    clearTimeout(touchFlushTimer);
+    touchFlushTimer = null;
+  }
+  if (pendingTouches.size === 0) return;
+  const entries = [...pendingTouches.entries()];
+  pendingTouches.clear();
+  const db = getDb();
+  const applyBatch = db.transaction((rows: [string, string][]) => {
+    for (const [id, ts] of rows) db.query("UPDATE api_keys SET last_used_at = ? WHERE id = ?").run(ts, id);
+  });
+  applyBatch(entries);
+}
+
+/** Test-only: drop cached/pending state so isolated test databases don't leak into each other. */
+export function resetApiKeyCachesForTests(): void {
+  secretCache.clear();
+  pendingTouches.clear();
+  if (touchFlushTimer) {
+    clearTimeout(touchFlushTimer);
+    touchFlushTimer = null;
+  }
 }

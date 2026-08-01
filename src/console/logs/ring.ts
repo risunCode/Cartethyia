@@ -6,7 +6,7 @@
  * instead of an unbounded, never-rotated `console-*.jsonl` file per day.
  */
 
-import { getRuntimeDb } from "../db/runtime-client";
+import { enqueueRuntimeWrite, readRuntimeDb } from "../db/runtime-write-buffer";
 import { getConsoleEnv } from "../env";
 
 export type ConsoleLogLevel = "debug" | "info" | "warn" | "error";
@@ -42,7 +42,7 @@ export function hydrateConsoleLogs(): void {
   lines.length = 0;
 
   try {
-    const rows = getRuntimeDb()
+    const rows = readRuntimeDb()
       .query("SELECT ts, level, scope, msg FROM console_logs ORDER BY id DESC LIMIT ?")
       .all(CAPACITY) as ConsoleLogRow[];
     lines.push(...rows.reverse());
@@ -53,9 +53,7 @@ export function hydrateConsoleLogs(): void {
 
 function persistConsoleLine(line: ConsoleLogLine): void {
   try {
-    getRuntimeDb()
-      .query("INSERT INTO console_logs (ts, level, scope, msg) VALUES (?, ?, ?, ?)")
-      .run(line.ts, line.level, line.scope, line.msg);
+    enqueueRuntimeWrite("INSERT INTO console_logs (ts, level, scope, msg) VALUES (?, ?, ?, ?)", [line.ts, line.level, line.scope, line.msg]);
   } catch {
     // Logging must never break proxy traffic.
   }
@@ -87,7 +85,9 @@ export function getConsoleLogSnapshot(): ConsoleLogLine[] {
 export function clearConsoleLogs(): void {
   lines.length = 0;
   try {
-    getRuntimeDb().exec("DELETE FROM console_logs");
+    // Flush first so a write queued moments earlier can't land after this
+    // DELETE and resurrect a line the caller just asked to clear.
+    readRuntimeDb().exec("DELETE FROM console_logs");
   } catch {
     // Logging must never break proxy traffic.
   }
@@ -102,7 +102,7 @@ export function clearConsoleLogs(): void {
 
 /** Deletes console_logs rows older than a "YYYY-MM-DD" cutoff (retention). Returns the row count removed. */
 export function deleteConsoleLogsOlderThan(cutoffDate: string): number {
-  return getRuntimeDb().query("DELETE FROM console_logs WHERE substr(ts, 1, 10) < ?").run(cutoffDate).changes;
+  return readRuntimeDb().query("DELETE FROM console_logs WHERE substr(ts, 1, 10) < ?").run(cutoffDate).changes;
 }
 
 export function subscribeConsoleLogs(listener: (event: ConsoleLogEvent) => void): () => void {

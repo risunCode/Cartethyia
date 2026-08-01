@@ -12,18 +12,37 @@ import { resetRuntimeSettingsForTests } from "../../src/console/runtime";
 import { resetProxyAuthForTests } from "../../src/console/proxy-auth";
 import { resetConsoleLogsForTests } from "../../src/console/logs/ring";
 import { closeRuntimeDbForTests } from "../../src/console/db/runtime-client";
+import { resetRuntimeWriteBufferForTests } from "../../src/console/db/runtime-write-buffer";
+import { resetHistoryIdAllocatorForTests, resetKeyTokenAccumulatorsForTests } from "../../src/console/db/repos/usage";
+import { resetApiKeyCachesForTests } from "../../src/console/db/repos/api-keys";
+import { resetAccessRuleCacheForTests } from "../../src/console/db/repos/access";
+import { resetComboCachesForTests } from "../../src/console/db/repos/combos";
+import { resetProviderModelCacheForTests } from "../../src/console/db/repos/provider-models";
+import { resetProviderRoutingCacheForTests } from "../../src/console/db/repos/routing";
+import { resetCustomProviderSlugCacheForTests } from "../../src/console/db/repos/custom-providers";
+import { resetModelCatalogCacheForTests } from "../../src/routes/status";
 
 export function useIsolatedDataDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "cth-console-"));
   Bun.env.DATA_DIR = dir;
   Bun.env.PROXY_AUTH_MODE = "open";
   closeDbForTests();
+  resetRuntimeWriteBufferForTests();
   closeRuntimeDbForTests();
+  resetHistoryIdAllocatorForTests();
+  resetKeyTokenAccumulatorsForTests();
   resetBootstrapForTests();
   loginLimiter.resetAll();
   resetRuntimeSettingsForTests();
   resetProxyAuthForTests();
   resetConsoleLogsForTests();
+  resetApiKeyCachesForTests();
+  resetAccessRuleCacheForTests();
+  resetComboCachesForTests();
+  resetProviderModelCacheForTests();
+  resetProviderRoutingCacheForTests();
+  resetCustomProviderSlugCacheForTests();
+  resetModelCatalogCacheForTests();
   return dir;
 }
 

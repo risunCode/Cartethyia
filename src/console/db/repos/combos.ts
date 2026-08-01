@@ -6,6 +6,15 @@
 
 import { getDb } from "../client";
 import type { RotationStrategy } from "../../../routing/strategy";
+import { TtlCache } from "../ttl-cache";
+
+// resolveAlias/getComboByName/listFilters (via evaluateFilter) all run on
+// every proxied request that uses a legacy alias/combo/filtered model. 5s TTL
+// caches, cleared immediately on the matching mutation, turn that into a
+// SQLite read only once every 5s per key instead of once per request.
+const aliasCache = new TtlCache<string, string | null>(5_000);
+const comboCache = new TtlCache<string, ComboRecord | null>(5_000);
+const filterListCache = new TtlCache<string, FilterRecord[]>(5_000);
 
 export type FilterMode = "allow" | "deny";
 
@@ -28,6 +37,7 @@ export function listAliases(): AliasRecord[] {
 
 export function upsertAlias(alias: string, model: string): boolean {
   if (!alias.trim()) return false;
+  aliasCache.clear();
   getDb()
     .query("INSERT INTO model_aliases (alias, model, created_at) VALUES (?, ?, ?) ON CONFLICT(alias) DO UPDATE SET model = excluded.model")
     .run(alias.trim(), model, new Date().toISOString());
@@ -35,13 +45,16 @@ export function upsertAlias(alias: string, model: string): boolean {
 }
 
 export function deleteAlias(alias: string): boolean {
+  aliasCache.clear();
   const result = getDb().query("DELETE FROM model_aliases WHERE alias = ?").run(alias);
   return result.changes > 0;
 }
 
 export function resolveAlias(model: string): string | null {
-  const row = getDb().query("SELECT model FROM model_aliases WHERE alias = ?").get(model) as AliasRow | null;
-  return row?.model ?? null;
+  return aliasCache.get(model, () => {
+    const row = getDb().query("SELECT model FROM model_aliases WHERE alias = ?").get(model) as AliasRow | null;
+    return row?.model ?? null;
+  });
 }
 
 // ─────────────────── Combos ──────────────────────────────────────
@@ -90,11 +103,14 @@ export function listCombos(): ComboRecord[] {
 }
 
 export function getComboByName(name: string): ComboRecord | null {
-  const row = getDb().query("SELECT * FROM combos WHERE name = ?").get(name) as ComboRow | null;
-  return row ? toCombo(row) : null;
+  return comboCache.get(name, () => {
+    const row = getDb().query("SELECT * FROM combos WHERE name = ?").get(name) as ComboRow | null;
+    return row ? toCombo(row) : null;
+  });
 }
 
 export function createCombo(input: CreateComboInput): ComboRecord {
+  comboCache.clear();
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   getDb().query(
@@ -104,6 +120,7 @@ export function createCombo(input: CreateComboInput): ComboRecord {
 }
 
 export function updateCombo(id: string, patch: Partial<CreateComboInput>): boolean {
+  comboCache.clear();
   const cols: string[] = [];
   const vals: (string | number)[] = [];
   if (patch.name !== undefined) { cols.push("name = ?"); vals.push(patch.name.trim()); }
@@ -119,14 +136,11 @@ export function updateCombo(id: string, patch: Partial<CreateComboInput>): boole
 }
 
 export function deleteCombo(id: string): boolean {
+  comboCache.clear();
   const result = getDb().query("DELETE FROM combos WHERE id = ?").run(id);
   return result.changes > 0;
 }
 
-export function expandCombo(comboName: string): string[] | null {
-  const combo = getComboByName(comboName);
-  return combo ? combo.models.slice() : null;
-}
 
 // ─────────────────── Filters ─────────────────────────────────────
 
@@ -149,24 +163,27 @@ export interface FilterRecord {
 }
 
 export function listFilters(provider?: string): FilterRecord[] {
-  const rows = (
-    provider
-      ? getDb().query("SELECT * FROM filter_rules WHERE provider = ? ORDER BY id ASC").all(provider)
-      : getDb().query("SELECT * FROM filter_rules ORDER BY provider ASC, id ASC").all()
-  ) as FilterRow[];
-  return rows.map((r) => {
-    let patterns: string[] = [];
-    try {
-      patterns = JSON.parse(r.patterns_json) as string[];
-    } catch {
-      // keep empty
-    }
-    const mode: FilterMode = r.mode === "deny" ? "deny" : "allow";
-    return { id: r.id, provider: r.provider, mode, patterns, createdAt: r.created_at, updatedAt: r.updated_at };
+  return filterListCache.get(provider ?? "*", () => {
+    const rows = (
+      provider
+        ? getDb().query("SELECT * FROM filter_rules WHERE provider = ? ORDER BY id ASC").all(provider)
+        : getDb().query("SELECT * FROM filter_rules ORDER BY provider ASC, id ASC").all()
+    ) as FilterRow[];
+    return rows.map((r) => {
+      let patterns: string[] = [];
+      try {
+        patterns = JSON.parse(r.patterns_json) as string[];
+      } catch {
+        // keep empty
+      }
+      const mode: FilterMode = r.mode === "deny" ? "deny" : "allow";
+      return { id: r.id, provider: r.provider, mode, patterns, createdAt: r.created_at, updatedAt: r.updated_at };
+    });
   });
 }
 
 export function createFilter(provider: string, mode: FilterMode, patterns: string[]): FilterRecord {
+  filterListCache.clear();
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   getDb().query(
@@ -176,6 +193,7 @@ export function createFilter(provider: string, mode: FilterMode, patterns: strin
 }
 
 export function updateFilter(id: string, patch: Partial<{ provider?: string; mode?: FilterMode; patterns?: string[] }>): boolean {
+  filterListCache.clear();
   const cols: string[] = [];
   const vals: (string | number)[] = [];
   if (patch.provider !== undefined) { cols.push("provider = ?"); vals.push(patch.provider); }
@@ -190,8 +208,16 @@ export function updateFilter(id: string, patch: Partial<{ provider?: string; mod
 }
 
 export function deleteFilter(id: string): boolean {
+  filterListCache.clear();
   const result = getDb().query("DELETE FROM filter_rules WHERE id = ?").run(id);
   return result.changes > 0;
+}
+
+/** Test-only: drop cached alias/combo/filter lookups so isolated test databases don't leak into each other. */
+export function resetComboCachesForTests(): void {
+  aliasCache.clear();
+  comboCache.clear();
+  filterListCache.clear();
 }
 
 /**

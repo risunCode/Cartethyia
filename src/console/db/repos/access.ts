@@ -5,6 +5,7 @@
 
 import { getDb } from "../client";
 import { parseJsonArray } from "../json-helpers";
+import { TtlCache } from "../ttl-cache";
 
 export type AccessScope = "proxy" | "console";
 export type AccessMode = "open" | "allowlist" | "denylist";
@@ -32,9 +33,22 @@ function toRule(scope: AccessScope, row: AccessRow | null): AccessRule {
   return { scope, mode, entries, updatedAt: row.updated_at };
 }
 
-export function getAccessRule(scope: AccessScope): AccessRule {
-  const row = getDb().query("SELECT * FROM access_rules WHERE scope = ?").get(scope) as AccessRow | null;
-  return toRule(scope, row);
+// checkAccess (via getAccessRule) is the first check enforceProxyAuth runs on
+// every proxied request. A 5s TTL cache turns that into a SQLite read only
+// once every 5s per scope; setAccessRule clears it immediately so an admin
+// tightening/loosening the allowlist doesn't wait out the TTL.
+const ruleCache = new TtlCache<AccessScope, AccessRule>(5_000);
+
+function getAccessRule(scope: AccessScope): AccessRule {
+  return ruleCache.get(scope, () => {
+    const row = getDb().query("SELECT * FROM access_rules WHERE scope = ?").get(scope) as AccessRow | null;
+    return toRule(scope, row);
+  });
+}
+
+/** Test-only: drop the cached rule set so isolated test databases don't leak into each other. */
+export function resetAccessRuleCacheForTests(): void {
+  ruleCache.clear();
 }
 
 export function getAccessRules(): { proxy: AccessRule; console: AccessRule } {
@@ -48,6 +62,7 @@ export function setAccessRule(scope: AccessScope, mode: AccessMode, entries: str
       "INSERT INTO access_rules (scope, mode, entries_json, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(scope) DO UPDATE SET mode = excluded.mode, entries_json = excluded.entries_json, updated_at = excluded.updated_at"
     )
     .run(scope, mode, JSON.stringify(entries), now);
+  ruleCache.clear();
   return { scope, mode, entries, updatedAt: now };
 }
 
@@ -141,7 +156,7 @@ function matchEntry(ip: string, entry: string): boolean {
 }
 
 /** Normalize common representations (mapped v4, bracketed, port suffix). */
-export function normalizeClientIp(raw: string): string {
+function normalizeClientIp(raw: string): string {
   let ip = raw.trim();
   if (ip.startsWith("[")) {
     const end = ip.indexOf("]");

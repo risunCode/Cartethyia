@@ -10,6 +10,9 @@ import { config } from "./config";
 import { ensureConsoleBootstrap } from "./console/bootstrap";
 import { checkpointDb, closeDb } from "./console/db/client";
 import { checkpointRuntimeDb, closeRuntimeDb } from "./console/db/runtime-client";
+import { flushRuntimeWriteBuffer } from "./console/db/runtime-write-buffer";
+import { flushApiKeyTouches } from "./console/db/repos/api-keys";
+import { flushRequestLogBuffer } from "./http/request-log-buffer";
 import { hydrateConsoleLogs } from "./console/logs/ring";
 import { startLogMaintenance } from "./console/tracking/rotate";
 
@@ -33,6 +36,9 @@ function shutdown(): void {
   clearInterval(checkpointInterval);
   clearInterval(gcInterval);
   server.stop();
+  flushRuntimeWriteBuffer();
+  flushApiKeyTouches();
+  flushRequestLogBuffer();
   closeDb();
   closeRuntimeDb();
 }

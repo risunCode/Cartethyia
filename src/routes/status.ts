@@ -12,6 +12,7 @@ import { prefixOf } from "../routing/providerMeta";
 import { ADDED_PROVIDER_IDS, type AddedProviderId } from "../routing/types";
 import { providerRegistry } from "../upstream/providers";
 import type { ProviderModelEntry } from "../upstream/providers/models";
+import { TtlCache } from "../console/db/ttl-cache";
 
 export const healthRoute = new Elysia().get("/health", () => ({ status: "ok", service: "cartethyia" }));
 
@@ -76,6 +77,30 @@ function registryModels(): ModelEntry[] {
   return entries;
 }
 
+// registryModels() reads provider_models/custom_providers/model_aliases/combos
+// for every built-in provider (roughly 20 config-db reads) to build the
+// catalog, then GET /v1/models dedupes it - all from scratch on every single
+// call. A 5s TTL cache (single entry, matching the getRuntimeSettings
+// pattern already used elsewhere) turns that into ~20 reads every 5s instead
+// of ~20 reads per request; per-key filtering below still runs per request.
+const dedupedCatalogCache = new TtlCache<"catalog", ModelEntry[]>(5_000);
+
+function dedupedRegistryModels(): ModelEntry[] {
+  return dedupedCatalogCache.get("catalog", () => {
+    const seen = new Set<string>();
+    return registryModels().filter((entry) => {
+      if (seen.has(entry.id)) return false;
+      seen.add(entry.id);
+      return true;
+    });
+  });
+}
+
+/** Test-only: drop the cached catalog so isolated test databases don't leak into each other. */
+export function resetModelCatalogCacheForTests(): void {
+  dedupedCatalogCache.clear();
+}
+
 /**
  * Returns every locally routeable model in the OpenAI-compatible
  * `{ object: "list", data: [...] }` envelope expected by external clients.
@@ -87,13 +112,7 @@ export const modelsRoute = new Elysia().get("/v1/models", ({ request, set }) => 
     return auth.error.body;
   }
 
-  const entries = registryModels();
-  const seen = new Set<string>();
-  const deduped = entries.filter((entry) => {
-    if (seen.has(entry.id)) return false;
-    seen.add(entry.id);
-    return true;
-  });
+  const deduped = dedupedRegistryModels();
   const data = auth.key ? filterModelsForKey(auth.key, deduped) : deduped;
   return { object: "list" as const, data };
 });

@@ -149,8 +149,27 @@ export function getCustomProviderBySlug(slug: string): CustomProviderRecord | nu
  * (e.g. `awok/SWE-Pickle`) — there's no `custom/` wrapper (REQ-8: each
  * custom provider addresses directly under its own slug).
  */
+// isCustomProviderSlug runs on every proxied request whose model prefix
+// isn't a built-in provider (routing/resolve.ts). A materialized Set
+// (invalidated on create/delete, slugs are otherwise immutable) turns that
+// into an O(1) in-memory check instead of a SQLite query per request.
+let slugSetCache: Set<string> | null = null;
+
+function getSlugSet(): Set<string> {
+  if (!slugSetCache) {
+    const rows = getDb().query("SELECT slug FROM custom_providers").all() as { slug: string }[];
+    slugSetCache = new Set(rows.map((row) => row.slug));
+  }
+  return slugSetCache;
+}
+
 export function isCustomProviderSlug(slug: string): boolean {
-  return getDb().query("SELECT 1 FROM custom_providers WHERE slug = ? LIMIT 1").get(slug) !== null;
+  return getSlugSet().has(slug);
+}
+
+/** Test-only: drop the cached slug set so isolated test databases don't leak into each other. */
+export function resetCustomProviderSlugCacheForTests(): void {
+  slugSetCache = null;
 }
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
@@ -192,10 +211,12 @@ export function createCustomProvider(input: CreateCustomProviderInput): CustomPr
       "INSERT INTO custom_providers (id, slug, name, type, base_url, credential, timeout_seconds, models_json, headers_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .run(id, slug, input.name.trim(), input.type, input.baseUrl.trim().replace(/\/+$/, ""), input.credential, timeoutSeconds, modelsJson, headersJson, now, now);
+  slugSetCache = null;
   return getCustomProviderById(id)!;
 }
 
 export function deleteCustomProvider(id: string): boolean {
+  slugSetCache = null;
   const result = getDb().query("DELETE FROM custom_providers WHERE id = ?").run(id);
   return result.changes > 0;
 }

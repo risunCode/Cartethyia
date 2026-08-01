@@ -12,7 +12,7 @@ const TTL_MS = 5_000;
 
 let cache: { at: number; value: RuntimeSettings } | null = null;
 
-export function defaultRuntimeSettings(): RuntimeSettings {
+function defaultRuntimeSettings(): RuntimeSettings {
   const env = getConsoleEnv();
   return {
     proxyAuthMode: env.proxyAuthMode,

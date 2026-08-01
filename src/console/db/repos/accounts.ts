@@ -62,13 +62,22 @@ function fromRow(row: ProviderAccountRow): ProviderAccount {
 }
 
 export function listAccounts(provider?: string): ProviderAccount[] {
+  return listAccountRows(provider).map(fromRow);
+}
+
+/**
+ * Unredacted rows (credential included) for internal hot-path use, e.g.
+ * `pickAccountForRotation` - which used to call `listAccounts` (redacted)
+ * and then re-fetch every candidate individually via `getAccount` just to
+ * get the credential back. One query instead of 1+N per request.
+ */
+function listAccountRows(provider?: string): ProviderAccountRow[] {
   const db = getDb();
-  const rows = (
+  return (
     provider === undefined
       ? db.query("SELECT * FROM provider_accounts ORDER BY priority ASC, name ASC").all()
       : db.query("SELECT * FROM provider_accounts WHERE provider = ? ORDER BY priority ASC, name ASC").all(provider)
   ) as ProviderAccountRow[];
-  return rows.map(fromRow);
 }
 
 interface AccountCursor { priority: number; name: string; id: string; }
@@ -217,24 +226,32 @@ interface StickyAssignment {
   expiresAt: number;
 }
 
-const stickyAssignments = new Map<string, StickyAssignment>();
+// Keyed by provider first so cleanup/counting below only ever touches that
+// provider's assignments - a flat map keyed by "provider\0clientKey" would
+// force scanning every provider's assignments on every call regardless of
+// which provider the current request targets.
+const stickyAssignmentsByProvider = new Map<string, Map<string, StickyAssignment>>();
 const STICKY_ASSIGNMENT_TTL_MS = 30 * 60_000;
 
-function pickStickyAccount(provider: string, active: ProviderAccount[], clientKey: string, stickyLimit: number): ProviderAccount | null {
+function pickStickyAccount(provider: string, active: ProviderAccountRow[], clientKey: string, stickyLimit: number): ProviderAccountRow | null {
   if (stickyLimit < 1 || stickyLimit > 3) return null;
   const now = Date.now();
-  const assignmentKey = `${provider}\u0000${clientKey}`;
-  const accountIds = new Set(active.map((account) => account.id));
-  for (const [key, assignment] of stickyAssignments) {
-    if (assignment.expiresAt <= now || !accountIds.has(assignment.accountId)) stickyAssignments.delete(key);
+  let assignments = stickyAssignmentsByProvider.get(provider);
+  if (!assignments) {
+    assignments = new Map();
+    stickyAssignmentsByProvider.set(provider, assignments);
   }
-  const existing = stickyAssignments.get(assignmentKey);
+  const accountIds = new Set(active.map((account) => account.id));
+  for (const [key, assignment] of assignments) {
+    if (assignment.expiresAt <= now || !accountIds.has(assignment.accountId)) assignments.delete(key);
+  }
+  const existing = assignments.get(clientKey);
   if (existing) {
     existing.expiresAt = now + STICKY_ASSIGNMENT_TTL_MS;
     return active.find((account) => account.id === existing.accountId) ?? null;
   }
   const assignmentCounts = new Map<string, number>();
-  for (const assignment of stickyAssignments.values()) {
+  for (const assignment of assignments.values()) {
     assignmentCounts.set(assignment.accountId, (assignmentCounts.get(assignment.accountId) ?? 0) + 1);
   }
   const candidates = active.filter((account) => (assignmentCounts.get(account.id) ?? 0) < stickyLimit);
@@ -244,7 +261,7 @@ function pickStickyAccount(provider: string, active: ProviderAccount[], clientKe
     const bestCount = assignmentCounts.get(best.id) ?? 0;
     return accountCount < bestCount ? account : best;
   });
-  stickyAssignments.set(assignmentKey, { accountId: selected.id, expiresAt: now + STICKY_ASSIGNMENT_TTL_MS });
+  assignments.set(clientKey, { accountId: selected.id, expiresAt: now + STICKY_ASSIGNMENT_TTL_MS });
   return selected;
 }
 
@@ -406,13 +423,13 @@ export function resetCooldownForTests(): void {
 export async function pickAccountForRotation(provider: string, strategy: "priority" | "round-robin", stickyLimit: number, modelId?: string, clientKey?: string): Promise<ProviderAccountRow | null> {
   ensureCooldownCache();
   return withProviderLock(provider, () => {
-    const active = listAccounts(provider).filter((account) => account.active && !isAccountCooledDown(account.id) && (modelId === undefined || !isModelLocked(account.id, modelId)));
+    const active = listAccountRows(provider).filter((account) => Boolean(account.active) && !isAccountCooledDown(account.id) && (modelId === undefined || !isModelLocked(account.id, modelId)));
     if (active.length === 0) return null;
     const sticky = clientKey ? pickStickyAccount(provider, active, clientKey, stickyLimit) : null;
-    if (sticky) return getAccount(sticky.id);
-    if (strategy !== "round-robin") return getAccount(active[0]!.id);
+    if (sticky) return sticky;
+    if (strategy !== "round-robin") return active[0]!;
     const index = pickRotationIndex(rotationState, provider, active.length, 1);
-    return getAccount(active[index]!.id);
+    return active[index]!;
   });
 }
 

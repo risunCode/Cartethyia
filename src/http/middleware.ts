@@ -3,10 +3,11 @@
 import { Elysia } from "elysia";
 import { config } from "../config";
 import { flightLimitError } from "./errors";
-import { activeFlights, identifyClient, isFlightRejection } from "./traffic";
+import { activeFlights, identifyClient, isFlightRejection, type ClientIdentity } from "./traffic";
+import { logRequestLine } from "./request-log-buffer";
 
 interface ActiveRequest {
-  identity: ReturnType<typeof identifyClient>;
+  identity: ClientIdentity;
   permit: { ip: string; active: number } | undefined;
   startedAt: number;
 }
@@ -55,7 +56,7 @@ export function createRequestTrafficMiddleware(options: TrafficControlOptions, t
 
       const durationMs = performance.now() - active.startedAt;
       const url = new URL(request.url);
-      console.log(`${request.method} ${url.pathname} ${set.status ?? 200} ${durationMs.toFixed(1)}ms ip=${active.identity.ip} fp=${active.identity.fingerprint} client=${active.identity.client}`);
+      logRequestLine(`${request.method} ${url.pathname} ${set.status ?? 200} ${durationMs.toFixed(1)}ms ip=${active.identity.ip} fp=${active.identity.fingerprint} client=${active.identity.client}`);
     });
 }
 
