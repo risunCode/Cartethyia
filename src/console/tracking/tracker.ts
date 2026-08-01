@@ -4,17 +4,14 @@
  * break the proxy request (NFR-2).
  */
 
-import { getConsoleEnv } from "../env";
 import { getRuntimeSettings } from "../runtime";
 import { pushConsoleLog } from "../logs/ring";
 import type { ApiKeyPublic } from "../db/repos/api-keys";
-import { insertUsageHistory, appendJsonl, utcNow } from "../db/repos/usage";
+import { insertUsageHistory, utcNow } from "../db/repos/usage";
 import { insertRequestDetails, insertAssetMeta, insertToolCall } from "../db/repos/details";
 import { extractUsage, extractUsageFromSseText, extractToolCalls, type UsageTotals } from "./usage-extractor";
 import { computePayloadMeta, extractLastUserMessagePreview } from "./payload-meta";
 import { redactPayload } from "./redact";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { parseQualifiedModel } from "../../routing/resolve";
 import { incrementInFlight, decrementInFlight } from "./in-flight";
 
@@ -168,7 +165,6 @@ async function persistAsync(
   finish: FinishInput
 ): Promise<void> {
   const runtime = getRuntimeSettings();
-  const env = getConsoleEnv();
   const finishedAt = utcNow();
   const durationMs = Date.now() - startedMs;
   const usage = finish.usage ?? (finish.body !== undefined ? extractUsage(start.surface, finish.body) : null);
@@ -202,64 +198,27 @@ async function persistAsync(
     meta: start.meta ?? {},
   });
 
-  const logRecord = {
-    traceId,
-    endpoint: start.endpoint,
-    surface: start.surface,
-    provider: finish.provider ?? provider ?? null,
-    model: start.model ?? null,
-    status: finish.status,
-    errorKind: finish.errorKind ?? null,
-    stream: start.stream,
-    durationMs,
-    usage,
-    usageSource: usage?.source ?? "missing",
-    apiKeyId: start.apiKey?.id ?? null,
-    keyPrefix: start.apiKey?.keyPrefix ?? null,
-    meta: start.meta ?? {},
-    startedAt,
-    finishedAt,
-  };
-  const tracking: Record<string, unknown> = {};
-
-  // Payload details per TRACK_PAYLOADS mode.
+  // Payload/tool-call detail per TRACK_PAYLOADS mode - persisted once,
+  // directly into request_details/request_tool_calls (runtime.sqlite).
+  // request_history (inserted above) already carries every other field a
+  // separate JSONL archival record used to duplicate.
   if (runtime.trackPayloads !== "none" && finish.requestBody !== undefined) {
     const meta = computePayloadMeta(start.surface === "responses" ? "responses" : start.surface, finish.requestBody);
-    let payloadPath: string | null = null;
-    let redactedRequest: string | null = null;
-    let redactedResponse: string | null = null;
-    if (runtime.trackPayloads === "meta") {
-      redactedRequest = null;
-      redactedResponse = null;
-    } else {
-      redactedRequest = redactPayload(finish.requestBody);
-      redactedResponse = redactPayload(finish.body);
-      mkdirSync(env.payloadDir, { recursive: true });
-      payloadPath = join(env.payloadDir, `${traceId}.json`);
-      writeFileSync(payloadPath, JSON.stringify({ request: redactedRequest, response: redactedResponse }), "utf8");
-    }
+    const redactedRequest = runtime.trackPayloads === "store" ? redactPayload(finish.requestBody) : null;
+    const redactedResponse = runtime.trackPayloads === "store" ? redactPayload(finish.body) : null;
     insertRequestDetails({
       requestId: id,
       redactedRequest,
       redactedResponse,
-      payloadPath,
+      payloadMode: runtime.trackPayloads,
       payloadSha256: meta.sha256,
       messageCount: meta.messageCount,
       toolNames: meta.toolNames,
       imageCount: meta.imageCount,
     });
-    tracking.payload = {
-      mode: runtime.trackPayloads,
-      path: payloadPath,
-      sha256: meta.sha256,
-      messageCount: meta.messageCount,
-      toolNames: meta.toolNames,
-      imageCount: meta.imageCount,
-    };
 
     if (runtime.trackAssets !== "none" && meta.imageCount > 0) {
       insertAssetMeta({ requestId: id, kind: "image", mime: null, bytes: null, sha256: null, storagePath: null });
-      tracking.assets = { mode: runtime.trackAssets, imageCount: meta.imageCount };
     }
   }
 
@@ -269,11 +228,7 @@ async function persistAsync(
     for (const call of toolCalls) {
       insertToolCall({ requestId: id, name: call.name, bytes: call.bytes, sha256: call.sha256, durationMs: null, status: call.status });
     }
-    tracking.toolCalls = toolCalls;
   }
-
-  appendJsonl("requests", { ...logRecord, tracking });
-  if (finish.status >= 400) appendJsonl("errors", { ...logRecord, tracking });
 
   const level = finish.status >= 500 ? "error" : finish.status >= 400 ? "warn" : "info";
   pushConsoleLog(

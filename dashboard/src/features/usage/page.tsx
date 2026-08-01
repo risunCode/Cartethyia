@@ -287,7 +287,7 @@ function DetailDrawer({ id, onClose }: { id: number | null; onClose: () => void 
           <div>
             <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Trace ID</div>
             <div className="mt-1 break-all font-mono text-xs">{data.traceId}</div>
-            <div className="mt-1.5">{data.trace ? <Badge tone="info">JSONL trace matched</Badge> : <Badge tone="warn">trace log unavailable</Badge>}</div>
+            <div className="mt-1.5">{data.trace ? <Badge tone="info">trace detail available</Badge> : <Badge tone="warn">trace detail unavailable</Badge>}</div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>

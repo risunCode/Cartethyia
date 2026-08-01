@@ -1,39 +1,18 @@
-/** In-process request detail index. Payload files remain under DATA_DIR; runtime metadata is never stored in SQLite. */
+/**
+ * Per-request detail index - request_details/request_assets/request_tool_calls
+ * in `runtime.sqlite` (see `../runtime-client.ts`). Durable across restarts;
+ * retention is date-cutoff based (see `deleteRequestDetailsOlderThan` and
+ * friends, called from `tracking/rotate.ts`), matching request_history and
+ * console_logs instead of an in-process TTL/cap.
+ */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
-import { getConsoleEnv } from "../../env";
-
-const details = new Map<number, Record<string, unknown>>();
-const detailCreatedAt = new Map<number, number>();
-const assets: Array<Record<string, unknown> & { request_id: number; created_at: string; storage_path: string | null }> = [];
-const toolCalls: Array<Record<string, unknown> & { request_id: number; created_at: string }> = [];
-const MAX_TRACKED_REQUESTS = 5_000;
-const REQUEST_DETAIL_TTL_MS = 30 * 60_000;
-
-/** Purges expired detail metadata and enforces the bounded in-process index. */
-export function purgeRequestDetailTracking(now = Date.now()): void {
-  for (const [requestId, createdAt] of detailCreatedAt) {
-    if (now - createdAt <= REQUEST_DETAIL_TTL_MS) continue;
-    detailCreatedAt.delete(requestId);
-    details.delete(requestId);
-  }
-  while (details.size > MAX_TRACKED_REQUESTS) {
-    const oldest = details.keys().next().value;
-    if (oldest === undefined) break;
-    details.delete(oldest);
-    detailCreatedAt.delete(oldest);
-  }
-  const cutoff = new Date(now - REQUEST_DETAIL_TTL_MS).toISOString();
-  for (let index = assets.length - 1; index >= 0; index--) if (assets[index]!.created_at < cutoff) assets.splice(index, 1);
-  for (let index = toolCalls.length - 1; index >= 0; index--) if (toolCalls[index]!.created_at < cutoff) toolCalls.splice(index, 1);
-}
+import { getRuntimeDb } from "../runtime-client";
 
 export interface RequestDetailInsert {
   requestId: number;
   redactedRequest: string | null;
   redactedResponse: string | null;
-  payloadPath: string | null;
+  payloadMode: string | null;
   payloadSha256: string | null;
   messageCount: number | null;
   toolNames: string[] | null;
@@ -41,19 +20,26 @@ export interface RequestDetailInsert {
 }
 
 export function insertRequestDetails(input: RequestDetailInsert): void {
-  details.delete(input.requestId);
-  details.set(input.requestId, {
-    request_id: input.requestId,
-    redacted_request: input.redactedRequest,
-    redacted_response: input.redactedResponse,
-    payload_path: input.payloadPath,
-    payload_sha256: input.payloadSha256,
-    message_count: input.messageCount,
-    tool_names: input.toolNames ? JSON.stringify(input.toolNames) : null,
-    image_count: input.imageCount,
-  });
-  detailCreatedAt.set(input.requestId, Date.now());
-  purgeRequestDetailTracking();
+  getRuntimeDb()
+    .query(
+      `INSERT INTO request_details (
+        request_id, redacted_request, redacted_response, payload_mode, payload_sha256,
+        message_count, tool_names, image_count, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(request_id) DO UPDATE SET
+        redacted_request = excluded.redacted_request,
+        redacted_response = excluded.redacted_response,
+        payload_mode = excluded.payload_mode,
+        payload_sha256 = excluded.payload_sha256,
+        message_count = excluded.message_count,
+        tool_names = excluded.tool_names,
+        image_count = excluded.image_count,
+        created_at = excluded.created_at`,
+    )
+    .run(
+      input.requestId, input.redactedRequest, input.redactedResponse, input.payloadMode, input.payloadSha256,
+      input.messageCount, input.toolNames ? JSON.stringify(input.toolNames) : null, input.imageCount, new Date().toISOString(),
+    );
 }
 
 export interface AssetMetaInsert {
@@ -66,17 +52,9 @@ export interface AssetMetaInsert {
 }
 
 export function insertAssetMeta(input: AssetMetaInsert): void {
-  assets.push({
-    request_id: input.requestId,
-    kind: input.kind,
-    mime: input.mime,
-    bytes: input.bytes,
-    sha256: input.sha256,
-    storage_path: input.storagePath,
-    created_at: new Date().toISOString(),
-  });
-  while (assets.length > MAX_TRACKED_REQUESTS) assets.shift();
-  purgeRequestDetailTracking();
+  getRuntimeDb()
+    .query("INSERT INTO request_assets (request_id, kind, mime, bytes, sha256, storage_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(input.requestId, input.kind, input.mime, input.bytes, input.sha256, input.storagePath, new Date().toISOString());
 }
 
 export interface ToolCallInsert {
@@ -89,38 +67,9 @@ export interface ToolCallInsert {
 }
 
 export function insertToolCall(input: ToolCallInsert): void {
-  toolCalls.push({
-    request_id: input.requestId,
-    name: input.name,
-    bytes: input.bytes,
-    sha256: input.sha256,
-    duration_ms: input.durationMs,
-    status: input.status,
-    created_at: new Date().toISOString(),
-  });
-  while (toolCalls.length > MAX_TRACKED_REQUESTS) toolCalls.shift();
-  purgeRequestDetailTracking();
-}
-
-export interface StoredRequestPayload {
-  request: unknown;
-  response: unknown;
-  path: string;
-}
-
-/** Load the redacted request/response file whose name is the immutable trace id. */
-export function getStoredRequestPayload(traceId: string): StoredRequestPayload | null {
-  const path = join(getConsoleEnv().payloadDir, `${traceId}.json`);
-  try {
-    if (!existsSync(path)) return null;
-    const value: unknown = JSON.parse(readFileSync(path, "utf8"));
-    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-    const payload = value as Record<string, unknown>;
-    if (!("request" in payload) && !("response" in payload)) return null;
-    return { request: payload.request ?? null, response: payload.response ?? null, path };
-  } catch {
-    return null;
-  }
+  getRuntimeDb()
+    .query("INSERT INTO request_tool_calls (request_id, name, bytes, sha256, duration_ms, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(input.requestId, input.name, input.bytes, input.sha256, input.durationMs, input.status, new Date().toISOString());
 }
 
 export interface RequestDetailBundle {
@@ -130,29 +79,44 @@ export interface RequestDetailBundle {
 }
 
 export function getRequestDetailBundle(requestId: number): RequestDetailBundle {
-  return {
-    detail: details.get(requestId) ?? null,
-    assets: assets.filter((asset) => asset.request_id === requestId),
-    toolCalls: toolCalls.filter((toolCall) => toolCall.request_id === requestId),
-  };
+  const db = getRuntimeDb();
+  const detail = db.query("SELECT * FROM request_details WHERE request_id = ?").get(requestId) as Record<string, unknown> | null;
+  const assets = db.query("SELECT * FROM request_assets WHERE request_id = ? ORDER BY id ASC").all(requestId) as Record<string, unknown>[];
+  const toolCalls = db.query("SELECT * FROM request_tool_calls WHERE request_id = ? ORDER BY id ASC").all(requestId) as Record<string, unknown>[];
+  return { detail, assets, toolCalls };
 }
 
 export function purgeAllStoredData(): { details: number; assets: number; toolCalls: number } {
-  const count = { details: details.size, assets: assets.length, toolCalls: toolCalls.length };
-  details.clear();
-  detailCreatedAt.clear();
-  assets.length = 0;
-  toolCalls.length = 0;
-  return count;
+  const db = getRuntimeDb();
+  const details = db.query("SELECT COUNT(*) AS n FROM request_details").get() as { n: number };
+  const assets = db.query("SELECT COUNT(*) AS n FROM request_assets").get() as { n: number };
+  const toolCalls = db.query("SELECT COUNT(*) AS n FROM request_tool_calls").get() as { n: number };
+  db.exec("DELETE FROM request_details");
+  db.exec("DELETE FROM request_assets");
+  db.exec("DELETE FROM request_tool_calls");
+  return { details: details.n, assets: assets.n, toolCalls: toolCalls.n };
 }
 
-export function deleteAssetsOlderThan(cutoffDate: string): string[] {
-  const paths: string[] = [];
-  for (let index = assets.length - 1; index >= 0; index -= 1) {
-    const asset = assets[index]!;
-    if (asset.created_at >= cutoffDate) continue;
-    if (asset.storage_path) paths.push(asset.storage_path);
-    assets.splice(index, 1);
-  }
-  return paths;
+/** Deletes request_details rows older than a "YYYY-MM-DD" cutoff (retention). Returns the row count removed. */
+export function deleteRequestDetailsOlderThan(cutoffDate: string): number {
+  return getRuntimeDb().query("DELETE FROM request_details WHERE created_at < ?").run(cutoffDate).changes;
+}
+
+/**
+ * Deletes request_assets rows older than a "YYYY-MM-DD" cutoff and returns
+ * the storage paths of any deleted rows that had one, so the caller can also
+ * remove the backing file (none are currently written - `insertAssetMeta` is
+ * always called with `storagePath: null` until asset storage is implemented -
+ * but the contract stays file-cleanup-ready).
+ */
+export function deleteRequestAssetsOlderThan(cutoffDate: string): string[] {
+  const db = getRuntimeDb();
+  const rows = db.query("SELECT storage_path FROM request_assets WHERE created_at < ? AND storage_path IS NOT NULL").all(cutoffDate) as { storage_path: string }[];
+  db.query("DELETE FROM request_assets WHERE created_at < ?").run(cutoffDate);
+  return rows.map((row) => row.storage_path);
+}
+
+/** Deletes request_tool_calls rows older than a "YYYY-MM-DD" cutoff (retention). Returns the row count removed. */
+export function deleteRequestToolCallsOlderThan(cutoffDate: string): number {
+  return getRuntimeDb().query("DELETE FROM request_tool_calls WHERE created_at < ?").run(cutoffDate).changes;
 }

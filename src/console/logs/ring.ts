@@ -1,10 +1,12 @@
 /**
- * Console log ring buffer + pub/sub. Console history is append-only JSONL so
- * it survives process restarts without storing runtime data in SQLite.
+ * Console log ring buffer + pub/sub. The live tail (`lines`, capacity 500)
+ * stays in memory for O(1) reads/SSE `init` events; persistence for restart
+ * survival is the `console_logs` table in `runtime.sqlite` (see
+ * `../db/runtime-client.ts`) rather than a JSONL file - one indexed table
+ * instead of an unbounded, never-rotated `console-*.jsonl` file per day.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { getRuntimeDb } from "../db/runtime-client";
 import { getConsoleEnv } from "../env";
 
 export type ConsoleLogLevel = "debug" | "info" | "warn" | "error";
@@ -18,8 +20,6 @@ export interface ConsoleLogLine {
 
 export type ConsoleLogEvent = { type: "init"; lines: ConsoleLogLine[] } | { type: "line"; line: ConsoleLogLine } | { type: "clear" };
 
-type PersistedConsoleEvent = { type: "line"; line: ConsoleLogLine } | { type: "clear" };
-
 const CAPACITY = 500;
 const MAX_MSG = 2_000;
 
@@ -27,24 +27,14 @@ const lines: ConsoleLogLine[] = [];
 const listeners = new Set<(event: ConsoleLogEvent) => void>();
 let hydratedDataDir: string | null = null;
 
-function isConsoleLogLine(value: unknown): value is ConsoleLogLine {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const line = value as Record<string, unknown>;
-  return typeof line.ts === "string" && typeof line.level === "string" && typeof line.scope === "string" && typeof line.msg === "string";
+interface ConsoleLogRow {
+  ts: string;
+  level: ConsoleLogLevel;
+  scope: string;
+  msg: string;
 }
 
-function appendConsoleEvent(event: PersistedConsoleEvent): void {
-  try {
-    const env = getConsoleEnv();
-    mkdirSync(env.logDir, { recursive: true });
-    const date = new Date().toISOString().slice(0, 10);
-    appendFileSync(join(env.logDir, `console-${date}.jsonl`), `${JSON.stringify(event)}\n`, "utf8");
-  } catch {
-    // Logging must never break proxy traffic.
-  }
-}
-
-/** Hydrate the bounded console ring from append-only JSONL files. */
+/** Hydrate the bounded console ring from `console_logs` (the most recent CAPACITY rows). */
 export function hydrateConsoleLogs(): void {
   const env = getConsoleEnv();
   if (hydratedDataDir === env.dataDir) return;
@@ -52,30 +42,23 @@ export function hydrateConsoleLogs(): void {
   lines.length = 0;
 
   try {
-    if (!existsSync(env.logDir)) return;
-    const files = readdirSync(env.logDir).filter((file) => /^console-\d{4}-\d{2}-\d{2}\.jsonl$/.test(file)).sort();
-    for (const file of files) {
-      for (const raw of readFileSync(join(env.logDir, file), "utf8").split("\n")) {
-        if (!raw.trim()) continue;
-        try {
-          const event: unknown = JSON.parse(raw);
-          if (!event || typeof event !== "object" || Array.isArray(event)) continue;
-          const item = event as Record<string, unknown>;
-          if (item.type === "clear") {
-            lines.length = 0;
-          } else if (item.type === "line" && isConsoleLogLine(item.line)) {
-            lines.push(item.line);
-          }
-        } catch {
-          // A corrupt event does not invalidate the rest of the log.
-        }
-      }
-    }
+    const rows = getRuntimeDb()
+      .query("SELECT ts, level, scope, msg FROM console_logs ORDER BY id DESC LIMIT ?")
+      .all(CAPACITY) as ConsoleLogRow[];
+    lines.push(...rows.reverse());
   } catch {
-    // Inaccessible runtime log storage is non-fatal.
+    // Inaccessible runtime db is non-fatal - the live tail still works.
   }
+}
 
-  if (lines.length > CAPACITY) lines.splice(0, lines.length - CAPACITY);
+function persistConsoleLine(line: ConsoleLogLine): void {
+  try {
+    getRuntimeDb()
+      .query("INSERT INTO console_logs (ts, level, scope, msg) VALUES (?, ?, ?, ?)")
+      .run(line.ts, line.level, line.scope, line.msg);
+  } catch {
+    // Logging must never break proxy traffic.
+  }
 }
 
 export function pushConsoleLog(level: ConsoleLogLevel, scope: string, msg: string): void {
@@ -87,7 +70,7 @@ export function pushConsoleLog(level: ConsoleLogLevel, scope: string, msg: strin
   };
   lines.push(line);
   if (lines.length > CAPACITY) lines.splice(0, lines.length - CAPACITY);
-  appendConsoleEvent({ type: "line", line });
+  persistConsoleLine(line);
   for (const listener of listeners) {
     try {
       listener({ type: "line", line });
@@ -103,7 +86,11 @@ export function getConsoleLogSnapshot(): ConsoleLogLine[] {
 
 export function clearConsoleLogs(): void {
   lines.length = 0;
-  appendConsoleEvent({ type: "clear" });
+  try {
+    getRuntimeDb().exec("DELETE FROM console_logs");
+  } catch {
+    // Logging must never break proxy traffic.
+  }
   for (const listener of listeners) {
     try {
       listener({ type: "clear" });
@@ -111,6 +98,11 @@ export function clearConsoleLogs(): void {
       // Listener failures must not break logging.
     }
   }
+}
+
+/** Deletes console_logs rows older than a "YYYY-MM-DD" cutoff (retention). Returns the row count removed. */
+export function deleteConsoleLogsOlderThan(cutoffDate: string): number {
+  return getRuntimeDb().query("DELETE FROM console_logs WHERE substr(ts, 1, 10) < ?").run(cutoffDate).changes;
 }
 
 export function subscribeConsoleLogs(listener: (event: ConsoleLogEvent) => void): () => void {
@@ -124,6 +116,6 @@ export function subscribeConsoleLogs(listener: (event: ConsoleLogEvent) => void)
 /** Test-only. */
 export function resetConsoleLogsForTests(): void {
   lines.length = 0;
-  listeners.clear();
   hydratedDataDir = null;
+  listeners.clear();
 }

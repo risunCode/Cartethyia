@@ -22,7 +22,7 @@ import { formatRequestLogLine } from "../tracking/tracker";
 import { listAccounts, listActiveAccountCredentials, getAccount, RESOLVED_KIND_BY_ACCOUNT_KIND, type CredentialKind } from "../db/repos/accounts";
 import { resolveCredentialForDispatch } from "../../upstream/dispatch";
 import { getProviderRouting, upsertProviderRouting, type RoutingStrategy } from "../db/repos/routing";
-import { appendJsonl, insertUsageHistory, utcNow } from "../db/repos/usage";
+import { insertUsageHistory, utcNow } from "../db/repos/usage";
 import { extractUsage } from "../tracking/usage-extractor";
 import { deleteProviderModel, isProviderModelEnabled, listProviderModelStates, setAllKnownProviderModels, setProviderModelEnabled, upsertProviderModel } from "../db/repos/provider-models";
 import { extractModelIds, extractResponseSample } from "../../shared/text-utils";
@@ -259,7 +259,6 @@ export const providerCatalogRoutes = new Elysia({ prefix: "/console/api" })
         usageSource: usage?.source ?? "missing",
         meta: { kind: "provider-test", accountId: input.accountId ?? null },
       });
-      appendJsonl("requests", { traceId, endpoint: "/console/provider-test", provider: params.id, model: modelId, status: 200, durationMs: latencyMs, usage: usage ?? null });
       pushConsoleLog("info", "request", formatRequestLogLine({ model: `${params.id}/${modelId}`, provider: params.id, status: 200, durationMs: latencyMs, usage: usage ?? undefined }));
       addAuditEvent("provider.model_test", { provider: params.id, model: modelId, mode: input.mode, ok: true, latencyMs });
       return { resolveOk: true, latencyMs, ok: true, sample: sample || undefined };

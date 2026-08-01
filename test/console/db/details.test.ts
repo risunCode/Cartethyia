@@ -1,6 +1,6 @@
 /**
  * Unit tests for src/console/db/repos/details.ts —
- * covers TTL purge, bounded index eviction, and asset/toolCall TTL cleanup.
+ * covers durable request/asset/tool-call storage and date-cutoff retention.
  */
 
 import { describe, expect, test, beforeEach } from "bun:test";
@@ -8,9 +8,11 @@ import {
   insertRequestDetails,
   insertAssetMeta,
   insertToolCall,
-  purgeRequestDetailTracking,
   getRequestDetailBundle,
   purgeAllStoredData,
+  deleteRequestDetailsOlderThan,
+  deleteRequestAssetsOlderThan,
+  deleteRequestToolCallsOlderThan,
 } from "../../../src/console/db/repos/details";
 
 beforeEach(() => {
@@ -22,7 +24,7 @@ function insertDetail(requestId: number) {
     requestId,
     redactedRequest: null,
     redactedResponse: null,
-    payloadPath: null,
+    payloadMode: null,
     payloadSha256: null,
     messageCount: null,
     toolNames: null,
@@ -49,7 +51,7 @@ describe("insertRequestDetails + getRequestDetailBundle", () => {
       requestId: 1,
       redactedRequest: "updated",
       redactedResponse: null,
-      payloadPath: null,
+      payloadMode: "store",
       payloadSha256: null,
       messageCount: 3,
       toolNames: null,
@@ -86,29 +88,39 @@ describe("insertAssetMeta + insertToolCall", () => {
   });
 });
 
-describe("purgeRequestDetailTracking — TTL eviction", () => {
-  test("evicts details older than 30 minutes", () => {
+describe("date-cutoff retention (deleteRequestDetailsOlderThan + friends)", () => {
+  test("keeps rows on or after the cutoff date", () => {
     insertDetail(100);
-    // Simulate 31 minutes having passed
-    const future = Date.now() + 31 * 60_000;
-    purgeRequestDetailTracking(future);
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    deleteRequestDetailsOlderThan(tomorrow);
+    // Rows created "now" (today) are not older than tomorrow's cutoff... they
+    // are, since today < tomorrow - this asserts the boundary is exclusive.
     expect(getRequestDetailBundle(100).detail).toBeNull();
   });
 
-  test("keeps details newer than 30 minutes", () => {
+  test("a cutoff in the past leaves current rows untouched", () => {
     insertDetail(101);
-    const soon = Date.now() + 10 * 60_000;
-    purgeRequestDetailTracking(soon);
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    deleteRequestDetailsOlderThan(yesterday);
     expect(getRequestDetailBundle(101).detail).not.toBeNull();
   });
 
-  test("evicts assets whose created_at is before the cutoff", () => {
+  test("deleteRequestAssetsOlderThan removes rows and returns their storage paths", () => {
     insertDetail(200);
-    // Insert an asset with a far-past created_at by backdating via direct purge
-    insertAssetMeta({ requestId: 200, kind: "img", mime: null, bytes: null, sha256: null, storagePath: null });
-    const future = Date.now() + 31 * 60_000;
-    purgeRequestDetailTracking(future);
+    insertAssetMeta({ requestId: 200, kind: "img", mime: null, bytes: null, sha256: "abc", storagePath: "/tmp/asset-200.bin" });
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const removedPaths = deleteRequestAssetsOlderThan(tomorrow);
+    expect(removedPaths).toEqual(["/tmp/asset-200.bin"]);
     expect(getRequestDetailBundle(200).assets).toHaveLength(0);
+  });
+
+  test("deleteRequestToolCallsOlderThan removes rows before the cutoff", () => {
+    insertDetail(300);
+    insertToolCall({ requestId: 300, name: "get_weather", bytes: null, sha256: null, durationMs: null, status: "ok" });
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const removed = deleteRequestToolCallsOlderThan(tomorrow);
+    expect(removed).toBe(1);
+    expect(getRequestDetailBundle(300).toolCalls).toHaveLength(0);
   });
 });
 
@@ -117,9 +129,11 @@ describe("purgeAllStoredData", () => {
     insertDetail(300);
     insertDetail(301);
     insertAssetMeta({ requestId: 300, kind: "img", mime: null, bytes: null, sha256: null, storagePath: null });
+    insertToolCall({ requestId: 301, name: "x", bytes: null, sha256: null, durationMs: null, status: null });
     const result = purgeAllStoredData();
     expect(result.details).toBe(2);
     expect(result.assets).toBe(1);
+    expect(result.toolCalls).toBe(1);
     expect(getRequestDetailBundle(300).detail).toBeNull();
   });
 });

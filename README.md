@@ -76,12 +76,12 @@ Copy `.env.example` for local development. For production, configure secrets in 
 | `CONSOLE_ENABLED` | No | Disable the console entirely by setting `false`. |
 | `CONSOLE_SESSION_TTL_HOURS` | No | Console session lifetime in hours; defaults to `12`. |
 
-| `LOG_RETENTION_DAYS` | No | Days to keep JSONL request logs; defaults to `14`. |
-| `ASSET_RETENTION_DAYS` | No | Days to keep tracked assets; defaults to `7`. |
+| `LOG_RETENTION_DAYS` | No | Days to keep request/console-log history in `runtime.sqlite`; defaults to `14`. |
+| `ASSET_RETENTION_DAYS` | No | Days to keep per-request detail/tool-call rows and tracked assets; defaults to `7`. |
 | `TRACK_PAYLOADS` | No | `none`, `meta`, or `store` — request payload tracking level; defaults to `store`. |
 | `TRACK_ASSETS` | No | `none`, `meta`, or `store` — asset tracking level; defaults to `meta`. |
-| `DB_PATH` | No | Override SQLite database path (defaults to `DATA_DIR/cartethyia.db`). |
-| `LOG_DIR` | No | Override log directory (defaults to `DATA_DIR/logs`). |
+| `DB_PATH` | No | Override the config SQLite database path (API keys, providers, settings; defaults to `DATA_DIR/cartethyia.sqlite`). |
+| `RUNTIME_DB_PATH` | No | Override the runtime SQLite database path (request/console-log history and per-request detail metadata; defaults to `DATA_DIR/runtime.sqlite`). |
 | `ASSET_DIR` | No | Override asset directory (defaults to `DATA_DIR/assets`). |
 
 ## Railway deployment

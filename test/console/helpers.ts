@@ -11,19 +11,19 @@ import { loginLimiter } from "../../src/console/auth/limiter";
 import { resetRuntimeSettingsForTests } from "../../src/console/runtime";
 import { resetProxyAuthForTests } from "../../src/console/proxy-auth";
 import { resetConsoleLogsForTests } from "../../src/console/logs/ring";
-import { clearRuntimeUsageForTests } from "../../src/console/db/repos/usage";
+import { closeRuntimeDbForTests } from "../../src/console/db/runtime-client";
 
 export function useIsolatedDataDir(): string {
   const dir = mkdtempSync(join(tmpdir(), "cth-console-"));
   Bun.env.DATA_DIR = dir;
   Bun.env.PROXY_AUTH_MODE = "open";
   closeDbForTests();
+  closeRuntimeDbForTests();
   resetBootstrapForTests();
   loginLimiter.resetAll();
   resetRuntimeSettingsForTests();
   resetProxyAuthForTests();
   resetConsoleLogsForTests();
-  clearRuntimeUsageForTests();
   return dir;
 }
 

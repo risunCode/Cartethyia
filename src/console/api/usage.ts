@@ -9,12 +9,11 @@ import {
   queryUsageBy,
   queryUsageRequests,
   getUsageRequestById,
-  getRequestTraceEvent,
   type UsagePeriod,
   type ChartMetric,
   type UsageDimension,
 } from "../db/repos/usage";
-import { getRequestDetailBundle, getStoredRequestPayload, purgeAllStoredData } from "../db/repos/details";
+import { getRequestDetailBundle, purgeAllStoredData } from "../db/repos/details";
 import { addAuditEvent } from "../db/repos/audit";
 import { getInFlightCount } from "../tracking/in-flight";
 
@@ -103,18 +102,11 @@ export const usageRoutes = new Elysia({ prefix: "/console/api" })
       set.status = 404;
       return consoleError("not_found", "request not found");
     }
+    // request_details is a durable row in runtime.sqlite now (not an
+    // in-process TTL/cap-bound cache backed by a JSONL/file fallback), so
+    // it's the single source of truth - no separate trace-log gate needed.
     const bundle = getRequestDetailBundle(id);
-    const traceEvent = getRequestTraceEvent(String(row.trace_id));
-    // Details survive restarts by resolving the payload file only after its JSONL trace matches.
-    const storedPayload = traceEvent ? getStoredRequestPayload(String(row.trace_id)) : null;
-    const detail = storedPayload
-      ? {
-        ...(bundle.detail ?? {}),
-        redacted_request: storedPayload.request,
-        redacted_response: storedPayload.response,
-        payload_path: storedPayload.path,
-      }
-      : bundle.detail;
+    const detail = bundle.detail;
     let meta: Record<string, unknown> = {};
     try {
       meta = JSON.parse(String(row.meta_json ?? "{}")) as Record<string, unknown>;
@@ -146,13 +138,19 @@ export const usageRoutes = new Elysia({ prefix: "/console/api" })
       },
       meta,
       detail,
-      trace: traceEvent ? {
-        traceId: traceEvent.traceId,
-        startedAt: traceEvent.startedAt,
-        finishedAt: traceEvent.finishedAt,
-        status: traceEvent.status,
-        durationMs: traceEvent.durationMs,
-        payload: (traceEvent.tracking as Record<string, unknown> | undefined)?.payload ?? null,
+      trace: detail ? {
+        traceId: row.trace_id,
+        startedAt: row.started_at,
+        finishedAt: row.finished_at,
+        status: row.status,
+        durationMs: row.duration_ms,
+        payload: {
+          mode: detail.payload_mode,
+          sha256: detail.payload_sha256,
+          messageCount: detail.message_count,
+          toolNames: detail.tool_names ? (JSON.parse(String(detail.tool_names)) as string[]) : [],
+          imageCount: detail.image_count,
+        },
       } : null,
       toolCalls: bundle.toolCalls,
       assets: bundle.assets.map((a) => ({ ...a, storage_path: undefined })),

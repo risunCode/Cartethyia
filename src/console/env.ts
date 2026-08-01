@@ -19,9 +19,14 @@ export interface ConsoleEnv {
   sessionTtlHours: number;
   dataDir: string;
   dbPath: string;
-  logDir: string;
+  /**
+   * Runtime request/error/console-log history and per-request detail
+   * metadata - a separate SQLite database (WAL) from `dbPath`, so
+   * high-frequency traffic logging never contends with the config db
+   * (API keys, providers, settings). See AGENTS.md "Persistence and logs".
+   */
+  runtimeDbPath: string;
   assetDir: string;
-  payloadDir: string;
   proxyAuthMode: ProxyAuthMode;
   bootstrapKey: string | undefined;
   bootstrapKeyName: string;
@@ -48,9 +53,8 @@ export function getConsoleEnv(): ConsoleEnv {
     sessionTtlHours: validateNumeric(e.CONSOLE_SESSION_TTL_HOURS, { fallback: 12, min: 1, max: 720 }),
     dataDir,
     dbPath: e.DB_PATH ?? join(dataDir, "cartethyia.sqlite"),
-    logDir: e.LOG_DIR ?? join(dataDir, "logs"),
+    runtimeDbPath: e.RUNTIME_DB_PATH ?? join(dataDir, "runtime.sqlite"),
     assetDir: e.ASSET_DIR ?? join(dataDir, "assets"),
-    payloadDir: join(dataDir, "payloads"),
     proxyAuthMode: e.PROXY_AUTH_MODE === "open" ? "open" : "api_key",
     bootstrapKey: e.BOOTSTRAP_PROXY_API_KEY,
     bootstrapKeyName: e.BOOTSTRAP_PROXY_API_KEY_NAME ?? "bootstrap",

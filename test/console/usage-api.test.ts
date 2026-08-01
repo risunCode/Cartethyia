@@ -1,15 +1,13 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { app } from "../../src/app";
-import { appendJsonl, insertUsageHistory, utcNow } from "../../src/console/db/repos/usage";
+import { insertUsageHistory, utcNow } from "../../src/console/db/repos/usage";
+import { insertRequestDetails } from "../../src/console/db/repos/details";
 import { loginAndGetCookie, useIsolatedDataDir } from "./helpers";
 
 let cookie: string;
-let dataDir: string;
 
 beforeEach(async () => {
-  dataDir = useIsolatedDataDir();
+  useIsolatedDataDir();
   cookie = await loginAndGetCookie();
 });
 
@@ -132,13 +130,16 @@ describe("usage APIs", () => {
     seedRows();
     const list = await getJson("/console/api/usage/requests?limit=1");
     const first = (list.body.items as { id: number }[])[0]!;
-    const payloadDir = join(dataDir, "payloads");
-    mkdirSync(payloadDir, { recursive: true });
-    writeFileSync(join(payloadDir, "trace-2.json"), JSON.stringify({
-      request: JSON.stringify({ messages: [{ role: "user", content: "hello" }] }),
-      response: JSON.stringify({ choices: [{ message: { content: "world" } }] }),
-    }));
-    appendJsonl("requests", { traceId: "trace-2", endpoint: "/v1/chat/completions", startedAt: utcNow(), finishedAt: utcNow(), status: 200, durationMs: 1, tracking: { payload: { path: "trace-2.json" } } });
+    insertRequestDetails({
+      requestId: first.id,
+      redactedRequest: JSON.stringify({ messages: [{ role: "user", content: "hello" }] }),
+      redactedResponse: JSON.stringify({ choices: [{ message: { content: "world" } }] }),
+      payloadMode: "store",
+      payloadSha256: "deadbeef",
+      messageCount: 1,
+      toolNames: null,
+      imageCount: 0,
+    });
 
     const detail = await getJson(`/console/api/usage/requests/${first.id}`);
     expect(detail.status).toBe(200);

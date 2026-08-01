@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Mock } from "bun:test";
 import { app } from "../../src/app";
-import { queryProviderToday, queryUsageRequests } from "../../src/console/db/repos/usage";
+import { queryProviderToday, queryUsageRequests, insertUsageHistory } from "../../src/console/db/repos/usage";
 import { getRequestDetailBundle } from "../../src/console/db/repos/details";
+import { closeRuntimeDbForTests } from "../../src/console/db/runtime-client";
 import { patchRuntimeSettings, ensureSettings } from "../../src/console/db/repos/settings";
 import { getConsoleEnv } from "../../src/console/env";
 import { invalidateRuntimeSettings } from "../../src/console/runtime";
@@ -70,15 +69,22 @@ function mockKimchiJson(): void {
 }
 
 describe("request tracking", () => {
-  test("hydrates historical requests from JSONL after a process restart", () => {
-    const dataDir = useIsolatedDataDir();
-    const logDir = join(dataDir, "logs");
-    mkdirSync(logDir, { recursive: true });
-    writeFileSync(join(logDir, "requests-2026-07-29.jsonl"), `${JSON.stringify({
-      traceId: "persisted-trace", endpoint: "/v1/chat/completions", surface: "chat", provider: "kimchi", model: "kimchi/kimi-k2.7",
-      status: 200, stream: false, durationMs: 12, keyPrefix: "ctk_test", startedAt: "2026-07-29 10:00:00", finishedAt: "2026-07-29 10:00:01",
-      usage: { inputTokens: 3, outputTokens: 5, cachedTokens: 1, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 8, source: "provider" },
-    })}\n`, "utf8");
+  test("request history survives a runtime db reconnect (simulated restart)", () => {
+    useIsolatedDataDir();
+    insertUsageHistory({
+      traceId: "persisted-trace", endpoint: "/v1/chat/completions", surface: "chat",
+      apiKeyId: null, apiKeyPrefix: "ctk_test", provider: "kimchi", model: "kimchi/kimi-k2.7",
+      status: 200, errorKind: null, stream: false,
+      startedAt: "2026-07-29 10:00:00", finishedAt: "2026-07-29 10:00:01", durationMs: 12,
+      inputTokens: 3, outputTokens: 5, cachedTokens: 1, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 8,
+      usageSource: "provider", meta: {},
+    });
+
+    // Simulate a process restart: close the cached runtime db handle so the
+    // next query reopens runtime.sqlite from disk instead of reusing the live
+    // in-memory connection - proves the row is actually durable, not just
+    // readable within the same process lifetime.
+    closeRuntimeDbForTests();
 
     const rows = queryUsageRequests({ limit: 10 }).items;
     expect(rows).toHaveLength(1);
@@ -117,12 +123,9 @@ describe("request tracking", () => {
     expect(daily[0]!.requests).toBe(1);
     expect(daily[0]!.input_tokens).toBe(2);
 
-    const env = getConsoleEnv();
-    const date = new Date().toISOString().slice(0, 10);
-    const history = readFileSync(join(env.logDir, `requests-${date}.jsonl`), "utf8").trim().split("\n");
-    const latest = JSON.parse(history.at(-1)!) as { tracking: { payload: { mode: string; sha256: string } } };
-    expect(latest.tracking.payload.mode).toBe("store");
-    expect(typeof latest.tracking.payload.sha256).toBe("string");
+    const detail = getRequestDetailBundle(row.id as number).detail;
+    expect(detail?.payload_mode).toBe("store");
+    expect(typeof detail?.payload_sha256).toBe("string");
   });
 
   test("records stream usage captured from terminal SSE frames", async () => {

@@ -9,11 +9,13 @@ import { app } from "./app";
 import { config } from "./config";
 import { ensureConsoleBootstrap } from "./console/bootstrap";
 import { checkpointDb, closeDb } from "./console/db/client";
-import { purgeRequestDetailTracking } from "./console/db/repos/details";
+import { checkpointRuntimeDb, closeRuntimeDb } from "./console/db/runtime-client";
 import { hydrateConsoleLogs } from "./console/logs/ring";
+import { startLogMaintenance } from "./console/tracking/rotate";
 
 await ensureConsoleBootstrap();
 hydrateConsoleLogs();
+startLogMaintenance();
 
 const server = Bun.serve({
   port: config.port,
@@ -21,17 +23,18 @@ const server = Bun.serve({
   idleTimeout: 0, // long-lived SSE streams must not be idle-killed
 });
 
-const checkpointInterval = setInterval(checkpointDb, 5 * 60_000);
-const cleanupInterval = setInterval(() => {
-  purgeRequestDetailTracking();
-  Bun.gc(false);
-}, 10 * 60_000);
+const checkpointInterval = setInterval(() => {
+  checkpointDb();
+  checkpointRuntimeDb();
+}, 5 * 60_000);
+const gcInterval = setInterval(() => Bun.gc(false), 10 * 60_000);
 
 function shutdown(): void {
   clearInterval(checkpointInterval);
-  clearInterval(cleanupInterval);
+  clearInterval(gcInterval);
   server.stop();
   closeDb();
+  closeRuntimeDb();
 }
 
 process.once("SIGINT", shutdown);
