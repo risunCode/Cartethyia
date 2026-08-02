@@ -11,7 +11,8 @@ import { existsSync, statSync, readFileSync } from "node:fs";
 const DIST = join(import.meta.dir, "../../dashboard/dist");
 const LANDING_ASSETS = join(import.meta.dir, "landing-assets");
 const LANDING_VIDEO_NAME = "echoborn-cartethyia-awakens.1920x1080.mp4";
-const LANDING_VIDEO = join(import.meta.dir, "../../dashboard/public/CartethyiaPi", LANDING_VIDEO_NAME);
+const LANDING_VIDEO = join(DIST, "CartethyiaPi", LANDING_VIDEO_NAME);
+const LANDING_VIDEO_SOURCE = join(import.meta.dir, "../../dashboard/public/CartethyiaPi", LANDING_VIDEO_NAME);
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -60,12 +61,19 @@ function applyConsoleSecurityHeaders(set: { headers: HTTPHeaders }, request: Req
   }
 }
 
+/** Removes preview-image tags from the proxy monitor page; other console pages keep the shared image. */
+function stripProxyPreviewImage(document: string, request: Request): string {
+  const pathname = new URL(request.url).pathname.replace(/\/+$/, "");
+  if (pathname !== "/console/proxy-requests") return document;
+  return document.replace(/^\s*<meta (?:property="og:image(?::[^"]+)?"|name="twitter:image")[^>]*>\r?\n?/gm, "");
+}
+
 /** Serves the SPA shell; falls back to a placeholder when the dashboard is unbuilt. */
 function appShell(set: { headers: HTTPHeaders }, request: Request): string {
   set.headers["content-type"] = "text/html; charset=utf-8";
   applyConsoleSecurityHeaders(set, request);
   if (!existsSync(DIST)) return PLACEHOLDER_HTML;
-  return readFileSync(join(DIST, "index.html"), "utf-8");
+  return stripProxyPreviewImage(readFileSync(join(DIST, "index.html"), "utf-8"), request);
 }
 
 export const consoleWebRoutes = new Elysia()
@@ -73,7 +81,7 @@ export const consoleWebRoutes = new Elysia()
     const wildcard = (params as Record<string, string>)["*"] ?? "";
     const safe = normalize(wildcard).replace(/^(\.\.[/\\])+/, "");
     const isHeroVideo = safe === LANDING_VIDEO_NAME;
-    const filePath = isHeroVideo ? LANDING_VIDEO : join(LANDING_ASSETS, safe);
+    const filePath = isHeroVideo && !existsSync(LANDING_VIDEO) ? LANDING_VIDEO_SOURCE : isHeroVideo ? LANDING_VIDEO : join(LANDING_ASSETS, safe);
     if (!isHeroVideo && filePath !== LANDING_ASSETS && !filePath.startsWith(LANDING_ASSETS + sep)) {
       set.status = 403;
       return "forbidden";

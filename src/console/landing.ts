@@ -16,6 +16,18 @@ export function landingPage(set: { headers: HTTPHeaders }): string {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0b1726">
+  <meta name="description" content="Cartethyia is a self-hosted model gateway for routing requests across providers, aliases, combos, and resilient failover paths.">
+  <meta property="og:title" content="Cartethyia — The Kingdom's Gateway">
+  <meta property="og:description" content="A sovereign gateway for your models. Route requests with intent, keep providers moving, and shape every response through Cartethyia.">
+  <meta property="og:image" content="/console/og_image.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:alt" content="Cartethyia — The Kingdom's Gateway">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Cartethyia — The Kingdom's Gateway">
+  <meta name="twitter:description" content="A sovereign gateway for your models.">
+  <meta name="twitter:image" content="/console/og_image.png">
+  <link rel="icon" type="image/png" href="/console/favicon.png">
   <title>Cartethyia — The Kingdom's Gateway</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

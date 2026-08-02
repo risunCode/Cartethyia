@@ -13,6 +13,14 @@
 - Use LSP for definitions, references, rename operations, and type-aware refactors. Use text search only for string literals, configuration, and static assets.
 - External provider behavior, Railway configuration, package versions, and security guidance change frequently. Verify them from official documentation with web search before changing integration behavior or deployment documentation.
 
+## Commit messages
+
+- Use Conventional Commit subjects with a concise, specific summary, for example `fix: ...`, `feat: ...`, `perf: ...`, or `release: <version> — <summary>`.
+- For multi-area changes, write the body like the established repository style: a short context paragraph, descriptive numbered sections, nested bullets for concrete changes, and a `Verified:` section listing checks that actually ran.
+- Keep each section meaningful and specific; avoid generic one-word summaries that hide the affected behavior.
+- Use real line breaks in the commit body; never encode newlines as escape sequences or escaped text.
+- Do not claim tests, benchmarks, smoke tests, or user confirmation unless they were actually performed.
+
 ## TypeScript and React
 
 - Keep TypeScript strict. Use `unknown` at external boundaries and narrow it; do not add `any`, `@ts-ignore`, or unchecked assertions.

@@ -25,7 +25,22 @@ describe("public Cartethyia landing page", () => {
     expect(body).toContain("data-reveal");
     expect(body).toContain("data-back-to-top");
     expect(body).toContain("echoborn-cartethyia-awakens.1920x1080.mp4");
+    expect(body).toContain('name="description" content="Cartethyia is a self-hosted model gateway');
+    expect(body).toContain('property="og:image" content="/console/og_image.png"');
+    expect(body).toContain('property="og:image:type" content="image/png"');
+    expect(body).toContain('<link rel="icon" type="image/png" href="/console/favicon.png">');
     expect(body).toContain("/console/");
+  });
+
+  test("serves shared pages with the shared preview image and video background", async () => {
+    const response = await app.handle(new Request("http://localhost/share/example-token"));
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain('meta property="og:image" content="/console/og_bansos.jpg"');
+    expect(body).toContain('meta name="description" content="Come check your Cartethyia API-key usage, save your tokens');
+    expect(body).toContain('<link rel="icon" type="image/png" href="/console/favicon.png">');
+    expect(body).toContain("echoborn-cartethyia-awakens.1920x1080.mp4");
   });
 
   test("serves the provided hero video from a public asset route", async () => {

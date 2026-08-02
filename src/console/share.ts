@@ -28,6 +28,18 @@ function renderSharePage(token: string, set: { headers: HTTPHeaders }): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Come check your Cartethyia API-key usage, save your tokens, and keep your budget and allowed models within reach.">
+  <meta property="og:title" content="Cartethyia — Shared overview">
+  <meta property="og:description" content="Come check your usage, save your tokens, and keep your Cartethyia API-key budget and allowed models within reach.">
+  <meta property="og:image" content="/console/og_bansos.jpg">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:alt" content="Cartethyia shared API-key overview">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Cartethyia — Shared overview">
+  <meta name="twitter:description" content="Come check your usage, save your tokens, and keep your budget and allowed models within reach.">
+  <meta name="twitter:image" content="/console/og_bansos.jpg">
+  <link rel="icon" type="image/png" href="/console/favicon.png">
   <title>Cartethyia - Shared overview</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
