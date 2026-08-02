@@ -12,6 +12,32 @@
 import { ProviderCallError, providerHttpError, safeReadText } from "./errors";
 import type { ProviderResult } from "./types";
 import type { StreamEvent } from "../bridge";
+import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
+
+/**
+ * Decompresses a body according to a content-encoding header. Returns a
+ * Buffer/Uint8Array of decoded bytes, or null if no decoding needed.
+ * Handles the encodings a relay proxy commonly passes through (br/gzip/deflate).
+ */
+function decodeBodyEncoding(input: ArrayBuffer | Uint8Array, encoding: string): Uint8Array | null {
+  if (!encoding) return null;
+  const buf = input instanceof Uint8Array ? Buffer.from(input) : Buffer.from(input as ArrayBuffer);
+  try {
+    if (encoding.includes("gzip") || encoding === "x-gzip") return new Uint8Array(gunzipSync(buf));
+    if (encoding.includes("br")) return new Uint8Array(brotliDecompressSync(buf));
+    if (encoding.includes("deflate")) {
+      // raw deflate may lack the zlib wrapper — try both
+      try {
+        return new Uint8Array(inflateSync(buf));
+      } catch {
+        return new Uint8Array(inflateSync(buf, { flush: 0 }));
+      }
+    }
+  } catch {
+    // decompression failed — return null so caller uses original bytes (best effort)
+  }
+  return new Uint8Array(buf);
+}
 
 export interface SimpleProviderCallOptions {
   url: string;
@@ -32,12 +58,31 @@ export interface SimpleProviderCallOptions {
 
 export async function callSimpleProvider(opts: SimpleProviderCallOptions): Promise<ProviderResult> {
   const doFetch = opts.fetcher ?? fetch;
-  const res = await doFetch(opts.url, {
+  let res = await doFetch(opts.url, {
     method: opts.method ?? "POST",
     headers: opts.headers,
     body: JSON.stringify(opts.body),
     signal: opts.signal,
   } as RequestInit);
+
+  if (!res.ok) throw providerHttpError(res.status, opts.providerLabel, undefined, await safeReadText(res));
+
+  // Some gateways (AgentRouter) advertise content-encoding: br/gzip but the
+  // response passes through a relay proxy that does NOT auto-decompress, so
+  // res.json()/res.text() would see compressed bytes → "invalid JSON". Strip
+  // the encoding here by decompressing manually so we always parse JSON.
+  let contentEncoding = (res.headers.get("content-encoding") ?? "").trim().toLowerCase();
+  if (contentEncoding) {
+    // Bun/node fetch auto-decompress for `gzip`/`deflate` on direct fetch,
+    // but a proxied response may carry the header without being decoded.
+    // We rebuild a Response from decoded bytes (or the compressed buffer).
+    const raw = await res.arrayBuffer();
+    const decoded = await decodeBodyEncoding(raw, contentEncoding);
+    const headers = new Headers(res.headers);
+    headers.delete("content-encoding");
+    const full = new Response(decoded ? new Uint8Array(decoded) : raw, { status: res.status, headers });
+    res = full as Response;
+  }
 
   if (!res.ok) throw providerHttpError(res.status, opts.providerLabel, undefined, await safeReadText(res));
   if (!res.body) throw new ProviderCallError(502, "unavailable", `${opts.providerLabel} returned an empty response body.`);
@@ -46,8 +91,21 @@ export async function callSimpleProvider(opts: SimpleProviderCallOptions): Promi
 
   let jsonBody: unknown;
   try {
+    // Bun's Response.json() is strict about content-type — some gateways
+    // (AgentRouter) return JSON bodies with `text/plain`, which makes
+    // res.json() throw even though the body parses fine. Fall back to
+    // explicit JSON.parse on the raw text so a valid JSON payload with an
+    // unusual content-type is still honored.
     jsonBody = await res.json();
   } catch {
+    try {
+      const rawText = await res.text();
+      jsonBody = rawText ? JSON.parse(rawText) : null;
+    } catch {
+      jsonBody = undefined;
+    }
+  }
+  if (jsonBody === undefined) {
     // A truncated gateway response commonly surfaces as Bun's bare
     // "Failed to parse JSON" SyntaxError. Give dispatch a typed 502 so it
     // retries the transient upstream failure instead of stopping at once.
