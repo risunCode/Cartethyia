@@ -8,6 +8,14 @@ Cartethyia is a Bun + Elysia AI proxy with a public landing page and an authenti
 
 Community access is free. Join Discord: <https://discord.gg/zFcNPJM6qM>
 
+### ShowCase
+
+<div align="center">
+<img src="https://github.com/user-attachments/assets/56427fc5-ab50-44f0-9cb1-ee368d21b85c" width="32%" />
+<img src="https://github.com/user-attachments/assets/39f73c4e-f136-419e-bc4b-ef9437af4fc9" width="32%" />
+<img src="https://github.com/user-attachments/assets/c8496545-b5c3-4e2a-90b7-a8ea9f18b355" width="32%" />
+</div>
+
 ## Features
 
 - OpenAI Chat Completions, Responses, and Anthropic Messages.
