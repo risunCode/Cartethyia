@@ -2,15 +2,17 @@
  * Health metrics — this process's memory (RSS) against total system memory,
  * and CPU% sampled as a delta of `process.cpuUsage()` over wall-clock time
  * since the previous poll (first call after a cold start/GC has nothing to
- * diff against, so it reports 0). "Clear RAM usage" runs `Bun.gc(true)` \—
- * a JS-runtime GC call, not a shelled-out OS command, so it works
- * identically on Windows/Linux/macOS/anywhere Bun runs.
+ * diff against, so it reports 0). "Clear RAM usage" schedules a process-wide,
+ * asynchronous Bun GC at an idle point instead of synchronously pausing live
+ * proxy traffic.
  */
 
 import { Elysia } from "elysia";
 import { cpus, freemem, totalmem } from "node:os";
 import { addAuditEvent } from "../db/repos/audit";
+import { scheduleGlobalGc } from "../memory";
 const SERVER_STARTED_AT = Date.now();
+const CPU_INFO = cpus();
 let _version: string | undefined;
 function getVersion(): string {
   if (_version) return _version;
@@ -37,7 +39,7 @@ function sampleCpuPercent(): number {
   // deltaCpuUs is microseconds of CPU time across all cores; normalize by
   // core count so a fully-busy single core doesn't read as e.g. 800% on a
   // multi-core box, matching how Task Manager/Activity Monitor report it.
-  const coreCount = Math.max(1, cpus().length);
+  const coreCount = Math.max(1, CPU_INFO.length);
   const percent = (deltaCpuUs / 1000 / elapsedMs) * 100 / coreCount;
   return Math.min(100, Math.max(0, Math.round(percent * 10) / 10));
 }
@@ -76,20 +78,17 @@ export const healthRoutes = new Elysia({ prefix: "/console/api/health" })
       timezoneOffsetMinutes: new Date().getTimezoneOffset(),
     };
   })
-  .get("/metrics", () => {
-    const cores = cpus();
-    return {
+  .get("/metrics", () => ({
       ...memorySnapshot(),
       cpuPercent: sampleCpuPercent(),
-      coreCount: cores.length,
-      cpuModel: cores[0]?.model?.replace(/\s+/g, " ").trim() ?? "Unknown",
+      coreCount: CPU_INFO.length,
+      cpuModel: CPU_INFO[0]?.model?.replace(/\s+/g, " ").trim() ?? "Unknown",
       pid: process.pid,
-    };
-  })
+    }))
   .post("/gc", () => {
     const before = memorySnapshot();
-    Bun.gc(true);
+    const gc = scheduleGlobalGc();
     const after = memorySnapshot();
-    addAuditEvent("health.gc", { freedMb: Math.round((before.memoryUsedMb - after.memoryUsedMb) * 10) / 10 });
-    return { before, after };
+    addAuditEvent("health.gc", { status: gc.status, inFlight: gc.inFlight });
+    return { before, after, gc };
   });

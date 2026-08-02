@@ -9,6 +9,9 @@ import { join, normalize, sep } from "node:path";
 import { existsSync, statSync, readFileSync } from "node:fs";
 
 const DIST = join(import.meta.dir, "../../dashboard/dist");
+const LANDING_ASSETS = join(import.meta.dir, "landing-assets");
+const LANDING_VIDEO_NAME = "echoborn-cartethyia-awakens.1920x1080.mp4";
+const LANDING_VIDEO = join(import.meta.dir, "../../dashboard/public/CartethyiaPi", LANDING_VIDEO_NAME);
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -25,6 +28,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".json": "application/json",
   ".map": "application/json",
   ".txt": "text/plain; charset=utf-8",
+  ".mp4": "video/mp4",
 };
 
 const PLACEHOLDER_HTML = `<!doctype html>
@@ -65,6 +69,25 @@ function appShell(set: { headers: HTTPHeaders }, request: Request): string {
 }
 
 export const consoleWebRoutes = new Elysia()
+  .get("/landing-assets/*", ({ params, set }) => {
+    const wildcard = (params as Record<string, string>)["*"] ?? "";
+    const safe = normalize(wildcard).replace(/^(\.\.[/\\])+/, "");
+    const isHeroVideo = safe === LANDING_VIDEO_NAME;
+    const filePath = isHeroVideo ? LANDING_VIDEO : join(LANDING_ASSETS, safe);
+    if (!isHeroVideo && filePath !== LANDING_ASSETS && !filePath.startsWith(LANDING_ASSETS + sep)) {
+      set.status = 403;
+      return "forbidden";
+    }
+    if (safe === "" || !existsSync(filePath) || !statSync(filePath).isFile()) {
+      set.status = 404;
+      return "not found";
+    }
+    const extension = extensionOf(filePath);
+    set.headers["cache-control"] = extension === ".js" ? "no-cache" : "public, max-age=86400, immutable";
+    return new Response(Bun.file(filePath), {
+      headers: { "content-type": CONTENT_TYPES[extension] ?? "application/octet-stream" },
+    });
+  })
   // Elysia registers a loose alias, so this route answers both `/console` and
   // `/console/`. Redirecting unconditionally would loop, hence the path check.
   .get("/console", ({ request, set }) => {

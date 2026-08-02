@@ -6,19 +6,19 @@
 
 import type { Provider } from "./types";
 import { commandCodeProvider } from "./commandcode/index";
-import { kimchiProvider } from "./kimchi/index";
-import { openCodeFreeProvider } from "./opencode-free/index";
-import { openCodeZenProvider } from "./opencode-zen/index";
+import { kimchiProvider } from "./kimchi";
+import { openCodeFreeProvider } from "./opencode-free";
+import { openCodeZenProvider } from "./opencode-zen";
 import { devinProvider } from "./devin/index";
 import { qoderProvider } from "./qoder/index";
 import { dynamicProviderRouter } from "./dynamic";
 import { cursorProvider } from "./cursor/index";
-import { anthropicProvider } from "./anthropic/index";
-import { agentRouterProvider } from "./agentrouter/index";
-import { openaiProvider } from "./openai/index";
-import { opencodeGoProvider } from "./opencode-go/index";
-import { xiaomiPaygProvider } from "./xiaomi-payg/index";
-import { xiaomiTokenPlanProvider } from "./xiaomi-tokenplan/index";
+import { anthropicProvider } from "./anthropic";
+import { agentRouterProvider } from "./agentrouter";
+import { openaiProvider } from "./openai";
+import { opencodeGoProvider } from "./opencode-go";
+import { xiaomiPaygProvider } from "./xiaomi-payg";
+import { xiaomiTokenPlanProvider } from "./xiaomi-tokenplan";
 import { createOpenAICompatibleProvider } from "./openai-compatible";
 
 const OPENAI_COMPATIBLE_PROVIDERS = [

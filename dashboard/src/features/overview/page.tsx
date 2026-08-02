@@ -12,6 +12,7 @@ import {
   MemoryStick,
   Pencil,
   Plus,
+  Share2,
   Sparkles,
   Trash2,
   TriangleAlert,
@@ -86,6 +87,11 @@ interface ApiKeyRecord {
   rateLimitRpm: number | null;
   dailyTokenLimit: number | null;
   monthlyTokenLimit: number | null;
+  oneTimeTokenLimit: number | null;
+  oneTimeTokensUsed: number;
+  quoteBigText: string | null;
+  quoteSubText: string | null;
+  quoteBody: string | null;
   maxConcurrentRequests: number | null;
   providerAllowlist: string[] | null;
   modelAllowlist: string[] | null;
@@ -96,27 +102,44 @@ interface ApiKeyRecord {
   /** Tokens (input+output) this key has used today / all-time, from in-memory usage history. */
   todayTokens: number;
   totalTokens: number;
+  oneTimeTokensRemaining: number | null;
 }
 
 type KeyUpdatePatch = {
   rateLimitRpm?: number | null;
   dailyTokenLimit?: number | null;
   monthlyTokenLimit?: number | null;
+  oneTimeTokenLimit?: number | null;
   maxConcurrentRequests?: number | null;
+  active?: boolean;
   providerAllowlist?: string[] | null;
   modelAllowlist?: string[] | null;
   modelDenylist?: string[] | null;
+  quoteBigText?: string | null;
+  quoteSubText?: string | null;
+  quoteBody?: string | null;
 };
 
 type KeyLimitsInput = {
   rateLimitRpm?: number;
   dailyTokenLimit?: number;
   monthlyTokenLimit?: number;
+  oneTimeTokenLimit?: number;
   maxConcurrentRequests?: number;
   providerAllowlist?: string[];
   modelAllowlist?: string[];
   modelDenylist?: string[];
 };
+
+const TOKEN_PRESETS = [
+  { label: "1M", value: 1_000_000 },
+  { label: "10M", value: 10_000_000 },
+  { label: "100M", value: 100_000_000 },
+  { label: "1B", value: 1_000_000_000 },
+  { label: "1T", value: 1_000_000_000_000 },
+] as const;
+
+type TokenBudgetMode = "recurring" | "one-time";
 
 function parseOptionalLimit(raw: string): number | undefined {
   if (!raw.trim()) return undefined;
@@ -130,11 +153,21 @@ function normalizeList(values: string[]): string[] | undefined {
   return items.length > 0 ? items : undefined;
 }
 
-export function buildKeyLimitsInput(rpm: string, daily: string, monthly: string, concurrent: string, allowed: string[], providerIds: Set<string>): KeyLimitsInput {
+export function buildKeyLimitsInput(
+  rpm: string,
+  daily: string,
+  monthly: string,
+  concurrent: string,
+  allowed: string[],
+  providerIds: Set<string>,
+  oneTime = "",
+  budgetMode: TokenBudgetMode = "recurring",
+): KeyLimitsInput {
   const input: KeyLimitsInput = {};
   const rateLimitRpm = parseOptionalLimit(rpm);
   const dailyTokenLimit = parseOptionalLimit(daily);
   const monthlyTokenLimit = parseOptionalLimit(monthly);
+  const oneTimeTokenLimit = parseOptionalLimit(oneTime);
   const maxConcurrentRequests = parseOptionalLimit(concurrent);
   // Auto-detect: a bare (no "/") entry is a provider ACL entry only when it's
   // an actual registered provider id. A bare alias or combo name (also no
@@ -148,8 +181,12 @@ export function buildKeyLimitsInput(rpm: string, daily: string, monthly: string,
   const providerAllowlist = allAllowed ? allAllowed.filter((e) => !e.includes("/") && providerIds.has(e)) : undefined;
   const modelAllowlist = allAllowed ? allAllowed.filter((e) => e.includes("/") || !providerIds.has(e)) : undefined;
   if (rateLimitRpm) input.rateLimitRpm = rateLimitRpm;
-  if (dailyTokenLimit) input.dailyTokenLimit = dailyTokenLimit;
-  if (monthlyTokenLimit) input.monthlyTokenLimit = monthlyTokenLimit;
+  if (budgetMode === "one-time") {
+    if (oneTimeTokenLimit) input.oneTimeTokenLimit = oneTimeTokenLimit;
+  } else {
+    if (dailyTokenLimit) input.dailyTokenLimit = dailyTokenLimit;
+    if (monthlyTokenLimit) input.monthlyTokenLimit = monthlyTokenLimit;
+  }
   if (maxConcurrentRequests) input.maxConcurrentRequests = maxConcurrentRequests;
   if (providerAllowlist?.length) input.providerAllowlist = providerAllowlist;
   if (modelAllowlist?.length) input.modelAllowlist = modelAllowlist;
@@ -161,6 +198,7 @@ function formatKeyLimits(key: ApiKeyRecord): string {
   if (key.rateLimitRpm) parts.push(`${key.rateLimitRpm} rpm`);
   if (key.dailyTokenLimit) parts.push(`${formatTokens(key.dailyTokenLimit)}/day`);
   if (key.monthlyTokenLimit) parts.push(`${formatTokens(key.monthlyTokenLimit)}/mo`);
+  if (key.oneTimeTokenLimit) parts.push(`${formatTokens(key.oneTimeTokensRemaining ?? key.oneTimeTokenLimit)} remaining once`);
   if (key.maxConcurrentRequests) parts.push(`${key.maxConcurrentRequests} concurrent`);
   if (key.modelAllowlist?.length) parts.push(`${key.modelAllowlist.length} allowed`);
   return parts.length > 0 ? parts.join(" · ") : "—";
@@ -186,25 +224,33 @@ function KeyLimitsFields({
   rpm,
   daily,
   monthly,
+  oneTime,
+  budgetMode,
   concurrent,
   allowed,
   setRpm,
   setDaily,
   setMonthly,
+  setOneTime,
   setConcurrent,
   setAllowed,
+  onBudgetModeChange,
   disabled,
 }: {
   rpm: string;
   daily: string;
   monthly: string;
+  oneTime: string;
+  budgetMode: TokenBudgetMode;
   concurrent: string;
   allowed: string[];
   setRpm: (value: string) => void;
   setDaily: (value: string) => void;
   setMonthly: (value: string) => void;
+  setOneTime: (value: string) => void;
   setConcurrent: (value: string) => void;
   setAllowed: (values: string[]) => void;
+  onBudgetModeChange: (mode: TokenBudgetMode) => void;
   disabled?: boolean;
 }) {
   return (
@@ -218,13 +264,54 @@ function KeyLimitsFields({
           <Label>Max concurrent (optional)</Label>
           <Input type="number" min={1} value={concurrent} onChange={(e) => setConcurrent(e.target.value)} placeholder="10" disabled={disabled} />
         </div>
-        <div>
-          <Label>Daily token limit (optional)</Label>
-          <Input type="number" min={1} value={daily} onChange={(e) => setDaily(e.target.value)} placeholder="1000000" disabled={disabled} />
-        </div>
-        <div>
-          <Label>Monthly token limit (optional)</Label>
-          <Input type="number" min={1} value={monthly} onChange={(e) => setMonthly(e.target.value)} placeholder="30000000" disabled={disabled} />
+        <div className="col-span-2 rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <Label>Token budget</Label>
+            <div className="flex rounded-lg border border-[var(--inner-border)] p-0.5">
+              {(["recurring", "one-time"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onBudgetModeChange(mode)}
+                  className={`rounded-md px-2.5 py-1 text-[10px] font-semibold transition-colors ${budgetMode === mode ? "bg-[var(--text-1)] text-[var(--bg)]" : "text-[var(--text-3)] hover:text-[var(--text-1)]"}`}
+                >
+                  {mode === "one-time" ? "One-time" : "Daily / monthly"}
+                </button>
+              ))}
+            </div>
+          </div>
+          {budgetMode === "one-time" ? (
+            <div>
+              <Input type="number" min={1} value={oneTime} onChange={(e) => setOneTime(e.target.value)} placeholder="Choose a preset or enter a cap" disabled={disabled} />
+              <p className="mt-2 text-[10.5px] text-[var(--text-3)]">This budget is consumed once and stops the key when it reaches zero.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Daily (optional)</Label>
+                <Input type="number" min={1} value={daily} onChange={(e) => setDaily(e.target.value)} placeholder="Unlimited" disabled={disabled} />
+              </div>
+              <div>
+                <Label>Monthly (optional)</Label>
+                <Input type="number" min={1} value={monthly} onChange={(e) => setMonthly(e.target.value)} placeholder="Unlimited" disabled={disabled} />
+              </div>
+            </div>
+          )}
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {TOKEN_PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                disabled={disabled}
+                onClick={() => budgetMode === "one-time" ? setOneTime(String(preset.value)) : setDaily(String(preset.value))}
+                className="rounded-md border border-[var(--inner-border)] px-2 py-1 text-[10px] font-semibold text-[var(--text-2)] hover:border-[var(--text-3)] hover:text-[var(--text-1)]"
+              >
+                {preset.label}
+              </button>
+            ))}
+            <span className="self-center text-[10px] text-[var(--text-3)]">M = million · B = billion · T = trillion</span>
+          </div>
         </div>
       </div>
       <ModelPickerField
@@ -274,11 +361,18 @@ export function OverviewPage() {
   const [rpm, setRpm] = useState("");
   const [daily, setDaily] = useState("");
   const [monthly, setMonthly] = useState("");
+  const [oneTime, setOneTime] = useState("");
+  const [budgetMode, setBudgetMode] = useState<TokenBudgetMode>("recurring");
+  const [quoteBigText, setQuoteBigText] = useState("");
+  const [quoteSubText, setQuoteSubText] = useState("");
+  const [quoteBody, setQuoteBody] = useState("");
   const [concurrent, setConcurrent] = useState("");
   const [allowed, setAllowed] = useState<string[]>([]);
   const [revealed, setRevealed] = useState<CreatedKey | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyRecord | null>(null);
+  const [regenerateTarget, setRegenerateTarget] = useState<ApiKeyRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiKeyRecord | null>(null);
+  const [isActive, setIsActive] = useState(true);
 
   const resetKeyForm = () => {
     setName("");
@@ -286,15 +380,28 @@ export function OverviewPage() {
     setRpm("");
     setDaily("");
     setMonthly("");
+    setOneTime("");
+    setBudgetMode("recurring");
+    setQuoteBigText("");
+    setQuoteSubText("");
+    setQuoteBody("");
     setConcurrent("");
     setAllowed([]);
+    setIsActive(true);
   };
 
   const openEdit = (key: ApiKeyRecord) => {
     setEditTarget(key);
+    setIsActive(key.active);
     setRpm(key.rateLimitRpm ? String(key.rateLimitRpm) : "");
+    const hasOneTimeBudget = key.oneTimeTokenLimit !== null;
+    setBudgetMode(hasOneTimeBudget ? "one-time" : "recurring");
     setDaily(key.dailyTokenLimit ? String(key.dailyTokenLimit) : "");
     setMonthly(key.monthlyTokenLimit ? String(key.monthlyTokenLimit) : "");
+    setOneTime(key.oneTimeTokenLimit ? String(key.oneTimeTokenLimit) : "");
+    setQuoteBigText(key.quoteBigText ?? "");
+    setQuoteSubText(key.quoteSubText ?? "");
+    setQuoteBody(key.quoteBody ?? "");
     setConcurrent(key.maxConcurrentRequests ? String(key.maxConcurrentRequests) : "");
     setAllowed([...(key.providerAllowlist ?? []), ...(key.modelAllowlist ?? [])]);
   };
@@ -334,10 +441,12 @@ export function OverviewPage() {
   });
 
   const gcMutation = useMutation({
-    mutationFn: () => apiPost<{ before: HealthMetrics; after: HealthMetrics }>("/health/gc", {}),
-    onSuccess: ({ before, after }) => {
-      const freed = Math.max(0, before.memoryUsedMb - after.memoryUsedMb);
-      toast.success(freed > 0 ? `Freed ${freed.toFixed(1)} MB` : "Ran GC — nothing to reclaim right now");
+    mutationFn: () => apiPost<{ gc: { status: "scheduled" | "deferred" | "already_pending"; inFlight: number } }>("/health/gc", {}),
+    onSuccess: ({ gc }) => {
+      const message = gc.status === "deferred"
+        ? `GC queued until proxy is idle (${gc.inFlight} requests in flight)`
+        : gc.status === "already_pending" ? "GC is already queued" : "GC scheduled asynchronously";
+      toast.success(message);
       void queryClient.invalidateQueries({ queryKey: ["health-metrics"] });
     },
     onError: () => toast.error("Failed to run garbage collection"),
@@ -364,6 +473,15 @@ export function OverviewPage() {
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to create key"),
   });
 
+  const shareMutation = useMutation({
+    mutationFn: (id: string) => apiPost<{ url: string }>(`/keys/${id}/share`, {}),
+    onSuccess: async ({ url }) => {
+      const copied = await copyText(url);
+      toast.success(copied ? "Share link copied" : url);
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to create share link"),
+  });
+
   const editMutation = useMutation({
     mutationFn: (input: { id: string; patch: KeyUpdatePatch }) => apiPatch<ApiKeyRecord>(`/keys/${input.id}`, input.patch),
     onSuccess: () => {
@@ -374,11 +492,23 @@ export function OverviewPage() {
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to update key"),
   });
 
+  const regenerateMutation = useMutation({
+    mutationFn: (id: string) => apiPost<CreatedKey>(`/keys/${id}/regenerate`, {}),
+    onSuccess: (created) => {
+      setRegenerateTarget(null);
+      setRevealed(created);
+      closeEdit();
+      void queryClient.invalidateQueries({ queryKey: ["keys"] });
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to regenerate key"),
+  });
+
   const revokeMutation = useMutation({
     mutationFn: (id: string) => apiPost<{ ok: boolean }>(`/keys/${id}/revoke`, {}),
     onSuccess: () => {
       toast.success("Key revoked");
       setRevokeTarget(null);
+      closeEdit();
       void queryClient.invalidateQueries({ queryKey: ["keys"] });
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to revoke key"),
@@ -408,22 +538,27 @@ export function OverviewPage() {
     createMutation.mutate({
       name: name.trim(),
       prefix: prefix.trim() || undefined,
-      ...buildKeyLimitsInput(rpm, daily, monthly, concurrent, allowed, providerIds),
+      ...buildKeyLimitsInput(rpm, daily, monthly, concurrent, allowed, providerIds, oneTime, budgetMode),
     });
   };
 
   const submitEdit = () => {
     if (!editTarget) return;
-    const limits = buildKeyLimitsInput(rpm, daily, monthly, concurrent, allowed, providerIds);
+    const limits = buildKeyLimitsInput(rpm, daily, monthly, concurrent, allowed, providerIds, oneTime, budgetMode);
     editMutation.mutate({
       id: editTarget.id,
       patch: {
         rateLimitRpm: limits.rateLimitRpm ?? null,
         dailyTokenLimit: limits.dailyTokenLimit ?? null,
         monthlyTokenLimit: limits.monthlyTokenLimit ?? null,
+        oneTimeTokenLimit: limits.oneTimeTokenLimit ?? null,
         maxConcurrentRequests: limits.maxConcurrentRequests ?? null,
         providerAllowlist: limits.providerAllowlist ?? null,
         modelAllowlist: limits.modelAllowlist ?? null,
+        quoteBigText: quoteBigText.trim() || null,
+        quoteSubText: quoteSubText.trim() || null,
+        quoteBody: quoteBody.trim() || null,
+        active: isActive,
       },
     });
   };
@@ -624,9 +759,9 @@ export function OverviewPage() {
             </thead>
             <tbody className="divide-y divide-[var(--inner-border)]">
               {keysQuery.isLoading ? (
-                <tr><td colSpan={8} className="px-4 py-10 text-center text-[var(--text-3)]">Loading\u2026</td></tr>
+                <tr><td colSpan={8} className="px-4 py-10 text-center text-[var(--text-3)]">Loading...</td></tr>
               ) : keys.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-10 text-center text-[var(--text-3)]">No keys yet \u2014 create one to enforce proxy authentication.</td></tr>
+                <tr><td colSpan={8} className="px-4 py-10 text-center text-[var(--text-3)]">No keys yet - create one to enforce proxy authentication.</td></tr>
               ) : (
                 keys.map((key, index) => (
                   <tr key={key.id} {...staggerClass(index)} className="transition-colors hover:bg-[var(--hover)]">
@@ -638,11 +773,23 @@ export function OverviewPage() {
                     </td>
                     <td className="px-3 py-2.5 text-[var(--text-2)]">{formatTime(key.lastUsedAt)}</td>
                     <td className="px-3 py-2.5 text-[var(--text-2)]">{formatTime(key.createdAt)}</td>
-                    <td className="px-3 py-2.5"><Badge tone={key.active ? "ok" : "default"}>{key.active ? "active" : "revoked"}</Badge></td>
+                    <td className="px-3 py-2.5 text-[var(--text-2)]"><Badge tone={key.active ? "ok" : "default"}>{key.revokedAt ? "revoked" : key.active ? "active" : "disabled"}</Badge></td>
                     <td className="px-3 py-2.5 text-right">
-                      {key.active ? (
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
+                      <div className="flex items-center justify-end gap-2">
+                        {key.active ? (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={shareMutation.isPending}
+                              onClick={() => shareMutation.mutate(key.id)}
+                              title="Copy public monitoring link"
+                              aria-label={`Share API key overview ${key.name}`}
+                            >
+                              <Share2 size={13} />
+                              Share
+                            </Button>
+                            <Button
                             variant="ghost"
                             size="sm"
                             disabled={credentialCopy.isPending}
@@ -650,18 +797,17 @@ export function OverviewPage() {
                             title="Copy API key"
                             aria-label={`Copy API key ${key.name}`}
                           >
-                            <Copy size={13} />
-                            Copy
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => openEdit(key)} title="Edit limits and ACL">
-                            <Pencil size={13} />
-                            Edit
-                          </Button>
-                          <Button variant="ghost" size="sm" className="text-[#ff453a]" onClick={() => setRevokeTarget(key)}><Trash2 size={13} /> Revoke</Button>
-                        </div>
-                      ) : (
-                        <Button variant="ghost" size="sm" className="text-[#ff453a]" onClick={() => setDeleteTarget(key)}><Trash2 size={13} /> Delete</Button>
-                      )}
+                              <Copy size={13} />
+                              Copy
+                            </Button>
+                          </>
+                        ) : null}
+                        <Button variant="ghost" size="sm" onClick={() => openEdit(key)} title="Edit key status, limits and ACL">
+                          <Pencil size={13} />
+                          Edit
+                        </Button>
+                        {key.revokedAt ? <Button variant="ghost" size="sm" className="text-[#ff453a]" onClick={() => setDeleteTarget(key)}><Trash2 size={13} /> Delete</Button> : null}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -696,24 +842,36 @@ export function OverviewPage() {
             <Input
               value={prefix}
               onChange={(e) => setPrefix(e.target.value)}
-              placeholder="ctk (default) \u2014 e.g. sk-carte"
+              placeholder="ctk (default) - e.g. sk-carte"
               disabled={createMutation.isPending}
             />
             <p className="mt-1 text-[10.5px] text-[var(--text-3)]">
-              Replaces the default "ctk_" prefix on the generated secret, e.g. "sk-carte_a1b2\u2026". Letters, digits, "_" and "-" only; anything else is stripped.
+              Replaces the default "ctk_" prefix on the generated secret, e.g. "sk-carte_a1b2...". Letters, digits, "_" and "-" only; anything else is stripped.
             </p>
           </div>
           <KeyLimitsFields
             rpm={rpm}
             daily={daily}
             monthly={monthly}
+            oneTime={oneTime}
+            budgetMode={budgetMode}
             concurrent={concurrent}
             allowed={allowed}
             setRpm={setRpm}
             setDaily={setDaily}
             setMonthly={setMonthly}
+            setOneTime={setOneTime}
             setConcurrent={setConcurrent}
             setAllowed={setAllowed}
+            onBudgetModeChange={(mode) => {
+              setBudgetMode(mode);
+              if (mode === "one-time") {
+                setDaily("");
+                setMonthly("");
+              } else {
+                setOneTime("");
+              }
+            }}
             disabled={createMutation.isPending}
           />
         </div>
@@ -740,15 +898,65 @@ export function OverviewPage() {
             rpm={rpm}
             daily={daily}
             monthly={monthly}
+            oneTime={oneTime}
+            budgetMode={budgetMode}
             concurrent={concurrent}
             allowed={allowed}
             setRpm={setRpm}
             setDaily={setDaily}
             setMonthly={setMonthly}
+            setOneTime={setOneTime}
             setConcurrent={setConcurrent}
             setAllowed={setAllowed}
+            onBudgetModeChange={(mode) => {
+              setBudgetMode(mode);
+              if (mode === "one-time") {
+                setDaily("");
+                setMonthly("");
+              } else {
+                setOneTime("");
+              }
+            }}
             disabled={editMutation.isPending}
           />
+          <div className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <Label>Kata-kata hari ini</Label>
+                <p className="mt-1 text-[10.5px] text-[var(--text-3)]">Shown on this key's shared page, after Connection.</p>
+              </div>
+              <span className="text-[10px] text-[var(--text-3)]">Optional</span>
+            </div>
+            <div className="space-y-2.5">
+              <Input value={quoteBigText} onChange={(event) => setQuoteBigText(event.target.value)} maxLength={160} placeholder="Big text - e.g. The wind remembers" disabled={editMutation.isPending} aria-label="Words big text" />
+              <Input value={quoteSubText} onChange={(event) => setQuoteSubText(event.target.value)} maxLength={240} placeholder="Sub text - e.g. A quiet note from Cartethyia" disabled={editMutation.isPending} aria-label="Words sub text" />
+              <textarea value={quoteBody} onChange={(event) => setQuoteBody(event.target.value)} maxLength={2000} rows={4} placeholder="Isi kata-kata hari ini..." disabled={editMutation.isPending} aria-label="Words body" className="w-full resize-y rounded-xl border border-[var(--inner-border)] bg-[var(--input)] px-3 py-2 text-sm text-[var(--text-1)] outline-none placeholder:text-[var(--text-3)] focus:border-[var(--text-3)]" />
+            </div>
+          </div>
+          <div className="flex items-center justify-between rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+            <div>
+              <Label>API key status</Label>
+              <p className="mt-1 text-[10.5px] text-[var(--text-3)]">{editTarget?.revokedAt ? "This key is revoked. Regenerate it to issue a new credential." : isActive ? "Requests using this key are accepted." : "Requests using this key are blocked until enabled."}</p>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-[var(--text-2)]">
+              <span>{isActive ? "Enabled" : "Disabled"}</span>
+              <Switch checked={isActive} onChange={setIsActive} disabled={editMutation.isPending || !!editTarget?.revokedAt} label={isActive ? "Disable API key" : "Enable API key"} />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--inner-border)] pt-3">
+            <div>
+              <p className="text-xs font-semibold text-[#ff8079]">Danger zone</p>
+              <p className="mt-1 text-[10.5px] text-[var(--text-3)]">Revoke the current credential or replace it with a fresh one.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="ghost" size="sm" className="text-[#ff8079]" disabled={!editTarget || !!editTarget.revokedAt || revokeMutation.isPending} onClick={() => editTarget && setRevokeTarget(editTarget)}>
+                <Trash2 size={13} /> Revoke
+              </Button>
+              <Button variant="secondary" size="sm" disabled={!editTarget || regenerateMutation.isPending} onClick={() => editTarget && setRegenerateTarget(editTarget)}>
+                <KeyRound size={13} /> Revoke & regenerate
+              </Button>
+            </div>
+          </div>
         </div>
       </Dialog>
 
@@ -765,6 +973,7 @@ export function OverviewPage() {
       )}
 
       <ConfirmDialog open={!!revokeTarget} onClose={() => setRevokeTarget(null)} onConfirm={() => revokeTarget && revokeMutation.mutate(revokeTarget.id)} title="Revoke API Key" message={`Revoke "${revokeTarget?.name}"? This cannot be undone.`} danger confirmLabel="Revoke" />
+      <ConfirmDialog open={!!regenerateTarget} onClose={() => setRegenerateTarget(null)} onConfirm={() => regenerateTarget && regenerateMutation.mutate(regenerateTarget.id)} title="Revoke & regenerate API Key" message={`The current credential for "${regenerateTarget?.name}" will stop working immediately and a new key will be shown once. Continue?`} danger confirmLabel="Revoke & regenerate" />
       <ConfirmDialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)} title="Delete API Key" message={`Permanently delete "${deleteTarget?.name}"? This removes the key from the database entirely.`} danger confirmLabel="Delete" />
     </>
   );

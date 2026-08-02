@@ -132,9 +132,9 @@ describe("usage APIs", () => {
     const first = (list.body.items as { id: number }[])[0]!;
     insertRequestDetails({
       requestId: first.id,
-      redactedRequest: JSON.stringify({ messages: [{ role: "user", content: "hello" }] }),
-      redactedResponse: JSON.stringify({ choices: [{ message: { content: "world" } }] }),
-      payloadMode: "store",
+      redactedRequest: null,
+      redactedResponse: null,
+      payloadMode: "meta",
       payloadSha256: "deadbeef",
       messageCount: 1,
       toolNames: null,
@@ -148,9 +148,10 @@ describe("usage APIs", () => {
     expect(usage.inputTokens).toBe(10);
     expect(usage.totalTokens).toBe(30);
     expect((detail.body.trace as { traceId: string }).traceId).toBe("trace-2");
-    const stored = detail.body.detail as { redacted_request: string; redacted_response: string };
-    expect(stored.redacted_request).toContain("hello");
-    expect(stored.redacted_response).toContain("world");
+    const stored = detail.body.detail as { redacted_request: string | null; redacted_response: string | null; payload_mode: string };
+    expect(stored.payload_mode).toBe("meta");
+    expect(stored.redacted_request).toBeNull();
+    expect(stored.redacted_response).toBeNull();
 
     const bad = await getJson("/console/api/usage/requests/abc");
     expect(bad.status).toBe(400);

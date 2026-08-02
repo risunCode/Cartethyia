@@ -87,12 +87,12 @@ function frameConnectMessage(data: Uint8Array, flags = 0): Buffer {
 }
 
 /** Reads one Connect frame from a buffer. Returns the frame payload + new offset, or null if incomplete. */
-function readConnectFrame(buffer: Uint8Array, offset: number): { flags: number; payload: Uint8Array; newOffset: number } | null {
-  if (offset + CONNECT_FRAME_HEADER_SIZE > buffer.length) return null;
+function readConnectFrame(buffer: Uint8Array, offset: number, end = buffer.length): { flags: number; payload: Uint8Array; newOffset: number } | null {
+  if (offset + CONNECT_FRAME_HEADER_SIZE > end) return null;
   const flags = buffer[offset]!;
   const length = ((buffer[offset + 1]! << 24) | (buffer[offset + 2]! << 16) | (buffer[offset + 3]! << 8) | buffer[offset + 4]!) >>> 0;
-  if (offset + CONNECT_FRAME_HEADER_SIZE + length > buffer.length) return null;
-  const payload = buffer.slice(offset + CONNECT_FRAME_HEADER_SIZE, offset + CONNECT_FRAME_HEADER_SIZE + length);
+  if (offset + CONNECT_FRAME_HEADER_SIZE + length > end) return null;
+  const payload = buffer.subarray(offset + CONNECT_FRAME_HEADER_SIZE, offset + CONNECT_FRAME_HEADER_SIZE + length);
   return { flags, payload, newOffset: offset + CONNECT_FRAME_HEADER_SIZE + length };
 }
 
@@ -258,17 +258,35 @@ function extractToolArgs(toolCall: { tool?: { value?: Record<string, unknown> } 
  * header per frame) with protobuf-encoded `AgentServerMessage` payloads.
  */
 export async function* decodeCursorStream(response: http2.ClientHttp2Stream): AsyncGenerator<StreamEvent> {
-  const buffer: number[] = [];
+  let buffer = new Uint8Array(8_192);
+  let bufferStart = 0;
+  let bufferEnd = 0;
   let finishSeen = false;
   const toolCallArgsAccum = new Map<string, string>();
 
   for await (const chunk of response) {
-    for (const byte of chunk) buffer.push(byte);
+    const required = bufferEnd + chunk.length;
+    if (required > buffer.length) {
+      if (bufferStart > 0) {
+        buffer.copyWithin(0, bufferStart, bufferEnd);
+        bufferEnd -= bufferStart;
+        bufferStart = 0;
+      }
+      if (required > buffer.length) {
+        let capacity = buffer.length;
+        while (capacity < required) capacity *= 2;
+        const expanded = new Uint8Array(capacity);
+        expanded.set(buffer.subarray(0, bufferEnd));
+        buffer = expanded;
+      }
+    }
+    buffer.set(chunk, bufferEnd);
+    bufferEnd += chunk.length;
 
-    while (buffer.length >= CONNECT_FRAME_HEADER_SIZE) {
-      const frame = readConnectFrame(new Uint8Array(buffer), 0);
+    while (bufferEnd - bufferStart >= CONNECT_FRAME_HEADER_SIZE) {
+      const frame = readConnectFrame(buffer, bufferStart, bufferEnd);
       if (!frame) break;
-      buffer.splice(0, frame.newOffset);
+      bufferStart = frame.newOffset;
 
       // End-stream flag = trailer frame
       if ((frame.flags & END_STREAM_FLAG) !== 0) {
@@ -346,6 +364,14 @@ export async function* decodeCursorStream(response: http2.ClientHttp2Stream): As
       }
     }
 
+    if (bufferStart === bufferEnd) {
+      bufferStart = 0;
+      bufferEnd = 0;
+    } else if (bufferStart > buffer.length / 2) {
+      buffer.copyWithin(0, bufferStart, bufferEnd);
+      bufferEnd -= bufferStart;
+      bufferStart = 0;
+    }
     if (finishSeen) break;
   }
 

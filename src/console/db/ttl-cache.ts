@@ -15,18 +15,41 @@ interface CacheEntry<V> {
   expiresAt: number;
 }
 
+const DEFAULT_MAX_ENTRIES = 1_024;
+const SWEEP_EVERY_OPERATIONS = 64;
+
 export class TtlCache<K, V> {
   private readonly store = new Map<K, CacheEntry<V>>();
+  private operationsSinceSweep = 0;
 
-  constructor(private readonly ttlMs: number) {}
+  constructor(
+    private readonly ttlMs: number,
+    private readonly maxEntries = DEFAULT_MAX_ENTRIES,
+  ) {
+    if (!Number.isFinite(ttlMs) || ttlMs <= 0) throw new Error("TTL must be a positive finite number");
+    if (!Number.isInteger(maxEntries) || maxEntries < 1) throw new Error("maxEntries must be a positive integer");
+  }
 
   /** Returns the cached value for `key`, or computes and caches it via `loader` on a miss/expiry. */
   get(key: K, loader: () => V): V {
     const now = Date.now();
+    this.operationsSinceSweep += 1;
+    if (this.operationsSinceSweep >= SWEEP_EVERY_OPERATIONS) {
+      this.removeExpired(now);
+      this.operationsSinceSweep = 0;
+    }
+
     const hit = this.store.get(key);
     if (hit && hit.expiresAt > now) return hit.value;
+    if (hit) this.store.delete(key);
+
     const value = loader();
     this.store.set(key, { value, expiresAt: now + this.ttlMs });
+    while (this.store.size > this.maxEntries) {
+      const oldest = this.store.keys().next();
+      if (oldest.done) break;
+      this.store.delete(oldest.value);
+    }
     return value;
   }
 
@@ -36,5 +59,12 @@ export class TtlCache<K, V> {
 
   clear(): void {
     this.store.clear();
+    this.operationsSinceSweep = 0;
+  }
+
+  private removeExpired(now: number): void {
+    for (const [key, entry] of this.store) {
+      if (entry.expiresAt <= now) this.store.delete(key);
+    }
   }
 }

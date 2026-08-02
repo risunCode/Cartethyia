@@ -78,10 +78,16 @@ describe("patchRuntimeSettings", () => {
     expect(next.trustProxy).toBe(false);
   });
 
-  test("persists the patch \u2014 a fresh getSettings() reflects it", async () => {
+  test("persists the patch — a fresh getSettings() reflects it", async () => {
     await ensureSettings();
     patchRuntimeSettings({ sessionTtlHours: 3 });
     expect(getSettings()?.runtime.sessionTtlHours).toBe(3);
+  });
+
+  test("downgrades legacy payload storage settings to metadata-only", async () => {
+    await ensureSettings();
+    getDb().query("UPDATE settings SET settings_json = ? WHERE id = 1").run(JSON.stringify({ trackPayloads: "store" }));
+    expect(getSettings()?.runtime.trackPayloads).toBe("meta");
   });
 });
 

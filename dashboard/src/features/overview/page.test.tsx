@@ -40,4 +40,18 @@ describe("buildKeyLimitsInput — provider vs model/alias/combo classification",
     expect(input.providerAllowlist).toEqual(["openai"]);
     expect(input.modelAllowlist).toEqual(["fast", "fast-combo", "kimchi/kimi-k2.7"]);
   });
+
+  test("selects a one-time budget without sending recurring limits", () => {
+    const input = buildKeyLimitsInput("", "1000000", "30000000", "", [], providerIds, "1000000000", "one-time");
+    expect(input).toMatchObject({ oneTimeTokenLimit: 1_000_000_000 });
+    expect(input.dailyTokenLimit).toBeUndefined();
+    expect(input.monthlyTokenLimit).toBeUndefined();
+  });
+
+  test("preset-sized recurring budgets remain independent", () => {
+    const input = buildKeyLimitsInput("", "1000000", "1000000000000", "", [], providerIds);
+    expect(input.dailyTokenLimit).toBe(1_000_000);
+    expect(input.monthlyTokenLimit).toBe(1_000_000_000_000);
+    expect(input.oneTimeTokenLimit).toBeUndefined();
+  });
 });

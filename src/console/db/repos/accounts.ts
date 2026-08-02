@@ -61,6 +61,14 @@ function fromRow(row: ProviderAccountRow): ProviderAccount {
   };
 }
 
+const ACCOUNT_ROWS_CACHE_TTL_MS = 1_000;
+const MAX_ACCOUNT_ROWS_CACHE_ENTRIES = 256;
+const accountRowsCache = new Map<string, { rows: ProviderAccountRow[]; expiresAt: number }>();
+
+function clearAccountRowsCache(): void {
+  accountRowsCache.clear();
+}
+
 export function listAccounts(provider?: string): ProviderAccount[] {
   return listAccountRows(provider).map(fromRow);
 }
@@ -72,12 +80,25 @@ export function listAccounts(provider?: string): ProviderAccount[] {
  * get the credential back. One query instead of 1+N per request.
  */
 function listAccountRows(provider?: string): ProviderAccountRow[] {
+  const key = provider ?? "*";
+  const now = Date.now();
+  const cached = accountRowsCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.rows;
+  if (cached) accountRowsCache.delete(key);
+
   const db = getDb();
-  return (
+  const rows = (
     provider === undefined
       ? db.query("SELECT * FROM provider_accounts ORDER BY priority ASC, name ASC").all()
       : db.query("SELECT * FROM provider_accounts WHERE provider = ? ORDER BY priority ASC, name ASC").all(provider)
   ) as ProviderAccountRow[];
+  accountRowsCache.set(key, { rows, expiresAt: now + ACCOUNT_ROWS_CACHE_TTL_MS });
+  while (accountRowsCache.size > MAX_ACCOUNT_ROWS_CACHE_ENTRIES) {
+    const oldest = accountRowsCache.keys().next();
+    if (oldest.done) break;
+    accountRowsCache.delete(oldest.value);
+  }
+  return rows;
 }
 
 interface AccountCursor { priority: number; name: string; id: string; }
@@ -160,6 +181,7 @@ export function createAccount(input: {
   db.query(
     "INSERT INTO provider_accounts (id, provider, name, credential_kind, credential, credential_hint, priority, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).run(id, input.provider, input.name, input.credentialKind.toLowerCase(), input.credential, hint, priority, active ? 1 : 0, now, now);
+  clearAccountRowsCache();
 
   return { id, credentialHint: hint };
 }
@@ -212,10 +234,17 @@ export function patchAccount(id: string, patch: {
   values.push(id);
 
   getDb().query(`UPDATE provider_accounts SET ${updateFields.join(", ")} WHERE id = ?`).run(...values);
+  clearAccountRowsCache();
 }
 
 export function deleteAccount(id: string): boolean {
+  const current = getAccount(id);
+  if (!current) return false;
   const result = getDb().query("DELETE FROM provider_accounts WHERE id = ?").run(id);
+  if (result.changes > 0) {
+    clearAccountRowsCache();
+    purgeAccountRoutingState(id, current.provider);
+  }
   return result.changes > 0;
 }
 
@@ -226,42 +255,77 @@ interface StickyAssignment {
   expiresAt: number;
 }
 
-// Keyed by provider first so cleanup/counting below only ever touches that
-// provider's assignments - a flat map keyed by "provider\0clientKey" would
-// force scanning every provider's assignments on every call regardless of
-// which provider the current request targets.
-const stickyAssignmentsByProvider = new Map<string, Map<string, StickyAssignment>>();
+interface StickyProviderState {
+  assignments: Map<string, StickyAssignment>;
+  assignmentCounts: Map<string, number>;
+  lastSweepAt: number;
+}
+
+const stickyAssignmentsByProvider = new Map<string, StickyProviderState>();
 const STICKY_ASSIGNMENT_TTL_MS = 30 * 60_000;
+const STICKY_SWEEP_INTERVAL_MS = 1_000;
+const MAX_STICKY_ASSIGNMENTS_PER_PROVIDER = 10_000;
+
+function removeStickyAssignment(state: StickyProviderState, clientKey: string, assignment: StickyAssignment): void {
+  state.assignments.delete(clientKey);
+  const count = (state.assignmentCounts.get(assignment.accountId) ?? 1) - 1;
+  if (count > 0) state.assignmentCounts.set(assignment.accountId, count);
+  else state.assignmentCounts.delete(assignment.accountId);
+}
+
+function purgeAccountRoutingState(accountId: string, provider: string): void {
+  rotationState.delete(provider);
+  cooldowns.delete(accountId);
+  const modelPrefix = `${accountId}:`;
+  for (const key of modelLocks.keys()) {
+    if (key.startsWith(modelPrefix)) modelLocks.delete(key);
+  }
+  const state = stickyAssignmentsByProvider.get(provider);
+  if (!state) return;
+  for (const [clientKey, assignment] of state.assignments) {
+    if (assignment.accountId === accountId) removeStickyAssignment(state, clientKey, assignment);
+  }
+  if (state.assignments.size === 0) stickyAssignmentsByProvider.delete(provider);
+}
 
 function pickStickyAccount(provider: string, active: ProviderAccountRow[], clientKey: string, stickyLimit: number): ProviderAccountRow | null {
   if (stickyLimit < 1 || stickyLimit > 3) return null;
   const now = Date.now();
-  let assignments = stickyAssignmentsByProvider.get(provider);
-  if (!assignments) {
-    assignments = new Map();
-    stickyAssignmentsByProvider.set(provider, assignments);
+  let state = stickyAssignmentsByProvider.get(provider);
+  if (!state) {
+    state = { assignments: new Map(), assignmentCounts: new Map(), lastSweepAt: 0 };
+    stickyAssignmentsByProvider.set(provider, state);
   }
+
   const accountIds = new Set(active.map((account) => account.id));
-  for (const [key, assignment] of assignments) {
-    if (assignment.expiresAt <= now || !accountIds.has(assignment.accountId)) assignments.delete(key);
+  if (now - state.lastSweepAt >= STICKY_SWEEP_INTERVAL_MS) {
+    state.lastSweepAt = now;
+    for (const [key, assignment] of state.assignments) {
+      if (assignment.expiresAt <= now || !accountIds.has(assignment.accountId)) removeStickyAssignment(state, key, assignment);
+    }
   }
-  const existing = assignments.get(clientKey);
-  if (existing) {
+
+  const existing = state.assignments.get(clientKey);
+  if (existing && existing.expiresAt > now && accountIds.has(existing.accountId)) {
     existing.expiresAt = now + STICKY_ASSIGNMENT_TTL_MS;
     return active.find((account) => account.id === existing.accountId) ?? null;
   }
-  const assignmentCounts = new Map<string, number>();
-  for (const assignment of assignments.values()) {
-    assignmentCounts.set(assignment.accountId, (assignmentCounts.get(assignment.accountId) ?? 0) + 1);
-  }
-  const candidates = active.filter((account) => (assignmentCounts.get(account.id) ?? 0) < stickyLimit);
+  if (existing) removeStickyAssignment(state, clientKey, existing);
+
+  const candidates = active.filter((account) => (state!.assignmentCounts.get(account.id) ?? 0) < stickyLimit);
   const pool = candidates.length > 0 ? candidates : active;
   const selected = pool.reduce((best, account) => {
-    const accountCount = assignmentCounts.get(account.id) ?? 0;
-    const bestCount = assignmentCounts.get(best.id) ?? 0;
+    const accountCount = state!.assignmentCounts.get(account.id) ?? 0;
+    const bestCount = state!.assignmentCounts.get(best.id) ?? 0;
     return accountCount < bestCount ? account : best;
   });
-  assignments.set(clientKey, { accountId: selected.id, expiresAt: now + STICKY_ASSIGNMENT_TTL_MS });
+
+  if (state.assignments.size >= MAX_STICKY_ASSIGNMENTS_PER_PROVIDER) {
+    const oldest = state.assignments.entries().next();
+    if (!oldest.done) removeStickyAssignment(state, oldest.value[0], oldest.value[1]);
+  }
+  state.assignments.set(clientKey, { accountId: selected.id, expiresAt: now + STICKY_ASSIGNMENT_TTL_MS });
+  state.assignmentCounts.set(selected.id, (state.assignmentCounts.get(selected.id) ?? 0) + 1);
   return selected;
 }
 
@@ -399,6 +463,15 @@ export function resetCooldownForTests(): void {
   cooldowns.clear();
   modelLocks.clear();
   cooldownsHydrated = false;
+}
+
+/** Test-only: clear account snapshots and routing state between isolated databases. */
+export function resetAccountRoutingForTests(): void {
+  clearAccountRowsCache();
+  rotationState.clear();
+  stickyAssignmentsByProvider.clear();
+  providerLocks.clear();
+  resetCooldownForTests();
 }
 
 /**

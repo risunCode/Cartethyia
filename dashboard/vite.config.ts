@@ -25,5 +25,15 @@ export default defineConfig({
     outDir: "dist",
     sourcemap: false,
     chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("recharts")) return "vendor-charts";
+          if (id.includes("react-markdown") || id.includes("remark-gfm") || id.includes("remark-parse")) return "vendor-markdown";
+          return undefined;
+        },
+      },
+    },
   },
 });

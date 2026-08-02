@@ -11,6 +11,15 @@ import { INIT_SQL } from "./schema";
 
 let db: Database | null = null;
 
+function ensureApiKeyBudgetColumns(database: Database): void {
+  const columns = new Set((database.query("PRAGMA table_info(api_keys)").all() as Array<{ name: string }>).map((row) => row.name));
+  if (!columns.has("one_time_token_limit")) database.exec("ALTER TABLE api_keys ADD COLUMN one_time_token_limit INTEGER");
+  if (!columns.has("one_time_tokens_used")) database.exec("ALTER TABLE api_keys ADD COLUMN one_time_tokens_used INTEGER NOT NULL DEFAULT 0");
+  if (!columns.has("quote_big_text")) database.exec("ALTER TABLE api_keys ADD COLUMN quote_big_text TEXT");
+  if (!columns.has("quote_sub_text")) database.exec("ALTER TABLE api_keys ADD COLUMN quote_sub_text TEXT");
+  if (!columns.has("quote_body")) database.exec("ALTER TABLE api_keys ADD COLUMN quote_body TEXT");
+}
+
 export function getDb(): Database {
   if (!db) {
     const env = getConsoleEnv();
@@ -25,6 +34,7 @@ export function getDb(): Database {
     db.exec("PRAGMA foreign_keys=ON");
     db.exec("PRAGMA busy_timeout=5000");
     db.exec(INIT_SQL);
+    ensureApiKeyBudgetColumns(db);
   }
   return db;
 }

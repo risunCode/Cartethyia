@@ -36,10 +36,10 @@ CREATE INDEX IF NOT EXISTS idx_request_history_api_key_started ON request_histor
 CREATE INDEX IF NOT EXISTS idx_request_history_provider ON request_history(provider);
 CREATE INDEX IF NOT EXISTS idx_request_history_model ON request_history(model);
 
--- Per-request payload/tool metadata, keyed 1:1 to request_history.id. Holds
--- the redacted request/response text inline (TRACK_PAYLOADS=store) instead
--- of a companion file under DATA_DIR/payloads - one durable row instead of
--- one file per request.
+-- Per-request payload/tool metadata, keyed 1:1 to request_history.id.
+-- Request/response body columns remain nullable for legacy database
+-- compatibility, but new tracking writes metadata only and never stores body
+-- contents.
 CREATE TABLE IF NOT EXISTS request_details (
   request_id INTEGER PRIMARY KEY,
   redacted_request TEXT,

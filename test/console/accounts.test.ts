@@ -5,7 +5,7 @@ import { app } from "../../src/app";
 import { closeDbForTests, getDb } from "../../src/console/db/client";
 import { createAccount, markAccountUnavailable, pickAccountForRotation, resetCooldownForTests } from "../../src/console/db/repos/accounts";
 import { loginAndGetCookie, postJson, useIsolatedDataDir } from "./helpers";
-import { resetOpenCodeFreeCatalogForTests } from "../../src/upstream/providers/opencode-free/catalog";
+import { resetOpenCodeFreeCatalogForTests } from "../../src/upstream/providers/opencode-free";
 
 type MockFetch = ReturnType<typeof spyOn<typeof globalThis, "fetch">>;
 

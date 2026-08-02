@@ -17,6 +17,11 @@ export interface ApiKeyRow {
   rate_limit_rpm: number | null;
   daily_token_limit: number | null;
   monthly_token_limit: number | null;
+  one_time_token_limit: number | null;
+  one_time_tokens_used: number;
+  quote_big_text: string | null;
+  quote_sub_text: string | null;
+  quote_body: string | null;
   max_concurrent_requests: number | null;
   provider_allowlist: string | null;
   model_allowlist: string | null;
@@ -34,6 +39,11 @@ export interface ApiKeyPublic {
   rateLimitRpm: number | null;
   dailyTokenLimit: number | null;
   monthlyTokenLimit: number | null;
+  oneTimeTokenLimit: number | null;
+  oneTimeTokensUsed: number;
+  quoteBigText: string | null;
+  quoteSubText: string | null;
+  quoteBody: string | null;
   maxConcurrentRequests: number | null;
   providerAllowlist: string[] | null;
   modelAllowlist: string[] | null;
@@ -50,6 +60,7 @@ export interface ApiKeyCreateInput {
   rateLimitRpm?: number;
   dailyTokenLimit?: number;
   monthlyTokenLimit?: number;
+  oneTimeTokenLimit?: number;
   maxConcurrentRequests?: number;
   providerAllowlist?: string[];
   modelAllowlist?: string[];
@@ -60,10 +71,15 @@ export interface ApiKeyUpdateInput {
   rateLimitRpm?: number | null;
   dailyTokenLimit?: number | null;
   monthlyTokenLimit?: number | null;
+  oneTimeTokenLimit?: number | null;
   maxConcurrentRequests?: number | null;
   providerAllowlist?: string[] | null;
   modelAllowlist?: string[] | null;
   modelDenylist?: string[] | null;
+  quoteBigText?: string | null;
+  quoteSubText?: string | null;
+  quoteBody?: string | null;
+  active?: boolean;
 }
 
 function toPublic(row: ApiKeyRow): ApiKeyPublic {
@@ -75,6 +91,11 @@ function toPublic(row: ApiKeyRow): ApiKeyPublic {
     rateLimitRpm: row.rate_limit_rpm,
     dailyTokenLimit: row.daily_token_limit,
     monthlyTokenLimit: row.monthly_token_limit,
+    oneTimeTokenLimit: row.one_time_token_limit,
+    oneTimeTokensUsed: row.one_time_tokens_used,
+    quoteBigText: row.quote_big_text,
+    quoteSubText: row.quote_sub_text,
+    quoteBody: row.quote_body,
     maxConcurrentRequests: row.max_concurrent_requests,
     providerAllowlist: parseJsonArray(row.provider_allowlist),
     modelAllowlist: parseJsonArray(row.model_allowlist),
@@ -90,6 +111,14 @@ function serializeList(value: string[] | null | undefined): string | null {
 }
 
 const DEFAULT_KEY_PREFIX = "ctk";
+
+function generateSecret(prefix: string | undefined): { key: string; keyPrefix: string } {
+  const raw = crypto.getRandomValues(new Uint8Array(24));
+  let suffix = "";
+  for (const byte of raw) suffix += byte.toString(16).padStart(2, "0");
+  const key = `${sanitizeKeyPrefix(prefix)}_${suffix}`;
+  return { key, keyPrefix: key.slice(0, 12) };
+}
 
 /**
  * Keeps a custom prefix safe to embed in an `Authorization: Bearer <key>`
@@ -107,26 +136,25 @@ function sanitizeKeyPrefix(raw: string | undefined): string {
 /** Returns the full key exactly once; caller must show it immediately. */
 export function createApiKey(input: ApiKeyCreateInput): { key: string; record: ApiKeyPublic } | { error: "duplicate" } {
   const db = getDb();
-  const raw = crypto.getRandomValues(new Uint8Array(24));
-  let suffix = "";
-  for (const byte of raw) suffix += byte.toString(16).padStart(2, "0");
-  const key = `${sanitizeKeyPrefix(input.prefix)}_${suffix}`;
+  const generated = generateSecret(input.prefix);
+  const { key } = generated;
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   try {
     db.query(
       `INSERT INTO api_keys (
         id, name, key, key_prefix, active, rate_limit_rpm, daily_token_limit, monthly_token_limit,
-        max_concurrent_requests, provider_allowlist, model_allowlist, model_denylist, created_at
-      ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`
+        one_time_token_limit, max_concurrent_requests, provider_allowlist, model_allowlist, model_denylist, created_at
+      ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       input.name,
       key,
-      key.slice(0, 12),
+      generated.keyPrefix,
       input.rateLimitRpm ?? null,
       input.dailyTokenLimit ?? null,
       input.monthlyTokenLimit ?? null,
+      input.oneTimeTokenLimit ?? null,
       input.maxConcurrentRequests ?? null,
       serializeList(input.providerAllowlist),
       serializeList(input.modelAllowlist),
@@ -160,14 +188,30 @@ export function updateApiKey(id: string, patch: ApiKeyUpdateInput): ApiKeyPublic
     fields.push(`${column} = ?`);
     values.push(serializeList(value));
   };
+  const setNullableText = (column: string, value: string | null | undefined) => {
+    if (value === undefined) return;
+    fields.push(`${column} = ?`);
+    values.push(value);
+  };
 
   setNullableInt("rate_limit_rpm", patch.rateLimitRpm);
   setNullableInt("daily_token_limit", patch.dailyTokenLimit);
   setNullableInt("monthly_token_limit", patch.monthlyTokenLimit);
+  if (patch.oneTimeTokenLimit !== undefined && patch.oneTimeTokenLimit !== existing.one_time_token_limit) {
+    fields.push("one_time_token_limit = ?", "one_time_tokens_used = ?");
+    values.push(patch.oneTimeTokenLimit, 0);
+  }
   setNullableInt("max_concurrent_requests", patch.maxConcurrentRequests);
   setNullableList("provider_allowlist", patch.providerAllowlist);
   setNullableList("model_allowlist", patch.modelAllowlist);
   setNullableList("model_denylist", patch.modelDenylist);
+  setNullableText("quote_big_text", patch.quoteBigText);
+  setNullableText("quote_sub_text", patch.quoteSubText);
+  setNullableText("quote_body", patch.quoteBody);
+  if (patch.active !== undefined && existing.revoked_at === null) {
+    fields.push("active = ?");
+    values.push(patch.active ? 1 : 0);
+  }
 
   if (fields.length === 0) return toPublic(existing);
 
@@ -176,6 +220,19 @@ export function updateApiKey(id: string, patch: ApiKeyUpdateInput): ApiKeyPublic
   secretCache.clear();
   const row = db.query("SELECT * FROM api_keys WHERE id = ?").get(id) as ApiKeyRow;
   return toPublic(row);
+}
+
+/** Generates a fresh credential for the same key record and re-enables it. */
+export function regenerateApiKey(id: string): { key: string; record: ApiKeyPublic } | null {
+  const db = getDb();
+  const existing = db.query("SELECT * FROM api_keys WHERE id = ?").get(id) as ApiKeyRow | null;
+  if (!existing) return null;
+  const prefix = existing.key_prefix.split("_")[0] || DEFAULT_KEY_PREFIX;
+  const generated = generateSecret(prefix);
+  db.query("UPDATE api_keys SET key = ?, key_prefix = ?, active = 1, revoked_at = NULL, last_used_at = NULL WHERE id = ?").run(generated.key, generated.keyPrefix, id);
+  secretCache.clear();
+  const row = db.query("SELECT * FROM api_keys WHERE id = ?").get(id) as ApiKeyRow;
+  return { key: generated.key, record: toPublic(row) };
 }
 
 export function listApiKeys(): ApiKeyPublic[] {
@@ -257,4 +314,19 @@ export function resetApiKeyCachesForTests(): void {
     clearTimeout(touchFlushTimer);
     touchFlushTimer = null;
   }
+}
+
+/** Returns the durable one-time token usage for enforcement and share metrics. */
+export function sumOneTimeTokensForKey(id: string): number {
+  const row = getDb().query("SELECT one_time_tokens_used FROM api_keys WHERE id = ?").get(id) as { one_time_tokens_used: number } | null;
+  return row?.one_time_tokens_used ?? 0;
+}
+
+/** Adds measured usage to a key's one-time budget without exceeding its configured cap. */
+export function consumeOneTimeTokensForKey(id: string, tokens: number): void {
+  if (!Number.isFinite(tokens) || tokens <= 0) return;
+  getDb().query(
+    "UPDATE api_keys SET one_time_tokens_used = MIN(one_time_token_limit, one_time_tokens_used + ?) WHERE id = ? AND one_time_token_limit IS NOT NULL",
+  ).run(Math.floor(tokens), id);
+  secretCache.clear();
 }

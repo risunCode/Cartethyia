@@ -3,7 +3,7 @@
  * (paused when the user scrolls up), 1000-line cap and server-side clear (REQ-6).
  */
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, Trash2, Wifi, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError, apiDelete } from "../../lib/api";
@@ -13,7 +13,7 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Select } from "../../components/ui/tabs";
 import { ConfirmDialog } from "../../components/shared";
-import { useConsoleLogStream, type ConsoleLogLevel } from "../../lib/hooks/use-console-log-stream";
+import { useConsoleLogStream, type ConsoleLogLevel } from "../../hooks/use-console-log-stream";
 
 const LEVEL_COLORS: Record<ConsoleLogLevel, string> = {
   debug: "text-[var(--text-3)]",
@@ -24,6 +24,18 @@ const LEVEL_COLORS: Record<ConsoleLogLevel, string> = {
 
 const LEVELS: (ConsoleLogLevel | "all")[] = ["all", "debug", "info", "warn", "error"];
 
+const ConsoleLogRow = memo(function ConsoleLogRow({ line }: { line: { ts: string; level: ConsoleLogLevel; msg: string } }) {
+  return (
+    <div
+      className="flex flex-col gap-0.5 whitespace-pre-wrap break-all py-1 hover:bg-[var(--hover)] sm:flex-row sm:gap-2 sm:py-0.5"
+      style={{ contentVisibility: "auto", containIntrinsicSize: "0 24px" }}
+    >
+      <span className="shrink-0 text-[var(--text-3)]">{formatTime(line.ts)}</span>
+      <span className={LEVEL_COLORS[line.level]}>{line.msg}</span>
+    </div>
+  );
+});
+
 export function ConsoleLogPage() {
   const { lines, status, attempts } = useConsoleLogStream();
   const [filter, setFilter] = useState<ConsoleLogLevel | "all">("all");
@@ -31,7 +43,7 @@ export function ConsoleLogPage() {
   const [clearOpen, setClearOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const visible = filter === "all" ? lines : lines.filter((line) => line.level === filter);
+  const visible = useMemo(() => filter === "all" ? lines : lines.filter((line) => line.level === filter), [filter, lines]);
 
   // Auto-scroll to bottom unless the user scrolled up.
   useEffect(() => {
@@ -67,7 +79,7 @@ export function ConsoleLogPage() {
               <Wifi size={11} className="mr-1" /> live
             </Badge>
           ) : status === "connecting" ? (
-            <Badge tone="info">connecting\u2026</Badge>
+            <Badge tone="info">connecting...</Badge>
           ) : (
             <Badge tone="err">
               <WifiOff size={11} className="mr-1" /> reconnecting ({attempts})
@@ -95,12 +107,7 @@ export function ConsoleLogPage() {
           {visible.length === 0 ? (
             <p className="py-10 text-center font-sans text-sm text-[var(--text-3)]">No log lines{filter !== "all" ? ` at level "${filter}"` : ""}.</p>
           ) : (
-            visible.map((line, index) => (
-              <div key={`${line.ts}-${index}`} className="flex flex-col gap-0.5 whitespace-pre-wrap break-all py-1 hover:bg-[var(--hover)] sm:flex-row sm:gap-2 sm:py-0.5">
-                <span className="shrink-0 text-[var(--text-3)]">{formatTime(line.ts)}</span>
-                <span className={LEVEL_COLORS[line.level]}>{line.msg}</span>
-              </div>
-            ))
+            visible.map((line, index) => <ConsoleLogRow key={`${line.ts}-${index}`} line={line} />)
           )}
         </div>
       </Card>

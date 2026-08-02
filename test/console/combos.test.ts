@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { app } from "../../src/app";
 import { loginAndGetCookie, postJson, useIsolatedDataDir } from "./helpers";
-import { resetOpenCodeFreeCatalogForTests } from "../../src/upstream/providers/opencode-free/catalog";
+import { resetOpenCodeFreeCatalogForTests } from "../../src/upstream/providers/opencode-free";
 import { resetComboRotationForTests } from "../../src/routing/resolve";
 
 type MockFetch = ReturnType<typeof spyOn<typeof globalThis, "fetch">>;

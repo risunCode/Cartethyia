@@ -11,7 +11,6 @@ import { insertUsageHistory, utcNow } from "../db/repos/usage";
 import { insertRequestDetails, insertAssetMeta, insertToolCall } from "../db/repos/details";
 import { extractUsage, extractUsageFromSseText, extractToolCalls, type UsageTotals } from "./usage-extractor";
 import { computePayloadMeta, extractLastUserMessagePreview } from "./payload-meta";
-import { redactPayload } from "./redact";
 import { parseQualifiedModel } from "../../routing/resolve";
 import { incrementInFlight, decrementInFlight } from "./in-flight";
 
@@ -24,6 +23,7 @@ export interface TrackerStartInput {
   stream: boolean;
   request: Request;
   apiKey: ApiKeyPublic | null;
+  onTokenUsage?: (tokens: number) => void;
   meta?: Record<string, unknown>;
 }
 
@@ -106,13 +106,21 @@ export function createRequestTracker(start: TrackerStartInput): RequestTracker {
   const startedAt = utcNow();
   const provider = providerForModel(start.model);
   let finished = false;
+  let tokenUsageSettled = false;
   incrementInFlight();
+
+  const settleTokenUsage = (tokens: number): void => {
+    if (tokenUsageSettled) return;
+    tokenUsageSettled = true;
+    start.onTokenUsage?.(tokens);
+  };
 
   const persist = (finish: FinishInput): void => {
     if (finished) return;
     finished = true;
     decrementInFlight();
-    void persistAsync(start, traceId, startedAt, startedMs, provider, finish).catch((err) => {
+    void persistAsync(start, traceId, startedAt, startedMs, provider, finish, settleTokenUsage).catch((err) => {
+      settleTokenUsage(0);
       pushConsoleLog("error", "tracking", `persist failed: ${err instanceof Error ? err.message : String(err)}`);
     });
   };
@@ -135,8 +143,9 @@ export function createRequestTracker(start: TrackerStartInput): RequestTracker {
           if (done) {
             controller.close();
             const usage = extractUsageFromSseText(start.surface, sseText);
-            // Keep the redacted terminal SSE transcript as the completion stage for Request Detail.
-            persist({ status: 200, provider: providerOverride ?? provider, usage, body: sseText || undefined, requestBody, accountLabel });
+            // The response transcript is retained only in memory long enough to
+            // recover terminal usage; no request or response body is persisted.
+            persist({ status: 200, provider: providerOverride ?? provider, usage, requestBody, accountLabel });
             return;
           }
           sseText += decoder.decode(value, { stream: true });
@@ -162,15 +171,17 @@ async function persistAsync(
   startedAt: string,
   startedMs: number,
   provider: string | undefined,
-  finish: FinishInput
+  finish: FinishInput,
+  settleTokenUsage: (tokens: number) => void,
 ): Promise<void> {
   const runtime = getRuntimeSettings();
   const finishedAt = utcNow();
   const durationMs = Date.now() - startedMs;
   const usage = finish.usage ?? (finish.body !== undefined ? extractUsage(start.surface, finish.body) : null);
+  settleTokenUsage((usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0));
   // Computed unconditionally (cheap, no disk write) so the console log tail
   // always shows what was asked and which tools ran, regardless of the
-  // heavier TRACK_PAYLOADS storage setting.
+  // TRACK_PAYLOADS setting.
   const toolCalls = finish.body !== undefined && finish.status < 400 ? extractToolCalls(start.surface, finish.body) : [];
   const messagePreview = finish.requestBody !== undefined ? extractLastUserMessagePreview(start.surface, finish.requestBody) : undefined;
 
@@ -198,19 +209,17 @@ async function persistAsync(
     meta: start.meta ?? {},
   });
 
-  // Payload/tool-call detail per TRACK_PAYLOADS mode - persisted once,
+  // Payload/tool-call metadata per TRACK_PAYLOADS mode - persisted once,
   // directly into request_details/request_tool_calls (runtime.sqlite).
   // request_history (inserted above) already carries every other field a
   // separate JSONL archival record used to duplicate.
   if (runtime.trackPayloads !== "none" && finish.requestBody !== undefined) {
     const meta = computePayloadMeta(start.surface === "responses" ? "responses" : start.surface, finish.requestBody);
-    const redactedRequest = runtime.trackPayloads === "store" ? redactPayload(finish.requestBody) : null;
-    const redactedResponse = runtime.trackPayloads === "store" ? redactPayload(finish.body) : null;
     insertRequestDetails({
       requestId: id,
-      redactedRequest,
-      redactedResponse,
-      payloadMode: runtime.trackPayloads,
+      redactedRequest: null,
+      redactedResponse: null,
+      payloadMode: "meta",
       payloadSha256: meta.sha256,
       messageCount: meta.messageCount,
       toolNames: meta.toolNames,

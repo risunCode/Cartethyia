@@ -5,9 +5,8 @@
  * (https://opencode.ai/zen/v1/models) for the live model list, so a single
  * module-level cache is correct — there is no benefit in fetching it twice.
  *
- * Consumers: opencode-free/catalog.ts, opencode-zen/catalog.ts (thin
- * re-exports that alias fetchOpenCodeCatalog under their legacy names so
- * existing test imports continue to work).
+ * Free and Zen provider modules re-export the shared fetcher under their
+ * provider-specific catalog names for clear callsites and test isolation.
  */
 
 import { ProviderCallError } from "./index";

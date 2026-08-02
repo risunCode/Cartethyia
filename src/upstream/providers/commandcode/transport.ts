@@ -346,6 +346,7 @@ function decodeEvent(event: Record<string, unknown>, state: DecoderState): Strea
         type: "usage",
         inputTokens: eventNumber(state.usage, "promptTokens") ?? eventNumber(state.usage, "inputTokens") ?? 0,
         outputTokens: eventNumber(state.usage, "completionTokens") ?? eventNumber(state.usage, "outputTokens") ?? 0,
+        reasoningTokens: 0,
         cacheReadTokens: eventNumber(state.usage, "cacheReadTokens") ?? 0,
         cacheWriteTokens: eventNumber(state.usage, "cacheWriteTokens") ?? 0,
       });

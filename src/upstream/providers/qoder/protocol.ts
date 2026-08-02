@@ -49,6 +49,7 @@ export function encodeQoderBody(plaintext: string): Uint8Array {
 }
 
 const MACHINE_ID_TTL_MS = 60 * 60 * 1000;
+const MAX_MACHINE_IDS = 1_024;
 const machineIds = new Map<string, { id: string; expiresAt: number }>();
 
 /** Keeps a request-local PAT's ephemeral client identity stable without retaining the PAT itself. */
@@ -59,9 +60,15 @@ function machineIdFromPat(pat: string): string {
   if (existing && existing.expiresAt > now) return existing.id;
 
   const id = randomUUID();
+  machineIds.delete(key);
   machineIds.set(key, { id, expiresAt: now + MACHINE_ID_TTL_MS });
   for (const [candidate, value] of machineIds) {
     if (value.expiresAt <= now) machineIds.delete(candidate);
+  }
+  while (machineIds.size > MAX_MACHINE_IDS) {
+    const oldest = machineIds.keys().next();
+    if (oldest.done) break;
+    machineIds.delete(oldest.value);
   }
   return id;
 }

@@ -1,7 +1,6 @@
 /**
  * Payload metadata — counts and hashes describing a request payload without
- * keeping its contents (used in TRACK_PAYLOADS=meta mode and as the base for
- * store mode).
+ * keeping its contents (used in TRACK_PAYLOADS=meta mode).
  */
 
 export interface PayloadMeta {
@@ -67,8 +66,7 @@ function textFromContent(content: unknown): string {
 
 /**
  * A short, single-line preview of the *last user turn* — cheap enough to run
- * unconditionally for the console log tail (unlike the redacted payload copy
- * kept under TRACK_PAYLOADS, this never touches disk).
+ * unconditionally for the console log tail; this never touches disk.
  */
 export function extractLastUserMessagePreview(surface: string, body: unknown, maxLen = 60): string | undefined {
   const root = asObj(body);

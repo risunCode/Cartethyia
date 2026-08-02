@@ -1,6 +1,7 @@
 import { getDb } from "../db/client";
 import { createAccount, type CredentialKind } from "../db/repos/accounts";
 import { accountCredentialKindOf, isProviderId } from "../../routing/providerMeta";
+import { scheduleGlobalGc } from "../memory";
 
 interface ImportLine { line: number; text: string; }
 interface ParsedCredential { line: number; credential: string; }
@@ -60,6 +61,6 @@ export async function importAccountsForProvider(provider: string, text: string):
       createAccount({ provider, name, credentialKind, credential: entry.credential });
     }
   })();
-  Bun.gc(true);
+  scheduleGlobalGc();
   return { imported: parsed.length, skipped, renamed };
 }

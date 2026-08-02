@@ -5,6 +5,7 @@
 
 import { Elysia } from "elysia";
 import { filterModelsForKey, resolveModelsApiKey } from "../console/proxy-auth";
+import type { ApiKeyPublic } from "../console/db/repos/api-keys";
 import { listAliases, listCombos } from "../console/db/repos/combos";
 import { listCustomProviders } from "../console/db/repos/custom-providers";
 import { listProviderModelStates } from "../console/db/repos/provider-models";
@@ -101,6 +102,11 @@ export function resetModelCatalogCacheForTests(): void {
   dedupedCatalogCache.clear();
 }
 
+/** Returns the locally routeable models permitted by an API key. */
+export function listModelsForKey(key: ApiKeyPublic): ModelEntry[] {
+  return filterModelsForKey(key, dedupedRegistryModels());
+}
+
 /**
  * Returns every locally routeable model in the OpenAI-compatible
  * `{ object: "list", data: [...] }` envelope expected by external clients.
@@ -112,7 +118,6 @@ export const modelsRoute = new Elysia().get("/v1/models", ({ request, set }) => 
     return auth.error.body;
   }
 
-  const deduped = dedupedRegistryModels();
-  const data = auth.key ? filterModelsForKey(auth.key, deduped) : deduped;
+  const data = auth.key ? listModelsForKey(auth.key) : dedupedRegistryModels();
   return { object: "list" as const, data };
 });

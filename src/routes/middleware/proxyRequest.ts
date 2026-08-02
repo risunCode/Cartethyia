@@ -6,6 +6,7 @@
  */
 
 import { enforceProxyAuth } from "../../console/proxy-auth";
+import { consumeOneTimeTokensForKey } from "../../console/db/repos/api-keys";
 import { openAIClientError } from "../../http/errors";
 import { createRequestTracker, type RequestTracker, type TrackSurface } from "../../console/tracking/tracker";
 import { tryAcquireKeySlot, releaseKeySlot, releaseTokenReservationForKey } from "../../console/tracking/key-in-flight";
@@ -43,6 +44,7 @@ export async function withProxyRequest<T>(opts: ProxyRequestOptions, handler: (c
   const maxConcurrent = auth.key?.maxConcurrentRequests;
   const tokensReserved = auth.tokensReserved;
   if (keyId && maxConcurrent && !tryAcquireKeySlot(keyId, maxConcurrent)) {
+    if (keyId && tokensReserved > 0) releaseTokenReservationForKey(keyId, tokensReserved);
     opts.set.status = 429;
     return openAIClientError(429, "rate_limit_error", "This key exceeded its concurrent request limit.");
   }
@@ -54,6 +56,12 @@ export async function withProxyRequest<T>(opts: ProxyRequestOptions, handler: (c
     stream: opts.stream,
     request: opts.request,
     apiKey: auth.key,
+    onTokenUsage: auth.holdTokenReservation && keyId
+      ? (tokens) => {
+          consumeOneTimeTokensForKey(keyId, tokens);
+          releaseTokenReservationForKey(keyId, tokensReserved);
+        }
+      : undefined,
   });
 
   let requestBody: unknown;
@@ -71,13 +79,8 @@ export async function withProxyRequest<T>(opts: ProxyRequestOptions, handler: (c
     throw err;
   } finally {
     if (keyId && maxConcurrent) releaseKeySlot(keyId);
-    // For a JSON response the real usage already landed in SQLite by the
-    // time `handler()` resolves, so this just stops double-counting the
-    // estimate. For an SSE response the reservation is released here too
-    // (matching releaseKeySlot's existing per-key-slot behavior above,
-    // rather than holding until the stream drains) - a narrower window
-    // than before this reservation existed, but not a full close for
-    // long-lived streams.
-    if (keyId && tokensReserved > 0) releaseTokenReservationForKey(keyId, tokensReserved);
+    // One-time budgets release only after the tracker has measured usage;
+    // regular daily/monthly reservations can be released with the request.
+    if (keyId && tokensReserved > 0 && !auth.holdTokenReservation) releaseTokenReservationForKey(keyId, tokensReserved);
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "cartethyia-dashboard",
   "private": true,
-  "version": "1.0.5-alpha",
+  "version": "1.0.6-alpha",
   "type": "module",
   "scripts": {
     "dev": "vite",

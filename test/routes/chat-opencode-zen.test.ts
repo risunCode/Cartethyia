@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
 import { app } from "../../src/app";
-import { resetOpenCodeZenCatalogForTests } from "../../src/upstream/providers/opencode-zen/catalog";
+import { resetOpenCodeZenCatalogForTests } from "../../src/upstream/providers/opencode-zen";
 
 let fetchSpy: Mock<typeof fetch>;
 

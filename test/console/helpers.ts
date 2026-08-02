@@ -19,6 +19,7 @@ import { resetAccessRuleCacheForTests } from "../../src/console/db/repos/access"
 import { resetComboCachesForTests } from "../../src/console/db/repos/combos";
 import { resetProviderModelCacheForTests } from "../../src/console/db/repos/provider-models";
 import { resetProviderRoutingCacheForTests } from "../../src/console/db/repos/routing";
+import { resetAccountRoutingForTests } from "../../src/console/db/repos/accounts";
 import { resetCustomProviderSlugCacheForTests } from "../../src/console/db/repos/custom-providers";
 import { resetModelCatalogCacheForTests } from "../../src/routes/status";
 
@@ -37,6 +38,7 @@ export function useIsolatedDataDir(): string {
   resetProxyAuthForTests();
   resetConsoleLogsForTests();
   resetApiKeyCachesForTests();
+  resetAccountRoutingForTests();
   resetAccessRuleCacheForTests();
   resetComboCachesForTests();
   resetProviderModelCacheForTests();

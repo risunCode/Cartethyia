@@ -8,7 +8,7 @@
 
 import { useMemo, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Boxes, Search, X } from "lucide-react";
+import { Boxes, Check, Search, X } from "lucide-react";
 import { apiGet } from "../lib/api";
 import { cn } from "../lib/cn";
 import { Badge } from "./ui/badge";
@@ -572,7 +572,7 @@ export function InlineModelBrowser({
                       className={cn("inline-flex items-center rounded-full border border-[var(--inner-border)] bg-[var(--surface)] px-2.5 py-1 text-[10.5px] font-mono transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]", isSelected(entry.qualified) && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]")}
                     >
                       <span className="min-w-0 flex-1 truncate">{entry.qualified.slice(entry.qualified.indexOf("/") + 1)}</span>
-                      {isSelected(entry.qualified) && <span className="text-[var(--accent)]">\u2713</span>}
+                      {isSelected(entry.qualified) && <Check size={13} strokeWidth={2.5} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />}
                     </button>
                   ))}
                 </div>
@@ -596,7 +596,7 @@ export function InlineModelBrowser({
                           just index [1] silently truncated to the owner
                           segment ("anthropic") for every such model. */}
                       <span className="min-w-0 flex-1 truncate">{entry.qualified.slice(entry.qualified.indexOf("/") + 1)}</span>
-                      {isSelected(entry.qualified) && <span className="text-[var(--accent)]">\u2713</span>}
+                      {isSelected(entry.qualified) && <Check size={13} strokeWidth={2.5} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />}
                     </button>
                   ))}
                 </div>

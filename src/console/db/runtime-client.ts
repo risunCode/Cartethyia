@@ -27,6 +27,10 @@ export function getRuntimeDb(): Database {
     db.exec("PRAGMA synchronous=NORMAL");
     db.exec("PRAGMA busy_timeout=5000");
     db.exec(RUNTIME_INIT_SQL);
+    // Payload bodies are no longer a supported persistence mode. Strip any
+    // legacy inline bodies when opening an existing runtime database so the
+    // metadata-only policy also applies to data written by older releases.
+    db.exec("UPDATE request_details SET redacted_request = NULL, redacted_response = NULL, payload_mode = CASE WHEN payload_mode IS NULL THEN NULL ELSE 'meta' END WHERE redacted_request IS NOT NULL OR redacted_response IS NOT NULL OR payload_mode = 'store'");
   }
   return db;
 }

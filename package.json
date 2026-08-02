@@ -1,6 +1,6 @@
 {
   "name": "cartethyia",
-  "version": "1.0.5-alpha",
+  "version": "1.0.6-alpha",
   "description": "OpenAI <-> Anthropic compat reverse proxy (Chat Completions, Responses, Messages) with prompt-cache passthrough and image decode.",
   "private": true,
   "type": "module",

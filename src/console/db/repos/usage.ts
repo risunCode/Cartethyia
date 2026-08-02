@@ -14,6 +14,7 @@ import { orZero } from "../../../utils/number-guards";
 import { utcNow, utcDateOf, periodStartUtc, type UsagePeriod } from "../../../utils/date-utils";
 import { providerRegistry } from "../../../upstream/providers";
 import type { Provider } from "../../../upstream/providers";
+import { TtlCache } from "../ttl-cache";
 
 export { utcNow, utcDateOf, periodStartUtc, type UsagePeriod };
 
@@ -49,6 +50,21 @@ export interface UsageInsert {
 // process's first insert, when nothing is queued yet.
 let nextHistoryId: number | null = null;
 
+// Dashboard panels ask for the same aggregates independently. A short cache
+// collapses duplicate scans while insertUsageHistory invalidates it immediately
+// so active traffic remains visible without waiting for expiry.
+const usageSummaryCache = new TtlCache<UsagePeriod, UsageSummary>(2_000, 8);
+const usageCostCache = new TtlCache<UsagePeriod, UsageCost>(2_000, 8);
+const usageChartCache = new TtlCache<UsagePeriod, ChartBucket[]>(2_000, 8);
+const usageByCache = new TtlCache<string, UsageByRow[]>(2_000, 24);
+
+function clearUsageQueryCaches(): void {
+  usageSummaryCache.clear();
+  usageCostCache.clear();
+  usageChartCache.clear();
+  usageByCache.clear();
+}
+
 function allocateHistoryId(): number {
   if (nextHistoryId === null) {
     const row = getRuntimeDb().query("SELECT COALESCE(MAX(id), 0) AS maxId FROM request_history").get() as { maxId: number };
@@ -60,6 +76,7 @@ function allocateHistoryId(): number {
 }
 
 export function insertUsageHistory(row: UsageInsert): number {
+  clearUsageQueryCaches();
   const id = allocateHistoryId();
   enqueueRuntimeWrite(
     `INSERT INTO request_history (
@@ -80,7 +97,9 @@ export function insertUsageHistory(row: UsageInsert): number {
 
 /** Deletes request-history rows older than a "YYYY-MM-DD" cutoff (retention). Returns the row count removed. */
 export function deleteRequestHistoryOlderThan(cutoffDate: string): number {
-  return readRuntimeDb().query("DELETE FROM request_history WHERE started_at < ?").run(cutoffDate).changes;
+  const changes = readRuntimeDb().query("DELETE FROM request_history WHERE started_at < ?").run(cutoffDate).changes;
+  if (changes > 0) clearUsageQueryCaches();
+  return changes;
 }
 
 /** Test-only: re-derive the id sequence from the (possibly freshly isolated) db. */
@@ -107,26 +126,28 @@ interface UsageSummaryRow {
 }
 
 export function queryUsageSummary(period: UsagePeriod): UsageSummary {
-  const row = readRuntimeDb()
-    .query(
-      `SELECT
-        COUNT(*) AS requests,
-        COALESCE(SUM(input_tokens), 0) AS inputTokens,
-        COALESCE(SUM(cached_tokens), 0) AS cachedTokens,
-        COALESCE(SUM(output_tokens), 0) AS outputTokens,
-        COALESCE(SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), 0) AS errors,
-        AVG(duration_ms) AS avgDurationMs
-      FROM request_history WHERE started_at >= ?`,
-    )
-    .get(periodStartUtc(period)) as UsageSummaryRow;
-  return {
-    requests: row.requests,
-    inputTokens: orZero(row.inputTokens),
-    cachedTokens: orZero(row.cachedTokens),
-    outputTokens: orZero(row.outputTokens),
-    errors: row.errors,
-    avgDurationMs: row.avgDurationMs ? Math.round(row.avgDurationMs) : 0,
-  };
+  return usageSummaryCache.get(period, () => {
+    const row = readRuntimeDb()
+      .query(
+        `SELECT
+          COUNT(*) AS requests,
+          COALESCE(SUM(input_tokens), 0) AS inputTokens,
+          COALESCE(SUM(cached_tokens), 0) AS cachedTokens,
+          COALESCE(SUM(output_tokens), 0) AS outputTokens,
+          COALESCE(SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), 0) AS errors,
+          AVG(duration_ms) AS avgDurationMs
+        FROM request_history WHERE started_at >= ?`,
+      )
+      .get(periodStartUtc(period)) as UsageSummaryRow;
+    return {
+      requests: row.requests,
+      inputTokens: orZero(row.inputTokens),
+      cachedTokens: orZero(row.cachedTokens),
+      outputTokens: orZero(row.outputTokens),
+      errors: row.errors,
+      avgDurationMs: row.avgDurationMs ? Math.round(row.avgDurationMs) : 0,
+    };
+  });
 }
 
 export interface UsageCost {
@@ -148,20 +169,22 @@ interface CostRow {
  * estimate across every request regardless of which model served it.
  */
 export function queryUsageCost(period: UsagePeriod): UsageCost {
-  const rows = readRuntimeDb()
-    .query("SELECT provider, model, input_tokens, output_tokens FROM request_history WHERE started_at >= ?")
-    .all(periodStartUtc(period)) as CostRow[];
-  let estimatedCostUsd = 0;
-  let partial = false;
-  for (const row of rows) {
-    const pricing = row.provider && row.model ? providerRegistry.get(row.provider as Provider["id"])?.models.resolve(row.model)?.pricing : undefined;
-    if (!pricing) {
-      partial = true;
-      continue;
+  return usageCostCache.get(period, () => {
+    const rows = readRuntimeDb()
+      .query("SELECT provider, model, input_tokens, output_tokens FROM request_history WHERE started_at >= ?")
+      .all(periodStartUtc(period)) as CostRow[];
+    let estimatedCostUsd = 0;
+    let partial = false;
+    for (const row of rows) {
+      const pricing = row.provider && row.model ? providerRegistry.get(row.provider as Provider["id"])?.models.resolve(row.model)?.pricing : undefined;
+      if (!pricing) {
+        partial = true;
+        continue;
+      }
+      estimatedCostUsd += (orZero(row.input_tokens) * pricing.input + orZero(row.output_tokens) * pricing.output) / 1_000_000;
     }
-    estimatedCostUsd += (orZero(row.input_tokens) * pricing.input + orZero(row.output_tokens) * pricing.output) / 1_000_000;
-  }
-  return { estimatedCostUsd, partial };
+    return { estimatedCostUsd, partial };
+  });
 }
 
 export type ChartMetric = "requests" | "tokens" | "cached";
@@ -190,20 +213,22 @@ interface ChartRow {
 }
 
 export function queryUsageChart(period: UsagePeriod): ChartBucket[] {
-  const rows = readRuntimeDb()
-    .query("SELECT started_at, input_tokens, cached_tokens, output_tokens FROM request_history WHERE started_at >= ?")
-    .all(periodStartUtc(period)) as ChartRow[];
-  const buckets = new Map<string, ChartBucket>();
-  for (const row of rows) {
-    const key = bucketOf(row.started_at, period);
-    const bucket = buckets.get(key) ?? { t: key, requests: 0, input: 0, cached: 0, output: 0 };
-    bucket.requests += 1;
-    bucket.input += orZero(row.input_tokens);
-    bucket.cached += orZero(row.cached_tokens);
-    bucket.output += orZero(row.output_tokens);
-    buckets.set(key, bucket);
-  }
-  return [...buckets.values()].sort((a, b) => a.t.localeCompare(b.t));
+  return usageChartCache.get(period, () => {
+    const rows = readRuntimeDb()
+      .query("SELECT started_at, input_tokens, cached_tokens, output_tokens FROM request_history WHERE started_at >= ?")
+      .all(periodStartUtc(period)) as ChartRow[];
+    const buckets = new Map<string, ChartBucket>();
+    for (const row of rows) {
+      const key = bucketOf(row.started_at, period);
+      const bucket = buckets.get(key) ?? { t: key, requests: 0, input: 0, cached: 0, output: 0 };
+      bucket.requests += 1;
+      bucket.input += orZero(row.input_tokens);
+      bucket.cached += orZero(row.cached_tokens);
+      bucket.output += orZero(row.output_tokens);
+      buckets.set(key, bucket);
+    }
+    return [...buckets.values()].sort((a, b) => a.t.localeCompare(b.t));
+  });
 }
 
 export type UsageDimension = "model" | "provider" | "key";
@@ -229,7 +254,9 @@ const DIMENSION_FALLBACK: Record<UsageDimension, string> = {
 };
 
 export function queryUsageBy(dimension: UsageDimension, period: UsagePeriod): UsageByRow[] {
-  const column = DIMENSION_COLUMN[dimension];
+  const cacheKey = `${dimension}:${period}`;
+  return usageByCache.get(cacheKey, () => {
+    const column = DIMENSION_COLUMN[dimension];
   const fallback = DIMENSION_FALLBACK[dimension];
   const rows = readRuntimeDb()
     .query(
@@ -247,7 +274,12 @@ export function queryUsageBy(dimension: UsageDimension, period: UsagePeriod): Us
       LIMIT 20`,
     )
     .all(fallback, periodStartUtc(period)) as UsageByRow[];
-  return rows;
+    return rows;
+  });
+}
+
+export function resetUsageQueryCachesForTests(): void {
+  clearUsageQueryCaches();
 }
 
 export interface UsageRequestFilters {
@@ -467,6 +499,11 @@ export function sumAllTimeTokensForKey(apiKeyId: string): number {
     .query("SELECT COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0) AS total FROM request_history WHERE api_key_id = ?")
     .get(apiKeyId) as { total: number };
   return row.total;
+}
+
+/** Removes one API key's running totals when the key is deleted. */
+export function purgeKeyTokenAccumulator(apiKeyId: string): void {
+  keyAccumulators.delete(apiKeyId);
 }
 
 /** Test-only: drop the cached per-key token accumulators so isolated test databases don't leak into each other. */

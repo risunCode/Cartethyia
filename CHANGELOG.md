@@ -2,11 +2,22 @@
 
 All notable changes to Cartethyia are documented here.
 
-## [Unreleased]
+## [1.0.6-alpha] - 2026-08-02
+
+### Added
+
+- API Keys now support preset token budgets (`1M`, `10M`, `100M`, `1B`, `1T`) and an exclusive one-time token budget mode. One-time usage is reserved before dispatch, settled from measured usage, and persisted independently of runtime-history retention so consumption cannot be reset by log cleanup.
+- Edit API Key now owns the complete key lifecycle: enable, disable, revoke, and revoke-and-regenerate. Regeneration keeps the key record, ACLs, limits, usage, name, and share links while issuing a new credential.
+- Public API-key Share pages expose remaining token metrics, today's usage, in-flight requests, ACL-filtered available models, connection details, copy controls for the Base URL and API key, and key status.
+- API keys can store editable "Kata-kata hari ini" content (big text, sub text, and body), rendered safely on the Share page after Connection.
+- Share links are persisted and tracked with hashed tokens, active-key resolution, and last-viewed timestamps. Backup export/restore includes share links, one-time budgets, and custom words.
 
 ### Performance
 
 Deep pass targeting sustained 5,000 req/sec on the proxy hot path, covering both `cartethyia.sqlite` (config) and `runtime.sqlite` (traffic telemetry). Benchmarked before/after with a live server, not just isolated unit numbers.
+
+- Qualified dispatch now resolves direct targets once, reuses the complete eligible combo target list during failover, and bypasses account-routing reads for auth-free providers. Usage summary/cost/chart/breakdown aggregates use short TTL caches invalidated by new history writes; health metrics cache static CPU metadata.
+- Request tracking is metadata-only: `TRACK_PAYLOADS` now accepts only `none` or `meta`, legacy stored bodies are scrubbed when `runtime.sqlite` opens, and request/response bodies are never written to runtime detail rows. Dashboard streaming rows are frame-batched and memoized, console log rows use native offscreen content virtualization, usage text filters debounce URL/network updates, and heavy Recharts/Markdown dependencies are split into lazy vendor chunks.
 
 - **`cartethyia.sqlite` was missing `PRAGMA synchronous=NORMAL`** (`src/console/db/client.ts`), defaulting to `FULL` - an fsync on every commit. Every proxied request wrote here at least once (`touchApiKey`), making this the single largest per-request cost.
 - **`touchApiKey`** (`api-keys.ts`) ran an `UPDATE` on every request just to bump `last_used_at`, a low-precision display field. Now coalesced in memory and flushed in one batched transaction every 10s.
@@ -14,7 +25,11 @@ Deep pass targeting sustained 5,000 req/sec on the proxy hot path, covering both
 - **`GET /v1/models`** (`src/routes/status.ts`) rebuilt the entire model catalog - roughly 20 config-db reads (every built-in provider's model states, custom providers, aliases, combos) - from scratch on every single call. Now cached for 5s; per-key ACL filtering still runs per request. This alone raised sustained live-server throughput on that endpoint from ~5,000 to ~10,900 req/sec at 200-1,000 concurrent connections (0 errors) in a local benchmark.
 - **`pickAccountForRotation`** (`accounts.ts`) queried the account list once, then re-fetched the same row a second time via `getAccount` for whichever candidate rotation picked - now one query. **`pickStickyAccount`**'s cleanup/counting scanned every provider's sticky assignments on every call regardless of which provider the request targeted; now scoped per-provider (`Map<provider, Map<clientKey, assignment>>`).
 - **`runtime.sqlite` writes** (request history/detail/tool-calls/console-log line - up to 4 per proxied request) each committed as an independent `synchronous=NORMAL` transaction, capping unbatched throughput around 1,700-3,800 req/sec on a typical disk (benchmarked). A write-behind buffer (`src/console/db/runtime-write-buffer.ts`) now queues writes and commits them together every ~20ms or 200 rows, reaching 10,000+ req/sec (43,000+ individual writes/sec) in the same benchmark. `request_history.id` is assigned from an in-process sequence (seeded once from `MAX(id)`) so `insertUsageHistory` still returns synchronously without waiting for the batch to commit. Every read flushes the buffer first (`readRuntimeDb()`) so a request is visible to the dashboard immediately, not just after the next timed flush - verified live (tracked request → immediately queried via `/console/api/usage/requests`, present with 0 delay).
-- **`sumDailyTokensForKey`/`sumMonthlyTokensForKey`** (`usage.ts`) ran a `SUM(...)` over that key's entire day's/month's history on every request for a key with a configured token limit - a scan that grows the more a key is used within its window. Replaced with an in-memory running total per key, updated synchronously the moment a request is tracked (independent of when the write-behind buffer above actually commits, so it stays consistent regardless of flush timing) and seeded from the durable table only once per key per UTC day/month boundary.
+- **`sumDailyTokensForKey`/`sumMonthlyTokensForKey`** (`usage.ts`) ran a `SUM(...)` over that key's entire day's/month's history on every request for a key with a configured token limit - a scan that grows the more a key is used within its window. Replaced with an in-memory running total per key, updated synchronously the moment a request is tracked (independent of when the write-behind buffer above actually commits, so it stays consistent regardless of flush timing) and seeded from the durable table only once per key per UTC day/month boundary. Deleted API keys now purge their running totals.
+- **Hot-path state is now bounded**: `TtlCache` has bounded insertion-order eviction and periodic expiry sweeps; proxy RPM enforcement uses fixed 60-second slots instead of copying timestamp arrays per request and rejects RPM limits above 1,000,000; sticky account assignments, Qoder machine identities, and account/model failure counters have hard caps and lazy cleanup.
+- **Account selection** now caches the unredacted provider-account snapshot for one second and invalidates it on account mutations, removing repeated SQLite account-list queries while keeping credential changes immediately visible after writes. Sticky selection maintains assignment counts instead of rebuilding them on every request.
+- **Cursor Connect streaming** now uses a reusable growing byte buffer and frame views instead of `number[]` plus `splice()` for every protobuf frame, reducing per-token allocations on that upstream path.
+- **Global memory cleanup** now uses `Bun.gc(false)` and waits for a proxy-idle point instead of calling synchronous `Bun.gc(true)` on a live request path. The health endpoint reports whether collection was scheduled or deferred; this is process-wide JavaScript/native heap cleanup, not an OS-wide RAM purge.
 - **`middleware.ts`**'s per-request access-log line used `console.log`, which is a synchronous blocking write whenever stdout is piped rather than an interactive TTY - the normal case under Docker/Railway. Now batched through `src/http/request-log-buffer.ts` (flushes every ~50ms or 200 lines).
 - Live-server benchmark on `GET /v1/models` (exercises the api-key cache, access-rule cache, and catalog cache together): 200-1,000 concurrent connections, 0 errors, ~10,900 req/sec sustained (up from ~5,000 before the catalog cache, and from a much lower ceiling before the config-db fixes above). `PRAGMA` and cache changes require no schema/data migration.
 
@@ -31,6 +46,8 @@ Deep pass targeting sustained 5,000 req/sec on the proxy hot path, covering both
 ### Changed
 
 - Dashboard: added the Proxy & Requests navigation placeholder, reduced all mobile route/render effects, refined Settings controls, and improved Model Studio message actions, automatic thinking, mobile popout containment, and follow-latest scrolling.
+- Model Studio now puts a compact action menu under every user/assistant message (edit, copy, delete with persisted history changes), reports provider input/output/reasoning/cache usage with a visible estimate fallback, and exposes explicit context compaction through the shared dispatch pipeline. The sidebar no longer shows the Usage `live` badge; the footer dock hides while scrolling down and returns at the top or document end.
+- Consolidated the nine small built-in provider modules from 20 directory files into nine clearly named flat provider files under `src/upstream/providers/`; their catalogs and provider implementations now live together without changing routing behavior. Dashboard hooks now share `dashboard/src/hooks/` with consistent kebab-case filenames.
 - **Runtime telemetry storage**: request/error/console-log history and per-request detail metadata now persist in a dedicated `DATA_DIR/runtime.sqlite` (WAL, `synchronous=NORMAL`) instead of JSONL files (`DATA_DIR/logs`) and one-file-per-request payload blobs (`DATA_DIR/payloads`). This is a separate SQLite connection/file from the config db (`cartethyia.sqlite`) - config writes and high-frequency traffic logging never contend for the same file. Every read (Usage/Overview pages, Request Detail, console log tail) is now a direct indexed SQL query instead of an in-memory ring plus a linear JSONL file scan; a 1,000-request smoke test (4 writes each: history + detail + tool call + console log line) completed in ~480ms (~8,300 writes/sec), well within what a busy proxy needs. `TRACK_PAYLOADS=store` now keeps the redacted request/response text inline in `request_details` instead of writing a companion `<traceId>.json` file. `AGENTS.md`'s persistence rule is updated accordingly.
 - **Request/asset/console-log retention** is now actually enforced: `startLogMaintenance()` (the 6-hourly cleanup job) was defined but never called from any entrypoint, so `LOG_RETENTION_DAYS`/`ASSET_RETENTION_DAYS` had no effect and `data/logs`/`data/payloads` grew without bound. It's now started from `src/server.ts` and deletes rows/files by date cutoff on `runtime.sqlite`'s tables instead of scanning JSONL filenames.
 - Removed the in-process 5,000-row/30-minute TTL cap on per-request detail metadata (`request_details`/`request_assets`/`request_tool_calls`) - it existed only because that data used to live in a bounded in-memory `Map`. It's a durable SQLite table now, cleaned up by the same date-cutoff retention as everything else, so a request's stored detail no longer disappears from the dashboard after 30 minutes or under high traffic volume.
@@ -40,6 +57,13 @@ Deep pass targeting sustained 5,000 req/sec on the proxy hot path, covering both
 
 - API key model ACL (`isModelAllowedForKey`, `src/console/key-acl.ts`): allow/deny lists matched a qualified entry's bare model-id tail as well as its full id, so allowlisting an alias (e.g. `gpt-5.6-sol`) transparently also permitted the real qualified model it resolves to (`openai/gpt-5.6-sol`) - silently granting direct provider access the key was never given, and duplicating both entries in `/v1/models`. Matching is now exact-string only against the identifier as requested/cataloged.
 - API Keys "Allowed models" picker (`InlineModelBrowser`, `dashboard/src/components/model-picker.tsx`): a selected alias or combo not present in the built-in/BYOK model catalog was misclassified as a manually-added "Custom" entry and rendered a second time there, on top of its correct Aliases/Combos section. Alias and combo names are now recognized before falling back to "Custom".
+
+### Roadmap
+
+The next development pass focuses on:
+
+- Further proxy-feature improvements, including routing behavior, failover, account selection, and proxy-specific operational edge cases.
+- Broader edge-case testing across proxy dispatch, streaming, API-key limits, share links, persistence, and dashboard lifecycle actions.
 
 ## [1.0.5-alpha] - 2026-08-01
 

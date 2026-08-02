@@ -6,11 +6,22 @@
 
 import { getDb } from "../client";
 
+export interface StudioUsage {
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
+  source: "provider" | "estimated";
+}
+
 export interface StudioMessage {
   role: "system" | "user" | "assistant";
   content: string;
   /** ISO timestamp the message was appended, for display only. */
   ts: string;
+  /** Provider usage metadata for assistant turns. */
+  usage?: StudioUsage;
   /** Data-URL image attachments (user turns only). */
   images?: string[];
 }

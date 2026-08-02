@@ -31,7 +31,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...(init.headers ?? {}),
     },
   });
-  if (res.status === 401) {
+  if (res.status === 401 && path !== "/login") {
     onUnauthorized?.();
     throw new ApiError(401, "unauthorized", "session expired");
   }

@@ -13,9 +13,10 @@ const TABLE_COLUMNS: Record<BackupTable, string[]> = {
   settings: ["id", "password_hash", "password_version", "jwt_secret", "settings_json", "initialized_at", "updated_at"],
   api_keys: [
     "id", "name", "key", "key_prefix", "active", "rate_limit_rpm", "daily_token_limit",
-    "monthly_token_limit", "max_concurrent_requests", "provider_allowlist", "model_allowlist",
+    "monthly_token_limit", "one_time_token_limit", "one_time_tokens_used", "quote_big_text", "quote_sub_text", "quote_body", "max_concurrent_requests", "provider_allowlist", "model_allowlist",
     "model_denylist", "last_used_at", "created_at", "revoked_at",
   ],
+  share_links: ["id", "api_key_id", "token_hash", "active", "created_at", "last_viewed_at"],
   model_aliases: ["alias", "model", "created_at"],
   combos: ["id", "name", "models_json", "strategy", "sticky_limit", "created_at", "updated_at"],
   access_rules: ["scope", "mode", "entries_json", "updated_at"],
@@ -33,7 +34,7 @@ const KNOWN_TABLES = new Set<string>(CONFIG_TABLES);
 /** Delete dependent configuration before its providers, then restore in reverse. */
 const DELETE_ORDER: BackupTable[] = [
   "provider_accounts", "provider_routing", "filter_rules", "custom_providers", "access_rules",
-  "combos", "model_aliases", "api_keys", "settings",
+  "combos", "model_aliases", "share_links", "api_keys", "settings",
 ];
 const INSERT_ORDER: BackupTable[] = [...DELETE_ORDER].reverse();
 

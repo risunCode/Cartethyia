@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Activity, ArrowDownToLine, ArrowUpFromLine, Database, DollarSign, Radio, TriangleAlert } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Area,
@@ -14,7 +14,7 @@ import {
 } from "recharts";
 import { apiGet } from "../../lib/api";
 import { formatDuration, formatNumber, formatTime, formatTokens, formatUsd } from "../../lib/format";
-import { useInFlightStream } from "../../lib/hooks/use-inflight-stream";
+import { useInFlightStream } from "../../hooks/use-inflight-stream";
 import { staggerClass } from "../../lib/motion";
 import { Badge, Skeleton } from "../../components/ui/badge";
 import { Card, CardHeader } from "../../components/ui/card";
@@ -432,6 +432,27 @@ function DetailDrawer({ id, onClose }: { id: number | null; onClose: () => void 
   );
 }
 
+function DebouncedFilterInput({ placeholder, value, onCommit }: { placeholder: string; value: string; onCommit: (value: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const timerRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => setDraft(value), [value]);
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  return (
+    <Input
+      placeholder={placeholder}
+      value={draft}
+      onChange={(event) => {
+        const next = event.target.value;
+        setDraft(next);
+        clearTimeout(timerRef.current);
+        timerRef.current = window.setTimeout(() => onCommit(next), 300);
+      }}
+    />
+  );
+}
+
 export function UsagePage() {
   const inFlight = useInFlightStream();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -565,11 +586,11 @@ export function UsagePage() {
         </CardHeader>
 
         <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-6">
-          <Input placeholder="Trace ID…" value={filters.q} onChange={(e) => setParam("q", e.target.value)} />
-          <Input placeholder="provider" value={filters.provider} onChange={(e) => setParam("provider", e.target.value)} />
-          <Input placeholder="model" value={filters.model} onChange={(e) => setParam("model", e.target.value)} />
-          <Input placeholder="key prefix" value={filters.key} onChange={(e) => setParam("key", e.target.value)} />
-          <Input placeholder="status" value={filters.status} onChange={(e) => setParam("status", e.target.value)} />
+          <DebouncedFilterInput placeholder="Trace ID…" value={filters.q} onCommit={(value) => setParam("q", value)} />
+          <DebouncedFilterInput placeholder="provider" value={filters.provider} onCommit={(value) => setParam("provider", value)} />
+          <DebouncedFilterInput placeholder="model" value={filters.model} onCommit={(value) => setParam("model", value)} />
+          <DebouncedFilterInput placeholder="key prefix" value={filters.key} onCommit={(value) => setParam("key", value)} />
+          <DebouncedFilterInput placeholder="status" value={filters.status} onCommit={(value) => setParam("status", value)} />
           <Select
             ariaLabel="Stream filter"
             value={filters.stream}

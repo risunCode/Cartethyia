@@ -1,6 +1,6 @@
 /** App assembly — request logging, public routes, and friendly error boundaries. */
 
-import { Elysia, redirect } from "elysia";
+import { Elysia } from "elysia";
 import { invalidRequestError, unexpectedClientError, unknownRouteError } from "./http/errors";
 import { requestLogger } from "./http/middleware";
 import { createCorsMiddleware } from "./http/cors";
@@ -13,6 +13,8 @@ import { responsesRoute } from "./routes/responses";
 import { responsesCompactRoute } from "./routes/responses-compact";
 import { consoleApiRoutes } from "./console/api/routes";
 import { consoleWebRoutes } from "./console/web";
+import { landingPage } from "./console/landing";
+import { sharePublicRoutes } from "./console/share";
 
 export const app = new Elysia({
   serve: { maxRequestBodySize: 10 * 1024 * 1024 }, // 10MB (L4)
@@ -33,7 +35,8 @@ export const app = new Elysia({
     set.status = 500;
     return unexpectedClientError(path);
   })
-  .get("/", () => redirect("/console/"))
+  .get("/", ({ set }) => landingPage(set))
+  .use(sharePublicRoutes)
   .use(createCorsMiddleware(config.corsAllowedOrigins))
   .use(requestLogger)
   .use(consoleApiRoutes)

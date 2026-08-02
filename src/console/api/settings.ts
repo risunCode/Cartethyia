@@ -14,9 +14,10 @@ import { validateRestorePayload, applyRestore } from "../backup/restore";
 import { numericRangeError } from "../../utils/config-helpers";
 import { isOneOf } from "../../shared/guards";
 import type { RuntimeSettings } from "../db/repos/settings";
-import type { TrackMode, ProxyAuthMode } from "../env";
+import type { PayloadTrackMode, TrackMode, ProxyAuthMode } from "../env";
 
-const TRACK_MODES: TrackMode[] = ["none", "meta", "store"];
+const PAYLOAD_TRACK_MODES: PayloadTrackMode[] = ["none", "meta"];
+const ASSET_TRACK_MODES: TrackMode[] = ["none", "meta", "store"];
 const PROXY_AUTH_MODES: ProxyAuthMode[] = ["open", "api_key"];
 
 const RUNTIME_SETTINGS_KEYS = [
@@ -42,11 +43,11 @@ function validateRuntimePatch(patch: Partial<RuntimeSettings>): string | null {
   if (patch.proxyAuthMode !== undefined && !isOneOf(patch.proxyAuthMode, PROXY_AUTH_MODES)) {
     return `proxyAuthMode must be one of ${PROXY_AUTH_MODES.join(", ")}`;
   }
-  if (patch.trackPayloads !== undefined && !isOneOf(patch.trackPayloads, TRACK_MODES)) {
-    return `trackPayloads must be one of ${TRACK_MODES.join(", ")}`;
+  if (patch.trackPayloads !== undefined && !isOneOf(patch.trackPayloads, PAYLOAD_TRACK_MODES)) {
+    return `trackPayloads must be one of ${PAYLOAD_TRACK_MODES.join(", ")}`;
   }
-  if (patch.trackAssets !== undefined && !isOneOf(patch.trackAssets, TRACK_MODES)) {
-    return `trackAssets must be one of ${TRACK_MODES.join(", ")}`;
+  if (patch.trackAssets !== undefined && !isOneOf(patch.trackAssets, ASSET_TRACK_MODES)) {
+    return `trackAssets must be one of ${ASSET_TRACK_MODES.join(", ")}`;
   }
   const rangeError =
     numericRangeError(patch.logRetentionDays, "logRetentionDays", 1, 365) ??

@@ -63,6 +63,12 @@ describe("proxy rate-limit state bounds", () => {
     }
     expect(proxyRateLimitStateSizeForTests()).toBeLessThanOrEqual(10_000);
   });
+
+  test("rejects an RPM limit larger than the bounded bucket budget", async () => {
+    const cookie = await loginAndGetCookie();
+    const response = await app.handle(postJson("/console/api/keys", { name: "too-large-rpm", rateLimitRpm: 1_000_001 }, { cookie }));
+    expect(response.status).toBe(400);
+  });
 });
 
 describe("proxy auth enforcement (PROXY_AUTH_MODE)", () => {
@@ -201,6 +207,25 @@ describe("proxy auth enforcement (PROXY_AUTH_MODE)", () => {
     expect(tryAcquireKeySlot(id, 1)).toBeTrue();
     const blocked = await postV1Chat("kimchi/kimi-k2.7", { "x-api-key": key });
     expect(blocked.status).toBe(429);
+  });
+
+  test("one-time token limit: a second concurrent request is rejected by the first's reservation", async () => {
+    const created = createApiKey({ name: "one-time-reserve-key", oneTimeTokenLimit: 4096 });
+    await ensureSettings();
+    patchRuntimeSettings({ proxyAuthMode: "api_key" });
+    invalidateRuntimeSettings();
+    if ("error" in created) throw new Error("unexpected duplicate");
+    const { key, record } = created;
+    const req = new Request("http://localhost/v1/chat/completions", { headers: { "x-api-key": key } });
+
+    const first = enforceProxyAuth("kimchi/kimi-k2.7", req);
+    expect(first.error).toBeNull();
+    expect(first.holdTokenReservation).toBeTrue();
+    expect(getReservedTokensForKey(record.id)).toBe(first.tokensReserved);
+
+    const second = enforceProxyAuth("kimchi/kimi-k2.7", req);
+    expect(second.error?.status).toBe(429);
+    deleteApiKey(record.id);
   });
 
   test("daily token limit: a second concurrent request is rejected by the first's reservation, not just committed usage", async () => {

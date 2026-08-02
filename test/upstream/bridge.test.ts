@@ -59,11 +59,11 @@ describe("bridge — decodeAnthropicStream", () => {
 
     const events = await collect(decodeAnthropicStream(streamOf(raw)));
     expect(events).toEqual([
-      { type: "usage", inputTokens: 10, outputTokens: 0, cacheReadTokens: 2, cacheWriteTokens: 0 },
+      { type: "usage", inputTokens: 10, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 2, cacheWriteTokens: 0 },
       { type: "text_delta", text: "Hello" },
       { type: "text_delta", text: ", world" },
       { type: "finish", stopReason: "end_turn" },
-      { type: "usage", inputTokens: 0, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      { type: "usage", inputTokens: 0, outputTokens: 5, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
     ]);
   });
 
@@ -82,7 +82,7 @@ describe("bridge — decodeAnthropicStream", () => {
       { type: "tool_call_args_delta", id: "toolu_1", argumentsDelta: '"Jakarta"}' },
       { type: "tool_call_end", id: "toolu_1" },
       { type: "finish", stopReason: "tool_use" },
-      { type: "usage", inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      { type: "usage", inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
     ]);
   });
 
@@ -109,7 +109,7 @@ describe("bridge — decodeAnthropicStream", () => {
       { type: "thinking_signature", signature: "sig_abc123" },
       { type: "text_delta", text: "Answer." },
       { type: "finish", stopReason: "end_turn" },
-      { type: "usage", inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      { type: "usage", inputTokens: 0, outputTokens: 0, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
     ]);
   });
 });
@@ -144,9 +144,9 @@ describe("bridge — decodeOpenAIChatStream", () => {
   });
 
   test("usage chunk (final, empty choices) maps prompt_tokens_details.cached_tokens to cacheReadTokens", async () => {
-    const raw = frame({ choices: [], usage: { prompt_tokens: 100, completion_tokens: 20, prompt_tokens_details: { cached_tokens: 40 } } });
+    const raw = frame({ choices: [], usage: { prompt_tokens: 100, completion_tokens: 20, prompt_tokens_details: { cached_tokens: 40 }, completion_tokens_details: { reasoning_tokens: 7 } } });
     const events = await collect(decodeOpenAIChatStream(streamOf(raw)));
-    expect(events).toEqual([{ type: "usage", inputTokens: 100, outputTokens: 20, cacheReadTokens: 40, cacheWriteTokens: 0 }]);
+    expect(events).toEqual([{ type: "usage", inputTokens: 100, outputTokens: 20, reasoningTokens: 7, cacheReadTokens: 40, cacheWriteTokens: 0 }]);
   });
 
   test("two parallel tool calls: interleaved continuation chunks (no id/name) route by wire index, not by the last-opened id", async () => {
@@ -213,7 +213,7 @@ describe("bridge \u2014 decodeResponsesStream", () => {
     expect(events).toEqual([
       { type: "text_delta", text: "Hi" },
       { type: "finish", stopReason: "end_turn" },
-      { type: "usage", inputTokens: 10, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      { type: "usage", inputTokens: 10, outputTokens: 3, reasoningTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
     ]);
   });
 
@@ -350,7 +350,7 @@ describe("bridge — encodeOpenAIChatStream", () => {
   });
 
   test("usage event maps cacheReadTokens into prompt_tokens_details.cached_tokens", async () => {
-    const events: StreamEvent[] = [{ type: "usage", inputTokens: 100, outputTokens: 20, cacheReadTokens: 40, cacheWriteTokens: 0 }];
+    const events: StreamEvent[] = [{ type: "usage", inputTokens: 100, outputTokens: 20, reasoningTokens: 0, cacheReadTokens: 40, cacheWriteTokens: 0 }];
     const frames = await collect(encodeOpenAIChatStream(fromArray(events), META));
     const usageFrame = frames.find((f) => f.includes('"prompt_tokens"'));
     expect(usageFrame).toContain('"prompt_tokens":140'); // inputTokens + cacheReadTokens, per normalizeOpenAIUsage's inverse

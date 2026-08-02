@@ -6,14 +6,14 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowUpDown, Bot, Brain, Cable, Copy, ExternalLink, Eye, FileUp, FlaskConical, Globe, Info, Loader2, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { ApiError, apiGet, apiPost, apiDelete } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { extractCredentialFromPaste } from "../../lib/credentialExtract";
 import { formatDuration, formatTokens } from "../../lib/format";
 import { staggerClass } from "../../lib/motion";
-import { useWindowedList } from "../../hooks/useWindowedList";
+import { useWindowedList } from "../../hooks/use-windowed-list";
 import { Badge, Skeleton } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
@@ -427,28 +427,31 @@ export function ProviderDetailPage() {
     getNextPageParam: (page) => page.nextCursor,
     enabled: Boolean(id),
   });
-  const pagedAccounts = accountsQuery.data?.pages.flatMap((page) => page.items) ?? data?.accounts ?? [];
-
-
+  const pagedAccounts = useMemo(
+    () => accountsQuery.data?.pages.flatMap((page) => page.items) ?? data?.accounts ?? [],
+    [accountsQuery.data?.pages, data?.accounts],
+  );
 
   // Hooks must run unconditionally on every render — hoisted above the
   // loading-state early return below so hook order never changes once data
   // arrives (previously caused "Rendered fewer hooks than expected").
-  const accountStatusRank = (account: AccountEntry) => {
-    const state = accountTestStatus[account.id]?.state;
-    if (state === "testing") return 0;
-    if (state === "passed") return 1;
-    if (state === "failed") return 2;
-    return account.active ? 3 : 4;
-  };
-  const sortedAccounts = [...pagedAccounts].sort((left, right) => {
-    const comparison = accountSort.key === "name"
-      ? left.name.localeCompare(right.name)
-      : accountSort.key === "priority"
-        ? left.priority - right.priority
-        : accountStatusRank(left) - accountStatusRank(right);
-    return accountSort.direction === "asc" ? comparison : -comparison;
-  });
+  const sortedAccounts = useMemo(() => {
+    const accountStatusRank = (account: AccountEntry): number => {
+      const state = accountTestStatus[account.id]?.state;
+      if (state === "testing") return 0;
+      if (state === "passed") return 1;
+      if (state === "failed") return 2;
+      return account.active ? 3 : 4;
+    };
+    return [...pagedAccounts].sort((left, right) => {
+      const comparison = accountSort.key === "name"
+        ? left.name.localeCompare(right.name)
+        : accountSort.key === "priority"
+          ? left.priority - right.priority
+          : accountStatusRank(left) - accountStatusRank(right);
+      return accountSort.direction === "asc" ? comparison : -comparison;
+    });
+  }, [accountSort, accountTestStatus, pagedAccounts]);
   const accountWindow = useWindowedList(sortedAccounts, 56);
 
   useEffect(() => {

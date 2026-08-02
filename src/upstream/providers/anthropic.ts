@@ -1,0 +1,90 @@
+/**
+ * Anthropic — built-in API-key provider (BYOK, official api.anthropic.com).
+ * The dispatch pipeline always hands providers an OpenAI Chat-shaped body,
+ * so this translates to Anthropic's native Messages shape before forwarding
+ * and back on the way out — the same translators `routes/messages.ts` and
+ * `routes/responses.ts` already use for their Anthropic fallback paths.
+ */
+
+import type { RouteTarget } from "../../routing/types";
+import { ProviderCallError } from "./index";
+import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./index";
+import { decodeAnthropicStream } from "../bridge";
+import { callSimpleProvider } from "./simple-call";
+import { translateAnthropicResponseToChat, translateChatRequestToAnthropic } from "../../translate/openai-anthropic";
+import type { AnthropicResponse, OpenAIChatRequest } from "../../translate/types";
+import { createModelCatalog, type ProviderModelCatalog } from "./models";
+
+const ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
+const ANTHROPIC_VERSION = "2023-06-01";
+
+export const anthropicModelCatalog: ProviderModelCatalog = createModelCatalog([
+  { id: "claude-fable-5", reasoning: true, vision: true, contextWindow: 1000000, maxOutputTokens: 128000, description: "Most capable widely-released model, demanding reasoning, long-horizon agentic tasks.", pricing: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 } },
+  { id: "claude-opus-5", reasoning: true, vision: true, contextWindow: 1000000, maxOutputTokens: 128000, description: "Flagship Opus, long-running agents, complex document work.", pricing: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 } },
+  { id: "claude-sonnet-5", reasoning: true, vision: true, contextWindow: 1000000, maxOutputTokens: 128000, description: "Highly agentic, planning, tool use, autonomous operation.", pricing: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 } },
+  { id: "claude-haiku-4-5", reasoning: true, vision: true, contextWindow: 200000, maxOutputTokens: 64000, description: "Fastest, most cost-efficient.", pricing: { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 } },
+]);
+
+class AnthropicProvider implements Provider {
+  readonly id = "anthropic" as const;
+  readonly display = {
+    name: "Anthropic",
+    icon: "anthropic",
+    authKind: "api-key" as const,
+    authHint: "Paste your official Anthropic API key (starts with sk-ant-...) from console.anthropic.com.",
+    credentialUrl: "https://console.anthropic.com/settings/keys",
+  };
+  readonly models = anthropicModelCatalog;
+
+  resolveTarget(modelId: string): RouteTarget | undefined {
+    return { provider: "anthropic", modelId, surface: "openai-chat", credential: "provider-bearer", weight: 1 };
+  }
+
+  async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal): Promise<ProviderResult> {
+    if (request.surface !== "openai-chat") throw new ProviderCallError(400, "invalid_request", "Anthropic currently supports the OpenAI Chat shape.");
+    if (!credential.value) throw new ProviderCallError(401, "authentication", "Anthropic requires an API key.");
+
+    const chatBody = { ...request.body, model: target.modelId };
+    const anthropicReq = translateChatRequestToAnthropic(chatBody as OpenAIChatRequest);
+
+    return callSimpleProvider({
+      url: `${ANTHROPIC_BASE_URL}/messages`,
+      headers: { "x-api-key": credential.value, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json" },
+      body: anthropicReq,
+      signal,
+      providerLabel: "Anthropic",
+      isStreaming: anthropicReq.stream === true,
+      decodeStream: decodeAnthropicStream,
+      translateJson: (json) => translateAnthropicResponseToChat(json as unknown as AnthropicResponse) as unknown as Record<string, unknown>,
+    });
+  }
+
+  async countTokens(target: RouteTarget, body: Record<string, unknown>, credential: ResolvedCredential, signal: AbortSignal): Promise<{ inputTokens: number }> {
+    if (!credential.value) throw new ProviderCallError(401, "authentication", "Anthropic requires an API key.");
+
+    // count_tokens is Anthropic's own native shape end to end - the caller
+    // already sends `model`/`messages`/`system`/`tools`/`tool_choice` as-is,
+    // no Chat<->Anthropic translation needed. `stream`/`max_tokens` have no
+    // meaning for this endpoint (it never generates anything) and Anthropic
+    // rejects unrecognized fields on some accounts, so they're stripped.
+    const { stream: _stream, max_tokens: _maxTokens, ...rest } = body;
+    const outbound = { ...rest, model: target.modelId };
+
+    const result = await callSimpleProvider({
+      url: `${ANTHROPIC_BASE_URL}/messages/count_tokens`,
+      headers: { "x-api-key": credential.value, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json" },
+      body: outbound,
+      signal,
+      providerLabel: "Anthropic",
+      isStreaming: false,
+      // count_tokens has no streaming variant - decodeStream is required by
+      // the shared helper's type but is never invoked for a non-streaming call.
+      decodeStream: decodeAnthropicStream,
+    });
+    const json = result.type === "json" ? result.body : {};
+    const inputTokens = typeof json.input_tokens === "number" ? json.input_tokens : 0;
+    return { inputTokens };
+  }
+}
+
+export const anthropicProvider = new AnthropicProvider();

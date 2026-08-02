@@ -15,6 +15,7 @@ import { flushApiKeyTouches } from "./console/db/repos/api-keys";
 import { flushRequestLogBuffer } from "./http/request-log-buffer";
 import { hydrateConsoleLogs } from "./console/logs/ring";
 import { startLogMaintenance } from "./console/tracking/rotate";
+import { cancelScheduledGc, scheduleGlobalGc } from "./console/memory";
 
 await ensureConsoleBootstrap();
 hydrateConsoleLogs();
@@ -30,11 +31,12 @@ const checkpointInterval = setInterval(() => {
   checkpointDb();
   checkpointRuntimeDb();
 }, 5 * 60_000);
-const gcInterval = setInterval(() => Bun.gc(false), 10 * 60_000);
+const gcInterval = setInterval(scheduleGlobalGc, 10 * 60_000);
 
 function shutdown(): void {
   clearInterval(checkpointInterval);
   clearInterval(gcInterval);
+  cancelScheduledGc();
   server.stop();
   flushRuntimeWriteBuffer();
   flushApiKeyTouches();

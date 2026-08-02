@@ -91,9 +91,9 @@ describe("request tracking", () => {
     expect(rows[0]).toMatchObject({ trace_id: "persisted-trace", input_tokens: 3, output_tokens: 5, usage_source: "provider" });
   });
 
-  test("defaults to redacted payload storage and asset metadata tracking", () => {
+  test("defaults to payload metadata and asset metadata tracking", () => {
     const env = getConsoleEnv();
-    expect(env.trackPayloads).toBe("store");
+    expect(env.trackPayloads).toBe("meta");
     expect(env.trackAssets).toBe("meta");
   });
 
@@ -124,7 +124,9 @@ describe("request tracking", () => {
     expect(daily[0]!.input_tokens).toBe(2);
 
     const detail = getRequestDetailBundle(row.id as number).detail;
-    expect(detail?.payload_mode).toBe("store");
+    expect(detail?.payload_mode).toBe("meta");
+    expect(detail?.redacted_request).toBeNull();
+    expect(detail?.redacted_response).toBeNull();
     expect(typeof detail?.payload_sha256).toBe("string");
   });
 
@@ -184,5 +186,6 @@ describe("request tracking", () => {
     expect(detail!.message_count).toBe(1);
     expect(typeof detail!.payload_sha256).toBe("string");
     expect(detail!.redacted_request).toBeNull();
+    expect(detail!.redacted_response).toBeNull();
   });
 });

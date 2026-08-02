@@ -8,6 +8,7 @@ import { app } from "../../src/app";
 import { loginAndGetCookie, postJson, useIsolatedDataDir } from "./helpers";
 import { insertUsageHistory, queryUsageCost, utcNow } from "../../src/console/db/repos/usage";
 import { getInFlightCount, resetInFlightForTests, subscribeInFlight } from "../../src/console/tracking/in-flight";
+import { cancelScheduledGc } from "../../src/console/memory";
 import { createRequestTracker } from "../../src/console/tracking/tracker";
 import { activeFlights } from "../../src/http/traffic";
 
@@ -36,12 +37,33 @@ describe("GET /console/api/health/metrics", () => {
 });
 
 describe("POST /console/api/health/gc", () => {
-  test("runs cross-platform GC (Bun.gc, not a shelled-out OS command) and reports a before/after snapshot", async () => {
+  test("schedules process-wide asynchronous GC and reports a before/after snapshot", async () => {
     const res = await app.handle(new Request("http://localhost/console/api/health/gc", { method: "POST", headers: { cookie, "content-type": "application/json" }, body: "{}" }));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { before: { memoryUsedMb: number }; after: { memoryUsedMb: number } };
+    const body = (await res.json()) as { before: { memoryUsedMb: number }; after: { memoryUsedMb: number }; gc: { status: string; inFlight: number } };
     expect(body.before.memoryUsedMb).toBeGreaterThan(0);
     expect(body.after.memoryUsedMb).toBeGreaterThan(0);
+    expect(["scheduled", "already_pending"]).toContain(body.gc.status);
+    expect(body.gc.inFlight).toBe(0);
+  });
+
+  test("defers GC while a proxy request is in flight", async () => {
+    const tracker = createRequestTracker({
+      endpoint: "/v1/chat/completions",
+      surface: "chat",
+      model: "kimchi/kimi-k2.7",
+      stream: false,
+      request: new Request("http://localhost/v1/chat/completions"),
+      apiKey: null,
+    });
+
+    const res = await app.handle(new Request("http://localhost/console/api/health/gc", { method: "POST", headers: { cookie, "content-type": "application/json" }, body: "{}" }));
+    const body = (await res.json()) as { gc: { status: string; inFlight: number } };
+    expect(body.gc.status).toBe("deferred");
+    expect(body.gc.inFlight).toBe(1);
+
+    tracker.finishJson(200, { ok: true }, "kimchi", {});
+    cancelScheduledGc();
   });
 });
 

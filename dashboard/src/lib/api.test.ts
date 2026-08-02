@@ -78,6 +78,22 @@ describe("api — fetch wrapper", () => {
     setUnauthorizedHandler(null as unknown as () => void);
   });
 
+  test("preserves the server wrong-password message for login 401 responses", async () => {
+    const handler = vi.fn();
+    setUnauthorizedHandler(handler);
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      makeResponse(401, { error: { code: "unauthorized", message: "wrong password" } }),
+    );
+
+    await expect(api("/login", { method: "POST", body: "{}" })).rejects.toMatchObject({
+      status: 401,
+      code: "unauthorized",
+      message: "wrong password",
+    });
+    expect(handler).not.toHaveBeenCalled();
+    setUnauthorizedHandler(null as unknown as () => void);
+  });
+
   test("includes content-type header when body is provided", async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce(makeResponse(200, {}));
     await api("/test", { method: "POST", body: JSON.stringify({ x: 1 }) });

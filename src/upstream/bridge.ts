@@ -53,7 +53,7 @@ export type StreamEvent =
   | { type: "tool_call_args_delta"; id: string; argumentsDelta: string }
   | { type: "tool_call_end"; id: string }
   | { type: "finish"; stopReason: AnthropicStopReason }
-  | { type: "usage"; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number };
+  | { type: "usage"; inputTokens: number; outputTokens: number; reasoningTokens: number; cacheReadTokens: number; cacheWriteTokens: number };
 
 export interface StreamMeta {
   id: string;
@@ -71,10 +71,12 @@ function parseJSON(data: string): Record<string, unknown> | undefined {
 
 function usageEventFrom(usage: Record<string, unknown>, readKey: string, writeKey: string, detailsKey?: string): StreamEvent {
   const details = detailsKey ? asObject(field(usage, detailsKey)) : undefined;
+  const outputDetails = asObject(field(usage, "completion_tokens_details")) ?? asObject(field(usage, "output_tokens_details"));
   return {
     type: "usage",
     inputTokens: asNumber(field(usage, "input_tokens")) ?? asNumber(field(usage, "prompt_tokens")) ?? 0,
     outputTokens: asNumber(field(usage, "output_tokens")) ?? asNumber(field(usage, "completion_tokens")) ?? 0,
+    reasoningTokens: asNumber(field(outputDetails, "reasoning_tokens")) ?? 0,
     cacheReadTokens: (details ? asNumber(field(details, "cached_tokens")) : asNumber(field(usage, readKey))) ?? 0,
     cacheWriteTokens: asNumber(field(usage, writeKey)) ?? 0,
   };
@@ -452,6 +454,7 @@ export async function* encodeOpenAIChatStream(events: AsyncGenerator<StreamEvent
             completion_tokens: ev.outputTokens,
             total_tokens: ev.inputTokens + ev.cacheReadTokens + ev.outputTokens,
             prompt_tokens_details: { cached_tokens: ev.cacheReadTokens },
+            completion_tokens_details: { reasoning_tokens: ev.reasoningTokens },
           },
         }),
       });

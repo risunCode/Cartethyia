@@ -22,7 +22,7 @@ import {
   evaluateFilter,
   type FilterMode,
 } from "../db/repos/combos";
-import { parseQualifiedModel } from "../../routing/resolve";
+import { invalidateComboRotation, parseQualifiedModel } from "../../routing/resolve";
 import { providerRegistry } from "../../upstream/providers";
 import type { AddedProviderId } from "../../routing/types";
 import { isProviderId } from "../../routing/providerMeta";
@@ -116,6 +116,7 @@ export const combosRoutes = new Elysia({ prefix: "/console/api" })
       set.status = 404;
       return consoleError("not_found", "combo not found");
     }
+    invalidateComboRotation(params.id);
     addAuditEvent("combo.update", { id: params.id });
     return { ok: true };
   })
@@ -125,6 +126,7 @@ export const combosRoutes = new Elysia({ prefix: "/console/api" })
       set.status = 404;
       return consoleError("not_found", "combo not found");
     }
+    invalidateComboRotation(params.id);
     addAuditEvent("combo.delete", { id: params.id });
     return { ok: true };
   })

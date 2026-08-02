@@ -45,7 +45,7 @@ const GITHUB_REPO = "risunCode/Cartethyia";
 // FooterClock — isolated so the 1-second tick never re-renders AppShell or
 // any page inside <Outlet />.
 // ---------------------------------------------------------------------------
-function FooterClock({ statusData, isError }: { statusData: HealthStatus | undefined; isError: boolean }) {
+function FooterClock({ statusData, isError, visible }: { statusData: HealthStatus | undefined; isError: boolean; visible: boolean }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 1_000);
@@ -72,7 +72,7 @@ function FooterClock({ statusData, isError }: { statusData: HealthStatus | undef
   const fmt = (d: Date) => d.toLocaleTimeString("en-GB", { timeZone: "UTC", hour12: false });
 
   return (
-    <footer className="glass sticky bottom-4 z-30 mt-auto grid grid-cols-2 items-center gap-x-4 gap-y-1.5 rounded-2xl px-4 py-3 text-xs text-[var(--text-2)] sm:gap-x-8 sm:px-5 sm:py-3.5">
+    <footer className={cn("glass sticky bottom-4 z-30 mt-auto grid grid-cols-2 items-center gap-x-4 gap-y-1.5 rounded-2xl px-4 py-3 text-xs text-[var(--text-2)] transition-[opacity,transform] duration-200 sm:gap-x-8 sm:px-5 sm:py-3.5", visible ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0")} aria-hidden={!visible}>
       <div className="flex items-center gap-1.5 font-semibold text-[var(--text-1)]">
         {isError ? (
           <>
@@ -119,7 +119,7 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
     label: "Main",
     items: [
       { to: "/overview", label: "Overview", icon: LayoutDashboard },
-      { to: "/usage", label: "Usage", icon: ChartSpline, badge: "live" },
+      { to: "/usage", label: "Usage", icon: ChartSpline },
       { to: "/providers", label: "Providers", icon: Cable },
       { to: "/model-studio", label: "Model Studio", icon: MessageSquare },
     ],
@@ -180,8 +180,9 @@ function ThemeToggle() {
     const next = dark ? "light" : "dark";
     const startViewTransition = document.startViewTransition?.bind(document);
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
 
-    if (!startViewTransition || reduced) {
+    if (!startViewTransition || reduced || coarsePointer) {
       setTheme(next);
       return;
     }
@@ -207,6 +208,7 @@ function ThemeToggle() {
 
   return (
     <button
+      type="button"
       onClick={swapTheme}
       aria-label="Toggle theme"
       className="grid h-9.5 w-9.5 place-items-center rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] text-[var(--text-1)] transition-all duration-150 hover:bg-[var(--active-pill)] active:scale-90"
@@ -319,6 +321,24 @@ export function AppShell() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [isStudioComposerFocused, setIsStudioComposerFocused] = useState(false);
   const [isCompactMotion, setIsCompactMotion] = useState(false);
+  const [footerVisible, setFooterVisible] = useState(true);
+  const lastScrollYRef = useRef(0);
+
+  useEffect(() => {
+    const onScroll = () => {
+      const scrollY = window.scrollY;
+      const atTop = scrollY <= 16;
+      const atBottom = window.innerHeight + scrollY >= document.documentElement.scrollHeight - 24;
+      const delta = scrollY - lastScrollYRef.current;
+      if (atTop || atBottom || delta < -4) setFooterVisible(true);
+      else if (delta > 4) setFooterVisible(false);
+      lastScrollYRef.current = scrollY;
+    };
+    lastScrollYRef.current = window.scrollY;
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [location.pathname]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px), (prefers-reduced-motion: reduce)");
@@ -547,7 +567,7 @@ export function AppShell() {
 
         {/* `mt-auto` drops it to the bottom on short pages; `sticky bottom-4`
             keeps it parked there while long pages scroll behind it. */}
-        {pathKey !== "/model-studio" && <div className={cn(isStudioComposerFocused && "hidden sm:block")}><FooterClock statusData={statusQuery.data} isError={statusQuery.isError} /></div>}
+        {pathKey !== "/model-studio" && <div className={cn(isStudioComposerFocused && "hidden sm:block")}><FooterClock statusData={statusQuery.data} isError={statusQuery.isError} visible={footerVisible} /></div>}
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />

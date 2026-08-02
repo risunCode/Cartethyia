@@ -4,7 +4,7 @@ import type { ResolvedCredential } from "./providers/index";
 import { getProviderRouting } from "../console/db/repos/routing";
 import { withRetry, createTimeoutSignal, DEFAULT_RETRY_CONFIG, extractStatus, type RetryConfig } from "./retry";
 import { isRetryableError } from "./retry";
-import { resolveAllComboTargets, resolveQualifiedTarget, credentialKindOf } from "../routing/resolve";
+import { parseQualifiedModel, resolveAllComboTargets, resolveQualifiedTarget, credentialKindOf, type RouteResolveResult } from "../routing/resolve";
 import { isProviderId } from "../routing/providerMeta";
 import { ProviderCallError, providerRegistry } from "./providers";
 import {
@@ -85,8 +85,15 @@ export interface DispatchOutcome {
   result: ProviderResult;
 }
 
-const accountModelFailures = new Map<string, number>();
+interface AccountModelFailure {
+  count: number;
+  lastFailureAt: number;
+}
+
+const accountModelFailures = new Map<string, AccountModelFailure>();
 const ACCOUNT_MODEL_FAILURE_THRESHOLD = 3;
+const ACCOUNT_MODEL_FAILURE_TTL_MS = 5 * 60_000;
+const MAX_ACCOUNT_MODEL_FAILURES = 10_000;
 
 function accountModelFailureKey(accountId: string, modelId: string): string {
   return `${accountId}:${modelId}`;
@@ -221,6 +228,10 @@ export async function resolveCredentialForDispatch(
   modelId?: string,
   clientKey?: string,
 ) {
+  if (!isProviderId(provider)) return undefined;
+  const expectedCredential = credentialKindOf(provider);
+  if (expectedCredential === "none") return { kind: "none" as const, value: "" };
+
   const routing = getProviderRouting(provider);
 
   // Pick a stored account. When the strategy is "round-robin" the picker
@@ -236,7 +247,6 @@ export async function resolveCredentialForDispatch(
 
   // No stored accounts for this provider, fall back to the credential the
   // client supplied directly in the request header (BYOK).
-  if (!isProviderId(provider)) return undefined;
   const defaultTarget = {
     provider,
     modelId: "",
@@ -250,8 +260,17 @@ export async function resolveCredentialForDispatch(
 /** Resolves and calls a provider-qualified model after its request is normalized to OpenAI Chat. */
 export async function dispatchQualifiedRoute(input: QualifiedDispatchInput): Promise<QualifiedDispatchResult> {
   // ── Model chain resolution: prefix → alias → combo → filter ──
-  const targetResult = await resolveQualifiedTarget(input.model);
-  if ("error" in targetResult) return { kind: "error", status: targetResult.status ?? 400, message: targetResult.error };
+  // Keep the complete eligible target list so combo failover can reuse it
+  // after the primary call fails instead of resolving aliases, filters,
+  // catalogs, and round-robin state a second time.
+  const parsedModel = parseQualifiedModel(input.model);
+  const targetResults = parsedModel.kind === "qualified"
+    ? [await resolveQualifiedTarget(input.model)]
+    : await resolveAllComboTargets(input.model);
+  const targetResult = targetResults[0];
+  if (!targetResult || "error" in targetResult) {
+    return { kind: "error", status: targetResult?.status ?? 400, message: targetResult?.error ?? "No eligible model found." };
+  }
 
   const target = targetResult.target;
   const provider = providerRegistry.get(target.provider);
@@ -280,11 +299,21 @@ export async function dispatchQualifiedRoute(input: QualifiedDispatchInput): Pro
       const accountId = credential.accountId as string;
       if (status === 429 || isCredentialFailure) markAccountUnavailable(accountId, isCredentialFailure ? "auth" : "rate-limit");
       const key = accountModelFailureKey(accountId, target.modelId);
-      const failures = (accountModelFailures.get(key) ?? 0) + 1;
-      accountModelFailures.set(key, failures);
+      const now = Date.now();
+      const existing = accountModelFailures.get(key);
+      const failures = existing && now - existing.lastFailureAt <= ACCOUNT_MODEL_FAILURE_TTL_MS
+        ? existing.count + 1
+        : 1;
+      accountModelFailures.delete(key);
       if (failures >= ACCOUNT_MODEL_FAILURE_THRESHOLD) {
         lockAccountModel(accountId, target.modelId);
-        accountModelFailures.delete(key);
+      } else {
+        accountModelFailures.set(key, { count: failures, lastFailureAt: now });
+        while (accountModelFailures.size > MAX_ACCOUNT_MODEL_FAILURES) {
+          const oldest = accountModelFailures.keys().next();
+          if (oldest.done) break;
+          accountModelFailures.delete(oldest.value);
+        }
       }
     }
     // A rejected stored credential is account-specific: immediately retry the
@@ -305,7 +334,7 @@ export async function dispatchQualifiedRoute(input: QualifiedDispatchInput): Pro
     }
     // Combo failover: try next candidate on retryable or stored-credential auth error.
     if (isRetryableError(err) || isCredentialFailure) {
-      const fallback = await tryComboFailover(input, providerRequest);
+      const fallback = await tryComboFailover(input, providerRequest, targetResults, affinityKey);
       if (fallback) return fallback;
     }
     // Propagate 429 with Retry-After
@@ -319,14 +348,15 @@ export async function dispatchQualifiedRoute(input: QualifiedDispatchInput): Pro
 }
 
 /**
- * Combo failover: resolve all eligible targets and try the next ones
- * after the primary target failed with a retryable error (C6).
+ * Combo failover: try already-resolved eligible targets after the
+ * primary target failed with a retryable error (C6).
  */
 async function tryComboFailover(
   input: QualifiedDispatchInput,
   providerRequest: ProviderRequest,
+  targets: RouteResolveResult[],
+  affinityKey: string | undefined,
 ): Promise<QualifiedDispatchResult | null> {
-  const targets = await resolveAllComboTargets(input.model);
   // Skip the first target (already failed) and try the rest
   for (let i = 1; i < targets.length; i++) {
     const targetResult = targets[i];
@@ -336,7 +366,7 @@ async function tryComboFailover(
     const provider = providerRegistry.get(target.provider);
     if (!provider) continue;
 
-    const credential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId, clientAffinityKey(input.request));
+    const credential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId, affinityKey);
     if (!credential) continue;
 
     try {

@@ -221,6 +221,10 @@ function orderedComboCandidates(
 }
 
 /** Test-only: clear combo rotation state so each test starts from index 0. */
+export function invalidateComboRotation(comboId: string): void {
+  comboRotState.delete(comboId);
+}
+
 export function resetComboRotationForTests(): void {
   comboRotState.clear();
 }
@@ -229,6 +233,11 @@ export function resetComboRotationForTests(): void {
 
 /** Resolves a qualified model through its provider, including dynamic catalog eligibility. */
 export async function resolveQualifiedTarget(model: string): Promise<RouteResolveResult> {
+  const parsed = parseQualifiedModel(model);
+  if (parsed.kind === "qualified") {
+    return resolveSingleQualifiedTarget(parsed.model.provider, parsed.model.modelId);
+  }
+
   const targets = await resolveAllComboTargets(model);
   return targets[0] ?? { legacy: false, error: "No eligible model found in the combo (all filtered or unavailable)." };
 }

@@ -32,6 +32,15 @@ describe("LoginPage", () => {
     mockNavigate.mockReset();
   });
 
+  test("uses the provided artwork, Cartethyia logo, and public-page return link", () => {
+    renderLogin();
+
+    expect(document.querySelector("[data-login-backdrop]")?.getAttribute("style")).toContain("CartethyiaPi/kepitsusu.jpg");
+    expect(document.querySelector("img[src*='cartethyia-sidebar.gif']")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /back to public page/i })).toHaveAttribute("href", "/");
+    expect(screen.queryByText(/single admin/i)).not.toBeInTheDocument();
+  });
+
   test("the submit button stays disabled until a password is typed", async () => {
     renderLogin();
     const button = screen.getByRole("button", { name: /sign in/i });
@@ -39,6 +48,17 @@ describe("LoginPage", () => {
 
     await userEvent.type(screen.getByLabelText(/password/i), "hunter2");
     expect(button).toBeEnabled();
+  });
+
+  test("toggles password visibility inline", async () => {
+    renderLogin();
+    const password = screen.getByLabelText(/password/i);
+
+    expect(password).toHaveAttribute("type", "password");
+    await userEvent.type(password, "secret");
+    await userEvent.click(screen.getByRole("button", { name: /show secret/i }));
+    expect(password).toHaveAttribute("type", "text");
+    expect(screen.getByRole("button", { name: /hide secret/i })).toBeInTheDocument();
   });
 
   test("a rejected login (wrong password) surfaces the server's error message instead of failing silently", async () => {

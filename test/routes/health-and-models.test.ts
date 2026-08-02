@@ -25,10 +25,11 @@ afterEach(() => {
 });
 
 describe("GET /", () => {
-  test("redirects visitors into the authenticated console", async () => {
+  test("serves the public landing page without authentication", async () => {
     const res = await app.handle(new Request("http://localhost/"));
-    expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("/console/");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(await res.text()).toContain("Fleurdelys");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

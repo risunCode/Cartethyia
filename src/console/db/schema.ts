@@ -23,6 +23,11 @@ CREATE TABLE IF NOT EXISTS api_keys (
   rate_limit_rpm INTEGER,
   daily_token_limit INTEGER,
   monthly_token_limit INTEGER,
+  one_time_token_limit INTEGER,
+  one_time_tokens_used INTEGER NOT NULL DEFAULT 0,
+  quote_big_text TEXT,
+  quote_sub_text TEXT,
+  quote_body TEXT,
   max_concurrent_requests INTEGER,
   provider_allowlist TEXT,
   model_allowlist TEXT,
@@ -81,6 +86,17 @@ CREATE TABLE IF NOT EXISTS provider_accounts (
 CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider_priority ON provider_accounts(provider, priority, name, id);
 CREATE INDEX IF NOT EXISTS idx_provider_accounts_cooldown ON provider_accounts(cooldown_until) WHERE cooldown_until IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
+
+CREATE TABLE IF NOT EXISTS share_links (
+  id TEXT PRIMARY KEY,
+  api_key_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  last_viewed_at TEXT,
+  FOREIGN KEY (api_key_id) REFERENCES api_keys(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_share_links_api_key ON share_links(api_key_id);
 
 CREATE TABLE IF NOT EXISTS account_model_locks (
   account_id TEXT NOT NULL,

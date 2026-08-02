@@ -229,6 +229,7 @@ export async function* decodeDevinChatStream(body: ReadableStream<Uint8Array>): 
         type: "usage",
         inputTokens: Number(response.usage.inputTokens),
         outputTokens: Number(response.usage.outputTokens),
+        reasoningTokens: 0,
         cacheReadTokens: Number(response.usage.cacheReadTokens),
         cacheWriteTokens: Number(response.usage.cacheWriteTokens),
       };

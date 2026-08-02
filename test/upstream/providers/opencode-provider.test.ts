@@ -76,7 +76,7 @@ describe("OpenCode Free — authorizationHeader is always 'Bearer public'", () =
 // OpenCode Zen (unlike Free) is subject to routing's static-catalog existence
 // check (src/routing/resolve.ts) before the provider's own dynamic
 // resolveTarget ever runs, so these tests must use a model id present in
-// Zen's static catalog (opencode-zen/models.ts) rather than an arbitrary id.
+// Zen's static catalog (opencode-zen.ts) rather than an arbitrary id.
 const ZEN_STATIC_MODEL = "deepseek-v4-flash-free";
 
 describe("OpenCode Zen — validateCredential rejects missing key", () => {

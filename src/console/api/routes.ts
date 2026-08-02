@@ -19,6 +19,7 @@ import { customProvidersRoutes } from "./custom-providers";
 import { healthRoutes } from "./health";
 import { liveRoutes } from "./live";
 import { modelStudioRoutes } from "./model-studio";
+import { shareRoutes } from "./shares";
 
 export const consoleApiRoutes = new Elysia()
   .onStart(async () => {
@@ -32,6 +33,7 @@ export const consoleApiRoutes = new Elysia()
         group
           .use(authProtectedRoutes)
           .use(keysRoutes)
+          .use(shareRoutes)
           .use(overviewRoutes)
           .use(usageRoutes)
           .use(providersRoutes)

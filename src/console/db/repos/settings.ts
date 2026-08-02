@@ -4,14 +4,14 @@
  */
 
 import { getDb } from "../client";
-import { getConsoleEnv, type TrackMode, type ProxyAuthMode } from "../../env";
+import { getConsoleEnv, type PayloadTrackMode, type TrackMode, type ProxyAuthMode } from "../../env";
 import { hashPassword } from "../../auth/password";
 
 export const DEFAULT_CONSOLE_PASSWORD = "carte1234";
 
 export interface RuntimeSettings {
   proxyAuthMode: ProxyAuthMode;
-  trackPayloads: TrackMode;
+  trackPayloads: PayloadTrackMode;
   trackAssets: TrackMode;
   logRetentionDays: number;
   assetRetentionDays: number;
@@ -66,7 +66,13 @@ function toSettings(row: SettingsRow): Settings {
   let runtime = envDefaults();
   try {
     const parsed = JSON.parse(row.settings_json) as Partial<RuntimeSettings>;
-    runtime = { ...runtime, ...parsed };
+    runtime = {
+      ...runtime,
+      ...parsed,
+      // Older settings JSON could request `store`; keep the legacy value from
+      // re-enabling body persistence after an upgrade.
+      trackPayloads: parsed.trackPayloads === "none" ? "none" : "meta",
+    };
   } catch {
     // corrupt JSON → fall back to defaults
   }

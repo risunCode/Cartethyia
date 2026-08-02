@@ -73,6 +73,7 @@ describe("decodeCommandCodeNdjsonStream", () => {
       type: "usage",
       inputTokens: 10,
       outputTokens: 2,
+      reasoningTokens: 0,
       cacheReadTokens: 5,
       cacheWriteTokens: 1,
     });

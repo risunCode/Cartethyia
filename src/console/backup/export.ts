@@ -16,6 +16,7 @@ export const BACKUP_VERSION = 1;
 export const CONFIG_TABLES = [
   "settings",
   "api_keys",
+  "share_links",
   "model_aliases",
   "combos",
   "access_rules",

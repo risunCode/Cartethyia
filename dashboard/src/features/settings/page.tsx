@@ -19,7 +19,7 @@ import { PasswordModal } from "../../components/shared";
 
 interface RuntimeSettings {
   proxyAuthMode: "open" | "api_key";
-  trackPayloads: "none" | "meta" | "store";
+  trackPayloads: "none" | "meta";
   trackAssets: "none" | "meta" | "store";
   logRetentionDays: number;
   assetRetentionDays: number;
@@ -222,7 +222,6 @@ export function SettingsPage() {
                   options={[
                     { value: "none", label: "Off" },
                     { value: "meta", label: "Meta only" },
-                    { value: "store", label: "Store" },
                   ]}
                 />
               </div>

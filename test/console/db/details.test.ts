@@ -49,16 +49,17 @@ describe("insertRequestDetails + getRequestDetailBundle", () => {
     insertDetail(1);
     insertRequestDetails({
       requestId: 1,
-      redactedRequest: "updated",
+      redactedRequest: null,
       redactedResponse: null,
-      payloadMode: "store",
+      payloadMode: "meta",
       payloadSha256: null,
       messageCount: 3,
       toolNames: null,
       imageCount: null,
     });
     const bundle = getRequestDetailBundle(1);
-    expect(bundle.detail?.redacted_request).toBe("updated");
+    expect(bundle.detail?.redacted_request).toBeNull();
+    expect(bundle.detail?.payload_mode).toBe("meta");
     expect(bundle.detail?.message_count).toBe(3);
   });
 });

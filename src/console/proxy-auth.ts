@@ -9,8 +9,8 @@
 import { openAIClientError } from "../http/errors";
 import { identifyClient } from "../http/traffic";
 import { config } from "../config";
-import { findApiKeyBySecret, touchApiKey, type ApiKeyPublic } from "./db/repos/api-keys";
-import { sumDailyTokensForKey, sumMonthlyTokensForKey } from "./db/repos/usage";
+import { findApiKeyBySecret, sumOneTimeTokensForKey, touchApiKey, type ApiKeyPublic } from "./db/repos/api-keys";
+import { purgeKeyTokenAccumulator, sumDailyTokensForKey, sumMonthlyTokensForKey } from "./db/repos/usage";
 import { getRuntimeSettings } from "./runtime";
 import { checkAccess } from "./db/repos/access";
 import { extractPresentedApiKey, isModelAllowedForKey } from "./key-acl";
@@ -24,22 +24,67 @@ const RESERVED_TOKENS_ESTIMATE = 4096;
 export interface ProxyAuthOutcome {
   error: { status: number; body: unknown } | null;
   key: ApiKeyPublic | null;
-  /** Non-zero only when a daily/monthly limit was checked and reserved against - the caller must release exactly this amount via `releaseTokenReservationForKey` once the request finishes. */
+  /** Non-zero when a token budget was checked and reserved against. */
   tokensReserved: number;
+  /** Keeps the reservation until measured usage is available for a one-time budget. */
+  holdTokenReservation?: boolean;
 }
 
-const rpmBuckets = new Map<string, number[]>();
+const RPM_WINDOW_SECONDS = 60;
 const MAX_RPM_BUCKETS = 10_000;
 
-function setRpmBucket(keyId: string, hits: number[]): void {
-  rpmBuckets.delete(keyId);
-  rpmBuckets.set(keyId, hits);
-  if (rpmBuckets.size > MAX_RPM_BUCKETS) rpmBuckets.delete(rpmBuckets.keys().next().value!);
+interface RpmSlot {
+  second: number;
+  count: number;
+}
+
+interface RpmBucket {
+  slots: RpmSlot[];
+  total: number;
+}
+
+const rpmBuckets = new Map<string, RpmBucket>();
+
+function createRpmBucket(): RpmBucket {
+  return {
+    slots: Array.from({ length: RPM_WINDOW_SECONDS }, () => ({ second: -1, count: 0 })),
+    total: 0,
+  };
+}
+
+function getRpmBucket(keyId: string): RpmBucket {
+  const existing = rpmBuckets.get(keyId);
+  if (existing) {
+    rpmBuckets.delete(keyId);
+    rpmBuckets.set(keyId, existing);
+    return existing;
+  }
+
+  const bucket = createRpmBucket();
+  rpmBuckets.set(keyId, bucket);
+  while (rpmBuckets.size > MAX_RPM_BUCKETS) {
+    const oldest = rpmBuckets.keys().next();
+    if (oldest.done) break;
+    rpmBuckets.delete(oldest.value);
+  }
+  return bucket;
+}
+
+function pruneRpmBucket(bucket: RpmBucket, nowSecond: number): void {
+  const cutoff = nowSecond - RPM_WINDOW_SECONDS;
+  for (const slot of bucket.slots) {
+    if (slot.second <= cutoff) {
+      bucket.total -= slot.count;
+      slot.second = -1;
+      slot.count = 0;
+    }
+  }
 }
 
 /** Removes a deleted API key's rate-limit history immediately. */
 export function purgeRateLimitState(keyId: string): void {
   rpmBuckets.delete(keyId);
+  purgeKeyTokenAccumulator(keyId);
   purgeKeyInFlightState(keyId);
 }
 
@@ -50,14 +95,20 @@ export function proxyRateLimitStateSizeForTests(): number {
 
 function checkRpm(key: ApiKeyPublic, nowMs: number): boolean {
   if (!key.rateLimitRpm) return true;
-  const windowStart = nowMs - 60_000;
-  const hits = (rpmBuckets.get(key.id) ?? []).filter((t) => t > windowStart);
-  if (hits.length >= key.rateLimitRpm) {
-    setRpmBucket(key.id, hits);
-    return false;
+  const nowSecond = Math.floor(nowMs / 1_000);
+  const bucket = getRpmBucket(key.id);
+  pruneRpmBucket(bucket, nowSecond);
+
+  const slot = bucket.slots[nowSecond % RPM_WINDOW_SECONDS]!;
+  if (slot.second !== nowSecond) {
+    bucket.total -= slot.count;
+    slot.second = nowSecond;
+    slot.count = 0;
   }
-  hits.push(nowMs);
-  setRpmBucket(key.id, hits);
+  if (bucket.total >= key.rateLimitRpm) return false;
+
+  slot.count += 1;
+  bucket.total += 1;
   return true;
 }
 
@@ -115,7 +166,11 @@ export function enforceProxyAuth(model: string | undefined, request: Request, di
   // comparing means the 2nd, 3rd, ... concurrent request sees the 1st's
   // reservation immediately - and since nothing here awaits, this whole
   // check+reserve sequence is atomic with respect to other requests.
-  if (key.dailyTokenLimit && sumDailyTokensForKey(key.id) + getReservedTokensForKey(key.id) >= key.dailyTokenLimit) {
+  const reservedTokens = getReservedTokensForKey(key.id);
+  const dailyUsed = key.dailyTokenLimit ? sumDailyTokensForKey(key.id) : 0;
+  const monthlyUsed = key.monthlyTokenLimit ? sumMonthlyTokensForKey(key.id) : 0;
+  const oneTimeUsed = key.oneTimeTokenLimit ? sumOneTimeTokensForKey(key.id) : 0;
+  if (key.dailyTokenLimit && dailyUsed + reservedTokens >= key.dailyTokenLimit) {
     return {
       error: { status: 429, body: openAIClientError(429, "rate_limit_error", "This key reached its daily token limit.") },
       key: null,
@@ -123,9 +178,17 @@ export function enforceProxyAuth(model: string | undefined, request: Request, di
     };
   }
 
-  if (key.monthlyTokenLimit && sumMonthlyTokensForKey(key.id) + getReservedTokensForKey(key.id) >= key.monthlyTokenLimit) {
+  if (key.monthlyTokenLimit && monthlyUsed + reservedTokens >= key.monthlyTokenLimit) {
     return {
       error: { status: 429, body: openAIClientError(429, "rate_limit_error", "This key reached its monthly token limit.") },
+      key: null,
+      tokensReserved: 0,
+    };
+  }
+
+  if (key.oneTimeTokenLimit && oneTimeUsed + reservedTokens >= key.oneTimeTokenLimit) {
+    return {
+      error: { status: 429, body: openAIClientError(429, "rate_limit_error", "This key has used its one-time token budget.") },
       key: null,
       tokensReserved: 0,
     };
@@ -137,9 +200,14 @@ export function enforceProxyAuth(model: string | undefined, request: Request, di
   }
 
   touchApiKey(key.id);
-  const tokensReserved = key.dailyTokenLimit || key.monthlyTokenLimit ? RESERVED_TOKENS_ESTIMATE : 0;
+  const remainingBudgets = [
+    key.dailyTokenLimit ? key.dailyTokenLimit - dailyUsed - reservedTokens : null,
+    key.monthlyTokenLimit ? key.monthlyTokenLimit - monthlyUsed - reservedTokens : null,
+    key.oneTimeTokenLimit ? key.oneTimeTokenLimit - oneTimeUsed - reservedTokens : null,
+  ].filter((value): value is number => value !== null);
+  const tokensReserved = remainingBudgets.length > 0 ? Math.min(RESERVED_TOKENS_ESTIMATE, ...remainingBudgets) : 0;
   if (tokensReserved > 0) reserveTokensForKey(key.id, tokensReserved);
-  return { error: null, key, tokensReserved };
+  return { error: null, key, tokensReserved, holdTokenReservation: key.oneTimeTokenLimit !== null };
 }
 
 /**

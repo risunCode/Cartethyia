@@ -79,6 +79,41 @@ describe("Model Studio console log unification", () => {
     expect(line).toContain("ACC:StudioTestAccount"); // account-label threading works end to end
   });
 
+  test("compacts a saved context through the shared dispatch pipeline", async () => {
+    const cookie = await loginAndGetCookie();
+    const created = await app.handle(
+      postJson("/console/api/providers/kimchi/accounts", { name: "StudioCompactAccount", credential: "kimchi-key-compact" }, { cookie })
+    );
+    expect(created.status).toBe(201);
+
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "kimchi-compact",
+          object: "chat.completion",
+          created: 1234,
+          model: "kimi-k2.7",
+          choices: [{ index: 0, message: { role: "assistant", content: "Summary: preserve the project decisions." }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 40, completion_tokens: 9, total_tokens: 49 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+
+    const res = await app.handle(
+      postJson(
+        "/console/api/model-studio/compact",
+        { model: "kimchi/kimi-k2.7", messages: [{ role: "user", content: "hello" }, { role: "assistant", content: "world" }] },
+        { cookie },
+      ),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { summary: string; usage: { prompt_tokens: number; completion_tokens: number } };
+    expect(body.summary).toContain("preserve the project decisions");
+    expect(body.usage.prompt_tokens).toBe(40);
+    expect(body.usage.completion_tokens).toBe(9);
+  });
+
   test("a failed chat call is visible in the console log (previously invisible on success, but this path already logged failures)", async () => {
     const cookie = await loginAndGetCookie();
     const created = await app.handle(

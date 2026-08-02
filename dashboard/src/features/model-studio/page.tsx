@@ -8,7 +8,7 @@
  * across turns instead of restarting cold every time.
  */
 
-import { isValidElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
+import { isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
@@ -21,6 +21,7 @@ import {
   Info,
   Loader2,
   MessageSquareText,
+  MoreHorizontal,
   Pencil,
   Plus,
   Search,
@@ -43,12 +44,23 @@ import { ConfirmDialog } from "../../components/shared";
 import { ProviderIcon } from "../../components/provider-icon";
 import { useProviders, useModelCatalog, useCombos, useAliases, useCustomProviders, useCustomProviderCatalog, type ProviderSummary, type FlatModelEntry } from "../../components/model-picker";
 
+interface StudioUsage {
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
+  source: "provider" | "estimated";
+}
+
 interface StudioMessage {
   role: "system" | "user" | "assistant";
   content: string;
   ts: string;
-  /** Reasoning/thinking text, if the model streamed any — client-side only, never persisted. */
+  /** Reasoning/thinking text, if the model streamed any. */
   reasoning?: string;
+  /** Provider usage for assistant turns, persisted as non-sensitive metadata. */
+  usage?: StudioUsage;
   /** Data-URL image attachments (user turns only) — persisted with the session. */
   images?: string[];
 }
@@ -57,6 +69,27 @@ interface ChatContentPart {
   type: "text" | "image_url";
   text?: string;
   image_url?: { url: string };
+}
+
+interface ChatUsagePayload {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number };
+  completion_tokens_details?: { reasoning_tokens?: number };
+}
+
+function studioUsageFromChatUsage(usage: ChatUsagePayload): StudioUsage {
+  const inputTokens = usage.prompt_tokens ?? 0;
+  const outputTokens = usage.completion_tokens ?? 0;
+  return {
+    inputTokens,
+    outputTokens,
+    reasoningTokens: usage.completion_tokens_details?.reasoning_tokens ?? 0,
+    cachedTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+    totalTokens: usage.total_tokens ?? inputTokens + outputTokens,
+    source: "provider",
+  };
 }
 
 /** Attachment pending send — separate id so a chip can be removed before it becomes part of a message. */
@@ -81,24 +114,110 @@ const THINK_LEVELS = [
   { value: "max", label: "Think: Max" },
 ];
 
-function estimateContextTokens(messages: StudioMessage[]): number {
-  return Math.ceil(messages.reduce((total, message) => total + message.content.length + (message.images?.length ?? 0) * 1_000, 0) / 4);
+const THINK_TOKEN_PRESETS: Record<string, number> = {
+  auto: 8_192,
+  none: 4_096,
+  low: 8_192,
+  medium: 16_384,
+  high: 32_768,
+  xhigh: 49_152,
+  max: 65_536,
+};
+
+function maxTokensForThinking(value: string): number {
+  return THINK_TOKEN_PRESETS[value] ?? THINK_TOKEN_PRESETS.auto;
 }
 
-function ContextIndicator({ messages }: { messages: StudioMessage[] }) {
+function estimateTextTokens(value: string): number {
+  return Math.max(0, Math.ceil(Array.from(value).length / 4));
+}
+
+function estimateMessageTokens(message: StudioMessage): number {
+  return estimateTextTokens(message.content) + (message.images?.length ?? 0) * 1_000;
+}
+
+interface TokenSnapshot {
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cachedTokens: number;
+  totalTokens: number;
+  summary: string;
+  source: "provider" | "estimated";
+}
+
+function getTokenSnapshot(messages: StudioMessage[], systemPrompt: string): TokenSnapshot {
+  const assistantMessages = messages.filter((message) => message.role === "assistant");
+  const latestUsage = [...assistantMessages].reverse().find((message) => message.usage)?.usage;
+  const outputTokens = assistantMessages.reduce((total, message) => total + (message.usage?.outputTokens ?? estimateTextTokens(message.content)), 0);
+  const reasoningTokens = assistantMessages.reduce((total, message) => total + (message.usage?.reasoningTokens ?? estimateTextTokens(message.reasoning ?? "")), 0);
+  const estimatedInput = estimateTextTokens(systemPrompt) + messages.reduce((total, message) => total + estimateMessageTokens(message), 0);
+  const inputTokens = latestUsage?.inputTokens ?? estimatedInput;
+  const summaryMessage = [...messages].reverse().find((message) => message.role === "system" && message.content.startsWith("[Compacted context]"));
+  return {
+    inputTokens,
+    outputTokens,
+    reasoningTokens,
+    cachedTokens: latestUsage?.cachedTokens ?? 0,
+    totalTokens: inputTokens + outputTokens + reasoningTokens,
+    summary: summaryMessage?.content.replace("[Compacted context]", "").trim() || "No compacted summary yet.",
+    source: latestUsage ? "provider" : "estimated",
+  };
+}
+
+function formatTokenCount(value: number): string {
+  return value >= 1_000 ? `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k` : String(value);
+}
+
+function ContextIndicator({
+  messages,
+  systemPrompt,
+  compacting,
+  onCompact,
+}: {
+  messages: StudioMessage[];
+  systemPrompt: string;
+  compacting: boolean;
+  onCompact: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   const ref = useOutsideClose(open, close);
-  const tokens = estimateContextTokens(messages);
-  const label = tokens >= 1_000 ? `${(tokens / 1_000).toFixed(tokens >= 10_000 ? 0 : 1)}k` : String(tokens);
+  const snapshot = getTokenSnapshot(messages, systemPrompt);
+  const label = formatTokenCount(snapshot.inputTokens);
+  const contextEstimate = `~${label}/256k ctx · 64k max output`;
   return (
     <div ref={ref} className="relative shrink-0">
-      <button type="button" onClick={() => setOpen((current) => !current)} aria-label="Chat context information" aria-expanded={open} className="group grid h-8 w-8 place-items-center rounded-full bg-[var(--hover)] transition-colors hover:bg-[var(--active-pill)]" title={`About ${tokens.toLocaleString()} tokens in this chat`}>
+      <button type="button" onClick={() => setOpen((current) => !current)} aria-label="Chat token usage and compaction" aria-expanded={open} className="group grid h-8 w-8 place-items-center rounded-full bg-[var(--hover)] transition-colors hover:bg-[var(--active-pill)]" title={contextEstimate}>
         <span className="grid h-5 w-5 place-items-center rounded-full border-2 border-[var(--inner-border)] border-t-[var(--accent)] transition-transform group-hover:rotate-45"><span className="h-1 w-1 rounded-full bg-[var(--accent)]" /></span>
       </button>
-      {open && <div className="absolute bottom-[calc(100%+8px)] right-0 z-50 w-52 max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--inner-border)] bg-[var(--glass-bg-2)] p-3 shadow-2xl backdrop-blur-xl"><div className="flex items-center gap-2"><span className="grid h-7 w-7 place-items-center rounded-full border-2 border-[var(--inner-border)] border-t-[var(--accent)]"><Info size={12} className="text-[var(--accent)]" /></span><div><p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-3)]">Current context</p><p className="text-sm font-bold">≈ {label} tokens</p></div></div><p className="mt-2 text-[10.5px] leading-relaxed text-[var(--text-3)]">Estimated from this chat's messages and images.</p></div>}
+      {open && (
+        <div className="absolute bottom-[calc(100%+8px)] right-0 z-50 w-60 max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--inner-border)] bg-[var(--glass-bg-2)] p-3 shadow-2xl backdrop-blur-xl">
+          <div className="flex items-center justify-between gap-2"><div className="flex items-center gap-2"><span className="grid h-7 w-7 place-items-center rounded-full border-2 border-[var(--inner-border)] border-t-[var(--accent)]"><Info size={12} className="text-[var(--accent)]" /></span><div><p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-3)]">Chat tokens</p><p className="text-sm font-bold">{snapshot.source === "provider" ? "Provider usage" : "Estimated"}</p></div></div><span className="whitespace-nowrap text-[10px] font-semibold text-[var(--accent)]">{contextEstimate}</span></div>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+            <span className="rounded-lg bg-[var(--hover)] px-2 py-1.5">Input<strong className="mt-0.5 block text-[var(--text-1)]">{formatTokenCount(snapshot.inputTokens)}</strong></span>
+            <span className="rounded-lg bg-[var(--hover)] px-2 py-1.5">Output<strong className="mt-0.5 block text-[var(--text-1)]">{formatTokenCount(snapshot.outputTokens)}</strong></span>
+            <span className="rounded-lg bg-[var(--hover)] px-2 py-1.5">Reasoning<strong className="mt-0.5 block text-[var(--text-1)]">{formatTokenCount(snapshot.reasoningTokens)}</strong></span>
+            <span className="rounded-lg bg-[var(--hover)] px-2 py-1.5">Cached<strong className="mt-0.5 block text-[var(--text-1)]">{formatTokenCount(snapshot.cachedTokens)}</strong></span>
+            <span className="col-span-2 rounded-lg border border-[var(--accent)]/20 bg-[var(--accent-soft)] px-2 py-1.5">Est. total<strong className="mt-0.5 block text-[var(--accent)]">{formatTokenCount(snapshot.totalTokens)}</strong></span>
+          </div>
+          <p className="mt-2 line-clamp-3 text-[10.5px] leading-relaxed text-[var(--text-3)]"><strong className="text-[var(--text-2)]">Summary:</strong> {snapshot.summary}</p>
+          <p className="mt-1 text-[10.5px] leading-relaxed text-[var(--text-3)]">Current input ≈ {label} tokens. Provider values are used when the stream reports usage; otherwise the fallback is a visible estimate.</p>
+          <button type="button" onClick={() => { setOpen(false); onCompact(); }} disabled={compacting || messages.length < 2} className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--inner-border)] bg-[var(--accent-soft)] px-2.5 py-2 text-[11px] font-semibold text-[var(--accent)] transition-colors hover:bg-[var(--active-pill)] disabled:cursor-not-allowed disabled:opacity-50">
+            <MoreHorizontal size={13} /> {compacting ? "Compacting…" : "Compact chat context"}
+          </button>
+        </div>
+      )}
     </div>
   );
+}
+
+function toWireContent(message: StudioMessage): string | ChatContentPart[] {
+  if (!message.images || message.images.length === 0) return message.content;
+  const parts: ChatContentPart[] = [];
+  if (message.content) parts.push({ type: "text", text: message.content });
+  for (const url of message.images) parts.push({ type: "image_url", image_url: { url } });
+  return parts;
 }
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -166,11 +285,7 @@ function useOutsideClose(open: boolean, onClose: () => void) {
   return ref;
 }
 
-// Centered on the viewport (not anchored to the trigger's edge) so it can
-// never overflow off-screen regardless of where the trigger sits in a
-// wrapped toolbar — the failure mode with edge-anchored positioning on
-// narrow screens.
-const panelClass = "glass-2 fixed left-1/2 top-1/2 z-50 max-h-[75vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-[var(--inner-border)] shadow-2xl";
+const panelClass = "glass-2 absolute bottom-[calc(100%+8px)] z-50 max-h-[min(70vh,28rem)] w-[min(320px,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-[var(--inner-border)] shadow-2xl";
 
 /** Compact macOS-style model picker: click opens a floating searchable list
  * directly (no accordion step), grouped by provider with a live dot showing
@@ -178,9 +293,11 @@ const panelClass = "glass-2 fixed left-1/2 top-1/2 z-50 max-h-[75vh] -translate-
 function ModelDropdown({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [panelAlign, setPanelAlign] = useState<"left" | "right">("left");
   const close = useCallback(() => setOpen(false), []);
   const ref = useOutsideClose(open, close);
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const providersQuery = useProviders();
   const providers = providersQuery.data?.items ?? [];
@@ -193,9 +310,18 @@ function ModelDropdown({ value, onChange }: { value: string; onChange: (value: s
   useEffect(() => {
     if (!open) return;
     setSearch("");
+    setPanelAlign("left");
     const id = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(id);
   }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || !panelRef.current) return;
+    const rect = panelRef.current.getBoundingClientRect();
+    const gutter = 12;
+    if (rect.right > window.innerWidth - gutter && panelAlign !== "right") setPanelAlign("right");
+    if (rect.left < gutter && panelAlign !== "left") setPanelAlign("left");
+  }, [open, panelAlign, search]);
 
   const q = search.trim().toLowerCase();
   const combos = (combosQuery.data?.items ?? []).filter((c) => !q || c.name.toLowerCase().includes(q));
@@ -240,7 +366,7 @@ function ModelDropdown({ value, onChange }: { value: string; onChange: (value: s
       </button>
 
       {open && (
-        <div className={cn(panelClass, "w-[min(320px,calc(100vw-2rem))]")}>
+        <div ref={panelRef} className={cn(panelClass, panelAlign === "left" ? "left-0 right-auto" : "right-0 left-auto", "max-sm:w-[min(300px,calc(100vw-2rem))]")}>
           <div className="border-b border-[var(--inner-border)] p-2">
             <div className="relative">
               <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-3)]" />
@@ -335,6 +461,11 @@ function PromptPopover({
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   const ref = useOutsideClose(open, close);
+  const thinkingMaxTokens = maxTokensForThinking(reasoningEffort);
+  const handleReasoningChange = (value: string) => {
+    onReasoningEffort(value);
+    onMaxTokens(maxTokensForThinking(value));
+  };
 
   return (
     <div ref={ref} className="relative">
@@ -352,20 +483,21 @@ function PromptPopover({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-64 space-y-3 rounded-2xl border border-[var(--inner-border)] bg-[var(--glass-bg-2)] p-3 shadow-2xl backdrop-blur-xl">
+        <div className="absolute bottom-[calc(100%+8px)] right-0 z-50 max-h-[min(70vh,28rem)] w-[min(16rem,calc(100vw-1.5rem))] max-sm:left-0 max-sm:right-auto max-sm:w-[calc(100vw-2rem)] space-y-3 overflow-y-auto rounded-2xl border border-[var(--inner-border)] bg-[var(--glass-bg-2)] p-3 shadow-2xl backdrop-blur-xl">
           <div className="max-w-[180px]">
             <label className="mb-1.5 block text-[11px] font-semibold text-[var(--text-2)]">Thinking</label>
-            <Select ariaLabel="Reasoning effort" value={reasoningEffort} onChange={onReasoningEffort} options={THINK_LEVELS} />
+            <Select ariaLabel="Reasoning effort" value={reasoningEffort} onChange={handleReasoningChange} options={THINK_LEVELS} />
           </div>
           <div className="max-w-[140px]">
             <label className="mb-1.5 block text-[11px] font-semibold text-[var(--text-2)]">Max tokens</label>
             <Input
               type="number"
               min={1}
-              max={65536}
-              value={String(maxTokens)}
-              onChange={(e) => onMaxTokens(Math.min(65536, Math.max(1, Math.floor(Number(e.target.value) || 4096))))}
+              max={thinkingMaxTokens}
+              value={String(Math.min(maxTokens, thinkingMaxTokens))}
+              onChange={(e) => onMaxTokens(Math.min(thinkingMaxTokens, Math.max(1, Math.floor(Number(e.target.value) || 4096))))}
             />
+            <p className="mt-1 text-[10px] leading-relaxed text-[var(--text-3)]">Recommended ceiling for {reasoningEffort}: {thinkingMaxTokens.toLocaleString()} tokens.</p>
           </div>
         </div>
       )}
@@ -378,7 +510,7 @@ function PromptPopover({
  * `delta.reasoning_content`, terminated by `data: [DONE]`). */
 async function streamModelStudioChat(
   payload: { model: string; messages: { role: string; content: string | ChatContentPart[] }[]; maxTokens: number; reasoningEffort?: string },
-  delta: { onText: (chunk: string) => void; onReasoning: (chunk: string) => void },
+  delta: { onText: (chunk: string) => void; onReasoning: (chunk: string) => void; onUsage: (usage: StudioUsage) => void },
   signal: AbortSignal
 ): Promise<void> {
   const res = await fetch("/console/api/model-studio/chat", {
@@ -413,15 +545,18 @@ async function streamModelStudioChat(
       if (!dataLine) continue;
       const data = dataLine.slice(5).trim();
       if (!data || data === "[DONE]") continue;
-      let parsed: { choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }> };
+      let parsed: { choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>; usage?: ChatUsagePayload };
       try {
-        parsed = JSON.parse(data);
+        parsed = JSON.parse(data) as typeof parsed;
       } catch {
         continue;
       }
       const choiceDelta = parsed.choices?.[0]?.delta;
       if (choiceDelta?.content) delta.onText(choiceDelta.content);
       if (choiceDelta?.reasoning_content) delta.onReasoning(choiceDelta.reasoning_content);
+      if (parsed.usage) {
+        delta.onUsage(studioUsageFromChatUsage(parsed.usage));
+      }
     }
   }
 }
@@ -529,14 +664,99 @@ function AssistantMarkdown({ content }: { content: string }) {
   );
 }
 
+interface MessageRowProps {
+  message: StudioMessage;
+  index: number;
+  isStreaming: boolean;
+  thinkingOpen: boolean;
+  editing: boolean;
+  editDraft: string;
+  onEditDraft: (value: string) => void;
+  onEdit: (index: number) => void;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
+  onCopy: (message: StudioMessage) => void;
+  onDelete: (index: number) => void;
+  onThinkingToggle: (index: number) => void;
+}
+
+const MessageRow = memo(function MessageRow({
+  message: m,
+  index: i,
+  isStreaming: isStreamingThis,
+  thinkingOpen,
+  editing,
+  editDraft,
+  onEditDraft,
+  onEdit,
+  onSaveEdit,
+  onCancelEdit,
+  onCopy,
+  onDelete,
+  onThinkingToggle,
+}: MessageRowProps) {
+  const hasAnyOutput = Boolean(m.content) || Boolean(m.reasoning);
+  const rowTokens = m.role === "assistant"
+    ? m.usage?.outputTokens ?? estimateTextTokens(m.content)
+    : estimateMessageTokens(m);
+  const reasoningTokens = m.role === "assistant" ? m.usage?.reasoningTokens ?? estimateTextTokens(m.reasoning ?? "") : 0;
+  const isProviderUsage = m.usage?.source === "provider";
+  return (
+    <div className={cn("relative flex gap-2.5", m.role === "user" && "flex-row-reverse")}>
+      <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-full", m.role === "user" ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "bg-[var(--hover)] text-[var(--text-2)]")}>
+        {m.role === "user" ? <User size={14} /> : <Bot size={14} />}
+      </span>
+      <div className={cn("min-w-0 max-w-[80%] space-y-1.5", m.role === "user" && "items-end")}>
+        {m.role === "assistant" && (m.reasoning || isStreamingThis) && (
+          <div className="min-w-0">
+            <button type="button" onClick={() => onThinkingToggle(i)} className="flex items-center gap-1 rounded-full border border-[var(--inner-border)] bg-[var(--hover)] px-2 py-0.5 text-[10.5px] font-semibold text-[var(--text-3)] transition-colors hover:text-[var(--text-2)]">
+              <Brain size={10} className={cn(isStreamingThis && !m.content && "animate-pulse")} />
+              {isStreamingThis && !m.content ? <><span>Reasoning</span><span className="inline-flex gap-0.5" aria-label="Reasoning in progress"><i className="h-1 w-1 animate-bounce rounded-full bg-current [animation-delay:-.2s]" /><i className="h-1 w-1 animate-bounce rounded-full bg-current [animation-delay:-.1s]" /><i className="h-1 w-1 animate-bounce rounded-full bg-current" /></span></> : "Reasoning"}
+              <ChevronDown size={9} className={cn("transition-transform", thinkingOpen && "rotate-180")} />
+            </button>
+            {thinkingOpen && m.reasoning && <div className="mt-1 whitespace-pre-wrap rounded-xl border border-dashed border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2 text-[11.5px] italic leading-relaxed text-[var(--text-3)]">{m.reasoning}</div>}
+          </div>
+        )}
+        {(m.content || (m.images && m.images.length > 0) || (isStreamingThis && !hasAnyOutput)) && (
+          editing ? (
+            <div className="space-y-1.5">
+              <Textarea value={editDraft} onChange={(event) => onEditDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); onSaveEdit(); } }} rows={3} autoFocus className="min-h-[76px] text-[13px]" />
+              <div className="flex items-center justify-end gap-1">
+                <button type="button" onClick={onCancelEdit} className="rounded-md p-1.5 text-[var(--text-3)] hover:bg-[var(--hover)]" aria-label="Cancel edit"><X size={13} /></button>
+                <button type="button" onClick={onSaveEdit} className="rounded-md bg-[var(--accent)] p-1.5 text-white hover:opacity-90" aria-label="Save edit"><Check size={13} /></button>
+              </div>
+            </div>
+          ) : (
+            <div className={cn("glass-2 whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5", m.role === "user" && "whitespace-pre-wrap bg-[var(--accent)] text-[13px] leading-relaxed text-white")}>
+              {m.images && m.images.length > 0 && <div className="mb-1.5 flex flex-wrap gap-1.5 last:mb-0">{m.images.map((url, imgIndex) => <a key={imgIndex} href={url} target="_blank" rel="noreferrer"><img src={url} alt="" className="h-24 w-24 rounded-lg border border-white/20 object-cover" /></a>)}</div>}
+              {m.role === "assistant" ? m.content ? <AssistantMarkdown content={m.content} /> : <span className="inline-flex items-center gap-2 text-[12px] text-[var(--text-3)]"><Loader2 size={14} className="animate-spin" /><span>Reasoning</span><span className="inline-flex gap-0.5" aria-hidden="true"><i className="h-1 w-1 animate-bounce rounded-full bg-current [animation-delay:-.2s]" /><i className="h-1 w-1 animate-bounce rounded-full bg-current [animation-delay:-.1s]" /><i className="h-1 w-1 animate-bounce rounded-full bg-current" /></span></span> : m.content}
+            </div>
+          )
+        )}
+        {!editing && (
+          <div className={cn("flex flex-wrap items-center gap-1.5", m.role === "user" ? "justify-end" : "justify-start")}>
+            <span className="text-[10px] text-[var(--text-3)]">{m.role === "assistant" ? `Output ${isProviderUsage ? "" : "~"}${formatTokenCount(rowTokens)} · Reasoning ${reasoningTokens}` : `Input ~${formatTokenCount(rowTokens)}`}</span>
+            <div className="inline-flex items-center gap-1 rounded-lg border border-[var(--inner-border)] bg-[var(--hover)] p-0.5">
+              <button type="button" onClick={() => onEdit(i)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-[var(--text-2)] hover:bg-[var(--active-pill)]" aria-label="Edit message" title="Edit message"><Pencil size={11} /><span>Edit</span></button>
+              <button type="button" onClick={() => onCopy(m)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-[var(--text-2)] hover:bg-[var(--active-pill)]" aria-label="Copy message" title="Copy message"><Copy size={11} /><span>Copy</span></button>
+              <button type="button" onClick={() => onDelete(i)} className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-[var(--red)] hover:bg-[var(--active-pill)]" aria-label="Remove message" title="Remove message"><Trash2 size={11} /><span>Remove</span></button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
 export function ModelStudioPage() {
   const queryClient = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(() => localStorage.getItem(ACTIVE_SESSION_KEY));
   const [editingTitle, setEditingTitle] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [messageActionIndex, setMessageActionIndex] = useState<number | null>(null);
+  const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
+  const [editingMessageDraft, setEditingMessageDraft] = useState("");
+  const [compacting, setCompacting] = useState(false);
   const [autoFollowMessages, setAutoFollowMessages] = useState(true);
-  const messageHoldTimer = useRef<number | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const sessionsQuery = useQuery({
@@ -593,6 +813,31 @@ export function ModelStudioPage() {
   const [messages, setMessages] = useState<StudioMessage[]>([]);
   const syncedIdRef = useRef<string | null>(null);
   const skipSaveRef = useRef(true);
+  const [sending, setSending] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const pendingPatchRef = useRef<Partial<StudioMessage> | null>(null);
+  const patchFrameRef = useRef<number | null>(null);
+  const flushPatch = useCallback(() => {
+    const patch = pendingPatchRef.current;
+    pendingPatchRef.current = null;
+    if (patch) {
+      setMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last) next[next.length - 1] = { ...last, ...patch };
+        return next;
+      });
+    }
+    patchFrameRef.current = null;
+  }, []);
+  const patchLast = useCallback((patch: Partial<StudioMessage>) => {
+    pendingPatchRef.current = { ...pendingPatchRef.current, ...patch };
+    if (patchFrameRef.current === null) patchFrameRef.current = requestAnimationFrame(flushPatch);
+  }, [flushPatch]);
+  useEffect(() => () => {
+    if (patchFrameRef.current !== null) cancelAnimationFrame(patchFrameRef.current);
+    pendingPatchRef.current = null;
+  }, []);
   if (sessionQuery.data && syncedIdRef.current !== sessionQuery.data.id) {
     syncedIdRef.current = sessionQuery.data.id;
     skipSaveRef.current = true;
@@ -604,14 +849,15 @@ export function ModelStudioPage() {
 
   // Debounced autosave whenever the draft changes, skipping the sync above.
   useEffect(() => {
-    if (!activeId || activeId !== syncedIdRef.current) return;
+    if (!activeId || activeId !== syncedIdRef.current || sending) return;
     if (skipSaveRef.current) {
       skipSaveRef.current = false;
       return;
     }
     const timer = setTimeout(() => {
-      // reasoning is client-only display state — never persisted; images are.
-      const persisted = messages.map(({ role, content, ts, images }) => ({ role, content, ts, images }));
+      // Reasoning text is a transient stream view; usage is safe metadata and
+      // remains available after the session is reloaded.
+      const persisted = messages.map(({ role, content, ts, images, usage }) => ({ role, content, ts, images, usage }));
       void apiPatch(`/model-studio/sessions/${activeId}`, { title, model, systemPrompt, messages: persisted })
         .then(() => void queryClient.invalidateQueries({ queryKey: ["model-studio", "sessions"] }))
         .catch((err) => {
@@ -628,7 +874,7 @@ export function ModelStudioPage() {
     }, AUTOSAVE_DELAY_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, model, systemPrompt, messages, activeId]);
+  }, [title, model, systemPrompt, messages, activeId, sending]);
 
   useEffect(() => setAutoFollowMessages(true), [activeId]);
 
@@ -658,8 +904,6 @@ export function ModelStudioPage() {
   });
 
   const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -686,13 +930,66 @@ export function ModelStudioPage() {
   // then auto-collapses (falls back to this default-empty set) once it
   // finishes, matching a ChatGPT-style reasoning trace.
   const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
-  const toggleThinking = (index: number) =>
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const toggleThinking = useCallback((index: number) =>
     setExpandedThinking((prev) => {
       const next = new Set(prev);
       if (next.has(index)) next.delete(index);
       else next.add(index);
       return next;
-    });
+    }), []);
+  const onEditMessage = useCallback((index: number) => {
+    const message = messagesRef.current[index];
+    if (!message) return;
+    setEditingMessageIndex(index);
+    setEditingMessageDraft(message.content);
+  }, []);
+  const onSaveEdit = useCallback(() => {
+    if (editingMessageIndex === null) return;
+    setMessages((current) => current.slice(0, editingMessageIndex + 1).map((message, index) => index === editingMessageIndex ? { ...message, content: editingMessageDraft, reasoning: undefined, usage: undefined } : message));
+    setExpandedThinking((current) => new Set([...current].filter((messageIndex) => messageIndex <= editingMessageIndex)));
+    setEditingMessageIndex(null);
+    setEditingMessageDraft("");
+  }, [editingMessageDraft, editingMessageIndex]);
+  const onCancelEdit = useCallback(() => {
+    setEditingMessageIndex(null);
+    setEditingMessageDraft("");
+  }, []);
+  const onCopyMessage = useCallback(async (message: StudioMessage) => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      toast.success("Message copied");
+    } catch {
+      toast.error("Copy failed");
+    }
+  }, []);
+  const onDeleteMessage = useCallback((index: number) => {
+    setMessages((current) => current.filter((_, messageIndex) => messageIndex !== index));
+    setExpandedThinking((current) => new Set([...current].filter((messageIndex) => messageIndex !== index).map((messageIndex) => messageIndex > index ? messageIndex - 1 : messageIndex)));
+    setEditingMessageIndex(null);
+  }, []);
+
+  const compactChat = useCallback(async () => {
+    if (compacting || !model.trim() || messages.length < 2) return;
+    setCompacting(true);
+    try {
+      const result = await apiPost<{ summary: string; usage?: ChatUsagePayload }>("/model-studio/compact", {
+        model: model.trim(),
+        systemPrompt,
+        messages: messages.map(({ role, content, images }) => toWireContent({ role, content, images, ts: "" })).map((content, index) => ({ role: messages[index]!.role, content })),
+        maxTokens,
+      });
+      const usage = result.usage ? studioUsageFromChatUsage(result.usage) : undefined;
+      setMessages([{ role: "system", content: `[Compacted context]\n\n${result.summary}`, ts: new Date().toISOString(), ...(usage ? { usage } : {}) }]);
+      setExpandedThinking(new Set());
+      toast.success("Chat context compacted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Compaction failed");
+    } finally {
+      setCompacting(false);
+    }
+  }, [compacting, maxTokens, messages, model, systemPrompt]);
 
   const send = async () => {
     const text = draft.trim();
@@ -706,17 +1003,10 @@ export function ModelStudioPage() {
     setMessages([...history, { role: "assistant", content: "", ts: new Date().toISOString() }]);
     setSending(true);
 
-    // Multimodal shape (OpenAI content-parts array) only when a turn actually
-    // carries images — every other message stays a plain string, matching
-    // what a real text-only client would send.
-    const toWireContent = (msg: StudioMessage): string | ChatContentPart[] => {
-      if (!msg.images || msg.images.length === 0) return msg.content;
-      const parts: ChatContentPart[] = [];
-      if (msg.content) parts.push({ type: "text", text: msg.content });
-      for (const url of msg.images) parts.push({ type: "image_url", image_url: { url } });
-      return parts;
-    };
+    // System prompt is part of the actual context sent to the provider; the
+    // UI keeps it separate, but token accounting and compaction must include it.
     const payloadMessages = [
+      ...(systemPrompt.trim() ? [{ role: "system", content: systemPrompt }] : []),
       ...history.map((msg) => ({ role: msg.role, content: toWireContent(msg) })),
     ];
 
@@ -724,13 +1014,7 @@ export function ModelStudioPage() {
     abortRef.current = controller;
     let textAcc = "";
     let reasoningAcc = "";
-    const patchLast = (patch: Partial<StudioMessage>) =>
-      setMessages((prev) => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last) next[next.length - 1] = { ...last, ...patch };
-        return next;
-      });
+    let usageAcc: StudioUsage | null = null;
 
     try {
       await streamModelStudioChat(
@@ -744,9 +1028,26 @@ export function ModelStudioPage() {
             reasoningAcc += chunk;
             patchLast({ reasoning: reasoningAcc });
           },
+          onUsage: (usage) => {
+            usageAcc = usage;
+            patchLast({ usage });
+          },
         },
         controller.signal
       );
+      flushPatch();
+      if (!usageAcc) {
+        const fallbackUsage: StudioUsage = {
+          inputTokens: estimateTextTokens(systemPrompt) + history.reduce((total, message) => total + estimateMessageTokens(message), 0),
+          outputTokens: estimateTextTokens(textAcc),
+          reasoningTokens: estimateTextTokens(reasoningAcc),
+          cachedTokens: 0,
+          totalTokens: estimateTextTokens(systemPrompt) + history.reduce((total, message) => total + estimateMessageTokens(message), 0) + estimateTextTokens(textAcc),
+          source: "estimated",
+        };
+        usageAcc = fallbackUsage;
+        patchLast({ usage: fallbackUsage });
+      }
       // Reasoning-only response (no visible answer) — keep the thinking
       // trace expanded so the turn isn't a blank bubble.
       if (!textAcc && reasoningAcc) {
@@ -759,6 +1060,7 @@ export function ModelStudioPage() {
       if (!textAcc && !isAbort) patchLast({ content: `⚠ ${message}` });
       if (!isAbort) toast.error(message);
     } finally {
+      flushPatch();
       setSending(false);
       abortRef.current = null;
     }
@@ -823,71 +1125,27 @@ export function ModelStudioPage() {
             <p className="text-xs">Pick a model below and send a message to start testing.</p>
           </div>
         ) : (
-          messages.map((m, i) => {
-            const isStreamingThis = sending && i === messages.length - 1;
-            const thinkingOpen = expandedThinking.has(i) || isStreamingThis;
-            const hasAnyOutput = Boolean(m.content) || Boolean(m.reasoning);
-            return (
-              <div key={i} onContextMenu={(event) => { event.preventDefault(); setMessageActionIndex(i); }} onPointerDown={() => { messageHoldTimer.current = window.setTimeout(() => setMessageActionIndex(i), 500); }} onPointerUp={() => { clearTimeout(messageHoldTimer.current); messageHoldTimer.current = undefined; }} onPointerCancel={() => { clearTimeout(messageHoldTimer.current); messageHoldTimer.current = undefined; }} className={cn("relative flex gap-2.5", m.role === "user" && "flex-row-reverse")}>
-                <span
-                  className={cn(
-                    "grid h-7 w-7 shrink-0 place-items-center rounded-full",
-                    m.role === "user" ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "bg-[var(--hover)] text-[var(--text-2)]"
-                  )}
-                >
-                  {m.role === "user" ? <User size={14} /> : <Bot size={14} />}
-                </span>
-                <div className="min-w-0 max-w-[80%] space-y-1.5">
-                  {messageActionIndex === i && (
-                    <div className={cn("absolute top-0 z-20 rounded-lg border border-[var(--inner-border)] bg-[var(--glass-bg-2)] p-1 shadow-xl", m.role === "user" ? "right-10" : "left-10")}>
-                      <button type="button" onClick={() => { setMessages((current) => current.filter((_, index) => index !== i)); setMessageActionIndex(null); }} className="rounded-md px-2 py-1 text-[11px] font-semibold text-[var(--red)] hover:bg-[var(--hover)]">Delete message</button>
-                    </div>
-                  )}
-                  {m.role === "assistant" && m.reasoning && (
-                    <div className="min-w-0">
-                      <button
-                        type="button"
-                        onClick={() => toggleThinking(i)}
-                        className="flex items-center gap-1 rounded-full border border-[var(--inner-border)] bg-[var(--hover)] px-2 py-0.5 text-[10.5px] font-semibold text-[var(--text-3)] transition-colors hover:text-[var(--text-2)]"
-                      >
-                        <Brain size={10} className={cn(isStreamingThis && !m.content && "animate-pulse")} />
-                        {isStreamingThis && !m.content ? "Thinking…" : "Thinking"}
-                        <ChevronDown size={9} className={cn("transition-transform", thinkingOpen && "rotate-180")} />
-                      </button>
-                      {thinkingOpen && (
-                        <div className="mt-1 whitespace-pre-wrap rounded-xl border border-dashed border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2 text-[11.5px] italic leading-relaxed text-[var(--text-3)]">
-                          {m.reasoning}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {(m.content || (m.images && m.images.length > 0) || (isStreamingThis && !hasAnyOutput)) && (
-                    <div
-                      className={cn(
-                        "glass-2 whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5",
-                        m.role === "user" && "whitespace-pre-wrap bg-[var(--accent)] text-[13px] leading-relaxed text-white"
-                      )}
-                    >
-                      {m.images && m.images.length > 0 && (
-                        <div className="mb-1.5 flex flex-wrap gap-1.5 last:mb-0">
-                          {m.images.map((url, imgIndex) => (
-                            <a key={imgIndex} href={url} target="_blank" rel="noreferrer">
-                              <img src={url} alt="" className="h-24 w-24 rounded-lg border border-white/20 object-cover" />
-                            </a>
-                          ))}
-                        </div>
-                      )}
-                      {m.role === "assistant" ? (
-                        m.content ? <AssistantMarkdown content={m.content} /> : <Loader2 size={14} className="animate-spin text-[var(--text-3)]" />
-                      ) : (
-                        m.content
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })
+          <>
+            {compacting && <div role="status" aria-live="polite" className="flex items-center gap-2 rounded-xl border border-dashed border-[var(--accent)]/35 bg-[var(--accent-soft)] px-3 py-2 text-[11px] text-[var(--accent)]"><Loader2 size={13} className="animate-spin" /><span>Compacting context</span><span className="inline-flex gap-0.5" aria-hidden="true"><i className="h-1 w-1 animate-bounce rounded-full bg-current [animation-delay:-.2s]" /><i className="h-1 w-1 animate-bounce rounded-full bg-current [animation-delay:-.1s]" /><i className="h-1 w-1 animate-bounce rounded-full bg-current" /></span></div>}
+            {messages.map((message, index) => (
+            <MessageRow
+              key={message.ts + index}
+              message={message}
+              index={index}
+              isStreaming={sending && index === messages.length - 1}
+              thinkingOpen={expandedThinking.has(index) || (sending && index === messages.length - 1)}
+              editing={editingMessageIndex === index}
+              editDraft={editingMessageDraft}
+              onEditDraft={setEditingMessageDraft}
+              onEdit={onEditMessage}
+              onSaveEdit={onSaveEdit}
+              onCancelEdit={onCancelEdit}
+              onCopy={onCopyMessage}
+              onDelete={onDeleteMessage}
+              onThinkingToggle={toggleThinking}
+            />
+            ))}
+          </>
         )}
       </div>
 
@@ -948,7 +1206,7 @@ export function ModelStudioPage() {
               }}
             />
             <ModelDropdown value={model} onChange={setModel} />
-            <ContextIndicator messages={messages} />
+            <ContextIndicator messages={messages} systemPrompt={systemPrompt} compacting={compacting} onCompact={() => void compactChat()} />
             <div className="ml-auto flex items-center gap-1">
               <Button
                 variant="secondary"
