@@ -27,7 +27,7 @@ export function Switch({
     >
       <motion.span
         layout
-        transition={{ type: "spring", stiffness: 600, damping: 34 }}
+        transition={{ duration: 0.12, ease: "easeOut" }}
         className={cn(
           "absolute top-0.5 block h-4.5 w-4.5 rounded-full bg-white shadow",
           checked ? "left-5.5" : "left-0.5"

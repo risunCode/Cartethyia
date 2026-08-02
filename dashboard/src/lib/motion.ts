@@ -1,15 +1,15 @@
 /** Motion tokens — REQ-24. Only transform/opacity animate. */
 
-export const duration = { instant: 0.1, fast: 0.18, base: 0.25, slow: 0.4 };
+export const duration = { instant: 0.08, fast: 0.12, base: 0.16, slow: 0.24 };
 
 export const easeOut = [0.2, 0.8, 0.2, 1] as const;
 
 export const springPress = { type: "spring", stiffness: 500, damping: 32 } as const;
 
 export const fadeSlide = {
-  initial: { opacity: 0, y: 8 },
+  initial: { opacity: 0, y: 4 },
   animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -8 },
+  exit: { opacity: 0, y: -4 },
   transition: { duration: duration.base, ease: easeOut },
 };
 
@@ -19,9 +19,9 @@ export const fadeSlide = {
  * incoming one arrives. Only opacity/scale animate (REQ-24).
  */
 export const pageTransition = {
-  initial: { opacity: 0, scale: 0.985 },
-  animate: { opacity: 1, scale: 1, transition: { duration: duration.base, ease: easeOut } },
-  exit: { opacity: 0, scale: 1.01, transition: { duration: duration.fast, ease: easeOut } },
+  initial: { opacity: 0 },
+  animate: { opacity: 1, transition: { duration: duration.base, ease: easeOut } },
+  exit: { opacity: 0, transition: { duration: duration.instant, ease: easeOut } },
 };
 
 export const staggerItem = (index: number) => ({
@@ -38,6 +38,6 @@ export const staggerItem = (index: number) => ({
 export function staggerClass(index: number): { className: string; style: React.CSSProperties } {
   return {
     className: "stagger-item",
-    style: { animationDelay: `${Math.min(index, 12) * 30}ms` },
+    style: { animationDelay: `${Math.min(index, 6) * 16}ms` },
   };
 }
