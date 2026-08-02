@@ -37,7 +37,7 @@ function anthropicResponse(text: string) {
       id: "msg_1",
       type: "message",
       role: "assistant",
-      model: "claude-opus-4-6",
+      model: "claude-opus-4-8",
       content: [{ type: "text", text }],
       stop_reason: "end_turn",
       usage: { input_tokens: 2, output_tokens: 3 },
@@ -51,7 +51,7 @@ describe("POST /v1/chat/completions with agentrouter namespace", () => {
     fetchSpy.mockResolvedValueOnce(anthropicResponse("hello from agentrouter"));
 
     const res = await postChat(
-      { model: "agentrouter/claude-opus-4-6", messages: [{ role: "user", content: "hi" }] },
+      { model: "agentrouter/claude-opus-4-8", messages: [{ role: "user", content: "hi" }] },
       { authorization: "Bearer ar-secret-key" }
     );
 
@@ -71,7 +71,7 @@ describe("POST /v1/chat/completions with agentrouter namespace", () => {
   test("reorders the outbound body to the claude-code-compatible field order", async () => {
     fetchSpy.mockResolvedValueOnce(anthropicResponse("ok"));
 
-    await postChat({ model: "agentrouter/claude-opus-4-6", max_tokens: 100, messages: [{ role: "user", content: "hi" }] }, { authorization: "Bearer x" });
+    await postChat({ model: "agentrouter/claude-opus-4-8", max_tokens: 100, messages: [{ role: "user", content: "hi" }] }, { authorization: "Bearer x" });
 
     const [, init] = fetchSpy.mock.calls[0]!;
     const sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -82,7 +82,7 @@ describe("POST /v1/chat/completions with agentrouter namespace", () => {
   });
 
   test("rejects a request with no credential", async () => {
-    const res = await postChat({ model: "agentrouter/claude-opus-4-6", messages: [{ role: "user", content: "hi" }] });
+    const res = await postChat({ model: "agentrouter/claude-opus-4-8", messages: [{ role: "user", content: "hi" }] });
     expect(res.status).toBe(401);
     expect(fetchSpy).not.toHaveBeenCalled();
   });

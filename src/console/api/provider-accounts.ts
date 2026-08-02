@@ -12,6 +12,8 @@ import { consoleError } from "../errors";
 import { isProviderId, accountCredentialKindOf } from "../../routing/providerMeta";
 import { importAccountsForProvider } from "../import/importAccounts";
 import { addAuditEvent } from "../db/repos/audit";
+import { tokenKeeper } from "../../tokenkeeper";
+import { importOAuthCredential, type OAuthImportProvider } from "../../shared/oauthImport";
 import {
   accountsVersion,
   listAccountsPage,
@@ -32,6 +34,11 @@ export const providerAccountsRoutes = new Elysia({ prefix: "/console/api" })
     if (query.since === version) return { unchanged: true, version };
     const limit = query.limit === undefined ? 50 : Number(query.limit);
     const page = listAccountsPage(params.id, Number.isFinite(limit) ? limit : 50, query.cursor);
+    if (params.id === "qoder" || params.id === "google-antigravity") {
+      for (const account of page.items) {
+        if (account.active && (!account.quota || account.quota.windows.length === 0)) void tokenKeeper.refreshAccountQuota(account.id);
+      }
+    }
     return { items: page.items, nextCursor: page.nextCursor, version: page.version };
   })
   /**
@@ -50,6 +57,10 @@ export const providerAccountsRoutes = new Elysia({ prefix: "/console/api" })
     if (!account || account.provider !== params.id) {
       set.status = 404;
       return consoleError("not_found", "account not found");
+    }
+    if (account.credential_kind === "oauth") {
+      set.status = 403;
+      return consoleError("forbidden", "OAuth credentials cannot be revealed from the console.");
     }
     addAuditEvent("provider.account.credential_revealed", { provider: params.id, id: account.id, name: account.name });
     return { credential: account.credential };
@@ -95,6 +106,19 @@ export const providerAccountsRoutes = new Elysia({ prefix: "/console/api" })
       return consoleError("invalid_request", "credential is required");
     }
     const expectedKind = accountCredentialKindOf(params.id);
+    let credential = input.credential;
+    if (expectedKind === "oauth") {
+      if (params.id !== "openai-codex" && params.id !== "anthropic-oauth" && params.id !== "cline" && params.id !== "grok-cli" && params.id !== "google-antigravity") {
+        set.status = 400;
+        return consoleError("invalid_request", "unsupported OAuth provider import");
+      }
+      const imported = importOAuthCredential(params.id as OAuthImportProvider, input.credential);
+      if (!imported.ok) {
+        set.status = 400;
+        return consoleError("invalid_request", imported.reason);
+      }
+      credential = imported.credential;
+    }
     const credentialKind = (input.credentialKind ?? expectedKind) as CredentialKind;
     if (credentialKind !== expectedKind) {
       set.status = 400;
@@ -105,11 +129,12 @@ export const providerAccountsRoutes = new Elysia({ prefix: "/console/api" })
         provider: params.id,
         name: input.name.trim(),
         credentialKind,
-        credential: input.credential,
+        credential,
         priority: input.priority,
         active: input.active,
       });
       addAuditEvent("provider.account.created", { provider: params.id, id: created.id, name: input.name.trim() });
+      if (params.id === "qoder") void tokenKeeper.refreshAccountQuota(created.id);
       set.status = 201;
       return created;
     } catch (err) {
@@ -146,6 +171,10 @@ export const providerAccountsRoutes = new Elysia({ prefix: "/console/api" })
       set.status = 400;
       return consoleError("invalid_request", "priority must be between 0 and 1000");
     }
+    if (account.credential_kind === "oauth" && input.credential !== undefined) {
+      set.status = 400;
+      return consoleError("invalid_request", "OAuth credentials are managed by TokenKeeper");
+    }
     try {
       await patchAccount(params.accountId, {
         name: input.name?.trim(),
@@ -165,6 +194,24 @@ export const providerAccountsRoutes = new Elysia({ prefix: "/console/api" })
       return consoleError("internal", message);
     }
   })
+  .post("/providers/:id/accounts/:accountId/revoke", ({ params, set }) => {
+    if (!isProviderId(params.id)) {
+      set.status = 404;
+      return consoleError("not_found", "unknown provider");
+    }
+    const account = getAccount(params.accountId);
+    if (!account || account.provider !== params.id) {
+      set.status = 404;
+      return consoleError("not_found", "account not found");
+    }
+    if (account.credential_kind !== "oauth") {
+      set.status = 400;
+      return consoleError("invalid_request", "only OAuth accounts can be revoked here");
+    }
+    tokenKeeper.revokeCredential(account.id);
+    addAuditEvent("provider.account.revoked", { provider: params.id, id: account.id, name: account.name });
+    return { ok: true };
+  })
   .delete("/providers/:id/accounts/:accountId", ({ params, set }) => {
     if (!isProviderId(params.id)) {
       set.status = 404;
@@ -175,7 +222,8 @@ export const providerAccountsRoutes = new Elysia({ prefix: "/console/api" })
       set.status = 404;
       return consoleError("not_found", "account not found");
     }
-    deleteAccount(params.accountId);
+    if (account.credential_kind === "oauth") tokenKeeper.deleteCredential(params.accountId);
+    else deleteAccount(params.accountId);
     addAuditEvent("provider.account.deleted", { provider: params.id, id: params.accountId, name: account.name });
     return { ok: true };
   });

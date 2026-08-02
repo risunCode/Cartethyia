@@ -169,13 +169,25 @@ export async function assertPublicUrlAtDispatch(raw: string): Promise<void> {
 /**
  * Fetches a user-supplied URL only after dispatch-time validation and follows
  * redirects manually so every redirect target receives the same validation.
+ *
+ * `fetcher` performs the actual data-fetching step after every URL in the
+ * redirect chain has passed the same local + DNS-rebinding validation —
+ * defaults to the global `fetch`. Passing a proxy-routed fetcher (see
+ * `upstream/proxy/adapter.ts`) layers proxy support on top of SSRF
+ * protection instead of replacing it: the outbound network path changes,
+ * the safety check on every hop does not.
  */
-export async function fetchWithSsrfGuard(url: string, init: RequestInit, maxRedirects = 5): Promise<Response> {
+export async function fetchWithSsrfGuard(
+  url: string,
+  init: RequestInit,
+  maxRedirects = 5,
+  fetcher: (url: string, init: RequestInit) => Promise<Response> = fetch,
+): Promise<Response> {
   let target = url;
 
   for (let redirects = 0; redirects <= maxRedirects; redirects++) {
     await assertPublicUrlAtDispatch(target);
-    const response = await fetch(target, { ...init, redirect: "manual" });
+    const response = await fetcher(target, { ...init, redirect: "manual" });
     const location = response.headers.get("location");
 
     if (response.status < 300 || response.status >= 400 || !location) return response;

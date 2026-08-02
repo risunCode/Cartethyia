@@ -14,6 +14,8 @@
 import { create, toBinary, fromBinary } from "@bufbuild/protobuf";
 import http2 from "node:http2";
 import { ProviderCallError } from "../index";
+import { connectThroughProxy } from "../../proxy/socket";
+import type { ProxyTarget } from "../../proxy/types";
 import { flattenMessageText } from "../../../shared/text-utils";
 import type { StreamEvent } from "../../bridge";
 import type { OpenAIChatMessage } from "../../../translate/types";
@@ -388,9 +390,16 @@ export async function* decodeCursorStream(response: http2.ClientHttp2Stream): As
 export async function openCursorHttp2Stream(
   request: CursorChatRequest,
   signal: AbortSignal,
+  proxy?: ProxyTarget | null,
 ): Promise<http2.ClientHttp2Stream> {
   const url = new URL(request.url);
-  const session = http2.connect(url.origin);
+  // The tunneled/TLS-upgraded socket must exist BEFORE `http2.connect` runs
+  // (`createConnection` returns it synchronously) - see `connectThroughProxy`'s
+  // own doc comment for why this can't be done from inside the callback.
+  const socket = proxy
+    ? await connectThroughProxy(proxy, { host: url.hostname, port: Number(url.port) || (url.protocol === "https:" ? 443 : 80), tls: url.protocol === "https:" })
+    : undefined;
+  const session = socket ? http2.connect(url.origin, { createConnection: () => socket }) : http2.connect(url.origin);
 
   signal.addEventListener("abort", () => session.close());
 

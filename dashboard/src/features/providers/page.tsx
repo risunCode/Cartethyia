@@ -1,7 +1,7 @@
 /** Providers page — registry list grouped by credential kind (REQ-11). */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Plus, Trash2 } from "lucide-react";
+import { CheckSquare, ChevronRight, Plus, Square, Trash2 } from "lucide-react";
 import { HeaderPairsEditor, pairsToHeaders, type HeaderPair } from "../../components/header-pairs-editor";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -21,7 +21,7 @@ interface ProviderInfo {
   id: string;
   name: string;
   icon: string;
-  authKind: "none" | "session" | "api-key";
+  authKind: "none" | "session" | "oauth" | "api-key";
   prefix: string;
   modelCount: number;
   status: "ok" | "warn";
@@ -29,10 +29,10 @@ interface ProviderInfo {
 }
 
 /** Display order for built-in providers: free tier, OAuth, then API key/PAT. */
-const SECTIONS: { authKind: ProviderInfo["authKind"]; title: string }[] = [
-  { authKind: "none", title: "Free Tier Providers" },
-  { authKind: "session", title: "OAuth Providers" },
-  { authKind: "api-key", title: "API Key Providers" },
+const SECTIONS: { authKinds: ProviderInfo["authKind"][]; title: string }[] = [
+  { authKinds: ["none"], title: "Free Tier Providers" },
+  { authKinds: ["session", "oauth"], title: "OAuth Providers" },
+  { authKinds: ["api-key"], title: "API Key Providers" },
 ];
 
 // ── Custom Providers (OpenAI/Anthropic Compatible) ──────────────────────
@@ -164,6 +164,7 @@ function CustomProvidersSection() {
   const [showOpenAI, setShowOpenAI] = useState(false);
   const [showAnthropic, setShowAnthropic] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<CustomProviderRecord | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["console", "custom-providers"] });
 
@@ -174,20 +175,46 @@ function CustomProvidersSection() {
   });
 
   const items = data?.items ?? [];
+  const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id));
+  const toggleSelected = (id: string) => setSelectedIds((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleAll = () => setSelectedIds(allSelected ? new Set() : new Set(items.map((item) => item.id)));
+
+  const bulkDeleteMut = useMutation({
+    mutationFn: async (ids: string[]) => { await Promise.all(ids.map((id) => apiDelete<{ ok: boolean }>(`/custom-providers/${id}`))); },
+    onSuccess: () => { setSelectedIds(new Set()); invalidate(); toast.success("Selected providers deleted"); },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   return (
     <section className="space-y-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-base font-semibold tracking-tight">Custom Providers (OpenAI/Anthropic Compatible)</h2>
-        <div className="flex gap-2">
-          <Button size="sm" onClick={() => setShowAnthropic(true)}>
-            <Plus size={14} /> Add Anthropic Compatible
+        <h2 className="text-sm font-semibold tracking-tight">Custom Providers</h2>
+        <div className="flex gap-1.5">
+          <Button size="sm" title="Add Anthropic-compatible provider" aria-label="Add Anthropic-compatible provider" onClick={() => setShowAnthropic(true)}>
+            <Plus size={13} /> <span className="hidden sm:inline">Anthropic</span>
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => setShowOpenAI(true)}>
-            <Plus size={14} /> Add OpenAI Compatible
+          <Button size="sm" variant="secondary" title="Add OpenAI-compatible provider" aria-label="Add OpenAI-compatible provider" onClick={() => setShowOpenAI(true)}>
+            <Plus size={13} /> <span className="hidden sm:inline">OpenAI</span>
           </Button>
         </div>
       </div>
+      {items.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-2.5 py-2">
+          <button type="button" className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--text-2)] hover:text-[var(--text-1)]" onClick={toggleAll}>
+            {allSelected ? <CheckSquare size={15} /> : <Square size={15} />}
+            {allSelected ? "Clear selection" : "Select all"}
+          </button>
+          {selectedIds.size > 0 && (
+            <Button variant="danger" size="sm" disabled={bulkDeleteMut.isPending} onClick={() => setDeleteTarget({ id: "__bulk__", name: `${selectedIds.size} selected providers`, slug: "", type: "openai-compatible", baseUrl: "", credentialHint: "", timeoutSeconds: 0, models: [] })}>
+              <Trash2 size={13} /> Delete selected ({selectedIds.size})
+            </Button>
+          )}
+        </div>
+      )}
       {items.length === 0 ? (
         <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--inner-border)] py-6 text-sm text-[var(--text-3)]">
           No custom providers — use buttons above to add OpenAI/Anthropic compatible endpoints
@@ -197,11 +224,15 @@ function CustomProvidersSection() {
           {items.map((cp) => {
             const isAnthropic = cp.type === "anthropic-compatible";
             return (
-              <Card key={cp.id} className="p-3">
+              <Card key={cp.id} className="p-2.5">
                 <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                    <button type="button" title={`Select ${cp.name}`} aria-label={`Select ${cp.name}`} className="mt-1 shrink-0 text-[var(--text-3)] hover:text-[var(--accent)]" onClick={() => toggleSelected(cp.id)}>
+                      {selectedIds.has(cp.id) ? <CheckSquare size={15} className="text-[var(--accent)]" /> : <Square size={15} />}
+                    </button>
                   <Link to={`/providers/custom/${cp.id}`} className="flex min-w-0 flex-1 items-center gap-2.5">
                     <div
-                      className="flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold"
+                      className="flex size-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold"
                       style={{ backgroundColor: isAnthropic ? "#D9775722" : "#10A37F22", color: isAnthropic ? "#D97757" : "#10A37F" }}
                     >
                       {isAnthropic ? "AC" : "OC"}
@@ -214,16 +245,17 @@ function CustomProvidersSection() {
                       </div>
                     </div>
                   </Link>
+                  </div>
                   <div className="flex shrink-0 items-center gap-0.5">
-                    <Button variant="ghost" size="icon" onClick={() => setDeleteTarget(cp)}>
-                      <Trash2 size={14} />
+                    <Button variant="ghost" size="icon" title={`Delete ${cp.name}`} aria-label={`Delete ${cp.name}`} onClick={() => setDeleteTarget(cp)}>
+                      <Trash2 size={13} />
                     </Button>
                     <Link to={`/providers/custom/${cp.id}`} className="grid size-8 place-items-center text-[var(--text-3)]">
                       <ChevronRight size={16} />
                     </Link>
                   </div>
                 </div>
-                <Link to={`/providers/custom/${cp.id}`} className="mt-2 block space-y-0.5">
+                <Link to={`/providers/custom/${cp.id}`} className="mt-1.5 block space-y-0.5">
                   <div className="flex items-center gap-1.5">
                     <code className="max-w-full truncate rounded bg-[var(--kbd-bg)] px-1 py-0.5 font-mono text-[10px] text-[var(--text-3)]">{cp.slug}/</code>
                     <span className="text-[10px] text-[var(--text-3)]">{cp.models.length} model{cp.models.length === 1 ? "" : "s"}</span>
@@ -240,9 +272,13 @@ function CustomProvidersSection() {
       <ConfirmDialog
         open={deleteTarget !== null}
         onClose={() => setDeleteTarget(null)}
-        onConfirm={() => deleteTarget && deleteMut.mutate(deleteTarget.id)}
-        title="Delete custom provider?"
-        message={`Remove provider "${deleteTarget?.name}" (${deleteTarget?.slug})? Requests to ${deleteTarget?.slug}/... will no longer route.`}
+        onConfirm={() => {
+          if (deleteTarget?.id === "__bulk__") bulkDeleteMut.mutate([...selectedIds]);
+          else if (deleteTarget) deleteMut.mutate(deleteTarget.id);
+          setDeleteTarget(null);
+        }}
+        title={deleteTarget?.id === "__bulk__" ? "Delete selected providers?" : "Delete custom provider?"}
+        message={deleteTarget?.id === "__bulk__" ? `Remove ${selectedIds.size} selected providers? Their routes will stop working.` : `Remove provider "${deleteTarget?.name}" (${deleteTarget?.slug})? Requests to ${deleteTarget?.slug}/... will no longer route.`}
         confirmLabel="Delete"
         danger
       />
@@ -298,7 +334,9 @@ export function ProvidersPage() {
 
   const sections = SECTIONS.map((section) => ({
     ...section,
-    providers: items.filter((provider) => provider.authKind === section.authKind),
+    providers: items
+      .filter((provider) => section.authKinds.includes(provider.authKind))
+      .sort((left, right) => right.connections - left.connections || left.name.localeCompare(right.name)),
   })).filter((section) => section.providers.length > 0);
 
   // The stagger cascade runs across sections so the page reveals top-to-bottom.
@@ -330,7 +368,7 @@ export function ProvidersPage() {
         <div className="space-y-6">
           <CustomProvidersSection />
           {sections.map((section) => (
-            <section key={section.authKind} className="space-y-3">
+            <section key={section.title} className="space-y-3">
               <div className="flex items-baseline justify-between gap-2">
                 <h2 className="text-base font-semibold tracking-tight">{section.title}</h2>
                 <span className="text-xs text-[var(--text-3)]">

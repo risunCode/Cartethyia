@@ -45,6 +45,16 @@
 - Console key management: `POST /console/api/keys` (create), `PATCH /console/api/keys/:id` (update limits/ACL), `POST /console/api/keys/:id/revoke`, `DELETE /console/api/keys/:id`, `GET /console/api/keys/:id/credential`.
 - Never commit `data/`, `.env`, credentials, API keys, tokens, generated runtime payloads, or database files.
 
+## Documentation and community delivery
+
+- The root `package.json` and `dashboard/package.json` versions MUST match exactly; `README.md` surfaces the same release line and `CHANGELOG.md` records every user-visible release change.
+- Public share pages MUST render an explicit state for disabled API keys. Invalid share links remain `404`; disabled links MUST NOT expose credentials, usage, or allowed models.
+- New provider OAuth flows MUST document their supported authorization/import path and include a deterministic test for the protocol boundary when live credentials are unavailable.
+- Quota checkers MUST be cooldown-protected. Account quota refreshes use a 15-minute sweep/cooldown; request-time token refresh remains driven by token expiry and MUST NOT be replaced with periodic credential churn.
+- Customization assets MUST be optimized before persistence: uploaded seasonal items are resized to a maximum 256px working image, animation counts MUST adapt to mobile/reduced-motion contexts, hidden tabs MUST pause decorative animation, and frosted-glass effects MUST remain usable on low-power devices.
+- Every pull request MUST use `.github/PULL_REQUEST_TEMPLATE.md`, state user-visible impact and persistence/security implications, and list commands that actually ran. Do not claim an unrun benchmark, smoke test, or deployment check.
+- Community contributions follow `CODE_OF_CONDUCT.md`; behavior concerns should use the private contact path documented there rather than public issue comments.
+
 ## Testing and delivery
 
 - For backend changes run `bunx tsc --noEmit -p .` and the narrowest relevant `bun test` target; run the full suite for cross-cutting changes. Always scope backend runs to `bun test test/` (or a path under it) - a bare `bun test` at the repo root also walks `dashboard/src/**/*.test.tsx`, which use Vitest-only APIs (`vi.importActual`, etc.) that fail under Bun's test runner.

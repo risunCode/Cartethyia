@@ -12,6 +12,8 @@ import { ProviderCallError } from "./index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./index";
 import { decodeAnthropicStream } from "../bridge";
 import { callSimpleProvider } from "./simple-call";
+import { buildProxyFetcher } from "../proxy/adapter";
+import type { ProxyTarget } from "../proxy/types";
 import { translateAnthropicResponseToChat, translateChatRequestToAnthropic } from "../../translate/openai-anthropic";
 import type { AnthropicResponse, OpenAIChatRequest } from "../../translate/types";
 import { createModelCatalog, type ProviderModelCatalog } from "./models";
@@ -59,12 +61,7 @@ function buildHeaders(apiKey: string, stream: boolean): Record<string, string> {
 }
 
 export const agentRouterModelCatalog: ProviderModelCatalog = createModelCatalog([
-  { id: "claude-opus-4-6", reasoning: true, vision: true, contextWindow: 400000, maxOutputTokens: 64000, pricing: { input: 5, output: 25 } },
-  { id: "claude-opus-4-7", reasoning: true, vision: true, contextWindow: 400000, maxOutputTokens: 64000, pricing: { input: 5, output: 25 } },
   { id: "claude-opus-4-8", reasoning: true, vision: true, contextWindow: 400000, maxOutputTokens: 64000, pricing: { input: 5, output: 25 } },
-  { id: "glm-5.2", reasoning: true, contextWindow: 1000000, maxOutputTokens: 16384, pricing: { input: 1.4, output: 4.4 } },
-  { id: "gpt-5.5", reasoning: true, vision: true, contextWindow: 400000, maxOutputTokens: 128000, pricing: { input: 5, output: 30 } },
-  { id: "kimi-k3", reasoning: true, vision: true, contextWindow: 400000, maxOutputTokens: 128000, pricing: { input: 3, output: 15 } },
 ]);
 
 class AgentRouterProvider implements Provider {
@@ -82,7 +79,7 @@ class AgentRouterProvider implements Provider {
     return { provider: "agentrouter", modelId, surface: "openai-chat", credential: "provider-bearer", weight: 1 };
   }
 
-  async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal): Promise<ProviderResult> {
+  async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal, proxy?: ProxyTarget | null): Promise<ProviderResult> {
     if (request.surface !== "openai-chat") throw new ProviderCallError(400, "invalid_request", "AgentRouter currently supports the OpenAI Chat shape.");
     if (!credential.value) throw new ProviderCallError(401, "authentication", "AgentRouter requires an API key.");
 
@@ -99,6 +96,7 @@ class AgentRouterProvider implements Provider {
       isStreaming,
       decodeStream: decodeAnthropicStream,
       translateJson: (json) => translateAnthropicResponseToChat(json as unknown as AnthropicResponse) as unknown as Record<string, unknown>,
+      fetcher: proxy ? buildProxyFetcher(proxy) : undefined,
     });
   }
 }

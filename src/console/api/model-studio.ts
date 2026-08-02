@@ -154,7 +154,7 @@ export const modelStudioRoutes = new Elysia({ prefix: "/console/api/model-studio
   )
   .post(
     "/chat",
-    async ({ body, set, request }) => {
+    async ({ body, set, request, server }) => {
       const model = body.model.trim();
       if (!model) {
         set.status = 400;
@@ -170,7 +170,7 @@ export const modelStudioRoutes = new Elysia({ prefix: "/console/api/model-studio
       if (body.reasoningEffort) outboundBody.reasoning_effort = body.reasoningEffort;
 
       // Same tracker every /v1/* proxy route uses, tagged distinctly (REQ) so
-      // it's identifiable as a console test rather than live traffic \u2014 the
+      // it's identifiable as a console test rather than live traffic — the
       // console log line and usage-history row it produces are otherwise
       // identical to real proxy traffic (REQ-console-log-unify).
       const tracker = createRequestTracker({
@@ -188,6 +188,7 @@ export const modelStudioRoutes = new Elysia({ prefix: "/console/api/model-studio
         body: outboundBody,
         headers: {},
         request,
+        clientIp: server?.requestIP(request)?.address,
         surface: "openai-chat",
       });
 

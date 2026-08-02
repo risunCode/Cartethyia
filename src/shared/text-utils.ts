@@ -51,7 +51,8 @@ export function extractModelIds(payload: unknown, dedup = false): string[] {
  * top-level `output_text`.
  */
 export function extractResponseSample(body: Record<string, unknown>): string {
-  const choices = body.choices;
+  const nested = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data as Record<string, unknown> : body;
+  const choices = nested.choices;
   if (Array.isArray(choices)) {
     const first = choices[0];
     if (first && typeof first === "object") {
@@ -69,7 +70,7 @@ export function extractResponseSample(body: Record<string, unknown>): string {
       if (typeof text === "string") return text;
     }
   }
-  const outputText = body.output_text;
+  const outputText = nested.output_text ?? body.output_text;
   if (typeof outputText === "string") return outputText;
   return ""
 }

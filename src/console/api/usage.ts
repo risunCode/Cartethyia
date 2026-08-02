@@ -6,6 +6,7 @@ import {
   queryUsageSummary,
   queryUsageCost,
   queryUsageChart,
+  queryUsageCache,
   queryUsageBy,
   queryUsageRequests,
   getUsageRequestById,
@@ -39,6 +40,11 @@ export const usageRoutes = new Elysia({ prefix: "/console/api" })
       ...queryUsageCost(period),
       inFlight: getInFlightCount(),
     };
+  })
+  .get("/usage/cache", async ({ query, set }) => {
+    const period = parsePeriod(query.period);
+    if (!period) return badPeriod(set);
+    return { period, ...queryUsageCache(period) };
   })
   .get("/usage/chart", async ({ query, set }) => {
     const period = parsePeriod(query.period);

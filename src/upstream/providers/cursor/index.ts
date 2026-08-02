@@ -13,6 +13,7 @@ import { ProviderCallError } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
 import { cursorModelCatalog } from "./models";
 import { buildCursorChatRequest, openCursorHttp2Stream, decodeCursorStream } from "./transport";
+import type { ProxyTarget } from "../../proxy/types";
 
 class CursorProvider implements Provider {
   readonly id = "cursor" as const;
@@ -30,7 +31,7 @@ class CursorProvider implements Provider {
     return { provider: "cursor", modelId, surface: "openai-chat", credential: "provider-bearer", weight: 1 };
   }
 
-  async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal): Promise<ProviderResult> {
+  async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal, proxy?: ProxyTarget | null): Promise<ProviderResult> {
     if (request.surface !== "openai-chat") {
       throw new ProviderCallError(400, "invalid_request", "Cursor CLI currently supports the OpenAI Chat shape.");
     }
@@ -48,7 +49,7 @@ class CursorProvider implements Provider {
     // Open HTTP/2 stream
     let response: Awaited<ReturnType<typeof openCursorHttp2Stream>>;
     try {
-      response = await openCursorHttp2Stream(cursorReq, signal);
+      response = await openCursorHttp2Stream(cursorReq, signal, proxy);
     } catch (err) {
       if (err instanceof ProviderCallError) throw err;
       throw new ProviderCallError(502, "unavailable", `Cursor connection failed: ${err instanceof Error ? err.message : String(err)}`);

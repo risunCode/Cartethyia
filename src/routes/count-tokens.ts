@@ -27,7 +27,7 @@ import { Elysia } from "elysia";
 import { CountTokensRequestSchema } from "./schemas";
 import { anthropicClientError, anthropicUpstreamError } from "../http/errors";
 import { resolveQualifiedTarget } from "../routing/resolve";
-import { resolveCredentialForDispatch } from "../upstream/dispatch";
+import { resolveCredentialForDispatch, pickProxyTarget } from "../upstream/dispatch";
 import { providerRegistry } from "../upstream/providers";
 import { withProxyRequest } from "./middleware/proxyRequest";
 
@@ -78,7 +78,8 @@ export const countTokensRoute = new Elysia().post(
         }
 
         const { model: _model, ...rest } = req;
-        const { inputTokens } = await provider.countTokens(target, rest, credential, request.signal);
+        const proxy = pickProxyTarget(target.provider);
+        const { inputTokens } = await provider.countTokens(target, rest, credential, request.signal, proxy);
         return tracker.finishJson(200, { input_tokens: inputTokens }, target.provider, req);
       }
     );

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Activity, ArrowDownToLine, ArrowUpFromLine, Database, DollarSign, Radio, TriangleAlert } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Area,
@@ -19,7 +19,6 @@ import { staggerClass } from "../../lib/motion";
 import { Badge, Skeleton } from "../../components/ui/badge";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Drawer } from "../../components/ui/drawer";
-import { Input } from "../../components/ui/input";
 import { Select, Tabs } from "../../components/ui/tabs";
 import { cn } from "../../lib/cn";
 
@@ -45,6 +44,23 @@ interface ChartBucket {
   input: number;
   cached: number;
   output: number;
+}
+
+interface CacheRow {
+  name: string;
+  requests: number;
+  inputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  hitRate: number;
+}
+
+interface CacheSummary {
+  inputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  hitRate: number;
+  rows: CacheRow[];
 }
 
 interface ByRow {
@@ -255,6 +271,18 @@ function ByDimension({ period, dimension }: { period: Period; dimension: Dimensi
   );
 }
 
+function CacheUsageTable({ period }: { period: Period }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["usage-cache", period],
+    queryFn: () => apiGet<CacheSummary>(`/usage/cache?period=${period}`),
+    refetchInterval: 10_000,
+  });
+  if (isLoading) return <Skeleton className="h-40" />;
+  if (isError) return <p className="py-8 text-center text-sm text-[var(--text-3)]">Failed to load cache data.</p>;
+  const rows = data?.rows ?? [];
+  return <div className="overflow-x-auto"><table className="w-full border-collapse text-xs"><thead><tr className="border-b border-[var(--inner-border)] text-left text-[10.5px] uppercase tracking-wider text-[var(--text-3)]"><th className="px-3 py-2 font-semibold">Provider / model</th><th className="px-3 py-2 text-right font-semibold">Requests</th><th className="px-3 py-2 text-right font-semibold">Input</th><th className="px-3 py-2 text-right font-semibold">Cache read</th><th className="px-3 py-2 text-right font-semibold">Cache write</th><th className="px-3 py-2 text-right font-semibold">Hit rate</th></tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={6} className="px-3 py-8 text-center text-[var(--text-3)]">No cache usage for this period.</td></tr> : rows.slice(0, 20).map((row) => <tr key={row.name} className="border-b border-[var(--inner-border)] last:border-0"><td className="max-w-[260px] truncate px-3 py-2.5 font-mono">{row.name}</td><td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.requests)}</td><td className="px-3 py-2.5 text-right tabular-nums">{formatTokens(row.inputTokens)}</td><td className="px-3 py-2.5 text-right tabular-nums text-[#bf5af2]">{formatTokens(row.cachedTokens)}</td><td className="px-3 py-2.5 text-right tabular-nums">{formatTokens(row.cacheWriteTokens)}</td><td className="px-3 py-2.5 text-right font-semibold tabular-nums">{row.hitRate.toFixed(1)}%</td></tr>)}</tbody></table><div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-[var(--text-2)]"><span>Overall hit rate <b className="text-[var(--text-1)]">{(data?.hitRate ?? 0).toFixed(1)}%</b></span><span>Cache read <b className="text-[#bf5af2]">{formatTokens(data?.cachedTokens ?? 0)}</b></span><span>Cache write <b className="text-[var(--text-1)]">{formatTokens(data?.cacheWriteTokens ?? 0)}</b></span></div></div>;
+}
+
 function DetailDrawer({ id, onClose }: { id: number | null; onClose: () => void }) {
   const { data } = useQuery({
     queryKey: ["usage-detail", id],
@@ -432,47 +460,13 @@ function DetailDrawer({ id, onClose }: { id: number | null; onClose: () => void 
   );
 }
 
-function DebouncedFilterInput({ placeholder, value, onCommit }: { placeholder: string; value: string; onCommit: (value: string) => void }) {
-  const [draft, setDraft] = useState(value);
-  const timerRef = useRef<number | undefined>(undefined);
-
-  useEffect(() => setDraft(value), [value]);
-  useEffect(() => () => clearTimeout(timerRef.current), []);
-
-  return (
-    <Input
-      placeholder={placeholder}
-      value={draft}
-      onChange={(event) => {
-        const next = event.target.value;
-        setDraft(next);
-        clearTimeout(timerRef.current);
-        timerRef.current = window.setTimeout(() => onCommit(next), 300);
-      }}
-    />
-  );
-}
-
 export function UsagePage() {
   const inFlight = useInFlightStream();
   const [searchParams, setSearchParams] = useSearchParams();
   const period = (searchParams.get("period") ?? "24h") as Period;
   const metric = (searchParams.get("metric") ?? "requests") as Metric;
   const dimension = (searchParams.get("dim") ?? "model") as Dimension;
-  const [live, setLive] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-
-  const filters = useMemo(
-    () => ({
-      provider: searchParams.get("provider") ?? "",
-      model: searchParams.get("model") ?? "",
-      key: searchParams.get("key") ?? "",
-      status: searchParams.get("status") ?? "",
-      stream: searchParams.get("stream") ?? "",
-      q: searchParams.get("q") ?? "",
-    }),
-    [searchParams]
-  );
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(searchParams);
@@ -484,17 +478,13 @@ export function UsagePage() {
   const summaryQuery = useQuery({
     queryKey: ["usage-summary", period],
     queryFn: () => apiGet<Summary>(`/usage/summary?period=${period}`),
-    refetchInterval: live ? 10_000 : false,
+    refetchInterval: 10_000,
   });
 
   const requestsQuery = useQuery({
-    queryKey: ["usage-requests", filters],
-    queryFn: () => {
-      const params = new URLSearchParams({ limit: "10" });
-      for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value);
-      return apiGet<{ items: RequestRow[] }>(`/usage/requests?${params.toString()}`);
-    },
-    refetchInterval: live ? 5_000 : false,
+    queryKey: ["usage-requests", "history"],
+    queryFn: () => apiGet<{ items: RequestRow[] }>("/usage/requests?limit=200"),
+    refetchInterval: 5_000,
   });
 
   const summary = summaryQuery.data;
@@ -568,42 +558,14 @@ export function UsagePage() {
       </section>
 
       <Card>
-        <CardHeader title="Requests" icon={Activity} sub="Click a row for full detail">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setLive((value) => !value)}
-              className={cn(
-                "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all active:scale-95",
-                live
-                  ? "border-transparent bg-[rgba(48,209,88,0.14)] text-[#1fa84a] dark:text-[var(--green)]"
-                  : "border-[var(--inner-border)] bg-[var(--hover)] text-[var(--text-2)]"
-              )}
-            >
-              <Radio size={11} className={live ? "animate-pulse" : undefined} />
-              {live ? "Live" : "Paused"}
-            </button>
-          </div>
+        <CardHeader title="Requests" icon={Activity} sub="Newest first · scroll to browse request history">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(48,209,88,0.14)] px-2.5 py-1 text-[11px] font-semibold text-[#1fa84a] dark:text-[var(--green)]">
+            <Radio size={11} className="animate-pulse" />
+            Live
+          </span>
         </CardHeader>
 
-        <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-6">
-          <DebouncedFilterInput placeholder="Trace ID…" value={filters.q} onCommit={(value) => setParam("q", value)} />
-          <DebouncedFilterInput placeholder="provider" value={filters.provider} onCommit={(value) => setParam("provider", value)} />
-          <DebouncedFilterInput placeholder="model" value={filters.model} onCommit={(value) => setParam("model", value)} />
-          <DebouncedFilterInput placeholder="key prefix" value={filters.key} onCommit={(value) => setParam("key", value)} />
-          <DebouncedFilterInput placeholder="status" value={filters.status} onCommit={(value) => setParam("status", value)} />
-          <Select
-            ariaLabel="Stream filter"
-            value={filters.stream}
-            onChange={(value) => setParam("stream", value)}
-            options={[
-              { value: "", label: "any mode" },
-              { value: "true", label: "stream" },
-              { value: "false", label: "json" },
-            ]}
-          />
-        </div>
-
-        <div className="max-h-[420px] overflow-x-auto overflow-y-auto">
+        <div className="max-h-[560px] overflow-x-auto overflow-y-auto rounded-xl border border-[var(--inner-border)]">
           <table className="w-full border-collapse text-xs">
             <thead>
               <tr className="border-b border-[var(--inner-border)] text-left text-[10.5px] uppercase tracking-wider text-[var(--text-3)]">
@@ -612,22 +574,24 @@ export function UsagePage() {
                 <th className="px-3 py-2 font-semibold">Model</th>
                 <th className="px-3 py-2 font-semibold">Mode</th>
                 <th className="px-3 py-2 font-semibold">Status</th>
-                <th className="px-3 py-2 text-right font-semibold">Tokens</th>
+                <th className="px-3 py-2 text-right font-semibold">In</th>
+                <th className="px-3 py-2 text-right font-semibold">Out</th>
+                <th className="px-3 py-2 text-right font-semibold">Total</th>
                 <th className="px-3 py-2 text-right font-semibold">Dur</th>
               </tr>
             </thead>
             <tbody>
               {requestsQuery.isLoading && (
                 <tr>
-                  <td colSpan={7} className="px-3 py-6">
+                  <td colSpan={9} className="px-3 py-6">
                     <Skeleton className="h-5" />
                   </td>
                 </tr>
               )}
               {!requestsQuery.isLoading && requestItems.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-3 py-8 text-center text-[var(--text-3)]">
-                    No requests match the current filters.
+                  <td colSpan={9} className="px-3 py-8 text-center text-[var(--text-3)]">
+                    No requests recorded for this period.
                   </td>
                 </tr>
               )}
@@ -646,6 +610,8 @@ export function UsagePage() {
                   <td className="px-3 py-2.5">
                     <Badge tone={statusTone(row.status)}>{row.status ?? "—"}</Badge>
                   </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.input_tokens)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.output_tokens)}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.total_tokens)}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-[var(--text-2)]">{formatDuration(row.duration_ms)}</td>
                 </tr>
@@ -655,9 +621,13 @@ export function UsagePage() {
         </div>
 
         <div className="mt-3 flex items-center justify-between">
-          <span className="text-[11px] text-[var(--text-3)]">{requestItems.length} rows</span>
-
+          <span className="text-[11px] text-[var(--text-3)]">Showing {requestItems.length} most recent requests</span>
         </div>
+      </Card>
+
+      <Card>
+        <CardHeader title="Cache usage" icon={Database} iconColor="#bf5af2" sub={`Read/write tokens and hit rate · ${period}`} />
+        <CacheUsageTable period={period} />
       </Card>
 
       <DetailDrawer id={selectedId} onClose={() => setSelectedId(null)} />

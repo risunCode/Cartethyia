@@ -20,6 +20,8 @@ import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } fr
 import { decodeAnthropicStream, decodeOpenAIChatStream } from "../bridge";
 import { callSimpleProvider } from "./simple-call";
 import { fetchWithSsrfGuard } from "../../http/ssrf-guard";
+import { buildProxyFetcher } from "../proxy/adapter";
+import type { ProxyTarget } from "../proxy/types";
 import { getCustomProviderBySlug, type CustomProviderRecord } from "../../console/db/repos/custom-providers";
 import type { ProviderModelEntry } from "./models";
 import { translateAnthropicResponseToChat, translateChatRequestToAnthropic } from "../../translate/openai-anthropic";
@@ -39,7 +41,18 @@ function withTimeout(signal: AbortSignal, timeoutSeconds: number): AbortSignal {
   return AbortSignal.any([signal, AbortSignal.timeout(timeoutSeconds * 1000)]);
 }
 
-async function callOpenAICompatible(record: CustomProviderRecord, model: string, body: Record<string, unknown>, signal: AbortSignal): Promise<ProviderResult> {
+/**
+ * SSRF validation always runs first, regardless of proxy - a proxied custom
+ * provider is still a user-supplied URL and still needs the same guard
+ * before any bytes leave this process. `proxy` only changes which fetcher
+ * performs the already-validated request.
+ */
+function ssrfGuardedFetcher(proxy: ProxyTarget | null | undefined): (url: string, init: RequestInit) => Promise<Response> {
+  const inner = proxy ? buildProxyFetcher(proxy) : undefined;
+  return (url, init) => fetchWithSsrfGuard(url, init, 5, inner);
+}
+
+async function callOpenAICompatible(record: CustomProviderRecord, model: string, body: Record<string, unknown>, signal: AbortSignal, proxy?: ProxyTarget | null): Promise<ProviderResult> {
   const outboundBody: Record<string, unknown> = { ...body, model };
 
   return callSimpleProvider({
@@ -52,11 +65,11 @@ async function callOpenAICompatible(record: CustomProviderRecord, model: string,
     providerLabel: `Custom provider "${record.name}"`,
     isStreaming: outboundBody.stream === true,
     decodeStream: decodeOpenAIChatStream,
-    fetcher: fetchWithSsrfGuard,
+    fetcher: ssrfGuardedFetcher(proxy),
   });
 }
 
-async function callAnthropicCompatible(record: CustomProviderRecord, model: string, body: Record<string, unknown>, signal: AbortSignal): Promise<ProviderResult> {
+async function callAnthropicCompatible(record: CustomProviderRecord, model: string, body: Record<string, unknown>, signal: AbortSignal, proxy?: ProxyTarget | null): Promise<ProviderResult> {
   const anthropicReq = translateChatRequestToAnthropic({ ...body, model } as OpenAIChatRequest);
 
   return callSimpleProvider({
@@ -68,7 +81,7 @@ async function callAnthropicCompatible(record: CustomProviderRecord, model: stri
     isStreaming: anthropicReq.stream === true,
     decodeStream: decodeAnthropicStream,
     translateJson: (json) => translateAnthropicResponseToChat(json as unknown as AnthropicResponse) as unknown as Record<string, unknown>,
-    fetcher: fetchWithSsrfGuard,
+    fetcher: ssrfGuardedFetcher(proxy),
   });
 }
 
@@ -94,7 +107,7 @@ class DynamicProviderRouter implements Provider {
     return { provider: "custom", modelId, surface: "openai-chat", credential: "none", weight: 1 };
   }
 
-  async call(target: RouteTarget, request: ProviderRequest, _credential: ResolvedCredential, signal: AbortSignal): Promise<ProviderResult> {
+  async call(target: RouteTarget, request: ProviderRequest, _credential: ResolvedCredential, signal: AbortSignal, proxy?: ProxyTarget | null): Promise<ProviderResult> {
     if (request.surface !== "openai-chat") {
       throw new ProviderCallError(400, "invalid_request", "Custom providers currently support the OpenAI Chat shape.");
     }
@@ -105,11 +118,11 @@ class DynamicProviderRouter implements Provider {
     if (!record) throw new ProviderCallError(404, "invalid_request", `Custom provider "${split.slug}" no longer exists.`);
 
     return record.type === "anthropic-compatible"
-      ? callAnthropicCompatible(record, split.model, request.body, signal)
-      : callOpenAICompatible(record, split.model, request.body, signal);
+      ? callAnthropicCompatible(record, split.model, request.body, signal, proxy)
+      : callOpenAICompatible(record, split.model, request.body, signal, proxy);
   }
 
-  async countTokens(target: RouteTarget, body: Record<string, unknown>, _credential: ResolvedCredential, signal: AbortSignal): Promise<{ inputTokens: number }> {
+  async countTokens(target: RouteTarget, body: Record<string, unknown>, _credential: ResolvedCredential, signal: AbortSignal, proxy?: ProxyTarget | null): Promise<{ inputTokens: number }> {
     const split = splitSlugModel(target.modelId);
     if (!split) throw new ProviderCallError(400, "invalid_request", "Custom provider model must be qualified as <slug>/<model>.");
 
@@ -130,7 +143,7 @@ class DynamicProviderRouter implements Provider {
       providerLabel: `Custom provider "${record.name}"`,
       isStreaming: false,
       decodeStream: decodeAnthropicStream,
-      fetcher: fetchWithSsrfGuard,
+      fetcher: ssrfGuardedFetcher(proxy),
     });
     const json = result.type === "json" ? result.body : {};
     const inputTokens = typeof json.input_tokens === "number" ? json.input_tokens : 0;

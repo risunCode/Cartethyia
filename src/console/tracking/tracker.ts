@@ -10,7 +10,7 @@ import type { ApiKeyPublic } from "../db/repos/api-keys";
 import { insertUsageHistory, utcNow } from "../db/repos/usage";
 import { insertRequestDetails, insertAssetMeta, insertToolCall } from "../db/repos/details";
 import { extractUsage, extractUsageFromSseText, extractToolCalls, type UsageTotals } from "./usage-extractor";
-import { computePayloadMeta, extractLastUserMessagePreview } from "./payload-meta";
+import { computePayloadMeta, countPayloadMessages } from "./payload-meta";
 import { parseQualifiedModel } from "../../routing/resolve";
 import { incrementInFlight, decrementInFlight } from "./in-flight";
 
@@ -40,6 +40,7 @@ interface FinishInput {
 
 export interface RequestTracker {
   readonly traceId: string;
+  setNetworkPath: (networkPath: string) => void;
   /** Records a completed non-stream request; returns the body for the route to send. */
   finishJson(status: number, body: unknown, provider: string | undefined, requestBody: unknown, accountLabel?: string): unknown;
   /** Wraps an SSE byte stream; usage is captured from the terminal frames. */
@@ -60,44 +61,36 @@ export function providerForModel(model: string | undefined): string | undefined 
   return guessProviderLabel(model);
 }
 
-/**
- * Single glyph-first console log line, shared by every request source (proxy
- * `/v1/*` traffic, Model Studio, and the console's provider Test Connection
- * probe) so a request looks the same regardless of where it came from.
- */
+export type RequestLogEvent = "incoming" | "request_success" | "request_failed";
+
+/** One canonical console-log formatter for inbound, successful, and failed requests. */
 export function formatRequestLogLine(args: {
-  model: string | undefined;
-  provider: string | undefined;
+  eventName?: RequestLogEvent;
+  model?: string;
+  provider?: string;
   accountLabel?: string;
-  status: number;
-  durationMs: number;
-  stream?: boolean;
-  usage?: { inputTokens?: number | null; outputTokens?: number | null; cachedTokens?: number | null; reasoningTokens?: number | null };
-  toolNames?: string[];
-  messagePreview?: string;
+  networkPath?: string;
+  status?: number;
+  durationMs?: number;
+  usage?: { inputTokens?: number | null; outputTokens?: number | null };
+  messageCount?: number;
+  toolCount?: number;
   errorMessage?: string;
 }): string {
-  const label = args.model ?? args.provider ?? "unknown";
-  const glyph = args.status < 400 ? "\u2705" : "\u274c";
-
-  if (args.status >= 400) {
-    return `${glyph} ${label} [${args.status}]${args.errorMessage ? `: ${args.errorMessage}` : ""}`;
-  }
-
-  const parts: string[] = [`${glyph} ${label}${args.provider ? ` via ${args.provider}` : ""} \u2192 ${args.status}`, `${args.durationMs}ms`];
-  if (args.accountLabel) parts.push(`ACC:${args.accountLabel}`);
-  if (args.stream) parts.push("stream");
-  if (args.usage) {
-    const tok: string[] = [];
-    if (args.usage.inputTokens) tok.push(`in:${args.usage.inputTokens}`);
-    if (args.usage.outputTokens) tok.push(`out:${args.usage.outputTokens}`);
-    if (args.usage.cachedTokens) tok.push(`cached:${args.usage.cachedTokens}`);
-    if (args.usage.reasoningTokens) tok.push(`reason:${args.usage.reasoningTokens}`);
-    if (tok.length > 0) parts.push(tok.join(" "));
-  }
-  if (args.toolNames && args.toolNames.length > 0) parts.push(`tools:${args.toolNames.join(",")}`);
-  if (args.messagePreview) parts.push(`msg:"${args.messagePreview}"`);
-  return parts.join(" \u00b7 ");
+  const eventName = args.eventName ?? (args.status !== undefined && args.status >= 400 ? "request_failed" : "request_success");
+  const parts: string[] = [eventName];
+  if (args.provider) parts.push(`provider=${args.provider}`);
+  if (args.accountLabel) parts.push(`account=${args.accountLabel}`);
+  if (args.networkPath) parts.push(`proxy=${args.networkPath}`);
+  if (args.model) parts.push(`model=${args.model}`);
+  if (args.status !== undefined) parts.push(`status=${args.status}`);
+  if (args.durationMs !== undefined) parts.push(`${args.durationMs}ms`);
+  if (args.usage?.inputTokens !== null && args.usage?.inputTokens !== undefined) parts.push(`in ${args.usage.inputTokens} tokens`);
+  if (args.usage?.outputTokens !== null && args.usage?.outputTokens !== undefined) parts.push(`out ${args.usage.outputTokens} tokens`);
+  if (args.messageCount !== undefined) parts.push(`${args.messageCount}msg`);
+  if (args.toolCount !== undefined) parts.push(`${args.toolCount} tools`);
+  if (args.errorMessage) parts.push(`error=${args.errorMessage}`);
+  return parts.join(" | ");
 }
 
 export function createRequestTracker(start: TrackerStartInput): RequestTracker {
@@ -105,6 +98,7 @@ export function createRequestTracker(start: TrackerStartInput): RequestTracker {
   const startedMs = Date.now();
   const startedAt = utcNow();
   const provider = providerForModel(start.model);
+  let networkPath: string | undefined;
   let finished = false;
   let tokenUsageSettled = false;
   incrementInFlight();
@@ -119,7 +113,7 @@ export function createRequestTracker(start: TrackerStartInput): RequestTracker {
     if (finished) return;
     finished = true;
     decrementInFlight();
-    void persistAsync(start, traceId, startedAt, startedMs, provider, finish, settleTokenUsage).catch((err) => {
+    void persistAsync(start, traceId, startedAt, startedMs, provider, finish, settleTokenUsage, networkPath).catch((err) => {
       settleTokenUsage(0);
       pushConsoleLog("error", "tracking", `persist failed: ${err instanceof Error ? err.message : String(err)}`);
     });
@@ -127,6 +121,7 @@ export function createRequestTracker(start: TrackerStartInput): RequestTracker {
 
   return {
     traceId,
+    setNetworkPath: (value) => { networkPath = value; },
 
     finishJson(status, body, providerOverride, requestBody, accountLabel) {
       persist({ status, provider: providerOverride ?? provider, body, requestBody, accountLabel });
@@ -173,6 +168,7 @@ async function persistAsync(
   provider: string | undefined,
   finish: FinishInput,
   settleTokenUsage: (tokens: number) => void,
+  networkPath: string | undefined,
 ): Promise<void> {
   const runtime = getRuntimeSettings();
   const finishedAt = utcNow();
@@ -183,8 +179,6 @@ async function persistAsync(
   // always shows what was asked and which tools ran, regardless of the
   // TRACK_PAYLOADS setting.
   const toolCalls = finish.body !== undefined && finish.status < 400 ? extractToolCalls(start.surface, finish.body) : [];
-  const messagePreview = finish.requestBody !== undefined ? extractLastUserMessagePreview(start.surface, finish.requestBody) : undefined;
-
   const id = insertUsageHistory({
     traceId,
     endpoint: start.endpoint,
@@ -249,11 +243,11 @@ async function persistAsync(
       accountLabel: finish.accountLabel,
       status: finish.status,
       durationMs,
-      stream: start.stream,
       usage: usage ?? undefined,
-      toolNames: toolCalls.map((c) => c.name),
-      messagePreview,
+      messageCount: finish.requestBody === undefined ? undefined : countPayloadMessages(start.surface, finish.requestBody as Record<string, unknown>),
+      toolCount: toolCalls.length,
       errorMessage: finish.errorMessage,
+      networkPath,
     })
   );
 }

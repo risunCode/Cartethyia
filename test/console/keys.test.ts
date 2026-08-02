@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { app } from "../../src/app";
 import { consumeOneTimeTokensForKey, findApiKeyBySecret, sumOneTimeTokensForKey } from "../../src/console/db/repos/api-keys";
 import { insertUsageHistory } from "../../src/console/db/repos/usage";
+import { publicOrigin } from "../../src/console/share";
 import { loginAndGetCookie, postJson, useIsolatedDataDir } from "./helpers";
 
 beforeEach(() => {
@@ -21,6 +22,13 @@ function patchJson(path: string, body: unknown, options: { cookie: string }): Re
 }
 
 describe("console keys API", () => {
+  test("uses forwarded HTTPS externally while preserving local HTTP", () => {
+    expect(publicOrigin(new Request("http://localhost/console/api/keys/share"))).toBe("http://localhost");
+    expect(publicOrigin(new Request("http://internal:12800/console/api/keys/share", {
+      headers: { "x-forwarded-proto": "https", "x-forwarded-host": "cartethyia.risun.web.id" },
+    }))).toBe("https://cartethyia.risun.web.id");
+  });
+
   test("accepts a custom secret prefix and sanitizes unsafe characters", async () => {
     const cookie = await loginAndGetCookie();
 
@@ -145,21 +153,27 @@ describe("console keys API", () => {
     const { id } = (await created.json()) as { id: string };
     const updated = await app.handle(patchJson(`/console/api/keys/${id}`, { quoteBigText: "The wind remembers", quoteSubText: "A note from Cartethyia", quoteBody: "Walk gently through the storm." }, { cookie }));
     expect(updated.status).toBe(200);
-    const share = await app.handle(postJson(`/console/api/keys/${id}/share`, {}, { cookie }));
+    const share = await app.handle(postJson(`/console/api/keys/${id}/share`, {}, {
+      cookie,
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "cartethyia.risun.web.id",
+    }));
     expect(share.status).toBe(200);
     const { url } = (await share.json()) as { url: string };
+    expect(url).toMatch(/^https:\/\/cartethyia\.risun\.web\.id\/share\/[a-f0-9]{48}$/);
     const page = await app.handle(new Request(url));
     expect(page.status).toBe(200);
     expect(await page.text()).toContain("In flight");
     const data = await app.handle(new Request(`${url}/data`));
     expect(data.status).toBe(200);
-    const payload = (await data.json()) as { totalRemaining: number; inFlight: number; availableModels: string[]; baseUrl: string; apiKey: string; words: { bigText: string | null; subText: string | null; body: string | null } };
+    const payload = (await data.json()) as { totalRemaining: number; inFlight: number; availableModels: { id: string; contextWindow?: number }[]; baseUrl: string; apiKey: string; words: { bigText: string | null; subText: string | null; body: string | null } };
     expect(payload.totalRemaining).toBe(1000000);
     expect(payload.words).toEqual({ bigText: "The wind remembers", subText: "A note from Cartethyia", body: "Walk gently through the storm." });
     expect(payload.inFlight).toBe(0);
-    expect(payload.baseUrl).toContain("/v1");
+    expect(payload.baseUrl).toBe("https://cartethyia.risun.web.id/v1");
     expect(payload.apiKey).toMatch(/^ctk_/);
     expect(Array.isArray(payload.availableModels)).toBe(true);
+    expect(payload.availableModels.every((model) => typeof model.id === "string")).toBe(true);
   });
 
   test("toggles disabled keys and regenerates credentials from the edit lifecycle", async () => {

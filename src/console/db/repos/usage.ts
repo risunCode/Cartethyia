@@ -57,12 +57,14 @@ const usageSummaryCache = new TtlCache<UsagePeriod, UsageSummary>(2_000, 8);
 const usageCostCache = new TtlCache<UsagePeriod, UsageCost>(2_000, 8);
 const usageChartCache = new TtlCache<UsagePeriod, ChartBucket[]>(2_000, 8);
 const usageByCache = new TtlCache<string, UsageByRow[]>(2_000, 24);
+const usageCacheCache = new TtlCache<UsagePeriod, UsageCacheSummary>(2_000, 8);
 
 function clearUsageQueryCaches(): void {
   usageSummaryCache.clear();
   usageCostCache.clear();
   usageChartCache.clear();
   usageByCache.clear();
+  usageCacheCache.clear();
 }
 
 function allocateHistoryId(): number {
@@ -150,6 +152,47 @@ export function queryUsageSummary(period: UsagePeriod): UsageSummary {
   });
 }
 
+export interface UsageCacheRow {
+  name: string;
+  requests: number;
+  inputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  hitRate: number;
+}
+
+export interface UsageCacheSummary {
+  inputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
+  hitRate: number;
+  rows: UsageCacheRow[];
+}
+
+export function queryUsageCache(period: UsagePeriod): UsageCacheSummary {
+  return usageCacheCache.get(period, () => {
+    const rows = readRuntimeDb().query(
+      `SELECT CASE
+          WHEN model IS NOT NULL AND provider IS NOT NULL AND model LIKE provider || '/%' THEN model
+          ELSE COALESCE(provider || '/' || model, COALESCE(model, provider, 'unknown'))
+        END AS name,
+        COUNT(*) AS requests,
+        COALESCE(SUM(input_tokens), 0) AS input_tokens,
+        COALESCE(SUM(cached_tokens), 0) AS cached_tokens,
+        COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens
+       FROM request_history WHERE started_at >= ? GROUP BY name ORDER BY cached_tokens DESC, input_tokens DESC`,
+    ).all(periodStartUtc(period)) as Array<{ name: string; requests: number; input_tokens: number | null; cached_tokens: number | null; cache_write_tokens: number | null }>;
+    const mapped = rows.map((row) => {
+      const inputTokens = orZero(row.input_tokens);
+      const cachedTokens = orZero(row.cached_tokens);
+      return { name: row.name, requests: row.requests, inputTokens, cachedTokens, cacheWriteTokens: orZero(row.cache_write_tokens), hitRate: inputTokens > 0 ? (cachedTokens / inputTokens) * 100 : 0 };
+    });
+    const inputTokens = mapped.reduce((sum, row) => sum + row.inputTokens, 0);
+    const cachedTokens = mapped.reduce((sum, row) => sum + row.cachedTokens, 0);
+    return { inputTokens, cachedTokens, cacheWriteTokens: mapped.reduce((sum, row) => sum + row.cacheWriteTokens, 0), hitRate: inputTokens > 0 ? (cachedTokens / inputTokens) * 100 : 0, rows: mapped };
+  });
+}
+
 export interface UsageCost {
   estimatedCostUsd: number;
   /** True when at least one matching request used a provider/model with no published per-token rate (subscription/aggregator providers), so the total under-counts those requests rather than guessing. */
@@ -171,7 +214,7 @@ interface CostRow {
 export function queryUsageCost(period: UsagePeriod): UsageCost {
   return usageCostCache.get(period, () => {
     const rows = readRuntimeDb()
-      .query("SELECT provider, model, input_tokens, output_tokens FROM request_history WHERE started_at >= ?")
+      .query("SELECT provider, model, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens FROM request_history WHERE started_at >= ? GROUP BY provider, model")
       .all(periodStartUtc(period)) as CostRow[];
     let estimatedCostUsd = 0;
     let partial = false;

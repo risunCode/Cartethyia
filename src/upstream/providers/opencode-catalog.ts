@@ -34,6 +34,11 @@ export async function fetchOpenCodeCatalog(): Promise<OpenCodeModelEntry[]> {
 
   const promise = fetchCatalog();
   cache = { fetchedAt: now, promise };
+  void promise.catch(() => {
+    // A network failure must not poison the 60-second shared cache. Only
+    // clear this promise; a newer fetch may already have replaced it.
+    if (cache?.promise === promise) cache = undefined;
+  });
   return promise;
 }
 
@@ -44,7 +49,13 @@ async function fetchCatalog(): Promise<OpenCodeModelEntry[]> {
     throw new ProviderCallError(503, "unavailable", "Could not fetch the OpenCode model catalog.");
   }
 
-  const body: unknown = await res.json();
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    cache = undefined;
+    throw new ProviderCallError(502, "malformed_response", "OpenCode catalog returned invalid JSON.");
+  }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     cache = undefined;
     throw new ProviderCallError(502, "malformed_response", "OpenCode catalog returned an unexpected shape.");

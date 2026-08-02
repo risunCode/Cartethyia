@@ -4,8 +4,8 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
-import { Activity, Download, KeyRound, ShieldCheck, Trash2, Upload } from "lucide-react";
+import { useRef, useState, type ChangeEvent } from "react";
+import { Activity, Download, FileJson, KeyRound, ShieldCheck, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError, apiGet, apiPost } from "../../lib/api";
 import { Badge } from "../../components/ui/badge";
@@ -36,7 +36,43 @@ interface SettingsResponse {
   settings: RuntimeSettings;
 }
 
-type SensitiveAction = "backup" | "restore" | null;
+type SensitiveAction = "backup" | "restore" | "restore-9router" | null;
+type DetectedBackupKind = Exclude<SensitiveAction, "backup" | null>;
+
+function detectBackupKind(value: unknown): DetectedBackupKind | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const candidate = value as { app?: unknown; tables?: unknown; providerConnections?: unknown; proxyPools?: unknown };
+  if (Array.isArray(candidate.providerConnections) && Array.isArray(candidate.proxyPools)) return "restore-9router";
+  if (candidate.app === "cartethyia" && typeof candidate.tables === "object" && candidate.tables !== null) return "restore";
+  return null;
+}
+
+interface NineRouterCompatibilityReport {
+  imported: { accounts: number; proxies: number; apiKeys: number; aliases: number; combos: number };
+  skipped: {
+    unsupportedProviders: Array<{ provider: string; count: number }>;
+    invalidConnections: Array<{ provider: string; name: string; reason: string }>;
+    invalidProxies: Array<{ name: string; reason: string }>;
+    unsupportedNodes: Array<{ id: string; name: string; reason: string }>;
+    droppedFields: Array<{ field: string; count: number }>;
+  };
+  warnings: string[];
+}
+
+function compatibilitySummary(report: NineRouterCompatibilityReport): string {
+  const imported = `Imported ${report.imported.accounts} accounts, ${report.imported.proxies} proxies, ${report.imported.apiKeys} API keys, ${report.imported.aliases} aliases, ${report.imported.combos} combos`;
+  const skippedProviders = report.skipped.unsupportedProviders.reduce((total, item) => total + item.count, 0);
+  const skipped = skippedProviders + report.skipped.invalidConnections.length + report.skipped.invalidProxies.length + report.skipped.unsupportedNodes.length;
+  if (skipped === 0) return `${imported}.`;
+  const providerDetails = report.skipped.unsupportedProviders.map((item) => `${item.provider} (${item.count})`).join(", ");
+  const categories = [
+    providerDetails ? `unsupported providers: ${providerDetails}` : "",
+    report.skipped.invalidConnections.length > 0 ? `invalid connections: ${report.skipped.invalidConnections.length}` : "",
+    report.skipped.invalidProxies.length > 0 ? `invalid proxies: ${report.skipped.invalidProxies.length}` : "",
+    report.skipped.unsupportedNodes.length > 0 ? `provider nodes: ${report.skipped.unsupportedNodes.length}` : "",
+  ].filter(Boolean).join(" · ");
+  return `${imported}. Skipped ${skipped}: ${categories}.`;
+}
 
 function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.message : "request failed";
@@ -76,6 +112,7 @@ export function SettingsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [backupIncludeUsage, setBackupIncludeUsage] = useState(false);
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const [restoreKind, setRestoreKind] = useState<DetectedBackupKind | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Password change form
@@ -111,6 +148,22 @@ export function SettingsPage() {
   const patch = (p: Partial<RuntimeSettings>) => patchMutation.mutate(p);
   const settings = data?.settings;
 
+  const handleRestoreFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    setRestoreFile(file);
+    setRestoreKind(null);
+    if (!file) return;
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      const kind = detectBackupKind(parsed);
+      if (!kind) throw new Error("Unsupported backup format");
+      setRestoreKind(kind);
+      toast.success(kind === "restore-9router" ? "9Router backup detected" : "Cartethyia backup detected");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to read backup file");
+    }
+  };
+
   // Sensitive action runner (password-gated) 
   const runSensitive = async (password: string) => {
     setActionError(null);
@@ -133,13 +186,19 @@ export function SettingsPage() {
         URL.revokeObjectURL(url);
         toast.success("Backup downloaded");
         setAction(null);
-      } else if (action === "restore") {
+      } else if (action === "restore" || action === "restore-9router") {
         if (!restoreFile) throw new Error("choose a backup file first");
         const backup: unknown = JSON.parse(await restoreFile.text());
-        await apiPost<{ ok: boolean }>("/settings/restore", { password, backup });
-        toast.success("Backup restored");
+        if (action === "restore-9router") {
+          const response = await apiPost<{ ok: boolean; compatibility: NineRouterCompatibilityReport }>("/settings/restore/9router", { password, backup });
+          toast.success("9Router backup imported", { description: compatibilitySummary(response.compatibility) });
+        } else {
+          await apiPost<{ ok: boolean }>("/settings/restore", { password, backup });
+          toast.success("Backup restored");
+        }
         setAction(null);
         setRestoreFile(null);
+        setRestoreKind(null);
         void queryClient.invalidateQueries();
       }
     } catch (err) {
@@ -156,16 +215,20 @@ export function SettingsPage() {
       title: "Restore Backup",
       description: `Replace the current configuration with "${restoreFile?.name ?? "the selected file"}". This overwrites settings, keys and accounts.`,
     },
+    "restore-9router": {
+      title: "Import 9Router Backup",
+      description: `Convert supported data from "${restoreFile?.name ?? "the selected file"}" into Cartethyia. Unsupported providers and nodes are skipped. Existing imported configuration is replaced.`,
+    },
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    <div className="space-y-4">
       <div>
         <h1 className="text-lg font-bold tracking-tight">Settings</h1>
         <p className="text-xs text-[var(--text-2)]">Runtime configuration — changes apply without restart.</p>
       </div>
 
-      {/* Security */}
+      {/* Security — spans full width: most sensitive section, wants room to breathe */}
       <Card>
         <CardHeader
           title="Security"
@@ -205,9 +268,10 @@ export function SettingsPage() {
         )}
       </Card>
 
-      {/* Tracking + Access */}
+      {/* Tracking + Access - side by side on desktop, System-Settings-panel style */}
       {settings && (
         <>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Card>
             <CardHeader title="Logging & Retention" icon={Activity} />
             <div className="grid gap-3 sm:grid-cols-2">
@@ -272,7 +336,7 @@ export function SettingsPage() {
             </div>
           </Card>
 
-          <Card>
+          <Card className="lg:h-fit">
             <CardHeader title="Request Limits" icon={ShieldCheck} />
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
@@ -316,8 +380,10 @@ export function SettingsPage() {
               </label>
             </div>
           </Card>
+        </div>
 
-          {/* Backup & restore */}
+
+          {/* Backup & restore - spans full width again below the two-column row */}
           <Card>
             <CardHeader title="Backup & Restore" icon={Download} sub="DB-only JSON snapshot; disk assets are not included." />
             <div className="flex flex-wrap items-center gap-2">
@@ -329,13 +395,13 @@ export function SettingsPage() {
                 type="file"
                 accept="application/json,.json"
                 className="hidden"
-                onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)}
+                onChange={(e) => void handleRestoreFileChange(e)}
               />
               <Button variant="secondary" size="sm" className="min-w-0" onClick={() => fileInputRef.current?.click()}>
                 <Upload size={13} className="shrink-0" /> <span className="truncate">{restoreFile ? restoreFile.name : "Choose backup file…"}</span>
               </Button>
-              <Button variant="secondary" size="sm" disabled={!restoreFile} onClick={() => setAction("restore")}>
-                Restore…
+              <Button variant="secondary" size="sm" disabled={!restoreKind} onClick={() => setAction(restoreKind)}>
+                <FileJson size={13} /> Import selected
               </Button>
             </div>
             <p className="mt-2 text-[11px] text-[var(--text-3)]">

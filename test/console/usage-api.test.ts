@@ -106,6 +106,20 @@ describe("usage APIs", () => {
     expect(byKey.status).toBe(200);
   });
 
+  test("cache summary aggregates read and write tokens", async () => {
+    seedRows();
+    const { status, body } = await getJson("/console/api/usage/cache?period=24h");
+    expect(status).toBe(200);
+    expect(body.inputTokens).toBe(110);
+    expect(body.cachedTokens).toBe(50);
+    expect(body.cacheWriteTokens).toBe(0);
+    expect(body.hitRate).toBeCloseTo((50 / 110) * 100);
+    const rows = body.rows as { name: string; cachedTokens: number; hitRate: number }[];
+    expect(rows[0]?.name).toBe("kimchi/kimi-k2.7");
+    expect(rows[0]?.cachedTokens).toBe(50);
+    expect(rows[0]?.hitRate).toBe(50);
+  });
+
   test("requests list: filters, search, cursor pagination", async () => {
     seedRows();
     const all = await getJson("/console/api/usage/requests?limit=10");

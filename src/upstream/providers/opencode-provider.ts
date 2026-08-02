@@ -12,6 +12,8 @@ import { ProviderCallError } from "./index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./index";
 import { decodeOpenAIChatStream, decodeAnthropicStream } from "../bridge";
 import { callSimpleProvider } from "./simple-call";
+import { buildProxyFetcher } from "../proxy/adapter";
+import type { ProxyTarget } from "../proxy/types";
 import {
   fetchOpenCodeCatalog,
   findOpenCodeModel,
@@ -76,6 +78,7 @@ class OpenCodeProvider implements Provider {
     request: ProviderRequest,
     credential: ResolvedCredential,
     signal: AbortSignal,
+    proxy?: ProxyTarget | null,
   ): Promise<ProviderResult> {
     this.cfg.validateCredential?.(credential);
 
@@ -119,6 +122,7 @@ class OpenCodeProvider implements Provider {
       providerLabel: this.cfg.name,
       isStreaming: (body as Record<string, unknown>).stream === true,
       decodeStream: capability === "chat" ? decodeOpenAIChatStream : decodeAnthropicStream,
+      fetcher: proxy ? buildProxyFetcher(proxy) : undefined,
     });
   }
 }

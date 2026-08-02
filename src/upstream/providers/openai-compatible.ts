@@ -3,6 +3,8 @@ import { decodeOpenAIChatStream } from "../bridge";
 import { ProviderCallError } from "./index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./index";
 import { callSimpleProvider } from "./simple-call";
+import { buildProxyFetcher } from "../proxy/adapter";
+import type { ProxyTarget } from "../proxy/types";
 import { createModelCatalog } from "./models";
 import type { ProviderModelCatalog, ProviderModelEntry } from "./models";
 
@@ -52,7 +54,7 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleProviderC
       if (!models.resolve(modelId)) return undefined;
       return { provider: config.id, modelId, surface: "openai-chat", credential: "provider-bearer", weight: 1 };
     },
-    async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal): Promise<ProviderResult> {
+    async call(target: RouteTarget, request: ProviderRequest, credential: ResolvedCredential, signal: AbortSignal, proxy?: ProxyTarget | null): Promise<ProviderResult> {
       if (request.surface !== "openai-chat") throw new ProviderCallError(400, "invalid_request", `${config.name} supports the OpenAI Chat shape.`);
       if (!credential.value) throw new ProviderCallError(401, "authentication", `${config.name} requires an API key.`);
 
@@ -65,6 +67,7 @@ export function createOpenAICompatibleProvider(config: OpenAICompatibleProviderC
         providerLabel: config.name,
         isStreaming: body.stream === true,
         decodeStream: decodeOpenAIChatStream,
+        fetcher: proxy ? buildProxyFetcher(proxy) : undefined,
       });
     },
   };

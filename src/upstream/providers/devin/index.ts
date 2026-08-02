@@ -4,6 +4,8 @@ import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } fr
 import { buildDevinChatRequest, decodeDevinChatStream, fetchDevinAuthMetadata } from "./transport";
 import { materializeFromStream, materializedToChatResponse } from "../../result";
 import { devinModelCatalog } from "./models";
+import { buildProxyFetcher } from "../../proxy/adapter";
+import type { ProxyTarget } from "../../proxy/types";
 
 class DevinProvider implements Provider {
   readonly id = "devin" as const;
@@ -31,7 +33,8 @@ class DevinProvider implements Provider {
     target: RouteTarget,
     request: ProviderRequest,
     credential: ResolvedCredential,
-    signal: AbortSignal
+    signal: AbortSignal,
+    proxy?: ProxyTarget | null,
   ): Promise<ProviderResult> {
     if (credential.kind !== "devin-session") {
       throw new ProviderCallError(401, "authentication", "A Devin session credential is required.");
@@ -41,11 +44,12 @@ class DevinProvider implements Provider {
       throw new ProviderCallError(400, "invalid_request", "Devin currently supports the OpenAI Chat shape.");
     }
 
-    const auth = await fetchDevinAuthMetadata(credential.value, signal);
+    const fetcher = proxy ? buildProxyFetcher(proxy) : fetch;
+    const auth = await fetchDevinAuthMetadata(credential.value, signal, fetcher);
     const chatBody = request.body as Record<string, unknown>;
     const upstreamRequest = buildDevinChatRequest(credential.value, auth.userJwt, target.modelId, chatBody, auth.baseUrl);
 
-    const res = await fetch(upstreamRequest.url, {
+    const res = await fetcher(upstreamRequest.url, {
       method: "POST",
       headers: upstreamRequest.headers,
       body: upstreamRequest.body,

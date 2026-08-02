@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS access_rules (
 CREATE TABLE IF NOT EXISTS provider_routing (
   provider TEXT PRIMARY KEY,
   strategy TEXT NOT NULL DEFAULT 'priority',
-  sticky_limit INTEGER NOT NULL DEFAULT 0,
+  sticky_limit INTEGER NOT NULL DEFAULT 1,
+  sticky_enabled INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL
 );
 
@@ -85,6 +86,23 @@ CREATE TABLE IF NOT EXISTS provider_accounts (
 
 CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider_priority ON provider_accounts(provider, priority, name, id);
 CREATE INDEX IF NOT EXISTS idx_provider_accounts_cooldown ON provider_accounts(cooldown_until) WHERE cooldown_until IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS provider_account_health (
+  account_id TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'healthy',
+  error_kind TEXT,
+  status_code INTEGER,
+  sanitized_message TEXT,
+  occurred_at TEXT,
+  retry_at TEXT,
+  last_refresh_at TEXT,
+  quota_json TEXT,
+  quota_error TEXT,
+  quota_fetched_at TEXT,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (account_id) REFERENCES provider_accounts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_provider_account_health_retry ON provider_account_health(retry_at) WHERE retry_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
 
 CREATE TABLE IF NOT EXISTS share_links (
@@ -159,4 +177,42 @@ CREATE TABLE IF NOT EXISTS model_studio_sessions (
 CREATE INDEX IF NOT EXISTS idx_model_studio_sessions_updated ON model_studio_sessions(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_account_model_locks_expiry ON account_model_locks(locked_until);
 CREATE INDEX IF NOT EXISTS idx_custom_providers_slug ON custom_providers(slug);
+
+-- Outbound proxy pool (SOCKS5/HTTP/HTTPS) — mirrors provider_accounts'
+-- priority/active/cooldown shape so pool selection reuses the same
+-- rotation-and-cooldown pattern (see console/db/repos/accounts.ts).
+CREATE TABLE IF NOT EXISTS proxies (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  protocol TEXT NOT NULL CHECK (protocol IN ('http','https','socks5')),
+  is_relay INTEGER NOT NULL DEFAULT 0,
+  host TEXT NOT NULL,
+  port INTEGER NOT NULL,
+  username TEXT,
+  password TEXT,
+  priority INTEGER NOT NULL DEFAULT 100,
+  active INTEGER NOT NULL DEFAULT 1,
+  cooldown_until TEXT,
+  cooldown_level INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_proxies_priority ON proxies(priority, name, id);
+CREATE INDEX IF NOT EXISTS idx_proxies_cooldown ON proxies(cooldown_until) WHERE cooldown_until IS NOT NULL;
+
+-- Global proxy routing rules (single row) — whether outbound dispatch routes
+-- through the pool at all, and which providers are force-excluded to direct
+-- connection even when the pool is enabled. Selection is always priority
+-- order (auto-assigned by add order, see proxies.priority) with failover to
+-- the next active proxy on cooldown - no separate strategy to configure.
+-- Default is disabled (direct, failover-only), matching the product default
+-- of "all direct unless opted in".
+CREATE TABLE IF NOT EXISTS proxy_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled INTEGER NOT NULL DEFAULT 0,
+  excluded_providers_json TEXT NOT NULL DEFAULT '[]',
+  smart_dynamic_routing INTEGER NOT NULL DEFAULT 0,
+  smart_dynamic_proxy_count INTEGER NOT NULL DEFAULT 2,
+  updated_at TEXT NOT NULL
+);
 `;

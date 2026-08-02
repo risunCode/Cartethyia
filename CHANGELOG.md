@@ -2,6 +2,50 @@
 
 All notable changes to Cartethyia are documented here.
 
+## [1.0.7-alpha] - 2026-08-02
+
+### Added
+
+- OAuth provider support for Codex, Anthropic, Cline, Grok CLI, Google Antigravity, and Kiro, including credential bundles, callback/import flows, account health, refresh handling, and dashboard account actions.
+- Kiro OAuth with AWS Builder ID and IAM Identity Center device authorization, refresh-token import, regional refresh, profile metadata, model catalog, `kiro/<model>` routing, AWS EventStream decoding, and provider UI icon.
+- Google Antigravity OAuth/cloud-code routing with Gemini and Claude model catalogs, project metadata, web-search translation, reasoning/tool stream decoding, usage handling, endpoint fallback, and OAuth model testing.
+- Codex and Anthropic OAuth adapters with provider-specific request/response translation, reasoning separation, usage extraction, and deterministic protocol tests.
+- Cline and Grok CLI OAuth adapters with model catalogs, provider headers, Responses translation, web-search support, and stream decoding.
+- Outbound provider proxy adapters for HTTP/HTTPS and SOCKS5, including proxy-aware fetch, raw socket tunneling for HTTP/2 paths, endpoint selection, and proxy failover integration.
+- Console proxy management with CRUD, batch URL import, protocol detection, relay detection, priority/active controls, and dashboard management UI.
+- 9router-compatible account backup/import support with native-vs-9router detection, credential token validation, and account import coverage.
+- NVIDIA NIM provider catalog, routing metadata, icon, and model test support.
+- Dashboard customization controls for a local custom background behind frosted-glass surfaces, optimized seasonal lock effects, custom seasonal item uploads, frequency, and rendered-size controls.
+- Batch selection, select-all, and bulk deletion for custom providers.
+- Explicit disabled-state experience for public API-key share pages instead of inactive keys rendering as placeholder dashes.
+- Release/community documentation: Code of Conduct, pull-request template, release commit notes, and updated engineering conventions.
+
+### Changed
+
+- Provider registry, route prefixes, model catalogs, icons, credential metadata, account resolvers, and dashboard provider actions are kept aligned for the new OAuth and NIM providers.
+- Quota polling now uses a 15-minute sweep/cooldown per account; token refresh remains expiry-driven, while the quota dashboard refreshes every five minutes.
+- Removed Grok CLI billing quota fetching and its dashboard quota entry; Grok OAuth and request routing remain available.
+- Kiro upstream requests now include AWS SDK/Kiro client headers and auth-method-aware regional endpoint ordering.
+- Antigravity SSE parsing now accepts both LF and CRLF framing and flushes a final frame, restoring model-test sample text for CRLF responses.
+- Customization animation rendering is adaptive for desktop, mobile, hidden tabs, and reduced-motion environments; uploaded seasonal images are resized before persistence.
+- Dashboard provider, usage, settings, login, Model Studio, proxy/request, and account-management surfaces were refined for responsive desktop/mobile layouts, icons, selection actions, model testing, and import workflows.
+- Runtime and config persistence paths were kept separate while provider-account health, quota metadata, request tracking, backup/restore, and retention behavior were aligned with the current SQLite storage conventions.
+
+### Fixed
+
+- Public share pages now preserve the share link when its API key is disabled while hiding credential, usage, and allowed-model details until re-enabled.
+- Provider OAuth buttons now invoke the Grok CLI OAuth flow correctly.
+- Qualified alias/model ACL handling no longer grants unintended provider-qualified access or duplicates aliases in model selection.
+- Antigravity model tests now return visible sample text when upstream SSE uses CRLF framing.
+- Proxy dispatch retries remaining proxy candidates for candidate-specific upstream 400 responses instead of failing the request prematurely.
+- Account/provider model health updates now disable unavailable providers consistently after failed model tests and expose the correct error state in the dashboard.
+- API key, account, provider, backup/import, model, usage, and share-link paths received regression coverage for the expanded release surface.
+
+### Release notes
+
+- Root and dashboard package versions are `1.0.7-alpha`.
+- This release is intended for local/self-hosted and alpha operational use. Review provider credentials, proxy settings, OAuth imports, proxy configuration, and persistent `DATA_DIR` before deployment.
+
 ## [1.0.6-alpha] - 2026-08-02
 
 ### Added
@@ -11,6 +55,9 @@ All notable changes to Cartethyia are documented here.
 - Public API-key Share pages expose remaining token metrics, today's usage, in-flight requests, ACL-filtered available models, connection details, copy controls for the Base URL and API key, and key status.
 - API keys can store editable "Kata-kata hari ini" content (big text, sub text, and body), rendered safely on the Share page after Connection.
 - Share links are persisted and tracked with hashed tokens, active-key resolution, and last-viewed timestamps. Backup export/restore includes share links, one-time budgets, and custom words.
+- **Outbound proxy pool** for provider dispatch - HTTP, HTTPS, and SOCKS5, selected in priority order (auto-assigned by add order) with cooldown-based failover to the next active proxy - the same failover model already used for account selection, minus a configurable strategy or sticky affinity for the pool itself. Off by default (every provider connects directly); enabling it routes every provider through the pool except ones explicitly excluded. SOCKS5 is tunneled through `socks-proxy-agent`/`socks` (Bun's native `fetch({ proxy })` only supports HTTP/HTTPS proxies) with a raw-socket connector for Cursor's HTTP/2 session specifically. All 10 provider adapters (including custom providers, which keep their SSRF guard on top of the proxy) accept a per-dispatch proxy target. New `/console/api/proxies` CRUD, `/console/api/proxy-settings` (enable/excluded providers), and a live connection tester (`/console/api/proxies/:id/test`, `/console/api/proxies/test`) with per-proxy latency reporting. Dashboard: the Proxy & Requests page now hosts both this proxy pool and a consolidated per-provider routing-strategy list (moved out of each provider's page); the provider detail page's account section is now titled "Accounts" and auto-loads more accounts on scroll instead of a manual button.
+
+- Proxy Pool now uses a batch-first URL importer with automatic HTTP/HTTPS/SOCKS5 detection, optional URL credentials, a clipboard Paste action, automatic names/active/priority assignment, and automatic Vercel/Cloudflare relay detection from the hostname.
 
 ### Performance
 
@@ -42,6 +89,7 @@ Deep pass targeting sustained 5,000 req/sec on the proxy hot path, covering both
 ### Removed
 
 - Dead code sweep across `src/`: `expandCombo` and `listProviderRoutings` (zero callers anywhere) deleted; `getAccessRule`, `normalizeClientIp` (`access.ts`), and `defaultRuntimeSettings` (`runtime.ts`) un-exported (used only within their own file). `listAuditEvents` was flagged as a candidate but kept - it has a live test caller (`test/console/backup.test.ts`) verifying audit-log behavior.
+- **Account routing IP-sticky allocation** (shipped in 1.0.5-alpha): per-provider "IP sticky limit" and its client-affinity assignment tracking are gone. Account selection is now strategy-only - `priority` (highest-priority active account, failover on cooldown) or `round-robin` (advances every call) - configurable per provider, now batch-editable from the consolidated Routing Strategy & Exceptions table (`/console/proxy-requests`) instead of each provider's own page. The outbound proxy pool never had a shipped strategy/sticky setting to begin with, so it stays priority-order-only (auto-assigned by add order) with cooldown-based failover; no separate strategy to pick.
 
 ### Changed
 

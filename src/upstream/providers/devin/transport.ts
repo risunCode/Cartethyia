@@ -64,7 +64,11 @@ export function normalizeDevinSessionToken(apiKey: string): string {
 }
 
 /** Exchanges a Devin session token for the user JWT required by the chat API. */
-export async function fetchDevinAuthMetadata(sessionToken: string, signal?: AbortSignal): Promise<DevinAuthMetadata> {
+export async function fetchDevinAuthMetadata(
+  sessionToken: string,
+  signal?: AbortSignal,
+  fetcher: (url: string, init: RequestInit) => Promise<Response> = fetch,
+): Promise<DevinAuthMetadata> {
   const apiKey = normalizeDevinSessionToken(sessionToken);
   const request = create(GetUserJwtRequestSchema, {
     metadata: create(MetadataSchema, {
@@ -77,7 +81,7 @@ export async function fetchDevinAuthMetadata(sessionToken: string, signal?: Abor
     }),
   });
 
-  const res = await fetch(`${DEVIN_BASE_URL}${DEVIN_AUTH_PATH}`, {
+  const res = await fetcher(`${DEVIN_BASE_URL}${DEVIN_AUTH_PATH}`, {
     method: "POST",
     headers: { "content-type": "application/proto", "connect-protocol-version": "1", accept: "*/*" },
     body: toBinary(GetUserJwtRequestSchema, request),

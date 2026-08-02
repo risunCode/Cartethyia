@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { app } from "../../src/app";
 import { closeDbForTests, getDb } from "../../src/console/db/client";
-import { createAccount, markAccountUnavailable, pickAccountForRotation, resetCooldownForTests } from "../../src/console/db/repos/accounts";
+import { createAccount, markAccountUnavailable, pickAccountForRotation, resetCooldownForTests, updateAccountQuota } from "../../src/console/db/repos/accounts";
 import { loginAndGetCookie, postJson, useIsolatedDataDir } from "./helpers";
 import { resetOpenCodeFreeCatalogForTests } from "../../src/upstream/providers/opencode-free";
 
@@ -40,23 +40,7 @@ describe("persisted account availability", () => {
     closeDbForTests();
     resetCooldownForTests();
 
-    await expect(pickAccountForRotation("opencode-free", "priority", 0)).resolves.toBeNull();
-  });
-});
-
-describe("IP-aware sticky account routing", () => {
-  test("spreads new client IPs across accounts and reassigns a cooled account", async () => {
-    const first = createAccount({ provider: "opencode-free", name: "first", credentialKind: "bearer", credential: "first" });
-    const second = createAccount({ provider: "opencode-free", name: "second", credentialKind: "bearer", credential: "second" });
-    const third = createAccount({ provider: "opencode-free", name: "third", credentialKind: "bearer", credential: "third" });
-
-    await expect(pickAccountForRotation("opencode-free", "priority", 1, undefined, "203.0.113.1")).resolves.toMatchObject({ id: first.id });
-    await expect(pickAccountForRotation("opencode-free", "priority", 1, undefined, "203.0.113.2")).resolves.toMatchObject({ id: second.id });
-    await expect(pickAccountForRotation("opencode-free", "priority", 1, undefined, "203.0.113.3")).resolves.toMatchObject({ id: third.id });
-    await expect(pickAccountForRotation("opencode-free", "priority", 1, undefined, "203.0.113.1")).resolves.toMatchObject({ id: first.id });
-
-    markAccountUnavailable(first.id, "rate-limit");
-    await expect(pickAccountForRotation("opencode-free", "priority", 1, undefined, "203.0.113.1")).resolves.toMatchObject({ id: second.id });
+    await expect(pickAccountForRotation("opencode-free", "priority")).resolves.toBeNull();
   });
 });
 
@@ -71,6 +55,38 @@ describe("provider account import", () => {
 });
 
 describe("provider accounts CRUD", () => {
+  test("persists provider routing strategy and sticky limit", async () => {
+    const cookie = await loginAndGetCookie();
+    const initial = await app.handle(authed("/console/api/providers/opencode-free", cookie));
+    expect(initial.status).toBe(200);
+    expect((await initial.json()) as { routing: { strategy: string; stickyLimit: number } }).toMatchObject({ routing: { strategy: "priority", stickyLimit: 1 } });
+
+    const updated = await app.handle(postJson("/console/api/providers/opencode-free/routing", { strategy: "round-robin", stickyLimit: 3, useStickyLimit: true }, { cookie }));
+    expect(updated.status).toBe(200);
+    expect((await updated.json()) as { routing: { strategy: string; stickyLimit: number; useStickyLimit: boolean } }).toMatchObject({ routing: { strategy: "round-robin", stickyLimit: 3, useStickyLimit: true } });
+
+    const invalid = await app.handle(postJson("/console/api/providers/opencode-free/routing", { stickyLimit: 101 }, { cookie }));
+    expect(invalid.status).toBe(400);
+  });
+
+  test("returns persisted OAuth quota windows through the account API", async () => {
+    const cookie = await loginAndGetCookie();
+    const account = createAccount({ provider: "openai-codex", name: "quota account", credentialKind: "oauth", credential: "{}" });
+    updateAccountQuota(account.id, {
+      plan: "Plus",
+      windows: [{ kind: "session", label: "5 Hour", usedPercent: 20, remainingPercent: 80, resetsAt: "2026-08-02T05:00:00.000Z" }],
+      fetchedAt: "2026-08-02T00:00:00.000Z",
+      error: null,
+    });
+
+    const response = await app.handle(authed("/console/api/providers/openai-codex/accounts", cookie));
+
+    expect(response.status).toBe(200);
+    expect((await response.json()) as { items: Array<{ quota: { plan: string; windows: Array<{ label: string; remainingPercent: number }> } }> }).toMatchObject({
+      items: [{ quota: { plan: "Plus", windows: [{ label: "5 Hour", remainingPercent: 80 }] } }],
+    });
+  });
+
   test("create → list → patch → delete on opencode-free (bearer default)", async () => {
     const cookie = await loginAndGetCookie();
 
@@ -132,6 +148,29 @@ describe("provider accounts CRUD", () => {
       postJson("/console/api/providers/devin/accounts", { name: "dv2", credentialKind: "pat", credential: "x" }, { cookie })
     );
     expect(dvWrong.status).toBe(400);
+  });
+
+  test("OAuth accounts require login flow and never reveal credentials", async () => {
+    const cookie = await loginAndGetCookie();
+    const manual = await app.handle(
+      postJson("/console/api/providers/openai-codex/accounts", { name: "manual", credential: "not-an-oauth-bundle" }, { cookie })
+    );
+    expect(manual.status).toBe(400);
+
+    const oauth = createAccount({
+      provider: "openai-codex",
+      name: "connected",
+      credentialKind: "oauth",
+      credential: JSON.stringify({ version: 1, provider: "openai-codex", refreshToken: "refresh", accessToken: "access", authorizedAt: Date.now(), updatedAt: Date.now() }),
+    });
+    const reveal = await app.handle(authed(`/console/api/providers/openai-codex/accounts/${oauth.id}/credential`, cookie));
+    expect(reveal.status).toBe(403);
+    const patch = await app.handle(
+      postJson(`/console/api/providers/openai-codex/accounts/${oauth.id}`, { credential: "replacement" }, { cookie })
+    );
+    expect(patch.status).toBe(400);
+    const deleted = await app.handle(deleteJson(`/console/api/providers/openai-codex/accounts/${oauth.id}`, cookie));
+    expect(deleted.status).toBe(200);
   });
 
   test("duplicate account name per provider → 409; same name on other provider ok", async () => {

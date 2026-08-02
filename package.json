@@ -1,6 +1,6 @@
 {
   "name": "cartethyia",
-  "version": "1.0.6-alpha",
+  "version": "1.0.7-alpha",
   "description": "OpenAI <-> Anthropic compat reverse proxy (Chat Completions, Responses, Messages) with prompt-cache passthrough and image decode.",
   "private": true,
   "type": "module",
@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.13.0",
-    "elysia": "^1.4.29"
+    "elysia": "^1.4.29",
+    "socks": "^2.8.9",
+    "socks-proxy-agent": "^10.1.0"
   },
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "^2.13.0",

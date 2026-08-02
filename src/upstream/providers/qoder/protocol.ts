@@ -7,6 +7,7 @@ const COSY_VERSION = "1.0.22";
 const SIG_SECRET = "d2FyLCB3YXIgbmV2ZXIgY2hhbmdlcw==";
 const QODER_JOB_TOKEN_URL = "https://center.qoder.sh/algo/api/v3/user/jobToken?Encode=1";
 export const QODER_MODEL_LIST_URL = "https://api3.qoder.sh/algo/api/v2/model/list";
+export const QODER_USAGE_URL = "https://openapi.qoder.sh/api/v2/quota/usage";
 export const QODER_CHAT_URL = "https://api2.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1";
 
 const STANDARD_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -102,16 +103,31 @@ function staticHeaders(machineId: string): Record<string, string> {
 }
 
 /** Exchanges an inbound Qoder personal access token for request-local signing credentials. */
-export async function exchangeQoderPat(pat: string, signal: AbortSignal): Promise<QoderAuth> {
+export async function exchangeQoderPat(
+  pat: string,
+  signal: AbortSignal,
+  fetcher: (url: string, init: RequestInit) => Promise<Response> = fetch,
+): Promise<QoderAuth> {
   const machineId = machineIdFromPat(pat);
-  const body = encodeQoderBody(JSON.stringify({
+  const encodedBody = encodeQoderBody(JSON.stringify({
     payload: JSON.stringify({ personalToken: pat, securityOauthToken: "", refreshToken: "", needRefresh: false, authInfo: {} }),
     encodeVersion: "1",
   }));
-  const response = await fetch(QODER_JOB_TOKEN_URL, { method: "POST", headers: staticHeaders(machineId), body, signal });
+  const response = await fetcher(QODER_JOB_TOKEN_URL, { method: "POST", headers: staticHeaders(machineId), body: encodedBody, signal });
   if (!response.ok) throw qoderHttpError(response.status, "PAT exchange");
-  const result = await response.json() as JobTokenResponse;
-  if (!result.id || !result.securityOauthToken) throw new Error("Qoder PAT exchange returned incomplete credentials.");
+  let responseBody: unknown;
+  try {
+    responseBody = await response.json();
+  } catch {
+    throw new ProviderCallError(502, "malformed_response", "Qoder PAT exchange returned invalid JSON.");
+  }
+  if (!responseBody || typeof responseBody !== "object" || Array.isArray(responseBody)) {
+    throw new ProviderCallError(502, "malformed_response", "Qoder PAT exchange returned an unexpected response.");
+  }
+  const result = responseBody as JobTokenResponse;
+  if (typeof result.id !== "string" || typeof result.securityOauthToken !== "string") {
+    throw new ProviderCallError(502, "malformed_response", "Qoder PAT exchange returned incomplete credentials.");
+  }
   return {
     userId: result.id,
     userName: result.name ?? "",
@@ -208,7 +224,12 @@ export async function fetchQoderModels(auth: QoderAuth, signal: AbortSignal): Pr
       if (attempt === 0 && (response.status === 401 || response.status === 403)) continue;
       throw qoderHttpError(response.status, "model catalog");
     }
-    const body: unknown = await response.json();
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      throw new ProviderCallError(502, "malformed_response", "Qoder model catalog returned invalid JSON.");
+    }
     const entries = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>).chat : undefined;
     if (!Array.isArray(entries)) throw new ProviderCallError(502, "malformed_response", "Qoder model catalog returned an unexpected shape.");
     const models = new Map<string, Record<string, unknown>>();
@@ -220,6 +241,14 @@ export async function fetchQoderModels(auth: QoderAuth, signal: AbortSignal): Pr
     return models;
   }
   throw new ProviderCallError(502, "unavailable", "Qoder model catalog unreachable after retries.");
+}
+
+/** Fetches Qoder account credit usage using the same COSY identity as the CLI. */
+export async function fetchQoderUsage(auth: QoderAuth, signal: AbortSignal, fetcher: (url: string, init: RequestInit) => Promise<Response> = fetch): Promise<unknown> {
+  const response = await fetcher(QODER_USAGE_URL, { method: "GET", headers: { authorization: `Bearer ${auth.securityOauthToken}`, accept: "application/json", "user-agent": "pi-provider-qoder" }, signal });
+  if (!response.ok) throw qoderHttpError(response.status, "usage");
+  try { return await response.json(); }
+  catch { throw new ProviderCallError(502, "malformed_response", "Qoder usage returned invalid JSON."); }
 }
 
 /** Sends the encoded, COSY-signed Qoder inference request. */
@@ -235,11 +264,12 @@ export async function callQoder(
   body: Record<string, unknown>,
   modelId: string,
   auth: QoderAuth,
-  signal: AbortSignal
+  signal: AbortSignal,
+  fetcher: (url: string, init: RequestInit) => Promise<Response> = fetch,
 ): Promise<Response> {
   const encoded = encodeQoderBody(JSON.stringify(body));
   const modelConfig = body.model_config as Record<string, unknown>;
-  return fetch(url, {
+  return fetcher(url, {
     method: "POST",
     headers: {
       ...buildCosyHeaders(encoded, url, auth),

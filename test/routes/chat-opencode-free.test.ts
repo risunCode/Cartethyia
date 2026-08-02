@@ -52,7 +52,7 @@ describe("POST /v1/chat/completions with opencode-free namespace", () => {
       );
 
     const res = await postChat({
-      model: "foc/deepseek-v4-flash-free",
+      model: "opencodeft/deepseek-v4-flash-free",
       messages: [{ role: "user", content: "hi" }],
     });
 

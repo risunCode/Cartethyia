@@ -3,6 +3,8 @@ import type { OpenAIChatRequest } from "../../../translate/types";
 import { ProviderCallError } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
 import { callMaterializingProvider } from "../simple-call";
+import { buildProxyFetcher } from "../../proxy/adapter";
+import type { ProxyTarget } from "../../proxy/types";
 import { commandCodeModelCatalog } from "./models";
 import { buildCommandCodeHeaders, buildCommandCodeRequest, decodeCommandCodeNdjsonStream } from "./transport";
 import { materializeFromStream, materializedToChatResponse } from "../../result";
@@ -35,7 +37,8 @@ class CommandCodeProvider implements Provider {
     target: RouteTarget,
     request: ProviderRequest,
     credential: ResolvedCredential,
-    signal: AbortSignal
+    signal: AbortSignal,
+    proxy?: ProxyTarget | null,
   ): Promise<ProviderResult> {
     if (credential.kind !== "provider-bearer") {
       throw new ProviderCallError(401, "authentication", "A Command Code bearer credential is required.");
@@ -60,6 +63,7 @@ class CommandCodeProvider implements Provider {
         isStreaming: !!chatBody.stream,
         decodeStream: decodeCommandCodeNdjsonStream,
         model: chatBody.model,
+        fetcher: proxy ? buildProxyFetcher(proxy) : undefined,
       },
       materializeFromStream,
       materializedToChatResponse,

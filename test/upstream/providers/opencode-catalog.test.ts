@@ -83,6 +83,25 @@ describe("fetchOpenCodeCatalog — upstream error paths", () => {
     expect(fetchSpy.mock.calls.length).toBe(2);
   });
 
+  test("clears cache after a network failure so the next call retries", async () => {
+    fetchSpy
+      .mockRejectedValueOnce(new Error("The connection was closed."))
+      .mockResolvedValueOnce(catalogOf(["after-network-failure"]));
+    await fetchOpenCodeCatalog().catch(() => {});
+    const catalog = await fetchOpenCodeCatalog();
+    expect(catalog[0]!.id).toBe("after-network-failure");
+    expect(fetchSpy.mock.calls.length).toBe(2);
+  });
+
+  test("throws ProviderCallError(502) when body is invalid JSON", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response("truncated", { status: 200 }));
+    await expect(fetchOpenCodeCatalog()).rejects.toMatchObject({
+      status: 502,
+      kind: "malformed_response",
+      message: "OpenCode catalog returned invalid JSON.",
+    });
+  });
+
   test("throws ProviderCallError(502) when body is a JSON array (unexpected shape)", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify([]), { status: 200, headers: { "content-type": "application/json" } }),

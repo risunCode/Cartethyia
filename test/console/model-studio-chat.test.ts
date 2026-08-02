@@ -72,11 +72,13 @@ describe("Model Studio console log unification", () => {
 
     const line = await lastRequestLogLine();
     expect(line).toBeDefined();
-    expect(line).toContain("\u2705"); // same success glyph real /v1/* traffic gets
-    expect(line).toContain("kimchi/kimi-k2.7");
-    expect(line).toContain("\u2192 200");
-    expect(line).toContain("in:4 out:6");
-    expect(line).toContain("ACC:StudioTestAccount"); // account-label threading works end to end
+    expect(line).toContain("request_success");
+    expect(line).toContain("provider=kimchi");
+    expect(line).toContain("account=StudioTestAccount");
+    expect(line).toContain("status=200");
+    expect(line).toContain("in 4 tokens");
+    expect(line).toContain("out 6 tokens");
+    expect(line).toContain("1msg");
   });
 
   test("compacts a saved context through the shared dispatch pipeline", async () => {
@@ -133,7 +135,7 @@ describe("Model Studio console log unification", () => {
     expect(res.status).toBe(400);
 
     const line = await lastRequestLogLine();
-    expect(line).toContain("\u274c");
-    expect(line).toContain("[400]");
+    expect(line).toContain("request_failed");
+    expect(line).toContain("status=400");
   });
 });

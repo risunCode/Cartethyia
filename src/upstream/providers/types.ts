@@ -6,10 +6,14 @@
 import type { RouteTarget } from "../../routing/types";
 import type { StreamEvent } from "../bridge";
 import type { ProviderModelCatalog } from "./models";
+import type { ProxyTarget } from "../proxy/types";
 
 export interface ResolvedCredential {
-  kind: "none" | "provider-bearer" | "devin-session" | "qoder-pat";
+  kind: "none" | "provider-bearer" | "devin-session" | "qoder-pat" | "oauth";
   value: string;
+  accountId?: string;
+  accountName?: string;
+  providerMetadata?: Record<string, string>;
 }
 
 export type ProviderRequest =
@@ -41,9 +45,9 @@ export type ProviderResult = ProviderStreamResult | ProviderJsonResult;
 export interface ProviderDisplay {
   /** Human label, e.g. "OpenCode Free". */
   readonly name: string;
-  /** Icon file id under `/console/providers/<icon>.png`. */
+  /** Icon file id under `/console/providers/<icon>.png` or `.svg`. */
   readonly icon: string;
-  readonly authKind: "none" | "session" | "api-key";
+  readonly authKind: "none" | "session" | "oauth" | "api-key";
   /** One sentence telling the operator where the credential comes from. */
   readonly authHint: string;
   /** Where to obtain the credential, when the provider publishes one. */
@@ -51,17 +55,26 @@ export interface ProviderDisplay {
 }
 
 export interface Provider {
-  readonly id: "opencode-free" | "opencode-zen" | "commandcode" | "kimchi" | "devin" | "qoder" | "custom" | "cursor" | "openai" | "anthropic" | "pgxiaomi" | "openrouter" | "ollama" | "cerebras" | "deepseek" | "siliconflow" | "mistral" | "opencode-go" | "agentrouter" | "tpxiaomi";
+  readonly id: "opencode-free" | "opencode-zen" | "commandcode" | "kimchi" | "blackbox" | "cline" | "devin" | "qoder" | "custom" | "cursor" | "openai" | "anthropic" | "openai-codex" | "anthropic-oauth" | "grok-cli" | "google-antigravity" | "kiro" | "pgxiaomi" | "openrouter" | "ollama" | "cerebras" | "deepseek" | "siliconflow" | "mistral" | "opencode-go" | "agentrouter" | "nvidia" | "tpxiaomi";
   readonly display: ProviderDisplay;
   readonly models: ProviderModelCatalog;
 
   resolveTarget(modelId: string): Promise<RouteTarget | undefined> | RouteTarget | undefined;
 
+  /**
+   * `proxy`: the outbound network path to use, or `null`/`undefined` for a
+   * direct connection (the default when the global proxy pool is disabled,
+   * or this provider is excluded from it). Fetch-based providers build a
+   * fetcher via `buildProxyFetcher`; providers driving a raw socket (Cursor's
+   * HTTP/2 session) call `connectThroughProxy` instead — both live in
+   * `upstream/proxy/`.
+   */
   call(
     target: RouteTarget,
     request: ProviderRequest,
     credential: ResolvedCredential,
-    signal: AbortSignal
+    signal: AbortSignal,
+    proxy?: ProxyTarget | null,
   ): Promise<ProviderResult>;
 
   /**
@@ -76,6 +89,7 @@ export interface Provider {
     target: RouteTarget,
     body: Record<string, unknown>,
     credential: ResolvedCredential,
-    signal: AbortSignal
+    signal: AbortSignal,
+    proxy?: ProxyTarget | null,
   ): Promise<{ inputTokens: number }>;
 }

@@ -43,9 +43,11 @@ function collectToolNames(value: unknown): string[] {
   return [...names];
 }
 
-function countMessages(surface: string, body: Record<string, unknown>): number {
-  if (surface === "responses") return Array.isArray(body.input) ? body.input.length : 0;
-  return Array.isArray(body.messages) ? body.messages.length : 0;
+export function countPayloadMessages(surface: string, body: unknown): number {
+  const root = asObj(body) ?? {};
+
+  if (surface === "responses") return Array.isArray(root.input) ? root.input.length : 0;
+  return Array.isArray(root.messages) ? root.messages.length : 0;
 }
 
 /** Flattens an OpenAI/Anthropic-shaped `content` (string or content-parts array) down to its text, ignoring images/tool payloads. */
@@ -95,7 +97,7 @@ export function computePayloadMeta(surface: string, body: unknown): PayloadMeta 
   const hasher = new Bun.CryptoHasher("sha256");
   hasher.update(json);
   return {
-    messageCount: countMessages(surface, root),
+    messageCount: countPayloadMessages(surface, root),
     toolNames: collectToolNames(body),
     imageCount: countImagesDeep(body),
     bytes: json.length,

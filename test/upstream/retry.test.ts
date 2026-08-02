@@ -54,6 +54,8 @@ describe("isRetryableError", () => {
     expect(isRetryableError(new Error("overloaded, try again later"))).toBe(true);
     expect(isRetryableError(new Error("capacity exceeded"))).toBe(true);
     expect(isRetryableError(new Error("temporarily unavailable"))).toBe(true);
+    expect(isRetryableError(new Error("The connection was closed."))).toBe(true);
+    expect(isRetryableError(new Error("The operation timed out."))).toBe(true);
   });
 
   test("does NOT retry on generic errors", () => {

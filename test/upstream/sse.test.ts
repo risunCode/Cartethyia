@@ -24,6 +24,11 @@ describe("sse concern — parseSSEStream", () => {
     expect(frames).toEqual([{ event: "message_start", data: '{"a":1}' }]);
   });
 
+  test("parses CRLF-framed events", async () => {
+    const frames = await collect(parseSSEStream(streamOf("event: message\r\ndata: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}]}}]}}\r\n\r\n")));
+    expect(frames).toEqual([{ event: "message", data: '{"response":{"candidates":[{"content":{"parts":[{"text":"hello"}]}}]}}' }]);
+  });
+
   test("parses a data-only frame (no event line)", async () => {
     const frames = await collect(parseSSEStream(streamOf('data: {"a":1}\n\n')));
     expect(frames).toEqual([{ event: undefined, data: '{"a":1}' }]);

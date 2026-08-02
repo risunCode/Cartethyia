@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { providerRegistry } from "../../src/upstream/providers/index";
 import { lookupStaticTarget } from "../../src/routing/resolve";
+import { prefixOf } from "../../src/routing/providerMeta";
 
 describe("provider model catalogs", () => {
   test("resolves only exact upstream model IDs", () => {
@@ -8,7 +9,12 @@ describe("provider model catalogs", () => {
     expect(providerRegistry.get("kimchi")?.models.resolve("glm-5.2-fp8")?.id).toBe("glm-5.2-fp8");
     expect(providerRegistry.get("commandcode")?.models.resolve("deepseek/deepseek-v4-flash")?.id).toBe("deepseek/deepseek-v4-flash");
     expect(providerRegistry.get("opencode-free")?.models.resolve("deepseek-v4-flash-free")?.id).toBe("deepseek-v4-flash-free");
+    expect(providerRegistry.get("opencode-free")?.models.resolve("ling-3.0-flash-free")).toBeUndefined();
     expect(providerRegistry.get("qoder")?.models.resolve("qmodel_latest")?.id).toBe("qmodel_latest");
+    expect(providerRegistry.get("openai-codex")?.models.resolve("gpt-5.6-sol")?.id).toBe("gpt-5.6-sol");
+    expect(providerRegistry.get("anthropic-oauth")?.models.resolve("claude-sonnet-5")?.id).toBe("claude-sonnet-5");
+    expect(providerRegistry.get("anthropic-oauth")?.display).toMatchObject({ name: "Claude Code", icon: "claude-code" });
+    expect(prefixOf("anthropic-oauth")).toBe("claude");
 
     expect(providerRegistry.get("devin")?.models.resolve("swe-1.6-slow")).toBeUndefined();
     expect(providerRegistry.get("kimchi")?.models.resolve("kini-k3")).toBeUndefined();
@@ -23,6 +29,7 @@ describe("provider model catalogs", () => {
     expect(providerRegistry.get("opencode-free")?.models.resolve("north-mini-code-free")?.vision).toBeUndefined();
     expect(providerRegistry.get("opencode-free")?.models.resolve("big-pickle")?.vision).toBe(true);
     expect(providerRegistry.get("opencode-free")?.models.resolve("big-pickle")?.reasoning).toBe(true);
+    expect(providerRegistry.get("opencode-free")?.models.resolve("big-pickle")?.contextWindow).toBe(272000);
     expect(providerRegistry.get("commandcode")?.models.resolve("moonshotai/Kimi-K2.6")?.reasoning).toBe(true);
   });
 
@@ -60,5 +67,13 @@ describe("provider model catalogs", () => {
     expect(qoder?.modelId).toBe("qmodel_latest");
     expect(qoder?.surface).toBe("openai-chat");
     expect(qoder?.credential).toBe("qoder-pat");
+
+    const codex = lookupStaticTarget("openai-codex", "gpt-5.6-sol");
+    expect(codex?.surface).toBe("openai-chat");
+    expect(codex?.credential).toBe("oauth");
+
+    const claude = lookupStaticTarget("anthropic-oauth", "claude-sonnet-5");
+    expect(claude?.surface).toBe("openai-chat");
+    expect(claude?.credential).toBe("oauth");
   });
 });

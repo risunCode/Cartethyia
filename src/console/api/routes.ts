@@ -11,6 +11,9 @@ import { keysRoutes } from "./keys";
 import { overviewRoutes, ipRoute } from "./overview";
 import { usageRoutes } from "./usage";
 import { providersRoutes } from "./providers";
+import { oauthRoutes } from "./oauth";
+import { kiroOAuthRoutes } from "./kiro-oauth";
+import { proxiesRoutes } from "./proxies";
 import { settingsRoutes } from "./settings";
 import { logsRoutes } from "./logs";
 import { combosRoutes } from "./combos";
@@ -37,6 +40,9 @@ export const consoleApiRoutes = new Elysia()
           .use(overviewRoutes)
           .use(usageRoutes)
           .use(providersRoutes)
+          .use(oauthRoutes)
+          .use(kiroOAuthRoutes)
+          .use(proxiesRoutes)
           .use(settingsRoutes)
           .use(logsRoutes)
           .use(combosRoutes)

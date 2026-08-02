@@ -20,13 +20,15 @@ const TABLE_COLUMNS: Record<BackupTable, string[]> = {
   model_aliases: ["alias", "model", "created_at"],
   combos: ["id", "name", "models_json", "strategy", "sticky_limit", "created_at", "updated_at"],
   access_rules: ["scope", "mode", "entries_json", "updated_at"],
-  provider_routing: ["provider", "strategy", "sticky_limit", "updated_at"],
+  provider_routing: ["provider", "strategy", "sticky_limit", "sticky_enabled", "updated_at"],
   provider_accounts: [
     "id", "provider", "name", "credential_kind", "credential", "credential_hint",
     "priority", "active", "cooldown_until", "cooldown_level", "created_at", "updated_at",
   ],
   filter_rules: ["id", "provider", "mode", "patterns_json", "created_at", "updated_at"],
   custom_providers: ["id", "slug", "name", "type", "base_url", "credential", "timeout_seconds", "models_json", "headers_json", "created_at", "updated_at"],
+  proxies: ["id", "name", "protocol", "is_relay", "host", "port", "username", "password", "priority", "active", "cooldown_until", "cooldown_level", "created_at", "updated_at"],
+  proxy_settings: ["id", "enabled", "excluded_providers_json", "smart_dynamic_routing", "smart_dynamic_proxy_count", "updated_at"],
 };
 
 const KNOWN_TABLES = new Set<string>(CONFIG_TABLES);
@@ -34,7 +36,7 @@ const KNOWN_TABLES = new Set<string>(CONFIG_TABLES);
 /** Delete dependent configuration before its providers, then restore in reverse. */
 const DELETE_ORDER: BackupTable[] = [
   "provider_accounts", "provider_routing", "filter_rules", "custom_providers", "access_rules",
-  "combos", "model_aliases", "share_links", "api_keys", "settings",
+  "combos", "model_aliases", "share_links", "api_keys", "proxies", "proxy_settings", "settings",
 ];
 const INSERT_ORDER: BackupTable[] = [...DELETE_ORDER].reverse();
 
@@ -44,7 +46,7 @@ export type RestoreValidation =
 
 /** Normalize one table payload to a row array (settings may be a single object). */
 function normalizeRows(table: string, value: unknown): Row[] | null {
-  if (table === "settings") {
+  if (table === "settings" || table === "proxy_settings") {
     if (Array.isArray(value)) return value as Row[];
     if (value && typeof value === "object") {
       return Object.keys(value).length === 0 ? [] : [value as Row];
@@ -71,7 +73,7 @@ export function validateRestorePayload(payload: unknown): RestoreValidation {
     if (!KNOWN_TABLES.has(key)) return { ok: false, error: `unknown table "${key}" in backup` };
     const table = key as BackupTable;
     const rows = normalizeRows(table, value);
-    if (!rows) return { ok: false, error: `table "${table}" must be ${table === "settings" ? "an object or array" : "an array"}` };
+    if (!rows) return { ok: false, error: `table "${table}" must be ${table === "settings" || table === "proxy_settings" ? "an object or array" : "an array"}` };
 
     const allowed = new Set(TABLE_COLUMNS[table]);
     for (let i = 0; i < rows.length; i++) {

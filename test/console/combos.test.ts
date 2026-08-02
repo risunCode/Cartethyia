@@ -90,12 +90,12 @@ describe("combos CRUD", () => {
     const cookie = await loginAndGetCookie();
 
     const createRes = await app.handle(
-      postJson("/console/api/combos", { name: "my-combo", models: ["kimchi/kimi-k2.7", "foc/deepseek-v4-flash-free"], strategy: "fallback", stickyLimit: 0 }, { cookie })
+      postJson("/console/api/combos", { name: "my-combo", models: ["kimchi/kimi-k2.7", "opencodeft/deepseek-v4-flash-free"], strategy: "fallback", stickyLimit: 0 }, { cookie })
     );
     expect(createRes.status).toBe(201);
     const created = (await createRes.json()) as { id: string; name: string; models: string[]; strategy: string };
     expect(created.name).toBe("my-combo");
-    expect(created.models).toEqual(["kimchi/kimi-k2.7", "foc/deepseek-v4-flash-free"]);
+    expect(created.models).toEqual(["kimchi/kimi-k2.7", "opencodeft/deepseek-v4-flash-free"]);
     expect(created.strategy).toBe("fallback");
 
     const listRes = await app.handle(authed("/console/api/combos", cookie));
@@ -116,7 +116,7 @@ describe("combos CRUD", () => {
   test("combo validation: name required, models >= 2, all models must be qualified", async () => {
     const cookie = await loginAndGetCookie();
 
-    const noName = await app.handle(postJson("/console/api/combos", { models: ["kimchi/kimi-k2.7", "foc/deepseek-v4-flash-free"] }, { cookie }));
+    const noName = await app.handle(postJson("/console/api/combos", { models: ["kimchi/kimi-k2.7", "opencodeft/deepseek-v4-flash-free"] }, { cookie }));
     expect(noName.status).toBe(400);
 
     const oneModel = await app.handle(postJson("/console/api/combos", { name: "x", models: ["kimchi/kimi-k2.7"] }, { cookie }));
@@ -125,13 +125,13 @@ describe("combos CRUD", () => {
     const badModel = await app.handle(postJson("/console/api/combos", { name: "x", models: ["kimchi/kimi-k2.7", "not-a-model"] }, { cookie }));
     expect(badModel.status).toBe(400);
 
-    const ok = await app.handle(postJson("/console/api/combos", { name: "ok", models: ["kimchi/kimi-k2.7", "foc/deepseek-v4-flash-free"] }, { cookie }));
+    const ok = await app.handle(postJson("/console/api/combos", { name: "ok", models: ["kimchi/kimi-k2.7", "opencodeft/deepseek-v4-flash-free"] }, { cookie }));
     expect(ok.status).toBe(201);
   });
 
   test("duplicate combo name → 409", async () => {
     const cookie = await loginAndGetCookie();
-    const payload = { name: "dupe", models: ["kimchi/kimi-k2.7", "foc/deepseek-v4-flash-free"], strategy: "fallback" };
+    const payload = { name: "dupe", models: ["kimchi/kimi-k2.7", "opencodeft/deepseek-v4-flash-free"], strategy: "fallback" };
 
     const first = await app.handle(postJson("/console/api/combos", payload, { cookie }));
     expect(first.status).toBe(201);
@@ -228,7 +228,7 @@ describe("resolve-preview endpoint", () => {
   test("resolves a combo and shows candidates", async () => {
     const cookie = await loginAndGetCookie();
 
-    await app.handle(postJson("/console/api/combos", { name: "my-combo", models: ["kimchi/kimi-k2.7", "foc/deepseek-v4-flash-free"], strategy: "fallback" }, { cookie }));
+    await app.handle(postJson("/console/api/combos", { name: "my-combo", models: ["kimchi/kimi-k2.7", "opencodeft/deepseek-v4-flash-free"], strategy: "fallback" }, { cookie }));
 
     // Mock catalog for opencode-free resolution
     fetchSpy.mockResolvedValue(

@@ -9,8 +9,8 @@
  * protocol) does NOT fit and keeps its own hand-rolled `call()`.
  */
 
-import { ProviderCallError, providerHttpError, safeReadText } from "./index";
-import type { ProviderResult } from "./index";
+import { ProviderCallError, providerHttpError, safeReadText } from "./errors";
+import type { ProviderResult } from "./types";
 import type { StreamEvent } from "../bridge";
 
 export interface SimpleProviderCallOptions {
@@ -44,7 +44,15 @@ export async function callSimpleProvider(opts: SimpleProviderCallOptions): Promi
 
   if (opts.isStreaming) return { type: "stream", events: opts.decodeStream(res.body) };
 
-  const jsonBody: unknown = await res.json();
+  let jsonBody: unknown;
+  try {
+    jsonBody = await res.json();
+  } catch {
+    // A truncated gateway response commonly surfaces as Bun's bare
+    // "Failed to parse JSON" SyntaxError. Give dispatch a typed 502 so it
+    // retries the transient upstream failure instead of stopping at once.
+    throw new ProviderCallError(502, "malformed_response", `${opts.providerLabel} returned invalid JSON.`);
+  }
   if (jsonBody === null || typeof jsonBody !== "object" || Array.isArray(jsonBody)) {
     throw new ProviderCallError(502, "malformed_response", `${opts.providerLabel} returned an unreadable JSON response.`);
   }

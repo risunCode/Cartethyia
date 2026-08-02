@@ -41,6 +41,11 @@ const RETRYABLE_TEXT_PATTERNS = [
   /bad gateway/i,
   /service unavailable/i,
   /gateway timeout/i,
+  /connection(?: was)? closed/i,
+  /socket(?: was)? closed/i,
+  /connection reset/i,
+  /operation timed out/i,
+  /timed out/i,
 ];
 
 export const DEFAULT_RETRY_CONFIG: RetryConfig = {

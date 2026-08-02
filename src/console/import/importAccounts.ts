@@ -16,7 +16,7 @@ export interface AccountImportSummary {
 
 const CHUNK_SIZE = 200;
 
-function parseChunk(lines: ImportLine[]): Promise<WorkerResult> {
+function parseChunk(lines: ImportLine[], provider: string): Promise<WorkerResult> {
   const { promise, resolve, reject } = Promise.withResolvers<WorkerResult>();
   const worker = new Worker(new URL("./accountImportWorker.ts", import.meta.url).href);
   worker.onmessage = (event: MessageEvent<WorkerResult>) => {
@@ -27,7 +27,7 @@ function parseChunk(lines: ImportLine[]): Promise<WorkerResult> {
     worker.terminate();
     reject(event.error ?? new Error(event.message));
   };
-  worker.postMessage({ lines });
+  worker.postMessage({ lines, provider });
   return promise;
 }
 
@@ -44,7 +44,7 @@ export async function importAccountsForProvider(provider: string, text: string):
   if (!isProviderId(provider)) throw new Error(`Unsupported provider: ${provider}`);
   const lines = text.split(/\r?\n/).map((line, index) => ({ line: index + 1, text: line }));
   const chunks = Array.from({ length: Math.ceil(lines.length / CHUNK_SIZE) }, (_, index) => lines.slice(index * CHUNK_SIZE, (index + 1) * CHUNK_SIZE));
-  const results = await Promise.all(chunks.map(parseChunk));
+  const results = await Promise.all(chunks.map((chunk) => parseChunk(chunk, provider)));
   const skipped = results.flatMap((result) => result.skipped);
   const parsed = results.flatMap((result) => result.valid);
   const db = getDb();

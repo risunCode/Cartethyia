@@ -20,6 +20,8 @@ import { resetComboCachesForTests } from "../../src/console/db/repos/combos";
 import { resetProviderModelCacheForTests } from "../../src/console/db/repos/provider-models";
 import { resetProviderRoutingCacheForTests } from "../../src/console/db/repos/routing";
 import { resetAccountRoutingForTests } from "../../src/console/db/repos/accounts";
+import { resetProxyRoutingForTests } from "../../src/console/db/repos/proxies";
+import { resetProxyPoolSettingsCacheForTests } from "../../src/console/db/repos/proxy-settings";
 import { resetCustomProviderSlugCacheForTests } from "../../src/console/db/repos/custom-providers";
 import { resetModelCatalogCacheForTests } from "../../src/routes/status";
 
@@ -39,6 +41,8 @@ export function useIsolatedDataDir(): string {
   resetConsoleLogsForTests();
   resetApiKeyCachesForTests();
   resetAccountRoutingForTests();
+  resetProxyRoutingForTests();
+  resetProxyPoolSettingsCacheForTests();
   resetAccessRuleCacheForTests();
   resetComboCachesForTests();
   resetProviderModelCacheForTests();

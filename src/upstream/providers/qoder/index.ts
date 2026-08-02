@@ -7,6 +7,8 @@ import { ProviderCallError, providerHttpError, safeReadText } from "../index";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "../index";
 import { qoderModelCatalog, QODER_MODEL_CONFIGS, type QoderModelConfig } from "./models";
 import { callQoder, exchangeQoderPat, QODER_CHAT_URL, type QoderAuth } from "./protocol";
+import { buildProxyFetcher } from "../../proxy/adapter";
+import type { ProxyTarget } from "../../proxy/types";
 
 class QoderProvider implements Provider {
   readonly id = "qoder" as const;
@@ -33,7 +35,8 @@ class QoderProvider implements Provider {
     target: RouteTarget,
     request: ProviderRequest,
     credential: ResolvedCredential,
-    signal: AbortSignal
+    signal: AbortSignal,
+    proxy?: ProxyTarget | null,
   ): Promise<ProviderResult> {
     if (credential.kind !== "qoder-pat") {
       throw new ProviderCallError(401, "authentication", "A Qoder personal access token is required.");
@@ -42,7 +45,8 @@ class QoderProvider implements Provider {
       throw new ProviderCallError(400, "invalid_request", "Qoder currently supports the OpenAI Chat shape.");
     }
 
-    const auth = await exchangeQoderPat(credential.value, signal);
+    const fetcher = proxy ? buildProxyFetcher(proxy) : fetch;
+    const auth = await exchangeQoderPat(credential.value, signal, fetcher);
     const modelConfig = QODER_MODEL_CONFIGS[target.modelId];
     if (!modelConfig) {
       throw new ProviderCallError(400, "invalid_request", `Qoder model "${target.modelId}" is not supported.`);
@@ -50,7 +54,7 @@ class QoderProvider implements Provider {
 
     const chatBody = request.body as OpenAIChatRequest;
     const qoderBody = buildQoderRequest(target.modelId, chatBody, modelConfig, auth);
-    const response = await callQoder(QODER_CHAT_URL, qoderBody, target.modelId, auth, signal);
+    const response = await callQoder(QODER_CHAT_URL, qoderBody, target.modelId, auth, signal, fetcher);
     if (!response.ok) {
       throw providerHttpError(response.status, "Qoder", undefined, await safeReadText(response));
     }

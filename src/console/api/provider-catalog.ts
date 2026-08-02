@@ -19,14 +19,15 @@ import { buildProviderOverview } from "./overview";
 import { addAuditEvent } from "../db/repos/audit";
 import { pushConsoleLog } from "../logs/ring";
 import { formatRequestLogLine } from "../tracking/tracker";
-import { listAccounts, listActiveAccountCredentials, getAccount, RESOLVED_KIND_BY_ACCOUNT_KIND, type CredentialKind } from "../db/repos/accounts";
-import { resolveCredentialForDispatch } from "../../upstream/dispatch";
+import { listAccounts, listActiveAccountCredentials, listOAuthAccountRows, getAccount, markAccountHealthy, markAccountUnavailable, disableProviderForQuota, updateAccountHealth, RESOLVED_KIND_BY_ACCOUNT_KIND, type CredentialKind } from "../db/repos/accounts";
+import { pickProxyTarget, resolveCredentialForDispatch } from "../../upstream/dispatch";
 import { getProviderRouting, upsertProviderRouting, type RoutingStrategy } from "../db/repos/routing";
 import { insertUsageHistory, utcNow } from "../db/repos/usage";
 import { extractUsage } from "../tracking/usage-extractor";
 import { deleteProviderModel, isProviderModelEnabled, listProviderModelStates, setAllKnownProviderModels, setProviderModelEnabled, upsertProviderModel } from "../db/repos/provider-models";
 import { extractModelIds, extractResponseSample } from "../../shared/text-utils";
 import { extractStatus } from "../../upstream/retry";
+import { tokenKeeper } from "../../tokenkeeper";
 
 async function collectSample(result: ProviderResult): Promise<string> {
   if (result.type === "json") return extractResponseSample(result.body);
@@ -45,6 +46,9 @@ async function collectSample(result: ProviderResult): Promise<string> {
 }
 
 const MODEL_ENDPOINTS: Partial<Record<AddedProviderId, string>> = {
+  blackbox: "https://api.blackbox.ai/v1",
+  nvidia: "https://integrate.api.nvidia.com/v1",
+  cline: "https://api.cline.bot/api/v1/ai/cline",
   kimchi: "https://llm.kimchi.dev/openai/v1",
   "opencode-zen": "https://opencode.ai/zen/v1",
   openrouter: "https://openrouter.ai/api/v1",
@@ -68,6 +72,23 @@ async function discoverProviderModels(providerId: AddedProviderId): Promise<stri
   if (!provider) return [];
   const endpoint = MODEL_ENDPOINTS[providerId];
   if (!endpoint) return provider.models.list().map((model) => model.id);
+  if (providerId === "cline") {
+    const rows = listOAuthAccountRows().filter((row) => row.provider === "cline" && row.active);
+    if (rows.length === 0) throw new Error("Add an active Cline OAuth account before fetching models.");
+    let lastStatus = 0;
+    for (const row of rows) {
+      const lease = await tokenKeeper.getTokenLease(row.id);
+      const response = await fetch(`${endpoint}/models`, { headers: { authorization: `Bearer workos:${lease.accessToken}` }, signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) {
+        lastStatus = response.status;
+        continue;
+      }
+      const models = extractModelIds(await response.json(), true);
+      if (models.length > 0) return models;
+    }
+    if (lastStatus > 0) throw new Error(`Cline model discovery returned ${lastStatus} for every active account.`);
+    throw new Error("Cline returned no model IDs.");
+  }
   const credentials = await listActiveAccountCredentials(providerId);
   if (credentials.length === 0) throw new Error("Add an active provider account before fetching models.");
   let lastStatus = 0;
@@ -105,6 +126,7 @@ export const providerCatalogRoutes = new Elysia({ prefix: "/console/api" })
         modelCount: new Set([...(provider?.models.list().map((model) => model.id) ?? []), ...listProviderModelStates(id).map((model) => model.modelId)]).size,
         status: overview.get(id)?.status ?? "ok",
         connections: accounts.filter((a) => a.active).length,
+        routing: getProviderRouting(id),
       };
     });
     return { items };
@@ -148,6 +170,7 @@ export const providerCatalogRoutes = new Elysia({ prefix: "/console/api" })
       routing: {
         strategy: routing.strategy,
         stickyLimit: routing.stickyLimit,
+        useStickyLimit: routing.useStickyLimit,
       },
       accounts: listAccounts(params.id),
     };
@@ -198,7 +221,21 @@ export const providerCatalogRoutes = new Elysia({ prefix: "/console/api" })
         return consoleError("invalid_request", "account not found for this provider");
       }
       const kind = RESOLVED_KIND_BY_ACCOUNT_KIND[account.credential_kind as CredentialKind] ?? "provider-bearer";
-      credential = { kind, value: account.credential };
+      if (kind === "oauth") {
+        const lease = await tokenKeeper.getTokenLease(account.id);
+        credential = {
+          kind,
+          value: lease.accessToken,
+          accountName: account.name,
+          providerMetadata: {
+            ...lease.providerMetadata,
+            ...(lease.accountId ? { accountId: lease.accountId } : {}),
+            ...(lease.orgId ? { orgId: lease.orgId } : {}),
+          },
+        };
+      } else {
+        credential = { kind, value: account.credential };
+      }
     } else if (input.mode === "manual") {
       if (target.credential !== "none" && !input.credential) {
         set.status = 400;
@@ -210,6 +247,16 @@ export const providerCatalogRoutes = new Elysia({ prefix: "/console/api" })
       return consoleError("invalid_request", "mode must be 'auto', 'account', or 'manual'");
     }
 
+    const proxy = pickProxyTarget(params.id);
+    const accountLabel = "accountName" in credential && credential.accountName ? credential.accountName : input.accountId ?? "none";
+    const networkPath = proxy?.name ?? proxy?.id ?? "direct";
+    pushConsoleLog("info", "request", formatRequestLogLine({
+      eventName: "incoming",
+      provider: params.id,
+      model: `${params.id}/${modelId}`,
+      accountLabel,
+      networkPath,
+    }));
     const started = performance.now();
     try {
       const result = await provider.call(
@@ -219,9 +266,7 @@ export const providerCatalogRoutes = new Elysia({ prefix: "/console/api" })
           body: {
             model: modelId,
             stream: false,
-            // Large budget so reasoning models still emit visible text
-            // after thinking. System message nudges direct answers.
-            max_tokens: 4096,
+            // Keep the probe payload to parameters accepted across providers.
             messages: [
               { role: "system", content: "Answer directly in 2-4 sentences. Do not explain your reasoning." },
               { role: "user", content: "Hey there! Who are you? If you know your exact model name and version, feel free to share. If not, just tell me your knowledge cutoff date — no worries either way!" },
@@ -229,7 +274,8 @@ export const providerCatalogRoutes = new Elysia({ prefix: "/console/api" })
           },
         },
         credential,
-        AbortSignal.timeout(30_000)
+        AbortSignal.timeout(30_000),
+        proxy,
       );
       const sample = (await collectSample(result)).slice(0, 400);
       const latencyMs = Math.round(performance.now() - started);
@@ -259,14 +305,33 @@ export const providerCatalogRoutes = new Elysia({ prefix: "/console/api" })
         usageSource: usage?.source ?? "missing",
         meta: { kind: "provider-test", accountId: input.accountId ?? null },
       });
-      pushConsoleLog("info", "request", formatRequestLogLine({ model: `${params.id}/${modelId}`, provider: params.id, status: 200, durationMs: latencyMs, usage: usage ?? undefined }));
+      pushConsoleLog("info", "request", formatRequestLogLine({ eventName: "request_success", model: `${params.id}/${modelId}`, provider: params.id, accountLabel, networkPath, status: 200, durationMs: latencyMs, usage: usage ?? undefined, messageCount: 2, toolCount: 0 }));
+      if (input.accountId) markAccountHealthy(input.accountId);
       addAuditEvent("provider.model_test", { provider: params.id, model: modelId, mode: input.mode, ok: true, latencyMs });
       return { resolveOk: true, latencyMs, ok: true, sample: sample || undefined };
     } catch (err) {
       const latencyMs = Math.round(performance.now() - started);
       const message = err instanceof Error ? err.message : String(err);
       const status = extractStatus(err) ?? 502;
-      pushConsoleLog(status >= 500 ? "error" : "warn", "request", formatRequestLogLine({ model: `${params.id}/${modelId}`, provider: params.id, status, durationMs: latencyMs, errorMessage: message }));
+      if (input.accountId) {
+        const isQuotaExhausted = status === 403 && /quota|exhausted|daily limit|usage limit/i.test(message);
+        const healthErrorKind = isQuotaExhausted
+          ? "quota_exhausted"
+          : status === 401 || status === 403 ? "authentication" : "provider_error";
+        markAccountUnavailable(input.accountId, status === 401 || status === 403 ? "auth" : "rate-limit");
+        updateAccountHealth(input.accountId, {
+          status: "error",
+          errorKind: healthErrorKind,
+          statusCode: status,
+          sanitizedMessage: message.slice(0, 500),
+          occurredAt: new Date().toISOString(),
+          retryAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+        });
+        if (isQuotaExhausted) {
+          disableProviderForQuota(params.id, status, message);
+        }
+      }
+      pushConsoleLog(status >= 500 ? "error" : "warn", "request", formatRequestLogLine({ eventName: "request_failed", model: `${params.id}/${modelId}`, provider: params.id, accountLabel, networkPath, status, durationMs: latencyMs, messageCount: 2, toolCount: 0, errorMessage: message }));
       addAuditEvent("provider.model_test", { provider: params.id, model: modelId, mode: input.mode, ok: false, error: message });
       return { resolveOk: true, latencyMs, ok: false, error: message };
     }
@@ -362,19 +427,21 @@ export const providerCatalogRoutes = new Elysia({ prefix: "/console/api" })
     const input = (body ?? {}) as {
       strategy?: string;
       stickyLimit?: number;
+      useStickyLimit?: boolean;
     };
     if (input.strategy !== undefined && input.strategy !== "priority" && input.strategy !== "round-robin") {
       set.status = 400;
       return consoleError("invalid_request", "strategy must be 'priority' or 'round-robin'");
     }
-    if (input.stickyLimit !== undefined && ![0, 1, 2, 3].includes(input.stickyLimit)) {
+    if (input.stickyLimit !== undefined && (!Number.isFinite(input.stickyLimit) || input.stickyLimit < 1 || input.stickyLimit > 100)) {
       set.status = 400;
-      return consoleError("invalid_request", "stickyLimit must be 0, 1, 2, or 3");
+      return consoleError("invalid_request", "stickyLimit must be between 1 and 100");
     }
     const next = upsertProviderRouting(params.id, {
       strategy: input.strategy as RoutingStrategy | undefined,
       stickyLimit: input.stickyLimit,
+      useStickyLimit: input.useStickyLimit,
     });
-    addAuditEvent("provider.routing", { provider: params.id, strategy: next.strategy, stickyLimit: next.stickyLimit });
+    addAuditEvent("provider.routing", { provider: params.id, strategy: next.strategy, stickyLimit: next.stickyLimit, useStickyLimit: next.useStickyLimit });
     return { ok: true, routing: next };
   });

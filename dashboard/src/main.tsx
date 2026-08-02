@@ -13,21 +13,6 @@ setUnauthorizedHandler(() => {
   void router.navigate("/login", { replace: true });
 });
 
-// Warm route chunks after the first paint so sidebar navigation does not leave
-// the previous page visible while a rarely visited lazy route downloads.
-window.setTimeout(() => {
-  void Promise.allSettled([
-    import("./features/overview/page"),
-    import("./features/usage/page"),
-    import("./features/providers/page"),
-    import("./features/providers/custom-detail"),
-    import("./features/providers/detail"),
-    import("./features/combos/page"),
-    import("./features/console-log/page"),
-    import("./features/settings/page"),
-  ]);
-}, 1200);
-
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <Providers>

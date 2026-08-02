@@ -4,9 +4,9 @@
  */
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUpDown, Bot, Brain, Cable, Copy, ExternalLink, Eye, FileUp, FlaskConical, Globe, Info, Loader2, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, Bot, Brain, Cable, CheckCircle2, Copy, ExternalLink, Eye, FileJson, FileUp, FlaskConical, Globe, Info, Loader2, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { ApiError, apiGet, apiPost, apiDelete } from "../../lib/api";
 import { cn } from "../../lib/cn";
@@ -14,16 +14,15 @@ import { extractCredentialFromPaste } from "../../lib/credentialExtract";
 import { formatDuration, formatTokens } from "../../lib/format";
 import { staggerClass } from "../../lib/motion";
 import { useWindowedList } from "../../hooks/use-windowed-list";
-import { Badge, Skeleton } from "../../components/ui/badge";
+import { Skeleton } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Dialog } from "../../components/ui/dialog";
 import { Input, Label } from "../../components/ui/input";
-import { Select } from "../../components/ui/tabs";
 
 import { StatusDot } from "../../components/status-dot";
 import { ProviderIcon } from "../../components/provider-icon";
-import { ConfirmDialog } from "../../components/shared";
+import { Switch } from "../../components/ui/switch";
 
 interface ModelPricing {
   input: number;
@@ -58,20 +57,23 @@ interface AccountEntry {
   name: string;
   credentialKind: string;
   credentialHint: string;
-  priority: number;
   active: boolean;
-}
-
-interface RoutingConfig {
-  strategy: "priority" | "round-robin";
-  stickyLimit: number;
+  health: {
+    status: "healthy" | "refreshing" | "error" | "disabled" | "reauthentication-required";
+    errorKind: string | null;
+    statusCode: number | null;
+    sanitizedMessage: string | null;
+    occurredAt: string | null;
+    retryAt: string | null;
+    lastRefreshAt: string | null;
+  } | null;
 }
 
 interface ProviderDetail {
   id: string;
   name: string;
   icon: string;
-  authKind: "none" | "session" | "api-key";
+  authKind: "none" | "session" | "oauth" | "api-key";
   authHint: string;
   credentialUrl: string | null;
   /** bearer/pat/session-token — the credentialKind the account form must submit for this provider. */
@@ -84,7 +86,6 @@ interface ProviderDetail {
   };
   status: "ok" | "warn";
   usageToday: { requestsToday: number; input: number; cached: number; output: number; errors: number; lastError: string | null } | null;
-  routing: RoutingConfig;
   accounts: AccountEntry[];
 }
 
@@ -101,10 +102,31 @@ type AccountTestStatus =
   | { state: "passed"; latencyMs: number }
   | { state: "failed"; error: string };
 
-type AccountSortKey = "name" | "priority" | "status";
+type AccountSortKey = "name" | "status";
 
 function errorMessage(err: unknown): string {
-  return err instanceof ApiError ? err.message : "request failed";
+  if (err instanceof ApiError || err instanceof Error) return err.message;
+  return "request failed";
+}
+
+function formatRetryCountdown(retryAt: string | null): string {
+  if (!retryAt) return "";
+  const remaining = Math.max(0, new Date(retryAt).getTime() - Date.now());
+  if (remaining <= 0) return "retrying soon";
+  const minutes = Math.ceil(remaining / 60_000);
+  if (minutes >= 60) return `retry in ${Math.ceil(minutes / 60)}h`;
+  return `retry in ${minutes}m`;
+}
+
+function accountHealthLabel(account: AccountEntry): string | null {
+  const health = account.health;
+  if (!health || health.status === "healthy" || health.status === "refreshing") return null;
+  if (health.status === "reauthentication-required") return "Re-authentication required";
+  const statusLabel = health.status === "disabled"
+    ? "Disabled"
+    : health.statusCode === 502 ? "502 Bad Gateway" : health.statusCode ? `${health.statusCode} error` : health.errorKind ?? "Provider error";
+  const retry = formatRetryCountdown(health.retryAt);
+  return retry ? `${statusLabel} · ${retry}` : statusLabel;
 }
 
 function renderInlineMarkdown(text: string): ReactNode[] {
@@ -154,10 +176,15 @@ async function copyToClipboard(text: string): Promise<void> {
  * One mutation instance is shared across every model card on the page, so
  * `pendingModelId` names which model (if any) is currently in flight.
  */
+function selectAccountTestModel(providerId: string, models: ModelEntry[]): ModelEntry | undefined {
+  const preferredId = providerId === "openai-codex" ? "gpt-5.4-mini" : null;
+  return (preferredId ? models.find((model) => model.id === preferredId) : undefined) ?? models[0];
+}
+
 function useAccountConnectionTest(providerId: string, models: ModelEntry[], onStatus: (accountId: string, status: AccountTestStatus) => void) {
   const testMutation = useMutation({
     mutationFn: async (accounts: AccountEntry[]) => {
-      const model = models[0];
+      const model = selectAccountTestModel(providerId, models);
       if (!model) throw new Error("No model is available to test this connection.");
       const results: Array<{ account: AccountEntry; result: TestResult }> = new Array(accounts.length);
       // A small worker pool avoids serial tests while respecting provider limits.
@@ -202,24 +229,7 @@ function useAccountConnectionTest(providerId: string, models: ModelEntry[], onSt
   };
 }
 
-/**
- * Copies one account's credential. The secret is fetched on demand rather
- * than carried in the accounts list, so it only crosses the wire when the
- * operator actually clicks copy.
- */
-function useCredentialCopy(providerId: string) {
-  return useMutation({
-    mutationFn: async (account: AccountEntry) => {
-      const { credential } = await apiGet<{ credential: string }>(`/providers/${providerId}/accounts/${account.id}/credential`);
-      await navigator.clipboard.writeText(credential);
-      return account.name;
-    },
-    onSuccess: (name) => toast.success(`Copied ${name}'s credential`),
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-}
-
-function useModelTest(providerId: string, authKind: "none" | "session" | "api-key", accounts: AccountEntry[], onAddAccount: () => void) {
+function useModelTest(providerId: string, authKind: "none" | "session" | "oauth" | "api-key", accounts: AccountEntry[], onAddAccount: () => void) {
   const activeAccounts = accounts.filter((a) => a.active);
   const needsAccount = authKind !== "none" && activeAccounts.length === 0;
 
@@ -261,9 +271,131 @@ const CREDENTIAL_PASTE_HINTS: Record<string, string> = {
     "the access token is auto-extracted from data.access.",
   devin: "Paste the session token, or a full exported JSON containing an access/session field — it's auto-extracted.",
   qoder: "Paste the PAT (personal access token) directly.",
+  "openai-codex": "Paste the full OMP OAuth JSON export containing access, refresh, expires, accountId, and email — it is converted automatically.",
+  "anthropic-oauth": "Paste the full OMP OAuth JSON export containing access, refresh, expires, accountId, and email — it is converted automatically.",
+  "grok-cli": "Paste a Grok CLI OAuth export containing access, refresh, expires, userId, and email — it is converted automatically.",
+  "google-antigravity": "Paste an Antigravity OAuth export containing access, refresh, expires, projectId, and email — it is converted automatically.",
+  cline: "Paste a Cline OAuth export containing accessToken, refreshToken, and expiresAt — it is converted automatically.",
 };
 
 // ── Account create/edit modal ────────────────────────────────────────────
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseBulkOAuthJson(text: string): Record<string, unknown>[] {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error("Paste at least one OAuth JSON object.");
+
+  const parseValue = (value: unknown): Record<string, unknown>[] => {
+    if (Array.isArray(value)) return value.filter(isJsonRecord);
+    if (!isJsonRecord(value)) return [];
+    for (const key of ["accounts", "credentials", "items"]) {
+      if (Array.isArray(value[key])) return value[key].filter(isJsonRecord);
+    }
+    return [value];
+  };
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    const records = parseValue(parsed);
+    if (records.length > 0) return records;
+  } catch {
+    const records = trimmed.split(/\r?\n/).flatMap((line) => {
+      try {
+        const parsed: unknown = JSON.parse(line);
+        return parseValue(parsed);
+      } catch {
+        return [];
+      }
+    });
+    if (records.length > 0) return records;
+  }
+  throw new Error("OAuth import expects a JSON object, array, or newline-delimited JSON objects.");
+}
+
+function bulkOAuthAccountName(record: Record<string, unknown>, index: number, used: Set<string>): string {
+  const preferred = [record.name, record.email, record.accountId, record.id].find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim();
+  const base = preferred ?? `openai-codex-${index + 1}`;
+  let name = base;
+  let suffix = 2;
+  while (used.has(name)) name = `${base} (${suffix++})`;
+  used.add(name);
+  return name;
+}
+
+function BulkOAuthModal({
+  providerId,
+  accounts,
+  onClose,
+}: {
+  providerId: string;
+  accounts: AccountEntry[];
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [text, setText] = useState("");
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const records = parseBulkOAuthJson(text);
+      const used = new Set(accounts.map((account) => account.name));
+      let imported = 0;
+      const failed: string[] = [];
+      for (const [index, record] of records.entries()) {
+        const name = bulkOAuthAccountName(record, index, used);
+        try {
+          await apiPost(`/providers/${providerId}/accounts`, {
+            name,
+            credentialKind: "oauth",
+            credential: JSON.stringify(record),
+          });
+          imported++;
+        } catch (error) {
+          failed.push(`${name}: ${errorMessage(error)}`);
+        }
+      }
+      return { imported, failed };
+    },
+    onSuccess: ({ imported, failed }) => {
+      if (imported > 0) {
+        toast.success(`${imported} Codex connection${imported === 1 ? "" : "s"} imported`);
+        void queryClient.invalidateQueries({ queryKey: ["provider", providerId] });
+        void queryClient.invalidateQueries({ queryKey: ["provider-accounts", providerId] });
+      }
+      if (failed.length > 0) {
+        toast.error(`${failed.length} connection${failed.length === 1 ? "" : "s"} skipped`, { description: failed.slice(0, 3).join("\n") });
+      }
+      if (failed.length === 0) onClose();
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+
+  return (
+    <Dialog open onClose={onClose} title="Add Codex connections" wide>
+      <div className="space-y-3">
+        <div>
+          <p className="text-sm text-[var(--text-2)]">Paste a JSON object, a JSON array, or newline-delimited OAuth exports. Each valid entry becomes a separate OpenAI Codex account.</p>
+          <p className="mt-1 text-[11px] text-[var(--text-3)]">Supported fields: access/accessToken, refresh/refreshToken, expires/expiresAt, accountId, and email.</p>
+        </div>
+        <textarea
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          placeholder={'[{"access":"…","refresh":"…","expires":1735689600000,"accountId":"…","email":"…"}]'}
+          aria-label="Codex OAuth JSON exports"
+          className="min-h-48 w-full resize-y rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2.5 font-mono text-[11px] text-[var(--text-1)] outline-none placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+          spellCheck={false}
+        />
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button disabled={!text.trim() || mutation.isPending} onClick={() => mutation.mutate()}>
+            <FileJson size={14} /> {mutation.isPending ? "Importing…" : "Import connections"}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
 function AccountModal({
   providerId,
   expectedKind,
@@ -299,15 +431,17 @@ function AccountModal({
   // as a JSON object.
   const trimmedCredential = credential.trim();
   const detectedCredential = extractCredentialFromPaste(trimmedCredential);
-  const credentials = detectedCredential.extracted
-    ? [detectedCredential.value]
-    : credential.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  const credentials = expectedKind === "oauth"
+    ? (trimmedCredential ? [trimmedCredential] : [])
+    : detectedCredential.extracted
+      ? [detectedCredential.value]
+      : credential.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
 
   const mutation = useMutation({
     mutationFn: async (): Promise<number> => {
       if (existing) {
         const patch: Record<string, unknown> = { name: name.trim() };
-        if (credential) patch.credential = extractCredentialFromPaste(credential).value;
+        if (credential) patch.credential = expectedKind === "oauth" ? credential.trim() : extractCredentialFromPaste(credential).value;
         await apiPost<{ ok?: boolean }>(`/providers/${providerId}/accounts/${existing.id}`, patch);
         return 1;
       }
@@ -374,11 +508,11 @@ function AccountModal({
                 try {
                   const text = await navigator.clipboard.readText();
                   setCredential(text);
-                  const extracted = extractCredentialFromPaste(text);
-                  if (extracted.extracted) {
+                  const extracted = expectedKind === "oauth" ? null : extractCredentialFromPaste(text);
+                  if (extracted?.extracted) {
                     toast.success(`Detected credential from JSON (${extracted.source ?? "data"})`);
                   } else {
-                    toast.success("Pasted from clipboard");
+                    toast.success(expectedKind === "oauth" ? "Pasted OAuth account JSON" : "Pasted from clipboard");
                   }
                 } catch {
                   toast.error("Clipboard access denied");
@@ -398,21 +532,271 @@ function AccountModal({
   );
 }
 
+interface OAuthLoginStart {
+  sessionId: string;
+  provider: string;
+  status: string;
+  authorizationUrl: string;
+  redirectUri: string;
+  instructions: string;
+  expiresAt: number;
+}
+
+interface OAuthLoginStatus {
+  sessionId: string;
+  provider: string;
+  status: string;
+  accountId?: string;
+  errorKind?: string;
+  errorMessage?: string;
+  expiresAt: number;
+}
+
+function KiroOAuthDialog({ onClose, onConnected, accountName }: { onClose: () => void; onConnected: () => void; accountName: string }) {
+  const [method, setMethod] = useState<"builder-id" | "idc" | "import">("builder-id");
+  const [name, setName] = useState(accountName);
+  const [refreshToken, setRefreshToken] = useState("");
+  const [session, setSession] = useState<{ sessionId: string; verificationUri: string; userCode: string; intervalSeconds: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    if (!session) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const result = await apiPost<{ status: string; intervalSeconds?: number; accountId?: string }>(`/providers/kiro/oauth/device/${session.sessionId}/poll`, {});
+        if (stopped) return;
+        if (result.status === "completed") { toast.success("Kiro OAuth account connected"); onConnected(); return; }
+        window.setTimeout(() => void poll(), Math.max(2, result.intervalSeconds ?? session.intervalSeconds) * 1000);
+      } catch (error) { if (!stopped) { setMessage(errorMessage(error)); setSession(null); } }
+    };
+    const timer = window.setTimeout(() => void poll(), session.intervalSeconds * 1000);
+    return () => { stopped = true; window.clearTimeout(timer); };
+  }, [session, onConnected]);
+  const start = async () => {
+    setBusy(true); setMessage("");
+    try {
+      if (method === "import") {
+        await apiPost(`/providers/kiro/oauth/import`, { name: name.trim(), refreshToken: refreshToken.trim() });
+        toast.success("Kiro token imported"); onConnected(); return;
+      }
+      const result = await apiPost<{ sessionId: string; verificationUri: string; userCode: string; intervalSeconds: number }>(`/providers/kiro/oauth/device/start`, { name: name.trim(), method });
+      setSession(result);
+    } catch (error) { setMessage(errorMessage(error)); } finally { setBusy(false); }
+  };
+  return <Dialog open onClose={onClose} title="Connect Kiro OAuth" footer={<div className="flex w-full justify-between gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={busy || !name.trim() || (method === "import" && !refreshToken.trim()) || Boolean(session)} onClick={() => void start()}>{busy ? "Starting…" : method === "import" ? "Import token" : "Start authorization"}</Button></div>}>
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-1 rounded-xl bg-[var(--hover)] p-1 text-xs"><button className={cn("rounded-lg px-2 py-2", method === "builder-id" && "bg-[var(--card)] font-semibold")} onClick={() => setMethod("builder-id")}>Builder ID</button><button className={cn("rounded-lg px-2 py-2", method === "idc" && "bg-[var(--card)] font-semibold")} onClick={() => setMethod("idc")}>IAM Identity</button><button className={cn("rounded-lg px-2 py-2", method === "import" && "bg-[var(--card)] font-semibold")} onClick={() => setMethod("import")}>Import</button></div>
+      <Label>Account name<Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Kiro account" /></Label>
+      {method === "import" ? <Label>Refresh token<textarea value={refreshToken} onChange={(event) => setRefreshToken(event.target.value)} className="min-h-24 w-full rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3 font-mono text-xs" placeholder="Paste Kiro refresh token" /></Label> : session ? <div className="space-y-3 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3"><div className="text-sm font-semibold">Open Kiro authorization</div><a className="break-all text-xs text-[var(--accent)] hover:underline" href={session.verificationUri} target="_blank" rel="noreferrer">{session.verificationUri}</a><div className="font-mono text-xl tracking-widest">{session.userCode}</div><p className="text-xs text-[var(--text-3)]">Authorize in the browser. This dialog will connect automatically.</p></div> : <p className="text-xs leading-5 text-[var(--text-2)]">Kiro registers a public OAuth client and opens the AWS device authorization flow. No secret is stored in the browser.</p>}
+      {message && <div className="rounded-xl border border-[var(--red)]/40 px-3 py-2 text-xs text-[var(--red)]">{message}</div>}
+    </div>
+  </Dialog>;
+}
+
+function OAuthConnectDialog({
+  providerId,
+  session,
+  status,
+  callbackValue,
+  onCallbackValueChange,
+  onComplete,
+  onCancel,
+  completing,
+}: {
+  providerId: string;
+  session: OAuthLoginStart;
+  status: OAuthLoginStatus | null;
+  callbackValue: string;
+  onCallbackValueChange: (value: string) => void;
+  onComplete: () => void;
+  onCancel: () => void;
+  completing: boolean;
+}) {
+  const providerName = providerId === "openai-codex" ? "OpenAI Codex" : providerId === "anthropic-oauth" ? "Claude Code" : providerId === "grok-cli" ? "Grok CLI" : providerId === "google-antigravity" ? "Antigravity" : "Cline";
+  const waiting = status?.status === "waiting-for-user" || status?.status === "exchanging-code";
+  const isDeviceFlow = providerId === "grok-cli";
+  const hasCallback = Boolean(callbackValue.trim());
+  const statusMessage = status?.status === "exchanging-code"
+    ? "Finishing authorization…"
+    : status?.status === "completed"
+      ? "Connected successfully"
+      : status && status.status !== "waiting-for-user"
+        ? status.errorMessage ?? status.errorKind ?? "Authorization failed"
+        : "Waiting for popup authorization…";
+  const statusTone = status?.status === "completed"
+    ? "text-[var(--green)]"
+    : status && !waiting
+      ? "text-[var(--red)]"
+      : "text-[var(--text-2)]";
+
+  const pasteCallback = async () => {
+    try {
+      if (!navigator.clipboard) throw new Error("unavailable");
+      const value = await navigator.clipboard.readText();
+      if (!value.trim()) {
+        toast.error("Clipboard is empty");
+        return;
+      }
+      onCallbackValueChange(value);
+      toast.success("Pasted redirect URL");
+    } catch {
+      toast.error("Clipboard unavailable on this origin");
+    }
+  };
+
+  return (
+    <Dialog
+      open
+      onClose={onCancel}
+      title={`Connect ${providerName}`}
+      footer={
+        <div className="flex w-full items-center justify-between gap-2">
+          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button disabled={(!isDeviceFlow && !hasCallback) || completing || !waiting} onClick={onComplete}>
+            {completing ? "Checking…" : isDeviceFlow ? "Check authorization" : "Connect"}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <div className="flex items-center gap-2.5 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3.5 py-3">
+          {status?.status === "completed" ? (
+            <CheckCircle2 size={18} className="shrink-0 text-[var(--green)]" aria-hidden="true" />
+          ) : (
+            <Loader2 size={18} className="shrink-0 animate-spin text-[var(--accent)]" aria-hidden="true" />
+          )}
+          <span className={cn("text-sm font-medium", statusTone)}>{statusMessage}</span>
+        </div>
+
+        <div className="flex items-center gap-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-3)] before:h-px before:flex-1 before:bg-[var(--inner-border)] after:h-px after:flex-1 after:bg-[var(--inner-border)]">
+          Or paste callback URL manually
+        </div>
+
+        <section className="space-y-2">
+          <div className="text-sm font-semibold">Step 1: Open this URL in your browser</div>
+          <div className="flex min-w-0 gap-2">
+            <a
+              href={session.authorizationUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="min-w-0 flex-1 truncate rounded-xl bg-[var(--hover)] px-3 py-2.5 font-mono text-[11px] text-[var(--accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              title={session.authorizationUrl}
+            >
+              {session.authorizationUrl}
+            </a>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="shrink-0"
+              aria-label="Copy OAuth authorization URL"
+              onClick={() => void copyToClipboard(session.authorizationUrl)}
+            >
+              <Copy size={14} aria-hidden="true" /> Copy
+            </Button>
+          </div>
+          <p className="text-[11px] leading-4 text-[var(--text-3)]">{session.instructions}</p>
+        </section>
+
+        <section className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm font-semibold">{isDeviceFlow ? "Step 2: Check device authorization" : "Step 2: Paste the callback URL here"}</div>
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={() => void pasteCallback()}>Paste</Button>
+          </div>
+          <p className="text-[11px] leading-4 text-[var(--text-3)]">{isDeviceFlow ? "After authorization, press Check authorization until the account is connected." : "After authorization, copy the full URL from your browser."}</p>
+          <textarea
+            value={callbackValue}
+            onChange={(event) => onCallbackValueChange(event.target.value)}
+            placeholder={`${session.redirectUri}?code=…`}
+            name="oauth-redirect-url"
+            autoComplete="off"
+            aria-label="Final redirect URL or authorization code"
+            className="min-h-16 max-h-24 w-full resize-y rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2.5 font-mono text-[11px] text-[var(--text-1)] outline-none placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            spellCheck={false}
+          />
+        </section>
+
+        {status && status.status !== "waiting-for-user" && status.status !== "completed" && (
+          <div className="rounded-xl border border-[var(--red)]/40 bg-[var(--red)]/5 px-3 py-2 text-xs text-[var(--red)]">
+            {statusMessage}
+          </div>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────
 
 export function ProviderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const [accountModal, setAccountModal] = useState<{ open: boolean; existing: AccountEntry | null }>({ open: false, existing: null });
-  const [deleteTarget, setDeleteTarget] = useState<AccountEntry | null>(null);
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
-  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [manualModelId, setManualModelId] = useState("");
   const [accountTestStatus, setAccountTestStatus] = useState<Record<string, AccountTestStatus>>({});
-  const [accountSort, setAccountSort] = useState<{ key: AccountSortKey; direction: "asc" | "desc" }>({ key: "priority", direction: "asc" });
+  const [accountSort, setAccountSort] = useState<{ key: AccountSortKey; direction: "asc" | "desc" }>({ key: "name", direction: "asc" });
+  const [oauthSession, setOauthSession] = useState<OAuthLoginStart | null>(null);
+  const [oauthCallbackValue, setOauthCallbackValue] = useState("");
+  const [bulkOAuthModal, setBulkOAuthModal] = useState(false);
+  const [kiroOAuthModal, setKiroOAuthModal] = useState(false);
+  const oauthPopupRef = useRef<Window | null>(null);
 
-  // Routing form state (synced from server on load)
-  const [routing, setRouting] = useState<RoutingConfig | null>(null);
+  const oauthStatusQuery = useQuery({
+    queryKey: ["oauth-login", oauthSession?.sessionId],
+    queryFn: () => apiGet<OAuthLoginStatus>(`/oauth/login/${oauthSession!.sessionId}`),
+    enabled: Boolean(oauthSession),
+    refetchInterval: 2_000,
+  });
+  const oauthStartMutation = useMutation({
+    mutationFn: (name: string) => apiPost<OAuthLoginStart>(`/providers/${id}/oauth/login`, { name }),
+    onSuccess: (session) => {
+      setOauthSession(session);
+      setOauthCallbackValue("");
+      if (oauthPopupRef.current && !oauthPopupRef.current.closed) {
+        oauthPopupRef.current.location.href = session.authorizationUrl;
+        oauthPopupRef.current.focus();
+      } else {
+        oauthPopupRef.current = window.open(session.authorizationUrl, "cartethyia-oauth", "popup,width=520,height=720");
+      }
+    },
+    onError: (error) => {
+      oauthPopupRef.current?.close();
+      oauthPopupRef.current = null;
+      toast.error(errorMessage(error));
+    },
+  });
+  const oauthCompleteMutation = useMutation({
+    mutationFn: () => apiPost<OAuthLoginStatus>(`/oauth/login/${oauthSession!.sessionId}/complete`, { value: oauthCallbackValue.trim() }),
+    onSuccess: (status) => {
+      if (status.status === "completed") {
+        toast.success("OAuth account connected");
+        void queryClient.invalidateQueries({ queryKey: ["provider", id] });
+        void queryClient.invalidateQueries({ queryKey: ["provider-accounts", id] });
+        oauthPopupRef.current?.close();
+        oauthPopupRef.current = null;
+        setOauthSession(null);
+        setOauthCallbackValue("");
+      }
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  const startOAuth = () => {
+    oauthPopupRef.current?.close();
+    oauthPopupRef.current = window.open("about:blank", "cartethyia-oauth", "popup,width=520,height=720");
+    oauthStartMutation.mutate(`${data?.name ?? id} ${(data?.accounts.length ?? 0) + 1}`);
+  };
+
+  const oauthCancelMutation = useMutation({
+    mutationFn: () => apiPost(`/oauth/login/${oauthSession!.sessionId}/cancel`, {}),
+    onSuccess: () => {
+      oauthPopupRef.current?.close();
+      oauthPopupRef.current = null;
+      setOauthSession(null);
+      setOauthCallbackValue("");
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["provider", id],
@@ -446,45 +830,26 @@ export function ProviderDetailPage() {
     return [...pagedAccounts].sort((left, right) => {
       const comparison = accountSort.key === "name"
         ? left.name.localeCompare(right.name)
-        : accountSort.key === "priority"
-          ? left.priority - right.priority
-          : accountStatusRank(left) - accountStatusRank(right);
+        : accountStatusRank(left) - accountStatusRank(right);
       return accountSort.direction === "asc" ? comparison : -comparison;
     });
   }, [accountSort, accountTestStatus, pagedAccounts]);
   const accountWindow = useWindowedList(sortedAccounts, 56);
 
-  useEffect(() => {
-    if (data && !routing) {
-      setRouting(data.routing);
-    }
-  }, [data, routing]);
-
-  const routingMutation = useMutation({
-    mutationFn: (config: RoutingConfig) => apiPost<{ ok: boolean; routing: RoutingConfig }>(`/providers/${id}/routing`, config),
-    onSuccess: ({ routing: savedRouting }) => {
-      setRouting(savedRouting);
-      void queryClient.invalidateQueries({ queryKey: ["provider", id] });
+  // Auto-loads the next accounts page once the scroll position nears the
+  // bottom of the (still row-virtualized) table container, instead of
+  // requiring a manual "Load more" click.
+  const handleAccountsScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      accountWindow.onScroll();
+      const el = event.currentTarget;
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
+      if (nearBottom && accountsQuery.hasNextPage && !accountsQuery.isFetchingNextPage) {
+        void accountsQuery.fetchNextPage();
+      }
     },
-    onError: async (err) => {
-      toast.error(errorMessage(err));
-      const current = await queryClient.fetchQuery({
-        queryKey: ["provider", id],
-        queryFn: () => apiGet<ProviderDetail>(`/providers/${id}`),
-      });
-      setRouting(current.routing);
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (accountId: string) => apiDelete<{ ok: boolean }>(`/providers/${id}/accounts/${accountId}`),
-    onSuccess: () => {
-      toast.success("Account deleted");
-      setDeleteTarget(null);
-      void queryClient.invalidateQueries({ queryKey: ["provider", id] });
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
+    [accountWindow, accountsQuery],
+  );
 
   // Bulk actions reuse the single-account endpoints — there is no bulk
   // route on the server, so this fires the existing PATCH/DELETE per selected
@@ -496,9 +861,27 @@ export function ProviderDetailPage() {
       toast.success(`${ids.length} account${ids.length === 1 ? "" : "s"} ${active ? "enabled" : "disabled"}`);
       setSelectedAccounts(new Set());
       void queryClient.invalidateQueries({ queryKey: ["provider", id] });
+      void queryClient.invalidateQueries({ queryKey: ["provider-accounts", id] });
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) => Promise.all(ids.map((accountId) => apiDelete<{ ok: boolean }>(`/providers/${id}/accounts/${accountId}`))),
+    onSuccess: (_result, ids) => {
+      toast.success(`Deleted ${ids.length} account${ids.length === 1 ? "" : "s"}`);
+      setSelectedAccounts(new Set());
+      void queryClient.invalidateQueries({ queryKey: ["provider", id] });
+      void queryClient.invalidateQueries({ queryKey: ["provider-accounts", id] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const deleteSelectedAccounts = () => {
+    const ids = [...selectedAccounts];
+    if (ids.length === 0 || bulkDeleteMutation.isPending) return;
+    if (window.confirm(`Delete ${ids.length} selected account${ids.length === 1 ? "" : "s"}? This cannot be undone.`)) bulkDeleteMutation.mutate(ids);
+  };
 
   const modelMutation = useMutation({
     mutationFn: ({ path, body, method = "POST" }: { path: string; body?: Record<string, unknown>; method?: "POST" | "DELETE" }) =>
@@ -512,41 +895,15 @@ export function ProviderDetailPage() {
     onError: (err) => toast.error(errorMessage(err)),
   });
 
-  const bulkDeleteMutation = useMutation({
-    // `Promise.all` fails the whole batch the instant *one* delete rejects —
-    // every already-in-flight request still completes and deletes server-side
-    // regardless, so that read as "nothing was deleted" when everything (or
-    // almost everything) actually was. A bounded worker pool (same pattern as
-    // the connection tester above) plus per-item try/catch reports the real
-    // outcome instead, and avoids hammering SQLite with dozens of concurrent
-    // deletes for a large batch.
-    mutationFn: async (ids: string[]) => {
-      const failed: string[] = [];
-      const workerCount = Math.min(ids.length, 4);
-      let nextIndex = 0;
-      const worker = async () => {
-        while (nextIndex < ids.length) {
-          const accountId = ids[nextIndex++]!;
-          try {
-            await apiDelete<{ ok: boolean }>(`/providers/${id}/accounts/${accountId}`);
-          } catch {
-            failed.push(accountId);
-          }
-        }
-      };
-      await Promise.all(Array.from({ length: workerCount }, worker));
-      return { total: ids.length, failed: failed.length };
-    },
-    onSuccess: ({ total, failed }) => {
-      const deleted = total - failed;
-      if (failed === 0) toast.success(`${total} account${total === 1 ? "" : "s"} deleted`);
-      else toast.error(`${failed} of ${total} account${total === 1 ? "" : "s"} failed to delete`, { description: `${deleted} deleted successfully.` });
-      setSelectedAccounts(new Set());
-      setBulkDeleteConfirm(false);
+  const deleteFetchedModelsMutation = useMutation({
+    mutationFn: (modelIds: string[]) => Promise.all(modelIds.map((modelId) => apiDelete<{ ok: boolean }>(`/providers/${id}/models/${encodeURIComponent(modelId)}`))),
+    onSuccess: (_result, modelIds) => {
+      toast.success(`Deleted ${modelIds.length} fetched model${modelIds.length === 1 ? "" : "s"}`);
       void queryClient.invalidateQueries({ queryKey: ["provider", id] });
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
+
 
   // Declared unconditionally, ahead of the loading-state early return below
   // (rules of hooks) — falls back to safe empty values until `data` arrives.
@@ -560,7 +917,17 @@ export function ProviderDetailPage() {
     setAccountTestStatus((previous) => ({ ...previous, [accountId]: status }));
   }, []);
   const accountConnectionTest = useAccountConnectionTest(id ?? "", data?.models ?? [], updateAccountTestStatus);
-  const credentialCopy = useCredentialCopy(id ?? "");
+
+  useEffect(() => {
+    if (oauthStatusQuery.data?.status === "completed") {
+      void queryClient.invalidateQueries({ queryKey: ["provider", id] });
+      void queryClient.invalidateQueries({ queryKey: ["provider-accounts", id] });
+      oauthPopupRef.current?.close();
+      oauthPopupRef.current = null;
+      setOauthSession(null);
+      setOauthCallbackValue("");
+    }
+  }, [id, oauthStatusQuery.data?.status, queryClient]);
 
   if (!id) return null;
 
@@ -578,7 +945,7 @@ export function ProviderDetailPage() {
     );
   }
 
-  if (isLoading || !data || !routing) {
+  if (isLoading || !data) {
     return (
       <div className="space-y-3">
         <Skeleton className="h-8 w-48" />
@@ -596,36 +963,37 @@ export function ProviderDetailPage() {
   const noAuth = data.authKind === "none";
   const activeModels = data.models.filter((model) => model.enabled);
   const disabledModels = data.models.filter((model) => !model.enabled);
+  const fetchedModels = data.models.filter((model) => model.source !== "built-in");
   const toggleAccountSort = (key: AccountSortKey) => {
     setAccountSort((current) => current.key === key
       ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
       : { key, direction: "asc" });
   };
-  const renderAccountStatus = (account: AccountEntry) => {
+  const renderAccountStatus = (account: AccountEntry): ReactNode => {
     const testStatus = accountTestStatus[account.id];
-    if (testStatus?.state === "testing") return <Badge tone="warn">testing</Badge>;
-    if (testStatus?.state === "passed") return <Badge tone="ok">passed · {formatDuration(testStatus.latencyMs)}</Badge>;
-    if (testStatus?.state === "failed") return <Badge tone="err" title={testStatus.error}>failed</Badge>;
-    return <Badge tone={account.active ? "ok" : "default"}>{account.active ? "active" : "disabled"}</Badge>;
+    if (testStatus?.state === "testing") return "testing";
+    if (testStatus?.state === "passed") return `passed · ${formatDuration(testStatus.latencyMs)}`;
+    if (testStatus?.state === "failed") return `failed · ${testStatus.error}`;
+    return accountHealthLabel(account) ?? (account.active ? "active" : "disabled");
   };
   const renderModel = (model: ModelEntry, index: number) => {
     const qualified = `${data.prefix}/${model.id}`;
     const priceLabel = formatModelPricing(model.pricing);
     return (
       <div key={model.id} {...staggerClass(index)}>
-        <Card className={cn("flex h-full flex-row items-center gap-2 rounded-xl p-2.5 transition-transform duration-150 hover:-translate-y-0.5 sm:flex-col sm:items-stretch sm:gap-1.5", !model.enabled && "opacity-65")}>
-          <div className="flex min-w-0 flex-1 items-start gap-1.5 sm:flex-none">
-            <Bot size={13} className="mt-0.5 shrink-0 text-[var(--text-3)]" />
+        <Card className={cn("flex h-full flex-col gap-1.5 rounded-xl p-2.5 transition-transform duration-150 hover:-translate-y-0.5", !model.enabled && "opacity-65")}>
+          <div className="flex min-w-0 items-start gap-1.5">
+            <Bot size={14} aria-hidden="true" className="mt-0.5 shrink-0 text-[var(--text-3)]" />
             <div className="min-w-0 flex-1">
-              <div className="break-all font-mono text-[10px] font-semibold text-[var(--text-1)] sm:text-[11px]">{qualified}</div>
-              <div className="mt-0.5 break-all text-[9px] text-[var(--text-3)] sm:text-[10px]">{model.id}</div>
+              <div className="break-all font-mono text-[10px] font-semibold leading-4 text-[var(--text-1)] sm:text-[11px]">{qualified}</div>
+              <div className="mt-0.5 break-all text-[9px] leading-4 text-[var(--text-3)] sm:text-[10px]">{model.id}</div>
             </div>
             <Button variant="ghost" size="sm" className="shrink-0" aria-label={`Copy ${qualified}`} onClick={() => void copyToClipboard(qualified)}>
-              <Copy size={12} />
+              <Copy size={12} aria-hidden="true" />
             </Button>
           </div>
-          <div className="hidden flex-wrap items-center gap-1 sm:flex">
-            {model.source !== "built-in" && <FileUp size={11} className="text-[var(--text-3)]" />}
+          <div className="flex flex-wrap items-center gap-1">
+            {model.source !== "built-in" && <FileUp size={11} aria-hidden="true" className="text-[var(--text-3)]" />}
             <span className="inline-flex items-center gap-0.5 rounded-md bg-[var(--hover)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--accent)]">
               <Brain size={10} aria-hidden="true" /> Reasoning
             </span>
@@ -641,31 +1009,33 @@ export function ProviderDetailPage() {
             )}
           </div>
           {Boolean(model.contextWindow || model.maxOutputTokens) && (
-            <div className="hidden text-[9px] text-[var(--text-2)] sm:block">
+            <div className="text-[9px] leading-4 text-[var(--text-2)]">
               {model.contextWindow ? `${formatTokens(model.contextWindow)} context` : null}
               {model.contextWindow && model.maxOutputTokens ? " · " : null}
               {model.maxOutputTokens ? `${formatTokens(model.maxOutputTokens)} max out` : null}
             </div>
           )}
-          {priceLabel && <div className="hidden text-[9px] text-[var(--text-2)] sm:block">{priceLabel}</div>}
-          <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1 sm:ml-0 sm:mt-auto sm:pt-0.5">
-            <Button variant="secondary" size="sm" className="h-7 min-w-0 gap-1 rounded-lg px-2 text-[10px] sm:h-6 sm:flex-1" disabled={!model.enabled || pendingModelId === model.id} onClick={() => runTest(model.id)}>
-              {pendingModelId === model.id ? <Loader2 size={10} className="animate-spin" /> : <FlaskConical size={10} />}
-              <span className="truncate">{pendingModelId === model.id ? "Testing…" : "Test"}</span>
-            </Button>
+          {priceLabel && <div className="text-[9px] leading-4 text-[var(--text-2)]">{priceLabel}</div>}
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            {model.enabled && (
+              <Button variant="secondary" size="sm" className="h-7 min-w-0 flex-1 gap-1 rounded-lg px-2 text-[10px] sm:h-7" disabled={pendingModelId === model.id} onClick={() => runTest(model.id)}>
+                {pendingModelId === model.id ? <Loader2 size={10} className="animate-spin" /> : <FlaskConical size={10} aria-hidden="true" />}
+                <span className="truncate">{pendingModelId === model.id ? "Testing…" : "Test"}</span>
+              </Button>
+            )}
             <button
               type="button"
               disabled={modelMutation.isPending}
               onClick={() => modelMutation.mutate({ path: `/${encodeURIComponent(model.id)}/enabled`, body: { enabled: !model.enabled } })}
               title={model.enabled ? "Disable" : "Enable"}
               aria-label={model.enabled ? "Disable" : "Enable"}
-              className={`inline-flex h-7 items-center justify-center gap-1 rounded-lg px-2 text-[10px] font-medium transition-colors sm:h-6 sm:w-6 sm:px-0 ${model.enabled ? "bg-[var(--green-soft,theme(colors.green.900))] text-[var(--green)] hover:bg-[var(--green)] hover:text-white" : "bg-[var(--surface)] text-[var(--text-3)] hover:bg-[var(--hover)]"}`}
+              className={`inline-flex h-7 items-center justify-center gap-1 rounded-lg border px-2 text-[10px] font-medium transition-colors ${model.enabled ? "border-transparent bg-[rgba(255,69,58,0.13)] text-[#c95145] hover:bg-[rgba(255,69,58,0.22)] dark:text-[var(--red)] dark:hover:bg-[rgba(255,69,58,0.24)]" : "border-transparent bg-[rgba(48,209,88,0.14)] text-[#1fa84a] hover:bg-[rgba(48,209,88,0.22)] dark:text-[var(--green)] dark:hover:bg-[rgba(48,209,88,0.24)]"}`}
             >
-              {model.enabled ? <PowerOff size={10} /> : <LockOpen size={10} />}<span className="sm:hidden">{model.enabled ? "Disable" : "Enable"}</span>
+              {model.enabled ? <PowerOff size={10} aria-hidden="true" /> : <LockOpen size={10} aria-hidden="true" />} {model.enabled ? "Disable" : "Enable"}
             </button>
             {model.source !== "built-in" && (
               <Button variant="ghost" size="sm" className="text-[var(--red)]" aria-label={`Delete ${qualified}`} disabled={modelMutation.isPending} onClick={() => modelMutation.mutate({ path: `/${encodeURIComponent(model.id)}`, method: "DELETE" })}>
-                <Trash2 size={12} />
+                <Trash2 size={12} aria-hidden="true" />
               </Button>
             )}
           </div>
@@ -738,54 +1108,36 @@ export function ProviderDetailPage() {
         </div>
       </Card>
 
+      {!noAuth && (
       <Card className="space-y-4">
-        {noAuth ? (
-          <CardHeader title="Routing" icon={Cable} sub="Prebuilt — no accounts to manage" />
-        ) : (
-          <CardHeader title="Connections & Routing" icon={Cable} sub={`${data.accounts.length} account${data.accounts.length === 1 ? "" : "s"}`}>
-            <div className="flex flex-wrap items-center justify-end gap-1.5">
-              {data.accounts.length > 0 && (
-                <Button variant="secondary" size="sm" disabled={accountConnectionTest.isPending || data.models.length === 0} onClick={() => accountConnectionTest.testActive(data.accounts)}>
-                  <FlaskConical size={13} /> Test all
-                </Button>
-              )}
-              <Button size="sm" onClick={() => setAccountModal({ open: true, existing: null })}>
-                <Plus size={14} /> New account
+        <CardHeader title="Accounts" icon={Cable} sub={`${data.accounts.length} account${data.accounts.length === 1 ? "" : "s"}`}>
+          <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
+            {data.accounts.length > 0 && (
+              <Button variant="secondary" size="sm" className="h-8 min-w-0 px-2.5 text-[11px]" disabled={accountConnectionTest.isPending || data.models.length === 0} onClick={() => accountConnectionTest.testActive(data.accounts)}>
+                <FlaskConical size={12} /> <span className="truncate">Test all</span>
               </Button>
-            </div>
-          </CardHeader>
-        )}
-
-        <div className="grid grid-cols-1 gap-2.5 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3 sm:grid-cols-2">
-          <div>
-            <Label>Strategy</Label>
-            <Select
-              ariaLabel="Strategy"
-              className="mt-1 w-full"
-              value={routing.strategy}
-              onChange={(v) => {
-                const next = { ...routing, strategy: v as RoutingConfig["strategy"] };
-                setRouting(next);
-                routingMutation.mutate(next);
-              }}
-              options={[
-                { value: "priority", label: "Priority (failover)" },
-                { value: "round-robin", label: "Round-robin" },
-              ]}
-            />
+            )}
+            {data.authKind === "oauth" ? (
+              <>
+                <Button className="h-8 min-w-0 px-2.5 text-[11px]" size="sm" disabled={data.id === "kiro" ? false : oauthStartMutation.isPending} onClick={data.id === "kiro" ? () => setKiroOAuthModal(true) : startOAuth}>
+                  <Plus size={13} /> <span className="truncate">{data.id === "kiro" ? "Connect OAuth" : oauthStartMutation.isPending ? "Starting…" : "Connect OAuth"}</span>
+                </Button>
+                {data.id === "openai-codex" && (
+                  <Button className="col-span-2 h-8 min-w-0 px-2.5 text-[11px] sm:col-span-1" variant="secondary" size="sm" onClick={() => setBulkOAuthModal(true)}>
+                    <FileJson size={13} /> <span className="truncate">Add bulk JSON</span>
+                  </Button>
+                )}
+              </>
+            ) : (
+              <Button className="h-8 min-w-0 px-2.5 text-[11px]" size="sm" onClick={() => setAccountModal({ open: true, existing: null })}>
+                <Plus size={13} /> <span className="truncate">New account</span>
+              </Button>
+            )}
           </div>
-          <div>
-            <Label>IP sticky limit</Label>
-            <Select ariaLabel="IP sticky limit" className="mt-1 w-full" value={String(routing.stickyLimit)} onChange={(value) => {
-              const next = { ...routing, stickyLimit: Number(value) };
-              setRouting(next);
-              routingMutation.mutate(next);
-            }} options={[{ value: "0", label: "Off" }, { value: "1", label: "1 IP per account" }, { value: "2", label: "2 IPs per account" }, { value: "3", label: "3 IPs per account" }]} />
-          </div>
-        </div>
+        </CardHeader>
 
-        {!noAuth && selectedAccounts.size > 0 && (
-          <div className="flex flex-wrap items-center gap-2.5 rounded-xl bg-[var(--accent-soft)] px-3.5 py-2.5">
+        {selectedAccounts.size > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[var(--accent-soft)] px-3 py-2.5">
             <span className="text-[11.5px] font-semibold text-[var(--accent)]">
               {selectedAccounts.size} selected
             </span>
@@ -801,31 +1153,37 @@ export function ProviderDetailPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={bulkActiveMutation.isPending}
+                className="h-8 px-2.5 text-[11px]"
+                disabled={bulkActiveMutation.isPending || bulkDeleteMutation.isPending}
                 onClick={() => bulkActiveMutation.mutate({ ids: [...selectedAccounts], active: false })}
               >
                 Disable
               </Button>
-              <Button variant="ghost" size="sm" className="text-[#ff453a]" onClick={() => setBulkDeleteConfirm(true)}>
+              <Button
+                variant="danger"
+                size="sm"
+                className="h-8 px-2.5 text-[11px]"
+                disabled={bulkActiveMutation.isPending || bulkDeleteMutation.isPending}
+                onClick={deleteSelectedAccounts}
+              >
                 <Trash2 size={12} /> Delete
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedAccounts(new Set())}>
+              <Button variant="ghost" size="sm" className="h-8 px-2 text-[11px]" onClick={() => setSelectedAccounts(new Set())}>
                 Clear
               </Button>
             </div>
           </div>
         )}
 
-        {!noAuth && (
-          <div className="overflow-hidden rounded-xl border border-[var(--inner-border)]">
-            {data.accounts.length === 0 ? (
-              <div className="py-8 text-center text-xs text-[var(--text-3)]">No connections yet — add one to start routing requests.</div>
-            ) : (
-              <div ref={accountWindow.containerRef} onScroll={accountWindow.onScroll} className="max-h-[21rem] overflow-auto">
-                <table className="w-full text-left text-[11px]">
+        <div className="overflow-hidden rounded-xl border border-[var(--inner-border)]">
+          {data.accounts.length === 0 ? (
+            <div className="py-8 text-center text-xs text-[var(--text-3)]">No connections yet — add one to start routing requests.</div>
+          ) : (
+              <div ref={accountWindow.containerRef} onScroll={handleAccountsScroll} className="max-h-[21rem] overflow-auto">
+                <table className="w-full table-fixed text-left text-[11px] sm:table-auto">
                   <thead className="sticky top-0 z-10 bg-[var(--hover)] text-[10px] font-semibold uppercase tracking-wide text-[var(--text-3)]">
                     <tr>
-                      <th className="w-9 px-2 py-2.5">
+                      <th className="w-8 px-1.5 py-2.5 sm:w-9 sm:px-2">
                         <input
                           type="checkbox"
                           aria-label="Select all accounts"
@@ -851,18 +1209,11 @@ export function ProviderDetailPage() {
                       <th className="px-2 py-2.5">
                         <button className="inline-flex items-center gap-1" onClick={() => toggleAccountSort("name")}>Account <ArrowUpDown size={11} /></button>
                       </th>
-                      <th className="hidden px-2 py-2.5 sm:table-cell">Credential</th>
-                      <th className="hidden px-2 py-2.5 md:table-cell">
-                        <button className="inline-flex items-center gap-1" onClick={() => toggleAccountSort("priority")}>Priority <ArrowUpDown size={11} /></button>
-                      </th>
-                      <th className="px-2 py-2.5">
-                        <button className="inline-flex items-center gap-1" onClick={() => toggleAccountSort("status")}>Status <ArrowUpDown size={11} /></button>
-                      </th>
-                      <th className="px-2 py-2.5 text-right">Actions</th>
+                      <th className="w-[104px] px-1.5 py-2.5 text-right sm:w-auto sm:px-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {accountWindow.topPadding > 0 && <tr aria-hidden="true" style={{ height: accountWindow.topPadding }}><td colSpan={6} /></tr>}
+                    {accountWindow.topPadding > 0 && <tr aria-hidden="true" style={{ height: accountWindow.topPadding }}><td colSpan={5} /></tr>}
                     {accountWindow.visibleItems.map((account) => (
                       <tr key={account.id} className="border-t border-[var(--inner-border)] transition-colors hover:bg-[var(--hover)]">
                         <td className="px-2 py-2.5 align-top">
@@ -883,44 +1234,32 @@ export function ProviderDetailPage() {
                           />
                         </td>
                         <td className="min-w-0 px-2 py-2.5 align-top">
-                          <div className="max-w-28 truncate text-xs font-semibold sm:max-w-none">{account.name}</div>
-                          <code className="mt-0.5 block max-w-28 truncate font-mono text-[10px] text-[var(--text-3)] sm:hidden">{account.credentialHint}</code>
+                          <div className="max-w-48 truncate text-xs font-semibold sm:max-w-none">{account.name}</div>
+                          <div className="mt-0.5 max-w-48 truncate font-mono text-[10px] text-[var(--text-2)] sm:max-w-none">{account.credentialHint}</div>
+                          <div className={cn("mt-0.5 max-w-56 truncate text-[10px]", accountHealthLabel(account) || accountTestStatus[account.id]?.state === "failed" ? "text-[var(--red)]" : "text-[var(--text-3)]")} title={account.health?.sanitizedMessage ?? undefined}>{renderAccountStatus(account)}</div>
                         </td>
-                        <td className="hidden px-2 py-2.5 font-mono text-[10px] text-[var(--text-3)] sm:table-cell">{account.credentialHint}</td>
-                        <td className="hidden px-2 py-2.5 text-[11px] text-[var(--text-2)] md:table-cell">{account.priority}</td>
-                        <td className="px-2 py-2.5 align-top">
-                          <div className="flex flex-wrap gap-1">
-                            {renderAccountStatus(account)}
-                            <span className="hidden sm:contents"><Badge tone="info">{account.credentialKind}</Badge></span>
-                          </div>
-                        </td>
-                        <td className="px-2 py-2.5 align-top">
-                          <div className="flex justify-end gap-0.5 whitespace-nowrap">
-                            <Button variant="ghost" size="sm" title="Test connection" aria-label={`Test ${account.name}`} disabled={accountConnectionTest.isPending || data.models.length === 0} onClick={() => accountConnectionTest.testAccount(account)}>
-                              <FlaskConical size={12} /> Test
+                        <td className="w-[104px] px-1.5 py-2.5 align-top sm:w-auto sm:px-2">
+                          <div className="flex items-center justify-end gap-0.5 whitespace-nowrap sm:gap-1">
+                            <Button variant="ghost" size="icon" className="size-6 sm:size-7" title="Test connection" aria-label={`Test ${account.name}`} disabled={accountConnectionTest.isPending || data.models.length === 0} onClick={() => accountConnectionTest.testAccount(account)}>
+                              <FlaskConical size={13} />
                             </Button>
-                            <Button variant="ghost" size="sm" title="Copy credential" aria-label={`Copy ${account.name}'s credential`} disabled={credentialCopy.isPending} onClick={() => credentialCopy.mutate(account)}>
-                              <Copy size={12} /> Copy
+                            <Button variant="ghost" size="icon" className="size-6 sm:size-7" title="Edit connection" aria-label={`Edit ${account.name}`} onClick={() => setAccountModal({ open: true, existing: account })}>
+                              <Pencil size={13} />
                             </Button>
-                            <Button variant="ghost" size="sm" title="Edit connection" aria-label={`Edit ${account.name}`} onClick={() => setAccountModal({ open: true, existing: account })}>
-                              <Pencil size={12} /> Edit
-                            </Button>
-                            <Button variant="ghost" size="sm" className="text-[#ff453a]" title="Delete connection" aria-label={`Delete ${account.name}`} onClick={() => setDeleteTarget(account)}>
-                              <Trash2 size={12} /> Delete
-                            </Button>
+                            <Switch checked={account.active} disabled={bulkActiveMutation.isPending} onChange={(active) => bulkActiveMutation.mutate({ ids: [account.id], active })} label={`${account.active ? "Disable" : "Enable"} ${account.name}`} />
                           </div>
                         </td>
                       </tr>
                     ))}
-                    {accountWindow.bottomPadding > 0 && <tr aria-hidden="true" style={{ height: accountWindow.bottomPadding }}><td colSpan={6} /></tr>}
+                    {accountWindow.bottomPadding > 0 && <tr aria-hidden="true" style={{ height: accountWindow.bottomPadding }}><td colSpan={7} /></tr>}
                   </tbody>
                 </table>
-                {accountsQuery.hasNextPage && <div className="border-t border-[var(--inner-border)] p-2 text-center"><Button variant="secondary" size="sm" disabled={accountsQuery.isFetchingNextPage} onClick={() => void accountsQuery.fetchNextPage()}>{accountsQuery.isFetchingNextPage ? "Loading…" : "Load more"}</Button></div>}
+                {accountsQuery.isFetchingNextPage && <div className="border-t border-[var(--inner-border)] p-2 text-center text-[11px] text-[var(--text-3)]">Loading more…</div>}
               </div>
-            )}
-          </div>
-        )}
+          )}
+        </div>
       </Card>
+      )}
 
       <Card>
         <div className="mb-4">
@@ -936,6 +1275,13 @@ export function ProviderDetailPage() {
               {data.modelManagement.canFetchModels && (
                 <Button variant="secondary" size="sm" disabled={modelMutation.isPending} onClick={() => modelMutation.mutate({ path: "/import" })}>
                   <RefreshCw size={13} /> Fetch models
+                </Button>
+              )}
+              {fetchedModels.length > 0 && (
+                <Button variant="ghost" size="sm" className="text-[var(--red)]" disabled={modelMutation.isPending || deleteFetchedModelsMutation.isPending} onClick={() => {
+                  if (window.confirm(`Delete ${fetchedModels.length} fetched models? Built-in models will stay.`)) deleteFetchedModelsMutation.mutate(fetchedModels.map((model) => model.id));
+                }}>
+                  <Trash2 size={13} /> Delete fetched
                 </Button>
               )}
             </div>
@@ -973,24 +1319,35 @@ export function ProviderDetailPage() {
         />
       )}
 
-      <ConfirmDialog
-        open={Boolean(deleteTarget)}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
-        title="Delete account"
-        message={`Delete "${deleteTarget?.name}"? Stored credentials are removed permanently.`}
-        danger
-        confirmLabel="Delete"
-      />
-      <ConfirmDialog
-        open={bulkDeleteConfirm}
-        onClose={() => setBulkDeleteConfirm(false)}
-        onConfirm={() => bulkDeleteMutation.mutate([...selectedAccounts])}
-        title="Delete accounts"
-        message={`Delete ${selectedAccounts.size} account${selectedAccounts.size === 1 ? "" : "s"}? Stored credentials are removed permanently.`}
-        danger
-        confirmLabel="Delete"
-      />
+      {kiroOAuthModal && data.id === "kiro" && (
+        <KiroOAuthDialog
+          accountName={`Kiro ${data.accounts.length + 1}`}
+          onClose={() => setKiroOAuthModal(false)}
+          onConnected={() => { setKiroOAuthModal(false); void queryClient.invalidateQueries({ queryKey: ["provider", id] }); void queryClient.invalidateQueries({ queryKey: ["provider-accounts", id] }); }}
+        />
+      )}
+
+      {bulkOAuthModal && data.id === "openai-codex" && (
+        <BulkOAuthModal
+          providerId={data.id}
+          accounts={data.accounts}
+          onClose={() => setBulkOAuthModal(false)}
+        />
+      )}
+
+      {oauthSession && (
+        <OAuthConnectDialog
+          providerId={data.id}
+          session={oauthSession}
+          status={oauthStatusQuery.data ?? null}
+          callbackValue={oauthCallbackValue}
+          onCallbackValueChange={setOauthCallbackValue}
+          onComplete={() => oauthCompleteMutation.mutate()}
+          onCancel={() => oauthCancelMutation.mutate()}
+          completing={oauthCompleteMutation.isPending || oauthCancelMutation.isPending}
+        />
+      )}
+
     </div>
   );
 }

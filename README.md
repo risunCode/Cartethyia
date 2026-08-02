@@ -3,6 +3,8 @@
 # Cartethyia
 Cartethyia is a Bun + Elysia AI proxy with a public landing page and an authenticated console. It translates OpenAI Chat/Responses and Anthropic Messages requests while routing models across provider accounts, aliases, combos, and custom compatible endpoints.
 
+**Current release:** `1.0.7-alpha`
+
 ## Community
 
 > **[Cartethyia Home Discord ]**  
@@ -25,6 +27,10 @@ Community access is free. Join Discord: <https://discord.gg/zFcNPJM6qM>
 - Model Studio with persistent history, edit/copy/delete actions, token usage, and compaction.
 - Custom OpenAI-compatible and Anthropic-compatible upstreams.
 - Responsive Cartethyia public landing page at `/`.
+- OAuth-backed provider accounts for Codex, Anthropic, Grok CLI, Google Antigravity, and Kiro, including Kiro device authorization and token import.
+- Kiro model routing through `kiro/<model>` with AWS EventStream decoding; quota checks use a 15-minute cooldown to avoid unnecessary upstream traffic.
+- Customization at `/console/customization`: frosted-glass custom background, optimized seasonal lock effects, custom seasonal images, frequency, and size controls.
+- Public API-key share pages with usage, budget, allowed-model visibility, copy controls, and an explicit disabled-key state.
 
 ## Quick start
 
@@ -51,7 +57,7 @@ Open:
 | `GET /v1/models` | Unified provider/model catalog |
 | `GET /health` | Liveness probe |
 
-Create a proxy API key from **Console → API Keys**. Keys can restrict providers/models and enforce request, concurrency, and token limits.
+Create a proxy API key from **Console → API Keys**. Keys can restrict providers/models and enforce request, concurrency, and token limits. Share links remain useful when a key is disabled: visitors see the key status and an explanation instead of an empty placeholder page.
 
 ```bash
 curl http://localhost:12800/v1/models \
@@ -97,4 +103,4 @@ bun test test/
 cd dashboard && bun run test && bun run build
 ```
 
-See the protocol notes in [`docs/`](./docs/) and the landing mockup in [`docs/landing-page-mockup.md`](./docs/landing-page-mockup.md).
+See the protocol notes in [`docs/`](./docs/), the release notes in [`docs/commit-notes/1.0.7.md`](./docs/commit-notes/1.0.7.md), and the landing mockup in [`docs/landing-page-mockup.md`](./docs/landing-page-mockup.md). Contributions should follow [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) and the pull-request template.

@@ -24,6 +24,8 @@ export const CONFIG_TABLES = [
   "provider_accounts",
   "filter_rules",
   "custom_providers",
+  "proxies",
+  "proxy_settings",
 ] as const;
 
 export type BackupTable = (typeof CONFIG_TABLES)[number];
@@ -42,8 +44,8 @@ export function exportBackup(_includeHistory = false): BackupPayload {
     const snapshot: Record<string, unknown> = {};
 
     for (const table of CONFIG_TABLES) {
-      if (table === "settings") {
-        const row = db.query("SELECT * FROM settings WHERE id = 1").get();
+      if (table === "settings" || table === "proxy_settings") {
+        const row = db.query(`SELECT * FROM ${table} WHERE id = 1`).get();
         snapshot[table] = row ?? {};
       } else {
         snapshot[table] = db.query(`SELECT * FROM ${table}`).all();

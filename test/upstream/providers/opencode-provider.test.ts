@@ -56,7 +56,7 @@ function postChat(model: string, headers: Record<string, string> = {}) {
 describe("OpenCode Free — authorizationHeader is always 'Bearer public'", () => {
   test("sends Bearer public regardless of request headers", async () => {
     fetchSpy.mockResolvedValueOnce(catalog()).mockResolvedValueOnce(completion());
-    await postChat("foc/test-model");
+    await postChat("opencodeft/test-model");
     const [, init] = fetchSpy.mock.calls[1]!;
     expect((init as RequestInit).headers as Record<string, string>).toMatchObject({
       authorization: "Bearer public",
@@ -65,7 +65,7 @@ describe("OpenCode Free — authorizationHeader is always 'Bearer public'", () =
 
   test("always sends x-opencode-client: desktop", async () => {
     fetchSpy.mockResolvedValueOnce(catalog()).mockResolvedValueOnce(completion());
-    await postChat("foc/test-model");
+    await postChat("opencodeft/test-model");
     const [, init] = fetchSpy.mock.calls[1]!;
     expect((init as RequestInit).headers as Record<string, string>).toMatchObject({
       "x-opencode-client": "desktop",
@@ -107,7 +107,7 @@ describe("OpenCode Zen — authorizationHeader forwards caller's bearer key", ()
 describe("OpenCode provider — model not in catalog returns 4xx", () => {
   test("returns an error status when model is not in the live catalog", async () => {
     fetchSpy.mockResolvedValueOnce(catalog());
-    const res = await postChat("foc/does-not-exist-model");
+    const res = await postChat("opencodeft/does-not-exist-model");
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 });

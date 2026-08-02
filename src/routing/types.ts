@@ -1,22 +1,30 @@
 // Display order in the console's Providers list — not alphabetical, curated
 // manually (see user-requested ordering); rest are appended in original order.
-export const ADDED_PROVIDER_IDS = ["kimchi", "qoder", "openai", "anthropic", "commandcode", "opencode-go", "opencode-zen", "deepseek", "ollama", "mistral", "cerebras", "opencode-free", "agentrouter", "devin", "custom", "cursor", "pgxiaomi", "tpxiaomi", "openrouter", "siliconflow"] as const;
+export const ADDED_PROVIDER_IDS = ["kimchi", "qoder", "blackbox", "cline", "openai", "anthropic", "openai-codex", "anthropic-oauth", "grok-cli", "google-antigravity", "kiro", "commandcode", "opencode-go", "opencode-zen", "deepseek", "ollama", "mistral", "cerebras", "opencode-free", "agentrouter", "nvidia", "devin", "custom", "cursor", "pgxiaomi", "tpxiaomi", "openrouter", "siliconflow"] as const;
 
 export type AddedProviderId = (typeof ADDED_PROVIDER_IDS)[number];
 
 export const PROVIDER_PREFIXES = {
-  foc: "opencode-free",
+  opencodeft: "opencode-free",
   opencodezen: "opencode-zen",
   agentrouter: "agentrouter",
-  mimosgtp: "tpxiaomi",
+  nvidia: "nvidia",
+  xiaomitp: "tpxiaomi",
   cmd: "commandcode",
   kimchi: "kimchi",
+  blackbox: "blackbox",
+  cline: "cline",
   devin: "devin",
   qoder: "qoder",
   cursor: "cursor",
   openai: "openai",
   anthropic: "anthropic",
-  pmimo: "pgxiaomi",
+  codex: "openai-codex",
+  claude: "anthropic-oauth",
+  grok: "grok-cli",
+  antigravity: "google-antigravity",
+  kiro: "kiro",
+  xiaomipg: "pgxiaomi",
   openrouter: "openrouter",
   ollama: "ollama",
   cerebras: "cerebras",
@@ -40,7 +48,7 @@ export type TargetSurface =
   | "commandcode-ndjson"
   | "devin-connect";
 
-export type CredentialKind = "none" | "provider-bearer" | "devin-session" | "qoder-pat";
+export type CredentialKind = "none" | "provider-bearer" | "devin-session" | "qoder-pat" | "oauth";
 
 export interface RouteTarget {
   provider: AddedProviderId;

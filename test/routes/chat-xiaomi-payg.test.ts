@@ -1,8 +1,8 @@
 /**
- * Tests for POST /v1/chat/completions with the pmimo namespace (Xiaomi MiMo
+ * Tests for POST /v1/chat/completions with the xiaomipg namespace (Xiaomi MiMo
  * pay-as-you-go, provider id `pgxiaomi`, REQ: built-in API-key providers).
  * Distinct from the no-auth `mimo` (Free) namespace and from the Token Plan
- * tier (`tpxiaomi`, `mimosgtp` prefix) — this is a curated-catalog,
+ * tier (`tpxiaomi`, `xiaomitp` prefix) — this is a curated-catalog,
  * bearer-auth OpenAI-compatible passthrough.
  */
 
@@ -44,11 +44,11 @@ function chatResponse(content: string) {
   );
 }
 
-describe("POST /v1/chat/completions with pmimo namespace (pgxiaomi provider)", () => {
+describe("POST /v1/chat/completions with xiaomipg namespace (pgxiaomi provider)", () => {
   test("routes a catalog model to api.xiaomimimo.com/v1 with the bearer credential", async () => {
     fetchSpy.mockResolvedValueOnce(chatResponse("hello from mimo payg"));
 
-    const res = await postChat({ model: "pmimo/mimo-v2.5-pro", messages: [{ role: "user", content: "hi" }] });
+    const res = await postChat({ model: "xiaomipg/mimo-v2.5-pro", messages: [{ role: "user", content: "hi" }] });
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as { choices: [{ message: { content: string } }] };
@@ -61,7 +61,7 @@ describe("POST /v1/chat/completions with pmimo namespace (pgxiaomi provider)", (
   });
 
   test("rejects a model id outside the curated catalog, unlike openai/anthropic, pgxiaomi has a fixed model list", async () => {
-    const res = await postChat({ model: "pmimo/not-a-real-model", messages: [{ role: "user", content: "hi" }] });
+    const res = await postChat({ model: "xiaomipg/not-a-real-model", messages: [{ role: "user", content: "hi" }] });
     expect(res.status).toBe(400);
     expect(fetchSpy).not.toHaveBeenCalled();
   });

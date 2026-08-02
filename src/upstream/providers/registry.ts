@@ -14,6 +14,12 @@ import { qoderProvider } from "./qoder/index";
 import { dynamicProviderRouter } from "./dynamic";
 import { cursorProvider } from "./cursor/index";
 import { anthropicProvider } from "./anthropic";
+import { codexProvider } from "./codex";
+import { anthropicOAuthProvider } from "./anthropic-oauth";
+import { grokCliProvider } from "./grok-cli";
+import { googleAntigravityProvider } from "./google-antigravity";
+import { kiroProvider } from "./kiro";
+import { clineProvider } from "./cline";
 import { agentRouterProvider } from "./agentrouter";
 import { openaiProvider } from "./openai";
 import { opencodeGoProvider } from "./opencode-go";
@@ -23,12 +29,58 @@ import { createOpenAICompatibleProvider } from "./openai-compatible";
 
 const OPENAI_COMPATIBLE_PROVIDERS = [
   createOpenAICompatibleProvider({
+    id: "blackbox",
+    name: "Blackbox AI",
+    icon: "blackbox",
+    baseUrl: "https://api.blackbox.ai/v1",
+    credentialUrl: "https://www.blackbox.ai/api-management",
+    strict: true,
+    models: [
+      { id: "blackboxai/deepseek/deepseek-v4-flash", reasoning: true, contextWindow: 1_000_000, maxOutputTokens: 128_000, pricing: { input: 0.14, output: 0.28 } },
+      { id: "blackboxai/z-ai/glm-5.2", reasoning: true, contextWindow: 1_000_000, maxOutputTokens: 128_000, pricing: { input: 1.4, output: 4.4 } },
+      { id: "blackboxai/google/gemini-3.1-flash-lite", reasoning: true, contextWindow: 1_000_000, maxOutputTokens: 65_536, pricing: { input: 0.25, output: 1.5 } },
+      { id: "blackboxai/nvidia/nemotron-3-nano-30b-a3b", reasoning: true, contextWindow: 131_072, maxOutputTokens: 32_768 },
+      { id: "blackboxai/z-ai/glm-4.7-flash", reasoning: true, contextWindow: 131_072, maxOutputTokens: 32_768 },
+      { id: "blackboxai/minimax/minimax-m2.5", reasoning: true, contextWindow: 196_608, maxOutputTokens: 32_768 },
+      { id: "blackboxai/openai/gpt-5.5", reasoning: true, contextWindow: 400_000, maxOutputTokens: 128_000 },
+    ],
+  }),
+  createOpenAICompatibleProvider({
+    id: "nvidia",
+    name: "NVIDIA NIM",
+    icon: "nvidia",
+    baseUrl: "https://integrate.api.nvidia.com/v1",
+    credentialUrl: "https://build.nvidia.com/settings/api-keys",
+    models: [
+      { id: "minimaxai/minimax-m2.7", reasoning: true, contextWindow: 262_144, maxOutputTokens: 32_768 },
+      { id: "minimaxai/minimax-m3", reasoning: true, contextWindow: 262_144, maxOutputTokens: 32_768 },
+      { id: "z-ai/glm-5.2", reasoning: true, contextWindow: 262_144, maxOutputTokens: 32_768 },
+      { id: "deepseek-ai/deepseek-v4-pro", reasoning: true, contextWindow: 262_144, maxOutputTokens: 32_768 },
+      { id: "deepseek-ai/deepseek-v4-flash", reasoning: true, contextWindow: 262_144, maxOutputTokens: 32_768 },
+      { id: "moonshotai/kimi-k2.6", reasoning: true, vision: true, contextWindow: 262_144, maxOutputTokens: 32_768 },
+      { id: "nvidia/nemotron-3-ultra-550b-a55b", reasoning: true, contextWindow: 262_144, maxOutputTokens: 32_768 },
+    ],
+  }),
+  createOpenAICompatibleProvider({
     id: "openrouter",
     name: "OpenRouter",
     icon: "openrouter",
     baseUrl: "https://openrouter.ai/api/v1",
     credentialUrl: "https://openrouter.ai/settings/keys",
-    models: [{ id: "openai/gpt-4.1", vision: true, contextWindow: 1047576, maxOutputTokens: 32768, pricing: { input: 2, output: 8, cacheRead: 0.5 } }],
+    models: [
+      { id: "openai/gpt-4.1", vision: true, contextWindow: 1_047_576, maxOutputTokens: 32_768, pricing: { input: 2, output: 8, cacheRead: 0.5 } },
+      { id: "inclusionai/ling-3.0-flash:free", reasoning: true, contextWindow: 262_144, maxOutputTokens: 32_768, pricing: { input: 0, output: 0 } },
+      { id: "poolside/laguna-s-2.1:free", reasoning: true, contextWindow: 262_144, maxOutputTokens: 32_768, pricing: { input: 0, output: 0 } },
+      { id: "poolside/laguna-xs-2.1:free", reasoning: true, contextWindow: 262_144, maxOutputTokens: 32_768, pricing: { input: 0, output: 0 } },
+      { id: "cohere/north-mini-code:free", reasoning: true, contextWindow: 262_144, maxOutputTokens: 32_768, pricing: { input: 0, output: 0 } },
+      { id: "nvidia/nemotron-3-ultra-550b-a55b:free", reasoning: true, contextWindow: 262_144, maxOutputTokens: 32_768, pricing: { input: 0, output: 0 } },
+      { id: "nvidia/nemotron-3-super-120b-a12b:free", reasoning: true, contextWindow: 262_144, maxOutputTokens: 32_768, pricing: { input: 0, output: 0 } },
+      { id: "nvidia/nemotron-3-nano-30b-a3b:free", reasoning: true, contextWindow: 262_144, maxOutputTokens: 32_768, pricing: { input: 0, output: 0 } },
+      { id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", reasoning: true, vision: true, contextWindow: 262_144, maxOutputTokens: 32_768, pricing: { input: 0, output: 0 } },
+      { id: "nvidia/nemotron-nano-12b-v2-vl:free", reasoning: true, vision: true, contextWindow: 131_072, maxOutputTokens: 32_768, pricing: { input: 0, output: 0 } },
+      { id: "google/gemma-4-26b-a4b-it:free", reasoning: true, contextWindow: 131_072, maxOutputTokens: 32_768, pricing: { input: 0, output: 0 } },
+      { id: "google/gemma-4-31b-it:free", reasoning: true, contextWindow: 131_072, maxOutputTokens: 32_768, pricing: { input: 0, output: 0 } },
+    ],
   }),
   createOpenAICompatibleProvider({
     id: "ollama",
@@ -105,6 +157,12 @@ const PROVIDERS = new Map<Provider["id"], Provider>([
   ["custom", dynamicProviderRouter],
   ["cursor", cursorProvider],
   ["anthropic", anthropicProvider],
+  ["openai-codex", codexProvider],
+  ["anthropic-oauth", anthropicOAuthProvider],
+  ["grok-cli", grokCliProvider],
+  ["google-antigravity", googleAntigravityProvider],
+  ["kiro", kiroProvider],
+  ["cline", clineProvider],
   ["openai", openaiProvider],
   ["opencode-go", opencodeGoProvider],
   ["pgxiaomi", xiaomiPaygProvider],

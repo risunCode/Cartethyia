@@ -28,6 +28,19 @@ export function createShareLink(apiKeyId: string): { token: string; key: ApiKeyP
 }
 
 /** Resolves a public monitoring token to its active API key and records a view. */
+export type ShareLinkState = { status: "active" | "disabled" | "not_found"; key: ApiKeyPublic | null };
+
+export function resolveShareLinkState(token: string): ShareLinkState {
+  if (!/^[a-f0-9]{48}$/.test(token)) return { status: "not_found", key: null };
+  const row = getDb().query(
+    "SELECT api_key_id, token_hash, active FROM share_links WHERE token_hash = ? AND active = 1",
+  ).get(hashToken(token)) as ShareLinkRow | null;
+  if (!row) return { status: "not_found", key: null };
+  getDb().query("UPDATE share_links SET last_viewed_at = ? WHERE token_hash = ?").run(new Date().toISOString(), row.token_hash);
+  const key = listApiKeys().find((item) => item.id === row.api_key_id) ?? null;
+  return key ? { status: key.active ? "active" : "disabled", key } : { status: "not_found", key: null };
+}
+
 export function resolveShareLink(token: string): ApiKeyPublic | null {
   if (!/^[a-f0-9]{48}$/.test(token)) return null;
   const row = getDb().query(

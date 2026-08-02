@@ -16,10 +16,12 @@ import { flushRequestLogBuffer } from "./http/request-log-buffer";
 import { hydrateConsoleLogs } from "./console/logs/ring";
 import { startLogMaintenance } from "./console/tracking/rotate";
 import { cancelScheduledGc, scheduleGlobalGc } from "./console/memory";
+import { tokenKeeper } from "./tokenkeeper";
 
 await ensureConsoleBootstrap();
 hydrateConsoleLogs();
 startLogMaintenance();
+await tokenKeeper.start();
 
 const server = Bun.serve({
   port: config.port,
@@ -37,6 +39,7 @@ function shutdown(): void {
   clearInterval(checkpointInterval);
   clearInterval(gcInterval);
   cancelScheduledGc();
+  tokenKeeper.stop();
   server.stop();
   flushRuntimeWriteBuffer();
   flushApiKeyTouches();

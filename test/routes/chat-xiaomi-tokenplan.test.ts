@@ -34,7 +34,7 @@ function chatResponse(content: string) {
   );
 }
 
-describe("POST /v1/chat/completions with mimosgtp (tpxiaomi) namespace", () => {
+describe("POST /v1/chat/completions with xiaomitp (tpxiaomi) namespace", () => {
   test("routes to the Singapore token-plan cluster with the caller's bearer credential", async () => {
     fetchSpy.mockResolvedValueOnce(chatResponse("hello from token plan"));
 
@@ -42,7 +42,7 @@ describe("POST /v1/chat/completions with mimosgtp (tpxiaomi) namespace", () => {
       new Request("http://localhost/v1/chat/completions", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: "Bearer tp-secret-key" },
-        body: JSON.stringify({ model: "mimosgtp/mimo-v2.5-pro", messages: [{ role: "user", content: "hi" }] }),
+        body: JSON.stringify({ model: "xiaomitp/mimo-v2.5-pro", messages: [{ role: "user", content: "hi" }] }),
       })
     );
 

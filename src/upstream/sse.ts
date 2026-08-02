@@ -45,16 +45,24 @@ export async function* parseSSEStream(body: ReadableStream<Uint8Array>): AsyncGe
       if (stalled) throw new Error("Upstream stream stalled and is temporarily unavailable.");
       if (done) {
         completed = true;
+        buffer += decoder.decode();
+        const frame = parseFrame(buffer);
+        if (frame) yield frame;
         break;
       }
       resetStallTimer();
       buffer += decoder.decode(value, { stream: true });
 
-      // SSE frames are separated by a blank line (\n\n or \r\n\r\n).
-      let sepIndex: number;
-      while ((sepIndex = buffer.indexOf("\n\n")) !== -1) {
+      // Providers vary between LF and CRLF SSE framing. Normalize both here
+      // so Cloud Code Assist frames are not held until the stall timeout.
+      while (true) {
+        const lfIndex = buffer.indexOf("\n\n");
+        const crlfIndex = buffer.indexOf("\r\n\r\n");
+        const sepIndex = lfIndex === -1 ? crlfIndex : crlfIndex === -1 ? lfIndex : Math.min(lfIndex, crlfIndex);
+        if (sepIndex === -1) break;
+        const separatorLength = crlfIndex !== -1 && crlfIndex === sepIndex ? 4 : 2;
         const rawFrame = buffer.slice(0, sepIndex);
-        buffer = buffer.slice(sepIndex + 2);
+        buffer = buffer.slice(sepIndex + separatorLength);
         const frame = parseFrame(rawFrame);
         if (frame) yield frame;
       }

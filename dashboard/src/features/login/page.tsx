@@ -48,28 +48,30 @@ export function LoginPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#07111c] p-4">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f7f3ed] p-4 text-[var(--text-1)] dark:bg-[#08080b]">
       <div
         aria-hidden="true"
         data-login-backdrop
-        className="absolute inset-0 bg-cover bg-center opacity-70"
+        className="absolute inset-0 bg-cover bg-center opacity-25 saturate-[0.85] dark:opacity-60 dark:saturate-100"
         style={{ backgroundImage: `url(${LOGIN_BACKDROP_URL})` }}
       />
-      <div aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(90deg,rgba(4,13,24,0.58),rgba(4,13,24,0.2)),linear-gradient(180deg,rgba(4,13,24,0.08),rgba(4,13,24,0.68))]" />
+      <div aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(110deg,rgba(247,243,237,0.96),rgba(247,243,237,0.8)_52%,rgba(247,243,237,0.5))] dark:bg-[linear-gradient(110deg,rgba(4,13,24,0.78),rgba(4,13,24,0.3)_52%,rgba(4,13,24,0.62))]" />
+      <div aria-hidden="true" className="absolute inset-0 bg-[radial-gradient(circle_at_18%_10%,rgba(217,119,87,0.16),transparent_32%),radial-gradient(circle_at_88%_88%,rgba(68,143,141,0.12),transparent_30%)] dark:bg-[radial-gradient(circle_at_18%_10%,rgba(217,119,87,0.2),transparent_32%),radial-gradient(circle_at_88%_88%,rgba(68,143,141,0.16),transparent_30%)]" />
       <motion.form
         onSubmit={submit}
         initial={{ opacity: 0, y: 14, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.35, ease: easeOut }}
-        className="glass-2 relative w-full max-w-sm rounded-2xl border-white/25 bg-[rgba(8,20,33,0.26)] p-7 text-white shadow-[0_24px_90px_rgba(0,0,0,0.36)] backdrop-blur-xl"
+        className="glass-2 relative w-full max-w-[26rem] rounded-[28px] border-[var(--glass-border)] p-8 text-[var(--text-1)] shadow-[0_24px_80px_rgba(83,56,36,0.16)] dark:border-white/15 dark:shadow-[0_24px_90px_rgba(0,0,0,0.42)]"
       >
-        <div className="mb-6 flex flex-col items-center gap-3 text-center">
-          <div className="grid h-14 w-14 place-items-center overflow-hidden rounded-2xl border border-white/25 bg-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.24)]">
-            <img src={LOGIN_LOGO_URL} alt="" className="h-full w-full object-cover" />
+        <div className="mb-7 flex flex-col items-center gap-3 text-center">
+          <div className="grid h-16 w-16 place-items-center overflow-hidden rounded-[22px] border border-black/10 bg-white/65 shadow-[0_12px_30px_rgba(83,56,36,0.14)] dark:border-white/20 dark:bg-white/10 dark:shadow-[0_10px_30px_rgba(0,0,0,0.24)]">
+            <img src={LOGIN_LOGO_URL} alt="" width="64" height="64" className="h-full w-full object-cover" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-white">Cartethyia</h1>
-            <p className="text-sm text-white/65">Internal Console</p>
+            <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--accent)]">Private workspace</p>
+            <h1 className="text-2xl font-bold tracking-tight text-[var(--text-1)]">Cartethyia</h1>
+            <p className="mt-1 text-sm text-[var(--text-2)]">Sign in to manage your gateway</p>
           </div>
         </div>
 
@@ -78,25 +80,27 @@ export function LoginPage() {
           <Lock size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-3)]" />
           <Input
             id="password"
+            name="password"
             type={showPassword ? "text" : "password"}
+            autoComplete="current-password"
             autoFocus
-            className="pr-10 pl-9"
+            className="h-11 bg-white/55 pr-10 pl-9 shadow-sm dark:bg-white/5"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
+            placeholder="Enter your password…"
           />
           <button
             type="button"
             aria-label={showPassword ? "Hide secret" : "Show secret"}
             onClick={() => setShowPassword((visible) => !visible)}
-            className="absolute top-1/2 right-3 -translate-y-1/2 text-[var(--text-3)] transition-colors hover:text-white"
+            className="absolute top-1/2 right-3 -translate-y-1/2 rounded-md p-1 text-[var(--text-3)] transition-colors hover:text-[var(--text-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
           >
-            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            {showPassword ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
           </button>
         </div>
 
         {error && (
-          <p className="mt-2.5 text-xs font-medium text-[var(--red)]">
+          <p role="alert" aria-live="polite" className="mt-2.5 text-xs font-medium text-[var(--red)]">
             {error}
             {retryAfter !== null && ` (retry in ~${retryAfter}s)`}
           </p>
@@ -106,20 +110,20 @@ export function LoginPage() {
           {busy ? "Signing in…" : "Sign in"}
         </Button>
 
-        <p className="mt-4 text-center text-[11px] text-white/55">
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-[11px] text-[var(--text-3)]">
           <a
             href="https://x.com/RaaiVault/status/1934536437464281414?s=20"
             target="_blank"
             rel="noreferrer"
-            className="mt-1 inline-block text-white/75 underline decoration-white/30 underline-offset-2 hover:text-white"
+            className="underline decoration-[var(--inner-border)] underline-offset-2 transition-colors hover:text-[var(--text-1)]"
           >
             Artwork source ↗
           </a>
-          <br />
-          <a href="/" className="mt-2 inline-block text-white/70 underline decoration-white/25 underline-offset-2 hover:text-white">
+          <span aria-hidden="true">·</span>
+          <a href="/" className="underline decoration-[var(--inner-border)] underline-offset-2 transition-colors hover:text-[var(--text-1)]">
             ← Back to public page
           </a>
-        </p>
+        </div>
       </motion.form>
     </div>
   );

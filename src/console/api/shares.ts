@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 import { consoleError } from "../errors";
 import { addAuditEvent } from "../db/repos/audit";
 import { createShareLink } from "../db/repos/share-links";
+import { publicOrigin } from "../share";
 
 export const shareRoutes = new Elysia({ prefix: "/console/api" })
   .post("/keys/:id/share", ({ params, request, set }) => {
@@ -10,7 +11,7 @@ export const shareRoutes = new Elysia({ prefix: "/console/api" })
       set.status = 404;
       return consoleError("not_found", "active key not found");
     }
-    const url = new URL(`/share/${created.token}`, request.url).toString();
+    const url = new URL(`/share/${created.token}`, publicOrigin(request)).toString();
     addAuditEvent("key.share_created", { id: created.key.id, name: created.key.name });
     return { url, token: created.token, keyId: created.key.id };
   });

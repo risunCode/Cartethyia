@@ -50,15 +50,16 @@ export function finishSurfaceDispatch(opts: SurfaceDispatchOptions): unknown {
   }
 
   const { result, accountLabel } = qualified;
+  opts.tracker.setNetworkPath(qualified.networkPath);
   if (result.type === "stream") {
     opts.set.headers["content-type"] = "text/event-stream";
     const meta = { id: `${opts.idPrefix}-${crypto.randomUUID()}`, model: opts.model, createdAt: Math.floor(Date.now() / 1000) };
     return opts.tracker.wrapSse(
       toSSEResponseStream(withStreamErrorHandling(opts.encodeStream(result.events, meta), opts.streamFormat)),
-      undefined,
+      qualified.provider,
       opts.requestBody,
       accountLabel,
     );
   }
-  return opts.tracker.finishJson(200, opts.toSurfaceJson(result.body), undefined, opts.requestBody, accountLabel);
+  return opts.tracker.finishJson(200, opts.toSurfaceJson(result.body), qualified.provider, opts.requestBody, accountLabel);
 }

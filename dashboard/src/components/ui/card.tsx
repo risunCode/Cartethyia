@@ -28,7 +28,7 @@ export function CardHeader({
     // buttons rendered outside the card's width and were invisible, clipped
     // by `overflow-hidden`, not just visually cramped.
     <div className="mb-4 flex flex-wrap items-start justify-between gap-2.5">
-      <div className="flex min-w-0 flex-1 items-start gap-2.5">
+      <div className="flex w-full min-w-0 flex-1 items-start gap-2.5 sm:w-auto">
         {Icon && (
           <span
             className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
@@ -42,7 +42,7 @@ export function CardHeader({
           {sub && <div className="mt-0.5 truncate text-[11.5px] text-[var(--text-2)]">{sub}</div>}
         </div>
       </div>
-      {children}
+      {children && <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto">{children}</div>}
     </div>
   );
 }

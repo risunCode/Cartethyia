@@ -11,6 +11,7 @@ import { useState } from "react";
 import { cn } from "../lib/cn";
 
 const failedIcons = new Set<string>();
+const svgIcons = new Set(["blackbox", "claude-code", "grok", "antigravity"]);
 
 /** Derives the two-letter fallback shown when no icon asset resolves. */
 function initialsOf(name: string): string {
@@ -44,7 +45,7 @@ export function ProviderIcon({
         <span className="text-[11px] font-bold tracking-tight text-[var(--text-2)]">{initialsOf(name)}</span>
       ) : (
         <img
-          src={`${import.meta.env.BASE_URL}providers/${icon}.png`}
+          src={`${import.meta.env.BASE_URL}providers/${icon}.${svgIcons.has(icon) ? "svg" : "png"}`}
           alt=""
           width={size}
           height={size}

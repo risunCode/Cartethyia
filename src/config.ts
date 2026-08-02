@@ -27,7 +27,7 @@ export interface CartethyiaConfig {
  * Warns at boot about CORS_ALLOWED_ORIGINS values that weaken the /v1/*
  * allow-list: a wildcard defeats the allow-list entirely, and a non-HTTPS,
  * non-loopback origin can be spoofed over an untrusted network. This is a
- * warning, not a hard failure \u2014 operators legitimately need it, e.g. plain-HTTP
+ * warning, not a hard failure — operators legitimately need it, e.g. plain-HTTP
  * self-hosting on a LAN.
  */
 function warnAboutWeakCorsOrigins(origins: readonly string[]): void {

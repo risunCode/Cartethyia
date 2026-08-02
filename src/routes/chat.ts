@@ -30,6 +30,7 @@ export const chatRoute = new Elysia().post(
           body: req as Record<string, unknown>,
           headers,
           request,
+          clientIp: server?.requestIP(request)?.address,
           surface: "openai-chat",
         });
         return finishSurfaceDispatch({

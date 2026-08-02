@@ -30,6 +30,16 @@ const STATIC_TARGETS: Record<AddedProviderId, StaticTargetDefinition> = {
     surfaces: { default: "openai-chat" },
     credential: "provider-bearer",
   },
+  blackbox: {
+    provider: "blackbox",
+    surfaces: { default: "openai-chat" },
+    credential: "provider-bearer",
+  },
+  cline: {
+    provider: "cline",
+    surfaces: { default: "openai-chat" },
+    credential: "oauth",
+  },
   "opencode-free": {
     provider: "opencode-free",
     surfaces: { default: "openai-chat" },
@@ -62,6 +72,31 @@ const STATIC_TARGETS: Record<AddedProviderId, StaticTargetDefinition> = {
     surfaces: { default: "openai-chat" },
     credential: "provider-bearer",
   },
+  "openai-codex": {
+    provider: "openai-codex",
+    surfaces: { default: "openai-chat" },
+    credential: "oauth",
+  },
+  "anthropic-oauth": {
+    provider: "anthropic-oauth",
+    surfaces: { default: "openai-chat" },
+    credential: "oauth",
+  },
+  "grok-cli": {
+    provider: "grok-cli",
+    surfaces: { default: "openai-chat" },
+    credential: "oauth",
+  },
+  "google-antigravity": {
+    provider: "google-antigravity",
+    surfaces: { default: "openai-chat" },
+    credential: "oauth",
+  },
+  kiro: {
+    provider: "kiro",
+    surfaces: { default: "openai-chat" },
+    credential: "oauth",
+  },
   pgxiaomi: {
     provider: "pgxiaomi",
     surfaces: { default: "openai-chat" },
@@ -85,6 +120,7 @@ const STATIC_TARGETS: Record<AddedProviderId, StaticTargetDefinition> = {
   mistral: { provider: "mistral", surfaces: { default: "openai-chat" }, credential: "provider-bearer" },
   "opencode-go": { provider: "opencode-go", surfaces: { default: "openai-chat" }, credential: "provider-bearer" },
   agentrouter: { provider: "agentrouter", surfaces: { default: "openai-chat" }, credential: "provider-bearer" },
+  nvidia: { provider: "nvidia", surfaces: { default: "openai-chat" }, credential: "provider-bearer" },
   tpxiaomi: { provider: "tpxiaomi", surfaces: { default: "openai-chat" }, credential: "provider-bearer" },
 };
 
@@ -125,7 +161,7 @@ export function parseQualifiedModel(model: string): QualifiedModelParseResult {
     return { kind: "qualified", model: { provider: "custom", modelId: `${prefix}/${modelId}` } };
   }
 
-  return { kind: "invalid", reason: "Use a supported provider prefix such as foc, opencodezen, cmd, kimchi, devin, qoder, cursor, openai, anthropic, pmimo, mimosgtp, agentrouter, openrouter, ollama, cerebras, deepseek, siliconflow, mistral, opencodego, or a custom provider's own slug." };
+  return { kind: "invalid", reason: "Use a supported provider prefix such as opencodeft, opencodezen, cmd, kimchi, devin, qoder, cursor, openai, anthropic, codex, claude, xiaomipg, xiaomitp, agentrouter, openrouter, ollama, cerebras, deepseek, siliconflow, mistral, opencodego, or a custom provider's own slug." };
 }
 
 // ─────────────────── Model chain resolution ─────────────────────────────────
@@ -279,7 +315,7 @@ async function resolveSingleQualifiedTarget(providerId: AddedProviderId, modelId
   // Special: opencode-free has a dynamically-fetched catalog, and "custom"
   // accepts arbitrary upstream model ids per registered endpoint; skip the
   // static model existence check since `resolveTarget` does its own lookup.
-  if (providerId !== "opencode-free" && providerId !== "custom" && providerId !== "openai" && providerId !== "anthropic" && !provider.models.resolve(modelId)) {
+  if (providerId !== "opencode-free" && providerId !== "custom" && providerId !== "openai" && providerId !== "anthropic" && providerId !== "openai-codex" && providerId !== "anthropic-oauth" && providerId !== "grok-cli" && providerId !== "google-antigravity" && !provider.models.resolve(modelId)) {
     return { legacy: false, error: "The requested model is not available for this provider." };
   }
 

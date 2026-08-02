@@ -10,6 +10,8 @@ import { ProviderCallError, providerRegistry } from "./providers";
 import {
   pickAccountForRotation,
   markAccountUnavailable,
+  disableProviderForQuota,
+  updateAccountHealth,
   clearAccountCooldown,
   getRetryAfterSeconds,
   lockAccountModel,
@@ -17,11 +19,32 @@ import {
   type CredentialKind,
 } from "../console/db/repos/accounts";
 import { pushConsoleLog } from "../console/logs/ring";
+import { formatRequestLogLine } from "../console/tracking/tracker";
+import { tokenKeeper } from "../tokenkeeper";
+import { getProxyPoolSettings } from "../console/db/repos/proxy-settings";
+import { pickProxyForRotation, markProxyUnavailable, rotateSmartProxyAssignment } from "../console/db/repos/proxies";
+import type { ProxyProtocol, ProxyTarget } from "./proxy/types";
 
 export interface DispatchableRoute {
   target: RouteTarget;
   request: ProviderRequest;
   credential: ResolvedCredential;
+  clientIp?: string;
+}
+
+/**
+ * Selects an outbound proxy for `provider`, or `null` for a direct
+ * connection - the default when the global pool is disabled or this
+ * provider is in the exclusion list. Global settings are shared across
+ * every provider (REQ: one proxy pool for the whole gateway), so there is
+ * no per-provider proxy configuration to resolve here.
+ */
+export function pickProxyTarget(provider: string, clientIp?: string, stickyProxyCount?: number): ProxyTarget | null {
+  const settings = getProxyPoolSettings();
+  if (!settings.enabled || settings.excludedProviders.includes(provider)) return null;
+  const row = pickProxyForRotation(clientIp, settings.smartDynamicRouting, stickyProxyCount ?? settings.smartDynamicProxyCount);
+  if (!row) return null;
+  return { id: row.id, name: row.name, protocol: row.protocol as ProxyProtocol, isRelay: Boolean(row.is_relay), host: row.host, port: row.port, username: row.username, password: row.password };
 }
 
 // ── Credential resolution ─────────────────────────────────────────
@@ -83,6 +106,7 @@ const DISPATCH_RETRY_CONFIG: RetryConfig = {
 
 export interface DispatchOutcome {
   result: ProviderResult;
+  networkPath: string;
 }
 
 interface AccountModelFailure {
@@ -158,26 +182,56 @@ async function dispatchProvider(
     throw new Error(`No provider implementation for ${route.target.provider}`);
   }
 
-  // Create a combined signal: connect timeout + client abort (C3). `clear`
-  // is called once `provider.call(...)` resolves (headers/full JSON in
-  // hand) so the deadline never fires against the rest of a streaming
-  // response body's lifetime - see `createTimeoutSignal`'s docstring.
-  const { signal: timeoutSignal, clear: clearConnectTimeout } = createTimeoutSignal(FETCH_CONNECT_TIMEOUT_MS, signal);
-
-  try {
-    const result = await withRetry(
-      () => provider.call(route.target, route.request, route.credential, timeoutSignal),
-      DISPATCH_RETRY_CONFIG,
-      (attempt, delayMs, error) => {
-        void attempt;
-        void delayMs;
-        void error;
-      },
-    );
-    return { result };
-  } finally {
-    clearConnectTimeout();
-  }
+  let networkPath = "direct";
+  const result = await withRetry(
+    async () => {
+      // A timed-out AbortSignal cannot be reused for a retry. Create and
+      // clear one per attempt so a transient connect timeout gets a real
+      // second chance while a healthy stream is never killed after headers.
+      const { signal: timeoutSignal, clear: clearConnectTimeout } = createTimeoutSignal(FETCH_CONNECT_TIMEOUT_MS, signal);
+      // Re-picked every attempt (not just once) so a proxy that just failed
+      // and went into cooldown is skipped on the very next retry within the
+      // same request — the anti-interrupted failover the proxy pool exists for.
+      const proxy = pickProxyTarget(route.target.provider, route.clientIp);
+      networkPath = proxy?.name ?? proxy?.id ?? "direct";
+      const account = "accountName" in route.credential && route.credential.accountName
+        ? route.credential.accountName
+        : route.credential.accountId ?? "none";
+      pushConsoleLog("info", "request", formatRequestLogLine({
+        eventName: "incoming",
+        provider: route.target.provider,
+        model: route.target.modelId,
+        accountLabel: account,
+        networkPath,
+      }));
+      try {
+        return await provider.call(route.target, route.request, route.credential, timeoutSignal, proxy);
+      } catch (error) {
+        if (route.credential.kind === "oauth" && route.credential.accountId) {
+          const status = error instanceof ProviderCallError ? error.status : 502;
+          const kind = error instanceof ProviderCallError ? error.kind : "timeout";
+          const message = error instanceof Error ? error.message : "OAuth provider request failed.";
+          tokenKeeper.recordProviderFailure(route.credential.accountId, status, kind, message);
+        }
+        // A `ProviderCallError` means the proxy successfully delivered the
+        // request and got a real HTTP response back (even an error one) —
+        // that's a provider-side failure, not the proxy's fault. Anything
+        // else thrown before a response exists (ECONNREFUSED, SOCKS5
+        // handshake failure, proxy CONNECT rejection) is a proxy failure.
+        if (proxy && !(error instanceof ProviderCallError)) markProxyUnavailable(proxy.id);
+        throw error;
+      } finally {
+        clearConnectTimeout();
+      }
+    },
+    DISPATCH_RETRY_CONFIG,
+    (attempt, delayMs, error) => {
+      void attempt;
+      void delayMs;
+      void error;
+    },
+  );
+  return { result, networkPath };
 }
 
 // ─────────────────── Qualified-route dispatch (REQ-4) ──────────────────────
@@ -190,13 +244,14 @@ async function dispatchProvider(
 
 export type QualifiedDispatchResult =
   | { kind: "error"; status: number; message: string }
-  | { kind: "result"; result: ProviderResult; accountLabel?: string };
+  | { kind: "result"; result: ProviderResult; provider: string; accountLabel?: string; networkPath: string };
 
 export interface QualifiedDispatchInput {
   model: string;
   body: Record<string, unknown>;
   headers: { authorization?: string; "x-api-key"?: string };
   request: Request;
+  clientIp?: string;
   surface: ProviderRequest["surface"];
   /** Present = emulated-compaction mode: forces stream:false and injects `instruction` as the first system message before transforms run. */
   compact?: { instruction: string };
@@ -217,20 +272,14 @@ function injectCompactMessage(body: Record<string, unknown>, instruction: string
  * the existing inbound-headers path. Shared by live dispatch AND the console's
  * "test model" action so both rotate accounts identically (REQ-4.3).
  */
-function clientAffinityKey(request: Request): string | undefined {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded || request.headers.get("cf-connecting-ip")?.trim() || request.headers.get("x-real-ip")?.trim() || undefined;
-}
-
 export async function resolveCredentialForDispatch(
   provider: string,
   headers: { authorization?: string; "x-api-key"?: string },
   modelId?: string,
-  clientKey?: string,
-) {
+): Promise<ResolvedCredential | undefined> {
   if (!isProviderId(provider)) return undefined;
   const expectedCredential = credentialKindOf(provider);
-  if (expectedCredential === "none") return { kind: "none" as const, value: "" };
+  if (expectedCredential === "none") return { kind: "none", value: "" };
 
   const routing = getProviderRouting(provider);
 
@@ -238,12 +287,29 @@ export async function resolveCredentialForDispatch(
   // rotates across accounts; for any other strategy ("priority" by default)
   // it selects the highest-priority active account, so stored credentials
   // are always consulted before falling back to header-only resolution.
-  const picked = await pickAccountForRotation(provider, routing.strategy, routing.stickyLimit, modelId, clientKey);
+  const picked = await pickAccountForRotation(provider, routing.strategy, modelId, routing.useStickyLimit ? routing.stickyLimit : 1);
   if (picked) {
-    const plain = picked.credential;
     const kind = RESOLVED_KIND_BY_ACCOUNT_KIND[picked.credential_kind as CredentialKind] ?? "provider-bearer";
-    return { kind, value: plain, accountId: picked.id, accountName: picked.name };
+    if (kind === "oauth") {
+      const lease = await tokenKeeper.getTokenLease(picked.id);
+      const credential: ResolvedCredential = {
+        kind: "oauth",
+        value: lease.accessToken,
+        accountId: picked.id,
+        accountName: picked.name,
+        providerMetadata: {
+          ...lease.providerMetadata,
+          ...(lease.accountId ? { accountId: lease.accountId } : {}),
+          ...(lease.orgId ? { orgId: lease.orgId } : {}),
+        },
+      };
+      return credential;
+    }
+    const credential: ResolvedCredential = { kind, value: picked.credential, accountId: picked.id, accountName: picked.name };
+    return credential;
   }
+
+  if (expectedCredential === "oauth") return undefined;
 
   // No stored accounts for this provider, fall back to the credential the
   // client supplied directly in the request header (BYOK).
@@ -279,25 +345,40 @@ export async function dispatchQualifiedRoute(input: QualifiedDispatchInput): Pro
   if (input.compact) injectCompactMessage(input.body, input.compact.instruction);
   const providerRequest: ProviderRequest = { surface: input.surface, body: input.body };
 
-  // ── Credential resolution: account routing uses client IP affinity when sticky routing is enabled. ──
-  const affinityKey = clientAffinityKey(input.request);
-  const credential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId, affinityKey);
+  const credential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId);
   if (!credential) return { kind: "error", status: 401, message: "This provider requires a valid bearer credential." };
 
   try {
-    const outcome = await dispatchWithImageFallback(providerRegistry, { target, request: providerRequest, credential }, input.request.signal);
+    const outcome = await dispatchWithImageFallback(providerRegistry, { target, request: providerRequest, credential, clientIp: input.clientIp }, input.request.signal);
     if ("accountId" in credential && credential.accountId) {
       const accountId = credential.accountId as string;
       clearAccountCooldown(accountId);
       accountModelFailures.delete(accountModelFailureKey(accountId, target.modelId));
     }
-    return { kind: "result", result: outcome.result, accountLabel: "accountName" in credential ? credential.accountName : undefined };
+    return { kind: "result", result: outcome.result, provider: target.provider, accountLabel: "accountName" in credential ? credential.accountName : undefined, networkPath: outcome.networkPath };
   } catch (err) {
     const status = extractStatus(err);
     const isCredentialFailure = status === 401 || status === 403;
+    if (status === 429) rotateSmartProxyAssignment(input.clientIp);
     if ("accountId" in credential && credential.accountId) {
       const accountId = credential.accountId as string;
-      if (status === 429 || isCredentialFailure) markAccountUnavailable(accountId, isCredentialFailure ? "auth" : "rate-limit");
+      const message = err instanceof Error ? err.message : "Provider request failed";
+      const isQuotaExhausted = status === 403 && /quota|exhausted|daily limit|usage limit/i.test(message);
+      if (isQuotaExhausted) {
+        disableProviderForQuota(target.provider, status, message);
+      } else if (status === 429 || isCredentialFailure) {
+        const cooldownKind = isCredentialFailure ? "auth" : "rate-limit";
+        markAccountUnavailable(accountId, cooldownKind);
+        const retryAt = new Date(Date.now() + (cooldownKind === "auth" ? 30 * 60_000 : 30 * 60_000)).toISOString();
+        updateAccountHealth(accountId, {
+          status: "error",
+          errorKind: cooldownKind === "auth" ? "authentication" : "rate_limited",
+          statusCode: status,
+          sanitizedMessage: message.slice(0, 500),
+          occurredAt: new Date().toISOString(),
+          retryAt,
+        });
+      }
       const key = accountModelFailureKey(accountId, target.modelId);
       const now = Date.now();
       const existing = accountModelFailures.get(key);
@@ -319,14 +400,14 @@ export async function dispatchQualifiedRoute(input: QualifiedDispatchInput): Pro
     // A rejected stored credential is account-specific: immediately retry the
     // next eligible account for this provider before trying combo targets.
     if (isCredentialFailure && "accountId" in credential && credential.accountId) {
-      const nextCredential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId, affinityKey);
+      const nextCredential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId);
       if (nextCredential && "accountId" in nextCredential && nextCredential.accountId !== credential.accountId) {
         const oldLabel = "accountName" in credential ? credential.accountName : undefined;
         if (oldLabel) pushConsoleLog("warn", "request", `\u26a0\ufe0f FALLBACK \u21c4 ACC:${oldLabel} UNAVAILABLE (${status ?? "?"}) \u2192 NEXT ACCOUNT`);
         try {
-          const outcome = await dispatchWithImageFallback(providerRegistry, { target, request: providerRequest, credential: nextCredential }, input.request.signal);
-          clearAccountCooldown(nextCredential.accountId);
-          return { kind: "result", result: outcome.result, accountLabel: "accountName" in nextCredential ? nextCredential.accountName : undefined };
+          const outcome = await dispatchWithImageFallback(providerRegistry, { target, request: providerRequest, credential: nextCredential, clientIp: input.clientIp }, input.request.signal);
+          if (nextCredential.accountId) clearAccountCooldown(nextCredential.accountId);
+          return { kind: "result", result: outcome.result, provider: target.provider, accountLabel: "accountName" in nextCredential ? nextCredential.accountName : undefined, networkPath: outcome.networkPath };
         } catch {
           // Continue to combo failover after the next stored account also fails.
         }
@@ -334,7 +415,7 @@ export async function dispatchQualifiedRoute(input: QualifiedDispatchInput): Pro
     }
     // Combo failover: try next candidate on retryable or stored-credential auth error.
     if (isRetryableError(err) || isCredentialFailure) {
-      const fallback = await tryComboFailover(input, providerRequest, targetResults, affinityKey);
+      const fallback = await tryComboFailover(input, providerRequest, targetResults);
       if (fallback) return fallback;
     }
     // Propagate 429 with Retry-After
@@ -355,7 +436,6 @@ async function tryComboFailover(
   input: QualifiedDispatchInput,
   providerRequest: ProviderRequest,
   targets: RouteResolveResult[],
-  affinityKey: string | undefined,
 ): Promise<QualifiedDispatchResult | null> {
   // Skip the first target (already failed) and try the rest
   for (let i = 1; i < targets.length; i++) {
@@ -366,13 +446,13 @@ async function tryComboFailover(
     const provider = providerRegistry.get(target.provider);
     if (!provider) continue;
 
-    const credential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId, affinityKey);
+    const credential = await resolveCredentialForDispatch(target.provider, input.headers, target.modelId);
     if (!credential) continue;
 
     try {
-      const outcome = await dispatchWithImageFallback(providerRegistry, { target, request: providerRequest, credential }, input.request.signal);
+      const outcome = await dispatchWithImageFallback(providerRegistry, { target, request: providerRequest, credential, clientIp: input.clientIp }, input.request.signal);
       if ("accountId" in credential && credential.accountId) clearAccountCooldown(credential.accountId as string);
-      return { kind: "result", result: outcome.result, accountLabel: "accountName" in credential ? credential.accountName : undefined };
+      return { kind: "result", result: outcome.result, provider: target.provider, accountLabel: "accountName" in credential ? credential.accountName : undefined, networkPath: outcome.networkPath };
     } catch {
       // This candidate also failed, try next
       continue;

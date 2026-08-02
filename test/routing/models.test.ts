@@ -8,7 +8,7 @@ describe("parseQualifiedModel", () => {
   });
 
   test("normalizes only the supported provider prefixes", () => {
-    expect(parseQualifiedModel("foc/deepseek-v4-flash-free")).toEqual({
+    expect(parseQualifiedModel("opencodeft/deepseek-v4-flash-free")).toEqual({
       kind: "qualified",
       model: { provider: "opencode-free", modelId: "deepseek-v4-flash-free" },
     });
