@@ -80,6 +80,11 @@ function ProxyPoolSection() {
     onSuccess: (next) => qc.setQueryData(["console", "proxy-settings"], next),
     onError: (err) => toast.error(errorMessage(err)),
   });
+  const activeMutation = useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) => apiPost<{ ok: boolean }>(`/proxies/${id}`, { active }),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["console", "proxies"] }); },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
 
   const [modal, setModal] = useState<{ open: boolean; existing: ProxyRecord | null }>({ open: false, existing: null });
   const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
@@ -229,7 +234,7 @@ function ProxyPoolSection() {
                 <th className="w-10 px-3 py-2.5">#</th>
                 <th className="px-3 py-2.5">Name</th>
                 <th className="hidden px-3 py-2.5 sm:table-cell">Endpoint</th>
-                <th className="w-20 px-2 py-2.5 text-right">Actions</th>
+                <th className="w-32 px-2 py-2.5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -245,7 +250,7 @@ function ProxyPoolSection() {
                     <code className="mt-0.5 block font-mono text-[10px] text-[var(--text-3)] sm:hidden">{proxy.host}:{proxy.port}</code>
                   </td>
                   <td className="hidden px-3 py-2.5 font-mono text-[10px] text-[var(--text-3)] sm:table-cell">{proxy.protocol}://{proxy.host}:{proxy.port}</td>
-                  <td className="w-20 px-2 py-2.5 align-top">
+                  <td className="w-32 px-2 py-2.5 align-top">
                     <div className="flex justify-end gap-0.5 whitespace-nowrap">
                       <Button variant="ghost" size="icon" className="size-7" title="Test connection" aria-label={`Test ${proxy.name}`} disabled={testingIds.has(proxy.id)} onClick={() => void runSavedTest(proxy)}>
                         {testingIds.has(proxy.id) ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />}
@@ -253,6 +258,7 @@ function ProxyPoolSection() {
                       <Button variant="ghost" size="icon" className="size-7" title="Edit proxy" aria-label={`Edit ${proxy.name}`} onClick={() => setModal({ open: true, existing: proxy })}>
                         <Pencil size={12} />
                       </Button>
+                      <Switch checked={proxy.active} disabled={activeMutation.isPending} onChange={(active) => activeMutation.mutate({ id: proxy.id, active })} label={`${proxy.active ? "Disable" : "Enable"} ${proxy.name}`} />
                     </div>
                   </td>
                 </tr>

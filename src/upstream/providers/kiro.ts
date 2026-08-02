@@ -7,11 +7,22 @@ import { buildProxyFetcher } from "../proxy/adapter";
 import type { ProxyTarget } from "../proxy/types";
 import { kiroModelCatalog } from "./kiro-models";
 
+const DEFAULT_PROFILE_ARNS: Record<string, string> = {
+  "builder-id": "arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX",
+  social: "arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK",
+};
+
 const ENDPOINTS = [
   "https://runtime.us-east-1.kiro.dev/generateAssistantResponse",
   "https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse",
   "https://q.us-east-1.amazonaws.com/generateAssistantResponse",
 ] as const;
+
+function defaultProfileArn(authMethod: string | undefined): string | undefined {
+  if (authMethod === "api_key" || authMethod === "external_idp") return undefined;
+  if (authMethod === "google" || authMethod === "github" || authMethod === "social") return DEFAULT_PROFILE_ARNS.social;
+  return DEFAULT_PROFILE_ARNS["builder-id"];
+}
 
 function orderedEndpoints(metadata: Record<string, string>): string[] {
   const region = metadata.region?.trim() || "us-east-1";
@@ -64,6 +75,26 @@ function buildPayload(body: Record<string, unknown>, modelId: string): Record<st
       topP: typeof body.top_p === "number" ? body.top_p : 0.9,
     },
   };
+}
+
+async function responseErrorMessage(response: Response): Promise<string> {
+  const text = await response.text();
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>;
+      const error = record.error;
+      if (typeof error === "string" && error.trim()) return error.trim().slice(0, 500);
+      if (error !== null && typeof error === "object" && !Array.isArray(error)) {
+        const message = (error as Record<string, unknown>).message;
+        if (typeof message === "string" && message.trim()) return message.trim().slice(0, 500);
+      }
+      if (typeof record.message === "string" && record.message.trim()) return record.message.trim().slice(0, 500);
+    }
+  } catch {
+    // Preserve the status when the provider returns a non-JSON error page.
+  }
+  return text.trim().slice(0, 500);
 }
 
 function readString(value: unknown, key: string): string | undefined {
@@ -132,7 +163,7 @@ class KiroProvider implements Provider {
     const body = request.body;
     const metadata = credential.providerMetadata ?? {};
     const payload = buildPayload(body, target.modelId);
-    const profileArn = metadata.profileArn;
+    const profileArn = metadata.profileArn ?? defaultProfileArn(metadata.authMethod);
     if (profileArn) (payload as Record<string, unknown>).profileArn = profileArn;
     const fetcher = proxy ? buildProxyFetcher(proxy) : fetch;
     let response: Response | undefined;
@@ -148,10 +179,14 @@ class KiroProvider implements Provider {
             "x-amz-user-agent": "aws-sdk-js/3.0.0 kiro-ide/1.0.0",
             "amz-sdk-request": "attempt=1; max=3",
             "amz-sdk-invocation-id": crypto.randomUUID(),
+            ...(metadata.authMethod === "api_key" ? { tokentype: "API_KEY" } : {}),
             ...(metadata.authMethod === "external_idp" ? { TokenType: "EXTERNAL_IDP" } : {}),
           }, body: JSON.stringify(payload) });
         if (response.ok) break;
-        lastError = new ProviderCallError(response.status, response.status === 401 ? "authentication" : "unavailable", `Kiro upstream returned ${response.status}.`);
+        const detail = await responseErrorMessage(response);
+        const kind = response.status === 401 || response.status === 403 ? "authentication" : "unavailable";
+        lastError = new ProviderCallError(response.status, kind, detail ? `Kiro upstream returned ${response.status}: ${detail}` : `Kiro upstream returned ${response.status}.`);
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) break;
       } catch (error) { lastError = error; }
     }
     if (!response?.ok) throw lastError instanceof ProviderCallError ? lastError : new ProviderCallError(502, "unavailable", "Kiro upstream request failed.");

@@ -80,12 +80,12 @@ export function anthropicUpstreamError(error: UpstreamError): { status: number; 
 }
 
 /** Returns a friendly OpenAI-compatible error for malformed or unexpected failures. */
-export function openAIClientError(status: number, kind: Exclude<ClientErrorKind, "upstream_error">, message: string): OpenAIErrorResponse {
+export function openAIClientError(status: number, kind: ClientErrorKind, message: string): OpenAIErrorResponse {
   return openAIEnvelope({ status, kind, message });
 }
 
 /** Returns a friendly Anthropic-compatible error for malformed or unexpected failures. */
-export function anthropicClientError(status: number, kind: Exclude<ClientErrorKind, "upstream_error">, message: string): AnthropicErrorResponse {
+export function anthropicClientError(status: number, kind: ClientErrorKind, message: string): AnthropicErrorResponse {
   return anthropicEnvelope({ status, kind, message });
 }
 

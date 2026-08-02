@@ -22,7 +22,7 @@ import { pushConsoleLog } from "../console/logs/ring";
 import { formatRequestLogLine } from "../console/tracking/tracker";
 import { tokenKeeper } from "../tokenkeeper";
 import { getProxyPoolSettings } from "../console/db/repos/proxy-settings";
-import { pickProxyForRotation, markProxyUnavailable, rotateSmartProxyAssignment } from "../console/db/repos/proxies";
+import { pickProxyForRotation, markProxyUnavailable, markProxyRateLimited, rotateSmartProxyAssignment } from "../console/db/repos/proxies";
 import type { ProxyProtocol, ProxyTarget } from "./proxy/types";
 
 export interface DispatchableRoute {
@@ -218,7 +218,8 @@ async function dispatchProvider(
         // that's a provider-side failure, not the proxy's fault. Anything
         // else thrown before a response exists (ECONNREFUSED, SOCKS5
         // handshake failure, proxy CONNECT rejection) is a proxy failure.
-        if (proxy && !(error instanceof ProviderCallError)) markProxyUnavailable(proxy.id);
+        if (proxy && error instanceof ProviderCallError && error.status === 429) markProxyRateLimited(proxy.id);
+        else if (proxy && !(error instanceof ProviderCallError)) markProxyUnavailable(proxy.id);
         throw error;
       } finally {
         clearConnectTimeout();

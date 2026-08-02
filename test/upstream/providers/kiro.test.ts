@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { buildPayload, kiroProvider } from "../../../src/upstream/providers/kiro";
 import { parseQualifiedModel } from "../../../src/routing/resolve";
 
@@ -7,6 +7,21 @@ describe("Kiro provider", () => {
     expect(kiroProvider.models.resolve("claude-opus-4.8")).toBeDefined();
     expect(kiroProvider.models.resolve("gpt-5.6-luna-thinking-agentic")).toBeDefined();
     expect(parseQualifiedModel("kiro/claude-opus-4.8")).toEqual({ kind: "qualified", model: { provider: "kiro", modelId: "claude-opus-4.8" } });
+  });
+
+  test("adds API-key auth headers and the shared builder profile", async () => {
+    const fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 403, headers: { "content-type": "application/json" }, }));
+    await expect(kiroProvider.call(
+      kiroProvider.resolveTarget("claude-opus-4.8"),
+      { surface: "openai-chat", body: { model: "claude-opus-4.8", messages: [{ role: "user", content: "hello" }], stream: false } },
+      { kind: "oauth", value: "api-token", providerMetadata: { authMethod: "api_key", region: "us-east-1" } },
+      AbortSignal.timeout(1_000),
+    )).rejects.toMatchObject({ status: 403 });
+    const init = fetchSpy.mock.calls[0]?.[1];
+    expect(init?.headers).toMatchObject({ tokentype: "API_KEY" });
+    const payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    expect(payload.profileArn).toBeUndefined();
+    fetchSpy.mockRestore();
   });
 
   test("translates chat history into Kiro conversation state", () => {

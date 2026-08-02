@@ -6,6 +6,7 @@ import { ProviderCallError } from "./errors";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./types";
 import { callSimpleProvider } from "./simple-call";
 import { createModelCatalog } from "./models";
+import { DEFAULT_RETRY_CONFIG, withRetry } from "../retry";
 
 const CLINE_CHAT_URL = "https://api.cline.bot/api/v1/chat/completions";
 const CLINE_MODELS = createModelCatalog([
@@ -21,6 +22,28 @@ const CLINE_MODELS = createModelCatalog([
   { id: "google/gemini-3.1-flash-lite-preview", contextWindow: 1_000_000, maxOutputTokens: 65_536 },
   { id: "kwaipilot/kat-coder-pro-v2", reasoning: true, contextWindow: 131_072, maxOutputTokens: 32_768 },
 ]);
+
+function unwrapClineResponse(json: Record<string, unknown>): Record<string, unknown> {
+  const data = json.data;
+  return data !== null && typeof data === "object" && !Array.isArray(data)
+    ? data as Record<string, unknown>
+    : json;
+}
+
+function ensureClineSystemMessage(body: Record<string, unknown>): Record<string, unknown> {
+  const messages = body.messages;
+  if (!Array.isArray(messages)) return body;
+  const hasSystemMessage = messages.some((message) => {
+    if (message === null || typeof message !== "object" || Array.isArray(message)) return false;
+    const role = (message as Record<string, unknown>).role;
+    return role === "system" || role === "developer";
+  });
+  if (hasSystemMessage) return body;
+  return {
+    ...body,
+    messages: [{ role: "system", content: "Answer directly in 2-4 sentences. Do not explain your reasoning." }, ...messages],
+  };
+}
 
 class ClineProvider implements Provider {
   readonly id = "cline" as const;
@@ -42,8 +65,12 @@ class ClineProvider implements Provider {
     if (request.surface !== "openai-chat") throw new ProviderCallError(400, "invalid_request", "Cline supports the OpenAI Chat shape.");
     if (credential.kind !== "oauth" || !credential.value) throw new ProviderCallError(401, "authentication", "Cline requires an OAuth credential.");
     const token = credential.value.startsWith("workos:") ? credential.value : `workos:${credential.value}`;
-    const body = { ...request.body, model: target.modelId } as Record<string, unknown>;
-    return callSimpleProvider({
+    const body = ensureClineSystemMessage({
+      ...request.body,
+      model: target.modelId,
+      stream: request.body.stream === true,
+    });
+    const call = () => callSimpleProvider({
       url: CLINE_CHAT_URL,
       headers: {
         authorization: `Bearer ${token}`,
@@ -64,8 +91,15 @@ class ClineProvider implements Provider {
       providerLabel: "Cline",
       isStreaming: body.stream === true,
       decodeStream: decodeOpenAIChatStream,
+      translateJson: unwrapClineResponse,
       fetcher: proxy ? buildProxyFetcher(proxy) : undefined,
     });
+    return withRetry(
+      call,
+      { ...DEFAULT_RETRY_CONFIG, maxRetries: 2, baseDelayMs: 500, maxDelayMs: 2_000 },
+      undefined,
+      (error) => error instanceof ProviderCallError && error.status === 500 && /empty response content/i.test(error.message),
+    );
   }
 }
 

@@ -22,11 +22,14 @@ describe("Codex provider", () => {
   });
 
   test("translates system messages to developer messages for Responses", async () => {
-    await codexProvider.call(target(), {
+    const result = await codexProvider.call(target(), {
       surface: "openai-chat",
       body: {
         model: "gpt-5.4-mini",
         stream: false,
+        temperature: 0.2,
+        top_p: 0.8,
+        max_tokens: 32,
         messages: [
           { role: "system", content: "Answer briefly." },
           { role: "user", content: "Hello." },
@@ -44,6 +47,11 @@ describe("Codex provider", () => {
     expect(request?.headers).toMatchObject({ "chatgpt-account-id": "chatgpt-account-1" });
     expect(body.store).toBe(false);
     expect(body.stream).toBe(true);
+    expect(result.type).toBe("json");
+    expect(body).not.toHaveProperty("temperature");
+    expect(body).not.toHaveProperty("top_p");
+    expect(body).not.toHaveProperty("max_output_tokens");
+    expect(body).not.toHaveProperty("max_completion_tokens");
   });
 
   test("does not use the internal account id as the ChatGPT identity", async () => {

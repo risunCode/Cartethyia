@@ -184,7 +184,9 @@ export async function* decodeOpenAIChatStream(body: ReadableStream<Uint8Array>):
 
     const content = delta ? asString(field(delta, "content")) : undefined;
     if (content) yield { type: "text_delta", text: content };
-    const reasoningContent = delta ? asString(field(delta, "reasoning_content")) : undefined;
+    const reasoningContent = delta
+      ? asString(field(delta, "reasoning_content")) ?? asString(field(delta, "reasoning"))
+      : undefined;
     if (reasoningContent) yield { type: "thinking_delta", text: reasoningContent };
 
     const toolCalls = delta ? asArray(field(delta, "tool_calls")) : undefined;

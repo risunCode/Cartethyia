@@ -115,6 +115,20 @@ describe("bridge — decodeAnthropicStream", () => {
 });
 
 describe("bridge — decodeOpenAIChatStream", () => {
+  test("decodes reasoning deltas from the provider's standard reasoning field", async () => {
+    const raw =
+      frame({ choices: [{ index: 0, delta: { reasoning: "Think first." } }] }) +
+      frame({ choices: [{ index: 0, delta: { content: "Answer." } }] }) +
+      frame({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
+
+    const events = await collect(decodeOpenAIChatStream(streamOf(raw)));
+    expect(events).toEqual([
+      { type: "thinking_delta", text: "Think first." },
+      { type: "text_delta", text: "Answer." },
+      { type: "finish", stopReason: "end_turn" },
+    ]);
+  });
+
   test("decodes a text turn ending in finish_reason: stop", async () => {
     const raw =
       frame({ choices: [{ index: 0, delta: { role: "assistant", content: "" } }] }) +

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import * as net from "node:net";
 import { app } from "../../src/app";
 import { testProxyTarget } from "../../src/console/api/proxies";
-import { parseProxyUrl } from "../../src/console/db/repos/proxies";
+import { createProxy, getProxy, markProxyRateLimited, parseProxyUrl, pickProxyForRotation, resetProxyRoutingForTests } from "../../src/console/db/repos/proxies";
 import { loginAndGetCookie, postJson, useIsolatedDataDir } from "./helpers";
 
 afterEach(() => useIsolatedDataDir());
@@ -40,6 +40,31 @@ describe("proxies CRUD", () => {
     expect(del.status).toBe(200);
     const listAfterDelete = await app.handle(new Request("http://localhost/console/api/proxies", { headers: { cookie } }));
     expect((await listAfterDelete.json() as { items: unknown[] }).items).toHaveLength(0);
+  });
+
+  test("disables a rate-limited proxy for one hour and rotates to the next active proxy", () => {
+    useIsolatedDataDir();
+    const first = createProxy({ name: "priority-1", protocol: "http", host: "10.0.0.1", port: 8080, priority: 10 });
+    const second = createProxy({ name: "priority-2", protocol: "http", host: "10.0.0.2", port: 8080, priority: 20 });
+    resetProxyRoutingForTests();
+
+    expect(pickProxyForRotation()).toMatchObject({ id: first.id });
+    markProxyRateLimited(first.id);
+
+    const cooled = getProxy(first.id);
+    expect(cooled).not.toBeNull();
+    expect(Date.parse(cooled!.cooldown_until ?? "") - Date.now()).toBeGreaterThan(59 * 60_000);
+    expect(pickProxyForRotation()?.id).toBe(second.id);
+  });
+
+  test("excludes manually disabled proxies from rotation", () => {
+    useIsolatedDataDir();
+    const disabled = createProxy({ name: "disabled", protocol: "http", host: "10.0.0.1", port: 8080, priority: 10, active: false });
+    const enabled = createProxy({ name: "enabled", protocol: "http", host: "10.0.0.2", port: 8080, priority: 20 });
+    resetProxyRoutingForTests();
+
+    expect(pickProxyForRotation()?.id).toBe(enabled.id);
+    expect(pickProxyForRotation()?.id).not.toBe(disabled.id);
   });
 
   test("parses authenticated and passwordless proxy URLs", () => {

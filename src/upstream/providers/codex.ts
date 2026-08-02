@@ -8,6 +8,7 @@ import { ProviderCallError } from "./errors";
 import type { Provider, ProviderRequest, ProviderResult, ResolvedCredential } from "./types";
 import type { ProviderModelCatalog } from "./models";
 import { callSimpleProvider } from "./simple-call";
+import { materializeFromStream, materializedToChatResponse } from "../result";
 
 const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 const CODEX_VERSION = "0.144.1";
@@ -47,12 +48,18 @@ class CodexProvider implements Provider {
     const chatBody = { ...request.body, model: target.modelId } as OpenAIChatRequest;
     chatBody.messages = chatBody.messages.map((message) => message.role === "system" ? { ...message, role: "developer" } : message);
     const responsesBody = translateChatRequestToResponses(chatBody);
+    // ChatGPT Codex rejects sampling controls and output-token caps with 400;
+    // the native client lets the Codex backend choose these values.
+    delete responsesBody.temperature;
+    delete responsesBody.top_p;
+    delete responsesBody.max_output_tokens;
+    delete responsesBody.max_completion_tokens;
     responsesBody.store = false;
     responsesBody.stream = true;
     const accountId = credential.providerMetadata?.chatgptAccountId;
     if (!accountId) throw new ProviderCallError(401, "authentication", "Codex OAuth credential is missing its ChatGPT account identity.");
 
-    return callSimpleProvider({
+    const upstreamResult = await callSimpleProvider({
       url: `${CODEX_BASE_URL}/codex/responses`,
       headers: {
         authorization: `Bearer ${credential.value}`,
@@ -72,6 +79,9 @@ class CodexProvider implements Provider {
       translateJson: (json) => translateResponsesResponseToChat(json as unknown as OpenAIResponsesResponse) as unknown as Record<string, unknown>,
       fetcher: proxy ? buildProxyFetcher(proxy) : undefined,
     });
+    if (chatBody.stream === true || upstreamResult.type === "json") return upstreamResult;
+    const materialized = await materializeFromStream(upstreamResult.events);
+    return { type: "json", body: materializedToChatResponse(materialized, target.modelId) as unknown as Record<string, unknown> };
   }
 }
 

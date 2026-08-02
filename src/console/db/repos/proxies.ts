@@ -303,6 +303,7 @@ let cooldownsHydrated = false;
 
 const COOLDOWN_BASE_MS = 2_000;
 const COOLDOWN_MAX_MS = 5 * 60_000;
+const RATE_LIMIT_COOLDOWN_MS = 60 * 60_000;
 const COOLDOWN_MAX_LEVEL = 15;
 
 /** Rebuilds the in-memory cooldown index from persisted state (call once at startup, same as accounts). */
@@ -327,18 +328,30 @@ function isProxyCooledDown(proxyId: string): boolean {
   return cooldown !== undefined && cooldown.unavailableUntil > Date.now();
 }
 
-/** Marks a proxy unavailable with bounded exponential backoff after a connection/handshake failure. */
-export function markProxyUnavailable(proxyId: string): void {
+function removeProxyFromAssignments(proxyId: string): void {
   for (const [clientKey, assignment] of stickyAssignments) {
     const proxyIds = assignment.proxyIds.filter((id) => id !== proxyId);
     if (proxyIds.length === 0) stickyAssignments.delete(clientKey);
     else stickyAssignments.set(clientKey, { proxyIds, currentIndex: Math.min(assignment.currentIndex, proxyIds.length - 1) });
   }
+}
+
+/** Marks a proxy unavailable with bounded exponential backoff after a connection/handshake failure. */
+export function markProxyUnavailable(proxyId: string): void {
+  removeProxyFromAssignments(proxyId);
   const existing = cooldowns.get(proxyId);
   const backoffLevel = Math.min((existing?.backoffLevel ?? -1) + 1, COOLDOWN_MAX_LEVEL);
   const unavailableUntil = Date.now() + Math.min(COOLDOWN_BASE_MS * Math.pow(2, backoffLevel), COOLDOWN_MAX_MS);
   cooldowns.set(proxyId, { unavailableUntil, backoffLevel });
   getDb().query("UPDATE proxies SET cooldown_until = ?, cooldown_level = ? WHERE id = ?").run(new Date(unavailableUntil).toISOString(), backoffLevel, proxyId);
+}
+
+/** Holds a rate-limited proxy out of the pool for one hour and removes it from sticky assignments. */
+export function markProxyRateLimited(proxyId: string): void {
+  removeProxyFromAssignments(proxyId);
+  const unavailableUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+  cooldowns.set(proxyId, { unavailableUntil, backoffLevel: COOLDOWN_MAX_LEVEL });
+  getDb().query("UPDATE proxies SET cooldown_until = ?, cooldown_level = ? WHERE id = ?").run(new Date(unavailableUntil).toISOString(), COOLDOWN_MAX_LEVEL, proxyId);
 }
 
 export function clearProxyCooldown(proxyId: string): void {

@@ -26,7 +26,7 @@ export interface SurfaceDispatchOptions {
   tracker: RequestTracker;
   /** Original (already-translated) request body, passed to tracker calls for logging. */
   requestBody: unknown;
-  clientError: (status: number, kind: Exclude<ClientErrorKind, "upstream_error">, message: string) => unknown;
+  clientError: (status: number, kind: ClientErrorKind, message: string) => unknown;
   streamFormat: StreamFormat;
   encodeStream: (events: AsyncGenerator<StreamEvent>, meta: { id: string; model: string; createdAt: number }) => AsyncGenerator<string>;
   /** Prefix for the synthesized response id ("chatcmpl", "msg", "resp"). */
@@ -44,8 +44,14 @@ export function finishSurfaceDispatch(opts: SurfaceDispatchOptions): unknown {
     opts.set.status = qualified.status;
     if (qualified.status === 429 || qualified.status === 503) opts.set.headers["retry-after"] = "60";
     opts.tracker.fail(qualified.status, "dispatch_error", opts.requestBody, qualified.message);
-    const kind: Exclude<ClientErrorKind, "upstream_error"> =
-      qualified.status === 401 || qualified.status === 403 ? "authentication_error" : qualified.status === 429 ? "rate_limit_error" : "invalid_request_error";
+    const kind: ClientErrorKind =
+      qualified.status === 401 || qualified.status === 403
+        ? "authentication_error"
+        : qualified.status === 429
+          ? "rate_limit_error"
+          : qualified.status >= 500
+            ? "upstream_error"
+            : "invalid_request_error";
     return opts.clientError(qualified.status, kind, qualified.message);
   }
 
