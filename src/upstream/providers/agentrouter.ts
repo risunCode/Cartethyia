@@ -62,6 +62,8 @@ function buildHeaders(apiKey: string, stream: boolean): Record<string, string> {
 
 export const agentRouterModelCatalog: ProviderModelCatalog = createModelCatalog([
   { id: "claude-opus-4-8", reasoning: true, vision: true, contextWindow: 400000, maxOutputTokens: 64000, pricing: { input: 5, output: 25 } },
+  { id: "claude-opus-5", reasoning: true, vision: true, contextWindow: 400000, maxOutputTokens: 64000, pricing: { input: 5, output: 25 } },
+  { id: "gpt-5.6-sol", reasoning: true, vision: true, contextWindow: 400000, maxOutputTokens: 64000, pricing: { input: 5, output: 25 } },
 ]);
 
 class AgentRouterProvider implements Provider {
