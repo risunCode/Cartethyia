@@ -1,4 +1,5 @@
-# Cartethyia
+<img width="1760" height="576" alt="image (1)" src="https://github.com/user-attachments/assets/b4251752-bae0-4ac5-9c26-bdedfc7c3431" />
+
 
 Cartethyia is a Bun + Elysia AI proxy with a public landing page and an authenticated console. It translates OpenAI Chat/Responses and Anthropic Messages requests while routing models across provider accounts, aliases, combos, and custom compatible endpoints.
 
