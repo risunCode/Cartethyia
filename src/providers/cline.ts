@@ -75,6 +75,24 @@ function clineHeaders(bearer: string, stream: boolean): Record<string, string> {
   };
 }
 
+/** Extracts the bearer access token from a stored credential (bundle JSON or raw token). */
+function accessTokenFromCredential(credential: string): string | undefined {
+  const trimmed = credential.trim();
+  if (trimmed.length === 0) return undefined;
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (typeof parsed === "object" && parsed !== null && typeof (parsed as Record<string, unknown>).accessToken === "string") {
+        const access = (parsed as Record<string, unknown>).accessToken as string;
+        return access.length > 0 ? access : undefined;
+      }
+    } catch {
+      return undefined;
+    }
+  }
+  return trimmed;
+}
+
 /** Cline wraps a bare access token in the `workos:` prefix its gateway expects. */
 function clineBearer(credential: string): string {
   return credential.startsWith("workos:") ? credential : `workos:${credential}`;
@@ -144,10 +162,11 @@ export class ClineAdapter implements ProviderAdapter {
     if (input.target.surface !== "openai-chat") {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" only supports the OpenAI Chat surface`, statusCode: 400, routeScope: null });
     }
-    if (input.credential.length === 0) {
+    const token = accessTokenFromCredential(input.credential);
+    if (token === undefined) {
       throw new ProviderAdapterError({ kind: "authentication_failed", message: "A Cline OAuth credential is required.", statusCode: 401, routeScope: "account" });
     }
-    const bearer = clineBearer(input.credential);
+    const bearer = clineBearer(token);
     try {
       return await callClineOnce(input, bearer);
     } catch (error) {
@@ -187,8 +206,9 @@ export class ClinePassAdapter implements ProviderAdapter {
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {
     if (input.target.providerId !== this.metadata.id || input.target.surface !== "openai-chat") throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" only supports the OpenAI Chat surface`, statusCode: 400, routeScope: null });
-    if (input.credential.length === 0) throw new ProviderAdapterError({ kind: "authentication_failed", message: "A ClinePass API key or OAuth credential is required.", statusCode: 401, routeScope: "account" });
-    const bearer = input.credential.trim().startsWith("{") ? clineBearer(input.credential) : input.credential;
+    const token = accessTokenFromCredential(input.credential);
+    if (token === undefined) throw new ProviderAdapterError({ kind: "authentication_failed", message: "A ClinePass API key or OAuth credential is required.", statusCode: 401, routeScope: "account" });
+    const bearer = clineBearer(token);
     return callClineOnce(input, bearer);
   }
 
