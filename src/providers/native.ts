@@ -36,6 +36,14 @@ export interface NativeProviderConfig {
   readonly credentialUrl?: string;
   readonly auth?: "bearer" | "x-api-key" | "none";
   readonly models?: readonly ProviderModel[];
+  /**
+   * Optional mapping applied to the catalog model ID before sending to the
+   * upstream API.  Use this when the upstream expects a different ID than
+   * what the catalog exposes (e.g. Blackbox catalog uses "gpt-5.4" to avoid
+   * routing-prefix collisions, but the Blackbox API needs "openai/gpt-5.4").
+   * When unset, the catalog ID is sent as-is.
+   */
+  readonly mapModelId?: (modelId: string) => string;
 }
 
 export class NativeAdapter implements ProviderAdapter {
@@ -44,6 +52,7 @@ export class NativeAdapter implements ProviderAdapter {
   readonly models: ProviderModelCatalog;
   private readonly baseUrl: string;
   private readonly auth: "bearer" | "x-api-key" | "none";
+  private readonly mapModelId: ((modelId: string) => string) | null;
 
   constructor(config: NativeProviderConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
@@ -58,6 +67,7 @@ export class NativeAdapter implements ProviderAdapter {
       ...(config.credentialUrl ? { credentialUrl: config.credentialUrl } : {}),
     };
     this.auth = config.auth ?? "bearer";
+    this.mapModelId = config.mapModelId ?? null;
   }
 
   resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
@@ -71,8 +81,12 @@ export class NativeAdapter implements ProviderAdapter {
     }
     // Native providers accept any model id — the catalog is informational
     // (for /v1/models listing), not a gate. Model ACL and routing already
-    // filter ineligible models upstream, so rejecting here only blocks
-    return { providerId: this.metadata.id, modelId, surface };
+    // filter ineligible models upstream, so rejecting here only blocks.
+    // When a mapModelId is configured, apply it so the upstream API receives
+    // the full ID it expects while the catalog keeps short IDs to avoid
+    // routing-prefix collisions (e.g. Blackbox: catalog "gpt-5.4" → API "openai/gpt-5.4").
+    const upstreamModelId = this.mapModelId ? this.mapModelId(modelId) : modelId;
+    return { providerId: this.metadata.id, modelId: upstreamModelId, surface };
   }
   async call(input: ProviderRequest): Promise<ProviderOutput> {
     this.assertSupported(input);
@@ -232,6 +246,11 @@ export const DEFAULT_NATIVE_PROVIDERS: readonly NativeProviderConfig[] = [
     displayName: "Blackbox AI",
     baseUrl: "https://api.blackbox.ai/v1",
     credentialKind: "api_key",
+    // Blackbox wraps upstream providers; catalog model IDs for OpenAI models
+    // omit the "openai/" prefix to avoid colliding with Cartethyia's routing
+    // prefix.  The mapModelId function restores the prefix when sending to
+    // the Blackbox API so it routes to the correct upstream.
+    mapModelId: (id) => (id.includes("/") ? id : `openai/${id}`),
     models: [
       // Text models — capabilities from models.dev where available.
       modelOf("amazon/nova-2-lite", "Nova 2 Lite", capabilitiesOf({ surfaces: NATIVE_SURFACES })),
@@ -249,12 +268,12 @@ export const DEFAULT_NATIVE_PROVIDERS: readonly NativeProviderConfig[] = [
       modelOf("moonshotai/kimi-k2.7-code", "Kimi K2.7 Code", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
       modelOf("moonshotai/kimi-k3", "Kimi K3", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
       modelOf("nvidia/nemotron-3-ultra", "Nemotron 3 Ultra", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
-      modelOf("openai/gpt-5.3-codex", "GPT-5.3 Codex", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
-      modelOf("openai/gpt-5.4", "GPT-5.4", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
-      modelOf("openai/gpt-5.4-nano", "GPT-5.4 Nano", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
-      modelOf("openai/gpt-5.5", "GPT-5.5", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
-      modelOf("openai/gpt-nemotron", "GPT Nemotron", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
-      modelOf("openai/gpt-oss-120b", "GPT-OSS 120B", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
+      modelOf("gpt-5.3-codex", "GPT-5.3 Codex", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
+      modelOf("gpt-5.4", "GPT-5.4", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
+      modelOf("gpt-5.4-nano", "GPT-5.4 Nano", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
+      modelOf("gpt-5.5", "GPT-5.5", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
+      modelOf("gpt-nemotron", "GPT Nemotron", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
+      modelOf("gpt-oss-120b", "GPT-OSS 120B", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
       modelOf("x-ai/grok-4.3", "Grok 4.3", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
       modelOf("x-ai/grok-build-0.1", "Grok Build 0.1", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
       modelOf("z-ai/glm-5.2", "GLM 5.2", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
