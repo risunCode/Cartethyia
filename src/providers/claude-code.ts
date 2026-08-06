@@ -124,7 +124,7 @@ export class AnthropicOAuthAdapter implements ProviderAdapter {
     if (this.models.get(modelId) === null) {
       throw new ProviderAdapterError({ kind: "model_not_found", message: `Model "${modelId}" is not in the "${this.metadata.id}" catalog`, statusCode: 404, routeScope: "provider" });
     }
-    return { providerId: this.metadata.id, modelId, surface };
+    const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };
   }
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {

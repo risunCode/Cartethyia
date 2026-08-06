@@ -34,7 +34,7 @@ const emptyNetwork: NetworkSelection = { proxyId: null, url: null, release: asyn
 
 function providerRequest(overrides: Partial<ProviderRequest> = {}): ProviderRequest {
   return {
-    target: { providerId: "qoder", modelId: "qmodel_latest", surface: "openai-chat" },
+    target: { providerId: "qoder", modelId: "qmodel_latest", upstreamModelId: "qmodel_latest", surface: "openai-chat" },
     request: request(),
     credential: "pat-secret",
     network: emptyNetwork,
@@ -171,8 +171,8 @@ describe("QoderAdapter", () => {
   });
 
   test("resolves catalog models and rejects unknown models and surfaces", () => {
-    expect(adapter.resolveTarget("kmodel_latest", "openai-chat")).toEqual({ providerId: "qoder", modelId: "kmodel_latest", surface: "openai-chat" });
-    expect(adapter.resolveTarget("qmodel", "openai-chat")).toEqual({ providerId: "qoder", modelId: "qmodel", surface: "openai-chat" });
+    expect(adapter.resolveTarget("kmodel_latest", "openai-chat")).toEqual({ providerId: "qoder", modelId: "kmodel_latest", upstreamModelId: "kmodel_latest", surface: "openai-chat" });
+    expect(adapter.resolveTarget("qmodel", "openai-chat")).toEqual({ providerId: "qoder", modelId: "qmodel", upstreamModelId: "qmodel", surface: "openai-chat" });
     expect(() => adapter.resolveTarget("not-a-qoder-model", "openai-chat")).toThrow(ProviderAdapterError);
     expect(() => adapter.resolveTarget("auto", "images")).toThrow(ProviderAdapterError);
   });
@@ -182,7 +182,7 @@ describe("QoderAdapter", () => {
     try {
       await expect(adapter.call(providerRequest({ credential: "" }))).rejects.toThrow(/personal access token/i);
       await expect(
-        adapter.call(providerRequest({ target: { providerId: "qoder", modelId: "auto", surface: "images" as const } })),
+        adapter.call(providerRequest({ target: { providerId: "qoder", modelId: "auto", upstreamModelId: "auto", surface: "images" as const } })),
       ).rejects.toThrow(ProviderAdapterError);
       expect(captures).toHaveLength(0);
     } finally {

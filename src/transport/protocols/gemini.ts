@@ -60,7 +60,7 @@ function translateGeminiImageResponse(body: Record<string, unknown>): Record<str
 export async function callGeminiWire(input: ProviderRequest, baseUrl: string, credential: string, userAgent: string | null): Promise<ProviderOutput> {
   const { request, signal, network } = input;
   const action = request.stream ? "streamGenerateContent?alt=sse" : "generateContent";
-  const url = `${baseUrl}/models/${encodeURIComponent(input.target.modelId)}:${action}`;
+  const url = `${baseUrl}/models/${encodeURIComponent(input.target.upstreamModelId)}:${action}`;
   const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
   let streamHandedOff = false;
   try {

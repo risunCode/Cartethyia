@@ -32,7 +32,7 @@ const emptyNetwork: NetworkSelection = { proxyId: null, url: null, release: asyn
 
 function makeRequest(overrides: Partial<ProviderRequest> = {}): ProviderRequest {
   return {
-    target: { providerId: "opencodeft", modelId: "big-pickle", surface: "openai-chat" },
+    target: { providerId: "opencodeft", modelId: "big-pickle", upstreamModelId: "big-pickle", surface: "openai-chat" },
     request: request({ model: "big-pickle" }),
     credential: "",
     network: emptyNetwork,
@@ -99,11 +99,7 @@ describe("OpenCodeFreeAdapter — resolveTarget", () => {
   const adapter = new OpenCodeFreeAdapter();
 
   test("resolves a known model on the openai-chat surface", () => {
-    expect(adapter.resolveTarget("big-pickle", "openai-chat")).toEqual({
-      providerId: "opencodeft",
-      modelId: "big-pickle",
-      surface: "openai-chat",
-    });
+    expect(adapter.resolveTarget("big-pickle", "openai-chat")).toEqual({ providerId: "opencodeft", modelId: "big-pickle", upstreamModelId: "big-pickle", surface: "openai-chat" });
   });
 
   test("rejects an unsupported surface with capability_unsupported (400)", () => {
@@ -194,13 +190,13 @@ describe("OpenCodeFreeAdapter — call guards", () => {
   const adapter = new OpenCodeFreeAdapter();
 
   test("rejects a request whose providerId does not match the adapter id", async () => {
-    const input = makeRequest({ target: { providerId: "other", modelId: "big-pickle", surface: "openai-chat" } });
+    const input = makeRequest({ target: { providerId: "other", modelId: "big-pickle", upstreamModelId: "big-pickle", surface: "openai-chat" } });
     await expect(adapter.call(input)).rejects.toBeInstanceOf(ProviderAdapterError);
     await expect(adapter.call(input)).rejects.toMatchObject({ kind: "capability_unsupported", statusCode: 400 });
   });
 
   test("rejects an unsupported surface before touching the network", async () => {
-    const input = makeRequest({ target: { providerId: "opencodeft", modelId: "big-pickle", surface: "anthropic-messages" } });
+    const input = makeRequest({ target: { providerId: "opencodeft", modelId: "big-pickle", upstreamModelId: "big-pickle", surface: "anthropic-messages" } });
     await expect(adapter.call(input)).rejects.toBeInstanceOf(ProviderAdapterError);
     await expect(adapter.call(input)).rejects.toMatchObject({ kind: "capability_unsupported", statusCode: 400 });
   });

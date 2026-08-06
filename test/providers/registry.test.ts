@@ -29,7 +29,7 @@ function adapter(
       if (models.length > 0 && catalog.get(modelId) === null) {
         throw new ProviderAdapterError({ kind: "model_not_found", message: `unknown model ${modelId}`, statusCode: 404, routeScope: "provider" });
       }
-      return { providerId: id, modelId, surface };
+      return { providerId: id, modelId, upstreamModelId: modelId, surface };
     },
     async call(): Promise<never> {
       throw new Error("not implemented");
@@ -113,7 +113,7 @@ describe("ProviderRegistry default scope (Task 11)", () => {
       const registered = adapter(id, [openaiChat], openaiModels);
       registry.register(registered);
       expect(registry.get(id)).toBe(registered);
-      expect(registry.resolveTarget("gpt-5", openaiChat)).toEqual({ providerId: id, modelId: "gpt-5", surface: openaiChat });
+      expect(registry.resolveTarget("gpt-5", openaiChat)).toEqual({ providerId: id, modelId: "gpt-5", upstreamModelId: "gpt-5", surface: openaiChat });
       registry.unregister(id);
     }
   });
@@ -154,17 +154,13 @@ describe("ProviderRegistry resolution preserves unknown-model behavior (Task 8)"
     const registry = new ProviderRegistry();
     const router = adapter("router", [openaiChat]);
     registry.register(router);
-    expect(registry.resolveTarget("any-upstream-model", openaiChat)).toEqual({
-      providerId: "router",
-      modelId: "any-upstream-model",
-      surface: openaiChat,
-    });
+    expect(registry.resolveTarget("any-upstream-model", openaiChat)).toEqual({ providerId: "router", modelId: "any-upstream-model", upstreamModelId: "any-upstream-model", surface: openaiChat });
   });
 
   test("translates an Anthropic client surface to an OpenAI chat wire target", () => {
     const registry = new ProviderRegistry();
     registry.register(adapter("openai", [openaiChat], openaiModels));
-    expect(registry.resolveTarget("gpt-5", "anthropic-messages")).toEqual({ providerId: "openai", modelId: "gpt-5", surface: "openai-chat" });
+    expect(registry.resolveTarget("gpt-5", "anthropic-messages")).toEqual({ providerId: "openai", modelId: "gpt-5", upstreamModelId: "gpt-5", surface: "openai-chat" });
   });
 });
 

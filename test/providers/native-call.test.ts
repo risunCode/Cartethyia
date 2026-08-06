@@ -57,7 +57,7 @@ function providerRequest(
   requestOverrides: Partial<NormalizedProviderRequest> = {},
 ): ProviderRequest {
   return {
-    target: { providerId: adapter.metadata.id, modelId, surface },
+    target: { providerId: adapter.metadata.id, modelId, upstreamModelId: modelId, surface },
     request: request({ model: modelId, ...requestOverrides }),
     credential,
     network: emptyNetwork,
@@ -331,11 +331,7 @@ describe("NativeAdapter.resolveTarget — surface rejection", () => {
   const adapter = makeNativeAdapter(byId.get("deepseek")!);
 
   test("resolves a model on the supported openai-chat surface", () => {
-    expect(adapter.resolveTarget("deepseek-chat", "openai-chat")).toEqual({
-      providerId: "deepseek",
-      modelId: "deepseek-chat",
-      surface: "openai-chat",
-    });
+    expect(adapter.resolveTarget("deepseek-chat", "openai-chat")).toEqual({ providerId: "deepseek", modelId: "deepseek-chat", upstreamModelId: "deepseek-chat", surface: "openai-chat" });
   });
 
   test("rejects a surface not in the supported list", () => {

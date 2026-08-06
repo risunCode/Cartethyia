@@ -25,7 +25,7 @@ function request(overrides: Partial<NormalizedProviderRequest> = {}): Normalized
 
 function makeRequest(credential: string, overrides: Partial<ProviderRequest> = {}): ProviderRequest {
   return {
-    target: { providerId: "grok-build", modelId: "grok-4.6", surface: "openai-responses" },
+    target: { providerId: "grok-build", modelId: "grok-4.6", upstreamModelId: "grok-4.6", surface: "openai-responses" },
     request: request(),
     credential,
     network: emptyNetwork,
@@ -111,8 +111,8 @@ describe("GrokBuildAdapter — identity & catalog", () => {
 describe("GrokBuildAdapter — resolveTarget", () => {
   test("resolves a known model on the openai-responses surface", () => {
     const adapter = new GrokBuildAdapter();
-    expect(adapter.resolveTarget("grok-4.6", "openai-responses")).toEqual({ providerId: "grok-build", modelId: "grok-4.6", surface: "openai-responses" });
-    expect(adapter.resolveTarget("grok-4.5", "openai-responses")).toEqual({ providerId: "grok-build", modelId: "grok-4.5", surface: "openai-responses" });
+    expect(adapter.resolveTarget("grok-4.6", "openai-responses")).toEqual({ providerId: "grok-build", modelId: "grok-4.6", upstreamModelId: "grok-4.6", surface: "openai-responses" });
+    expect(adapter.resolveTarget("grok-4.5", "openai-responses")).toEqual({ providerId: "grok-build", modelId: "grok-4.5", upstreamModelId: "grok-4.5", surface: "openai-responses" });
   });
 
   test("rejects an unsupported surface", () => {
@@ -136,7 +136,7 @@ describe("GrokBuildAdapter — call guard paths (no network)", () => {
 
   test("call rejects an unsupported surface before the network", async () => {
     const adapter = new GrokBuildAdapter();
-    const input = makeRequest("tok", { target: { providerId: "grok-build", modelId: "grok-4.6", surface: "anthropic-messages" } });
+    const input = makeRequest("tok", { target: { providerId: "grok-build", modelId: "grok-4.6", upstreamModelId: "grok-4.6", surface: "anthropic-messages" } });
     await expect(adapter.call(input)).rejects.toBeInstanceOf(ProviderAdapterError);
   });
 

@@ -60,7 +60,7 @@ export class OpenCodeFreeAdapter implements ProviderAdapter {
         routeScope: "provider",
       });
     }
-    return { providerId: this.metadata.id, modelId, surface };
+    const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };
   }
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {
@@ -72,7 +72,7 @@ export class OpenCodeFreeAdapter implements ProviderAdapter {
         routeScope: null,
       });
     }
-    const request = { ...input.request, model: input.target.modelId };
+    const request = { ...input.request, model: input.target.upstreamModelId };
     const headers: Record<string, string> = {
       "content-type": "application/json",
       accept: request.stream ? "text/event-stream" : "application/json",
@@ -136,7 +136,7 @@ export class OpenCodeZenAdapter implements ProviderAdapter {
         routeScope: "provider",
       });
     }
-    return { providerId: this.metadata.id, modelId, surface };
+    const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };
   }
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {
@@ -156,7 +156,7 @@ export class OpenCodeZenAdapter implements ProviderAdapter {
         routeScope: "account",
       });
     }
-    const request = { ...input.request, model: input.target.modelId };
+    const request = { ...input.request, model: input.target.upstreamModelId };
     const headers: Record<string, string> = {
       "content-type": "application/json",
       accept: request.stream ? "text/event-stream" : "application/json",

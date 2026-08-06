@@ -82,7 +82,7 @@ export class GeminiAdapter implements ProviderAdapter {
   resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${surface}"`, statusCode: 400, routeScope: null });
     if (!this.modelKnown(modelId)) throw new ProviderAdapterError({ kind: "model_not_found", message: `Model "${modelId}" is not in the "${this.metadata.id}" catalog`, statusCode: 404, routeScope: "provider" });
-    return { providerId: this.metadata.id, modelId, surface };
+    const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };
   }
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {

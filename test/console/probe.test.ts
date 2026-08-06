@@ -9,7 +9,7 @@ function makeAdapter(calls: ProviderRequest[]): ProviderAdapter {
     metadata: { id: "minimax", displayName: "MiniMax", protocol: "openai", credentialKind: "none" },
     capabilities,
     models: { list: [{ id: "minimax-m3", displayName: "MiniMax M3", capabilities }], get: (id) => id === "minimax-m3" ? { id, displayName: "MiniMax M3", capabilities } : null },
-    resolveTarget: (modelId, surface) => ({ providerId: "minimax", modelId, surface }),
+    resolveTarget: (modelId, surface) => ({ providerId: "minimax", modelId, upstreamModelId: modelId, surface }),
     call: async (input) => {
       calls.push(input);
       return { mode: "stream", events: (async function* (): AsyncIterable<StreamEvent> {
@@ -57,7 +57,7 @@ function nonStreamAdapter(id: string, surface: "openai-chat" | "openai-responses
     metadata: { id, displayName: id, protocol: surface === "openai-responses" ? "openai" : surface === "anthropic-messages" ? "anthropic" : "openai", credentialKind: "none" },
     capabilities,
     models: { list: [{ id: "m", displayName: "M", capabilities }], get: (modelId) => modelId === "m" ? { id: "m", displayName: "M", capabilities } : null },
-    resolveTarget: (modelId, s) => ({ providerId: id, modelId, surface: s }),
+    resolveTarget: (modelId, s) => ({ providerId: id, modelId, upstreamModelId: modelId, surface: s }),
     call: async () => ({ mode: "non_stream", body }),
     countTokens: async () => ({ tokens: null, source: "unknown" }),
     mapError: (error) => ({ statusCode: 502, kind: "provider_protocol_error", retryable: false, routeScope: "provider", source: "upstream", sanitizedMessage: error instanceof Error ? error.message : "probe error", retryAt: null }),
@@ -71,7 +71,7 @@ function failingAdapter(calls: ProviderRequest[]): { adapter: ProviderAdapter; f
     metadata: { id: "boom", displayName: "Boom", protocol: "openai", credentialKind: "none" },
     capabilities,
     models: { list: [{ id: "m", displayName: "M", capabilities }], get: (modelId) => modelId === "m" ? { id: "m", displayName: "M", capabilities } : null },
-    resolveTarget: (modelId, s) => ({ providerId: "boom", modelId, surface: s }),
+    resolveTarget: (modelId, s) => ({ providerId: "boom", modelId, upstreamModelId: modelId, surface: s }),
     call: async (input) => {
       calls.push(input);
       if (shouldFail) throw new Error("upstream exploded");

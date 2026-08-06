@@ -78,7 +78,7 @@ export class GrokBuildAdapter implements ProviderAdapter {
     if (this.models.get(modelId) === null) {
       throw new ProviderAdapterError({ kind: "model_not_found", message: `Model "${modelId}" is not in the "${this.metadata.id}" catalog`, statusCode: 404, routeScope: "provider" });
     }
-    return { providerId: this.metadata.id, modelId, surface };
+    const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };
   }
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {
@@ -100,7 +100,7 @@ export class GrokBuildAdapter implements ProviderAdapter {
     delete payload.max_output_tokens;
     delete payload.max_completion_tokens;
     // Resolve upstream model — use the routing-resolved bare model ID (no provider prefix).
-    const resolvedModel = input.target.modelId;
+    const resolvedModel = input.target.upstreamModelId;
     payload.model = resolvedModel;
     // Reasoning: always set summary=concise; effort comes from the request's
     // reasoning level (adaptive — the client picks low/medium/high/xhigh).

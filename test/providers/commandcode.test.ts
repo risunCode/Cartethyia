@@ -5,7 +5,7 @@ import type { ProviderRequest } from "../../src/domain/contracts";
 
 function makeRequest(credential: string, overrides: Partial<ProviderRequest> = {}): ProviderRequest {
   return {
-    target: { providerId: "commandcode", modelId: "moonshotai/Kimi-K2.6", surface: "openai-chat" },
+    target: { providerId: "commandcode", modelId: "moonshotai/Kimi-K2.6", upstreamModelId: "moonshotai/Kimi-K2.6", surface: "openai-chat" },
     request: {
       model: "moonshotai/Kimi-K2.6",
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
@@ -50,13 +50,13 @@ describe("CommandCodeAdapter — identity & catalog", () => {
 describe("CommandCodeAdapter — resolveTarget", () => {
   test("resolves a known model on the openai-chat surface", () => {
     const adapter = new CommandCodeAdapter();
-    expect(adapter.resolveTarget("qwen/qwen3.5-plus", "openai-chat")).toEqual({ providerId: "commandcode", modelId: "qwen/qwen3.5-plus", surface: "openai-chat" });
+    expect(adapter.resolveTarget("qwen/qwen3.5-plus", "openai-chat")).toEqual({ providerId: "commandcode", modelId: "qwen/qwen3.5-plus", upstreamModelId: "qwen/qwen3.5-plus", surface: "openai-chat" });
   });
 
   test("accepts an unknown model (Command Code does not gate on its catalog)", () => {
     const adapter = new CommandCodeAdapter();
     // resolveTarget only checks the surface, not the model id.
-    expect(adapter.resolveTarget("any/model", "openai-chat")).toEqual({ providerId: "commandcode", modelId: "any/model", surface: "openai-chat" });
+    expect(adapter.resolveTarget("any/model", "openai-chat")).toEqual({ providerId: "commandcode", modelId: "any/model", upstreamModelId: "any/model", surface: "openai-chat" });
   });
 
   test("rejects an unsupported surface", () => {
@@ -78,13 +78,13 @@ describe("CommandCodeAdapter — call guard paths (no network)", () => {
 
   test("call rejects an unsupported surface before the network", async () => {
     const adapter = new CommandCodeAdapter();
-    const input = makeRequest("user_tok", { target: { providerId: "commandcode", modelId: "moonshotai/Kimi-K2.6", surface: "anthropic-messages" } });
+    const input = makeRequest("user_tok", { target: { providerId: "commandcode", modelId: "moonshotai/Kimi-K2.6", upstreamModelId: "moonshotai/Kimi-K2.6", surface: "anthropic-messages" } });
     await expect(adapter.call(input)).rejects.toBeInstanceOf(ProviderAdapterError);
   });
 
   test("call rejects an empty credential with authentication_failed", async () => {
     const adapter = new CommandCodeAdapter();
-    const input = makeRequest("", { target: { providerId: "commandcode", modelId: "moonshotai/Kimi-K2.6", surface: "openai-chat" } });
+    const input = makeRequest("", { target: { providerId: "commandcode", modelId: "moonshotai/Kimi-K2.6", upstreamModelId: "moonshotai/Kimi-K2.6", surface: "openai-chat" } });
     try {
       await adapter.call(input);
       throw new Error("should have thrown");

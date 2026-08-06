@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { NetworkSelection, NormalizedProviderRequest, ProviderRequest } from "../../src/domain/contracts";
+import type { NetworkSelection, NormalizedProviderRequest, ProviderRequest, ProviderSurface, RouteTarget } from "../../src/domain/contracts";
 import { AgentRouterAdapter } from "../../src/providers/agentrouter";
 import { ClinePassAdapter } from "../../src/providers/cline";
 import { CodeBuddyAdapter, CodeBuddyChinaAdapter } from "../../src/providers/codebuddy";
@@ -38,9 +38,9 @@ function request(overrides: Partial<NormalizedProviderRequest> = {}): Normalized
 
 const emptyNetwork: NetworkSelection = { proxyId: null, url: null, release: async () => {} };
 
-function providerRequest(adapter: { metadata: { id: string } }, modelId: string, surface: "openai-chat" | "anthropic-messages", credential = "secret"): ProviderRequest {
+function providerRequest(adapter: { metadata: { id: string }; resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget }, modelId: string, surface: "openai-chat" | "anthropic-messages", credential = "secret"): ProviderRequest {
   return {
-    target: { providerId: adapter.metadata.id, modelId, surface },
+    target: adapter.resolveTarget(modelId, surface),
     request: request({ model: modelId }),
     credential,
     network: emptyNetwork,
@@ -74,14 +74,14 @@ describe("KimchiAdapter (Task 9)", () => {
   });
 
   test("resolves catalog models and rejects unknown models", () => {
-    expect(adapter.resolveTarget("kimi-k2.7", "openai-chat")).toEqual({ providerId: "kimchi", modelId: "kimi-k2.7", surface: "openai-chat" });
+    expect(adapter.resolveTarget("kimi-k2.7", "openai-chat")).toEqual({ providerId: "kimchi", modelId: "kimi-k2.7", upstreamModelId: "kimi-k2.7", surface: "openai-chat" });
     expect(() => adapter.resolveTarget("not-a-kimchi-model", "openai-chat")).toThrow(ProviderAdapterError);
   });
 
   test("guards empty credential and wrong surface before any fetch", async () => {
     await expect(adapter.call(providerRequest(adapter, "kimi-k2.7", "openai-chat", ""))).rejects.toThrow(/credential/i);
     await expect(
-      adapter.call({ ...providerRequest(adapter, "kimi-k2.7", "openai-chat"), target: { providerId: "kimchi", modelId: "kimi-k2.7", surface: "images" as const } }),
+      adapter.call({ ...providerRequest(adapter, "kimi-k2.7", "openai-chat"), target: { providerId: "kimchi", modelId: "kimi-k2.7", upstreamModelId: "kimi-k2.7", surface: "images" as const } }),
     ).rejects.toThrow(ProviderAdapterError);
   });
 
@@ -115,14 +115,14 @@ describe("AgentRouterAdapter (Task 9)", () => {
   });
 
   test("resolves catalog models and rejects unknown models", () => {
-    expect(adapter.resolveTarget("claude-opus-4-8", "anthropic-messages")).toEqual({ providerId: "agentrouter", modelId: "claude-opus-4-8", surface: "anthropic-messages" });
+    expect(adapter.resolveTarget("claude-opus-4-8", "anthropic-messages")).toEqual({ providerId: "agentrouter", modelId: "claude-opus-4-8", upstreamModelId: "claude-opus-4-8", surface: "anthropic-messages" });
     expect(() => adapter.resolveTarget("claude-nope", "anthropic-messages")).toThrow(ProviderAdapterError);
   });
 
   test("guards empty credential and wrong surface before any fetch", async () => {
     await expect(adapter.call(providerRequest(adapter, "claude-opus-4-8", "anthropic-messages", ""))).rejects.toThrow(/API key/i);
     await expect(
-      adapter.call({ ...providerRequest(adapter, "claude-opus-4-8", "anthropic-messages"), target: { providerId: "agentrouter", modelId: "claude-opus-4-8", surface: "openai-chat" } }),
+      adapter.call({ ...providerRequest(adapter, "claude-opus-4-8", "anthropic-messages"), target: { providerId: "agentrouter", modelId: "claude-opus-4-8", upstreamModelId: "claude-opus-4-8", surface: "openai-chat" } }),
     ).rejects.toThrow(ProviderAdapterError);
   });
 
@@ -261,7 +261,7 @@ describe("OpenCodeZenAdapter (Task 9)", () => {
   });
 
   test("resolves catalog models and rejects unknown models", () => {
-    expect(adapter.resolveTarget("big-pickle", "openai-chat")).toEqual({ providerId: "opencodezen", modelId: "big-pickle", surface: "openai-chat" });
+    expect(adapter.resolveTarget("big-pickle", "openai-chat")).toEqual({ providerId: "opencodezen", modelId: "big-pickle", upstreamModelId: "big-pickle", surface: "openai-chat" });
     expect(() => adapter.resolveTarget("nope", "openai-chat")).toThrow(ProviderAdapterError);
   });
 

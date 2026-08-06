@@ -104,7 +104,7 @@ export class OpenAIAdapter implements ProviderAdapter {
         routeScope: "provider",
       });
     }
-    return { providerId: this.metadata.id, modelId, surface };
+    const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };
   }
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {

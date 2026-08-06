@@ -5,7 +5,7 @@ import type { ProviderRequest } from "../../src/domain/contracts";
 
 function makeRequest(overrides: Partial<ProviderRequest> = {}): ProviderRequest {
   return {
-    target: { providerId: "anthropic", modelId: "claude-sonnet-4-5", surface: "anthropic-messages" },
+    target: { providerId: "anthropic", modelId: "claude-sonnet-4-5", upstreamModelId: "claude-sonnet-4-5", surface: "anthropic-messages" },
     request: {
       model: "claude-sonnet-4-5",
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
@@ -52,7 +52,7 @@ describe("AnthropicAdapter — identity & catalog", () => {
 describe("AnthropicAdapter — resolveTarget", () => {
   test("resolves a known model on the anthropic-messages surface", () => {
     const adapter = new AnthropicAdapter();
-    expect(adapter.resolveTarget("claude-haiku-4-5", "anthropic-messages")).toEqual({ providerId: "anthropic", modelId: "claude-haiku-4-5", surface: "anthropic-messages" });
+    expect(adapter.resolveTarget("claude-haiku-4-5", "anthropic-messages")).toEqual({ providerId: "anthropic", modelId: "claude-haiku-4-5", upstreamModelId: "claude-haiku-4-5", surface: "anthropic-messages" });
   });
 
   test("rejects an unsupported surface", () => {
@@ -77,7 +77,7 @@ describe("AnthropicAdapter — resolveTarget", () => {
 
   test("accepts any model with an empty catalog", () => {
     const adapter = new AnthropicAdapter({ models: [] });
-    expect(adapter.resolveTarget("custom-claude", "anthropic-messages")).toEqual({ providerId: "anthropic", modelId: "custom-claude", surface: "anthropic-messages" });
+    expect(adapter.resolveTarget("custom-claude", "anthropic-messages")).toEqual({ providerId: "anthropic", modelId: "custom-claude", upstreamModelId: "custom-claude", surface: "anthropic-messages" });
   });
 });
 
@@ -89,13 +89,13 @@ describe("AnthropicAdapter — call guard paths (no network)", () => {
 
   test("call rejects a mismatched providerId", async () => {
     const adapter = new AnthropicAdapter();
-    const input = makeRequest({ target: { providerId: "other", modelId: "claude-sonnet-4-5", surface: "anthropic-messages" } });
+    const input = makeRequest({ target: { providerId: "other", modelId: "claude-sonnet-4-5", upstreamModelId: "claude-sonnet-4-5", surface: "anthropic-messages" } });
     await expect(adapter.call(input)).rejects.toBeInstanceOf(ProviderAdapterError);
   });
 
   test("call rejects an unsupported surface", async () => {
     const adapter = new AnthropicAdapter();
-    const input = makeRequest({ target: { providerId: "anthropic", modelId: "claude-sonnet-4-5", surface: "openai-chat" } });
+    const input = makeRequest({ target: { providerId: "anthropic", modelId: "claude-sonnet-4-5", upstreamModelId: "claude-sonnet-4-5", surface: "openai-chat" } });
     await expect(adapter.call(input)).rejects.toBeInstanceOf(ProviderAdapterError);
   });
 });

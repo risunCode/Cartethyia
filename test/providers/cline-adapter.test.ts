@@ -32,7 +32,7 @@ const emptyNetwork: NetworkSelection = { proxyId: null, url: null, release: asyn
 
 function makeRequest(overrides: Partial<ProviderRequest> = {}): ProviderRequest {
   return {
-    target: { providerId: "cline", modelId: "z-ai/glm-5.2", surface: "openai-chat" },
+    target: { providerId: "cline", modelId: "z-ai/glm-5.2", upstreamModelId: "z-ai/glm-5.2", surface: "openai-chat" },
     request: request({ model: "z-ai/glm-5.2" }),
     credential: "access-token",
     network: emptyNetwork,
@@ -137,11 +137,7 @@ describe("ClineAdapter — resolveTarget", () => {
   const adapter = new ClineAdapter();
 
   test("resolves a known model on the openai-chat surface", () => {
-    expect(adapter.resolveTarget("z-ai/glm-5.2", "openai-chat")).toEqual({
-      providerId: "cline",
-      modelId: "z-ai/glm-5.2",
-      surface: "openai-chat",
-    });
+    expect(adapter.resolveTarget("z-ai/glm-5.2", "openai-chat")).toEqual({ providerId: "cline", modelId: "z-ai/glm-5.2", upstreamModelId: "z-ai/glm-5.2", surface: "openai-chat" });
   });
 
   test("rejects an unsupported surface with capability_unsupported (400)", () => {
@@ -275,7 +271,7 @@ describe("ClineAdapter — call guards", () => {
   const adapter = new ClineAdapter();
 
   test("rejects an unsupported surface before touching the network", async () => {
-    const input = makeRequest({ target: { providerId: "cline", modelId: "z-ai/glm-5.2", surface: "anthropic-messages" } });
+    const input = makeRequest({ target: { providerId: "cline", modelId: "z-ai/glm-5.2", upstreamModelId: "z-ai/glm-5.2", surface: "anthropic-messages" } });
     await expect(adapter.call(input)).rejects.toBeInstanceOf(ProviderAdapterError);
     await expect(adapter.call(input)).rejects.toMatchObject({ kind: "capability_unsupported", statusCode: 400 });
   });

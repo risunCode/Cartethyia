@@ -18,7 +18,7 @@ export async function callChatCompletionsWire(
   payloadOverrides: Readonly<Record<string, unknown>> = {},
 ): Promise<ProviderOutput> {
   const { request, signal, network } = input;
-  const payload = { ...buildChatPayload(request), ...payloadOverrides };
+  const payload = { ...buildChatPayload(request), ...payloadOverrides, model: input.target.upstreamModelId };
   const coordinator = new AbortCoordinator(signal, {
     connectTimeoutMs: request.limits.connectTimeoutMs,
     totalTimeoutMs: request.limits.totalTimeoutMs,
@@ -57,6 +57,7 @@ export async function callResponsesWire(
 ): Promise<ProviderOutput> {
   const { request, signal, network } = input;
   const payload = buildResponsesPayload(request);
+  payload.model = input.target.upstreamModelId;
   const coordinator = new AbortCoordinator(signal, {
     connectTimeoutMs: request.limits.connectTimeoutMs,
     totalTimeoutMs: request.limits.totalTimeoutMs,
@@ -92,6 +93,7 @@ export async function callHostedImageWire(
 ): Promise<ProviderOutput> {
   const { request, signal, network } = input;
   const payload = buildResponsesPayload(request);
+  payload.model = input.target.upstreamModelId;
   payload.tools = [{ type: "image_generation", action: request.imageOperation === "edit" ? "edit" : "generate", output_format: "webp" }];
   payload.tool_choice = { type: "image_generation" };
   payload.store = false;

@@ -11,7 +11,7 @@ function makeJwt(payload: Record<string, unknown>): string {
 
 function makeRequest(credential: string, overrides: Partial<ProviderRequest> = {}): ProviderRequest {
   return {
-    target: { providerId: "codex", modelId: "gpt-5.5", surface: "openai-chat" },
+    target: { providerId: "codex", modelId: "gpt-5.5", upstreamModelId: "gpt-5.5", surface: "openai-chat" },
     request: {
       model: "gpt-5.5",
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
@@ -56,7 +56,7 @@ describe("CodexAdapter — identity & catalog", () => {
 describe("CodexAdapter — resolveTarget", () => {
   test("resolves a known model on a supported surface", () => {
     const adapter = new CodexAdapter();
-    expect(adapter.resolveTarget("gpt-5.4-mini", "openai-chat")).toEqual({ providerId: "codex", modelId: "gpt-5.4-mini", surface: "openai-chat" });
+    expect(adapter.resolveTarget("gpt-5.4-mini", "openai-chat")).toEqual({ providerId: "codex", modelId: "gpt-5.4-mini", upstreamModelId: "gpt-5.4-mini", surface: "openai-chat" });
   });
 
   test("rejects an unsupported surface", () => {
@@ -90,13 +90,13 @@ describe("CodexAdapter — call guard paths (no network)", () => {
 describe("CodexAdapter — call credential validation", () => {
   test("call rejects an unsupported surface before touching the network", async () => {
     const adapter = new CodexAdapter();
-    const input = makeRequest("tok", { target: { providerId: "codex", modelId: "gpt-5.5", surface: "anthropic-messages" } });
+    const input = makeRequest("tok", { target: { providerId: "codex", modelId: "gpt-5.5", upstreamModelId: "gpt-5.5", surface: "anthropic-messages" } });
     await expect(adapter.call(input)).rejects.toBeInstanceOf(ProviderAdapterError);
   });
 
   test("call rejects an empty credential with authentication_failed (account scope)", async () => {
     const adapter = new CodexAdapter();
-    const input = makeRequest("", { target: { providerId: "codex", modelId: "gpt-5.5", surface: "openai-chat" } });
+    const input = makeRequest("", { target: { providerId: "codex", modelId: "gpt-5.5", upstreamModelId: "gpt-5.5", surface: "openai-chat" } });
     try {
       await adapter.call(input);
       throw new Error("should have thrown");
@@ -109,7 +109,7 @@ describe("CodexAdapter — call credential validation", () => {
 
   test("call rejects a non-JWT credential (no account identity)", async () => {
     const adapter = new CodexAdapter();
-    const input = makeRequest("not-a-jwt", { target: { providerId: "codex", modelId: "gpt-5.5", surface: "openai-chat" } });
+    const input = makeRequest("not-a-jwt", { target: { providerId: "codex", modelId: "gpt-5.5", upstreamModelId: "gpt-5.5", surface: "openai-chat" } });
     try {
       await adapter.call(input);
       throw new Error("should have thrown");
@@ -121,7 +121,7 @@ describe("CodexAdapter — call credential validation", () => {
   test("call rejects a JWT without a chatgpt_account_id", async () => {
     const adapter = new CodexAdapter();
     const jwt = makeJwt({ sub: "u" });
-    const input = makeRequest(jwt, { target: { providerId: "codex", modelId: "gpt-5.5", surface: "openai-chat" } });
+    const input = makeRequest(jwt, { target: { providerId: "codex", modelId: "gpt-5.5", upstreamModelId: "gpt-5.5", surface: "openai-chat" } });
     try {
       await adapter.call(input);
       throw new Error("should have thrown");

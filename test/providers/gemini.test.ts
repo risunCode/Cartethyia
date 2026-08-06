@@ -6,7 +6,7 @@ import type { ProviderRequest } from "../../src/domain/contracts";
 
 function makeRequest(overrides: Partial<ProviderRequest> = {}): ProviderRequest {
   return {
-    target: { providerId: "gemini", modelId: "gemini-2.5-pro", surface: "openai-chat" },
+    target: { providerId: "gemini", modelId: "gemini-2.5-pro", upstreamModelId: "gemini-2.5-pro", surface: "openai-chat" },
     request: {
       model: "gemini-2.5-pro",
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
@@ -58,12 +58,12 @@ describe("GeminiAdapter — identity & catalog", () => {
 describe("GeminiAdapter — resolveTarget", () => {
   test("resolves a known model on a supported cross-protocol surface", () => {
     const adapter = new GeminiAdapter();
-    expect(adapter.resolveTarget("gemini-2.5-flash", "anthropic-messages")).toEqual({ providerId: "gemini", modelId: "gemini-2.5-flash", surface: "anthropic-messages" });
+    expect(adapter.resolveTarget("gemini-2.5-flash", "anthropic-messages")).toEqual({ providerId: "gemini", modelId: "gemini-2.5-flash", upstreamModelId: "gemini-2.5-flash", surface: "anthropic-messages" });
   });
 
   test("resolves a Gemini image model on the image surface", () => {
     const adapter = new GeminiAdapter();
-    expect(adapter.resolveTarget("gemini-3.1-flash-image-preview", "images")).toEqual({ providerId: "gemini", modelId: "gemini-3.1-flash-image-preview", surface: "images" });
+    expect(adapter.resolveTarget("gemini-3.1-flash-image-preview", "images")).toEqual({ providerId: "gemini", modelId: "gemini-3.1-flash-image-preview", upstreamModelId: "gemini-3.1-flash-image-preview", surface: "images" });
   });
 
   test("rejects an unknown model", () => {
@@ -78,7 +78,7 @@ describe("GeminiAdapter — resolveTarget", () => {
 
   test("accepts any model with an empty catalog", () => {
     const adapter = new GeminiAdapter({ models: [] });
-    expect(adapter.resolveTarget("custom-gem", "openai-chat")).toEqual({ providerId: "gemini", modelId: "custom-gem", surface: "openai-chat" });
+    expect(adapter.resolveTarget("custom-gem", "openai-chat")).toEqual({ providerId: "gemini", modelId: "custom-gem", upstreamModelId: "custom-gem", surface: "openai-chat" });
   });
 });
 
@@ -97,13 +97,13 @@ describe("GeminiAdapter — call guard paths (no network)", () => {
 
   test("call rejects a mismatched providerId", async () => {
     const adapter = new GeminiAdapter();
-    const input = makeRequest({ target: { providerId: "other", modelId: "gemini-2.5-pro", surface: "openai-chat" } });
+    const input = makeRequest({ target: { providerId: "other", modelId: "gemini-2.5-pro", upstreamModelId: "gemini-2.5-pro", surface: "openai-chat" } });
     await expect(adapter.call(input)).rejects.toBeInstanceOf(ProviderAdapterError);
   });
 
   test("call rejects an unsupported surface", async () => {
     const adapter = new GeminiAdapter();
-    const input = makeRequest({ target: { providerId: "gemini", modelId: "gemini-2.5-pro", surface: "images" } });
+    const input = makeRequest({ target: { providerId: "gemini", modelId: "gemini-2.5-pro", upstreamModelId: "gemini-2.5-pro", surface: "images" } });
     await expect(adapter.call(input)).rejects.toBeInstanceOf(ProviderAdapterError);
   });
 });

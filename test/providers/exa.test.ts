@@ -25,7 +25,7 @@ function request(overrides: Partial<NormalizedProviderRequest> = {}): Normalized
 
 function makeRequest(overrides: Partial<ProviderRequest> = {}): ProviderRequest {
   return {
-    target: { providerId: "exa", modelId: "exa-search", surface: "web-search" },
+    target: { providerId: "exa", modelId: "exa-search", upstreamModelId: "exa-search", surface: "web-search" },
     request: request(),
     credential: "exa-key-test",
     network: emptyNetwork,
@@ -117,8 +117,8 @@ describe("ExaAdapter — identity & catalog", () => {
 describe("ExaAdapter — resolveTarget", () => {
   test("resolves a known model on the web-search surface", () => {
     const adapter = new ExaAdapter();
-    expect(adapter.resolveTarget("exa-search", "web-search")).toEqual({ providerId: "exa", modelId: "exa-search", surface: "web-search" });
-    expect(adapter.resolveTarget("exa-deep-research", "web-search")).toEqual({ providerId: "exa", modelId: "exa-deep-research", surface: "web-search" });
+    expect(adapter.resolveTarget("exa-search", "web-search")).toEqual({ providerId: "exa", modelId: "exa-search", upstreamModelId: "exa-search", surface: "web-search" });
+    expect(adapter.resolveTarget("exa-deep-research", "web-search")).toEqual({ providerId: "exa", modelId: "exa-deep-research", upstreamModelId: "exa-deep-research", surface: "web-search" });
   });
 
   test("rejects an unsupported surface", () => {
@@ -141,13 +141,13 @@ describe("ExaAdapter — call guard paths (no network)", () => {
 
   test("call rejects a mismatched providerId", async () => {
     const adapter = new ExaAdapter();
-    const input = makeRequest({ target: { providerId: "other", modelId: "exa-search", surface: "web-search" } });
+    const input = makeRequest({ target: { providerId: "other", modelId: "exa-search", upstreamModelId: "exa-search", surface: "web-search" } });
     await expect(adapter.call(input)).rejects.toBeInstanceOf(ProviderAdapterError);
   });
 
   test("call rejects an unsupported surface before the network", async () => {
     const adapter = new ExaAdapter();
-    const input = makeRequest({ target: { providerId: "exa", modelId: "exa-search", surface: "openai-chat" } });
+    const input = makeRequest({ target: { providerId: "exa", modelId: "exa-search", upstreamModelId: "exa-search", surface: "openai-chat" } });
     await expect(adapter.call(input)).rejects.toBeInstanceOf(ProviderAdapterError);
   });
 

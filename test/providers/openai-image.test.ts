@@ -9,7 +9,7 @@ const network: NetworkSelection = { proxyId: null, url: null, release: async () 
 function request(body: unknown, endpoint: "/v1/images/generations" | "/v1/images/edits"): ProviderRequest {
   const normalized = normalizeRequest(endpoint, body, { signal: new AbortController().signal, limits });
   if (!normalized.ok) throw new Error(normalized.error.sanitizedMessage);
-  return { target: { providerId: "openai", modelId: normalized.request.model, surface: "images" }, request: normalized.request, credential: "test-key", network, signal: normalized.request.signal };
+  return { target: { providerId: "openai", modelId: normalized.request.model, upstreamModelId: normalized.request.model, surface: "images" }, request: normalized.request, credential: "test-key", network, signal: normalized.request.signal };
 }
 
 describe("OpenAI hosted image transport", () => {

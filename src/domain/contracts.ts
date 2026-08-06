@@ -51,6 +51,14 @@ export interface ProviderModel {
   readonly id: string;
   readonly displayName: string;
   readonly capabilities: ProviderCapabilities;
+  /**
+   * Optional model id sent to the upstream API when it differs from the
+   * client-facing {@link id}. When unset, the upstream receives {@link id}
+   * verbatim. This lets a catalog expose a friendly id (e.g.
+   * "mistral/codestral") while forwarding only the suffix the upstream
+   * expects ("codestral"), without per-adapter model-rewrite hacks.
+   */
+  readonly upstreamId?: string;
   /** Normalized context limits; null fields mean "unknown" (never fabricated). */
   readonly context?: ModelContextLimits;
   /** Normalized capability categories (projected from capabilities unless overridden). */
@@ -81,6 +89,14 @@ export interface ProviderModelCatalog {
 export interface RouteTarget {
   readonly providerId: string;
   readonly modelId: string;
+  /**
+   * Model id sent to the upstream API. Resolved from the catalog entry's
+   * {@link ProviderModel.upstreamId} when set, otherwise mirrors
+   * {@link modelId}. Transport layers MUST send this field (never
+   * {@link modelId} or the raw client model string) as the upstream model
+   * identifier.
+   */
+  readonly upstreamModelId: string;
   readonly surface: ProviderSurface;
 }
 

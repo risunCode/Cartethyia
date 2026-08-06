@@ -46,7 +46,7 @@ function providerRequest(
   requestOverrides: Partial<NormalizedProviderRequest> = {},
 ): ProviderRequest {
   return {
-    target: { providerId: adapter.metadata.id, modelId, surface },
+    target: { providerId: adapter.metadata.id, modelId, upstreamModelId: modelId, surface },
     request: request({ model: modelId, ...requestOverrides }),
     credential,
     network: emptyNetwork,
@@ -199,7 +199,7 @@ describe("CustomProviderAdapter — surface rejection", () => {
       await expect(
         adapter.call({
           ...providerRequest(adapter, "any-model", "openai-chat"),
-          target: { providerId: "acme-openai", modelId: "any-model", surface: "anthropic-messages" },
+          target: { providerId: "acme-openai", modelId: "any-model", upstreamModelId: "any-model", surface: "anthropic-messages" },
         }),
       ).rejects.toThrow(ProviderAdapterError);
       expect(fetchCalled).toBe(false);
@@ -221,7 +221,7 @@ describe("CustomProviderAdapter — surface rejection", () => {
       await expect(
         adapter.call({
           ...providerRequest(adapter, "any-model", "anthropic-messages"),
-          target: { providerId: "acme-anth", modelId: "any-model", surface: "openai-chat" },
+          target: { providerId: "acme-anth", modelId: "any-model", upstreamModelId: "any-model", surface: "openai-chat" },
         }),
       ).rejects.toThrow(ProviderAdapterError);
       expect(fetchCalled).toBe(false);
@@ -243,7 +243,7 @@ describe("CustomProviderAdapter — surface rejection", () => {
       await expect(
         adapter.call({
           ...providerRequest(adapter, "any-model"),
-          target: { providerId: "different-provider", modelId: "any-model", surface: "openai-chat" },
+          target: { providerId: "different-provider", modelId: "any-model", upstreamModelId: "any-model", surface: "openai-chat" },
         }),
       ).rejects.toThrow(ProviderAdapterError);
       expect(fetchCalled).toBe(false);
@@ -555,7 +555,7 @@ describe("CustomProviderAdapter — call rejects deleted provider at dispatch", 
       await expect(
         adapter.call({
           ...providerRequest(adapter, "any-model"),
-          target: { providerId: "deleted", modelId: "any-model", surface: "openai-chat" },
+          target: { providerId: "deleted", modelId: "any-model", upstreamModelId: "any-model", surface: "openai-chat" },
         }),
       ).rejects.toThrow(/no longer exists/i);
       expect(fetchCalled).toBe(false);

@@ -8,11 +8,7 @@ describe("CloudflareAdapter", () => {
   test("exposes the Workers AI OpenAI-compatible contract", () => {
     expect(adapter.metadata.id).toBe("cloudflare");
     expect(adapter.metadata.credentialKind).toBe("api_key");
-    expect(adapter.resolveTarget("@cf/meta/llama-3.1-8b-instruct", "openai-chat")).toEqual({
-      providerId: "cloudflare",
-      modelId: "@cf/meta/llama-3.1-8b-instruct",
-      surface: "openai-chat",
-    });
+    expect(adapter.resolveTarget("@cf/meta/llama-3.1-8b-instruct", "openai-chat")).toEqual({ providerId: "cloudflare", modelId: "@cf/meta/llama-3.1-8b-instruct", upstreamModelId: "@cf/meta/llama-3.1-8b-instruct", surface: "openai-chat" });
   });
 
   test("exposes bounded token-count and error mapping hooks", async () => {
@@ -28,7 +24,7 @@ describe("CloudflareAdapter", () => {
 
   test("rejects credentials without a valid account id before network dispatch", async () => {
     await expect(adapter.call({
-      target: { providerId: "cloudflare", modelId: "@cf/meta/llama-3.1-8b-instruct", surface: "openai-chat" },
+      target: { providerId: "cloudflare", modelId: "@cf/meta/llama-3.1-8b-instruct", upstreamModelId: "@cf/meta/llama-3.1-8b-instruct", surface: "openai-chat" },
       request: {
         sourceSurface: "openai-chat",
         model: "@cf/meta/llama-3.1-8b-instruct",

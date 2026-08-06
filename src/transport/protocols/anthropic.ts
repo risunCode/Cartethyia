@@ -152,6 +152,7 @@ export async function callAnthropicWire(
 ): Promise<ProviderOutput> {
   const { request, signal, network } = input;
   const payload = buildMessagesPayload(request, capabilities);
+  payload.model = input.target.upstreamModelId;
   const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
   let streamHandedOff = false;
   try {

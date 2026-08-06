@@ -134,7 +134,7 @@ export class AgentRouterAdapter implements ProviderAdapter {
         routeScope: "provider",
       });
     }
-    return { providerId: this.metadata.id, modelId, surface };
+    const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };
   }
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {
@@ -154,7 +154,7 @@ export class AgentRouterAdapter implements ProviderAdapter {
         routeScope: "account",
       });
     }
-    const request = { ...input.request, model: input.target.modelId };
+    const request = { ...input.request, model: input.target.upstreamModelId };
     const payload = reorderBody(buildMessagesPayload(request, this.capabilities));
     const headers = buildHeaders(input.credential, request.stream);
     const { signal, network } = input;

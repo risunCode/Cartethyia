@@ -55,7 +55,7 @@ export interface BenchmarkAdapterOptions {
 
 export function createBenchmarkAdapter(id: string, options: BenchmarkAdapterOptions = {}): ProviderAdapter {
   const model = { ...BENCH_MODEL, id: options.modelId ?? BENCH_MODEL.id };
-  const target: RouteTarget = { providerId: id, modelId: model.id, surface: "openai-chat" };
+  const target: RouteTarget = { providerId: id, modelId: model.id, upstreamModelId: model.id, surface: "openai-chat" };
   const call = options.call ?? (async (input: ProviderRequest): Promise<ProviderOutput> => {
     if (!input.request.stream) {
       return {

@@ -53,7 +53,7 @@ function providerRequest(
   requestOverrides: Partial<NormalizedProviderRequest> = {},
 ): ProviderRequest {
   return {
-    target: { providerId: adapter.metadata.id, modelId, surface },
+    target: { providerId: adapter.metadata.id, modelId, upstreamModelId: modelId, surface },
     request: request({ model: modelId, ...requestOverrides }),
     credential,
     network: emptyNetwork,
@@ -443,11 +443,7 @@ describe("createClaudeBillingHeader — billing header construction", () => {
 
 describe("resolveTarget — surface and model validation", () => {
   test("resolves a known model on the supported anthropic-messages surface", () => {
-    expect(adapter.resolveTarget("claude-opus-5", "anthropic-messages")).toEqual({
-      providerId: "claude",
-      modelId: "claude-opus-5",
-      surface: "anthropic-messages",
-    });
+    expect(adapter.resolveTarget("claude-opus-5", "anthropic-messages")).toEqual({ providerId: "claude", modelId: "claude-opus-5", upstreamModelId: "claude-opus-5", surface: "anthropic-messages" });
   });
 
   test("resolves all catalogued models", () => {
@@ -539,7 +535,7 @@ describe("AnthropicOAuthAdapter.call — credential guard", () => {
       await expect(
         adapter.call({
           ...providerRequest(adapter, "claude-sonnet-5", "anthropic-messages", "token"),
-          target: { providerId: "claude", modelId: "claude-sonnet-5", surface: "openai-chat" },
+          target: { providerId: "claude", modelId: "claude-sonnet-5", upstreamModelId: "claude-sonnet-5", surface: "openai-chat" },
         }),
       ).rejects.toThrow(ProviderAdapterError);
       expect(fetchCalled).toBe(false);

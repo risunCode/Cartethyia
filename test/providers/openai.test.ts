@@ -5,7 +5,7 @@ import type { ProviderRequest } from "../../src/domain/contracts";
 
 function makeRequest(overrides: Partial<ProviderRequest> = {}): ProviderRequest {
   return {
-    target: { providerId: "openai", modelId: "gpt-4o", surface: "openai-chat" },
+    target: { providerId: "openai", modelId: "gpt-4o", upstreamModelId: "gpt-4o", surface: "openai-chat" },
     request: {
       model: "gpt-4o",
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
@@ -59,7 +59,7 @@ describe("OpenAIAdapter — identity & catalog", () => {
 describe("OpenAIAdapter — resolveTarget", () => {
   test("resolves a known model on a supported surface", () => {
     const adapter = new OpenAIAdapter();
-    expect(adapter.resolveTarget("gpt-4o", "openai-chat")).toEqual({ providerId: "openai", modelId: "gpt-4o", surface: "openai-chat" });
+    expect(adapter.resolveTarget("gpt-4o", "openai-chat")).toEqual({ providerId: "openai", modelId: "gpt-4o", upstreamModelId: "gpt-4o", surface: "openai-chat" });
   });
 
   test("rejects an unsupported surface with capability_unsupported (400)", () => {
@@ -88,7 +88,7 @@ describe("OpenAIAdapter — resolveTarget", () => {
 
   test("accepts any model when the catalog is empty (custom-provider case)", () => {
     const adapter = new OpenAIAdapter({ models: [] });
-    expect(adapter.resolveTarget("any-model", "openai-chat")).toEqual({ providerId: "openai", modelId: "any-model", surface: "openai-chat" });
+    expect(adapter.resolveTarget("any-model", "openai-chat")).toEqual({ providerId: "openai", modelId: "any-model", upstreamModelId: "any-model", surface: "openai-chat" });
   });
 });
 
@@ -100,13 +100,13 @@ describe("OpenAIAdapter — call guard paths (no network)", () => {
 
   test("call rejects a request whose providerId does not match the adapter id", async () => {
     const adapter = new OpenAIAdapter();
-    const input = makeRequest({ target: { providerId: "other", modelId: "gpt-4o", surface: "openai-chat" } });
+    const input = makeRequest({ target: { providerId: "other", modelId: "gpt-4o", upstreamModelId: "gpt-4o", surface: "openai-chat" } });
     await expect(adapter.call(input)).rejects.toBeInstanceOf(ProviderAdapterError);
   });
 
   test("call rejects an unsupported surface", async () => {
     const adapter = new OpenAIAdapter();
-    const input = makeRequest({ target: { providerId: "openai", modelId: "gpt-4o", surface: "anthropic-messages" } });
+    const input = makeRequest({ target: { providerId: "openai", modelId: "gpt-4o", upstreamModelId: "gpt-4o", surface: "anthropic-messages" } });
     await expect(adapter.call(input)).rejects.toBeInstanceOf(ProviderAdapterError);
   });
 });

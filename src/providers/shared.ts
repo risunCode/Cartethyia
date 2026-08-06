@@ -661,6 +661,11 @@ export function categoriesOf(capabilities: ProviderCapabilities): readonly Model
 
 /** Optional normalized metadata overrides for {@link modelOf}. */
 export interface ModelMetadataSeed {
+  /**
+   * Upstream model id when it differs from the client-facing id. When set,
+   * transport layers send this to the upstream API instead of the id.
+   */
+  readonly upstreamId?: string;
   readonly context?: Partial<ModelContextLimits> | null;
   /** Explicit category list; defaults to a projection of the capability booleans. */
   readonly categories?: readonly ModelCapabilityCategory[] | null;
@@ -672,6 +677,7 @@ export function modelOf(id: string, displayName: string, capabilities: ProviderC
     id,
     displayName,
     capabilities,
+    ...(metadata.upstreamId !== undefined ? { upstreamId: metadata.upstreamId } : {}),
     context: {
       inputTokens: metadata.context?.inputTokens ?? null,
       outputTokens: metadata.context?.outputTokens ?? null,
@@ -787,7 +793,9 @@ export function makeNativeAdapter(config: NativeProviderConfig): ProviderAdapter
           routeScope: null,
         });
       }
-      return { providerId: metadata.id, modelId, surface };
+      const entry = modelCatalog.get(modelId);
+      const upstreamModelId = entry?.upstreamId ?? modelId;
+      return { providerId: metadata.id, modelId, upstreamModelId, surface };
     },
     async call(input: ProviderRequest): Promise<ProviderOutput> {
       assertSupported(input);

@@ -76,7 +76,7 @@ function fakeAdapter(call: ProviderAdapter["call"]): ProviderAdapter {
     metadata: { id: "fake", displayName: "Fake", protocol: "openai", credentialKind: "none" },
     capabilities,
     models: { list: [{ id: "model", displayName: "Model", capabilities }], get: (modelId) => modelId === "model" ? { id: "model", displayName: "Model", capabilities } : null },
-    resolveTarget: (modelId, surface) => ({ providerId: "fake", modelId, surface }),
+    resolveTarget: (modelId, surface) => ({ providerId: "fake", modelId, upstreamModelId: modelId, surface }),
     call,
     countTokens: async () => ({ tokens: null, source: "unknown" }),
     mapError: (): ProviderCallError => ({ statusCode: 503, kind: "provider_unavailable", retryable: true, routeScope: "provider", source: "internal", sanitizedMessage: "Upstream provider unavailable", retryAt: null }),

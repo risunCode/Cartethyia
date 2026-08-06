@@ -58,7 +58,7 @@ describe("custom provider runtime contracts", () => {
     const adapter = registry.get("acme");
     expect(adapter).toBeInstanceOf(CustomProviderAdapter);
     expect(adapter?.models.get("provider-published-later")).not.toBeNull();
-    expect(adapter?.resolveTarget("provider-published-later", "openai-chat")).toEqual({ providerId: "acme", modelId: "provider-published-later", surface: "openai-chat" });
+    expect(adapter?.resolveTarget("provider-published-later", "openai-chat")).toEqual({ providerId: "acme", modelId: "provider-published-later", upstreamModelId: "provider-published-later", surface: "openai-chat" });
 
     rows = [];
     syncCustomAdapters(registry, source);
@@ -70,7 +70,7 @@ describe("custom provider runtime contracts", () => {
     const adapter = new CustomProviderAdapter(source.list()[0]!, source);
 
     await expect(adapter.call({
-      target: { providerId: "acme", modelId: "arbitrary-upstream-model", surface: "openai-chat" },
+      target: { providerId: "acme", modelId: "arbitrary-upstream-model", upstreamModelId: "arbitrary-upstream-model", surface: "openai-chat" },
       request: request(),
       credential: "secret",
       network: emptyNetwork,

@@ -25,7 +25,7 @@ function request(overrides: Partial<NormalizedProviderRequest> = {}): Normalized
 
 function providerRequest(overrides: Partial<ProviderRequest> = {}): ProviderRequest {
   return {
-    target: { providerId: "antigravity", modelId: "gemini-3.1-pro", surface: "openai-chat" },
+    target: { providerId: "antigravity", modelId: "gemini-3.1-pro", upstreamModelId: "gemini-3.1-pro", surface: "openai-chat" },
     request: request(),
     credential: JSON.stringify({ accessToken: "at-1", projectId: "proj-123" }),
     network: emptyNetwork,
@@ -295,7 +295,7 @@ describe("GoogleAntigravityAdapter.call", () => {
 
   test("resolveTarget rejects unknown models and unsupported surfaces", () => {
     const adapter = new GoogleAntigravityAdapter();
-    expect(adapter.resolveTarget("gemini-3.1-pro", "openai-chat")).toEqual({ providerId: "antigravity", modelId: "gemini-3.1-pro", surface: "openai-chat" });
+    expect(adapter.resolveTarget("gemini-3.1-pro", "openai-chat")).toEqual({ providerId: "antigravity", modelId: "gemini-3.1-pro", upstreamModelId: "gemini-3.1-pro", surface: "openai-chat" });
     expect(() => adapter.resolveTarget("not-a-model", "openai-chat")).toThrow(ProviderAdapterError);
     expect(() => adapter.resolveTarget("gemini-3.1-pro", "anthropic-messages")).toThrow(ProviderAdapterError);
   });

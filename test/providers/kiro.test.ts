@@ -37,7 +37,7 @@ const emptyNetwork: NetworkSelection = { proxyId: null, url: null, release: asyn
 
 function providerRequest(modelId = "claude-opus-4.8", credential = "secret", stream = false): ProviderRequest {
   return {
-    target: { providerId: "kiro", modelId, surface: "openai-chat" },
+    target: { providerId: "kiro", modelId, upstreamModelId: modelId, surface: "openai-chat" },
     request: request({ model: modelId, stream }),
     credential,
     network: emptyNetwork,
@@ -112,7 +112,7 @@ describe("KiroAdapter routing", () => {
   const adapter = new KiroAdapter();
 
   test("resolves the openai-chat surface with the requested model", () => {
-    expect(adapter.resolveTarget("claude-sonnet-5", "openai-chat")).toEqual({ providerId: "kiro", modelId: "claude-sonnet-5", surface: "openai-chat" });
+    expect(adapter.resolveTarget("claude-sonnet-5", "openai-chat")).toEqual({ providerId: "kiro", modelId: "claude-sonnet-5", upstreamModelId: "claude-sonnet-5", surface: "openai-chat" });
   });
 
   test("rejects unsupported surfaces with a typed capability error", () => {
