@@ -13,10 +13,11 @@ function allowedByList(list: readonly string[] | null | undefined, values: reado
   return list.some((entry) => values.some((value) => matches(entry, value)));
 }
 
-export function isRouteAllowed(providerId: string, modelId: string, authorization: RouteAcl): boolean {
+export function isRouteAllowed(providerId: string, modelId: string, authorization: RouteAcl, requestedModel?: string): boolean {
   const qualified = `${providerId}/${modelId}`;
   if (!allowedByList(authorization.providerAllowlist, [providerId])) return false;
-  if (!allowedByList(authorization.modelAllowlist, [modelId, qualified])) return false;
-  if ((authorization.modelDenylist ?? []).some((entry) => [modelId, qualified].some((value) => matches(entry, value)))) return false;
+  const modelValues = requestedModel !== undefined ? [modelId, qualified, requestedModel] : [modelId, qualified];
+  if (!allowedByList(authorization.modelAllowlist, modelValues)) return false;
+  if ((authorization.modelDenylist ?? []).some((entry) => modelValues.some((value) => matches(entry, value)))) return false;
   return true;
 }

@@ -23,6 +23,7 @@ import { applyFilterRules, type FilterRuleConfig } from "../domain/filter-rules"
 export interface ProxyRoutePlan {
   readonly affinity: AffinityKey;
   readonly candidates: readonly RouteCandidate[];
+  readonly requestedModel?: string;
 }
 
 export interface RouteAttemptSelection {
@@ -167,7 +168,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
       ? { namespace: "api_key", value: input.authorization.apiKeyId }
       : { namespace: "trusted_identity", value: input.authorization.trustedIdentity ?? "anonymous" };
     const routePlan = await dependencies.resolveRoutes(currentRequest, affinity);
-    const candidates = routePlan.candidates.filter((candidate) => isRouteAllowed(candidate.providerId, candidate.modelId, input.authorization));
+    const candidates = routePlan.candidates.filter((candidate) => isRouteAllowed(candidate.providerId, candidate.modelId, input.authorization, routePlan.requestedModel));
     resolvedPlan = { ...routePlan, candidates };
     if (resolvedPlan.candidates.length === 0) {
       throw {

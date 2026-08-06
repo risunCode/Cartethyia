@@ -385,7 +385,7 @@ function routeResolver(registry: ProviderRegistry, cache: RouteSnapshotCache, he
         compatible: true,
       });
     }
-    return { affinity, candidates };
+    return { affinity, candidates, requestedModel: request.model };
   };
 }
 

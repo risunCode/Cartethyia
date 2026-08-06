@@ -208,7 +208,8 @@ export class ClinePassAdapter implements ProviderAdapter {
     if (input.target.providerId !== this.metadata.id || input.target.surface !== "openai-chat") throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" only supports the OpenAI Chat surface`, statusCode: 400, routeScope: null });
     const token = accessTokenFromCredential(input.credential);
     if (token === undefined) throw new ProviderAdapterError({ kind: "authentication_failed", message: "A ClinePass API key or OAuth credential is required.", statusCode: 401, routeScope: "account" });
-    const bearer = clineBearer(token);
+    // Plain API keys are sent as-is; only OAuth bundles get the workos: prefix.
+    const bearer = input.credential.trim().startsWith("{") ? clineBearer(token) : token;
     return callClineOnce(input, bearer);
   }
 
