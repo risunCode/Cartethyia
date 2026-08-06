@@ -81,7 +81,6 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     { OpenAIAdapter },
     { AnthropicAdapter },
     { GeminiAdapter },
-    { NativeAdapter, DEFAULT_NATIVE_PROVIDERS },
     { CloudflareAdapter },
     { OpenCodeFreeAdapter, OpenCodeZenAdapter },
     { KimchiAdapter },
@@ -96,11 +95,24 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     { CodeBuddyAdapter, CodeBuddyChinaAdapter },
     { ExaAdapter },
     { GrokBuildAdapter },
+    { OpenRouterAdapter },
+    { GroqAdapter },
+    { AlibabaAdapter },
+    { FireworksAdapter },
+    { DeepSeekNativeAdapter },
+    { OllamaAdapter },
+    { MistralAdapter },
+    { SiliconFlowAdapter },
+    { CerebrasAdapter },
+    { NvidiaNativeAdapter },
+    { BlackboxAIAdapter },
+    { OpenCodeGoAdapter },
+    { XiaomiPAYGAdapter },
+    { XiaomiTokenPlanAdapter },
   ] = await Promise.all([
     import("./openai"),
     import("./anthropic"),
     import("./gemini"),
-    import("./native"),
     import("./cloudflare"),
     import("./opencode"),
     import("./kimchi"),
@@ -115,6 +127,20 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     import("./codebuddy"),
     import("./exa"),
     import("./grok-build"),
+    import("./openrouter"),
+    import("./groq"),
+    import("./alibaba"),
+    import("./fireworks"),
+    import("./deepseek-native"),
+    import("./ollama"),
+    import("./mistral"),
+    import("./siliconflow"),
+    import("./cerebras"),
+    import("./nvidia-native"),
+    import("./blackboxai"),
+    import("./opencodego"),
+    import("./xiaomipg"),
+    import("./xiaomitp"),
   ]);
 
   const registry = new ProviderRegistry();
@@ -138,8 +164,19 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
   registry.register(new CodeBuddyChinaAdapter());
   registry.register(new ExaAdapter());
   registry.register(new GrokBuildAdapter());
-  for (const config of DEFAULT_NATIVE_PROVIDERS) {
-    registry.register(new NativeAdapter(config));
-  }
+  registry.register(OpenRouterAdapter);
+  registry.register(GroqAdapter);
+  registry.register(AlibabaAdapter);
+  registry.register(FireworksAdapter);
+  registry.register(DeepSeekNativeAdapter);
+  registry.register(OllamaAdapter);
+  registry.register(MistralAdapter);
+  registry.register(SiliconFlowAdapter);
+  registry.register(CerebrasAdapter);
+  registry.register(NvidiaNativeAdapter);
+  registry.register(BlackboxAIAdapter);
+  registry.register(OpenCodeGoAdapter);
+  registry.register(XiaomiPAYGAdapter);
+  registry.register(XiaomiTokenPlanAdapter);
   return registry;
 }

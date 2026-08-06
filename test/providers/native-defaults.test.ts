@@ -1,12 +1,43 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_NATIVE_PROVIDERS, NativeAdapter } from "../../src/providers/native";
-import { ProviderAdapterError } from "../../src/providers/shared";
+import { ProviderAdapterError, makeNativeAdapter } from "../../src/providers/shared";
+import { openrouterConfig } from "../../src/providers/openrouter";
+import { groqConfig } from "../../src/providers/groq";
+import { alibabaConfig } from "../../src/providers/alibaba";
+import { fireworksConfig } from "../../src/providers/fireworks";
+import { deepseekNativeConfig } from "../../src/providers/deepseek-native";
+import { ollamaConfig } from "../../src/providers/ollama";
+import { mistralConfig } from "../../src/providers/mistral";
+import { siliconflowConfig } from "../../src/providers/siliconflow";
+import { cerebrasConfig } from "../../src/providers/cerebras";
+import { nvidiaConfig } from "../../src/providers/nvidia-native";
+import { blackboxaiConfig } from "../../src/providers/blackboxai";
+import { opencodegoConfig } from "../../src/providers/opencodego";
+import { xiaomipgConfig } from "../../src/providers/xiaomipg";
+import { xiaomitpConfig } from "../../src/providers/xiaomitp";
+import type { NativeProviderConfig } from "../../src/providers/shared";
 
-const byId = new Map(DEFAULT_NATIVE_PROVIDERS.map((config) => [config.id, config]));
+const allConfigs: NativeProviderConfig[] = [
+  openrouterConfig,
+  groqConfig,
+  alibabaConfig,
+  fireworksConfig,
+  deepseekNativeConfig,
+  ollamaConfig,
+  mistralConfig,
+  siliconflowConfig,
+  cerebrasConfig,
+  nvidiaConfig,
+  blackboxaiConfig,
+  opencodegoConfig,
+  xiaomipgConfig,
+  xiaomitpConfig,
+];
+
+const byId = new Map(allConfigs.map((config) => [config.id, config]));
 
 describe("default native provider registry", () => {
   test("exposes unique provider ids", () => {
-    const ids = DEFAULT_NATIVE_PROVIDERS.map((config) => config.id);
+    const ids = allConfigs.map((config) => config.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
@@ -39,12 +70,9 @@ describe("default native provider registry", () => {
 });
 
 describe("NativeAdapter blackboxai catalog", () => {
-  const adapter = new NativeAdapter(byId.get("blackboxai")!);
+  const adapter = makeNativeAdapter(byId.get("blackboxai")!);
 
-  test("blackboxai catalog is permissive (empty storedModels → any model resolves)", () => {
-    // The blackboxai provider config may have an empty model list from MODEL_DATA;
-    // NativeAdapter treats an empty catalog as permissive — get() returns a
-    // synthetic entry for any model, and resolveTarget accepts arbitrary ids.
+  test("blackboxai catalog is permissive (empty storedModels -> any model resolves)", () => {
     const target = adapter.resolveTarget("blackboxai/any-model", "openai-chat");
     expect(target.modelId).toBe("blackboxai/any-model");
     expect(target.providerId).toBe("blackboxai");

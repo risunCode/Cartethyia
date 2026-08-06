@@ -6,8 +6,21 @@ import type {
   ProviderRequest,
   StreamEvent,
 } from "../../src/domain/contracts";
-import { DEFAULT_NATIVE_PROVIDERS, NativeAdapter, type NativeProviderConfig } from "../../src/providers/native";
-import { ProviderAdapterError, isRecord } from "../../src/providers/shared";
+import { ProviderAdapterError, isRecord, makeNativeAdapter, type NativeProviderConfig } from "../../src/providers/shared";
+import { openrouterConfig } from "../../src/providers/openrouter";
+import { groqConfig } from "../../src/providers/groq";
+import { alibabaConfig } from "../../src/providers/alibaba";
+import { fireworksConfig } from "../../src/providers/fireworks";
+import { deepseekNativeConfig } from "../../src/providers/deepseek-native";
+import { ollamaConfig } from "../../src/providers/ollama";
+import { mistralConfig } from "../../src/providers/mistral";
+import { siliconflowConfig } from "../../src/providers/siliconflow";
+import { cerebrasConfig } from "../../src/providers/cerebras";
+import { nvidiaConfig } from "../../src/providers/nvidia-native";
+import { blackboxaiConfig } from "../../src/providers/blackboxai";
+import { opencodegoConfig } from "../../src/providers/opencodego";
+import { xiaomipgConfig } from "../../src/providers/xiaomipg";
+import { xiaomitpConfig } from "../../src/providers/xiaomitp";
 
 const limits = {
   maxBodyBytes: 2 * 1024 * 1024,
@@ -113,12 +126,28 @@ function textDeltaText(event: StreamEvent): string {
   return event.type === "text_delta" ? event.text : "";
 }
 
-const byId = new Map(DEFAULT_NATIVE_PROVIDERS.map((config) => [config.id, config]));
+const nativeConfigs: NativeProviderConfig[] = [
+  openrouterConfig,
+  groqConfig,
+  alibabaConfig,
+  fireworksConfig,
+  deepseekNativeConfig,
+  ollamaConfig,
+  mistralConfig,
+  siliconflowConfig,
+  cerebrasConfig,
+  nvidiaConfig,
+  blackboxaiConfig,
+  opencodegoConfig,
+  xiaomipgConfig,
+  xiaomitpConfig,
+];
+const byId = new Map(nativeConfigs.map((config) => [config.id, config]));
 
 describe("NativeAdapter.call — success path and request shape", () => {
   test("posts the Chat Completions wire shape with model and messages to the base URL", async () => {
     const config = byId.get("openrouter")!;
-    const adapter = new NativeAdapter(config);
+    const adapter = makeNativeAdapter(config);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c1", object: "chat.completion", choices: [], usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } });
     try {
@@ -146,7 +175,7 @@ describe("NativeAdapter.call — success path and request shape", () => {
       baseUrl: "https://api.example.com/v1///",
       credentialKind: "api_key",
     };
-    const adapter = new NativeAdapter(config);
+    const adapter = makeNativeAdapter(config);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c", object: "chat.completion", choices: [] });
     try {
@@ -159,7 +188,7 @@ describe("NativeAdapter.call — success path and request shape", () => {
 
   test("forwards the incoming User-Agent when present", async () => {
     const config = byId.get("deepseek")!;
-    const adapter = new NativeAdapter(config);
+    const adapter = makeNativeAdapter(config);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c", object: "chat.completion", choices: [] });
     try {
@@ -179,7 +208,7 @@ describe("NativeAdapter.call — bearer auth", () => {
   test("constructs Authorization: Bearer header from the credential", async () => {
     // Default auth is bearer for most configs.
     const config = byId.get("deepseek")!;
-    const adapter = new NativeAdapter(config);
+    const adapter = makeNativeAdapter(config);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c", object: "chat.completion", choices: [] });
     try {
@@ -197,7 +226,7 @@ describe("NativeAdapter.call — bearer auth", () => {
 
   test("omits Authorization when the credential is empty (bearer)", async () => {
     const config = byId.get("openrouter")!;
-    const adapter = new NativeAdapter(config);
+    const adapter = makeNativeAdapter(config);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c", object: "chat.completion", choices: [] });
     try {
@@ -220,7 +249,7 @@ describe("NativeAdapter.call — x-api-key auth", () => {
       credentialKind: "api_key",
       auth: "x-api-key",
     };
-    const adapter = new NativeAdapter(config);
+    const adapter = makeNativeAdapter(config);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c", object: "chat.completion", choices: [] });
     try {
@@ -241,7 +270,7 @@ describe("NativeAdapter.call — x-api-key auth", () => {
       credentialKind: "api_key",
       auth: "x-api-key",
     };
-    const adapter = new NativeAdapter(config);
+    const adapter = makeNativeAdapter(config);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c", object: "chat.completion", choices: [] });
     try {
@@ -264,7 +293,7 @@ describe("NativeAdapter.call — no auth", () => {
       credentialKind: "none",
       auth: "none",
     };
-    const adapter = new NativeAdapter(config);
+    const adapter = makeNativeAdapter(config);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c", object: "chat.completion", choices: [] });
     try {
@@ -285,7 +314,7 @@ describe("NativeAdapter.call — no auth", () => {
       baseUrl: "https://api.default.example.com/v1",
       credentialKind: "api_key",
     };
-    const adapter = new NativeAdapter(config);
+    const adapter = makeNativeAdapter(config);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c", object: "chat.completion", choices: [] });
     try {
@@ -299,7 +328,7 @@ describe("NativeAdapter.call — no auth", () => {
 });
 
 describe("NativeAdapter.resolveTarget — surface rejection", () => {
-  const adapter = new NativeAdapter(byId.get("deepseek")!);
+  const adapter = makeNativeAdapter(byId.get("deepseek")!);
 
   test("resolves a model on the supported openai-chat surface", () => {
     expect(adapter.resolveTarget("deepseek-chat", "openai-chat")).toEqual({
@@ -351,7 +380,7 @@ describe("NativeAdapter.assertSupported — stream-without-streaming rejection",
         },
       ],
     };
-    const adapter = new NativeAdapter(config);
+    const adapter = makeNativeAdapter(config);
     let fetchCalled = false;
     const original = globalThis.fetch;
     globalThis.fetch = (async (_url: unknown, _init?: RequestInit) => {
@@ -376,7 +405,7 @@ describe("NativeAdapter.call — streaming via Chat Completions SSE", () => {
   test("decodes reasoning and text deltas from chat SSE frames", async () => {
     // A native adapter with reasoning enabled on its model.
     const config = byId.get("deepseek")!;
-    const adapter = new NativeAdapter(config);
+    const adapter = makeNativeAdapter(config);
     const frames = [
       chatSseFrame({ id: "chatcmpl-1", choices: [{ delta: { reasoning_content: "thinking hard" } }] }),
       chatSseFrame({ id: "chatcmpl-1", choices: [{ delta: { content: "Hello" } }] }),
@@ -408,7 +437,7 @@ describe("NativeAdapter.call — streaming via Chat Completions SSE", () => {
 
 describe("NativeAdapter — per-provider config spot-checks (model-to-URL mapping)", () => {
   test("deepseek maps to the DeepSeek API base URL", async () => {
-    const adapter = new NativeAdapter(byId.get("deepseek")!);
+    const adapter = makeNativeAdapter(byId.get("deepseek")!);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c", object: "chat.completion", choices: [] });
     try {
@@ -420,7 +449,7 @@ describe("NativeAdapter — per-provider config spot-checks (model-to-URL mappin
   });
 
   test("groq maps to the Groq API base URL", async () => {
-    const adapter = new NativeAdapter(byId.get("groq")!);
+    const adapter = makeNativeAdapter(byId.get("groq")!);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c", object: "chat.completion", choices: [] });
     try {
@@ -432,7 +461,7 @@ describe("NativeAdapter — per-provider config spot-checks (model-to-URL mappin
   });
 
   test("cerebras maps to the Cerebras API base URL", async () => {
-    const adapter = new NativeAdapter(byId.get("cerebras")!);
+    const adapter = makeNativeAdapter(byId.get("cerebras")!);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c", object: "chat.completion", choices: [] });
     try {
@@ -444,7 +473,7 @@ describe("NativeAdapter — per-provider config spot-checks (model-to-URL mappin
   });
 
   test("mistral maps to the Mistral API base URL", async () => {
-    const adapter = new NativeAdapter(byId.get("mistral")!);
+    const adapter = makeNativeAdapter(byId.get("mistral")!);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c", object: "chat.completion", choices: [] });
     try {
@@ -456,7 +485,7 @@ describe("NativeAdapter — per-provider config spot-checks (model-to-URL mappin
   });
 
   test("blackboxai maps to the Blackbox AI API base URL", async () => {
-    const adapter = new NativeAdapter(byId.get("blackboxai")!);
+    const adapter = makeNativeAdapter(byId.get("blackboxai")!);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c", object: "chat.completion", choices: [] });
     try {
@@ -468,7 +497,7 @@ describe("NativeAdapter — per-provider config spot-checks (model-to-URL mappin
   });
 
   test("nvidia maps to the NVIDIA NIM API base URL", async () => {
-    const adapter = new NativeAdapter(byId.get("nvidia")!);
+    const adapter = makeNativeAdapter(byId.get("nvidia")!);
     const capture: CapturedCall = { url: "", init: {} };
     const restore = stubFetchFor(capture, { id: "c", object: "chat.completion", choices: [] });
     try {
@@ -482,17 +511,17 @@ describe("NativeAdapter — per-provider config spot-checks (model-to-URL mappin
 
 describe("NativeAdapter — metadata and catalog identity", () => {
   test("exposes the native protocol and credential kind from config", () => {
-    const adapter = new NativeAdapter(byId.get("deepseek")!);
+    const adapter = makeNativeAdapter(byId.get("deepseek")!);
     expect(adapter.metadata).toMatchObject({ id: "deepseek", displayName: "DeepSeek", protocol: "native", credentialKind: "api_key" });
   });
 
   test("exposes the credentialUrl when configured", () => {
-    const adapter = new NativeAdapter(byId.get("groq")!);
+    const adapter = makeNativeAdapter(byId.get("groq")!);
     expect(adapter.metadata.credentialUrl).toBe("https://console.groq.com/keys");
   });
 
   test("aggregates capabilities from the model catalog", () => {
-    const adapter = new NativeAdapter(byId.get("deepseek")!);
+    const adapter = makeNativeAdapter(byId.get("deepseek")!);
     // deepseek-reasoner has reasoning=true; aggregation unions to true.
     expect(adapter.capabilities.reasoning).toBe(true);
     expect(adapter.capabilities.surfaces).toContain("openai-chat");
@@ -500,7 +529,7 @@ describe("NativeAdapter — metadata and catalog identity", () => {
   });
 
   test("empty-catalog providers remain permissive with fallback capabilities", () => {
-    const adapter = new NativeAdapter(byId.get("openrouter")!);
+    const adapter = makeNativeAdapter(byId.get("openrouter")!);
     // OpenRouter has an empty catalog — fallback capabilities apply.
     expect(adapter.capabilities.surfaces).toContain("openai-chat");
     expect(adapter.models.list.length).toBe(0);
@@ -509,7 +538,7 @@ describe("NativeAdapter — metadata and catalog identity", () => {
   });
 
   test("mapError converts an Error into a ProviderCallError", () => {
-    const adapter = new NativeAdapter(byId.get("deepseek")!);
+    const adapter = makeNativeAdapter(byId.get("deepseek")!);
     const error = adapter.mapError(new Error("boom"));
     expect(error.kind).toBe("provider_protocol_error");
     expect(error.source).toBe("upstream");
@@ -517,7 +546,7 @@ describe("NativeAdapter — metadata and catalog identity", () => {
   });
 
   test("countTokens returns unknown stats", async () => {
-    const adapter = new NativeAdapter(byId.get("deepseek")!);
+    const adapter = makeNativeAdapter(byId.get("deepseek")!);
     const stats = await adapter.countTokens({ request: request(), signal: new AbortController().signal });
     expect(stats.source).toBe("unknown");
     expect(stats.tokens).toBeNull();

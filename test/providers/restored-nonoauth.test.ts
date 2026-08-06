@@ -5,9 +5,10 @@ import { ClinePassAdapter } from "../../src/providers/cline";
 import { CodeBuddyAdapter, CodeBuddyChinaAdapter } from "../../src/providers/codebuddy";
 import { AnthropicOAuthAdapter } from "../../src/providers/claude-code";
 import { KimchiAdapter } from "../../src/providers/kimchi";
-import { DEFAULT_NATIVE_PROVIDERS, NativeAdapter } from "../../src/providers/native";
 import { OpenCodeZenAdapter } from "../../src/providers/opencode";
-import { ProviderAdapterError } from "../../src/providers/shared";
+import { ProviderAdapterError, makeNativeAdapter } from "../../src/providers/shared";
+import { xiaomipgConfig } from "../../src/providers/xiaomipg";
+import { xiaomitpConfig } from "../../src/providers/xiaomitp";
 import { ProviderRegistry, createDefaultRegistry } from "../../src/providers/registry";
 
 const limits = {
@@ -287,16 +288,14 @@ describe("OpenCodeZenAdapter (Task 9)", () => {
 });
 
 describe("Xiaomi PAYG/TokenPlan (Task 9)", () => {
-  const byId = new Map(DEFAULT_NATIVE_PROVIDERS.map((config) => [config.id, config]));
-
   test("PAYG and Token Plan are registered as native OpenAI-compatible providers", () => {
-    expect(byId.get("xiaomipg")?.baseUrl).toBe("https://api.xiaomimimo.com/v1");
-    expect(byId.get("xiaomitp")?.baseUrl).toBe("https://token-plan-sgp.xiaomimimo.com/v1");
+    expect(xiaomipgConfig.baseUrl).toBe("https://api.xiaomimimo.com/v1");
+    expect(xiaomitpConfig.baseUrl).toBe("https://token-plan-sgp.xiaomimimo.com/v1");
   });
 
   test("both tiers route the curated mimo model pair", () => {
-    for (const id of ["xiaomipg", "xiaomitp"]) {
-      const adapter = new NativeAdapter(byId.get(id)!);
+    for (const config of [xiaomipgConfig, xiaomitpConfig]) {
+      const adapter = makeNativeAdapter(config);
       for (const modelId of ["mimo-v2.5-pro", "mimo-v2.5"]) {
         expect(adapter.models.get(modelId)).not.toBeNull();
         expect(adapter.resolveTarget(modelId, "openai-chat").modelId).toBe(modelId);

@@ -1,7 +1,8 @@
 import type { ApplicationErrorKind, ProviderCallError } from "../domain/contracts";
 import { boundedRetryAt, deriveErrorSource, sanitizeMessage } from "../domain/contracts";
 import { isUsageLimitOutcome, parseRateLimitReason } from "../domain/rate-limit";
-import type { ProviderAdapter, ProviderCapabilities, ProviderModel, ProviderModelCatalog, ProviderSurface, RouteTarget } from "../domain/contracts";
+import type { ContextStats, ProviderAdapter, ProviderCapabilities, ProviderMetadata, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, ProviderSurface, RouteTarget, TokenCountInput } from "../domain/contracts";
+import type { CredentialKind } from "../domain/contracts";
 import type { ModelCapabilityCategory, ModelContextLimits, ModelTokenPricing } from "../domain/contracts";
 import type { NetworkSelection } from "../domain/contracts";
 import type { NormalizedMessage, RequestLimits } from "../domain/contracts";
@@ -11,6 +12,7 @@ import { buildProxyFetcher } from "../traffic";
 import { ProtocolCodecError } from "../domain/protocols/errors";
 import { fetchWithRedirectPolicy } from "../security/redirect-policy";
 import { assertPublicUrlAtDispatch } from "../security/ssrf-guard";
+import { callChatCompletionsWire } from "../transport/protocols/openai";
 
 /**
  * Shared provider-adapter infrastructure: typed errors, abort coordination
@@ -710,4 +712,100 @@ export function aggregateCapabilities(models: readonly ProviderModel[], fallback
     promptCacheKey ||= caps.promptCacheKey;
   }
   return { surfaces, streaming, reasoning, toolCalls, images, explicitCache, promptCacheKey };
+}
+
+// ---------------------------------------------------------------- native adapter factory
+
+const NATIVE_SURFACES: readonly ProviderSurface[] = ["openai-chat"];
+const NATIVE_FALLBACK_CAPABILITIES: ProviderCapabilities = capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true });
+
+export interface NativeProviderConfig {
+  readonly id: string;
+  readonly displayName: string;
+  readonly baseUrl: string;
+  readonly credentialKind: CredentialKind;
+  readonly credentialUrl?: string;
+  readonly auth?: "bearer" | "x-api-key" | "none";
+  readonly models?: readonly ProviderModel[];
+}
+
+/**
+ * Creates a standalone OpenAI-compatible Chat Completions adapter.
+ * Each provider file imports this to create its own adapter instance.
+ */
+export function makeNativeAdapter(config: NativeProviderConfig): ProviderAdapter {
+  const baseUrl = config.baseUrl.replace(/\/+$/, "");
+  const models = config.models ?? [];
+  const modelCatalog = createModelCatalog(models);
+  const capabilities = aggregateCapabilities(models, NATIVE_FALLBACK_CAPABILITIES);
+  const metadata: ProviderMetadata = {
+    id: config.id,
+    displayName: config.displayName,
+    protocol: "native",
+    credentialKind: config.credentialKind,
+    ...(config.credentialUrl ? { credentialUrl: config.credentialUrl } : {}),
+  };
+  const auth = config.auth ?? "bearer";
+
+  function assertSupported(input: ProviderRequest): void {
+    if (input.target.providerId !== metadata.id) {
+      throw new ProviderAdapterError({
+        kind: "capability_unsupported",
+        message: `Adapter "${metadata.id}" cannot serve provider "${input.target.providerId}"`,
+        statusCode: 400,
+        routeScope: null,
+      });
+    }
+    if (!capabilities.surfaces.includes(input.target.surface)) {
+      throw new ProviderAdapterError({
+        kind: "capability_unsupported",
+        message: `Provider "${metadata.id}" does not support surface "${input.target.surface}"`,
+        statusCode: 400,
+        routeScope: null,
+      });
+    }
+    if (input.request.stream && !capabilities.streaming) {
+      throw new ProviderAdapterError({
+        kind: "capability_unsupported",
+        message: `Provider "${metadata.id}" does not support streaming`,
+        statusCode: 400,
+        routeScope: null,
+      });
+    }
+  }
+
+  return {
+    metadata,
+    capabilities,
+    models: modelCatalog,
+    resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+      if (!capabilities.surfaces.includes(surface)) {
+        throw new ProviderAdapterError({
+          kind: "capability_unsupported",
+          message: `Provider "${metadata.id}" does not support surface "${surface}"`,
+          statusCode: 400,
+          routeScope: null,
+        });
+      }
+      return { providerId: metadata.id, modelId, surface };
+    },
+    async call(input: ProviderRequest): Promise<ProviderOutput> {
+      assertSupported(input);
+      const { request, credential } = input;
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        accept: request.stream ? "text/event-stream" : "application/json",
+        ...(input.headers?.get("user-agent") ? { "user-agent": input.headers.get("user-agent")! } : {}),
+      };
+      if (auth === "bearer" && credential.length > 0) headers.authorization = `Bearer ${credential}`;
+      else if (auth === "x-api-key" && credential.length > 0) headers["x-api-key"] = credential;
+      return callChatCompletionsWire(input, baseUrl, headers);
+    },
+    async countTokens(_input: TokenCountInput): Promise<ContextStats> {
+      return { tokens: null, source: "unknown" };
+    },
+    mapError(error: unknown): ProviderCallError {
+      return toProviderCallError(error);
+    },
+  };
 }
