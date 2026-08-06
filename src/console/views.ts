@@ -519,7 +519,7 @@ export interface ComboInput {
 
 export interface RoutingConfigRepository {
   listAliases(): Promise<readonly AliasView[]>;
-  putAlias(alias: string, model: string): Promise<AliasView | { readonly error: "duplicate" }>;
+  putAlias(alias: string, model: string): Promise<AliasView>;
   deleteAlias(alias: string): Promise<boolean>;
   listCombos(): Promise<readonly ComboView[]>;
   getCombo(id: string): Promise<ComboView | null>;

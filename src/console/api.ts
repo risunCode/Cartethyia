@@ -672,7 +672,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
         .post("/aliases", async ({ body, set }) => {
           const result = await services.routing.createAlias(body);
           if (!("alias" in result)) {
-            return conflict(set, result.message);
+            return badRequest(set, result.message);
           }
           return result;
         })

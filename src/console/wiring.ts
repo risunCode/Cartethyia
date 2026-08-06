@@ -422,7 +422,7 @@ function makeProxySettingsRepository(config: ConfigPersistence): ProxySettingsRe
 function makeRoutingRepository(config: ConfigPersistence): RoutingConfigRepository {
   return {
     async listAliases() { return config.aliases.list(); },
-    async putAlias(alias, model) { const existing = config.aliases.get(alias); if (existing !== null) return { error: "duplicate" }; return config.aliases.upsert(alias, model); },
+    async putAlias(alias, model) { return config.aliases.upsert(alias, model); },
     async deleteAlias(alias) { return config.aliases.delete(alias); },
     async listCombos() { return config.combos.list().map((row) => ({ id: row.id, name: row.name, models: row.models, strategy: row.strategy === "round-robin" ? "round-robin" as const : "fallback" as const, stickyLimit: row.stickyLimit })); },
     async getCombo(id) { const row = config.combos.get(id); return row === null ? null : { id: row.id, name: row.name, models: row.models, strategy: row.strategy === "round-robin" ? "round-robin" : "fallback", stickyLimit: row.stickyLimit }; },

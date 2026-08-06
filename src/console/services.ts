@@ -1399,9 +1399,6 @@ export class RoutingConfigService {
       return { ok: false, status: 400, code: "invalid_request", message: "model is required" };
     }
     const result = await this.repo.putAlias(value.alias.trim(), value.model.trim());
-    if ("error" in result) {
-      return { ok: false, status: 409, code: "conflict", message: "alias already exists" };
-    }
     return result;
   }
 

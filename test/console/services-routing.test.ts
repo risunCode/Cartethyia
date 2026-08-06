@@ -16,7 +16,6 @@ function memoryRepo(initial: AliasLike[] = []): {
   const repo: RoutingConfigRepository = {
     listAliases: async () => [...aliases.entries()].map(([alias, model]) => ({ alias, model, createdAt: new Date(0).toISOString() })),
     putAlias: async (alias, model) => {
-      if (aliases.has(alias)) return { error: "duplicate" };
       aliases.set(alias, model);
       return { alias, model, createdAt: new Date(0).toISOString() };
     },
@@ -68,11 +67,16 @@ describe("RoutingConfigService — aliases", () => {
     expect(aliases.get("fast")).toBe("openai/gpt-5");
   });
 
-  test("createAlias returns a 409 conflict for a duplicate alias", async () => {
-    const { repo } = memoryRepo([{ alias: "fast", model: "openai/gpt-5", createdAt: new Date(0).toISOString() }]);
+  test("createAlias updates an existing alias (upsert)", async () => {
+    const { repo, aliases } = memoryRepo([{ alias: "fast", model: "openai/gpt-5", createdAt: new Date(0).toISOString() }]);
     const service = new RoutingConfigService(repo);
     const result = await service.createAlias({ alias: "fast", model: "anthropic/claude" });
-    expect(result).toMatchObject({ ok: false, status: 409, code: "conflict" });
+    expect("alias" in result).toBe(true);
+    if ("alias" in result) {
+      expect(result.alias).toBe("fast");
+      expect(result.model).toBe("anthropic/claude");
+    }
+    expect(aliases.get("fast")).toBe("anthropic/claude");
   });
 
   test("deleteAlias forwards to the repository and reports the outcome", async () => {
