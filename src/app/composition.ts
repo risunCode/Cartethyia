@@ -385,6 +385,28 @@ function routeResolver(registry: ProviderRegistry, cache: RouteSnapshotCache, he
         compatible: true,
       });
     }
+    // Bare model ID fallback: when the chain couldn't resolve the model
+    // (no prefix, no alias, no combo), search every adapter's catalog and
+    // DB-known models for an exact match.  This lets clients send just the
+    // model id (e.g. "blackbox-pro") without a provider prefix.
+    if (candidates.length === 0 && chain.kind === "unresolved") {
+      for (const adapter of registry.list()) {
+        if (wireSurfaceFor(adapter.metadata, adapter.capabilities, request.sourceSurface) === null) continue;
+        const dbKnown = snapshot.knownModelIds.get(adapter.metadata.id);
+        const known = adapter.models.get(request.model) !== null || (dbKnown !== undefined && dbKnown.has(request.model));
+        if (!known) continue;
+        candidates.push({
+          id: `${adapter.metadata.id}/${request.model}`,
+          providerId: adapter.metadata.id,
+          modelId: request.model,
+          surface: request.sourceSurface,
+          health: null,
+          enabled: true,
+          authorized: true,
+          compatible: true,
+        });
+      }
+    }
     return { affinity, candidates, requestedModel: request.model };
   };
 }
