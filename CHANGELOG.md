@@ -2,6 +2,103 @@
 
 All notable changes to Cartethyia are documented here.
 
+## [1.0.8-alpha] - 2026-08-06
+
+Diff from 1.0.7-alpha. The runtime/provider boundary refactor is completed, cross-protocol routing is explicit, in-memory tracking is now adaptive, and failover is no longer over-aggressive.
+
+### Breaking changes
+
+- Provider routing IDs changed: `opencode-free` → `opencodeft`, `opencode-zen` → `opencodezen`, `opencode-go` → `opencodego`, `claude-code` → `claude`, `openai-codex` → `codex`, `anthropic-oauth` → `claude-code`, `google-antigravity` → `antigravity`, `pgxiaomi` → `xiaomipg`, and `tpxiaomi` → `xiaomitp`. Existing configuration rows, aliases, combos, access rules, routing settings, and proxy exclusions are migrated automatically on database open.
+- The dedicated `images` provider was removed; image-capable models remain exposed by their actual provider adapters (including OpenAI and Codex).
+- The built-in `ollama` entry now means Ollama Cloud at `https://ollama.com/v1` and requires API-key credentials. Configure a local Ollama server as a custom OpenAI-compatible provider.
+- Protocol code moved from the flat `src/sdk` layout to `src/domain/protocols/` (normalization, wire codecs, translation), `src/transport/protocols/` (upstream HTTP, SSE/NDJSON, stream mappers), and `src/providers/` (provider identity). Internal imports from the retired layout are no longer valid.
+- Official provider SDK packages are no longer required by the active runtime; adapters use documented upstream HTTP contracts directly.
+
+### Added
+
+- **Account recovery sweep** — `AccountRecoverySweep` (`src/app/recovery-sweep.ts`) runs on an unref'd 1-minute interval, transitions expired cooldowns to `healthy` and clears expired per-model locks. Previously `ModelLockStore.listExpired` was dead code and cooled accounts sat out the full window.
+- **Graduated backoff** — opaque/unknown 429s now start at a 30s base that grows exponentially with `failureCount`, escalating to the full 5-minute default only after 3 failures (`RATE_LIMIT_GRADUATED_THRESHOLD`). One transient blip no longer disables an account.
+- **Warp credential endpoint** — `GET /warp/accounts/:id/credential` for explicit raw credential access; list/detail endpoints now return `WarpAccountView` with masked secrets.
+- **db-map column masking** — `license_key`, `private_key`, `secret` added to `SENSITIVE_COLUMN_NAMES`.
+- **Query indexes** — `idx_request_history_api_key_prefix` and `idx_request_history_client_ip` in `ensureRuntimeSchema` for console dashboard performance.
+- **Docker warp ports** — `EXPOSE 40001-40020` and docker-compose `expose:` for Railway/container platform awareness.
+- Per-model account locking: an error on one model (e.g. `claude/sonnet-4`) no longer blocks a different model (e.g. `claude/haiku-4`) on the same account. New `account_model_locks` table with composite key `(account_id, model_id)`, wired through `AccountHealthManager.recordModelLock`/`clearModelLock` and the routing candidate filter. Legacy `locked_until` column is migrated to `retry_at` on schema upgrade.
+- `consecutive_use_count` and `last_used_at` columns on `provider_accounts` and `proxies` for sticky round-robin tracking and LRU rotation (9router pattern).
+- In-flight aware round-robin in `CredentialSelector`: idle accounts (in-flight = 0) are preferred over busy ones within the sticky pool (etteum-pool pattern).
+- Cross-protocol dispatch: a request on any client surface (OpenAI Chat, OpenAI Responses, Anthropic Messages) can be routed to any compatible upstream provider through shared `src/domain/protocols/` codecs — no per-adapter protocol copy.
+
+### Changed
+
+- Account backoff reworked into a 3-tier error classification:
+  - **T1 known** (rate-limit, quota, model-capacity) → cooldown with fine-grained per-reason backoff (30s for per-minute 429, 5 min for quota, 45–75s jittered for capacity).
+  - **T2 transient** (5xx, network, stream, protocol, unknown) → **no cooldown** — the account enters `error` status but stays eligible. One transient blip no longer takes an account offline.
+  - **T3 permanent** (invalid request, client abort) → no cooldown, `recordFailure` skips entirely.
+- Cooldown caps lowered: account quota 24h → 5 min, account rate-limit 30 min → 5 min, auth backoff cap 30 min → 5 min, `SERVER_ERROR`/`UNKNOWN` backoff 20s/5min → 0 (transient, no cooldown).
+- Sticky round-robin bug fix: the sticky pool is now created when `eligible.length >= stickyLimit` (was `>`, which silently disabled sticky for same-size pools).
+- `src/domain/protocols/` modules for request normalization, wire payload construction, usage conversion, response translation, and typed protocol codec errors.
+- `src/transport/protocols/` modules for upstream HTTP calls, SSE/NDJSON decoding, timeout/abort coordination, upstream error handling, and stream mappers.
+- End-to-end non-stream response conversion back to the requested client surface and canonical streaming conversion through `StreamEvent` values.
+- OpenAI-compatible image generation at `POST /v1/images/generations`.
+- Vendored models.dev catalog data (`src/providers/model-data.generated.ts`, regenerated via `bun run sync:models`) and an on-demand `lookupModelData` lookup wired into the canonical model-metadata resolver. Built-in catalog models, aliases, and combos now surface real context-window limits and per-million-token pricing instead of null; unknown references stay permissive and never fabricate limits or prices. A live end-to-end alias test (`bun run live:alias`) proves a `claude-sonnet-3.5 → cline/deepseek/deepseek-v4-flash` alias resolves through the public proxy dispatch and inherits its target's context/pricing.
+- Ollama Cloud models, including `gpt-oss:20b`, `gpt-oss:120b`, `gemma4:31b`, `minimax-m2.5`, `minimax-m3`, and `nemotron-3-super`.
+- CodeBuddy global (`codebuddy`) and CodeBuddy CN (`codebuddy-cn`) OpenAI-compatible provider adapters, with region-specific bases and prefixed model catalogs.
+- Claude Code OAuth requests now use a leaf fingerprint contract for the Claude Agent SDK system instruction, `_` tool transport prefix, 64k OAuth output ceiling, and conditional forwarding of a genuine incoming `claude-cli` User-Agent; Cartethyia never fabricates an upstream identity.
+- Provider/account dialogs now use macOS-style traffic-light controls for close, minimize, and expand while preserving the existing exit-animation, focus, and reduced-motion behavior.
+- API-key providers: Groq (`groq`), Alibaba Cloud / DashScope (`alibaba`), Cloudflare Workers AI (`cloudflare`), and Fireworks AI (`fireworks`). Cloudflare credentials require a JSON bundle containing an API token and account ID.
+- Adaptive scaling env vars `CARTETHYIA_MAX_TRACKED_IPS`, `CARTETHYIA_MAX_TRACKED_KEYS`, `CARTETHYIA_LOGIN_MAX_TRACKED_IPS`, and `CARTETHYIA_GC_INTERVAL_MS` in `.env.example` (all commented out — default `0` = adaptive from available process memory).
+- Restored live observability wiring: authenticated `/console/api/live/in-flight` and `/console/api/live/in-flight/stream` now expose global, per-IP, and provider activity; request access logs and request IDs are emitted through the runtime console-log stream; console-log deletion clears runtime storage.
+
+### Changed
+
+- `readJsonObject` caps JSON body reads at 1 MiB (`MAX_JSON_BODY_BYTES`) via `readBoundedText`, preventing unbounded memory from malicious/buggy upstreams.
+- `queryModelTokenTotals` applies `LIMIT ${MAX_PROVIDER_MODEL_TOTALS}` (matching `queryProviderModelTotals`).
+- `ModelLockStore.listExpired` (durable) pushes the date cutoff into SQL (`WHERE retry_at <= ?`) so the partial index is used as a range scan.
+- Removed dead `RouteCandidate.accountIds`/`proxyIds`/`quotaAvailable` fields and `RoutingSnapshot.proxyIds` plumbing + `listProxies()` call in `buildSnapshot`. `routeResolver` no longer double-fetches `accountCandidates`.
+- Removed dead duplicated prefix-resolution loop in `resolveModelChain`; replaced with a first-segment check for empty-segment model names.
+- Removed dead dashboard motion tokens (`springPress`, `fadeSlide`, `pageTransition`, `staggerItem`) and dead `PageHeader` primitive. OAuth popup closes on unmount.
+- AGENTS.md rule 9 updated: provider adapters that proxy as a specific upstream client identity emit that client's canonical `User-Agent` fingerprint (intentional impersonation, not a fake identity).
+- Account backoff reworked into a 3-tier error classification:
+  - **T1 known** (rate-limit, quota, model-capacity) → cooldown with fine-grained per-reason backoff (30s for per-minute 429, 5 min for quota, 45–75s jittered for capacity).
+  - **T2 transient** (5xx, network, stream, protocol, unknown) → **no cooldown** — the account enters `error` status but stays eligible. One transient blip no longer takes an account offline.
+  - **T3 permanent** (invalid request, client abort) → no cooldown, `recordFailure` skips entirely.
+- Cooldown caps lowered: account quota 24h → 5 min, account rate-limit 30 min → 5 min, auth backoff cap 30 min → 5 min, `SERVER_ERROR`/`UNKNOWN` backoff 20s/5min → 0 (transient, no cooldown).
+- Sticky round-robin bug fix: the sticky pool is now created when `eligible.length >= stickyLimit` (was `>`, which silently disabled sticky for same-size pools).
+- Adaptive scaling: the per-IP flight tracker, API-key admission tracker, and login rate limiter no longer use a hardcoded 10,000-entry cap. All three derive their bound from `process.memoryUsage().rss` when the corresponding env var is `0` (the default), or from an explicit override. The server now auto-scales its in-memory tracking tables to the available process memory instead of evicting active entries at a fixed watermark.
+- GC interval is now env-tunable via `CARTETHYIA_GC_INTERVAL_MS` (default `0` = fallback 10 min; the collector itself still defers to idle points when in-flight requests are active).
+- Eviction in `PerIpFlightTracker` and `MemoryRouteTransitionStore` changed from O(n) full-scan of a stamp map to O(1) via V8 `Map` insertion-order semantics; the `touchedAt` map and `clock` field in `MemoryRouteTransitionStore` were removed entirely.
+- SSE in-flight listener set is now capped at 128 subscribers with drop-oldest; previously the set was unbounded.
+- Client headers are forwarded only where an adapter permits them; Cartethyia no longer presents an invented upstream client identity through `User-Agent`.
+- Proxy streaming now holds per-IP and in-flight permits until the stream terminates, and failover route transitions are recorded for console diagnostics.
+- Dashboard traffic paths animate only for active providers and expose the live stream connection state while respecting reduced-motion settings.
+
+### Dashboard
+
+- Consolidated `formatRelativeTime` and `parseServerTimestamp` from `dashboard/src/features/usage/page.tsx` into `dashboard/src/lib/format.ts` as named exports.
+- New `dashboard/src/lib/time-tick.ts`: shared ~1s `requestAnimationFrame` ticker for `useSyncExternalStore`, replacing per-row `setInterval` in `TimeAgo` components.
+- `dashboard/src/hooks/use-inflight-stream.ts`: SSE `count` events are now coalesced via `requestAnimationFrame` instead of calling `setSnapshot` on every event, preventing excessive React re-renders under high-traffic conditions.
+
+### Removed
+
+- Legacy mixed protocol exports from provider adapter files.
+- The old provider IDs and local-Ollama interpretation described under Breaking changes.
+- Claude Code and Cartethyia identity user-agent behavior from upstream requests.
+
+### Fixed
+
+- **db-map importDb WAL corruption** — `importDb` swapped the live database file with `renameSync` while the singleton `ConfigPersistence`/`RuntimePersistence` held an open connection to the old file, leaving the singleton pinned to a stale inode (POSIX) or reading corrupt data (Windows), and moved WAL/SHM sidecars aside during an active WAL session. The service now checkpoints and closes the singleton handle before the swap (`closeForSwap`) and reopens it against the new file afterward (`reopen`), re-running schema/migration so an imported DB missing our tables is brought up to date. Both persistence singletons gained `db()`, `closeForSwap()`, and `reopen()` lifecycle methods.
+- **db-map execute bypassed singletons** — the SQL console's `execute` (DML/DDL) opened its own read-write `Database`, bypassing the persistence singletons and potentially desyncing their WAL state. Write operations now route through the singleton's live `Database` handle; read-only browsing keeps its own readonly connection (readonly connections never contend with WAL). A `DbMapPersistence` coordination interface bridges the console's config/runtime singletons into the service.
+- **Failover too aggressive** — a 429 with an empty or opaque body was classified as `quota_exceeded`, triggering a full 5-minute cooldown on the first transient blip. `isUsageLimitOutcome` now returns `false` for opaque 429 bodies; only a positive text match or explicit 402 classifies as quota exhaustion.
+- `rankAccountCandidates` now sorts the preferred account first among eligible records, matching its documented contract (the previous comparator placed preferred accounts last).
+- `parseTraceParent` in `src/observability/tracing.ts` now explicitly guards regex match-group indices under `noUncheckedIndexedAccess` instead of destructuring to `string | undefined`.
+- `test/auth/oauth-refresher.test.ts`: merged duplicate import blocks, corrected `OAuthDriverRegistry` → `AuthDriverRegistry`, added missing `expiresAtMs` to all token objects, and fixed the driver-401 test to use `OAuthDriverError` instead of a plain `Error` with an attached `status` property.
+
+### Verification
+
+- Backend: 2,025 tests passing, 1 flaky (Windows temp-dir file lock in cleanup).
+- `bunx tsc --noEmit -p .` clean (zero errors).
+- Dashboard: TypeScript typecheck and production build passing.
+- No `src.old/` imports in active code or dashboard.
+
 ## [1.0.7-alpha] - 2026-08-02
 
 ### Added
@@ -22,6 +119,10 @@ All notable changes to Cartethyia are documented here.
 
 ### Changed
 
+- Completed the clean runtime cutover: the flat `src/sdk` contracts now own request normalization, routing, provider adapters, recovery, response presentation, console APIs, and dashboard callers; the previous source remains isolated under `src.old` and is excluded from builds and artifacts.
+- Runtime telemetry now finalizes one compact metadata row per logical request while configuration and runtime SQLite databases remain separate; request content is not persisted by the new hot path.
+- Provider/account/proxy health and route replacement state are surfaced through the new console API and dashboard control-plane components with bounded sanitized error detail.
+- The public landing presentation now lives under `dashboard/public/landing`, is copied by the dashboard build, and is served by the same Cartethyia control process as `/console/`.
 - Provider registry, route prefixes, model catalogs, icons, credential metadata, account resolvers, and dashboard provider actions are kept aligned for the new OAuth and NIM providers.
 - Quota polling now uses a 15-minute sweep/cooldown per account; token refresh remains expiry-driven, while the quota dashboard refreshes every five minutes.
 - Removed Grok CLI billing quota fetching and its dashboard quota entry; Grok OAuth and request routing remain available.

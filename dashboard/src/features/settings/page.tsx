@@ -4,106 +4,47 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState, type ChangeEvent } from "react";
-import { Activity, Download, FileJson, KeyRound, ShieldCheck, Trash2, Upload } from "lucide-react";
-import { toast } from "sonner";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { AlertTriangle, Download, FileJson, KeyRound, ShieldCheck, Trash2, Upload } from "lucide-react";
+import { toast } from "../../lib/toast";
 import { ApiError, apiGet, apiPost } from "../../lib/api";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Input, Label } from "../../components/ui/input";
-import { Select } from "../../components/ui/tabs";
-import { ConfirmDialog } from "../../components/shared";
 import { Switch } from "../../components/ui/switch";
 import { PasswordModal } from "../../components/shared";
 
 interface RuntimeSettings {
   proxyAuthMode: "open" | "api_key";
+  privacyMode: "masked" | "full";
   trackPayloads: "none" | "meta";
-  trackAssets: "none" | "meta" | "store";
-  logRetentionDays: number;
-  assetRetentionDays: number;
+  trackAssets: "none" | "meta";
   maxFlightsPerIp: number;
   trustProxy: boolean;
-  cacheMarkersEnabled: boolean;
   sessionTtlHours: number;
 }
 
 interface SettingsResponse {
-  hasPassword: boolean;
-  passwordVersion: number;
-  updatedAt: string;
-  settings: RuntimeSettings;
+  settings: {
+    hasPassword: boolean;
+    passwordVersion: number;
+    updatedAt: string;
+    runtime: RuntimeSettings;
+  };
 }
 
-type SensitiveAction = "backup" | "restore" | "restore-9router" | null;
-type DetectedBackupKind = Exclude<SensitiveAction, "backup" | null>;
+type SensitiveAction = "backup" | "restore" | null;
+type DetectedBackupKind = "restore";
 
 function detectBackupKind(value: unknown): DetectedBackupKind | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  const candidate = value as { app?: unknown; tables?: unknown; providerConnections?: unknown; proxyPools?: unknown };
-  if (Array.isArray(candidate.providerConnections) && Array.isArray(candidate.proxyPools)) return "restore-9router";
-  if (candidate.app === "cartethyia" && typeof candidate.tables === "object" && candidate.tables !== null) return "restore";
-  return null;
-}
-
-interface NineRouterCompatibilityReport {
-  imported: { accounts: number; proxies: number; apiKeys: number; aliases: number; combos: number };
-  skipped: {
-    unsupportedProviders: Array<{ provider: string; count: number }>;
-    invalidConnections: Array<{ provider: string; name: string; reason: string }>;
-    invalidProxies: Array<{ name: string; reason: string }>;
-    unsupportedNodes: Array<{ id: string; name: string; reason: string }>;
-    droppedFields: Array<{ field: string; count: number }>;
-  };
-  warnings: string[];
-}
-
-function compatibilitySummary(report: NineRouterCompatibilityReport): string {
-  const imported = `Imported ${report.imported.accounts} accounts, ${report.imported.proxies} proxies, ${report.imported.apiKeys} API keys, ${report.imported.aliases} aliases, ${report.imported.combos} combos`;
-  const skippedProviders = report.skipped.unsupportedProviders.reduce((total, item) => total + item.count, 0);
-  const skipped = skippedProviders + report.skipped.invalidConnections.length + report.skipped.invalidProxies.length + report.skipped.unsupportedNodes.length;
-  if (skipped === 0) return `${imported}.`;
-  const providerDetails = report.skipped.unsupportedProviders.map((item) => `${item.provider} (${item.count})`).join(", ");
-  const categories = [
-    providerDetails ? `unsupported providers: ${providerDetails}` : "",
-    report.skipped.invalidConnections.length > 0 ? `invalid connections: ${report.skipped.invalidConnections.length}` : "",
-    report.skipped.invalidProxies.length > 0 ? `invalid proxies: ${report.skipped.invalidProxies.length}` : "",
-    report.skipped.unsupportedNodes.length > 0 ? `provider nodes: ${report.skipped.unsupportedNodes.length}` : "",
-  ].filter(Boolean).join(" · ");
-  return `${imported}. Skipped ${skipped}: ${categories}.`;
+  const candidate = Object.fromEntries(Object.entries(value));
+  return candidate.app === "cartethyia" && typeof candidate.tables === "object" && candidate.tables !== null ? "restore" : null;
 }
 
 function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.message : "request failed";
-}
-
-function PurgeStoredButton() {
-  const [confirm, setConfirm] = useState(false);
-  const mut = useMutation({
-    mutationFn: () => apiPost<{ ok: boolean; details: number; assets: number; toolCalls: number }>("/usage/purge-stored", {}),
-    onSuccess: (res) => {
-      toast.success(`Purged: ${res.details} details, ${res.assets} assets, ${res.toolCalls} tool calls`);
-      setConfirm(false);
-    },
-    onError: () => toast.error("Failed to purge stored data"),
-  });
-  return (
-    <>
-      <Button variant="secondary" size="sm" className="text-[#ff453a]" onClick={() => setConfirm(true)}>
-        <Trash2 size={13} /> Purge all
-      </Button>
-      <ConfirmDialog
-        open={confirm}
-        onClose={() => setConfirm(false)}
-        onConfirm={() => mut.mutate()}
-        title="Purge stored data?"
-        message="This permanently deletes all stored request payloads, tool call details, and asset metadata from the database. Usage history (counts/tokens) is preserved."
-        danger
-        confirmLabel="Purge"
-      />
-    </>
-  );
 }
 
 export function SettingsPage() {
@@ -114,11 +55,19 @@ export function SettingsPage() {
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [restoreKind, setRestoreKind] = useState<DetectedBackupKind | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const reloadTimerRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (reloadTimerRef.current !== null) window.clearTimeout(reloadTimerRef.current);
+  }, []);
+  const [maxFlightsDraft, setMaxFlightsDraft] = useState<string | null>(null);
+  const [sessionTtlDraft, setSessionTtlDraft] = useState<string | null>(null);
 
   // Password change form
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmation, setResetConfirmation] = useState("");
 
   const { data } = useQuery({
     queryKey: ["settings"],
@@ -140,13 +89,24 @@ export function SettingsPage() {
       setNewPassword("");
       setConfirmPassword("");
       // pv bump invalidates this session; the 401 bridge redirects to login.
-      setTimeout(() => window.location.reload(), 800);
+      reloadTimerRef.current = window.setTimeout(() => { reloadTimerRef.current = null; window.location.reload(); }, 800);
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: () => apiPost<{ ok: boolean }>("/settings/reset-all", { password: resetPassword, confirmation: resetConfirmation }),
+    onSuccess: () => {
+      toast.success("All configuration and runtime data reset");
+      setResetPassword("");
+      setResetConfirmation("");
+      reloadTimerRef.current = window.setTimeout(() => { reloadTimerRef.current = null; window.location.reload(); }, 800);
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
 
   const patch = (p: Partial<RuntimeSettings>) => patchMutation.mutate(p);
-  const settings = data?.settings;
+  const settings = data?.settings.runtime;
 
   const handleRestoreFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
@@ -158,13 +118,13 @@ export function SettingsPage() {
       const kind = detectBackupKind(parsed);
       if (!kind) throw new Error("Unsupported backup format");
       setRestoreKind(kind);
-      toast.success(kind === "restore-9router" ? "9Router backup detected" : "Cartethyia backup detected");
+      toast.success("Cartethyia backup detected");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to read backup file");
     }
   };
 
-  // Sensitive action runner (password-gated) 
+  // Sensitive action runner (password-gated)
   const runSensitive = async (password: string) => {
     setActionError(null);
     try {
@@ -186,16 +146,11 @@ export function SettingsPage() {
         URL.revokeObjectURL(url);
         toast.success("Backup downloaded");
         setAction(null);
-      } else if (action === "restore" || action === "restore-9router") {
+      } else if (action === "restore") {
         if (!restoreFile) throw new Error("choose a backup file first");
         const backup: unknown = JSON.parse(await restoreFile.text());
-        if (action === "restore-9router") {
-          const response = await apiPost<{ ok: boolean; compatibility: NineRouterCompatibilityReport }>("/settings/restore/9router", { password, backup });
-          toast.success("9Router backup imported", { description: compatibilitySummary(response.compatibility) });
-        } else {
-          await apiPost<{ ok: boolean }>("/settings/restore", { password, backup });
-          toast.success("Backup restored");
-        }
+        await apiPost<{ ok: boolean }>("/settings/restore", { password, backup });
+        toast.success("Backup restored");
         setAction(null);
         setRestoreFile(null);
         setRestoreKind(null);
@@ -215,24 +170,15 @@ export function SettingsPage() {
       title: "Restore Backup",
       description: `Replace the current configuration with "${restoreFile?.name ?? "the selected file"}". This overwrites settings, keys and accounts.`,
     },
-    "restore-9router": {
-      title: "Import 9Router Backup",
-      description: `Convert supported data from "${restoreFile?.name ?? "the selected file"}" into Cartethyia. Unsupported providers and nodes are skipped. Existing imported configuration is replaced.`,
-    },
   };
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-bold tracking-tight">Settings</h1>
-        <p className="text-xs text-[var(--text-2)]">Runtime configuration — changes apply without restart.</p>
-      </div>
-
+    <div className="dashboard-page space-y-4">
       {/* Security — spans full width: most sensitive section, wants room to breathe */}
       <Card>
         <CardHeader
           title="Security"
-          sub={data ? `Password version ${data.passwordVersion} · updated ${new Date(data.updatedAt).toLocaleString()}` : undefined}
+          sub={data ? `Password version ${data.settings.passwordVersion} · updated ${new Date(data.settings.updatedAt).toLocaleString()}` : undefined}
         >
           <Badge tone="ok">
             <ShieldCheck size={11} className="mr-1" /> argon2id
@@ -252,113 +198,88 @@ export function SettingsPage() {
             <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
           <Button
             size="sm"
             disabled={
-              !currentPassword || newPassword.length < 8 || newPassword !== confirmPassword || passwordMutation.isPending
+              !currentPassword || newPassword.length < 5 || newPassword !== confirmPassword || passwordMutation.isPending
             }
             onClick={() => passwordMutation.mutate()}
           >
             <KeyRound size={13} /> {passwordMutation.isPending ? "Changing…" : "Change password"}
           </Button>
         </div>
-        {newPassword.length > 0 && newPassword.length < 8 && (
-          <p className="mt-2 text-[11px] text-[var(--orange)]">New password must be at least 8 characters.</p>
+        {newPassword.length > 0 && newPassword.length < 5 && (
+          <p className="mt-2 text-[11px] text-[var(--orange)]">New password must be at least 5 characters.</p>
         )}
       </Card>
 
-      {/* Tracking + Access - side by side on desktop, System-Settings-panel style */}
+      {settings && (
+        <Card>
+          <CardHeader title="Privacy" icon={ShieldCheck} sub="Request logs keep metadata by default and never store request or response bodies." />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Label>
+              Privacy mode
+              <select aria-label="Privacy mode" className="mt-1 h-10 w-full rounded-lg border border-[var(--inner-border)] bg-[var(--surface-muted)] px-3 text-sm text-[var(--text-1)]" value={settings.privacyMode} onChange={(event) => patch({ privacyMode: event.target.value as RuntimeSettings["privacyMode"] })}>
+                <option value="masked">Masked IP (recommended)</option>
+                <option value="full">Show full IP</option>
+              </select>
+            </Label>
+            <Label>
+              Request payload
+              <select aria-label="Request payload" className="mt-1 h-10 w-full rounded-lg border border-[var(--inner-border)] bg-[var(--surface-muted)] px-3 text-sm text-[var(--text-1)]" value={settings.trackPayloads} onChange={(event) => patch({ trackPayloads: event.target.value as RuntimeSettings["trackPayloads"] })}>
+                <option value="meta">Metadata only</option>
+                <option value="none">Do not retain payload metadata</option>
+              </select>
+            </Label>
+            <Label>
+              Request assets
+              <select aria-label="Request assets" className="mt-1 h-10 w-full rounded-lg border border-[var(--inner-border)] bg-[var(--surface-muted)] px-3 text-sm text-[var(--text-1)]" value={settings.trackAssets} onChange={(event) => patch({ trackAssets: event.target.value as RuntimeSettings["trackAssets"] })}>
+                <option value="meta">Metadata only</option>
+                <option value="none">Do not retain asset metadata</option>
+              </select>
+            </Label>
+          </div>
+          <p className="mt-3 text-[11px] text-[var(--text-3)]">Metadata includes counts, model/provider, client labels, request id, timing, tools, and token totals. Payload contents and credentials are never persisted.</p>
+        </Card>
+      )}
+
+      {/* Access and runtime limits */}
       {settings && (
         <>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader title="Logging & Retention" icon={Activity} />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold">Payloads</div>
-                </div>
-                <Select
-                  ariaLabel="Track payloads"
-                  value={settings.trackPayloads}
-                  onChange={(v) => patch({ trackPayloads: v as RuntimeSettings["trackPayloads"] })}
-                  options={[
-                    { value: "none", label: "Off" },
-                    { value: "meta", label: "Meta only" },
-                  ]}
-                />
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold">Assets</div>
-                </div>
-                <Select
-                  ariaLabel="Track assets"
-                  value={settings.trackAssets}
-                  onChange={(v) => patch({ trackAssets: v as RuntimeSettings["trackAssets"] })}
-                  options={[
-                    { value: "none", label: "Off" },
-                    { value: "meta", label: "Meta only" },
-                    { value: "store", label: "Store" },
-                  ]}
-                />
-              </div>
+          <div className="grid items-stretch gap-4 lg:grid-cols-2">
+            <Card className="flex h-full flex-col">
+              <CardHeader title="Request Limits" icon={ShieldCheck} />
+              <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <Label>Log retention (days)</Label>
+                <Label>Max in-flight per IP <span className="font-normal text-[var(--text-3)]">(default 15)</span></Label>
                 <Input
                   type="number"
                   min={1}
-                  max={365}
-                  value={String(settings.logRetentionDays)}
-                  onBlur={(e) => patch({ logRetentionDays: Math.min(365, Math.max(1, Math.floor(Number(e.target.value) || 14))) })}
-                  onChange={() => undefined}
+                  value={maxFlightsDraft ?? String(settings.maxFlightsPerIp)}
+                  onFocus={() => setMaxFlightsDraft(String(settings.maxFlightsPerIp))}
+                  onChange={(e) => setMaxFlightsDraft(e.target.value)}
+                  onBlur={() => {
+                    const next = Math.max(1, Math.floor(Number(maxFlightsDraft) || 15));
+                    setMaxFlightsDraft(String(next));
+                    patch({ maxFlightsPerIp: next });
+                  }}
                 />
               </div>
               <div>
-                <Label>Asset retention (days)</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={365}
-                  value={String(settings.assetRetentionDays)}
-                  onBlur={(e) => patch({ assetRetentionDays: Math.min(365, Math.max(1, Math.floor(Number(e.target.value) || 7))) })}
-                  onChange={() => undefined}
-                />
-              </div>
-            </div>
-            <div className="mt-3 flex items-center justify-between rounded-xl border border-dashed border-[var(--inner-border)] p-3">
-              <div>
-                <div className="text-xs font-semibold">Stored payloads & assets</div>
-                <div className="text-[11px] text-[var(--text-3)]">Purge all stored request details, tool calls, and asset files from the database.</div>
-              </div>
-              <PurgeStoredButton />
-            </div>
-          </Card>
-
-          <Card className="lg:h-fit">
-            <CardHeader title="Request Limits" icon={ShieldCheck} />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label>Max in-flight per IP</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={String(settings.maxFlightsPerIp)}
-                  onBlur={(e) => patch({ maxFlightsPerIp: Math.min(100, Math.max(1, Math.floor(Number(e.target.value) || 20))) })}
-                  onChange={() => undefined}
-                />
-              </div>
-              <div>
-                <Label>Session TTL (hours)</Label>
+                <Label>Session TTL (hours) <span className="font-normal text-[var(--text-3)]">(default 24)</span></Label>
                 <Input
                   type="number"
                   min={1}
                   max={720}
-                  value={String(settings.sessionTtlHours)}
-                  onBlur={(e) => patch({ sessionTtlHours: Math.min(720, Math.max(1, Math.floor(Number(e.target.value) || 12))) })}
-                  onChange={() => undefined}
+                  value={sessionTtlDraft ?? String(settings.sessionTtlHours)}
+                  onFocus={() => setSessionTtlDraft(String(settings.sessionTtlHours))}
+                  onChange={(e) => setSessionTtlDraft(e.target.value)}
+                  onBlur={() => {
+                    const next = Math.min(720, Math.max(1, Math.floor(Number(sessionTtlDraft) || 1)));
+                    setSessionTtlDraft(String(next));
+                    patch({ sessionTtlHours: next });
+                  }}
                 />
               </div>
               <label className="flex flex-wrap items-center justify-between gap-3 sm:col-span-2">
@@ -368,23 +289,11 @@ export function SettingsPage() {
                 </div>
                 <Switch checked={settings.trustProxy} onChange={(v) => patch({ trustProxy: v })} label="Trust proxy" />
               </label>
-            </div>
-            <div className="mt-4 border-t border-[var(--inner-border)] pt-4">
-              <CardHeader title="Response Cache" />
-              <label className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-xs font-semibold">Cache markers</div>
-                  <div className="text-[11px] text-[var(--text-3)]">Emit cache-control hints on responses.</div>
-                </div>
-                <Switch checked={settings.cacheMarkersEnabled} onChange={(v) => patch({ cacheMarkersEnabled: v })} label="Cache markers" />
-              </label>
-            </div>
-          </Card>
-        </div>
+              </div>
+            </Card>
 
-
-          {/* Backup & restore - spans full width again below the two-column row */}
-          <Card>
+          {/* Backup & restore */}
+          <Card className="flex h-full flex-col">
             <CardHeader title="Backup & Restore" icon={Download} sub="DB-only JSON snapshot; disk assets are not included." />
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="secondary" size="sm" onClick={() => setAction("backup")}>
@@ -400,7 +309,7 @@ export function SettingsPage() {
               <Button variant="secondary" size="sm" className="min-w-0" onClick={() => fileInputRef.current?.click()}>
                 <Upload size={13} className="shrink-0" /> <span className="truncate">{restoreFile ? restoreFile.name : "Choose backup file…"}</span>
               </Button>
-              <Button variant="secondary" size="sm" disabled={!restoreKind} onClick={() => setAction(restoreKind)}>
+              <Button variant="secondary" size="sm" disabled={!restoreKind} onClick={() => setAction("restore")}>
                 <FileJson size={13} /> Import selected
               </Button>
             </div>
@@ -408,6 +317,19 @@ export function SettingsPage() {
               Contains settings (keeps login state), API keys, aliases, combos, access rules, routing and
               accounts. History only with ?includeHistory=true.
             </p>
+          </Card>
+          </div>
+
+          <Card className="w-full border border-[color-mix(in_srgb,var(--red)_35%,var(--inner-border))] bg-[color-mix(in_srgb,var(--red)_6%,var(--card-bg))]">
+            <CardHeader title="Danger Zone" icon={AlertTriangle} iconColor="var(--red)" sub="Permanently remove all configuration and runtime data. This cannot be undone." />
+            <div className="grid gap-3 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
+              <Label>Password<Input type="password" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} placeholder="Current console password" autoComplete="current-password" /></Label>
+              <Label>Type <code className="font-mono text-[10px] text-[var(--red)]">RESET ALL DATABASE AND RUNTIME</code><Input value={resetConfirmation} onChange={(event) => setResetConfirmation(event.target.value)} placeholder="Type the confirmation text" spellCheck={false} /></Label>
+              <Button variant="danger" disabled={resetMutation.isPending || resetPassword.length === 0 || resetConfirmation !== "RESET ALL DATABASE AND RUNTIME"} onClick={() => resetMutation.mutate()}>
+                <Trash2 size={13} /> {resetMutation.isPending ? "Resetting…" : "Reset all data"}
+              </Button>
+            </div>
+            <p className="mt-3 text-[11px] text-[var(--red)]">This resets provider accounts, API keys, routing, aliases, combos, custom providers, request history, and console logs. The application returns to initial setup.</p>
           </Card>
         </>
       )}

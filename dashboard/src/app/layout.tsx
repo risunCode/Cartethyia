@@ -1,9 +1,11 @@
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 import {
   Bell,
   Boxes,
   Cable,
   ChartSpline,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Globe,
   Gauge,
@@ -13,24 +15,31 @@ import {
   MessageSquare,
   Menu,
   Moon,
-  Palette,
   Pencil,
   Check,
   Rocket,
   Settings,
+  Activity,
+  Coins,
+  Database,
+  Filter,
   SlidersHorizontal,
   Sun,
+  TerminalSquare,
+  Workflow,
   Terminal,
   Timer,
+  X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
 import { useTheme } from "next-themes";
 import { cn } from "../lib/cn";
-import { pageTransition } from "../lib/motion";
+import { detectMotionProfile, getPageTransition, getPopoverMotion, MOTION_OVERRIDE_EVENT, useMotionProfile, type MotionProfile } from "../lib/motion";
 import { apiGet, apiPost } from "../lib/api";
 import { formatUptime } from "../lib/format";
+import { toast } from "../lib/toast";
 import { Dialog } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { CustomAtmosphere } from "../features/customization/background";
@@ -41,6 +50,14 @@ interface HealthStatus {
   uptimeSeconds: number;
   now: number;
   timezoneOffsetMinutes: number;
+}
+
+interface AppearanceSettingsResponse {
+  settings: {
+    runtime: {
+      sidebarIconDataUrl: string | null;
+    };
+  };
 }
 
 const GITHUB_REPO = "risunCode/Cartethyia";
@@ -90,7 +107,7 @@ function FooterClock({ statusData, isError }: { statusData: HealthStatus | undef
           </>
         ) : (
           <>
-            <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[var(--yellow,theme(colors.amber.400))]" />
+            <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-[var(--status-warning)]" />
             Connecting…
           </>
         )}
@@ -116,6 +133,8 @@ interface NavEntry {
   label: string;
   icon: typeof Boxes;
   badge?: string;
+  /** When set, clicking this entry switches the sidebar page instead of navigating. */
+  switchTo?: 0 | 1;
 }
 
 const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
@@ -140,29 +159,67 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
     label: "System",
     items: [
       { to: "/console-log", label: "Console Log", icon: Terminal },
-      { to: "/customization", label: "Customization", icon: Palette },
+      { to: "", label: "Advanced Features", icon: SlidersHorizontal, switchTo: 1 },
       { to: "/settings", label: "Settings", icon: Settings },
     ],
   },
 ];
 
+const ADVANCED_NAV_GROUPS: { label: string; items: NavEntry[]; soon?: boolean }[] = [
+  {
+    label: "General",
+    items: [
+      { to: "/advanced", label: "Customization", icon: SlidersHorizontal },
+      { to: "/advanced/filter-sanitize", label: "Filter Sanitize", icon: Filter },
+      { to: "/advanced/token-saver", label: "Token Saver", icon: Coins },
+      { to: "/advanced/cli-tools", label: "CLI Tools", icon: TerminalSquare },
+    ],
+  },
+  {
+    label: "System",
+    items: [
+      { to: "/system-monitoring", label: "System Monitoring", icon: Activity },
+      { to: "/advanced/db-map", label: "Database Map", icon: Database },
+    ],
+  },
+  {
+    label: "Tools",
+    items: [
+      { to: "/multi-warp", label: "Multi Warp", icon: Globe },
+      { to: "/advanced/automation", label: "Automation", icon: Workflow, badge: "Soon" },
+    ],
+  },
+];
+
+const ADVANCED_PATHS = new Set(["/advanced", ...ADVANCED_NAV_GROUPS.flatMap((g) => g.items.map((i) => i.to))]);
+
 const TITLES: Record<string, { title: string; sub: string; mobileSub: string }> = {
-  "/overview": { title: "Overview", sub: "Traffic, endpoints, and API keys", mobileSub: "Traffic & API keys" },
+  "/overview": { title: "Overview", sub: "Traffic, endpoints, and fast shortcuts", mobileSub: "Traffic & shortcuts" },
   "/usage": { title: "Usage", sub: "Usage summary and request overview", mobileSub: "Request activity" },
   "/providers": { title: "Providers", sub: "All supported AI providers", mobileSub: "All AI providers" },
   "/model-studio": { title: "Model Studio", sub: "Chat-test any provider, model, or combo live", mobileSub: "Test models live" },
+  "/api-keys": { title: "API Keys", sub: "Client credentials and access policies", mobileSub: "Client credentials" },
   "/combos": { title: "Combos & Alias", sub: "Fallback, round-robin, alias model", mobileSub: "Fallback & aliases" },
   "/quota": { title: "Quota Management", sub: "Provider account limits and reset windows", mobileSub: "Quota & resets" },
   "/proxy-requests": { title: "Proxy & Requests", sub: "Routing and request policy controls", mobileSub: "Proxy controls" },
   "/console-log": { title: "Console Log", sub: "Live log stream", mobileSub: "Live log stream" },
-  "/customization": { title: "Customization", sub: "Theme and cosmetic preferences", mobileSub: "Theme preferences" },
+  "/advanced": { title: "Customization", sub: "Background, sidebar icon, and appearance controls", mobileSub: "Appearance" },
+  "/advanced/filter-sanitize": { title: "Filter Sanitize", sub: "Reasoning tag stripping and response content filtering", mobileSub: "Filter" },
+  "/advanced/token-saver": { title: "Token Saver", sub: "Reduce token usage with compact encoding and caching", mobileSub: "Tokens" },
+  "/advanced/cli-tools": { title: "CLI Tools", sub: "Configure CLI tools for terminal access", mobileSub: "CLI config" },
+  "/advanced/cli-tools/:toolId": { title: "CLI Tool", sub: "Tool configuration", mobileSub: "Tool config" },
   "/settings": { title: "Settings", sub: "Security, backup, runtime toggles", mobileSub: "Security & runtime" },
+  // Advanced page 2
+  "/system-monitoring": { title: "System Monitoring", sub: "Request monitoring, IP tracking, and IP ban controls", mobileSub: "Monitoring" },
+  "/multi-warp": { title: "Multi Warp", sub: "Cloudflare Warp endpoint management", mobileSub: "Warp endpoints" },
+  "/advanced/automation": { title: "Automation", sub: "Scheduled tasks and workflow triggers", mobileSub: "Automation" },
+  "/advanced/db-map": { title: "Database Map", sub: "Browse, query, export, and import SQLite databases", mobileSub: "DB browser" },
 };
 
 /**
  * `<Outlet />` re-renders reactively off router context the instant
  * `location` changes, which fights a key-based AnimatePresence: the
- * *outgoing* motion.div (still mounted, mid-exit) would swap to the *new*
+ * *outgoing* m.div (still mounted, mid-exit) would swap to the *new*
  * route's content underneath its exit animation, leaving the freshly
  * navigated page stuck invisible at the exit's final opacity/scale until a
  * hard refresh. Freezing the resolved element in state (computed once per
@@ -179,10 +236,9 @@ function AnimatedOutlet() {
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
   const dark = resolvedTheme === "dark";
-  // Circular reveal from wherever the toggle was pressed. View Transitions
-  // snapshots the old frame, so the new theme can be wiped in over it; without
-  // support (or with reduced motion) the theme just swaps instantly.
-  const swapTheme = (event: ReactMouseEvent<HTMLButtonElement>) => {
+  // Crossfade the next theme snapshot without repainting the full glass surface.
+  // Without View Transitions (or with reduced motion) the theme swaps instantly.
+  const swapTheme = () => {
     const next = dark ? "light" : "dark";
     const startViewTransition = document.startViewTransition?.bind(document);
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -193,15 +249,7 @@ function ThemeToggle() {
       return;
     }
 
-    const { top, left, width, height } = event.currentTarget.getBoundingClientRect();
-    const x = left + width / 2;
-    const y = top + height / 2;
-    const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
-
     const root = document.documentElement;
-    root.style.setProperty("--theme-wipe-x", `${x}px`);
-    root.style.setProperty("--theme-wipe-y", `${y}px`);
-    root.style.setProperty("--theme-wipe-r", `${radius}px`);
     root.dataset.themeWipe = "on";
 
     const transition = startViewTransition(() => {
@@ -217,20 +265,11 @@ function ThemeToggle() {
       type="button"
       onClick={swapTheme}
       aria-label="Toggle theme"
-      className="grid h-9.5 w-9.5 place-items-center rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] text-[var(--text-1)] transition-all duration-150 hover:bg-[var(--active-pill)] active:scale-90"
+      className="grid h-10 w-10 place-items-center rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] text-[var(--text-1)] transition-[background-color,color,transform] duration-150 hover:bg-[var(--active-pill)] active:scale-90"
     >
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.span
-          key={dark ? "sun" : "moon"}
-          initial={{ opacity: 0, rotate: -60, scale: 0.7 }}
-          animate={{ opacity: 1, rotate: 0, scale: 1 }}
-          exit={{ opacity: 0, rotate: 60, scale: 0.7 }}
-          transition={{ duration: 0.2 }}
-          className="grid place-items-center"
-        >
-          {dark ? <Sun size={17} /> : <Moon size={17} />}
-        </motion.span>
-      </AnimatePresence>
+      <span key={dark ? "sun" : "moon"} className="theme-icon-enter grid place-items-center">
+        {dark ? <Sun size={17} /> : <Moon size={17} />}
+      </span>
     </button>
   );
 }
@@ -250,28 +289,78 @@ function NotificationsDialog({
   updateAvailable: boolean;
   latestTag: string | undefined;
 }) {
-  if (!open) return null;
+  const panelRef = useRef<HTMLDivElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const popupMotion = getPopoverMotion(useMotionProfile());
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!open) return;
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+      }
+    };
+    const onClickOutside = (event: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
+        onCloseRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onClickOutside, { capture: true });
+    requestAnimationFrame(() => panelRef.current?.querySelector<HTMLElement>("button")?.focus());
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onClickOutside, { capture: true });
+      returnFocusRef.current?.focus();
+    };
+  }, [open]);
   return (
-    <div role="dialog" aria-label="Notifications" className="absolute right-0 top-[calc(100%+10px)] z-50 w-[min(320px,calc(100vw-2rem))] rounded-2xl border border-[var(--inner-border)] bg-[var(--glass-bg-2)] p-3 shadow-[0_18px_45px_rgba(0,0,0,0.25)] backdrop-blur-xl">
-      <div className="mb-2 flex items-center justify-between px-1"><span className="text-sm font-bold">Notifications</span><button type="button" onClick={onClose} aria-label="Close notifications" className="text-xs text-[var(--text-3)] hover:text-[var(--text-1)]">Close</button></div>
-      <div className="space-y-2 text-sm">
-        <div className="flex items-start gap-2 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-          <span className={cn("mt-1 h-2 w-2 shrink-0 rounded-full", isHealthError ? "bg-[var(--red)]" : statusData ? "bg-[var(--green)]" : "animate-pulse bg-[var(--yellow,theme(colors.amber.400))]")} />
-          <div>
-            <p className="font-semibold text-[var(--text-1)]">{isHealthError ? "System status unavailable" : statusData ? "All systems operational" : "Checking system status"}</p>
-            <p className="mt-0.5 text-xs text-[var(--text-2)]">{isHealthError ? "The dashboard could not reach the local health endpoint." : "Live status from this Cartethyia instance."}</p>
+    <AnimatePresence>
+      {open && (
+        <m.div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="false"
+          aria-label="Notifications"
+          tabIndex={-1}
+          className="absolute right-0 top-[calc(100%+16px)] z-50 max-h-[calc(100dvh-120px)] w-[min(360px,calc(100vw-2rem))] origin-top-right overflow-auto rounded-[20px] border border-[var(--inner-border)] bg-[var(--bg-1)] p-2.5 shadow-[0_24px_60px_rgba(0,0,0,0.35)] sm:right-0 sm:w-[360px]"
+          {...popupMotion}
+        >
+          <div className="flex items-center gap-2 px-2 pb-2.5 pt-1">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[var(--accent-soft)] text-[var(--accent)]">
+              <Bell size={14} aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1 text-sm font-bold">Notifications</span>
+            <button type="button" onClick={onClose} aria-label="Close notifications" className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-[var(--text-3)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text-1)]">
+              Close
+              <X size={13} aria-hidden="true" />
+            </button>
           </div>
-        </div>
-        {updateAvailable ? (
-          <div className="rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] p-3">
-            <p className="font-semibold text-[var(--accent)]">Update available</p>
-            <p className="mt-0.5 text-xs text-[var(--text-2)]">GitHub has {latestTag ? `v${latestTag}` : "a newer release"} available.</p>
+          <div className="space-y-2 text-sm">
+            <div role="status" className="flex items-start gap-2.5 rounded-[18px] border border-[var(--inner-border)] bg-[var(--hover)] p-3.5">
+              <span className={cn("mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full", isHealthError ? "bg-[var(--red-soft,rgba(255,69,58,0.12))] text-[var(--red)]" : statusData ? "bg-[var(--green-soft,rgba(48,209,88,0.12))] text-[var(--green)]" : "bg-[var(--status-warning-soft,rgba(255,159,10,0.12))] text-[var(--status-warning)]")}>
+                <span className={cn("h-2 w-2 rounded-full", isHealthError ? "bg-[var(--red)]" : statusData ? "bg-[var(--green)]" : "animate-pulse bg-[var(--status-warning)]")} />
+              </span>
+              <div className="min-w-0">
+                <p className="font-semibold text-[var(--text-1)]">{isHealthError ? "System status unavailable" : statusData ? "All systems operational" : "Checking system status"}</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-[var(--text-2)]">{isHealthError ? "The dashboard could not reach the local health endpoint." : "Live status from this Cartethyia instance."}</p>
+              </div>
+            </div>
+            {updateAvailable ? (
+              <div className="rounded-[18px] border border-[var(--accent)] bg-[var(--accent-soft)] p-3.5">
+                <p className="font-semibold text-[var(--accent)]">Update available</p>
+                <p className="mt-0.5 text-xs text-[var(--text-2)]">GitHub has {latestTag ? `v${latestTag}` : "a newer release"} available.</p>
+              </div>
+            ) : (
+              <p className="px-1 py-2.5 text-center text-xs text-[var(--text-3)]">No new notifications.</p>
+            )}
           </div>
-        ) : (
-          <p className="px-1 py-2 text-center text-xs text-[var(--text-3)]">No new notifications.</p>
-        )}
-      </div>
-    </div>
+        </m.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -303,13 +392,14 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
         {filtered.map((item) => (
           <button
             key={item.to}
+            type="button"
             onClick={() => {
               navigate(item.to);
               onClose();
             }}
             className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-[var(--text-2)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text-1)]"
           >
-            <item.icon size={15} />
+            <item.icon size={15} aria-hidden="true" />
             {item.label}
           </button>
         ))}
@@ -323,19 +413,66 @@ export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [adminName, setAdminName] = useState(() => localStorage.getItem("cartethyia.adminName") ?? "Admin");
   const [adminNameDraft, setAdminNameDraft] = useState(adminName);
   const [editingAdminName, setEditingAdminName] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [isStudioComposerFocused, setIsStudioComposerFocused] = useState(false);
-  const [isCompactMotion, setIsCompactMotion] = useState(false);
+  const [motionProfile, setMotionProfile] = useState<MotionProfile>(() => detectMotionProfile());
+
+  // ── Sidebar page (Main ↔ Advanced sliding launcher) ────────────────
+  // State persists in localStorage so closing the drawer (mobile burger)
+  // and reopening it doesn't reset to page 0. A direct navigation to an
+  // advanced route also flips to page 1 automatically.
+  const swipeStartX = useRef<number | null>(null);
+  const swipeDelta = useRef<number | null>(null);
+  const swipeActive = useRef(false);
+  const [sidebarPage, setSidebarPage] = useState<0 | 1>(() => {
+    const stored = localStorage.getItem("cartethyia.sidebarPage");
+    return stored === "1" ? 1 : 0;
+  });
+  const switchSidebarPage = useCallback((page: 0 | 1) => {
+    setSidebarPage(page);
+    localStorage.setItem("cartethyia.sidebarPage", String(page));
+  }, []);
+  // Auto-switch to page 1 when navigating to an advanced route.
+  // Skips the very first run (initial mount) so a refresh on an advanced
+  // route doesn't override the user's explicit "Back to Main" choice —
+  // localStorage is the source of truth at mount; this effect only kicks
+  // in on *subsequent* navigations (clicking a link / browser back).
+  const sidebarPageFirstRun = useRef(true);
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 767px), (prefers-reduced-motion: reduce)");
-    const update = () => setIsCompactMotion(media.matches);
+    if (sidebarPageFirstRun.current) {
+      sidebarPageFirstRun.current = false;
+      return;
+    }
+    const pathKey = `/${location.pathname.split("/").filter(Boolean)[0] ?? "overview"}`;
+    if (ADVANCED_PATHS.has(pathKey)) {
+      setSidebarPage(1);
+      localStorage.setItem("cartethyia.sidebarPage", "1");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+  useEffect(() => {
+    const mediaQueries = [
+      window.matchMedia("(max-width: 767px)"),
+      window.matchMedia("(pointer: coarse)"),
+      window.matchMedia("(prefers-reduced-motion: reduce)"),
+    ];
+    const update = () => {
+      const nextProfile = detectMotionProfile();
+      setMotionProfile(nextProfile);
+      document.documentElement.dataset.motionProfile = nextProfile;
+    };
     update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
+    for (const media of mediaQueries) media.addEventListener("change", update);
+    window.addEventListener(MOTION_OVERRIDE_EVENT, update);
+    return () => {
+      for (const media of mediaQueries) media.removeEventListener("change", update);
+      window.removeEventListener(MOTION_OVERRIDE_EVENT, update);
+    };
   }, []);
 
   useEffect(() => {
@@ -347,11 +484,20 @@ export function AppShell() {
       document.removeEventListener("focusout", onFocusChange);
     };
   }, []);
-  const pathKey = `/${location.pathname.split("/").filter(Boolean)[0] ?? "overview"}`;
+  // Use the full pathname for TITLES lookup so advanced routes like
+  // /advanced/filter-sanitize resolve to their specific title, not the
+  // generic /advanced "Customization" entry.
+  const fullPath = location.pathname.replace(/\/$/, "") || "/overview";
+  // Try exact match, then pattern match (replace last segment with :param).
+  const segments = fullPath.split("/").filter(Boolean);
+  const patternKey = segments.length >= 2 ? `/${segments.slice(0, -1).join("/")}/:toolId` : fullPath;
+  const pathKey = TITLES[fullPath] !== undefined
+    ? fullPath
+    : TITLES[patternKey] !== undefined
+      ? patternKey
+      : `/${segments[0] ?? "overview"}`;
   const meta = TITLES[pathKey] ?? { title: "Cartethyia", sub: "Internal console", mobileSub: "Internal console" };
-  const routeTransition = isCompactMotion
-    ? { initial: false, animate: { opacity: 1 }, exit: { opacity: 1 }, transition: { duration: 0 } }
-    : pageTransition;
+  const routeTransition = getPageTransition(motionProfile);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -368,12 +514,52 @@ export function AppShell() {
     setDrawerOpen(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    if (!drawerOpen) return;
+    toast.dismiss();
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const selector = "aside a, aside button, aside input";
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDrawerOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [...document.querySelectorAll<HTMLElement>(selector)].filter((element) => !element.hasAttribute("disabled"));
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(selector)?.focus());
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+      (previous ?? menuButtonRef.current)?.focus();
+    };
+  }, [drawerOpen]);
+
   // Server clock (not the browser's) drives "system time"; refetched
   // periodically and interpolated locally by the 1s `now` ticker above.
   const statusQuery = useQuery({
     queryKey: ["health-status"],
     queryFn: () => apiGet<HealthStatus>("/health/status"),
     refetchInterval: 30_000,
+  });
+  const appearanceQuery = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => apiGet<AppearanceSettingsResponse>("/settings"),
+    staleTime: 30_000,
   });
   const releaseQuery = useQuery({
     queryKey: ["github-latest-release"],
@@ -389,21 +575,28 @@ export function AppShell() {
   const latestTag = releaseQuery.data?.tag_name?.replace(/^v/, "");
   const updateAvailable = Boolean(localVersion && latestTag && latestTag !== localVersion);
 
-  const sidebar = (
+  const sidebar = useMemo(() => (
     <aside
       className={cn(
-        "glass scrollbar-none flex h-full flex-col gap-1 overflow-y-auto rounded-[var(--radius-sidebar)] p-[18px_14px]",
-        "lg:sticky lg:top-4 lg:h-[calc(100vh-32px)] lg:translate-x-0",
+        "sidebar-drawer glass scrollbar-fade flex h-full flex-col gap-1 overflow-y-auto rounded-[var(--radius-sidebar)] p-[18px_14px]",
+        "lg:sticky lg:top-4 lg:self-start lg:h-[calc(100vh-32px)]",
         // Off-canvas offsets match the shell's p-4 so the drawer lines up with
         // the content edges instead of sitting 4px proud of them.
-        "fixed top-4 bottom-4 left-4 z-70 w-[272px] transition-transform duration-300",
-        drawerOpen ? "translate-x-0" : "-translate-x-[calc(100%+24px)] lg:translate-x-0"
+        "fixed top-4 bottom-4 left-4 z-70 w-[272px] lg:left-0 lg:bottom-auto"
       )}
+      style={{
+        transform: drawerOpen ? "translateX(0)" : "translateX(calc(-100% - 24px))",
+        transition: "transform 0.28s cubic-bezier(0.32, 0.72, 0, 1)",
+      }}
     >
       <div className="flex items-center gap-2.5 px-2 pb-3.5 pt-1.5">
         <img
-          src={`${import.meta.env.BASE_URL}cartethyia-sidebar.gif`}
+          src={appearanceQuery.data?.settings.runtime.sidebarIconDataUrl || `${import.meta.env.BASE_URL}favicon_love.webp`}
           alt="Cartethyia"
+          onError={(event) => {
+            event.currentTarget.onerror = null;
+            event.currentTarget.src = `${import.meta.env.BASE_URL}favicon_love.webp`;
+          }}
           className="h-9 w-9 shrink-0 rounded-[11px] object-cover"
         />
         <div className="min-w-0">
@@ -432,46 +625,152 @@ export function AppShell() {
         </div>
       </div>
 
-      {NAV_GROUPS.map((group) => (
-        <div key={group.label}>
-          <div className="px-2.5 pb-1 pt-2.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-3)]">
-            {group.label}
-          </div>
-          {group.items.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                cn(
-                  "relative flex items-center gap-2.5 rounded-[11px] px-2.5 py-[9px] text-[13.5px] font-medium transition-colors duration-150 active:scale-[0.98]",
-                  isActive ? "font-semibold text-[var(--text-1)]" : "text-[var(--text-2)] hover:bg-[var(--hover)] hover:text-[var(--text-1)]"
-                )
-              }
+      <div
+        className="relative min-h-0 flex-1 overflow-hidden"
+        onPointerDown={(e) => { swipeStartX.current = e.clientX; swipeActive.current = true; }}
+        onPointerMove={(e) => {
+          if (!swipeActive.current || swipeStartX.current === null) return;
+          const delta = e.clientX - swipeStartX.current;
+          swipeDelta.current = delta;
+        }}
+        onPointerUp={() => {
+          if (!swipeActive.current || swipeDelta.current === null) { swipeActive.current = false; return; }
+          const threshold = 60;
+          if (swipeDelta.current <= -threshold && sidebarPage === 0) switchSidebarPage(1);
+          else if (swipeDelta.current >= threshold && sidebarPage === 1) switchSidebarPage(0);
+          swipeStartX.current = null;
+          swipeDelta.current = null;
+          swipeActive.current = false;
+        }}
+        onPointerLeave={() => { swipeStartX.current = null; swipeDelta.current = null; swipeActive.current = false; }}
+      >
+        <AnimatePresence initial={false}>
+          {sidebarPage === 0 ? (
+            <m.div
+              key="page-main"
+              initial={{ x: "-100%", opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: "-100%", opacity: 0 }}
+              transition={{ duration: motionProfile === "reduced" ? 0 : motionProfile === "mobile" ? 0.2 : 0.3, ease: [0.32, 0.72, 0, 1] }}
+              className="absolute inset-0 flex flex-col gap-1 overflow-y-auto scrollbar-fade"
             >
-              {({ isActive }) => (
-                <>
-                  {isActive && (
-                    <motion.span
-                      layoutId="nav-active-pill"
-                      className="absolute inset-0 rounded-[11px] border border-[var(--inner-border)] bg-[var(--active-pill)] shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
-                      transition={{ type: "spring", stiffness: 500, damping: 40 }}
-                    />
+              {NAV_GROUPS.map((group) => (
+                <div key={group.label}>
+                  <div className="px-2.5 pb-1 pt-2.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-3)]">
+                    {group.label}
+                  </div>
+                  {group.items.map((item) =>
+                    item.switchTo !== undefined ? (
+                      <button
+                        key={item.label}
+                        type="button"
+                        onClick={() => switchSidebarPage(item.switchTo!)}
+                        className="relative flex min-w-0 items-center gap-2.5 rounded-[11px] px-2.5 py-[9px] text-[13.5px] font-medium text-[var(--text-2)] transition-[background-color,color,transform] duration-150 hover:bg-[var(--hover)] hover:text-[var(--text-1)] active:scale-[0.98]"
+                      >
+                        <item.icon size={18} className="relative shrink-0" />
+                        <span className="relative">{item.label}</span>
+                        <ChevronRight size={14} className="relative ml-auto text-[var(--text-3)]" />
+                      </button>
+                    ) : (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        className={({ isActive }) =>
+                          cn(
+                            "relative flex min-w-0 items-center gap-2.5 rounded-[11px] px-2.5 py-[9px] text-[13.5px] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.98]",
+                            isActive ? "font-semibold text-[var(--text-1)]" : "text-[var(--text-2)] hover:bg-[var(--hover)] hover:text-[var(--text-1)]"
+                          )
+                        }
+                      >
+                        {({ isActive }) => (
+                          <>
+                            {isActive && (
+                              <m.span
+                                layoutId={motionProfile === "desktop" || motionProfile === "max" ? "sidebar-active" : undefined}
+                                transition={motionProfile === "max" ? { duration: 0.28, ease: "easeOut" } : { duration: 0.2, ease: "easeOut" }}
+                                className="absolute inset-0 rounded-[11px] border border-[var(--inner-border)] bg-[var(--active-pill)] shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
+                              />
+                            )}
+                            <item.icon size={18} className="relative shrink-0" />
+                            <span className="relative">{item.label}</span>
+                            {item.badge && (
+                              <span className="relative ml-auto rounded-full bg-[var(--accent-soft)] px-[7px] py-0.5 text-[10.5px] font-semibold text-[var(--accent)]">
+                                {item.badge}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </NavLink>
+                    )
                   )}
-                  <item.icon size={18} className="relative shrink-0" />
-                  <span className="relative">{item.label}</span>
-                  {item.badge && (
-                    <span className="relative ml-auto rounded-full bg-[var(--accent-soft)] px-[7px] py-0.5 text-[10.5px] font-semibold text-[var(--accent)]">
-                      {item.badge}
-                    </span>
-                  )}
-                </>
-              )}
-            </NavLink>
-          ))}
-        </div>
-      ))}
+                </div>
+              ))}
+            </m.div>
+          ) : (
+            <m.div
+              key="page-advanced"
+              initial={{ x: "100%", opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: "100%", opacity: 0 }}
+              transition={{ duration: motionProfile === "reduced" ? 0 : motionProfile === "mobile" ? 0.2 : 0.3, ease: [0.32, 0.72, 0, 1] }}
+              className="absolute inset-0 flex flex-col gap-1 overflow-y-auto scrollbar-fade"
+            >
+              <button
+                type="button"
+                onClick={() => switchSidebarPage(0)}
+                className="relative flex min-w-0 items-center gap-2.5 rounded-[11px] px-2.5 py-[9px] text-[13.5px] font-medium text-[var(--text-2)] transition-[background-color,color,transform] duration-150 hover:bg-[var(--hover)] hover:text-[var(--text-1)] active:scale-[0.98]"
+              >
+                <ChevronLeft size={18} className="relative shrink-0" />
+                <span className="relative">Back to Main</span>
+              </button>
+              {ADVANCED_NAV_GROUPS.map((group) => (
+                <div key={group.label}>
+                  <div className="flex items-center gap-1.5 px-2.5 pb-1 pt-2.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-3)]">
+                    {group.label}
+                    {group.soon && (
+                      <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-[1px] text-[8.5px] font-bold tracking-normal text-[var(--accent)]">SOON</span>
+                    )}
+                  </div>
+                  {group.items.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.to === "/advanced"}
+                      className={({ isActive }) =>
+                        cn(
+                          "relative flex min-w-0 items-center gap-2.5 rounded-[11px] px-2.5 py-[9px] text-[13.5px] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.98]",
+                          isActive ? "font-semibold text-[var(--text-1)]" : "text-[var(--text-2)] hover:bg-[var(--hover)] hover:text-[var(--text-1)]"
+                        )
+                      }
+                    >
+                      {({ isActive }) => (
+                        <>
+                          {isActive && (
+                            <m.span
+                              layoutId={motionProfile === "desktop" || motionProfile === "max" ? "sidebar-active-adv" : undefined}
+                              transition={motionProfile === "max" ? { duration: 0.28, ease: "easeOut" } : { duration: 0.2, ease: "easeOut" }}
+                              className="absolute inset-0 rounded-[11px] border border-[var(--inner-border)] bg-[var(--active-pill)] shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
+                            />
+                          )}
+                          <item.icon size={18} className="relative shrink-0" />
+                          <span className="relative">{item.label}</span>
+                          {item.badge && (
+                            <span className="relative ml-auto rounded-full bg-[var(--accent-soft)] px-[7px] py-0.5 text-[10.5px] font-semibold text-[var(--accent)]">
+                              {item.badge}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </NavLink>
+                  ))}
+                </div>
+              ))}
+            </m.div>
+          )}
+        </AnimatePresence>
+      </div>
 
-      <div className="pt-2">
+      <div className="mt-auto pt-4">
         <div className="group flex items-center gap-2.5 rounded-[13px] border border-[var(--inner-border)] bg-[var(--hover)] p-[9px_10px]">
           <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#ff9f0a] to-[#ff375f] text-xs font-bold text-white">AD</div>
           <div className="min-w-0 flex-1">
@@ -491,34 +790,33 @@ export function AppShell() {
         </div>
       </div>
     </aside>
-  );
+  ), [drawerOpen, sidebarPage, switchSidebarPage, motionProfile, appearanceQuery.data?.settings.runtime.sidebarIconDataUrl, localVersion, updateAvailable, releaseQuery.data?.html_url, latestTag, adminName, adminNameDraft, editingAdminName]);
 
   return (
     <>
       <CustomAtmosphere />
       <div className="relative z-10 mx-auto grid min-h-dvh max-w-[1560px] grid-cols-1 gap-4 p-4 lg:grid-cols-[272px_minmax(0,1fr)]">
       {drawerOpen && (
-        <div
-          className="fixed inset-0 z-60 bg-black/30 backdrop-blur-[4px] lg:hidden"
+        <button
+          type="button"
+          aria-label="Close navigation"
+          className="fixed inset-0 z-60 cursor-default bg-black/30 backdrop-blur-[4px] lg:hidden"
           onClick={() => setDrawerOpen(false)}
         />
       )}
       {sidebar}
 
-      <div className="flex min-w-0 flex-col gap-4">
-        <header className="glass sticky top-4 z-40 flex items-center gap-2 rounded-[18px] px-3 py-2.5 sm:gap-3.5 sm:px-4 sm:py-3">
+      <div className={cn("flex min-h-0 min-w-0 flex-col gap-4", (pathKey === "/console-log" || pathKey === "/advanced/db-map") && "h-dvh overflow-hidden")}>
+        <header className={cn("glass z-40 flex items-center gap-2 rounded-[18px] px-3 py-2.5 sm:gap-3.5 sm:px-4 sm:py-3", pathKey === "/console-log" ? "static" : "sticky top-4")}>
           <button
+            ref={menuButtonRef}
+            type="button"
             onClick={() => setDrawerOpen(true)}
             aria-label="Open menu"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] lg:hidden sm:h-9.5 sm:w-9.5"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] transition-[background-color,color,transform] active:scale-95 lg:hidden"
           >
             <Menu size={18} />
           </button>
-          <img
-            src={`${import.meta.env.BASE_URL}cartethyia-sidebar.gif`}
-            alt="Cartethyia"
-            className="h-7 w-7 shrink-0 rounded-[9px] object-cover sm:h-8 sm:w-8 sm:rounded-[10px]"
-          />
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-[15px] font-bold tracking-tight sm:text-[17px]">{meta.title}</h1>
             <p className="truncate text-[10.5px] text-[var(--text-2)] sm:hidden">{meta.mobileSub}</p>
@@ -532,7 +830,7 @@ export function AppShell() {
               aria-label="Open notifications"
               aria-expanded={notificationsOpen}
               aria-haspopup="dialog"
-              className="grid h-9 w-9 place-items-center rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] transition-all hover:bg-[var(--active-pill)] active:scale-90 sm:h-9.5 sm:w-9.5"
+              className="grid h-10 w-10 place-items-center rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] transition-[background-color,color,transform] hover:bg-[var(--active-pill)] active:scale-90"
             >
               <Bell size={17} />
             </button>
@@ -548,11 +846,9 @@ export function AppShell() {
             child's main-axis size stays content-driven unless it sets its
             own `flex-1`/`h-full`. */}
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div key={location.pathname} {...routeTransition} className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+          <m.div key={location.pathname} {...routeTransition} className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
               <AnimatedOutlet />
-            </motion.div>
-          </AnimatePresence>
+          </m.div>
         </main>
 
         {/* Normal flow footer: `mt-auto` drops it to the bottom on short pages. */}

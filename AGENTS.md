@@ -1,63 +1,189 @@
-# Cartethyia Engineering Conventions
+# Cartethyia Engineering Guide
 
-## Release status
+This file is the repository convention for maintainers and coding agents. Keep changes aligned with the active runtime under `src/`; `src.old/` is read-only migration reference code and must never be imported by production code.
 
-- `package.json`'s `version` is the single source of truth for the release line; README surfaces it, nothing else restates it. Keep `dashboard/package.json` aligned with the root version.
-- Record user-visible changes in `CHANGELOG.md` under the matching version before a release is declared.
-- Alpha status means local/self-hosted testing is supported; avoid presenting the release as production-stable until the alpha caveats are cleared.
+## Project intent
 
-## Start here
+Cartethyia is a self-hosted Bun + Elysia AI proxy with:
 
-- Read the requested feature area before editing. Reuse existing patterns; do not introduce a second implementation for the same concern.
-- When `.codegraph/` is available, call CodeGraph before broad source searches. If its index is stale or disabled, read only the named files needed for the task.
-- Use LSP for definitions, references, rename operations, and type-aware refactors. Use text search only for string literals, configuration, and static assets.
-- External provider behavior, Railway configuration, package versions, and security guidance change frequently. Verify them from official documentation with web search before changing integration behavior or deployment documentation.
+- OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and image-generation routes.
+- Cross-protocol request/response translation through one canonical internal contract.
+- Provider accounts, credentials, OAuth, aliases, combos, routing, failover, limits, telemetry, and an authenticated dashboard.
 
-## Commit messages
+The runtime is an HTTP proxy and control plane, not a provider SDK and not an upstream client identity.
 
-- Use Conventional Commit subjects with a concise, specific summary, for example `fix: ...`, `feat: ...`, `perf: ...`, or `release: <version> — <summary>`.
-- For multi-area changes, write the body like the established repository style: a short context paragraph, descriptive numbered sections, nested bullets for concrete changes, and a `Verified:` section listing checks that actually ran.
-- Keep each section meaningful and specific; avoid generic one-word summaries that hide the affected behavior.
-- Use real line breaks in the commit body; never encode newlines as escape sequences or escaped text.
-- Do not claim tests, benchmarks, smoke tests, or user confirmation unless they were actually performed.
+## Architectural boundaries
 
-## TypeScript and React
+Keep dependencies flowing inward toward domain contracts and outward toward infrastructure:
 
-- Keep TypeScript strict. Use `unknown` at external boundaries and narrow it; do not add `any`, `@ts-ignore`, or unchecked assertions.
-- Use named ESM exports, `import type` for type-only imports, explicit types on exported APIs, and narrow discriminated unions for protocol variants.
-- Use `const` unless reassignment is necessary. Prefer early returns and small focused functions.
-- React components follow existing dashboard primitives (`Card`, `Button`, `Dialog`, `Badge`). Preserve responsive Tailwind layouts and accessible labels for controls.
-- Do not render untrusted Markdown with `dangerouslySetInnerHTML`. Keep any lightweight renderer structural and escaped.
+```text
+src/main.ts
+  -> src/app/
+  -> src/domain/
+  -> src/providers/ + src/transport/
+  -> src/storage/ + network
+```
 
-## Provider and routing changes
+### Domain
 
-- A built-in provider change is cross-cutting: update its registry, route prefix/types, provider metadata, model catalog, UI icon, and all resolver callsites.
-- Provider errors must be typed `ProviderCallError` with a useful status/kind. Never turn an upstream failure into a successful empty completion.
-- Keep provider reasoning separate from visible output: emit `thinking_delta` for reasoning and `text_delta` only for final text.
-- Test provider changes using the actual request path when credentials are available; otherwise add a deterministic protocol/unit test.
+`src/domain/` owns provider-neutral contracts and protocol behavior:
 
-## Persistence and logs
+- `src/domain/contracts.ts`: canonical request, response, stream, provider, routing, model metadata, and error contracts.
+- `src/domain/protocols/`: client normalization, wire payload codecs, usage conversion, response translation, and protocol-level errors.
+- `src/domain/routing.ts`: route and model policy that is independent of a concrete HTTP client.
+- `src/domain/model-metadata.ts`: canonical context, capability, pricing, and source resolution for direct models, router aliases, and combos.
 
-- `DATA_DIR` is the deployment persistence boundary. Production mounts it at `/app/data`.
-- Config state (`DATA_DIR/cartethyia.sqlite`, `src/console/db/schema.ts`) and runtime telemetry (`DATA_DIR/runtime.sqlite`, `src/console/db/runtime-schema.ts`) are two separate SQLite databases/connections — never merge them. Config holds API keys, providers, and settings; runtime holds `request_history`, `request_details`, `request_assets`, `request_tool_calls`, and `console_logs`, all with date-cutoff retention (`LOG_RETENTION_DAYS`/`ASSET_RETENTION_DAYS`) run every 6h by `src/console/tracking/rotate.ts`. Both run WAL mode; the runtime db additionally uses `synchronous=NORMAL` since traffic telemetry can tolerate the narrow crash-window tradeoff for write throughput that config state should not.  There is no in-memory cache, JSONL log file, or per-request payload file for any of this — every read is a direct SQL query, and redacted request/response bodies (`TRACK_PAYLOADS=store`) live inline in `request_details`, not a companion file under `DATA_DIR/payloads`.
-- SQLite is configuration state only. Provider credentials and proxy API keys are stored as plaintext; only the console login password is hashed. Avoid schema migrations unless explicitly required (this applies to both databases).
-- Proxy API key ACL lives in `api_keys` (`provider_allowlist`, `model_allowlist`, `model_denylist`, RPM, daily/monthly token limits, `max_concurrent_requests`). Shared enforcement is in `src/console/key-acl.ts` and `src/console/proxy-auth.ts`; `/v1/models` filters through the same helper when a key is presented.
-- Console key management: `POST /console/api/keys` (create), `PATCH /console/api/keys/:id` (update limits/ACL), `POST /console/api/keys/:id/revoke`, `DELETE /console/api/keys/:id`, `GET /console/api/keys/:id/credential`.
-- Never commit `data/`, `.env`, credentials, API keys, tokens, generated runtime payloads, or database files.
+Protocol modules may know OpenAI, Anthropic, or Gemini wire shapes. They must not know API keys, provider account storage, HTTP clients, base URLs, or provider-specific OAuth.
 
-## Documentation and community delivery
+### Model catalog
 
-- The root `package.json` and `dashboard/package.json` versions MUST match exactly; `README.md` surfaces the same release line and `CHANGELOG.md` records every user-visible release change.
-- Public share pages MUST render an explicit state for disabled API keys. Invalid share links remain `404`; disabled links MUST NOT expose credentials, usage, or allowed models.
-- New provider OAuth flows MUST document their supported authorization/import path and include a deterministic test for the protocol boundary when live credentials are unavailable.
-- Quota checkers MUST be cooldown-protected. Account quota refreshes use a 15-minute sweep/cooldown; request-time token refresh remains driven by token expiry and MUST NOT be replaced with periodic credential churn.
-- Customization assets MUST be optimized before persistence: uploaded seasonal items are resized to a maximum 256px working image, animation counts MUST adapt to mobile/reduced-motion contexts, hidden tabs MUST pause decorative animation, and frosted-glass effects MUST remain usable on low-power devices.
-- Every pull request MUST use `.github/PULL_REQUEST_TEMPLATE.md`, state user-visible impact and persistence/security implications, and list commands that actually ran. Do not claim an unrun benchmark, smoke test, or deployment check.
-- Community contributions follow `CODE_OF_CONDUCT.md`; behavior concerns should use the private contact path documented there rather than public issue comments.
+- `GET /v1/models` lists direct models, router aliases, and combos permitted by the authenticated API key. Each entry keeps the client-facing identifier in `id`.
+- Router aliases use `metadata.kind: "router"` and inherit context limits, capability categories, pricing, source, and update timestamp from their resolved targets. Unknown metadata stays `null`; never fabricate limits or prices.
+- The public listing must not replace a router alias ID with its resolved target. Dispatch still resolves the alias through the normal routing chain.
 
-## Testing and delivery
+### Application
 
-- For backend changes run `bunx tsc --noEmit -p .` and the narrowest relevant `bun test` target; run the full suite for cross-cutting changes. Always scope backend runs to `bun test test/` (or a path under it) - a bare `bun test` at the repo root also walks `dashboard/src/**/*.test.tsx`, which use Vitest-only APIs (`vi.importActual`, etc.) that fail under Bun's test runner.
-- For dashboard changes run `cd dashboard && bun run build && bun run test`; use the browser for visible interaction changes when console authentication is available. Dashboard tests run under Vitest (`dashboard/vite.config.ts`'s `test` block, jsdom environment) - add new component/unit tests under `dashboard/src/**/*.test.{ts,tsx}`.
-- For Docker changes build the image and exercise `/health` before reporting completion.
-- For Railway changes keep `railway.toml`, `Dockerfile`, `.dockerignore`, and README deployment steps aligned. Do not place secrets in image layers or repository files.
+`src/app/` owns orchestration:
+
+- request normalization and dispatch
+- route/account/model selection
+- capability checks
+- retries, failover, cooldowns, and recovery
+- scheduled account recovery sweep (`AccountRecoverySweep`) that transitions expired cooldowns to healthy and clears expired per-model locks
+- authorization limits and telemetry handles
+- response presentation for the requested client surface
+
+Do not put provider HTTP calls or database queries in application route handlers.
+
+### Providers
+
+`src/providers/` owns provider integration:
+
+- provider ID and display metadata
+- credential kind and account policy
+- base URL and endpoint policy
+- model catalog
+- capability declaration
+- provider-specific headers, authentication, and request policy
+- target validation
+
+A provider adapter must not reimplement shared OpenAI, Responses, Anthropic, Gemini, or cross-protocol codecs. Reuse `src/domain/protocols/` and `src/transport/protocols/`.
+
+### Transport
+
+`src/transport/` owns upstream execution:
+
+- HTTP request execution
+- abort and timeout coordination
+- bounded response reads (JSON body reads capped at 1 MiB; error bodies capped at 16 KiB)
+- SSE/NDJSON framing
+- upstream protocol stream mappers
+- upstream error extraction
+
+Transport modules may depend on provider shared network helpers. They must not select accounts, mutate routing state, or access console repositories.
+
+### Storage and console
+
+- `src/storage/main/` owns configuration SQLite state.
+- `src/storage/runtime/` owns runtime telemetry SQLite state.
+- Keep configuration and high-frequency telemetry databases separate.
+- `src/console/` owns authenticated control-plane APIs and services.
+- `dashboard/src/` owns dashboard UI and client-side state.
+
+Routes should call repositories/services through their existing boundaries instead of issuing ad-hoc SQL.
+
+## Protocol rules
+
+1. Normalize every supported client surface into `NormalizedProviderRequest`.
+2. Route using capabilities and `wireSurfaceFor`; do not compare provider names to decide protocol compatibility.
+3. Preserve the requested client surface on the way back to the caller.
+4. Non-streaming responses must be translated through the shared protocol boundary.
+5. Streaming responses must use canonical `StreamEvent` values and the requested surface encoder.
+6. Preserve text, reasoning, tool calls, usage, stop reasons, and refusal/error information where the target surface supports them.
+7. Protocol conversion errors use `ProtocolCodecError`; provider/transport failures use the provider call error contract.
+8. Do not add a new provider-specific copy of an existing protocol codec.
+9. Provider adapters that proxy as a specific upstream client identity (e.g. `claude-code`, `grok-build`, `kiro`, `qoder`) emit that client's canonical `User-Agent` fingerprint so the upstream sees a legitimate session. Forward the client's own `User-Agent` when it matches the expected identity prefix; otherwise emit the adapter's canonical fingerprint. Do not invent a `Cartethyia` identity or forward arbitrary client headers unless the adapter explicitly permits it.
+10. Provider IDs are routing identifiers. Renaming one requires a migration note, changelog entry, and updates to aliases, combos, ACLs, tests, and dashboard references.
+
+## Provider rules
+
+- Official SDK packages are not required for runtime dispatch. Use the documented upstream HTTP contract through the adapter and transport layers.
+- A provider adapter must declare its real `protocol`, `credentialKind`, surfaces, streaming support, images/tool/reasoning capabilities, and model catalog.
+- Compatible providers should reuse the OpenAI, Responses, or Anthropic protocol modules without importing another provider adapter.
+- Credentials are acquired through the existing account/lease boundary. Do not read provider secrets directly from route handlers.
+- Upstream URLs must pass the existing SSRF and redirect policy. Do not weaken URL validation for a provider shortcut.
+- Upstream errors must be bounded, typed, sanitized, and mapped to the shared error envelope.
+- Add a deterministic adapter test for each new provider or protocol behavior.
+
+## TypeScript and Bun conventions
+
+- Use strict TypeScript and preserve `noUncheckedIndexedAccess`, `noImplicitOverride`, and `verbatimModuleSyntax`.
+- Prefer `unknown` plus narrowing for external data. Avoid `any` in production code.
+- Use `import type` for type-only imports.
+- Use explicit exported function/class return types when the boundary is non-trivial.
+- Keep modules focused; split protocol, provider, transport, storage, and UI concerns instead of creating broad utility modules.
+- Prefer pure functions for normalization and conversion. Keep network and persistence side effects at the boundary.
+- Throw `Error` subclasses or typed contract errors, never strings or raw provider bodies.
+- Do not suppress errors with empty catches, `@ts-ignore`, or placeholder fallbacks.
+- Do not leave TODO-only implementations, fake adapters, no-op paths, or misleading stubs.
+- Use Bun commands and existing package scripts; do not add a dependency when the current runtime already provides the needed capability.
+
+## Security rules
+
+- Treat all request bodies, headers, provider responses, OAuth responses, and custom-provider configuration as untrusted input.
+- Keep bounded body, stream, timeout, redirect, SSRF, and concurrency protections intact.
+- Never log credentials, bearer tokens, API keys, raw authorization headers, or unredacted upstream bodies.
+- Console list/detail endpoints must mask secrets (API keys, Warp credentials) in a view model. Return raw secrets only through an explicit credential endpoint.
+- db-map sensitive column masking must cover all secret columns in both config and runtime databases.
+- Keep error messages sanitized at public API and console boundaries.
+- Do not persist request/response bodies in runtime telemetry unless an explicitly documented storage mode requires it.
+- Do not bypass API-key ACL, account lease, proxy-pool, or per-IP admission checks.
+
+## Dashboard rules
+
+- Reuse existing UI primitives, design tokens, motion settings, and responsive patterns.
+- Keep desktop and mobile layouts equivalent in capability.
+- Respect reduced-motion settings and avoid unnecessary per-row animation work.
+- Keep dialogs mounted until exit animations finish.
+- Prefer existing API hooks and query invalidation patterns over bespoke fetch state.
+- When changing an API contract, update the dashboard caller, loading state, error state, and tests together.
+
+## Testing and verification
+
+For backend changes:
+
+```bash
+bunx tsc --noEmit -p .
+bun test --timeout 60000 test/
+```
+
+For dashboard changes:
+
+```bash
+cd dashboard
+bun run build
+bun run test
+```
+
+Targeted tests should cover the observable contract being changed. Add tests for protocol boundaries, routing precedence, stream terminals, tool/reasoning preservation, auth failures, migration-sensitive provider IDs, and `/v1/models` router metadata inheritance when applicable.
+
+Do not claim a behavioral change is complete from a typecheck alone. Run the narrowest relevant scenario and then the relevant suite.
+
+## Documentation and releases
+
+- Keep `README.md` short: purpose, quick start, API routes, configuration pointer, development commands, and links to release docs.
+- Put detailed architecture, migration, breaking-change, added, and removed notes in `CHANGELOG.md` or `docs/`.
+- Every public provider ID rename, route change, persistence change, removed setting, or compatibility change needs a changelog entry.
+- When comparing releases, identify the baseline commit/version and distinguish a release summary from the raw Git patch.
+- Update README and changelog claims only from verified source or test output.
+
+## Change workflow
+
+1. Inspect the existing boundary and callers before editing.
+2. Reuse the existing module and naming convention; do not create a parallel abstraction.
+3. Update exported symbol callers and tests in the same change.
+4. Keep migrations explicit for IDs, persistence, environment variables, and routes.
+5. Run targeted verification, then the applicable full suite.
+6. Review the final diff for stale imports, dead exports, compatibility aliases, secrets, and broken documentation links.
+
+Prefer a complete, boring change over a clever abstraction. The active runtime must remain understandable to the next maintainer without consulting `src.old/`.

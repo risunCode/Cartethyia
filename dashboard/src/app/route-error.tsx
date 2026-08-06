@@ -9,6 +9,7 @@ import { isRouteErrorResponse, useNavigate, useRouteError } from "react-router-d
 import { RotateCw, TriangleAlert } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { IconBadge } from "../components/ui/icon";
 
 function describe(error: unknown): string {
   if (isRouteErrorResponse(error)) return `${error.status} ${error.statusText}`;
@@ -22,10 +23,8 @@ export function RouteError() {
 
   return (
     <div className="grid min-h-screen place-items-center p-4">
-      <Card className="max-w-md text-center">
-        <span className="mx-auto grid h-11 w-11 place-items-center rounded-[13px] bg-[rgba(255,69,58,0.13)] text-[var(--red)]">
-          <TriangleAlert size={20} />
-        </span>
+      <Card density="comfortable" className="max-w-md text-center">
+        <IconBadge icon={TriangleAlert} tone="danger" size="lg" className="mx-auto" />
         <h1 className="mt-3.5 text-base font-bold">This page failed to load</h1>
         <p className="mt-1.5 text-[12.5px] text-[var(--text-2)]">
           Reloading usually fixes it — the console may have been updated while this tab was open.
@@ -34,10 +33,10 @@ export function RouteError() {
           {describe(error)}
         </code>
         <div className="mt-4 flex justify-center gap-2">
-          <Button size="sm" onClick={() => window.location.assign(`${location.pathname}?_bust=${Date.now()}`)}>
+          <Button type="button" size="sm" onClick={() => window.location.assign(`${location.pathname}?_bust=${Date.now()}`)}>
             <RotateCw size={13} /> Reload
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => navigate("/overview")}>
+          <Button type="button" variant="secondary" size="sm" onClick={() => navigate("/overview")}>
             Back to Overview
           </Button>
         </div>

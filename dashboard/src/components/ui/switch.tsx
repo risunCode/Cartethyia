@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import { cn } from "../../lib/cn";
 
 export function Switch({
@@ -21,16 +20,15 @@ export function Switch({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        "relative h-6 w-10.5 shrink-0 rounded-full border transition-colors duration-200 disabled:opacity-40",
+        "relative h-5 w-9 shrink-0 rounded-full border transition-colors duration-200 disabled:opacity-40",
         checked ? "border-transparent bg-[var(--accent)]" : "border-[var(--inner-border)] bg-[var(--track)]"
       )}
     >
-      <motion.span
-        layout
-        transition={{ duration: 0.12, ease: "easeOut" }}
+      <span
+        aria-hidden="true"
         className={cn(
-          "absolute top-0.5 block h-4.5 w-4.5 rounded-full bg-white shadow",
-          checked ? "left-5.5" : "left-0.5"
+          "absolute left-0.5 top-0.5 block h-4 w-4 rounded-full bg-white shadow transition-transform duration-150",
+          checked ? "translate-x-[18px]" : "translate-x-0"
         )}
       />
     </button>

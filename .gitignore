@@ -8,3 +8,7 @@ bun.lock
 data/
 .codegraph/
 __pycache__/
+
+# MultiWarp
+bin/
+vendor/

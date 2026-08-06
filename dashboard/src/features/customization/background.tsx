@@ -1,52 +1,199 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
+import { Upload } from "lucide-react";
+import { Button } from "../../components/ui/button";
+
+export type CustomAssetKind = "image" | "video";
+
+export interface CustomAsset {
+  kind: CustomAssetKind;
+  blob: Blob;
+  name: string;
+}
 
 export interface CustomizationSettings {
-  backgroundDataUrl: string | null;
+  backgroundAsset: CustomAsset | null;
   backgroundEnabled: boolean;
   backgroundOpacity: number;
   backgroundBlur: number;
-  locksEnabled: boolean;
-  locksFrequency: number;
-  seasonalItemDataUrl: string | null;
-  seasonalItemSize: number;
+  backgroundPreferenceVersion: number;
+  /** Performance mode — disables backdrop-blur, uses solid warm surfaces. */
+  solidMode: boolean;
 }
 
-const STORAGE_KEY = "cartethyia.customization";
+const DEFAULT_BACKGROUND_URL = `${import.meta.env.BASE_URL}macos-big-sur-apple-layers-fluidic-colorful-dark-wwdc-2020-3840x2160-1432.jpg`;
+const BACKGROUND_PREFERENCE_VERSION = 1;
+const DATABASE_NAME = "cartethyia-customization";
+const DATABASE_VERSION = 1;
+const STORE_NAME = "settings";
+const RECORD_KEY = "current";
+const LEGACY_STORAGE_KEY = "cartethyia.customization";
 const CHANGE_EVENT = "cartethyia-customization-change";
+export const MAX_CUSTOM_ASSET_BYTES = 200 * 1024 * 1024;
+
 const DEFAULTS: CustomizationSettings = {
-  backgroundDataUrl: null,
+  backgroundAsset: null,
   backgroundEnabled: true,
-  backgroundOpacity: 34,
+  backgroundOpacity: 21,
   backgroundBlur: 2,
-  locksEnabled: false,
-  locksFrequency: 1,
-  seasonalItemDataUrl: null,
-  seasonalItemSize: 32,
+  backgroundPreferenceVersion: BACKGROUND_PREFERENCE_VERSION,
+  solidMode: false,
 };
 
 let cachedSettings: CustomizationSettings | null = null;
+let hasHydrated = false;
 let saveTimer: number | undefined;
+let hydrationPromise: Promise<CustomizationSettings> | null = null;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isCustomAsset(value: unknown): value is CustomAsset {
+  if (!isRecord(value) || !(value.blob instanceof Blob)) return false;
+  return (value.kind === "image" || value.kind === "video") && typeof value.name === "string";
+}
+
+function parseStoredSettings(value: unknown): CustomizationSettings | null {
+  if (!isRecord(value)) return null;
+  const backgroundAsset = isCustomAsset(value.backgroundAsset) ? value.backgroundAsset : null;
+  const hasCurrentPreference = value.backgroundPreferenceVersion === BACKGROUND_PREFERENCE_VERSION;
+  let backgroundEnabled = DEFAULTS.backgroundEnabled;
+  if (backgroundAsset !== null || hasCurrentPreference) backgroundEnabled = value.backgroundEnabled !== false;
+  return {
+    backgroundAsset,
+    backgroundEnabled,
+    backgroundOpacity: typeof value.backgroundOpacity === "number" ? value.backgroundOpacity : DEFAULTS.backgroundOpacity,
+    backgroundBlur: typeof value.backgroundBlur === "number" ? value.backgroundBlur : DEFAULTS.backgroundBlur,
+    backgroundPreferenceVersion: BACKGROUND_PREFERENCE_VERSION,
+    solidMode: typeof value.solidMode === "boolean" ? value.solidMode : DEFAULTS.solidMode,
+  };
+}
+
+function openCustomizationDatabase(): Promise<IDBDatabase> {
+  const { promise, resolve, reject } = Promise.withResolvers<IDBDatabase>();
+  if (typeof indexedDB === "undefined") {
+    reject(new Error("IndexedDB is unavailable."));
+    return promise;
+  }
+  const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+  request.onupgradeneeded = () => {
+    if (!request.result.objectStoreNames.contains(STORE_NAME)) request.result.createObjectStore(STORE_NAME);
+  };
+  request.onsuccess = () => resolve(request.result);
+  request.onerror = () => reject(request.error ?? new Error("Could not open customization storage."));
+  return promise;
+}
+
+async function readFromDatabase(): Promise<CustomizationSettings | null> {
+  const database = await openCustomizationDatabase();
+  const { promise, resolve, reject } = Promise.withResolvers<CustomizationSettings | null>();
+  const transaction = database.transaction(STORE_NAME, "readonly");
+  const request = transaction.objectStore(STORE_NAME).get(RECORD_KEY);
+  request.onsuccess = () => resolve(parseStoredSettings(request.result));
+  request.onerror = () => reject(request.error ?? new Error("Could not read customization storage."));
+  transaction.onerror = () => reject(transaction.error ?? new Error("Could not read customization storage."));
+  transaction.onabort = () => reject(transaction.error ?? new Error("Could not read customization storage."));
+  try {
+    return await promise;
+  } finally {
+    database.close();
+  }
+}
+
+async function writeToDatabase(settings: CustomizationSettings): Promise<void> {
+  const database = await openCustomizationDatabase();
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  const transaction = database.transaction(STORE_NAME, "readwrite");
+  transaction.objectStore(STORE_NAME).put(settings, RECORD_KEY);
+  transaction.oncomplete = () => resolve();
+  transaction.onerror = () => reject(transaction.error ?? new Error("Could not save customization storage."));
+  transaction.onabort = () => reject(transaction.error ?? new Error("Could not save customization storage."));
+  try {
+    await promise;
+  } finally {
+    database.close();
+  }
+}
+
+async function dataUrlToAsset(dataUrl: string, kind: CustomAssetKind, name: string): Promise<CustomAsset | null> {
+  try {
+    const response = await fetch(dataUrl);
+    return { kind, blob: await response.blob(), name };
+  } catch {
+    return null;
+  }
+}
+
+async function migrateLegacySettings(): Promise<CustomizationSettings> {
+  const legacy = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+  if (!legacy) return { ...DEFAULTS };
+
+  try {
+    const parsed: unknown = JSON.parse(legacy);
+    if (!isRecord(parsed)) return { ...DEFAULTS };
+    const backgroundAsset = typeof parsed.backgroundDataUrl === "string"
+      ? await dataUrlToAsset(parsed.backgroundDataUrl, "image", "migrated-background")
+      : null;
+    return {
+      ...DEFAULTS,
+      backgroundAsset,
+      backgroundEnabled: backgroundAsset !== null ? parsed.backgroundEnabled !== false : DEFAULTS.backgroundEnabled,
+      backgroundOpacity: typeof parsed.backgroundOpacity === "number" ? parsed.backgroundOpacity : DEFAULTS.backgroundOpacity,
+      backgroundBlur: typeof parsed.backgroundBlur === "number" ? parsed.backgroundBlur : DEFAULTS.backgroundBlur,
+    };
+  } catch {
+    return { ...DEFAULTS };
+  } finally {
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+  }
+}
+
+async function hydrateCustomizationSettings(): Promise<CustomizationSettings> {
+  if (hydrationPromise) return hydrationPromise;
+  hydrationPromise = (async () => {
+    try {
+      const stored = await readFromDatabase();
+      const next = stored ?? await migrateLegacySettings();
+      // Only adopt the hydrated value if we haven't already cached a newer
+      // one (user may have moved a slider while the async IDB read was in
+      // flight — adopting the stale DB copy would snap the slider back).
+      if (!hasHydrated) {
+        cachedSettings = next;
+        hasHydrated = true;
+        await writeToDatabase(next);
+        window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+        window.dispatchEvent(new Event(CHANGE_EVENT));
+      }
+      return cachedSettings ?? { ...DEFAULTS };
+    } catch (error) {
+      console.warn("Customization persistence unavailable.", error);
+      cachedSettings ??= { ...DEFAULTS };
+      return cachedSettings;
+    }
+  })();
+  return hydrationPromise;
+}
 
 export function readCustomizationSettings(): CustomizationSettings {
   if (cachedSettings) return cachedSettings;
-  if (typeof window === "undefined") return DEFAULTS;
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
-    cachedSettings = !parsed || typeof parsed !== "object" || Array.isArray(parsed)
-      ? { ...DEFAULTS }
-      : { ...DEFAULTS, ...(parsed as Partial<CustomizationSettings>) };
-  } catch {
-    cachedSettings = { ...DEFAULTS };
-  }
+  cachedSettings = { ...DEFAULTS };
   return cachedSettings;
 }
 
 export function saveCustomizationSettings(patch: Partial<CustomizationSettings>): CustomizationSettings {
-  const next = { ...readCustomizationSettings(), ...patch };
+  const next = {
+    ...readCustomizationSettings(),
+    ...patch,
+    backgroundPreferenceVersion: BACKGROUND_PREFERENCE_VERSION,
+  };
   cachedSettings = next;
+  // Mark as hydrated so the async IDB read doesn't snap the slider back
+  // to the stale DB value after the user already moved it.
+  hasHydrated = true;
+  if (typeof window === "undefined") return next;
   if (saveTimer !== undefined) window.clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* storage quota/private mode */ }
+    void writeToDatabase(next).catch((error: unknown) => console.warn("Could not persist customization settings.", error));
     saveTimer = undefined;
   }, 250);
   window.dispatchEvent(new Event(CHANGE_EVENT));
@@ -56,6 +203,7 @@ export function saveCustomizationSettings(patch: Partial<CustomizationSettings>)
 export function useCustomizationSettings(): [CustomizationSettings, (patch: Partial<CustomizationSettings>) => void] {
   const [settings, setSettings] = useState<CustomizationSettings>(readCustomizationSettings);
   useEffect(() => {
+    void hydrateCustomizationSettings().then(setSettings);
     const sync = () => setSettings(readCustomizationSettings());
     window.addEventListener(CHANGE_EVENT, sync);
     return () => window.removeEventListener(CHANGE_EVENT, sync);
@@ -63,141 +211,113 @@ export function useCustomizationSettings(): [CustomizationSettings, (patch: Part
   return [settings, (patch) => setSettings(saveCustomizationSettings(patch))];
 }
 
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
+export function useCustomizationAssetUrl(asset: CustomAsset | null): string | null {
+  const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
-    const media = window.matchMedia(query);
-    const sync = () => setMatches(media.matches);
-    sync();
-    media.addEventListener("change", sync);
-    return () => media.removeEventListener("change", sync);
-  }, [query]);
-  return matches;
+    if (!asset) {
+      setUrl(null);
+      return;
+    }
+    const nextUrl = URL.createObjectURL(asset.blob);
+    setUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [asset]);
+  return url;
 }
-
-function usePageVisible(): boolean {
-  const [visible, setVisible] = useState(() => typeof document === "undefined" || !document.hidden);
-  useEffect(() => {
-    const sync = () => setVisible(!document.hidden);
-    document.addEventListener("visibilitychange", sync);
-    return () => document.removeEventListener("visibilitychange", sync);
-  }, []);
-  return visible;
-}
-
-const LOCK_IMAGES = [
-  `${import.meta.env.BASE_URL}custom_seasonal/diamondlock_kindpng_4497640.png`,
-  `${import.meta.env.BASE_URL}custom_seasonal/worldlock_PngItem_1106058.png`,
-];
 
 export function CustomAtmosphere() {
   const [settings] = useCustomizationSettings();
-  const compact = useMediaQuery("(max-width: 767px)");
-  const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
-  const pageVisible = usePageVisible();
-  const particleCount = reduced ? 4 : compact ? 6 : 12;
-  const particles = useMemo(() => Array.from({ length: particleCount }, (_, index) => ({
-    id: index,
-    left: `${(index * 37 + 11) % 100}%`,
-    size: 18 + ((index * 13) % 18),
-    delay: `${-((index * 2.7) % 16)}s`,
-    duration: `${10 + ((index * 1.7) % 8)}s`,
-    image: LOCK_IMAGES[index % LOCK_IMAGES.length],
-  })), [particleCount]);
+  const customBackgroundUrl = useCustomizationAssetUrl(settings.backgroundAsset);
+  const backgroundUrl = settings.backgroundAsset ? customBackgroundUrl : DEFAULT_BACKGROUND_URL;
 
-  return (
-    <>
-      {settings.backgroundDataUrl && settings.backgroundEnabled && (
-        <div
-          className="custom-background-layer"
-          aria-hidden="true"
-          style={{
-            backgroundImage: `url(${settings.backgroundDataUrl})`,
-            opacity: (settings.backgroundOpacity / 100) * (compact ? 0.82 : 1),
-            "--custom-bg-blur": `${settings.backgroundBlur}px`,
-          } as CSSProperties}
-        />
-      )}
-      {settings.locksEnabled && (
-        <div className={`custom-locks-layer${pageVisible ? "" : " is-paused"}`} aria-hidden="true">
-          {particles.map((particle) => (
-            <img
-              key={particle.id}
-              src={settings.seasonalItemDataUrl ?? particle.image}
-              alt=""
-              className="custom-lock-particle"
-              style={{ left: particle.left, width: settings.seasonalItemDataUrl ? settings.seasonalItemSize : particle.size, height: settings.seasonalItemDataUrl ? settings.seasonalItemSize : particle.size, animationDelay: particle.delay, animationDuration: `${(Number.parseFloat(particle.duration) / settings.locksFrequency).toFixed(2)}s` }}
-            />
-          ))}
-        </div>
-      )}
-    </>
+  // Apply solid-mode data attribute to <html> — CSS overrides .glass to use
+  // solid warm surfaces with no backdrop-filter (eliminates GPU blur lag).
+  useEffect(() => {
+    if (settings.solidMode) {
+      document.documentElement.setAttribute("data-glass", "off");
+    } else {
+      document.documentElement.removeAttribute("data-glass");
+    }
+  }, [settings.solidMode]);
+
+  if (!backgroundUrl || !settings.backgroundEnabled) return null;
+
+  const backgroundStyle = {
+    opacity: settings.backgroundOpacity / 100,
+    "--custom-bg-blur": `${settings.backgroundBlur}px`,
+  } as CSSProperties;
+
+  return settings.backgroundAsset?.kind === "video" ? (
+    <video
+      className="custom-background-layer"
+      src={backgroundUrl}
+      autoPlay
+      muted
+      loop
+      playsInline
+      preload="metadata"
+      tabIndex={-1}
+      aria-hidden="true"
+      style={backgroundStyle}
+    />
+  ) : (
+    <div className="custom-background-layer" aria-hidden="true" style={{ ...backgroundStyle, backgroundImage: `url(${backgroundUrl})` }} />
   );
 }
 
-async function shrinkSeasonalImage(file: File): Promise<string> {
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, 256 / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Canvas is unavailable.");
-  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  return canvas.toDataURL("image/webp", 0.82);
+function isSupportedMedia(file: File): boolean {
+  return file.type.startsWith("image/") || file.type.startsWith("video/");
 }
 
-export function SeasonalItemUpload({ onError }: { onError: (message: string) => void }) {
-  const [settings, setSettings] = useCustomizationSettings();
-  const handleFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    if (!file.type.startsWith("image/")) { onError("Choose an image file."); return; }
-    if (file.size > 8 * 1024 * 1024) { onError("Image must be 8 MB or smaller."); return; }
-    try { setSettings({ seasonalItemDataUrl: await shrinkSeasonalImage(file) }); }
-    catch { onError("Could not process this image."); }
-  };
-  return <div className="mt-3 space-y-2 rounded-lg border border-[var(--inner-border)] bg-[var(--glass-bg)] p-3">
-    <div className="flex flex-wrap items-center gap-2"><label className="inline-flex cursor-pointer items-center rounded-[var(--radius-control)] bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white hover:opacity-90">Upload custom item<input type="file" accept="image/*" className="sr-only" onChange={(event) => void handleFile(event)} /></label>{settings.seasonalItemDataUrl && <button type="button" className="text-xs text-[var(--red)] hover:underline" onClick={() => setSettings({ seasonalItemDataUrl: null })}>Use locks</button>}</div>
-    <p className="text-[10px] leading-4 text-[var(--text-3)]">Image is resized to max 256px for smooth animation. Recommended rendered size: 24–40px.</p>
-    {settings.seasonalItemDataUrl && <label className="block text-xs text-[var(--text-2)]">Item size <span className="float-right font-mono text-[var(--text-3)]">{settings.seasonalItemSize}px</span><input type="range" min="16" max="56" step="2" value={settings.seasonalItemSize} onChange={(event) => setSettings({ seasonalItemSize: Number(event.target.value) })} className="mt-1 w-full accent-[var(--accent)]" /></label>}
-  </div>;
+function isOversized(file: File): boolean {
+  return file.size > MAX_CUSTOM_ASSET_BYTES;
+}
+
+function AssetLimitNotice({ allowOversize, onChange }: { allowOversize: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <div className="flex flex-wrap items-start gap-x-2 gap-y-1 rounded-lg border border-[var(--orange)] bg-[rgba(255,159,10,0.08)] px-2 py-1.5 text-[10.5px] text-[var(--text-2)]">
+      <label className="flex shrink-0 cursor-pointer items-center gap-1.5 font-semibold text-[var(--orange)]">
+        <input type="checkbox" checked={allowOversize} onChange={(event) => onChange(event.target.checked)} className="size-3.5 accent-[var(--orange)]" />
+        <span>Allow files over 200&nbsp;MB</span>
+      </label>
+      <span className="leading-4">Large media can use more browser memory and slow previews.</span>
+    </div>
+  );
 }
 
 export function BackgroundUpload({ onError }: { onError: (message: string) => void }) {
   const [settings, setSettings] = useCustomizationSettings();
+  const [allowOversize, setAllowOversize] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
   const handleFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (!file.type.startsWith("image/")) { onError("Choose an image file."); return; }
-    if (file.size > 8 * 1024 * 1024) { onError("Image must be 8 MB or smaller."); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") setSettings({ backgroundDataUrl: reader.result, backgroundEnabled: true });
-    };
-    reader.onerror = () => onError("Could not read this image.");
-    reader.readAsDataURL(file);
+    if (!isSupportedMedia(file)) {
+      onError("Choose an image or video file.");
+      return;
+    }
+    if (isOversized(file) && !allowOversize) {
+      onError("Media exceeds 200 MB. Check the warning option to continue.");
+      return;
+    }
+    setSettings({
+      backgroundAsset: { kind: file.type.startsWith("video/") ? "video" : "image", blob: file, name: file.name },
+      backgroundEnabled: true,
+    });
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="inline-flex cursor-pointer items-center rounded-[var(--radius-control)] bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white hover:opacity-90">
-          Upload background
-          <input type="file" accept="image/*" className="sr-only" onChange={handleFile} />
-        </label>
-        {settings.backgroundDataUrl && <button type="button" className="text-xs text-[var(--red)] hover:underline" onClick={() => setSettings({ backgroundDataUrl: null, backgroundEnabled: false })}>Remove</button>}
+    <div className="space-y-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <Button type="button" size="sm" onClick={() => inputRef.current?.click()}>
+          <Upload size={14} aria-hidden="true" />
+          {settings.backgroundAsset ? "Change override" : "Override built-in background"}
+        </Button>
+        <input ref={inputRef} type="file" accept="image/*,video/*" className="sr-only" onChange={handleFile} />
       </div>
-      {settings.backgroundDataUrl && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-xs text-[var(--text-2)]">Visibility <input type="range" min="8" max="70" value={settings.backgroundOpacity} onChange={(event) => setSettings({ backgroundOpacity: Number(event.target.value) })} className="mt-1 w-full accent-[var(--accent)]" /></label>
-          <label className="text-xs text-[var(--text-2)]">Blur <input type="range" min="0" max="18" value={settings.backgroundBlur} onChange={(event) => setSettings({ backgroundBlur: Number(event.target.value) })} className="mt-1 w-full accent-[var(--accent)]" /></label>
-          <label className="col-span-full flex items-center gap-2 text-xs text-[var(--text-2)]"><input type="checkbox" checked={settings.backgroundEnabled} onChange={(event) => setSettings({ backgroundEnabled: event.target.checked })} /> Show custom background behind frosted glass</label>
-        </div>
-      )}
+      <AssetLimitNotice allowOversize={allowOversize} onChange={setAllowOversize} />
     </div>
   );
 }

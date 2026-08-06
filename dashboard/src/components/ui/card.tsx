@@ -1,8 +1,38 @@
-import type { HTMLAttributes, ComponentType } from "react";
+import type { ComponentType, HTMLAttributes, ReactNode } from "react";
 import { cn } from "../../lib/cn";
 
-export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("glass overflow-hidden rounded-[var(--radius-card)] p-[18px]", className)} {...props} />;
+export type CardDensity = "compact" | "default" | "comfortable";
+export type CardSurface = "base" | "muted" | "elevated";
+
+const densityClasses: Record<CardDensity, string> = {
+  compact: "p-3",
+  default: "p-4",
+  comfortable: "p-5",
+};
+
+const surfaceClasses: Record<CardSurface, string> = {
+  base: "glass",
+  muted: "glass bg-[var(--surface-muted)]",
+  elevated: "glass-2",
+};
+
+export interface CardProps extends HTMLAttributes<HTMLDivElement> {
+  density?: CardDensity;
+  surface?: CardSurface;
+}
+
+export function Card({ className, density = "default", surface = "base", ...props }: CardProps) {
+  return <div className={cn("overflow-hidden rounded-[var(--radius-card)]", surfaceClasses[surface], densityClasses[density], className)} {...props} />;
+}
+
+export interface CardHeaderProps {
+  title: string;
+  sub?: string;
+  /** Optional leading icon — rendered in a small tinted circle ahead of the title. */
+  icon?: ComponentType<{ size?: number; strokeWidth?: number; className?: string; "aria-hidden"?: boolean }>;
+  /** Icon + circle tint; defaults to the accent color. */
+  iconColor?: string;
+  children?: ReactNode;
 }
 
 export function CardHeader({
@@ -11,15 +41,7 @@ export function CardHeader({
   icon: Icon,
   iconColor,
   children,
-}: {
-  title: string;
-  sub?: string;
-  /** Optional leading icon — rendered in a small tinted circle ahead of the title. */
-  icon?: ComponentType<{ size?: number }>;
-  /** Icon + circle tint; defaults to the accent color. */
-  iconColor?: string;
-  children?: React.ReactNode;
-}) {
+}: CardHeaderProps) {
   return (
     // `flex-wrap` (not just `justify-between`) matters here: `Card` clips
     // overflow, and a long `sub` sentence next to action buttons (Edit/
@@ -34,7 +56,7 @@ export function CardHeader({
             className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
             style={{ backgroundColor: `color-mix(in srgb, ${iconColor ?? "var(--accent)"} 15%, transparent)`, color: iconColor ?? "var(--accent)" }}
           >
-            <Icon size={15} />
+            <Icon size={15} aria-hidden={true} />
           </span>
         )}
         <div className="min-w-0">
@@ -42,7 +64,7 @@ export function CardHeader({
           {sub && <div className="mt-0.5 truncate text-[11.5px] text-[var(--text-2)]">{sub}</div>}
         </div>
       </div>
-      {children && <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto">{children}</div>}
+      {children && <div className="ml-auto flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto">{children}</div>}
     </div>
   );
 }

@@ -108,7 +108,57 @@ describe("ModelPickerModal", () => {
   });
 });
 
-describe("ModelPickerField \u2014 alias/combo selected values are not double-classified as Custom", () => {
+describe("ModelPickerField — configured provider visibility", () => {
+  test("does not render models without credentials, except none-credential providers", async () => {
+    const responses: Record<string, unknown> = {
+      "/console/api/providers": {
+        items: [
+          { id: "openai", name: "OpenAI", icon: "openai", prefix: "openai", credentialKind: "api_key", configured: false },
+          { id: "opencodeft", name: "OpenCode Free", icon: "opencode", prefix: "opencodeft", credentialKind: "none", configured: false },
+        ],
+      },
+      "/console/api/custom-providers": { items: [] },
+      "/console/api/providers/openai": { prefix: "openai", models: [{ id: "gpt-5", enabled: true }] },
+      "/console/api/providers/opencodeft": { prefix: "opencodeft", models: [{ id: "free-model", enabled: true }] },
+    };
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      const path = url.replace(/^https?:\/\/[^/]+/, "");
+      return new Response(JSON.stringify(responses[path] ?? { items: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    render(withQueryClient(<ModelPickerField label="Models" values={[]} onChange={vi.fn()} mode="models" />));
+    expect(await screen.findByText("free-model")).toBeInTheDocument();
+    expect(screen.queryByText("gpt-5")).not.toBeInTheDocument();
+    fetchSpy.mockRestore();
+  });
+
+  test("normalizes the live provider catalog modelId payload", async () => {
+    const responses: Record<string, unknown> = {
+      "/console/api/providers": {
+        items: [{ id: "kimchi", name: "Kimchi", credentialKind: "oauth", configured: true, accountCount: 1, modelCount: 1 }],
+      },
+      "/console/api/custom-providers": { items: [] },
+      "/console/api/providers/kimchi": {
+        id: "kimchi",
+        name: "Kimchi",
+        models: [{ providerId: "kimchi", modelId: "kimi-k2.7", enabled: true }],
+      },
+    };
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      const path = url.replace(/^https?:\/\/[^/]+/, "");
+      return new Response(JSON.stringify(responses[path] ?? { items: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    try {
+      render(withQueryClient(<ModelPickerField label="Models" values={[]} onChange={vi.fn()} mode="models" />));
+      expect(await screen.findByText("kimi-k2.7")).toBeInTheDocument();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+});
+
+describe("ModelPickerField — alias/combo selected values are not double-classified as Custom", () => {
   function stubCatalogFetch() {
     const responses: Record<string, unknown> = {
       "/console/api/providers": { items: [] },

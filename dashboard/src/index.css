@@ -5,8 +5,179 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes highlightFade {
+  0% { background-color: color-mix(in srgb, var(--accent) 18%, transparent); }
+  100% { background-color: transparent; }
+}
+
+.toast-item {
+  animation: toast-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Login form entrance — CSS-only, zero framer-motion overhead */
+.login-enter {
+  animation: login-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes login-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+html[data-motion-profile="reduced"] .login-enter {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
+/* Theme toggle icon swap — CSS-only crossfade + rotate */
+.theme-icon-enter {
+  animation: theme-icon-in 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes theme-icon-in {
+  from { opacity: 0; transform: rotate(-60deg) scale(0.7); }
+  to { opacity: 1; transform: rotate(0) scale(1); }
+}
+
+html[data-motion-profile="reduced"] .theme-icon-enter {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
+/* Traffic chart active line — CSS-only dash animation, disabled on mobile/reduced.
+   `content-visibility: auto` on the chart container skips rendering when offscreen. */
+.traffic-line-active {
+  animation: traffic-dash 0.8s linear infinite;
+}
+.traffic-chart-container {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 200px;
+}
+
+/* iOS-style chat bubble entrance — slide + fade in from bottom */
+.chat-bubble-enter {
+  animation: chat-bubble-in 0.3s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+@keyframes chat-bubble-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+html[data-motion-profile="mobile"] .chat-bubble-enter {
+  animation-duration: 0.18s;
+}
+
+html[data-motion-profile="reduced"] .chat-bubble-enter {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
+/* "Thinking" shimmer — glowing text that sweeps right, like iOS/ChatGPT loading */
+.thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--text-3) 0%,
+    var(--text-3) 40%,
+    var(--accent) 50%,
+    var(--text-3) 60%,
+    var(--text-3) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: thinking-sweep 1.8s linear infinite;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+@keyframes thinking-sweep {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+html[data-motion-profile="reduced"] .thinking-shimmer {
+  background: none;
+  -webkit-text-fill-color: var(--text-3);
+  color: var(--text-3);
+  animation: none;
+}
+
+@keyframes traffic-dash {
+  to { stroke-dashoffset: -12; }
+}
+
+/* Popout/dropdown animation — CSS-driven, profile-aware */
+@keyframes popout-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.popout-enter {
+  animation: popout-in 0.16s cubic-bezier(0.32, 0.72, 0, 1) both;
+  transform-origin: top center;
+}
+
+html[data-motion-profile="mobile"] .popout-enter {
+  animation-duration: 0.12s;
+}
+
+html[data-motion-profile="reduced"] .popout-enter {
+  animation: none;
+  opacity: 1;
+}
+
+/* Ensure popout panels are always opaque and on top */
+.popout-enter {
+  background-color: var(--popover-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html[data-motion-profile="max"] .traffic-line-active {
+  animation-duration: 0.5s;
+}
+
+html[data-motion-profile="reduced"] .traffic-line-active,
+html[data-motion-profile="mobile"] .traffic-line-active {
+  animation: none;
+}
+
+/* Disable backdrop-blur on mobile/reduced — GPU-heavy on 2GB RAM devices */
+html[data-motion-profile="mobile"] .backdrop-blur-[6px],
+html[data-motion-profile="reduced"] .backdrop-blur-[6px] {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background-color: rgba(0, 0, 0, 0.6);
+}
+
 .stagger-item {
   animation: stagger-in 0.12s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+html[data-motion-profile="mobile"] .stagger-item {
+  animation-duration: 0.09s;
+}
+
+html[data-motion-profile="max"] .stagger-item {
+  animation-duration: 0.18s;
+}
+
+html[data-motion-profile="reduced"] .stagger-item {
+  animation: none;
+  opacity: 1;
+  transform: none;
 }
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -19,45 +190,97 @@
 }
 
 :root {
-  --text-1: #2d2926;
-  --text-2: #746b65;
-  --text-3: #a49a92;
+  --page-bg: #f7f3ed;
+  --surface-1: rgba(255, 252, 247, 0.76);
+  --surface-2: rgba(255, 253, 249, 0.9);
+  --surface-muted: rgba(119, 83, 55, 0.07);
+  --surface-hover: rgba(255, 248, 240, 0.92);
+  --surface-active: rgba(255, 248, 240, 0.98);
+  --text-primary: #2d2926;
+  --text-secondary: #746b65;
+  --text-tertiary: #a49a92;
+  --border-subtle: rgba(78, 58, 42, 0.09);
+  --border-strong: rgba(119, 94, 72, 0.12);
   --accent: #d97757;
   --accent-soft: rgba(217, 119, 87, 0.14);
-  --green: #4c9368;
-  --red: #c95145;
-  --orange: #ca7b32;
-  --purple: #8769a4;
-  --teal: #448f8d;
-
-  --glass-bg: rgba(255, 252, 247, 0.76);
-  --glass-bg-2: rgba(255, 253, 249, 0.9);
-  --glass-border: rgba(119, 94, 72, 0.12);
-  --glass-border-2: rgba(255, 255, 255, 0.78);
-  --inner-border: rgba(78, 58, 42, 0.09);
-  --hover: rgba(119, 83, 55, 0.07);
-  --active-pill: rgba(255, 248, 240, 0.92);
+  --status-success: #4c9368;
+  --status-danger: #c95145;
+  --status-warning: #ca7b32;
+  --status-info: #448f8d;
+  --focus-ring: #d97757;
   --track: rgba(113, 82, 57, 0.1);
+  --code-surface: rgba(255, 252, 247, 0.82);
+  --radius-sm: 8px;
+  --radius-md: 11px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --control-height-sm: 32px;
+  --control-height-md: 36px;
+  --control-height-lg: 40px;
+  --touch-target: 40px;
+  --motion-fast: 120ms;
+  --motion-base: 160ms;
+  --motion-slow: 240ms;
+
+  --text-1: var(--text-primary);
+  --text-2: var(--text-secondary);
+  --text-3: var(--text-tertiary);
+  --green: var(--status-success);
+  --red: var(--status-danger);
+  --orange: var(--status-warning);
+  --purple: #8769a4;
+  --teal: var(--status-info);
+  --green-soft: rgba(76, 147, 104, 0.12);
+  --red-soft: rgba(201, 81, 69, 0.12);
+  --orange-soft: rgba(202, 123, 50, 0.12);
+  --teal-soft: rgba(68, 143, 141, 0.12);
+  --purple-soft: rgba(135, 105, 164, 0.12);
+  --glass-bg: var(--surface-1);
+  --glass-bg-2: var(--surface-2);
+  --popover-bg: #fffefb;
+  --glass-border: var(--border-strong);
+  --glass-border-2: rgba(255, 255, 255, 0.78);
+  --inner-border: var(--border-subtle);
+  --hover: var(--surface-muted);
+  --active-pill: var(--surface-hover);
   --kbd-bg: rgba(113, 82, 57, 0.08);
   --shadow-card: 0 1px 2px rgba(83, 56, 36, 0.05), 0 12px 32px rgba(83, 56, 36, 0.1);
   color-scheme: light;
 }
 
 .dark {
-  --text-1: #f5f5f7;
-  --text-2: #a1a1a6;
-  --text-3: #6e6e73;
+  --page-bg: #08080b;
+  --surface-1: rgba(28, 28, 32, 0.55);
+  --surface-2: rgba(34, 34, 40, 0.72);
+  --surface-muted: rgba(255, 255, 255, 0.07);
+  --surface-hover: rgba(255, 255, 255, 0.12);
+  --surface-active: rgba(255, 255, 255, 0.16);
+  --text-primary: #f5f5f7;
+  --text-secondary: #a1a1a6;
+  --text-tertiary: #6e6e73;
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.1);
   --accent-soft: rgba(10, 132, 255, 0.18);
-
-  --glass-bg: rgba(28, 28, 32, 0.55);
-  --glass-bg-2: rgba(34, 34, 40, 0.72);
-  --glass-border: rgba(255, 255, 255, 0.1);
-  --glass-border-2: rgba(255, 255, 255, 0.16);
-  --inner-border: rgba(255, 255, 255, 0.07);
-  --hover: rgba(255, 255, 255, 0.07);
-  --active-pill: rgba(255, 255, 255, 0.12);
+  --focus-ring: #0a84ff;
   --track: rgba(255, 255, 255, 0.12);
+  --code-surface: rgba(28, 28, 32, 0.8);
+  --text-1: var(--text-primary);
+  --text-2: var(--text-secondary);
+  --text-3: var(--text-tertiary);
+  --glass-bg: var(--surface-1);
+  --glass-bg-2: var(--surface-2);
+  --popover-bg: #1c1c20;
+  --glass-border: var(--border-strong);
+  --glass-border-2: rgba(255, 255, 255, 0.16);
+  --inner-border: var(--border-subtle);
+  --hover: var(--surface-muted);
+  --active-pill: var(--surface-hover);
   --kbd-bg: rgba(255, 255, 255, 0.1);
+  --green-soft: rgba(76, 147, 104, 0.18);
+  --red-soft: rgba(201, 81, 69, 0.18);
+  --orange-soft: rgba(202, 123, 50, 0.18);
+  --teal-soft: rgba(68, 143, 141, 0.18);
+  --purple-soft: rgba(135, 105, 164, 0.18);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.45);
   color-scheme: dark;
 }
@@ -68,12 +291,39 @@ body,
   height: 100%;
 }
 
+html,
+body,
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .sidebar-drawer {
+    transform: none !important;
+  }
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans);
   color: var(--text-1);
   letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Every authenticated page owns the same width and shrink behavior inside the shell. */
+.dashboard-page {
+  width: 100%;
+  min-width: 0;
 }
 
 /* Native dropdown menus are rendered outside the page surface by the browser.
@@ -101,14 +351,14 @@ select optgroup {
     radial-gradient(55rem 38rem at 8% -12%, rgba(250, 212, 178, 0.42), transparent 60%),
     radial-gradient(48rem 34rem at 108% 6%, rgba(246, 222, 182, 0.4), transparent 60%),
     radial-gradient(42rem 42rem at 50% 118%, rgba(240, 192, 169, 0.27), transparent 60%),
-    #f7f3ed;
+    var(--page-bg);
 }
 .dark .app-bg {
   background:
     radial-gradient(55rem 38rem at 8% -12%, rgba(14, 165, 233, 0.2), transparent 60%),
     radial-gradient(48rem 34rem at 108% 6%, rgba(139, 92, 246, 0.18), transparent 60%),
     radial-gradient(42rem 42rem at 50% 118%, rgba(190, 24, 93, 0.14), transparent 60%),
-    #08080b;
+    var(--page-bg);
 }
 
 .custom-background-layer {
@@ -130,59 +380,60 @@ select optgroup {
   }
 }
 
-.custom-locks-layer {
-  contain: strict;
-  position: fixed;
-  inset: 0;
-  z-index: 1;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.custom-lock-particle {
-  position: absolute;
-  top: -3rem;
-  object-fit: contain;
-  opacity: 0.38;
-  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.18));
-  contain: layout paint style;
-  backface-visibility: hidden;
-  animation: custom-lock-fall 32s linear infinite;
-}
-
-.custom-locks-layer.is-paused .custom-lock-particle {
-  animation-play-state: paused;
-}
-
-@keyframes custom-lock-fall {
-  from { transform: translate3d(0, -8vh, 0) rotate(0deg); }
-  to { transform: translate3d(6vw, 112vh, 0) rotate(270deg); }
-}
-
 .glass {
   background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(14px) saturate(1.25);
-  backdrop-filter: blur(14px) saturate(1.25);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+  backdrop-filter: blur(10px) saturate(1.15);
   border: 1px solid var(--glass-border);
   box-shadow: var(--shadow-card), inset 0 1px 0 var(--glass-border-2);
 }
 .glass-2 {
   background: var(--glass-bg-2);
-  -webkit-backdrop-filter: blur(18px) saturate(1.3);
-  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
   border: 1px solid var(--glass-border-2);
   box-shadow: var(--shadow-card);
+}
+
+/* ── Performance mode (solid surfaces, no backdrop-filter) ──────────────
+   Toggle: data-glass="off" on <html> — set by CustomAtmosphere when
+   settings.solidMode is true. Eliminates GPU blur compositing on every card.
+   One line to flip the entire dashboard from frosted-glass to solid. */
+html[data-glass="off"] .glass,
+html[data-glass="off"] .glass-2 {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-glass="off"] {
+  --surface-1: #fffefb;
+  --surface-2: #fffefb;
+  --glass-bg: #fffefb;
+  --glass-bg-2: #fffefb;
+  --glass-border: var(--border-subtle);
+  --glass-border-2: var(--border-subtle);
+}
+html[data-glass="off"].dark {
+  --surface-1: #161618;
+  --surface-2: #1a1a1e;
+  --glass-bg: #161618;
+  --glass-bg-2: #1a1a1e;
+  --glass-border: var(--border-subtle);
+  --glass-border-2: var(--border-subtle);
+}
+/* Solid mode also skips the custom-background-layer blur for perf. */
+html[data-glass="off"] .custom-background-layer {
+  filter: none;
 }
 
 /* A custom image is already a costly full-screen backdrop. Keep the frosted
    look, but avoid stacking the maximum blur on every card. */
 .custom-background-layer ~ .relative.z-10 .glass {
-  -webkit-backdrop-filter: blur(16px) saturate(1.3);
-  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(6px) saturate(1.1);
+  backdrop-filter: blur(6px) saturate(1.1);
 }
 .custom-background-layer ~ .relative.z-10 .glass-2 {
-  -webkit-backdrop-filter: blur(18px) saturate(1.35);
-  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(8px) saturate(1.1);
+  backdrop-filter: blur(8px) saturate(1.1);
 }
 
 /* Keeps a container scrollable without a visible scrollbar track — used by
@@ -193,6 +444,34 @@ select optgroup {
 }
 .scrollbar-none::-webkit-scrollbar {
   display: none;
+}
+
+/* Thin scrollbar that fades in on hover/focus and out when idle — used by
+   the sidebar nav area so it stays scrollable without permanent clutter. */
+.scrollbar-fade {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s;
+}
+.scrollbar-fade:hover,
+.scrollbar-fade:focus-within {
+  scrollbar-color: var(--border-strong) transparent;
+}
+.scrollbar-fade::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-fade::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-fade::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+.scrollbar-fade:hover::-webkit-scrollbar-thumb,
+.scrollbar-fade:focus-within::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
 }
 
 .skeleton {
@@ -211,31 +490,14 @@ select optgroup {
 
 /* Mobile prioritizes immediate interaction and scrolling over translucent blur and list choreography. */
 @media (max-width: 767px) {
-  .custom-lock-particle {
-    top: -1.5rem;
-    animation-name: custom-lock-fall;
-    animation-duration: 32s;
-    opacity: 0.3;
-  }
-
-  .custom-lock-particle:nth-child(n + 7) {
-    display: none;
-  }
-
   .glass,
   .glass-2 {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
 
-  .stagger-item,
   .skeleton {
     animation: none;
-  }
-
-  .stagger-item {
-    opacity: 1;
-    transform: none;
   }
 
   *,
@@ -245,35 +507,33 @@ select optgroup {
   }
 }
 
-/* ── Theme wipe ─────────────────────────────────────────────────────────────
-   The toggle sets the origin/radius custom properties and flips
-   `data-theme-wipe` before starting a view transition. The outgoing snapshot
-   stays put while the incoming one is revealed by an expanding circle, so the
-   new theme appears to flood the screen from the button that was pressed.
-   Scoped behind the data attribute so route transitions are untouched. */
+/* ── Theme transition ───────────────────────────────────────────────────────
+   Crossfade the snapshots instead of clipping a full glass/chart surface. */
 html[data-theme-wipe]::view-transition-old(root),
 html[data-theme-wipe]::view-transition-new(root) {
-  animation: none;
   mix-blend-mode: normal;
+  backface-visibility: hidden;
 }
 html[data-theme-wipe]::view-transition-old(root) {
   z-index: 0;
+  animation: theme-fade-out 160ms ease-out both;
 }
 html[data-theme-wipe]::view-transition-new(root) {
   z-index: 1;
-  animation: theme-wipe 220ms cubic-bezier(0.4, 0, 0.2, 1);
+  animation: theme-fade-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-@keyframes theme-wipe {
-  from {
-    clip-path: circle(0 at var(--theme-wipe-x) var(--theme-wipe-y));
-  }
-  to {
-    clip-path: circle(var(--theme-wipe-r) at var(--theme-wipe-x) var(--theme-wipe-y));
-  }
+@keyframes theme-fade-out {
+  to { opacity: 0; }
+}
+
+@keyframes theme-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html[data-theme-wipe]::view-transition-old(root),
   html[data-theme-wipe]::view-transition-new(root) {
     animation: none;
   }

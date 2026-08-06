@@ -6,14 +6,16 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clipboard, Download, FlaskConical, Loader2, Network, Pencil, Plus, Route, ShieldCheck, Trash2 } from "lucide-react";
+import { Activity, Clipboard, Download, FlaskConical, Gauge, Loader2, Network, Pencil, Plus, PowerOff, Route, ShieldCheck, Trash2 } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
-import { ApiError, apiDelete, apiGet, apiPost } from "../../lib/api";
+import { toast } from "../../lib/toast";
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "../../lib/api";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Dialog } from "../../components/ui/dialog";
 import { Input, Label, Textarea } from "../../components/ui/input";
+import { Badge } from "../../components/ui/badge";
+import { StatePanel, StatCard } from "../../components/ui/state";
 import { Select } from "../../components/ui/tabs";
 import { Switch } from "../../components/ui/switch";
 import { ConfirmDialog } from "../../components/shared";
@@ -23,14 +25,24 @@ function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.message : "request failed";
 }
 
+function formatProxyTestTime(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────
 
 interface ProviderRoutingSummary {
   id: string;
   name: string;
-  icon: string;
-  authKind: "none" | "session" | "api-key";
-  routing: { strategy: "priority" | "round-robin"; stickyLimit: number; useStickyLimit: boolean };
+  /** Brand icon key — not returned by the API; derived from `id`. */
+  icon?: string;
+  /** Credential kind from the API response. */
+  credentialKind?: string;
+  /** Derived from `credentialKind` for display logic. */
+  authKind?: "none" | "session" | "api-key";
+  routing?: { strategy: "priority" | "round-robin"; stickyLimit: number; useStickyLimit?: boolean };
 }
 
 interface ProxySettings {
@@ -38,6 +50,7 @@ interface ProxySettings {
   excludedProviders: string[];
   smartDynamicRouting: boolean;
   smartDynamicProxyCount: number;
+  targetConcurrent: number;
 }
 
 interface ProxyRecord {
@@ -49,7 +62,21 @@ interface ProxyRecord {
   port: number;
   username: string | null;
   passwordHint: string | null;
+  maxConcurrency: number;
+  weight: number;
   active: boolean;
+  lastTestAt: string | null;
+  lastTestSuccessAt: string | null;
+  lastTestSuccessLatencyMs: number | null;
+  lastTestErrorAt: string | null;
+  lastTestError: string | null;
+  lastTestStatusCode: number | null;
+  health?: {
+    status: "healthy" | "cooling_down" | "error" | "disabled";
+    statusCode: number | null;
+    sanitizedMessage: string | null;
+    occurredAt: string | null;
+  } | null;
 }
 
 interface ProxyFormState {
@@ -59,6 +86,8 @@ interface ProxyFormState {
   port: string;
   username: string;
   password: string;
+  maxConcurrency: string;
+  weight: string;
 }
 
 interface BatchCreateResponse {
@@ -66,31 +95,65 @@ interface BatchCreateResponse {
   skipped: Array<{ line: number; reason: string }>;
 }
 
-const EMPTY_FORM: ProxyFormState = { name: "", protocol: "socks5", host: "", port: "", username: "", password: "" };
+interface BatchCheckResult {
+  line: number;
+  entry: string;
+  ok: boolean;
+  body?: Record<string, unknown>;
+  latencyMs?: number;
+  error?: string;
+}
+
+const EMPTY_FORM: ProxyFormState = { name: "", protocol: "socks5", host: "", port: "", username: "", password: "", maxConcurrency: "8", weight: "100" };
+
+function parseProxyEntry(entry: string): { readonly body: Record<string, unknown> } | { readonly error: string } {
+  try {
+    const parsed = new URL(entry);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:" && parsed.protocol !== "socks5:") return { error: "unsupported protocol" };
+    if (!parsed.hostname) return { error: "host is required" };
+    const protocol = parsed.protocol.slice(0, -1) as "http" | "https" | "socks5";
+    const port = Number(parsed.port || (protocol === "https" ? 443 : protocol === "http" ? 80 : 1080));
+    const normalizedHost = parsed.hostname.toLowerCase();
+    const isRelay = normalizedHost.endsWith(".vercel.app") || normalizedHost.endsWith(".workers.dev");
+    return {
+      body: {
+        name: `${parsed.hostname}:${port}`,
+        protocol,
+        isRelay,
+        host: parsed.hostname,
+        port,
+        username: parsed.username ? decodeURIComponent(parsed.username) : null,
+        password: parsed.password ? decodeURIComponent(parsed.password) : null,
+        maxConcurrency: 8,
+        weight: 100,
+      },
+    };
+  } catch {
+    return { error: "invalid proxy URL" };
+  }
+}
 
 // ── Proxy pool section (top - the actual proxy servers and pool-wide policy) ─
 
 function ProxyPoolSection() {
   const qc = useQueryClient();
-  const { data: settings, isLoading: settingsLoading } = useQuery({ queryKey: ["console", "proxy-settings"], queryFn: () => apiGet<ProxySettings>("/proxy-settings") });
   const { data: pool, isLoading: poolLoading } = useQuery({ queryKey: ["console", "proxies"], queryFn: () => apiGet<{ items: ProxyRecord[] }>("/proxies?limit=100") });
 
-  const settingsMutation = useMutation({
-    mutationFn: (patch: Partial<ProxySettings>) => apiPost<ProxySettings>("/proxy-settings", patch),
-    onSuccess: (next) => qc.setQueryData(["console", "proxy-settings"], next),
-    onError: (err) => toast.error(errorMessage(err)),
-  });
   const activeMutation = useMutation({
-    mutationFn: ({ id, active }: { id: string; active: boolean }) => apiPost<{ ok: boolean }>(`/proxies/${id}`, { active }),
+    mutationFn: ({ id, active }: { id: string; active: boolean }) => apiPatch<{ ok: boolean }>(`/proxies/${id}`, { active }),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ["console", "proxies"] }); },
     onError: (err) => toast.error(errorMessage(err)),
   });
 
-  const [modal, setModal] = useState<{ open: boolean; existing: ProxyRecord | null }>({ open: false, existing: null });
+  const [modal, setModal] = useState<{ open: boolean; mounted: boolean; existing: ProxyRecord | null }>({ open: false, mounted: false, existing: null });
+  const openModal = (existing: ProxyRecord | null) => setModal({ open: true, mounted: true, existing });
+  const closeModal = () => setModal((current) => ({ ...current, open: false }));
+  const finishModalExit = () => setModal({ open: false, mounted: false, existing: null });
   const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statuses, setStatuses] = useState<Record<string, string>>({});
   const [deleteSelectedOpen, setDeleteSelectedOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ProxyRecord | null>(null);
 
   const setProxyStatus = (id: string, status: string) => {
     setStatuses((current) => ({ ...current, [id]: status }));
@@ -109,6 +172,7 @@ function ProxyPoolSection() {
         setProxyStatus(proxy.id, status);
         if (notify) toast.error(`${proxy.name}: ${result.error ?? "connection failed"}`);
       }
+      await qc.invalidateQueries({ queryKey: ["console", "proxies"] });
     } catch (err) {
       const message = errorMessage(err);
       setProxyStatus(proxy.id, `Last error: ${message}`);
@@ -122,8 +186,10 @@ function ProxyPoolSection() {
     }
   };
 
-  const settingsData = settings ?? { enabled: false, excludedProviders: [], smartDynamicRouting: false, smartDynamicProxyCount: 2 };
   const items = pool?.items ?? [];
+  const testedCount = items.filter((proxy) => proxy.lastTestAt != null).length;
+  const successCount = items.filter((proxy) => proxy.lastTestSuccessAt != null && proxy.lastTestAt === proxy.lastTestSuccessAt).length;
+  const errorCount = items.filter((proxy) => proxy.lastTestErrorAt != null && proxy.lastTestAt === proxy.lastTestErrorAt).length;
   const allSelected = items.length > 0 && items.every((proxy) => selectedIds.has(proxy.id));
 
   const toggleSelected = (id: string) => {
@@ -159,6 +225,32 @@ function ProxyPoolSection() {
     }
   };
 
+  const disableSelected = async (): Promise<void> => {
+    const targets = items.filter((proxy) => selectedIds.has(proxy.id));
+    if (targets.length === 0) return;
+    try {
+      await Promise.all(targets.map((proxy) => apiPatch<{ ok: boolean }>(`/proxies/${proxy.id}`, { active: false })));
+      setSelectedIds(new Set());
+      toast.success(`Disabled ${targets.length} proxies`);
+      await qc.invalidateQueries({ queryKey: ["console", "proxies"] });
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+
+  const deleteProxy = async (): Promise<void> => {
+    if (deleteTarget === null) return;
+    const target = deleteTarget;
+    try {
+      await apiDelete<{ ok: boolean }>(`/proxies/${target.id}`);
+      setDeleteTarget(null);
+      toast.success(`Deleted ${target.name}`);
+      await qc.invalidateQueries({ queryKey: ["console", "proxies"] });
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+
   const exportSelected = () => {
     const targets = selectedIds.size > 0 ? items.filter((proxy) => selectedIds.has(proxy.id)) : items;
     const content = targets.map((proxy) => `${proxy.protocol}://${proxy.host}:${proxy.port}`).join("\n");
@@ -175,100 +267,109 @@ function ProxyPoolSection() {
   return (
     <Card className="space-y-4">
       <CardHeader title="Proxy Pool" icon={ShieldCheck} sub="Outbound proxy servers - HTTP, HTTPS, and SOCKS5, with automatic failover">
-        <Button size="sm" onClick={() => setModal({ open: true, existing: null })}>
+        <Button size="sm" className="w-full sm:w-auto" onClick={() => openModal(null)}>
           <Plus size={14} /> New proxy
         </Button>
       </CardHeader>
 
-      <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3.5 py-3">
-        <div>
-          <div className="text-xs font-semibold">Route provider traffic through the proxy pool</div>
-          <div className="mt-0.5 text-[11px] text-[var(--text-3)]">Off by default - every provider connects directly until this is enabled.</div>
-        </div>
-        <Switch checked={settingsData.enabled} disabled={settingsLoading} onChange={(next) => settingsMutation.mutate({ enabled: next })} label="Enable proxy pool" />
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <StatCard label="Enabled pool" icon={ShieldCheck} tone="accent" value={<>{items.filter((proxy) => proxy.active).length}<span className="ml-1 text-[11px] font-normal text-[var(--text-3)]">/ {items.length}</span></>} loading={poolLoading} />
+        <StatCard label="Route capacity" icon={Gauge} tone="info" value={<>{items.reduce((total, proxy) => total + (proxy.active ? proxy.maxConcurrency : 0), 0)}<span className="ml-1 text-[11px] font-normal text-[var(--text-3)]">in-flight</span></>} loading={poolLoading} />
+        <StatCard label="Weighted units" icon={Activity} tone="neutral" value={items.reduce((total, proxy) => total + (proxy.active ? proxy.weight : 0), 0)} loading={poolLoading} />
       </div>
 
-      <div className="flex flex-col gap-3 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <div className="text-xs font-semibold">Smart Dynamic Routing</div>
-          <div className="mt-0.5 text-[11px] text-[var(--text-3)]">Keeps a small sticky proxy set per client and switches only after the provider rate-limits that client.</div>
-          <div className="mt-1 text-[10px] text-[var(--text-3)]">The client keeps these proxies sticky to preserve upstream cache locality; rotation is automatic on 429.</div>
-        </div>
-        <div className="flex w-full shrink-0 flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
-          <label className="flex items-center gap-1.5 text-[10px] text-[var(--text-3)]" title="Number of sticky proxies assigned per client before dynamic rotation">
-            Sticky proxies
-            <Input type="number" min={1} max={10} value={settingsData.smartDynamicProxyCount} disabled={settingsLoading} onChange={(event) => settingsMutation.mutate({ smartDynamicProxyCount: Math.max(1, Math.min(10, Number(event.target.value) || 2)) })} className="h-8 w-14 px-2 text-center text-xs" />
+      <div className="flex flex-col gap-2 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-[11px] text-[var(--text-2)]">
+            <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all proxies" />
+            Select all
+            {selectedIds.size > 0 && <span className="text-[var(--text-3)]">({selectedIds.size})</span>}
           </label>
-          <Switch checked={settingsData.smartDynamicRouting} disabled={settingsLoading} onChange={(next) => settingsMutation.mutate({ smartDynamicRouting: next })} label="Enable smart dynamic routing" />
+          {items.length > 0 && <div className="flex flex-wrap items-center gap-1.5 text-[10px]" aria-live="polite">
+            <span className="text-[var(--text-3)]">Tested {testedCount}/{items.length}</span>
+            <Badge tone="ok">{successCount} success</Badge>
+            <Badge tone="err">{errorCount} errors</Badge>
+          </div>}
         </div>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2">
-        <label className="flex items-center gap-2 text-[11px] text-[var(--text-2)]">
-          <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all proxies" />
-          Select all
-          {selectedIds.size > 0 && <span className="text-[var(--text-3)]">({selectedIds.size})</span>}
-        </label>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button variant="secondary" size="sm" disabled={items.length === 0 || testingIds.size > 0} onClick={() => void runAllTests()}>
+        <div className="grid w-full grid-cols-1 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+          <Button className="w-full sm:w-auto" variant="secondary" size="sm" disabled={items.length === 0 || testingIds.size > 0} onClick={() => void runAllTests()}>
             {testingIds.size > 0 ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />} Test all
           </Button>
-          <Button variant="secondary" size="sm" disabled={items.length === 0} onClick={exportSelected}>
+          <Button className="w-full sm:w-auto" variant="secondary" size="sm" disabled={items.length === 0} onClick={exportSelected}>
             <Download size={12} /> Export
           </Button>
-          <Button variant="secondary" size="sm" disabled={selectedIds.size === 0} onClick={() => setDeleteSelectedOpen(true)}>
+          <Button className="w-full sm:w-auto" variant="secondary" size="sm" disabled={selectedIds.size === 0} onClick={() => void disableSelected()}>
+            <PowerOff size={12} /> Disable selected
+          </Button>
+          <Button className="w-full sm:w-auto" variant="secondary" size="sm" disabled={selectedIds.size === 0} onClick={() => setDeleteSelectedOpen(true)}>
             <Trash2 size={12} /> Delete selected
           </Button>
         </div>
       </div>
 
-      <div className="max-h-[17rem] overflow-auto rounded-xl border border-[var(--inner-border)]">
+      <div className="scrollbar-fade max-h-[28rem] overflow-y-auto pr-0.5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {poolLoading ? (
-          <div className="py-8 text-center text-xs text-[var(--text-3)]">Loading…</div>
+          <div className="sm:col-span-2 xl:col-span-3">
+            <StatePanel kind="loading" title="Loading proxies" description="Reading the proxy pool…" icon={ShieldCheck} />
+          </div>
         ) : items.length === 0 ? (
-          <div className="py-8 text-center text-xs text-[var(--text-3)]">No proxies yet - add one to start routing requests through the pool.</div>
-        ) : (
-          <table className="w-full table-fixed text-left text-[11px]">
-            <thead className="sticky top-0 z-10 bg-[var(--hover)] text-[10px] font-semibold uppercase tracking-wide text-[var(--text-3)]">
-              <tr>
-                <th className="w-10 px-3 py-2.5">#</th>
-                <th className="px-3 py-2.5">Name</th>
-                <th className="hidden px-3 py-2.5 sm:table-cell">Endpoint</th>
-                <th className="w-32 px-2 py-2.5 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((proxy, index) => (
-                <tr key={proxy.id} className="border-t border-[var(--inner-border)] transition-colors hover:bg-[var(--hover)]">
-                  <td className="px-3 py-2.5 align-top font-mono text-[10px] text-[var(--text-3)]">
-                    <input type="checkbox" checked={selectedIds.has(proxy.id)} onChange={() => toggleSelected(proxy.id)} aria-label={`Select ${proxy.name}`} />
-                    <span className="ml-2">{index + 1}</span>
-                  </td>
-                  <td className="max-w-0 px-3 py-2.5 align-top">
-                    <div className="truncate text-xs font-semibold">{proxy.name}</div>
-                    <div className="mt-0.5 text-[10px] text-[var(--text-3)]">{statuses[proxy.id] ?? (proxy.active ? "Active" : "Disabled")}</div>
-                    <code className="mt-0.5 block font-mono text-[10px] text-[var(--text-3)] sm:hidden">{proxy.host}:{proxy.port}</code>
-                  </td>
-                  <td className="hidden px-3 py-2.5 font-mono text-[10px] text-[var(--text-3)] sm:table-cell">{proxy.protocol}://{proxy.host}:{proxy.port}</td>
-                  <td className="w-32 px-2 py-2.5 align-top">
-                    <div className="flex justify-end gap-0.5 whitespace-nowrap">
-                      <Button variant="ghost" size="icon" className="size-7" title="Test connection" aria-label={`Test ${proxy.name}`} disabled={testingIds.has(proxy.id)} onClick={() => void runSavedTest(proxy)}>
-                        {testingIds.has(proxy.id) ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />}
-                      </Button>
-                      <Button variant="ghost" size="icon" className="size-7" title="Edit proxy" aria-label={`Edit ${proxy.name}`} onClick={() => setModal({ open: true, existing: proxy })}>
-                        <Pencil size={12} />
-                      </Button>
-                      <Switch checked={proxy.active} disabled={activeMutation.isPending} onChange={(active) => activeMutation.mutate({ id: proxy.id, active })} label={`${proxy.active ? "Disable" : "Enable"} ${proxy.name}`} />
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+          <div className="sm:col-span-2 xl:col-span-3 flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[var(--accent)]/30 bg-[var(--accent-soft)]/40 px-6 py-12 text-center">
+            <Network size={28} className="text-[var(--accent)]" />
+            <div>
+              <p className="text-sm font-bold">No proxies yet</p>
+              <p className="mt-1 text-xs text-[var(--text-3)]">Add one to start routing requests through the pool.</p>
+            </div>
+            <Button size="sm" onClick={() => openModal(null)}><Plus size={14} /> New proxy</Button>
+          </div>
+        ) : items.map((proxy, index) => {
+          const persistedStatus = proxy.health?.status === "error"
+            ? `Error${proxy.health.sanitizedMessage ? `: ${proxy.health.sanitizedMessage}` : " · Connection failed"}${proxy.health.occurredAt ? ` · ${formatProxyTestTime(proxy.health.occurredAt)}` : ""}`
+            : proxy.health?.status === "healthy"
+              ? `Healthy${proxy.lastTestSuccessLatencyMs !== null ? ` · ${proxy.lastTestSuccessLatencyMs}ms` : ""}${proxy.health.occurredAt ? ` · ${formatProxyTestTime(proxy.health.occurredAt)}` : ""}`
+              : proxy.active ? "Active" : "Disabled";
+          const status = statuses[proxy.id] ?? persistedStatus;
+          const isTesting = testingIds.has(proxy.id);
+          const hasError = proxy.health?.status === "error";
+          return (
+            <article key={proxy.id} className="rounded-2xl border border-[var(--inner-border)] bg-[var(--surface)] p-3.5 transition-colors hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)]">
+              <div className="flex items-start gap-3">
+                <input className="mt-1 size-3.5 shrink-0" type="checkbox" checked={selectedIds.has(proxy.id)} onChange={() => toggleSelected(proxy.id)} aria-label={`Select ${proxy.name}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="font-mono text-[10px] text-[var(--text-3)]">{String(index + 1).padStart(2, "0")}</span>
+                    <span className="truncate text-xs font-semibold">{proxy.name}</span>
+                    <Badge tone={proxy.active ? "ok" : "default"} className="ml-auto shrink-0">{proxy.active ? "Active" : "Disabled"}</Badge>
+                  </div>
+                  <code className="mt-1 block truncate font-mono text-[10px] text-[var(--text-2)]">{proxy.protocol}://{proxy.host}:{proxy.port}</code>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <Badge tone="default">cap {proxy.maxConcurrency}</Badge>
+                    <Badge tone="default">weight {proxy.weight}</Badge>
+                    <Badge tone={hasError ? "err" : "ok"} className="max-w-full truncate" title={hasError ? (proxy.lastTestError ?? "Connection failed") : undefined}>{status}</Badge>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[var(--inner-border)] pt-3">
+                <Button variant="secondary" size="sm" disabled={isTesting} onClick={() => void runSavedTest(proxy)}>
+                  {isTesting ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />} Test
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => openModal(proxy)}>
+                  <Pencil size={12} /> Edit
+                </Button>
+                <Button variant="ghost" size="icon" className="size-8 text-[var(--red)]" title="Delete proxy" aria-label={`Delete ${proxy.name}`} onClick={() => setDeleteTarget(proxy)}>
+                  <Trash2 size={13} />
+                </Button>
+                <div className="ml-auto">
+                  <Switch checked={proxy.active} disabled={activeMutation.isPending} onChange={(active) => activeMutation.mutate({ id: proxy.id, active })} label={`${proxy.active ? "Disable" : "Enable"} ${proxy.name}`} />
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
       </div>
 
-      {modal.open && <ProxyModal existing={modal.existing} onClose={() => setModal({ open: false, existing: null })} />}
+      {modal.mounted && <ProxyModal open={modal.open} existing={modal.existing} onClose={closeModal} onExited={finishModalExit} />}
       {deleteSelectedOpen && (
         <ConfirmDialog
           open
@@ -278,6 +379,17 @@ function ProxyPoolSection() {
           danger
           onClose={() => setDeleteSelectedOpen(false)}
           onConfirm={() => void deleteSelected()}
+        />
+      )}
+      {deleteTarget && (
+        <ConfirmDialog
+          open
+          title={`Delete ${deleteTarget.name}?`}
+          message="This proxy will be removed from the pool and cannot be used for routing."
+          confirmLabel="Delete proxy"
+          danger
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={() => void deleteProxy()}
         />
       )}
     </Card>
@@ -330,6 +442,21 @@ function RoutingAndExceptionsSection() {
     }
   };
 
+  const setStickyLimitForAll = async (value: number): Promise<void> => {
+    const stickyLimit = Math.max(1, Math.min(100, Math.round(value) || 1));
+    setStickyApplying(true);
+    try {
+      const eligible = (providers?.items ?? []).filter((provider) => provider.authKind !== "none");
+      await Promise.all(eligible.map((provider) => apiPost<{ ok: boolean }>(`/providers/${provider.id}/routing`, { stickyLimit })));
+      await qc.invalidateQueries({ queryKey: ["console", "providers-routing"] });
+      toast.success(`Sticky limit set to ${stickyLimit} for ${eligible.length} provider${eligible.length === 1 ? "" : "s"}`);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setStickyApplying(false);
+    }
+  };
+
   const settingsMutation = useMutation({
     mutationFn: (patch: Partial<ProxySettings>) => apiPost<ProxySettings>("/proxy-settings", patch),
     onSuccess: (next) => qc.setQueryData(["console", "proxy-settings"], next),
@@ -343,17 +470,20 @@ function RoutingAndExceptionsSection() {
   };
 
   const items = providers?.items ?? [];
-  const stickyEnabled = items.some((provider) => provider.routing.useStickyLimit);
+  const eligibleProviders = items.filter((provider) => provider.authKind !== "none");
+  const stickyEnabled = eligibleProviders.length > 0 && eligibleProviders.every((provider) => provider.routing?.useStickyLimit === true);
+  const stickyVisible = eligibleProviders.some((provider) => provider.routing?.useStickyLimit === true);
+  const globalStickyLimit = eligibleProviders.at(0)?.routing?.stickyLimit ?? 1;
 
   return (
     <Card className="space-y-3">
       <CardHeader title="Routing Strategy" icon={Route} sub="Account rotation strategy, sticky limits, and proxy-pool exceptions per provider">
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
           <span className="text-[11px] text-[var(--text-3)]">Set all:</span>
-          <Button variant="secondary" size="sm" disabled={batchApplying !== null} onClick={() => void applyStrategyToAll("priority")}>
+          <Button variant="secondary" size="sm" disabled={batchApplying !== null || stickyApplying} onClick={() => void applyStrategyToAll("priority")}>
             {batchApplying === "priority" ? <Loader2 size={12} className="animate-spin" /> : null} Priority
           </Button>
-          <Button variant="secondary" size="sm" disabled={batchApplying !== null} onClick={() => void applyStrategyToAll("round-robin")}>
+          <Button variant="secondary" size="sm" disabled={batchApplying !== null || stickyApplying} onClick={() => void applyStrategyToAll("round-robin")}>
             {batchApplying === "round-robin" ? <Loader2 size={12} className="animate-spin" /> : null} Round-robin
           </Button>
         </div>
@@ -361,77 +491,90 @@ function RoutingAndExceptionsSection() {
       <div className="flex flex-col gap-2 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="text-xs font-semibold">Use sticky limit</div>
-          <div className="mt-0.5 text-[11px] text-[var(--text-3)]">Off by default. Enable it to show and apply per-provider sticky limits during round-robin account rotation.</div>
+          <div className="mt-0.5 text-[11px] text-[var(--text-3)]">Apply sticky account routing across every provider with configured accounts.</div>
+          <div className="mt-1 text-[10px] text-[var(--text-3)]">Turn it on globally here, then fine-tune each provider&apos;s sticky limit below.</div>
         </div>
-        <Switch checked={stickyEnabled} disabled={isLoading || stickyApplying} onChange={(next) => void toggleStickyLimit(next)} label="Use sticky limit" />
+        <div className="flex w-full shrink-0 flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
+          <label className="flex items-center gap-1.5 text-[10px] text-[var(--text-3)]" title="Set the sticky account limit for every provider">
+            Sticky limit
+            <Input
+              aria-label="Global sticky limit"
+              type="number"
+              min={1}
+              max={100}
+              value={globalStickyLimit}
+              disabled={isLoading || stickyApplying || batchApplying !== null}
+              onChange={(event) => void setStickyLimitForAll(Number(event.target.value))}
+              className="h-8 w-16 px-2 text-center text-xs"
+            />
+          </label>
+          <Switch checked={stickyEnabled} disabled={isLoading || stickyApplying || batchApplying !== null} onChange={(next) => void toggleStickyLimit(next)} label="Use sticky limit for all providers" />
+        </div>
       </div>
       {isLoading ? (
-        <div className="py-6 text-center text-xs text-[var(--text-3)]">Loading…</div>
+        <StatePanel kind="loading" title="Loading providers" description="Reading provider routing config…" icon={Route} />
       ) : items.length === 0 ? (
-        <div className="py-6 text-center text-xs text-[var(--text-3)]">No providers registered yet.</div>
+        <StatePanel kind="empty" title="No providers registered" description="Add provider accounts to configure routing strategy." icon={Route} />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-[var(--inner-border)]">
-          <div className="max-h-[28rem] overflow-auto">
-            <table className="w-full text-left text-[11px]">
-              <thead className="sticky top-0 z-10 bg-[var(--hover)] text-[10px] font-semibold uppercase tracking-wide text-[var(--text-3)]">
-                <tr>
-                  <th className="px-3 py-2.5">Provider</th>
-                  <th className="px-3 py-2.5">Routing Strategy</th>
-                  {stickyEnabled && <th className="px-3 py-2.5">Sticky limit</th>}
-                  <th className="hidden px-3 py-2.5 sm:table-cell">Always direct (skip proxy)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((provider) => {
-                  const hasAccounts = provider.authKind !== "none";
-                  const excluded = excludedProviders.includes(provider.id);
-                  return (
-                    <tr key={provider.id} className="border-t border-[var(--inner-border)]">
-                      <td className="px-3 py-2 align-middle">
-                        <div className="flex items-center gap-2">
-                          <ProviderIcon icon={provider.icon} name={provider.name} size={20} />
-                          <div className="min-w-0">
-                            <span className="block truncate text-xs font-semibold">{provider.name}</span>
-                            <span className="mt-1 flex items-center gap-1.5 sm:hidden"><Switch checked={excluded} onChange={(next) => toggleExcluded(provider.id, next)} label="Skip proxy" /></span>
-                          </div>
+        <div className="scrollbar-fade max-h-[28rem] overflow-y-auto pr-0.5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {items.map((provider) => {
+              const icon = provider.icon ?? provider.id;
+              const authKind = provider.authKind ?? (provider.credentialKind === "oauth" ? "session" : provider.credentialKind === "api_key" ? "api-key" : "none");
+              const hasAccounts = authKind !== "none";
+              const excluded = excludedProviders.includes(provider.id);
+              const routing = provider.routing ?? { strategy: "priority" as const, stickyLimit: 1 };
+              return (
+                <article key={provider.id} className="rounded-2xl border border-[var(--inner-border)] bg-[var(--surface)] p-3.5 transition-colors hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)]">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <ProviderIcon icon={icon} name={provider.name} size={24} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-xs font-semibold">{provider.name}</div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <Badge tone={hasAccounts ? "info" : "default"}>{hasAccounts ? authKind : "No accounts"}</Badge>
+                          <Badge tone={excluded ? "warn" : "ok"}>{excluded ? "Direct connection" : "Proxy pool eligible"}</Badge>
                         </div>
-                      </td>
-                      <td className="px-3 py-2 align-middle">
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 border-t border-[var(--inner-border)] pt-3">
+                      <label className="flex items-center gap-1.5 text-[10px] text-[var(--text-3)]">
+                        Strategy
                         {hasAccounts ? (
                           <Select
                             ariaLabel={`${provider.name} strategy`}
                             className="w-40"
-                            value={provider.routing.strategy}
+                            value={routing.strategy}
                             onChange={(v) => routingMutation.mutate({ id: provider.id, config: { strategy: v } })}
                             options={[{ value: "priority", label: "Priority (failover)" }, { value: "round-robin", label: "Round-robin" }]}
                           />
                         ) : (
-                          <span className="text-[11px] text-[var(--text-3)]">No accounts</span>
+                          <span className="rounded-lg border border-[var(--inner-border)] px-2.5 py-2 text-[10px]">No accounts</span>
                         )}
-                      </td>
-                      {stickyEnabled && <td className="px-3 py-2 align-middle">
+                      </label>
+                      {stickyVisible && <label className="flex items-center gap-1.5 text-[10px] text-[var(--text-3)]">
+                        Sticky
                         {hasAccounts ? (
                           <Input
                             aria-label={`${provider.name} sticky limit`}
                             type="number"
                             min={1}
                             max={100}
-                            value={provider.routing.stickyLimit}
+                            value={routing.stickyLimit}
                             onChange={(event) => routingMutation.mutate({ id: provider.id, config: { stickyLimit: Math.max(1, Math.min(100, Number(event.target.value) || 1)) } })}
-                            className="h-8 w-20 px-2 text-center text-xs"
+                            className="h-8 w-16 px-2 text-center text-xs"
                           />
-                        ) : (
-                          <span className="text-[11px] text-[var(--text-3)]">—</span>
-                        )}
-                      </td>}
-                      <td className="hidden px-3 py-2 align-middle sm:table-cell">
+                        ) : <span>—</span>}
+                      </label>}
+                      <div className="ml-auto flex items-center gap-1.5">
+                        <span className="text-[10px] text-[var(--text-3)]">Always direct</span>
                         <Switch checked={excluded} onChange={(next) => toggleExcluded(provider.id, next)} label={`${provider.name} always direct`} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </div>
       )}
@@ -439,17 +582,23 @@ function RoutingAndExceptionsSection() {
   );
 }
 
-function ProxyModal({ existing, onClose }: { existing: ProxyRecord | null; onClose: () => void }) {
+function ProxyModal({ open, existing, onClose, onExited }: { open: boolean; existing: ProxyRecord | null; onClose: () => void; onExited: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<ProxyFormState>(
     existing
-      ? { name: existing.name, protocol: existing.protocol, host: existing.host, port: String(existing.port), username: existing.username ?? "", password: "" }
+      ? { name: existing.name, protocol: existing.protocol, host: existing.host, port: String(existing.port), username: existing.username ?? "", password: "", maxConcurrency: String(existing.maxConcurrency ?? 8), weight: String(existing.weight ?? 100) }
       : EMPTY_FORM,
   );
   const [batchEntries, setBatchEntries] = useState("");
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [testing, setTesting] = useState(false);
-  const batchCount = batchEntries.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean).length;
+  const [checkBeforeAdd, setCheckBeforeAdd] = useState(false);
+  const [checkingBatch, setCheckingBatch] = useState(false);
+  const [batchCheckResults, setBatchCheckResults] = useState<BatchCheckResult[] | null>(null);
+  const [checkedBatchInput, setCheckedBatchInput] = useState("");
+  const batchEntriesList = batchEntries.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+  const batchCount = batchEntriesList.length;
+  const batchInputKey = batchEntriesList.join("\n");
   const isNew = existing === null;
 
   const pasteFromClipboard = async () => {
@@ -464,18 +613,70 @@ function ProxyModal({ existing, onClose }: { existing: ProxyRecord | null; onClo
         return;
       }
       setBatchEntries(text);
+      setBatchCheckResults(null);
+      setCheckedBatchInput("");
     } catch {
       toast.error("Clipboard access denied");
+    }
+  };
+
+  const checkBatch = async (): Promise<void> => {
+    if (batchEntriesList.length === 0) {
+      toast.error("Paste at least one proxy URL");
+      return;
+    }
+    setCheckingBatch(true);
+    setBatchCheckResults(null);
+    try {
+      const results = await Promise.all(batchEntriesList.map(async (entry, index): Promise<BatchCheckResult> => {
+        const parsed = parseProxyEntry(entry);
+        if ("error" in parsed) return { line: index + 1, entry, ok: false, error: parsed.error };
+        try {
+          const result = await apiPost<{ ok: boolean; latencyMs?: number; error?: string }>("/proxies/test", parsed.body);
+          return { line: index + 1, entry, body: parsed.body, ok: result.ok, latencyMs: result.latencyMs, error: result.error };
+        } catch (error) {
+          return { line: index + 1, entry, body: parsed.body, ok: false, error: errorMessage(error) };
+        }
+      }));
+      setBatchCheckResults(results);
+      setCheckedBatchInput(batchInputKey);
+    } finally {
+      setCheckingBatch(false);
     }
   };
 
   const saveMutation = useMutation({
     mutationFn: async (): Promise<{ kind: "batch"; response: BatchCreateResponse } | { kind: "single"; response: { ok: boolean } }> => {
       if (isNew) {
-        const entries = batchEntries.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+        const entries = batchEntriesList;
         if (entries.length === 0) throw new Error("Paste at least one proxy URL");
-        const response = await apiPost<BatchCreateResponse>("/proxies/batch", { entries });
-        return { kind: "batch", response };
+        if (checkBeforeAdd) {
+          if (batchCheckResults === null || checkedBatchInput !== batchInputKey) throw new Error("Run Check proxies before adding");
+          const skipped: Array<{ line: number; reason: string }> = batchCheckResults.filter((result) => !result.ok).map((result) => ({ line: result.line, reason: result.error ?? "proxy check failed" }));
+          const healthy = batchCheckResults.filter((result): result is BatchCheckResult & { body: Record<string, unknown> } => result.ok && result.body !== undefined);
+          const createdResults = await Promise.all(healthy.map(async (result) => {
+            try {
+              await apiPost<{ id: string }>("/proxies", result.body);
+              return null;
+            } catch (error) {
+              return { line: result.line, reason: errorMessage(error) };
+            }
+          }));
+          skipped.push(...createdResults.filter((result): result is { line: number; reason: string } => result !== null));
+          return { kind: "batch", response: { created: healthy.length - createdResults.filter((result) => result !== null).length, skipped } };
+        }
+        const results = await Promise.all(entries.map(async (entry, index) => {
+          const parsed = parseProxyEntry(entry);
+          if ("error" in parsed) return { line: index + 1, reason: parsed.error };
+          try {
+            await apiPost<{ id: string }>("/proxies", parsed.body);
+            return null;
+          } catch (error) {
+            return { line: index + 1, reason: errorMessage(error) };
+          }
+        }));
+        const skipped = results.filter((result): result is { line: number; reason: string } => result !== null);
+        return { kind: "batch", response: { created: entries.length - skipped.length, skipped } };
       }
       const body = {
         name: form.name.trim(),
@@ -483,15 +684,21 @@ function ProxyModal({ existing, onClose }: { existing: ProxyRecord | null; onClo
         host: form.host.trim(),
         port: Number(form.port),
         username: form.username.trim() || null,
+        maxConcurrency: Math.max(1, Math.min(10000, Number(form.maxConcurrency) || 8)),
+        weight: Math.max(1, Math.min(1000, Number(form.weight) || 100)),
         ...(form.password ? { password: form.password } : {}),
       };
-      const response = await apiPost<{ ok: boolean }>(`/proxies/${existing.id}`, body);
+      const response = await apiPatch<{ ok: boolean }>(`/proxies/${existing.id}`, body);
       return { kind: "single", response };
     },
     onSuccess: ({ kind, response }) => {
       if (kind === "batch") {
         const skipped = response.skipped.length;
-        toast.success(`${response.created} proxies added${skipped > 0 ? `, ${skipped} skipped` : ""}`);
+        if (skipped === 0) toast.success(`${response.created} proxies added`);
+        else {
+          const details = response.skipped.slice(0, 3).map((entry) => `line ${entry.line}: ${entry.reason}`).join(" · ");
+          toast.error(`${response.created} added, ${skipped} skipped${details ? ` — ${details}` : ""}`);
+        }
       } else {
         toast.success("Proxy updated");
       }
@@ -527,10 +734,12 @@ function ProxyModal({ existing, onClose }: { existing: ProxyRecord | null; onClo
   const valid = isNew
     ? batchCount > 0
     : form.name.trim().length > 0 && form.host.trim().length > 0 && Number(form.port) > 0 && Number(form.port) <= 65535;
+  const checkedReadyCount = batchCheckResults?.filter((result) => result.ok).length ?? 0;
+  const canSave = valid && (!isNew || !checkBeforeAdd || (batchCheckResults !== null && checkedBatchInput === batchInputKey && checkedReadyCount > 0));
   const protocolOptions = [{ value: "socks5", label: "SOCKS5" }, { value: "http", label: "HTTP" }, { value: "https", label: "HTTPS" }];
 
   return (
-    <Dialog open onClose={onClose} title={isNew ? "New proxy" : "Edit proxy"}>
+    <Dialog open={open} onClose={onClose} onExited={onExited} title={isNew ? "New proxy" : "Edit proxy"}>
       <div className="space-y-3">
         {isNew ? (
           <>
@@ -539,10 +748,27 @@ function ProxyModal({ existing, onClose }: { existing: ProxyRecord | null; onClo
                 <Label htmlFor="proxy-batch-entries">Proxy URLs, one per line</Label>
                 <Button type="button" variant="secondary" size="sm" onClick={() => void pasteFromClipboard()}><Clipboard size={13} /> Paste</Button>
               </div>
-              <Textarea id="proxy-batch-entries" className="mt-1 w-full font-mono text-[11px]" rows={8} value={batchEntries} onChange={(e) => setBatchEntries(e.target.value)} placeholder={"http://host:8080\nhttps://user:password@host:443\nsocks5://host:1080"} autoFocus />
+              <Textarea id="proxy-batch-entries" className="mt-1 w-full font-mono text-[11px]" rows={8} value={batchEntries} onChange={(e) => { setBatchEntries(e.target.value); setBatchCheckResults(null); setCheckedBatchInput(""); }} placeholder={"http://host:8080\nhttps://user:password@host:443\nsocks5://host:1080"} autoFocus />
               <p className="mt-1 text-[10.5px] text-[var(--text-3)]">HTTP, HTTPS, and SOCKS5 are detected from each URL. Credentials are optional.</p>
             </div>
             <p className="text-[10.5px] text-[var(--text-3)]">Vercel and Cloudflare relays are detected automatically from their domain.</p>
+            <div className="flex flex-col gap-2 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <label className="flex items-start gap-2 text-[11px] text-[var(--text-2)]">
+                <input className="mt-0.5 size-3.5" type="checkbox" checked={checkBeforeAdd} onChange={(event) => { setCheckBeforeAdd(event.target.checked); setBatchCheckResults(null); setCheckedBatchInput(""); }} />
+                <span><span className="block font-semibold">Check proxies before adding</span><span className="mt-0.5 block text-[10px] text-[var(--text-3)]">Only healthy proxies will be added as active.</span></span>
+              </label>
+              <Button type="button" variant="secondary" size="sm" className="w-full sm:w-auto" disabled={!checkBeforeAdd || batchCount === 0 || checkingBatch} onClick={() => void checkBatch()}>
+                {checkingBatch ? <Loader2 size={13} className="animate-spin" /> : <FlaskConical size={13} />} {checkingBatch ? "Checking…" : "Check proxies"}
+              </Button>
+            </div>
+            {checkBeforeAdd && batchCheckResults !== null && (() => {
+              const ready = batchCheckResults.filter((result) => result.ok).length;
+              const failed = batchCheckResults.length - ready;
+              return <div className="space-y-2 rounded-xl border border-[var(--inner-border)] bg-[var(--surface-muted)] px-3 py-2.5" aria-live="polite">
+                <div className="flex flex-wrap items-center gap-1.5 text-[10px]"><span className="font-semibold text-[var(--text-1)]">Check summary</span><span className="text-[var(--text-3)]">{batchCheckResults.length} checked</span><span className="rounded-full bg-[var(--green-soft,rgba(48,209,88,0.10))] px-2 py-0.5 text-[var(--green)]">{ready} ready</span><span className="rounded-full bg-[var(--red-soft,rgba(255,69,58,0.10))] px-2 py-0.5 text-[var(--red)]">{failed} failed</span></div>
+                <div className="max-h-28 space-y-1 overflow-auto text-[10px]">{batchCheckResults.map((result) => <div key={`${result.line}-${result.entry}`} className="flex min-w-0 items-center gap-2"><span className={result.ok ? "text-[var(--green)]" : "text-[var(--red)]"}>{result.ok ? "OK" : "FAIL"}</span><span className="min-w-0 flex-1 truncate font-mono text-[var(--text-3)]">{result.entry}</span><span className="shrink-0 text-[var(--text-3)]">{result.ok ? `${result.latencyMs ?? 0}ms` : result.error ?? "check failed"}</span></div>)}</div>
+              </div>;
+            })()}
           </>
         ) : (
           <>
@@ -565,6 +791,14 @@ function ProxyModal({ existing, onClose }: { existing: ProxyRecord | null; onClo
               <Input className="mt-1 w-full" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} />
             </div>
             <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <Label>Max concurrent</Label>
+                <Input className="mt-1 w-full" type="number" min={1} max={10000} value={form.maxConcurrency} onChange={(e) => setForm({ ...form, maxConcurrency: e.target.value })} />
+              </div>
+              <div>
+                <Label>Weight</Label>
+                <Input className="mt-1 w-full" type="number" min={1} max={1000} value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} />
+              </div>
               <div>
                 <Label>Username (optional)</Label>
                 <Input className="mt-1 w-full" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
@@ -589,11 +823,11 @@ function ProxyModal({ existing, onClose }: { existing: ProxyRecord | null; onClo
             <Button variant="secondary" size="sm" disabled={testing || !form.host || !form.port} onClick={() => void runAdhocTest()}>
               {testing ? <Loader2 size={13} className="animate-spin" /> : <FlaskConical size={13} />} Test connection
             </Button>
-          ) : <span className="text-[10.5px] text-[var(--text-3)]">{batchCount} URL{batchCount === 1 ? "" : "s"} ready</span>}
+          ) : <span className="text-[10.5px] text-[var(--text-3)]">{checkBeforeAdd && batchCheckResults !== null ? `${checkedReadyCount} healthy of ${batchCount} checked` : `${batchCount} URL${batchCount === 1 ? "" : "s"} ready`}</span>}
           <div className="flex gap-2">
             <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
-            <Button size="sm" disabled={!valid || saveMutation.isPending} onClick={() => saveMutation.mutate()}>
-              {saveMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Network size={13} />} {isNew ? `Add ${batchCount} pro${batchCount === 1 ? "xy" : "xies"}` : "Save"}
+            <Button size="sm" disabled={!canSave || saveMutation.isPending || checkingBatch} onClick={() => saveMutation.mutate()}>
+              {saveMutation.isPending ? <Loader2 size={13} className="animate-spin" /> : <Network size={13} />} {isNew ? `Add ${checkBeforeAdd && batchCheckResults !== null ? checkedReadyCount : batchCount} pro${(checkBeforeAdd && batchCheckResults !== null ? checkedReadyCount : batchCount) === 1 ? "xy" : "xies"}` : "Save"}
             </Button>
           </div>
         </div>
@@ -606,11 +840,7 @@ function ProxyModal({ existing, onClose }: { existing: ProxyRecord | null; onClo
 
 export function ProxyRequestsPage() {
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-lg font-bold tracking-tight">Proxy & Requests</h1>
-        <p className="text-xs text-[var(--text-2)]">Central controls for proxy behavior and request routing.</p>
-      </div>
+    <div className="dashboard-page space-y-4">
       <ProxyPoolSection />
       <RoutingAndExceptionsSection />
     </div>

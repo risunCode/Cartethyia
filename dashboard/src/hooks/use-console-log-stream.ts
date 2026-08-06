@@ -1,14 +1,19 @@
 /**
  * useConsoleLogStream — EventSource hook for /console/api/console-logs/stream
- * (design §9.3): backoff 1s→2s→…→30s, ring cap 1000 lines, status badge state.
+ * (design §9.3): backoff 1s→2s→…→30s, SQL-backed snapshot cap 200 lines, status badge state.
  * Native EventSource handles SSE framing + sends the session cookie same-origin.
+ *
+ * Incoming `line` events are coalesced into batches and committed with one
+ * state update per batch (per animation frame), so the 200-line view is copied
+ * once per burst instead of once per line event.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type ConsoleLogLevel = "debug" | "info" | "warn" | "error";
 
 export interface ConsoleLogLine {
+  id: number;
   ts: string;
   level: ConsoleLogLevel;
   scope: string;
@@ -17,24 +22,55 @@ export interface ConsoleLogLine {
 
 export type StreamStatus = "connected" | "connecting" | "error";
 
-const MAX_LINES = 1000;
+const MAX_LINES = 200;
 const STREAM_URL = "/console/api/console-logs/stream";
+/** Fallback flush window when the tab is hidden and requestAnimationFrame is throttled. */
+const FLUSH_FALLBACK_MS = 32;
 
 export interface ConsoleLogStream {
   lines: ConsoleLogLine[];
+  newLineIds: ReadonlySet<number>;
   status: StreamStatus;
   attempts: number;
 }
 
 export function useConsoleLogStream(): ConsoleLogStream {
   const [lines, setLines] = useState<ConsoleLogLine[]>([]);
+  const [newLineIds, setNewLineIds] = useState<ReadonlySet<number>>(new Set());
   const [status, setStatus] = useState<StreamStatus>("connecting");
   const [attempts, setAttempts] = useState(0);
   const attemptsRef = useRef(0);
+  const pendingRef = useRef<ConsoleLogLine[]>([]);
+  const scheduledRef = useRef(false);
+  const rafRef = useRef(0);
+  const flushTimerRef = useRef(0);
+  const reconnectTimerRef = useRef(0);
+  const highlightTimerRef = useRef(0);
+
+  /** Commit the pending batch as one newest-first ring update. */
+  const flushPending = useCallback(() => {
+    scheduledRef.current = false;
+    const batch = pendingRef.current;
+    if (batch.length === 0) return;
+    pendingRef.current = [];
+    setLines((prev) => {
+      const merged = [...batch].reverse().concat(prev);
+      return merged.length <= MAX_LINES ? merged : merged.slice(0, MAX_LINES);
+    });
+    setNewLineIds(new Set(batch.map((line) => line.id)));
+    clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = window.setTimeout(() => setNewLineIds(new Set()), 3_000);
+  }, []);
+
+  const scheduleFlush = useCallback(() => {
+    if (scheduledRef.current) return;
+    scheduledRef.current = true;
+    rafRef.current = requestAnimationFrame(flushPending);
+    flushTimerRef.current = window.setTimeout(flushPending, FLUSH_FALLBACK_MS);
+  }, [flushPending]);
 
   useEffect(() => {
     let disposed = false;
-    let timer: number | undefined;
     let source: EventSource | null = null;
 
     const connect = () => {
@@ -45,16 +81,25 @@ export function useConsoleLogStream(): ConsoleLogStream {
 
       es.addEventListener("init", (event) => {
         const data = JSON.parse((event as MessageEvent).data as string) as { lines: ConsoleLogLine[] };
-        setLines(data.lines.slice(-MAX_LINES));
+        pendingRef.current = [];
+        setNewLineIds(new Set());
+        setLines(data.lines.slice(0, MAX_LINES));
         setStatus("connected");
         attemptsRef.current = 0;
         setAttempts(0);
       });
       es.addEventListener("line", (event) => {
         const line = JSON.parse((event as MessageEvent).data as string) as ConsoleLogLine;
-        setLines((prev) => (prev.length >= MAX_LINES ? [...prev.slice(prev.length - MAX_LINES + 1), line] : [...prev, line]));
+        const pending = pendingRef.current;
+        if (pending.length >= MAX_LINES) pending.splice(0, pending.length - MAX_LINES + 1);
+        pending.push(line);
+        scheduleFlush();
       });
-      es.addEventListener("clear", () => setLines([]));
+      es.addEventListener("clear", () => {
+        pendingRef.current = [];
+        setNewLineIds(new Set());
+        setLines([]);
+      });
 
       es.onerror = () => {
         es.close();
@@ -63,7 +108,7 @@ export function useConsoleLogStream(): ConsoleLogStream {
         const delay = Math.min(1000 * 2 ** attemptsRef.current, 30_000);
         attemptsRef.current += 1;
         setAttempts(attemptsRef.current);
-        timer = window.setTimeout(connect, delay);
+        reconnectTimerRef.current = window.setTimeout(connect, delay);
       };
     };
 
@@ -71,10 +116,14 @@ export function useConsoleLogStream(): ConsoleLogStream {
 
     return () => {
       disposed = true;
-      clearTimeout(timer);
+      cancelAnimationFrame(rafRef.current);
+      clearTimeout(flushTimerRef.current);
+      clearTimeout(reconnectTimerRef.current);
+      clearTimeout(highlightTimerRef.current);
       source?.close();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduleFlush]);
 
-  return { lines, status, attempts };
+  return { lines, newLineIds, status, attempts };
 }

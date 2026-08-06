@@ -8,7 +8,7 @@
 
 import { useMemo, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Boxes, Check, Search, X } from "lucide-react";
+import { Boxes, Search, X } from "lucide-react";
 import { apiGet } from "../lib/api";
 import { cn } from "../lib/cn";
 import { Badge } from "./ui/badge";
@@ -23,20 +23,29 @@ export interface ProviderSummary {
   prefix: string;
   modelCount: number;
   connections: number;
+  credentialKind?: "api_key" | "oauth" | "session" | "manual" | "none";
+  credentialKinds?: Array<"api_key" | "oauth" | "session" | "manual" | "none">;
+  enabled?: boolean;
+  configured?: boolean;
 }
 
 interface CatalogModel {
-  id: string;
-  enabled: boolean;
+  id?: string;
+  modelId?: string;
+  name?: string;
+  enabled?: boolean;
+  images?: boolean;
 }
 
 interface ProviderCatalogDetail {
-  prefix: string;
+  id?: string;
+  prefix?: string;
   models: CatalogModel[];
 }
 
 export interface ComboSummary {
   name: string;
+  models?: string[];
 }
 
 export interface AliasSummary {
@@ -47,12 +56,15 @@ export interface AliasSummary {
 export interface FlatModelEntry {
   provider: ProviderSummary;
   qualified: string;
+  images: boolean;
 }
 
 interface CustomProviderCatalogEntry {
   slug: string;
   name: string;
-  models: Array<{ id: string }>;
+  models: Array<{ id?: string; modelId?: string } | string>;
+  credentialHint?: string;
+  enabled?: boolean;
 }
 
 /**
@@ -81,7 +93,7 @@ export function useCustomProviders(enabled: boolean) {
 export function useCustomProviderCatalog(customProviders: CustomProviderCatalogEntry[]): FlatModelEntry[] {
   return useMemo(
     () =>
-      customProviders.flatMap((provider) => {
+      customProviders.filter((provider) => provider.enabled !== false && (provider.credentialHint === undefined || provider.credentialHint.length > 0)).flatMap((provider) => {
         const summary: ProviderSummary = {
           id: `custom:${provider.slug}`,
           name: provider.name,
@@ -90,7 +102,13 @@ export function useCustomProviderCatalog(customProviders: CustomProviderCatalogE
           modelCount: provider.models.length,
           connections: 0,
         };
-        return provider.models.map((model) => ({ provider: summary, qualified: `${provider.slug}/${model.id}` }));
+        return provider.models.flatMap((model) => {
+          const modelId = typeof model === "string" ? model : model.id ?? model.modelId;
+          if (!modelId) return [];
+          // Avoid double-prefixing when modelId already starts with the slug.
+          const qualified = modelId.startsWith(`${provider.slug}/`) ? modelId : `${provider.slug}/${modelId}`;
+          return [{ provider: summary, qualified, images: false }];
+        });
       }),
     [customProviders]
   );
@@ -98,37 +116,82 @@ export function useCustomProviderCatalog(customProviders: CustomProviderCatalogE
 
 export function useProviders() {
   return useQuery({
-    queryKey: ["providers"],
-    queryFn: () => apiGet<{ items: ProviderSummary[] }>("/providers"),
+    queryKey: ["catalog", "providers"],
+    queryFn: async () => {
+      const response = await apiGet<{ items: Array<ProviderSummary & { icon?: string; prefix?: string; accountCount?: number; modelCount?: number }> }>("/providers");
+      return {
+        items: response.items.map((provider) => ({
+          ...provider,
+          icon: provider.icon ?? provider.id,
+          prefix: provider.prefix ?? provider.id,
+          modelCount: provider.modelCount ?? 0,
+          connections: provider.connections ?? provider.accountCount ?? 0,
+        })),
+      };
+    },
     staleTime: 60_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
+    retry: 2,
   });
 }
 
-/** Flattens every provider's enabled models into one searchable list. Reuses
- * the same `["provider", id]` cache entries as the provider detail page —
- * visiting either populates the other. */
-export function useModelCatalog(providers: ProviderSummary[], enabled: boolean): FlatModelEntry[] {
+/** Flattens every provider's enabled models into one searchable list.
+ * Catalog entries use a dedicated cache namespace so raw API responses from
+ * the provider detail page cannot be mistaken for its normalized view. */
+interface ModelCatalogState {
+  items: FlatModelEntry[];
+  isLoading: boolean;
+  isError: boolean;
+}
+
+function canLoadCatalog(provider: ProviderSummary): boolean {
+  return provider.credentialKind === "none" || provider.configured === true;
+}
+
+export function useModelCatalogState(providers: ProviderSummary[], enabled: boolean): ModelCatalogState {
   const results = useQueries({
     queries: providers.map((provider) => ({
-      queryKey: ["provider", provider.id],
-      queryFn: () => apiGet<ProviderCatalogDetail>(`/providers/${provider.id}`),
+      queryKey: ["catalog", "provider", provider.id],
+      queryFn: () => apiGet<ProviderCatalogDetail>(`/providers/${encodeURIComponent(provider.id)}`),
       staleTime: 60_000,
-      enabled,
+      enabled: enabled && canLoadCatalog(provider),
     })),
   });
-  return useMemo(() => {
+  const items = useMemo(() => {
     if (!enabled) return [];
     return providers.flatMap((provider, index) => {
+      if (!canLoadCatalog(provider)) return [];
       const detail = results[index]?.data;
-      if (!detail) return [];
-      return detail.models
-        .filter((model) => model.enabled)
-        .map((model) => ({ provider, qualified: `${detail.prefix}/${model.id}` }));
+      if (!detail || !Array.isArray(detail.models)) return [];
+      return detail.models.flatMap((model) => {
+        const modelId = model.id ?? model.modelId;
+        if (!modelId || model.enabled === false) return [];
+        const prefix = detail.prefix ?? provider.prefix;
+        // Avoid double-prefixing: some providers (e.g. Blackbox) return model
+        // IDs that already include the provider prefix (e.g. "blackboxai/z-ai/glm-5.2").
+        // If modelId starts with `${prefix}/`, use it as-is.
+        const qualified = modelId.startsWith(`${prefix}/`) ? modelId : `${prefix}/${modelId}`;
+        return [{ provider, qualified, images: model.images === true }];
+      });
     });
     // `results` is a fresh array every render (useQueries), so depend on its
     // serialized data rather than the array reference to avoid a render loop.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [providers, enabled, ...results.map((r) => r.dataUpdatedAt)]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providers, enabled, ...results.map((result) => result.dataUpdatedAt)]);
+  const eligibleResults = results.filter((_result, index) => {
+    const provider = providers[index];
+    return provider !== undefined && canLoadCatalog(provider);
+  });
+  return {
+    items,
+    isLoading: enabled && eligibleResults.some((result) => result.isPending),
+    isError: enabled && eligibleResults.some((result) => result.isError),
+  };
+}
+
+export function useModelCatalog(providers: ProviderSummary[], enabled: boolean): FlatModelEntry[] {
+  return useModelCatalogState(providers, enabled).items;
 }
 
 export function useCombos(enabled: boolean) {
@@ -188,8 +251,14 @@ export function ModelPickerModal({
 }) {
   const providersQuery = useProviders();
   const providers = providersQuery.data?.items ?? [];
-  const catalog = useModelCatalog(providers, open && mode === "models");
+  const catalogState = useModelCatalogState(providers, open && mode === "models");
+  const catalog = catalogState.items;
   const combosQuery = useCombos(open && mode === "models" && Boolean(includeCombos));
+  const catalogLoading = open && (
+    providersQuery.isPending ||
+    catalogState.isLoading ||
+    (Boolean(includeCombos) && combosQuery.isPending)
+  );
   const [search, setSearch] = useState("");
   const [providerFilter, setProviderFilter] = useState<string | null>(null);
 
@@ -269,7 +338,9 @@ export function ModelPickerModal({
         )}
 
         <div className="max-h-80 overflow-y-auto rounded-xl border border-[var(--inner-border)]">
-          {mode === "providers" ? (
+          {(mode === "providers" && providersQuery.isPending) || (mode === "models" && catalogLoading) ? (
+            <div className="py-8 text-center text-xs text-[var(--text-3)]">Loading provider and model catalog…</div>
+          ) : mode === "providers" ? (
             filteredProviders.length === 0 ? (
               <div className="py-8 text-center text-xs text-[var(--text-3)]">No providers match your search.</div>
             ) : (
@@ -333,12 +404,14 @@ export function ModelPickerModal({
 }
 
 /** Section header + grid wrapper for grouped models. */
-function Section({ title, icon, accent, count, children }: { title: string; icon: React.ReactNode; accent?: boolean; count: number; children: React.ReactNode }) {
+function Section({ title, icon, accent, count, children, onSelectAll, allSelected }: { title: string; icon: React.ReactNode; accent?: boolean; count: number; children: React.ReactNode; onSelectAll?: () => void; allSelected?: boolean }) {
   return (
     <div>
       <div className="mb-1 flex items-center gap-1.5 px-1">
         <span className={accent ? "text-[var(--accent)]" : "text-[var(--text-2)]"}>{icon}</span>
-        <span className={`text-[11px] font-bold ${accent ? "text-[var(--accent)]" : "text-[var(--text-1)]"}`}>{title} ({count})</span>
+        {onSelectAll ? (
+          <button type="button" onClick={onSelectAll} className={cn("text-[11px] font-bold transition-colors hover:text-[var(--accent)]", allSelected ? "text-[var(--accent)]" : accent ? "text-[var(--accent)]" : "text-[var(--text-1)]")} title={allSelected ? `Deselect all ${title} models` : `Select all ${title} models`}>{title} ({count})</button>
+        ) : <span className={`text-[11px] font-bold ${accent ? "text-[var(--accent)]" : "text-[var(--text-1)]"}`}>{title} ({count})</span>}
       </div>
       {children}
     </div>
@@ -353,6 +426,7 @@ export function InlineModelBrowser({
   mode,
   selected,
   onToggle,
+  onChange,
   onSelectOne,
   includeCombos,
   includeAliases,
@@ -360,6 +434,7 @@ export function InlineModelBrowser({
   mode: PickerMode;
   selected: string[];
   onToggle: (value: string) => void;
+  onChange?: (values: string[]) => void;
   onSelectOne?: (value: string) => void;
   includeCombos?: boolean;
   includeAliases?: boolean;
@@ -368,12 +443,20 @@ export function InlineModelBrowser({
 
   const providersQuery = useProviders();
   const providers = providersQuery.data?.items ?? [];
-  const builtinCatalog = useModelCatalog(providers, mode === "models");
+  const builtinCatalogState = useModelCatalogState(providers, mode === "models");
+  const builtinCatalog = builtinCatalogState.items;
   const customProvidersQuery = useCustomProviders(mode === "models");
   const customCatalog = useCustomProviderCatalog(customProvidersQuery.data?.items ?? []);
   const catalog = useMemo(() => [...builtinCatalog, ...customCatalog], [builtinCatalog, customCatalog]);
   const combosQuery = useCombos(mode === "models" && Boolean(includeCombos));
   const aliasesQuery = useAliases(mode === "models" && Boolean(includeAliases));
+  const catalogLoading = mode === "models" && (
+    providersQuery.isPending ||
+    customProvidersQuery.isPending ||
+    builtinCatalogState.isLoading ||
+    (Boolean(includeCombos) && combosQuery.isPending) ||
+    (Boolean(includeAliases) && aliasesQuery.isPending)
+  );
 
   const pick = (value: string) => {
     if (onSelectOne) {
@@ -446,6 +529,12 @@ export function InlineModelBrowser({
   const groupedCustom = useMemo(() => groupModels(filteredModels.filter((e) => e.provider.id.startsWith("custom:"))), [filteredModels]);
   const groupedBuiltin = useMemo(() => groupModels(filteredModels.filter((e) => !e.provider.id.startsWith("custom:"))), [filteredModels]);
 
+  const toggleGroup = (values: string[]) => {
+    const allSelected = values.length > 0 && values.every((value) => selected.includes(value));
+    const next = allSelected ? selected.filter((value) => !values.includes(value)) : [...selected, ...values.filter((value) => !selected.includes(value))];
+    if (onChange) onChange(next);
+    else for (const value of values) onToggle(value);
+  };
   const matchesSearch = (value: string) => {
     const q = search.trim().toLowerCase();
     return !q || value.toLowerCase().includes(q);
@@ -480,7 +569,9 @@ export function InlineModelBrowser({
         )}
       </div>
       <div className="max-h-[60vh] space-y-3 overflow-y-auto rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-        {mode === "providers" ? (
+        {mode === "providers" && providersQuery.isPending ? (
+          <div className="py-6 text-center text-[11px] text-[var(--text-3)]">Loading provider catalog…</div>
+        ) : mode === "providers" ? (
           filteredProviders.length === 0 ? (
             <div className="py-6 text-center text-[11px] text-[var(--text-3)]">No providers match.</div>
           ) : (
@@ -490,15 +581,17 @@ export function InlineModelBrowser({
                   key={provider.id}
                   type="button"
                   onClick={() => pick(provider.id)}
-                  className="flex items-center gap-2 rounded-lg px-2.5 py-2.5 text-left text-[11px] transition-colors hover:bg-[var(--surface)]"
+                  className="flex items-center gap-2 rounded-lg px-2.5 py-2.5 text-left text-[11px] transition-colors hover:bg-[var(--surface-1)]"
                 >
                   <ProviderIcon icon={provider.icon} name={provider.name} size={18} />
                   <span className="min-w-0 flex-1 truncate font-semibold text-[var(--text-1)]">{provider.name}</span>
-                  {isSelected(provider.id) && <Badge tone="accent">✓</Badge>}
+
                 </button>
               ))}
             </div>
           )
+        ) : catalogLoading ? (
+          <div className="py-6 text-center text-[11px] text-[var(--text-3)]">Loading provider and model catalog…</div>
         ) : (
           <>
             {/* Custom entries */}
@@ -510,10 +603,10 @@ export function InlineModelBrowser({
                       key={value}
                       type="button"
                       onClick={() => pick(value)}
-                      className={cn("inline-flex items-center rounded-full border border-[var(--inner-border)] bg-[var(--surface)] px-2.5 py-1 text-[10.5px] font-mono transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]", isSelected(value) && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]")}
+                      className={cn("inline-flex items-center rounded-full border border-[var(--inner-border)] bg-[var(--surface-1)] px-2.5 py-1 text-[10.5px] font-mono transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]", isSelected(value) && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]")}
                     >
                       <span className="min-w-0 flex-1 truncate">{value}</span>
-                      {isSelected(value) && <span className="text-[var(--accent)]">✓</span>}
+
                     </button>
                   ))}
                 </div>
@@ -530,12 +623,12 @@ export function InlineModelBrowser({
                       onClick={() => pick(entry.alias)}
                       title={`\u2192 ${entry.model}`}
                       className={cn(
-                        "inline-flex items-center rounded-full border border-[var(--inner-border)] bg-[var(--surface)] px-2.5 py-1 text-[10.5px] font-mono transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]",
+                        "inline-flex items-center rounded-full border border-[var(--inner-border)] bg-[var(--surface-1)] px-2.5 py-1 text-[10.5px] font-mono transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]",
                         isSelected(entry.alias) && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
                       )}
                     >
-                      <span className="min-w-0 flex-1 truncate">{entry.alias}</span>
-                      {isSelected(entry.alias) && <span className="text-[var(--accent)]">✓</span>}
+                      <span className="min-w-0 flex-1 truncate"><span className="block">{entry.alias}</span><span className="block truncate text-[9px] text-[var(--text-3)]">→ {entry.model}</span></span>
+
                     </button>
                   ))}
                 </div>
@@ -550,10 +643,10 @@ export function InlineModelBrowser({
                       key={`combo:${combo.name}`}
                       type="button"
                       onClick={() => pick(combo.name)}
-                      className={cn("inline-flex items-center rounded-full border border-[var(--inner-border)] bg-[var(--surface)] px-2.5 py-1 text-[10.5px] font-mono transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]", isSelected(combo.name) && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]")}
+                      className={cn("inline-flex items-center rounded-full border border-[var(--inner-border)] bg-[var(--surface-1)] px-2.5 py-1 text-[10.5px] font-mono transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]", isSelected(combo.name) && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]")}
                     >
                       <span className="min-w-0 flex-1 truncate">{combo.name}</span>
-                      {isSelected(combo.name) && <span className="text-[var(--accent)]">✓</span>}
+
                     </button>
                   ))}
                 </div>
@@ -562,17 +655,17 @@ export function InlineModelBrowser({
             {/* Custom (BYOK) providers \u2014 right after Aliases/Combos, ahead of
                 every built-in provider group. */}
             {[...groupedCustom.entries()].map(([providerId, { icon, name: providerName, models }]) => (
-              <Section key={providerId} title={providerName} icon={<ProviderIcon icon={icon} name={providerName} size={13} />} count={models.length}>
+              <Section key={providerId} title={providerName} icon={<ProviderIcon icon={icon} name={providerName} size={13} />} count={models.length} onSelectAll={() => toggleGroup(models.map((entry) => entry.qualified))} allSelected={models.length > 0 && models.every((entry) => selected.includes(entry.qualified))}>
                 <div className="flex flex-wrap gap-1.5">
                   {models.map((entry) => (
                     <button
                       key={entry.qualified}
                       type="button"
                       onClick={() => pick(entry.qualified)}
-                      className={cn("inline-flex items-center rounded-full border border-[var(--inner-border)] bg-[var(--surface)] px-2.5 py-1 text-[10.5px] font-mono transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]", isSelected(entry.qualified) && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]")}
+                      className={cn("inline-flex items-center rounded-full border border-[var(--inner-border)] bg-[var(--surface-1)] px-2.5 py-1 text-[10.5px] font-mono transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]", isSelected(entry.qualified) && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]")}
                     >
                       <span className="min-w-0 flex-1 truncate">{entry.qualified.slice(entry.qualified.indexOf("/") + 1)}</span>
-                      {isSelected(entry.qualified) && <Check size={13} strokeWidth={2.5} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />}
+
                     </button>
                   ))}
                 </div>
@@ -580,14 +673,14 @@ export function InlineModelBrowser({
             ))}
             {/* Built-in providers, grouped */}
             {[...groupedBuiltin.entries()].map(([providerId, { icon, name: providerName, models }]) => (
-              <Section key={providerId} title={providerName} icon={<ProviderIcon icon={icon} name={providerName} size={13} />} count={models.length}>
+              <Section key={providerId} title={providerName} icon={<ProviderIcon icon={icon} name={providerName} size={13} />} count={models.length} onSelectAll={() => toggleGroup(models.map((entry) => entry.qualified))} allSelected={models.length > 0 && models.every((entry) => selected.includes(entry.qualified))}>
                 <div className="flex flex-wrap gap-1.5">
                   {models.map((entry) => (
                     <button
                       key={entry.qualified}
                       type="button"
                       onClick={() => pick(entry.qualified)}
-                      className={cn("inline-flex items-center rounded-full border border-[var(--inner-border)] bg-[var(--surface)] px-2.5 py-1 text-[10.5px] font-mono transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]", isSelected(entry.qualified) && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]")}
+                      className={cn("inline-flex items-center rounded-full border border-[var(--inner-border)] bg-[var(--surface-1)] px-2.5 py-1 text-[10.5px] font-mono transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]", isSelected(entry.qualified) && "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]")}
                     >
                       {/* Everything after the FIRST slash, not `.split("/")[1]` \u2014 some
                           providers' own model ids embed a slash (OpenRouter's
@@ -596,7 +689,7 @@ export function InlineModelBrowser({
                           just index [1] silently truncated to the owner
                           segment ("anthropic") for every such model. */}
                       <span className="min-w-0 flex-1 truncate">{entry.qualified.slice(entry.qualified.indexOf("/") + 1)}</span>
-                      {isSelected(entry.qualified) && <Check size={13} strokeWidth={2.5} className="shrink-0 text-[var(--accent)]" aria-hidden="true" />}
+
                     </button>
                   ))}
                 </div>
@@ -663,7 +756,7 @@ export function ModelPickerField({
           ))}
         </div>
       )}
-      <InlineModelBrowser mode={mode} selected={values} onToggle={toggle} includeCombos={includeCombos} includeAliases={includeAliases} />
+      <InlineModelBrowser mode={mode} selected={values} onToggle={toggle} onChange={onChange} includeCombos={includeCombos} includeAliases={includeAliases} />
     </div>
   );
 }

@@ -1,1 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Antigravity"><rect width="64" height="64" rx="14" fill="#1d4ed8"/><path d="M32 12 49 43H39l-7-13-7 13H15z" fill="#fff"/><circle cx="32" cy="47" r="4" fill="#93c5fd"/></svg>
+<!-- Derived from the official Google Antigravity mark: https://commons.wikimedia.org/wiki/File:Google_Antigravity_Logo.svg -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Antigravity">
+  <defs>
+    <clipPath id="mark"><path d="M94.8 96.7c4.7 3.5 11.7 1.2 5.3-5.3C81.1 72.8 85.2 21.5 61.3 21.5S41.5 72.8 22.3 91.4c-6.4 6.5 1.2 8.8 5.9 5.3 18.1-12.3 16.9-33.8 33.7-33.8s15.6 21.5 32.9 33.8Z"/></clipPath>
+    <linearGradient id="blue" x1="15" y1="20" x2="100" y2="100" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4285f4"/>
+      <stop offset="1" stop-color="#2467d8"/>
+    </linearGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="12"/></filter>
+  </defs>
+  <rect width="120" height="120" rx="26" fill="#f8f9fa"/>
+  <path d="M94.8 96.7c4.7 3.5 11.7 1.2 5.3-5.3C81.1 72.8 85.2 21.5 61.3 21.5S41.5 72.8 22.3 91.4c-6.4 6.5 1.2 8.8 5.9 5.3 18.1-12.3 16.9-33.8 33.7-33.8s15.6 21.5 32.9 33.8Z" fill="url(#blue)"/>
+  <g clip-path="url(#mark)" filter="url(#blur)" opacity=".95">
+    <ellipse cx="30" cy="28" rx="28" ry="35" fill="#ffe432"/>
+    <ellipse cx="96" cy="34" rx="30" ry="30" fill="#fc413d"/>
+    <ellipse cx="18" cy="70" rx="30" ry="40" fill="#00b95c"/>
+    <ellipse cx="82" cy="98" rx="30" ry="28" fill="#3186ff"/>
+    <ellipse cx="45" cy="42" rx="32" ry="35" fill="#fbbc04"/>
+  </g>
+</svg>

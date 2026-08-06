@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { extractCredentialFromPaste } from "../../../src/shared/credentialExtract";
+import { extractCredentialFromPaste } from "./credentialExtract";
 
 describe("extractCredentialFromPaste — JSON input", () => {
   test("extracts 'access' field from a flat JSON object (highest priority)", () => {

@@ -1,41 +1,74 @@
-<img width="1760" height="576" alt="image (1)" src="https://github.com/user-attachments/assets/b4251752-bae0-4ac5-9c26-bdedfc7c3431" />
-
-# PR Notes, 
-## im not taking pr right now, wait for beta version, for now use the version that works for you 1.0.5, 1.0.6, etc.
-
 # Cartethyia
-Cartethyia is a Bun + Elysia AI proxy with a public landing page and an authenticated console. It translates OpenAI Chat/Responses and Anthropic Messages requests while routing models across provider accounts, aliases, combos, and custom compatible endpoints.
 
-**Current release:** `1.0.7-alpha`
+A self-hosted Bun + Elysia AI proxy with an authenticated web console. Accepts OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages requests, routes them across 30+ provider adapters with OAuth and API-key credentials, translates responses cross-protocol, and manages everything from a real-time dashboard.
 
-## Community
-
-> **[Cartethyia Home Discord ]**  
-
-Community access is free. Join Discord: <https://discord.gg/zFcNPJM6qM>
-
-### ShowCase
-
-<div align="center">
-<img src="https://github.com/user-attachments/assets/56427fc5-ab50-44f0-9cb1-ee368d21b85c" width="32%" />
-<img src="https://github.com/user-attachments/assets/39f73c4e-f136-419e-bc4b-ef9437af4fc9" width="32%" />
-<img src="https://github.com/user-attachments/assets/c8496545-b5c3-4e2a-90b7-a8ea9f18b355" width="32%" />
-</div>
+**Current release:** `1.0.8-alpha` (2026-08-06)
 
 ## Features
 
-- OpenAI Chat Completions, Responses, and Anthropic Messages.
-- Provider routing with priority, round-robin, cooldowns, aliases, combos, and failover.
-- Provider accounts, API keys, model ACLs, usage limits, logs, and request history.
-- Model Studio with persistent history, edit/copy/delete actions, token usage, and compaction.
-- Custom OpenAI-compatible and Anthropic-compatible upstreams.
-- Responsive Cartethyia public landing page at `/`.
-- OAuth-backed provider accounts for Codex, Anthropic, Grok CLI, Google Antigravity, and Kiro, including Kiro device authorization and token import.
-- Kiro model routing through `kiro/<model>` with AWS EventStream decoding; quota checks use a 15-minute cooldown to avoid unnecessary upstream traffic.
-- Customization at `/console/customization`: frosted-glass custom background, optimized seasonal lock effects, custom seasonal images, frequency, and size controls.
-- Public API-key share pages with usage, budget, allowed-model visibility, copy controls, and an explicit disabled-key state.
+### Proxy core
+
+- **OpenAI Chat Completions** (`POST /v1/chat/completions`), **OpenAI Responses** (`POST /v1/responses`), and **Anthropic Messages** (`POST /v1/messages`) — all three client surfaces served from one process.
+- **Cross-protocol translation** — a request on any surface can route to any compatible upstream provider through shared codecs. A Chat request can hit an Anthropic upstream, a Messages request can hit an OpenAI Responses upstream, etc.
+- **Image generation** at `POST /v1/images/generations` (OpenAI-compatible).
+- **Streaming and non-streaming** — SSE/NDJSON framing with canonical `StreamEvent` values, translated back to the requested client surface. Reasoning/thinking content, tool calls, usage, stop reasons, and refusals are preserved end-to-end.
+- **Model catalog** at `GET /v1/models` — lists direct models, router aliases, and combos permitted by the authenticated API key. Entries carry real context limits, capability categories, and USD pricing per 1M tokens sourced from models.dev. Unknown values stay `null`; limits and prices are never fabricated.
+
+### Routing and failover
+
+- **Aliases** — map a short name (e.g. `fast`) to any provider/model target. Aliases keep their client-facing ID and inherit metadata from their resolved target.
+- **Combos** — group multiple models into a named target with `round-robin` or `fallback` strategy and sticky-session limits.
+- **Per-model account locking** — an error on `claude/sonnet-4` does not block `claude/haiku-4` on the same account.
+- **3-tier error classification**:
+  - **T1 known** (rate-limit, quota, capacity) → cooldown with fine-grained per-reason backoff.
+  - **T2 transient** (5xx, network, stream, protocol) → no cooldown; account stays eligible.
+  - **T3 permanent** (invalid request, client abort) → no cooldown, skipped entirely.
+- **Graduated backoff** — opaque/unknown 429s start at a 30s base that grows exponentially with failure count, escalating to the full 5-minute default only after repeated failures. A single transient blip no longer takes an account offline.
+- **Scheduled recovery sweep** — an unref'd 1-minute interval transitions expired cooldowns to healthy and clears expired per-model locks, so accounts recover proactively without waiting for a request to happen to select them.
+- **Sticky round-robin** with in-flight awareness — idle accounts are preferred over busy ones within the sticky pool.
+- **Proxy pool** — route provider traffic through HTTP/HTTPS/SOCKS5 proxies with priority, weight, concurrency caps, and per-proxy health. Cloudflare Warp instances are auto-injected as SOCKS5 proxies.
+
+### Providers
+
+30+ built-in adapters across four categories:
+
+| Category | Providers |
+| --- | --- |
+| **OAuth** | Claude Code (Anthropic OAuth), Codex, Cline, Cline Pass, Google Antigravity, Grok Build, Kiro (AWS Builder ID) |
+| **API-key** | OpenAI, Anthropic, Gemini, Cloudflare Workers AI, Groq, Alibaba Cloud / DashScope, Fireworks AI, DeepSeek, Ollama Cloud, Mistral, SiliconFlow, Cerebras, NVIDIA NIM, Blackbox AI, OpenRouter, OpenCode Free, OpenCode Zen, OpenCode Go, Xiaomi MiMo (PAYG + Token Plan), CodeBuddy, CodeBuddy CN, Exa |
+| **Compatible** | AgentRouter, Command Code, Qoder, Kimchi |
+| **Custom** | Console-managed OpenAI-compatible and Anthropic-compatible endpoints with custom headers, model metadata, and `<slug>/<model>` routing |
+
+Provider adapters that proxy as a specific upstream client identity (Claude Code, Grok Build, Kiro, Qoder, etc.) emit that client's canonical `User-Agent` fingerprint so the upstream sees a legitimate session. Cartethyia never presents its own identity upstream.
+
+### Dashboard
+
+- **Overview** — live health (JS heap, native, external, ArrayBuffer, CPU), in-flight requests, uptime, server-synced clocks, GitHub release badge.
+- **Providers** — account management, OAuth flows, credential import, model testing, per-provider model catalog, batch selection, bulk operations.
+- **Model Studio** — built-in chat playground that sends through the exact same dispatch pipeline as real `/v1/*` traffic. Supports reasoning effort, session save/resume, sanitized Markdown rendering with code blocks.
+- **API Keys** — full lifecycle (create, edit, enable, disable, revoke, regenerate), token budgets (monthly/one-time), per-key RPM/concurrency limits, provider/model allowlists and denylists, public share pages with connection details and usage.
+- **Combos & Aliases** — create, edit, delete; live resolve-preview showing the actual routed target.
+- **Proxy Pools** — CRUD, batch URL import, protocol detection, priority/active controls, Warp pool integration.
+- **Usage** — token/cost charts, per-key/per-provider/per-model breakdowns, request history with IP monitoring.
+- **Console Log** — live request logs with proxy pool, token counts, tool names, and message preview.
+- **Database Map** — browse schema, run SELECT queries, export/import databases. Sensitive columns are masked.
+- **Terminal** — in-browser shell with btop, htop, speedtest, fastfetch, curl, sqlite.
+- **Settings** — system prompt, filter rules, JWT/session config, adaptive scaling controls.
+- Responsive desktop and mobile layouts, reduced-motion support, custom backgrounds, seasonal effects.
+
+### Security
+
+- API-key ACL with provider/model allowlists and denylists.
+- Per-IP admission, in-flight tracking, and login rate limiting — all adaptive to available process memory.
+- SSRF and redirect guards on all upstream and proxy URLs (private IPv4/IPv6, DNS rebinding, redirect chains).
+- Bounded body, stream, timeout, and concurrency protections.
+- Credential/secret masking in all console list/detail endpoints (API keys, Warp credentials). Raw secrets available only through explicit credential endpoints.
+- Sanitized error messages at public API and console boundaries.
+- No request/response bodies persisted in telemetry unless an explicitly documented storage mode requires it.
 
 ## Quick start
+
+Requirements: Bun 1.x and a writable data directory.
 
 ```bash
 bun install
@@ -46,43 +79,60 @@ bun run dev
 
 Open:
 
-- Public page: <http://localhost:12800/>
-- Console: <http://localhost:12800/console/>
+- Console: <http://localhost:12800/console/login>
 - Health: <http://localhost:12800/health>
+
+Set `CONSOLE_PASSWORD` and `BOOTSTRAP_PROXY_API_KEY` in `.env` for local use.
 
 ## API
 
-| Route | Protocol |
-| --- | --- |
-| `POST /v1/chat/completions` | OpenAI Chat Completions |
-| `POST /v1/responses` | OpenAI Responses |
-| `POST /v1/messages` | Anthropic Messages |
-| `GET /v1/models` | Unified provider/model catalog |
-| `GET /health` | Liveness probe |
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `POST` | `/v1/chat/completions` | OpenAI Chat Completions |
+| `POST` | `/v1/responses` | OpenAI Responses |
+| `POST` | `/v1/messages` | Anthropic Messages |
+| `POST` | `/v1/images/generations` | OpenAI-compatible image generation |
+| `GET` | `/v1/models` | Routeable models, router aliases, and combos for the authenticated API key |
+| `GET` | `/health` | Liveness check |
 
-Create a proxy API key from **Console → API Keys**. Keys can restrict providers/models and enforce request, concurrency, and token limits. Share links remain useful when a key is disabled: visitors see the key status and an explanation instead of an empty placeholder page.
+Authenticate proxy requests with either header:
 
 ```bash
-curl http://localhost:12800/v1/models \
-  -H "authorization: Bearer $CARTETHYIA_API_KEY"
+Authorization: Bearer <CARTETHYIA_API_KEY>
+x-api-key: <CARTETHYIA_API_KEY>
+```
+
+Example:
+
+```bash
+curl http://localhost:12800/v1/chat/completions \
+  -H "Authorization: Bearer $CARTETHYIA_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{"model":"openai/gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 ## Configuration
 
-Copy `.env.example` for local development. In production, set secrets in the platform and mount `DATA_DIR` as persistent storage.
+Use [`.env.example`](./.env.example) as the configuration reference. Common settings:
 
-| Variable | Purpose |
-| --- | --- |
-| `PORT` | HTTP listener; Railway supplies this automatically. |
-| `DATA_DIR` | Persistent configuration, logs, and runtime state. |
-| `CONSOLE_PASSWORD` | Console login password. |
-| `CONSOLE_JWT_SECRET` | Secret used to sign console sessions. |
-| `PROXY_AUTH_MODE` | `open` or `api_key`. |
-| `CONSOLE_SESSION_TTL_HOURS` | Console session lifetime; defaults to `12`. |
-| `TRACK_PAYLOADS` | Request/response tracking level: `none` or `meta`. |
-| `TRACK_ASSETS` | Asset tracking level: `none`, `meta`, or `store`. |
+```text
+PORT                         # server port (default 12800)
+DATA_DIR                     # persistent data directory (default ./data)
+CONSOLE_PASSWORD             # console login password
+CONSOLE_JWT_SECRET           # JWT signing secret (auto-generated if unset)
+BOOTSTRAP_PROXY_API_KEY      # initial proxy API key
+DB_PATH                      # config SQLite path (default inside DATA_DIR)
+RUNTIME_DB_PATH              # runtime telemetry SQLite path (default inside DATA_DIR)
+MAX_FLIGHTS_PER_IP           # global concurrent requests per IP
+LOG_RETENTION_DAYS           # console log retention
+ASSET_RETENTION_DAYS         # asset retention
+```
 
-## Docker / Railway
+Adaptive scaling is enabled by default — per-IP flight tracking, API-key admission, login rate limiting, and GC interval auto-derive from available process memory. Override via `CARTETHYIA_MAX_TRACKED_IPS`, `CARTETHYIA_MAX_TRACKED_KEYS`, `CARTETHYIA_LOGIN_MAX_TRACKED_IPS`, and `CARTETHYIA_GC_INTERVAL_MS` (all default `0` = adaptive).
+
+For deployment, persist `DATA_DIR` and configure the console password, proxy API key, and JWT secret through the platform's secret manager.
+
+## Docker
 
 ```bash
 docker build -t cartethyia .
@@ -91,19 +141,70 @@ docker run --rm -p 12800:8080 \
   -e DATA_DIR=/app/data \
   -e CONSOLE_PASSWORD=change-me \
   -e CONSOLE_JWT_SECRET=replace-with-a-long-random-secret \
+  -e BOOTSTRAP_PROXY_API_KEY=change-me \
   -v cartethyia-data:/app/data \
   cartethyia
 ```
 
-For Railway, mount a volume at `/app/data`, configure `CONSOLE_PASSWORD`, `CONSOLE_JWT_SECRET`, and `TRUST_PROXY=true`, then verify `GET /health` after deployment.
-
+The container also exposes Warp SOCKS5 proxy ports `40001-40020` (internal `127.0.0.1` only). These are declared via `EXPOSE` and `expose:` so Railway and similar platforms are aware of the port range — the proxy pool connects to them over loopback inside the container. They are not mapped to the host.
 
 ## Development
 
 ```bash
 bunx tsc --noEmit -p .
-bun test test/
-cd dashboard && bun run test && bun run build
+bun test --timeout 60000 test/
+cd dashboard && bun run build && bun run test
 ```
 
-See the protocol notes in [`docs/`](./docs/), the release notes in [`docs/commit-notes/1.0.7.md`](./docs/commit-notes/1.0.7.md), and the landing mockup in [`docs/landing-page-mockup.md`](./docs/landing-page-mockup.md). Contributions should follow [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) and the pull-request template.
+## Documentation
+
+In-depth guides live in [`docs/`](./docs/):
+
+| Doc | Covers |
+| --- | --- |
+| [`model-catalog.md`](./docs/model-catalog.md) | Pricing & context sourcing (models.dev), sync, fallback behavior |
+| [`protocol-translation.md`](./docs/protocol-translation.md) | Cross-protocol translation, response shaping, streaming |
+| [`alias-routing.md`](./docs/alias-routing.md) | Alias & combo resolution, pricing inheritance, live test |
+| [`console-api.md`](./docs/console-api.md) | Full `/console/api/*` control-plane endpoint reference |
+| [`oauth-drivers.md`](./docs/oauth-drivers.md) | OAuth driver registry, bundled flows, custom drivers |
+| [`auth-security.md`](./docs/auth-security.md) | Auth boundaries, ACL, credential lease, SSRF/redirect guards |
+
+## Project boundaries
+
+```text
+src/domain/protocols/     Protocol normalization and translation
+src/providers/            Provider adapters and model catalogs
+src/transport/protocols/  Upstream HTTP and stream execution
+src/app/                  Routing, failover, recovery sweep, limits, orchestration
+dashboard/src/            React authenticated console
+```
+
+Detailed engineering rules and conventions are in [`AGENTS.md`](./AGENTS.md). Release history and migration notes are in [`CHANGELOG.md`](./CHANGELOG.md).
+
+`src.old/` is retained as a read-only migration reference and is excluded from the active build.
+
+## Credits
+
+Built with:
+
+- [Bun](https://bun.sh) — JavaScript runtime & bundler
+- [Elysia](https://elysiajs.com) — web framework
+- [SQLite](https://www.sqlite.org) — config & telemetry storage (via Bun's built-in `bun:sqlite`)
+- [wgcf](https://github.com/ViRb3/wgcf) — Cloudflare Warp account registration (vendored, Go)
+- [wireproxy](https://github.com/windtf/wireproxy) — WireGuard userspace proxy (vendored, Go)
+- [socks-proxy-agent](https://github.com/TooTallNate/proxy-agents) — SOCKS5 proxy agent for Node/Bun
+- [@bufbuild/protobuf](https://github.com/bufbuild/protobuf-es) — Protocol Buffers runtime (Kiro AWS EventStream)
+
+Dashboard built with:
+
+- [React](https://react.dev) 19 + [Vite](https://vitejs.dev) 6
+- [TanStack Query](https://tanstack.com/query) — server state & cache
+- [Tailwind CSS](https://tailwindcss.com) 4 — styling
+- [Framer Motion](https://www.framer.com/motion) — animations
+- [Recharts](https://recharts.org) — usage charts
+- [React Router](https://reactrouter.com) 7 — routing
+- [Lucide](https://lucide.dev) — icons
+- [Sonner](https://sonner.emilkowal.ski) — toast notifications
+- [React Markdown](https://github.com/remarkjs/react-markdown) + [remark-gfm](https://github.com/remarkjs/remark-gfm) — Model Studio rendering
+
+Model metadata sourced from [models.dev](https://models.dev).

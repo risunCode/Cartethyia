@@ -1,21 +1,72 @@
-import { useQuery } from "@tanstack/react-query";
-import { Check, Clock3, EyeOff, Gauge, Loader2, RefreshCw, RotateCcw, SlidersHorizontal, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { Badge } from "../../components/ui/badge";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, Clock3, EyeOff, Loader2, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, TriangleAlert } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Switch } from "../../components/ui/switch";
 import { Button } from "../../components/ui/button";
+import { StatePanel } from "../../components/ui/state";
 import { ProviderIcon } from "../../components/provider-icon";
+import { ConfirmDialog } from "../../components/shared";
 import { apiDelete, apiGet, apiPost } from "../../lib/api";
-import { toast } from "sonner";
+import { cn } from "../../lib/cn";
+import { toast } from "../../lib/toast";
 
-interface ProviderSummary { id: string; name: string; authKind: string; icon?: string; }
-interface QuotaWindow { label: string; remainingPercent: number | null; usedPercent?: number | null; resetsAt: string | null; used?: number | null; limit?: number | null; }
-interface QuotaData { plan: string | null; windows: QuotaWindow[]; fetchedAt: string; error: string | null; }
-interface AccountHealth { status: "healthy" | "refreshing" | "error" | "disabled" | "reauthentication-required"; statusCode: number | null; sanitizedMessage: string | null; retryAt: string | null; }
-interface Account { id: string; provider: string; name: string; credentialHint: string; active: boolean; quota: QuotaData | null; health: AccountHealth | null; }
+/** Providers without a quota endpoint — filtered from the quota page entirely. */
+/** Providers that have a real quota endpoint in fetchProviderQuota. */
+const QUOTA_SUPPORTED_PROVIDERS: ReadonlySet<string> = new Set(["cline", "qoder", "codex", "claude", "antigravity", "kiro"]);
+
+interface ProviderSummary { id: string; name: string; authKind?: string; icon?: string; }
+interface QuotaWindow { kind?: string; label: string; remainingPercent: number | null; usedPercent?: number | null; resetsAt: string | null; used?: number | null; limit?: number | null; }
+interface QuotaData { source: string | null; status: "unknown" | "refreshing" | "ready" | "error"; plan: string | null; windows: QuotaWindow[]; fetchedAt: string | null; lastAttemptAt: string | null; lastSuccessAt: string | null; error: string | null; }
+interface AccountHealth { status: string; statusCode?: number | null; sanitizedMessage?: string | null; retryAt?: string | null; }
+interface AccountResponse { id: string; providerId?: string; provider?: string; name?: string; credentialHint?: string; active?: boolean; quota?: unknown; health?: unknown; }
+interface Account extends Omit<AccountResponse, "name" | "credentialHint" | "active" | "quota" | "health"> { provider: string; name: string; credentialHint: string; active: boolean; quota: QuotaData | null; health: AccountHealth | null; }
 interface QuotaEntry extends Account { providerName: string; providerIcon: string; }
+interface QuotaQueryData { providers: ProviderSummary[]; accounts: QuotaEntry[]; }
 
-const QUOTA_ENDPOINT_PROVIDERS = new Set(["openai-codex", "anthropic-oauth", "google-antigravity", "kiro", "qoder"]);
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeQuota(value: unknown): QuotaData | null {
+  const raw = asRecord(value);
+  if (!raw) return null;
+  const status = stringValue(raw.status);
+  const windows = Array.isArray(raw.windows) ? raw.windows.flatMap((entry, index) => {
+    const window = asRecord(entry);
+    if (!window) return [];
+    return [{ kind: stringValue(window.kind) ?? undefined, label: stringValue(window.label) ?? `Window ${index + 1}`, remainingPercent: numberValue(window.remainingPercent), usedPercent: numberValue(window.usedPercent), resetsAt: stringValue(window.resetsAt), used: numberValue(window.used), limit: numberValue(window.limit) }];
+  }) : [];
+  return { source: stringValue(raw.source), status: status === "refreshing" || status === "ready" || status === "error" ? status : "unknown", plan: stringValue(raw.plan), windows, fetchedAt: stringValue(raw.fetchedAt), lastAttemptAt: stringValue(raw.lastAttemptAt), lastSuccessAt: stringValue(raw.lastSuccessAt), error: stringValue(raw.error ?? raw.sanitizedError) };
+}
+
+function normalizeHealth(value: unknown): AccountHealth | null {
+  const raw = asRecord(value);
+  const status = stringValue(raw?.status);
+  if (!status) return null;
+  return { status, statusCode: numberValue(raw?.statusCode), sanitizedMessage: stringValue(raw?.sanitizedMessage ?? raw?.error), retryAt: stringValue(raw?.retryAt) };
+}
+
+function normalizeAccount(value: AccountResponse, provider: ProviderSummary): QuotaEntry | null {
+  if (!value.id) return null;
+  return { id: value.id, provider: value.providerId ?? value.provider ?? provider.id, name: value.name ?? value.id, credentialHint: value.credentialHint ?? "", active: value.active === true, quota: normalizeQuota(value.quota), health: normalizeHealth(value.health), providerName: provider.name, providerIcon: provider.icon ?? provider.id };
+}
+
+function normalizeQuotaResponse(value: unknown): QuotaData | null {
+  const raw = asRecord(value);
+  return normalizeQuota(raw && "quota" in raw ? raw.quota : value);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : "Unable to refresh this account";
+}
 
 function formatReset(value: string | null): string {
   if (!value) return "no reset time";
@@ -28,23 +79,18 @@ function formatReset(value: string | null): string {
   return `in ${Math.ceil(hours / 24)}d`;
 }
 
-function statusLabel(account: QuotaEntry): string {
-  if (account.health?.status === "reauthentication-required") return "Re-authentication required";
-  if (account.health?.status === "disabled") return account.health.retryAt ? `Disabled · ${formatReset(account.health.retryAt)}` : "Disabled";
-  if (account.health?.status === "error") return account.health.statusCode ? `${account.health.statusCode} error` : "Provider error";
-  return account.active ? "active" : "disabled";
+function formatWindowLabel(label: string): string {
+  const match = /^(\\d+)\\s*hour$/i.exec(label.trim());
+  if (!match) return label;
+  const hours = Number(match[1]);
+  if (!Number.isFinite(hours) || hours < 24 || hours % 24 !== 0) return label;
+  return `${hours / 24} Day (${hours} Hour)`;
 }
 
-function statusTone(account: QuotaEntry): "ok" | "warn" | "err" | "default" {
-  if (account.health?.status === "error" || account.health?.status === "reauthentication-required") return "err";
-  if (account.health?.status === "disabled") return "warn";
-  return account.active ? "ok" : "default";
-}
-
-function quotaColor(remaining: number | null): string {
-  if (remaining !== null && remaining <= 10) return "bg-[var(--red)]";
-  if (remaining !== null && remaining <= 25) return "bg-[var(--yellow,theme(colors.amber.400))]";
-  return "bg-[var(--green)]";
+/** Show email/name for hint; fall back to name if hint is a useless JWT prefix. */
+function displayHint(hint: string, name: string): string {
+  if (hint.startsWith("eyJ") || hint === "—") return name;
+  return hint;
 }
 
 function isEmpty(account: QuotaEntry): boolean {
@@ -56,26 +102,161 @@ function firstResetAt(account: QuotaEntry): number {
   return Math.min(...resetTimes, Number.POSITIVE_INFINITY);
 }
 
+/** Friendly error mapping — replace raw HTTP/provider messages with human text. */
+function friendlyError(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  if (lower.includes("not available") || lower.includes("endpoint is not available")) return "Quota tracking is not supported for this provider";
+  if (lower.includes("usage limit") || lower.includes("quota") || lower.includes("rate limit")) return "Quota exhausted — wait for reset or upgrade plan";
+  if (lower.includes("http 500") || lower.includes("internal server error")) return "Provider temporarily unavailable — retry in a moment";
+  if (lower.includes("http 429") || lower.includes("too many requests")) return "Rate limited — slow down requests";
+  if (lower.includes("http 401") || lower.includes("unauthorized") || lower.includes("invalid")) return "Credential expired — re-login or refresh token";
+  if (lower.includes("http 403") || lower.includes("forbidden")) return "Access denied — check account permissions";
+  if (lower.includes("http 402") || lower.includes("payment")) return "Payment required — top up account balance";
+  if (lower.includes("connect") || lower.includes("network") || lower.includes("timeout")) return "Network error — check connection and retry";
+  return raw;
+}
+
+/** Progress bar color based on remaining percentage. */
+function barColors(remaining: number | null): { bar: string; text: string } {
+  if (remaining === null) return { bar: "bg-[var(--text-3)]", text: "text-[var(--text-3)]" };
+  if (remaining <= 0) return { bar: "bg-[var(--red)]", text: "text-[var(--red)]" };
+  if (remaining < 20) return { bar: "bg-[var(--red)]", text: "text-[var(--red)]" };
+  if (remaining < 50) return { bar: "bg-[var(--yellow)]", text: "text-[var(--yellow)]" };
+  return { bar: "bg-[var(--green)]", text: "text-[var(--green)]" };
+}
+
+const QUOTA_REFRESH_INTERVAL_MS = 5 * 60_000;
+
+async function fetchQuotaAccounts(providers: ProviderSummary[]): Promise<QuotaEntry[]> {
+  const accountPages = await Promise.all(providers.map(async (provider) => {
+    const { items } = await apiGet<{ items: AccountResponse[] }>(`/providers/${encodeURIComponent(provider.id)}/accounts?limit=100`);
+    return items.flatMap((account) => {
+      const normalized = normalizeAccount(account, provider);
+      return normalized ? [normalized] : [];
+    });
+  }));
+  return accountPages.flat();
+}
+
+async function fetchQuotaPageData(): Promise<QuotaQueryData> {
+  const { items: allProviders } = await apiGet<{ items: ProviderSummary[] }>("/providers");
+  const providers = allProviders.filter((provider) => QUOTA_SUPPORTED_PROVIDERS.has(provider.id));
+  const accounts = await fetchQuotaAccounts(providers);
+  await Promise.allSettled(accounts.map((account) => apiPost(`/accounts/${encodeURIComponent(account.id)}/quota/refresh`)));
+  return { providers, accounts: await fetchQuotaAccounts(providers) };
+}
+
+function QuotaCard({ account, onToggle, onDelete }: { account: QuotaEntry; onToggle: (account: QuotaEntry, active: boolean) => void; onDelete: (account: QuotaEntry) => void }) {
+  const queryClient = useQueryClient();
+  const queryKey = ["console", "quota-account", account.id] as const;
+  const quotaQuery = useQuery({
+    queryKey,
+    queryFn: async () => normalizeQuotaResponse(await apiGet<unknown>(`/accounts/${encodeURIComponent(account.id)}/quota`)),
+    initialData: account.quota,
+    staleTime: 2 * 60_000,
+  });
+  const refresh = useMutation({
+    mutationFn: async () => {
+      await apiPost(`/accounts/${encodeURIComponent(account.id)}/quota/refresh`);
+      await queryClient.invalidateQueries({ queryKey, exact: true });
+      await quotaQuery.refetch();
+    },
+  });
+  const quota = quotaQuery.data;
+  const busy = refresh.isPending || quotaQuery.isFetching;
+  const rawError = refresh.error ? errorMessage(refresh.error) : quotaQuery.error ? errorMessage(quotaQuery.error) : quota?.error ?? account.health?.sanitizedMessage;
+  const cardError = friendlyError(rawError);
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[var(--inner-border)] bg-[var(--glass-bg)] shadow-[0_8px_30px_rgba(0,0,0,.12)] backdrop-blur-xl" aria-busy={busy}>
+      {/* Header: icon + provider name + plan + account hint + actions */}
+      <div className="flex items-center gap-3 px-4 py-3">
+        <ProviderIcon icon={account.providerIcon} name={account.providerName} size={36} />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="truncate text-sm font-bold">{account.providerName}</div>
+            {quota?.plan && <span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">{quota.plan}</span>}
+          </div>
+          <div className="truncate text-[11px] text-[var(--text-2)]">{displayHint(account.credentialHint, account.name)}</div>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="size-8" title="Refresh quota" aria-label={`Refresh ${account.name} quota`} disabled={busy} onClick={() => refresh.mutate()}>
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+          </Button>
+          <Button variant="ghost" size="icon" className="size-8 text-[var(--red)]" title="Delete account" aria-label={`Delete ${account.name}`} onClick={() => onDelete(account)}>
+            <Trash2 size={14} />
+          </Button>
+          <Switch checked={account.active} disabled={refresh.isPending} onChange={(active) => onToggle(account, active)} label={`${account.active ? "Disable" : "Enable"} ${account.name}`} />
+        </div>
+      </div>
+
+      {cardError && (
+        <div className="flex items-center justify-center gap-2 border-t border-[var(--inner-border)] px-4 py-3 text-center text-[11px] text-[var(--red)]" role="alert">
+          <TriangleAlert size={13} className="shrink-0" />
+          <span>{cardError}</span>
+        </div>
+      )}
+
+      {/* Quota progress bars — 9Router style */}
+      {quota?.windows.length ? (
+        <div className="space-y-3 border-t border-[var(--inner-border)] px-4 py-3">
+          <div className="text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-2)]">Window Quota</div>
+          {quota.windows.map((window, index) => {
+            const remaining = window.remainingPercent ?? null;
+            const used = window.used ?? null;
+            const limit = window.limit ?? null;
+            const colors = barColors(remaining);
+            const usedPct = remaining !== null ? Math.max(0, Math.min(100, 100 - remaining)) : 0;
+            return (
+              <div key={`${window.kind ?? window.label}:${window.resetsAt ?? "none"}:${index}`}>
+                {/* Label + percentage */}
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-[var(--text-1)]">{formatWindowLabel(window.label)}</span>
+                  <span className={`text-[11px] font-bold tabular-nums ${colors.text}`}>{remaining !== null ? `${remaining}%` : "—"}</span>
+                </div>
+                {/* Pill progress bar */}
+                <div className="h-2 overflow-hidden rounded-full bg-[var(--inner-border)]">
+                  <div className={cn("h-full rounded-full transition-all duration-500", colors.bar)} style={{ width: `${usedPct}%` }} />
+                </div>
+                {/* Used / limit + reset */}
+                <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--text-3)]">
+                  <span className="tabular-nums">{used !== null && limit !== null ? `${used.toLocaleString()} / ${limit.toLocaleString()}` : "—"}</span>
+                  {window.resetsAt && <span className="tabular-nums">{formatReset(window.resetsAt)}</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : !cardError ? (
+        <div className="border-t border-[var(--inner-border)] py-6 text-center text-[11px] text-[var(--text-3)]">
+          {busy ? "Loading…" : "No quota data"}
+        </div>
+      ) : null}
+
+    </div>
+  );
+}
+
 export function QuotaPage() {
   const [providerFilter, setProviderFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
   const [expiringFirst, setExpiringFirst] = useState(false);
-  const { data, isLoading, isFetching, dataUpdatedAt, refetch } = useQuery({
+  const queryClient = useQueryClient();
+  const { data, isLoading, isFetching, dataUpdatedAt, refetch } = useQuery<QuotaQueryData>({
     queryKey: ["console", "quota-management"],
-    queryFn: async (): Promise<{ providers: ProviderSummary[]; accounts: QuotaEntry[] }> => {
-      const { items: providers } = await apiGet<{ items: ProviderSummary[] }>("/providers");
-      const quotaProviders = providers.filter((provider) => QUOTA_ENDPOINT_PROVIDERS.has(provider.id));
-      const accountPages = await Promise.all(quotaProviders.map(async (provider) => {
-        const { items } = await apiGet<{ items: Account[] }>(`/providers/${provider.id}/accounts?limit=100`);
-        return items.map((account) => ({ ...account, providerName: provider.name, providerIcon: provider.icon ?? provider.id }));
-      }));
-      return { providers, accounts: accountPages.flat() };
-    },
-    staleTime: 2 * 60_000,
-    refetchInterval: 5 * 60_000,
+    queryFn: fetchQuotaPageData,
+    staleTime: 0,
+    refetchInterval: QUOTA_REFRESH_INTERVAL_MS,
+    refetchIntervalInBackground: true,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
-  const providers = (data?.providers ?? []).filter((provider) => QUOTA_ENDPOINT_PROVIDERS.has(provider.id));
-  const accounts = (data?.accounts ?? []).filter((account) => QUOTA_ENDPOINT_PROVIDERS.has(account.provider));
+  const providers = data?.providers ?? [];
+  const accounts = useMemo(() => data?.accounts ?? [], [data?.accounts]);
+  const [deleteTarget, setDeleteTarget] = useState<QuotaEntry | null>(null);
+  useEffect(() => {
+    for (const account of accounts) queryClient.setQueryData(["console", "quota-account", account.id], account.quota);
+  }, [accounts, queryClient]);
   const filteredAccounts = useMemo(() => {
     const result = accounts.filter((account) => {
       if (providerFilter !== "all" && account.provider !== providerFilter) return false;
@@ -109,7 +290,6 @@ export function QuotaPage() {
     await refetch();
   };
   const deleteAccount = async (account: QuotaEntry) => {
-    if (!window.confirm(`Delete ${account.name}?`)) return;
     try {
       await apiDelete(`/providers/${account.provider}/accounts/${account.id}`);
       toast.success(`${account.name} deleted`);
@@ -122,8 +302,8 @@ export function QuotaPage() {
   const emptyCount = accounts.filter(isEmpty).length;
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-[var(--inner-border)] bg-[var(--panel)] p-2">
+    <div className="dashboard-page flex min-h-0 flex-1 flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-[var(--inner-border)] bg-[var(--surface-1)] p-2">
         <SlidersHorizontal size={14} className="mx-1 text-[var(--text-3)]" aria-hidden="true" />
         <select aria-label="Filter quota by provider" value={providerFilter} onChange={(event) => setProviderFilter(event.target.value)} className="h-8 rounded-lg border border-[var(--inner-border)] bg-[var(--hover)] px-2 text-xs text-[var(--text-1)]"><option value="all">All Providers</option>{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select>
         <select aria-label="Filter quota by account" value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)} className="h-8 rounded-lg border border-[var(--inner-border)] bg-[var(--hover)] px-2 text-xs text-[var(--text-1)]"><option value="all">All accounts</option><option value="active">Active</option><option value="disabled">Disabled</option><option value="tracked">With quota</option></select>
@@ -134,13 +314,18 @@ export function QuotaPage() {
         <Button variant="ghost" size="icon" className="size-8" title="Refresh quota" aria-label="Refresh quota" disabled={isFetching} onClick={() => void refetch()}><RefreshCw size={14} className={isFetching ? "animate-spin" : undefined} /></Button>
       </div>
 
-      {isLoading ? <div className="rounded-xl border border-[var(--inner-border)] p-12 text-center text-sm text-[var(--text-3)]"><Loader2 className="mx-auto mb-2 animate-spin" size={18} />Loading quota data…</div> : filteredAccounts.length === 0 ? <div className="rounded-xl border border-[var(--inner-border)] p-12 text-center text-sm text-[var(--text-3)]"><Gauge className="mx-auto mb-2" size={20} />No account quota data available yet.</div> : <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">{filteredAccounts.map((account) => <div key={account.id} className="overflow-hidden rounded-xl border border-[var(--inner-border)] bg-[var(--panel)] shadow-[0_8px_30px_rgba(0,0,0,.08)]">
-        <div className="flex items-center gap-2 border-b border-[var(--inner-border)] px-3 py-2.5"><ProviderIcon icon={account.providerIcon} name={account.providerName} size={30} /><div className="min-w-0 flex-1"><div className="truncate text-xs font-semibold">{account.providerName}</div><div className="truncate text-[10px] text-[var(--text-2)]">{account.name}</div><div className="truncate font-mono text-[9px] text-[var(--text-3)]">{account.credentialHint}</div></div><div className="flex items-center gap-0.5"><Button variant="ghost" size="icon" className="size-7" title="Refresh account" aria-label={`Refresh ${account.name}`} onClick={() => void refetch()}><RotateCcw size={13} /></Button><Switch checked={account.active} onChange={(active) => void updateAccount(account, active)} label={`${account.active ? "Disable" : "Enable"} ${account.name}`} /><Button variant="ghost" size="icon" className="size-7 text-[var(--red)]" title="Delete account" aria-label={`Delete ${account.name}`} onClick={() => void deleteAccount(account)}><Trash2 size={13} /></Button></div></div>
-        <div className="flex items-center justify-between px-3 py-2 text-[10px] text-[var(--text-3)]"><span>{account.quota?.windows.length ?? 0} quota{account.quota?.windows.length === 1 ? "" : "s"}{account.quota?.plan ? ` · ${account.quota.plan}` : ""}</span><Badge tone={statusTone(account)}>{statusLabel(account)}</Badge></div>
-        <div className="divide-y divide-[var(--inner-border)]">{account.quota?.windows.length ? account.quota.windows.map((window) => <div key={`${window.label}:${window.resetsAt ?? "none"}`} className="flex items-center gap-2 px-3 py-2.5"><span className={`size-2 shrink-0 rounded-full ${window.remainingPercent !== null && window.remainingPercent <= 0 ? "bg-[var(--red)]" : "bg-[var(--green)]"}`} /><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><span className="truncate text-[11px] font-medium">{window.label}</span><span className="shrink-0 text-[10px] text-[var(--text-3)]">{formatReset(window.resetsAt)}</span></div><div className="mt-1 h-1 overflow-hidden rounded-full bg-[var(--inner-border)]"><div className={`h-full ${quotaColor(window.remainingPercent)}`} style={{ width: `${window.remainingPercent === null ? 0 : Math.max(0, Math.min(100, window.remainingPercent))}%` }} /></div><div className="mt-0.5 flex justify-between font-mono text-[9px] text-[var(--text-3)]"><span>{typeof window.used === "number" && typeof window.limit === "number" ? `${window.used} / ${window.limit}` : typeof window.usedPercent === "number" ? `${Math.round(window.usedPercent)}% used` : "usage unavailable"}</span><span>{window.remainingPercent === null ? "—" : `${Math.round(window.remainingPercent)}%`}</span></div></div><EyeOff size={14} className="shrink-0 text-[var(--text-3)]" aria-hidden="true" /></div>) : <div className="px-3 py-6 text-center text-[10px] text-[var(--text-3)]">No quota reported</div>}</div>
-        {account.health?.sanitizedMessage && <div className="border-t border-[var(--inner-border)] px-3 py-2 text-[10px] text-[var(--red)]">{account.health.sanitizedMessage}</div>}
-      </div>)}</div>}
+      {isLoading ? <StatePanel className="min-h-0 flex flex-1 flex-col items-center justify-center" kind="loading" title="Loading quota data" description="Reading provider account limits…" /> : filteredAccounts.length === 0 ? <StatePanel className="min-h-0 flex flex-1 flex-col items-center justify-center" kind="empty" title="No account quota data" description="No tracked provider quota is available yet." /> : <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">{filteredAccounts.map((account) => <QuotaCard key={account.id} account={account} onToggle={(entry, active) => void updateAccount(entry, active)} onDelete={(entry) => setDeleteTarget(entry)} />)}</div>}
       <div className="flex items-center justify-between text-[10px] text-[var(--text-3)]"><span>Auto-refresh every 5 minutes · updated {lastUpdated}</span><span>{filteredAccounts.length} shown</span></div>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => { if (deleteTarget) void deleteAccount(deleteTarget); }}
+        title="Delete account?"
+        message={`Delete "${deleteTarget?.name}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+      />
     </div>
   );
 }

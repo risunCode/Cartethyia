@@ -4,7 +4,7 @@ import { AppShell } from "./layout";
 import { LoginPage } from "../features/login/page";
 import { RouteError } from "./route-error";
 
-async function guardLoader({ request }: { request: Request }) {
+export async function guardLoader({ request }: { request: Request }): Promise<Response | null> {
   const res = await fetch("/console/api/session", { credentials: "same-origin" });
   if (res.status === 401) {
     const next = new URL(request.url).pathname.replace(/^\/console/, "") || "/overview";
@@ -78,14 +78,29 @@ export const router = createBrowserRouter(
         { path: "usage", lazy: lazyPage(() => import("../features/usage/page"), (m) => m.UsagePage) },
         { path: "providers", lazy: lazyPage(() => import("../features/providers/page"), (m) => m.ProvidersPage) },
         { path: "model-studio", lazy: lazyPage(() => import("../features/model-studio/page"), (m) => m.ModelStudioPage) },
+        { path: "api-keys", lazy: lazyPage(() => import("../features/api-keys/page"), (m) => m.ApiKeysPage) },
         { path: "providers/custom/:id", lazy: lazyPage(() => import("../features/providers/custom-detail"), (m) => m.CustomProviderDetailPage) },
         { path: "providers/:id", lazy: lazyPage(() => import("../features/providers/detail"), (m) => m.ProviderDetailPage) },
         { path: "combos", lazy: lazyPage(() => import("../features/combos/page"), (m) => m.CombosPage) },
         { path: "quota", lazy: lazyPage(() => import("../features/quota/page"), (m) => m.QuotaPage) },
         { path: "proxy-requests", lazy: lazyPage(() => import("../features/proxy-requests/page"), (m) => m.ProxyRequestsPage) },
         { path: "console-log", lazy: lazyPage(() => import("../features/console-log/page"), (m) => m.ConsoleLogPage) },
-        { path: "customization", lazy: lazyPage(() => import("../features/customization/page"), (m) => m.CustomizationPage) },
+        { path: "customization", element: <Navigate to="/advanced" replace /> },
+        { path: "advanced", lazy: lazyPage(() => import("../features/advanced/page"), (m) => m.AdvancedPage) },
+        { path: "advanced/filter-sanitize", lazy: lazyPage(() => import("../features/advanced/filter-sanitize"), (m) => m.FilterSanitizePage) },
+        { path: "advanced/token-saver", lazy: lazyPage(() => import("../features/token-saver/page"), (m) => m.TokenSaverPage) },
+        { path: "token-saver", element: <Navigate to="/advanced/token-saver" replace /> },
         { path: "settings", lazy: lazyPage(() => import("../features/settings/page"), (m) => m.SettingsPage) },
+        // ── Advanced sidebar page 2 ────────────────────────────────────
+        { path: "system-monitoring", lazy: lazyPage(() => import("../features/advanced/pages"), (m) => m.SystemMonitoringPage) },
+        { path: "audit-log", element: <Navigate to="/system-monitoring" replace /> },
+        { path: "network-overview", element: <Navigate to="/system-monitoring" replace /> },
+        { path: "multi-warp", lazy: lazyPage(() => import("../features/advanced/pages"), (m) => m.MultiWarpPage) },
+        { path: "diagnostics", element: <Navigate to="/system-monitoring" replace /> },
+        { path: "advanced/automation", lazy: lazyPage(() => import("../features/advanced/tools"), (m) => m.AutomationPage) },
+        { path: "advanced/cli-tools", lazy: lazyPage(() => import("../features/advanced/cli-tools/page"), (m) => m.CliToolsPage) },
+        { path: "advanced/cli-tools/:toolId", lazy: lazyPage(() => import("../features/advanced/cli-tools/detail"), (m) => m.CliToolDetailPage) },
+        { path: "advanced/db-map", lazy: lazyPage(() => import("../features/advanced/db-map/page"), (m) => m.DatabaseMapPage) },
       ],
     },
   ],

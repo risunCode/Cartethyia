@@ -10,22 +10,23 @@ import {
   Globe,
   KeyRound,
   MemoryStick,
+  MapPin,
+  Network,
   Pencil,
   Plus,
-  Share2,
-  Sparkles,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { toast } from "sonner";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "../../lib/toast";
 import { ApiError, apiGet, apiPatch, apiPost, apiDelete } from "../../lib/api";
-import { formatDuration, formatMemoryMb, formatTime, formatTokens } from "../../lib/format";
+import { formatBandwidthKb, formatDuration, formatMemoryMb, formatTime, formatTokens } from "../../lib/format";
 import { staggerClass } from "../../lib/motion";
-import { Badge, Skeleton } from "../../components/ui/badge";
+import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Dialog } from "../../components/ui/dialog";
+import { StatCard, StatePanel } from "../../components/ui/state";
 import { Input, Label } from "../../components/ui/input";
 import { Switch } from "../../components/ui/switch";
 import { ConfirmDialog } from "../../components/shared";
@@ -54,7 +55,49 @@ interface OverviewData {
     estimatedCostUsd: number;
   };
   providers: ProviderOverview[];
-  registry: string[];
+  registered: string[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+/** Validates and normalizes the current console overview response shape. */
+export function parseOverviewData(value: unknown): OverviewData | null {
+  if (!isRecord(value) || !Array.isArray(value.registered) || !value.registered.every((item) => typeof item === "string") || !Array.isArray(value.providers) || !isRecord(value.totals)) return null;
+  const totals = value.totals;
+  const totalKeys: (keyof OverviewData["totals"])[] = ["requests", "inputTokens", "cachedTokens", "outputTokens", "errors"];
+  if (!totalKeys.every((key) => isFiniteNumber(totals[key]))) return null;
+  const requests = totals.requests;
+  const inputTokens = totals.inputTokens;
+  const cachedTokens = totals.cachedTokens;
+  const outputTokens = totals.outputTokens;
+  const errors = totals.errors;
+  const avgDurationMs = isFiniteNumber(totals.avgDurationMs) ? totals.avgDurationMs : 0;
+  const estimatedCostUsd = isFiniteNumber(totals.estimatedCostUsd) ? totals.estimatedCostUsd : 0;
+  if (!isFiniteNumber(requests) || !isFiniteNumber(inputTokens) || !isFiniteNumber(cachedTokens) || !isFiniteNumber(outputTokens) || !isFiniteNumber(errors)) return null;
+  const providers: ProviderOverview[] = [];
+  for (const item of value.providers) {
+    if (!isRecord(item) || typeof item.providerId !== "string" || !isFiniteNumber(item.requests) || !isFiniteNumber(item.inputTokens) || !isFiniteNumber(item.cachedTokens) || !isFiniteNumber(item.outputTokens) || !isFiniteNumber(item.errors)) return null;
+    providers.push({ id: item.providerId, prefix: item.providerId, status: item.errors > 0 ? "warn" : "ok", requestsToday: item.requests, input: item.inputTokens, cached: item.cachedTokens, output: item.outputTokens, errors: item.errors, lastError: null });
+  }
+  return {
+    totals: {
+      requests,
+      inputTokens,
+      cachedTokens,
+      outputTokens,
+      errors,
+      avgDurationMs,
+      estimatedCostUsd,
+    },
+    providers,
+    registered: value.registered,
+  };
 }
 
 interface RuntimeSettings {
@@ -62,7 +105,9 @@ interface RuntimeSettings {
 }
 
 interface SettingsResponse {
-  settings: RuntimeSettings;
+  settings: {
+    runtime: RuntimeSettings;
+  };
 }
 
 interface HealthMetrics {
@@ -77,6 +122,19 @@ interface HealthMetrics {
   coreCount: number;
   cpuModel: string;
   pid: number;
+  netReceivedKb: number | null;
+  netSentKb: number | null;
+  netTotalKb: number | null;
+  netRateKbps: number | null;
+}
+
+interface WarpMetricsSummary {
+  totalRssMb: number;
+  totalRxMb: number;
+  totalTxMb: number;
+  totalBandwidthMb: number;
+  runningCount: number;
+  healthyCount: number;
 }
 
 interface ApiKeyRecord {
@@ -89,9 +147,6 @@ interface ApiKeyRecord {
   monthlyTokenLimit: number | null;
   oneTimeTokenLimit: number | null;
   oneTimeTokensUsed: number;
-  quoteBigText: string | null;
-  quoteSubText: string | null;
-  quoteBody: string | null;
   maxConcurrentRequests: number | null;
   providerAllowlist: string[] | null;
   modelAllowlist: string[] | null;
@@ -106,6 +161,7 @@ interface ApiKeyRecord {
 }
 
 type KeyUpdatePatch = {
+  key?: string;
   rateLimitRpm?: number | null;
   dailyTokenLimit?: number | null;
   monthlyTokenLimit?: number | null;
@@ -115,12 +171,10 @@ type KeyUpdatePatch = {
   providerAllowlist?: string[] | null;
   modelAllowlist?: string[] | null;
   modelDenylist?: string[] | null;
-  quoteBigText?: string | null;
-  quoteSubText?: string | null;
-  quoteBody?: string | null;
 };
 
 type KeyLimitsInput = {
+  key?: string;
   rateLimitRpm?: number;
   dailyTokenLimit?: number;
   monthlyTokenLimit?: number;
@@ -274,7 +328,7 @@ function KeyLimitsFields({
                   type="button"
                   disabled={disabled}
                   onClick={() => onBudgetModeChange(mode)}
-                  className={`rounded-md px-2.5 py-1 text-[10px] font-semibold transition-colors ${budgetMode === mode ? "bg-[var(--text-1)] text-[var(--bg)]" : "text-[var(--text-3)] hover:text-[var(--text-1)]"}`}
+                  className={`rounded-md px-2.5 py-1 text-[10px] font-semibold transition-colors ${budgetMode === mode ? "bg-[var(--text-1)] text-[var(--page-bg)]" : "text-[var(--text-3)] hover:text-[var(--text-1)]"}`}
                 >
                   {mode === "one-time" ? "One-time" : "Daily / monthly"}
                 </button>
@@ -331,6 +385,10 @@ function KeyLimitsFields({
 
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+  }, []);
   return (
     <Button
       variant="secondary"
@@ -342,7 +400,8 @@ function CopyButton({ value }: { value: string }) {
             return;
           }
           setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
+          if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+          copiedTimerRef.current = window.setTimeout(() => { copiedTimerRef.current = null; setCopied(false); }, 1500);
         });
       }}
     >
@@ -358,50 +417,40 @@ export function OverviewPage() {
   const [editTarget, setEditTarget] = useState<ApiKeyRecord | null>(null);
   const [name, setName] = useState("");
   const [prefix, setPrefix] = useState("");
+  const [customKey, setCustomKey] = useState("");
   const [rpm, setRpm] = useState("");
   const [daily, setDaily] = useState("");
   const [monthly, setMonthly] = useState("");
   const [oneTime, setOneTime] = useState("");
   const [budgetMode, setBudgetMode] = useState<TokenBudgetMode>("recurring");
-  const [quoteBigText, setQuoteBigText] = useState("");
-  const [quoteSubText, setQuoteSubText] = useState("");
-  const [quoteBody, setQuoteBody] = useState("");
   const [concurrent, setConcurrent] = useState("");
   const [allowed, setAllowed] = useState<string[]>([]);
   const [revealed, setRevealed] = useState<CreatedKey | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyRecord | null>(null);
   const [regenerateTarget, setRegenerateTarget] = useState<ApiKeyRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiKeyRecord | null>(null);
-  const [isActive, setIsActive] = useState(true);
 
   const resetKeyForm = () => {
     setName("");
     setPrefix("");
+    setCustomKey("");
     setRpm("");
     setDaily("");
     setMonthly("");
     setOneTime("");
     setBudgetMode("recurring");
-    setQuoteBigText("");
-    setQuoteSubText("");
-    setQuoteBody("");
     setConcurrent("");
     setAllowed([]);
-    setIsActive(true);
   };
 
   const openEdit = (key: ApiKeyRecord) => {
     setEditTarget(key);
-    setIsActive(key.active);
     setRpm(key.rateLimitRpm ? String(key.rateLimitRpm) : "");
     const hasOneTimeBudget = key.oneTimeTokenLimit !== null;
     setBudgetMode(hasOneTimeBudget ? "one-time" : "recurring");
     setDaily(key.dailyTokenLimit ? String(key.dailyTokenLimit) : "");
     setMonthly(key.monthlyTokenLimit ? String(key.monthlyTokenLimit) : "");
     setOneTime(key.oneTimeTokenLimit ? String(key.oneTimeTokenLimit) : "");
-    setQuoteBigText(key.quoteBigText ?? "");
-    setQuoteSubText(key.quoteSubText ?? "");
-    setQuoteBody(key.quoteBody ?? "");
     setConcurrent(key.maxConcurrentRequests ? String(key.maxConcurrentRequests) : "");
     setAllowed([...(key.providerAllowlist ?? []), ...(key.modelAllowlist ?? [])]);
   };
@@ -412,13 +461,20 @@ export function OverviewPage() {
   };
 
   const baseUrl = useMemo(() => `${window.location.origin}/v1`, []);
+  const currentHost = window.location.hostname || "local";
+  const isLocalHost = currentHost === "localhost" || currentHost === "127.0.0.1" || currentHost === "::1";
 
   const ipQuery = useQuery({ queryKey: ["ip"], queryFn: () => apiGet<{ ips: string[] }>("/ip"), staleTime: 60_000 });
   const localIps = ipQuery.data?.ips ?? [];
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["overview"],
-    queryFn: () => apiGet<OverviewData>("/overview"),
+    queryFn: async () => {
+      const response = await apiGet<unknown>("/overview");
+      const parsed = parseOverviewData(response);
+      if (parsed === null) throw new Error("Invalid overview response");
+      return parsed;
+    },
   });
 
   const settingsQuery = useQuery({
@@ -440,16 +496,10 @@ export function OverviewPage() {
     refetchInterval: 5_000,
   });
 
-  const gcMutation = useMutation({
-    mutationFn: () => apiPost<{ gc: { status: "scheduled" | "deferred" | "already_pending"; inFlight: number } }>("/health/gc", {}),
-    onSuccess: ({ gc }) => {
-      const message = gc.status === "deferred"
-        ? `GC queued until proxy is idle (${gc.inFlight} requests in flight)`
-        : gc.status === "already_pending" ? "GC is already queued" : "GC scheduled asynchronously";
-      toast.success(message);
-      void queryClient.invalidateQueries({ queryKey: ["health-metrics"] });
-    },
-    onError: () => toast.error("Failed to run garbage collection"),
+  const warpMetricsQuery = useQuery({
+    queryKey: ["warp", "metrics-summary"],
+    queryFn: () => apiGet<WarpMetricsSummary>("/warp/metrics/summary"),
+    refetchInterval: 5_000,
   });
 
   const authModeMutation = useMutation({
@@ -471,15 +521,6 @@ export function OverviewPage() {
       void queryClient.invalidateQueries({ queryKey: ["keys"] });
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to create key"),
-  });
-
-  const shareMutation = useMutation({
-    mutationFn: (id: string) => apiPost<{ url: string }>(`/keys/${id}/share`, {}),
-    onSuccess: async ({ url }) => {
-      const copied = await copyText(url);
-      toast.success(copied ? "Share link copied" : url);
-    },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to create share link"),
   });
 
   const editMutation = useMutation({
@@ -538,6 +579,7 @@ export function OverviewPage() {
     createMutation.mutate({
       name: name.trim(),
       prefix: prefix.trim() || undefined,
+      key: customKey.trim() || undefined,
       ...buildKeyLimitsInput(rpm, daily, monthly, concurrent, allowed, providerIds, oneTime, budgetMode),
     });
   };
@@ -548,6 +590,7 @@ export function OverviewPage() {
     editMutation.mutate({
       id: editTarget.id,
       patch: {
+        ...(customKey.trim() ? { key: customKey.trim() } : {}),
         rateLimitRpm: limits.rateLimitRpm ?? null,
         dailyTokenLimit: limits.dailyTokenLimit ?? null,
         monthlyTokenLimit: limits.monthlyTokenLimit ?? null,
@@ -555,176 +598,238 @@ export function OverviewPage() {
         maxConcurrentRequests: limits.maxConcurrentRequests ?? null,
         providerAllowlist: limits.providerAllowlist ?? null,
         modelAllowlist: limits.modelAllowlist ?? null,
-        quoteBigText: quoteBigText.trim() || null,
-        quoteSubText: quoteSubText.trim() || null,
-        quoteBody: quoteBody.trim() || null,
-        active: isActive,
       },
     });
   };
 
-  if (isLoading) {
-    return (
-      <Card>
-        <Skeleton className="h-5 w-32" />
-        <Skeleton className="mt-4 h-24 w-full" />
-      </Card>
-    );
-  }
-  if (isError || !data) {
-    return (
-      <Card className="text-center">
-        <p className="py-8 text-sm text-[var(--text-2)]">Failed to load overview.</p>
-        <Button variant="secondary" onClick={() => refetch()}>
-          Retry
-        </Button>
-      </Card>
-    );
-  }
+  if (isLoading) return <StatePanel kind="loading" title="Loading overview" description="Collecting runtime and provider health data…" />;
+  if (isError || !data) return <StatePanel kind="error" title="Failed to load overview" description="The overview response was unavailable or invalid." action={<Button variant="secondary" onClick={() => refetch()}>Retry</Button>} />;
 
   const { totals } = data;
   const errorRate = totals.requests > 0 ? ((totals.errors / totals.requests) * 100).toFixed(1) : "0.0";
   const cacheRate = totals.inputTokens > 0 ? Math.round((totals.cachedTokens / totals.inputTokens) * 100) : 0;
+  const health = healthQuery.data;
+  const cpuPercent = health ? Math.min(100, Math.max(0, health.cpuPercent)) : 0;
+  const cpuTone = cpuPercent >= 80 ? "err" : cpuPercent >= 50 ? "warn" : "ok";
+  const ramSystemPercent = health && health.memoryTotalMb > 0 ? Math.min(100, Math.max(0, (health.memorySystemUsedMb / health.memoryTotalMb) * 100)) : 0;
 
-  const runtime = settingsQuery.data?.settings;
+  const runtime = settingsQuery.data?.settings.runtime;
   const requireKey = runtime?.proxyAuthMode === "api_key";
   const keys = keysQuery.data?.items ?? [];
 
   return (
-    <>
+    <div className="dashboard-page space-y-4">
       <Card>
         <CardHeader title="API Endpoint" icon={Globe} sub="Base URL for OpenAI- and Anthropic-compatible clients" />
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Badge tone="default">Local</Badge>
-          <code className="rounded-md bg-[var(--kbd-bg)] px-2 py-1 font-mono text-[12px] text-[var(--text-1)]">
-            {baseUrl}
-          </code>
-          {localIps.length > 0 && (
-            <span className="text-[11px] text-[var(--text-3)]">({localIps.join(", ")})</span>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto"
-            onClick={() => {
-              void copyText(baseUrl).then((ok) => {
-                if (ok) toast.success("Copied");
-                else toast.error("Clipboard unavailable on this origin");
-              });
-            }}
-          >
-            <Copy size={13} /> Copy
-          </Button>
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[rgba(10,132,255,0.13)] text-[#0a84ff]"><Globe size={14} /></span>
+                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Local</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 shrink-0 px-2 text-[10px]"
+                onClick={() => {
+                  void copyText(baseUrl).then((ok) => {
+                    if (ok) toast.success("Copied");
+                    else toast.error("Clipboard unavailable on this origin");
+                  });
+                }}
+              >
+                <Copy size={12} /> Copy
+              </Button>
+            </div>
+            <code className="block truncate rounded-md bg-[var(--kbd-bg)] px-2 py-1.5 font-mono text-[11.5px] text-[var(--text-1)]" title={baseUrl}>{baseUrl}</code>
+            <div className="mt-1.5 text-[10px] text-[var(--text-2)]">OpenAI and Anthropic compatible API</div>
+          </div>
+          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[rgba(48,209,88,0.13)] text-[#30d158]"><MapPin size={14} /></span>
+                <span className="truncate text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Current Public IP</span>
+              </div>
+              <Badge tone={isLocalHost ? "default" : "info"}>{isLocalHost ? "local" : "public"}</Badge>
+            </div>
+            <code className="block truncate rounded-md bg-[var(--kbd-bg)] px-2 py-1.5 font-mono text-[11.5px] text-[var(--text-1)]">{currentHost}</code>
+            {localIps.length > 0 && <div className="mt-1.5 truncate text-[10px] text-[var(--text-3)]" title={localIps.join(", ")}>LAN: {localIps.join(" · ")}</div>}
+          </div>
         </div>
       </Card>
 
       <Card>
-        <CardHeader title="Health" icon={Gauge} iconColor="#30d158" sub="Last 24 hours · process resource usage">
-          <Button variant="secondary" size="sm" disabled={gcMutation.isPending} onClick={() => gcMutation.mutate()}>
-            <Sparkles size={13} /> {gcMutation.isPending ? "Clearing…" : "Clear RAM usage"}
-          </Button>
-        </CardHeader>
+        <CardHeader title="Health" icon={Gauge} iconColor="#30d158" sub="Last 24 hours · runtime resource usage" />
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(10,132,255,0.13)] text-[#0a84ff]"><Activity size={14} /></span>
-              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Latency</span>
-            </div>
-            <div className="text-lg font-bold tabular-nums">{formatDuration(totals.avgDurationMs)}</div>
-            <div className="mt-0.5 text-[11px] text-[var(--text-2)]">Avg duration</div>
-          </div>
-          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(191,90,242,0.13)] text-[#bf5af2]"><Database size={14} /></span>
-              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Cache</span>
-            </div>
-            <div className="text-lg font-bold tabular-nums">{cacheRate}%</div>
-            <div className="mt-0.5 text-[11px] text-[var(--text-2)]">Cache rate</div>
-          </div>
-          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(255,69,58,0.13)] text-[var(--red)]"><TriangleAlert size={14} /></span>
-              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Errors</span>
-            </div>
-            <div className="text-lg font-bold tabular-nums">{errorRate}%</div>
-            <div className="mt-0.5 text-[11px] text-[var(--text-2)]">Error rate</div>
-          </div>
-          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(48,209,88,0.13)] text-[#30d158]"><Globe size={14} /></span>
-              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Registry</span>
-            </div>
-            <div className="text-lg font-bold tabular-nums">{data.registry.length}</div>
-            <div className="mt-0.5 text-[11px] text-[var(--text-2)]">Providers</div>
-          </div>
-          <div className="col-span-2 grid grid-cols-1 overflow-hidden rounded-[14px] border border-[var(--inner-border)] sm:col-span-4 sm:grid-cols-2">
-            {/* RAM — left */}
-            <div className="border-b border-[var(--inner-border)] bg-[var(--hover)] p-3 sm:border-b-0 sm:border-r">
-              <div className="mb-2 flex items-center gap-2">
-                <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(191,90,242,0.13)] text-[#bf5af2]"><MemoryStick size={14} /></span>
-                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">RAM</span>
-              </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-lg font-bold tabular-nums">{healthQuery.data ? formatMemoryMb(healthQuery.data.memoryUsedMb) : "—"}</span>
-                <span className="text-[10.5px] text-[var(--text-3)]">RSS</span>
-              </div>
-              <div className="mb-2 text-[10.5px] text-[var(--text-2)]">
-                {healthQuery.data ? `${formatMemoryMb(healthQuery.data.memorySystemUsedMb)} / ${formatMemoryMb(healthQuery.data.memoryTotalMb)} system` : ""}
-              </div>
-              {healthQuery.data && (() => {
-                const d = healthQuery.data;
-                const nativeMb = Math.max(0, d.memoryUsedMb - d.heapTotalMb - d.externalMb - d.arrayBuffersMb);
-                const rss = d.memoryUsedMb;
-                return (
-                  <div className="space-y-1">
-                    {([
-                      { label: "JS heap", used: d.heapUsedMb, bar: d.heapTotalMb, color: "#bf5af2" },
-                      { label: "Native/JIT", used: nativeMb, bar: nativeMb, color: "#30d158" },
-                      { label: "External", used: d.externalMb, bar: d.externalMb, color: "#ff9f0a" },
-                      { label: "ArrayBuf", used: d.arrayBuffersMb, bar: d.arrayBuffersMb, color: "#0a84ff" },
-                    ] as const).map(({ label, used, bar, color }) => (
-                      <div key={label}>
-                        <div className="mb-0.5 flex justify-between text-[9.5px] text-[var(--text-3)]">
-                          <span>{label}</span>
-                          <span className="tabular-nums">{formatMemoryMb(used)}</span>
-                        </div>
-                        <div className="h-1 overflow-hidden rounded-full bg-[var(--track)]">
-                          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (bar / rss) * 100)}%`, background: color }} />
-                        </div>
+          <StatCard label="Latency" icon={Activity} tone="info" value={formatDuration(totals.avgDurationMs)} description="Avg duration" />
+          <StatCard label="Cache" icon={Database} tone="accent" value={`${cacheRate}%`} description="Cache rate" />
+          <StatCard label="Errors" icon={TriangleAlert} tone="danger" value={`${errorRate}%`} description="Error rate" />
+          <StatCard label="Registry" icon={Globe} tone="success" value={data.registered.length} description="Providers" />
+          <div className="col-span-2 grid grid-cols-1 overflow-hidden rounded-[14px] border border-[var(--inner-border)] sm:col-span-4 lg:grid-cols-4">
+            {/* Merged RAM + Warp Proxy — wide card spanning 2 columns */}
+            <section className="border-b border-[var(--inner-border)] bg-[var(--hover)] p-3.5 sm:border-b-0 sm:border-r lg:col-span-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {/* RAM */}
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[10px] bg-[rgba(191,90,242,0.13)] text-[#bf5af2]"><MemoryStick size={14} /></span>
+                    <div className="min-w-0">
+                      <h3 id="health-ram-title" className="text-xs font-bold tracking-tight">RAM usage</h3>
+                      <p className="text-[10px] text-[var(--text-3)]">Bun Runtime · Cartethyia process</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-baseline gap-2">
+                    <span className="text-xl font-bold tracking-tight tabular-nums">{health ? formatMemoryMb(health.memoryUsedMb) : "—"}</span>
+                    <span className="text-[10px] text-[var(--text-3)]">RSS</span>
+                    <Badge tone="accent" className="ml-auto">{health ? `${formatMemoryMb(health.memorySystemUsedMb)} system` : "—"}</Badge>
+                  </div>
+                  <p className="mt-2 text-[9.5px] leading-relaxed text-[var(--text-3)]">RSS is the whole Cartethyia process — Bun runtime, native/JIT overhead, JS heap, and buffers combined.</p>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--track)]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={health ? ramSystemPercent : 0}>
+                    <div className="h-full origin-left rounded-full bg-[#bf5af2] transition-transform duration-500" style={{ transform: `scaleX(${ramSystemPercent / 100})` }} />
+                  </div>
+                  {health && (() => {
+                    const nativeMb = Math.max(0, health.memoryUsedMb - health.heapTotalMb - health.externalMb - health.arrayBuffersMb);
+                    const rss = health.memoryUsedMb;
+                    return (
+                      <div className="mt-2.5 grid grid-cols-2 gap-x-2 gap-y-1.5">
+                        {([
+                          { label: "JS heap", used: health.heapUsedMb, bar: health.heapTotalMb, color: "#bf5af2" },
+                          { label: "Bun runtime", used: nativeMb, bar: nativeMb, color: "#30d158" },
+                          { label: "External", used: health.externalMb, bar: health.externalMb, color: "#ff9f0a" },
+                          { label: "Array buffers", used: health.arrayBuffersMb, bar: health.arrayBuffersMb, color: "#0a84ff" },
+                        ] as const).map(({ label, used, bar, color }) => (
+                          <div key={label}>
+                            <div className="mb-0.5 flex justify-between text-[9px] text-[var(--text-3)]">
+                              <span>{label}</span>
+                              <span className="tabular-nums">{formatMemoryMb(used)}</span>
+                            </div>
+                            <div className="h-0.5 overflow-hidden rounded-full bg-[var(--track)]">
+                              <div className="h-full origin-left rounded-full transition-transform duration-500" style={{ transform: `scaleX(${Math.min(1, Math.max(0, rss === 0 ? 0 : bar / rss))})`, background: color }} />
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                );
-              })()}
-            </div>
-            {/* CPU — right */}
-            <div className="bg-[var(--hover)] p-3">
-              <div className="mb-2 flex items-center gap-2">
-                <span className="grid h-7 w-7 place-items-center rounded-[9px] bg-[rgba(255,159,10,0.14)] text-[#ff9f0a]"><Cpu size={14} /></span>
-                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">CPU</span>
-              </div>
-              <div className="text-lg font-bold tabular-nums">{healthQuery.data ? `${healthQuery.data.cpuPercent.toFixed(1)}%` : "—"}</div>
-              <div className="mt-0.5 text-[10.5px] text-[var(--text-2)]">this process</div>
-              {healthQuery.data && (
-                <div className="mt-3 space-y-1.5">
-                  <div className="flex items-center justify-between text-[9.5px]">
-                    <span className="text-[var(--text-3)]">Cores</span>
-                    <span className="font-semibold tabular-nums text-[var(--text-1)]">{healthQuery.data.coreCount} logical</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[9.5px]">
-                    <span className="text-[var(--text-3)]">PID</span>
-                    <span className="font-mono font-semibold text-[var(--text-1)]">{healthQuery.data.pid}</span>
-                  </div>
-                  <div className="mt-1 truncate text-[9px] text-[var(--text-3)]" title={healthQuery.data.cpuModel}>{healthQuery.data.cpuModel}</div>
+                    );
+                  })()}
                 </div>
-              )}
-            </div>
+                {/* Warp Proxy */}
+                <div className="border-t border-[var(--inner-border)] pt-3 sm:border-t-0 sm:pt-0 sm:border-l sm:pl-4">
+                  <div className="flex items-center gap-2">
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[10px] bg-[rgba(48,209,88,0.14)] text-[#30d158]"><Globe size={14} /></span>
+                    <div className="min-w-0">
+                      <h3 id="health-warp-title" className="text-xs font-bold tracking-tight">Warp Proxy</h3>
+                      <p className="text-[10px] text-[var(--text-3)]">MultiWarp pool · wireproxy instances</p>
+                    </div>
+                    <Badge tone={warpMetricsQuery.data?.runningCount ? "ok" : "default"} className="ml-auto">{warpMetricsQuery.data ? "Live" : "—"}</Badge>
+                  </div>
+                  <div className="mt-3 flex items-baseline gap-2">
+                    <span className="text-xl font-bold tracking-tight tabular-nums">{warpMetricsQuery.data ? formatMemoryMb(warpMetricsQuery.data.totalRssMb) : "—"}</span>
+                    <span className="text-[10px] text-[var(--text-3)]">RSS</span>
+                    <Badge tone="accent" className="ml-auto">{warpMetricsQuery.data ? `${warpMetricsQuery.data.runningCount} running` : "—"}</Badge>
+                  </div>
+                  <p className="mt-2 text-[9.5px] leading-relaxed text-[var(--text-3)]">Per-instance RSS summed across all running wireproxy processes. ~20–40 MB per instance.</p>
+                  <div className="mt-2.5 grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="mb-0.5 flex justify-between text-[9px] text-[var(--text-3)]">
+                        <span>Healthy</span>
+                        <span className="tabular-nums">{warpMetricsQuery.data?.healthyCount ?? "—"}</span>
+                      </div>
+                      <div className="h-0.5 overflow-hidden rounded-full bg-[var(--track)]">
+                        <div className="h-full origin-left rounded-full bg-[#30d158] transition-transform duration-500" style={{ transform: `scaleX(${warpMetricsQuery.data && warpMetricsQuery.data.runningCount > 0 ? Math.min(1, warpMetricsQuery.data.healthyCount / warpMetricsQuery.data.runningCount) : 0})` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-0.5 flex justify-between text-[9px] text-[var(--text-3)]">
+                        <span>Bandwidth</span>
+                        <span className="tabular-nums">{warpMetricsQuery.data ? `${warpMetricsQuery.data.totalBandwidthMb} MB` : "—"}</span>
+                      </div>
+                      <div className="h-0.5 overflow-hidden rounded-full bg-[var(--track)]">
+                        <div className="h-full origin-left rounded-full bg-[#0a84ff] transition-transform duration-500" style={{ transform: `scaleX(${warpMetricsQuery.data && warpMetricsQuery.data.totalBandwidthMb > 0 ? Math.min(1, warpMetricsQuery.data.totalBandwidthMb / 100) : 0})` }} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+            {/* Network */}
+            <section aria-labelledby="health-net-title" className="border-t border-[var(--inner-border)] bg-[var(--hover)] p-3.5 lg:border-l lg:border-t-0">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-[rgba(10,132,255,0.13)] text-[#0a84ff]"><Network size={15} /></span>
+                  <div className="min-w-0">
+                    <h3 id="health-net-title" className="text-xs font-bold tracking-tight">Network</h3>
+                    <p className="text-[10px] text-[var(--text-3)]">VPS bandwidth · all interfaces</p>
+                  </div>
+                </div>
+                <Badge tone={health?.netTotalKb !== null ? "info" : "default"}>{health?.netTotalKb !== null ? "Live" : "N/A"}</Badge>
+              </div>
+              <div className="mt-4 flex items-end justify-between gap-3">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-bold tracking-tight tabular-nums">{health ? formatBandwidthKb(health.netTotalKb) : "—"}</span>
+                  <span className="text-[10.5px] text-[var(--text-3)]">total</span>
+                </div>
+                <Badge tone="default">{health?.netRateKbps != null ? `${health.netRateKbps.toLocaleString("en-US")} KB/s` : "—"}</Badge>
+              </div>
+              <p className="mt-2 text-[10px] leading-relaxed text-[var(--text-3)]">Cumulative network I/O across all interfaces since boot. Rate is sampled every 5s.</p>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div>
+                  <div className="mb-0.5 flex justify-between text-[9.5px] text-[var(--text-3)]">
+                    <span>Received</span>
+                    <span className="tabular-nums">{health ? formatBandwidthKb(health.netReceivedKb) : "—"}</span>
+                  </div>
+                  <div className="h-1 overflow-hidden rounded-full bg-[var(--track)]">
+                    <div className="h-full origin-left rounded-full bg-[#0a84ff] transition-transform duration-500" style={{ transform: `scaleX(${health && health.netTotalKb && health.netReceivedKb ? Math.min(1, health.netReceivedKb / health.netTotalKb) : 0})` }} />
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-0.5 flex justify-between text-[9.5px] text-[var(--text-3)]">
+                    <span>Sent</span>
+                    <span className="tabular-nums">{health ? formatBandwidthKb(health.netSentKb) : "—"}</span>
+                  </div>
+                  <div className="h-1 overflow-hidden rounded-full bg-[var(--track)]">
+                    <div className="h-full origin-left rounded-full bg-[#30d158] transition-transform duration-500" style={{ transform: `scaleX(${health && health.netTotalKb && health.netSentKb ? Math.min(1, health.netSentKb / health.netTotalKb) : 0})` }} />
+                  </div>
+                </div>
+              </div>
+            </section>
+            {/* CPU — last column */}
+            <section aria-labelledby="health-cpu-title" className="border-t border-[var(--inner-border)] bg-[var(--hover)] p-3.5 lg:border-l lg:border-t-0">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-[rgba(255,159,10,0.14)] text-[#ff9f0a]"><Cpu size={15} /></span>
+                  <div className="min-w-0">
+                    <h3 id="health-cpu-title" className="text-xs font-bold tracking-tight">CPU usage</h3>
+                    <p className="text-[10px] text-[var(--text-3)]">Current process load</p>
+                  </div>
+                </div>
+                <Badge tone={cpuTone}>{health ? "Live" : "Waiting"}</Badge>
+              </div>
+              <div className="mt-4 flex items-center gap-4">
+                <div className="relative grid size-[88px] shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(#ff9f0a ${cpuPercent}%, var(--track) 0)` }} role="img" aria-label={health ? `CPU usage ${cpuPercent.toFixed(1)} percent` : "CPU usage unavailable"}>
+                  <div className="grid size-[68px] place-items-center rounded-full bg-[var(--hover)]">
+                    <span className="text-lg font-bold tabular-nums">{health ? `${cpuPercent.toFixed(1)}%` : "—"}</span>
+                  </div>
+                </div>
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex items-center justify-between gap-2 rounded-lg bg-[var(--surface-muted)] px-2.5 py-2 text-[10px]">
+                    <span className="text-[var(--text-3)]">Cores</span>
+                    <span className="font-semibold tabular-nums">{health ? `${health.coreCount} logical` : "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 rounded-lg bg-[var(--surface-muted)] px-2.5 py-2 text-[10px]">
+                    <span className="text-[var(--text-3)]">PID</span>
+                    <span className="max-w-[9rem] truncate font-mono font-semibold">{health ? String(health.pid) : "—"}</span>
+                  </div>
+                </div>
+              </div>
+              {health && <div className="mt-3 truncate text-[9px] text-[var(--text-3)]" title={health.cpuModel}>{health.cpuModel}</div>}
+            </section>
           </div>
         </div>
       </Card>
 
       <Card>
-        <CardHeader title="API Keys" icon={KeyRound} iconColor="#ff9f0a" sub="Client keys for proxy access — stored as plaintext; revealed on demand via dedicated endpoint">
+        <CardHeader title="API Keys" icon={KeyRound} iconColor="#ff9f0a" sub="Client keys for proxy access">
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus size={14} /> New key
           </Button>
@@ -743,77 +848,56 @@ export function OverviewPage() {
           />
         </div>
 
-        <div className="overflow-x-auto rounded-[15px] border border-[var(--inner-border)]">
-          <table className="w-full min-w-[480px] text-left text-xs">
-            <thead className="border-b border-[var(--inner-border)] text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
-              <tr>
-                <th className="px-4 py-2.5">Name</th>
-                <th className="px-3 py-2.5">Prefix</th>
-                <th className="px-3 py-2.5">Limits</th>
-                <th className="px-3 py-2.5">Usage (today / total)</th>
-                <th className="px-3 py-2.5">Last used</th>
-                <th className="px-3 py-2.5">Created</th>
-                <th className="px-3 py-2.5">Status</th>
-                <th className="px-3 py-2.5 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--inner-border)]">
-              {keysQuery.isLoading ? (
-                <tr><td colSpan={8} className="px-4 py-10 text-center text-[var(--text-3)]">Loading...</td></tr>
-              ) : keys.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-10 text-center text-[var(--text-3)]">No keys yet - create one to enforce proxy authentication.</td></tr>
-              ) : (
-                keys.map((key, index) => (
-                  <tr key={key.id} {...staggerClass(index)} className="transition-colors hover:bg-[var(--hover)]">
-                    <td className="max-w-[200px] truncate px-4 py-2.5 font-semibold">{key.name}</td>
-                    <td className="px-3 py-2.5 font-mono text-[11px] text-[var(--text-2)]">{key.keyPrefix}…</td>
-                    <td className="max-w-[200px] truncate px-3 py-2.5 text-[var(--text-2)]">{formatKeyLimits(key)}</td>
-                    <td className="px-3 py-2.5 tabular-nums text-[var(--text-2)]">
-                      {formatTokens(key.todayTokens)} / {formatTokens(key.totalTokens)}
-                    </td>
-                    <td className="px-3 py-2.5 text-[var(--text-2)]">{formatTime(key.lastUsedAt)}</td>
-                    <td className="px-3 py-2.5 text-[var(--text-2)]">{formatTime(key.createdAt)}</td>
-                    <td className="px-3 py-2.5 text-[var(--text-2)]"><Badge tone={key.active ? "ok" : "default"}>{key.revokedAt ? "revoked" : key.active ? "active" : "disabled"}</Badge></td>
-                    <td className="px-3 py-2.5 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {key.active ? (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={shareMutation.isPending}
-                              onClick={() => shareMutation.mutate(key.id)}
-                              title="Copy public monitoring link"
-                              aria-label={`Share API key overview ${key.name}`}
-                            >
-                              <Share2 size={13} />
-                              Share
-                            </Button>
-                            <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={credentialCopy.isPending}
-                            onClick={() => credentialCopy.mutate(key.id)}
-                            title="Copy API key"
-                            aria-label={`Copy API key ${key.name}`}
-                          >
-                              <Copy size={13} />
-                              Copy
-                            </Button>
-                          </>
-                        ) : null}
-                        <Button variant="ghost" size="sm" onClick={() => openEdit(key)} title="Edit key status, limits and ACL">
-                          <Pencil size={13} />
-                          Edit
-                        </Button>
-                        {key.revokedAt ? <Button variant="ghost" size="sm" className="text-[#ff453a]" onClick={() => setDeleteTarget(key)}><Trash2 size={13} /> Delete</Button> : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="space-y-2.5">
+          {keysQuery.isLoading ? (
+            <div className="rounded-[14px] border border-dashed border-[var(--inner-border)] px-4 py-10 text-center text-xs text-[var(--text-3)]">Loading API keys…</div>
+          ) : keys.length === 0 ? (
+            <div className="rounded-[14px] border border-dashed border-[var(--inner-border)] px-4 py-10 text-center text-xs text-[var(--text-3)]">No keys yet — create one to enforce proxy authentication.</div>
+          ) : (
+            keys.map((key, index) => (
+              <article key={key.id} {...staggerClass(index)} className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-2.5 transition-colors hover:bg-[var(--surface-hover)] sm:p-3">
+                <div className="flex min-w-0 flex-col gap-2 sm:grid sm:grid-cols-[minmax(150px,0.85fr)_minmax(0,2fr)_auto] sm:items-center sm:gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="truncate text-sm font-bold">{key.name}</h3>
+                      <Badge tone={key.active ? "ok" : "default"}>{key.revokedAt ? "revoked" : key.active ? "active" : "disabled"}</Badge>
+                    </div>
+                    <code className="mt-0.5 block truncate font-mono text-[10.5px] text-[var(--text-2)]">{key.keyPrefix}…</code>
+                    <div className="mt-0.5 text-[9.5px] text-[var(--text-3)]">Created {formatTime(key.createdAt)}</div>
+                  </div>
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  <div className="rounded-lg bg-[var(--surface-muted)] px-2 py-1.5">
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Limits</div>
+                    <div className="mt-0.5 truncate text-[10.5px] text-[var(--text-2)]" title={formatKeyLimits(key)}>{formatKeyLimits(key)}</div>
+                  </div>
+                  <div className="rounded-lg bg-[var(--surface-muted)] px-2 py-1.5">
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Today</div>
+                    <div className="mt-0.5 text-[10.5px] font-semibold tabular-nums text-[var(--text-1)]">{formatTokens(key.todayTokens)}</div>
+                  </div>
+                  <div className="rounded-lg bg-[var(--surface-muted)] px-2 py-1.5">
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Total</div>
+                    <div className="mt-0.5 text-[10.5px] font-semibold tabular-nums text-[var(--text-1)]">{formatTokens(key.totalTokens)}</div>
+                  </div>
+                  <div className="rounded-lg bg-[var(--surface-muted)] px-2 py-1.5">
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Last used</div>
+                    <div className="mt-0.5 truncate text-[10.5px] tabular-nums text-[var(--text-2)]">{formatTime(key.lastUsedAt)}</div>
+                  </div>
+                </div>
+                <div className="mt-2 flex flex-wrap justify-end gap-1.5 border-t border-[var(--inner-border)] pt-2 sm:mt-0 sm:border-l sm:border-t-0 sm:pl-3 sm:pt-0">
+                  {key.active && (
+                    <Button variant="ghost" size="sm" disabled={credentialCopy.isPending} onClick={() => credentialCopy.mutate(key.id)} title="Copy API key" aria-label={`Copy API key ${key.name}`}><Copy size={13} /> Copy</Button>
+                  )}
+                  <Button variant="ghost" size="sm" disabled={editMutation.isPending || Boolean(key.revokedAt)} onClick={() => editMutation.mutate({ id: key.id, patch: { active: !key.active } })} title={key.active ? "Disable API key" : "Enable API key"}>
+                    {key.active ? "Disable" : "Enable"}
+                  </Button>
+                  {key.active && <Button variant="ghost" size="sm" disabled={regenerateMutation.isPending} onClick={() => setRegenerateTarget(key)} title="Rotate API key"><KeyRound size={13} /> Rotate</Button>}
+                  <Button variant="ghost" size="sm" onClick={() => openEdit(key)} title="Edit key status, limits and ACL"><Pencil size={13} /> Edit</Button>
+                  {key.revokedAt ? <Button variant="ghost" size="sm" className="text-[var(--red)]" onClick={() => setDeleteTarget(key)}><Trash2 size={13} /> Delete</Button> : null}
+                </div>
+                </div>
+              </article>
+            ))
+          )}
         </div>
       </Card>
 
@@ -838,16 +922,14 @@ export function OverviewPage() {
             <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="ci-key" disabled={createMutation.isPending} />
           </div>
           <div>
-            <Label>Custom prefix (optional)</Label>
-            <Input
-              value={prefix}
-              onChange={(e) => setPrefix(e.target.value)}
-              placeholder="ctk (default) - e.g. sk-carte"
-              disabled={createMutation.isPending}
-            />
-            <p className="mt-1 text-[10.5px] text-[var(--text-3)]">
-              Replaces the default "ctk_" prefix on the generated secret, e.g. "sk-carte_a1b2...". Letters, digits, "_" and "-" only; anything else is stripped.
-            </p>
+            <Label>Custom API key value (optional)</Label>
+            <Input value={customKey} onChange={(e) => setCustomKey(e.target.value)} placeholder="ctk_inibansos" disabled={createMutation.isPending} spellCheck={false} autoComplete="off" />
+            <p className="mt-1 text-[10.5px] text-[var(--text-3)]">Use an exact value such as <code>ctk_inibansos</code>. Leave blank to generate a secure random key. 8–256 letters, digits, underscores, or hyphens.</p>
+          </div>
+          <div>
+            <Label>Generated key prefix (optional)</Label>
+            <Input value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="ctk (default)" disabled={createMutation.isPending || customKey.trim().length > 0} />
+            <p className="mt-1 text-[10.5px] text-[var(--text-3)]">Only applies when generating a random key.</p>
           </div>
           <KeyLimitsFields
             rpm={rpm}
@@ -894,6 +976,11 @@ export function OverviewPage() {
         }
       >
         <div className="space-y-4">
+          <div className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+            <Label>Replace API key value (optional)</Label>
+            <Input value={customKey} onChange={(event) => setCustomKey(event.target.value)} placeholder="Leave blank to keep current key" disabled={editMutation.isPending} spellCheck={false} autoComplete="off" />
+            <p className="mt-1 text-[10.5px] text-[var(--text-3)]">A replacement immediately invalidates the previous value. 8–256 letters, digits, underscores, or hyphens.</p>
+          </div>
           <KeyLimitsFields
             rpm={rpm}
             daily={daily}
@@ -919,44 +1006,6 @@ export function OverviewPage() {
             }}
             disabled={editMutation.isPending}
           />
-          <div className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <Label>Kata-kata hari ini</Label>
-                <p className="mt-1 text-[10.5px] text-[var(--text-3)]">Shown on this key's shared page, after Connection.</p>
-              </div>
-              <span className="text-[10px] text-[var(--text-3)]">Optional</span>
-            </div>
-            <div className="space-y-2.5">
-              <Input value={quoteBigText} onChange={(event) => setQuoteBigText(event.target.value)} maxLength={160} placeholder="Big text - e.g. The wind remembers" disabled={editMutation.isPending} aria-label="Words big text" />
-              <Input value={quoteSubText} onChange={(event) => setQuoteSubText(event.target.value)} maxLength={240} placeholder="Sub text - e.g. A quiet note from Cartethyia" disabled={editMutation.isPending} aria-label="Words sub text" />
-              <textarea value={quoteBody} onChange={(event) => setQuoteBody(event.target.value)} maxLength={2000} rows={4} placeholder="Isi kata-kata hari ini..." disabled={editMutation.isPending} aria-label="Words body" className="w-full resize-y rounded-xl border border-[var(--inner-border)] bg-[var(--input)] px-3 py-2 text-sm text-[var(--text-1)] outline-none placeholder:text-[var(--text-3)] focus:border-[var(--text-3)]" />
-            </div>
-          </div>
-          <div className="flex items-center justify-between rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-            <div>
-              <Label>API key status</Label>
-              <p className="mt-1 text-[10.5px] text-[var(--text-3)]">{editTarget?.revokedAt ? "This key is revoked. Regenerate it to issue a new credential." : isActive ? "Requests using this key are accepted." : "Requests using this key are blocked until enabled."}</p>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-[var(--text-2)]">
-              <span>{isActive ? "Enabled" : "Disabled"}</span>
-              <Switch checked={isActive} onChange={setIsActive} disabled={editMutation.isPending || !!editTarget?.revokedAt} label={isActive ? "Disable API key" : "Enable API key"} />
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--inner-border)] pt-3">
-            <div>
-              <p className="text-xs font-semibold text-[#ff8079]">Danger zone</p>
-              <p className="mt-1 text-[10.5px] text-[var(--text-3)]">Revoke the current credential or replace it with a fresh one.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="ghost" size="sm" className="text-[#ff8079]" disabled={!editTarget || !!editTarget.revokedAt || revokeMutation.isPending} onClick={() => editTarget && setRevokeTarget(editTarget)}>
-                <Trash2 size={13} /> Revoke
-              </Button>
-              <Button variant="secondary" size="sm" disabled={!editTarget || regenerateMutation.isPending} onClick={() => editTarget && setRegenerateTarget(editTarget)}>
-                <KeyRound size={13} /> Revoke & regenerate
-              </Button>
-            </div>
-          </div>
         </div>
       </Dialog>
 
@@ -975,6 +1024,6 @@ export function OverviewPage() {
       <ConfirmDialog open={!!revokeTarget} onClose={() => setRevokeTarget(null)} onConfirm={() => revokeTarget && revokeMutation.mutate(revokeTarget.id)} title="Revoke API Key" message={`Revoke "${revokeTarget?.name}"? This cannot be undone.`} danger confirmLabel="Revoke" />
       <ConfirmDialog open={!!regenerateTarget} onClose={() => setRegenerateTarget(null)} onConfirm={() => regenerateTarget && regenerateMutation.mutate(regenerateTarget.id)} title="Revoke & regenerate API Key" message={`The current credential for "${regenerateTarget?.name}" will stop working immediately and a new key will be shown once. Continue?`} danger confirmLabel="Revoke & regenerate" />
       <ConfirmDialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)} title="Delete API Key" message={`Permanently delete "${deleteTarget?.name}"? This removes the key from the database entirely.`} danger confirmLabel="Delete" />
-    </>
+    </div>
   );
 }

@@ -10,8 +10,6 @@ vi.mock("../../lib/api", async () => {
   return { ...actual, apiPost: vi.fn() };
 });
 
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
-
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
@@ -32,12 +30,12 @@ describe("LoginPage", () => {
     mockNavigate.mockReset();
   });
 
-  test("uses the provided artwork, Cartethyia logo, and public-page return link", () => {
+  test("uses the provided artwork and Cartethyia logo without a public-page link", () => {
     renderLogin();
 
     expect(document.querySelector("[data-login-backdrop]")?.getAttribute("style")).toContain("CartethyiaPi/kepitsusu.jpg");
-    expect(document.querySelector("img[src*='cartethyia-sidebar.gif']")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /back to public page/i })).toHaveAttribute("href", "/");
+    expect(document.querySelector("img[src*='favicon_love.webp']")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /back to public page/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/single admin/i)).not.toBeInTheDocument();
   });
 

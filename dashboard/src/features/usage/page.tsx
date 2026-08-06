@@ -1,7 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
-import { Activity, ArrowDownToLine, ArrowUpFromLine, Database, DollarSign, Radio, TriangleAlert } from "lucide-react";
-import { useState } from "react";
+import {
+  Activity,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Database,
+  DollarSign,
+  Radio,
+  TriangleAlert,
+  Wrench,
+} from "lucide-react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Area,
@@ -12,19 +20,21 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { apiGet } from "../../lib/api";
-import { formatDuration, formatNumber, formatTime, formatTokens, formatUsd } from "../../lib/format";
-import { useInFlightStream } from "../../hooks/use-inflight-stream";
-import { staggerClass } from "../../lib/motion";
-import { Badge, Skeleton } from "../../components/ui/badge";
+import { useInFlightSnapshot } from "../../hooks/use-inflight-stream";
+import { useProviders } from "../../components/model-picker";
+import { Badge } from "../../components/ui/badge";
 import { Card, CardHeader } from "../../components/ui/card";
+import { DataTable } from "../../components/ui/layout";
 import { Drawer } from "../../components/ui/drawer";
 import { Select, Tabs } from "../../components/ui/tabs";
-import { cn } from "../../lib/cn";
+import { apiGet } from "../../lib/api";
+import { formatDuration, formatNumber, formatTime, formatTokens, formatUsd } from "../../lib/format";
+import { staggerClass } from "../../lib/motion";
 
-type Period = "1h" | "24h" | "7d" | "30d";
+type Period = "1h" | "24h" | "7d" | "30d" | "all";
 type Metric = "requests" | "tokens" | "cached";
 type Dimension = "model" | "provider" | "key";
+type BreakdownMetric = "tokens" | "costs";
 
 interface Summary {
   requests: number;
@@ -34,8 +44,12 @@ interface Summary {
   errors: number;
   avgDurationMs: number;
   estimatedCostUsd: number;
-  /** True when at least one request in this period used a provider/model with no published rate card, so estimatedCostUsd under-counts. */
   partial: boolean;
+}
+
+interface SummaryResponse {
+  period: Period;
+  totals: Summary;
 }
 
 interface ChartBucket {
@@ -70,68 +84,64 @@ interface ByRow {
   output: number;
   cached: number;
   total: number;
+  errors: number;
+  costUsd: number | null;
 }
 
 interface RequestRow {
-  id: number;
-  trace_id: string;
+  requestId: string;
   endpoint: string;
   surface: string;
-  api_key_prefix: string | null;
-  provider: string | null;
+  apiKeyId: string | null;
+  apiKeyPrefix: string | null;
+  clientIp?: string | null;
+  providerId: string | null;
   model: string | null;
-  status: number | null;
-  error_kind: string | null;
-  stream: number | boolean;
-  started_at: string;
-  duration_ms: number | null;
-  input_tokens: number | null;
-  output_tokens: number | null;
-  cached_tokens: number | null;
-  total_tokens: number | null;
+  statusCode: number;
+  errorKind: string | null;
+  mode: "non_stream" | "stream";
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cachedTokens: number | null;
+  cacheWriteTokens: number | null;
+  reasoningTokens: number | null;
+  totalTokens: number | null;
+  usageSource: string;
+  clientName: string;
+  clientSource: string;
+  messageCount: number;
+  toolCount: number;
+  imageCount: number;
+  tfftMs: number | null;
 }
 
-interface RequestDetail extends RequestRow {
-  traceId: string;
-  durationMs: number | null;
-  trace: {
-    traceId: string;
-    startedAt: string;
-    finishedAt: string;
-    status: number;
-    durationMs: number;
-    payload: Record<string, unknown> | null;
-  } | null;
-  finishedAt: string | null;
-  usage: {
-    inputTokens: number | null;
-    outputTokens: number | null;
-    cachedTokens: number | null;
-    cacheWriteTokens: number | null;
-    reasoningTokens: number | null;
-    totalTokens: number | null;
-    source: string;
-  };
-  meta: Record<string, unknown>;
-  detail: Record<string, unknown> | null;
-  toolCalls: Record<string, unknown>[];
-  assets: Record<string, unknown>[];
+function useProviderNames(): ReadonlyMap<string, string> {
+  const providersQuery = useProviders();
+  return useMemo(() => new Map((providersQuery.data?.items ?? []).map((provider) => [provider.id.toLowerCase(), provider.name])), [providersQuery.data?.items]);
 }
 
-/** Headline metrics for the selected period. Usage owns these / the Overview no longer duplicates them. */
+function providerDisplayName(value: string | null | undefined, names: ReadonlyMap<string, string>): string {
+  if (!value) return "—";
+  return names.get(value.toLowerCase()) ?? value;
+}
+
 const STAT_CARDS = [
-  { key: "requests", label: "Requests", icon: Activity, color: "#0a84ff", format: formatNumber },
-  { key: "inputTokens", label: "Input Tokens", icon: ArrowDownToLine, color: "#64d2ff", format: formatTokens },
-  { key: "cachedTokens", label: "Cached Tokens", icon: Database, color: "#bf5af2", format: formatTokens },
-  { key: "outputTokens", label: "Output Tokens", icon: ArrowUpFromLine, color: "#30d158", format: formatTokens },
-  { key: "errors", label: "Errors", icon: TriangleAlert, color: "#ff453a", format: formatNumber },
-  { key: "estimatedCostUsd", label: "Est. Cost", icon: DollarSign, color: "#ffd60a", format: formatUsd },
+  { key: "requests", label: "Requests", note: "All routed requests", icon: Activity, color: "#0a84ff", format: formatNumber },
+  { key: "inputTokens", label: "Input tokens", note: "Prompt tokens", icon: ArrowDownToLine, color: "#64d2ff", format: formatTokens },
+  { key: "cachedTokens", label: "Cached tokens", note: "Read from cache", icon: Database, color: "#bf5af2", format: formatTokens },
+  { key: "outputTokens", label: "Output tokens", note: "Completion tokens", icon: ArrowUpFromLine, color: "#30d158", format: formatTokens },
+  { key: "errors", label: "Errors", note: "Failed requests", icon: TriangleAlert, color: "#ff453a", format: formatNumber },
+  { key: "estimatedCostUsd", label: "Est. cost", note: "Estimated, not billing", icon: DollarSign, color: "#ffd60a", format: formatUsd },
 ] as const satisfies readonly {
   key: keyof Summary;
   label: string;
+  note: string;
   icon: typeof Activity;
   color: string;
-  format: (value: number | null) => string;
+  format: (value: number | null | undefined) => string;
 }[];
 
 const PERIOD_OPTIONS = [
@@ -139,183 +149,79 @@ const PERIOD_OPTIONS = [
   { value: "24h", label: "24h" },
   { value: "7d", label: "7d" },
   { value: "30d", label: "30d" },
+  { value: "all", label: "all" },
 ];
 
-function statusTone(status: number | null): "ok" | "err" | "warn" {
-  if (status === null) return "warn";
+function statusTone(status: number): "ok" | "err" | "warn" {
+  if (status === 0) return "warn";
+  if (status === 499 || status === 500 || status === 502) return "warn";
   if (status >= 400) return "err";
   return "ok";
 }
 
-function parsePayload(value: unknown): unknown {
-  let parsed = value;
-  // Stored payloads can contain a JSON body encoded as a JSON string.
-  for (let depth = 0; depth < 3 && typeof parsed === "string"; depth += 1) {
-    try {
-      parsed = JSON.parse(parsed);
-    } catch {
-      break;
-    }
-  }
-  return parsed;
+function statusLabel(status: number): string {
+  return status === 0 ? "—" : String(status);
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+function asPeriod(value: string | null): Period {
+  return value === "1h" || value === "7d" || value === "30d" || value === "all" ? value : "24h";
 }
 
-function payloadText(value: unknown): string {
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2) ?? "null";
-  } catch {
-    return String(value);
-  }
+function asMetric(value: string | null): Metric {
+  return value === "tokens" || value === "cached" ? value : "requests";
 }
 
-function PayloadCode({ value, maxHeight = "max-h-64" }: { value: unknown; maxHeight?: string }) {
-  return (
-    <div className={cn("min-w-0 overflow-auto rounded-xl border border-[var(--inner-border)] bg-[var(--kbd-bg)]", maxHeight)}>
-      <pre className="w-max min-w-full whitespace-pre p-3 font-mono text-[10px] leading-relaxed text-[var(--text-1)]">{payloadText(value)}</pre>
-    </div>
-  );
+function asDimension(value: string | null): Dimension {
+  return value === "provider" || value === "key" ? value : "model";
 }
+
 
 function ChartPanel({ period, metric }: { period: Period; metric: Metric }) {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["usage-chart", period, metric],
-    queryFn: () => apiGet<{ buckets: ChartBucket[] }>(`/usage/chart?period=${period}&metric=${metric}`),
+    queryKey: ["usage-chart", period],
+    queryFn: () => apiGet<{ buckets: ChartBucket[] }>(`/usage/chart?period=${period}`),
   });
-  if (isLoading) return <Skeleton className="h-56" />;
+  if (isLoading) return <div className="h-56 animate-pulse rounded-xl bg-[var(--surface-muted)]" />;
   if (isError) return <p className="py-8 text-center text-sm text-[var(--text-3)]">Failed to load chart data.</p>;
-  const buckets = data?.buckets ?? [];
-  const value = (bucket: ChartBucket) =>
-    metric === "requests" ? bucket.requests : metric === "cached" ? bucket.cached : bucket.input + bucket.output;
-
+  const buckets = (data?.buckets ?? []).map((bucket) => ({ ...bucket, total: bucket.input + bucket.output }));
+  const dataKey = metric === "requests" ? "requests" : metric === "cached" ? "cached" : "total";
   return (
     <div className="h-56">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={buckets} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
-          <defs>
-            <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#0a84ff" stopOpacity={0.45} />
-              <stop offset="100%" stopColor="#0a84ff" stopOpacity={0.02} />
-            </linearGradient>
-          </defs>
+          <defs><linearGradient id="usageChartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--accent)" stopOpacity={0.45} /><stop offset="100%" stopColor="var(--accent)" stopOpacity={0.02} /></linearGradient></defs>
           <CartesianGrid stroke="var(--inner-border)" strokeDasharray="3 3" vertical={false} />
-          <XAxis
-            dataKey="t"
-            tick={{ fontSize: 10, fill: "var(--text-3)" }}
-            tickFormatter={(value: string) => value.slice(5, 16)}
-            axisLine={false}
-            tickLine={false}
-            minTickGap={28}
-          />
-          <YAxis tick={{ fontSize: 10, fill: "var(--text-3)" }} axisLine={false} tickLine={false} tickFormatter={(v: number) => formatTokens(v)} />
-          <Tooltip
-            contentStyle={{
-              background: "var(--glass-bg-2)",
-              border: "1px solid var(--glass-border-2)",
-              borderRadius: 12,
-              fontSize: 12,
-              backdropFilter: "blur(20px)",
-              color: "var(--text-1)",
-            }}
-            labelStyle={{ color: "var(--text-2)", fontSize: 11 }}
-            formatter={(value: number | string) => [formatNumber(Number(value)), metric]}
-          />
-          <Area
-            type="monotone"
-            dataKey={value as never}
-            stroke="#0a84ff"
-            strokeWidth={2}
-            fill="url(#chartFill)"
-            isAnimationActive
-            animationDuration={600}
-          />
+          <XAxis dataKey="t" tick={{ fontSize: 10, fill: "var(--text-3)" }} tickFormatter={(value: string) => value.slice(5, 16)} axisLine={false} tickLine={false} minTickGap={28} />
+          <YAxis tick={{ fontSize: 10, fill: "var(--text-3)" }} axisLine={false} tickLine={false} tickFormatter={(value: number) => formatTokens(value)} />
+          <Tooltip contentStyle={{ background: "var(--glass-bg-2)", border: "1px solid var(--glass-border-2)", borderRadius: 12, fontSize: 12, color: "var(--text-1)" }} formatter={(value: number | string) => [formatNumber(Number(value)), metric]} />
+          <Area type="monotone" dataKey={dataKey} stroke="var(--accent)" strokeWidth={2} fill="url(#usageChartFill)" isAnimationActive animationDuration={600} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
   );
 }
 
-function ByDimension({ period, dimension }: { period: Period; dimension: Dimension }) {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["usage-by", period, dimension],
-    queryFn: () => apiGet<{ rows: ByRow[] }>(`/usage/by-${dimension}?period=${period}`),
-  });
-  if (isLoading) return <Skeleton className="h-40" />;
-  if (isError) return <p className="py-8 text-center text-sm text-[var(--text-3)]">Failed to load this data.</p>;
-  const rows = data?.rows ?? [];
-  const max = Math.max(1, ...rows.map((row) => row.total));
-  if (rows.length === 0) return <p className="py-8 text-center text-sm text-[var(--text-3)]">No data for this period.</p>;
-  return (
-    <div className="flex flex-col">
-      {rows.slice(0, 5).map((row, index) => (
-        <div key={row.name} {...staggerClass(index)} className="border-b border-[var(--inner-border)] py-2.5 last:border-0">
-          <div className="flex items-center justify-between text-xs">
-            <span className="truncate font-mono text-[11.5px] font-semibold">{row.name}</span>
-            <span className="tabular-nums text-[var(--text-2)]">{formatTokens(row.total)}</span>
-          </div>
-          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[var(--track)]">
-            <motion.div
-              className="h-full rounded-full bg-gradient-to-r from-[#0a84ff] to-[#64d2ff]"
-              initial={{ width: 0 }}
-              animate={{ width: `${Math.max(2, (row.total / max) * 100)}%` }}
-              transition={{ duration: 0.6, ease: [0.2, 0.8, 0.2, 1] }}
-            />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function CacheUsageTable({ period }: { period: Period }) {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["usage-cache", period],
-    queryFn: () => apiGet<CacheSummary>(`/usage/cache?period=${period}`),
-    refetchInterval: 10_000,
-  });
-  if (isLoading) return <Skeleton className="h-40" />;
-  if (isError) return <p className="py-8 text-center text-sm text-[var(--text-3)]">Failed to load cache data.</p>;
-  const rows = data?.rows ?? [];
-  return <div className="overflow-x-auto"><table className="w-full border-collapse text-xs"><thead><tr className="border-b border-[var(--inner-border)] text-left text-[10.5px] uppercase tracking-wider text-[var(--text-3)]"><th className="px-3 py-2 font-semibold">Provider / model</th><th className="px-3 py-2 text-right font-semibold">Requests</th><th className="px-3 py-2 text-right font-semibold">Input</th><th className="px-3 py-2 text-right font-semibold">Cache read</th><th className="px-3 py-2 text-right font-semibold">Cache write</th><th className="px-3 py-2 text-right font-semibold">Hit rate</th></tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={6} className="px-3 py-8 text-center text-[var(--text-3)]">No cache usage for this period.</td></tr> : rows.slice(0, 20).map((row) => <tr key={row.name} className="border-b border-[var(--inner-border)] last:border-0"><td className="max-w-[260px] truncate px-3 py-2.5 font-mono">{row.name}</td><td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.requests)}</td><td className="px-3 py-2.5 text-right tabular-nums">{formatTokens(row.inputTokens)}</td><td className="px-3 py-2.5 text-right tabular-nums text-[#bf5af2]">{formatTokens(row.cachedTokens)}</td><td className="px-3 py-2.5 text-right tabular-nums">{formatTokens(row.cacheWriteTokens)}</td><td className="px-3 py-2.5 text-right font-semibold tabular-nums">{row.hitRate.toFixed(1)}%</td></tr>)}</tbody></table><div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-[var(--text-2)]"><span>Overall hit rate <b className="text-[var(--text-1)]">{(data?.hitRate ?? 0).toFixed(1)}%</b></span><span>Cache read <b className="text-[#bf5af2]">{formatTokens(data?.cachedTokens ?? 0)}</b></span><span>Cache write <b className="text-[var(--text-1)]">{formatTokens(data?.cacheWriteTokens ?? 0)}</b></span></div></div>;
-}
-
-function DetailDrawer({ id, onClose }: { id: number | null; onClose: () => void }) {
-  const { data } = useQuery({
+function RequestDetailDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
+  const providerNames = useProviderNames();
+  const { data, isLoading } = useQuery({
     queryKey: ["usage-detail", id],
-    queryFn: () => apiGet<RequestDetail>(`/usage/requests/${id}`),
+    queryFn: () => apiGet<RequestRow>(`/usage/requests/${encodeURIComponent(id ?? "")}`),
     enabled: id !== null,
   });
-  const incoming = parsePayload(data?.detail?.redacted_request);
-  const completionPayload = parsePayload(data?.detail?.redacted_response);
-  const incomingRecord = asRecord(incoming);
-  const incomingMessages = Array.isArray(incomingRecord?.messages)
-    ? incomingRecord.messages
-    : Array.isArray(incomingRecord?.input) ? incomingRecord.input : [];
-  const resultRecord = asRecord(completionPayload);
-  const completion = Array.isArray(resultRecord?.choices) ? resultRecord.choices[0] : resultRecord;
-  const completionRecord = asRecord(completion);
-  const completionMessage = asRecord(completionRecord?.message) ?? completionRecord;
-  const completionContent = completionMessage?.content ?? completionRecord?.content ?? null;
-  const completionReasoning = completionMessage?.reasoning_content ?? completionMessage?.reasoning ?? resultRecord?.reasoning ?? null;
-  const completionTools = Array.isArray(completionMessage?.tool_calls) ? completionMessage.tool_calls : [];
   return (
     <Drawer open={id !== null} onClose={onClose} title="Request Detail">
-      {!data ? (
+      {isLoading && (
         <div className="space-y-3">
-          <Skeleton className="h-6 w-2/3" />
-          <Skeleton className="h-24" />
-          <Skeleton className="h-24" />
+          <div className="h-6 w-2/3 animate-pulse rounded bg-[var(--surface-muted)]" />
+          <div className="h-24 animate-pulse rounded bg-[var(--surface-muted)]" />
+          <div className="h-24 animate-pulse rounded bg-[var(--surface-muted)]" />
         </div>
-      ) : (
+      )}
+      {data && (
         <div className="space-y-4 text-sm">
           <div>
-            <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Trace ID</div>
-            <div className="mt-1 break-all font-mono text-xs">{data.traceId}</div>
-            <div className="mt-1.5">{data.trace ? <Badge tone="info">trace detail available</Badge> : <Badge tone="warn">trace detail unavailable</Badge>}</div>
+            <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Request ID</div>
+            <div className="mt-1 break-all font-mono text-xs">{data.requestId}</div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -328,17 +234,25 @@ function DetailDrawer({ id, onClose }: { id: number | null; onClose: () => void 
             </div>
             <div>
               <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Provider</div>
-              <div className="mt-1">{data.provider ?? "—"}</div>
+              <div className="mt-1">{providerDisplayName(data.providerId, providerNames)}</div>
             </div>
             <div>
               <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Model</div>
               <div className="mt-1 font-mono text-xs">{data.model ?? "—"}</div>
             </div>
             <div>
+              <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">API key</div>
+              <div className="mt-1 font-mono text-xs">{data.apiKeyPrefix ?? "anonymous"}</div>
+            </div>
+            <div>
+              <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Client</div>
+              <div className="mt-1 font-mono text-xs">{data.clientName || data.clientSource || "—"}</div>
+            </div>
+            <div>
               <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Status</div>
               <div className="mt-1">
-                <Badge tone={statusTone(data.status)}>{data.status ?? "—"}</Badge>
-                {Boolean(data.stream) && <Badge tone="info" className="ml-1.5">stream</Badge>}
+                <Badge tone={statusTone(data.statusCode)}>{statusLabel(data.statusCode)}</Badge>
+                {data.mode === "stream" && <Badge tone="info" className="ml-1.5">stream</Badge>}
               </div>
             </div>
             <div>
@@ -347,111 +261,45 @@ function DetailDrawer({ id, onClose }: { id: number | null; onClose: () => void 
             </div>
           </div>
 
+          {data.tfftMs != null && (
+            <div>
+              <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Time to First Token (TFFT)</div>
+              <div className="mt-1 text-base font-bold tabular-nums">{data.tfftMs}ms</div>
+            </div>
+          )}
+
           <div>
             <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Tokens</div>
             <div className="grid grid-cols-3 gap-2 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3 text-center tabular-nums">
               <div>
-                <div className="text-base font-bold">{formatNumber(data.usage.inputTokens)}</div>
+                <div className="text-base font-bold">{formatNumber(data.inputTokens)}</div>
                 <div className="text-[10.5px] text-[var(--text-3)]">input</div>
               </div>
               <div>
-                <div className="text-base font-bold">{formatNumber(data.usage.cachedTokens)}</div>
+                <div className="text-base font-bold">{formatNumber(data.cachedTokens)}</div>
                 <div className="text-[10.5px] text-[var(--text-3)]">cached</div>
               </div>
               <div>
-                <div className="text-base font-bold">{formatNumber(data.usage.outputTokens)}</div>
+                <div className="text-base font-bold">{formatNumber(data.outputTokens)}</div>
                 <div className="text-[10.5px] text-[var(--text-3)]">output</div>
               </div>
             </div>
-            <p className="mt-1.5 text-[10.5px] text-[var(--text-3)]">usage source: {data.usage.source}</p>
+            <p className="mt-1.5 text-[10.5px] text-[var(--text-3)]">usage source: {data.usageSource} · started {formatTime(data.startedAt)}</p>
           </div>
 
-          {data.detail && (
-            <>
-              <div>
-                <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Payload meta</div>
-                <div className="space-y-1 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3 text-xs">
-                  <div>messages: {String(data.detail.message_count ?? "—")}</div>
-                  <div>images: {String(data.detail.image_count ?? "—")}</div>
-                  {data.detail.tool_names ? <div>tools: {String(data.detail.tool_names)}</div> : null}
-                  <div className="break-all">sha256: {String(data.detail.payload_sha256 ?? "—")}</div>
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Chat input ({incomingMessages.length})</div>
-                {incomingMessages.length > 0 ? (
-                  <div className="max-h-56 space-y-1.5 overflow-auto rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-                    {incomingMessages.map((message, index) => {
-                      const item = asRecord(message);
-                      return (
-                        <div key={index} className="min-w-0 rounded-lg bg-[var(--kbd-bg)] px-2.5 py-1.5">
-                          <span className="mr-1.5 text-[10px] font-semibold uppercase text-[var(--accent)]">{String(item?.role ?? item?.type ?? "message")}</span>
-                          <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[10px] text-[var(--text-1)]">{payloadText(item?.content ?? message)}</pre>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : <PayloadCode value={incoming} maxHeight="max-h-56" />}
-              </div>
-
-              <div>
-                <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Completion</div>
-                <div className="space-y-2 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-                  {completionReasoning !== null && (
-                    <div>
-                      <div className="mb-1 text-[10px] font-semibold uppercase text-[var(--teal)]">Reasoning</div>
-                      <PayloadCode value={completionReasoning} maxHeight="max-h-32" />
-                    </div>
-                  )}
-                  {completionContent !== null && (
-                    <div>
-                      <div className="mb-1 text-[10px] font-semibold uppercase text-[var(--accent)]">Assistant</div>
-                      <PayloadCode value={completionContent} maxHeight="max-h-48" />
-                    </div>
-                  )}
-                  {completionTools.length > 0 && (
-                    <div>
-                      <div className="mb-1 text-[10px] font-semibold uppercase text-[var(--orange)]">Tool calls ({completionTools.length})</div>
-                      <PayloadCode value={completionTools} maxHeight="max-h-40" />
-                    </div>
-                  )}
-                  {completionContent === null && completionReasoning === null && completionTools.length === 0 && <PayloadCode value={completionPayload} maxHeight="max-h-48" />}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Trace detail</div>
-                <PayloadCode value={data.trace ?? {
-                  traceId: data.traceId,
-                  endpoint: data.endpoint,
-                  status: data.status,
-                  errorKind: data.error_kind,
-                  durationMs: data.durationMs,
-                  usage: data.usage,
-                }} maxHeight="max-h-72" />
-              </div>
-            </>
-          )}
-
-          {data.toolCalls.length > 0 && (
-            <div>
-              <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Tool calls</div>
-              <div className="space-y-1">
-                {data.toolCalls.map((call, index) => (
-                  <div key={index} className="flex items-center justify-between rounded-lg border border-[var(--inner-border)] bg-[var(--hover)] px-2.5 py-1.5 text-xs">
-                    <span className="font-mono">{String(call.name)}</span>
-                    <span className="tabular-nums text-[var(--text-3)]">{formatNumber(Number(call.bytes ?? 0))} B</span>
-                  </div>
-                ))}
-              </div>
+          <div>
+            <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Payload meta</div>
+            <div className="space-y-1 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3 text-xs">
+              <div>messages: {String(data.messageCount ?? "—")}</div>
+              <div>images: {String(data.imageCount ?? "—")}</div>
+              <div>tools: {String(data.toolCount ?? "—")}</div>
             </div>
-          )}
+          </div>
 
-          {data.error_kind && (
+          {data.errorKind && (
             <div>
               <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Error</div>
-              <Badge tone="err">{data.error_kind}</Badge>
+              <Badge tone="err">{data.errorKind}</Badge>
             </div>
           )}
         </div>
@@ -460,104 +308,171 @@ function DetailDrawer({ id, onClose }: { id: number | null; onClose: () => void 
   );
 }
 
+function BreakdownSnapshot({ period, dimension, onDimensionChange }: { period: Period; dimension: Dimension; onDimensionChange: (value: string) => void }) {
+  const providerNames = useProviderNames();
+  const byQuery = useQuery({
+    queryKey: ["usage-by", period, dimension],
+    queryFn: () => apiGet<{ rows: ByRow[] }>(`/usage/by-${dimension}?period=${period}`),
+  });
+  const rows = (byQuery.data?.rows ?? []).slice(0, 6);
+  const maxTotal = rows.length > 0 ? Math.max(...rows.map((r) => r.total)) : 1;
+  const totalRequests = rows.reduce((sum, r) => sum + r.requests, 0);
+
+  return (
+    <Card density="compact">
+      <CardHeader title="Breakdown" icon={Wrench} iconColor="#bf5af2" sub={`${formatNumber(totalRequests)} requests · ${formatTokens(maxTotal)} tokens`}>
+        <div className="flex items-center gap-1">
+          {([["model", "Model"], ["provider", "Provider"], ["key", "Key"]] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => onDimensionChange(id)}
+              className={`rounded-full px-3 py-1 text-[10px] font-semibold transition-colors ${dimension === id ? "bg-[var(--accent)] text-white" : "bg-[var(--hover)] text-[var(--text-2)] hover:bg-[var(--surface-muted)]"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </CardHeader>
+      <div className="space-y-2 px-1">
+        {byQuery.isLoading && <div className="space-y-2"><div className="h-10 animate-pulse rounded-xl bg-[var(--surface-muted)]" /><div className="h-10 animate-pulse rounded-xl bg-[var(--surface-muted)]" /></div>}
+        {!byQuery.isLoading && rows.length === 0 && <div className="grid min-h-[180px] place-items-center rounded-xl border border-dashed border-[var(--inner-border)] px-3 py-8 text-center text-xs text-[var(--text-3)]">No usage for this period.</div>}
+        {rows.map((row, index) => {
+          const pct = maxTotal > 0 ? Math.max(2, (row.total / maxTotal) * 100) : 2;
+          const displayName = dimension === "provider" ? providerDisplayName(row.name, providerNames) : row.name;
+          return (
+            <div
+              key={row.name}
+              {...staggerClass(index)}
+              className="relative overflow-hidden rounded-xl border border-[var(--inner-border)] bg-[var(--hover)]"
+            >
+              {/* Progress bar background */}
+              <div className="absolute inset-y-0 left-0 z-0" style={{ width: `${pct}%` }}>
+                <div className="h-full w-full bg-gradient-to-r from-[var(--accent)]/20 via-[var(--accent)]/15 to-transparent" />
+              </div>
+              {/* Content */}
+              <div className="relative z-[1] flex items-center justify-between gap-2 px-3 py-2.5">
+                <span className="min-w-0 flex-1 truncate font-mono text-[11px] font-semibold">{displayName}</span>
+                <span className="shrink-0 text-right text-[10px] font-medium tabular-nums text-[var(--text-2)]">{formatNumber(row.requests)} req</span>
+                <span className="shrink-0 text-right text-[11px] font-semibold tabular-nums text-[#bf5af2]">{formatTokens(row.total)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+function BreakdownCard({ period, dimension, onDimensionChange }: { period: Period; dimension: Dimension; onDimensionChange: (value: string) => void }) {
+  const providerNames = useProviderNames();
+  const [mode, setMode] = useState<BreakdownMetric>("tokens");
+  const byQuery = useQuery({
+    queryKey: ["usage-by", period, dimension],
+    queryFn: () => apiGet<{ rows: ByRow[] }>(`/usage/by-${dimension}?period=${period}`),
+  });
+  const cacheQuery = useQuery({
+    queryKey: ["usage-cache", period],
+    queryFn: () => apiGet<CacheSummary & { period: Period }>(`/usage/cache?period=${period}`),
+    refetchInterval: 10_000,
+  });
+  const rows = byQuery.data?.rows ?? [];
+  const cache = cacheQuery.data;
+  const modeIsCosts = mode === "costs";
+
+  return (
+    <Card className="min-w-0" density="compact">
+      <CardHeader title="Usage breakdown" icon={Database} iconColor="#bf5af2" sub="Cache usage, tokens, and cost share one analytics surface.">
+        <div className="flex w-full items-center justify-between gap-1.5 sm:w-auto">
+          <Tabs tabs={[{ id: "tokens", label: "Tokens" }, { id: "costs", label: "Costs" }]} value={mode} onChange={(value) => setMode(value as BreakdownMetric)} />
+          <Select ariaLabel="Breakdown dimension" value={dimension} onChange={onDimensionChange} options={[{ value: "model", label: "Usage by model" }, { value: "provider", label: "Usage by provider" }, { value: "key", label: "Usage by API key" }]} />
+        </div>
+      </CardHeader>
+      <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {[
+          ["Cache read", formatTokens(cache?.cachedTokens), "tokens served from cache", "#bf5af2"],
+          ["Cache write", formatTokens(cache?.cacheWriteTokens), "tokens written to cache", "#65d7df"],
+          ["Hit rate", cache ? `${cache.hitRate.toFixed(1)}%` : "—", "read tokens / input tokens", "#30d158"],
+        ].map(([label, value, note, color]) => (
+          <div key={label} className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2.5"><div className="text-[10px] font-semibold uppercase text-[var(--text-2)]">{label}</div><div className="mt-1 text-lg font-bold tracking-tight" style={{ color }}>{value}</div><div className="mt-0.5 text-[10px] text-[var(--text-3)]">{note}</div></div>
+        ))}
+      </div>
+      {modeIsCosts && !rows.every((r) => r.costUsd === null) && (
+        <div className="mb-3 rounded-lg border border-[#ffd60a]/20 bg-[#ffd60a]/[0.06] px-3 py-2 text-[11px] text-[var(--text-2)]">Estimated from published token pricing. Rows with unknown pricing are marked — and excluded from the total.</div>
+      )}
+      <div className="overflow-x-auto rounded-xl border border-[var(--inner-border)]">
+        <DataTable minWidth={modeIsCosts ? 780 : 680} label="Usage breakdown">
+          <thead><tr className="border-b border-[var(--inner-border)] text-left text-[10px] uppercase tracking-wider text-[var(--text-3)]"><th className="px-3 py-2 font-semibold">{dimension === "model" ? "Model" : dimension === "provider" ? "Provider" : "API key"}</th><th className="px-3 py-2 text-right font-semibold">Requests</th><th className="px-3 py-2 text-right font-semibold">Errors</th><th className="px-3 py-2 text-right font-semibold">Input</th><th className="px-3 py-2 text-right font-semibold">Cached</th><th className="px-3 py-2 text-right font-semibold">Output</th><th className="px-3 py-2 text-right font-semibold">Total</th>{modeIsCosts && <th className="px-3 py-2 text-right font-semibold">Cost</th>}</tr></thead>
+          <tbody>
+            {byQuery.isLoading && <tr><td colSpan={modeIsCosts ? 8 : 7} className="px-3 py-8 text-center text-xs text-[var(--text-3)]">Loading breakdown…</td></tr>}
+            {!byQuery.isLoading && rows.length === 0 && <tr><td colSpan={modeIsCosts ? 8 : 7} className="px-3 py-8 text-center text-xs text-[var(--text-3)]">No usage for this period.</td></tr>}
+            {rows.slice(0, 25).map((row, index) => (
+              <tr key={row.name} {...staggerClass(index)} className="border-b border-[var(--inner-border)] last:border-0 hover:bg-[var(--hover)]"><td className="max-w-[260px] truncate px-3 py-2.5 font-mono text-xs font-semibold">{dimension === "provider" ? providerDisplayName(row.name, providerNames) : row.name}</td><td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.requests)}</td><td className="px-3 py-2.5 text-right tabular-nums text-[var(--red)]">{row.errors > 0 ? formatNumber(row.errors) : "—"}</td><td className="px-3 py-2.5 text-right tabular-nums">{modeIsCosts ? "—" : formatTokens(row.input)}</td><td className="px-3 py-2.5 text-right tabular-nums text-[#bf5af2]">{modeIsCosts ? "—" : formatTokens(row.cached)}</td><td className="px-3 py-2.5 text-right tabular-nums">{modeIsCosts ? "—" : formatTokens(row.output)}</td><td className="px-3 py-2.5 text-right font-semibold tabular-nums">{modeIsCosts ? "—" : formatTokens(row.total)}</td>{modeIsCosts && <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-[#ffd60a]">{row.costUsd != null ? formatUsd(row.costUsd) : "—"}</td>}</tr>
+            ))}
+          </tbody>
+        </DataTable>
+      </div>
+    </Card>
+  );
+}
+
 export function UsagePage() {
-  const inFlight = useInFlightStream();
+  const inFlightSnapshot = useInFlightSnapshot();
+  const inFlight = inFlightSnapshot.inFlight;
   const [searchParams, setSearchParams] = useSearchParams();
-  const period = (searchParams.get("period") ?? "24h") as Period;
-  const metric = (searchParams.get("metric") ?? "requests") as Metric;
-  const dimension = (searchParams.get("dim") ?? "model") as Dimension;
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const period = asPeriod(searchParams.get("period"));
+  const metric = asMetric(searchParams.get("metric"));
+  const dimension = asDimension(searchParams.get("dim"));
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const summaryQuery = useQuery({
+    queryKey: ["usage-summary", period],
+    queryFn: () => apiGet<SummaryResponse>(`/usage/summary?period=${period}`),
+    refetchInterval: 10_000,
+  });
+  const summary = summaryQuery.data?.totals;
+
+  const requestsQuery = useQuery({
+    queryKey: ["usage-requests", "recent"],
+    queryFn: () => apiGet<{ items: RequestRow[] }>("/usage/requests?limit=10"),
+    refetchInterval: 5_000,
+  });
+  const requestItems = (requestsQuery.data?.items ?? []).filter((r) => r.statusCode > 0);
 
   const setParam = (key: string, value: string) => {
     const next = new URLSearchParams(searchParams);
-    if (value) next.set(key, value);
-    else next.delete(key);
+    next.set(key, value);
     setSearchParams(next, { replace: true });
   };
 
-  const summaryQuery = useQuery({
-    queryKey: ["usage-summary", period],
-    queryFn: () => apiGet<Summary>(`/usage/summary?period=${period}`),
-    refetchInterval: 10_000,
-  });
-
-  const requestsQuery = useQuery({
-    queryKey: ["usage-requests", "history"],
-    queryFn: () => apiGet<{ items: RequestRow[] }>("/usage/requests?limit=200"),
-    refetchInterval: 5_000,
-  });
-
-  const summary = summaryQuery.data;
-  const requestItems = requestsQuery.data?.items ?? [];
-
   return (
-    <>
-      {/* Stat cards + selectors — pinned below appbar */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    <div className="dashboard-page space-y-4">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
         {STAT_CARDS.map((card, index) => (
-          <div key={card.label} {...staggerClass(index)} className="glass rounded-2xl p-3.5 transition-transform duration-200 hover:-translate-y-0.5">
-            <span className="mb-2.5 grid h-8 w-8 place-items-center rounded-[10px]" style={{ background: `${card.color}24`, color: card.color }}>
-              <card.icon size={15} />
-            </span>
-            <div className="text-lg font-bold leading-none tabular-nums">
-              {summaryQuery.isLoading ? "…" : card.format(summary?.[card.key] ?? null)}
-            </div>
-            <div className="mt-1 flex items-center gap-1.5 text-[11px] text-[var(--text-2)]">
-              {card.label}
-              {card.key === "requests" && inFlight > 0 && (
-                <span className="inline-flex items-center gap-0.5 rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[9.5px] font-semibold text-[var(--accent)]">
-                  <span className="size-1.5 animate-pulse rounded-full bg-[var(--accent)]" />+{inFlight} in flight
-                </span>
-              )}
-              {card.key === "estimatedCostUsd" && summary?.partial && (
-                <span title="Some requests used a provider with no published rate card and aren't included" className="text-[9.5px] font-semibold text-[#ffd60a]">
-                  partial
-                </span>
-              )}
-            </div>
+          <div key={card.key} {...staggerClass(index)} className="glass min-w-0 rounded-[var(--radius-card)] p-3.5 transition-transform duration-200 hover:-translate-y-0.5">
+            <span className="mb-2.5 grid size-8 place-items-center rounded-[10px]" style={{ background: `${card.color}24`, color: card.color }}><card.icon size={15} /></span>
+            <div className="text-lg font-bold leading-none tabular-nums sm:text-xl">{summaryQuery.isLoading ? "…" : card.format(summary?.[card.key] ?? null)}</div>
+            <div className="mt-1 text-[10.5px] text-[var(--text-2)]">{card.note}</div>
+            {card.key === "requests" && <span className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${inFlight > 0 ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "bg-[var(--hover)] text-[var(--text-3)]"}`}><i className={`size-1.5 rounded-full ${inFlight > 0 ? "animate-pulse bg-[var(--accent)]" : "bg-[var(--text-3)]"}`} />+{inFlight} in flight</span>}
+            {card.key === "estimatedCostUsd" && summary?.partial && <span className="mt-1 block text-[9px] font-semibold text-[#ffd60a]">partial estimate</span>}
           </div>
         ))}
       </div>
 
-      {/* Traffic + Breakdown side-by-side */}
       <section className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
-        <Card>
+        <Card density="compact">
           <CardHeader title="Traffic" icon={Radio} sub={`Requests per bucket · ${period}`}>
             <div className="flex items-center gap-2">
-              <Tabs
-                tabs={[
-                  { id: "requests", label: "Requests" },
-                  { id: "tokens", label: "Tokens" },
-                  { id: "cached", label: "Cached" },
-                ]}
-                value={metric}
-                onChange={(value) => setParam("metric", value)}
-              />
+              <Tabs tabs={[{ id: "requests", label: "Requests" }, { id: "tokens", label: "Tokens" }, { id: "cached", label: "Cached" }]} value={metric} onChange={(value) => setParam("metric", value)} />
               <Select ariaLabel="Period" value={period} onChange={(value) => setParam("period", value)} options={PERIOD_OPTIONS} />
             </div>
           </CardHeader>
           <ChartPanel period={period} metric={metric} />
         </Card>
 
-        <Card className="min-w-0">
-          <CardHeader title="Breakdown" icon={Database} iconColor="#bf5af2" sub="Total tokens · top entries">
-            <Tabs
-              tabs={[
-                { id: "model", label: "Model" },
-                { id: "provider", label: "Provider" },
-                { id: "key", label: "Key" },
-              ]}
-              value={dimension}
-              onChange={(value) => setParam("dim", value)}
-            />
-          </CardHeader>
-          <div className="max-h-[320px] overflow-y-auto">
-            <ByDimension period={period} dimension={dimension} />
-          </div>
-        </Card>
+        <BreakdownSnapshot period={period} dimension={dimension} onDimensionChange={(value) => setParam("dim", value)} />
       </section>
 
-      <Card>
+      <Card density="compact">
         <CardHeader title="Requests" icon={Activity} sub="Newest first · scroll to browse request history">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(48,209,88,0.14)] px-2.5 py-1 text-[11px] font-semibold text-[#1fa84a] dark:text-[var(--green)]">
             <Radio size={11} className="animate-pulse" />
@@ -577,43 +492,33 @@ export function UsagePage() {
                 <th className="px-3 py-2 text-right font-semibold">In</th>
                 <th className="px-3 py-2 text-right font-semibold">Out</th>
                 <th className="px-3 py-2 text-right font-semibold">Total</th>
+                <th className="px-3 py-2 text-right font-semibold">TFFT</th>
                 <th className="px-3 py-2 text-right font-semibold">Dur</th>
               </tr>
             </thead>
             <tbody>
               {requestsQuery.isLoading && (
-                <tr>
-                  <td colSpan={9} className="px-3 py-6">
-                    <Skeleton className="h-5" />
-                  </td>
-                </tr>
+                <tr><td colSpan={10} className="px-3 py-6"><div className="h-5 animate-pulse rounded bg-[var(--surface-muted)]" /></td></tr>
               )}
               {!requestsQuery.isLoading && requestItems.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="px-3 py-8 text-center text-[var(--text-3)]">
-                    No requests recorded for this period.
-                  </td>
-                </tr>
+                <tr><td colSpan={10} className="px-3 py-8 text-center text-[var(--text-3)]">No requests recorded for this period.</td></tr>
               )}
               {requestItems.map((row) => (
                 <tr
-                  key={row.id}
-                  onClick={() => setSelectedId(row.id)}
+                  key={row.requestId}
+                  onClick={() => setSelectedId(row.requestId)}
                   className="cursor-pointer border-b border-[var(--inner-border)] transition-colors last:border-0 hover:bg-[var(--hover)]"
                 >
-                  <td className="px-3 py-2.5 tabular-nums text-[var(--text-2)]">{formatTime(row.started_at)}</td>
-                  <td className="max-w-[160px] truncate px-3 py-2.5 font-mono">{row.api_key_prefix ?? "anon"}</td>
+                  <td className="px-3 py-2.5 tabular-nums text-[var(--text-2)]">{formatTime(row.startedAt)}</td>
+                  <td className="max-w-[160px] truncate px-3 py-2.5 font-mono">{row.apiKeyPrefix ?? "anon"}</td>
                   <td className="max-w-[200px] truncate px-3 py-2.5 font-mono">{row.model ?? "—"}</td>
-                  <td className="px-3 py-2.5">
-                    <Badge tone={row.stream === 1 ? "info" : "default"}>{row.stream === 1 ? "stream" : "json"}</Badge>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <Badge tone={statusTone(row.status)}>{row.status ?? "—"}</Badge>
-                  </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.input_tokens)}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.output_tokens)}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.total_tokens)}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-[var(--text-2)]">{formatDuration(row.duration_ms)}</td>
+                  <td className="px-3 py-2.5"><Badge tone={row.mode === "stream" ? "info" : "default"}>{row.mode === "stream" ? "stream" : "json"}</Badge></td>
+                  <td className="px-3 py-2.5"><Badge tone={statusTone(row.statusCode)}>{statusLabel(row.statusCode)}</Badge></td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.inputTokens)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.outputTokens)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.totalTokens)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-[var(--text-2)]">{row.tfftMs != null ? `${row.tfftMs}ms` : "—"}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-[var(--text-2)]">{formatDuration(row.durationMs)}</td>
                 </tr>
               ))}
             </tbody>
@@ -625,13 +530,8 @@ export function UsagePage() {
         </div>
       </Card>
 
-      <Card>
-        <CardHeader title="Cache usage" icon={Database} iconColor="#bf5af2" sub={`Read/write tokens and hit rate · ${period}`} />
-        <CacheUsageTable period={period} />
-      </Card>
-
-      <DetailDrawer id={selectedId} onClose={() => setSelectedId(null)} />
-    </>
+      <BreakdownCard period={period} dimension={dimension} onDimensionChange={(value) => setParam("dim", value)} />
+      <RequestDetailDrawer id={selectedId} onClose={() => setSelectedId(null)} />
+    </div>
   );
 }
-
