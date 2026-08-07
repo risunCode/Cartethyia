@@ -1,18 +1,18 @@
-import type { ApplicationErrorKind, ProviderCallError } from "../domain/contracts";
-import { boundedRetryAt, deriveErrorSource, sanitizeMessage } from "../domain/contracts";
-import { isUsageLimitOutcome, parseRateLimitReason } from "../domain/rate-limit";
-import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../domain/contracts";
-import type { CredentialKind } from "../domain/contracts";
-import type { ModelCapabilityCategory, ModelContextLimits, ModelTokenPricing } from "../domain/contracts";
-import type { NetworkSelection } from "../domain/contracts";
-import type { NormalizedMessage, RequestLimits } from "../domain/contracts";
-import { isTerminalEvent, type StreamEvent } from "../domain/contracts";
-import { runtimeMemoryLimits } from "../traffic/limits";
-import { buildProxyFetcher } from "../traffic";
-import { ProtocolCodecError } from "../open-sse/translate/errors";
-import { fetchWithRedirectPolicy } from "../security/redirect-policy";
-import { assertPublicUrlAtDispatch } from "../security/ssrf-guard";
-import { callChatCompletionsWire, callResponsesWire } from "../transport/protocols/openai";
+import type { ApplicationErrorKind, ProviderCallError } from "../../domain/contracts";
+import { boundedRetryAt, deriveErrorSource, sanitizeMessage } from "../../domain/contracts";
+import { isUsageLimitOutcome, parseRateLimitReason } from "../../domain/rate-limit";
+import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../../domain/contracts";
+import type { CredentialKind } from "../../domain/contracts";
+import type { ModelCapabilityCategory, ModelContextLimits, ModelTokenPricing } from "../../domain/contracts";
+import type { NetworkSelection } from "../../domain/contracts";
+import type { NormalizedMessage, RequestLimits } from "../../domain/contracts";
+import { isTerminalEvent, type StreamEvent } from "../../domain/contracts";
+import { runtimeMemoryLimits } from "../../traffic/limits";
+import { buildProxyFetcher } from "../../traffic";
+import { ProtocolCodecError } from "../translate/errors";
+import { fetchWithRedirectPolicy } from "../../security/redirect-policy";
+import { assertPublicUrlAtDispatch } from "../../security/ssrf-guard";
+import { callChatCompletionsWire, callResponsesWire } from "./protocols/openai";
 
 /**
  * Shared provider-adapter infrastructure: typed errors, abort coordination

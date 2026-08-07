@@ -1,21 +1,19 @@
 import { createCipheriv, createHash, constants, publicEncrypt, randomUUID } from "node:crypto";
 
-import {
-  AbortCoordinator,
-  ProviderAdapterError,
-  aggregateCapabilities,
-  capabilitiesOf,
-  createModelCatalog,
-  decodeSseEvents,
-  executeFetch,
-  isRecord,
-  lineLimit,
-  modelOf,
-  readUpstreamError,
-  toProviderCallError,
-} from "./shared";
-import type { SseEvent } from "./shared";
-import { createChatMapper } from "../transport/protocols/openai";
+import { AbortCoordinator,
+ProviderAdapterError,
+aggregateCapabilities,
+capabilitiesOf,
+createModelCatalog,
+decodeSseEvents,
+executeFetch,
+isRecord,
+lineLimit,
+modelOf,
+readUpstreamError,
+toProviderCallError, } from "../open-sse/transport/shared";
+import type { SseEvent } from "../open-sse/transport/shared";
+import { createChatMapper } from "../open-sse/transport/protocols/openai";
 import { isTerminalEvent, type ContextStats, type ContentBlock, type NormalizedMessage, type ProxyRequest, type Adapter, type ProviderCaps, type ProviderCallError, type ProviderMeta, type ProviderModel, type ProviderModelCatalog, type ProviderOutput, type ProviderRequest, type Surface, type ProviderUsage, type RequestLimits, type RouteTarget, type StopReason, type StreamEvent, type TokenCountInput } from "../domain/contracts";
 
 /**

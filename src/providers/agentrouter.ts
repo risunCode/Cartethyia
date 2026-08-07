@@ -1,18 +1,16 @@
-import {
-  AbortCoordinator,
-  ProviderAdapterError,
-  capabilitiesOf,
-  createModelCatalog,
-  executeFetch,
-  isRecord,
-  lineLimit,
-  mapSseStream,
-  modelOf,
-  readJsonObject,
-  readUpstreamError,
-  toProviderCallError,
-} from "./shared";
-import { createAnthropicMapper } from "../transport/protocols/anthropic";
+import { AbortCoordinator,
+ProviderAdapterError,
+capabilitiesOf,
+createModelCatalog,
+executeFetch,
+isRecord,
+lineLimit,
+mapSseStream,
+modelOf,
+readJsonObject,
+readUpstreamError,
+toProviderCallError, } from "../open-sse/transport/shared";
+import { createAnthropicMapper } from "../open-sse/transport/protocols/anthropic";
 import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
 import type {
   ContextStats,

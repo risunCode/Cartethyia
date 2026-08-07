@@ -1,4 +1,4 @@
-import { ProviderAdapterError } from "./shared";
+import { ProviderAdapterError } from "../open-sse/transport/shared";
 import type { Adapter, Surface, RouteTarget } from "../domain/contracts";
 import { resolveWireSurface } from "../open-sse/translate";
 

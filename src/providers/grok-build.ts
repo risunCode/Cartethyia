@@ -1,19 +1,17 @@
-import {
-  AbortCoordinator,
-  ProviderAdapterError,
-  capabilitiesOf,
-  createModelCatalog,
-  decodeSseEvents,
-  executeFetch,
-  isRecord,
-  lineLimit,
-  mapSseStream,
-  modelOf,
-  parseSseData,
-  readUpstreamError,
-  toProviderCallError,
-} from "./shared";
-import { createResponsesMapper } from "../transport/protocols/openai";
+import { AbortCoordinator,
+ProviderAdapterError,
+capabilitiesOf,
+createModelCatalog,
+decodeSseEvents,
+executeFetch,
+isRecord,
+lineLimit,
+mapSseStream,
+modelOf,
+parseSseData,
+readUpstreamError,
+toProviderCallError, } from "../open-sse/transport/shared";
+import { createResponsesMapper } from "../open-sse/transport/protocols/openai";
 import { buildResponsesPayload, mapResponsesUsage } from "../open-sse/translate/codecs/openai-responses";
 import type {
   ContextStats,

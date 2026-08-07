@@ -1,21 +1,19 @@
-import {
-  AbortCoordinator,
-  ProviderAdapterError,
-  aggregateCapabilities,
-  capabilitiesOf,
-  createModelCatalog,
-  executeFetch,
-  isRecord,
-  lineLimit,
-  mapSseStream,
-  messageText,
-  modelOf,
-  nullableNumber,
-  readJsonObject,
-  readUpstreamError,
-  toProviderCallError,
-} from "./shared";
-import type { SseEvent, StreamMapper } from "./shared";
+import { AbortCoordinator,
+ProviderAdapterError,
+aggregateCapabilities,
+capabilitiesOf,
+createModelCatalog,
+executeFetch,
+isRecord,
+lineLimit,
+mapSseStream,
+messageText,
+modelOf,
+nullableNumber,
+readJsonObject,
+readUpstreamError,
+toProviderCallError, } from "../open-sse/transport/shared";
+import type { SseEvent, StreamMapper } from "../open-sse/transport/shared";
 import type {
   ContextStats,
   CredentialKind,
@@ -34,7 +32,7 @@ import type {
 import type { ApplicationErrorKind, ProviderCallError } from "../domain/contracts";
 import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../domain/contracts";
 import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
-import { callAnthropicWire } from "../transport/protocols/anthropic";
+import { callAnthropicWire } from "../open-sse/transport/protocols/anthropic";
 import type { StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../domain/contracts";
 
 /**

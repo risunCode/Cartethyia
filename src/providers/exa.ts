@@ -1,19 +1,17 @@
-import {
-  AbortCoordinator,
-  ProviderAdapterError,
-  aggregateCapabilities,
-  capabilitiesOf,
-  createModelCatalog,
-  executeFetch,
-  isRecord,
-  lineLimit,
-  mapSseStream,
-  modelOf,
-  readJsonObject,
-  readUpstreamError,
-  toProviderCallError,
-} from "./shared";
-import type { SseEvent, StreamMapper } from "./shared";
+import { AbortCoordinator,
+ProviderAdapterError,
+aggregateCapabilities,
+capabilitiesOf,
+createModelCatalog,
+executeFetch,
+isRecord,
+lineLimit,
+mapSseStream,
+modelOf,
+readJsonObject,
+readUpstreamError,
+toProviderCallError, } from "../open-sse/transport/shared";
+import type { SseEvent, StreamMapper } from "../open-sse/transport/shared";
 import type {
   ContextStats,
   Adapter,

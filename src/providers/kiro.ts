@@ -1,5 +1,5 @@
-import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, isRecord, messageText, modelOf, readUpstreamError, toProviderCallError } from "./shared";
-import type { CapabilitySeed } from "./shared";
+import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, isRecord, messageText, modelOf, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import type { CapabilitySeed } from "../open-sse/transport/shared";
 import { parseKiroCredential } from "../auth/oauth/kiro";
 import type {
   ContextStats,

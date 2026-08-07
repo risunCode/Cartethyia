@@ -1,18 +1,16 @@
-import {
-  AbortCoordinator,
-  ProviderAdapterError,
-  capabilitiesOf,
-  createModelCatalog,
-  executeFetch,
-  isRecord,
-  lineLimit,
-  mapSseStream,
-  modelOf,
-  readUpstreamError,
-  toProviderCallError,
-} from "./shared";
-import type { SseEvent } from "./shared";
-import { createGeminiMapper } from "../transport/protocols/gemini";
+import { AbortCoordinator,
+ProviderAdapterError,
+capabilitiesOf,
+createModelCatalog,
+executeFetch,
+isRecord,
+lineLimit,
+mapSseStream,
+modelOf,
+readUpstreamError,
+toProviderCallError, } from "../open-sse/transport/shared";
+import type { SseEvent } from "../open-sse/transport/shared";
+import { createGeminiMapper } from "../open-sse/transport/protocols/gemini";
 import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../open-sse/translate/codecs/gemini-generate-content";
 import type {
   ContextStats,

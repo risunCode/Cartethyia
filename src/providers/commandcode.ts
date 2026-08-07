@@ -1,4 +1,4 @@
-import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, isRecord, lineLimit, mapSseStream, messageText, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "./shared";
+import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, isRecord, lineLimit, mapSseStream, messageText, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
 import type {
   ContextStats,
   Adapter,

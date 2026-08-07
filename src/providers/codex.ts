@@ -1,5 +1,5 @@
-import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, isRecord, lineLimit, mapSseStream, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "./shared";
-import { callHostedImageWire, createResponsesMapper } from "../transport/protocols/openai";
+import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, isRecord, lineLimit, mapSseStream, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { callHostedImageWire, createResponsesMapper } from "../open-sse/transport/protocols/openai";
 import { buildResponsesPayload, mapResponsesUsage } from "../open-sse/translate/codecs/openai-responses";
 import type {
   ContextStats,

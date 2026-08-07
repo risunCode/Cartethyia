@@ -1,5 +1,5 @@
-import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, isRecord, lineLimit, mapSseStream, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "./shared";
-import { createChatMapper } from "../transport/protocols/openai";
+import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, isRecord, lineLimit, mapSseStream, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { createChatMapper } from "../open-sse/transport/protocols/openai";
 import { buildChatPayload } from "../open-sse/translate/codecs/openai-chat";
 import type {
   ContextStats,

@@ -1,7 +1,7 @@
-import { AbortCoordinator, ProviderAdapterError, executeFetch, isRecord, lineLimit, mapSseStream, nullableNumber, parseSseData, readJsonObject, readUpstreamError } from "../../providers/shared";
-import type { SseEvent, StreamMapper } from "../../providers/shared";
-import type { ApplicationErrorKind, ProviderCaps, ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../../domain/contracts";
-import { buildMessagesPayload, mapAnthropicUsage } from "../../open-sse/translate/codecs/anthropic-messages";
+import { AbortCoordinator, ProviderAdapterError, executeFetch, isRecord, lineLimit, mapSseStream, nullableNumber, parseSseData, readJsonObject, readUpstreamError } from "../shared";
+import type { SseEvent, StreamMapper } from "../shared";
+import type { ApplicationErrorKind, ProviderCaps, ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../../../domain/contracts";
+import { buildMessagesPayload, mapAnthropicUsage } from "../../translate/codecs/anthropic-messages";
 
 // ---------------------------------------------------------------- SSE mapping
 

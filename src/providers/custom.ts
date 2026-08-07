@@ -1,10 +1,10 @@
 import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../domain/contracts";
 import type { ProviderCallError } from "../domain/contracts";
 import type { CustomProviderRecord, CustomProviderRepository } from "../storage";
-import { AbortCoordinator, ProviderAdapterError, aggregateCapabilities, capabilitiesOf, categoriesOf, executeFetch, isRecord, lineLimit, mapSseStream, modelOf, nullableNumber, readJsonObject, readUpstreamError, toProviderCallError } from "./shared";
-import { createAnthropicMapper } from "../transport/protocols/anthropic";
+import { AbortCoordinator, ProviderAdapterError, aggregateCapabilities, capabilitiesOf, categoriesOf, executeFetch, isRecord, lineLimit, mapSseStream, modelOf, nullableNumber, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { createAnthropicMapper } from "../open-sse/transport/protocols/anthropic";
 import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
-import { createChatMapper } from "../transport/protocols/openai";
+import { createChatMapper } from "../open-sse/transport/protocols/openai";
 import { buildChatPayload, mapChatUsage } from "../open-sse/translate/codecs/openai-chat";
 import { assertPublicUrlAtDispatch } from "../security/ssrf-guard";
 import type { ProviderRegistry } from "./registry";

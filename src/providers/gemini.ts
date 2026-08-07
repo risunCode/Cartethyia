@@ -1,21 +1,19 @@
-import {
-  AbortCoordinator,
-  ProviderAdapterError,
-  aggregateCapabilities,
-  capabilitiesOf,
-  createModelCatalog,
-  executeFetch,
-  isRecord,
-  lineLimit,
-  mapSseStream,
-  messageText,
-  modelOf,
-  nullableNumber,
-  readJsonObject,
-  readUpstreamError,
-  toProviderCallError,
-} from "./shared";
-import type { SseEvent, StreamMapper } from "./shared";
+import { AbortCoordinator,
+ProviderAdapterError,
+aggregateCapabilities,
+capabilitiesOf,
+createModelCatalog,
+executeFetch,
+isRecord,
+lineLimit,
+mapSseStream,
+messageText,
+modelOf,
+nullableNumber,
+readJsonObject,
+readUpstreamError,
+toProviderCallError, } from "../open-sse/transport/shared";
+import type { SseEvent, StreamMapper } from "../open-sse/transport/shared";
 import type {
   ContextStats,
   CredentialKind,
@@ -34,7 +32,7 @@ import type {
 import type { ProviderCallError } from "../domain/contracts";
 import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../domain/contracts";
 import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../open-sse/translate/codecs/gemini-generate-content";
-import { callGeminiWire } from "../transport/protocols/gemini";
+import { callGeminiWire } from "../open-sse/transport/protocols/gemini";
 import type { StreamEvent } from "../domain/contracts";
 
 /** Direct Gemini Generative Language API adapter. */

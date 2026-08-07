@@ -1,5 +1,5 @@
-import { ProviderAdapterError, capabilitiesOf, createModelCatalog, modelOf, toProviderCallError } from "./shared";
-import { callChatCompletionsWire } from "../transport/protocols/openai";
+import { ProviderAdapterError, capabilitiesOf, createModelCatalog, modelOf, toProviderCallError } from "../open-sse/transport/shared";
+import { callChatCompletionsWire } from "../open-sse/transport/protocols/openai";
 import type {
   ContextStats,
   Adapter,

@@ -1,7 +1,7 @@
-import { aggregateCapabilities, capabilitiesOf, createModelCatalog, modelOf, toProviderCallError } from "./shared";
+import { aggregateCapabilities, capabilitiesOf, createModelCatalog, modelOf, toProviderCallError } from "../open-sse/transport/shared";
 import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../domain/contracts";
-import { callChatCompletionsWire } from "../transport/protocols/openai";
-import { ProviderAdapterError } from "./shared";
+import { callChatCompletionsWire } from "../open-sse/transport/protocols/openai";
+import { ProviderAdapterError } from "../open-sse/transport/shared";
 
 const SURFACES: readonly Surface[] = ["openai-chat"];
 const GLOBAL_BASE_URL = "https://www.codebuddy.ai/v2";

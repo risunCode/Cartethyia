@@ -1,4 +1,4 @@
-import { capabilitiesOf, makeOpenAIAdapter, modelOf, type OpenAIAdapterConfig } from "./shared";
+import { capabilitiesOf, makeOpenAIAdapter, modelOf, type OpenAIAdapterConfig } from "../open-sse/transport/shared";
 
 const NATIVE_SURFACES = ["openai-chat", "openai-responses"] as const;
 

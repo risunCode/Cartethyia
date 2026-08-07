@@ -7,7 +7,7 @@ import { CredentialSelector } from "../auth";
 import { OAuthCoordinator } from "../auth";
 import { createDriverAwareOAuthRefresher, createEnvOAuthRefresher } from "../auth";
 import { OAuthKeepalive } from "../auth/oauth-keepalive";
-import { AccountRecoverySweep } from "../open-sse/shaping/recovery-sweep";
+import { AccountRecoverySweep } from "../open-sse/handlers/recovery-sweep";
 import type { AccountConfig, CredentialConfigStore, OAuthTokenRecord } from "../auth";
 import type { ApplicationErrorKind } from "../domain/contracts";
 import type { ProxyHealthRecord, ProxyHealthStore } from "../traffic";

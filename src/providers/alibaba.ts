@@ -1,4 +1,4 @@
-import { makeOpenAIAdapter, type OpenAIAdapterConfig } from "./shared";
+import { makeOpenAIAdapter, type OpenAIAdapterConfig } from "../open-sse/transport/shared";
 
 export const alibabaConfig = {
   id: "alibaba",
