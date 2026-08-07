@@ -79,22 +79,27 @@ export class WarpPoolService {
     this.repo = config.warpAccounts;
     this.poolInjector = createProxyPoolInjector(config);
     this.metricsRepo = runtime?.warpMetrics ?? null;
-    // Reset stale running flags — server just started, no instances are running.
-    this.resetStaleRunningState().catch(() => {});
+    // Reconcile persisted state after restart and auto-restore enabled instances.
+    this.bootstrapInstances().catch(() => {});
     // Start periodic metrics collection (every 15s) if runtime is provided.
     if (this.metricsRepo !== null) {
       this.startMetricsCollection(15_000);
     }
   }
 
-  /** On server start, clear stale running/pid state from previous sessions. */
-  private async resetStaleRunningState(): Promise<void> {
+  /**
+   * Startup reconciliation:
+   * 1) clear stale `running/pid` persisted from previous process
+   * 2) auto-start all enabled accounts so Warp proxies are re-injected
+   */
+  private async bootstrapInstances(): Promise<void> {
     const accounts = await this.repo.list();
     for (const account of accounts) {
       if (account.running) {
         await this.repo.setRunning(account.id, false, null);
       }
     }
+    await this.startAll();
   }
 
   /** Periodically collect process metrics for all running instances. */
