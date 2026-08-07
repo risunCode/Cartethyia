@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { createConfigPersistence } from "../../src/storage/main/config";
 import { createRuntimePersistence } from "../../src/storage/runtime/runtime";
 import type { PersistenceEnv } from "../../src/storage/main/env";
+import { removeTempDir } from "../support/temp";
 
 function env(root: string): PersistenceEnv {
   return { dataDir: root, dbPath: join(root, "config.sqlite"), runtimeDbPath: join(root, "runtime.sqlite"), assetDir: join(root, "assets"), logRetentionDays: 14, assetRetentionDays: 7, maxFlightsPerIp: 40 };
@@ -46,7 +47,7 @@ describe("database topology", () => {
       expect(() => runtime.metadata.querySummary("all")).toThrow("runtime database is closed");
       expect(() => config.settings.getSettingsJson()).toThrow("configuration database is closed");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempDir(root);
     }
   });
 
@@ -62,7 +63,7 @@ describe("database topology", () => {
       expect(runtime.consoleLogs.list({ limit: 10 }).items).toHaveLength(0);
     } finally {
       runtime.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempDir(root);
     }
   });
 
@@ -94,6 +95,6 @@ describe("database topology", () => {
 
     configDb.close();
     runtimeDb.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempDir(root);
   });
 });

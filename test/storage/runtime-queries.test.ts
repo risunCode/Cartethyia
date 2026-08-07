@@ -1,7 +1,7 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { rmSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import {
   createRuntimePersistence,
@@ -11,6 +11,7 @@ import {
 } from "../../src/storage/runtime/runtime";
 import type { PersistenceEnv } from "../../src/storage/main/env";
 import { resetConfigPersistenceForTests } from "../../src/storage/main/config";
+import { removeTempDir } from "../support/temp";
 
 function testEnv(): PersistenceEnv {
   const dir = join(tmpdir(), `test-${process.pid}-${Math.random().toString(36).slice(2)}`);
@@ -180,7 +181,7 @@ describe("BoundedTtlCache (via metadata repository caching)", () => {
   afterEach(() => {
     directDb.close();
     persistence.close();
-    rmSync(env.dataDir, { recursive: true, force: true });
+    removeTempDir(env.dataDir);
   });
 
   test("returns cached value on hit within TTL", () => {
@@ -245,7 +246,7 @@ describe("createWriteBuffer (via runtime persistence)", () => {
 
   afterEach(() => {
     persistence.close();
-    rmSync(env.dataDir, { recursive: true, force: true });
+    removeTempDir(env.dataDir);
   });
 
   test("FLUSH_THRESHOLD (64 writes) triggers an immediate flush", () => {
@@ -286,7 +287,7 @@ describe("createWriteBuffer (via runtime persistence)", () => {
       expect(stallPersistence.pendingWrites()).toBeGreaterThan(0);
     } finally {
       stallPersistence.close();
-      rmSync(stallEnv.dataDir, { recursive: true, force: true });
+      removeTempDir(stallEnv.dataDir);
     }
   });
 
@@ -301,7 +302,7 @@ describe("createWriteBuffer (via runtime persistence)", () => {
       expect(stallPersistence.pendingWrites()).toBeLessThanOrEqual(256);
     } finally {
       stallPersistence.close();
-      rmSync(stallEnv.dataDir, { recursive: true, force: true });
+      removeTempDir(stallEnv.dataDir);
     }
   });
 });
@@ -321,7 +322,7 @@ describe("createRuntimeTelemetryWriter (via runtime persistence)", () => {
   afterEach(() => {
     directDb.close();
     persistence.close();
-    rmSync(env.dataDir, { recursive: true, force: true });
+    removeTempDir(env.dataDir);
   });
 
   test("recordFirstToken records time-to-first-token timing", async () => {
@@ -422,7 +423,7 @@ describe("metadata queries", () => {
   afterEach(() => {
     directDb.close();
     persistence.close();
-    rmSync(env.dataDir, { recursive: true, force: true });
+    removeTempDir(env.dataDir);
   });
 
   describe("queryRequests", () => {
@@ -747,7 +748,7 @@ describe("console log filters", () => {
 
   afterEach(() => {
     persistence.close();
-    rmSync(env.dataDir, { recursive: true, force: true });
+    removeTempDir(env.dataDir);
   });
 
   test("filters by level", () => {

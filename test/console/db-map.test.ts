@@ -1,7 +1,7 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { DbMapService } from "../../src/console/db-map/service";
 import { isSensitiveColumn, SENSITIVE_COLUMN_NAMES } from "../../src/console/db-map/types";

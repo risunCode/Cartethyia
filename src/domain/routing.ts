@@ -104,11 +104,11 @@ export const MAX_MODEL_CHAIN_DEPTH = 8;
 /**
  * Parses a provider-qualified model name (`prefix/modelId`).
  *
- * Uses **longest-prefix match** against the registered prefix table so that
- * multi-segment model IDs like `blackboxai/x-ai/grok-4.3` resolve correctly:
- * the prefix `blackboxai` matches, and the model ID is the remaining
- * `x-ai/grok-4.3` (preserving internal slashes). This is global — any
- * provider whose catalog uses multi-segment model IDs is handled.
+ * Splits at the **first** `/` — the first segment is the provider prefix,
+ * everything after it is the model ID (preserving internal slashes for
+ * multi-segment IDs like `openai/gpt-5.4`). Prefixes are always single
+ * segment (provider IDs or custom-provider slugs), so a single split is
+ * correct and a longest-prefix loop would be dead machinery.
  *
  * Unknown prefixes are reported as invalid so the caller can fall through to
  * alias/combo resolution instead of rejecting outright.
@@ -117,35 +117,26 @@ export function parseModelReference(
   model: string,
   prefixes: ReadonlyMap<string, string>,
 ): ModelReferenceParseResult {
-  if (!model.includes("/")) return { kind: "unqualified" };
+  const slashIndex = model.indexOf("/");
+  if (slashIndex === -1) return { kind: "unqualified" };
 
-  // Try longest prefix first: split into segments and try progressively
-  // shorter prefixes until one matches the registered prefix table.
-  const segments = model.split("/");
-  // model must have at least "prefix/model" (2 segments) to be qualified.
-  if (segments.length < 2 || segments.some((segment) => segment.length === 0)) {
+  const prefix = model.slice(0, slashIndex);
+  const modelId = model.slice(slashIndex + 1);
+  if (!prefix || !modelId) {
     return {
       kind: "invalid",
       reason: "Provider-qualified model names must include both a provider prefix and a model ID.",
     };
   }
 
-  // Try prefixes from longest (all segments except the last) down to the
-  // first segment. The first match wins — prefixes are registered from both
-  // builtin catalog model IDs and DB-stored custom models, so a prefix like
-  // "blackboxai" will match even if the full model ID has more segments.
-  for (let prefixLen = segments.length - 1; prefixLen >= 1; prefixLen -= 1) {
-    const prefix = segments.slice(0, prefixLen).join("/");
-    const providerId = prefixes.get(prefix);
-    if (providerId !== undefined) {
-      const modelId = segments.slice(prefixLen).join("/");
-      return { kind: "qualified", providerId, modelId };
-    }
+  const providerId = prefixes.get(prefix);
+  if (providerId !== undefined) {
+    return { kind: "qualified", providerId, modelId };
   }
 
   return {
     kind: "invalid",
-    reason: `Unknown provider prefix "${segments[0] ?? model}".`,
+    reason: `Unknown provider prefix "${prefix}".`,
   };
 }
 
@@ -226,19 +217,6 @@ export function resolveModelChain(
       const candidates = expandCombo(combo, (member) => resolveInner(member, depth + 1), affinityKey);
       if (candidates.length === 0) return { kind: "unresolved" };
       return { kind: "combo", candidates };
-    }
-    // parseModelReference rejects names with empty path segments (e.g.
-    // "openai//model") as "invalid" before it can try prefix lookup. When
-    // the first segment is a known provider prefix, treat the remainder
-    // after the first "/" as the model id — this recovers fetched/added
-    // models whose id accidentally contains an empty segment.
-    if (parsed.kind === "invalid" && name.includes("/")) {
-      const slashIndex = name.indexOf("/");
-      const firstSegment = name.slice(0, slashIndex);
-      const providerId = config.prefixes.get(firstSegment);
-      if (providerId !== undefined) {
-        return { kind: "qualified", model: { providerId, modelId: name.slice(slashIndex + 1) } };
-      }
     }
     return { kind: "unresolved" };
   };

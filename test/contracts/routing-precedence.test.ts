@@ -25,7 +25,15 @@ describe("model reference precedence", () => {
     expect(parseModelReference("gpt-5", PREFIXES)).toEqual({ kind: "unqualified" });
     expect(parseModelReference("nope/model", PREFIXES)).toMatchObject({ kind: "invalid" });
     expect(parseModelReference("/model", PREFIXES)).toMatchObject({ kind: "invalid" });
-    expect(parseModelReference("openai//x", PREFIXES)).toMatchObject({ kind: "invalid" });
+    // Empty-segment model IDs like "openai//x" split at the first slash:
+    // prefix="openai", modelId="/x" — qualified, not rejected. The modelId
+    // keeps the leading slash; downstream gates simply won't find it in the
+    // catalog, so it resolves to nothing at dispatch time.
+    expect(parseModelReference("openai//x", PREFIXES)).toEqual({
+      kind: "qualified",
+      providerId: "openai",
+      modelId: "/x",
+    });
   });
 
   test("resolves qualified names over aliases and aliases over combos", () => {

@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { createRuntimePersistence } from "../../src/storage/runtime/runtime";
 import { scaledCount } from "./helpers";
+import { removeTempDir } from "../support/temp";
 
 describe("runtime persistence throughput benchmarks", () => {
   test("bounds buffered telemetry when the runtime database is unavailable", async () => {
@@ -41,7 +42,7 @@ describe("runtime persistence throughput benchmarks", () => {
       expect(persistence.pendingWrites()).toBeLessThanOrEqual(1_000);
     } finally {
       persistence.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempDir(root);
     }
   });
 
@@ -105,7 +106,7 @@ describe("runtime persistence throughput benchmarks", () => {
       expect(() => readFileSync(configPath)).toThrow();
     } finally {
       persistence.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempDir(root);
     }
   });
 });

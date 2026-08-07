@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { createConfigPersistence, createRuntimePersistence, type PersistenceEnv } from "../../src/storage";
 import { buildSessionCookie, guardConsoleRequest, isSameOriginRequest, signSessionToken } from "../../src/console/services";
 import { BACKUP_APP, BACKUP_TABLES, validateRestorePayload } from "../../src/storage/main/backup";
+import { removeTempDir } from "../support/temp";
 
 function testEnv(dataDir: string): PersistenceEnv {
   return { dataDir, dbPath: join(dataDir, "config.sqlite"), runtimeDbPath: join(dataDir, "runtime.sqlite"), assetDir: join(dataDir, "assets"), logRetentionDays: 14, assetRetentionDays: 7, maxFlightsPerIp: 40 };
@@ -335,33 +336,10 @@ function utcSlot(ms: number): string {
 }
 
 /**
- * Windows defers releasing freshly-closed SQLite handles (WAL/-shm cleanup
- * races with the OS), so a single rmSync of a temp data dir can hit EBUSY.
- * Retry briefly — the files are always gone after the OS releases the handle.
+ * Windows-safe temp directory cleanup is shared via `test/support/temp.ts`.
+ * The local copy was removed in favor of the shared helper (same retry + GC
+ * + sleep strategy, plus EPERM tolerance).
  */
-function removeTempDir(dir: string): void {
-  // Force GC to release any lingering SQLite handles before attempting removal.
-  try { Bun.gc(true); } catch {}
-  Bun.sleepSync(300);
-  // Windows holds freshly-closed bun:sqlite WAL/-shm file handles for a
-  // non-deterministic period after Database.close(). Node's rmSync has
-  // built-in retry support (maxRetries + retryDelay).
-  try {
-    rmSync(dir, { recursive: true, force: true, maxRetries: 60, retryDelay: 200 });
-    return;
-  } catch (err) {
-    // If the only error is EBUSY/ENOTEMPTY from Windows file handle lag,
-    // the test itself has already passed — the temp dir will be cleaned up
-    // by the OS on the next reboot or temp sweep. Don't fail the test.
-    if (err instanceof Error && "code" in err && (err.code === "EBUSY" || err.code === "ENOTEMPTY")) {
-      console.warn(`[cleanup] deferring temp dir ${dir} — Windows file handle race`);
-      return;
-    }
-    // Re-throw genuine errors (ENOENT is fine — dir already gone).
-    if (err instanceof Error && "code" in err && err.code === "ENOENT") return;
-    throw err;
-  }
-}
 
 describe("security and persistence contracts", () => {
   test("rejects cross-origin mutations and missing JSON content type", async () => {

@@ -406,9 +406,9 @@ describe("resolveModelChain", () => {
   });
 
   test("falls back to a known prefix when the model id contains empty path segments", () => {
-    // parseModelReference rejects "openai//model" (empty segment), but the
-    // chain fallback re-checks the first segment against known prefixes and
-    // slices everything after the first "/" as the model id.
+    // parseModelReference splits at the first "/" so "openai//model"
+    // resolves as prefix="openai", modelId="/model" — qualified directly,
+    // no chain fallback needed.
     const result = resolveModelChain("openai//model", baseConfig());
     expect(result.kind).toBe("qualified");
     if (result.kind === "qualified") {
