@@ -1,5 +1,9 @@
 # Cartethyia
 
+> # WARNING WARNING WARNING
+> ## CARTETHYIA IS STILL FRAGILE. GUNAKAN DENGAN RISIKO SENDIRI.
+> ## PROJECT INI TIDAK MENERIMA PR.
+
 A self-hosted Bun + Elysia AI proxy with an authenticated web console. Accepts OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages requests, routes them across 30+ provider adapters with OAuth and API-key credentials, translates responses cross-protocol, and manages everything from a real-time dashboard.
 
 **Current release:** `1.0.8-alpha` (2026-08-06)
