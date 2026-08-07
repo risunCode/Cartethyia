@@ -206,7 +206,7 @@ function normalizeInput(raw: unknown, images: ImageReference[], reasoningState: 
     const obj = narrowObject(item, field);
     if (isProtocolError(obj)) return obj;
     const type = obj["type"];
-    if (type === "message") {
+    if (type === "message" || (type === undefined && typeof obj["role"] === "string")) {
       const message = normalizeMessageItem(obj, field, images, reasoningState);
       if (isProtocolError(message)) return message;
       messages.push(message);
@@ -429,7 +429,7 @@ function toResponsesItem(message: NormalizedMessage): readonly Record<string, un
     }
     case "tool": {
       const block = message.content[0];
-      return [{ role: "user", content: [{ type: "function_call_output", call_id: block?.toolCallId ?? "", output: block?.text ?? "" }] }];
+      return [{ type: "function_call_output", call_id: block?.toolCallId ?? "", output: block?.text ?? "" }];
     }
   }
 }
