@@ -14,7 +14,7 @@ import {
   toProviderCallError,
 } from "./shared";
 import { createResponsesMapper } from "../transport/protocols/openai";
-import { buildResponsesPayload, mapResponsesUsage } from "../domain/protocols/openai-responses";
+import { buildResponsesPayload, mapResponsesUsage } from "../open-sse/translate/codecs/openai-responses";
 import type {
   ContextStats,
   Adapter,

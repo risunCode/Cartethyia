@@ -1,5 +1,9 @@
-import { isRecord, normalizeChatRequest, normalizeFail, normalizeImageRequest, normalizeMessagesRequest, normalizeResponsesRequest, protocolError, type NormalizeInput, type NormalizeResult, type ProtocolError } from "../protocols";
-import type { Surface, ProxyEndpoint, RequestLimits } from "../contracts";
+import { isRecord, normalizeFail, protocolError, type NormalizeInput, type NormalizeResult, type ProtocolError } from "../../domain/protocols";
+import { normalizeChatRequest } from "./codecs/openai-chat";
+import { normalizeMessagesRequest } from "./codecs/anthropic-messages";
+import { normalizeResponsesRequest } from "./codecs/openai-responses";
+import { normalizeImageRequest } from "./codecs/images";
+import type { Surface, ProxyEndpoint, RequestLimits } from "../../domain/contracts";
 
 /**
  * Pathname-to-proxy-endpoint lookup: the single source of truth for HTTP

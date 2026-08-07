@@ -1,10 +1,10 @@
 import { createCartethyiaRuntime, runProxyRequest, type CartethyiaRuntime } from "./app/composition";
-import { lookupProxyEndpoint, readBoundedJson } from "./domain/protocols";
+import { lookupProxyEndpoint, readBoundedJson } from "./open-sse/translate";
 import type { ModelMetadata, ProxyEndpoint } from "./domain/contracts";
 import type { ResolvedModelMetadata } from "./domain/model-metadata";
 import { isRouteAllowed } from "./console/key-acl";
 import type { ApiKeyPublic } from "./storage";
-import { appendTerminalError } from "./app/response";
+import { appendTerminalError } from "./open-sse/shaping";
 import { resolveConsoleStatic, applySecurityHeaders } from "./console/static";
 import { runtimeRecordFromJson, runtimeSettings } from "./console/runtime-settings";
 import { runtimeMemoryLimits } from "./traffic/limits";

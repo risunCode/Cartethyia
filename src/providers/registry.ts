@@ -1,6 +1,6 @@
 import { ProviderAdapterError } from "./shared";
 import type { Adapter, Surface, RouteTarget } from "../domain/contracts";
-import { resolveWireSurface } from "../domain/protocols/translation";
+import { resolveWireSurface } from "../open-sse/translate";
 
 /**
  * Typed ProviderAdapter registry. Registration is id-keyed; resolution

@@ -13,7 +13,7 @@ import {
   toProviderCallError,
 } from "./shared";
 import { createAnthropicMapper } from "../transport/protocols/anthropic";
-import { buildMessagesPayload, mapAnthropicUsage } from "../domain/protocols/anthropic-messages";
+import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
 import type {
   ContextStats,
   Adapter,

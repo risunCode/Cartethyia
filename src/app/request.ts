@@ -8,16 +8,18 @@ import type { ClientIdentity } from "../domain/contracts";
 import type { RequestTelemetryHandle, TelemetryWriter } from "../domain/contracts";
 import { applyCachePlan, buildCachePlan } from "../domain/cache";
 import { isRouteAllowed } from "../console/key-acl";
-import { isProtocolError, normalizeRequest, parseRequestBody } from "../domain/protocols";
+import { isProtocolError } from "../domain/protocols";
+import { normalizeRequest, parseRequestBody } from "../open-sse/translate";
 import { CredentialSelector } from "../auth";
 import { NetworkSelector } from "../traffic";
 import { beginProviderInFlight, decrementInFlight, endProviderInFlight, incrementInFlight } from "../traffic/in-flight";
 import { ApiKeyAdmission, estimateRequestTokens, type AdmissionLease, type AdmissionUsage } from "../traffic/admission";
 import type { ApiKeyPublic } from "../storage";
-import { isProviderCallError, recoverCall } from "./recovery";
-import { translateBody, resolveWireSurface } from "../domain/protocols/translation";
-import { writeErrorResponse, writeResponse } from "./response";
-import { applyTokenSaver, type TokenSaverConfig } from "../domain/token-saver";
+import { isProviderCallError, recoverCall } from "../open-sse/shaping/recovery";
+import { translateBody, resolveWireSurface } from "../open-sse/translate";
+import { writeErrorResponse, writeResponse } from "../open-sse/shaping";
+import { applyTokenSaver, type TokenSaverConfig } from "../open-sse/compress";
+import { ensureToolCallIds } from "../open-sse/concerns/tool-calls";
 import { applyFilterRules, type FilterRuleConfig } from "../domain/filter-rules";
 
 export interface ProxyRoutePlan {
@@ -172,7 +174,8 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
     if (isProtocolError(parsed)) throw parsed;
     const normalized = normalizeRequest(input.request.endpoint, parsed, { signal: input.request.signal, limits: DEFAULT_LIMITS });
     if (!normalized.ok) throw normalized.error;
-    const filteredRequest = dependencies.filterRules === undefined ? normalized.request : applyFilterRules(normalized.request, dependencies.filterRules());
+    const toolSafeRequest = ensureToolCallIds(normalized.request);
+    const filteredRequest = dependencies.filterRules === undefined ? toolSafeRequest : applyFilterRules(toolSafeRequest, dependencies.filterRules());
     const plannedRequest = dependencies.tokenSaver === undefined ? filteredRequest : applyTokenSaver(filteredRequest, dependencies.tokenSaver());
     const cachePlan = buildCachePlan(plannedRequest);
     const currentRequest = applyCachePlan(plannedRequest, cachePlan);

@@ -33,7 +33,7 @@ import type {
 } from "../domain/contracts";
 import type { ProviderCallError } from "../domain/contracts";
 import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../domain/contracts";
-import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../domain/protocols/gemini-generate-content";
+import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../open-sse/translate/codecs/gemini-generate-content";
 import { callGeminiWire } from "../transport/protocols/gemini";
 import type { StreamEvent } from "../domain/contracts";
 

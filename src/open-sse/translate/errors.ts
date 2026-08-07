@@ -1,4 +1,4 @@
-import { sanitizeMessage, deriveErrorSource, type ApplicationErrorKind, type ProviderCallError } from "../contracts";
+import { sanitizeMessage, deriveErrorSource, type ApplicationErrorKind, type ProviderCallError } from "../../domain/contracts";
 
 /** Typed failure raised while encoding or decoding a protocol payload. */
 export class ProtocolCodecError extends Error {

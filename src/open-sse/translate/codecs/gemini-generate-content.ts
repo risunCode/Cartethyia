@@ -1,5 +1,5 @@
-import { isRecord, messageText, nullableNumber } from "../protocols";
-import type { ContentBlock, ImageReference, ProxyRequest, Surface, ProviderUsage } from "../contracts";
+import { isRecord, messageText, nullableNumber } from "../../../domain/protocols";
+import type { ContentBlock, ImageReference, ProxyRequest, Surface, ProviderUsage } from "../../../domain/contracts";
 
 export function buildGeminiPayload(request: ProxyRequest): Record<string, unknown> {
   const system = request.messages.filter((message) => message.role === "system" || message.role === "developer").flatMap((message) => {

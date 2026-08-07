@@ -1,7 +1,8 @@
-import type { ContentBlock, NormalizedMessage, ProxyRequest } from "./contracts";
+import type { ContentBlock, NormalizedMessage, ProxyRequest } from "../../domain/contracts";
+import { autoDetectFilter, type RtkFilter } from "./autodetect";
 
 export type TokenSaverQuality = "lite" | "balanced" | "extreme";
-export type RtkFilter = "git-diff" | "git-status" | "tree" | "read-numbered" | "grep" | "dedup-log" | "generic";
+export { autoDetectFilter, type RtkFilter } from "./autodetect";
 
 export interface TokenSaverConfig {
   readonly enabled: boolean;
@@ -112,7 +113,15 @@ function smartTruncate(text: string, maxChars: number, smart: boolean): { text: 
     { filter: "grep", detect: (probe.match(GREP_RE) ?? []).length >= 5, apply: () => grep(text, maxChars) },
     { filter: "dedup-log", detect: (probe.split("\n").slice(0, 100).filter((line, index, all) => index > 0 && line === all[index - 1])).length >= 3, apply: () => dedupLog(text), lossless: true },
   ];
-  if (smart) for (const candidate of candidates) { if (fits && !candidate.lossless || !candidate.detect) continue; const result = candidate.apply(); if (result.length < text.length) return { text: result, filter: candidate.filter }; }
+  if (smart) {
+    const detected = autoDetectFilter(text);
+    const ordered = detected === null ? candidates : [...candidates.filter((candidate) => candidate.filter === detected), ...candidates.filter((candidate) => candidate.filter !== detected)];
+    for (const candidate of ordered) {
+      if ((fits && !candidate.lossless) || !candidate.detect) continue;
+      const result = candidate.apply();
+      if (result.length < text.length) return { text: result, filter: candidate.filter };
+    }
+  }
   return fits ? { text, filter: null } : { text: generic(text, maxChars), filter: "generic" };
 }
 

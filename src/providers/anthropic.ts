@@ -33,7 +33,7 @@ import type {
 } from "../domain/contracts";
 import type { ApplicationErrorKind, ProviderCallError } from "../domain/contracts";
 import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../domain/contracts";
-import { buildMessagesPayload, mapAnthropicUsage } from "../domain/protocols/anthropic-messages";
+import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
 import { callAnthropicWire } from "../transport/protocols/anthropic";
 import type { StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../domain/contracts";
 

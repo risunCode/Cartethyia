@@ -3,9 +3,9 @@ import type { ProviderCallError } from "../domain/contracts";
 import type { CustomProviderRecord, CustomProviderRepository } from "../storage";
 import { AbortCoordinator, ProviderAdapterError, aggregateCapabilities, capabilitiesOf, categoriesOf, executeFetch, isRecord, lineLimit, mapSseStream, modelOf, nullableNumber, readJsonObject, readUpstreamError, toProviderCallError } from "./shared";
 import { createAnthropicMapper } from "../transport/protocols/anthropic";
-import { buildMessagesPayload, mapAnthropicUsage } from "../domain/protocols/anthropic-messages";
+import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
 import { createChatMapper } from "../transport/protocols/openai";
-import { buildChatPayload, mapChatUsage } from "../domain/protocols/openai-chat";
+import { buildChatPayload, mapChatUsage } from "../open-sse/translate/codecs/openai-chat";
 import { assertPublicUrlAtDispatch } from "../security/ssrf-guard";
 import type { ProviderRegistry } from "./registry";
 

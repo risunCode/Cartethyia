@@ -35,7 +35,7 @@ import {
   type LoginResult,
 } from "./services";
 import { runProxyRequest, type ProxyRequestDependencies } from "../app/request";
-import { appendTerminalError } from "../app/response";
+import { appendTerminalError } from "../open-sse/shaping";
 import { metrics, toPrometheus } from "../observability/metrics";
 import { extractTraceContext, injectTraceContext, traceMiddleware } from "../observability/tracing";
 import { encodeSurfaceStream } from "../providers/surfaces";

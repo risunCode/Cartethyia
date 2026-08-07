@@ -1,60 +1,11 @@
-import { jsonObject, narrowList, narrowRecord, narrowText, nullableNumber } from "../protocols";
-import type { ProviderCaps, ProviderMeta, Protocol, Surface } from "../contracts";
+import { jsonObject, narrowList, narrowRecord, narrowText, nullableNumber } from "../../../domain/protocols";
+import { registerTranslation } from "../registry";
 
 let idCounter = 0;
 function nextFallbackId(prefix: string): string {
   idCounter = (idCounter + 1) | 0;
   return `${prefix}-${Date.now().toString(36)}${idCounter.toString(36)}`;
 }
-
-/** Resolves the provider-native wire surface while preserving the client surface in the normalized request. */
-export function resolveWireSurface(metadata: ProviderMeta, capabilities: ProviderCaps, clientSurface: Surface): Surface | null {
-  if (clientSurface === "images") return capabilities.surfaces.includes("images") ? "images" : null;
-  if (clientSurface === "web-search") return capabilities.surfaces.includes("web-search") ? "web-search" : null;
-  if (capabilities.surfaces.includes(clientSurface)) return clientSurface;
-  if (metadata.protocol === "anthropic") return capabilities.surfaces.includes("anthropic-messages") ? "anthropic-messages" : null;
-  if (metadata.protocol === "gemini") {
-    if (capabilities.surfaces.includes("openai-chat")) return "openai-chat";
-    if (capabilities.surfaces.includes("openai-responses")) return "openai-responses";
-    return null;
-  }
-  if (metadata.protocol === "exa") return capabilities.surfaces.includes("web-search") ? "web-search" : null;
-  if (capabilities.surfaces.includes("openai-chat")) return "openai-chat";
-  return capabilities.surfaces.includes("openai-responses") ? "openai-responses" : null;
-}
-
-/** Converts a provider's non-stream body from its wire shape to the client's requested surface. */
-export function translateBody(
-  body: Record<string, unknown>,
-  protocol: Protocol,
-  wireSurface: Surface,
-  clientSurface: Surface,
-): Record<string, unknown> {
-  if (wireSurface === clientSurface || clientSurface === "images" || protocol === "gemini") return body;
-  const conv = CONVERSIONS[wireSurface]?.[clientSurface];
-  return conv !== undefined ? conv(body) : body;
-}
-
-/**
- * Two-hop conversion table keyed by `[from][to]`. Routes via `openai-chat`
- * as the hub: surfaces without a direct edge compose through it.
- *   - anthropic-messages → openai-responses: anthropicToChat → chatToResponses
- *   - openai-responses → anthropic-messages: responsesToChat → chatToAnthropic
- */
-const CONVERSIONS: Partial<Record<Surface, Partial<Record<Surface, (body: Record<string, unknown>) => Record<string, unknown>>>>> = {
-  "openai-chat": {
-    "anthropic-messages": chatToAnthropic,
-    "openai-responses": chatToResponses,
-  },
-  "anthropic-messages": {
-    "openai-chat": anthropicToChat,
-    "openai-responses": (body) => chatToResponses(anthropicToChat(body)),
-  },
-  "openai-responses": {
-    "openai-chat": responsesToChat,
-    "anthropic-messages": (body) => chatToAnthropic(responsesToChat(body)),
-  },
-};
 
 function chatToAnthropic(body: Record<string, unknown>): Record<string, unknown> {
   const choice = narrowRecord(narrowList(body.choices)[0]);
@@ -176,3 +127,8 @@ function responsesToChat(body: Record<string, unknown>): Record<string, unknown>
   const outputTokens = nullableNumber(usage?.output_tokens) ?? 0;
   return { id: narrowText(body.id) ?? nextFallbackId("chatcmpl"), object: "chat.completion", created: nullableNumber(body.created_at) ?? Math.floor(Date.now() / 1000), model: narrowText(body.model) ?? "", choices: [{ index: 0, message, finish_reason: toolCalls.length > 0 ? "tool_calls" : "stop" }], usage: { prompt_tokens: inputTokens, completion_tokens: outputTokens, total_tokens: nullableNumber(usage?.total_tokens) ?? inputTokens + outputTokens } };
 }
+
+registerTranslation("openai-chat", "anthropic-messages", chatToAnthropic);
+registerTranslation("openai-chat", "openai-responses", chatToResponses);
+registerTranslation("anthropic-messages", "openai-chat", anthropicToChat);
+registerTranslation("openai-responses", "openai-chat", responsesToChat);

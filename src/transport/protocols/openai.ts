@@ -1,8 +1,8 @@
 import { AbortCoordinator, ProviderAdapterError, executeFetch, isRecord, lineLimit, mapSseStream, nullableNumber, parseSseData, readJsonObject, readUpstreamError } from "../../providers/shared";
 import type { SseEvent, StreamMapper } from "../../providers/shared";
 import type { ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../../domain/contracts";
-import { buildChatPayload, mapChatUsage } from "../../domain/protocols/openai-chat";
-import { buildResponsesPayload, mapResponsesUsage } from "../../domain/protocols/openai-responses";
+import { buildChatPayload, mapChatUsage } from "../../open-sse/translate/codecs/openai-chat";
+import { buildResponsesPayload, mapResponsesUsage } from "../../open-sse/translate/codecs/openai-responses";
 
 // ---------------------------------------------------------------- HTTP execution
 

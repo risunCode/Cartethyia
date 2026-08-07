@@ -9,7 +9,7 @@ import type { NormalizedMessage, RequestLimits } from "../domain/contracts";
 import { isTerminalEvent, type StreamEvent } from "../domain/contracts";
 import { runtimeMemoryLimits } from "../traffic/limits";
 import { buildProxyFetcher } from "../traffic";
-import { ProtocolCodecError } from "../domain/protocols/errors";
+import { ProtocolCodecError } from "../open-sse/translate/errors";
 import { fetchWithRedirectPolicy } from "../security/redirect-policy";
 import { assertPublicUrlAtDispatch } from "../security/ssrf-guard";
 import { callChatCompletionsWire, callResponsesWire } from "../transport/protocols/openai";

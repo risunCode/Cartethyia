@@ -1,8 +1,8 @@
 import { AbortCoordinator, ProviderAdapterError, executeFetch, isRecord, lineLimit, mapSseStream, readJsonObject, readUpstreamError } from "../../providers/shared";
 import type { SseEvent, StreamMapper } from "../../providers/shared";
 import type { ProviderOutput, ProviderRequest, ProviderUsage, StreamEvent } from "../../domain/contracts";
-import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../../domain/protocols/gemini-generate-content";
-import { geminiCandidate, responseParts } from "../../domain/protocols/gemini-generate-content";
+import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../../open-sse/translate/codecs/gemini-generate-content";
+import { geminiCandidate, responseParts } from "../../open-sse/translate/codecs/gemini-generate-content";
 
 /** SSE stream mapper for Gemini-style generateContent streams. */
 export function createGeminiMapper(): StreamMapper {

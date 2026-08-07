@@ -1,38 +1,36 @@
-import { ProtocolCodecError } from "./errors";
+import { ProtocolCodecError } from "../errors";
 import { REASONING_EFFORTS, parseReasoningConfig } from "./openai-responses";
-import type { ProviderUsage } from "../contracts";
-import {
-  abortedError,
-  classifyImageReference,
-  isProtocolError,
-  isRecord,
-  messageText,
-  narrowArray,
-  narrowNumber,
-  narrowObject,
-  narrowString,
-  normalizeFail,
-  normalizeOk,
-  normalizeStream,
-  normalizeToolList,
-  nullableNumber,
-  protocolError,
-  pushImageReference,
-  MAX_BLOCKS_PER_MESSAGE,
-  MAX_IMAGE_COUNT,
-  MAX_IMAGE_URL_LENGTH,
-  MAX_MESSAGE_COUNT,
-  MAX_MODEL_LENGTH,
-  MAX_OUTPUT_TOKENS,
-  MAX_TEXT_BLOCK_LENGTH,
-  MAX_TOOL_ARGUMENT_LENGTH,
-  MAX_TOOL_CALLS_PER_MESSAGE,
-  MAX_TOOL_NAME_LENGTH,
-  type NormalizeInput,
-  type NormalizeResult,
-  type ProtocolError,
-} from "../protocols";
-import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, ReasoningConfig, ReasoningEffort, ReasoningSummary } from "../contracts";
+import type { ProviderUsage } from "../../../domain/contracts";
+import { abortedError,
+classifyImageReference,
+isProtocolError,
+isRecord,
+messageText,
+narrowArray,
+narrowNumber,
+narrowObject,
+narrowString,
+normalizeFail,
+normalizeOk,
+normalizeStream,
+normalizeToolList,
+nullableNumber,
+protocolError,
+pushImageReference,
+MAX_BLOCKS_PER_MESSAGE,
+MAX_IMAGE_COUNT,
+MAX_IMAGE_URL_LENGTH,
+MAX_MESSAGE_COUNT,
+MAX_MODEL_LENGTH,
+MAX_OUTPUT_TOKENS,
+MAX_TEXT_BLOCK_LENGTH,
+MAX_TOOL_ARGUMENT_LENGTH,
+MAX_TOOL_CALLS_PER_MESSAGE,
+MAX_TOOL_NAME_LENGTH,
+type NormalizeInput,
+type NormalizeResult,
+type ProtocolError, } from "../../../domain/protocols";
+import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, ReasoningConfig, ReasoningEffort, ReasoningSummary } from "../../../domain/contracts";
 
 /**
  * Strict validation and normalization for OpenAI Chat Completions

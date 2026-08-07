@@ -1,8 +1,8 @@
-import type { ProviderCallError } from "../domain/contracts";
-import { sanitizeMessage, type CleanupStack, deriveErrorSource } from "../domain/contracts";
-import type { ProviderOutput } from "../domain/contracts";
-import { isTerminalEvent, type StreamLifecycle, type StreamEvent } from "../domain/contracts";
-import { StreamDecodeError } from "../domain/protocols";
+import type { ProviderCallError } from "../../domain/contracts";
+import { sanitizeMessage, type CleanupStack, deriveErrorSource } from "../../domain/contracts";
+import type { ProviderOutput } from "../../domain/contracts";
+import { isTerminalEvent, type StreamLifecycle, type StreamEvent } from "../../domain/contracts";
+import { StreamDecodeError } from "../translate/errors";
 
 /**
  * Recovery and lifecycle helpers: `recoverCall` retries provider attempts
