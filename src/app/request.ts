@@ -1,6 +1,6 @@
 import { createCleanupStack, sanitizeMessage, deriveErrorSource, type ProviderCallError } from "../domain/contracts";
 import type { PresentedProxyResponse } from "../domain/contracts";
-import type { ProviderAdapter, ProviderOutput, ProviderUsage, RouteTarget } from "../domain/contracts";
+import type { ProviderAdapter, ProviderOutput, ProviderSurface, ProviderUsage, RouteTarget } from "../domain/contracts";
 import type { AccountCandidate, AffinityKey, RouteCandidate, RouteSwitch } from "../domain/contracts";
 import type { NormalizedProviderRequest, RunProxyRequestInput } from "../domain/contracts";
 import { detectClient } from "../domain/contracts";
@@ -89,6 +89,25 @@ const DEFAULT_LIMITS = {
   idleTimeoutMs: 30_000,
   totalTimeoutMs: 120_000,
 } as const;
+const BLACKBOX_FORCE_RESPONSES_MODELS: Record<string, true> = {
+  "openai/gpt-5.3-codex": true,
+  "openai/gpt-5.4": true,
+};
+
+function selectWireSurface(
+  adapter: ProviderAdapter,
+  candidate: RouteCandidate,
+  request: NormalizedProviderRequest,
+): ProviderSurface | null {
+  const resolved = wireSurfaceFor(adapter.metadata, adapter.capabilities, request.sourceSurface);
+  if (resolved === null) return null;
+  if (adapter.metadata.id !== "blackboxai") return resolved;
+  if (request.sourceSurface !== "openai-chat") return resolved;
+  if (!adapter.capabilities.surfaces.includes("openai-responses")) return resolved;
+  const modelId = candidate.modelId || request.model;
+  if (BLACKBOX_FORCE_RESPONSES_MODELS[modelId] !== true) return resolved;
+  return "openai-responses";
+}
 
 function normalizeError(error: unknown): ProviderCallError {
   if (isProviderCallError(error)) return error;
@@ -271,7 +290,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
         attemptCleanup.add({ release: network.selection.release });
         const selected = { accountId: credential?.selection.accountId ?? null, proxyId: network.proxyId } satisfies RouteAttemptSelection;
         selectedAttempts.set(index, selected);
-        const wireSurface = wireSurfaceFor(adapter.metadata, adapter.capabilities, currentRequest.sourceSurface);
+        const wireSurface = selectWireSurface(adapter, candidate, currentRequest);
         if (wireSurface === null) {
           throw {
             statusCode: 400,
