@@ -71,7 +71,7 @@ describe("createEnvOAuthRefresher", () => {
 });
 
 function driver(overrides: Partial<AuthDriver>): AuthDriver {
-  return { kind: "oauth", buildHeaders: () => ({}), ...overrides };
+  return { kind: "oauth", ...overrides };
 }
 
 describe("driver-aware OAuth refresher", () => {
@@ -198,7 +198,7 @@ describe("bounded env OAuth refresher", () => {
 describe("createDriverAwareOAuthRefresher", () => {
   function registry(driver?: { refresh: (i: { providerId: string; refreshToken: string }) => Promise<{ accessToken: string; refreshToken?: string }> }): AuthDriverRegistry {
     return {
-      get: () => (driver ? { kind: "oauth", refresh: driver.refresh, buildHeaders: () => ({}) } : null),
+      get: () => (driver ? { kind: "oauth", refresh: driver.refresh } : null),
       has: () => driver !== undefined,
       list: () => [],
       register: () => {},

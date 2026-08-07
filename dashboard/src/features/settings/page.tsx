@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { AlertTriangle, Download, FileJson, KeyRound, ShieldCheck, Trash2, Upload } from "lucide-react";
 import { toast } from "../../lib/toast";
 import { ApiError, apiGet, apiPost } from "../../lib/api";
+import { qk } from "../../lib/query-keys";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
@@ -70,13 +71,13 @@ export function SettingsPage() {
   const [resetConfirmation, setResetConfirmation] = useState("");
 
   const { data } = useQuery({
-    queryKey: ["settings"],
+    queryKey: qk.settings.all,
     queryFn: () => apiGet<SettingsResponse>("/settings"),
   });
 
   const patchMutation = useMutation({
     mutationFn: (patch: Partial<RuntimeSettings>) => apiPost<{ ok: boolean }>("/settings", patch),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["settings"] }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: qk.settings.all }),
     onError: (err) => toast.error(errorMessage(err)),
   });
 

@@ -22,6 +22,7 @@ import { toast } from "../../lib/toast";
 import { ApiError, apiGet, apiPatch, apiPost, apiDelete } from "../../lib/api";
 import { formatBandwidthKb, formatDuration, formatMemoryMb, formatTime, formatTokens } from "../../lib/format";
 import { staggerClass } from "../../lib/motion";
+import { qk } from "../../lib/query-keys";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
@@ -464,11 +465,11 @@ export function OverviewPage() {
   const currentHost = window.location.hostname || "local";
   const isLocalHost = currentHost === "localhost" || currentHost === "127.0.0.1" || currentHost === "::1";
 
-  const ipQuery = useQuery({ queryKey: ["ip"], queryFn: () => apiGet<{ ips: string[] }>("/ip"), staleTime: 60_000 });
+  const ipQuery = useQuery({ queryKey: qk.ip.all, queryFn: () => apiGet<{ ips: string[] }>("/ip"), staleTime: 60_000 });
   const localIps = ipQuery.data?.ips ?? [];
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["overview"],
+    queryKey: qk.overview.all,
     queryFn: async () => {
       const response = await apiGet<unknown>("/overview");
       const parsed = parseOverviewData(response);
@@ -478,12 +479,12 @@ export function OverviewPage() {
   });
 
   const settingsQuery = useQuery({
-    queryKey: ["settings"],
+    queryKey: qk.settings.all,
     queryFn: () => apiGet<SettingsResponse>("/settings"),
   });
 
   const keysQuery = useQuery({
-    queryKey: ["keys"],
+    queryKey: qk.apiKeys.all,
     queryFn: () => apiGet<{ items: ApiKeyRecord[] }>("/keys"),
   });
 
@@ -491,13 +492,13 @@ export function OverviewPage() {
   const providerIds = useMemo(() => new Set((providersQuery.data?.items ?? []).map((p) => p.id)), [providersQuery.data]);
 
   const healthQuery = useQuery({
-    queryKey: ["health-metrics"],
+    queryKey: qk.health.metrics,
     queryFn: () => apiGet<HealthMetrics>("/health/metrics"),
     refetchInterval: 5_000,
   });
 
   const warpMetricsQuery = useQuery({
-    queryKey: ["warp", "metrics-summary"],
+    queryKey: qk.warp.metricsSummary,
     queryFn: () => apiGet<WarpMetricsSummary>("/warp/metrics/summary"),
     refetchInterval: 5_000,
   });
@@ -507,7 +508,7 @@ export function OverviewPage() {
       apiPost<{ ok: boolean }>("/settings", { proxyAuthMode }),
     onSuccess: (_res, proxyAuthMode) => {
       toast.success(proxyAuthMode === "api_key" ? "API key now required" : "Proxy access is open");
-      void queryClient.invalidateQueries({ queryKey: ["settings"] });
+      void queryClient.invalidateQueries({ queryKey: qk.settings.all });
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to update proxy access"),
   });
@@ -518,7 +519,7 @@ export function OverviewPage() {
       setRevealed(created);
       setCreateOpen(false);
       resetKeyForm();
-      void queryClient.invalidateQueries({ queryKey: ["keys"] });
+      void queryClient.invalidateQueries({ queryKey: qk.apiKeys.all });
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to create key"),
   });
@@ -528,7 +529,7 @@ export function OverviewPage() {
     onSuccess: () => {
       toast.success("Key updated");
       closeEdit();
-      void queryClient.invalidateQueries({ queryKey: ["keys"] });
+      void queryClient.invalidateQueries({ queryKey: qk.apiKeys.all });
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to update key"),
   });
@@ -539,7 +540,7 @@ export function OverviewPage() {
       setRegenerateTarget(null);
       setRevealed(created);
       closeEdit();
-      void queryClient.invalidateQueries({ queryKey: ["keys"] });
+      void queryClient.invalidateQueries({ queryKey: qk.apiKeys.all });
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to regenerate key"),
   });
@@ -550,7 +551,7 @@ export function OverviewPage() {
       toast.success("Key revoked");
       setRevokeTarget(null);
       closeEdit();
-      void queryClient.invalidateQueries({ queryKey: ["keys"] });
+      void queryClient.invalidateQueries({ queryKey: qk.apiKeys.all });
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to revoke key"),
   });
@@ -560,7 +561,7 @@ export function OverviewPage() {
     onSuccess: () => {
       toast.success("Key deleted permanently");
       setDeleteTarget(null);
-      void queryClient.invalidateQueries({ queryKey: ["keys"] });
+      void queryClient.invalidateQueries({ queryKey: qk.apiKeys.all });
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to delete key"),
   });

@@ -16,6 +16,7 @@ import remarkGfm from "remark-gfm";
 import { toast } from "../../lib/toast";
 import { ApiError, apiGet, apiPatch, apiPost, apiDelete } from "../../lib/api";
 import { cn } from "../../lib/cn";
+import { qk } from "../../lib/query-keys";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Input, Textarea } from "../../components/ui/input";
@@ -606,12 +607,12 @@ export function ModelStudioPage() {
   const [autoFollowMessages, setAutoFollowMessages] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const sessionsQuery = useQuery({ queryKey: ["model-studio", "sessions"], queryFn: () => apiGet<{ items: StudioSessionSummary[] }>("/model-studio/sessions") });
+  const sessionsQuery = useQuery({ queryKey: qk.modelStudio.sessions, queryFn: () => apiGet<{ items: StudioSessionSummary[] }>("/model-studio/sessions") });
   const sessions = sessionsQuery.data?.items ?? [];
 
   const createSession = useMutation({
     mutationFn: (title: string) => apiPost<StudioSession>("/model-studio/sessions", { title }),
-    onSuccess: (session) => { void queryClient.invalidateQueries({ queryKey: ["model-studio", "sessions"] }); setActiveId(session.id); },
+    onSuccess: (session) => { void queryClient.invalidateQueries({ queryKey: qk.modelStudio.sessions }); setActiveId(session.id); },
     onError: () => toast.error("Failed to create session"),
   });
 
@@ -627,7 +628,7 @@ export function ModelStudioPage() {
 
   useEffect(() => { if (activeId) localStorage.setItem(ACTIVE_SESSION_KEY, activeId); else localStorage.removeItem(ACTIVE_SESSION_KEY); }, [activeId]);
 
-  const sessionQuery = useQuery({ queryKey: ["model-studio", "session", activeId], queryFn: () => apiGet<StudioSession>(`/model-studio/sessions/${activeId}`), enabled: activeId !== null });
+  const sessionQuery = useQuery({ queryKey: qk.modelStudio.session(activeId), queryFn: () => apiGet<StudioSession>(`/model-studio/sessions/${activeId}`), enabled: activeId !== null });
 
   const [title, setTitle] = useState("");
   const [model, setModel] = useState("");
@@ -670,8 +671,8 @@ export function ModelStudioPage() {
     const timer = setTimeout(() => {
       const persisted = messages.map(({ role, content, ts, images, usage, ttfbMs, completionMs }) => ({ role, content, ts, images, usage, ttfbMs, completionMs }));
       void apiPatch(`/model-studio/sessions/${activeId}`, { title, model, systemPrompt, messages: persisted })
-        .then(() => void queryClient.invalidateQueries({ queryKey: ["model-studio", "sessions"] }))
-        .catch((err) => { if (err instanceof ApiError && err.status === 404) { syncedIdRef.current = null; setActiveId(null); void queryClient.invalidateQueries({ queryKey: ["model-studio", "sessions"] }); return; } toast.error("Failed to save session"); });
+        .then(() => void queryClient.invalidateQueries({ queryKey: qk.modelStudio.sessions }))
+        .catch((err) => { if (err instanceof ApiError && err.status === 404) { syncedIdRef.current = null; setActiveId(null); void queryClient.invalidateQueries({ queryKey: qk.modelStudio.sessions }); return; } toast.error("Failed to save session"); });
     }, AUTOSAVE_DELAY_MS);
     return () => clearTimeout(timer);
   }, [title, model, systemPrompt, messages, activeId, sending]);
@@ -694,7 +695,7 @@ export function ModelStudioPage() {
 
   const deleteSession = useMutation({
     mutationFn: (id: string) => apiDelete<{ ok: boolean }>(`/model-studio/sessions/${id}`),
-    onSuccess: (_res, id) => { void queryClient.invalidateQueries({ queryKey: ["model-studio", "sessions"] }); if (activeId === id) setActiveId(null); setDeleteTarget(null); toast.success("Session deleted"); },
+    onSuccess: (_res, id) => { void queryClient.invalidateQueries({ queryKey: qk.modelStudio.sessions }); if (activeId === id) setActiveId(null); setDeleteTarget(null); toast.success("Session deleted"); },
     onError: () => toast.error("Failed to delete session"),
   });
 

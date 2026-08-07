@@ -4,13 +4,13 @@ import type { NormalizedProviderRequest } from "../domain/contracts";
 import { AccountHealthManager, AnthropicOAuthDriver, AntigravityOAuthDriver, ClineOAuthDriver, ClinePassOAuthDriver, createAuthDriverRegistry, GrokBuildOAuthDriver, KimchiOAuthDriver, KiroOAuthDriver } from "../auth";
 import { QuotaCoordinator } from "../auth";
 import { CredentialSelector } from "../auth";
-import { OAuthCoordinator, type OAuthRefreshResult } from "../auth";
+import { OAuthCoordinator } from "../auth";
+import { createDriverAwareOAuthRefresher, createEnvOAuthRefresher } from "../auth";
 import { OAuthKeepalive } from "../auth/oauth-keepalive";
 import { AccountRecoverySweep } from "./recovery-sweep";
 import type { AccountConfig, CredentialConfigStore, OAuthTokenRecord } from "../auth";
 import type { ApplicationErrorKind } from "../domain/contracts";
 import type { ProxyHealthRecord, ProxyHealthStore } from "../traffic";
-import { deriveErrorSource } from "../domain/contracts";
 import { createConfigPersistence, createRuntimePersistence, type ConfigPersistence, type RuntimePersistence } from "../storage";
 import { ProxyHealthManager } from "../traffic";
 import { NetworkSelector, type NetworkRoutingPolicy } from "../traffic";
@@ -28,8 +28,8 @@ import { createConsoleLogStreamHub } from "../console/streams";
 import { ConsoleDiagnostics } from "../console/diagnostics";
 import { createConsoleServices } from "../console/services";
 import { createConsoleRepositories } from "../console/wiring";
+import { runtimeSettings } from "../console/runtime-settings";
 import { probeProviderModel } from "../console/probe";
-import { assertPublicUrlAtDispatch } from "../security/ssrf-guard";
 import { ApiKeyAdmission } from "../traffic/admission";
 import { scheduleGlobalGc, cancelScheduledGc } from "../traffic/memory";
 import { getInFlightCount } from "../traffic/in-flight";
@@ -63,11 +63,7 @@ function requestLogLevel(event: ProxyRequestLogEvent): "info" | "warn" | "error"
 }
 
 function requestPrivacyMode(config: ConfigPersistence): "masked" | "full" {
-  const settings = config.settings.getSettingsJson();
-  const value = typeof settings.runtime === "object" && settings.runtime !== null && !Array.isArray(settings.runtime)
-    ? settings.runtime as Record<string, unknown>
-    : {};
-  return value.privacyMode === "full" ? "full" : "masked";
+  return runtimeSettings(config).privacyMode;
 }
 
 function maskIp(value: string | null): string {
@@ -134,185 +130,6 @@ async function accountCandidates(cache: RouteSnapshotCache, health: AccountHealt
     quotaAvailable: quotaMap.get(row.id) ?? true,
     modelLocks: lockMap.get(row.id) ? new Map((lockMap.get(row.id) as readonly ModelLockRecord[]).map((lock) => [lock.modelId, lock])) : null,
   }));
-}
-
-function oauthEnvSuffix(providerId: string): string {
-  return providerId.toUpperCase().replace(/[^A-Z0-9]/g, "_");
-}
-
-const OAUTH_REFRESH_TIMEOUT_MS = 15_000;
-const OAUTH_RESPONSE_MAX_BYTES = 64 * 1024;
-const OAUTH_ACCESS_TOKEN_MAX_LENGTH = 32_384;
-const OAUTH_MAX_EXPIRES_IN_SECONDS = 10 * 365 * 24 * 60 * 60;
-const OAUTH_HTTPS_ONLY: Readonly<Record<string, true>> = { "https:": true };
-
-function oauthFailure(
-  statusCode: number,
-  kind: ApplicationErrorKind,
-  retryable: boolean,
-  routeScope: "account" | "proxy",
-  sanitizedMessage: string,
-): OAuthRefreshResult {
-  return { ok: false, error: { statusCode, kind, retryable, routeScope, source: deriveErrorSource(kind, routeScope), sanitizedMessage, retryAt: null } };
-}
-
-/**
- * Reads and JSON-parses a response body under a hard byte bound, never
- * calling the unbounded `response.json()`. Returns null for oversized,
- * absent, or malformed bodies.
- */
-async function readOAuthResponseBody(response: Response, maxBytes: number): Promise<unknown | null> {
-  const contentLength = Number(response.headers.get("content-length") ?? NaN);
-  if (Number.isFinite(contentLength) && contentLength > maxBytes) return null;
-  if (response.body === null) return null;
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value !== undefined) {
-        totalBytes += value.byteLength;
-        if (totalBytes > maxBytes) {
-          await reader.cancel();
-          return null;
-        }
-        chunks.push(value);
-      }
-    }
-  } catch {
-    return null;
-  } finally {
-    reader.releaseLock();
-  }
-  const buffer = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    buffer.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return JSON.parse(new TextDecoder().decode(buffer));
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Strictly narrows an OAuth token response. Accepts only an object with a
- * non-empty bounded access_token, an optional finite expires_in (clamped),
- * and an optional string refresh_token (a token rotation). Null when the
- * shape is unusable.
- */
-function parseOAuthTokenBody(body: unknown): { readonly accessToken: string; readonly expiresAtMs: number | null; readonly refreshToken: string | null } | null {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
-  const record = body as Record<string, unknown>;
-  // Cline wraps in { data: { ... } } and uses camelCase
-  const nested = typeof record.data === "object" && record.data !== null ? record.data as Record<string, unknown> : record;
-  const accessToken = typeof nested.accessToken === "string" && nested.accessToken.length > 0 ? nested.accessToken : typeof nested.access_token === "string" && nested.access_token.length > 0 ? nested.access_token : null;
-  if (accessToken === null || accessToken.length > OAUTH_ACCESS_TOKEN_MAX_LENGTH) return null;
-  const expiresIn = nested.expires_in ?? nested.expiresIn;
-  const expiresAtMs = typeof expiresIn === "number" && Number.isFinite(expiresIn)
-    ? Date.now() + Math.floor(Math.min(Math.max(0, expiresIn), OAUTH_MAX_EXPIRES_IN_SECONDS) * 1000)
-    : null;
-  const rotated = typeof nested.refreshToken === "string" && nested.refreshToken.length > 0 ? nested.refreshToken : typeof nested.refresh_token === "string" && nested.refresh_token.length > 0 ? nested.refresh_token : null;
-  return { accessToken, expiresAtMs, refreshToken: rotated };
-}
-
-/** Known provider refresh configs that don't use env vars. */
-const HARDCODED_OAUTH_REFRESH: Record<string, { tokenUrl: string; bodyBuilder: (refreshToken: string) => Record<string, string>; bodyFormat: "form" | "json" }> = {
-  cline: {
-    tokenUrl: "https://api.cline.bot/api/v1/auth/refresh",
-    bodyBuilder: (refreshToken) => ({ refreshToken, grantType: "refresh_token", clientType: "extension" }),
-    bodyFormat: "json",
-  },
-  clinepass: {
-    tokenUrl: "https://api.cline.bot/api/v1/auth/refresh",
-    bodyBuilder: (refreshToken) => ({ refreshToken, grantType: "refresh_token", clientType: "extension" }),
-    bodyFormat: "json",
-  },
-};
-
-function createOAuthRefresher(config: ConfigPersistence): { refresh(input: { readonly accountId: string; readonly token: OAuthTokenRecord | null }): Promise<OAuthRefreshResult> } {
-  return {
-    async refresh({ accountId, token }) {
-      const account = config.accounts.get(accountId);
-      const refreshToken = token?.refreshToken ?? null;
-      if (account === null || refreshToken === null) {
-        return oauthFailure(503, "credential_unavailable", true, "account", "OAuth refresh token is unavailable");
-      }
-
-      // Check hardcoded provider configs first (no env vars needed)
-      const hardcoded = HARDCODED_OAUTH_REFRESH[account.provider];
-      if (hardcoded) {
-        try {
-          const body = hardcoded.bodyBuilder(refreshToken);
-          const response = await fetch(hardcoded.tokenUrl, {
-            method: "POST",
-            redirect: "manual",
-            headers: { "content-type": hardcoded.bodyFormat === "json" ? "application/json" : "application/x-www-form-urlencoded", accept: "application/json" },
-            body: hardcoded.bodyFormat === "json" ? JSON.stringify(body) : new URLSearchParams(body),
-            signal: AbortSignal.timeout(OAUTH_REFRESH_TIMEOUT_MS),
-          });
-          if (!response.ok) {
-            return oauthFailure(response.status || 503, response.status === 401 ? "authentication_failed" : "provider_unavailable", response.status !== 401, "account", "OAuth token refresh failed");
-          }
-          const responseBody = await readOAuthResponseBody(response, OAUTH_RESPONSE_MAX_BYTES);
-          if (responseBody === null) {
-            return oauthFailure(502, "provider_protocol_error", false, "account", "OAuth token response was invalid");
-          }
-          const record = parseOAuthTokenBody(responseBody);
-          if (record === null) {
-            return oauthFailure(502, "provider_protocol_error", false, "account", "OAuth token response was invalid");
-          }
-          return { ok: true, token: { accessToken: record.accessToken, expiresAtMs: record.expiresAtMs, refreshToken: record.refreshToken ?? refreshToken, kind: "oauth" } };
-        } catch {
-          return oauthFailure(503, "network_unavailable", true, "proxy", "OAuth token refresh network request failed");
-        }
-      }
-
-      // Fallback to env-var based config
-      const suffix = oauthEnvSuffix(account.provider);
-      const tokenUrl = process.env[`CARTETHYIA_OAUTH_${suffix}_TOKEN_URL`];
-      const clientId = process.env[`CARTETHYIA_OAUTH_${suffix}_CLIENT_ID`];
-      const clientSecret = process.env[`CARTETHYIA_OAUTH_${suffix}_CLIENT_SECRET`];
-      if (!tokenUrl || !clientId || !clientSecret) {
-        return oauthFailure(503, "credential_unavailable", true, "account", "OAuth refresh configuration is unavailable");
-      }
-      try {
-        await assertPublicUrlAtDispatch(tokenUrl, { label: "OAuth token URL", allowedProtocols: OAUTH_HTTPS_ONLY });
-      } catch {
-        return oauthFailure(503, "credential_unavailable", false, "account", "OAuth refresh configuration is invalid");
-      }
-      try {
-        const response = await fetch(tokenUrl, {
-          method: "POST",
-          redirect: "manual",
-          headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
-          body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: clientId, client_secret: clientSecret }),
-          signal: AbortSignal.timeout(OAUTH_REFRESH_TIMEOUT_MS),
-        });
-        if (response.status >= 300 && response.status < 400) {
-          return oauthFailure(response.status, "provider_unavailable", true, "account", "OAuth token endpoint returned an unexpected redirect");
-        }
-        if (!response.ok) {
-          return oauthFailure(response.status || 503, response.status === 401 ? "authentication_failed" : "provider_unavailable", response.status !== 401, "account", "OAuth token refresh failed");
-        }
-        const body = await readOAuthResponseBody(response, OAUTH_RESPONSE_MAX_BYTES);
-        if (body === null) {
-          return oauthFailure(502, "provider_protocol_error", false, "account", "OAuth token response was invalid");
-        }
-        const record = parseOAuthTokenBody(body);
-        if (record === null) {
-          return oauthFailure(502, "provider_protocol_error", false, "account", "OAuth token response was invalid");
-        }
-        return { ok: true, token: { accessToken: record.accessToken, expiresAtMs: record.expiresAtMs, refreshToken: record.refreshToken ?? refreshToken, kind: "oauth" } };
-      } catch {
-        return oauthFailure(503, "network_unavailable", true, "proxy", "OAuth token refresh network request failed");
-      }
-    },
-  };
 }
 
 function envCredentialStore(config: ConfigPersistence): CredentialConfigStore {
@@ -618,7 +435,22 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
     return policy;
   };
   const network = new NetworkSelector(pool, proxyHealth, readNetworkPolicy);
-  const oauth = new OAuthCoordinator(config.stores.oauthToken, createOAuthRefresher(config));
+  const authDrivers = createAuthDriverRegistry([
+    { providerId: "kiro", driver: new KiroOAuthDriver() },
+    { providerId: "antigravity", driver: new AntigravityOAuthDriver() },
+    { providerId: "claude", driver: new AnthropicOAuthDriver() },
+    { providerId: "cline", driver: new ClineOAuthDriver() },
+    { providerId: "clinepass", driver: new ClinePassOAuthDriver() },
+    { providerId: "kimchi", driver: new KimchiOAuthDriver() },
+    { providerId: "grok-build", driver: new GrokBuildOAuthDriver() },
+  ]);
+  const resolveProvider = async (accountId: string): Promise<string | null> => config.accounts.get(accountId)?.provider ?? null;
+  const oauthRefresher = createDriverAwareOAuthRefresher({
+    drivers: authDrivers,
+    resolveProvider,
+    fallback: createEnvOAuthRefresher({ resolveProvider }),
+  });
+  const oauth = new OAuthCoordinator(config.stores.oauthToken, oauthRefresher);
   const credentialStore = envCredentialStore(config);
   const accounts = new CredentialSelector(credentialStore, oauth);
   const admission = new ApiKeyAdmission(config.apiKeys);
@@ -637,20 +469,16 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
     accountCandidates: (providerId) => accountCandidates(routeSnapshots, accountHealth, quota, providerId),
     admission,
     tokenSaver: () => {
-      const settings = config.settings.getSettingsJson();
-      const runtime = typeof settings.runtime === "object" && settings.runtime !== null && !Array.isArray(settings.runtime) ? settings.runtime as Record<string, unknown> : {};
-      const quality = runtime.tokenSaverQuality === "lite" || runtime.tokenSaverQuality === "extreme" ? runtime.tokenSaverQuality : "balanced";
-      return { enabled: runtime.tokenSaverEnabled === true, quality };
+      const { tokenSaverEnabled, tokenSaverQuality } = runtimeSettings(config);
+      return { enabled: tokenSaverEnabled, quality: tokenSaverQuality };
     },
     filterRules: (() => {
       let cached: { enabled: boolean; rules: readonly { pattern: string; replacement: string; isRegex: boolean }[] } | undefined;
       return () => {
         if (cached === undefined) {
-          const settings = config.settings.getSettingsJson();
-          const runtime = typeof settings.runtime === "object" && settings.runtime !== null && !Array.isArray(settings.runtime) ? settings.runtime as Record<string, unknown> : {};
-          const enabled = runtime.filterRulesEnabled === true;
+          const { filterRulesEnabled } = runtimeSettings(config);
           const rows = config.filterRules.listSync();
-          cached = { enabled, rules: rows.filter((rule) => rule.isActive).map((rule) => ({ pattern: rule.pattern, replacement: rule.replacement, isRegex: rule.isRegex })) };
+          cached = { enabled: filterRulesEnabled, rules: rows.filter((rule) => rule.isActive).map((rule) => ({ pattern: rule.pattern, replacement: rule.replacement, isRegex: rule.isRegex })) };
         }
         return cached;
       };
@@ -688,15 +516,6 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
   const retention = runtime.startRetentionMaintenance();
   const consoleRepositories = createConsoleRepositories(config, runtime, registry);
   recordRouteSwitch = (event) => consoleRepositories.transitions.record(event.scope, event.previousRouteId ?? event.replacementRouteId ?? "unknown", event);
-  const authDrivers = createAuthDriverRegistry([
-    { providerId: "kiro", driver: new KiroOAuthDriver() },
-    { providerId: "antigravity", driver: new AntigravityOAuthDriver() },
-    { providerId: "claude", driver: new AnthropicOAuthDriver() },
-    { providerId: "cline", driver: new ClineOAuthDriver() },
-    { providerId: "clinepass", driver: new ClinePassOAuthDriver() },
-    { providerId: "kimchi", driver: new KimchiOAuthDriver() },
-    { providerId: "grok-build", driver: new GrokBuildOAuthDriver() },
-  ]);
   const consoleServices = createConsoleServices({ repositories: consoleRepositories, registry, authDrivers, modelMetadata, oauthCoordinator: oauth });
   const prefixes = new Map(registry.list().map((adapter) => [adapter.metadata.id, adapter.metadata.id]));
   const diagnostics = new ConsoleDiagnostics({ services: consoleServices, repositories: consoleRepositories, registry, prefixes, runtimeCounters: { inFlight: () => getInFlightCount() } });
@@ -705,7 +524,7 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
     after: (afterId, limit) => runtime.consoleLogs.after(afterId, limit),
     onPush: (listener) => runtime.consoleLogs.onPush(listener),
   });
-  const consoleApi = createConsoleApi({ services: consoleServices, diagnostics, config: baseConfig, runtime, logStream, probe: probeProviderModel, probePorts: { registry, accounts: credentialStore, credentials: accounts, accountHealth, network }, liveTraffic: { byIp: () => activePerIpFlights.snapshot(), maxFlightsPerIp: () => { const value = config.settings.getSettingsJson(); const runtimeSettings = typeof value.runtime === "object" && value.runtime !== null && !Array.isArray(value.runtime) ? value.runtime as Record<string, unknown> : {}; return typeof runtimeSettings.maxFlightsPerIp === "number" ? Math.max(1, Math.floor(runtimeSettings.maxFlightsPerIp)) : 15; } }, proxy, resetConfig: baseConfig.resetAll, resetRuntime: runtime.resetAll });
+  const consoleApi = createConsoleApi({ services: consoleServices, diagnostics, config: baseConfig, runtime, logStream, probe: probeProviderModel, probePorts: { registry, accounts: credentialStore, credentials: accounts, accountHealth, network }, liveTraffic: { byIp: () => activePerIpFlights.snapshot(), maxFlightsPerIp: () => runtimeSettings(config).maxFlightsPerIp }, proxy, resetConfig: baseConfig.resetAll, resetRuntime: runtime.resetAll });
   // Single WarpPoolService lives inside consoleApi — reuse it for shutdown
   // instead of constructing a duplicate (the constructor starts a 15s metrics
   // timer; two instances = double timers + double process spawns).
@@ -744,10 +563,6 @@ export {
   requestPrivacyMode,
   maskIp,
   formatRequestLog,
-  oauthEnvSuffix,
-  readOAuthResponseBody,
-  parseOAuthTokenBody,
-  createOAuthRefresher,
   envCredentialStore,
   routeResolver,
   withRoutingRevisionTracking,

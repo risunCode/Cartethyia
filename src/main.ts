@@ -1,11 +1,11 @@
 import { createCartethyiaRuntime, runProxyRequest, type CartethyiaRuntime } from "./app/composition";
-import type { ProviderSurface } from "./domain/contracts";
+import { lookupProxyEndpoint, readBoundedJson } from "./domain/protocols";
 import type { ProxyEndpoint } from "./domain/contracts";
 import { isRouteAllowed } from "./console/key-acl";
 import type { ApiKeyPublic } from "./storage";
 import { appendTerminalError } from "./app/response";
 import { resolveConsoleStatic, applySecurityHeaders } from "./console/static";
-import { readBoundedJson } from "./domain/protocols";
+import { runtimeRecordFromJson, runtimeSettings } from "./console/runtime-settings";
 import { runtimeMemoryLimits } from "./traffic/limits";
 import { encodeSurfaceStream } from "./providers/surfaces";
 import { clientIp } from "./console/services";
@@ -72,15 +72,6 @@ async function buildCatalog(runtime: CartethyiaRuntime): Promise<ReadonlyArray<{
     entries.push({ id: name, owned_by: owner, metadata: result });
   }
   return entries;
-}
-
-function endpointSurface(pathname: string): { readonly endpoint: ProxyEndpoint; readonly surface: ProviderSurface } | null {
-  if (pathname === "/v1/chat/completions") return { endpoint: pathname, surface: "openai-chat" };
-  if (pathname === "/v1/messages") return { endpoint: pathname, surface: "anthropic-messages" };
-  if (pathname === "/v1/responses") return { endpoint: pathname, surface: "openai-responses" };
-  if (pathname === "/v1/images/generations") return { endpoint: pathname, surface: "images" };
-  if (pathname === "/v1/images/edits") return { endpoint: pathname, surface: "images" };
-  return null;
 }
 
 function requestToken(request: Request): string | null {
@@ -162,18 +153,15 @@ async function readProxyBody(request: Request, endpoint: ProxyEndpoint): Promise
   return parsedBody.value;
 }
 
-/** Cached runtime settings for the proxy data plane — re-read only when the settings revision moves. */
+/** Cached slice of runtime settings for the proxy data plane — invalidated when the settings JSON object identity changes. */
 let cachedProxySettings: { maxFlightsPerIp: number; trustProxy: boolean } | null = null;
 let cachedProxySettingsJson: Record<string, unknown> | null = null;
 
 function proxyRuntimeSettings(runtime: CartethyiaRuntime): { maxFlightsPerIp: number; trustProxy: boolean } {
   const json = runtime.config.settings.getSettingsJson();
   if (cachedProxySettings !== null && json === cachedProxySettingsJson) return cachedProxySettings;
-  const value = typeof json.runtime === "object" && json.runtime !== null && !Array.isArray(json.runtime) ? json.runtime as Record<string, unknown> : {};
-  cachedProxySettings = {
-    maxFlightsPerIp: typeof value.maxFlightsPerIp === "number" ? Math.max(1, Math.floor(value.maxFlightsPerIp)) : 15,
-    trustProxy: value.trustProxy === true,
-  };
+  const settings = runtimeSettings(runtime.config);
+  cachedProxySettings = { maxFlightsPerIp: settings.maxFlightsPerIp, trustProxy: settings.trustProxy };
   cachedProxySettingsJson = json;
   return cachedProxySettings;
 }
@@ -203,13 +191,10 @@ async function main(): Promise<void> {
         if (snapshot === null) {
           return errorResponse(503, "internal_error", "Console settings not initialized.");
         }
-        const runtimeJson = typeof snapshot.settingsJson.runtime === "object" && snapshot.settingsJson.runtime !== null && !Array.isArray(snapshot.settingsJson.runtime)
-          ? snapshot.settingsJson.runtime as Record<string, unknown>
-          : {};
         const verdict = await guardConsoleRequest(request, {
           jwtSecret: snapshot.jwtSecret ?? "",
           passwordVersion: snapshot.passwordVersion,
-          trustProxy: runtimeJson.trustProxy === true,
+          trustProxy: runtimeRecordFromJson(snapshot.settingsJson).trustProxy === true,
         });
         if (!verdict.ok) {
           const code: ProxyErrorCode = verdict.code === "forbidden" ? "authorization_denied" : "authentication_failed";
@@ -238,7 +223,7 @@ async function main(): Promise<void> {
           .map((entry) => ({ id: entry.id, object: "model" as const, owned_by: entry.owned_by, metadata: entry.metadata }));
         return Response.json({ object: "list", data }, { headers: { "cache-control": "no-store" } });
       }
-      const route = endpointSurface(url.pathname);
+      const route = lookupProxyEndpoint(url.pathname);
       if (route === null || request.method !== "POST") {
         // Fast reject: only attempt static file resolution for genuine console asset paths.
         // Unknown/random paths skip filesystem I/O entirely and return 404 immediately.
@@ -385,13 +370,10 @@ async function safeConsoleHandle(runtime: CartethyiaRuntime, request: Request): 
   if (!isLogin) {
     const snapshot = runtime.config.settings.get();
     if (snapshot !== null) {
-      const runtimeJson = typeof snapshot.settingsJson.runtime === "object" && snapshot.settingsJson.runtime !== null && !Array.isArray(snapshot.settingsJson.runtime)
-        ? snapshot.settingsJson.runtime as Record<string, unknown>
-        : {};
       const verdict = await guardConsoleRequest(request, {
         jwtSecret: snapshot.jwtSecret ?? "",
         passwordVersion: snapshot.passwordVersion,
-        trustProxy: runtimeJson.trustProxy === true,
+        trustProxy: runtimeRecordFromJson(snapshot.settingsJson).trustProxy === true,
       });
       if (!verdict.ok) {
         const code: ProxyErrorCode = verdict.code === "forbidden" ? "authorization_denied" : "authentication_failed";

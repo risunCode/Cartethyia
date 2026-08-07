@@ -92,21 +92,3 @@ describe("KimchiOAuthDriver — refresh", () => {
     }
   });
 });
-
-describe("KimchiOAuthDriver — buildHeaders", () => {
-  test("returns a Bearer header for a plain credential", () => {
-    const driver = new KimchiOAuthDriver();
-    expect(driver.buildHeaders({ providerId: "kimchi", accountId: null, credential: "tok" })).toEqual({ authorization: "Bearer tok" });
-  });
-
-  test("extracts accessToken from a JSON credential", () => {
-    const driver = new KimchiOAuthDriver();
-    const headers = driver.buildHeaders({ providerId: "kimchi", accountId: null, credential: JSON.stringify({ accessToken: "json-tok" }) });
-    expect(headers.authorization).toBe("Bearer json-tok");
-  });
-
-  test("returns empty headers for an empty credential", () => {
-    const driver = new KimchiOAuthDriver();
-    expect(driver.buildHeaders({ providerId: "kimchi", accountId: null, credential: "" })).toEqual({});
-  });
-});

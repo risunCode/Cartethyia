@@ -8,6 +8,7 @@ import { toast } from "../../lib/toast";
 import { apiGet, apiPatch, apiDelete, apiPost } from "../../lib/api";
 import { formatTokens, formatDuration } from "../../lib/format";
 import { staggerClass } from "../../lib/motion";
+import { qk } from "../../lib/query-keys";
 import { useWindowedList } from "../../hooks/use-windowed-list";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -92,7 +93,7 @@ export function CustomProviderDetailPage() {
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["custom-provider", id],
+    queryKey: qk.customProviders.detail(id),
     queryFn: async () => {
       const response = await apiGet<ProviderDetailResponse>(`/providers/${id}`);
       if (!response.customProvider) throw new Error("custom provider not found");
@@ -148,7 +149,7 @@ export function CustomProviderDetailPage() {
     setCredential("");
   }, [data]);
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["custom-provider", id] });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: qk.customProviders.detail(id) });
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -164,7 +165,7 @@ export function CustomProviderDetailPage() {
       setCredential("");
       setEditing(false);
       invalidate();
-      void queryClient.invalidateQueries({ queryKey: ["console", "custom-providers"] });
+      void queryClient.invalidateQueries({ queryKey: qk.customProviders.all });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Save failed"),
   });
@@ -173,7 +174,7 @@ export function CustomProviderDetailPage() {
     mutationFn: () => apiDelete<{ ok: boolean }>(`/custom-providers/${id}`),
     onSuccess: () => {
       toast.success("Custom provider deleted");
-      void queryClient.invalidateQueries({ queryKey: ["console", "custom-providers"] });
+      void queryClient.invalidateQueries({ queryKey: qk.customProviders.all });
       navigate("/providers");
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "Delete failed"),
@@ -194,15 +195,15 @@ export function CustomProviderDetailPage() {
       setAccountOpen(false);
       setAccountName("");
       setAccountCredentials("");
-      void queryClient.invalidateQueries({ queryKey: ["custom-provider", id] });
-      void queryClient.invalidateQueries({ queryKey: ["provider", id] });
+      void queryClient.invalidateQueries({ queryKey: qk.customProviders.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to add account"),
   });
 
   const fetchMutation = useMutation({
     mutationFn: () => apiPost(`/custom-providers/${id}/models/fetch`, {}),
-    onSuccess: () => { toast.success("Model catalog fetched"); void queryClient.invalidateQueries({ queryKey: ["custom-provider", id] }); void queryClient.invalidateQueries({ queryKey: ["provider", id] }); },
+    onSuccess: () => { toast.success("Model catalog fetched"); void queryClient.invalidateQueries({ queryKey: qk.customProviders.detail(id) }); void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) }); },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Model discovery failed"),
   });
 
@@ -223,16 +224,16 @@ export function CustomProviderDetailPage() {
     onSuccess: () => {
       toast.success("Custom model added");
       setManualModelId("");
-      void queryClient.invalidateQueries({ queryKey: ["custom-provider", id] });
-      void queryClient.invalidateQueries({ queryKey: ["provider", id] });
-      void queryClient.invalidateQueries({ queryKey: ["catalog", "providers"] });
+      void queryClient.invalidateQueries({ queryKey: qk.customProviders.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.catalog.providers });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not add model"),
   });
 
   const deleteModelMutation = useMutation({
     mutationFn: (modelId: string) => apiDelete(`/custom-providers/${id}/models/${encodeURIComponent(modelId)}`),
-    onSuccess: () => { toast.success("Fetched model deleted"); void queryClient.invalidateQueries({ queryKey: ["custom-provider", id] }); void queryClient.invalidateQueries({ queryKey: ["provider", id] }); },
+    onSuccess: () => { toast.success("Fetched model deleted"); void queryClient.invalidateQueries({ queryKey: qk.customProviders.detail(id) }); void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) }); },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not delete model"),
   });
 
@@ -240,8 +241,8 @@ export function CustomProviderDetailPage() {
     mutationFn: (strategy: "priority" | "round-robin") => apiPost(`/providers/${id}/routing`, { strategy }),
     onSuccess: () => {
       toast.success("Routing updated");
-      void queryClient.invalidateQueries({ queryKey: ["custom-provider", id] });
-      void queryClient.invalidateQueries({ queryKey: ["provider", id] });
+      void queryClient.invalidateQueries({ queryKey: qk.customProviders.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to update routing"),
   });

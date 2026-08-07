@@ -271,23 +271,6 @@ describe("KiroOAuthDriver refresh", () => {
   });
 });
 
-describe("KiroOAuthDriver buildHeaders", () => {
-  test("emits the bearer header plus token-type headers for api_key and external_idp", () => {
-    const driver = makeDriver([]);
-    expect(driver.buildHeaders({ providerId: "kiro", accountId: null, credential: "plain-token" })).toMatchObject({ authorization: "Bearer plain-token" });
-    const apiKey = driver.buildHeaders({ providerId: "kiro", accountId: null, credential: JSON.stringify({ accessToken: "at-1", authMethod: "api_key" }) });
-    expect(apiKey.authorization).toBe("Bearer at-1");
-    expect(apiKey.tokentype).toBe("API_KEY");
-    const external = driver.buildHeaders({ providerId: "kiro", accountId: null, credential: JSON.stringify({ accessToken: "at-1", authMethod: "external_idp" }) });
-    expect(external.TokenType).toBe("EXTERNAL_IDP");
-  });
-
-  test("rejects empty credentials", () => {
-    const driver = makeDriver([]);
-    expect(() => driver.buildHeaders({ providerId: "kiro", accountId: null, credential: "" })).toThrow(OAuthDriverError);
-  });
-});
-
 describe("parseKiroCredential", () => {
   test("parses the persisted bundle and tolerates snake_case token keys", () => {
     const bundle = parseKiroCredential(JSON.stringify({ accessToken: "at-1", refreshToken: "rt-1", authMethod: "idc", region: "eu-west-1", clientId: "cid-1", clientSecret: "csec-1", profileArn: "arn:profile/1" }));

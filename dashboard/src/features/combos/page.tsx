@@ -6,6 +6,7 @@ import { useState } from "react";
 import { toast } from "../../lib/toast";
 import { apiGet, apiPost, apiPatch, apiDelete } from "../../lib/api";
 import { staggerClass } from "../../lib/motion";
+import { qk } from "../../lib/query-keys";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
@@ -26,7 +27,7 @@ interface ResolveResult { ok: boolean; trace: string[]; resolved: unknown }
 
 function AliasesTab() {
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ["console", "aliases"], queryFn: () => apiGet<{ items: AliasRecord[] }>("/aliases") });
+  const { data } = useQuery({ queryKey: qk.aliases.all, queryFn: () => apiGet<{ items: AliasRecord[] }>("/aliases") });
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<AliasRecord | null>(null);
   const [alias, setAlias] = useState("");
@@ -42,7 +43,7 @@ function AliasesTab() {
   const createMut = useMutation({
     mutationFn: () => apiPost("/aliases", { alias: alias.trim(), model: model.trim() }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["console", "aliases"] });
+      qc.invalidateQueries({ queryKey: qk.aliases.all });
       setCreateOpen(false);
       resetForm();
       toast.success(editTarget ? "Alias updated" : "Alias created");
@@ -52,7 +53,7 @@ function AliasesTab() {
 
   const deleteMut = useMutation({
     mutationFn: (a: string) => apiDelete<{ ok: boolean }>(`/aliases/${encodeURIComponent(a)}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["console", "aliases"] }); setDeleteTarget(null); toast.success("Alias deleted"); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: qk.aliases.all }); setDeleteTarget(null); toast.success("Alias deleted"); },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -110,7 +111,7 @@ function AliasesTab() {
 
 function CombosTab() {
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ["console", "combos"], queryFn: () => apiGet<{ items: ComboRecord[] }>("/combos") });
+  const { data } = useQuery({ queryKey: qk.combos.all, queryFn: () => apiGet<{ items: ComboRecord[] }>("/combos") });
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ComboRecord | null>(null);
   const [name, setName] = useState("");
@@ -126,14 +127,14 @@ function CombosTab() {
       const body = { name: name.trim(), models, strategy, stickyLimit: Math.max(0, Number(stickyLimit) || 0) };
       return editTarget ? apiPatch(`/combos/${editTarget.id}`, body) : apiPost("/combos", body);
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["console", "combos"] }); setCreateOpen(false); resetForm(); toast.success(editTarget ? "Combo updated" : "Combo created"); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: qk.combos.all }); setCreateOpen(false); resetForm(); toast.success(editTarget ? "Combo updated" : "Combo created"); },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const deleteMut = useMutation({
     mutationFn: (id: string) => apiDelete<{ ok: boolean }>(`/combos/${id}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["console", "combos"] });
+      qc.invalidateQueries({ queryKey: qk.combos.all });
       setDeleteTarget(null);
       toast.success("Combo deleted");
     },

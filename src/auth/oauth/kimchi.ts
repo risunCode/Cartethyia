@@ -1,4 +1,4 @@
-import type { AuthContext, AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
+import type { AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
 import { OAuthDriverError, OAuthHttpClient, type OAuthDriverOptions } from "./base";
 
 const KIMCHI_WEB_URL = "https://app.kimchi.dev";
@@ -18,21 +18,6 @@ function tokenFromInput(value: string | undefined): string {
     // The console also accepts a token pasted directly.
   }
   return trimmed.replace(/[\x00-\x1f\x7f]/g, "");
-}
-
-function tokenFromCredential(credential: string): string {
-  const trimmed = credential.trim();
-  if (!trimmed.startsWith("{")) return trimmed;
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      const access = (parsed as Record<string, unknown>).accessToken;
-      if (typeof access === "string") return access;
-    }
-  } catch {
-    return trimmed;
-  }
-  return trimmed;
 }
 
 /** Kimchi browser-token OAuth flow; access tokens are validated and non-refreshable. */
@@ -60,11 +45,6 @@ export class KimchiOAuthDriver implements AuthDriver {
     const response = await this.http.tryGet(KIMCHI_VALIDATION_URL, { accept: "application/json", authorization: `Bearer ${token}` }, "kimchi", "token validation");
     if (!response.ok) throw new OAuthDriverError("authorization_denied", "Kimchi OAuth token was rejected.", response.status, false);
     return { accessToken: token, expiresAt: new Date(this.nowMs() + 30 * 24 * 60 * 60 * 1000).toISOString() };
-  }
-
-  buildHeaders(input: AuthContext): Record<string, string> {
-    const token = tokenFromCredential(input.credential);
-    return token.length > 0 ? { authorization: `Bearer ${token}` } : {};
   }
 
   // Kimchi browser tokens are intentionally non-refreshable.

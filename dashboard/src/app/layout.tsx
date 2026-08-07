@@ -38,6 +38,7 @@ import { useTheme } from "next-themes";
 import { cn } from "../lib/cn";
 import { detectMotionProfile, getPageTransition, getPopoverMotion, MOTION_OVERRIDE_EVENT, useMotionProfile, type MotionProfile } from "../lib/motion";
 import { apiGet, apiPost } from "../lib/api";
+import { qk } from "../lib/query-keys";
 import { formatUptime } from "../lib/format";
 import { toast } from "../lib/toast";
 import { Dialog } from "../components/ui/dialog";
@@ -552,17 +553,17 @@ export function AppShell() {
   // Server clock (not the browser's) drives "system time"; refetched
   // periodically and interpolated locally by the 1s `now` ticker above.
   const statusQuery = useQuery({
-    queryKey: ["health-status"],
+    queryKey: qk.health.status,
     queryFn: () => apiGet<HealthStatus>("/health/status"),
     refetchInterval: 30_000,
   });
   const appearanceQuery = useQuery({
-    queryKey: ["settings"],
+    queryKey: qk.settings.all,
     queryFn: () => apiGet<AppearanceSettingsResponse>("/settings"),
     staleTime: 30_000,
   });
   const releaseQuery = useQuery({
-    queryKey: ["github-latest-release"],
+    queryKey: qk.releases.githubLatest,
     queryFn: async () => {
       const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
       if (!res.ok) throw new Error(`GitHub API ${res.status}`);

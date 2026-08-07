@@ -10,6 +10,7 @@ import { useMemo, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Boxes, Search, X } from "lucide-react";
 import { apiGet } from "../lib/api";
+import { qk } from "../lib/query-keys";
 import { cn } from "../lib/cn";
 import { Badge } from "./ui/badge";
 import { Dialog } from "./ui/dialog";
@@ -76,7 +77,7 @@ interface CustomProviderCatalogEntry {
  */
 export function useCustomProviders(enabled: boolean) {
   return useQuery({
-    queryKey: ["console", "custom-providers"],
+    queryKey: qk.customProviders.all,
     queryFn: () => apiGet<{ items: CustomProviderCatalogEntry[] }>("/custom-providers"),
     staleTime: 60_000,
     enabled,
@@ -116,7 +117,7 @@ export function useCustomProviderCatalog(customProviders: CustomProviderCatalogE
 
 export function useProviders() {
   return useQuery({
-    queryKey: ["catalog", "providers"],
+    queryKey: qk.catalog.providers,
     queryFn: async () => {
       const response = await apiGet<{ items: Array<ProviderSummary & { icon?: string; prefix?: string; accountCount?: number; modelCount?: number }> }>("/providers");
       return {
@@ -152,7 +153,7 @@ function canLoadCatalog(provider: ProviderSummary): boolean {
 export function useModelCatalogState(providers: ProviderSummary[], enabled: boolean): ModelCatalogState {
   const results = useQueries({
     queries: providers.map((provider) => ({
-      queryKey: ["catalog", "provider", provider.id],
+      queryKey: qk.catalog.provider(provider.id),
       queryFn: () => apiGet<ProviderCatalogDetail>(`/providers/${encodeURIComponent(provider.id)}`),
       staleTime: 60_000,
       enabled: enabled && canLoadCatalog(provider),
@@ -196,7 +197,7 @@ export function useModelCatalog(providers: ProviderSummary[], enabled: boolean):
 
 export function useCombos(enabled: boolean) {
   return useQuery({
-    queryKey: ["console", "combos"],
+    queryKey: qk.combos.all,
     queryFn: () => apiGet<{ items: ComboSummary[] }>("/combos"),
     staleTime: 60_000,
     enabled,
@@ -213,7 +214,7 @@ export function useCombos(enabled: boolean) {
  */
 export function useAliases(enabled: boolean) {
   return useQuery({
-    queryKey: ["console", "aliases"],
+    queryKey: qk.aliases.all,
     queryFn: () => apiGet<{ items: AliasSummary[] }>("/aliases"),
     staleTime: 60_000,
     enabled,

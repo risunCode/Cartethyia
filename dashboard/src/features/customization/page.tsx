@@ -11,6 +11,7 @@ import { Input, Label } from "../../components/ui/input";
 import { Switch } from "../../components/ui/switch";
 import { toast } from "../../lib/toast";
 import { apiGet, apiPost } from "../../lib/api";
+import { qk } from "../../lib/query-keys";
 import { BackgroundUpload, useCustomizationSettings } from "./background";
 
 interface AppearanceSettings {
@@ -47,12 +48,12 @@ export function CustomizationPage() {
   const queryClient = useQueryClient();
   const asset = settings.backgroundAsset;
   const appearanceQuery = useQuery({
-    queryKey: ["settings"],
+    queryKey: qk.settings.all,
     queryFn: () => apiGet<AppearanceSettingsResponse>("/settings"),
   });
   const appearanceMutation = useMutation({
     mutationFn: (patch: Partial<AppearanceSettings>) => apiPost<{ ok: boolean }>("/settings", patch),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["settings"] }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: qk.settings.all }),
     onError: (error) => toast.error(error instanceof Error ? error.message : "Unable to update appearance settings"),
   });
   const appearance = appearanceQuery.data?.settings.runtime;

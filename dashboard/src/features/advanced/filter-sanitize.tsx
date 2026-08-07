@@ -13,6 +13,7 @@ import { Button } from "../../components/ui/button";
 import { Switch } from "../../components/ui/switch";
 import { apiGet, apiPost, apiPatch, apiDelete } from "../../lib/api";
 import { toast } from "../../lib/toast";
+import { qk } from "../../lib/query-keys";
 import { cn } from "../../lib/cn";
 
 interface FilterRule {
@@ -59,31 +60,31 @@ export function FilterSanitizePage() {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<RuleFormState | null>(null);
 
-  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: () => apiGet<SettingsResponse>("/settings") });
-  const rulesQuery = useQuery({ queryKey: ["filter-rules"], queryFn: () => apiGet<FilterListResponse>("/filters") });
+  const settingsQuery = useQuery({ queryKey: qk.settings.all, queryFn: () => apiGet<SettingsResponse>("/settings") });
+  const rulesQuery = useQuery({ queryKey: qk.filterRules.all, queryFn: () => apiGet<FilterListResponse>("/filters") });
 
   const settingsMutation = useMutation({
     mutationFn: (patch: Partial<{ filterRulesEnabled: boolean }>) => apiPost("/settings", patch),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["settings"] }); toast.success("Filter master toggle updated"); },
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: qk.settings.all }); toast.success("Filter master toggle updated"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to update master toggle"),
   });
 
   const createMutation = useMutation({
     mutationFn: (data: { pattern: string; replacement: string; isRegex: boolean; isActive: boolean }) => apiPost("/filters", data),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["filter-rules"] }); setForm(null); toast.success("Filter rule created"); },
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: qk.filterRules.all }); setForm(null); toast.success("Filter rule created"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to create rule"),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<{ pattern: string; replacement: string; isRegex: boolean; isActive: boolean }> }) =>
       apiPatch(`/filters/${id}`, data),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["filter-rules"] }); setForm(null); toast.success("Filter rule updated"); },
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: qk.filterRules.all }); setForm(null); toast.success("Filter rule updated"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to update rule"),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => apiDelete(`/filters/${id}`),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["filter-rules"] }); toast.success("Rule deleted"); },
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: qk.filterRules.all }); toast.success("Rule deleted"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete rule"),
   });
 

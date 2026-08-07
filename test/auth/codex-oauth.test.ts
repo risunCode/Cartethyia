@@ -79,15 +79,3 @@ describe("CodexOAuthDriver — refresh", () => {
     expect(lastBody().get("refresh_token")).toBe("ref-1");
   });
 });
-
-describe("CodexOAuthDriver — buildHeaders", () => {
-  test("carries the Bearer token and Codex wire headers", () => {
-    const driver = new CodexOAuthDriver();
-    const headers = driver.buildHeaders({ providerId: "codex", accountId: null, credential: "tok-1" });
-    expect(headers.authorization).toBe("Bearer tok-1");
-    expect(headers["openai-beta"]).toBe("responses=experimental");
-    expect(headers.originator).toBe("pi");
-    expect(headers.version).toBeDefined();
-    expect(headers.accept).toBe("text/event-stream");
-  });
-});

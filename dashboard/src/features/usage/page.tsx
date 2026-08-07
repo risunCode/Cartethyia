@@ -30,6 +30,7 @@ import { Select, Tabs } from "../../components/ui/tabs";
 import { apiGet } from "../../lib/api";
 import { formatDuration, formatNumber, formatTime, formatTokens, formatUsd } from "../../lib/format";
 import { staggerClass } from "../../lib/motion";
+import { qk } from "../../lib/query-keys";
 
 type Period = "1h" | "24h" | "7d" | "30d" | "all";
 type Metric = "requests" | "tokens" | "cached";
@@ -178,7 +179,7 @@ function asDimension(value: string | null): Dimension {
 
 function ChartPanel({ period, metric }: { period: Period; metric: Metric }) {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["usage-chart", period],
+    queryKey: qk.usage.chart(period),
     queryFn: () => apiGet<{ buckets: ChartBucket[] }>(`/usage/chart?period=${period}`),
   });
   if (isLoading) return <div className="h-56 animate-pulse rounded-xl bg-[var(--surface-muted)]" />;
@@ -204,7 +205,7 @@ function ChartPanel({ period, metric }: { period: Period; metric: Metric }) {
 function RequestDetailDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
   const providerNames = useProviderNames();
   const { data, isLoading } = useQuery({
-    queryKey: ["usage-detail", id],
+    queryKey: qk.usage.detail(id),
     queryFn: () => apiGet<RequestRow>(`/usage/requests/${encodeURIComponent(id ?? "")}`),
     enabled: id !== null,
   });
@@ -311,7 +312,7 @@ function RequestDetailDrawer({ id, onClose }: { id: string | null; onClose: () =
 function BreakdownSnapshot({ period, dimension, onDimensionChange }: { period: Period; dimension: Dimension; onDimensionChange: (value: string) => void }) {
   const providerNames = useProviderNames();
   const byQuery = useQuery({
-    queryKey: ["usage-by", period, dimension],
+    queryKey: qk.usage.by(period, dimension),
     queryFn: () => apiGet<{ rows: ByRow[] }>(`/usage/by-${dimension}?period=${period}`),
   });
   const rows = (byQuery.data?.rows ?? []).slice(0, 6);
@@ -368,11 +369,11 @@ function BreakdownCard({ period, dimension, onDimensionChange }: { period: Perio
   const providerNames = useProviderNames();
   const [mode, setMode] = useState<BreakdownMetric>("tokens");
   const byQuery = useQuery({
-    queryKey: ["usage-by", period, dimension],
+    queryKey: qk.usage.by(period, dimension),
     queryFn: () => apiGet<{ rows: ByRow[] }>(`/usage/by-${dimension}?period=${period}`),
   });
   const cacheQuery = useQuery({
-    queryKey: ["usage-cache", period],
+    queryKey: qk.usage.cache(period),
     queryFn: () => apiGet<CacheSummary & { period: Period }>(`/usage/cache?period=${period}`),
     refetchInterval: 10_000,
   });
@@ -425,14 +426,14 @@ export function UsagePage() {
   const dimension = asDimension(searchParams.get("dim"));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const summaryQuery = useQuery({
-    queryKey: ["usage-summary", period],
+    queryKey: qk.usage.summary(period),
     queryFn: () => apiGet<SummaryResponse>(`/usage/summary?period=${period}`),
     refetchInterval: 10_000,
   });
   const summary = summaryQuery.data?.totals;
 
   const requestsQuery = useQuery({
-    queryKey: ["usage-requests", "recent"],
+    queryKey: qk.usage.recentRequests,
     queryFn: () => apiGet<{ items: RequestRow[] }>("/usage/requests?limit=10"),
     refetchInterval: 5_000,
   });

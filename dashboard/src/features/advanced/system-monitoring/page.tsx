@@ -24,6 +24,7 @@ import {
 import { toast } from "../../../lib/toast";
 import { ApiError, apiDelete, apiGet, apiPost } from "../../../lib/api";
 import { formatDuration, formatNumber, formatTime, formatTokens } from "../../../lib/format";
+import { qk } from "../../../lib/query-keys";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card } from "../../../components/ui/card";
@@ -92,7 +93,7 @@ function statusTone(code: number): "ok" | "err" | "warn" | "default" {
 
 function RequestMonitorTab() {
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["system-monitoring", "requests"],
+    queryKey: qk.systemMonitoring.requests,
     queryFn: () => apiGet<{ items: RequestHistoryItem[] }>("/usage/requests?limit=100"),
     refetchInterval: 5_000,
   });
@@ -213,12 +214,12 @@ function RequestMonitorTab() {
 function IpMonitorTab() {
   const queryClient = useQueryClient();
   const { data: summaryData, isLoading: summaryLoading } = useQuery({
-    queryKey: ["system-monitoring", "ip-summary"],
+    queryKey: qk.systemMonitoring.ipSummary,
     queryFn: () => apiGet<{ items: IpSummaryRow[] }>("/ips/summary?limit=200"),
     refetchInterval: 5_000,
   });
   const { data: bansData } = useQuery({
-    queryKey: ["system-monitoring", "ip-bans"],
+    queryKey: qk.systemMonitoring.ipBans,
     queryFn: () => apiGet<{ items: IpBanView[] }>("/ip-bans"),
     refetchInterval: 10_000,
   });
@@ -240,7 +241,7 @@ function IpMonitorTab() {
     mutationFn: (vars: { ip: string; reason: string }) => apiPost<{ ip: string }>("/ip-bans", vars),
     onSuccess: (_data, vars) => {
       toast.success(`Banned ${vars.ip}`);
-      void queryClient.invalidateQueries({ queryKey: ["system-monitoring", "ip-bans"] });
+      void queryClient.invalidateQueries({ queryKey: qk.systemMonitoring.ipBans });
     },
     onError: (err: unknown) => {
       const msg = err instanceof ApiError ? err.message : "Failed to ban IP";
@@ -252,7 +253,7 @@ function IpMonitorTab() {
     mutationFn: (ip: string) => apiDelete(`/ip-bans/${encodeURIComponent(ip)}`),
     onSuccess: (_data, ip) => {
       toast.success(`Unbanned ${ip}`);
-      void queryClient.invalidateQueries({ queryKey: ["system-monitoring", "ip-bans"] });
+      void queryClient.invalidateQueries({ queryKey: qk.systemMonitoring.ipBans });
     },
     onError: (err: unknown) => {
       const msg = err instanceof ApiError ? err.message : "Failed to unban IP";

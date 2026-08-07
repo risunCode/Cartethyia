@@ -9,7 +9,6 @@ function mockDriver(overrides: Partial<AuthDriver> = {}): { readonly driver: Aut
   const calls = { start: 0, exchange: 0, refresh: 0, revoke: 0 };
   const driver: AuthDriver = {
     kind: "oauth",
-    buildHeaders: () => ({}),
     async start(input) {
       calls.start += 1;
       return { authorizationUrl: `https://auth.example.com/authorize?state=${input.state}`, state: input.state ?? "state", expiresAtMs: Date.now() + 600_000 };
@@ -176,7 +175,7 @@ describe("console OAuth lifecycle", () => {
 
   test("rejects start for a provider without a driver", async () => {
     const { service, registry } = harness();
-    registry.register("unknown", { kind: "oauth", buildHeaders: () => ({}) });
+    registry.register("unknown", { kind: "oauth" });
     const started = await service.start({ providerId: "unknown", name: "Ghost" });
     expect(started.ok).toBe(false);
     if (!started.ok) expect(started.code).toBe("invalid_request");
@@ -184,7 +183,7 @@ describe("console OAuth lifecycle", () => {
 
   test("rejects start for a provider whose driver has no interactive flow", async () => {
     const { service, registry } = harness();
-    registry.register("refresh-only", { kind: "oauth", buildHeaders: () => ({}), refresh: async () => ({ accessToken: "a" }) });
+    registry.register("refresh-only", { kind: "oauth", refresh: async () => ({ accessToken: "a" }) });
     const started = await service.start({ providerId: "refresh-only", name: "Passive" });
     expect(started.ok).toBe(false);
     if (!started.ok) expect(started.code).toBe("invalid_request");

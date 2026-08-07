@@ -1,4 +1,4 @@
-import type { AuthContext, AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
+import type { AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
 import { AuthorizationCodeDriver, tokenFields } from "./base";
 import { claudeCodeOAuthBetas } from "../../providers/claude-code-fingerprint";
 
@@ -155,18 +155,6 @@ export class AnthropicOAuthDriver extends AuthorizationCodeDriver implements Aut
       expiresAt: new Date(fields.expiresAtMs).toISOString(),
       providerAccountId: identity.accountId,
       email: identity.email,
-    };
-  }
-
-  override buildHeaders(input: AuthContext): Record<string, string> {
-    return {
-      authorization: `Bearer ${input.credential}`,
-      "anthropic-version": ANTHROPIC_OAUTH_VERSION,
-      "anthropic-beta": claudeCodeOAuthBetas.join(","),
-      "anthropic-dangerous-direct-browser-access": "true",
-      "x-app": "cli",
-      "content-type": "application/json",
-      accept: "text/event-stream",
     };
   }
 

@@ -3,12 +3,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiDelete, ApiError } from "../../../lib/api";
 import { toast } from "../../../lib/toast";
+import { qk } from "../../../lib/query-keys";
 import type { ApplyInput, ApplyResult, DownloadResult, ToolRegistryEntry, ToolStatus } from "./types";
 
 /** Fetch the tool registry (static metadata for all tools). */
 export function useToolRegistry() {
   return useQuery({
-    queryKey: ["cli-tools", "registry"],
+    queryKey: qk.cliTools.registry,
     queryFn: () => apiGet<readonly ToolRegistryEntry[]>("/cli-tools/registry"),
     staleTime: Infinity,
   });
@@ -17,7 +18,7 @@ export function useToolRegistry() {
 /** Fetch batch status for all tools. */
 export function useToolStatuses() {
   return useQuery({
-    queryKey: ["cli-tools", "statuses"],
+    queryKey: qk.cliTools.statuses,
     queryFn: () => apiGet<Readonly<Record<string, ToolStatus>>>("/cli-tools/all-statuses"),
     refetchInterval: 15000,
   });
@@ -26,7 +27,7 @@ export function useToolStatuses() {
 /** Fetch API keys list (for the key selector). */
 export function useApiKeys() {
   return useQuery({
-    queryKey: ["cli-tools", "api-keys"],
+    queryKey: qk.cliTools.apiKeys,
     queryFn: () => apiGet<{ items: readonly { id: string; name: string; keyPrefix: string; active: boolean }[] }>("/keys"),
   });
 }
@@ -49,7 +50,7 @@ export function useApplyTool() {
       apiPost<ApplyResult>(`/cli-tools/${toolId}`, input),
     onSuccess: (_data, vars) => {
       toast.success(`${vars.toolId}: config applied`);
-      qc.invalidateQueries({ queryKey: ["cli-tools", "statuses"] });
+      qc.invalidateQueries({ queryKey: qk.cliTools.statuses });
     },
     onError: (err: ApiError, vars) => {
       toast.error(`${vars.toolId}: ${err.message}`);
@@ -64,7 +65,7 @@ export function useResetTool() {
     mutationFn: (toolId: string) => apiDelete<ApplyResult>(`/cli-tools/${toolId}`),
     onSuccess: (_data, toolId) => {
       toast.success(`${toolId}: config reset`);
-      qc.invalidateQueries({ queryKey: ["cli-tools", "statuses"] });
+      qc.invalidateQueries({ queryKey: qk.cliTools.statuses });
     },
     onError: (err: ApiError, toolId) => {
       toast.error(`${toolId}: ${err.message}`);

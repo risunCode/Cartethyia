@@ -192,17 +192,6 @@ describe("AntigravityOAuthDriver.refresh", () => {
   });
 });
 
-describe("AntigravityOAuthDriver.buildHeaders", () => {
-  test("emits the Antigravity wire headers", () => {
-    const driver = new AntigravityOAuthDriver();
-    const headers = driver.buildHeaders({ providerId: "antigravity", accountId: "proj-123", credential: "at-1" });
-    expect(headers.authorization).toBe("Bearer at-1");
-    expect(headers["content-type"]).toBe("application/json");
-    expect(headers.accept).toBe("text/event-stream");
-    expect(headers["user-agent"]).toBe("antigravity/hub/2.1.4");
-  });
-});
-
 describe("encodeAntigravityCredential", () => {
   test("round-trips the composite request credential the adapter accepts", () => {
     const encoded = encodeAntigravityCredential("at-1", "proj-123");

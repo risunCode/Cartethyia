@@ -1,6 +1,7 @@
 /** Public authentication boundary for account and credential lifecycle. */
 export * from "./credentials";
 export * from "./contracts";
+export * from "./credential-bundle";
 export * from "./oauth-state";
 export * from "./oauth";
 export * from "./drivers";

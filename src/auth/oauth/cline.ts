@@ -1,4 +1,4 @@
-import type { AuthContext, AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
+import type { AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
 import { OAuthDriverError, OAuthHttpClient, type OAuthDriverOptions, type OAuthFetch } from "./base";
 
 /**
@@ -39,24 +39,6 @@ export interface ClineOAuthDriverOptions extends OAuthDriverOptions {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Extracts the bearer access token from a stored credential (bundle JSON or raw token). */
-function accessTokenFromCredential(credential: string): string | undefined {
-  const trimmed = credential.trim();
-  if (trimmed.length === 0) return undefined;
-  if (trimmed.startsWith("{")) {
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      if (typeof parsed === "object" && parsed !== null && typeof (parsed as Record<string, unknown>).accessToken === "string") {
-        const access = (parsed as Record<string, unknown>).accessToken as string;
-        return access.length > 0 ? access : undefined;
-      }
-    } catch {
-      return undefined;
-    }
-  }
-  return trimmed;
 }
 
 function parseClineAuthResponse(response: Record<string, unknown>, operation: string, nowMs: number, fallbackRefreshToken?: string): TokenSet {
@@ -225,13 +207,6 @@ export class ClineOAuthDriver implements AuthDriver {
       "token refresh",
     );
     return parseClineAuthResponse(data, "token refresh", this.nowMs(), input.refreshToken);
-  }
-
-  buildHeaders(input: AuthContext): Record<string, string> {
-    const access = accessTokenFromCredential(input.credential);
-    if (access === undefined) return {};
-    const bearer = access.startsWith("workos:") ? access : `workos:${access}`;
-    return { authorization: `Bearer ${bearer}` };
   }
 }
 

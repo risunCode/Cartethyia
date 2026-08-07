@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Gauge, ShieldCheck, Zap } from "lucide-react";
 import { apiGet, apiPost } from "../../lib/api";
+import { qk } from "../../lib/query-keys";
 import { toast } from "../../lib/toast";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -19,10 +20,10 @@ const QUALITY: Array<{ value: Quality; label: string; description: string; savin
 /** Configures the RTK-inspired Token Saver compression pipeline. */
 export function TokenSaverPage() {
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: ["settings"], queryFn: () => apiGet<SettingsResponse>("/settings") });
+  const query = useQuery({ queryKey: qk.settings.all, queryFn: () => apiGet<SettingsResponse>("/settings") });
   const mutation = useMutation({
     mutationFn: (patch: Partial<{ tokenSaverEnabled: boolean; tokenSaverQuality: Quality }>) => apiPost("/settings", patch),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["settings"] }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: qk.settings.all }),
     onError: (error) => toast.error(error instanceof Error ? error.message : "Unable to update Token Saver"),
   });
   const settings = query.data?.settings.runtime;

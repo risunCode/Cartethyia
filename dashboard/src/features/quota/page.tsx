@@ -9,6 +9,7 @@ import { ConfirmDialog } from "../../components/shared";
 import { apiDelete, apiGet, apiPost } from "../../lib/api";
 import { cn } from "../../lib/cn";
 import { toast } from "../../lib/toast";
+import { qk } from "../../lib/query-keys";
 
 /** Providers without a quota endpoint — filtered from the quota page entirely. */
 /** Providers that have a real quota endpoint in fetchProviderQuota. */
@@ -149,7 +150,7 @@ async function fetchQuotaPageData(): Promise<QuotaQueryData> {
 
 function QuotaCard({ account, onToggle, onDelete }: { account: QuotaEntry; onToggle: (account: QuotaEntry, active: boolean) => void; onDelete: (account: QuotaEntry) => void }) {
   const queryClient = useQueryClient();
-  const queryKey = ["console", "quota-account", account.id] as const;
+  const queryKey = qk.quota.account(account.id);
   const quotaQuery = useQuery({
     queryKey,
     queryFn: async () => normalizeQuotaResponse(await apiGet<unknown>(`/accounts/${encodeURIComponent(account.id)}/quota`)),
@@ -243,7 +244,7 @@ export function QuotaPage() {
   const [expiringFirst, setExpiringFirst] = useState(false);
   const queryClient = useQueryClient();
   const { data, isLoading, isFetching, dataUpdatedAt, refetch } = useQuery<QuotaQueryData>({
-    queryKey: ["console", "quota-management"],
+    queryKey: qk.quota.management,
     queryFn: fetchQuotaPageData,
     staleTime: 0,
     refetchInterval: QUOTA_REFRESH_INTERVAL_MS,

@@ -1,4 +1,4 @@
-import type { AuthContext, AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
+import type { AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
 import { OAuthDriverError, OAuthHttpClient, type OAuthDriverOptions, type OAuthFetch } from "./base";
 
 /**
@@ -178,7 +178,7 @@ interface KiroClientRegistration {
   readonly region: string;
 }
 
-/** Kiro OAuth driver: device authorization start/poll, token refresh, and wire headers. */
+/** Kiro OAuth driver: device authorization start/poll and token refresh. */
 export class KiroOAuthDriver implements AuthDriver {
   readonly kind = "oauth" as const;
 
@@ -321,24 +321,6 @@ export class KiroOAuthDriver implements AuthDriver {
       accessToken,
       expiresAt: new Date(this.nowMs() + Math.max(60, numberField(result, "expiresIn") ?? numberField(result, "expires_in") ?? 3600) * 1000).toISOString(),
     };
-  }
-
-  /** Baseline Kiro wire headers; the adapter layers its own amz headers on top. */
-  buildHeaders(input: AuthContext): Record<string, string> {
-    const bundle = parseKiroCredential(input.credential);
-    const accessToken = bundle?.accessToken ?? input.credential;
-    if (accessToken.length === 0) {
-      throw new OAuthDriverError("validation", "Kiro requires an OAuth access token.", 401, false);
-    }
-    const headers: Record<string, string> = {
-      authorization: `Bearer ${accessToken}`,
-      "content-type": "application/json",
-      accept: "application/vnd.amazon.eventstream",
-    };
-    const authMethod = bundle?.authMethod;
-    if (authMethod === "api_key") headers.tokentype = "API_KEY";
-    else if (authMethod === "external_idp") headers.TokenType = "EXTERNAL_IDP";
-    return headers;
   }
 
   /** Number of live device sessions (after sweeping expired ones) — diagnostics/tests. */

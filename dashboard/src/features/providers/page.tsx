@@ -7,6 +7,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "../../lib/toast";
 import { apiGet, apiPost, apiDelete } from "../../lib/api";
+import { qk } from "../../lib/query-keys";
 import { StatusDot } from "../../components/status-dot";
 import { ProviderIcon } from "../../components/provider-icon";
 import { Badge } from "../../components/ui/badge";
@@ -164,13 +165,13 @@ function AddCompatibleDialog({ variant, open, onClose, onCreated }: { variant: "
 
 function CustomProvidersSection() {
   const qc = useQueryClient();
-  const { data, isPending, isError } = useQuery({ queryKey: ["console", "custom-providers"], queryFn: () => apiGet<{ items: CustomProviderRecord[] }>("/custom-providers") });
+  const { data, isPending, isError } = useQuery({ queryKey: qk.customProviders.all, queryFn: () => apiGet<{ items: CustomProviderRecord[] }>("/custom-providers") });
   const [showOpenAI, setShowOpenAI] = useState(false);
   const [showAnthropic, setShowAnthropic] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<CustomProviderRecord | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["console", "custom-providers"] });
+  const invalidate = () => qc.invalidateQueries({ queryKey: qk.customProviders.all });
 
   const deleteMut = useMutation({
     mutationFn: (id: string) => apiDelete<{ ok: boolean }>(`/custom-providers/${id}`),

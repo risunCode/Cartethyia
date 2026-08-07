@@ -50,13 +50,6 @@ export interface RevokeTokenInput {
   readonly accountId: string;
   readonly token: string;
 }
-
-export interface AuthContext {
-  readonly providerId: string;
-  readonly accountId: string | null;
-  readonly credential: string;
-}
-
 /** Shared provider auth contract; provider-specific wire details stay in providers. */
 export interface AuthDriver {
   readonly kind: CredentialKind;
@@ -65,5 +58,4 @@ export interface AuthDriver {
   exchange?(input: OAuthExchangeInput): Promise<TokenSet>;
   refresh?(input: RefreshTokenInput): Promise<TokenSet>;
   revoke?(input: RevokeTokenInput): Promise<void>;
-  buildHeaders(input: AuthContext): Record<string, string>;
 }

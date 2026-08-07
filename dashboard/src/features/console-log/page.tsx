@@ -10,6 +10,7 @@ import { ArrowDown, Search, Trash2, Wifi, WifiOff } from "lucide-react";
 import { toast } from "../../lib/toast";
 import { ApiError, apiDelete, apiGet } from "../../lib/api";
 import { formatDuration, formatNumber, formatTime, formatTokens } from "../../lib/format";
+import { qk } from "../../lib/query-keys";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
@@ -201,7 +202,7 @@ function ConsoleLogTab() {
 
 function RequestHistoryTab() {
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["console-log", "request-history"],
+    queryKey: qk.consoleLog.requestHistory,
     queryFn: () => apiGet<{ items: RequestHistoryItem[] }>("/usage/requests?limit=100"),
     refetchInterval: 10_000,
   });

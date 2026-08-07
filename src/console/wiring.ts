@@ -9,7 +9,6 @@ import type {
   ApiKeyView,
   BackupRepository as ConsoleBackupRepository,
   ConsoleRepositories,
-  ConsoleRuntimeSettings,
   CustomProviderRepository as ConsoleCustomProviderRepository,
   ModelRepository,
   ModelView,
@@ -29,6 +28,7 @@ import type { ProviderRegistry } from "../providers/registry";
 import type { ModelMetadata, ProviderModel } from "../domain/contracts";
 import type { RouteHealth } from "../domain/contracts";
 import type { ConfigPersistence, ProviderAccountRecord, RuntimePersistence } from "../storage";
+import { normalizeSidebarIconDataUrl, runtimeRecord, runtimeSettings } from "./runtime-settings";
 import type { BackupPayload, RestoreResult, RestoreValidation } from "../storage";
 
 function listOrNull(value: string | null): readonly string[] | null {
@@ -126,37 +126,6 @@ function modelView(row: ReturnType<ConfigPersistence["providerModels"]["list"]>[
   };
 }
 
-const MAX_SIDEBAR_ICON_DATA_URL_CHARS = 36_000_000;
-const SIDEBAR_ICON_DATA_URL_PATTERN = /^data:image\/(?:png|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
-
-function normalizeSidebarIconDataUrl(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value !== "string" || value.length > MAX_SIDEBAR_ICON_DATA_URL_CHARS || !SIDEBAR_ICON_DATA_URL_PATTERN.test(value)) return null;
-  return value;
-}
-
-function runtimeSettings(config: ConfigPersistence): ConsoleRuntimeSettings {
-  const json = config.settings.getSettingsJson();
-  const value = typeof json.runtime === "object" && json.runtime !== null && !Array.isArray(json.runtime) ? json.runtime as Record<string, unknown> : {};
-  const persisted = config.settings.getRuntimeSettings(config.env);
-  return {
-    proxyAuthMode: value.proxyAuthMode === "open" ? "open" : "api_key",
-    privacyMode: value.privacyMode === "full" ? "full" : "masked",
-    trackPayloads: value.trackPayloads === "none" ? "none" : "meta",
-    trackAssets: value.trackAssets === "none" ? "none" : "meta",
-    logRetentionDays: persisted.logRetentionDays,
-    assetRetentionDays: persisted.assetRetentionDays,
-    maxFlightsPerIp: typeof value.maxFlightsPerIp === "number" ? Math.max(1, Math.floor(value.maxFlightsPerIp)) : config.env.maxFlightsPerIp,
-    trustProxy: value.trustProxy === true,
-    cacheMarkersEnabled: true,
-    sessionTtlHours: typeof value.sessionTtlHours === "number" ? Math.max(1, Math.floor(value.sessionTtlHours)) : 12,
-    sidebarIconDataUrl: normalizeSidebarIconDataUrl(value.sidebarIconDataUrl),
-    tokenSaverEnabled: value.tokenSaverEnabled === true,
-    tokenSaverQuality: value.tokenSaverQuality === "lite" || value.tokenSaverQuality === "extreme" ? value.tokenSaverQuality : "balanced",
-    filterRulesEnabled: value.filterRulesEnabled === true,
-  };
-}
-
 function makeSettingsRepository(config: ConfigPersistence): ConsoleSettingsRepository {
   return {
     async get() {
@@ -190,9 +159,7 @@ function makeSettingsRepository(config: ConfigPersistence): ConsoleSettingsRepos
         jsonPatch.sidebarIconDataUrl = icon;
       }
       if (Object.keys(jsonPatch).length > 0) {
-        const current = config.settings.getSettingsJson();
-        const runtime = typeof current.runtime === "object" && current.runtime !== null && !Array.isArray(current.runtime) ? current.runtime as Record<string, unknown> : {};
-        config.settings.patchSettingsJson({ runtime: { ...runtime, ...jsonPatch } });
+        config.settings.patchSettingsJson({ runtime: { ...runtimeRecord(config), ...jsonPatch } });
       }
       return { ...runtimeSettings(config), logRetentionDays: persisted.logRetentionDays, assetRetentionDays: persisted.assetRetentionDays };
     },

@@ -9,6 +9,7 @@ import { Input, Label, Textarea } from "../../../components/ui/input";
 import { StatePanel } from "../../../components/ui/state";
 import { toast } from "../../../lib/toast";
 import { apiGet, apiPost, apiDelete, apiPatch, ApiError } from "../../../lib/api";
+import { qk } from "../../../lib/query-keys";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 interface WarpAccount {
@@ -62,14 +63,14 @@ interface WarpBackupPayload {
 
 function useWarpAccounts() {
   return useQuery({
-    queryKey: ["warp", "accounts"],
+    queryKey: qk.warp.accounts,
     queryFn: () => apiGet<readonly WarpAccount[]>("/warp/accounts"),
   });
 }
 
 function useWarpStatuses() {
   return useQuery({
-    queryKey: ["warp", "statuses"],
+    queryKey: qk.warp.statuses,
     queryFn: () => apiGet<Readonly<Record<string, WarpInstanceStatus>>>("/warp/statuses"),
     refetchInterval: 10000,
   });
@@ -77,7 +78,7 @@ function useWarpStatuses() {
 
 function useWarpMetricsSummary() {
   return useQuery({
-    queryKey: ["warp", "metrics-summary"],
+    queryKey: qk.warp.metricsSummary,
     queryFn: () => apiGet<WarpMetricsSummary>("/warp/metrics/summary"),
     refetchInterval: 5000,
   });
@@ -111,9 +112,9 @@ export function MultiWarpPage() {
   const qc = useQueryClient();
 
   const invalidateAll = useCallback(() => {
-    qc.invalidateQueries({ queryKey: ["warp", "accounts"] });
-    qc.invalidateQueries({ queryKey: ["warp", "statuses"] });
-    qc.invalidateQueries({ queryKey: ["warp", "metrics-summary"] });
+    qc.invalidateQueries({ queryKey: qk.warp.accounts });
+    qc.invalidateQueries({ queryKey: qk.warp.statuses });
+    qc.invalidateQueries({ queryKey: qk.warp.metricsSummary });
   }, [qc]);
 
   const registerMutation = useMutation({
@@ -172,13 +173,13 @@ export function MultiWarpPage() {
 
   const updateLabelMutation = useMutation({
     mutationFn: ({ id, label }: { id: string; label: string }) => apiPatch<{ success: boolean }>(`/warp/accounts/${id}`, { label }),
-    onSuccess: () => { toast.success("Label updated"); setEditingId(null); qc.invalidateQueries({ queryKey: ["warp", "accounts"] }); },
+    onSuccess: () => { toast.success("Label updated"); setEditingId(null); qc.invalidateQueries({ queryKey: qk.warp.accounts }); },
     onError: (err: ApiError) => toast.error(err.message),
   });
 
   const updateSettingsMutation = useMutation({
     mutationFn: ({ id, ...patch }: { id: string; preferIpv6?: boolean; customEndpoint?: string | null; persistentKeepalive?: number }) => apiPatch<{ success: boolean }>(`/warp/accounts/${id}`, patch),
-    onSuccess: () => { toast.success("Settings updated"); qc.invalidateQueries({ queryKey: ["warp", "accounts"] }); },
+    onSuccess: () => { toast.success("Settings updated"); qc.invalidateQueries({ queryKey: qk.warp.accounts }); },
     onError: (err: ApiError) => toast.error(err.message),
   });
 

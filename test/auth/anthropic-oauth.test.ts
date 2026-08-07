@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  ANTHROPIC_OAUTH_BETA,
   ANTHROPIC_OAUTH_CLIENT_ID,
   ANTHROPIC_OAUTH_GRANT_TTL_MS,
   AnthropicOAuthDriver,
@@ -202,20 +201,6 @@ describe("AnthropicOAuthDriver.refresh", () => {
     const set = await driver.refresh({ providerId: "claude", accountId: "acct-1", refreshToken: "rt-old" });
     expect(set.accessToken).toBe("at-new");
     expect(set.refreshToken).toBe("rt-old");
-  });
-});
-
-describe("AnthropicOAuthDriver.buildHeaders", () => {
-  test("emits required Messages wire headers without provider ID", async () => {
-    const driver = new AnthropicOAuthDriver();
-    const headers = driver.buildHeaders({ providerId: "claude", accountId: "acct-1", credential: "at-1" });
-    expect(headers.authorization).toBe("Bearer at-1");
-    expect(headers["anthropic-version"]).toBe("2023-06-01");
-    expect(headers["anthropic-beta"]).toBe(ANTHROPIC_OAUTH_BETA);
-    expect(headers["anthropic-dangerous-direct-browser-access"]).toBe("true");
-    expect(headers["x-app"]).toBe("cli");
-    expect(headers["user-agent"]).toBeUndefined();
-    expect(headers.accept).toBe("text/event-stream");
   });
 });
 

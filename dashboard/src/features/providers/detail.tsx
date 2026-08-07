@@ -9,6 +9,7 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "../../lib/toast";
 import { ApiError, apiGet, apiPost, apiPatch, apiDelete } from "../../lib/api";
+import { qk } from "../../lib/query-keys";
 import { cn } from "../../lib/cn";
 import { extractCredentialFromPaste } from "../../lib/credentialExtract";
 import { formatDuration, formatTokens } from "../../lib/format";
@@ -325,8 +326,8 @@ function useAccountConnectionTest(providerId: string, models: ModelEntry[], onSt
     onSuccess: (results) => {
       // Backend probe already called recordSuccess/recordFailure per account,
       // so invalidate health + accounts queries to surface the fresh status.
-      void queryClient.invalidateQueries({ queryKey: ["provider-accounts", providerId] });
-      void queryClient.invalidateQueries({ queryKey: ["provider", providerId] });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.accounts(providerId) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(providerId) });
       const failed = results.filter(({ result }) => !result.ok);
       if (failed.length === 0) {
         toast.success(`${results.length} connection${results.length === 1 ? "" : "s"} passed`, { description: results.map(({ account, result }) => `${account.name} · ${formatDuration(result.latencyMs)}`).join("\n") });
@@ -338,8 +339,8 @@ function useAccountConnectionTest(providerId: string, models: ModelEntry[], onSt
     onSettled: () => {
       // Always refresh health after test completes — even on error, backend
       // may have recorded failures that should surface in the account table.
-      void queryClient.invalidateQueries({ queryKey: ["provider-accounts", providerId] });
-      void queryClient.invalidateQueries({ queryKey: ["provider", providerId] });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.accounts(providerId) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(providerId) });
     },
   });
 
@@ -533,9 +534,9 @@ function BulkOAuthModal({
     onSuccess: ({ imported, failed }) => {
       if (imported > 0) {
         toast.success(`${imported} Codex connection${imported === 1 ? "" : "s"} imported`);
-        void queryClient.invalidateQueries({ queryKey: ["provider", providerId] });
-        void queryClient.invalidateQueries({ queryKey: ["provider-accounts", providerId] });
-        void queryClient.invalidateQueries({ queryKey: ["catalog", "providers"] });
+        void queryClient.invalidateQueries({ queryKey: qk.provider.detail(providerId) });
+        void queryClient.invalidateQueries({ queryKey: qk.provider.accounts(providerId) });
+        void queryClient.invalidateQueries({ queryKey: qk.catalog.providers });
       }
       if (failed.length > 0) {
         toast.error(`${failed.length} connection${failed.length === 1 ? "" : "s"} skipped`, { description: failed.slice(0, 3).join("\n") });
@@ -647,8 +648,8 @@ function AccountModal({
     },
     onSuccess: (created) => {
       toast.success(existing ? "Account updated" : `${created} connection${created === 1 ? "" : "s"} added`);
-      void queryClient.invalidateQueries({ queryKey: ["provider", providerId] });
-      void queryClient.invalidateQueries({ queryKey: ["catalog", "providers"] });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(providerId) });
+      void queryClient.invalidateQueries({ queryKey: qk.catalog.providers });
       onClose();
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -1145,7 +1146,7 @@ export function ProviderDetailPage() {
   });
 
   const oauthStatusQuery = useQuery({
-    queryKey: ["oauth-login", oauthSession?.sessionId],
+    queryKey: qk.oauthLogin.session(oauthSession?.sessionId),
     queryFn: () => apiGet<OAuthLoginStatus>(`/oauth/sessions/${oauthSession?.sessionId}`),
     enabled: Boolean(oauthSession),
     refetchInterval: pageVisible ? 2_000 : false,
@@ -1157,9 +1158,9 @@ export function ProviderDetailPage() {
     const status = oauthStatusQuery.data?.status;
     const accountId = oauthStatusQuery.data?.accountId;
     if (status === "completed" && accountId !== null) {
-      void queryClient.invalidateQueries({ queryKey: ["provider", id] });
-      void queryClient.invalidateQueries({ queryKey: ["provider-accounts", id] });
-      void queryClient.invalidateQueries({ queryKey: ["catalog", "providers"] });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.accounts(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.catalog.providers });
       oauthPopupRef.current?.close();
       oauthPopupRef.current = null;
       setOauthSession(null);
@@ -1180,9 +1181,9 @@ export function ProviderDetailPage() {
     onSuccess: (status) => {
       if (status.status === "completed") {
         toast.success("OAuth account connected");
-        void queryClient.invalidateQueries({ queryKey: ["provider", id] });
-        void queryClient.invalidateQueries({ queryKey: ["provider-accounts", id] });
-      void queryClient.invalidateQueries({ queryKey: ["catalog", "providers"] });
+        void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
+        void queryClient.invalidateQueries({ queryKey: qk.provider.accounts(id) });
+        void queryClient.invalidateQueries({ queryKey: qk.catalog.providers });
         oauthPopupRef.current?.close();
         oauthPopupRef.current = null;
         setOauthSession(null);
@@ -1206,7 +1207,7 @@ export function ProviderDetailPage() {
   useEffect(() => () => { oauthPopupRef.current?.close(); oauthPopupRef.current = null; }, []);
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["provider", id],
+    queryKey: qk.provider.detail(id),
     queryFn: async () => normalizeProviderDetail(await apiGet<ProviderDetailResponse>(`/providers/${id}`)),
     enabled: Boolean(id),
     refetchOnWindowFocus: true,
@@ -1234,7 +1235,7 @@ export function ProviderDetailPage() {
   }, [data, id, location.search]);
 
   const accountsQuery = useInfiniteQuery({
-    queryKey: ["provider-accounts", id],
+    queryKey: qk.provider.accounts(id),
     queryFn: async ({ pageParam }) => {
       const response = await apiGet<{ items: Array<AccountEntry & { providerId?: string }>; nextCursor?: string | null }>(`/providers/${id}/accounts?limit=50${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""}`);
       return {
@@ -1301,9 +1302,9 @@ export function ProviderDetailPage() {
     onSuccess: (_res, { ids, active }) => {
       toast.success(`${ids.length} account${ids.length === 1 ? "" : "s"} ${active ? "enabled" : "disabled"}`);
       setSelectedAccounts(new Set());
-      void queryClient.invalidateQueries({ queryKey: ["provider", id] });
-      void queryClient.invalidateQueries({ queryKey: ["provider-accounts", id] });
-      void queryClient.invalidateQueries({ queryKey: ["catalog", "providers"] });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.accounts(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.catalog.providers });
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
@@ -1313,9 +1314,9 @@ export function ProviderDetailPage() {
     onSuccess: (_result, ids) => {
       toast.success(`Deleted ${ids.length} account${ids.length === 1 ? "" : "s"}`);
       setSelectedAccounts(new Set());
-      void queryClient.invalidateQueries({ queryKey: ["provider", id] });
-      void queryClient.invalidateQueries({ queryKey: ["provider-accounts", id] });
-      void queryClient.invalidateQueries({ queryKey: ["catalog", "providers"] });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.accounts(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.catalog.providers });
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
@@ -1332,27 +1333,27 @@ export function ProviderDetailPage() {
         ? apiPatch(`/providers/${id}/models${path}`, body ?? {})
         : apiPost(`/providers/${id}/models${path}`, body ?? {}),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["provider", id] });
-      void queryClient.invalidateQueries({ queryKey: ["catalog", "provider", id] });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.catalog.provider(id) });
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
   const fetchCatalogMutation = useMutation({
     mutationFn: () => apiPost(`/providers/${id}/models/fetch`, {}),
-    onSuccess: () => { toast.success("Provider registry catalog synced"); void queryClient.invalidateQueries({ queryKey: ["provider", id] }); void queryClient.invalidateQueries({ queryKey: ["catalog", "provider", id] }); },
+    onSuccess: () => { toast.success("Provider registry catalog synced"); void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) }); void queryClient.invalidateQueries({ queryKey: qk.catalog.provider(id) }); },
     onError: (err) => toast.error(errorMessage(err)),
   });
   const deleteModelMutation = useMutation({
     mutationFn: (modelId: string) => apiDelete(`/providers/${id}/models/${encodeURIComponent(modelId)}`),
-    onSuccess: () => { toast.success("Custom model removed"); void queryClient.invalidateQueries({ queryKey: ["provider", id] }); void queryClient.invalidateQueries({ queryKey: ["catalog", "provider", id] }); },
+    onSuccess: () => { toast.success("Custom model removed"); void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) }); void queryClient.invalidateQueries({ queryKey: qk.catalog.provider(id) }); },
     onError: (err) => toast.error(errorMessage(err)),
   });
   const deleteFetchedModelsMutation = useMutation({
     mutationFn: (modelIds: string[]) => Promise.all(modelIds.map((modelId) => apiDelete<{ ok: boolean }>(`/providers/${id}/models/${encodeURIComponent(modelId)}`))),
     onSuccess: (_result, modelIds) => {
       toast.success(`Deleted ${modelIds.length} fetched model${modelIds.length === 1 ? "" : "s"}`);
-      void queryClient.invalidateQueries({ queryKey: ["provider", id] });
-      void queryClient.invalidateQueries({ queryKey: ["catalog", "provider", id] });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.catalog.provider(id) });
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
@@ -1883,8 +1884,8 @@ export function ProviderDetailPage() {
         <KiroOAuthDialog
           accountName={`Kiro ${data.accounts.length + 1}`}
           onClose={() => setKiroOAuthModal(false)}
-          onConnected={() => { setKiroOAuthModal(false); void queryClient.invalidateQueries({ queryKey: ["provider", id] }); void queryClient.invalidateQueries({ queryKey: ["provider-accounts", id] });
-      void queryClient.invalidateQueries({ queryKey: ["catalog", "providers"] }); }}
+          onConnected={() => { setKiroOAuthModal(false); void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) }); void queryClient.invalidateQueries({ queryKey: qk.provider.accounts(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.catalog.providers }); }}
         />
       )}
 
@@ -1900,7 +1901,7 @@ export function ProviderDetailPage() {
         <AddModelModal
           providerId={data.id}
           prefix={data.prefix}
-          onAdded={() => { setAddModelModalOpen(false); void queryClient.invalidateQueries({ queryKey: ["provider", id] }); }}
+          onAdded={() => { setAddModelModalOpen(false); void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) }); }}
           onClose={() => setAddModelModalOpen(false)}
         />
       )}

@@ -1,22 +1,9 @@
-import type { AuthContext, AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
+import type { AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
 import { OAuthDriverError, OAuthHttpClient, type OAuthDriverOptions } from "./base";
 
 const AUTHORIZE_URL = "https://api.cline.bot/api/v1/auth/authorize";
 const TOKEN_URL = "https://api.cline.bot/api/v1/auth/token";
 const DEFAULT_EXPIRES_MS = 3_600_000;
-
-function accessToken(credential: string): string | undefined {
-  const trimmed = credential.trim();
-  if (!trimmed.startsWith("{")) return trimmed.length > 0 ? trimmed : undefined;
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
-    const value = (parsed as Record<string, unknown>).accessToken;
-    return typeof value === "string" && value.length > 0 ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 function decodeCode(code: string): Record<string, unknown> | null {
   try {
@@ -74,10 +61,5 @@ export class ClinePassOAuthDriver implements AuthDriver {
     const response = await this.http.postJson("https://api.cline.bot/api/v1/auth/refresh", { refreshToken: input.refreshToken, grantType: "refresh_token" }, "clinepass", "token refresh");
     const body = typeof response.data === "object" && response.data !== null && !Array.isArray(response.data) ? response.data as Record<string, unknown> : response;
     return tokenSet(body, this.nowMs());
-  }
-
-  buildHeaders(input: AuthContext): Record<string, string> {
-    const token = accessToken(input.credential);
-    return token ? { authorization: `Bearer ${token.startsWith("workos:") ? token : `workos:${token}`}` } : {};
   }
 }

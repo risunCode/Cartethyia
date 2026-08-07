@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { MapAuthDriverRegistry, createAuthDriverRegistry } from "../../src/auth/drivers";
 import type { AuthDriver } from "../../src/auth/contracts";
 
-function fakeDriver(id: string): AuthDriver {
-  return { kind: "oauth", buildHeaders: () => ({}) } as unknown as AuthDriver;
+function fakeDriver(_id: string): AuthDriver {
+  return { kind: "oauth" };
 }
 
 describe("MapAuthDriverRegistry", () => {

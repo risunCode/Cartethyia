@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, ApiError } from "../../../lib/api";
 import { toast } from "../../../lib/toast";
+import { qk } from "../../../lib/query-keys";
 import type {
   DbTarget,
   ExecuteResult,
@@ -15,7 +16,7 @@ import type {
 /** Fetch schema for a database target. */
 export function useSchema(db: DbTarget) {
   return useQuery({
-    queryKey: ["db-map", "schema", db],
+    queryKey: qk.dbMap.schema(db),
     queryFn: () => apiGet<SchemaResult>(`/db-map/schema?db=${db}`),
     staleTime: 30_000,
   });
@@ -24,7 +25,7 @@ export function useSchema(db: DbTarget) {
 /** Fetch paginated rows for a table. */
 export function useTableRows(db: DbTarget, table: string | null, limit: number, offset: number) {
   return useQuery({
-    queryKey: ["db-map", "rows", db, table, limit, offset],
+    queryKey: qk.dbMap.rows(db, table, limit, offset),
     queryFn: () => apiGet<TableRowsResult>(`/db-map/tables/${table}/rows?db=${db}&limit=${limit}&offset=${offset}`),
     enabled: table !== null,
     staleTime: 10_000,
@@ -50,8 +51,8 @@ export function useExecuteSql() {
       apiPost<ExecuteResult>(`/db-map/execute?db=${db}`, { sql }),
     onSuccess: (_data, vars) => {
       toast.success(`${_data.changes} row(s) affected in ${_data.durationMs}ms`);
-      qc.invalidateQueries({ queryKey: ["db-map", "schema", vars.db] });
-      qc.invalidateQueries({ queryKey: ["db-map", "rows", vars.db] });
+      qc.invalidateQueries({ queryKey: qk.dbMap.schema(vars.db) });
+      qc.invalidateQueries({ queryKey: qk.dbMap.rowsPrefix(vars.db) });
     },
     onError: (err: ApiError) => {
       toast.error(`Execute failed: ${err.message}`);
@@ -122,8 +123,8 @@ export function useImportDb() {
     },
     onSuccess: (data, vars) => {
       toast.success(data.message ?? "Database imported");
-      qc.invalidateQueries({ queryKey: ["db-map", "schema", vars.db] });
-      qc.invalidateQueries({ queryKey: ["db-map", "rows", vars.db] });
+      qc.invalidateQueries({ queryKey: qk.dbMap.schema(vars.db) });
+      qc.invalidateQueries({ queryKey: qk.dbMap.rowsPrefix(vars.db) });
     },
     onError: (err: ApiError) => {
       toast.error(`Import failed: ${err.message}`);

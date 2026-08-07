@@ -71,26 +71,3 @@ describe("ClinePassOAuthDriver — refresh", () => {
     await expect(driver.refresh({ providerId: "clinepass", accountId: "acc-1", refreshToken: "ref-1" })).rejects.toBeInstanceOf(OAuthDriverError);
   });
 });
-
-describe("ClinePassOAuthDriver — buildHeaders", () => {
-  test("wraps a plain token with the workos: prefix", () => {
-    const driver = new ClinePassOAuthDriver();
-    expect(driver.buildHeaders({ providerId: "clinepass", accountId: null, credential: "abc" })).toEqual({ authorization: "Bearer workos:abc" });
-  });
-
-  test("does not double-prefix an already-prefixed token", () => {
-    const driver = new ClinePassOAuthDriver();
-    expect(driver.buildHeaders({ providerId: "clinepass", accountId: null, credential: "workos:abc" })).toEqual({ authorization: "Bearer workos:abc" });
-  });
-
-  test("extracts accessToken from a JSON credential object", () => {
-    const driver = new ClinePassOAuthDriver();
-    const headers = driver.buildHeaders({ providerId: "clinepass", accountId: null, credential: JSON.stringify({ accessToken: "json-tok" }) });
-    expect(headers.authorization).toBe("Bearer workos:json-tok");
-  });
-
-  test("returns empty headers for an empty credential", () => {
-    const driver = new ClinePassOAuthDriver();
-    expect(driver.buildHeaders({ providerId: "clinepass", accountId: null, credential: "  " })).toEqual({});
-  });
-});

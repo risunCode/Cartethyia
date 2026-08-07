@@ -1,12 +1,12 @@
-import type { AuthContext, OAuthStartInput, OAuthStartResult } from "../contracts";
+import type { OAuthStartInput, OAuthStartResult } from "../contracts";
 
 /**
  * Shared plumbing for provider OAuth drivers.
  *
  * The active `AuthDriver` contract is intentionally thin: token exchange and
- * refresh return a provider-neutral {@link TokenSet}, and the driver exposes a
- * `buildHeaders` hook so a future provider adapter can attach the correct
- * Authorization header without knowing the provider's token quirks.
+ * refresh return a provider-neutral {@link TokenSet}. Providers build their own
+ * wire headers directly from the credential — auth does not leak transport
+ * concerns through the driver contract.
  *
  * Because the contract does not expose transport/fetch injection, every driver
  * below is a *pure driver*: it accepts an injectable `fetch` (with a timeout
@@ -232,9 +232,5 @@ export abstract class AuthorizationCodeDriver {
   }
 
   protected abstract authorizeUrl(): string;
-
-  buildHeaders(_input: AuthContext): Record<string, string> {
-    throw new OAuthDriverError("validation", `${this.providerId} does not declare request headers in its OAuth driver.`, 400, false);
-  }
 }
 

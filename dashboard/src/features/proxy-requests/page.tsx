@@ -10,6 +10,7 @@ import { Activity, Clipboard, Download, FlaskConical, Gauge, Loader2, Network, P
 import { useState } from "react";
 import { toast } from "../../lib/toast";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "../../lib/api";
+import { qk } from "../../lib/query-keys";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Dialog } from "../../components/ui/dialog";
@@ -137,11 +138,11 @@ function parseProxyEntry(entry: string): { readonly body: Record<string, unknown
 
 function ProxyPoolSection() {
   const qc = useQueryClient();
-  const { data: pool, isLoading: poolLoading } = useQuery({ queryKey: ["console", "proxies"], queryFn: () => apiGet<{ items: ProxyRecord[] }>("/proxies?limit=100") });
+  const { data: pool, isLoading: poolLoading } = useQuery({ queryKey: qk.proxies.all, queryFn: () => apiGet<{ items: ProxyRecord[] }>("/proxies?limit=100") });
 
   const activeMutation = useMutation({
     mutationFn: ({ id, active }: { id: string; active: boolean }) => apiPatch<{ ok: boolean }>(`/proxies/${id}`, { active }),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["console", "proxies"] }); },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: qk.proxies.all }); },
     onError: (err) => toast.error(errorMessage(err)),
   });
 
@@ -172,7 +173,7 @@ function ProxyPoolSection() {
         setProxyStatus(proxy.id, status);
         if (notify) toast.error(`${proxy.name}: ${result.error ?? "connection failed"}`);
       }
-      await qc.invalidateQueries({ queryKey: ["console", "proxies"] });
+      await qc.invalidateQueries({ queryKey: qk.proxies.all });
     } catch (err) {
       const message = errorMessage(err);
       setProxyStatus(proxy.id, `Last error: ${message}`);
@@ -219,7 +220,7 @@ function ProxyPoolSection() {
       setSelectedIds(new Set());
       setDeleteSelectedOpen(false);
       toast.success(`Deleted ${targets.length} proxies`);
-      await qc.invalidateQueries({ queryKey: ["console", "proxies"] });
+      await qc.invalidateQueries({ queryKey: qk.proxies.all });
     } catch (err) {
       toast.error(errorMessage(err));
     }
@@ -232,7 +233,7 @@ function ProxyPoolSection() {
       await Promise.all(targets.map((proxy) => apiPatch<{ ok: boolean }>(`/proxies/${proxy.id}`, { active: false })));
       setSelectedIds(new Set());
       toast.success(`Disabled ${targets.length} proxies`);
-      await qc.invalidateQueries({ queryKey: ["console", "proxies"] });
+      await qc.invalidateQueries({ queryKey: qk.proxies.all });
     } catch (err) {
       toast.error(errorMessage(err));
     }
@@ -245,7 +246,7 @@ function ProxyPoolSection() {
       await apiDelete<{ ok: boolean }>(`/proxies/${target.id}`);
       setDeleteTarget(null);
       toast.success(`Deleted ${target.name}`);
-      await qc.invalidateQueries({ queryKey: ["console", "proxies"] });
+      await qc.invalidateQueries({ queryKey: qk.proxies.all });
     } catch (err) {
       toast.error(errorMessage(err));
     }
@@ -401,14 +402,14 @@ function ProxyPoolSection() {
 function RoutingAndExceptionsSection() {
   const qc = useQueryClient();
   const { data: providers, isLoading } = useQuery({
-    queryKey: ["console", "providers-routing"],
+    queryKey: qk.routing.all,
     queryFn: () => apiGet<{ items: ProviderRoutingSummary[] }>("/providers"),
   });
-  const { data: settings } = useQuery({ queryKey: ["console", "proxy-settings"], queryFn: () => apiGet<ProxySettings>("/proxy-settings") });
+  const { data: settings } = useQuery({ queryKey: qk.proxySettings.all, queryFn: () => apiGet<ProxySettings>("/proxy-settings") });
 
   const routingMutation = useMutation({
     mutationFn: ({ id, config }: { id: string; config: { strategy?: string; stickyLimit?: number; useStickyLimit?: boolean } }) => apiPost<{ ok: boolean }>(`/providers/${id}/routing`, config),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["console", "providers-routing"] }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: qk.routing.all }),
     onError: (err) => toast.error(errorMessage(err)),
   });
 
@@ -419,7 +420,7 @@ function RoutingAndExceptionsSection() {
     try {
       const eligible = (providers?.items ?? []).filter((p) => p.authKind !== "none");
       await Promise.all(eligible.map((p) => apiPost<{ ok: boolean }>(`/providers/${p.id}/routing`, { strategy })));
-      await qc.invalidateQueries({ queryKey: ["console", "providers-routing"] });
+      await qc.invalidateQueries({ queryKey: qk.routing.all });
       toast.success(`Strategy set to ${strategy === "priority" ? "Priority (failover)" : "Round-robin"} for ${eligible.length} provider${eligible.length === 1 ? "" : "s"}`);
     } catch (err) {
       toast.error(errorMessage(err));
@@ -433,7 +434,7 @@ function RoutingAndExceptionsSection() {
     try {
       const eligible = (providers?.items ?? []).filter((provider) => provider.authKind !== "none");
       await Promise.all(eligible.map((provider) => apiPost<{ ok: boolean }>(`/providers/${provider.id}/routing`, { useStickyLimit: enabled })));
-      await qc.invalidateQueries({ queryKey: ["console", "providers-routing"] });
+      await qc.invalidateQueries({ queryKey: qk.routing.all });
       toast.success(`Sticky limit ${enabled ? "enabled" : "disabled"} for ${eligible.length} provider${eligible.length === 1 ? "" : "s"}`);
     } catch (err) {
       toast.error(errorMessage(err));
@@ -448,7 +449,7 @@ function RoutingAndExceptionsSection() {
     try {
       const eligible = (providers?.items ?? []).filter((provider) => provider.authKind !== "none");
       await Promise.all(eligible.map((provider) => apiPost<{ ok: boolean }>(`/providers/${provider.id}/routing`, { stickyLimit })));
-      await qc.invalidateQueries({ queryKey: ["console", "providers-routing"] });
+      await qc.invalidateQueries({ queryKey: qk.routing.all });
       toast.success(`Sticky limit set to ${stickyLimit} for ${eligible.length} provider${eligible.length === 1 ? "" : "s"}`);
     } catch (err) {
       toast.error(errorMessage(err));
@@ -702,7 +703,7 @@ function ProxyModal({ open, existing, onClose, onExited }: { open: boolean; exis
       } else {
         toast.success("Proxy updated");
       }
-      void qc.invalidateQueries({ queryKey: ["console", "proxies"] });
+      void qc.invalidateQueries({ queryKey: qk.proxies.all });
       onClose();
     },
     onError: (err) => toast.error(errorMessage(err)),

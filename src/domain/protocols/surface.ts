@@ -1,6 +1,28 @@
 import { isRecord, normalizeChatRequest, normalizeFail, normalizeImageRequest, normalizeMessagesRequest, normalizeResponsesRequest, protocolError, type NormalizeInput, type NormalizeResult, type ProtocolError } from "../protocols";
 import type { ProviderSurface, ProxyEndpoint, RequestLimits } from "../contracts";
 
+/**
+ * Pathname-to-proxy-endpoint lookup: the single source of truth for HTTP
+ * routing. Returns the endpoint + client surface for proxy paths, null for
+ * everything else (console, static, /v1/models, unknown).
+ */
+export function lookupProxyEndpoint(pathname: string): { readonly endpoint: ProxyEndpoint; readonly surface: ProviderSurface } | null {
+  switch (pathname) {
+    case "/v1/chat/completions":
+      return { endpoint: "/v1/chat/completions", surface: "openai-chat" };
+    case "/v1/messages":
+      return { endpoint: "/v1/messages", surface: "anthropic-messages" };
+    case "/v1/responses":
+      return { endpoint: "/v1/responses", surface: "openai-responses" };
+    case "/v1/images/generations":
+      return { endpoint: "/v1/images/generations", surface: "images" };
+    case "/v1/images/edits":
+      return { endpoint: "/v1/images/edits", surface: "images" };
+    default:
+      return null;
+  }
+}
+
 /** Authoritative endpoint-to-surface mapping for this proxy's surfaces. */
 export function detectSurface(endpoint: ProxyEndpoint): ProviderSurface | null {
   switch (endpoint) {

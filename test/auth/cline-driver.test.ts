@@ -150,13 +150,6 @@ describe("ClineOAuthDriver (WorkOS device flow)", () => {
     expect(JSON.parse(call.rawBody)).toEqual({ refreshToken: "refresh-1", grantType: "refresh_token" });
   });
 
-  test("buildHeaders emits a Bearer token from bundle JSON or a raw credential", () => {
-    const driver = new ClineOAuthDriver();
-    expect(driver.buildHeaders({ providerId: "cline", accountId: "a", credential: JSON.stringify({ version: 1, provider: "cline", accessToken: "bundle-access" }) })).toEqual({ authorization: "Bearer workos:bundle-access" });
-    expect(driver.buildHeaders({ providerId: "cline", accountId: "a", credential: "raw-token" })).toEqual({ authorization: "Bearer workos:raw-token" });
-    expect(driver.buildHeaders({ providerId: "cline", accountId: "a", credential: "" })).toEqual({});
-  });
-
   test("has no revoke capability (official SDK has no token revocation endpoint)", () => {
     const driver = new ClineOAuthDriver();
     expect(Object.hasOwn(driver, "revoke")).toBe(false);

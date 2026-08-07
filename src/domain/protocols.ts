@@ -526,5 +526,5 @@ export { normalizeMessagesRequest } from "./protocols/anthropic-messages";
 export { normalizeResponsesRequest } from "./protocols/openai-responses";
 export { normalizeImageRequest } from "./protocols/images";
 export { StreamDecodeError, type StreamDecodeKind } from "./protocols/errors";
-export { detectSurface, normalizeRequest, parseRequestBody } from "./protocols/surface";
+export { detectSurface, lookupProxyEndpoint, normalizeRequest, parseRequestBody } from "./protocols/surface";
 export { readBoundedJson, type JsonBodyResult } from "./protocols/body";

@@ -1,4 +1,4 @@
-import type { AuthContext, AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
+import type { AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
 import { AuthorizationCodeDriver, OAuthDriverError, decodeJwtPayload, nonEmpty, tokenFields, type OAuthDriverOptions } from "./base";
 
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -44,8 +44,7 @@ function codexIdentity(data: Record<string, unknown>, accessToken: string, idTok
  * The access token is an OpenAI auth token whose JWT payload carries the
  * ChatGPT account identity that the Codex Responses transport must pass as
  * `chatgpt-account-id`. `providerAccountId` therefore surfaces that identity
- * so a provider adapter can attach it, and `buildHeaders` carries the Codex
- * wire headers for a follow-on adapter.
+ * so a provider adapter can attach it.
  */
 export class CodexOAuthDriver extends AuthorizationCodeDriver implements AuthDriver {
   protected override get providerId(): string {
@@ -98,19 +97,6 @@ export class CodexOAuthDriver extends AuthorizationCodeDriver implements AuthDri
       "token refresh",
     );
     return this.toTokenSet(data, false);
-  }
-
-  override buildHeaders(input: AuthContext): Record<string, string> {
-    const headers: Record<string, string> = {
-      authorization: `Bearer ${input.credential}`,
-      "openai-beta": "responses=experimental",
-      originator: CODEX_ORIGINATOR,
-      version: CODEX_VERSION,
-      "user-agent": `cartethyia/${CODEX_VERSION}`,
-      accept: "text/event-stream",
-      "content-type": "application/json",
-    };
-    return headers;
   }
 
   private toTokenSet(data: Record<string, unknown>, requireRefresh: boolean): TokenSet {

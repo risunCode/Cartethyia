@@ -1,4 +1,4 @@
-import type { AuthContext, AuthDriver, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
+import type { AuthDriver, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
 import { OAuthDriverError, OAuthHttpClient, type OAuthDriverOptions } from "./base";
 
 /**
@@ -65,10 +65,9 @@ function parseGrokBuildTokenResponse(
 
 /**
  * Grok Build device-code OAuth driver. Implements start/poll/refresh on the
- * standard OAuth2 device-authorization grant (RFC 8628). `buildHeaders`
- * carries the wire headers the Grok Build adapter needs: the official
- * grok-shell User-Agent and `x-xai-token-auth` marker — never a Cartethyia
- * identity.
+ * standard OAuth2 device-authorization grant (RFC 8628). The Grok Build
+ * adapter builds its own wire headers (grok-shell User-Agent and
+ * `x-xai-token-auth` marker — never a Cartethyia identity).
  */
 export class GrokBuildOAuthDriver implements AuthDriver {
   readonly kind = "oauth" as const;
@@ -171,13 +170,5 @@ export class GrokBuildOAuthDriver implements AuthDriver {
       "token refresh",
     );
     return parseGrokBuildTokenResponse(data, "token refresh", this.nowMs(), false, input.refreshToken);
-  }
-
-  buildHeaders(_input: AuthContext): Record<string, string> {
-    return {
-      "content-type": "application/json",
-      accept: "text/event-stream",
-      "x-xai-token-auth": "xai-grok-cli",
-    };
   }
 }

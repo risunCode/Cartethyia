@@ -1,4 +1,4 @@
-import type { AuthContext, AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
+import type { AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
 import { AuthorizationCodeDriver, OAuthDriverError, tokenFields, type OAuthDriverOptions } from "./base";
 
 /**
@@ -168,15 +168,6 @@ export class AntigravityOAuthDriver extends AuthorizationCodeDriver implements A
       refreshToken: fields.refresh ?? input.refreshToken,
       expiresAt: new Date(fields.expiresAtMs).toISOString(),
       scope: typeof data.scope === "string" && data.scope.length > 0 ? data.scope : undefined,
-    };
-  }
-
-  override buildHeaders(input: AuthContext): Record<string, string> {
-    return {
-      authorization: `Bearer ${input.credential}`,
-      "content-type": "application/json",
-      accept: "text/event-stream",
-      "user-agent": "antigravity/hub/2.1.4",
     };
   }
 
