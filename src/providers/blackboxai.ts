@@ -1,6 +1,6 @@
 import { capabilitiesOf, makeNativeAdapter, modelOf, type NativeProviderConfig } from "./shared";
 
-const NATIVE_SURFACES = ["openai-chat"] as const;
+const NATIVE_SURFACES = ["openai-chat", "openai-responses"] as const;
 
 /**
  * Blackbox AI's upstream API expects the full `blackboxai/<vendor>/<model>` id

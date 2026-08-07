@@ -12,7 +12,7 @@ import { buildProxyFetcher } from "../traffic";
 import { ProtocolCodecError } from "../domain/protocols/errors";
 import { fetchWithRedirectPolicy } from "../security/redirect-policy";
 import { assertPublicUrlAtDispatch } from "../security/ssrf-guard";
-import { callChatCompletionsWire } from "../transport/protocols/openai";
+import { callChatCompletionsWire, callResponsesWire } from "../transport/protocols/openai";
 
 /**
  * Shared provider-adapter infrastructure: typed errors, abort coordination
@@ -722,7 +722,7 @@ export function aggregateCapabilities(models: readonly ProviderModel[], fallback
 
 // ---------------------------------------------------------------- native adapter factory
 
-const NATIVE_SURFACES: readonly ProviderSurface[] = ["openai-chat"];
+const NATIVE_SURFACES: readonly ProviderSurface[] = ["openai-chat", "openai-responses"];
 const NATIVE_FALLBACK_CAPABILITIES: ProviderCapabilities = capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true });
 
 export interface NativeProviderConfig {
@@ -807,6 +807,7 @@ export function makeNativeAdapter(config: NativeProviderConfig): ProviderAdapter
       };
       if (auth === "bearer" && credential.length > 0) headers.authorization = `Bearer ${credential}`;
       else if (auth === "x-api-key" && credential.length > 0) headers["x-api-key"] = credential;
+      if (input.target.surface === "openai-responses") return callResponsesWire(input, baseUrl, headers);
       return callChatCompletionsWire(input, baseUrl, headers);
     },
     async countTokens(_input: TokenCountInput): Promise<ContextStats> {

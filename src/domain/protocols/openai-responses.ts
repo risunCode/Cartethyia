@@ -33,7 +33,7 @@ import {
   type NormalizeResult,
   type ProtocolError,
 } from "../protocols";
-import type { ContentBlock, ImageReference, NormalizedMessage, NormalizedProviderRequest, NormalizedTool } from "../contracts";
+import type { ContentBlock, ImageReference, NormalizedMessage, NormalizedProviderRequest, NormalizedTool, ReasoningConfig, ReasoningEffort, ReasoningSummary } from "../contracts";
 
 export function normalizeResponsesRequest(body: unknown, input: NormalizeInput): NormalizeResult {
   const aborted = abortedError(input.signal);
@@ -68,7 +68,10 @@ export function normalizeResponsesRequest(body: unknown, input: NormalizeInput):
   const tools = normalizeTools(root["tools"]);
   if (isProtocolError(tools)) return normalizeFail(tools);
 
-  const finalReasoning = reasoningState.seen ? "enabled" : reasoning;
+  const include = normalizeInclude(root["include"]);
+  if (isProtocolError(include)) return normalizeFail(include);
+
+  const finalReasoning = reasoningState.seen ? "enabled" : reasoning.flag;
 
   return normalizeOk({
     model,
@@ -77,6 +80,8 @@ export function normalizeResponsesRequest(body: unknown, input: NormalizeInput):
     stream,
     responseFormat,
     reasoning: finalReasoning,
+    reasoningConfig: reasoning.config,
+    include,
     maxOutputTokens,
     images,
     sourceSurface: "openai-responses",
@@ -106,14 +111,53 @@ function normalizeResponseFormat(raw: unknown): NormalizedProviderRequest["respo
   return protocolError("text.format.type", 'text.format.type: expected "text", "json_object", or "json_schema"');
 }
 
-function normalizeReasoning(raw: unknown): "enabled" | "disabled" | "default" | ProtocolError {
-  if (raw === undefined || raw === null) return "default";
+function normalizeReasoning(raw: unknown): { flag: "enabled" | "disabled" | "default"; config: ReasoningConfig | undefined } | ProtocolError {
+  if (raw === undefined || raw === null) return { flag: "default", config: undefined };
   const obj = narrowObject(raw, "reasoning");
   if (isProtocolError(obj)) return obj;
-  if (obj["enabled"] === false) return "disabled";
-  if (obj["enabled"] === true) return "enabled";
-  if (typeof obj["effort"] === "string" && obj["effort"] !== "") return "enabled";
-  return "default";
+  const enabled = obj["enabled"];
+  if (enabled === false) return { flag: "disabled", config: { enabled: false } };
+  const config: { effort?: ReasoningEffort; maxTokens?: number; exclude?: boolean; enabled?: boolean; summary?: ReasoningSummary } = {};
+  const effortRaw = obj["effort"];
+  if (typeof effortRaw === "string" && effortRaw !== "") {
+    const effort = REASONING_EFFORTS.includes(effortRaw as ReasoningEffort) ? (effortRaw as ReasoningEffort) : null;
+    if (effort === null) return protocolError("reasoning.effort", `reasoning.effort: unsupported value "${effortRaw}"`);
+    config.effort = effort;
+  }
+  const summaryRaw = obj["summary"];
+  if (summaryRaw !== undefined && summaryRaw !== null) {
+    if (typeof summaryRaw !== "string") return protocolError("reasoning.summary", "reasoning.summary: expected a string");
+    const summary = REASONING_SUMMARIES.includes(summaryRaw as ReasoningSummary) ? (summaryRaw as ReasoningSummary) : null;
+    if (summary === null) return protocolError("reasoning.summary", `reasoning.summary: unsupported value "${summaryRaw}"`);
+    config.summary = summary;
+  }
+  const maxTokensRaw = obj["max_tokens"];
+  if (maxTokensRaw !== undefined && maxTokensRaw !== null) {
+    const maxTokens = narrowNumber(maxTokensRaw, "reasoning.max_tokens", { integer: true, min: 0, max: MAX_OUTPUT_TOKENS });
+    if (isProtocolError(maxTokens)) return maxTokens;
+    config.maxTokens = maxTokens;
+  }
+  if (typeof obj["exclude"] === "boolean") config.exclude = obj["exclude"];
+  if (enabled === true) config.enabled = true;
+  const flag = config.effort !== undefined || config.enabled === true || config.maxTokens !== undefined ? "enabled" : "default";
+  return { flag, config: Object.keys(config).length > 0 ? config : undefined };
+}
+
+const REASONING_EFFORTS: readonly string[] = ["xhigh", "high", "medium", "low", "minimal", "none"];
+const REASONING_SUMMARIES: readonly string[] = ["auto", "concise", "detailed"];
+
+/** Normalizes the Responses `include` array (e.g. `reasoning.encrypted_content`). */
+function normalizeInclude(raw: unknown): readonly string[] | ProtocolError {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) return protocolError("include", "include: expected an array of strings");
+  const items: string[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    if (typeof item !== "string" || item.length === 0) return protocolError(`include[${i}]`, "include: expected a non-empty string");
+    if (item.length > 128) return protocolError(`include[${i}]`, `include[${i}]: exceeds maximum length of 128 characters`);
+    if (!items.includes(item)) items.push(item);
+  }
+  return items;
 }
 
 function normalizeMaxOutputTokens(raw: unknown): number | null | ProtocolError {
@@ -304,8 +348,30 @@ export function buildResponsesPayload(request: NormalizedProviderRequest): Recor
   if (request.maxOutputTokens !== null) payload.max_output_tokens = request.maxOutputTokens;
   if (request.cacheKey !== undefined) payload.prompt_cache_key = request.cacheKey;
   if (request.responseFormat !== "text") payload.text = { format: { type: "json_object" } };
-  if (request.reasoning === "enabled") payload.reasoning = { effort: "medium" };
+  if (request.reasoning === "enabled" || request.reasoningConfig !== undefined) {
+    payload.reasoning = buildReasoningWire(request.reasoning, request.reasoningConfig);
+  }
+  if (request.include !== undefined && request.include.length > 0) payload.include = [...request.include];
   return payload;
+}
+
+/**
+ * Builds the `reasoning` wire object, preserving any structured effort,
+ * summary, maxTokens, exclude, or enabled flag captured during normalization.
+ * Falls back to `{ effort: "medium" }` when reasoning is enabled but no
+ * structured config was supplied (the original behavior).
+ */
+function buildReasoningWire(flag: "enabled" | "disabled" | "default", config: ReasoningConfig | undefined): Record<string, unknown> {
+  if (config !== undefined) {
+    const wire: Record<string, unknown> = {};
+    if (config.effort !== undefined) wire.effort = config.effort;
+    if (config.summary !== undefined) wire.summary = config.summary;
+    if (config.maxTokens !== undefined) wire.max_tokens = config.maxTokens;
+    if (config.exclude !== undefined) wire.exclude = config.exclude;
+    if (config.enabled !== undefined) wire.enabled = config.enabled;
+    return Object.keys(wire).length > 0 ? wire : { effort: "medium" };
+  }
+  return flag === "enabled" ? { effort: "medium" } : { enabled: false };
 }
 
 function toResponsesItem(message: NormalizedMessage): readonly Record<string, unknown>[] {

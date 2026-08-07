@@ -338,6 +338,15 @@ export interface NormalizedProviderRequest {
   readonly stream: boolean;
   readonly responseFormat: "text" | "json_object" | "json_schema";
   readonly reasoning: "enabled" | "disabled" | "default";
+  /**
+   * Structured reasoning controls forwarded to OpenAI Responses-style upstreams.
+   * Populated from the `reasoning` object (`effort`/`summary`) and the
+   * `include` array on `/v1/responses`; carries effort level, summary mode,
+   * and include flags so reasoning-capable models can surface their thinking.
+   */
+  readonly reasoningConfig?: ReasoningConfig;
+  /** Items to include alongside the response (e.g. `reasoning.encrypted_content`). */
+  readonly include?: readonly string[];
   readonly maxOutputTokens: number | null;
   readonly images: readonly ImageReference[];
   readonly imageOperation?: "generate" | "edit";
@@ -347,6 +356,20 @@ export interface NormalizedProviderRequest {
   readonly cacheKey?: string;
   /** Client-supplied Claude Code metadata.user_id, when present. */
   readonly metadataUserId?: string;
+}
+
+/** Effort levels supported by OpenAI reasoning models (o/o-series, GPT-5 series) and Grok. */
+export type ReasoningEffort = "xhigh" | "high" | "medium" | "low" | "minimal" | "none";
+
+/** Summary verbosity accepted by `reasoning.summary` on the Responses wire. */
+export type ReasoningSummary = "auto" | "concise" | "detailed";
+
+export interface ReasoningConfig {
+  readonly effort?: ReasoningEffort;
+  readonly maxTokens?: number;
+  readonly exclude?: boolean;
+  readonly enabled?: boolean;
+  readonly summary?: ReasoningSummary;
 }
 
 export interface RunProxyRequestInput {
