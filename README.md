@@ -34,7 +34,7 @@ A self-hosted Bun + Elysia AI proxy with an authenticated web console. Accepts O
 
 | Category | Providers |
 | --- | --- |
-| **OAuth** | Claude Code (Anthropic OAuth), Codex, Cline, Cline Pass, Google Antigravity, Grok Build, Kiro (AWS Builder ID) |
+| **OAuth** | Claude Code (Anthropic OAuth), Codex, Cline, Cline Pass, Antigravity, Grok Build, Kiro (AWS Builder ID) |
 | **API-key** | OpenAI, Anthropic, Gemini, Cloudflare Workers AI, Groq, Alibaba Cloud / DashScope, Fireworks AI, DeepSeek, Ollama Cloud, Mistral, SiliconFlow, Cerebras, NVIDIA NIM, Blackbox AI, OpenRouter, OpenCode Free, OpenCode Zen, OpenCode Go, Xiaomi MiMo (PAYG + Token Plan), CodeBuddy, CodeBuddy CN, Exa |
 | **Compatible** | AgentRouter, Command Code, Qoder, Kimchi |
 | **Custom** | Console-managed OpenAI-compatible and Anthropic-compatible endpoints with custom headers, model metadata, and `<slug>/<model>` routing |
@@ -92,6 +92,7 @@ Set `CONSOLE_PASSWORD` and `BOOTSTRAP_PROXY_API_KEY` in `.env` for local use.
 | `POST` | `/v1/responses` | OpenAI Responses |
 | `POST` | `/v1/messages` | Anthropic Messages |
 | `POST` | `/v1/images/generations` | OpenAI-compatible image generation |
+| `POST` | `/v1/images/edits` | OpenAI-compatible image editing (multipart or JSON) |
 | `GET` | `/v1/models` | Routeable models, router aliases, and combos for the authenticated API key |
 | `GET` | `/health` | Liveness check |
 
@@ -179,9 +180,7 @@ src/app/                  Routing, failover, recovery sweep, limits, orchestrati
 dashboard/src/            React authenticated console
 ```
 
-Detailed engineering rules and conventions are in [`AGENTS.md`](./AGENTS.md). Release history and migration notes are in [`CHANGELOG.md`](./CHANGELOG.md).
-
-`src.old/` is retained as a read-only migration reference and is excluded from the active build.
+Release history and migration notes are in [`CHANGELOG.md`](./CHANGELOG.md).
 
 ## Credits
 
