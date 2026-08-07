@@ -1,4 +1,4 @@
-import { capabilitiesOf, makeNativeAdapter, modelOf, type NativeProviderConfig } from "./shared";
+import { capabilitiesOf, makeOpenAIAdapter, modelOf, type OpenAIAdapterConfig } from "./shared";
 
 const NATIVE_SURFACES = ["openai-chat"] as const;
 
@@ -11,6 +11,6 @@ export const cerebrasConfig = {
     modelOf("llama-3.3-70b", "Llama 3.3 70B", capabilitiesOf({ surfaces: NATIVE_SURFACES })),
     modelOf("llama-4-scout-17b-16e-instruct", "Llama 4 Scout", capabilitiesOf({ surfaces: NATIVE_SURFACES })),
   ],
-} as const satisfies NativeProviderConfig;
+} as const satisfies OpenAIAdapterConfig;
 
-export const CerebrasAdapter = makeNativeAdapter(cerebrasConfig);
+export const CerebrasAdapter = makeOpenAIAdapter(cerebrasConfig);

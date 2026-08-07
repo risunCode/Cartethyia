@@ -19,7 +19,6 @@ import {
   Check,
   Rocket,
   Settings,
-  Activity,
   Coins,
   Database,
   Filter,
@@ -179,14 +178,12 @@ const ADVANCED_NAV_GROUPS: { label: string; items: NavEntry[]; soon?: boolean }[
   {
     label: "System",
     items: [
-      { to: "/system-monitoring", label: "System Monitoring", icon: Activity },
       { to: "/advanced/db-map", label: "Database Map", icon: Database },
     ],
   },
   {
     label: "Tools",
     items: [
-      { to: "/multi-warp", label: "Multi Warp", icon: Globe },
       { to: "/advanced/automation", label: "Automation", icon: Workflow, badge: "Soon" },
     ],
   },
@@ -210,11 +207,6 @@ const TITLES: Record<string, { title: string; sub: string; mobileSub: string }> 
   "/advanced/cli-tools": { title: "CLI Tools", sub: "Configure CLI tools for terminal access", mobileSub: "CLI config" },
   "/advanced/cli-tools/:toolId": { title: "CLI Tool", sub: "Tool configuration", mobileSub: "Tool config" },
   "/settings": { title: "Settings", sub: "Security, backup, runtime toggles", mobileSub: "Security & runtime" },
-  // Advanced page 2
-  "/system-monitoring": { title: "System Monitoring", sub: "Request monitoring, IP tracking, and IP ban controls", mobileSub: "Monitoring" },
-  "/multi-warp": { title: "Multi Warp", sub: "Cloudflare Warp endpoint management", mobileSub: "Warp endpoints" },
-  "/advanced/automation": { title: "Automation", sub: "Scheduled tasks and workflow triggers", mobileSub: "Automation" },
-  "/advanced/db-map": { title: "Database Map", sub: "Browse, query, export, and import SQLite databases", mobileSub: "DB browser" },
 };
 
 /**
@@ -666,7 +658,7 @@ export function AppShell() {
                         key={item.label}
                         type="button"
                         onClick={() => switchSidebarPage(item.switchTo!)}
-                        className="relative flex min-w-0 items-center gap-2.5 rounded-[11px] px-2.5 py-[9px] text-[13.5px] font-medium text-[var(--text-2)] transition-[background-color,color,transform] duration-150 hover:bg-[var(--hover)] hover:text-[var(--text-1)] active:scale-[0.98]"
+                        className="relative flex w-full min-w-0 items-center gap-2.5 rounded-[11px] px-2.5 py-[9px] text-[13.5px] font-medium text-[var(--text-2)] transition-[background-color,color,transform] duration-150 hover:bg-[var(--hover)] hover:text-[var(--text-1)] active:scale-[0.98]"
                       >
                         <item.icon size={18} className="relative shrink-0" />
                         <span className="relative">{item.label}</span>
@@ -678,7 +670,7 @@ export function AppShell() {
                         to={item.to}
                         className={({ isActive }) =>
                           cn(
-                            "relative flex min-w-0 items-center gap-2.5 rounded-[11px] px-2.5 py-[9px] text-[13.5px] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.98]",
+                            "relative flex w-full min-w-0 items-center gap-2.5 rounded-[11px] px-2.5 py-[9px] text-[13.5px] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.98]",
                             isActive ? "font-semibold text-[var(--text-1)]" : "text-[var(--text-2)] hover:bg-[var(--hover)] hover:text-[var(--text-1)]"
                           )
                         }
@@ -719,7 +711,7 @@ export function AppShell() {
               <button
                 type="button"
                 onClick={() => switchSidebarPage(0)}
-                className="relative flex min-w-0 items-center gap-2.5 rounded-[11px] px-2.5 py-[9px] text-[13.5px] font-medium text-[var(--text-2)] transition-[background-color,color,transform] duration-150 hover:bg-[var(--hover)] hover:text-[var(--text-1)] active:scale-[0.98]"
+                className="relative flex w-full min-w-0 items-center gap-2.5 rounded-[11px] px-2.5 py-[9px] text-[13.5px] font-medium text-[var(--text-2)] transition-[background-color,color,transform] duration-150 hover:bg-[var(--hover)] hover:text-[var(--text-1)] active:scale-[0.98]"
               >
                 <ChevronLeft size={18} className="relative shrink-0" />
                 <span className="relative">Back to Main</span>
@@ -739,7 +731,7 @@ export function AppShell() {
                       end={item.to === "/advanced"}
                       className={({ isActive }) =>
                         cn(
-                          "relative flex min-w-0 items-center gap-2.5 rounded-[11px] px-2.5 py-[9px] text-[13.5px] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.98]",
+                          "relative flex w-full min-w-0 items-center gap-2.5 rounded-[11px] px-2.5 py-[9px] text-[13.5px] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.98]",
                           isActive ? "font-semibold text-[var(--text-1)]" : "text-[var(--text-2)] hover:bg-[var(--hover)] hover:text-[var(--text-1)]"
                         )
                       }

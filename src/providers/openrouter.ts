@@ -1,10 +1,10 @@
-import { makeNativeAdapter, type NativeProviderConfig } from "./shared";
+import { makeOpenAIAdapter, type OpenAIAdapterConfig } from "./shared";
 
 export const openrouterConfig = {
   id: "openrouter",
   displayName: "OpenRouter",
   baseUrl: "https://openrouter.ai/api/v1",
   credentialKind: "api_key",
-} as const satisfies NativeProviderConfig;
+} as const satisfies OpenAIAdapterConfig;
 
-export const OpenRouterAdapter = makeNativeAdapter(openrouterConfig);
+export const OpenRouterAdapter = makeOpenAIAdapter(openrouterConfig);

@@ -1,4 +1,4 @@
-import type { ContentBlock, NormalizedProviderRequest, NormalizedMessage, NormalizedTool } from "./contracts";
+import type { ContentBlock, ProxyRequest, NormalizedMessage, NormalizedTool } from "./contracts";
 
 /** Active filter rule as resolved for the request pipeline. */
 export interface ResolvedFilterRule {
@@ -26,7 +26,7 @@ export interface FilterRuleConfig {
  * the token-saver boundary: the pipeline applies it after normalization and
  * before cache/token-saver planning.
  */
-export function applyFilterRules(request: NormalizedProviderRequest, config: FilterRuleConfig): NormalizedProviderRequest {
+export function applyFilterRules(request: ProxyRequest, config: FilterRuleConfig): ProxyRequest {
   if (!config.enabled || config.rules.length === 0 || request.messages.length === 0) return request;
 
   const hasText = request.messages.some((message) =>

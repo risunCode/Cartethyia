@@ -1,8 +1,8 @@
 import { createCleanupStack, sanitizeMessage, deriveErrorSource, type ProviderCallError } from "../domain/contracts";
 import type { PresentedProxyResponse } from "../domain/contracts";
-import type { ProviderAdapter, ProviderOutput, ProviderSurface, ProviderUsage, RouteTarget } from "../domain/contracts";
+import type { Adapter, ProviderOutput, Surface, ProviderUsage, RouteTarget } from "../domain/contracts";
 import type { AccountCandidate, AffinityKey, RouteCandidate, RouteSwitch } from "../domain/contracts";
-import type { NormalizedProviderRequest, RunProxyRequestInput } from "../domain/contracts";
+import type { ProxyRequest, RunProxyRequestInput } from "../domain/contracts";
 import { detectClient } from "../domain/contracts";
 import type { ClientIdentity } from "../domain/contracts";
 import type { RequestTelemetryHandle, TelemetryWriter } from "../domain/contracts";
@@ -15,7 +15,7 @@ import { beginProviderInFlight, decrementInFlight, endProviderInFlight, incremen
 import { ApiKeyAdmission, estimateRequestTokens, type AdmissionLease, type AdmissionUsage } from "../traffic/admission";
 import type { ApiKeyPublic } from "../storage";
 import { isProviderCallError, recoverCall } from "./recovery";
-import { translateNonStreamResponse, wireSurfaceFor } from "../domain/protocols/translation";
+import { translateBody, resolveWireSurface } from "../domain/protocols/translation";
 import { writeErrorResponse, writeResponse } from "./response";
 import { applyTokenSaver, type TokenSaverConfig } from "../domain/token-saver";
 import { applyFilterRules, type FilterRuleConfig } from "../domain/filter-rules";
@@ -51,11 +51,11 @@ export interface ProxyRequestLogEvent {
 }
 
 export interface ProxyRequestDependencies {
-  readonly providers: { get(providerId: string): ProviderAdapter | undefined };
+  readonly providers: { get(providerId: string): Adapter | undefined };
   readonly accounts: CredentialSelector;
   readonly network: NetworkSelector;
   readonly telemetry: TelemetryWriter;
-  readonly resolveRoutes: (request: NormalizedProviderRequest, affinity: AffinityKey) => Promise<ProxyRoutePlan>;
+  readonly resolveRoutes: (request: ProxyRequest, affinity: AffinityKey) => Promise<ProxyRoutePlan>;
   readonly accountCandidates: (providerId: string) => Promise<readonly AccountCandidate[]>;
   readonly getProviderRouting?: (providerId: string) => { readonly strategy: "priority" | "round-robin"; readonly stickyLimit: number; readonly useStickyLimit: boolean };
   readonly onRouteFailure?: (candidate: RouteCandidate, error: ProviderCallError, selected: RouteAttemptSelection | null) => Promise<void>;
@@ -95,11 +95,11 @@ const BLACKBOX_FORCE_RESPONSES_MODELS: Record<string, true> = {
 };
 
 function selectWireSurface(
-  adapter: ProviderAdapter,
+  adapter: Adapter,
   candidate: RouteCandidate,
-  request: NormalizedProviderRequest,
-): ProviderSurface | null {
-  const resolved = wireSurfaceFor(adapter.metadata, adapter.capabilities, request.sourceSurface);
+  request: ProxyRequest,
+): Surface | null {
+  const resolved = resolveWireSurface(adapter.metadata, adapter.capabilities, request.sourceSurface);
   if (resolved === null) return null;
   if (adapter.metadata.id !== "blackboxai") return resolved;
   if (request.sourceSurface !== "openai-chat") return resolved;
@@ -156,7 +156,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
   let admissionLease: AdmissionLease | null = null;
   let admissionSettled = false;
   let admissionEstimate = 0;
-  let normalizedRequest: NormalizedProviderRequest | undefined;
+  let normalizedRequest: ProxyRequest | undefined;
   let resolvedPlan: ProxyRoutePlan | undefined;
   let streamHandedOff = false;
   const settleAdmission = (usage: AdmissionUsage | null): void => {
@@ -331,7 +331,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
         if (output.mode === "non_stream" && target.surface !== currentRequest.sourceSurface) {
           return {
             ...output,
-            body: translateNonStreamResponse(output.body, adapter.metadata.protocol, target.surface, currentRequest.sourceSurface),
+            body: translateBody(output.body, adapter.metadata.protocol, target.surface, currentRequest.sourceSurface),
           };
         }
         return output;

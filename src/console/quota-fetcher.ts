@@ -1,6 +1,6 @@
 import { exchangeQoderPat, fetchQoderUsage } from "../providers/qoder";
 import type { OAuthTokenRecord } from "../auth/credentials";
-import { claudeCodeOAuthBetas } from "../providers/claude-code-fingerprint";
+import { claudeCodeOAuthBetas } from "../providers/claude-code";
 import type { AccountQuotaWindowView } from "./services";
 
 export interface ProviderQuotaResult {

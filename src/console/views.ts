@@ -9,7 +9,7 @@
  * Extracted from `services.ts` so each concern owns its own file.
  */
 
-import type { CredentialKind, ModelMetadata, ProviderModel, ProviderSurface, RoutingPreset, UsageDimension, UsagePeriod } from "../domain/contracts";
+import type { CredentialKind, ModelMetadata, ProviderModel, Surface, RoutingPreset, UsageDimension, UsagePeriod } from "../domain/contracts";
 import type { RouteHealth, RouteScope, RouteSwitch } from "../domain/contracts";
 import type { ModelMetadataResolver, ResolvedModelMetadata } from "../domain/model-metadata";
 import type { ChartBucket, ModelTokenTotalsRow, UsageByRow, UsageCacheSummary } from "../storage";
@@ -251,7 +251,7 @@ export interface ProviderSummaryView {
   readonly credentialKind: CredentialKind;
   readonly credentialKinds: readonly CredentialKind[];
   readonly credentialUrl: string | null;
-  readonly surfaces: readonly ProviderSurface[];
+  readonly surfaces: readonly Surface[];
   readonly enabled: boolean;
   readonly custom: boolean;
 }

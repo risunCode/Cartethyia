@@ -3,14 +3,14 @@ import { callHostedImageWire, createResponsesMapper } from "../transport/protoco
 import { buildResponsesPayload, mapResponsesUsage } from "../domain/protocols/openai-responses";
 import type {
   ContextStats,
-  ProviderAdapter,
-  ProviderCapabilities,
-  ProviderMetadata,
+  Adapter,
+  ProviderCaps,
+  ProviderMeta,
   ProviderModel,
   ProviderModelCatalog,
   ProviderOutput,
   ProviderRequest,
-  ProviderSurface,
+  Surface,
   RouteTarget,
   TokenCountInput,
 } from "../domain/contracts";
@@ -26,7 +26,7 @@ import type { ProviderCallError } from "../domain/contracts";
  * from the access-token JWT so no out-of-band account metadata is required.
  */
 
-const CODEX_SURFACES: readonly ProviderSurface[] = ["openai-chat", "images"];
+const CODEX_SURFACES: readonly Surface[] = ["openai-chat", "images"];
 const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 const CODEX_VERSION = "0.144.1";
 const CODEX_ORIGINATOR = "pi";
@@ -45,7 +45,7 @@ const CODEX_MODELS: readonly ProviderModel[] = [
   modelOf("gpt-5.3-image", "GPT 5.3 Image", capabilitiesOf({ surfaces: ["images"], images: true })),
 ];
 
-const CODEX_FALLBACK_CAPABILITIES: ProviderCapabilities = capabilitiesOf({ surfaces: CODEX_SURFACES, reasoning: true, images: true });
+const CODEX_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: CODEX_SURFACES, reasoning: true, images: true });
 
 function base64Decode(value: string): string {
   const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -78,17 +78,17 @@ function codexAccountId(accessToken: string): string | null {
 }
 
 /** Codex is the OAuth-gated ChatGPT Codex Responses transport. */
-export class CodexAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata = {
+export class CodexAdapter implements Adapter {
+  readonly metadata: ProviderMeta = {
     id: "codex",
     displayName: "Codex ChatGPT",
     protocol: "openai",
     credentialKind: "oauth",
   };
   readonly models: ProviderModelCatalog = createModelCatalog(CODEX_MODELS);
-  readonly capabilities: ProviderCapabilities = { ...CODEX_FALLBACK_CAPABILITIES, streaming: true };
+  readonly capabilities: ProviderCaps = { ...CODEX_FALLBACK_CAPABILITIES, streaming: true };
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${surface}"`, statusCode: 400, routeScope: null });
     }

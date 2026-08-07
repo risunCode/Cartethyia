@@ -1,4 +1,4 @@
-import { capabilitiesOf, makeNativeAdapter, modelOf, type NativeProviderConfig } from "./shared";
+import { capabilitiesOf, makeOpenAIAdapter, modelOf, type OpenAIAdapterConfig } from "./shared";
 
 const NATIVE_SURFACES = ["openai-chat"] as const;
 
@@ -19,6 +19,6 @@ export const opencodegoConfig = {
     modelOf("deepseek-v4-flash", "DeepSeek V4 Flash", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
     modelOf("hy3", "HY3", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
   ],
-} as const satisfies NativeProviderConfig;
+} as const satisfies OpenAIAdapterConfig;
 
-export const OpenCodeGoAdapter = makeNativeAdapter(opencodegoConfig);
+export const OpenCodeGoAdapter = makeOpenAIAdapter(opencodegoConfig);

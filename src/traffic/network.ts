@@ -571,7 +571,10 @@ function socks5Fetcher(proxy: ProxyTarget): ProxyFetcher {
             responseHeaders.set(key, value);
           }
         }
-        resolve(new Response(Readable.toWeb(response) as ReadableStream<Uint8Array>, { status: response.statusCode ?? 502, headers: responseHeaders }));
+        // IncomingMessage extends Readable; Readable.toWeb converts it to a
+        // web ReadableStream at runtime. The cast bypasses a @types/node
+        // AsyncIterator/AsyncIterableIterator variance mismatch.
+        resolve(new Response(Readable.toWeb(response as never) as ReadableStream<Uint8Array>, { status: response.statusCode ?? 502, headers: responseHeaders }));
       },
     );
     req.on("error", reject);

@@ -3,20 +3,48 @@ import { createAnthropicMapper } from "../transport/protocols/anthropic";
 import { buildMessagesPayload, mapAnthropicUsage } from "../domain/protocols/anthropic-messages";
 import type {
   ContextStats,
-  ProviderAdapter,
-  ProviderCapabilities,
-  ProviderMetadata,
+  Adapter,
+  ProviderCaps,
+  ProviderMeta,
   ProviderModel,
   ProviderModelCatalog,
   ProviderOutput,
   ProviderRequest,
-  ProviderSurface,
+  Surface,
   RouteTarget,
   TokenCountInput,
 } from "../domain/contracts";
 import type { ProviderCallError } from "../domain/contracts";
 import { createHash } from "node:crypto";
-import { CLAUDE_CODE_MAX_OUTPUT_TOKENS, claudeAgentSdkVersion, claudeBillingHeaderPrefix, claudeCchPlaceholder, claudeCchSeed, claudeClientVersion, claudeCodeOAuthBetas, claudeCodeSystemInstruction, claudeCodeVersion, claudeToolPrefix } from "./claude-code-fingerprint";
+
+/**
+ * Claude Code compatibility constants kept in a leaf module. This avoids an
+ * import cycle between the provider, OAuth driver, and registry.
+ *
+ * These constants describe the supported OAuth wire contract. Cartethyia does
+ * not invent a User-Agent; an incoming Claude Code User-Agent is forwarded
+ * only by the Claude adapter when the client actually supplied one.
+ */
+const claudeCodeVersion = "2.1.165";
+const claudeAgentSdkVersion = "0.3.165";
+const claudeClientVersion = "1.11187.4";
+const claudeBillingHeaderPrefix = "x-anthropic-billing-header:";
+const claudeCchPlaceholder = "cch=00000";
+const claudeCchSeed = 0x4d659218e32a3268n;
+const claudeCodeSystemInstruction = "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
+const claudeToolPrefix = "_";
+const CLAUDE_CODE_MAX_OUTPUT_TOKENS = 64000;
+export const claudeCodeOAuthBetas = [
+  "claude-code-20250219",
+  "oauth-2025-04-20",
+  "interleaved-thinking-2025-05-14",
+  "context-management-2025-06-27",
+  "prompt-caching-scope-2026-01-05",
+  "mid-conversation-system-2026-04-07",
+  "advanced-tool-use-2025-11-20",
+  "effort-2025-11-24",
+  "extended-cache-ttl-2025-04-11",
+] as const;
 
 /**
  * Anthropic OAuth — the "Claude Code" surface. Same Anthropic Messages wire
@@ -26,7 +54,7 @@ import { CLAUDE_CODE_MAX_OUTPUT_TOKENS, claudeAgentSdkVersion, claudeBillingHead
  * and x-app: cli).
  */
 
-const ANTHROPIC_OAUTH_SURFACES: readonly ProviderSurface[] = ["anthropic-messages"];
+const ANTHROPIC_OAUTH_SURFACES: readonly Surface[] = ["anthropic-messages"];
 const ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
 const ANTHROPIC_OAUTH_VERSION = "2023-06-01";
 const ANTHROPIC_BUILTIN_TOOLS = new Set(["web_search", "code_execution", "text_editor", "computer"]);
@@ -37,7 +65,7 @@ const ANTHROPIC_OAUTH_MODELS: readonly ProviderModel[] = [
   modelOf("claude-haiku-4-5", "Claude Haiku 4.5", capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, images: true, explicitCache: true, promptCacheKey: true })),
 ];
 
-const ANTHROPIC_OAUTH_FALLBACK_CAPABILITIES: ProviderCapabilities = capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, reasoning: true, images: true, explicitCache: true, promptCacheKey: true });
+const ANTHROPIC_OAUTH_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, reasoning: true, images: true, explicitCache: true, promptCacheKey: true });
 
 function isClaudeMetadataUserId(value: string): boolean {
   if (/^user_[0-9a-f]{64}_account_[0-9a-f-]{36}_session_[0-9a-f-]{36}$/i.test(value)) return true;
@@ -107,17 +135,17 @@ function applyClaudeCodeCompatibility(payload: Record<string, unknown>, input: P
 }
 
 /** Claude Code is the OAuth-authenticated Anthropic Messages surface. */
-export class AnthropicOAuthAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata = {
+export class AnthropicOAuthAdapter implements Adapter {
+  readonly metadata: ProviderMeta = {
     id: "claude",
     displayName: "Claude Code",
     protocol: "anthropic",
     credentialKind: "oauth",
   };
   readonly models: ProviderModelCatalog = createModelCatalog(ANTHROPIC_OAUTH_MODELS);
-  readonly capabilities: ProviderCapabilities = { ...ANTHROPIC_OAUTH_FALLBACK_CAPABILITIES, streaming: true };
+  readonly capabilities: ProviderCaps = { ...ANTHROPIC_OAUTH_FALLBACK_CAPABILITIES, streaming: true };
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${surface}"`, statusCode: 400, routeScope: null });
     }

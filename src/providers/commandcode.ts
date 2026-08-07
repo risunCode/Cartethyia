@@ -1,14 +1,14 @@
 import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, isRecord, lineLimit, mapSseStream, messageText, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "./shared";
 import type {
   ContextStats,
-  ProviderAdapter,
-  ProviderCapabilities,
-  ProviderMetadata,
+  Adapter,
+  ProviderCaps,
+  ProviderMeta,
   ProviderModel,
   ProviderModelCatalog,
   ProviderOutput,
   ProviderRequest,
-  ProviderSurface,
+  Surface,
   RouteTarget,
   StreamEvent,
   StopReason,
@@ -25,7 +25,7 @@ import type { NormalizedMessage } from "../domain/contracts";
  * and decodes the NDJSON delta/finish events into canonical stream events.
  */
 
-const COMMANDCODE_SURFACES: readonly ProviderSurface[] = ["openai-chat"];
+const COMMANDCODE_SURFACES: readonly Surface[] = ["openai-chat"];
 const COMMANDCODE_URL = "https://api.commandcode.ai/alpha/generate";
 const COMMANDCODE_VERSION = "1.4.4";
 const DEFAULT_MAX_TOKENS = 4096;
@@ -49,7 +49,7 @@ const COMMANDCODE_MODELS: readonly ProviderModel[] = [
   modelOf("nvidia/nemotron-3-ultra-550b-a55b", "Nemotron 3 Ultra", capabilitiesOf({ surfaces: COMMANDCODE_SURFACES, reasoning: true, images: true })),
 ];
 
-const COMMANDCODE_FALLBACK_CAPABILITIES: ProviderCapabilities = capabilitiesOf({ surfaces: COMMANDCODE_SURFACES, reasoning: true, images: true });
+const COMMANDCODE_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: COMMANDCODE_SURFACES, reasoning: true, images: true });
 
 
 function convertMessages(messages: readonly NormalizedMessage[]): { messages: Array<{ role: "user" | "assistant" | "tool"; content: Array<Record<string, unknown>> }>; system?: string } {
@@ -120,12 +120,12 @@ async function* decodeCommandCodeNdjson(body: ReadableStream<Uint8Array>, coordi
 }
 
 /** Command Code is a bearer-authenticated NDJSON streaming gateway. */
-export class CommandCodeAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata = { id: "commandcode", displayName: "Command Code", protocol: "anthropic", credentialKind: "api_key" };
+export class CommandCodeAdapter implements Adapter {
+  readonly metadata: ProviderMeta = { id: "commandcode", displayName: "Command Code", protocol: "anthropic", credentialKind: "api_key" };
   readonly models: ProviderModelCatalog = createModelCatalog(COMMANDCODE_MODELS);
-  readonly capabilities: ProviderCapabilities = { ...COMMANDCODE_FALLBACK_CAPABILITIES, streaming: true };
+  readonly capabilities: ProviderCaps = { ...COMMANDCODE_FALLBACK_CAPABILITIES, streaming: true };
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${surface}"`, statusCode: 400, routeScope: null });
     const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };
   }

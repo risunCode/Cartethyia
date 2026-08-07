@@ -1,4 +1,4 @@
-import type { ContentBlock, NormalizedMessage, NormalizedProviderRequest } from "./contracts";
+import type { ContentBlock, NormalizedMessage, ProxyRequest } from "./contracts";
 
 export type TokenSaverQuality = "lite" | "balanced" | "extreme";
 export type RtkFilter = "git-diff" | "git-status" | "tree" | "read-numbered" | "grep" | "dedup-log" | "generic";
@@ -117,7 +117,7 @@ function smartTruncate(text: string, maxChars: number, smart: boolean): { text: 
 }
 
 /** Applies the full RTK smart-filter pipeline to older tool results. */
-export function applyTokenSaver(request: NormalizedProviderRequest, config: TokenSaverConfig): NormalizedProviderRequest {
+export function applyTokenSaver(request: ProxyRequest, config: TokenSaverConfig): ProxyRequest {
   if (!config.enabled || request.messages.length === 0) return request;
   const limits = QUALITY_LIMITS[config.quality];
   const cutoff = Math.max(0, request.messages.length - limits.keepLastTurns * 2);

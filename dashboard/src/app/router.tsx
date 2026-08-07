@@ -92,11 +92,6 @@ export const router = createBrowserRouter(
         { path: "token-saver", element: <Navigate to="/advanced/token-saver" replace /> },
         { path: "settings", lazy: lazyPage(() => import("../features/settings/page"), (m) => m.SettingsPage) },
         // ── Advanced sidebar page 2 ────────────────────────────────────
-        { path: "system-monitoring", lazy: lazyPage(() => import("../features/advanced/pages"), (m) => m.SystemMonitoringPage) },
-        { path: "audit-log", element: <Navigate to="/system-monitoring" replace /> },
-        { path: "network-overview", element: <Navigate to="/system-monitoring" replace /> },
-        { path: "multi-warp", lazy: lazyPage(() => import("../features/advanced/pages"), (m) => m.MultiWarpPage) },
-        { path: "diagnostics", element: <Navigate to="/system-monitoring" replace /> },
         { path: "advanced/automation", lazy: lazyPage(() => import("../features/advanced/tools"), (m) => m.AutomationPage) },
         { path: "advanced/cli-tools", lazy: lazyPage(() => import("../features/advanced/cli-tools/page"), (m) => m.CliToolsPage) },
         { path: "advanced/cli-tools/:toolId", lazy: lazyPage(() => import("../features/advanced/cli-tools/detail"), (m) => m.CliToolDetailPage) },

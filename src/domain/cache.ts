@@ -1,4 +1,4 @@
-import type { NormalizedMessage, NormalizedProviderRequest, NormalizedTool } from "./contracts";
+import type { NormalizedMessage, ProxyRequest, NormalizedTool } from "./contracts";
 
 /**
  * Automatic, always-on section cache marking.
@@ -6,7 +6,7 @@ import type { NormalizedMessage, NormalizedProviderRequest, NormalizedTool } fro
  * Classifies a normalized request's content into stable and dynamic
  * sections in provider-neutral terms; adapters map the resulting plan to
  * their native marker (Anthropic `cache_control`, OpenAI `prompt_cache_key`,
- * native no-op). There is deliberately no toggle, config row, or persisted
+ * or no-op). There is deliberately no toggle, config row, or persisted
  * content anywhere in this module: it is a pure in-memory classification.
  *
  * Section order: system/developer instructions -> tools and schemas ->
@@ -55,7 +55,7 @@ export function looksStableText(text: string): boolean {
   return true;
 }
 
-export function markCacheSections(request: NormalizedProviderRequest): readonly CacheSection[] {
+export function markCacheSections(request: ProxyRequest): readonly CacheSection[] {
   const sections: CacheSection[] = [];
   let sawAssistant = false;
   for (let i = 0; i < request.messages.length; i++) {
@@ -89,7 +89,7 @@ export function markCacheSections(request: NormalizedProviderRequest): readonly 
   return sections;
 }
 
-export function applyCachePlan(request: NormalizedProviderRequest, plan: CachePlan): NormalizedProviderRequest {
+export function applyCachePlan(request: ProxyRequest, plan: CachePlan): ProxyRequest {
   if (!plan.hasStablePrefix || plan.prefixFingerprint === null) return request;
   if (plan.prefixEndMessageIndex === null || plan.prefixEndBlockIndex === null) {
     return { ...request, cacheKey: plan.prefixFingerprint };
@@ -112,7 +112,7 @@ export function applyCachePlan(request: NormalizedProviderRequest, plan: CachePl
   return { ...request, messages, cacheKey: plan.prefixFingerprint };
 }
 
-export function buildCachePlan(request: NormalizedProviderRequest): CachePlan {
+export function buildCachePlan(request: ProxyRequest): CachePlan {
   const sections = markCacheSections(request);
   const prefixText: string[] = [];
   let prefixEndMessageIndex: number | null = null;

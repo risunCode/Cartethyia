@@ -1,5 +1,5 @@
 import { jsonObject, narrowList, narrowRecord, narrowText, nullableNumber } from "../protocols";
-import type { ProviderCapabilities, ProviderMetadata, ProviderProtocol, ProviderSurface } from "../contracts";
+import type { ProviderCaps, ProviderMeta, Protocol, Surface } from "../contracts";
 
 let idCounter = 0;
 function nextFallbackId(prefix: string): string {
@@ -8,7 +8,7 @@ function nextFallbackId(prefix: string): string {
 }
 
 /** Resolves the provider-native wire surface while preserving the client surface in the normalized request. */
-export function wireSurfaceFor(metadata: ProviderMetadata, capabilities: ProviderCapabilities, clientSurface: ProviderSurface): ProviderSurface | null {
+export function resolveWireSurface(metadata: ProviderMeta, capabilities: ProviderCaps, clientSurface: Surface): Surface | null {
   if (clientSurface === "images") return capabilities.surfaces.includes("images") ? "images" : null;
   if (clientSurface === "web-search") return capabilities.surfaces.includes("web-search") ? "web-search" : null;
   if (capabilities.surfaces.includes(clientSurface)) return clientSurface;
@@ -23,26 +23,38 @@ export function wireSurfaceFor(metadata: ProviderMetadata, capabilities: Provide
   return capabilities.surfaces.includes("openai-responses") ? "openai-responses" : null;
 }
 
-/** Converts a provider's non-stream body from its native wire shape to the client's requested surface. */
-export function translateNonStreamResponse(
+/** Converts a provider's non-stream body from its wire shape to the client's requested surface. */
+export function translateBody(
   body: Record<string, unknown>,
-  protocol: ProviderProtocol,
-  wireSurface: ProviderSurface,
-  clientSurface: ProviderSurface,
+  protocol: Protocol,
+  wireSurface: Surface,
+  clientSurface: Surface,
 ): Record<string, unknown> {
   if (wireSurface === clientSurface || clientSurface === "images" || protocol === "gemini") return body;
-  if (protocol === "anthropic") {
-    const chat = anthropicToChat(body);
-    return clientSurface === "openai-responses" ? chatToResponses(chat) : chat;
-  }
-  if (wireSurface === "openai-responses") {
-    const chat = responsesToChat(body);
-    return clientSurface === "anthropic-messages" ? chatToAnthropic(chat) : chat;
-  }
-  if (clientSurface === "anthropic-messages") return chatToAnthropic(body);
-  if (clientSurface === "openai-responses") return chatToResponses(body);
-  return body;
+  const conv = CONVERSIONS[wireSurface]?.[clientSurface];
+  return conv !== undefined ? conv(body) : body;
 }
+
+/**
+ * Two-hop conversion table keyed by `[from][to]`. Routes via `openai-chat`
+ * as the hub: surfaces without a direct edge compose through it.
+ *   - anthropic-messages → openai-responses: anthropicToChat → chatToResponses
+ *   - openai-responses → anthropic-messages: responsesToChat → chatToAnthropic
+ */
+const CONVERSIONS: Partial<Record<Surface, Partial<Record<Surface, (body: Record<string, unknown>) => Record<string, unknown>>>>> = {
+  "openai-chat": {
+    "anthropic-messages": chatToAnthropic,
+    "openai-responses": chatToResponses,
+  },
+  "anthropic-messages": {
+    "openai-chat": anthropicToChat,
+    "openai-responses": (body) => chatToResponses(anthropicToChat(body)),
+  },
+  "openai-responses": {
+    "openai-chat": responsesToChat,
+    "anthropic-messages": (body) => chatToAnthropic(responsesToChat(body)),
+  },
+};
 
 function chatToAnthropic(body: Record<string, unknown>): Record<string, unknown> {
   const choice = narrowRecord(narrowList(body.choices)[0]);

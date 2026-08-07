@@ -1,4 +1,4 @@
-import { capabilitiesOf, makeNativeAdapter, modelOf, type NativeProviderConfig } from "./shared";
+import { capabilitiesOf, makeOpenAIAdapter, modelOf, type OpenAIAdapterConfig } from "./shared";
 
 const NATIVE_SURFACES = ["openai-chat"] as const;
 
@@ -12,6 +12,6 @@ export const siliconflowConfig = {
     modelOf("deepseek-ai/DeepSeek-R1", "DeepSeek R1", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, toolCalls: false })),
     modelOf("Qwen/Qwen3-235B-A22B-Thinking", "Qwen3 Thinking", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
   ],
-} as const satisfies NativeProviderConfig;
+} as const satisfies OpenAIAdapterConfig;
 
-export const SiliconFlowAdapter = makeNativeAdapter(siliconflowConfig);
+export const SiliconFlowAdapter = makeOpenAIAdapter(siliconflowConfig);

@@ -1,4 +1,4 @@
-import type { ProviderSurface, ProviderUsage, StopReason, StreamEvent } from "../../domain/contracts";
+import type { Surface, ProviderUsage, StopReason, StreamEvent } from "../../domain/contracts";
 
 const encoder = new TextEncoder();
 
@@ -251,7 +251,7 @@ async function* encodeResponses(events: AsyncIterable<StreamEvent>, model: strin
   }
 }
 
-export async function* encodeSurfaceStream(surface: ProviderSurface, events: AsyncIterable<StreamEvent>, model: string): AsyncGenerator<Uint8Array> {
+export async function* encodeSurfaceStream(surface: Surface, events: AsyncIterable<StreamEvent>, model: string): AsyncGenerator<Uint8Array> {
   if (surface === "openai-chat") {
     yield* encodeOpenAIChat(events, model);
     return;

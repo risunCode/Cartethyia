@@ -1,4 +1,4 @@
-import { makeNativeAdapter, type NativeProviderConfig } from "./shared";
+import { makeOpenAIAdapter, type OpenAIAdapterConfig } from "./shared";
 
 export const groqConfig = {
   id: "groq",
@@ -6,6 +6,6 @@ export const groqConfig = {
   baseUrl: "https://api.groq.com/openai/v1",
   credentialKind: "api_key",
   credentialUrl: "https://console.groq.com/keys",
-} as const satisfies NativeProviderConfig;
+} as const satisfies OpenAIAdapterConfig;
 
-export const GroqAdapter = makeNativeAdapter(groqConfig);
+export const GroqAdapter = makeOpenAIAdapter(groqConfig);

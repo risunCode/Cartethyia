@@ -17,14 +17,14 @@ import { createResponsesMapper } from "../transport/protocols/openai";
 import { buildResponsesPayload, mapResponsesUsage } from "../domain/protocols/openai-responses";
 import type {
   ContextStats,
-  ProviderAdapter,
-  ProviderCapabilities,
-  ProviderMetadata,
+  Adapter,
+  ProviderCaps,
+  ProviderMeta,
   ProviderModel,
   ProviderModelCatalog,
   ProviderOutput,
   ProviderRequest,
-  ProviderSurface,
+  Surface,
   RouteTarget,
   TokenCountInput,
 } from "../domain/contracts";
@@ -42,7 +42,7 @@ import type { ProviderCallError } from "../domain/contracts";
  * User-Agent follows the official client — never a Cartethyia identity.
  */
 
-const GROK_BUILD_SURFACES: readonly ProviderSurface[] = ["openai-responses"];
+const GROK_BUILD_SURFACES: readonly Surface[] = ["openai-responses"];
 const GROK_BUILD_BASE_URL = "https://cli-chat-proxy.grok.com/v1";
 const GROK_BUILD_VERSION = "0.2.120";
 const GROK_BUILD_USER_AGENT = `grok-shell/${GROK_BUILD_VERSION} (linux; x86_64)`;
@@ -53,7 +53,7 @@ const GROK_BUILD_MODELS: readonly ProviderModel[] = [
   modelOf("grok-4.5", "Grok 4.5", capabilitiesOf({ surfaces: GROK_BUILD_SURFACES, reasoning: true }), { context: { inputTokens: 500000, outputTokens: 64000 } }),
 ];
 
-const GROK_BUILD_FALLBACK_CAPABILITIES: ProviderCapabilities = capabilitiesOf({ surfaces: GROK_BUILD_SURFACES, reasoning: true });
+const GROK_BUILD_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: GROK_BUILD_SURFACES, reasoning: true });
 
 function normalizeEffort(value: string | undefined | null): string {
   const effort = typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -61,17 +61,17 @@ function normalizeEffort(value: string | undefined | null): string {
   if (["low", "medium", "high", "xhigh"].includes(effort)) return effort;
   return "high";
 }
-export class GrokBuildAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata = {
+export class GrokBuildAdapter implements Adapter {
+  readonly metadata: ProviderMeta = {
     id: "grok-build",
     displayName: "Grok Build",
     protocol: "openai",
     credentialKind: "oauth",
   };
   readonly models: ProviderModelCatalog = createModelCatalog(GROK_BUILD_MODELS);
-  readonly capabilities: ProviderCapabilities = { ...GROK_BUILD_FALLBACK_CAPABILITIES, streaming: true };
+  readonly capabilities: ProviderCaps = { ...GROK_BUILD_FALLBACK_CAPABILITIES, streaming: true };
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${surface}"`, statusCode: 400, routeScope: null });
     }

@@ -1,6 +1,6 @@
-import type { CredentialKind, ProviderAdapter } from "../domain/contracts";
+import type { CredentialKind, Adapter } from "../domain/contracts";
 import type { AccountCandidate, AffinityKey, ModelLockRecord, RouteCandidate, RouteSwitch } from "../domain/contracts";
-import type { NormalizedProviderRequest } from "../domain/contracts";
+import type { ProxyRequest } from "../domain/contracts";
 import { AccountHealthManager, AnthropicOAuthDriver, AntigravityOAuthDriver, ClineOAuthDriver, ClinePassOAuthDriver, createAuthDriverRegistry, GrokBuildOAuthDriver, KimchiOAuthDriver, KiroOAuthDriver } from "../auth";
 import { QuotaCoordinator } from "../auth";
 import { CredentialSelector } from "../auth";
@@ -16,9 +16,8 @@ import { ProxyHealthManager } from "../traffic";
 import { NetworkSelector, type NetworkRoutingPolicy } from "../traffic";
 import { ProxyPool } from "../traffic";
 import { createDefaultRegistry, ProviderRegistry } from "../providers/registry";
-import { lookupModelData } from "../providers/model-data";
 import { syncCustomAdapters } from "../providers/custom";
-import { wireSurfaceFor } from "../domain/protocols/translation";
+import { resolveWireSurface } from "../domain/protocols/translation";
 import { resolveModelChain } from "../domain/routing";
 import { resolveModelMetadata, type ModelMetadataLookup, type ModelMetadataResolver, type ResolvedModelMetadata } from "../domain/model-metadata";
 import { createRouteSnapshotCache, type RouteSnapshotCache } from "./routing-snapshot";
@@ -174,7 +173,7 @@ function envCredentialStore(config: ConfigPersistence): CredentialConfigStore {
   };
 }
 
-function routeResolver(registry: ProviderRegistry, cache: RouteSnapshotCache, health: AccountHealthManager, quota: QuotaCoordinator): (request: NormalizedProviderRequest, affinity: AffinityKey) => Promise<ProxyRoutePlan> {
+function routeResolver(registry: ProviderRegistry, cache: RouteSnapshotCache, health: AccountHealthManager, quota: QuotaCoordinator): (request: ProxyRequest, affinity: AffinityKey) => Promise<ProxyRoutePlan> {
   return async (request, affinity) => {
     const snapshot = await cache.get();
     const chain = resolveModelChain(request.model, { prefixes: snapshot.prefixes, aliases: snapshot.aliases, combos: snapshot.combos }, affinity);
@@ -190,7 +189,7 @@ function routeResolver(registry: ProviderRegistry, cache: RouteSnapshotCache, he
       // they pass the gate without a server restart.
       const dbKnown = snapshot.knownModelIds.get(target.providerId);
       const known = adapter.models.list.length === 0 || adapter.models.get(target.modelId) !== null || (dbKnown !== undefined && dbKnown.has(target.modelId));
-      if (!known || wireSurfaceFor(adapter.metadata, adapter.capabilities, request.sourceSurface) === null) continue;
+      if (!known || resolveWireSurface(adapter.metadata, adapter.capabilities, request.sourceSurface) === null) continue;
       candidates.push({
         id: `${target.providerId}/${target.modelId}`,
         providerId: target.providerId,
@@ -208,7 +207,7 @@ function routeResolver(registry: ProviderRegistry, cache: RouteSnapshotCache, he
     // model id (e.g. "blackbox-pro") without a provider prefix.
     if (candidates.length === 0 && chain.kind === "unresolved") {
       for (const adapter of registry.list()) {
-        if (wireSurfaceFor(adapter.metadata, adapter.capabilities, request.sourceSurface) === null) continue;
+        if (resolveWireSurface(adapter.metadata, adapter.capabilities, request.sourceSurface) === null) continue;
         const dbKnown = snapshot.knownModelIds.get(adapter.metadata.id);
         const known = adapter.models.get(request.model) !== null || (dbKnown !== undefined && dbKnown.has(request.model));
         if (!known) continue;
@@ -375,21 +374,17 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
     if (adapter === null) return null;
     const model = adapter.models.get(modelId);
     const custom = config.customProviders.getBySlug(providerId);
-  const dev = lookupModelData(providerId, modelId);
-  // Catalog models carry static context/pricing; fetched/custom models that
-  // aren't in the adapter catalog still resolve pricing/context from
-  // models.dev via lookupModelData (last-segment + fuzzy fallback).
   const ctx = model?.context ?? { inputTokens: null, outputTokens: null };
   const price = model?.pricing ?? { inputPerMillion: null, outputPerMillion: null };
   return {
     context: {
-      inputTokens: ctx.inputTokens ?? dev?.context.inputTokens ?? null,
-      outputTokens: ctx.outputTokens ?? dev?.context.outputTokens ?? null,
+      inputTokens: ctx.inputTokens ?? null,
+      outputTokens: ctx.outputTokens ?? null,
     },
     categories: model?.categories ?? [],
     pricing: {
-      inputPerMillion: price.inputPerMillion ?? dev?.pricing.inputPerMillion ?? null,
-      outputPerMillion: price.outputPerMillion ?? dev?.pricing.outputPerMillion ?? null,
+      inputPerMillion: price.inputPerMillion ?? null,
+      outputPerMillion: price.outputPerMillion ?? null,
     },
     source: custom !== null ? "custom" : "catalog",
     updatedAt: custom !== null ? custom.updatedAt : null,
@@ -525,10 +520,6 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
     onPush: (listener) => runtime.consoleLogs.onPush(listener),
   });
   const consoleApi = createConsoleApi({ services: consoleServices, diagnostics, config: baseConfig, runtime, logStream, probe: probeProviderModel, probePorts: { registry, accounts: credentialStore, credentials: accounts, accountHealth, network }, liveTraffic: { byIp: () => activePerIpFlights.snapshot(), maxFlightsPerIp: () => runtimeSettings(config).maxFlightsPerIp }, proxy, resetConfig: baseConfig.resetAll, resetRuntime: runtime.resetAll });
-  // Single WarpPoolService lives inside consoleApi — reuse it for shutdown
-  // instead of constructing a duplicate (the constructor starts a 15s metrics
-  // timer; two instances = double timers + double process spawns).
-  const warpService = consoleApi.warpService;
   const consoleApp = new Elysia()
     .use(consoleApi.app);
   const gcIntervalMs = runtimeMemoryLimits.gcIntervalMs > 0
@@ -551,7 +542,7 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
   const recoverySweep = new AccountRecoverySweep(accountHealth, config.stores.modelLocks);
   recoverySweep.start();
 
-  return { config, runtime, registry, proxy, consoleApp, models: modelMetadata, close: () => { clearInterval(gcInterval); cancelScheduledGc(); retention.stop(); logStream.close(); warpService.shutdown().catch(() => {}); oauthKeepalive.stop(); recoverySweep.stop(); runtime.close(); config.close(); } };
+  return { config, runtime, registry, proxy, consoleApp, models: modelMetadata, close: () => { clearInterval(gcInterval); cancelScheduledGc(); retention.stop(); logStream.close(); oauthKeepalive.stop(); recoverySweep.stop(); runtime.close(); config.close(); } };
 }
 
 export { runProxyRequest };

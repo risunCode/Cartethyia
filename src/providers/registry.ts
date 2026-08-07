@@ -1,6 +1,6 @@
 import { ProviderAdapterError } from "./shared";
-import type { ProviderAdapter, ProviderSurface, RouteTarget } from "../domain/contracts";
-import { wireSurfaceFor } from "../domain/protocols/translation";
+import type { Adapter, Surface, RouteTarget } from "../domain/contracts";
+import { resolveWireSurface } from "../domain/protocols/translation";
 
 /**
  * Typed ProviderAdapter registry. Registration is id-keyed; resolution
@@ -9,9 +9,9 @@ import { wireSurfaceFor } from "../domain/protocols/translation";
  * capability_unsupported error rather than an empty success.
  */
 export class ProviderRegistry {
-  private readonly adapters = new Map<string, ProviderAdapter>();
+  private readonly adapters = new Map<string, Adapter>();
 
-  register(adapter: ProviderAdapter): void {
+  register(adapter: Adapter): void {
     const id = adapter.metadata.id;
     const existing = this.adapters.get(id);
     if (existing !== undefined && existing !== adapter) {
@@ -20,7 +20,7 @@ export class ProviderRegistry {
     this.adapters.set(id, adapter);
   }
 
-  get(providerId: string): ProviderAdapter | null {
+  get(providerId: string): Adapter | null {
     return this.adapters.get(providerId) ?? null;
   }
 
@@ -29,7 +29,7 @@ export class ProviderRegistry {
     return this.adapters.delete(providerId);
   }
 
-  list(): readonly ProviderAdapter[] {
+  list(): readonly Adapter[] {
     return [...this.adapters.values()];
   }
 
@@ -38,8 +38,8 @@ export class ProviderRegistry {
     return this.adapters.size;
   }
 
-  supportedSurfaces(): readonly ProviderSurface[] {
-    const surfaces: ProviderSurface[] = [];
+  supportedSurfaces(): readonly Surface[] {
+    const surfaces: Surface[] = [];
     for (const adapter of this.adapters.values()) {
       for (const surface of adapter.capabilities.surfaces) {
         if (!surfaces.includes(surface)) surfaces.push(surface);
@@ -48,8 +48,8 @@ export class ProviderRegistry {
     return surfaces;
   }
 
-  adapterFor(modelId: string, surface: ProviderSurface): ProviderAdapter {
-    const declaring = this.list().filter((adapter) => wireSurfaceFor(adapter.metadata, adapter.capabilities, surface) !== null);
+  adapterFor(modelId: string, surface: Surface): Adapter {
+    const declaring = this.list().filter((adapter) => resolveWireSurface(adapter.metadata, adapter.capabilities, surface) !== null);
     if (declaring.length === 0) {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `No provider adapter supports surface "${surface}"`, statusCode: 400, routeScope: null });
     }
@@ -61,9 +61,9 @@ export class ProviderRegistry {
     return pick;
   }
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     const adapter = this.adapterFor(modelId, surface);
-    const wireSurface = wireSurfaceFor(adapter.metadata, adapter.capabilities, surface);
+    const wireSurface = resolveWireSurface(adapter.metadata, adapter.capabilities, surface);
     if (wireSurface === null) {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${adapter.metadata.id}" cannot translate surface "${surface}"`, statusCode: 400, routeScope: "provider" });
     }
@@ -72,8 +72,8 @@ export class ProviderRegistry {
 }
 
 /**
- * Composes the default adapter set: OpenAI, Anthropic, the built-in native
- * (OpenAI-compatible) providers. Dynamic imports
+ * Composes the default adapter set: OpenAI, Anthropic, the built-in
+ * OpenAI-compatible providers. Dynamic imports
  * keep this module free of import cycles with the adapters.
  */
 export async function createDefaultRegistry(): Promise<ProviderRegistry> {
@@ -91,7 +91,7 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     { CommandCodeAdapter },
     { QoderAdapter },
     { KiroAdapter },
-    { GoogleAntigravityAdapter },
+    { AntigravityAdapter },
     { CodeBuddyAdapter, CodeBuddyChinaAdapter },
     { ExaAdapter },
     { GrokBuildAdapter },
@@ -99,12 +99,12 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     { GroqAdapter },
     { AlibabaAdapter },
     { FireworksAdapter },
-    { DeepSeekNativeAdapter },
+    { DeepSeekAdapter: DeepSeekNativeAdapter },
     { OllamaAdapter },
     { MistralAdapter },
     { SiliconFlowAdapter },
     { CerebrasAdapter },
-    { NvidiaNativeAdapter },
+    { NvidiaAdapter: NvidiaNativeAdapter },
     { BlackboxAIAdapter },
     { OpenCodeGoAdapter },
     { XiaomiPAYGAdapter },
@@ -123,7 +123,7 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     import("./commandcode"),
     import("./qoder"),
     import("./kiro"),
-    import("./google-antigravity"),
+    import("./antigravity"),
     import("./codebuddy"),
     import("./exa"),
     import("./grok-build"),
@@ -131,12 +131,12 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     import("./groq"),
     import("./alibaba"),
     import("./fireworks"),
-    import("./deepseek-native"),
+    import("./deepseek"),
     import("./ollama"),
     import("./mistral"),
     import("./siliconflow"),
     import("./cerebras"),
-    import("./nvidia-native"),
+    import("./nvidia"),
     import("./blackboxai"),
     import("./opencodego"),
     import("./xiaomipg"),
@@ -159,7 +159,7 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
   registry.register(new CommandCodeAdapter());
   registry.register(new QoderAdapter());
   registry.register(new KiroAdapter());
-  registry.register(new GoogleAntigravityAdapter());
+  registry.register(new AntigravityAdapter());
   registry.register(new CodeBuddyAdapter());
   registry.register(new CodeBuddyChinaAdapter());
   registry.register(new ExaAdapter());

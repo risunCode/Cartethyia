@@ -1,4 +1,4 @@
-import { capabilitiesOf, makeNativeAdapter, modelOf, type NativeProviderConfig } from "./shared";
+import { capabilitiesOf, makeOpenAIAdapter, modelOf, type OpenAIAdapterConfig } from "./shared";
 
 const NATIVE_SURFACES = ["openai-chat"] as const;
 
@@ -15,6 +15,6 @@ export const ollamaConfig = {
     modelOf("minimax-m3", "MiniMax M3", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
     modelOf("nemotron-3-super", "Nemotron 3 Super", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
   ],
-} as const satisfies NativeProviderConfig;
+} as const satisfies OpenAIAdapterConfig;
 
-export const OllamaAdapter = makeNativeAdapter(ollamaConfig);
+export const OllamaAdapter = makeOpenAIAdapter(ollamaConfig);

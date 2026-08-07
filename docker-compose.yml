@@ -7,30 +7,6 @@ services:
     restart: unless-stopped
     ports:
       - "12800:8080"
-    # Warp SOCKS5 ports are internal-only (127.0.0.1) — exposed to the
-    # container network so Railway/platforms are aware of the range, but
-    # NOT mapped to the host. The proxy pool connects to 127.0.0.1 internally.
-    expose:
-      - "40001"
-      - "40002"
-      - "40003"
-      - "40004"
-      - "40005"
-      - "40006"
-      - "40007"
-      - "40008"
-      - "40009"
-      - "40010"
-      - "40011"
-      - "40012"
-      - "40013"
-      - "40014"
-      - "40015"
-      - "40016"
-      - "40017"
-      - "40018"
-      - "40019"
-      - "40020"
     environment:
       - PORT=8080
       - DATA_DIR=/app/data

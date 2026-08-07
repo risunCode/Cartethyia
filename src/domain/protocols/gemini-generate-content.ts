@@ -1,7 +1,7 @@
 import { isRecord, messageText, nullableNumber } from "../protocols";
-import type { ContentBlock, ImageReference, NormalizedProviderRequest, ProviderSurface, ProviderUsage } from "../contracts";
+import type { ContentBlock, ImageReference, ProxyRequest, Surface, ProviderUsage } from "../contracts";
 
-export function buildGeminiPayload(request: NormalizedProviderRequest): Record<string, unknown> {
+export function buildGeminiPayload(request: ProxyRequest): Record<string, unknown> {
   const system = request.messages.filter((message) => message.role === "system" || message.role === "developer").flatMap((message) => {
     const t = messageText(message);
     return t ? [{ text: t }] : [];
@@ -61,7 +61,7 @@ export function responseParts(parts: readonly Record<string, unknown>[]): { read
 }
 
 /** Translates a Gemini response body into the client-facing surface shape. */
-export function translateGeminiResponse(body: Record<string, unknown>, surface: ProviderSurface, model: string): Record<string, unknown> {
+export function translateGeminiResponse(body: Record<string, unknown>, surface: Surface, model: string): Record<string, unknown> {
   const { response, candidate, parts } = geminiCandidate(body);
   const output = responseParts(parts);
   const usage = mapGeminiUsage(body);

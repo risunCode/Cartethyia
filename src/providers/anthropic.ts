@@ -19,20 +19,20 @@ import type { SseEvent, StreamMapper } from "./shared";
 import type {
   ContextStats,
   CredentialKind,
-  ProviderAdapter,
-  ProviderCapabilities,
-  ProviderMetadata,
+  Adapter,
+  ProviderCaps,
+  ProviderMeta,
   ProviderModel,
   ProviderModelCatalog,
   ProviderOutput,
   ProviderRequest,
-  ProviderSurface,
+  Surface,
   ProviderUsage,
   RouteTarget,
   TokenCountInput,
 } from "../domain/contracts";
 import type { ApplicationErrorKind, ProviderCallError } from "../domain/contracts";
-import type { ContentBlock, ImageReference, NormalizedMessage, NormalizedProviderRequest } from "../domain/contracts";
+import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../domain/contracts";
 import { buildMessagesPayload, mapAnthropicUsage } from "../domain/protocols/anthropic-messages";
 import { callAnthropicWire } from "../transport/protocols/anthropic";
 import type { StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../domain/contracts";
@@ -43,7 +43,7 @@ import type { StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from 
  * header) and extended thinking.
  */
 
-const ANTHROPIC_SURFACES: readonly ProviderSurface[] = ["anthropic-messages"];
+const ANTHROPIC_SURFACES: readonly Surface[] = ["anthropic-messages"];
 
 const ANTHROPIC_DEFAULT_MODELS: readonly ProviderModel[] = [
   modelOf("claude-opus-4-1", "Claude Opus 4.1", capabilitiesOf({ surfaces: ANTHROPIC_SURFACES, reasoning: true, images: true, explicitCache: true, promptCacheKey: true })),
@@ -53,7 +53,7 @@ const ANTHROPIC_DEFAULT_MODELS: readonly ProviderModel[] = [
   modelOf("claude-3-5-haiku-latest", "Claude 3.5 Haiku", capabilitiesOf({ surfaces: ANTHROPIC_SURFACES, images: true, explicitCache: true, promptCacheKey: true })),
 ];
 
-const ANTHROPIC_FALLBACK_CAPABILITIES: ProviderCapabilities = capabilitiesOf({
+const ANTHROPIC_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({
   surfaces: ANTHROPIC_SURFACES,
   reasoning: true,
   images: true,
@@ -73,9 +73,9 @@ export interface AnthropicAdapterConfig {
   readonly models?: readonly ProviderModel[];
 }
 
-export class AnthropicAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata;
-  readonly capabilities: ProviderCapabilities;
+export class AnthropicAdapter implements Adapter {
+  readonly metadata: ProviderMeta;
+  readonly capabilities: ProviderCaps;
   readonly models: ProviderModelCatalog;
   private readonly baseUrl: string;
   private readonly auth: "x-api-key" | "bearer";
@@ -94,7 +94,7 @@ export class AnthropicAdapter implements ProviderAdapter {
     this.auth = config.auth ?? "x-api-key";
   }
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({
         kind: "capability_unsupported",

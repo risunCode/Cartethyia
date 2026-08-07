@@ -1,4 +1,4 @@
-import { makeNativeAdapter, type NativeProviderConfig } from "./shared";
+import { makeOpenAIAdapter, type OpenAIAdapterConfig } from "./shared";
 
 export const fireworksConfig = {
   id: "fireworks",
@@ -6,6 +6,6 @@ export const fireworksConfig = {
   baseUrl: "https://api.fireworks.ai/inference/v1",
   credentialKind: "api_key",
   credentialUrl: "https://fireworks.ai/account/api-keys",
-} as const satisfies NativeProviderConfig;
+} as const satisfies OpenAIAdapterConfig;
 
-export const FireworksAdapter = makeNativeAdapter(fireworksConfig);
+export const FireworksAdapter = makeOpenAIAdapter(fireworksConfig);

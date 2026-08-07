@@ -8,7 +8,6 @@ import type { ModelLockRecord } from "../../domain/contracts";
 import type { AccountConfig, AccountHealthRecord, AccountHealthStore, CredentialConfigStore, ModelLockStore, OAuthTokenRecord, OAuthTokenStore, QuotaStateRecord, QuotaStateStore } from "../../auth/credentials";
 import type { ProxyConfig, ProxyPoolConfigStore } from "../../traffic/network";
 import type { FilterRuleRepository, IpBanRepository, IpBanView } from "../../console/views";
-import type { WarpAccount, WarpAccountCreateData, WarpAccountRepository, WarpAccountUpdateData } from "../../console/warp/types";
 import { getPersistenceEnv, type PersistenceEnv } from "./env";
 import { applyConfigRestore, exportConfigBackup, type BackupPayload, type RestoreResult, type RestoreValidation } from "./backup";
 
@@ -17,9 +16,6 @@ import { applyConfigRestore, exportConfigBackup, type BackupPayload, type Restor
 export {
   CONFIG_SCHEMA_SQL,
   clearAllDatabaseTables,
-  ensureColumn,
-  ensureConfigSchema,
-  migrateProviderIds,
   nowIso,
   configError,
   toRouteStatus,
@@ -65,9 +61,6 @@ export type {
 import {
   CONFIG_SCHEMA_SQL,
   clearAllDatabaseTables,
-  ensureColumn,
-  ensureConfigSchema,
-  migrateProviderIds,
   nowIso,
   configError,
   toRouteStatus,
@@ -1492,7 +1485,6 @@ export interface ConfigPersistence {
   readonly accessRules: AccessRuleRepository;
   readonly shareLinks: ShareLinkRepository;
   readonly filterRules: FilterRuleRepository;
-  readonly warpAccounts: WarpAccountRepository;
   readonly ipBans: IpBanRepository;
   /** Repository-backed implementations of the routing/credentials/transport ports. */
   readonly stores: {
@@ -1665,107 +1657,6 @@ function createIpBanRepository(db: () => Database): IpBanRepository {
   };
 }
 
-/** Warp account row shape (matches warp_accounts table columns). */
-interface WarpAccountRow {
-  id: string;
-  label: string;
-  device_id: string;
-  access_token: string;
-  license_key: string;
-  private_key: string;
-  address_v4: string;
-  address_v6: string;
-  public_key: string;
-  endpoint: string;
-  endpoint_port: number;
-  dns: string;
-  mtu: number;
-  socks_port: number;
-  enabled: number;
-  running: number;
-  pid: number | null;
-  prefer_ipv6: number;
-  custom_endpoint: string | null;
-  persistent_keepalive: number;
-  created_at: string;
-  updated_at: string | null;
-}
-
-function toWarpAccount(row: WarpAccountRow): WarpAccount {
-  return {
-    id: row.id,
-    label: row.label,
-    deviceId: row.device_id,
-    accessToken: row.access_token,
-    licenseKey: row.license_key,
-    privateKey: row.private_key,
-    addressV4: row.address_v4,
-    addressV6: row.address_v6,
-    publicKey: row.public_key,
-    endpoint: row.endpoint,
-    endpointPort: row.endpoint_port,
-    dns: row.dns,
-    mtu: row.mtu,
-    socksPort: row.socks_port,
-    enabled: row.enabled === 1,
-    running: row.running === 1,
-    pid: row.pid,
-    preferIpv6: row.prefer_ipv6 === 1,
-    customEndpoint: row.custom_endpoint,
-    persistentKeepalive: row.persistent_keepalive,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function createWarpAccountRepository(db: () => Database): WarpAccountRepository {
-  return {
-    async list() {
-      return (db().query("SELECT * FROM warp_accounts ORDER BY created_at ASC").all() as WarpAccountRow[]).map(toWarpAccount);
-    },
-    async get(id) {
-      const row = db().query("SELECT * FROM warp_accounts WHERE id = ?").get(id) as WarpAccountRow | null;
-      return row ? toWarpAccount(row) : null;
-    },
-    async create(data: WarpAccountCreateData) {
-      const now = new Date().toISOString();
-      db().query(`INSERT INTO warp_accounts (id, label, device_id, access_token, license_key, private_key, address_v4, address_v6, public_key, endpoint, endpoint_port, dns, mtu, socks_port, enabled, running, pid, prefer_ipv6, custom_endpoint, persistent_keepalive, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, NULL, ?, ?, ?, ?, NULL)`).run(
-        data.id, data.label, data.deviceId, data.accessToken, data.licenseKey, data.privateKey, data.addressV4, data.addressV6, data.publicKey, data.endpoint, data.endpointPort, data.dns, data.mtu, data.socksPort,
-        data.preferIpv6 ? 1 : 0,
-        data.customEndpoint ?? null,
-        data.persistentKeepalive ?? 15,
-        now,
-      );
-      const row = db().query("SELECT * FROM warp_accounts WHERE id = ?").get(data.id) as WarpAccountRow;
-      return toWarpAccount(row);
-    },
-    async update(id, patch: Partial<WarpAccountUpdateData>) {
-      const sets: string[] = [];
-      const params: (string | number | null)[] = [];
-      if (patch.label !== undefined) { sets.push("label = ?"); params.push(patch.label); }
-      if (patch.enabled !== undefined) { sets.push("enabled = ?"); params.push(patch.enabled ? 1 : 0); }
-      if (patch.socksPort !== undefined) { sets.push("socks_port = ?"); params.push(patch.socksPort); }
-      if (patch.preferIpv6 !== undefined) { sets.push("prefer_ipv6 = ?"); params.push(patch.preferIpv6 ? 1 : 0); }
-      if (patch.customEndpoint !== undefined) { sets.push("custom_endpoint = ?"); params.push(patch.customEndpoint); }
-      if (patch.persistentKeepalive !== undefined) { sets.push("persistent_keepalive = ?"); params.push(patch.persistentKeepalive); }
-      if (sets.length === 0) return db().query("SELECT * FROM warp_accounts WHERE id = ?").get(id) as WarpAccountRow ? toWarpAccount(db().query("SELECT * FROM warp_accounts WHERE id = ?").get(id) as WarpAccountRow) : null;
-      sets.push("updated_at = ?"); params.push(new Date().toISOString());
-      params.push(id);
-      const result = db().query(`UPDATE warp_accounts SET ${sets.join(", ")} WHERE id = ?`).run(...params);
-      if (result.changes === 0) return null;
-      const row = db().query("SELECT * FROM warp_accounts WHERE id = ?").get(id) as WarpAccountRow;
-      return toWarpAccount(row);
-    },
-    async remove(id) {
-      const result = db().query("DELETE FROM warp_accounts WHERE id = ?").run(id);
-      return result.changes > 0;
-    },
-    async setRunning(id, running, pid) {
-      db().query("UPDATE warp_accounts SET running = ?, pid = ?, updated_at = ? WHERE id = ?").run(running ? 1 : 0, pid, new Date().toISOString(), id);
-    },
-  };
-}
-
 export function createConfigPersistence(env: PersistenceEnv = getPersistenceEnv()): ConfigPersistence {
   let db: Database | null = null;
   let closed = false;
@@ -1796,8 +1687,6 @@ export function createConfigPersistence(env: PersistenceEnv = getPersistenceEnv(
           // Table doesn't exist yet — safe to ignore.
         }
         opened.exec(CONFIG_SCHEMA_SQL);
-        ensureConfigSchema(opened);
-        migrateProviderIds(opened);
         db = opened;
       } catch (error) {
         throw new Error(`configuration database unavailable: ${sanitizeMessage(error instanceof Error ? error.message : "open failed")}`);
@@ -1819,7 +1708,6 @@ export function createConfigPersistence(env: PersistenceEnv = getPersistenceEnv(
   const accessRulesRepo = createAccessRuleRepository(getDb);
   const shareLinksRepo = createShareLinkRepository(getDb);
   const filterRulesRepo = createFilterRuleRepository(getDb);
-  const warpAccountsRepo = createWarpAccountRepository(getDb);
   const ipBansRepo = createIpBanRepository(getDb);
 
   return {
@@ -1837,7 +1725,6 @@ export function createConfigPersistence(env: PersistenceEnv = getPersistenceEnv(
     accessRules: accessRulesRepo,
     shareLinks: shareLinksRepo,
     filterRules: filterRulesRepo,
-    warpAccounts: warpAccountsRepo,
     ipBans: ipBansRepo,
     stores: {
       routeHealth: createDurableRouteHealthStore(getDb),

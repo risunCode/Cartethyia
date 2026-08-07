@@ -183,7 +183,6 @@ export interface RuntimePersistence {
   readonly telemetry: TelemetryWriter;
   readonly metadata: RuntimeMetadataRepository;
   readonly consoleLogs: ConsoleLogRepository;
-  readonly warpMetrics: WarpMetricsRepository;
   readonly retain: (options?: { logRetentionDays?: number; assetRetentionDays?: number }) => RetentionResult;
   readonly startRetentionMaintenance: (intervalMs?: number) => { stop(): void };
   readonly flush: () => void;
@@ -212,72 +211,8 @@ export interface RuntimePersistence {
 
 // ────────────────────────────── Schema ──────────────────────────────────────
 
-/**
- * Fresh runtime schema: the direct-cutover `request_history` (client labels,
- * bounded status fields, compact counts) plus operational `console_logs`.
- * Legacy detail/asset/tool tables are intentionally not created here; legacy
- * databases that already have them keep them for read/retention migration.
- */
-export const RUNTIME_SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS request_history (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  trace_id TEXT NOT NULL,
-  endpoint TEXT NOT NULL,
-  surface TEXT NOT NULL,
-  api_key_id TEXT,
-  api_key_prefix TEXT,
-  provider TEXT,
-  model TEXT,
-  status INTEGER NOT NULL,
-  error_kind TEXT,
-  stream INTEGER NOT NULL DEFAULT 0,
-  started_at TEXT NOT NULL,
-  finished_at TEXT NOT NULL,
-  duration_ms INTEGER NOT NULL,
-  input_tokens INTEGER,
-  output_tokens INTEGER,
-  cached_tokens INTEGER,
-  cache_write_tokens INTEGER,
-  reasoning_tokens INTEGER,
-  total_tokens INTEGER,
-  usage_source TEXT NOT NULL DEFAULT 'unknown',
-  meta_json TEXT NOT NULL DEFAULT '{}',
-  client_name TEXT NOT NULL DEFAULT 'unknown',
-  client_source TEXT NOT NULL DEFAULT 'unknown',
-  message_count INTEGER NOT NULL DEFAULT 0,
-  tool_count INTEGER NOT NULL DEFAULT 0,
-  image_count INTEGER NOT NULL DEFAULT 0,
-  tfft_ms INTEGER,
-  client_ip TEXT
-);
-CREATE TABLE IF NOT EXISTS console_logs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ts TEXT NOT NULL,
-  level TEXT NOT NULL,
-  scope TEXT NOT NULL,
-  msg TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_console_logs_ts ON console_logs(ts);
-CREATE TABLE IF NOT EXISTS warp_metrics (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  account_id TEXT NOT NULL,
-  label TEXT NOT NULL,
-  pid INTEGER NOT NULL,
-  socks_port INTEGER NOT NULL,
-  rss_kb INTEGER NOT NULL DEFAULT 0,
-  rx_bytes INTEGER NOT NULL DEFAULT 0,
-  tx_bytes INTEGER NOT NULL DEFAULT 0,
-  healthy INTEGER NOT NULL DEFAULT 0,
-  egress_ip TEXT,
-  collected_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_warp_metrics_account_time ON warp_metrics(account_id, collected_at);
-`;
-
-interface IndexRow {
-  name: string;
-  sql: string | null;
-}
+import { RUNTIME_SCHEMA_SQL } from "./schema.sql";
+export { RUNTIME_SCHEMA_SQL };
 
 interface TableRow {
   name: string;
@@ -297,87 +232,30 @@ function clearAllRuntimeTables(database: Database): void {
 }
 
 /**
- * Idempotent runtime schema creation/upgrade. Fresh databases get the
- * direct-cutover schema; existing (legacy) databases get the missing columns
- * added once before any traffic is accepted. Never creates a second runtime
- * database or a second write path.
+ * Idempotent runtime schema creation. Applies the direct-cutover schema
+ * (CREATE IF NOT EXISTS) and promotes trace_id to UNIQUE when safe. Legacy
+ * `request_details` stores are redacted to meta-only once on upgrade.
  */
 export function ensureRuntimeSchema(db: Database): { traceIdUnique: boolean } {
-  const existed = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'request_history'").get() !== null;
   db.exec(RUNTIME_SCHEMA_SQL);
 
-  const columns = new Set((db.query("PRAGMA table_info(request_history)").all() as Array<{ name: string }>).map((row) => row.name));
-  const add = (column: string, ddl: string): void => {
-    if (!columns.has(column)) db.exec(`ALTER TABLE request_history ADD COLUMN ${ddl}`);
-  };
-  add("client_name", "client_name TEXT NOT NULL DEFAULT 'unknown'");
-  add("client_source", "client_source TEXT NOT NULL DEFAULT 'unknown'");
-  add("message_count", "message_count INTEGER NOT NULL DEFAULT 0");
-  add("tool_count", "tool_count INTEGER NOT NULL DEFAULT 0");
-  add("image_count", "image_count INTEGER NOT NULL DEFAULT 0");
-  add("api_key_id", "api_key_id TEXT");
-  add("api_key_prefix", "api_key_prefix TEXT");
-  add("provider", "provider TEXT");
-  add("model", "model TEXT");
-  add("error_kind", "error_kind TEXT");
-  add("finished_at", "finished_at TEXT");
-  add("duration_ms", "duration_ms INTEGER");
-  add("input_tokens", "input_tokens INTEGER");
-  add("output_tokens", "output_tokens INTEGER");
-  add("cached_tokens", "cached_tokens INTEGER");
-  add("cache_write_tokens", "cache_write_tokens INTEGER");
-  add("reasoning_tokens", "reasoning_tokens INTEGER");
-  add("total_tokens", "total_tokens INTEGER");
-  add("usage_source", "usage_source TEXT NOT NULL DEFAULT 'unknown'");
-  add("meta_json", "meta_json TEXT NOT NULL DEFAULT '{}'");
-  add("client_ip", "client_ip TEXT");
-
-  db.exec("CREATE INDEX IF NOT EXISTS idx_request_history_status_id ON request_history(status, id)");
-  db.exec("CREATE INDEX IF NOT EXISTS idx_request_history_provider_status_id ON request_history(provider, status, id)");
-  db.exec("CREATE INDEX IF NOT EXISTS idx_console_logs_scope_ts ON console_logs(scope, ts)");
-  db.exec("CREATE INDEX IF NOT EXISTS idx_console_logs_level_ts ON console_logs(level, ts)");
-
-  const hasTfft = (db.query("PRAGMA table_info(request_history)").all() as { name: string }[]).some((col) => col.name === "tfft_ms");
-  if (!hasTfft) db.exec("ALTER TABLE request_history ADD COLUMN tfft_ms INTEGER");
-
-  if (existed) {
-    const indexes = new Set((db.query("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'request_history'").all() as IndexRow[]).map((row) => row.name));
-    if (!indexes.has("idx_request_history_api_key_started")) db.exec("CREATE INDEX IF NOT EXISTS idx_request_history_api_key_started ON request_history(api_key_id, started_at)");
-    if (!indexes.has("idx_request_history_provider_started") && !indexes.has("idx_request_history_provider")) {
-      db.exec("CREATE INDEX IF NOT EXISTS idx_request_history_provider_started ON request_history(provider, started_at)");
-    }
-    if (!indexes.has("idx_request_history_model_started") && !indexes.has("idx_request_history_model")) {
-      db.exec("CREATE INDEX IF NOT EXISTS idx_request_history_model_started ON request_history(model, started_at)");
-    }
-    if (!indexes.has("idx_request_history_api_key_prefix")) db.exec("CREATE INDEX IF NOT EXISTS idx_request_history_api_key_prefix ON request_history(api_key_prefix, started_at)");
-    if (!indexes.has("idx_request_history_client_ip")) db.exec("CREATE INDEX IF NOT EXISTS idx_request_history_client_ip ON request_history(client_ip, started_at)");
-  } else {
-    db.exec("CREATE INDEX IF NOT EXISTS idx_request_history_started_at ON request_history(started_at)");
-    db.exec("CREATE INDEX IF NOT EXISTS idx_request_history_api_key_started ON request_history(api_key_id, started_at)");
-    db.exec("CREATE INDEX IF NOT EXISTS idx_request_history_provider_started ON request_history(provider, started_at)");
-    db.exec("CREATE INDEX IF NOT EXISTS idx_request_history_model_started ON request_history(model, started_at)");
-    db.exec("CREATE INDEX IF NOT EXISTS idx_request_history_api_key_prefix ON request_history(api_key_prefix, started_at)");
-    db.exec("CREATE INDEX IF NOT EXISTS idx_request_history_client_ip ON request_history(client_ip, started_at)");
-  }
-
-  let traceIdUnique = false;
-  const duplicateRow = db
+  // Promote trace_id to UNIQUE only when no duplicates exist (legacy DBs may
+  // have accumulated dupes before the constraint was introduced).
+  const { total, distinct_ids } = db
     .query("SELECT COUNT(*) AS total, COUNT(DISTINCT trace_id) AS distinct_ids FROM request_history")
     .get() as { total: number; distinct_ids: number };
-  if (duplicateRow.total === duplicateRow.distinct_ids) {
+  if (total === distinct_ids) {
     db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_request_history_trace_id ON request_history(trace_id)");
     db.exec("DROP INDEX IF EXISTS idx_request_history_trace_id");
-    traceIdUnique = true;
-  } else if (!existed) {
-    db.exec("CREATE INDEX IF NOT EXISTS idx_request_history_trace_id ON request_history(trace_id)");
   }
 
-  if (db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'request_details'").get() !== null) {
+  // Legacy redaction migration: clear stored bodies, keep metadata only.
+  if (tableExists(db, "request_details")) {
     db.exec(
       "UPDATE request_details SET redacted_request = NULL, redacted_response = NULL, payload_mode = CASE WHEN payload_mode IS NULL THEN NULL ELSE 'meta' END WHERE redacted_request IS NOT NULL OR redacted_response IS NOT NULL OR payload_mode = 'store'",
     );
   }
-  return { traceIdUnique };
+  return { traceIdUnique: total === distinct_ids };
 }
 
 // ────────────────────────────── Utilities ───────────────────────────────────
@@ -1020,114 +898,6 @@ export function createRuntimeMetadataRepository(getDb: () => Database, flushBefo
   };
 }
 
-// ────────────────────────── Warp metrics repository ─────────────────────────
-
-export interface WarpMetricRow {
-  readonly id: number;
-  readonly accountId: string;
-  readonly label: string;
-  readonly pid: number;
-  readonly socksPort: number;
-  readonly rssKb: number;
-  readonly rxBytes: number;
-  readonly txBytes: number;
-  readonly healthy: boolean;
-  readonly egressIp: string | null;
-  readonly collectedAt: string;
-}
-
-export interface WarpMetricsSummary {
-  readonly totalRssMb: number;
-  readonly totalRxMb: number;
-  readonly totalTxMb: number;
-  readonly totalBandwidthMb: number;
-  readonly runningCount: number;
-  readonly healthyCount: number;
-}
-
-export interface WarpMetricsRepository {
-  record(row: Omit<WarpMetricRow, "id">): void;
-  latest(): readonly WarpMetricRow[];
-  summary(): WarpMetricsSummary;
-  page(cursor: number | null, limit: number): { readonly items: readonly WarpMetricRow[]; readonly nextCursor: number | null };
-  prune(maxRows: number): void;
-}
-
-export function createWarpMetricsRepository(buffer: WriteBuffer, getDb: () => Database, flushBeforeRead: () => void): WarpMetricsRepository {
-  const toRow = (row: Record<string, unknown>): WarpMetricRow => ({
-    id: row.id as number,
-    accountId: row.account_id as string,
-    label: row.label as string,
-    pid: row.pid as number,
-    socksPort: row.socks_port as number,
-    rssKb: row.rss_kb as number,
-    rxBytes: row.rx_bytes as number,
-    txBytes: row.tx_bytes as number,
-    healthy: (row.healthy as number) === 1,
-    egressIp: (row.egress_ip as string) ?? null,
-    collectedAt: row.collected_at as string,
-  });
-
-  return {
-    record(row: Omit<WarpMetricRow, "id">): void {
-      buffer.enqueue(
-        "INSERT INTO warp_metrics (account_id, label, pid, socks_port, rss_kb, rx_bytes, tx_bytes, healthy, egress_ip, collected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [row.accountId, row.label, row.pid, row.socksPort, row.rssKb, row.rxBytes, row.txBytes, row.healthy ? 1 : 0, row.egressIp, row.collectedAt],
-      );
-    },
-    latest(): readonly WarpMetricRow[] {
-      flushBeforeRead();
-      // Get the most recent row per account_id.
-      const rows = getDb().query("SELECT * FROM warp_metrics WHERE id IN (SELECT MAX(id) FROM warp_metrics GROUP BY account_id) ORDER BY collected_at DESC").all() as Record<string, unknown>[];
-      return rows.map(toRow);
-    },
-    summary(): WarpMetricsSummary {
-      flushBeforeRead();
-      // Project only the three summed columns (not SELECT *) and add a time
-      // filter so SQLite uses idx_warp_metrics_account_time(account_id,
-      // collected_at) instead of scanning the whole table every poll cycle.
-      const rows = getDb().query("SELECT rss_kb, rx_bytes, tx_bytes FROM warp_metrics WHERE id IN (SELECT MAX(id) FROM warp_metrics GROUP BY account_id) AND healthy = 1 AND collected_at >= datetime('now', '-1 minute')").all() as Record<string, unknown>[];
-      let totalRssKb = 0;
-      let totalRx = 0;
-      let totalTx = 0;
-      let healthy = 0;
-      for (const row of rows) {
-        totalRssKb += row.rss_kb as number;
-        totalRx += row.rx_bytes as number;
-        totalTx += row.tx_bytes as number;
-        healthy++;
-      }
-      return {
-        totalRssMb: Math.round(totalRssKb / 1024),
-        totalRxMb: Math.round(totalRx / (1024 * 1024)),
-        totalTxMb: Math.round(totalTx / (1024 * 1024)),
-        totalBandwidthMb: Math.round((totalRx + totalTx) / (1024 * 1024)),
-        runningCount: healthy,
-        healthyCount: healthy,
-      };
-    },
-    page(cursor: number | null, limit: number): { readonly items: readonly WarpMetricRow[]; readonly nextCursor: number | null } {
-      flushBeforeRead();
-      const items = cursor === null
-        ? getDb().query("SELECT * FROM warp_metrics ORDER BY id DESC LIMIT ?").all(limit) as Record<string, unknown>[]
-        : getDb().query("SELECT * FROM warp_metrics WHERE id < ? ORDER BY id DESC LIMIT ?").all(cursor, limit) as Record<string, unknown>[];
-      const rows = items.map(toRow);
-      const lastId = rows.length > 0 ? rows[rows.length - 1]!.id : null;
-      const nextCursor = rows.length === limit ? lastId : null;
-      return { items: rows, nextCursor };
-    },
-    prune(maxRows: number): void {
-      // Skip pruning unless the table has grown past 1.5× the cap — avoids a
-      // delete on every poll cycle when the row count is already in bounds.
-      const count = getDb().query("SELECT COUNT(*) AS n FROM warp_metrics").get() as { n: number } | null;
-      if ((count?.n ?? 0) <= maxRows * 1.5) return;
-      // PK-indexed single-row lookup (OFFSET maxRows) + range delete keeps the
-      // most recent `maxRows` rows without a NOT IN full-table scan.
-      getDb().query("DELETE FROM warp_metrics WHERE id <= (SELECT id FROM warp_metrics ORDER BY id DESC LIMIT 1 OFFSET ?)").run(maxRows);
-    },
-  };
-}
-
 // ────────────────────────── Console log repository ──────────────────────────
 
 
@@ -1320,7 +1090,6 @@ export function createRuntimePersistence(env: PersistenceEnv = getPersistenceEnv
   const buffer = createWriteBuffer(getDb);
   const metadata = createRuntimeMetadataRepository(getDb, buffer.flush);
   const consoleLogs = createConsoleLogRepository(buffer, getDb, buffer.flush);
-  const warpMetrics = createWarpMetricsRepository(buffer, getDb, buffer.flush);
   const isTraceIdUnique = (): boolean => traceIdUnique;
 
   const retain = (options?: { logRetentionDays?: number; assetRetentionDays?: number }): RetentionResult => {
@@ -1338,7 +1107,6 @@ export function createRuntimePersistence(env: PersistenceEnv = getPersistenceEnv
     telemetry: createRuntimeTelemetryWriter(buffer, isTraceIdUnique, metadata.invalidate),
     metadata,
     consoleLogs,
-    warpMetrics,
     retain,
     startRetentionMaintenance(intervalMs = 6 * 3_600_000): { stop(): void } {
       let timer: Timer | null = null;

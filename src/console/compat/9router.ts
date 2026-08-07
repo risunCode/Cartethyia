@@ -11,7 +11,7 @@ export interface NineRouterConversion { backup: BackupPayload; report: NineRoute
 type Row = Record<string, unknown>;
 const PROVIDER_MAP: Record<string, string> = {
   openai: "openai", anthropic: "anthropic", codex: "codex", claude: "claude", cline: "cline", clinepass: "clinepass", kimchi: "kimchi",
-  antigravity: "google-antigravity", "google-antigravity": "google-antigravity", opencode: "opencodeft", "opencode-free": "opencodeft", "opencode-go": "opencodego",
+  antigravity: "antigravity", opencode: "opencodeft", "opencode-free": "opencodeft", "opencode-go": "opencodego",
 };
 function rows(value: unknown): Row[] { return Array.isArray(value) ? value.filter((entry): entry is Row => typeof entry === "object" && entry !== null && !Array.isArray(entry)) : []; }
 function text(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }

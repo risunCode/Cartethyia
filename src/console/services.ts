@@ -152,7 +152,7 @@ const MODEL_ENDPOINTS: Record<string, string> = {
   "commandcode": "https://api.commandcode.ai",
   "qoder": "https://api2.qoder.sh",
   "kiro": "https://kiro.dev",
-  "google-antigravity": "https://daily-cloudcode-pa.googleapis.com",
+  "antigravity": "https://daily-cloudcode-pa.googleapis.com",
   "codebuddy": "https://www.codebuddy.ai/v2",
   "codebuddy-cn": "https://www.codebuddy.cn/v2",
   "exa": "https://api.exa.ai",
@@ -185,7 +185,7 @@ function extractModelIds(body: unknown, allowArray = true): string[] {
  * credential as a JSON bundle (`{"accessToken": "…", "refreshToken": "…", …}`).
  * API-key/manual providers store a plain string. Extract the bearer token the
  * upstream `/models` endpoint expects, mirroring the per-adapter parsing each
- * provider already does at dispatch time (see e.g. kimchi.ts, google-antigravity.ts).
+ * provider already does at dispatch time (see e.g. kimchi.ts, antigravity.ts).
  */
 function extractAccessToken(credential: string): string {
   const trimmed = credential.trim();

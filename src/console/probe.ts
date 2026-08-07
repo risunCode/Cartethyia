@@ -29,8 +29,8 @@
 
 import type { ProviderCallError, SafeErrorSummary } from "../domain/contracts";
 import { createCleanupStack } from "../domain/contracts";
-import type { ProviderAdapter, ProviderModel, ProviderOutput, ProviderRequest, ProviderSurface, RouteTarget } from "../domain/contracts";
-import type { NormalizedProviderRequest, RequestLimits } from "../domain/contracts";
+import type { Adapter, ProviderModel, ProviderOutput, ProviderRequest, Surface, RouteTarget } from "../domain/contracts";
+import type { ProxyRequest, RequestLimits } from "../domain/contracts";
 import type { StreamEvent } from "../domain/contracts";
 import type { AccountCandidate, CredentialSelection } from "../domain/contracts";
 import type { ProviderRegistry } from "../providers/registry";
@@ -140,7 +140,7 @@ export async function probeProviderModel(input: ModelProbeInput, ports: ProbePor
   input.signal.addEventListener("abort", onExternalAbort, { once: true });
   cleanup.add({ release: async () => input.signal.removeEventListener("abort", onExternalAbort) });
 
-  let adapter: ProviderAdapter | null = null;
+  let adapter: Adapter | null = null;
   let mode: "stream" | "non_stream" | null = null;
   let accountId: string | null = null;
 
@@ -181,7 +181,7 @@ export async function probeProviderModel(input: ModelProbeInput, ports: ProbePor
     cleanup.add({ release: network.selection.release });
 
     // ---- minimal, provider-valid probe request ----
-    const request: NormalizedProviderRequest = {
+    const request: ProxyRequest = {
       model: input.model,
       messages: [{ role: "user", content: [{ type: "text", text: PROBE_PROMPT }] }],
       tools: [],
@@ -225,7 +225,7 @@ export async function probeProviderModel(input: ModelProbeInput, ports: ProbePor
     // visible text deltas. Only retry once; don't loop.
     if (sample.length === 0 && output.mode !== "stream") {
       try {
-        const streamRequest: NormalizedProviderRequest = { ...request, stream: true };
+        const streamRequest: ProxyRequest = { ...request, stream: true };
         const streamOutput = await adapter.call({ target, request: streamRequest, credential: selection.secret, network: network.selection, signal: controller.signal });
         if (streamOutput.mode === "stream") {
           const collected = await collectStreamSample(streamOutput.events, controller, limits, adapter);
@@ -267,7 +267,7 @@ function toSafeSummary(error: ProviderCallError): SafeErrorSummary {
 }
 
 /** Adapter errors and probe errors are already typed application errors; anything else goes through the adapter mapper. */
-function toProbeError(error: unknown, adapter: ProviderAdapter | null): ProviderCallError {
+function toProbeError(error: unknown, adapter: Adapter | null): ProviderCallError {
   if (isProviderCallError(error)) return error;
   if (adapter !== null) return adapter.mapError(error);
   return makeProviderError("provider_protocol_error", "Probe failed before provider resolution", { retryable: false, routeScope: null });
@@ -283,7 +283,7 @@ function isProviderCallError(value: unknown): value is ProviderCallError {
 }
 
 /** Text-generation surface from the model's (or adapter's) declared order; images are never probed. */
-function resolveProbeSurface(adapter: ProviderAdapter, model: ProviderModel | null): ProviderSurface | null {
+function resolveProbeSurface(adapter: Adapter, model: ProviderModel | null): Surface | null {
   const declared = model !== null ? model.capabilities.surfaces : adapter.capabilities.surfaces;
   return declared.find((surface) => surface !== "images") ?? null;
 }
@@ -298,7 +298,7 @@ function probeRequestLimits(limits: ModelProbeLimits): RequestLimits {
   };
 }
 
-async function selectCredential(input: ModelProbeInput, ports: ProbePorts, adapter: ProviderAdapter): Promise<CredentialSelection> {
+async function selectCredential(input: ModelProbeInput, ports: ProbePorts, adapter: Adapter): Promise<CredentialSelection> {
   if (adapter.metadata.credentialKind === "none") {
     return { accountId: null, kind: "none", leaseId: crypto.randomUUID(), secret: "" };
   }
@@ -353,7 +353,7 @@ async function collectStreamSample(
   events: AsyncIterable<StreamEvent>,
   controller: AbortController,
   limits: ModelProbeLimits,
-  adapter: ProviderAdapter,
+  adapter: Adapter,
 ): Promise<{ readonly sample: string; readonly firstVisibleTextMs: number }> {
   const streamStartedAt = performance.now();
   let firstTextTimedOut = false;
@@ -427,10 +427,9 @@ function stripReasoningTags(text: string): string {
  * never extracted: chat `reasoning_content`, Anthropic `thinking` blocks,
  * and Responses reasoning summaries are structurally excluded.
  */
-function extractNonStreamSample(surface: ProviderSurface, body: Record<string, unknown>): string {
+function extractNonStreamSample(surface: Surface, body: Record<string, unknown>): string {
   switch (surface) {
-    case "openai-chat":
-    case "native": {
+    case "openai-chat": {
       const choices = body["choices"];
       if (Array.isArray(choices)) {
         for (const choice of choices) {

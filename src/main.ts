@@ -1,6 +1,7 @@
 import { createCartethyiaRuntime, runProxyRequest, type CartethyiaRuntime } from "./app/composition";
 import { lookupProxyEndpoint, readBoundedJson } from "./domain/protocols";
-import type { ProxyEndpoint } from "./domain/contracts";
+import type { ModelMetadata, ProxyEndpoint } from "./domain/contracts";
+import type { ResolvedModelMetadata } from "./domain/model-metadata";
 import { isRouteAllowed } from "./console/key-acl";
 import type { ApiKeyPublic } from "./storage";
 import { appendTerminalError } from "./app/response";
@@ -32,9 +33,14 @@ function isIpBanned(ip: string): boolean {
 }
 
 /** Cached /v1/models catalog — rebuilt only when the catalog shape changes. */
+interface CatalogEntry {
+  readonly id: string;
+  readonly owned_by: string;
+  readonly metadata: ModelMetadata | ResolvedModelMetadata | null;
+}
 interface CatalogCache {
   readonly revision: number;
-  readonly entries: ReadonlyArray<{ readonly id: string; readonly owned_by: string; readonly metadata: unknown }>;
+  readonly entries: readonly CatalogEntry[];
 }
 let catalogCache: CatalogCache | null = null;
 
@@ -44,8 +50,8 @@ function catalogRevision(runtime: CartethyiaRuntime): number {
   return runtime.registry.size + runtime.config.aliases.list().length + runtime.config.combos.list().length;
 }
 
-async function buildCatalog(runtime: CartethyiaRuntime): Promise<ReadonlyArray<{ readonly id: string; readonly owned_by: string; readonly metadata: unknown }>> {
-  const entries: Array<{ readonly id: string; readonly owned_by: string; readonly metadata: unknown }> = [];
+async function buildCatalog(runtime: CartethyiaRuntime): Promise<readonly CatalogEntry[]> {
+  const entries: CatalogEntry[] = [];
   const seen = new Set<string>();
   for (const adapter of runtime.registry.list()) {
     for (const model of adapter.models.list) {

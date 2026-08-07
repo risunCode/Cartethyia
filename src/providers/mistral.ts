@@ -1,4 +1,4 @@
-import { capabilitiesOf, makeNativeAdapter, modelOf, type NativeProviderConfig } from "./shared";
+import { capabilitiesOf, makeOpenAIAdapter, modelOf, type OpenAIAdapterConfig } from "./shared";
 
 const NATIVE_SURFACES = ["openai-chat"] as const;
 
@@ -11,6 +11,6 @@ export const mistralConfig = {
     modelOf("mistral-large-latest", "Mistral Large", capabilitiesOf({ surfaces: NATIVE_SURFACES })),
     modelOf("mistral-small-latest", "Mistral Small", capabilitiesOf({ surfaces: NATIVE_SURFACES })),
   ],
-} as const satisfies NativeProviderConfig;
+} as const satisfies OpenAIAdapterConfig;
 
-export const MistralAdapter = makeNativeAdapter(mistralConfig);
+export const MistralAdapter = makeOpenAIAdapter(mistralConfig);

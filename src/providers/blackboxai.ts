@@ -1,4 +1,4 @@
-import { capabilitiesOf, makeNativeAdapter, modelOf, type NativeProviderConfig } from "./shared";
+import { capabilitiesOf, makeOpenAIAdapter, modelOf, type OpenAIAdapterConfig } from "./shared";
 
 const NATIVE_SURFACES = ["openai-chat", "openai-responses"] as const;
 
@@ -50,6 +50,6 @@ export const blackboxaiConfig = {
     modelOf("google/imagen-4-ultra", "Imagen 4 Ultra", capabilitiesOf({ surfaces: ["images"] }), { upstreamId: "blackboxai/google/imagen-4-ultra" }),
     modelOf("google/nano-banana-pro", "Nano Banana Pro", capabilitiesOf({ surfaces: ["images"] }), { upstreamId: "blackboxai/google/nano-banana-pro" }),
   ],
-} as const satisfies NativeProviderConfig;
+} as const satisfies OpenAIAdapterConfig;
 
-export const BlackboxAIAdapter = makeNativeAdapter(blackboxaiConfig);
+export const BlackboxAIAdapter = makeOpenAIAdapter(blackboxaiConfig);

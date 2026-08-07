@@ -1,5 +1,5 @@
 import { sanitizeMessage, type ApplicationErrorKind } from "./contracts";
-import type { ImageReference, NormalizedMessage, NormalizedProviderRequest, NormalizedTool, RequestLimits } from "./contracts";
+import type { ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, RequestLimits } from "./contracts";
 
 /**
  * Typed, sanitized failure returned by protocol validation and normalization.
@@ -504,10 +504,10 @@ export interface NormalizeInput {
  * `NormalizedProviderRequest` or a typed, sanitized failure.
  */
 export type NormalizeResult =
-  | { readonly ok: true; readonly request: NormalizedProviderRequest }
+  | { readonly ok: true; readonly request: ProxyRequest }
   | { readonly ok: false; readonly error: ProtocolError };
 
-export function normalizeOk(request: NormalizedProviderRequest): NormalizeResult {
+export function normalizeOk(request: ProxyRequest): NormalizeResult {
   return { ok: true, request };
 }
 

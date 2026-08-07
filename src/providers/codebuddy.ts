@@ -1,9 +1,9 @@
 import { aggregateCapabilities, capabilitiesOf, createModelCatalog, modelOf, toProviderCallError } from "./shared";
-import type { ContextStats, ProviderAdapter, ProviderCapabilities, ProviderMetadata, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, ProviderSurface, RouteTarget, TokenCountInput } from "../domain/contracts";
+import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../domain/contracts";
 import { callChatCompletionsWire } from "../transport/protocols/openai";
 import { ProviderAdapterError } from "./shared";
 
-const SURFACES: readonly ProviderSurface[] = ["openai-chat"];
+const SURFACES: readonly Surface[] = ["openai-chat"];
 const GLOBAL_BASE_URL = "https://www.codebuddy.ai/v2";
 const CHINA_BASE_URL = "https://www.codebuddy.cn/v2";
 
@@ -34,14 +34,14 @@ function headers(credential: string, domain: string, incoming?: Headers): Record
   return result;
 }
 
-abstract class CodeBuddyBaseAdapter implements ProviderAdapter {
-  abstract readonly metadata: ProviderMetadata;
+abstract class CodeBuddyBaseAdapter implements Adapter {
+  abstract readonly metadata: ProviderMeta;
   abstract readonly models: ProviderModelCatalog;
   abstract readonly baseUrl: string;
   abstract readonly modelPrefix: string;
-  readonly capabilities: ProviderCapabilities;
+  readonly capabilities: ProviderCaps;
   constructor(models: readonly ProviderModel[]) { this.capabilities = aggregateCapabilities(models, capabilitiesOf({ surfaces: SURFACES, streaming: true, reasoning: true, images: true, toolCalls: true })); }
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) throw new ProviderAdapterError({ kind: "capability_unsupported", message: `${this.metadata.displayName} supports OpenAI Chat only.`, statusCode: 400, routeScope: null });
     if (this.models.get(modelId) === null) throw new ProviderAdapterError({ kind: "model_not_found", message: `Model "${modelId}" is not in the ${this.metadata.displayName} catalog.`, statusCode: 404, routeScope: "provider" });
     const entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: entry?.upstreamId ?? modelId, surface };
@@ -55,7 +55,7 @@ abstract class CodeBuddyBaseAdapter implements ProviderAdapter {
 }
 
 export class CodeBuddyAdapter extends CodeBuddyBaseAdapter {
-  readonly metadata: ProviderMetadata = { id: "codebuddy", displayName: "CodeBuddy", protocol: "openai", credentialKind: "api_key" };
+  readonly metadata: ProviderMeta = { id: "codebuddy", displayName: "CodeBuddy", protocol: "openai", credentialKind: "api_key" };
   readonly models = createModelCatalog(globalModels);
   readonly baseUrl = GLOBAL_BASE_URL;
   readonly modelPrefix = "";
@@ -63,7 +63,7 @@ export class CodeBuddyAdapter extends CodeBuddyBaseAdapter {
 }
 
 export class CodeBuddyChinaAdapter extends CodeBuddyBaseAdapter {
-  readonly metadata: ProviderMetadata = { id: "codebuddy-cn", displayName: "CodeBuddy CN", protocol: "openai", credentialKind: "api_key" };
+  readonly metadata: ProviderMeta = { id: "codebuddy-cn", displayName: "CodeBuddy CN", protocol: "openai", credentialKind: "api_key" };
   readonly models = createModelCatalog(chinaModels);
   readonly baseUrl = CHINA_BASE_URL;
   readonly modelPrefix = "";

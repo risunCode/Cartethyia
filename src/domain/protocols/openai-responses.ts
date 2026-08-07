@@ -33,7 +33,7 @@ import {
   type NormalizeResult,
   type ProtocolError,
 } from "../protocols";
-import type { ContentBlock, ImageReference, NormalizedMessage, NormalizedProviderRequest, NormalizedTool, ReasoningConfig, ReasoningEffort, ReasoningSummary } from "../contracts";
+import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, ReasoningConfig, ReasoningEffort, ReasoningSummary } from "../contracts";
 
 export function normalizeResponsesRequest(body: unknown, input: NormalizeInput): NormalizeResult {
   const aborted = abortedError(input.signal);
@@ -97,7 +97,7 @@ function normalizeInstructions(raw: unknown): NormalizedMessage[] | ProtocolErro
   return [{ role: "system", content: [{ type: "text", text: raw }] }];
 }
 
-function normalizeResponseFormat(raw: unknown): NormalizedProviderRequest["responseFormat"] | ProtocolError {
+function normalizeResponseFormat(raw: unknown): ProxyRequest["responseFormat"] | ProtocolError {
   if (raw === undefined || raw === null) return "text";
   const text = narrowObject(raw, "text");
   if (isProtocolError(text)) return text;
@@ -350,7 +350,7 @@ function normalizeTools(raw: unknown): NormalizedTool[] | ProtocolError {
  * json_schema response formats are approximated as json_object because the
  * normalized request carries no schema body.
  */
-export function buildResponsesPayload(request: NormalizedProviderRequest): Record<string, unknown> {
+export function buildResponsesPayload(request: ProxyRequest): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     model: request.model,
     stream: request.stream,

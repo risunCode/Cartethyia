@@ -129,14 +129,6 @@ interface HealthMetrics {
   netRateKbps: number | null;
 }
 
-interface WarpMetricsSummary {
-  totalRssMb: number;
-  totalRxMb: number;
-  totalTxMb: number;
-  totalBandwidthMb: number;
-  runningCount: number;
-  healthyCount: number;
-}
 
 interface ApiKeyRecord {
   id: string;
@@ -497,12 +489,6 @@ export function OverviewPage() {
     refetchInterval: 5_000,
   });
 
-  const warpMetricsQuery = useQuery({
-    queryKey: qk.warp.metricsSummary,
-    queryFn: () => apiGet<WarpMetricsSummary>("/warp/metrics/summary"),
-    refetchInterval: 5_000,
-  });
-
   const authModeMutation = useMutation({
     mutationFn: (proxyAuthMode: RuntimeSettings["proxyAuthMode"]) =>
       apiPost<{ ok: boolean }>("/settings", { proxyAuthMode }),
@@ -668,7 +654,7 @@ export function OverviewPage() {
           <StatCard label="Errors" icon={TriangleAlert} tone="danger" value={`${errorRate}%`} description="Error rate" />
           <StatCard label="Registry" icon={Globe} tone="success" value={data.registered.length} description="Providers" />
           <div className="col-span-2 grid grid-cols-1 overflow-hidden rounded-[14px] border border-[var(--inner-border)] sm:col-span-4 lg:grid-cols-4">
-            {/* Merged RAM + Warp Proxy — wide card spanning 2 columns */}
+            {/* RAM usage — wide card spanning 2 columns */}
             <section className="border-b border-[var(--inner-border)] bg-[var(--hover)] p-3.5 sm:border-b-0 sm:border-r lg:col-span-2">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {/* RAM */}
@@ -713,43 +699,6 @@ export function OverviewPage() {
                       </div>
                     );
                   })()}
-                </div>
-                {/* Warp Proxy */}
-                <div className="border-t border-[var(--inner-border)] pt-3 sm:border-t-0 sm:pt-0 sm:border-l sm:pl-4">
-                  <div className="flex items-center gap-2">
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[10px] bg-[rgba(48,209,88,0.14)] text-[#30d158]"><Globe size={14} /></span>
-                    <div className="min-w-0">
-                      <h3 id="health-warp-title" className="text-xs font-bold tracking-tight">Warp Proxy</h3>
-                      <p className="text-[10px] text-[var(--text-3)]">MultiWarp pool · wireproxy instances</p>
-                    </div>
-                    <Badge tone={warpMetricsQuery.data?.runningCount ? "ok" : "default"} className="ml-auto">{warpMetricsQuery.data ? "Live" : "—"}</Badge>
-                  </div>
-                  <div className="mt-3 flex items-baseline gap-2">
-                    <span className="text-xl font-bold tracking-tight tabular-nums">{warpMetricsQuery.data ? formatMemoryMb(warpMetricsQuery.data.totalRssMb) : "—"}</span>
-                    <span className="text-[10px] text-[var(--text-3)]">RSS</span>
-                    <Badge tone="accent" className="ml-auto">{warpMetricsQuery.data ? `${warpMetricsQuery.data.runningCount} running` : "—"}</Badge>
-                  </div>
-                  <p className="mt-2 text-[9.5px] leading-relaxed text-[var(--text-3)]">Per-instance RSS summed across all running wireproxy processes. ~20–40 MB per instance.</p>
-                  <div className="mt-2.5 grid grid-cols-2 gap-2">
-                    <div>
-                      <div className="mb-0.5 flex justify-between text-[9px] text-[var(--text-3)]">
-                        <span>Healthy</span>
-                        <span className="tabular-nums">{warpMetricsQuery.data?.healthyCount ?? "—"}</span>
-                      </div>
-                      <div className="h-0.5 overflow-hidden rounded-full bg-[var(--track)]">
-                        <div className="h-full origin-left rounded-full bg-[#30d158] transition-transform duration-500" style={{ transform: `scaleX(${warpMetricsQuery.data && warpMetricsQuery.data.runningCount > 0 ? Math.min(1, warpMetricsQuery.data.healthyCount / warpMetricsQuery.data.runningCount) : 0})` }} />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="mb-0.5 flex justify-between text-[9px] text-[var(--text-3)]">
-                        <span>Bandwidth</span>
-                        <span className="tabular-nums">{warpMetricsQuery.data ? `${warpMetricsQuery.data.totalBandwidthMb} MB` : "—"}</span>
-                      </div>
-                      <div className="h-0.5 overflow-hidden rounded-full bg-[var(--track)]">
-                        <div className="h-full origin-left rounded-full bg-[#0a84ff] transition-transform duration-500" style={{ transform: `scaleX(${warpMetricsQuery.data && warpMetricsQuery.data.totalBandwidthMb > 0 ? Math.min(1, warpMetricsQuery.data.totalBandwidthMb / 100) : 0})` }} />
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </div>
             </section>

@@ -1,6 +1,6 @@
 import { AbortCoordinator, ProviderAdapterError, executeFetch, isRecord, lineLimit, mapSseStream, nullableNumber, parseSseData, readJsonObject, readUpstreamError } from "../../providers/shared";
 import type { SseEvent, StreamMapper } from "../../providers/shared";
-import type { ApplicationErrorKind, ProviderCapabilities, ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../../domain/contracts";
+import type { ApplicationErrorKind, ProviderCaps, ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../../domain/contracts";
 import { buildMessagesPayload, mapAnthropicUsage } from "../../domain/protocols/anthropic-messages";
 
 // ---------------------------------------------------------------- SSE mapping
@@ -148,7 +148,7 @@ export async function callAnthropicWire(
   input: ProviderRequest,
   baseUrl: string,
   headers: Record<string, string>,
-  capabilities: ProviderCapabilities,
+  capabilities: ProviderCaps,
 ): Promise<ProviderOutput> {
   const { request, signal, network } = input;
   const payload = buildMessagesPayload(request, capabilities);

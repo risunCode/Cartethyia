@@ -1,5 +1,5 @@
-export type ProviderSurface = "openai-chat" | "openai-responses" | "anthropic-messages" | "native" | "images" | "web-search";
-export type ProviderProtocol = "openai" | "anthropic" | "gemini" | "native" | "exa";
+export type Surface = "openai-chat" | "openai-responses" | "anthropic-messages" | "images" | "web-search";
+export type Protocol = "openai" | "anthropic" | "gemini" | "exa";
 export type CredentialKind = "api_key" | "oauth" | "manual" | "none";
 
 /** Network routing preset shared by proxy settings and the network selector. */
@@ -11,10 +11,10 @@ export type UsageDimension = "model" | "provider" | "key";
 /** Usage aggregation period for telemetry queries. */
 export type UsagePeriod = "1h" | "24h" | "7d" | "30d" | "all";
 
-export interface ProviderMetadata {
+export interface ProviderMeta {
   readonly id: string;
   readonly displayName: string;
-  readonly protocol: ProviderProtocol;
+  readonly protocol: Protocol;
   readonly credentialKind: CredentialKind;
   /** Official onboarding URL for API-key or account credentials, when available. */
   readonly credentialUrl?: string;
@@ -22,8 +22,8 @@ export interface ProviderMetadata {
   readonly credentialKinds?: readonly CredentialKind[];
 }
 
-export interface ProviderCapabilities {
-  readonly surfaces: readonly ProviderSurface[];
+export interface ProviderCaps {
+  readonly surfaces: readonly Surface[];
   readonly streaming: boolean;
   readonly reasoning: boolean;
   readonly toolCalls: boolean;
@@ -50,7 +50,7 @@ export interface ModelTokenPricing {
 export interface ProviderModel {
   readonly id: string;
   readonly displayName: string;
-  readonly capabilities: ProviderCapabilities;
+  readonly capabilities: ProviderCaps;
   /**
    * Optional model id sent to the upstream API when it differs from the
    * client-facing {@link id}. When unset, the upstream receives {@link id}
@@ -97,12 +97,12 @@ export interface RouteTarget {
    * identifier.
    */
   readonly upstreamModelId: string;
-  readonly surface: ProviderSurface;
+  readonly surface: Surface;
 }
 
 export interface ProviderRequest {
   readonly target: RouteTarget;
-  readonly request: NormalizedProviderRequest;
+  readonly request: ProxyRequest;
   readonly credential: string;
   readonly network: NetworkSelection;
   readonly signal: AbortSignal;
@@ -125,7 +125,7 @@ export interface ContextStats {
 }
 
 export interface TokenCountInput {
-  readonly request: NormalizedProviderRequest;
+  readonly request: ProxyRequest;
   readonly signal: AbortSignal;
 }
 
@@ -133,11 +133,11 @@ export type ProviderOutput =
   | { readonly mode: "non_stream"; readonly body: Record<string, unknown>; readonly usage?: ProviderUsage }
   | { readonly mode: "stream"; readonly events: AsyncIterable<StreamEvent>; readonly usage?: ProviderUsage };
 
-export interface ProviderAdapter {
-  readonly metadata: ProviderMetadata;
-  readonly capabilities: ProviderCapabilities;
+export interface Adapter {
+  readonly metadata: ProviderMeta;
+  readonly capabilities: ProviderCaps;
   readonly models: ProviderModelCatalog;
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget;
+  resolveTarget(modelId: string, surface: Surface): RouteTarget;
   call(input: ProviderRequest): Promise<ProviderOutput>;
   countTokens(input: TokenCountInput): Promise<ContextStats>;
   mapError(error: unknown): ProviderCallError;
@@ -175,7 +175,7 @@ export interface RouteCandidate {
   readonly id: string;
   readonly providerId: string;
   readonly modelId: string;
-  readonly surface: ProviderSurface;
+  readonly surface: Surface;
   readonly health: RouteHealth | null;
   readonly enabled: boolean;
   readonly authorized: boolean;
@@ -185,7 +185,7 @@ export interface RouteCandidate {
 export interface RouteResolution {
   readonly requestedModel: string;
   readonly candidates: readonly RouteCandidate[];
-  readonly protocol: ProviderSurface;
+  readonly protocol: Surface;
 }
 
 export interface AffinityKey {
@@ -331,7 +331,7 @@ export interface NormalizedTool {
   readonly schemaJsonLength?: number;
 }
 
-export interface NormalizedProviderRequest {
+export interface ProxyRequest {
   readonly model: string;
   readonly messages: readonly NormalizedMessage[];
   readonly tools: readonly NormalizedTool[];
@@ -350,7 +350,7 @@ export interface NormalizedProviderRequest {
   readonly maxOutputTokens: number | null;
   readonly images: readonly ImageReference[];
   readonly imageOperation?: "generate" | "edit";
-  readonly sourceSurface: ProviderSurface;
+  readonly sourceSurface: Surface;
   readonly signal: AbortSignal;
   readonly limits: RequestLimits;
   readonly cacheKey?: string;
@@ -376,7 +376,7 @@ export interface RunProxyRequestInput {
   /** Correlation ID supplied by the HTTP boundary when available. */
   readonly requestId?: string;
   readonly endpoint: ProxyEndpoint;
-  readonly surface: ProviderSurface;
+  readonly surface: Surface;
   readonly headers: Headers;
   readonly body: unknown;
   readonly signal: AbortSignal;
@@ -384,7 +384,7 @@ export interface RunProxyRequestInput {
   readonly clientIp?: string | null;
 }
 
-export function detectClient(headers: Headers, normalized?: NormalizedProviderRequest): ClientIdentity {
+export function detectClient(headers: Headers, normalized?: ProxyRequest): ClientIdentity {
   const explicit = headers.get("x-client-name")?.trim().toLowerCase();
   const names: Readonly<Record<string, ClientName>> = {
     github_copilot: "github_copilot",

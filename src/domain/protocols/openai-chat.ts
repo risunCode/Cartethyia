@@ -32,7 +32,7 @@ import {
   type NormalizeResult,
   type ProtocolError,
 } from "../protocols";
-import type { ContentBlock, ImageReference, NormalizedMessage, NormalizedProviderRequest, NormalizedTool, ReasoningConfig, ReasoningEffort, ReasoningSummary } from "../contracts";
+import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, ReasoningConfig, ReasoningEffort, ReasoningSummary } from "../contracts";
 
 /**
  * Strict validation and normalization for OpenAI Chat Completions
@@ -91,7 +91,7 @@ export function normalizeChatRequest(body: unknown, input: NormalizeInput): Norm
   });
 }
 
-function normalizeResponseFormat(raw: unknown): NormalizedProviderRequest["responseFormat"] | ProtocolError {
+function normalizeResponseFormat(raw: unknown): ProxyRequest["responseFormat"] | ProtocolError {
   if (raw === undefined || raw === null) return "text";
   const format = narrowObject(raw, "response_format");
   if (isProtocolError(format)) return format;
@@ -282,7 +282,7 @@ function normalizeTools(raw: unknown): NormalizedTool[] | ProtocolError {
  * payload. json_schema response formats are approximated as json_object
  * because the normalized request carries no schema body.
  */
-export function buildChatPayload(request: NormalizedProviderRequest): Record<string, unknown> {
+export function buildChatPayload(request: ProxyRequest): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     model: request.model,
     stream: request.stream,

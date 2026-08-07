@@ -16,14 +16,14 @@ import {
 import type { SseEvent, StreamMapper } from "./shared";
 import type {
   ContextStats,
-  ProviderAdapter,
-  ProviderCapabilities,
-  ProviderMetadata,
+  Adapter,
+  ProviderCaps,
+  ProviderMeta,
   ProviderModel,
   ProviderModelCatalog,
   ProviderOutput,
   ProviderRequest,
-  ProviderSurface,
+  Surface,
   RouteTarget,
   StreamEvent,
   TokenCountInput,
@@ -36,7 +36,7 @@ import type { ProviderCallError } from "../domain/contracts";
  * Not a chat model; exposes search as a tool-callable capability.
  */
 
-const EXA_SURFACES: readonly ProviderSurface[] = ["web-search"];
+const EXA_SURFACES: readonly Surface[] = ["web-search"];
 const EXA_BASE_URL = "https://api.exa.ai";
 
 const EXA_MODELS: readonly ProviderModel[] = [
@@ -44,7 +44,7 @@ const EXA_MODELS: readonly ProviderModel[] = [
   modelOf("exa-deep-research", "Exa Deep Researcher", capabilitiesOf({ surfaces: EXA_SURFACES })),
 ];
 
-const EXA_FALLBACK_CAPABILITIES: ProviderCapabilities = capabilitiesOf({ surfaces: EXA_SURFACES });
+const EXA_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: EXA_SURFACES });
 
 export interface ExaAdapterConfig {
   readonly id?: string;
@@ -105,9 +105,9 @@ interface ExaStreamChunk {
   requestId?: string;
 }
 
-export class ExaAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata;
-  readonly capabilities: ProviderCapabilities;
+export class ExaAdapter implements Adapter {
+  readonly metadata: ProviderMeta;
+  readonly capabilities: ProviderCaps;
   readonly models: ProviderModelCatalog;
   private readonly baseUrl: string;
 
@@ -124,7 +124,7 @@ export class ExaAdapter implements ProviderAdapter {
     };
   }
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({
         kind: "capability_unsupported",

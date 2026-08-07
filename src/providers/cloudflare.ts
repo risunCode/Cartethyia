@@ -2,20 +2,20 @@ import { ProviderAdapterError, capabilitiesOf, createModelCatalog, toProviderCal
 import { callChatCompletionsWire } from "../transport/protocols/openai";
 import type {
   ContextStats,
-  ProviderAdapter,
-  ProviderCapabilities,
-  ProviderMetadata,
+  Adapter,
+  ProviderCaps,
+  ProviderMeta,
   ProviderModelCatalog,
   ProviderOutput,
   ProviderRequest,
-  ProviderSurface,
+  Surface,
   RouteTarget,
   TokenCountInput,
 } from "../domain/contracts";
 import type { ProviderCallError } from "../domain/contracts";
 
-const CLOUDFLARE_SURFACES: readonly ProviderSurface[] = ["openai-chat"];
-const CLOUDFLARE_CAPABILITIES: ProviderCapabilities = capabilitiesOf({ surfaces: CLOUDFLARE_SURFACES, reasoning: true, images: false });
+const CLOUDFLARE_SURFACES: readonly Surface[] = ["openai-chat"];
+const CLOUDFLARE_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: CLOUDFLARE_SURFACES, reasoning: true, images: false });
 const CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4/accounts";
 
 interface CloudflareCredential {
@@ -42,18 +42,18 @@ function parseCredential(value: string): CloudflareCredential {
 }
 
 /** Cloudflare Workers AI OpenAI-compatible account endpoint. */
-export class CloudflareAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata = {
+export class CloudflareAdapter implements Adapter {
+  readonly metadata: ProviderMeta = {
     id: "cloudflare",
     displayName: "Cloudflare Workers AI",
     protocol: "openai",
     credentialKind: "api_key",
     credentialUrl: "https://dash.cloudflare.com/profile/api-tokens",
   };
-  readonly capabilities: ProviderCapabilities = CLOUDFLARE_CAPABILITIES;
+  readonly capabilities: ProviderCaps = CLOUDFLARE_CAPABILITIES;
   readonly models: ProviderModelCatalog = createModelCatalog([]);
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${surface}"`, statusCode: 400, routeScope: null });
     }

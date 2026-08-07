@@ -1,7 +1,7 @@
 import type { ApplicationErrorKind, ProviderCallError } from "../domain/contracts";
 import { boundedRetryAt, deriveErrorSource, sanitizeMessage } from "../domain/contracts";
 import { isUsageLimitOutcome, parseRateLimitReason } from "../domain/rate-limit";
-import type { ContextStats, ProviderAdapter, ProviderCapabilities, ProviderMetadata, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, ProviderSurface, RouteTarget, TokenCountInput } from "../domain/contracts";
+import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../domain/contracts";
 import type { CredentialKind } from "../domain/contracts";
 import type { ModelCapabilityCategory, ModelContextLimits, ModelTokenPricing } from "../domain/contracts";
 import type { NetworkSelection } from "../domain/contracts";
@@ -624,7 +624,7 @@ export function createModelCatalog(models: readonly ProviderModel[]): ProviderMo
 }
 
 export interface CapabilitySeed {
-  readonly surfaces: readonly ProviderSurface[];
+  readonly surfaces: readonly Surface[];
   readonly streaming?: boolean;
   readonly reasoning?: boolean;
   readonly toolCalls?: boolean;
@@ -633,7 +633,7 @@ export interface CapabilitySeed {
   readonly promptCacheKey?: boolean;
 }
 
-export function capabilitiesOf(seed: CapabilitySeed): ProviderCapabilities {
+export function capabilitiesOf(seed: CapabilitySeed): ProviderCaps {
   return {
     surfaces: [...seed.surfaces],
     streaming: seed.streaming ?? true,
@@ -651,7 +651,7 @@ export function capabilitiesOf(seed: CapabilitySeed): ProviderCapabilities {
  * message-shaped surface, "reasoning" when extended thinking is supported.
  * Pure image-generation models (surfaces `["images"]`) are not tagged "text".
  */
-export function categoriesOf(capabilities: ProviderCapabilities): readonly ModelCapabilityCategory[] {
+export function categoriesOf(capabilities: ProviderCaps): readonly ModelCapabilityCategory[] {
   const categories: ModelCapabilityCategory[] = [];
   if (capabilities.images) categories.push("vision");
   if (capabilities.surfaces.some((surface) => surface !== "images")) categories.push("text");
@@ -672,7 +672,7 @@ export interface ModelMetadataSeed {
   readonly pricing?: Partial<ModelTokenPricing> | null;
 }
 
-export function modelOf(id: string, displayName: string, capabilities: ProviderCapabilities, metadata: ModelMetadataSeed = {}): ProviderModel {
+export function modelOf(id: string, displayName: string, capabilities: ProviderCaps, metadata: ModelMetadataSeed = {}): ProviderModel {
   return {
     id,
     displayName,
@@ -696,9 +696,9 @@ export function modelOf(id: string, displayName: string, capabilities: ProviderC
  * catalogs, which keeps catalog-less providers (routers, local servers)
  * permissive.
  */
-export function aggregateCapabilities(models: readonly ProviderModel[], fallback: ProviderCapabilities): ProviderCapabilities {
+export function aggregateCapabilities(models: readonly ProviderModel[], fallback: ProviderCaps): ProviderCaps {
   if (models.length === 0) return { ...fallback, surfaces: [...fallback.surfaces] };
-  const surfaces: ProviderSurface[] = [];
+  const surfaces: Surface[] = [];
   let streaming = false;
   let reasoning = false;
   let toolCalls = false;
@@ -720,12 +720,12 @@ export function aggregateCapabilities(models: readonly ProviderModel[], fallback
   return { surfaces, streaming, reasoning, toolCalls, images, explicitCache, promptCacheKey };
 }
 
-// ---------------------------------------------------------------- native adapter factory
+// ---------------------------------------------------------------- openai adapter factory
 
-const NATIVE_SURFACES: readonly ProviderSurface[] = ["openai-chat", "openai-responses"];
-const NATIVE_FALLBACK_CAPABILITIES: ProviderCapabilities = capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true });
+const OPENAI_SURFACES: readonly Surface[] = ["openai-chat", "openai-responses"];
+const OPENAI_FALLBACK_CAPS: ProviderCaps = capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true, images: true });
 
-export interface NativeProviderConfig {
+export interface OpenAIAdapterConfig {
   readonly id: string;
   readonly displayName: string;
   readonly baseUrl: string;
@@ -739,15 +739,15 @@ export interface NativeProviderConfig {
  * Creates a standalone OpenAI-compatible Chat Completions adapter.
  * Each provider file imports this to create its own adapter instance.
  */
-export function makeNativeAdapter(config: NativeProviderConfig): ProviderAdapter {
+export function makeOpenAIAdapter(config: OpenAIAdapterConfig): Adapter {
   const baseUrl = config.baseUrl.replace(/\/+$/, "");
   const models = config.models ?? [];
   const modelCatalog = createModelCatalog(models);
-  const capabilities = aggregateCapabilities(models, NATIVE_FALLBACK_CAPABILITIES);
-  const metadata: ProviderMetadata = {
+  const capabilities = aggregateCapabilities(models, OPENAI_FALLBACK_CAPS);
+  const metadata: ProviderMeta = {
     id: config.id,
     displayName: config.displayName,
-    protocol: "native",
+    protocol: "openai",
     credentialKind: config.credentialKind,
     ...(config.credentialUrl ? { credentialUrl: config.credentialUrl } : {}),
   };
@@ -784,7 +784,7 @@ export function makeNativeAdapter(config: NativeProviderConfig): ProviderAdapter
     metadata,
     capabilities,
     models: modelCatalog,
-    resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+    resolveTarget(modelId: string, surface: Surface): RouteTarget {
       if (!capabilities.surfaces.includes(surface)) {
         throw new ProviderAdapterError({
           kind: "capability_unsupported",

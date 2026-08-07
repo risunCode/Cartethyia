@@ -104,24 +104,6 @@ export const qk = {
     summary: (period: string) => ["usage-summary", period] as const,
     recentRequests: ["usage-requests", "recent"] as const,
   },
-
-  /** `/console/api/usage/requests` for the console-log + monitoring views. */
-  consoleLog: {
-    requestHistory: ["console-log", "request-history"] as const,
-  },
-  systemMonitoring: {
-    requests: ["system-monitoring", "requests"] as const,
-    ipSummary: ["system-monitoring", "ip-summary"] as const,
-    ipBans: ["system-monitoring", "ip-bans"] as const,
-  },
-
-  /** `/console/api/warp/*`. */
-  warp: {
-    accounts: ["warp", "accounts"] as const,
-    statuses: ["warp", "statuses"] as const,
-    metricsSummary: ["warp", "metrics-summary"] as const,
-  },
-
   /** `/console/api/cli-tools/*`. */
   cliTools: {
     registry: ["cli-tools", "registry"] as const,

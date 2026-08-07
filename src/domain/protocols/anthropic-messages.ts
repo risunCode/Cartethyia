@@ -1,5 +1,5 @@
 import { ProtocolCodecError } from "./errors";
-import type { ProviderCapabilities, ProviderUsage } from "../contracts";
+import type { ProviderCaps, ProviderUsage } from "../contracts";
 
 const DEFAULT_MAX_TOKENS = 4_096;
 const MAX_THINKING_BUDGET = 32_000;
@@ -37,7 +37,7 @@ import {
   type NormalizeResult,
   type ProtocolError,
 } from "../protocols";
-import type { ContentBlock, ImageReference, NormalizedMessage, NormalizedProviderRequest, NormalizedTool } from "../contracts";
+import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool } from "../contracts";
 
 export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): NormalizeResult {
   const aborted = abortedError(input.signal);
@@ -320,7 +320,7 @@ function normalizeTools(raw: unknown): NormalizedTool[] | ProtocolError {
  * plus the beta header in `call`) is emitted only when the adapter declares
  * explicitCache and promptCacheKey.
  */
-export function buildMessagesPayload(request: NormalizedProviderRequest, capabilities: ProviderCapabilities): Record<string, unknown> {
+export function buildMessagesPayload(request: ProxyRequest, capabilities: ProviderCaps): Record<string, unknown> {
   const systemText = request.messages
     .filter((message) => message.role === "system" || message.role === "developer")
     .map((message) => messageText(message))

@@ -3,14 +3,14 @@ import { createChatMapper } from "../transport/protocols/openai";
 import { buildChatPayload } from "../domain/protocols/openai-chat";
 import type {
   ContextStats,
-  ProviderAdapter,
-  ProviderCapabilities,
-  ProviderMetadata,
+  Adapter,
+  ProviderCaps,
+  ProviderMeta,
   ProviderModel,
   ProviderModelCatalog,
   ProviderOutput,
   ProviderRequest,
-  ProviderSurface,
+  Surface,
   RouteTarget,
   TokenCountInput,
 } from "../domain/contracts";
@@ -25,7 +25,7 @@ import type { ProviderCallError } from "../domain/contracts";
  * 500 that the Cline gateway intermittently returns.
  */
 
-const CLINE_SURFACES: readonly ProviderSurface[] = ["openai-chat"];
+const CLINE_SURFACES: readonly Surface[] = ["openai-chat"];
 const CLINE_BASE_URL = "https://api.cline.bot/api/v1";
 const CLINE_CHAT_URL = `${CLINE_BASE_URL}/chat/completions`;
 const CLINE_CLIENT_VERSION = "4.0.11";
@@ -44,7 +44,7 @@ const CLINE_MODELS: readonly ProviderModel[] = [
   modelOf("kwaipilot/kat-coder-pro-v2", "Kat Coder Pro V2", capabilitiesOf({ surfaces: CLINE_SURFACES, reasoning: true })),
 ];
 
-const CLINE_FALLBACK_CAPABILITIES: ProviderCapabilities = capabilitiesOf({ surfaces: CLINE_SURFACES, reasoning: true, images: true });
+const CLINE_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: CLINE_SURFACES, reasoning: true, images: true });
 const CLINEPASS_MODELS: readonly ProviderModel[] = [
   modelOf("cline-pass/glm-5.2", "GLM 5.2 (ClinePass)", capabilitiesOf({ surfaces: CLINE_SURFACES, reasoning: true, images: true })),
   modelOf("cline-pass/kimi-k2.7-code", "Kimi K2.7 Code (ClinePass)", capabilitiesOf({ surfaces: CLINE_SURFACES, reasoning: true, images: true })),
@@ -138,17 +138,17 @@ async function callClineOnce(input: ProviderRequest, bearer: string): Promise<Pr
 }
 
 /** Cline is an OAuth/session gateway speaking the OpenAI Chat Completions wire format. */
-export class ClineAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata = {
+export class ClineAdapter implements Adapter {
+  readonly metadata: ProviderMeta = {
     id: "cline",
     displayName: "Cline",
     protocol: "openai",
     credentialKind: "oauth",
   };
   readonly models: ProviderModelCatalog = createModelCatalog(CLINE_MODELS);
-  readonly capabilities: ProviderCapabilities = { ...CLINE_FALLBACK_CAPABILITIES, streaming: true };
+  readonly capabilities: ProviderCaps = { ...CLINE_FALLBACK_CAPABILITIES, streaming: true };
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${surface}"`, statusCode: 400, routeScope: null });
     }
@@ -187,8 +187,8 @@ export class ClineAdapter implements ProviderAdapter {
 }
 
 /** ClinePass supports plain API keys and the same WorkOS OAuth bundles. */
-export class ClinePassAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata = {
+export class ClinePassAdapter implements Adapter {
+  readonly metadata: ProviderMeta = {
     id: "clinepass",
     displayName: "ClinePass",
     protocol: "openai",
@@ -196,9 +196,9 @@ export class ClinePassAdapter implements ProviderAdapter {
     credentialKinds: ["oauth", "api_key"],
   };
   readonly models: ProviderModelCatalog = createModelCatalog(CLINEPASS_MODELS);
-  readonly capabilities: ProviderCapabilities = { ...CLINE_FALLBACK_CAPABILITIES, streaming: true };
+  readonly capabilities: ProviderCaps = { ...CLINE_FALLBACK_CAPABILITIES, streaming: true };
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${surface}"`, statusCode: 400, routeScope: null });
     if (this.models.get(modelId) === null) throw new ProviderAdapterError({ kind: "model_not_found", message: `Model "${modelId}" is not in the "${this.metadata.id}" catalog`, statusCode: 404, routeScope: "provider" });
     const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };

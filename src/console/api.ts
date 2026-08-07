@@ -19,7 +19,6 @@ import type { ConsoleDiagnostics } from "./diagnostics";
 import { createStudioSession, deleteStudioSession, getStudioSession, listStudioSessions, normalizeStudioMessages, patchStudioSession } from "./model-studio";
 import type { ConsoleLogStreamHub } from "./streams";
 import { createCliToolsApi } from "./cli-tools/api-routes";
-import { createWarpApi, type WarpApiMount } from "./warp/api-routes";
 import type { ConfigPersistence } from "../storage";
 import type { RuntimePersistence } from "../storage/runtime/runtime";
 import { createDbMapApi } from "./db-map/api-routes";
@@ -162,7 +161,8 @@ function sanitizeProbeLimits(value: unknown): Partial<ModelProbeInput["limits"]>
   const body = value as Record<string, unknown>;
   const limits: { connectMs?: number; firstVisibleTextMs?: number; idleMs?: number; totalMs?: number; maxOutputTokens?: number; maxSampleChars?: number } = {};
   for (const key of PROBE_LIMIT_KEYS) {
-    if (typeof body[key] === "number" && Number.isFinite(body[key])) limits[key] = body[key];
+    const v = body[key];
+    if (typeof v === "number" && Number.isFinite(v)) limits[key] = v;
   }
   return limits;
 }
@@ -191,10 +191,6 @@ function consoleLogStream(hub: ConsoleLogStreamHub, request: Request): Response 
 export function createConsoleApi(deps: ConsoleRouterDependencies) {
   const { services, diagnostics, config, runtime } = deps;
   const sessionGuard = makeSessionGuard(services);
-  // Single WarpPoolService — created here and surfaced for shutdown by the
-  // caller. Constructing it starts the 15s metrics timer, so there must be
-  // exactly one instance process-wide.
-  const warpApi: WarpApiMount = createWarpApi(config, runtime);
 
   // Bridge the console's config/runtime singletons into db-map's coordination
   // interface so writes go through the live WAL session and import reopens the
@@ -397,7 +393,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
             ...(provider ?? {
               id: params.id,
               name: customRecord?.name ?? params.id,
-              protocol: "native",
+              protocol: "openai",
               credentialKind: "api_key",
               surfaces: ["openai-chat"],
               enabled: config?.enabled ?? true,
@@ -724,8 +720,6 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
         .use(createCliToolsApi())
         // ---- Database Map ----
         .use(createDbMapApi(dbMapPersistence))
-        // ---- Warp pool ----
-        .use(warpApi.app)
         .post("/resolve-preview", async ({ body }) => diagnostics.resolvePreview(body))
         // ---- usage / runtime metadata ----
         .get("/usage/summary", async ({ query }) => ({
@@ -878,6 +872,6 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
         }),
     );
 
-  return { app, warpService: warpApi.service };
+  return { app };
 }
 

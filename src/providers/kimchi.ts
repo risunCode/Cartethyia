@@ -2,14 +2,14 @@ import { ProviderAdapterError, capabilitiesOf, createModelCatalog, modelOf, toPr
 import { callChatCompletionsWire } from "../transport/protocols/openai";
 import type {
   ContextStats,
-  ProviderAdapter,
-  ProviderCapabilities,
-  ProviderMetadata,
+  Adapter,
+  ProviderCaps,
+  ProviderMeta,
   ProviderModel,
   ProviderModelCatalog,
   ProviderOutput,
   ProviderRequest,
-  ProviderSurface,
+  Surface,
   RouteTarget,
   TokenCountInput,
 } from "../domain/contracts";
@@ -23,7 +23,7 @@ import type { ProviderCallError } from "../domain/contracts";
  * User-Agent, and its curated model catalog.
  */
 
-const KIMCHI_SURFACES: readonly ProviderSurface[] = ["openai-chat"];
+const KIMCHI_SURFACES: readonly Surface[] = ["openai-chat"];
 const KIMCHI_BASE_URL = "https://llm.kimchi.dev/openai/v1";
 const KIMCHI_USER_AGENT = "kimchi/0.1.75";
 
@@ -34,7 +34,7 @@ const KIMCHI_MODELS: readonly ProviderModel[] = [
   modelOf("nemotron-3-ultra-fp4", "Nemotron 3 Ultra FP4", capabilitiesOf({ surfaces: KIMCHI_SURFACES, reasoning: true })),
 ];
 
-const KIMCHI_FALLBACK_CAPABILITIES: ProviderCapabilities = capabilitiesOf({ surfaces: KIMCHI_SURFACES, reasoning: true, images: true });
+const KIMCHI_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: KIMCHI_SURFACES, reasoning: true, images: true });
 
 function kimchiAccessToken(credential: string): string {
   const trimmed = credential.trim();
@@ -52,8 +52,8 @@ function kimchiAccessToken(credential: string): string {
 }
 
 /** Kimchi is a billed OpenAI-compatible Chat Completions gateway. */
-export class KimchiAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata = {
+export class KimchiAdapter implements Adapter {
+  readonly metadata: ProviderMeta = {
     id: "kimchi",
     displayName: "Kimchi",
     protocol: "openai",
@@ -61,12 +61,12 @@ export class KimchiAdapter implements ProviderAdapter {
     credentialKinds: ["oauth", "api_key"],
   };
   readonly models: ProviderModelCatalog = createModelCatalog(KIMCHI_MODELS);
-  readonly capabilities: ProviderCapabilities = {
+  readonly capabilities: ProviderCaps = {
     ...KIMCHI_FALLBACK_CAPABILITIES,
     streaming: true,
   };
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({
         kind: "capability_unsupported",

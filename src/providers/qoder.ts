@@ -16,7 +16,7 @@ import {
 } from "./shared";
 import type { SseEvent } from "./shared";
 import { createChatMapper } from "../transport/protocols/openai";
-import { isTerminalEvent, type ContextStats, type ContentBlock, type NormalizedMessage, type NormalizedProviderRequest, type ProviderAdapter, type ProviderCapabilities, type ProviderCallError, type ProviderMetadata, type ProviderModel, type ProviderModelCatalog, type ProviderOutput, type ProviderRequest, type ProviderSurface, type ProviderUsage, type RequestLimits, type RouteTarget, type StopReason, type StreamEvent, type TokenCountInput } from "../domain/contracts";
+import { isTerminalEvent, type ContextStats, type ContentBlock, type NormalizedMessage, type ProxyRequest, type Adapter, type ProviderCaps, type ProviderCallError, type ProviderMeta, type ProviderModel, type ProviderModelCatalog, type ProviderOutput, type ProviderRequest, type Surface, type ProviderUsage, type RequestLimits, type RouteTarget, type StopReason, type StreamEvent, type TokenCountInput } from "../domain/contracts";
 
 /**
  * Qoder — the Qoder CLI's `agent_chat_generation` SSE gateway
@@ -38,8 +38,8 @@ import { isTerminalEvent, type ContextStats, type ContentBlock, type NormalizedM
  * machine-id cache is kept).
  */
 
-const QODER_SURFACES: readonly ProviderSurface[] = ["openai-chat"];
-const QODER_FALLBACK_CAPABILITIES: ProviderCapabilities = capabilitiesOf({ surfaces: QODER_SURFACES, reasoning: true, images: true });
+const QODER_SURFACES: readonly Surface[] = ["openai-chat"];
+const QODER_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: QODER_SURFACES, reasoning: true, images: true });
 
 // ---------------------------------------------------------------- wire constants
 
@@ -369,7 +369,7 @@ function flattenContent(content: readonly ContentBlock[]): string {
     .join("\n");
 }
 
-function requestedMaxTokens(body: NormalizedProviderRequest, modelConfig: QoderModelConfig): number {
+function requestedMaxTokens(body: ProxyRequest, modelConfig: QoderModelConfig): number {
   const configured = typeof modelConfig.max_output_tokens === "number" ? modelConfig.max_output_tokens : 32768;
   const requested = body.maxOutputTokens;
   return typeof requested === "number" && requested > 0 ? Math.min(requested, configured) : configured;
@@ -377,7 +377,7 @@ function requestedMaxTokens(body: NormalizedProviderRequest, modelConfig: QoderM
 
 function buildQoderRequest(
   modelId: string,
-  body: NormalizedProviderRequest,
+  body: ProxyRequest,
   modelConfig: QoderModelConfig,
   auth: QoderAuth,
 ): Record<string, unknown> {
@@ -614,17 +614,17 @@ function materializedToChatResponse(result: MaterializedChat, model: string): Re
 // ---------------------------------------------------------------- adapter
 
 /** Qoder is a PAT-exchanged, COSY-signed, streaming-only OpenAI-chat gateway. */
-export class QoderAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata = {
+export class QoderAdapter implements Adapter {
+  readonly metadata: ProviderMeta = {
     id: "qoder",
     displayName: "Qoder",
     protocol: "openai",
     credentialKind: "api_key",
   };
   readonly models: ProviderModelCatalog = createModelCatalog(QODER_MODELS);
-  readonly capabilities: ProviderCapabilities = aggregateCapabilities(QODER_MODELS, QODER_FALLBACK_CAPABILITIES);
+  readonly capabilities: ProviderCaps = aggregateCapabilities(QODER_MODELS, QODER_FALLBACK_CAPABILITIES);
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${surface}"`, statusCode: 400, routeScope: null });
     }

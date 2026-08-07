@@ -1,4 +1,4 @@
-import type { ImageReference, NormalizedProviderRequest } from "../contracts";
+import type { ImageReference, ProxyRequest } from "../contracts";
 import { classifyImageReference, isProtocolError, narrowArray, narrowNumber, narrowObject, narrowString, normalizeFail, normalizeOk, protocolError, pushImageReference, MAX_IMAGE_COUNT, MAX_MODEL_LENGTH, MAX_TEXT_BLOCK_LENGTH, type NormalizeInput, type NormalizeResult, type ProtocolError } from "../protocols";
 
 /** Normalizes OpenAI Images API generation/edit JSON requests. */
@@ -39,5 +39,5 @@ export function normalizeImageRequest(body: unknown, input: NormalizeInput, oper
     sourceSurface: "images",
     signal: input.signal,
     limits: input.limits,
-  } satisfies NormalizedProviderRequest);
+  } satisfies ProxyRequest);
 }

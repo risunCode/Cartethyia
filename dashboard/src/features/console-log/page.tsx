@@ -1,16 +1,14 @@
 /**
  * Console Log page — live SSE stream with colored levels, auto-scroll
- * (paused when the user scrolls up), SQL-backed 200-line view cap and server-side clear (REQ-6).
- * Includes a Request History tab backed by the telemetry runtime DB.
+ * (paused when the user scrolls up), SQL-backed 200-line view cap and
+ * server-side clear (REQ-6).
  */
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { ArrowDown, Search, Trash2, Wifi, WifiOff } from "lucide-react";
 import { toast } from "../../lib/toast";
-import { ApiError, apiDelete, apiGet } from "../../lib/api";
-import { formatDuration, formatNumber, formatTime, formatTokens } from "../../lib/format";
-import { qk } from "../../lib/query-keys";
+import { ApiError, apiDelete } from "../../lib/api";
+import { formatTime } from "../../lib/format";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
@@ -28,53 +26,6 @@ const LEVEL_COLORS: Record<ConsoleLogLevel, string> = {
 
 type ConsoleLogFilter = ConsoleLogLevel | "all" | "web";
 const FILTERS: ConsoleLogFilter[] = ["all", "web", "debug", "info", "warn", "error"];
-
-// ── Request History types ────────────────────────────────────────────────────
-
-interface RequestHistoryItem {
-  requestId: string;
-  endpoint: string;
-  surface: string;
-  apiKeyId: string | null;
-  apiKeyPrefix: string | null;
-  clientIp?: string | null;
-  providerId: string | null;
-  model: string | null;
-  statusCode: number;
-  errorKind: string | null;
-  mode: "non_stream" | "stream";
-  startedAt: string;
-  finishedAt: string;
-  durationMs: number;
-  inputTokens: number | null;
-  outputTokens: number | null;
-  cachedTokens: number | null;
-  cacheWriteTokens: number | null;
-  reasoningTokens: number | null;
-  totalTokens: number | null;
-  usageSource: string;
-  clientName: string;
-  clientSource: string;
-  messageCount: number;
-  toolCount: number;
-  imageCount: number;
-  tfftMs: number | null;
-}
-
-const SURFACE_SHORT: Record<string, string> = {
-  "openai-chat": "chat",
-  "openai-responses": "resp",
-  "anthropic-messages": "msg",
-  images: "img",
-  native: "nat",
-};
-
-function statusTone(code: number): "ok" | "err" | "warn" | "default" {
-  if (code >= 200 && code < 300) return "ok";
-  if (code >= 400 && code < 500) return "warn";
-  if (code >= 500) return "err";
-  return "default";
-}
 
 // ── Console Log tab ──────────────────────────────────────────────────────────
 
@@ -198,137 +149,6 @@ function ConsoleLogTab() {
   );
 }
 
-// ── Request History tab ──────────────────────────────────────────────────────
-
-function RequestHistoryTab() {
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: qk.consoleLog.requestHistory,
-    queryFn: () => apiGet<{ items: RequestHistoryItem[] }>("/usage/requests?limit=100"),
-    refetchInterval: 10_000,
-  });
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "ok" | "error">("all");
-
-  const items = data?.items ?? [];
-
-  const visible = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return items.filter((item) => {
-      if (statusFilter === "ok" && item.statusCode >= 400) return false;
-      if (statusFilter === "error" && item.statusCode < 400) return false;
-      if (!query) return true;
-      const haystack = `${item.requestId} ${item.endpoint} ${item.surface} ${item.providerId ?? ""} ${item.model ?? ""} ${item.clientName} ${item.clientIp ?? ""} ${item.apiKeyPrefix ?? ""} ${item.errorKind ?? ""}`.toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [items, search, statusFilter]);
-
-  return (
-    <>
-      <div className="flex w-full flex-wrap items-center gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-3)]">Request History</h3>
-        <div className="flex w-full flex-wrap items-center justify-end gap-2">
-          <div className="relative order-last w-full sm:order-none sm:mr-auto sm:w-56">
-            <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-3)]" aria-hidden="true" />
-            <Input
-              aria-label="Search request history"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by IP, model, provider, key…"
-              className="h-8 pl-8 pr-2 text-xs"
-            />
-          </div>
-          <Select
-            ariaLabel="Filter status"
-            value={statusFilter}
-            onChange={(value) => setStatusFilter(value as "all" | "ok" | "error")}
-            options={[{ value: "all", label: "All" }, { value: "ok", label: "Success" }, { value: "error", label: "Errors" }]}
-          />
-          <Button variant="secondary" size="sm" onClick={() => void refetch()}>
-            Refresh
-          </Button>
-        </div>
-      </div>
-
-      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-fade">
-          {isLoading ? (
-            <div className="flex h-full min-h-[220px] items-center justify-center">
-              <p className="font-sans text-sm text-[var(--text-3)]">Loading request history…</p>
-            </div>
-          ) : visible.length === 0 ? (
-            <div className="flex h-full min-h-[220px] items-center justify-center">
-              <p className="text-center font-sans text-sm text-[var(--text-1)]">No requests{statusFilter !== "all" ? ` with status ${statusFilter}` : ""}{search.trim() ? ` matching "${search.trim()}"` : ""}.</p>
-            </div>
-          ) : (
-            <div className="w-full">
-              {/* Table header — sticky */}
-              <div className="sticky top-0 z-10 grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,0.7fr)_minmax(0,0.7fr)] gap-2 border-b border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-3)]">
-                <span>Time</span>
-                <span>IP / Client</span>
-                <span>Provider / Model</span>
-                <span>Status</span>
-                <span>Tokens</span>
-                <span>Duration</span>
-                <span>Key</span>
-              </div>
-              {visible.map((item) => (
-                <div
-                  key={item.requestId}
-                  className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,0.7fr)_minmax(0,0.7fr)] gap-2 border-b border-[var(--inner-border)]/50 px-3 py-2 text-[11px] transition-colors hover:bg-[var(--hover)]"
-                >
-                  {/* Time */}
-                  <div className="min-w-0">
-                    <div className="truncate text-[var(--text-2)]">{formatTime(item.startedAt)}</div>
-                    <div className="truncate text-[9.5px] text-[var(--text-3)]">{SURFACE_SHORT[item.surface] ?? item.surface}{item.mode === "stream" ? " · stream" : ""}</div>
-                  </div>
-                  {/* IP / Client */}
-                  <div className="min-w-0">
-                    <div className="truncate font-mono text-[10px] text-[var(--text-2)]">{item.clientIp ?? "—"}</div>
-                    <div className="truncate text-[9.5px] text-[var(--text-3)]">{item.clientName}{item.clientName !== "unknown" ? ` · ${item.clientSource}` : ""}</div>
-                  </div>
-                  {/* Provider / Model */}
-                  <div className="min-w-0">
-                    <div className="truncate text-[var(--text-2)]">{item.providerId ?? "—"}</div>
-                    <div className="truncate font-mono text-[9.5px] text-[var(--text-3)]">{item.model ?? "—"}</div>
-                  </div>
-                  {/* Status */}
-                  <div className="flex flex-col items-start gap-0.5">
-                    <Badge tone={statusTone(item.statusCode)}>{item.statusCode || "—"}</Badge>
-                    {item.errorKind && <span className="max-w-full truncate text-[9px] text-[var(--red)]" title={item.errorKind}>{item.errorKind}</span>}
-                  </div>
-                  {/* Tokens */}
-                  <div className="min-w-0">
-                    <div className="tabular-nums text-[var(--text-2)]">{item.totalTokens != null ? formatNumber(item.totalTokens) : "—"}</div>
-                    <div className="text-[9px] text-[var(--text-3)]">
-                      {item.inputTokens != null && <span>in {formatTokens(item.inputTokens)}</span>}
-                      {item.cachedTokens != null && item.cachedTokens > 0 && <span> · cached {formatTokens(item.cachedTokens)}</span>}
-                    </div>
-                  </div>
-                  {/* Duration */}
-                  <div className="min-w-0">
-                    <div className="tabular-nums text-[var(--text-2)]">{formatDuration(item.durationMs)}</div>
-                    {item.tfftMs != null && <div className="text-[9px] text-[var(--text-3)]">ttft {formatDuration(item.tfftMs)}</div>}
-                  </div>
-                  {/* Key */}
-                  <div className="min-w-0">
-                    <span className="truncate font-mono text-[10px] text-[var(--text-3)]">{item.apiKeyPrefix ?? "—"}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <footer className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2 text-[10px] text-[var(--text-3)]">
-          <span className="min-w-0 truncate" aria-live="polite">
-            Showing {visible.length} of {items.length} requests{statusFilter !== "all" ? ` · ${statusFilter}` : ""}{search.trim() ? ` · search: "${search.trim()}"` : ""}
-          </span>
-          <span className="shrink-0">Auto-refresh 10s</span>
-        </footer>
-      </Card>
-    </>
-  );
-}
-
 // ── Main page — unified split view ──────────────────────────────────────────
 
 export function ConsoleLogPage() {
@@ -336,7 +156,6 @@ export function ConsoleLogPage() {
     <div className="dashboard-page flex min-h-0 flex-1 flex-col gap-3 overflow-hidden pt-2 sm:pt-0">
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
         <ConsoleLogTab />
-        <RequestHistoryTab />
       </div>
     </div>
   );

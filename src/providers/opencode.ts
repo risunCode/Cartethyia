@@ -2,20 +2,20 @@ import { ProviderAdapterError, capabilitiesOf, createModelCatalog, modelOf, toPr
 import { callChatCompletionsWire } from "../transport/protocols/openai";
 import type {
   ContextStats,
-  ProviderAdapter,
-  ProviderCapabilities,
-  ProviderMetadata,
+  Adapter,
+  ProviderCaps,
+  ProviderMeta,
   ProviderModel,
   ProviderModelCatalog,
   ProviderOutput,
   ProviderRequest,
-  ProviderSurface,
+  Surface,
   RouteTarget,
   TokenCountInput,
 } from "../domain/contracts";
 import type { ProviderCallError } from "../domain/contracts";
 
-const OPENCODE_SURFACES: readonly ProviderSurface[] = ["openai-chat"];
+const OPENCODE_SURFACES: readonly Surface[] = ["openai-chat"];
 const OPENCODE_BASE_URL = "https://opencode.ai/zen/v1";
 
 const OPENCODE_FREE_MODELS: readonly ProviderModel[] = [
@@ -30,20 +30,20 @@ const OPENCODE_FREE_MODELS: readonly ProviderModel[] = [
 const OPENCODE_FALLBACK_CAPABILITIES = capabilitiesOf({ surfaces: OPENCODE_SURFACES, reasoning: true, toolCalls: true });
 
 /** OpenCode Free is the unauthenticated public OpenAI-compatible route. */
-export class OpenCodeFreeAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata = {
+export class OpenCodeFreeAdapter implements Adapter {
+  readonly metadata: ProviderMeta = {
     id: "opencodeft",
     displayName: "OpenCode Free",
     protocol: "openai",
     credentialKind: "none",
   };
   readonly models: ProviderModelCatalog = createModelCatalog(OPENCODE_FREE_MODELS);
-  readonly capabilities: ProviderCapabilities = {
+  readonly capabilities: ProviderCaps = {
     ...OPENCODE_FALLBACK_CAPABILITIES,
     streaming: true,
   };
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({
         kind: "capability_unsupported",
@@ -106,20 +106,20 @@ const OPENCODE_ZEN_MODELS: readonly ProviderModel[] = [
 ];
 
 /** OpenCode Zen is the billed, API-key-authenticated OpenCode route. */
-export class OpenCodeZenAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata = {
+export class OpenCodeZenAdapter implements Adapter {
+  readonly metadata: ProviderMeta = {
     id: "opencodezen",
     displayName: "OpenCode Zen",
     protocol: "openai",
     credentialKind: "api_key",
   };
   readonly models: ProviderModelCatalog = createModelCatalog(OPENCODE_ZEN_MODELS);
-  readonly capabilities: ProviderCapabilities = {
+  readonly capabilities: ProviderCaps = {
     ...OPENCODE_FALLBACK_CAPABILITIES,
     streaming: true,
   };
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({
         kind: "capability_unsupported",

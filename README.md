@@ -16,7 +16,7 @@ A self-hosted Bun + Elysia AI proxy with an authenticated web console. Accepts O
 - **Cross-protocol translation** — a request on any surface can route to any compatible upstream provider through shared codecs. A Chat request can hit an Anthropic upstream, a Messages request can hit an OpenAI Responses upstream, etc.
 - **Image generation** at `POST /v1/images/generations` (OpenAI-compatible).
 - **Streaming and non-streaming** — SSE/NDJSON framing with canonical `StreamEvent` values, translated back to the requested client surface. Reasoning/thinking content, tool calls, usage, stop reasons, and refusals are preserved end-to-end.
-- **Model catalog** at `GET /v1/models` — lists direct models, router aliases, and combos permitted by the authenticated API key. Entries carry real context limits, capability categories, and USD pricing per 1M tokens sourced from models.dev. Unknown values stay `null`; limits and prices are never fabricated.
+- **Model catalog** at `GET /v1/models` — lists direct models, router aliases, and combos permitted by the authenticated API key. Entries carry real context limits, capability categories, and USD pricing per 1M tokens. Unknown values stay `null`; limits and prices are never fabricated.
 
 ### Routing and failover
 
@@ -30,7 +30,7 @@ A self-hosted Bun + Elysia AI proxy with an authenticated web console. Accepts O
 - **Graduated backoff** — opaque/unknown 429s start at a 30s base that grows exponentially with failure count, escalating to the full 5-minute default only after repeated failures. A single transient blip no longer takes an account offline.
 - **Scheduled recovery sweep** — an unref'd 1-minute interval transitions expired cooldowns to healthy and clears expired per-model locks, so accounts recover proactively without waiting for a request to happen to select them.
 - **Sticky round-robin** with in-flight awareness — idle accounts are preferred over busy ones within the sticky pool.
-- **Proxy pool** — route provider traffic through HTTP/HTTPS/SOCKS5 proxies with priority, weight, concurrency caps, and per-proxy health. Cloudflare Warp instances are auto-injected as SOCKS5 proxies.
+- **Proxy pool** — route provider traffic through HTTP/HTTPS/SOCKS5 proxies with priority, weight, concurrency caps, and per-proxy health.
 
 ### Providers
 
@@ -52,7 +52,7 @@ Provider adapters that proxy as a specific upstream client identity (Claude Code
 - **Model Studio** — built-in chat playground that sends through the exact same dispatch pipeline as real `/v1/*` traffic. Supports reasoning effort, session save/resume, sanitized Markdown rendering with code blocks.
 - **API Keys** — full lifecycle (create, edit, enable, disable, revoke, regenerate), token budgets (monthly/one-time), per-key RPM/concurrency limits, provider/model allowlists and denylists, public share pages with connection details and usage.
 - **Combos & Aliases** — create, edit, delete; live resolve-preview showing the actual routed target.
-- **Proxy Pools** — CRUD, batch URL import, protocol detection, priority/active controls, Warp pool integration.
+- **Proxy Pools** — CRUD, batch URL import, protocol detection, priority/active controls.
 - **Usage** — token/cost charts, per-key/per-provider/per-model breakdowns, request history with IP monitoring.
 - **Console Log** — live request logs with proxy pool, token counts, tool names, and message preview.
 - **Database Map** — browse schema, run SELECT queries, export/import databases. Sensitive columns are masked.
@@ -66,7 +66,7 @@ Provider adapters that proxy as a specific upstream client identity (Claude Code
 - Per-IP admission, in-flight tracking, and login rate limiting — all adaptive to available process memory.
 - SSRF and redirect guards on all upstream and proxy URLs (private IPv4/IPv6, DNS rebinding, redirect chains).
 - Bounded body, stream, timeout, and concurrency protections.
-- Credential/secret masking in all console list/detail endpoints (API keys, Warp credentials). Raw secrets available only through explicit credential endpoints.
+- Credential/secret masking in all console list/detail endpoints (API keys). Raw secrets available only through explicit credential endpoints.
 - Sanitized error messages at public API and console boundaries.
 - No request/response bodies persisted in telemetry unless an explicitly documented storage mode requires it.
 
@@ -151,8 +151,6 @@ docker run --rm -p 12800:8080 \
   cartethyia
 ```
 
-The container also exposes Warp SOCKS5 proxy ports `40001-40020` (internal `127.0.0.1` only). These are declared via `EXPOSE` and `expose:` so Railway and similar platforms are aware of the port range — the proxy pool connects to them over loopback inside the container. They are not mapped to the host.
-
 ## Development
 
 ```bash
@@ -167,7 +165,7 @@ In-depth guides live in [`docs/`](./docs/):
 
 | Doc | Covers |
 | --- | --- |
-| [`model-catalog.md`](./docs/model-catalog.md) | Pricing & context sourcing (models.dev), sync, fallback behavior |
+| [`model-catalog.md`](./docs/model-catalog.md) | Pricing & context sourcing, fallback behavior |
 | [`protocol-translation.md`](./docs/protocol-translation.md) | Cross-protocol translation, response shaping, streaming |
 | [`alias-routing.md`](./docs/alias-routing.md) | Alias & combo resolution, pricing inheritance, live test |
 | [`console-api.md`](./docs/console-api.md) | Full `/console/api/*` control-plane endpoint reference |
@@ -193,8 +191,6 @@ Built with:
 - [Bun](https://bun.sh) — JavaScript runtime & bundler
 - [Elysia](https://elysiajs.com) — web framework
 - [SQLite](https://www.sqlite.org) — config & telemetry storage (via Bun's built-in `bun:sqlite`)
-- [wgcf](https://github.com/ViRb3/wgcf) — Cloudflare Warp account registration (vendored, Go)
-- [wireproxy](https://github.com/windtf/wireproxy) — WireGuard userspace proxy (vendored, Go)
 - [socks-proxy-agent](https://github.com/TooTallNate/proxy-agents) — SOCKS5 proxy agent for Node/Bun
 - [@bufbuild/protobuf](https://github.com/bufbuild/protobuf-es) — Protocol Buffers runtime (Kiro AWS EventStream)
 
@@ -209,5 +205,3 @@ Dashboard built with:
 - [Lucide](https://lucide.dev) — icons
 - [Sonner](https://sonner.emilkowal.ski) — toast notifications
 - [React Markdown](https://github.com/remarkjs/react-markdown) + [remark-gfm](https://github.com/remarkjs/remark-gfm) — Model Studio rendering
-
-Model metadata sourced from [models.dev](https://models.dev).

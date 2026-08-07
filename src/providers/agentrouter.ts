@@ -16,14 +16,14 @@ import { createAnthropicMapper } from "../transport/protocols/anthropic";
 import { buildMessagesPayload, mapAnthropicUsage } from "../domain/protocols/anthropic-messages";
 import type {
   ContextStats,
-  ProviderAdapter,
-  ProviderCapabilities,
-  ProviderMetadata,
+  Adapter,
+  ProviderCaps,
+  ProviderMeta,
   ProviderModel,
   ProviderModelCatalog,
   ProviderOutput,
   ProviderRequest,
-  ProviderSurface,
+  Surface,
   RouteTarget,
   TokenCountInput,
 } from "../domain/contracts";
@@ -91,33 +91,33 @@ function buildHeaders(apiKey: string, stream: boolean): Record<string, string> {
   };
 }
 
-const AGENTROUTER_SURFACES: readonly ProviderSurface[] = ["anthropic-messages"];
+const AGENTROUTER_SURFACES: readonly Surface[] = ["anthropic-messages"];
 
 const AGENTROUTER_MODELS: readonly ProviderModel[] = [
   modelOf("claude-opus-4-8", "Claude Opus 4.8", capabilitiesOf({ surfaces: AGENTROUTER_SURFACES, reasoning: true, images: true })),
 ];
 
-const AGENTROUTER_FALLBACK_CAPABILITIES: ProviderCapabilities = capabilitiesOf({
+const AGENTROUTER_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({
   surfaces: AGENTROUTER_SURFACES,
   reasoning: true,
   images: true,
 });
 
 /** AgentRouter speaks native Anthropic Messages behind its client-identity gate. */
-export class AgentRouterAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata = {
+export class AgentRouterAdapter implements Adapter {
+  readonly metadata: ProviderMeta = {
     id: "agentrouter",
     displayName: "AgentRouter",
     protocol: "anthropic",
     credentialKind: "api_key",
   };
   readonly models: ProviderModelCatalog = createModelCatalog(AGENTROUTER_MODELS);
-  readonly capabilities: ProviderCapabilities = {
+  readonly capabilities: ProviderCaps = {
     ...AGENTROUTER_FALLBACK_CAPABILITIES,
     streaming: true,
   };
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({
         kind: "capability_unsupported",

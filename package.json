@@ -12,7 +12,6 @@
     "test": "bun test ./test/**/*.test.ts",
     "test:coverage": "bun test --coverage --timeout 60000 test/",
     "smoke:console": "bun run scripts/smoke-console.ts",
-    "sync:models": "bun run scripts/sync-model-data.ts",
     "live:alias": "bun run scripts/live-alias-test.ts",
     "maturity:gate": "bun run scripts/maturity-gate.ts",
     "canary:provider": "bun run scripts/provider-canary.ts",
@@ -28,6 +27,6 @@
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "^2.13.0",
     "@types/bun": "latest",
-    "typescript": "^5.7.0"
+    "typescript": "5"
   }
 }

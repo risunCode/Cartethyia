@@ -1,4 +1,4 @@
-import type { ContextStats, ProviderAdapter, ProviderCapabilities, ProviderMetadata, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, ProviderSurface, RouteTarget, TokenCountInput } from "../domain/contracts";
+import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../domain/contracts";
 import type { ProviderCallError } from "../domain/contracts";
 import type { CustomProviderRecord, CustomProviderRepository } from "../storage";
 import { AbortCoordinator, ProviderAdapterError, aggregateCapabilities, capabilitiesOf, categoriesOf, executeFetch, isRecord, lineLimit, mapSseStream, modelOf, nullableNumber, readJsonObject, readUpstreamError, toProviderCallError } from "./shared";
@@ -28,8 +28,8 @@ import type { ProviderRegistry } from "./registry";
  * deletion apply immediately, and the base URL is SSRF-checked at dispatch.
  */
 
-const CUSTOM_OPENAI_SURFACES: readonly ProviderSurface[] = ["openai-chat"];
-const CUSTOM_ANTHROPIC_SURFACES: readonly ProviderSurface[] = ["anthropic-messages"];
+const CUSTOM_OPENAI_SURFACES: readonly Surface[] = ["openai-chat"];
+const CUSTOM_ANTHROPIC_SURFACES: readonly Surface[] = ["anthropic-messages"];
 
 /** Model ids discovered offline are rounded off to the provider's native surface. */
 
@@ -42,7 +42,7 @@ export type CustomProviderSource = Pick<CustomProviderRepository, "list" | "getB
  * entries are dropped, and an empty list means "any model id is accepted",
  * matching legacy.
  */
-function storedModels(models: readonly unknown[], capabilities: ProviderCapabilities): readonly ProviderModel[] {
+function storedModels(models: readonly unknown[], capabilities: ProviderCaps): readonly ProviderModel[] {
   const result: ProviderModel[] = [];
   for (const value of models) {
     if (typeof value === "string") {
@@ -63,7 +63,7 @@ function storedModels(models: readonly unknown[], capabilities: ProviderCapabili
  * and `get` returns a synthetic entry for any id so routing stays
  * permissive exactly like legacy (catalog is informational, not a gate).
  */
-function createCustomCatalog(models: readonly ProviderModel[], capabilities: ProviderCapabilities): ProviderModelCatalog {
+function createCustomCatalog(models: readonly ProviderModel[], capabilities: ProviderCaps): ProviderModelCatalog {
   const byId = new Map(models.map((model) => [model.id, model]));
   return {
     list: Object.freeze([...models]),
@@ -79,9 +79,9 @@ function createCustomCatalog(models: readonly ProviderModel[], capabilities: Pro
   };
 }
 
-export class CustomProviderAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata;
-  readonly capabilities: ProviderCapabilities;
+export class CustomProviderAdapter implements Adapter {
+  readonly metadata: ProviderMeta;
+  readonly capabilities: ProviderCaps;
   readonly models: ProviderModelCatalog;
   private readonly record: CustomProviderRecord;
   private readonly source: CustomProviderSource;
@@ -102,7 +102,7 @@ export class CustomProviderAdapter implements ProviderAdapter {
     };
   }
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({
         kind: "capability_unsupported",

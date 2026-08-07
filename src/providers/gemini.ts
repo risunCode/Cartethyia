@@ -19,26 +19,26 @@ import type { SseEvent, StreamMapper } from "./shared";
 import type {
   ContextStats,
   CredentialKind,
-  ProviderAdapter,
-  ProviderCapabilities,
-  ProviderMetadata,
+  Adapter,
+  ProviderCaps,
+  ProviderMeta,
   ProviderModel,
   ProviderModelCatalog,
   ProviderOutput,
   ProviderRequest,
-  ProviderSurface,
+  Surface,
   ProviderUsage,
   RouteTarget,
   TokenCountInput,
 } from "../domain/contracts";
 import type { ProviderCallError } from "../domain/contracts";
-import type { ContentBlock, ImageReference, NormalizedMessage, NormalizedProviderRequest } from "../domain/contracts";
+import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../domain/contracts";
 import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../domain/protocols/gemini-generate-content";
 import { callGeminiWire } from "../transport/protocols/gemini";
 import type { StreamEvent } from "../domain/contracts";
 
 /** Direct Gemini Generative Language API adapter. */
-const GEMINI_SURFACES: readonly ProviderSurface[] = ["openai-chat", "openai-responses", "anthropic-messages", "images"];
+const GEMINI_SURFACES: readonly Surface[] = ["openai-chat", "openai-responses", "anthropic-messages", "images"];
 const GEMINI_DEFAULT_MODELS: readonly ProviderModel[] = [
   modelOf("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview", capabilitiesOf({ surfaces: GEMINI_SURFACES, reasoning: true, images: true })),
   modelOf("gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash Lite Preview", capabilitiesOf({ surfaces: GEMINI_SURFACES, reasoning: true, images: true })),
@@ -60,9 +60,9 @@ export interface GeminiAdapterConfig {
   readonly models?: readonly ProviderModel[];
 }
 
-export class GeminiAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata;
-  readonly capabilities: ProviderCapabilities;
+export class GeminiAdapter implements Adapter {
+  readonly metadata: ProviderMeta;
+  readonly capabilities: ProviderCaps;
   readonly models: ProviderModelCatalog;
   private readonly baseUrl: string;
 
@@ -79,7 +79,7 @@ export class GeminiAdapter implements ProviderAdapter {
     };
   }
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${surface}"`, statusCode: 400, routeScope: null });
     if (!this.modelKnown(modelId)) throw new ProviderAdapterError({ kind: "model_not_found", message: `Model "${modelId}" is not in the "${this.metadata.id}" catalog`, statusCode: 404, routeScope: "provider" });
     const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };

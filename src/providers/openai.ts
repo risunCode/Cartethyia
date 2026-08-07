@@ -19,20 +19,20 @@ import type { SseEvent, StreamMapper } from "./shared";
 import type {
   ContextStats,
   CredentialKind,
-  ProviderAdapter,
-  ProviderCapabilities,
-  ProviderMetadata,
+  Adapter,
+  ProviderCaps,
+  ProviderMeta,
   ProviderModel,
   ProviderModelCatalog,
   ProviderOutput,
   ProviderRequest,
-  ProviderSurface,
+  Surface,
   ProviderUsage,
   RouteTarget,
   TokenCountInput,
 } from "../domain/contracts";
 import type { ProviderCallError } from "../domain/contracts";
-import type { ContentBlock, ImageReference, NormalizedMessage, NormalizedProviderRequest } from "../domain/contracts";
+import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../domain/contracts";
 import type { StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../domain/contracts";
 import { callChatCompletionsWire, callHostedImageWire, callResponsesWire } from "../transport/protocols/openai";
 
@@ -41,7 +41,7 @@ import { callChatCompletionsWire, callHostedImageWire, callResponsesWire } from 
  * ("openai-responses") surfaces over the OpenAI wire format.
  */
 
-const OPENAI_SURFACES: readonly ProviderSurface[] = ["openai-chat", "openai-responses", "images"];
+const OPENAI_SURFACES: readonly Surface[] = ["openai-chat", "openai-responses", "images"];
 
 const OPENAI_DEFAULT_MODELS: readonly ProviderModel[] = [
   modelOf("gpt-5", "GPT-5", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true, images: true })),
@@ -58,7 +58,7 @@ const OPENAI_DEFAULT_MODELS: readonly ProviderModel[] = [
   modelOf("gpt-image-1", "GPT Image 1", capabilitiesOf({ surfaces: ["images"], images: true })),
 ];
 
-const OPENAI_FALLBACK_CAPABILITIES: ProviderCapabilities = capabilitiesOf({ surfaces: OPENAI_SURFACES });
+const OPENAI_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: OPENAI_SURFACES });
 
 export interface OpenAIAdapterConfig {
   readonly id?: string;
@@ -68,9 +68,9 @@ export interface OpenAIAdapterConfig {
   readonly models?: readonly ProviderModel[];
 }
 
-export class OpenAIAdapter implements ProviderAdapter {
-  readonly metadata: ProviderMetadata;
-  readonly capabilities: ProviderCapabilities;
+export class OpenAIAdapter implements Adapter {
+  readonly metadata: ProviderMeta;
+  readonly capabilities: ProviderCaps;
   readonly models: ProviderModelCatalog;
   private readonly baseUrl: string;
 
@@ -87,7 +87,7 @@ export class OpenAIAdapter implements ProviderAdapter {
     };
   }
 
-  resolveTarget(modelId: string, surface: ProviderSurface): RouteTarget {
+  resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({
         kind: "capability_unsupported",
