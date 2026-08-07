@@ -95,8 +95,8 @@ describe("OpenAI chat normalization and payload conversion", () => {
     ]);
     expect(payload.max_tokens).toBe(256);
     expect(payload.response_format).toEqual({ type: "json_object" });
-    // Requested "high" effort is narrowed to the adapter's supported effort.
-    expect(payload.reasoning_effort).toBe("medium");
+    // Requested "high" effort is now preserved verbatim instead of narrowed.
+    expect(payload.reasoning_effort).toBe("high");
     expect(payload.stream_options).toEqual({ include_usage: true });
     expect(payload.prompt_cache_key).toBeUndefined();
   });

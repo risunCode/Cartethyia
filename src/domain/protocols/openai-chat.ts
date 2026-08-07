@@ -1,4 +1,5 @@
 import { ProtocolCodecError } from "./errors";
+import { REASONING_EFFORTS, parseReasoningConfig } from "./openai-responses";
 import type { ProviderUsage } from "../contracts";
 import {
   abortedError,
@@ -31,7 +32,7 @@ import {
   type NormalizeResult,
   type ProtocolError,
 } from "../protocols";
-import type { ContentBlock, ImageReference, NormalizedMessage, NormalizedProviderRequest, NormalizedTool } from "../contracts";
+import type { ContentBlock, ImageReference, NormalizedMessage, NormalizedProviderRequest, NormalizedTool, ReasoningConfig, ReasoningEffort, ReasoningSummary } from "../contracts";
 
 /**
  * Strict validation and normalization for OpenAI Chat Completions
@@ -69,6 +70,7 @@ export function normalizeChatRequest(body: unknown, input: NormalizeInput): Norm
 
   const reasoning = finalizeReasoning(root, reasoningState);
   if (isProtocolError(reasoning)) return normalizeFail(reasoning);
+  const finalFlag = reasoningState.seen && reasoning.flag === "default" ? "enabled" : reasoning.flag;
 
   const maxOutputTokens = normalizeMaxOutputTokens(root);
   if (isProtocolError(maxOutputTokens)) return normalizeFail(maxOutputTokens);
@@ -79,7 +81,8 @@ export function normalizeChatRequest(body: unknown, input: NormalizeInput): Norm
     tools,
     stream,
     responseFormat,
-    reasoning,
+    reasoning: finalFlag,
+    reasoningConfig: reasoning.config,
     maxOutputTokens,
     images,
     sourceSurface: "openai-chat",
@@ -107,17 +110,32 @@ function normalizeMaxOutputTokens(root: Record<string, unknown>): number | null 
   return value;
 }
 
-function finalizeReasoning(root: Record<string, unknown>, state: { readonly seen: boolean }): NormalizedProviderRequest["reasoning"] | ProtocolError {
-  if (state.seen) return "enabled";
-  const effort = root["reasoning_effort"];
-  if (typeof effort === "string" && effort !== "") return "enabled";
+function finalizeReasoning(root: Record<string, unknown>, state: { readonly seen: boolean }): { flag: "enabled" | "disabled" | "default"; config: ReasoningConfig | undefined } | ProtocolError {
+  // An assistant `reasoning_content` block in history forces thinking on, since
+  // OpenAI requires it to be replayed whenever the prior turn used thinking.
   const reasoning = root["reasoning"];
-  if (reasoning === undefined || reasoning === null) return "default";
-  if (!isRecord(reasoning)) return protocolError("reasoning", "reasoning: expected an object");
-  if (reasoning["enabled"] === false) return "disabled";
-  if (reasoning["enabled"] === true) return "enabled";
-  if (typeof reasoning["effort"] === "string" && reasoning["effort"] !== "") return "enabled";
-  return "default";
+  const hasReasoningObject = reasoning !== undefined && reasoning !== null;
+  if (hasReasoningObject && !isRecord(reasoning)) return protocolError("reasoning", "reasoning: expected an object");
+  const reasoningObj = hasReasoningObject ? (reasoning as Record<string, unknown>) : undefined;
+
+  // The Chat surface also accepts a top-level `reasoning_effort` string (the
+  // legacy spelling). Normalize it into the config effort slot so builders
+  // can forward a single canonical value downstream.
+  const topEffort = root["reasoning_effort"];
+  const parsed = reasoningObj !== undefined ? parseReasoningConfig(reasoningObj, "reasoning", reasoningObj["enabled"]) : null;
+  if (parsed !== null && isProtocolError(parsed)) return parsed;
+
+  const config: { effort?: ReasoningEffort; maxTokens?: number; exclude?: boolean; enabled?: boolean; summary?: ReasoningSummary } = {};
+  if (parsed !== null && parsed.config !== undefined) Object.assign(config, parsed.config);
+  if (typeof topEffort === "string" && topEffort !== "" && config.effort === undefined) {
+    const effort = REASONING_EFFORTS.includes(topEffort as ReasoningEffort) ? (topEffort as ReasoningEffort) : null;
+    if (effort === null) return protocolError("reasoning_effort", `reasoning_effort: unsupported value "${topEffort}"`);
+    config.effort = effort;
+  }
+  const flag = state.seen || config.effort !== undefined || config.enabled === true || config.maxTokens !== undefined
+    ? "enabled"
+    : parsed !== null ? parsed.flag : "default";
+  return { flag, config: Object.keys(config).length > 0 ? config : undefined };
 }
 
 function normalizeMessages(raw: unknown, images: ImageReference[], reasoningState: { seen: boolean }): NormalizedMessage[] | ProtocolError {
@@ -279,7 +297,21 @@ export function buildChatPayload(request: NormalizedProviderRequest): Record<str
   if (request.maxOutputTokens !== null) payload.max_tokens = request.maxOutputTokens;
   if (request.cacheKey !== undefined) payload.prompt_cache_key = request.cacheKey;
   if (request.responseFormat !== "text") payload.response_format = { type: "json_object" };
-  if (request.reasoning === "enabled") payload.reasoning_effort = "medium";
+  if (request.reasoning === "enabled" || request.reasoningConfig !== undefined) {
+    const cfg = request.reasoningConfig;
+    if (cfg?.effort !== undefined) payload.reasoning_effort = cfg.effort;
+    else if (request.reasoning === "enabled") payload.reasoning_effort = "medium";
+    if (cfg !== undefined && (cfg.summary !== undefined || cfg.maxTokens !== undefined || cfg.exclude !== undefined || cfg.enabled !== undefined)) {
+      const reasoningWire: Record<string, unknown> = {};
+      if (cfg.summary !== undefined) reasoningWire.summary = cfg.summary;
+      if (cfg.maxTokens !== undefined) reasoningWire.max_tokens = cfg.maxTokens;
+      if (cfg.exclude !== undefined) reasoningWire.exclude = cfg.exclude;
+      if (cfg.enabled !== undefined) reasoningWire.enabled = cfg.enabled;
+      // `include` is intentionally omitted: the Chat surface rejects
+      // `reasoning.include` (Blackbox returns `unknown_parameter`).
+      payload.reasoning = reasoningWire;
+    }
+  }
   if (request.stream) payload.stream_options = { include_usage: true };
   return payload;
 }
