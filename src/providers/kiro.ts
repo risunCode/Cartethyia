@@ -1,8 +1,8 @@
-import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, isRecord, messageText, modelOf, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, modelOf, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { isRecord, messageText } from "../application/protocols";
 import type { CapabilitySeed } from "../open-sse/transport/shared";
 import { parseKiroCredential } from "../auth/oauth/kiro";
 import type {
-  ContextStats,
   ProxyRequest,
   Adapter,
   ProviderCaps,
@@ -15,7 +15,6 @@ import type {
   ProviderUsage,
   RouteTarget,
   StreamEvent,
-  TokenCountInput,
 } from "../application/contracts";
 import type { NormalizedMessage } from "../application/contracts";
 import type { ProviderCallError } from "../application/contracts";
@@ -406,9 +405,6 @@ export class KiroAdapter implements Adapter {
     }
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> {
-    return Promise.resolve({ tokens: null, source: "unknown" });
-  }
 
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);

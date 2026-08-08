@@ -1,7 +1,6 @@
 import { hashConsolePassword, MemoryRouteTransitionStore, quotaViewFromState } from "./services";
 import type {
   AccountRepository as ConsoleAccountRepository,
-  AccountListOptions,
   AccountListResult,
   AccountRowView,
   ActiveAccountCredential,
@@ -17,7 +16,6 @@ import type {
   ProxyRepository as ConsoleProxyRepository,
   ProxyRowView,
   ProxySettingsRepository,
-  RouteTransitionStore,
   RoutingConfigRepository,
   SettingsRepository as ConsoleSettingsRepository,
   RuntimeMetadataRepository as ConsoleRuntimeMetadataRepository,
@@ -30,10 +28,6 @@ import { normalizeSidebarIconDataUrl, runtimeRecord, runtimeSettings } from "./r
 function listOrNull(value: string | null): readonly string[] | null {
   if (value === null || value.trim() === "") return null;
   return value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
-}
-
-function now(): string {
-  return new Date().toISOString();
 }
 
 function toApiKeyView(row: ReturnType<ConfigPersistence["apiKeys"]["list"]>[number]): ApiKeyView {

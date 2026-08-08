@@ -37,8 +37,7 @@ import {
 } from "./services";
 import { runProxyRequest, type ProxyRequestDependencies } from "../application/request";
 import { appendTerminalError } from "../open-sse/handlers";
-import { metrics, toPrometheus } from "../observability/metrics";
-import { extractTraceContext, injectTraceContext, traceMiddleware } from "../observability/tracing";
+import { toPrometheus } from "../observability/metrics";
 import { encodeSurfaceStream } from "../providers/surfaces";
 import { beginProviderInFlight, endProviderInFlight, getInFlightCount, getProviderInFlight, subscribeInFlight } from "../traffic/in-flight";
 import type { PresentedProxyResponse } from "../application/contracts";
@@ -561,7 +560,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           return ok();
         })
         // ---- batch operations ----
-        .post("/providers/:id/accounts/batch-delete", async ({ params, body, set }) => {
+        .post("/providers/:id/accounts/batch-delete", async ({ params: _params, body, set }) => {
           const value = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
           const raw = Array.isArray(value.ids) ? value.ids : undefined;
           if (raw === undefined) return badRequest(set, "ids array is required");
@@ -570,7 +569,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           const deleted = await services.accounts.removeBatch(ids);
           return { ok: true, deleted };
         })
-        .patch("/providers/:id/accounts/batch", async ({ params, body, set }) => {
+        .patch("/providers/:id/accounts/batch", async ({ params: _params, body, set }) => {
           const value = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
           const raw = Array.isArray(value.ids) ? value.ids : undefined;
           if (raw === undefined) return badRequest(set, "ids array is required");

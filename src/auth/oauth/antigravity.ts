@@ -55,10 +55,6 @@ interface LongRunningOperationResponse {
   };
 }
 
-interface LoadCodeAssistPayload {
-  cloudaicompanionProject?: string | { id?: string };
-  allowedTiers?: Array<{ id?: string; isDefault?: boolean }>;
-}
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;

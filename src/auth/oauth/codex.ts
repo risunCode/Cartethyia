@@ -1,5 +1,5 @@
 import type { AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
-import { AuthorizationCodeDriver, OAuthDriverError, decodeJwtPayload, nonEmpty, tokenFields, type OAuthDriverOptions } from "./base";
+import { AuthorizationCodeDriver, decodeJwtPayload, nonEmpty, tokenFields } from "./base";
 
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
@@ -7,7 +7,6 @@ const CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token";
 const CODEX_CALLBACK_URL = "http://localhost:1455/auth/callback";
 const CODEX_SCOPE = "openid profile email offline_access api.connectors.read api.connectors.invoke";
 const CODEX_ORIGINATOR = "pi";
-const CODEX_VERSION = "0.144.1";
 
 const CODEX_AUTH_PATH = "https://api.openai.com/auth";
 const CODEX_PROFILE_PATH = "https://api.openai.com/profile";

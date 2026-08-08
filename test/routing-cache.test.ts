@@ -110,9 +110,9 @@ describe("lazy provider adapters", () => {
     expect(registry.resolveTarget("unknown-model", "openai-chat").providerId).toBe("lazy-test");
     expect(loads).toBe(0);
 
-    await registry.get("lazy-test")?.countTokens({} as never);
+    await registry.prewarm(["lazy-test"]);
     expect(loads).toBe(1);
-    await registry.get("lazy-test")?.countTokens({} as never);
+    await registry.prewarm(["lazy-test"]);
     expect(loads).toBe(1);
   });
 });

@@ -26,7 +26,6 @@ import type {
   ConsoleRuntimeSettings,
   IpSummaryView,
   ProviderTodayView,
-  RequestHistoryFilters,
   RequestHistoryRow,
   UsageDimension,
   UsagePeriod,

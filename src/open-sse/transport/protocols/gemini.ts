@@ -1,6 +1,7 @@
-import { AbortCoordinator, ProviderAdapterError, executeFetch, isRecord, lineLimit, mapSseStream, readJsonObject, readUpstreamError } from "../shared";
+import { AbortCoordinator, ProviderAdapterError, executeFetch, lineLimit, mapSseStream, readJsonObject, readUpstreamError } from "../shared";
 import type { SseEvent, StreamMapper } from "../shared";
-import type { ProviderOutput, ProviderRequest, ProviderUsage, StreamEvent } from "../../../application/contracts";
+import type { ProviderOutput, ProviderRequest, StreamEvent } from "../../../application/contracts";
+import { isRecord } from "../../../application/protocols";
 import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../../translate/codecs/gemini-generate-content";
 import { geminiCandidate, responseParts } from "../../translate/codecs/gemini-generate-content";
 

@@ -1,7 +1,6 @@
 import { ProviderAdapterError, capabilitiesOf, createModelCatalog, toProviderCallError } from "../open-sse/transport/shared";
 import { callChatCompletionsWire } from "../open-sse/transport/protocols/openai";
 import type {
-  ContextStats,
   Adapter,
   ProviderCaps,
   ProviderMeta,
@@ -10,7 +9,6 @@ import type {
   ProviderRequest,
   Surface,
   RouteTarget,
-  TokenCountInput,
 } from "../application/contracts";
 import type { ProviderCallError } from "../application/contracts";
 
@@ -74,9 +72,6 @@ export class CloudflareAdapter implements Adapter {
     return callChatCompletionsWire(input, `${CLOUDFLARE_BASE_URL}/${credential.accountId}/ai/v1`, headers);
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> {
-    return Promise.resolve({ tokens: null, source: "unknown" });
-  }
 
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);

@@ -1,21 +1,12 @@
-import { AbortCoordinator,
-ProviderAdapterError,
-aggregateCapabilities,
-capabilitiesOf,
-createModelCatalog,
-executeFetch,
-isRecord,
-lineLimit,
-mapSseStream,
-messageText,
-modelOf,
-nullableNumber,
-readJsonObject,
-readUpstreamError,
-toProviderCallError, } from "../open-sse/transport/shared";
-import type { SseEvent, StreamMapper } from "../open-sse/transport/shared";
+import {
+  ProviderAdapterError,
+  aggregateCapabilities,
+  capabilitiesOf,
+  createModelCatalog,
+  modelOf,
+  toProviderCallError,
+} from "../open-sse/transport/shared";
 import type {
-  ContextStats,
   CredentialKind,
   Adapter,
   ProviderCaps,
@@ -25,15 +16,10 @@ import type {
   ProviderOutput,
   ProviderRequest,
   Surface,
-  ProviderUsage,
   RouteTarget,
-  TokenCountInput,
 } from "../application/contracts";
 import type { ProviderCallError } from "../application/contracts";
-import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../application/contracts";
-import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../open-sse/translate/codecs/gemini-generate-content";
 import { callGeminiWire } from "../open-sse/transport/protocols/gemini";
-import type { StreamEvent } from "../application/contracts";
 
 /** Direct Gemini Generative Language API adapter. */
 const GEMINI_SURFACES: readonly Surface[] = ["openai-chat", "openai-responses", "anthropic-messages", "images"];
@@ -88,9 +74,6 @@ export class GeminiAdapter implements Adapter {
     return callGeminiWire(input, this.baseUrl, input.credential, input.headers?.get("user-agent") ?? null);
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> {
-    return Promise.resolve({ tokens: null, source: "unknown" });
-  }
 
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);

@@ -1,4 +1,3 @@
-import { createCleanupStack } from "../application/contracts";
 
 /**
  * Minimal W3C Trace Context propagation (traceparent, tracestate).
@@ -165,9 +164,6 @@ function createRequestTrace(ctx: TraceContext): RequestTrace {
   const startTime = performance.now();
   const attributes = new Map<string, string | number | boolean>();
   let ended = false;
-  let statusCode = 0;
-  let statusMessage = "";
-
   return {
     context: ctx,
     startTime,
@@ -175,19 +171,12 @@ function createRequestTrace(ctx: TraceContext): RequestTrace {
     addAttribute(key: string, value: string | number | boolean): void {
       if (!ended) attributes.set(key, value);
     },
-    setStatus(code: number, message?: string): void {
-      if (!ended) {
-        statusCode = code;
-        statusMessage = message ?? "";
-      }
+    setStatus(_code: number, _message?: string): void {
+      if (ended) return;
     },
     end(): void {
       if (ended) return;
       ended = true;
-      const durationMs = Math.max(0, Math.round(performance.now() - startTime));
-      // In a real implementation, this would export to a tracing backend
-      // For now, we just record the span data locally
-      // console.debug(`[trace] ${ctx.traceId}/${ctx.spanId} duration=${durationMs}ms status=${statusCode}`);
     },
   };
 }

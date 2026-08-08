@@ -124,7 +124,6 @@ function ensureCallbackServer(
           return new Response("Not found", { status: 404 });
         }
 
-        const code = url.searchParams.get("code");
         const stateParam = url.searchParams.get("state");
         const error = url.searchParams.get("error");
 

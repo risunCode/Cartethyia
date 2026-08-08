@@ -132,15 +132,6 @@ export interface ProviderUsage {
   readonly source: "provider" | "tokenizer" | "unknown";
 }
 
-export interface ContextStats {
-  readonly tokens: number | null;
-  readonly source: "provider" | "tokenizer" | "unknown";
-}
-
-export interface TokenCountInput {
-  readonly request: ProxyRequest;
-  readonly signal: AbortSignal;
-}
 
 export type ProviderOutput =
   | { readonly mode: "non_stream"; readonly body: Record<string, unknown>; readonly usage?: ProviderUsage }
@@ -152,7 +143,6 @@ export interface Adapter {
   readonly models: ProviderModelCatalog;
   resolveTarget(modelId: string, surface: Surface): RouteTarget;
   call(input: ProviderRequest): Promise<ProviderOutput>;
-  countTokens(input: TokenCountInput): Promise<ContextStats>;
   mapError(error: unknown): ProviderCallError;
 }
 
@@ -195,11 +185,6 @@ export interface RouteCandidate {
   readonly compatible: boolean;
 }
 
-export interface RouteResolution {
-  readonly requestedModel: string;
-  readonly candidates: readonly RouteCandidate[];
-  readonly protocol: Surface;
-}
 
 export interface AffinityKey {
   readonly namespace: "api_key" | "trusted_identity";
@@ -269,11 +254,6 @@ export interface NetworkSelection {
   readonly release: () => Promise<void>;
 }
 
-export interface AuthorizedProxyRequest {
-  readonly apiKeyId: string | null;
-  readonly trustedIdentity: string | null;
-  readonly model: string;
-}
 
 export type ProxyEndpoint = "/v1/chat/completions" | "/v1/messages" | "/v1/responses" | "/v1/images/generations" | "/v1/images/edits" | "/v1/models";
 
@@ -455,17 +435,6 @@ export type StreamEvent =
   | { readonly type: "usage"; readonly usage: ProviderUsage }
   | { readonly type: "message_stop"; readonly reason: StopReason };
 
-export interface StreamDecoderInput {
-  readonly body: ReadableStream<Uint8Array>;
-  readonly signal: AbortSignal;
-  readonly maxLineBytes: number;
-  /** Maximum decoded bytes retained for one SSE event. */
-  readonly maxEventBytes?: number;
-}
-
-export interface StreamDecoder {
-  decode(input: StreamDecoderInput): AsyncIterable<StreamEvent>;
-}
 
 export interface StreamLifecycle {
   readonly headersCommitted: boolean;
@@ -561,7 +530,7 @@ export interface ProviderCallError {
  * scope — callers never set this manually, so the classification stays
  * consistent across all construction sites.
  */
-export function deriveErrorSource(kind: ApplicationErrorKind, routeScope: "account" | "proxy" | "provider" | null): ErrorSource {
+export function deriveErrorSource(kind: ApplicationErrorKind, _routeScope: "account" | "proxy" | "provider" | null): ErrorSource {
   // Client-side failures: the caller disconnected or sent a bad request.
   if (kind === "client_aborted" || kind === "invalid_request") return "client";
   // Internal routing/config failures: no upstream was contacted.
@@ -659,7 +628,3 @@ export interface PresentedProxyResponse {
 export type ResponseBody =
   | { readonly mode: "json"; readonly value: Record<string, unknown> | PublicErrorBody }
   | { readonly mode: "stream"; readonly events: AsyncIterable<StreamEvent> };
-
-export interface ResponseWriter {
-  write(output: ProviderOutput, requestId: string): PresentedProxyResponse;
-}

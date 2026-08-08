@@ -1,7 +1,6 @@
 import { ProviderAdapterError, capabilitiesOf, createModelCatalog, modelOf, toProviderCallError } from "../open-sse/transport/shared";
 import { callChatCompletionsWire } from "../open-sse/transport/protocols/openai";
 import type {
-  ContextStats,
   Adapter,
   ProviderCaps,
   ProviderMeta,
@@ -11,7 +10,6 @@ import type {
   ProviderRequest,
   Surface,
   RouteTarget,
-  TokenCountInput,
 } from "../application/contracts";
 import type { ProviderCallError } from "../application/contracts";
 
@@ -83,9 +81,6 @@ export class OpenCodeFreeAdapter implements Adapter {
     return callChatCompletionsWire({ ...input, request }, OPENCODE_BASE_URL, headers);
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> {
-    return Promise.resolve({ tokens: null, source: "unknown" });
-  }
 
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);
@@ -167,9 +162,6 @@ export class OpenCodeZenAdapter implements Adapter {
     return callChatCompletionsWire({ ...input, request }, OPENCODE_BASE_URL, headers);
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> {
-    return Promise.resolve({ tokens: null, source: "unknown" });
-  }
 
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);

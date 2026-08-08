@@ -1,7 +1,7 @@
 import type { ProviderCallError } from "../../application/contracts";
 import { publicErrorBody } from "../../application/contracts";
 import type { ProviderOutput } from "../../application/contracts";
-import type { PresentedProxyResponse, ResponseWriter } from "../../application/contracts";
+import type { PresentedProxyResponse } from "../../application/contracts";
 import { isTerminalEvent, type StreamEvent } from "../../application/contracts";
 import type { StreamLifecycleController } from "./recovery";
 
@@ -53,19 +53,12 @@ export function writeStreamResponse(output: StreamOutput, _requestId: string, op
     body: { mode: "stream", events: output.events },
   };
 }
-
-/** Mode dispatcher matching the application `ResponseWriter` contract. */
+/** Presents a provider output as a JSON response or streaming response. */
 export function writeResponse(output: ProviderOutput, requestId: string, options: WriteStreamOptions = {}): PresentedProxyResponse {
   if (output.mode === "non_stream") return writeNonStreamResponse(output, requestId);
   return writeStreamResponse(output, requestId, options);
 }
 
-/** Application-contract response writer bound to fixed presentation options. */
-export function createResponseWriter(options: WriteStreamOptions = {}): ResponseWriter {
-  return {
-    write: (output: ProviderOutput, requestId: string): PresentedProxyResponse => writeResponse(output, requestId, options),
-  };
-}
 
 /**
  * Pre-header failure presentation: one sanitized `PublicErrorBody` with the

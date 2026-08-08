@@ -1,7 +1,7 @@
 import { mkdirSync, statSync, unlinkSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { Database } from "bun:sqlite";
-import { sanitizeMessage, type ClientDetectionSource, type ClientName, type RequestTelemetryHandle, type RouteSwitch, type TelemetryFinish, type TelemetryWriter, type UsageDimension, type UsagePeriod } from "../../application/contracts";
+import { sanitizeMessage, type ClientDetectionSource, type ClientName, type RequestTelemetryHandle, type TelemetryFinish, type TelemetryWriter, type UsageDimension, type UsagePeriod } from "../../application/contracts";
 import { getPersistenceEnv, type PersistenceEnv } from "../main/env";
 
 // ────────────────────────────── Row shapes ──────────────────────────────────
@@ -362,7 +362,6 @@ const FLUSH_THRESHOLD = 64;
 const FLUSH_INTERVAL_MS = 20;
 const FLUSH_RETRY_MS = 1_000;
 const MAX_BUFFERED_WRITES = 256;
-const READ_FLUSH_INTERVAL_MS = 1_000;
 const FLUSH_BATCH_SIZE = 64;
 
 export interface RuntimeTelemetryStats {
@@ -539,7 +538,7 @@ const UPSERT_SQL = `${INSERT_SQL} ON CONFLICT(trace_id) DO UPDATE SET
   message_count = excluded.message_count, tool_count = excluded.tool_count, image_count = excluded.image_count,
   tfft_ms = excluded.tfft_ms, client_ip = excluded.client_ip`;
 
-export function createRuntimeTelemetryWriter(buffer: WriteBuffer, isTraceIdUnique: () => boolean, invalidateQueryCaches: () => void): TelemetryWriter {
+export function createRuntimeTelemetryWriter(buffer: WriteBuffer, isTraceIdUnique: () => boolean, _invalidateQueryCaches: () => void): TelemetryWriter {
   return {
     start(input: Parameters<TelemetryWriter["start"]>[0]): RequestTelemetryHandle {
       const requestId = input.requestId;

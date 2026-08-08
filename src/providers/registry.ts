@@ -1,5 +1,5 @@
 import { describeOpenAIAdapter, makeOpenAIAdapter, ProviderAdapterError, toProviderCallError, type ProviderCatalogAdapter } from "../open-sse/transport/shared";
-import type { Adapter, ContextStats, ProviderOutput, ProviderRequest, Surface, TokenCountInput, RouteTarget } from "../application/contracts";
+import type { Adapter, ProviderOutput, ProviderRequest, Surface, RouteTarget } from "../application/contracts";
 import { resolveWireSurface } from "../open-sse/translate";
 
 /**
@@ -37,9 +37,6 @@ export class ProviderRegistry {
       ...catalog,
       async call(input: ProviderRequest): Promise<ProviderOutput> {
         return (await load()).call(input);
-      },
-      async countTokens(input: TokenCountInput): Promise<ContextStats> {
-        return (await load()).countTokens(input);
       },
       mapError(error: unknown) {
         return toProviderCallError(error);

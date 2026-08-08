@@ -1,6 +1,5 @@
 import type { AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
 import { AuthorizationCodeDriver, tokenFields } from "./base";
-import { claudeCodeOAuthBetas } from "../../providers/claude-code";
 
 /**
  * Anthropic OAuth driver — the "Claude Code" account flow (Claude Pro/Max).

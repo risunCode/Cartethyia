@@ -4,16 +4,15 @@ aggregateCapabilities,
 capabilitiesOf,
 createModelCatalog,
 executeFetch,
-isRecord,
 lineLimit,
 mapSseStream,
 modelOf,
 readJsonObject,
 readUpstreamError,
 toProviderCallError, } from "../open-sse/transport/shared";
+import { isRecord } from "../application/protocols";
 import type { SseEvent, StreamMapper } from "../open-sse/transport/shared";
 import type {
-  ContextStats,
   Adapter,
   ProviderCaps,
   ProviderMeta,
@@ -24,7 +23,6 @@ import type {
   Surface,
   RouteTarget,
   StreamEvent,
-  TokenCountInput,
 } from "../application/contracts";
 import type { ProviderCallError } from "../application/contracts";
 
@@ -89,12 +87,6 @@ interface ExaSearchResult {
   score?: number;
 }
 
-interface ExaSearchResponse {
-  requestId: string;
-  results: ExaSearchResult[];
-  resolvedSearchType: string;
-  costDollars: { total: number; search: Record<string, number> };
-}
 
 interface ExaStreamChunk {
   type: "result" | "cost" | "done";
@@ -281,9 +273,6 @@ export class ExaAdapter implements Adapter {
     };
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> {
-    return Promise.resolve({ tokens: null, source: "unknown" });
-  }
 
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);

@@ -1,8 +1,8 @@
-import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, isRecord, lineLimit, mapSseStream, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, lineLimit, mapSseStream, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { isRecord } from "../application/protocols";
 import { callHostedImageWire, createResponsesMapper } from "../open-sse/transport/protocols/openai";
 import { buildResponsesPayload, mapResponsesUsage } from "../open-sse/translate/codecs/openai-responses";
 import type {
-  ContextStats,
   Adapter,
   ProviderCaps,
   ProviderMeta,
@@ -12,7 +12,6 @@ import type {
   ProviderRequest,
   Surface,
   RouteTarget,
-  TokenCountInput,
 } from "../application/contracts";
 import type { ProviderCallError } from "../application/contracts";
 
@@ -158,9 +157,6 @@ export class CodexAdapter implements Adapter {
     }
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> {
-    return Promise.resolve({ tokens: null, source: "unknown" });
-  }
 
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);

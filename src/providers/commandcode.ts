@@ -1,6 +1,6 @@
-import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, isRecord, lineLimit, mapSseStream, messageText, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { isRecord, messageText } from "../application/protocols";
 import type {
-  ContextStats,
   Adapter,
   ProviderCaps,
   ProviderMeta,
@@ -12,7 +12,6 @@ import type {
   RouteTarget,
   StreamEvent,
   StopReason,
-  TokenCountInput,
 } from "../application/contracts";
 import type { ProviderCallError } from "../application/contracts";
 import type { NormalizedMessage } from "../application/contracts";
@@ -148,7 +147,6 @@ export class CommandCodeAdapter implements Adapter {
     } finally { if (!streamHandedOff) coordinator.dispose(); }
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> { return Promise.resolve({ tokens: null, source: "unknown" }); }
   mapError(error: unknown): ProviderCallError { return toProviderCallError(error); }
 }
 

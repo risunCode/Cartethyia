@@ -1,6 +1,7 @@
-import { AbortCoordinator, ProviderAdapterError, executeFetch, isRecord, lineLimit, mapSseStream, nullableNumber, parseSseData, readJsonObject, readUpstreamError } from "../shared";
+import { AbortCoordinator, ProviderAdapterError, executeFetch, lineLimit, mapSseStream, parseSseData, readJsonObject, readUpstreamError } from "../shared";
 import type { SseEvent, StreamMapper } from "../shared";
-import type { ApplicationErrorKind, ProviderCaps, ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../../../application/contracts";
+import type { ApplicationErrorKind, ProviderCaps, ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamEvent } from "../../../application/contracts";
+import { isRecord, nullableNumber } from "../../../application/protocols";
 import { buildMessagesPayload, mapAnthropicUsage } from "../../translate/codecs/anthropic-messages";
 
 // ---------------------------------------------------------------- SSE mapping
@@ -129,19 +130,6 @@ export function createAnthropicMapper(toolNameTransform: (name: string) => strin
   };
 }
 
-// ---------------------------------------------------------------- decoder
-
-/**
- * Application StreamDecoder hook for Messages SSE streams. Enforces the caller
- * signal and max line bytes; timeouts are applied by the caller's
- * coordinator in the hot path.
- */
-export class AnthropicMessagesStreamDecoder implements StreamDecoder {
-  decode(input: StreamDecoderInput): AsyncIterable<StreamEvent> {
-    const coordinator = new AbortCoordinator(input.signal);
-    return mapSseStream({ body: input.body, coordinator, maxLineBytes: input.maxLineBytes }, createAnthropicMapper());
-  }
-}
 
 /** Executes an Anthropic Messages request after the provider supplies auth headers. */
 export async function callAnthropicWire(

@@ -13,7 +13,7 @@ import type { WarpAccountRepository } from "./types";
 import { toWarpAccountView } from "./types";
 import type { ConfigPersistence } from "../../storage/main/config";
 import { registerWarpAccount, parseImportedProfile, type WgcfProfile } from "./wgcf";
-import { readProcessMetrics, bandwidthDelta, clearProcessMetrics, type ProcessMetrics } from "./wireproxy-metrics";
+import { readProcessMetrics, bandwidthDelta, clearProcessMetrics } from "./wireproxy-metrics";
 import type { RuntimePersistence } from "../../storage/runtime/runtime";
 import type { WarpMetricRow, WarpMetricsRepository, WarpMetricsSummary } from "../../storage/runtime/runtime";
 import { startWireProxy, stopWireProxy, checkWireProxyHealth, findAvailablePort, getRunningAccountIds, stopAllWireProxies } from "./wireproxy";

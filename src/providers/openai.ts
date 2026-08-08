@@ -1,21 +1,12 @@
-import { AbortCoordinator,
-ProviderAdapterError,
-aggregateCapabilities,
-capabilitiesOf,
-createModelCatalog,
-executeFetch,
-isRecord,
-lineLimit,
-mapSseStream,
-messageText,
-modelOf,
-nullableNumber,
-readJsonObject,
-readUpstreamError,
-toProviderCallError, } from "../open-sse/transport/shared";
-import type { SseEvent, StreamMapper } from "../open-sse/transport/shared";
+import {
+  ProviderAdapterError,
+  aggregateCapabilities,
+  capabilitiesOf,
+  createModelCatalog,
+  modelOf,
+  toProviderCallError,
+} from "../open-sse/transport/shared";
 import type {
-  ContextStats,
   CredentialKind,
   Adapter,
   ProviderCaps,
@@ -25,13 +16,9 @@ import type {
   ProviderOutput,
   ProviderRequest,
   Surface,
-  ProviderUsage,
   RouteTarget,
-  TokenCountInput,
 } from "../application/contracts";
 import type { ProviderCallError } from "../application/contracts";
-import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../application/contracts";
-import type { StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../application/contracts";
 import { callHostedImageWire, callResponsesWire } from "../open-sse/transport/protocols/openai";
 /**
  * OpenAI adapter: Responses API ("openai-responses") and hosted image
@@ -118,9 +105,6 @@ export class OpenAIAdapter implements Adapter {
     return callResponsesWire(input, this.baseUrl, this.authHeaders(credential, input.request.stream, input.headers));
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> {
-    return Promise.resolve({ tokens: null, source: "unknown" });
-  }
 
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);

@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
-import type { ApplicationErrorKind, CredentialKind, RouteHealth, RouteScope, RouteStatus, RoutingPreset } from "../../application/contracts";
+import type { ApplicationErrorKind, CredentialKind, RouteHealth, RouteScope } from "../../application/contracts";
 import { sanitizeMessage } from "../../application/contracts";
 import type { RouteHealthStore } from "../../application/contracts";
 import type { ModelLockRecord } from "../../application/contracts";

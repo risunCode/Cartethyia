@@ -4,17 +4,16 @@ capabilitiesOf,
 createModelCatalog,
 decodeSseEvents,
 executeFetch,
-isRecord,
 lineLimit,
 mapSseStream,
 modelOf,
 parseSseData,
 readUpstreamError,
 toProviderCallError, } from "../open-sse/transport/shared";
+import { isRecord } from "../application/protocols";
 import { createResponsesMapper } from "../open-sse/transport/protocols/openai";
 import { buildResponsesPayload, mapResponsesUsage } from "../open-sse/translate/codecs/openai-responses";
 import type {
-  ContextStats,
   Adapter,
   ProviderCaps,
   ProviderMeta,
@@ -24,7 +23,6 @@ import type {
   ProviderRequest,
   Surface,
   RouteTarget,
-  TokenCountInput,
 } from "../application/contracts";
 import type { ProviderCallError } from "../application/contracts";
 
@@ -189,9 +187,6 @@ export class GrokBuildAdapter implements Adapter {
     }
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> {
-    return Promise.resolve({ tokens: null, source: "unknown" });
-  }
 
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);

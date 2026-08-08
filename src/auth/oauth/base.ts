@@ -157,7 +157,7 @@ export class OAuthHttpClient {
   }
 
   /** GET that never throws on HTTP errors / network failure — for best-effort enrichment calls. */
-  async tryGet(url: string, headers: Record<string, string>, provider: string, operation: string): Promise<{ ok: boolean; status: number; text: string }> {
+  async tryGet(url: string, headers: Record<string, string>, _provider: string, _operation: string): Promise<{ ok: boolean; status: number; text: string }> {
     let response: Response;
     try {
       response = await this.withTimeout(this.fetchFn(url, { headers }));

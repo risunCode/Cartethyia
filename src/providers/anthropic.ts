@@ -1,21 +1,12 @@
-import { AbortCoordinator,
-ProviderAdapterError,
-aggregateCapabilities,
-capabilitiesOf,
-createModelCatalog,
-executeFetch,
-isRecord,
-lineLimit,
-mapSseStream,
-messageText,
-modelOf,
-nullableNumber,
-readJsonObject,
-readUpstreamError,
-toProviderCallError, } from "../open-sse/transport/shared";
-import type { SseEvent, StreamMapper } from "../open-sse/transport/shared";
+import {
+  ProviderAdapterError,
+  aggregateCapabilities,
+  capabilitiesOf,
+  createModelCatalog,
+  modelOf,
+  toProviderCallError,
+} from "../open-sse/transport/shared";
 import type {
-  ContextStats,
   CredentialKind,
   Adapter,
   ProviderCaps,
@@ -25,15 +16,10 @@ import type {
   ProviderOutput,
   ProviderRequest,
   Surface,
-  ProviderUsage,
   RouteTarget,
-  TokenCountInput,
 } from "../application/contracts";
-import type { ApplicationErrorKind, ProviderCallError } from "../application/contracts";
-import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../application/contracts";
-import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
+import type { ProviderCallError } from "../application/contracts";
 import { callAnthropicWire } from "../open-sse/transport/protocols/anthropic";
-import type { StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../application/contracts";
 
 /**
  * Anthropic adapter: the "anthropic-messages" surface over the Messages
@@ -59,8 +45,6 @@ const ANTHROPIC_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({
   promptCacheKey: true,
 });
 
-const DEFAULT_MAX_TOKENS = 4096;
-const MAX_THINKING_BUDGET = 32_000;
 
 export interface AnthropicAdapterConfig {
   readonly id?: string;
@@ -132,9 +116,6 @@ export class AnthropicAdapter implements Adapter {
     return callAnthropicWire(input, this.baseUrl, headers, this.capabilities);
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> {
-    return Promise.resolve({ tokens: null, source: "unknown" });
-  }
 
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);

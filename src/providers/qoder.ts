@@ -7,14 +7,14 @@ capabilitiesOf,
 createModelCatalog,
 decodeSseEvents,
 executeFetch,
-isRecord,
 lineLimit,
 modelOf,
 readUpstreamError,
 toProviderCallError, } from "../open-sse/transport/shared";
+import { isRecord } from "../application/protocols";
 import type { SseEvent } from "../open-sse/transport/shared";
 import { createChatMapper } from "../open-sse/transport/protocols/openai";
-import { isTerminalEvent, type ContextStats, type ContentBlock, type NormalizedMessage, type ProxyRequest, type Adapter, type ProviderCaps, type ProviderCallError, type ProviderMeta, type ProviderModel, type ProviderModelCatalog, type ProviderOutput, type ProviderRequest, type Surface, type ProviderUsage, type RequestLimits, type RouteTarget, type StopReason, type StreamEvent, type TokenCountInput } from "../application/contracts";
+import { isTerminalEvent, type ContentBlock, type NormalizedMessage, type ProxyRequest, type Adapter, type ProviderCaps, type ProviderCallError, type ProviderMeta, type ProviderModel, type ProviderModelCatalog, type ProviderOutput, type ProviderRequest, type Surface, type ProviderUsage, type RequestLimits, type RouteTarget, type StopReason, type StreamEvent } from "../application/contracts";
 
 /**
  * Qoder — the Qoder CLI's `agent_chat_generation` SSE gateway
@@ -674,9 +674,6 @@ export class QoderAdapter implements Adapter {
     }
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> {
-    return Promise.resolve({ tokens: null, source: "unknown" });
-  }
 
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);

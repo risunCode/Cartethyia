@@ -747,7 +747,7 @@ export interface RouteTransitionView {
 export async function loadRouteTransition(
   scope: RouteScope,
   routeId: string,
-  health: RouteHealth | null,
+  _health: RouteHealth | null,
   store: RouteTransitionStore,
 ): Promise<RouteTransitionView> {
   const event = await store.latest(scope, routeId);

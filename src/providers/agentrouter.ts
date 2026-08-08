@@ -3,17 +3,16 @@ ProviderAdapterError,
 capabilitiesOf,
 createModelCatalog,
 executeFetch,
-isRecord,
 lineLimit,
 mapSseStream,
 modelOf,
 readJsonObject,
 readUpstreamError,
 toProviderCallError, } from "../open-sse/transport/shared";
+import { isRecord } from "../application/protocols";
 import { createAnthropicMapper } from "../open-sse/transport/protocols/anthropic";
 import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
 import type {
-  ContextStats,
   Adapter,
   ProviderCaps,
   ProviderMeta,
@@ -23,7 +22,6 @@ import type {
   ProviderRequest,
   Surface,
   RouteTarget,
-  TokenCountInput,
 } from "../application/contracts";
 import type { ProviderCallError } from "../application/contracts";
 
@@ -185,9 +183,6 @@ export class AgentRouterAdapter implements Adapter {
     }
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> {
-    return Promise.resolve({ tokens: null, source: "unknown" });
-  }
 
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);

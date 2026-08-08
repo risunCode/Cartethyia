@@ -471,7 +471,6 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
     };
     let responseStatus: number | null = null;
     let presentedOutput = output;
-    let streamTelemetryPending = false;
     const clientStreamEvents: StreamEvent[] = [];
     if (output.mode === "non_stream") {
       const usage = output.usage;
@@ -479,7 +478,6 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
         ? { inputTokens: admissionEstimate, outputTokens: 0 }
         : { inputTokens: usage.inputTokens ?? admissionEstimate, outputTokens: usage.outputTokens ?? 0 });
     } else {
-      streamTelemetryPending = true;
       presentedOutput = {
         ...output,
         events: (async function*() {
@@ -525,7 +523,6 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
               capture.response({ mode: "stream", events: clientStreamEvents });
               await capture.settle();
             }
-            streamTelemetryPending = false;
             await telemetry.finish({
               statusCode: responseStatus ?? 200,
               errorKind: null,

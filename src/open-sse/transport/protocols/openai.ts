@@ -1,6 +1,7 @@
-import { AbortCoordinator, ProviderAdapterError, executeFetch, isRecord, lineLimit, mapSseStream, nullableNumber, parseSseData, readJsonObject, readUpstreamError } from "../shared";
+import { AbortCoordinator, ProviderAdapterError, executeFetch, lineLimit, mapSseStream, parseSseData, readJsonObject, readUpstreamError } from "../shared";
 import type { SseEvent, StreamMapper } from "../shared";
-import type { ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../../../application/contracts";
+import type { ProviderOutput, ProviderRequest, StopReason, StreamEvent } from "../../../application/contracts";
+import { isRecord } from "../../../application/protocols";
 import { buildChatPayload, mapChatUsage } from "../../translate/codecs/openai-chat";
 import { buildResponsesPayload, mapResponsesUsage } from "../../translate/codecs/openai-responses";
 
@@ -338,28 +339,4 @@ export function createResponsesMapper(): StreamMapper {
         return null;
     }
   };
-}
-
-// ---------------------------------------------------------------- decoders
-
-/**
- * Application StreamDecoder hook for Chat Completions SSE streams. Enforces the
- * caller signal and max line bytes; timeouts are applied by the caller's
- * coordinator in the hot path.
- */
-export class ChatCompletionsStreamDecoder implements StreamDecoder {
-  decode(input: StreamDecoderInput): AsyncIterable<StreamEvent> {
-    const coordinator = new AbortCoordinator(input.signal);
-    return mapSseStream({ body: input.body, coordinator, maxLineBytes: input.maxLineBytes }, createChatMapper());
-  }
-}
-
-/**
- * Application StreamDecoder hook for Responses API SSE streams.
- */
-export class ResponsesStreamDecoder implements StreamDecoder {
-  decode(input: StreamDecoderInput): AsyncIterable<StreamEvent> {
-    const coordinator = new AbortCoordinator(input.signal);
-    return mapSseStream({ body: input.body, coordinator, maxLineBytes: input.maxLineBytes }, createResponsesMapper());
-  }
 }

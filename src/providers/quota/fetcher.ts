@@ -1,4 +1,3 @@
-import { exchangeQoderPat, fetchQoderUsage } from "../../providers/qoder";
 import type { OAuthTokenRecord } from "../../auth/credentials";
 import { claudeCodeOAuthBetas } from "../../providers/claude-code";
 
@@ -92,11 +91,6 @@ function kiro(body: unknown): ProviderQuotaResult {
   for (const raw of list) { const value = record(raw); if (!value) continue; const used = number(value.currentUsageWithPrecision); const limit = number(value.usageLimitWithPrecision); if (limit !== null && limit > 0) windows.push(percentWindow("monthly", text(value.resourceType) ?? "Kiro usage", used === null ? null : used / limit * 100, reset, used, limit)); }
   const subscription = record(payload.subscriptionInfo);
   return { source: "kiro", plan: text(subscription?.subscriptionTitle) ?? "Kiro", windows, error: windows.length === 0 ? "Kiro quota payload contained no usage windows." : null };
-}
-function qoder(body: unknown): ProviderQuotaResult {
-  const payload = quotaRecord(body); const windows: ProviderQuotaWindow[] = []; const expiry = isoDate(payload.expiresAt);
-  for (const [key, label] of [["userQuota", "User Quota"], ["orgResourcePackage", "Org Resource Package"]] as const) { const bucket = record(payload[key]); const total = number(bucket?.total); const used = number(bucket?.used); if (total !== null && total > 0 && used !== null) windows.push(percentWindow("monthly", label, used / total * 100, expiry, used, total)); }
-  return { source: "qoder", plan: "Qoder AI Plan", windows, error: windows.length === 0 ? "Qoder usage payload contained no quota buckets." : null };
 }
 
 function grokBuild(body: unknown, userBody: unknown): ProviderQuotaResult {

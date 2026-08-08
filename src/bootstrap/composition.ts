@@ -1,8 +1,8 @@
-import type { CredentialKind, Adapter } from "../application/contracts";
+import type { CredentialKind } from "../application/contracts";
 import type { AccountCandidate, AffinityKey, ModelLockRecord, RouteCandidate, RouteSwitch } from "../application/contracts";
 import type { ProxyRequest } from "../application/contracts";
 import { AnthropicOAuthDriver, AntigravityOAuthDriver, ClineOAuthDriver, ClinePassOAuthDriver, createAuthDriverRegistry, GrokBuildOAuthDriver, KimchiOAuthDriver, KiroOAuthDriver, createDriverAwareOAuthRefresher, createEnvOAuthRefresher } from "../auth";
-import { AccountHealthManager, CredentialSelector, QuotaCoordinator, TokenRefreshPool, type OAuthTokenRecord } from "../auth";
+import { AccountHealthManager, CredentialSelector, QuotaCoordinator, TokenRefreshPool } from "../auth";
 import { QuotaRefreshWorker } from "../auth/quota/refresh-worker";
 import { AccountRecoverySweep } from "../application/recovery-sweep";
 import type { ApplicationErrorKind } from "../application/contracts";
@@ -123,7 +123,7 @@ async function accountCandidates(cache: RouteSnapshotCache, health: AccountHealt
 }
 
 
-function routeResolver(registry: ProviderRegistry, cache: RouteSnapshotCache, health: AccountHealthManager, quota: QuotaCoordinator): (request: ProxyRequest, affinity: AffinityKey) => Promise<ProxyRoutePlan> {
+function routeResolver(registry: ProviderRegistry, cache: RouteSnapshotCache, _health: AccountHealthManager, _quota: QuotaCoordinator): (request: ProxyRequest, affinity: AffinityKey) => Promise<ProxyRoutePlan> {
   return async (request, affinity) => {
     const snapshot = await cache.get();
     const chain = resolveModelChain(request.model, { prefixes: snapshot.prefixes, aliases: snapshot.aliases, combos: snapshot.combos }, affinity);

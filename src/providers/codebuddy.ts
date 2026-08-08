@@ -1,5 +1,5 @@
 import { aggregateCapabilities, capabilitiesOf, createModelCatalog, modelOf, toProviderCallError } from "../open-sse/transport/shared";
-import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../application/contracts";
+import type { Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget } from "../application/contracts";
 import { callChatCompletionsWire } from "../open-sse/transport/protocols/openai";
 import { ProviderAdapterError } from "../open-sse/transport/shared";
 
@@ -50,7 +50,6 @@ abstract class CodeBuddyBaseAdapter implements Adapter {
     if (!input.credential) throw new ProviderAdapterError({ kind: "authentication_failed", message: `${this.metadata.displayName} requires an API key.`, statusCode: 401, routeScope: "account" });
     return callChatCompletionsWire(input, this.baseUrl, headers(input.credential, this.metadata.id === "codebuddy" ? "www.codebuddy.ai" : "www.codebuddy.cn", input.headers));
   }
-  countTokens(_input: TokenCountInput): Promise<ContextStats> { return Promise.resolve({ tokens: null, source: "unknown" }); }
   mapError(error: unknown) { return toProviderCallError(error); }
 }
 

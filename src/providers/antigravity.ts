@@ -3,17 +3,16 @@ ProviderAdapterError,
 capabilitiesOf,
 createModelCatalog,
 executeFetch,
-isRecord,
 lineLimit,
 mapSseStream,
 modelOf,
 readUpstreamError,
 toProviderCallError, } from "../open-sse/transport/shared";
+import { isRecord } from "../application/protocols";
 import type { SseEvent } from "../open-sse/transport/shared";
 import { createGeminiMapper } from "../open-sse/transport/protocols/gemini";
 import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../open-sse/translate/codecs/gemini-generate-content";
 import type {
-  ContextStats,
   ProxyRequest,
   Adapter,
   ProviderCaps,
@@ -26,7 +25,6 @@ import type {
   ProviderUsage,
   RouteTarget,
   StreamEvent,
-  TokenCountInput,
 } from "../application/contracts";
 import type { ProviderCallError } from "../application/contracts";
 
@@ -245,7 +243,7 @@ export function normalizeAntigravityFrame(sse: SseEvent): SseEvent {
  * Folds a Gemini-style SSE event stream into a single non-stream response
  * body (the Antigravity transport only exposes the streaming endpoint).
  */
-export async function foldAntigravityStream(events: AsyncIterable<StreamEvent>, model: string): Promise<{ readonly body: Record<string, unknown>; readonly usage: ProviderUsage | null }> {
+export async function foldAntigravityStream(events: AsyncIterable<StreamEvent>, _model: string): Promise<{ readonly body: Record<string, unknown>; readonly usage: ProviderUsage | null }> {
   const parts: Record<string, unknown>[] = [];
   const pendingCalls = new Map<string, { name: string; args: string[] }>();
   let finishReason: string | null = null;
@@ -365,9 +363,6 @@ export class AntigravityAdapter implements Adapter {
     }
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> {
-    return Promise.resolve({ tokens: null, source: "unknown" });
-  }
 
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);

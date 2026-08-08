@@ -72,7 +72,6 @@ import type {
   ConsoleRuntimeSettings,
   CustomProviderRepository,
   CustomProviderView,
-  FilterRuleInput,
   FilterRuleRepository,
   FilterRuleView,
   ModelProbeMetadata,
@@ -254,7 +253,7 @@ export class AuthService {
     private readonly limiter: LoginLimiter = new MemoryLoginLimiter(),
   ) {}
 
-  async login(password: unknown, ip: string, request: Request): Promise<LoginResult> {
+  async login(password: unknown, ip: string, _request: Request): Promise<LoginResult> {
     const snapshot = await this.settings.get();
     const check = this.limiter.check(ip);
     if (!check.allowed) {

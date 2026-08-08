@@ -1,7 +1,8 @@
-import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../application/contracts";
+import type { Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget } from "../application/contracts";
 import type { ProviderCallError } from "../application/contracts";
 import type { CustomProviderRecord, CustomProviderRepository } from "../storage";
-import { AbortCoordinator, ProviderAdapterError, aggregateCapabilities, capabilitiesOf, categoriesOf, executeFetch, isRecord, lineLimit, mapSseStream, modelOf, nullableNumber, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { AbortCoordinator, ProviderAdapterError, aggregateCapabilities, capabilitiesOf, categoriesOf, executeFetch, lineLimit, mapSseStream, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { isRecord } from "../application/protocols";
 import { createAnthropicMapper } from "../open-sse/transport/protocols/anthropic";
 import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
 import { createChatMapper } from "../open-sse/transport/protocols/openai";
@@ -82,11 +83,9 @@ export class CustomProviderAdapter implements Adapter {
   readonly metadata: ProviderMeta;
   readonly capabilities: ProviderCaps;
   readonly models: ProviderModelCatalog;
-  private readonly record: CustomProviderRecord;
-  private readonly source: CustomProviderSource;
 
+  private readonly source: CustomProviderSource;
   constructor(record: CustomProviderRecord, source: CustomProviderSource) {
-    this.record = record;
     this.source = source;
     const nativeSurfaces = record.type === "anthropic-compatible" ? CUSTOM_ANTHROPIC_SURFACES : CUSTOM_OPENAI_SURFACES;
     const fallbackCapabilities = capabilitiesOf({ surfaces: nativeSurfaces });
@@ -161,9 +160,6 @@ export class CustomProviderAdapter implements Adapter {
     }
   }
 
-  countTokens(_input: TokenCountInput): Promise<ContextStats> {
-    return Promise.resolve({ tokens: null, source: "unknown" });
-  }
 
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);

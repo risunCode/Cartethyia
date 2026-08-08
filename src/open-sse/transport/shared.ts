@@ -1,11 +1,11 @@
 import type { ApplicationErrorKind, ProviderCallError } from "../../application/contracts";
 import { boundedRetryAt, deriveErrorSource, sanitizeMessage } from "../../application/contracts";
 import { isUsageLimitOutcome, parseRateLimitReason } from "../../application/rate-limit";
-import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../../application/contracts";
+import { isRecord } from "../../application/protocols";
+import type { Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget } from "../../application/contracts";
 import type { CredentialKind } from "../../application/contracts";
 import type { ModelCapabilityCategory, ModelContextLimits, ModelTokenPricing } from "../../application/contracts";
-import type { NetworkSelection } from "../../application/contracts";
-import type { NormalizedMessage, RequestLimits } from "../../application/contracts";
+import type { NetworkSelection, RequestLimits } from "../../application/contracts";
 import { isTerminalEvent, type StreamEvent } from "../../application/contracts";
 import { runtimeMemoryLimits } from "../../traffic/limits";
 import { buildProxyFetcher } from "../../traffic";
@@ -27,24 +27,11 @@ import { callChatCompletionsWire, callResponsesWire } from "./protocols/openai";
 
 // ---------------------------------------------------------------- guards
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-export function nullableNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
-export function messageText(message: NormalizedMessage): string {
-  return message.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text ?? "")
-    .join("\n");
-}
 
 // ---------------------------------------------------------------- typed errors
 
@@ -94,7 +81,7 @@ export class ProviderAdapterError extends Error {
 
 const MAX_RETRY_AFTER_DELAY_MS = 30_000;
 
-function mapUpstreamError(statusCode: number, message: string, retryAfterSeconds: number | null, errorKind: string | null): ProviderAdapterError {
+function mapUpstreamError(statusCode: number, message: string, retryAfterSeconds: number | null, _errorKind: string | null): ProviderAdapterError {
   const retryAt = boundedRetryAt(retryAfterSeconds, Date.now(), MAX_RETRY_AFTER_DELAY_MS);
   switch (statusCode) {
     case 400:
@@ -825,9 +812,6 @@ export function makeOpenAIAdapter(config: OpenAIAdapterConfig): Adapter {
       else if (auth === "x-api-key" && credential.length > 0) headers["x-api-key"] = credential;
       if (input.target.surface === "openai-responses") return callResponsesWire(input, baseUrl, headers);
       return callChatCompletionsWire(input, baseUrl, headers);
-    },
-    async countTokens(_input: TokenCountInput): Promise<ContextStats> {
-      return { tokens: null, source: "unknown" };
     },
     mapError(error: unknown): ProviderCallError {
       return toProviderCallError(error);

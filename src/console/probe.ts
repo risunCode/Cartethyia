@@ -29,7 +29,7 @@
 
 import type { ProviderCallError, SafeErrorSummary } from "../application/contracts";
 import { createCleanupStack } from "../application/contracts";
-import type { Adapter, ProviderModel, ProviderOutput, ProviderRequest, Surface, RouteTarget } from "../application/contracts";
+import type { Adapter, ProviderModel, ProviderOutput, Surface, RouteTarget } from "../application/contracts";
 import type { ProxyRequest, RequestLimits } from "../application/contracts";
 import type { StreamEvent } from "../application/contracts";
 import type { AccountCandidate, CredentialSelection } from "../application/contracts";
