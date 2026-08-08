@@ -25,8 +25,8 @@ import type {
   Surface,
   RouteTarget,
   TokenCountInput,
-} from "../domain/contracts";
-import type { ProviderCallError } from "../domain/contracts";
+} from "../application/contracts";
+import type { ProviderCallError } from "../application/contracts";
 
 /**
  * Grok Build — the Grok subscription backend at cli-chat-proxy.grok.com.
@@ -154,7 +154,7 @@ export class GrokBuildAdapter implements Adapter {
     const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
     let streamHandedOff = false;
     try {
-      const response = await executeFetch(`${GROK_BUILD_BASE_URL}/responses`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network);
+      const response = await executeFetch(`${GROK_BUILD_BASE_URL}/responses`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
       if (!response.ok) throw await readUpstreamError(response);
       if (!response.body) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Grok Build returned an empty stream body", routeScope: "provider" });
       // Grok Build forces stream=true upstream. When the client requested
@@ -178,7 +178,7 @@ export class GrokBuildAdapter implements Adapter {
           }
         }
         if (!completed) {
-          throw new ProviderAdapterError({ kind: "stream_truncated", message: "Grok Build stream ended without a response.completed event", retryable: false, routeScope: "provider" });
+          throw new ProviderAdapterError({ kind: "stream_truncated", message: "Grok Build stream ended without a response.completed event", retryable: true, routeScope: "provider" });
         }
         return { mode: "non_stream", body: finalBody, usage: usageRecord !== null ? mapResponsesUsage(usageRecord) : undefined };
       }

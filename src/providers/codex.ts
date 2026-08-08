@@ -13,8 +13,8 @@ import type {
   Surface,
   RouteTarget,
   TokenCountInput,
-} from "../domain/contracts";
-import type { ProviderCallError } from "../domain/contracts";
+} from "../application/contracts";
+import type { ProviderCallError } from "../application/contracts";
 
 /**
  * OpenAI Codex — the ChatGPT Codex backend
@@ -143,7 +143,7 @@ export class CodexAdapter implements Adapter {
     const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
     let streamHandedOff = false;
     try {
-      const response = await executeFetch(`${CODEX_BASE_URL}/codex/responses`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network);
+      const response = await executeFetch(`${CODEX_BASE_URL}/codex/responses`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
       if (!response.ok) throw await readUpstreamError(response);
       if (!request.stream) {
         const body = await readJsonObject(response, coordinator);

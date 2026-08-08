@@ -64,6 +64,7 @@ export {
   getRuntimeMetadataRepository,
   getConsoleLogRepository,
   resetRuntimePersistenceForTests,
+  createWarpMetricsRepository,
 } from "./runtime/runtime";
 
 export {
@@ -93,5 +94,8 @@ export type {
   RetentionResult,
   RuntimeMetadataRepository,
   ConsoleLogRepository,
+  WarpMetricRow,
+  WarpMetricsSummary,
+  WarpMetricsRepository,
   RuntimePersistence,
 } from "./runtime/runtime";

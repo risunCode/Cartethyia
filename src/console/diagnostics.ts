@@ -18,7 +18,7 @@ import { execSync } from "node:child_process";
 import packageJson from "../../package.json";
 import type { ProviderRegistry } from "../providers/registry";
 import { scheduleGlobalGc, type GcScheduleResult } from "../traffic/memory";
-import { resolveModelChain, type ChainResult, type ModelReferenceConfig } from "../domain/routing";
+import { resolveModelChain, type ChainResult, type ModelReferenceConfig } from "../application/routing";
 import type {
   ConsoleLogLine,
   ConsoleRepositories,
@@ -245,6 +245,8 @@ export class ConsoleDiagnostics {
   private readonly registry: ProviderRegistry;
   private readonly prefixes: ReadonlyMap<string, string>;
   private readonly runtimeCounters: { readonly inFlight: () => number } | null;
+  private overviewCache: { value: OverviewView; expiresAt: number } | null = null;
+  private overviewPending: Promise<OverviewView> | null = null;
 
   constructor(options: ConsoleDiagnosticsOptions) {
     this.services = options.services;
@@ -349,18 +351,37 @@ export class ConsoleDiagnostics {
   }
 
   async overview(): Promise<OverviewView> {
-    const [totals, providers, settings] = await Promise.all([
-      this.repositories.runtimeMetadata.queryUsageSummary("24h"),
-      this.repositories.runtimeMetadata.queryProviderToday(),
-      this.services.settings.get(),
-    ]);
-    return {
-      totals,
-      inFlight: this.runtimeCounters?.inFlight() ?? 0,
-      providers,
-      proxyAuthMode: settings.runtime.proxyAuthMode,
-      registered: this.registry.list().map((adapter) => adapter.metadata.id),
-    };
+    const now = Date.now();
+    const cached = this.overviewCache;
+    if (cached !== null && cached.expiresAt > now) {
+      return { ...cached.value, inFlight: this.runtimeCounters?.inFlight() ?? 0 };
+    }
+    if (this.overviewPending !== null) {
+      const snapshot = await this.overviewPending;
+      return { ...snapshot, inFlight: this.runtimeCounters?.inFlight() ?? 0 };
+    }
+    const pending = (async (): Promise<OverviewView> => {
+      const [totals, providers, settings] = await Promise.all([
+        this.repositories.runtimeMetadata.queryUsageSummary("24h"),
+        this.repositories.runtimeMetadata.queryProviderToday(),
+        this.services.settings.get(),
+      ]);
+      return {
+        totals,
+        inFlight: this.runtimeCounters?.inFlight() ?? 0,
+        providers,
+        proxyAuthMode: settings.runtime.proxyAuthMode,
+        registered: this.registry.list().map((adapter) => adapter.metadata.id),
+      };
+    })();
+    this.overviewPending = pending;
+    try {
+      const snapshot = await pending;
+      this.overviewCache = { value: snapshot, expiresAt: Date.now() + 2_000 };
+      return snapshot;
+    } finally {
+      if (this.overviewPending === pending) this.overviewPending = null;
+    }
   }
 
   // -------------------------------------------------------------------------

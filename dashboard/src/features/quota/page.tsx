@@ -143,8 +143,6 @@ async function fetchQuotaAccounts(providers: ProviderSummary[]): Promise<QuotaEn
 async function fetchQuotaPageData(): Promise<QuotaQueryData> {
   const { items: allProviders } = await apiGet<{ items: ProviderSummary[] }>("/providers");
   const providers = allProviders.filter((provider) => QUOTA_SUPPORTED_PROVIDERS.has(provider.id));
-  const accounts = await fetchQuotaAccounts(providers);
-  await Promise.allSettled(accounts.map((account) => apiPost(`/accounts/${encodeURIComponent(account.id)}/quota/refresh`)));
   return { providers, accounts: await fetchQuotaAccounts(providers) };
 }
 
@@ -248,12 +246,22 @@ export function QuotaPage() {
     queryFn: fetchQuotaPageData,
     staleTime: 0,
     refetchInterval: QUOTA_REFRESH_INTERVAL_MS,
-    refetchIntervalInBackground: true,
+    refetchIntervalInBackground: false,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });
   const providers = data?.providers ?? [];
   const accounts = useMemo(() => data?.accounts ?? [], [data?.accounts]);
+  const refreshMutation = useMutation({
+    mutationFn: () => apiPost<{ ok: boolean; queued: number; active: number }>("/quota/refresh", { accountIds: accounts.map((account) => account.id) }),
+    onSuccess: (result) => {
+      toast.success(result.queued > 0 ? `Queued ${result.queued} quota refreshes` : "Quota refreshes are already in progress");
+      setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: qk.quota.management });
+      }, 1_000);
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
   const [deleteTarget, setDeleteTarget] = useState<QuotaEntry | null>(null);
   useEffect(() => {
     for (const account of accounts) queryClient.setQueryData(["console", "quota-account", account.id], account.quota);
@@ -312,7 +320,7 @@ export function QuotaPage() {
         <Button variant="ghost" size="sm" className="text-[var(--red)]" disabled={emptyCount === 0 || isFetching} onClick={() => void turnOffEmpty()}><EyeOff size={13} /> Turn off Empty</Button>
         <Button variant="ghost" size="sm" className="text-[var(--green)]" disabled={isFetching} onClick={() => void turnOnAvailable()}><Check size={13} /> Turn on Available</Button>
         <span className="ml-auto flex items-center gap-1 text-[10px] text-[var(--text-3)]"><span className="inline-block size-1.5 animate-pulse rounded-full bg-[var(--green)]" /> Auto-refresh (5m)</span>
-        <Button variant="ghost" size="icon" className="size-8" title="Refresh quota" aria-label="Refresh quota" disabled={isFetching} onClick={() => void refetch()}><RefreshCw size={14} className={isFetching ? "animate-spin" : undefined} /></Button>
+        <Button variant="ghost" size="icon" className="size-8" title="Queue quota refresh" aria-label="Queue quota refresh" disabled={isFetching || refreshMutation.isPending || accounts.length === 0} onClick={() => refreshMutation.mutate()}><RefreshCw size={14} className={refreshMutation.isPending ? "animate-spin" : undefined} /></Button>
       </div>
 
       {isLoading ? <StatePanel className="min-h-0 flex flex-1 flex-col items-center justify-center" kind="loading" title="Loading quota data" description="Reading provider account limits…" /> : filteredAccounts.length === 0 ? <StatePanel className="min-h-0 flex flex-1 flex-col items-center justify-center" kind="empty" title="No account quota data" description="No tracked provider quota is available yet." /> : <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">{filteredAccounts.map((account) => <QuotaCard key={account.id} account={account} onToggle={(entry, active) => void updateAccount(entry, active)} onDelete={(entry) => setDeleteTarget(entry)} />)}</div>}

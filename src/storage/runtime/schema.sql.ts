@@ -42,6 +42,20 @@ CREATE TABLE IF NOT EXISTS request_history (
   tfft_ms INTEGER,
   client_ip TEXT
 );
+CREATE TABLE IF NOT EXISTS request_payloads (
+  request_id TEXT PRIMARY KEY,
+  client_request TEXT,
+  provider_request TEXT,
+  provider_response TEXT,
+  client_response TEXT,
+  client_request_meta TEXT,
+  provider_request_meta TEXT,
+  provider_response_meta TEXT,
+  client_response_meta TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_request_payloads_updated_at ON request_payloads(updated_at);
 CREATE TABLE IF NOT EXISTS console_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts TEXT NOT NULL,
@@ -51,6 +65,21 @@ CREATE TABLE IF NOT EXISTS console_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_console_logs_ts ON console_logs(ts);
 CREATE INDEX IF NOT EXISTS idx_console_logs_scope_ts ON console_logs(scope, ts);
+CREATE TABLE IF NOT EXISTS warp_metrics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id TEXT NOT NULL,
+  label TEXT NOT NULL,
+  pid INTEGER NOT NULL,
+  socks_port INTEGER NOT NULL,
+  rss_kb INTEGER NOT NULL DEFAULT 0,
+  rx_bytes INTEGER NOT NULL DEFAULT 0,
+  tx_bytes INTEGER NOT NULL DEFAULT 0,
+  healthy INTEGER NOT NULL DEFAULT 0,
+  egress_ip TEXT,
+  collected_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_warp_metrics_account_time ON warp_metrics(account_id, collected_at);
+
 CREATE INDEX IF NOT EXISTS idx_console_logs_level_ts ON console_logs(level, ts);
 CREATE INDEX IF NOT EXISTS idx_request_history_started_at ON request_history(started_at);
 CREATE INDEX IF NOT EXISTS idx_request_history_status_id ON request_history(status, id);

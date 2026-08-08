@@ -1,6 +1,6 @@
 import { AbortCoordinator, ProviderAdapterError, executeFetch, isRecord, lineLimit, mapSseStream, readJsonObject, readUpstreamError } from "../shared";
 import type { SseEvent, StreamMapper } from "../shared";
-import type { ProviderOutput, ProviderRequest, ProviderUsage, StreamEvent } from "../../../domain/contracts";
+import type { ProviderOutput, ProviderRequest, ProviderUsage, StreamEvent } from "../../../application/contracts";
 import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../../translate/codecs/gemini-generate-content";
 import { geminiCandidate, responseParts } from "../../translate/codecs/gemini-generate-content";
 
@@ -64,7 +64,7 @@ export async function callGeminiWire(input: ProviderRequest, baseUrl: string, cr
   const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
   let streamHandedOff = false;
   try {
-    const response = await executeFetch(url, { method: "POST", headers: { "content-type": "application/json", accept: request.stream ? "text/event-stream" : "application/json", "x-goog-api-key": credential, ...(userAgent ? { "user-agent": userAgent } : {}) }, body: JSON.stringify(buildGeminiPayload(request)) }, coordinator, network);
+    const response = await executeFetch(url, { method: "POST", headers: { "content-type": "application/json", accept: request.stream ? "text/event-stream" : "application/json", "x-goog-api-key": credential, ...(userAgent ? { "user-agent": userAgent } : {}) }, body: JSON.stringify(buildGeminiPayload(request)) }, coordinator, network, input.capture);
     if (!response.ok) throw await readUpstreamError(response);
     if (!request.stream) {
       const body = await readJsonObject(response, coordinator);

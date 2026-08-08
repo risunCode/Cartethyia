@@ -11,8 +11,8 @@ import type {
   Surface,
   RouteTarget,
   TokenCountInput,
-} from "../domain/contracts";
-import type { ProviderCallError } from "../domain/contracts";
+} from "../application/contracts";
+import type { ProviderCallError } from "../application/contracts";
 
 const CLOUDFLARE_SURFACES: readonly Surface[] = ["openai-chat"];
 const CLOUDFLARE_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: CLOUDFLARE_SURFACES, reasoning: true, images: false });

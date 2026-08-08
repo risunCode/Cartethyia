@@ -6,7 +6,7 @@
  * untrusted request bodies into typed patches before persistence.
  */
 
-import type { CredentialKind } from "../domain/contracts";
+import type { CredentialKind } from "../application/contracts";
 import type { ConsoleRuntimeSettings, ProxyProtocol } from "./views";
 import type { ApiKeyUpdateInput, CustomProviderKind, ProviderRoutingSettings } from "./views";
 
@@ -82,7 +82,7 @@ export function sanitizeRuntimePatch(value: Record<string, unknown>): WriteableP
   const patch: WriteablePartial<ConsoleRuntimeSettings> = {};
   if (value.proxyAuthMode === "open" || value.proxyAuthMode === "api_key") patch.proxyAuthMode = value.proxyAuthMode;
   if (value.privacyMode === "masked" || value.privacyMode === "full") patch.privacyMode = value.privacyMode;
-  if (value.trackPayloads === "none" || value.trackPayloads === "meta") patch.trackPayloads = value.trackPayloads;
+  if (value.trackPayloads === "none" || value.trackPayloads === "bounded") patch.trackPayloads = value.trackPayloads;
   if (value.trackAssets === "none" || value.trackAssets === "meta" || value.trackAssets === "store") patch.trackAssets = value.trackAssets;
   if (typeof value.logRetentionDays === "number" && Number.isFinite(value.logRetentionDays)) patch.logRetentionDays = Math.max(0, Math.floor(value.logRetentionDays));
   if (typeof value.assetRetentionDays === "number" && Number.isFinite(value.assetRetentionDays)) patch.assetRetentionDays = Math.max(0, Math.floor(value.assetRetentionDays));

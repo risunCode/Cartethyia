@@ -1,5 +1,5 @@
 import { ProtocolCodecError } from "../errors";
-import type { ProviderCaps, ProviderUsage } from "../../../domain/contracts";
+import type { ProviderCaps, ProviderUsage } from "../../../application/contracts";
 
 const DEFAULT_MAX_TOKENS = 4_096;
 const MAX_THINKING_BUDGET = 32_000;
@@ -10,6 +10,7 @@ isProtocolError,
 isRecord,
 messageText,
 narrowArray,
+narrowMessageArray,
 narrowNumber,
 narrowObject,
 narrowString,
@@ -34,8 +35,8 @@ MAX_TOOL_CALLS_PER_MESSAGE,
 MAX_TOOL_NAME_LENGTH,
 type NormalizeInput,
 type NormalizeResult,
-type ProtocolError, } from "../../../domain/protocols";
-import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool } from "../../../domain/contracts";
+type ProtocolError, } from "../../../application/protocols";
+import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool } from "../../../application/contracts";
 
 export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): NormalizeResult {
   const aborted = abortedError(input.signal);
@@ -136,7 +137,7 @@ function normalizeSystem(raw: unknown): NormalizedMessage[] | ProtocolError {
 }
 
 function normalizeMessages(raw: unknown, images: ImageReference[], reasoningState: { seen: boolean }): NormalizedMessage[] | ProtocolError {
-  const list = narrowArray(raw, "messages", MAX_MESSAGE_COUNT);
+  const list = narrowMessageArray(raw, "messages", MAX_MESSAGE_COUNT);
   if (isProtocolError(list)) return list;
   const messages: NormalizedMessage[] = [];
   for (let i = 0; i < list.length; i++) {

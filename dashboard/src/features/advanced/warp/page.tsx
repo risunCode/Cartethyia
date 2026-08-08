@@ -265,7 +265,7 @@ export function MultiWarpPage() {
           iconColor="var(--green)"
         />
         <p className="text-[10.5px] text-[var(--text-3)]">
-          💡 Tip: Each running Warp instance typically uses <span className="font-semibold text-[var(--text-2)]">20–40 MB RAM</span> per client. Plan capacity accordingly.
+          Tip: Each running Warp instance typically uses <span className="font-semibold text-[var(--text-2)]">20–40 MB RAM</span> per client. Plan capacity accordingly.
         </p>
       </Card>
 

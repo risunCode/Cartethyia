@@ -14,6 +14,7 @@ import {
   Network,
   Pencil,
   Plus,
+  Share2,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
@@ -140,6 +141,9 @@ interface ApiKeyRecord {
   monthlyTokenLimit: number | null;
   oneTimeTokenLimit: number | null;
   oneTimeTokensUsed: number;
+  quoteBigText: string | null;
+  quoteSubText: string | null;
+  quoteBody: string | null;
   maxConcurrentRequests: number | null;
   providerAllowlist: string[] | null;
   modelAllowlist: string[] | null;
@@ -164,6 +168,9 @@ type KeyUpdatePatch = {
   providerAllowlist?: string[] | null;
   modelAllowlist?: string[] | null;
   modelDenylist?: string[] | null;
+  quoteBigText?: string | null;
+  quoteSubText?: string | null;
+  quoteBody?: string | null;
 };
 
 type KeyLimitsInput = {
@@ -418,10 +425,14 @@ export function OverviewPage() {
   const [budgetMode, setBudgetMode] = useState<TokenBudgetMode>("recurring");
   const [concurrent, setConcurrent] = useState("");
   const [allowed, setAllowed] = useState<string[]>([]);
+  const [quoteBigText, setQuoteBigText] = useState("");
+  const [quoteSubText, setQuoteSubText] = useState("");
+  const [quoteBody, setQuoteBody] = useState("");
   const [revealed, setRevealed] = useState<CreatedKey | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyRecord | null>(null);
   const [regenerateTarget, setRegenerateTarget] = useState<ApiKeyRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiKeyRecord | null>(null);
+  const [shareUrl, setShareUrl] = useState<{ url: string; kind: "monitor" | "setup" } | null>(null);
 
   const resetKeyForm = () => {
     setName("");
@@ -434,6 +445,9 @@ export function OverviewPage() {
     setBudgetMode("recurring");
     setConcurrent("");
     setAllowed([]);
+    setQuoteBigText("");
+    setQuoteSubText("");
+    setQuoteBody("");
   };
 
   const openEdit = (key: ApiKeyRecord) => {
@@ -446,6 +460,9 @@ export function OverviewPage() {
     setOneTime(key.oneTimeTokenLimit ? String(key.oneTimeTokenLimit) : "");
     setConcurrent(key.maxConcurrentRequests ? String(key.maxConcurrentRequests) : "");
     setAllowed([...(key.providerAllowlist ?? []), ...(key.modelAllowlist ?? [])]);
+    setQuoteBigText(key.quoteBigText ?? "");
+    setQuoteSubText(key.quoteSubText ?? "");
+    setQuoteBody(key.quoteBody ?? "");
   };
 
   const closeEdit = () => {
@@ -530,6 +547,14 @@ export function OverviewPage() {
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to regenerate key"),
   });
+  const shareMutation = useMutation({
+    mutationFn: (input: { id: string; kind: "monitor" | "setup" }) => apiPost<{ url: string }>(input.kind === "setup" ? `/keys/${input.id}/setup-link` : `/keys/${input.id}/share`, {}),
+    onSuccess: (result, input) => {
+      setShareUrl({ url: result.url, kind: input.kind });
+      void copyText(result.url).then((copied) => toast[copied ? "success" : "error"](copied ? "Share URL copied" : "Share URL created; clipboard unavailable"));
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "failed to create share link"),
+  });
 
   const revokeMutation = useMutation({
     mutationFn: (id: string) => apiPost<{ ok: boolean }>(`/keys/${id}/revoke`, {}),
@@ -585,6 +610,10 @@ export function OverviewPage() {
         maxConcurrentRequests: limits.maxConcurrentRequests ?? null,
         providerAllowlist: limits.providerAllowlist ?? null,
         modelAllowlist: limits.modelAllowlist ?? null,
+        modelDenylist: limits.modelDenylist ?? null,
+        quoteBigText: quoteBigText.trim() || null,
+        quoteSubText: quoteSubText.trim() || null,
+        quoteBody: quoteBody.trim() || null,
       },
     });
   };
@@ -835,7 +864,11 @@ export function OverviewPage() {
                 </div>
                 <div className="mt-2 flex flex-wrap justify-end gap-1.5 border-t border-[var(--inner-border)] pt-2 sm:mt-0 sm:border-l sm:border-t-0 sm:pl-3 sm:pt-0">
                   {key.active && (
-                    <Button variant="ghost" size="sm" disabled={credentialCopy.isPending} onClick={() => credentialCopy.mutate(key.id)} title="Copy API key" aria-label={`Copy API key ${key.name}`}><Copy size={13} /> Copy</Button>
+                    <>
+                      <Button variant="ghost" size="sm" disabled={credentialCopy.isPending} onClick={() => credentialCopy.mutate(key.id)} title="Copy API key" aria-label={`Copy API key ${key.name}`}><Copy size={13} /> Copy</Button>
+                      <Button variant="ghost" size="sm" disabled={shareMutation.isPending || !key.active} onClick={() => shareMutation.mutate({ id: key.id, kind: "monitor" })} title="Create a credential-free usage monitor URL"><Share2 size={13} /> Share</Button>
+                      <Button variant="ghost" size="sm" disabled={shareMutation.isPending || !key.active} onClick={() => shareMutation.mutate({ id: key.id, kind: "setup" })} title="Create a one-time API setup URL">Setup link</Button>
+                    </>
                   )}
                   <Button variant="ghost" size="sm" disabled={editMutation.isPending || Boolean(key.revokedAt)} onClick={() => editMutation.mutate({ id: key.id, patch: { active: !key.active } })} title={key.active ? "Disable API key" : "Enable API key"}>
                     {key.active ? "Disable" : "Enable"}
@@ -926,6 +959,20 @@ export function OverviewPage() {
         }
       >
         <div className="space-y-4">
+          <div className="grid gap-3 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+            <div>
+              <Label>Quote headline (optional)</Label>
+              <Input value={quoteBigText} onChange={(event) => setQuoteBigText(event.target.value)} placeholder="Large quote text" disabled={editMutation.isPending} />
+            </div>
+            <div>
+              <Label>Quote subtitle (optional)</Label>
+              <Input value={quoteSubText} onChange={(event) => setQuoteSubText(event.target.value)} placeholder="Short supporting text" disabled={editMutation.isPending} />
+            </div>
+            <div>
+              <Label>Quote body (optional)</Label>
+              <textarea value={quoteBody} onChange={(event) => setQuoteBody(event.target.value)} placeholder="Long-form quote text" disabled={editMutation.isPending} rows={3} className="mt-1 w-full rounded-lg border border-[var(--inner-border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-1)] outline-none focus:border-[var(--accent)]" />
+            </div>
+          </div>
           <div className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
             <Label>Replace API key value (optional)</Label>
             <Input value={customKey} onChange={(event) => setCustomKey(event.target.value)} placeholder="Leave blank to keep current key" disabled={editMutation.isPending} spellCheck={false} autoComplete="off" />
@@ -967,6 +1014,15 @@ export function OverviewPage() {
               <div className="font-mono text-sm break-all text-[#0ea5e9]">{revealed.key}</div>
             </div>
             <CopyButton value={revealed.key} />
+          </div>
+        </Dialog>
+      )}
+      {shareUrl && (
+        <Dialog open={true} onClose={() => setShareUrl(null)} title={shareUrl.kind === "setup" ? "One-time setup link" : "Usage monitor link"} wide>
+          <div className="space-y-4">
+            <p className="text-sm text-[var(--text-2)]">{shareUrl.kind === "setup" ? "This URL reveals the API key once, expires in 15 minutes, and cannot be reused." : "This URL shows usage and limits without exposing the API key."}</p>
+            <div className="rounded-xl border border-[var(--inner-border)] bg-white/[.03] p-4 font-mono text-xs break-all text-[var(--text-1)]">{shareUrl.url}</div>
+            <CopyButton value={shareUrl.url} />
           </div>
         </Dialog>
       )}

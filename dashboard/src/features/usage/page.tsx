@@ -117,6 +117,12 @@ interface RequestRow {
   toolCount: number;
   imageCount: number;
   tfftMs: number | null;
+  payloads?: {
+    clientRequest: { text: string; truncated: boolean; originalBytes: number; capturedBytes: number } | null;
+    providerRequest: { text: string; truncated: boolean; originalBytes: number; capturedBytes: number } | null;
+    providerResponse: { text: string; truncated: boolean; originalBytes: number; capturedBytes: number } | null;
+    clientResponse: { text: string; truncated: boolean; originalBytes: number; capturedBytes: number } | null;
+  } | null;
 }
 
 function useProviderNames(): ReadonlyMap<string, string> {
@@ -296,6 +302,24 @@ function RequestDetailDrawer({ id, onClose }: { id: string | null; onClose: () =
               <div>tools: {String(data.toolCount ?? "—")}</div>
             </div>
           </div>
+          {data.payloads && (
+            <div>
+              <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Payloads</div>
+              <div className="space-y-1.5">
+                {([
+                  ["Client request", data.payloads.clientRequest],
+                  ["Provider request (translated)", data.payloads.providerRequest],
+                  ["Provider response (raw)", data.payloads.providerResponse],
+                  ["Client response (final)", data.payloads.clientResponse],
+                ] as const).map(([label, payload]) => payload === null ? null : (
+                  <details key={label} className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)]">
+                    <summary className="cursor-pointer px-3 py-2 text-xs font-medium">{label} · {payload.truncated ? "truncated" : "captured"} · {payload.capturedBytes} B</summary>
+                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words border-t border-[var(--inner-border)] px-3 py-2 font-mono text-[10px] text-[var(--text-2)]">{payload.text}</pre>
+                  </details>
+                ))}
+              </div>
+            </div>
+          )}
 
           {data.errorKind && (
             <div>

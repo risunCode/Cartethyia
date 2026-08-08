@@ -1,9 +1,10 @@
 /** Result of bounded body reading, distinguishing oversized from malformed JSON. */
 export type JsonBodyResult = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly reason: "too_large" | "invalid" };
 
+
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
-/** Reads and parses JSON only after enforcing a byte limit on the request stream. */
+/** Reads a bounded JSON body and parses it on Bun's async HTTP path. */
 export async function readBoundedJson(request: Request, maxBytes: number): Promise<JsonBodyResult> {
   const contentLengthHeader = request.headers.get("content-length");
   const contentLength = contentLengthHeader === null ? undefined : Number(contentLengthHeader);
@@ -45,7 +46,7 @@ export async function readBoundedJson(request: Request, maxBytes: number): Promi
     buffer = buffer.slice(0, totalBytes);
   }
   try {
-    const value = JSON.parse(decoder.decode(buffer));
+    const value = JSON.parse(decoder.decode(buffer)) as unknown;
     buffer = new Uint8Array(0);
     return { ok: true, value };
   } catch {

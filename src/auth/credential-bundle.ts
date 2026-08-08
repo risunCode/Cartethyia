@@ -7,6 +7,19 @@
  * truth; provider auth drivers and adapters consume it instead of
  * re-deriving the shape.
  */
+function parseAccessToken(trimmed: string): string | undefined {
+  if (!trimmed.startsWith("{")) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      const value = (parsed as Record<string, unknown>).accessToken;
+      return typeof value === "string" && value.length > 0 ? value : undefined;
+    }
+  } catch {
+    // Callers decide whether malformed JSON is invalid or a raw credential.
+  }
+  return undefined;
+}
 
 /**
  * Extracts the bearer access token from a stored credential.
@@ -23,19 +36,7 @@
 export function extractAccessToken(credential: string): string | undefined {
   const trimmed = credential.trim();
   if (trimmed.length === 0) return undefined;
-  if (trimmed.startsWith("{")) {
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-        const value = (parsed as Record<string, unknown>).accessToken;
-        if (typeof value === "string" && value.length > 0) return value;
-      }
-    } catch {
-      return undefined;
-    }
-    return undefined;
-  }
-  return trimmed;
+  return parseAccessToken(trimmed) ?? (trimmed.startsWith("{") ? undefined : trimmed);
 }
 
 /**
@@ -46,15 +47,5 @@ export function extractAccessToken(credential: string): string | undefined {
  */
 export function extractAccessTokenOrRaw(credential: string): string {
   const trimmed = credential.trim();
-  if (!trimmed.startsWith("{")) return trimmed;
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      const access = (parsed as Record<string, unknown>).accessToken;
-      if (typeof access === "string" && access.length > 0) return access;
-    }
-  } catch {
-    // Treat malformed JSON as a raw API key so the upstream returns a typed auth error.
-  }
-  return trimmed;
+  return parseAccessToken(trimmed) ?? trimmed;
 }

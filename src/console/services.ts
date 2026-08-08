@@ -4,7 +4,7 @@
  * Every operation that changes providers, accounts, proxies, keys, models,
  * quotas, or routing goes through an application service that talks to
  * injected repository ports — never to SQLite or provider internals
- * directly. The application contracts in `src/domain/contracts.ts` are the
+ * directly. The application contracts in `src/application/contracts.ts` are the
  * only cross-layer shapes used here.
  *
  * Security invariants:
@@ -28,7 +28,7 @@
 // Re-exports for consumer compatibility (callers import from "./services")
 // ---------------------------------------------------------------------------
 
-export type { RoutingPreset, UsageDimension, UsagePeriod } from "../domain/contracts";
+export type { RoutingPreset, UsageDimension, UsagePeriod } from "../application/contracts";
 export * from "./views";
 export * from "./session";
 export { MemoryRouteTransitionStore } from "./route-transitions";
@@ -38,20 +38,17 @@ export * from "./input-sanitizers";
 // Imports for the service classes below
 // ---------------------------------------------------------------------------
 
-import type { ApplicationErrorKind, CredentialKind, ModelMetadata } from "../domain/contracts";
-import { sanitizeMessage } from "../domain/contracts";
-import type { ModelMetadataResolver } from "../domain/model-metadata";
+import type { ApplicationErrorKind, CredentialKind, ModelMetadata } from "../application/contracts";
+import { sanitizeMessage } from "../application/contracts";
+import type { ModelMetadataResolver } from "../application/model-metadata";
 import type { ProviderRegistry } from "../providers/registry";
 import { validateRestorePayload } from "../storage";
 import type { BackupPayload } from "../storage";
 import { buildProxyFetcher } from "../traffic";
-import { OAUTH_SAFETY_SKEW_MS } from "../auth";
-import type { OAuthRefresher, OAuthTokenRecord, OAuthTokenStore } from "../auth";
+import { OAUTH_SAFETY_SKEW_MS, TokenRefreshPool, extractAccessTokenOrRaw, type OAuthTokenRecord, type OAuthTokenStore, type QuotaSnapshotState, type QuotaStateStore } from "../auth";
 import type { TokenSet } from "../auth";
-import type { QuotaSnapshotState, QuotaStateStore } from "../auth/credentials";
 import { createAuthDriverRegistry, type AuthDriverRegistry } from "../auth";
-import { fetchProviderQuota } from "./quota-fetcher";
-import { createDriverAwareOAuthRefresher } from "../auth";
+import { fetchProviderQuota } from "../providers/quota/fetcher";
 import { OAuthLoginSessionManager, OAuthSessionError, type OAuthLoginSessionView } from "../auth";
 import { registerOAuthCallback, unregisterOAuthCallback } from "../auth/oauth-callback-server";
 import { assertPublicUrlAtDispatch } from "../security/ssrf-guard";
@@ -180,33 +177,11 @@ function extractModelIds(body: unknown, allowArray = true): string[] {
   return Object.values(obj).flatMap((v) => extractModelIds(v, false));
 }
 
-/**
- * OAuth providers (Cline, Kimchi, Codex, Kiro, Google Antigravity, …) store their
- * credential as a JSON bundle (`{"accessToken": "…", "refreshToken": "…", …}`).
- * API-key/manual providers store a plain string. Extract the bearer token the
- * upstream `/models` endpoint expects, mirroring the per-adapter parsing each
- * provider already does at dispatch time (see e.g. kimchi.ts, antigravity.ts).
- */
-function extractAccessToken(credential: string): string {
-  const trimmed = credential.trim();
-  if (!trimmed.startsWith("{")) return trimmed;
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      const access = (parsed as Record<string, unknown>).accessToken;
-      if (typeof access === "string" && access.length > 0) return access;
-    }
-  } catch {
-    // Treat malformed JSON as a raw credential so the upstream returns a typed auth error.
-  }
-  return trimmed;
-}
-
 async function discoverProviderModels(providerId: string, credential: string | null, kind: CredentialKind): Promise<string[]> {
   const endpoint = MODEL_ENDPOINTS[providerId];
   if (!endpoint) return [];
   if (!credential) return [];
-  const token = extractAccessToken(credential);
+  const token = extractAccessTokenOrRaw(credential);
   const headers: Record<string, string> = {
     "accept": "application/json",
   };
@@ -812,6 +787,10 @@ export interface OAuthAccountStatusView {
   readonly expired: boolean;
   readonly refreshable: boolean;
   readonly revocable: boolean;
+  /** Persisted refresh worker state; reauth_required means no blind retries remain. */
+  readonly refreshState: "unknown" | "healthy" | "retrying" | "reauth_required";
+  readonly lastRefreshAt: string | null;
+  readonly lastRefreshErrorKind: ApplicationErrorKind | null;
 }
 
 function oauthCredentialBundle(providerId: string, token: OAuthTokenRecord, details?: TokenSet): string {
@@ -853,21 +832,20 @@ function oauthRefreshErrorView(kind: ApplicationErrorKind, statusCode: number | 
  */
 export class OAuthService {
   private readonly sessions: OAuthLoginSessionManager;
-  private readonly refresher: OAuthRefresher;
+  private readonly tokenRefresh: TokenRefreshPool;
   private readonly drivers: AuthDriverRegistry;
   private readonly accounts: AccountRepository;
   private readonly tokens: OAuthTokenStore;
-  private readonly refreshes = new Map<string, Promise<OAuthRefreshResultView>>();
 
   constructor(options: {
     readonly sessions: OAuthLoginSessionManager;
-    readonly refresher: OAuthRefresher;
+    readonly tokenRefresh: TokenRefreshPool;
     readonly drivers: AuthDriverRegistry;
     readonly accounts: AccountRepository;
     readonly tokens: OAuthTokenStore;
   }) {
     this.sessions = options.sessions;
-    this.refresher = options.refresher;
+    this.tokenRefresh = options.tokenRefresh;
     this.drivers = options.drivers;
     this.accounts = options.accounts;
     this.tokens = options.tokens;
@@ -968,34 +946,27 @@ export class OAuthService {
     return result;
   }
 
-  /** Explicit, single-flight token refresh for an OAuth account; persists the rotated token. */
+  /** Explicit refresh routed through the central account-level single-flight pool. */
   async refreshAccount(accountId: string): Promise<OAuthRefreshResultView> {
     if (accountId.length === 0) return { ok: false, status: 400, code: "invalid_request", message: "accountId is required" };
     const account = await this.accounts.get(accountId);
     if (account === null) return { ok: false, status: 404, code: "not_found", message: "account not found" };
     if (account.credentialKind !== "oauth") return { ok: false, status: 400, code: "invalid_request", message: "account is not OAuth-linked" };
     const token = await this.tokens.get(accountId);
-    const refreshToken = token?.refreshToken ?? null;
-    // A completed OAuth login may intentionally return a non-refreshable
-    // access token. It is already usable by the data plane, so an explicit
-    // refresh request must not turn a healthy account into a local error.
-    if (refreshToken === null && token?.accessToken) {
+    if (token?.refreshToken === null && token.accessToken.length > 0) {
       return { ok: true, expiresAt: token.expiresAtMs === null ? null : new Date(token.expiresAtMs).toISOString() };
     }
-    if (refreshToken === null) return { ok: false, status: 400, code: "invalid_request", message: "account has no access token" };
-    const inflight = this.refreshes.get(accountId);
-    if (inflight !== undefined) return inflight;
-    const pending = this.performRefresh(accountId, token ?? null);
-    this.refreshes.set(accountId, pending);
-    pending.then(
-      () => {
-        this.refreshes.delete(accountId);
-      },
-      () => {
-        this.refreshes.delete(accountId);
-      },
-    );
-    return pending;
+    if (token?.refreshToken === null || token === undefined) return { ok: false, status: 400, code: "invalid_request", message: "account has no access token" };
+    try {
+      const refreshed = await this.tokenRefresh.forceRefresh(accountId);
+      return { ok: true, expiresAt: refreshed.expiresAtMs === null ? null : new Date(refreshed.expiresAtMs).toISOString() };
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "kind" in error && "sanitizedMessage" in error) {
+        const providerError = error as { readonly kind: ApplicationErrorKind; readonly statusCode: number | null; readonly sanitizedMessage: string };
+        return oauthRefreshErrorView(providerError.kind, providerError.statusCode, providerError.sanitizedMessage);
+      }
+      return { ok: false, status: 502, code: "internal_error", message: "OAuth refresh failed" };
+    }
   }
 
   /**
@@ -1039,17 +1010,12 @@ export class OAuthService {
       expired,
       refreshable: driver?.refresh !== undefined && hasRefreshToken,
       revocable: driver?.revoke !== undefined || hasRefreshToken,
+      refreshState: token?.refreshState ?? "unknown",
+      lastRefreshAt: token?.lastRefreshAtMs == null ? null : new Date(token.lastRefreshAtMs).toISOString(),
+      lastRefreshErrorKind: token?.lastRefreshErrorKind ?? null,
     };
   }
 
-  private async performRefresh(accountId: string, token: OAuthTokenRecord | null): Promise<OAuthRefreshResultView> {
-    const result = await this.refresher.refresh({ accountId, token });
-    if (!result.ok) {
-      return oauthRefreshErrorView(result.error.kind, result.error.statusCode, result.error.sanitizedMessage);
-    }
-    await this.tokens.set(accountId, result.token);
-    return { ok: true, expiresAt: result.token.expiresAtMs === null ? null : new Date(result.token.expiresAtMs).toISOString() };
-  }
 }
 
 /** Account row plus failed/replacement route switch metadata. */
@@ -1210,8 +1176,17 @@ export class ProxyService {
 /** Proxy row plus failed/replacement route switch metadata. */
 export interface ProxyView extends ProxyRowView, RouteTransitionView {}
 
+export interface QuotaRefreshQueueStatus {
+  readonly queued: number;
+  readonly active: number;
+  readonly concurrency: number;
+}
+
 export class QuotaService {
   private readonly inflight = new Map<string, Promise<AccountQuotaView | null>>();
+  private readonly queued = new Set<string>();
+  private active = 0;
+  private readonly concurrency = 3;
 
   constructor(
     private readonly accounts: AccountRepository,
@@ -1222,6 +1197,22 @@ export class QuotaService {
 
   async get(accountId: string): Promise<AccountQuotaView | null> {
     return this.accounts.quota(accountId);
+  }
+
+  /**
+   * Enqueues quota refreshes without making the HTTP caller wait for
+   * provider calls. Duplicate account IDs are coalesced while queued or active.
+   */
+  enqueueRefresh(accountIds: readonly string[]): QuotaRefreshQueueStatus {
+    for (const accountId of accountIds) {
+      if (accountId.length > 0 && !this.queued.has(accountId) && !this.inflight.has(accountId)) this.queued.add(accountId);
+    }
+    this.drainQueue();
+    return this.queueStatus();
+  }
+
+  queueStatus(): QuotaRefreshQueueStatus {
+    return { queued: this.queued.size, active: this.active, concurrency: this.concurrency };
   }
 
   async refresh(accountId: string): Promise<AccountQuotaView | null> {
@@ -1236,6 +1227,19 @@ export class QuotaService {
     return pending;
   }
 
+  private drainQueue(): void {
+    while (this.active < this.concurrency) {
+      const accountId = this.queued.values().next().value as string | undefined;
+      if (accountId === undefined) return;
+      this.queued.delete(accountId);
+      this.active += 1;
+      void this.refresh(accountId).finally(() => {
+        this.active -= 1;
+        this.drainQueue();
+      });
+    }
+  }
+
   private async performRefresh(accountId: string): Promise<AccountQuotaView | null> {
     const account = await this.accounts.get(accountId);
     if (account === null) return null;
@@ -1245,15 +1249,19 @@ export class QuotaService {
     // For OAuth accounts, ensureFresh the token before fetching quota —
     // an expired access token makes the quota API return 401 silently.
     let token = account.credentialKind === "oauth" ? await this.tokens.get(accountId) : undefined;
+    let oauthFailure: string | null = null;
     if (account.credentialKind === "oauth" && this.oauth !== undefined && this.oauth !== null) {
       try {
-        const fresh = await this.oauth.ensureFresh(accountId);
-        token = fresh;
-      } catch {
-        // If refresh fails, fall through with the existing (possibly stale) token.
+        token = await this.oauth.ensureFresh(accountId);
+      } catch (error) {
+        token = undefined;
+        if (typeof error === "object" && error !== null && "sanitizedMessage" in error && typeof error.sanitizedMessage === "string") oauthFailure = error.sanitizedMessage;
+        else oauthFailure = "OAuth refresh failed; reauthorization may be required";
       }
     }
-    const result = await fetchProviderQuota(account.providerId, credential?.credential ?? "", token);
+    const result = oauthFailure === null
+      ? await fetchProviderQuota(account.providerId, credential?.credential ?? "", token)
+      : { source: account.providerId, plan: null, windows: [], error: oauthFailure };
     const successful = result.error === null;
     const previousQuota = previous?.quota ?? null;
     const snapshot: QuotaSnapshotState = {
@@ -1266,7 +1274,7 @@ export class QuotaService {
       lastSuccessAt: successful ? new Date(attemptAtMs).toISOString() : previousQuota?.lastSuccessAt ?? null,
       error: successful ? null : result.error,
     };
-    const quotaAvailable = snapshot.windows.length === 0 || snapshot.windows.some((window) => window.remainingPercent === null || window.remainingPercent > 0);
+    const quotaAvailable = successful && (snapshot.windows.length === 0 || snapshot.windows.some((window) => window.remainingPercent === null || window.remainingPercent > 0));
     await this.states.set({ accountId, quotaAvailable, lastQuotaRefreshAtMs: successful ? attemptAtMs : previous?.lastQuotaRefreshAtMs ?? null, lastQuotaAttemptAtMs: attemptAtMs, lastQuotaSuccessAtMs: successful ? attemptAtMs : previous?.lastQuotaSuccessAtMs ?? null, quota: snapshot });
     return snapshot;
   }
@@ -1511,22 +1519,16 @@ export interface CreateConsoleServicesOptions {
   readonly loginLimiter?: LoginLimiter;
   /** Provider-id keyed OAuth drivers; defaults to the bundled drivers. */
   readonly authDrivers?: AuthDriverRegistry;
-  /** Driver-aware refresh pipeline; defaults to driver-first without env fallback. */
-  readonly oauthRefresher?: OAuthRefresher;
   /** Canonical model metadata resolution for model/alias/combo views. */
   readonly modelMetadata?: ModelMetadataResolver;
-  /** OAuth coordinator for proactive token refresh during quota checks. */
-  readonly oauthCoordinator?: { ensureFresh(accountId: string): Promise<OAuthTokenRecord> } | null;
+  /** Central account-level OAuth refresh pool shared by every caller. */
+  readonly oauthCoordinator: TokenRefreshPool;
 }
 
 /** Composes the console application services over injected repository ports. */
 export function createConsoleServices(options: CreateConsoleServicesOptions): ConsoleServices {
-  const { repositories, registry, loginLimiter, modelMetadata } = options;
+  const { repositories, registry, loginLimiter, modelMetadata, oauthCoordinator } = options;
   const authDrivers = options.authDrivers ?? createAuthDriverRegistry();
-  const oauthRefresher = options.oauthRefresher ?? createDriverAwareOAuthRefresher({
-    drivers: authDrivers,
-    resolveProvider: async (accountId) => (await repositories.accounts.get(accountId))?.providerId ?? null,
-  });
   return {
     auth: new AuthService(repositories.settings, loginLimiter),
     keys: new ApiKeyService(repositories.keys),
@@ -1535,13 +1537,13 @@ export function createConsoleServices(options: CreateConsoleServicesOptions): Co
     accounts: new AccountService(repositories.accounts, repositories.transitions),
     oauth: new OAuthService({
       sessions: new OAuthLoginSessionManager({ drivers: authDrivers }),
-      refresher: oauthRefresher,
+      tokenRefresh: oauthCoordinator,
       drivers: authDrivers,
       accounts: repositories.accounts,
       tokens: repositories.oauthTokens,
     }),
     proxies: new ProxyService(repositories.proxies, repositories.proxySettings, repositories.transitions),
-    quota: new QuotaService(repositories.accounts, repositories.quotaState, repositories.oauthTokens, options.oauthCoordinator ?? null),
+    quota: new QuotaService(repositories.accounts, repositories.quotaState, repositories.oauthTokens, oauthCoordinator),
     settings: new SettingsService(repositories.settings),
     routing: new RoutingConfigService(repositories.routing, modelMetadata),
     filterRules: new FilterRuleService(repositories.filterRules),

@@ -1,7 +1,7 @@
 import { mkdirSync, statSync, unlinkSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { Database } from "bun:sqlite";
-import { sanitizeMessage, type ClientDetectionSource, type ClientName, type RequestTelemetryHandle, type RouteSwitch, type TelemetryFinish, type TelemetryWriter, type UsageDimension, type UsagePeriod } from "../../domain/contracts";
+import { sanitizeMessage, type ClientDetectionSource, type ClientName, type RequestTelemetryHandle, type RouteSwitch, type TelemetryFinish, type TelemetryWriter, type UsageDimension, type UsagePeriod } from "../../application/contracts";
 import { getPersistenceEnv, type PersistenceEnv } from "../main/env";
 
 // ────────────────────────────── Row shapes ──────────────────────────────────
@@ -152,6 +152,27 @@ export interface RetentionResult {
   readonly detailsRemoved: number;
   readonly toolCallsRemoved: number;
   readonly assetFilesRemoved: number;
+  readonly payloadsRemoved: number;
+}
+
+export interface RuntimePayloadArtifact {
+  readonly text: string;
+  readonly truncated: boolean;
+  readonly originalBytes: number;
+  readonly capturedBytes: number;
+}
+
+export interface RuntimePayloadRecord {
+  readonly requestId: string;
+  readonly clientRequest: RuntimePayloadArtifact | null;
+  readonly providerRequest: RuntimePayloadArtifact | null;
+  readonly providerResponse: RuntimePayloadArtifact | null;
+  readonly clientResponse: RuntimePayloadArtifact | null;
+}
+
+export interface RuntimePayloadRepository {
+  save(requestId: string, kind: "client_request" | "provider_request" | "provider_response" | "client_response", artifact: RuntimePayloadArtifact): void;
+  get(requestId: string): RuntimePayloadRecord | null;
 }
 
 export interface RuntimeMetadataRepository {
@@ -166,7 +187,7 @@ export interface RuntimeMetadataRepository {
   queryProviderToday(): ProviderTodayRow[];
   queryLastProviderError(provider: string): string | null;
   queryIpSummary(limit: number): IpSummaryRow[];
-  sumKeyTokens(keyId: string): { readonly dailyUsed: number; readonly allTimeUsed: number };
+  sumKeyTokens(keyId: string): { readonly dailyUsed: number; readonly monthlyUsed: number; readonly allTimeUsed: number };
   invalidate(): void;
 }
 
@@ -182,11 +203,14 @@ export interface RuntimePersistence {
   readonly env: PersistenceEnv;
   readonly telemetry: TelemetryWriter;
   readonly metadata: RuntimeMetadataRepository;
+  readonly payloads: RuntimePayloadRepository;
   readonly consoleLogs: ConsoleLogRepository;
+  readonly warpMetrics: WarpMetricsRepository;
   readonly retain: (options?: { logRetentionDays?: number; assetRetentionDays?: number }) => RetentionResult;
   readonly startRetentionMaintenance: (intervalMs?: number) => { stop(): void };
   readonly flush: () => void;
   readonly pendingWrites: () => number;
+  readonly telemetryStats?: () => RuntimeTelemetryStats;
   readonly checkpoint: () => void;
   readonly resetAll: () => void;
   readonly close: () => void;
@@ -305,6 +329,12 @@ function utcDayBounds(nowMs = Date.now()): { readonly start: string; readonly en
   startMs.setUTCHours(0, 0, 0, 0);
   return { start: formatUtc(startMs.getTime()), end: formatUtc(startMs.getTime() + 86_400_000) };
 }
+function utcMonthBounds(nowMs = Date.now()): { readonly start: string; readonly end: string } {
+  const date = new Date(nowMs);
+  const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+  const end = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
+  return { start: formatUtc(start.getTime()), end: formatUtc(end.getTime()) };
+}
 
 /** "YYYY-MM-DD" date `days` in the past (UTC) — retention cutoff boundary. */
 function cutoffDate(days: number): string {
@@ -332,11 +362,24 @@ const FLUSH_THRESHOLD = 64;
 const FLUSH_INTERVAL_MS = 20;
 const FLUSH_RETRY_MS = 1_000;
 const MAX_BUFFERED_WRITES = 256;
+const READ_FLUSH_INTERVAL_MS = 1_000;
+const FLUSH_BATCH_SIZE = 64;
+
+export interface RuntimeTelemetryStats {
+  readonly pendingWrites: number;
+  readonly flushCount: number;
+  readonly flushDurationMs: number;
+  readonly flushBatchSize: number;
+  readonly maxPendingWrites: number;
+  readonly droppedWrites: number;
+  readonly flushFailures: number;
+}
 
 interface WriteBuffer {
   enqueue(sql: string, params: readonly SqlValue[]): void;
   flush(): void;
   pending(): number;
+  stats(): RuntimeTelemetryStats;
   close(): void;
 }
 
@@ -345,15 +388,31 @@ function createWriteBuffer(getDb: () => Database): WriteBuffer {
   let flushTimer: Timer | null = null;
   let retryTimer: Timer | null = null;
   let closed = false;
+  let flushCount = 0;
+  let flushDurationMs = 0;
+  let flushBatchSize = 0;
+  let maxPendingWrites = 0;
+  let droppedWrites = 0;
+  let flushFailures = 0;
 
-  const scheduleFlush = (): void => {
-    if (flushTimer === null) {
-      flushTimer = setTimeout(() => {
-        flushTimer = null;
-        flush();
-      }, FLUSH_INTERVAL_MS);
-      flushTimer.unref?.();
+  const scheduleFlush = (delayMs = FLUSH_INTERVAL_MS): void => {
+    if (flushTimer !== null) {
+      if (delayMs !== 0) return;
+      clearTimeout(flushTimer);
+      flushTimer = null;
     }
+    flushTimer = setTimeout(() => {
+      flushTimer = null;
+      flush();
+    }, delayMs);
+    flushTimer.unref?.();
+  };
+
+  const trimQueue = (): void => {
+    if (queue.length <= MAX_BUFFERED_WRITES) return;
+    const removed = queue.length - MAX_BUFFERED_WRITES;
+    queue.splice(0, removed);
+    droppedWrites += removed;
   };
 
   const flush = (): void => {
@@ -366,19 +425,22 @@ function createWriteBuffer(getDb: () => Database): WriteBuffer {
       flushTimer = null;
     }
     if (queue.length === 0) return;
-    const batch = queue;
-    queue = [];
+    const batch = queue.splice(0, FLUSH_BATCH_SIZE);
+    const startedAt = performance.now();
     try {
       const db = getDb();
       const applyBatch = db.transaction((rows: QueuedWrite[]) => {
         for (const row of rows) db.query(row.sql).run(...row.params);
       });
       applyBatch(batch);
+      flushCount += 1;
+      flushDurationMs = Math.max(0, performance.now() - startedAt);
+      flushBatchSize = batch.length;
+      if (queue.length > 0) scheduleFlush(0);
     } catch {
-      // Telemetry is best-effort: re-queue the same batch (SQLite batches are
-      // atomic, so nothing was half-applied) and retry with backoff. The
-      // buffer stays bounded — the same rows are retried, never new ones.
+      flushFailures += 1;
       queue = [...batch, ...queue];
+      trimQueue();
       if (!closed && retryTimer === null) {
         retryTimer = setTimeout(() => {
           retryTimer = null;
@@ -393,22 +455,20 @@ function createWriteBuffer(getDb: () => Database): WriteBuffer {
     enqueue(sql: string, params: readonly SqlValue[]): void {
       if (closed) return;
       queue.push({ sql, params });
-      if (queue.length >= FLUSH_THRESHOLD) flush();
-      if (queue.length > MAX_BUFFERED_WRITES) {
-        // Hard bound: never let the queue grow unbounded under a stall.
-        queue.splice(0, queue.length - MAX_BUFFERED_WRITES);
-      }
-      scheduleFlush();
+      maxPendingWrites = Math.max(maxPendingWrites, queue.length);
+      trimQueue();
+      scheduleFlush(queue.length >= FLUSH_THRESHOLD ? 0 : FLUSH_INTERVAL_MS);
     },
     flush,
     pending(): number {
       return queue.length;
     },
+    stats(): RuntimeTelemetryStats {
+      return { pendingWrites: queue.length, flushCount, flushDurationMs, flushBatchSize, maxPendingWrites, droppedWrites, flushFailures };
+    },
     close(): void {
       closed = true;
       flush();
-      // A closed persistence instance has no future retry owner. Drop any
-      // batch that could not be written so shutdown cannot retain telemetry.
       queue = [];
       if (flushTimer !== null) {
         clearTimeout(flushTimer);
@@ -418,6 +478,44 @@ function createWriteBuffer(getDb: () => Database): WriteBuffer {
         clearTimeout(retryTimer);
         retryTimer = null;
       }
+    },
+  };
+}
+const PAYLOAD_COLUMNS = {
+  client_request: ["client_request", "client_request_meta"],
+  provider_request: ["provider_request", "provider_request_meta"],
+  provider_response: ["provider_response", "provider_response_meta"],
+  client_response: ["client_response", "client_response_meta"],
+} as const;
+
+function createRuntimePayloadRepository(buffer: WriteBuffer, getDb: () => Database): RuntimePayloadRepository {
+  return {
+    save(requestId, kind, artifact): void {
+      const [valueColumn, metaColumn] = PAYLOAD_COLUMNS[kind];
+      const columns = ["client_request", "provider_request", "provider_response", "client_response", "client_request_meta", "provider_request_meta", "provider_response_meta", "client_response_meta"];
+      const values = columns.map((column) => column === valueColumn ? artifact.text : column === metaColumn ? JSON.stringify({ truncated: artifact.truncated, originalBytes: artifact.originalBytes, capturedBytes: artifact.capturedBytes }) : null);
+      const sql = `INSERT INTO request_payloads (request_id, ${columns.join(", ")}, created_at, updated_at) VALUES (?, ${columns.map(() => "?").join(", ")}, ?, ?) ON CONFLICT(request_id) DO UPDATE SET ${valueColumn} = excluded.${valueColumn}, ${metaColumn} = excluded.${metaColumn}, updated_at = excluded.updated_at`;
+      const now = formatUtc(Date.now());
+      buffer.enqueue(sql, [requestId, ...values, now, now]);
+    },
+    get(requestId): RuntimePayloadRecord | null {
+      buffer.flush();
+      const row = getDb().query("SELECT * FROM request_payloads WHERE request_id = ?").get(requestId) as Record<string, unknown> | null;
+      if (row === null) return null;
+      const artifact = (valueColumn: string, metaColumn: string): RuntimePayloadArtifact | null => {
+        const text = typeof row[valueColumn] === "string" ? row[valueColumn] as string : null;
+        if (text === null) return null;
+        let meta: Partial<RuntimePayloadArtifact> = {};
+        try { meta = JSON.parse(String(row[metaColumn] ?? "{}")) as Partial<RuntimePayloadArtifact>; } catch { /* malformed legacy metadata */ }
+        return { text, truncated: meta.truncated === true, originalBytes: typeof meta.originalBytes === "number" ? meta.originalBytes : text.length, capturedBytes: typeof meta.capturedBytes === "number" ? meta.capturedBytes : text.length };
+      };
+      return {
+        requestId,
+        clientRequest: artifact("client_request", "client_request_meta"),
+        providerRequest: artifact("provider_request", "provider_request_meta"),
+        providerResponse: artifact("provider_response", "provider_response_meta"),
+        clientResponse: artifact("client_response", "client_response_meta"),
+      };
     },
   };
 }
@@ -480,7 +578,7 @@ export function createRuntimeTelemetryWriter(buffer: WriteBuffer, isTraceIdUniqu
           usage?.outputTokens ?? null,
           usage?.cacheReadTokens ?? null,
           usage?.cacheWriteTokens ?? null,
-          null, // reasoning_tokens — legacy column, no runtime source
+          usage?.reasoningTokens ?? null,
           usage?.totalTokens ?? null,
           usage?.source ?? "unknown",
           clientName,
@@ -643,14 +741,13 @@ function chartBucketExpr(period: UsagePeriod): string {
 }
 
 
-export function createRuntimeMetadataRepository(getDb: () => Database, flushBeforeRead: () => void): RuntimeMetadataRepository {
+export function createRuntimeMetadataRepository(getDb: () => Database): RuntimeMetadataRepository {
   const cache = new BoundedTtlCache(2_000, 32);
 
   const invalidate = (): void => cache.clear();
 
   return {
     queryRequests(filters: RuntimeRequestFilters): RuntimeRequestPage {
-      flushBeforeRead();
       // Request history is a completed-request view. Rows without a terminal
       // status are legacy/in-flight artifacts and must not consume the page or
       // cursor returned to the dashboard.
@@ -699,13 +796,11 @@ export function createRuntimeMetadataRepository(getDb: () => Database, flushBefo
       return { items, nextCursor: hasMore ? (visible.at(-1)?.id ?? null) : null };
     },
     getRequestById(id: number): RuntimeRequestRow | null {
-      flushBeforeRead();
       const row = getDb().query(`SELECT ${REQUEST_COLUMNS} FROM request_history WHERE id = ?`).get(id) as RequestHistoryRow | null;
       return row ? toRuntimeRow(row) : null;
     },
     querySummary(period: UsagePeriod): UsageSummary {
       return cache.get(`summary:${period}`, () => {
-        flushBeforeRead();
         const row = getDb()
           .query(
             `SELECT
@@ -730,7 +825,6 @@ export function createRuntimeMetadataRepository(getDb: () => Database, flushBefo
     },
     queryCache(period: UsagePeriod): UsageCacheSummary {
       return cache.get(`cache:${period}`, () => {
-        flushBeforeRead();
         const rows = getDb()
           .query(
             `SELECT CASE
@@ -769,7 +863,6 @@ export function createRuntimeMetadataRepository(getDb: () => Database, flushBefo
     },
     queryChart(period: UsagePeriod): ChartBucket[] {
       return cache.get(`chart:${period}`, () => {
-        flushBeforeRead();
         // Bucketing happens in SQLite (see chartBucketExpr) so the response is
         // bounded by the distinct bucket count, never by the window's row count;
         // only the most recent MAX_CHART_BUCKETS buckets are returned.
@@ -793,7 +886,6 @@ export function createRuntimeMetadataRepository(getDb: () => Database, flushBefo
     queryBy(dimension: UsageDimension, period: UsagePeriod): UsageByRow[] {
       const cacheKey = `by:${dimension}:${period}`;
       return cache.get(cacheKey, () => {
-        flushBeforeRead();
         const column = dimension === "model" ? "model" : dimension === "provider" ? "provider" : "api_key_prefix";
         const fallback = dimension === "key" ? "anonymous" : "unknown";
         return getDb()
@@ -817,7 +909,6 @@ export function createRuntimeMetadataRepository(getDb: () => Database, flushBefo
       });
     },
     queryProviderModelTotals(period: UsagePeriod): ProviderModelTotalsRow[] {
-      flushBeforeRead();
       // Aggregated entirely in SQLite; the cap bounds the response to the
       // top distinct provider × model combos by input tokens. No in-tree
       // consumer relies on the full combo list.
@@ -833,7 +924,6 @@ export function createRuntimeMetadataRepository(getDb: () => Database, flushBefo
         .all(periodStartUtc(period)) as ProviderModelTotalsRow[];
     },
     queryModelTokenTotals(period: UsagePeriod): ModelTokenTotalsRow[] {
-      flushBeforeRead();
       return getDb()
         .query(
           `SELECT model, provider, COALESCE(SUM(input_tokens), 0) AS inputTokens, COALESCE(SUM(output_tokens), 0) AS outputTokens
@@ -846,7 +936,6 @@ export function createRuntimeMetadataRepository(getDb: () => Database, flushBefo
         .all(periodStartUtc(period)) as ModelTokenTotalsRow[];
     },
     queryProviderToday(): ProviderTodayRow[] {
-      flushBeforeRead();
       const bounds = utcDayBounds();
       return getDb()
         .query(
@@ -864,12 +953,10 @@ export function createRuntimeMetadataRepository(getDb: () => Database, flushBefo
         .all(bounds.start, bounds.end) as ProviderTodayRow[];
     },
     queryLastProviderError(provider: string): string | null {
-      flushBeforeRead();
       const row = getDb().query("SELECT error_kind FROM request_history WHERE provider = ? AND status >= 400 ORDER BY id DESC LIMIT 1").get(provider) as { error_kind: string | null } | null;
       return row?.error_kind ?? null;
     },
     queryIpSummary(limit: number): IpSummaryRow[] {
-      flushBeforeRead();
       const cap = Math.max(1, Math.min(500, Math.floor(limit)));
       return getDb()
         .query(
@@ -888,20 +975,112 @@ export function createRuntimeMetadataRepository(getDb: () => Database, flushBefo
         )
         .all(cap) as IpSummaryRow[];
     },
-    sumKeyTokens(keyId: string): { readonly dailyUsed: number; readonly allTimeUsed: number } {
-      flushBeforeRead();
-      const bounds = utcDayBounds();
-      const row = getDb().query("SELECT COALESCE(SUM(total_tokens), 0) AS allTimeUsed, COALESCE(SUM(CASE WHEN started_at >= ? AND started_at < ? THEN total_tokens ELSE 0 END), 0) AS dailyUsed FROM request_history WHERE api_key_id = ?").get(bounds.start, bounds.end, keyId) as { dailyUsed: number; allTimeUsed: number };
-      return { dailyUsed: row.dailyUsed, allTimeUsed: row.allTimeUsed };
+    sumKeyTokens(keyId: string): { readonly dailyUsed: number; readonly monthlyUsed: number; readonly allTimeUsed: number } {
+      const day = utcDayBounds();
+      const month = utcMonthBounds();
+      const row = getDb().query("SELECT COALESCE(SUM(total_tokens), 0) AS allTimeUsed, COALESCE(SUM(CASE WHEN started_at >= ? AND started_at < ? THEN total_tokens ELSE 0 END), 0) AS dailyUsed, COALESCE(SUM(CASE WHEN started_at >= ? AND started_at < ? THEN total_tokens ELSE 0 END), 0) AS monthlyUsed FROM request_history WHERE api_key_id = ?").get(day.start, day.end, month.start, month.end, keyId) as { dailyUsed: number; monthlyUsed: number; allTimeUsed: number };
+      return { dailyUsed: row.dailyUsed, monthlyUsed: row.monthlyUsed, allTimeUsed: row.allTimeUsed };
     },
     invalidate,
   };
 }
+export interface WarpMetricRow {
+  readonly id: number;
+  readonly accountId: string;
+  readonly label: string;
+  readonly pid: number;
+  readonly socksPort: number;
+  readonly rssKb: number;
+  readonly rxBytes: number;
+  readonly txBytes: number;
+  readonly healthy: boolean;
+  readonly egressIp: string | null;
+  readonly collectedAt: string;
+}
+
+export interface WarpMetricsSummary {
+  readonly totalRssMb: number;
+  readonly totalRxMb: number;
+  readonly totalTxMb: number;
+  readonly totalBandwidthMb: number;
+  readonly runningCount: number;
+  readonly healthyCount: number;
+}
+
+export interface WarpMetricsRepository {
+  record(row: Omit<WarpMetricRow, "id">): void;
+  latest(): readonly WarpMetricRow[];
+  summary(): WarpMetricsSummary;
+  page(cursor: number | null, limit: number): { readonly items: readonly WarpMetricRow[]; readonly nextCursor: number | null };
+  prune(maxRows: number): void;
+}
+
+export function createWarpMetricsRepository(buffer: WriteBuffer, getDb: () => Database): WarpMetricsRepository {
+  const toRow = (row: Record<string, unknown>): WarpMetricRow => ({
+    id: Number(row.id),
+    accountId: String(row.account_id),
+    label: String(row.label),
+    pid: Number(row.pid),
+    socksPort: Number(row.socks_port),
+    rssKb: Number(row.rss_kb),
+    rxBytes: Number(row.rx_bytes),
+    txBytes: Number(row.tx_bytes),
+    healthy: Number(row.healthy) === 1,
+    egressIp: typeof row.egress_ip === "string" ? row.egress_ip : null,
+    collectedAt: String(row.collected_at),
+  });
+
+  return {
+    record(row): void {
+      buffer.enqueue(
+        "INSERT INTO warp_metrics (account_id, label, pid, socks_port, rss_kb, rx_bytes, tx_bytes, healthy, egress_ip, collected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [row.accountId, row.label, row.pid, row.socksPort, row.rssKb, row.rxBytes, row.txBytes, row.healthy ? 1 : 0, row.egressIp, row.collectedAt],
+      );
+    },
+    latest(): readonly WarpMetricRow[] {
+      const rows = getDb().query("SELECT * FROM warp_metrics WHERE id IN (SELECT MAX(id) FROM warp_metrics GROUP BY account_id) ORDER BY collected_at DESC").all() as Record<string, unknown>[];
+      return rows.map(toRow);
+    },
+    summary(): WarpMetricsSummary {
+      const rows = getDb().query("SELECT rss_kb, rx_bytes, tx_bytes FROM warp_metrics WHERE id IN (SELECT MAX(id) FROM warp_metrics GROUP BY account_id) AND healthy = 1 AND collected_at >= datetime('now', '-1 minute')").all() as Record<string, unknown>[];
+      let totalRssKb = 0;
+      let totalRx = 0;
+      let totalTx = 0;
+      for (const row of rows) {
+        totalRssKb += Number(row.rss_kb);
+        totalRx += Number(row.rx_bytes);
+        totalTx += Number(row.tx_bytes);
+      }
+      return {
+        totalRssMb: Math.round(totalRssKb / 1024),
+        totalRxMb: Math.round(totalRx / (1024 * 1024)),
+        totalTxMb: Math.round(totalTx / (1024 * 1024)),
+        totalBandwidthMb: Math.round((totalRx + totalTx) / (1024 * 1024)),
+        runningCount: rows.length,
+        healthyCount: rows.length,
+      };
+    },
+    page(cursor, limit): { readonly items: readonly WarpMetricRow[]; readonly nextCursor: number | null } {
+      const bounded = Math.min(Math.max(Math.floor(limit), 1), 50);
+      const rows = cursor === null
+        ? getDb().query("SELECT * FROM warp_metrics ORDER BY id DESC LIMIT ?").all(bounded) as Record<string, unknown>[]
+        : getDb().query("SELECT * FROM warp_metrics WHERE id < ? ORDER BY id DESC LIMIT ?").all(cursor, bounded) as Record<string, unknown>[];
+      const items = rows.map(toRow);
+      return { items, nextCursor: items.length === bounded ? items.at(-1)?.id ?? null : null };
+    },
+    prune(maxRows): void {
+      const count = getDb().query("SELECT COUNT(*) AS n FROM warp_metrics").get() as { n: number } | null;
+      if ((count?.n ?? 0) <= maxRows * 1.5) return;
+      getDb().query("DELETE FROM warp_metrics WHERE id <= (SELECT id FROM warp_metrics ORDER BY id DESC LIMIT 1 OFFSET ?)").run(maxRows);
+    },
+  };
+}
+
 
 // ────────────────────────── Console log repository ──────────────────────────
 
 
-export function createConsoleLogRepository(buffer: WriteBuffer, getDb: () => Database, flushBeforeRead: () => void): ConsoleLogRepository {
+export function createConsoleLogRepository(buffer: WriteBuffer, getDb: () => Database): ConsoleLogRepository {
   const pushListeners = new Set<() => void>();
   const MAX_PUSH_LISTENERS = 64;
   return {
@@ -916,7 +1095,6 @@ export function createConsoleLogRepository(buffer: WriteBuffer, getDb: () => Dat
       getDb().query("DELETE FROM console_logs").run();
     },
     list(filters: ConsoleLogFilters): { items: ConsoleLogRow[]; nextCursor: number | null } {
-      flushBeforeRead();
       const clauses: string[] = [];
       const params: Array<string | number> = [];
       if (filters.cursor !== undefined) {
@@ -941,7 +1119,6 @@ export function createConsoleLogRepository(buffer: WriteBuffer, getDb: () => Dat
       return { items: visible, nextCursor: hasMore ? (visible.at(-1)?.id ?? null) : null };
     },
     after(afterId: number, limit: number): ConsoleLogRow[] {
-      flushBeforeRead();
       const cursor = Number.isFinite(afterId) ? Math.max(Math.floor(afterId), 0) : 0;
       const bounded = Math.min(Math.max(Math.floor(limit), 1), 200);
       return getDb()
@@ -950,7 +1127,7 @@ export function createConsoleLogRepository(buffer: WriteBuffer, getDb: () => Dat
     },
     onPush(listener: () => void): () => void {
       if (pushListeners.size >= MAX_PUSH_LISTENERS) {
-        const oldest = pushListeners.keys().next();
+        const oldest = pushListeners.values().next();
         if (!oldest.done) pushListeners.delete(oldest.value as () => void);
       }
       pushListeners.add(listener);
@@ -965,8 +1142,8 @@ const RETENTION_BATCH_SIZE = 500;
 const MAX_CONSOLE_LOG_ROWS = 10_000;
 
 /** Allowlist of tables and columns valid for batched retention deletes. */
-const RETENTION_TABLES = new Set(["request_history", "console_logs", "model_probes", "request_details", "request_tool_calls", "request_assets"]);
-const RETENTION_COLUMNS = new Set(["started_at", "created_at", "ts"]);
+const RETENTION_TABLES = new Set(["request_history", "request_payloads", "console_logs", "model_probes", "request_details", "request_tool_calls", "request_assets"]);
+const RETENTION_COLUMNS = new Set(["started_at", "updated_at", "created_at", "ts"]);
 
 function deleteBatched(db: Database, table: string, column: string, cutoff: string): number {
   if (!RETENTION_TABLES.has(table) || !RETENTION_COLUMNS.has(column)) {
@@ -986,7 +1163,7 @@ function deleteConsoleLogsBeyondLimit(db: Database): number {
   if (boundary === null) return 0;
   let removed = 0;
   for (;;) {
-    const result = db.query(`DELETE FROM console_logs WHERE id < ? LIMIT ${RETENTION_BATCH_SIZE}`).run(boundary.id);
+    const result = db.query(`DELETE FROM console_logs WHERE id <= ? LIMIT ${RETENTION_BATCH_SIZE}`).run(boundary.id);
     removed += result.changes;
     if (result.changes < RETENTION_BATCH_SIZE) return removed;
   }
@@ -1009,14 +1186,14 @@ export function retainRuntimeData(
   const db = getDb();
   const logCutoff = cutoffDate(Math.min(Math.max(Math.floor(options.logRetentionDays), 1), 365));
   const assetCutoff = cutoffDate(Math.min(Math.max(Math.floor(options.assetRetentionDays), 1), 365));
-  const counts = { historyRemoved: 0, consoleLogsRemoved: 0, detailsRemoved: 0, toolCallsRemoved: 0, assetFilesRemoved: 0 };
-
+  const counts = { historyRemoved: 0, consoleLogsRemoved: 0, detailsRemoved: 0, toolCallsRemoved: 0, assetFilesRemoved: 0, payloadsRemoved: 0 };
   const apply = db.transaction((): void => {
     counts.historyRemoved += deleteBatched(db, "request_history", "started_at", logCutoff);
     if (tableExists(db, "console_logs")) {
       counts.consoleLogsRemoved += deleteBatched(db, "console_logs", "ts", logCutoff);
       counts.consoleLogsRemoved += deleteConsoleLogsBeyondLimit(db);
     }
+    if (tableExists(db, "request_payloads")) counts.payloadsRemoved += deleteBatched(db, "request_payloads", "updated_at", assetCutoff);
 
     // Legacy tables: cleaned when they already exist, never written.
     if (tableExists(db, "request_details")) counts.detailsRemoved += deleteBatched(db, "request_details", "created_at", assetCutoff);
@@ -1086,10 +1263,11 @@ export function createRuntimePersistence(env: PersistenceEnv = getPersistenceEnv
     }
     return db;
   };
-
   const buffer = createWriteBuffer(getDb);
-  const metadata = createRuntimeMetadataRepository(getDb, buffer.flush);
-  const consoleLogs = createConsoleLogRepository(buffer, getDb, buffer.flush);
+  const metadata = createRuntimeMetadataRepository(getDb);
+  const consoleLogs = createConsoleLogRepository(buffer, getDb);
+  const payloads = createRuntimePayloadRepository(buffer, getDb);
+  const warpMetrics = createWarpMetricsRepository(buffer, getDb);
   const isTraceIdUnique = (): boolean => traceIdUnique;
 
   const retain = (options?: { logRetentionDays?: number; assetRetentionDays?: number }): RetentionResult => {
@@ -1106,7 +1284,9 @@ export function createRuntimePersistence(env: PersistenceEnv = getPersistenceEnv
     env,
     telemetry: createRuntimeTelemetryWriter(buffer, isTraceIdUnique, metadata.invalidate),
     metadata,
+    payloads,
     consoleLogs,
+    warpMetrics,
     retain,
     startRetentionMaintenance(intervalMs = 6 * 3_600_000): { stop(): void } {
       let timer: Timer | null = null;
@@ -1138,6 +1318,7 @@ export function createRuntimePersistence(env: PersistenceEnv = getPersistenceEnv
     },
     flush: () => buffer.flush(),
     pendingWrites: () => buffer.pending(),
+    telemetryStats: () => buffer.stats(),
     checkpoint(): void {
       db?.exec("PRAGMA wal_checkpoint(PASSIVE);");
     },

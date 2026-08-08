@@ -176,7 +176,12 @@ function driverRefreshFailure(error: unknown): OAuthRefreshResult {
   if (error instanceof OAuthDriverError) {
     let raw = error.message;
     if (raw.length > OAUTH_MAX_ERROR_MESSAGE_LENGTH) raw = `${raw.slice(0, OAUTH_MAX_ERROR_MESSAGE_LENGTH)}…`;
-    if (error.status === 401 || error.status === 403) return failure(error.status, "authentication_failed", false, raw);
+    const normalized = raw.toLowerCase();
+    // Token endpoints report revoked, expired, reused, and invalid grants as
+    // HTTP 400. These are permanent account failures, not provider outages.
+    if (error.status === 400 || error.status === 401 || error.status === 403 || /(invalid_grant|refresh.?token.?reuse|revok|expired)/.test(normalized)) {
+      return failure(error.status, "authentication_failed", false, raw);
+    }
     if (error.status === 429) return failure(error.status, "provider_unavailable", true, raw);
     if (error.status >= 500) return failure(error.status, "provider_unavailable", error.retryable, raw);
     return failure(error.status >= 400 && error.status < 500 ? error.status : 502, "provider_protocol_error", error.retryable, raw);
@@ -187,7 +192,7 @@ function driverRefreshFailure(error: unknown): OAuthRefreshResult {
 /**
  * Provider-driver-first OAuth refresh. When a driver is registered for the
  * account's provider, its `refresh` drives the refresh (single-flight is left
- * to the {@link OAuthCoordinator}); otherwise the safe bounded env fallback —
+ * to the central TokenRefreshPool); otherwise the safe bounded env fallback —
  * when present — handles it. A provider with neither a driver nor env
  * configuration resolves to a typed `credential_unavailable` failure, so
  * absence of a driver is the only reason a provider is not OAuth-refreshable.

@@ -1,8 +1,8 @@
-import type { ProviderCallError } from "../../domain/contracts";
-import { publicErrorBody } from "../../domain/contracts";
-import type { ProviderOutput } from "../../domain/contracts";
-import type { PresentedProxyResponse, ResponseWriter } from "../../domain/contracts";
-import { isTerminalEvent, type StreamEvent } from "../../domain/contracts";
+import type { ProviderCallError } from "../../application/contracts";
+import { publicErrorBody } from "../../application/contracts";
+import type { ProviderOutput } from "../../application/contracts";
+import type { PresentedProxyResponse, ResponseWriter } from "../../application/contracts";
+import { isTerminalEvent, type StreamEvent } from "../../application/contracts";
 import type { StreamLifecycleController } from "./recovery";
 
 /**

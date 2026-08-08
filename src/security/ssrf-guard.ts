@@ -4,10 +4,10 @@
  * dispatches to (proxy pool entries, relay targets, admin-configured OAuth
  * token URLs), and re-validated per redirect hop.
  *
- * Modernization of src.old/http/ssrf-guard.ts onto the current structure:
- * IP literal classification reuses the domain IPv4/IPv6 matcher
+ * Modernization of the legacy HTTP boundary onto the current structure:
+ * IP literal classification reuses the application IPv4/IPv6 matcher
  * (`isUnsafeIp` — private, loopback, link-local, CGNAT, NAT64, multicast,
- * reserved, IPv4-mapped) from src/domain/protocols.ts instead of a second
+ * reserved, IPv4-mapped) from src/application/protocols.ts instead of a second
  * private copy.
  *
  * DNS rebinding: the host is resolved once immediately before dispatch and
@@ -15,7 +15,7 @@
  * configuration and request time cannot point at private space.
  */
 
-import { isIpLiteral, isPrivateUseName, isUnsafeIp, normalizeHostname } from "../domain/protocols";
+import { isIpLiteral, isPrivateUseName, isUnsafeIp, normalizeHostname } from "../application/protocols";
 import { fetchWithRedirectPolicy, type RedirectFollowOptions, type RedirectHopValidator } from "./redirect-policy";
 
 /** Hostnames that are always blocked regardless of DNS resolution. */

@@ -128,6 +128,12 @@ export const qk = {
   oauthLogin: {
     session: (sessionId: string | null | undefined) => ["oauth-login", sessionId] as const,
   },
+  /** `/console/api/warp/*` — MultiWarp account and instance state. */
+  warp: {
+    accounts: ["warp", "accounts"] as const,
+    statuses: ["warp", "statuses"] as const,
+    metricsSummary: ["warp", "metrics", "summary"] as const,
+  },
 } as const;
 
 export type QueryKeys = typeof qk;

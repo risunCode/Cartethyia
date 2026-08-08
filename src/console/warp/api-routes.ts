@@ -57,13 +57,13 @@ export function createWarpApi(config: ConfigPersistence, runtime?: RuntimePersis
   const app = new Elysia();
 
   app
-    .get("/warp/accounts", async () => service.listAccounts())
-    .get("/warp/accounts/:id", async ({ params, set }: { params: { id: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
+    .route("QUERY", "/warp/accounts", async () => service.listAccounts())
+    .route("QUERY", "/warp/accounts/:id", async ({ params, set }: { params: { id: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const account = await service.getAccount(params.id);
       if (!account) return notFound(set);
       return account;
     })
-    .get("/warp/accounts/:id/credential", async ({ params, set }: { params: { id: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
+    .route("QUERY", "/warp/accounts/:id/credential", async ({ params, set }: { params: { id: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const account = await service.getCredential(params.id);
       if (!account) return notFound(set);
       return account;
@@ -107,9 +107,9 @@ export function createWarpApi(config: ConfigPersistence, runtime?: RuntimePersis
     })
     .post("/warp/start-all", async () => service.startAll())
     .post("/warp/stop-all", async () => service.stopAll())
-    .get("/warp/statuses", async () => service.getAllStatuses())
-    .get("/warp/metrics/summary", async () => await service.getMetricsSummary())
-    .get("/warp/metrics/history", async ({ query }: { query: { cursor?: string; limit?: string } }) => {
+    .route("QUERY", "/warp/statuses", async () => service.getAllStatuses())
+    .route("QUERY", "/warp/metrics/summary", async () => await service.getMetricsSummary())
+    .route("QUERY", "/warp/metrics/history", async ({ query }: { query: { cursor?: string; limit?: string } }) => {
       const cursor = query.cursor ? Number(query.cursor) : null;
       const limit = query.limit ? Math.min(50, Math.max(1, Number(query.limit))) : 10;
       return service.getMetricsPage(cursor, limit);
@@ -120,12 +120,12 @@ export function createWarpApi(config: ConfigPersistence, runtime?: RuntimePersis
       if (!result.success) return notFound(set);
       return result;
     })
-    .get("/warp/accounts/:id/profile", async ({ params, set }: { params: { id: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
+    .route("QUERY", "/warp/accounts/:id/profile", async ({ params, set }: { params: { id: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const exportData = await service.exportProfile(params.id);
       if (!exportData) return notFound(set);
       return exportData;
     })
-    .get("/warp/backup", async () => service.exportAll())
+    .route("QUERY", "/warp/backup", async () => service.exportAll())
     .post("/warp/backup/restore", async ({ body, set }: { body: unknown; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const value = typeof body === "object" && body !== null ? body as Partial<{ payload: WarpBackupPayload; label?: string }> : {};
       if (!value.payload || value.payload.version !== 1) return badRequest(set, "Invalid backup payload");

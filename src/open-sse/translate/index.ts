@@ -1,4 +1,4 @@
-import type { ProviderCaps, ProviderMeta, Protocol, Surface } from "../../domain/contracts";
+import type { ProviderCaps, ProviderMeta, Protocol, Surface } from "../../application/contracts";
 import { lookupTranslation } from "./registry";
 
 /** Resolves the provider-native wire surface while preserving the client surface in the normalized request. */
@@ -38,7 +38,7 @@ export function translateBody(
 export { registerTranslation, lookupTranslation, type BodyConverter } from "./registry";
 export { normalizeChatRequest, buildChatPayload, mapChatUsage, toOpenAIImageUrl } from "./codecs/openai-chat";
 export { normalizeMessagesRequest, buildMessagesPayload, mapAnthropicUsage } from "./codecs/anthropic-messages";
-export { normalizeResponsesRequest, buildResponsesPayload, mapResponsesUsage, REASONING_EFFORTS, parseReasoningConfig } from "./codecs/openai-responses";
+export { normalizeResponsesRequest, buildResponsesPayload, mapResponsesUsage, REASONING_EFFORTS, REASONING_SUMMARIES, REASONING_MODES, REASONING_CONTEXTS, parseReasoningConfig } from "./codecs/openai-responses";
 export { normalizeImageRequest } from "./codecs/images";
 export { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse, geminiCandidate, responseParts } from "./codecs/gemini-generate-content";
 export { ProtocolCodecError, StreamDecodeError, type StreamDecodeKind } from "./errors";

@@ -12,8 +12,8 @@ import type {
   Surface,
   RouteTarget,
   TokenCountInput,
-} from "../domain/contracts";
-import type { ProviderCallError } from "../domain/contracts";
+} from "../application/contracts";
+import type { ProviderCallError } from "../application/contracts";
 
 const OPENCODE_SURFACES: readonly Surface[] = ["openai-chat"];
 const OPENCODE_BASE_URL = "https://opencode.ai/zen/v1";

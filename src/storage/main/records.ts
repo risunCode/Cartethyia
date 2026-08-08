@@ -6,7 +6,7 @@
  * durable ports, and lifecycle singletons remain in `config.ts`.
  */
 
-import type { CredentialKind, RouteHealth, RoutingPreset } from "../../domain/contracts";
+import type { CredentialKind, RouteHealth, RoutingPreset } from "../../application/contracts";
 import type { PersistenceEnv } from "./env";
 
 // ────────────────────────────── Domain records ──────────────────────────────
@@ -35,6 +35,9 @@ export interface ApiKeyPublic {
   readonly monthlyTokenLimit: number | null;
   readonly oneTimeTokenLimit: number | null;
   readonly oneTimeTokensUsed: number;
+  readonly quoteBigText?: string | null;
+  readonly quoteSubText?: string | null;
+  readonly quoteBody?: string | null;
   readonly maxConcurrentRequests: number | null;
   readonly providerAllowlist: string | null;
   readonly modelAllowlist: string | null;
@@ -66,6 +69,9 @@ export interface ApiKeyUpdateInput {
   readonly dailyTokenLimit?: number | null;
   readonly monthlyTokenLimit?: number | null;
   readonly oneTimeTokenLimit?: number | null;
+  readonly quoteBigText?: string | null;
+  readonly quoteSubText?: string | null;
+  readonly quoteBody?: string | null;
   readonly maxConcurrentRequests?: number | null;
   readonly providerAllowlist?: string | null;
   readonly modelAllowlist?: string | null;
@@ -305,6 +311,7 @@ export interface AccountRepository {
 export interface HealthRepository {
   get(routeId: string): Promise<RouteHealth | null>;
   list(): Promise<RouteHealth[]>;
+  listWithIds?(routeIds?: readonly string[]): Promise<readonly { readonly id: string; readonly health: RouteHealth }[]>;
   upsert(routeId: string, health: RouteHealth): Promise<void>;
   clear(routeId: string): Promise<void>;
 }
@@ -369,16 +376,20 @@ export interface ShareLinkRecord {
   readonly id: string;
   readonly apiKeyId: string;
   readonly tokenHash: string;
+  readonly kind: "monitor" | "setup";
   readonly active: boolean;
   readonly createdAt: string;
+  readonly expiresAt: string | null;
+  readonly usedAt: string | null;
   readonly lastViewedAt: string | null;
 }
 
 export interface ShareLinkRepository {
   getByTokenHash(tokenHash: string): ShareLinkRecord | null;
   listByApiKey(apiKeyId: string): ShareLinkRecord[];
-  create(input: { id: string; apiKeyId: string; tokenHash: string; active?: boolean }): ShareLinkRecord;
+  create(input: { id: string; apiKeyId: string; tokenHash: string; kind?: "monitor" | "setup"; expiresAt?: string | null; active?: boolean }): ShareLinkRecord;
   patchActive(id: string, active: boolean): ShareLinkRecord | null;
+  consumeSetup(id: string, now: string): ShareLinkRecord | null;
   touch(id: string): void;
   delete(id: string): boolean;
 }

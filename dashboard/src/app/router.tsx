@@ -96,6 +96,7 @@ export const router = createBrowserRouter(
         { path: "advanced/cli-tools", lazy: lazyPage(() => import("../features/advanced/cli-tools/page"), (m) => m.CliToolsPage) },
         { path: "advanced/cli-tools/:toolId", lazy: lazyPage(() => import("../features/advanced/cli-tools/detail"), (m) => m.CliToolDetailPage) },
         { path: "advanced/db-map", lazy: lazyPage(() => import("../features/advanced/db-map/page"), (m) => m.DatabaseMapPage) },
+        { path: "advanced/warp", lazy: lazyPage(() => import("../features/advanced/warp/page"), (m) => m.MultiWarpPage) },
       ],
     },
   ],

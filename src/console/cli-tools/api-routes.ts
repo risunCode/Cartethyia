@@ -33,9 +33,9 @@ export function createCliToolsApi(): Elysia {
   const app = new Elysia();
 
   app
-    .get("/cli-tools/registry", () => service.getRegistry())
-    .get("/cli-tools/all-statuses", async () => service.getAllStatuses())
-    .get("/cli-tools/:toolId", async ({ params, set }: { params: { toolId: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
+    .route("QUERY", "/cli-tools/registry", () => service.getRegistry())
+    .route("QUERY", "/cli-tools/all-statuses", async () => service.getAllStatuses())
+    .route("QUERY", "/cli-tools/:toolId", async ({ params, set }: { params: { toolId: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const status = await service.getStatus(params.toolId);
       if (status === null) return notFound(set);
       return status;

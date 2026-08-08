@@ -45,7 +45,7 @@ export function runtimeSettings(config: ConfigPersistence, env: PersistenceEnv =
   return {
     proxyAuthMode: value.proxyAuthMode === "open" ? "open" : "api_key",
     privacyMode: value.privacyMode === "full" ? "full" : "masked",
-    trackPayloads: value.trackPayloads === "none" ? "none" : "meta",
+    trackPayloads: value.trackPayloads === "none" ? "none" : "bounded",
     trackAssets: value.trackAssets === "none" ? "none" : "meta",
     logRetentionDays: persisted.logRetentionDays,
     assetRetentionDays: persisted.assetRetentionDays,

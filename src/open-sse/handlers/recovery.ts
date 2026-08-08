@@ -1,7 +1,7 @@
-import type { ProviderCallError } from "../../domain/contracts";
-import { sanitizeMessage, type CleanupStack, deriveErrorSource } from "../../domain/contracts";
-import type { ProviderOutput } from "../../domain/contracts";
-import { isTerminalEvent, type StreamLifecycle, type StreamEvent } from "../../domain/contracts";
+import type { ProviderCallError } from "../../application/contracts";
+import { sanitizeMessage, type CleanupStack, deriveErrorSource } from "../../application/contracts";
+import type { ProviderOutput } from "../../application/contracts";
+import { isTerminalEvent, type StreamLifecycle, type StreamEvent } from "../../application/contracts";
 import { StreamDecodeError } from "../translate/errors";
 
 /**
@@ -128,7 +128,15 @@ function clientAbortedCallError(): ProviderCallError {
 }
 
 function truncatedCallError(): ProviderCallError {
-  return new StreamDecodeError("stream_truncated", "Stream ended before a terminal event").toProviderCallError();
+  return {
+    statusCode: null,
+    kind: "stream_truncated",
+    retryable: true,
+    routeScope: "provider",
+    source: deriveErrorSource("stream_truncated", "provider"),
+    sanitizedMessage: "Stream ended before a terminal event",
+    retryAt: null,
+  };
 }
 
 function internalCallError(message: string): ProviderCallError {

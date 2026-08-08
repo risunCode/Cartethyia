@@ -1,14 +1,14 @@
-import { createCleanupStack, sanitizeMessage, deriveErrorSource, type ProviderCallError } from "../domain/contracts";
-import type { PresentedProxyResponse } from "../domain/contracts";
-import type { Adapter, ProviderOutput, Surface, ProviderUsage, RouteTarget } from "../domain/contracts";
-import type { AccountCandidate, AffinityKey, RouteCandidate, RouteSwitch } from "../domain/contracts";
-import type { ProxyRequest, RunProxyRequestInput } from "../domain/contracts";
-import { detectClient } from "../domain/contracts";
-import type { ClientIdentity } from "../domain/contracts";
-import type { RequestTelemetryHandle, TelemetryWriter } from "../domain/contracts";
-import { applyCachePlan, buildCachePlan } from "../domain/cache";
-import { isRouteAllowed } from "../console/key-acl";
-import { isProtocolError } from "../domain/protocols";
+import { createCleanupStack, sanitizeMessage, deriveErrorSource, type ProviderCallError, type PayloadCapture } from "./contracts";
+import type { PresentedProxyResponse } from "./contracts";
+import type { Adapter, ProviderOutput, Surface, ProviderUsage, RouteTarget, StreamEvent } from "./contracts";
+import type { AccountCandidate, AffinityKey, RouteCandidate, RouteSwitch } from "./contracts";
+import type { ProxyRequest, RunProxyRequestInput } from "./contracts";
+import { detectClient } from "./contracts";
+import type { ClientIdentity } from "./contracts";
+import type { RequestTelemetryHandle, TelemetryWriter } from "./contracts";
+import { applyCachePlan, buildCachePlan } from "./cache";
+import { isRouteAllowed } from "../security/access";
+import { isProtocolError } from "./protocols";
 import { normalizeRequest, parseRequestBody } from "../open-sse/translate";
 import { CredentialSelector } from "../auth";
 import { NetworkSelector } from "../traffic";
@@ -18,9 +18,10 @@ import type { ApiKeyPublic } from "../storage";
 import { isProviderCallError, recoverCall } from "../open-sse/handlers/recovery";
 import { translateBody, resolveWireSurface } from "../open-sse/translate";
 import { writeErrorResponse, writeResponse } from "../open-sse/handlers";
-import { applyTokenSaver, type TokenSaverConfig } from "../open-sse/compress";
+import { applyTokenSaver, RTK_EMERGENCY_MESSAGE_THRESHOLD, type TokenSaverConfig } from "../open-sse/rtk";
+import type { HeadroomOutcome } from "../open-sse/rtk/headroom";
 import { ensureToolCallIds } from "../open-sse/concerns/tool-calls";
-import { applyFilterRules, type FilterRuleConfig } from "../domain/filter-rules";
+import { applyFilterRules, type FilterRuleConfig } from "./filter-rules";
 
 export interface ProxyRoutePlan {
   readonly affinity: AffinityKey;
@@ -67,7 +68,9 @@ export interface ProxyRequestDependencies {
   readonly admission?: ApiKeyAdmission;
   readonly maxAttempts?: number;
   readonly tokenSaver?: () => TokenSaverConfig;
+  readonly headroom?: (request: ProxyRequest) => Promise<HeadroomOutcome>;
   readonly filterRules?: () => FilterRuleConfig;
+  readonly createPayloadCapture?: (requestId: string) => { save(requestId: string, kind: "client_request" | "provider_request" | "provider_response" | "client_response", artifact: { text: string; truncated: boolean; originalBytes: number; capturedBytes: number }): void } | null;
 }
 
 export interface ProxyAuthorization {
@@ -140,12 +143,109 @@ function telemetryStart(input: RunProxyRequestInput, requestId: string, client: 
     imageCount: 0,
   });
 }
+const MAX_CAPTURE_BYTES = 16 * 1024;
+const REDACT_KEY = /(authorization|api[_-]?key|token|secret|password|cookie|credential)/i;
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+function redactPayload(value: unknown, depth = 0): unknown {
+  if (depth > 8 || value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((item) => redactPayload(item, depth + 1));
+  const result: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) result[key] = REDACT_KEY.test(key) ? "[REDACTED]" : redactPayload(item, depth + 1);
+  return result;
+}
+
+function artifact(value: unknown, truncated = false, originalBytes?: number): { text: string; truncated: boolean; originalBytes: number; capturedBytes: number } {
+  let text: string;
+  if (typeof value === "string") {
+    try { text = JSON.stringify(redactPayload(JSON.parse(value))) ?? value; } catch { text = value; }
+  } else {
+    text = JSON.stringify(redactPayload(value)) ?? String(value);
+  }
+  const bytes = encoder.encode(text);
+  const original = originalBytes ?? bytes.byteLength;
+  if (bytes.byteLength <= MAX_CAPTURE_BYTES) return { text, truncated, originalBytes: original, capturedBytes: bytes.byteLength };
+  return { text: decoder.decode(bytes.slice(0, MAX_CAPTURE_BYTES)), truncated: true, originalBytes: original, capturedBytes: MAX_CAPTURE_BYTES };
+}
+
+function createPayloadCapture(requestId: string, sink: { save(requestId: string, kind: "client_request" | "provider_request" | "provider_response" | "client_response", artifact: { text: string; truncated: boolean; originalBytes: number; capturedBytes: number }): void }): PayloadCapture {
+  const pending = new Set<Promise<void>>();
+  const save = (kind: "client_request" | "provider_request" | "provider_response" | "client_response", value: unknown, truncated = false, originalBytes?: number): void => {
+    if (sink === null) return;
+    sink.save(requestId, kind, artifact(value, truncated, originalBytes));
+  };
+  return {
+    request(value): void { save("client_request", value); },
+    response(value): void { save("client_response", value); },
+    observeResponse(response): Response {
+      if (response.body === null || sink === null) return response;
+      const [captureBranch, consumerBranch] = response.body.tee();
+      const task = (async () => {
+        const reader = captureBranch.getReader();
+        const chunks: Uint8Array[] = [];
+        let total = 0;
+        let truncated = false;
+        try {
+          while (total < MAX_CAPTURE_BYTES) {
+            const next = await reader.read();
+            if (next.done) break;
+            const remaining = MAX_CAPTURE_BYTES - total;
+            const chunk = next.value.slice(0, remaining);
+            chunks.push(chunk);
+            total += chunk.byteLength;
+            if (next.value.byteLength > remaining) { truncated = true; break; }
+          }
+          if (truncated) await reader.cancel();
+        } finally { reader.releaseLock(); }
+        const merged = new Uint8Array(total);
+        let offset = 0;
+        for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.byteLength; }
+        save("provider_response", decoder.decode(merged), truncated, truncated ? MAX_CAPTURE_BYTES + 1 : total);
+      })().catch(() => {});
+      pending.add(task);
+      void task.finally(() => pending.delete(task));
+      return new Response(consumerBranch, { status: response.status, statusText: response.statusText, headers: response.headers });
+    },
+    async settle(): Promise<void> { await Promise.all(pending); },
+  };
+}
+interface PreparedProxyRequest {
+  readonly request: ProxyRequest;
+  readonly admissionEstimate: number;
+}
+
+async function prepareProxyRequest(input: AuthorizedProxyRequestInput, dependencies: ProxyRequestDependencies): Promise<PreparedProxyRequest> {
+  const parsed = typeof input.request.body === "string" ? parseRequestBody(input.request.body, DEFAULT_LIMITS) : input.request.body;
+  if (isProtocolError(parsed)) throw parsed;
+  const normalized = normalizeRequest(input.request.endpoint, parsed, { signal: input.request.signal, limits: DEFAULT_LIMITS });
+  if (!normalized.ok) throw normalized.error;
+
+  const toolSafeRequest = ensureToolCallIds(normalized.request);
+  let preparedRequest = toolSafeRequest;
+  if (dependencies.filterRules !== undefined) preparedRequest = applyFilterRules(preparedRequest, dependencies.filterRules());
+
+  const tokenSaverConfig = dependencies.tokenSaver?.();
+  if (tokenSaverConfig !== undefined) {
+    preparedRequest = applyTokenSaver(preparedRequest, { ...tokenSaverConfig, emergency: preparedRequest.messages.length > RTK_EMERGENCY_MESSAGE_THRESHOLD });
+  }
+  if (dependencies.headroom !== undefined) preparedRequest = (await dependencies.headroom(preparedRequest)).request;
+
+  const admissionBody = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  const admissionEstimate = dependencies.admission !== undefined && input.authorization.apiKey !== undefined
+    ? estimateRequestTokens(admissionBody)
+    : 0;
+  return { request: applyCachePlan(preparedRequest, buildCachePlan(preparedRequest)), admissionEstimate };
+}
 
 export async function runProxyRequest(input: AuthorizedProxyRequestInput, dependencies: ProxyRequestDependencies): Promise<PresentedProxyResponse> {
   const requestId = input.request.requestId ?? crypto.randomUUID();
   const startedAt = performance.now();
   const client = detectClient(input.request.headers);
   const telemetry = telemetryStart(input.request, requestId, client, input.authorization, dependencies.telemetry);
+  const captureSink = dependencies.createPayloadCapture?.(requestId) ?? null;
+  const capture = captureSink === null ? null : createPayloadCapture(requestId, captureSink);
+  if (capture !== null) capture.request(input.request.body);
   let requestLogSettled = false;
   const emitRequestLog = (event: ProxyRequestLogEvent): void => {
     if (event.event !== "incoming") {
@@ -170,19 +270,11 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
 
   incrementInFlight();
   try {
-    const parsed = typeof input.request.body === "string" ? parseRequestBody(input.request.body, DEFAULT_LIMITS) : input.request.body;
-    if (isProtocolError(parsed)) throw parsed;
-    const normalized = normalizeRequest(input.request.endpoint, parsed, { signal: input.request.signal, limits: DEFAULT_LIMITS });
-    if (!normalized.ok) throw normalized.error;
-    const toolSafeRequest = ensureToolCallIds(normalized.request);
-    const filteredRequest = dependencies.filterRules === undefined ? toolSafeRequest : applyFilterRules(toolSafeRequest, dependencies.filterRules());
-    const plannedRequest = dependencies.tokenSaver === undefined ? filteredRequest : applyTokenSaver(filteredRequest, dependencies.tokenSaver());
-    const cachePlan = buildCachePlan(plannedRequest);
-    const currentRequest = applyCachePlan(plannedRequest, cachePlan);
+    const prepared = await prepareProxyRequest(input, dependencies);
+    const currentRequest = prepared.request;
     normalizedRequest = currentRequest;
+    admissionEstimate = prepared.admissionEstimate;
     if (dependencies.admission !== undefined && input.authorization.apiKey !== undefined) {
-      const admissionBody = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-      admissionEstimate = estimateRequestTokens(admissionBody);
       admissionLease = dependencies.admission.acquire(input.authorization.apiKey, admissionEstimate);
     }
 
@@ -223,6 +315,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
     });
 
     const selectedAttempts = new Map<number, RouteAttemptSelection>();
+    const accountCandidatesByProvider = new Map<string, Promise<readonly AccountCandidate[]>>();
     let successfulSelection: RouteAttemptSelection | null = null;
     let successfulCandidateId: string | null = null;
     const attempt = async (index: number): Promise<ProviderOutput> => {
@@ -256,10 +349,18 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
         const adapterNeedsCredential = adapter.metadata.credentialKind !== "none";
         const providerRouting = dependencies.getProviderRouting?.(candidate.providerId);
         const affinityKey = input.authorization.apiKeyId ?? input.authorization.trustedIdentity ?? "anonymous";
+        let accountCandidatesPromise = accountCandidatesByProvider.get(candidate.providerId);
+        if (accountCandidatesPromise === undefined) {
+          accountCandidatesPromise = dependencies.accountCandidates(candidate.providerId).catch((error: unknown) => {
+            accountCandidatesByProvider.delete(candidate.providerId);
+            throw error;
+          });
+          accountCandidatesByProvider.set(candidate.providerId, accountCandidatesPromise);
+        }
         const credential = adapterNeedsCredential
           ? await dependencies.accounts.select({
               providerId: candidate.providerId,
-              candidates: await dependencies.accountCandidates(candidate.providerId),
+              candidates: await accountCandidatesPromise,
               strategy: providerRouting?.strategy ?? "priority",
               affinityKey,
               stickyLimit: providerRouting?.useStickyLimit === true ? providerRouting.stickyLimit : undefined,
@@ -310,7 +411,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
         let providerStreamHandedOff = false;
         beginProviderInFlight(candidate.providerId);
         try {
-          output = await adapter.call({ target, request: currentRequest, credential: credential?.selection.secret ?? "", network: network.selection, signal: input.request.signal, headers: input.request.headers });
+          output = await adapter.call({ target, request: currentRequest, credential: credential?.selection.secret ?? "", network: network.selection, signal: input.request.signal, headers: input.request.headers, capture: capture ?? undefined });
         } catch (error) {
           endProviderInFlight(candidate.providerId);
           throw adapter.mapError(error);
@@ -354,6 +455,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
         const candidate = candidates[index % Math.max(candidates.length, 1)];
         if (candidate) {
           await dependencies.onRouteFailure?.(candidate, error, selectedAttempts.get(index) ?? null);
+          if (error.routeScope === "account") accountCandidatesByProvider.delete(candidate.providerId);
           const replacement = candidates[index + 1] ?? null;
           if (error.routeScope === "account" || error.routeScope === "proxy") {
             await dependencies.onRouteSwitch?.({ scope: error.routeScope, previousRouteId: candidate.id, replacementRouteId: replacement?.id ?? null, reason: error.kind, occurredAt: new Date().toISOString() });
@@ -370,6 +472,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
     let responseStatus: number | null = null;
     let presentedOutput = output;
     let streamTelemetryPending = false;
+    const clientStreamEvents: StreamEvent[] = [];
     if (output.mode === "non_stream") {
       const usage = output.usage;
       settleAdmission(usage === undefined || usage === null
@@ -385,6 +488,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
           let firstTokenRecorded = false;
           try {
             for await (const event of output.events) {
+              if (clientStreamEvents.length < 128) clientStreamEvents.push(event);
               if (!firstTokenRecorded && event.type === "text_delta") { telemetry.recordFirstToken(); firstTokenRecorded = true; }
               if (event.type === "usage") observedUsage = event.usage;
               if (event.type === "message_stop") terminalReason = event.reason;
@@ -417,6 +521,10 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
               clientSource: client.source,
               clientIp: input.request.clientIp ?? null,
             });
+            if (capture !== null) {
+              capture.response({ mode: "stream", events: clientStreamEvents });
+              await capture.settle();
+            }
             streamTelemetryPending = false;
             await telemetry.finish({
               statusCode: responseStatus ?? 200,
@@ -456,6 +564,8 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
       });
     }
     if (output.mode === "non_stream") {
+      capture?.response(response.body.mode === "json" ? response.body.value : null);
+      await capture?.settle();
       await telemetry.finish({
         statusCode: response.status,
         errorKind: null,
@@ -498,6 +608,8 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
     // inflate usage errors or appear in the completed request history view.
     const telemetryStatus = failure.kind === "client_aborted" ? 0 : response.status;
     const telemetryErrorKind = failure.kind === "client_aborted" ? null : failure.kind;
+    capture?.response(response.body.mode === "json" ? response.body.value : null);
+    await capture?.settle();
     await telemetry.finish({
       statusCode: telemetryStatus,
       errorKind: telemetryErrorKind,

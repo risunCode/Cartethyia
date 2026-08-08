@@ -1,4 +1,4 @@
-/** Public authentication boundary for account and credential lifecycle. */
+/** Public authentication and account lifecycle boundary. */
 export * from "./credentials";
 export * from "./contracts";
 export * from "./credential-bundle";
@@ -7,4 +7,5 @@ export * from "./oauth";
 export * from "./drivers";
 export * from "./oauth-sessions";
 export * from "./oauth-refresher";
-export * from "./oauth-keepalive";
+export * from "./token-refresh";
+export * from "./quota/refresh-worker";

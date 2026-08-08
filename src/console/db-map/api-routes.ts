@@ -10,8 +10,7 @@
  *   POST   /db-map/import?db=                           — upload + validate + replace .sqlite
  *
  * All routes sit behind the console session guard (applied by the parent app).
- * The dashboard adds a client-side password re-auth gate mirroring the
- * Terminal page pattern.
+ * The dashboard adds a client-side password re-auth gate for sensitive data.
  */
 
 import { Elysia, type HTTPHeaders } from "elysia";
@@ -49,7 +48,7 @@ export function createDbMapApi(persistence: DbMapPersistence | null = null): Ely
   const app = new Elysia();
 
   app
-    .get("/db-map/schema", ({ query, set }: { query: Record<string, string | undefined>; set: { status?: number | string; headers: HTTPHeaders } }) => {
+    .route("QUERY", "/db-map/schema", ({ query, set }: { query: Record<string, string | undefined>; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const target = resolveTarget(query.db);
       if (!target) return badRequest(set, "db must be 'config' or 'runtime'");
       try {
@@ -58,7 +57,7 @@ export function createDbMapApi(persistence: DbMapPersistence | null = null): Ely
         return internalError(set, error instanceof Error ? error.message : "schema introspection failed");
       }
     })
-    .get("/db-map/tables/:name/rows", ({ params, query, set }: { params: { name: string }; query: Record<string, string | undefined>; set: { status?: number | string; headers: HTTPHeaders } }) => {
+    .route("QUERY", "/db-map/tables/:name/rows", ({ params, query, set }: { params: { name: string }; query: Record<string, string | undefined>; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const target = resolveTarget(query.db);
       if (!target) return badRequest(set, "db must be 'config' or 'runtime'");
       const limit = query.limit !== undefined ? parseInt(query.limit, 10) : 100;
@@ -98,7 +97,7 @@ export function createDbMapApi(persistence: DbMapPersistence | null = null): Ely
         return internalError(set, msg);
       }
     })
-    .get("/db-map/export", ({ query, set }: { query: Record<string, string | undefined>; set: { status?: number | string; headers: HTTPHeaders } }) => {
+    .route("QUERY", "/db-map/export", ({ query, set }: { query: Record<string, string | undefined>; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const target = resolveTarget(query.db);
       if (!target) return badRequest(set, "db must be 'config' or 'runtime'");
       const result = service.exportDb(target);

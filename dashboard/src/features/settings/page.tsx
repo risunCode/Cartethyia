@@ -19,7 +19,7 @@ import { PasswordModal } from "../../components/shared";
 interface RuntimeSettings {
   proxyAuthMode: "open" | "api_key";
   privacyMode: "masked" | "full";
-  trackPayloads: "none" | "meta";
+  trackPayloads: "none" | "bounded";
   trackAssets: "none" | "meta";
   maxFlightsPerIp: number;
   trustProxy: boolean;
@@ -217,7 +217,7 @@ export function SettingsPage() {
 
       {settings && (
         <Card>
-          <CardHeader title="Privacy" icon={ShieldCheck} sub="Request logs keep metadata by default and never store request or response bodies." />
+          <CardHeader title="Privacy" icon={ShieldCheck} sub="Payload capture is bounded, redacted, and disabled by default only when explicitly selected." />
           <div className="grid gap-3 sm:grid-cols-3">
             <Label>
               Privacy mode
@@ -227,10 +227,10 @@ export function SettingsPage() {
               </select>
             </Label>
             <Label>
-              Request payload
-              <select aria-label="Request payload" className="mt-1 h-10 w-full rounded-lg border border-[var(--inner-border)] bg-[var(--surface-muted)] px-3 text-sm text-[var(--text-1)]" value={settings.trackPayloads} onChange={(event) => patch({ trackPayloads: event.target.value as RuntimeSettings["trackPayloads"] })}>
-                <option value="meta">Metadata only</option>
-                <option value="none">Do not retain payload metadata</option>
+              Request payload capture
+              <select aria-label="Request payload capture" className="mt-1 h-10 w-full rounded-lg border border-[var(--inner-border)] bg-[var(--surface-muted)] px-3 text-sm text-[var(--text-1)]" value={settings.trackPayloads} onChange={(event) => patch({ trackPayloads: event.target.value as RuntimeSettings["trackPayloads"] })}>
+                <option value="bounded">Bounded debug capture (16 KiB/artifact)</option>
+                <option value="none">Disabled</option>
               </select>
             </Label>
             <Label>
@@ -241,7 +241,7 @@ export function SettingsPage() {
               </select>
             </Label>
           </div>
-          <p className="mt-3 text-[11px] text-[var(--text-3)]">Metadata includes counts, model/provider, client labels, request id, timing, tools, and token totals. Payload contents and credentials are never persisted.</p>
+          <p className="mt-3 text-[11px] text-[var(--text-3)]">Bounded capture stores at most 16 KiB per artifact (client request, translated provider request, provider response, and final client response). Credential-like fields are redacted before persistence.</p>
         </Card>
       )}
 

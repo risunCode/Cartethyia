@@ -1,12 +1,12 @@
 # Cartethyia
 
-> # WARNING WARNING WARNING
-> ## CARTETHYIA IS STILL FRAGILE. GUNAKAN DENGAN RISIKO SENDIRI.
-> ## PROJECT INI TIDAK MENERIMA PR.
+> **2.0.0 Beta is here.**
+> Cartethyia is still beta software. Expect provider API changes and validate your credentials, proxy settings, and persistent data before production use.
+> This project is maintained as a self-hosted deployment and currently does not accept pull requests.
 
-A self-hosted Bun + Elysia AI proxy with an authenticated web console. Accepts OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages requests, routes them across 30+ provider adapters with OAuth and API-key credentials, translates responses cross-protocol, and manages everything from a real-time dashboard.
+A self-hosted Bun + Elysia AI proxy with an authenticated web console. Cartethyia accepts OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages requests; routes them across 30+ provider adapters; translates protocols; manages OAuth/API-key accounts; and exposes routing, quota, usage, and health controls from one dashboard.
 
-**Current release:** `1.0.8-alpha` (2026-08-06)
+**Current release:** `2.0.0-beta` (2026-08-08)
 
 ## Features
 
@@ -16,7 +16,7 @@ A self-hosted Bun + Elysia AI proxy with an authenticated web console. Accepts O
 - **Cross-protocol translation** — a request on any surface can route to any compatible upstream provider through shared codecs. A Chat request can hit an Anthropic upstream, a Messages request can hit an OpenAI Responses upstream, etc.
 - **Image generation** at `POST /v1/images/generations` (OpenAI-compatible).
 - **Streaming and non-streaming** — SSE/NDJSON framing with canonical `StreamEvent` values, translated back to the requested client surface. Reasoning/thinking content, tool calls, usage, stop reasons, and refusals are preserved end-to-end.
-- **Model catalog** at `GET /v1/models` — lists direct models, router aliases, and combos permitted by the authenticated API key. Entries carry real context limits, capability categories, and USD pricing per 1M tokens. Unknown values stay `null`; limits and prices are never fabricated.
+- **Model catalog** at `QUERY /v1/models` — lists direct models, router aliases, and combos permitted by the authenticated API key. `GET /v1/models` remains an external compatibility alias and is translated at the unified HTTP boundary.
 
 ### Routing and failover
 
@@ -31,6 +31,15 @@ A self-hosted Bun + Elysia AI proxy with an authenticated web console. Accepts O
 - **Scheduled recovery sweep** — an unref'd 1-minute interval transitions expired cooldowns to healthy and clears expired per-model locks, so accounts recover proactively without waiting for a request to happen to select them.
 - **Sticky round-robin** with in-flight awareness — idle accounts are preferred over busy ones within the sticky pool.
 - **Proxy pool** — route provider traffic through HTTP/HTTPS/SOCKS5 proxies with priority, weight, concurrency caps, and per-proxy health.
+
+### OAuth and quota lifecycle
+
+- **Central OAuth refresh pool** — request-time refresh, manual refresh, quota refresh, and scheduled refresh share one account-level single-flight lock, preventing refresh-token rotation races.
+- **Proactive token refresh coordinator** — provider-specific refresh lead times and stale-token windows run in a bounded, unref'd coordinator.
+- **Revocation-aware state** — permanent `invalid_grant`, revoked, expired, and HTTP 400 token responses persist as `reauth_required` instead of causing blind retry loops.
+- **General quota transport** — provider quota fetchers live under `src/providers/quota/` and are shared by account/API workers.
+- **Quota refresh worker** — bounded polling, per-account coalescing, failure cooldowns, and persisted success/error state.
+- **Provider quota coverage** — Codex, Claude, Antigravity, Kiro, Cline, Qoder, and Grok Build quota paths with provider-specific headers and endpoint contracts.
 
 ### Providers
 
@@ -72,7 +81,7 @@ Provider adapters that proxy as a specific upstream client identity (Claude Code
 
 ## Quick start
 
-Requirements: Bun 1.x and a writable data directory.
+Requirements: Bun 1.4 canary and a writable data directory.
 
 ```bash
 bun install
@@ -97,8 +106,13 @@ Set `CONSOLE_PASSWORD` and `BOOTSTRAP_PROXY_API_KEY` in `.env` for local use.
 | `POST` | `/v1/messages` | Anthropic Messages |
 | `POST` | `/v1/images/generations` | OpenAI-compatible image generation |
 | `POST` | `/v1/images/edits` | OpenAI-compatible image editing (multipart or JSON) |
-| `GET` | `/v1/models` | Routeable models, router aliases, and combos for the authenticated API key |
-| `GET` | `/health` | Liveness check |
+| `QUERY` | `/v1/models` | Routeable models, router aliases, and combos for the authenticated API key; legacy `GET` is translated |
+| `GET` | `/health` | Public process liveness |
+| `GET` | `/share/<token>` | Credential-free API-key usage monitor |
+| `GET` | `/share/setup/<token>` | One-time setup page; expires after 15 minutes |
+
+The console API creates these links with `POST /console/api/keys/:id/share` and `POST /console/api/keys/:id/setup-link`. Monitor links never return the API key. Setup links return the key once over the setup data request, then atomically become unusable; use HTTPS when sharing either URL.
+Read-only console API calls use `QUERY` with `Content-Type: application/json`; legacy `GET /console/api/*` callers are translated to the same internal route. SSE streams, health probes, static pages, and share links remain `GET`.
 
 Authenticate proxy requests with either header:
 
@@ -131,11 +145,20 @@ RUNTIME_DB_PATH              # runtime telemetry SQLite path (default inside DAT
 MAX_FLIGHTS_PER_IP           # global concurrent requests per IP
 LOG_RETENTION_DAYS           # console log retention
 ASSET_RETENTION_DAYS         # asset retention
-```
+CARTETHYIA_HEADROOM_ENABLED       # enable optional fail-open Headroom /v1/compress
+CARTETHYIA_HEADROOM_URL           # Headroom base URL (for example http://127.0.0.1:8787)
+CARTETHYIA_HEADROOM_TIMEOUT_MS    # Headroom request timeout (default 3000)
+CARTETHYIA_HEADROOM_COMPRESS_USER_MESSAGES # opt in to Headroom user-message compression
+Bun.serve() handles asynchronous HTTP and provider I/O concurrency natively. The server runs as one process; scale-out belongs to the deployment platform rather than the application runtime.
+Requests accept up to 2048 history items. Histories above 512 trigger an emergency RTK pass over older tool results; user and assistant turns are not silently removed. When Headroom is enabled, it runs as an additional fail-open tool-result compaction step.
 
 Adaptive scaling is enabled by default — per-IP flight tracking, API-key admission, login rate limiting, and GC interval auto-derive from available process memory. Override via `CARTETHYIA_MAX_TRACKED_IPS`, `CARTETHYIA_MAX_TRACKED_KEYS`, `CARTETHYIA_LOGIN_MAX_TRACKED_IPS`, and `CARTETHYIA_GC_INTERVAL_MS` (all default `0` = adaptive).
 
 For deployment, persist `DATA_DIR` and configure the console password, proxy API key, and JWT secret through the platform's secret manager.
+
+Warp instances are manual-only. A server restart clears stale `running`/PID state but never starts an account automatically; start instances explicitly from the MultiWarp console or API.
+
+`bun run build` produces the compiled server at `bin/cartethyia` (`bin/cartethyia.exe` on Windows). The dashboard remains a separate static build under `dashboard/dist` because the server serves those browser assets at runtime.
 
 ## Docker
 
@@ -159,30 +182,20 @@ bun test --timeout 60000 test/
 cd dashboard && bun run build && bun run test
 ```
 
-## Documentation
+## Documentation and source map
 
-In-depth guides live in [`docs/`](./docs/):
+The [documentation index](./docs/README.md) covers installation, API contracts, translation, provider behavior, operations, and development. The repository keeps release history in [`CHANGELOG.md`](./CHANGELOG.md). The main source areas are:
 
-| Doc | Covers |
-| --- | --- |
-| [`model-catalog.md`](./docs/model-catalog.md) | Pricing & context sourcing, fallback behavior |
-| [`protocol-translation.md`](./docs/protocol-translation.md) | Cross-protocol translation, response shaping, streaming |
-| [`alias-routing.md`](./docs/alias-routing.md) | Alias & combo resolution, pricing inheritance, live test |
-| [`console-api.md`](./docs/console-api.md) | Full `/console/api/*` control-plane endpoint reference |
-| [`oauth-drivers.md`](./docs/oauth-drivers.md) | OAuth driver registry, bundled flows, custom drivers |
-| [`auth-security.md`](./docs/auth-security.md) | Auth boundaries, ACL, credential lease, SSRF/redirect guards |
+| Area | Location | Purpose |
+| --- | --- | --- |
+| Application contracts | [`src/application/`](./src/application/) | Validation, routing, orchestration, and shared contracts |
+| Authentication and accounts | [`src/auth/`](./src/auth/) | Credentials, OAuth, token refresh, account health, and quota lifecycle |
+| OpenSSE core | [`src/open-sse/`](./src/open-sse/) | Translation, transport, canonical stream events, and codecs |
+| Provider adapters | [`src/providers/`](./src/providers/) | Provider identities, models, upstream request handling, and quota transport |
+| Console/API | [`src/console/`](./src/console/) | Authenticated control-plane services and API routes |
+| Dashboard | [`dashboard/src/`](./dashboard/src/) | React authenticated web console |
 
-## Project boundaries
-
-```text
-src/domain/protocols/     Protocol normalization and translation
-src/providers/            Provider adapters and model catalogs
-src/transport/protocols/  Upstream HTTP and stream execution
-src/app/                  Routing, failover, recovery sweep, limits, orchestration
-dashboard/src/            React authenticated console
-```
-
-Release history and migration notes are in [`CHANGELOG.md`](./CHANGELOG.md).
+Read [`.tester/TEST-PLAN.md`](./.tester/TEST-PLAN.md) for the repository's verification scope.
 
 ## Credits
 
@@ -192,7 +205,6 @@ Built with:
 - [Elysia](https://elysiajs.com) — web framework
 - [SQLite](https://www.sqlite.org) — config & telemetry storage (via Bun's built-in `bun:sqlite`)
 - [socks-proxy-agent](https://github.com/TooTallNate/proxy-agents) — SOCKS5 proxy agent for Node/Bun
-- [@bufbuild/protobuf](https://github.com/bufbuild/protobuf-es) — Protocol Buffers runtime (Kiro AWS EventStream)
 
 Dashboard built with:
 

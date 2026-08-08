@@ -13,8 +13,8 @@ import type {
   Surface,
   RouteTarget,
   TokenCountInput,
-} from "../domain/contracts";
-import type { ProviderCallError } from "../domain/contracts";
+} from "../application/contracts";
+import type { ProviderCallError } from "../application/contracts";
 
 /**
  * Cline — an OpenAI-compatible Chat Completions gateway
@@ -118,7 +118,7 @@ async function callClineOnce(input: ProviderRequest, bearer: string): Promise<Pr
   });
   let streamHandedOff = false;
   try {
-    const response = await executeFetch(CLINE_CHAT_URL, { method: "POST", headers: clineHeaders(bearer, request.stream), body: JSON.stringify(payload) }, coordinator, network);
+    const response = await executeFetch(CLINE_CHAT_URL, { method: "POST", headers: clineHeaders(bearer, request.stream), body: JSON.stringify(payload) }, coordinator, network, input.capture);
     if (!response.ok) throw await readUpstreamError(response);
     if (!request.stream) {
       const body = await readJsonObject(response, coordinator);

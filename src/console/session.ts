@@ -8,6 +8,7 @@
  * attribute when served over HTTPS.
  */
 
+import { isIpLiteral } from "../application/protocols";
 import { runtimeMemoryLimits } from "../traffic/limits";
 
 // ---------------------------------------------------------------------------
@@ -16,7 +17,7 @@ import { runtimeMemoryLimits } from "../traffic/limits";
 
 export const SESSION_COOKIE_NAME = "cartethyia_console";
 
-const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS", "QUERY"]);
 
 export function readCookie(request: Request, name: string): string | null {
   const header = request.headers.get("cookie");
@@ -29,37 +30,59 @@ export function readCookie(request: Request, name: string): string | null {
   return null;
 }
 
-export function clientIp(request: Request, trustProxy: boolean): string {
-  if (trustProxy) {
-    const forwarded = request.headers.get("x-forwarded-for");
-    if (forwarded !== null && forwarded.length > 0) return forwarded.split(",")[0]!.trim();
-    const real = request.headers.get("x-real-ip");
-    if (real !== null && real.length > 0) return real;
-  }
-  return "127.0.0.1";
+type RuntimeEnvironment = Readonly<Record<string, string | undefined>>;
+
+/** Railway terminates the public connection before forwarding requests to Bun. */
+export function isRailwayRuntime(env: RuntimeEnvironment = Bun.env): boolean {
+  const has = (key: string): boolean => (env[key] ?? "").trim().length > 0;
+  return has("RAILWAY_ENVIRONMENT") ||
+    has("RAILWAY_ENVIRONMENT_NAME") ||
+    has("RAILWAY_ENVIRONMENT_ID") ||
+    has("RAILWAY_PROJECT_ID") ||
+    has("RAILWAY_SERVICE_ID");
 }
 
-export function isHttpsRequest(request: Request, trustProxy: boolean): boolean {
-  if (trustProxy && request.headers.get("x-forwarded-proto") === "https") return true;
+function shouldTrustProxy(configured: boolean, env: RuntimeEnvironment = Bun.env): boolean {
+  return configured || isRailwayRuntime(env);
+}
+
+function forwardedIp(value: string | null): string | null {
+  if (value === null) return null;
+  for (const token of value.split(",")) {
+    const candidate = token.trim().replace(/^\[|\]$/g, "");
+    if (isIpLiteral(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Returns the public client IP from trusted proxy headers when deployed
+ * behind Railway or when the explicit trust-proxy setting is enabled.
+ */
+export function clientIp(request: Request, trustProxy: boolean, env: RuntimeEnvironment = Bun.env): string {
+  if (!shouldTrustProxy(trustProxy, env)) return "127.0.0.1";
+  return forwardedIp(request.headers.get("x-forwarded-for")) ??
+    forwardedIp(request.headers.get("x-real-ip")) ??
+    forwardedIp(request.headers.get("cf-connecting-ip")) ??
+    "127.0.0.1";
+}
+
+export function isHttpsRequest(request: Request, trustProxy: boolean, env: RuntimeEnvironment = Bun.env): boolean {
+  if (shouldTrustProxy(trustProxy, env) && request.headers.get("x-forwarded-proto") === "https") return true;
   return request.url.startsWith("https://");
 }
 
 /**
- * Same-origin validation for mutating console calls: when an Origin header
- * is present its host must match the effective request host. An absent
- * Origin (curl, server clients) is allowed — CSRF protection is layered on
- * the SameSite cookie attribute anyway.
- *
- * `x-forwarded-host` is only trusted when `trustProxy` is true — otherwise
- * the client-controlled header could spoof the host and bypass CSRF.
+ * Same-origin validation for mutating console calls. Forwarded host data is
+ * trusted only when explicitly enabled or when running behind Railway.
  */
-export function isSameOriginRequest(request: Request, trustProxy: boolean = false): boolean {
+export function isSameOriginRequest(request: Request, trustProxy: boolean = false, env: RuntimeEnvironment = Bun.env): boolean {
   const origin = request.headers.get("origin");
   if (origin === null) return true;
   try {
     const originHost = new URL(origin).host;
     const host =
-      (trustProxy ? request.headers.get("x-forwarded-host") : null) ??
+      (shouldTrustProxy(trustProxy, env) ? request.headers.get("x-forwarded-host") : null) ??
       request.headers.get("host") ??
       new URL(request.url).host;
     return originHost === host;
@@ -67,6 +90,7 @@ export function isSameOriginRequest(request: Request, trustProxy: boolean = fals
     return false;
   }
 }
+
 
 export function requiresJsonContentType(request: Request): boolean {
   return !SAFE_METHODS.has(request.method) && !(request.headers.get("content-type") ?? "").includes("application/json");

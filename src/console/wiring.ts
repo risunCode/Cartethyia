@@ -1,4 +1,4 @@
-import { hashConsolePassword } from "./services";
+import { hashConsolePassword, MemoryRouteTransitionStore, quotaViewFromState } from "./services";
 import type {
   AccountRepository as ConsoleAccountRepository,
   AccountListOptions,
@@ -22,14 +22,10 @@ import type {
   SettingsRepository as ConsoleSettingsRepository,
   RuntimeMetadataRepository as ConsoleRuntimeMetadataRepository,
 } from "./services";
-import { quotaViewFromState } from "./services";
-import { MemoryRouteTransitionStore } from "./services";
 import type { ProviderRegistry } from "../providers/registry";
-import type { ModelMetadata, ProviderModel } from "../domain/contracts";
-import type { RouteHealth } from "../domain/contracts";
-import type { ConfigPersistence, ProviderAccountRecord, RuntimePersistence } from "../storage";
+import type { ModelMetadata, ProviderModel, RouteHealth } from "../application/contracts";
+import type { BackupPayload, ConfigPersistence, ProviderAccountRecord, RestoreResult, RestoreValidation, RuntimePersistence } from "../storage";
 import { normalizeSidebarIconDataUrl, runtimeRecord, runtimeSettings } from "./runtime-settings";
-import type { BackupPayload, RestoreResult, RestoreValidation } from "../storage";
 
 function listOrNull(value: string | null): readonly string[] | null {
   if (value === null || value.trim() === "") return null;
@@ -43,9 +39,9 @@ function now(): string {
 function toApiKeyView(row: ReturnType<ConfigPersistence["apiKeys"]["list"]>[number]): ApiKeyView {
   return {
     ...row,
-    quoteBigText: null,
-    quoteSubText: null,
-    quoteBody: null,
+    quoteBigText: row.quoteBigText ?? null,
+    quoteSubText: row.quoteSubText ?? null,
+    quoteBody: row.quoteBody ?? null,
     providerAllowlist: listOrNull(row.providerAllowlist),
     modelAllowlist: listOrNull(row.modelAllowlist),
     modelDenylist: listOrNull(row.modelDenylist),
@@ -314,33 +310,55 @@ function deriveCredentialHint(credential: string, credentialKind: string, name?:
 }
 
 function makeAccountRepository(config: ConfigPersistence): ConsoleAccountRepository {
-  const quota = async (id: string): Promise<AccountRowView["quota"]> => quotaViewFromState((await config.stores.quotaState.get(id))?.quota);
   const view = async (row: ProviderAccountRecord): Promise<AccountRowView> => {
-    return toAccountView(row, await config.accountHealth.get(row.id), await quota(row.id));
+    const [health, quota] = await Promise.all([
+      config.accountHealth.get(row.id),
+      config.stores.quotaState.get(row.id),
+    ]);
+    return toAccountView(row, health, quotaViewFromState(quota?.quota));
+  };
+  const views = async (rows: readonly ProviderAccountRecord[]): Promise<readonly AccountRowView[]> => {
+    if (rows.length === 0) return [];
+    const ids = rows.map((row) => row.id);
+    const [healthWithIds, quotaRows] = await Promise.all([
+      config.accountHealth.listWithIds
+        ? config.accountHealth.listWithIds(ids)
+        : Promise.all(rows.map(async (row) => ({ id: row.id, health: await config.accountHealth.get(row.id) }))),
+      config.stores.quotaState.listForAccountIds(ids),
+    ]);
+    const healthById = new Map(healthWithIds.map((item) => [item.id, item.health] as const));
+    const quotaById = new Map(quotaRows.map((item) => [item.accountId, item] as const));
+    return rows.map((row) => toAccountView(row, healthById.get(row.id) ?? null, quotaViewFromState(quotaById.get(row.id)?.quota)));
   };
   return {
-    async list(providerId) { return Promise.all(config.accounts.list(providerId).map((row) => view(row))); },
+    async list(providerId) { return views(config.accounts.list(providerId)); },
     async listPaged(providerId, options): Promise<AccountListResult> {
       const page = config.accounts.listPaged(providerId, { limit: options.limit, cursor: options.cursor });
-      const items = await Promise.all(page.items.map((row) => view(row)));
-      return { items, nextCursor: page.nextCursor };
+      return { items: await views(page.items), nextCursor: page.nextCursor };
     },
     async get(id) { const row = config.accounts.get(id); return row === null ? null : view(row); },
     async create(input) { const id = crypto.randomUUID(); const row = config.accounts.create({ id, provider: input.providerId, name: input.name, credentialKind: input.credentialKind, credential: input.credential, credentialHint: deriveCredentialHint(input.credential, input.credentialKind, input.name), priority: input.priority, active: input.active }); return { id: row.id, credentialHint: row.credentialHint }; },
     async update(id, patch) { const existing = config.accounts.get(id); const row = config.accounts.patch(id, { name: patch.name, credentialKind: patch.credentialKind, credential: patch.credential, credentialHint: patch.credential !== undefined ? deriveCredentialHint(patch.credential, patch.credentialKind ?? "", patch.name ?? existing?.name) : undefined, priority: patch.priority, active: patch.active }); return row === null ? null : view(row); },
     async remove(id) { return config.accounts.delete(id); },
+    async quota(id) { return quotaViewFromState((await config.stores.quotaState.get(id))?.quota); },
     async removeBatch(ids) { return config.accounts.deleteBatch(ids); },
     async setActiveBatch(ids, active) { return config.accounts.setActiveBatch(ids, active); },
     async credential(id) { const account = await config.stores.credentialConfig.getAccount(id); return account?.secret === undefined || account.secret === null ? null : { credential: account.secret }; },
     async health(id) { return config.accountHealth.get(id); },
-    async quota(id) { return quota(id); },
     async listActiveCredentials(providerId) { const allRows = config.accounts.list(providerId); const activeRows = allRows.filter((row) => row.active === true); const results = await Promise.all(activeRows.map(async (row) => { const cred = await config.stores.credentialConfig.getAccount(row.id); const credential = cred?.secret; return credential === undefined ? null : { credential, credentialKind: row.credentialKind }; })); return results.filter((result): result is ActiveAccountCredential => result !== null); },
   };
 }
 
 function makeProxyRepository(config: ConfigPersistence): ConsoleProxyRepository {
   return {
-    async list() { return Promise.all(config.proxies.list().map(async (row) => toProxyView(row, await config.proxyHealth.get(row.id)))); },
+    async list() {
+      const rows = config.proxies.list();
+      const healthWithIds = config.proxyHealth.listWithIds
+        ? await config.proxyHealth.listWithIds()
+        : await Promise.all(rows.map(async (row) => ({ id: row.id, health: await config.proxyHealth.get(row.id) })));
+      const byId = new Map(healthWithIds.map((item) => [item.id, item.health] as const));
+      return rows.map((row) => toProxyView(row, byId.get(row.id) ?? null));
+    },
     async get(id) { const row = config.proxies.get(id); return row === null ? null : toProxyView(row, await config.proxyHealth.get(id)); },
     async create(input) { const row = config.proxies.create({ id: crypto.randomUUID(), ...input }); return { id: row.id, passwordHint: row.password === null ? null : `${row.password.slice(0, 2)}…` }; },
     async update(id, patch) { const row = config.proxies.patch(id, patch); return row === null ? null : toProxyView(row, await config.proxyHealth.get(id)); },
@@ -399,12 +417,45 @@ function makeRoutingRepository(config: ConfigPersistence): RoutingConfigReposito
 }
 
 function makeRuntimeMetadataRepository(runtime: RuntimePersistence, registry: ProviderRegistry, config: ConfigPersistence): ConsoleRuntimeMetadataRepository {
+  const mapRow = (row: Awaited<ReturnType<RuntimePersistence["metadata"]["queryRequests"]>>["items"][number]) => ({
+    requestId: row.requestId,
+    endpoint: row.endpoint,
+    surface: row.surface,
+    apiKeyId: row.apiKeyId,
+    apiKeyPrefix: row.apiKeyPrefix,
+    providerId: row.provider,
+    model: row.model,
+    statusCode: row.status ?? 0,
+    errorKind: row.errorKind,
+    mode: row.mode,
+    startedAt: row.startedAt,
+    finishedAt: row.finishedAt ?? row.startedAt,
+    durationMs: row.durationMs ?? 0,
+    inputTokens: row.inputTokens,
+    outputTokens: row.outputTokens,
+    cachedTokens: row.cachedTokens,
+    cacheWriteTokens: row.cacheWriteTokens,
+    reasoningTokens: row.reasoningTokens,
+    totalTokens: row.totalTokens,
+    usageSource: row.usageSource,
+    clientName: row.clientName,
+    clientSource: row.clientSource,
+    messageCount: row.messageCount,
+    toolCount: row.toolCount,
+    imageCount: row.imageCount,
+    tfftMs: row.tfftMs,
+  });
   return {
     async queryRequests(filters) {
       const page = runtime.metadata.queryRequests({ limit: filters.limit ?? 50, provider: filters.providerId, model: filters.model, key: filters.apiKeyId, status: filters.status === "error" ? 500 : filters.status === "ok" ? 200 : undefined, cursor: filters.cursor === undefined ? undefined : Number(filters.cursor) });
-      return { items: page.items.map((row) => ({ requestId: row.requestId, endpoint: row.endpoint, surface: row.surface, apiKeyId: row.apiKeyId, apiKeyPrefix: row.apiKeyPrefix, providerId: row.provider, model: row.model, statusCode: row.status ?? 0, errorKind: row.errorKind, mode: row.mode, startedAt: row.startedAt, finishedAt: row.finishedAt ?? row.startedAt, durationMs: row.durationMs ?? 0, inputTokens: row.inputTokens, outputTokens: row.outputTokens, cachedTokens: row.cachedTokens, cacheWriteTokens: row.cacheWriteTokens, reasoningTokens: row.reasoningTokens, totalTokens: row.totalTokens, usageSource: row.usageSource, clientName: row.clientName, clientSource: row.clientSource, messageCount: row.messageCount, toolCount: row.toolCount, imageCount: row.imageCount, tfftMs: row.tfftMs })), nextCursor: page.nextCursor !== null ? String(page.nextCursor) : null };
+      return { items: page.items.map(mapRow), nextCursor: page.nextCursor !== null ? String(page.nextCursor) : null };
     },
-    async getRequest(requestId) { const row = runtime.metadata.queryRequests({ limit: 1, q: requestId }).items.find((item) => item.requestId === requestId); return row === undefined ? null : (await this.queryRequests({ cursor: String(row.id), limit: 1 })).items[0] ?? null; },
+    async getRequest(requestId) {
+      const row = runtime.metadata.queryRequests({ limit: 1, q: requestId }).items.find((item) => item.requestId === requestId);
+      if (row === undefined) return null;
+      const mapped = mapRow(row);
+      return { ...mapped, payloads: runtime.payloads.get(requestId) };
+    },
     async queryUsageSummary(period) {
       const summary = runtime.metadata.querySummary(period);
       const modelTotals = runtime.metadata.queryModelTokenTotals(period);

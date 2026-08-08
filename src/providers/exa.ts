@@ -25,8 +25,8 @@ import type {
   RouteTarget,
   StreamEvent,
   TokenCountInput,
-} from "../domain/contracts";
-import type { ProviderCallError } from "../domain/contracts";
+} from "../application/contracts";
+import type { ProviderCallError } from "../application/contracts";
 
 /**
  * Exa AI — Web Search API (https://api.exa.ai)
@@ -232,6 +232,7 @@ export class ExaAdapter implements Adapter {
         },
         coordinator,
         network,
+        input.capture,
       );
 
       if (!response.ok) throw await readUpstreamError(response);

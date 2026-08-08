@@ -7,7 +7,7 @@
  * Runtime metadata (usage history, console logs) is never part of a
  * configuration backup; restore never touches the runtime database.
  *
- * Security model (mirrors the legacy src.old implementation, tightened for
+ * Security model (mirrors the legacy implementation; tightened for
  * the current schema):
  * - The payload is size-bounded (checked at the API boundary) and validated
  *   structurally here before any write happens.
@@ -39,6 +39,7 @@ export const BACKUP_TABLES = [
   "access_rules",
   "provider_accounts",
   "custom_providers",
+  "warp_accounts",
   "proxies",
   "proxy_settings",
   "ip_bans",
@@ -60,7 +61,7 @@ const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
     "max_concurrent_requests", "provider_allowlist", "model_allowlist", "model_denylist",
     "last_used_at", "created_at", "revoked_at",
   ],
-  share_links: ["id", "api_key_id", "token_hash", "active", "created_at", "last_viewed_at"],
+  share_links: ["id", "api_key_id", "token_hash", "kind", "active", "created_at", "expires_at", "used_at", "last_viewed_at"],
   model_aliases: ["alias", "model", "created_at"],
   combos: ["id", "name", "models_json", "strategy", "sticky_limit", "created_at", "updated_at"],
   access_rules: ["scope", "mode", "entries_json", "updated_at"],
@@ -71,6 +72,12 @@ const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
     "created_at", "updated_at",
   ],
   custom_providers: ["id", "slug", "name", "type", "base_url", "credential", "timeout_seconds", "models_json", "headers_json", "created_at", "updated_at"],
+  warp_accounts: [
+    "id", "label", "device_id", "access_token", "license_key", "private_key",
+    "address_v4", "address_v6", "public_key", "endpoint", "endpoint_port",
+    "dns", "mtu", "socks_port", "enabled", "running", "pid",
+    "prefer_ipv6", "custom_endpoint", "persistent_keepalive", "created_at", "updated_at",
+  ],
   proxies: [
     "id", "name", "protocol", "is_relay", "host", "port", "username", "password",
     "priority", "weight", "active", "cooldown_until", "cooldown_level", "max_concurrency",
@@ -101,7 +108,7 @@ export interface RestoreResult {
 
 /** Delete dependent configuration before its providers, then restore in reverse. */
 const DELETE_ORDER: BackupTable[] = [
-  "provider_accounts", "custom_providers", "access_rules",
+  "warp_accounts", "provider_accounts", "custom_providers", "access_rules",
   "combos", "model_aliases", "share_links", "api_keys", "proxies", "proxy_settings", "ip_bans", "settings",
 ];
 const INSERT_ORDER: BackupTable[] = [...DELETE_ORDER].reverse();

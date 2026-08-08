@@ -8,8 +8,8 @@
  */
 
 import { Database } from "bun:sqlite";
-import { sanitizeMessage } from "../../domain/contracts";
-import type { ApplicationErrorKind, RouteStatus } from "../../domain/contracts";
+import { sanitizeMessage } from "../../application/contracts";
+import type { ApplicationErrorKind, RouteStatus } from "../../application/contracts";
 
 export { CONFIG_SCHEMA_SQL } from "./schema.sql";
 

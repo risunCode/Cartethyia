@@ -14,7 +14,7 @@ readUpstreamError,
 toProviderCallError, } from "../open-sse/transport/shared";
 import type { SseEvent } from "../open-sse/transport/shared";
 import { createChatMapper } from "../open-sse/transport/protocols/openai";
-import { isTerminalEvent, type ContextStats, type ContentBlock, type NormalizedMessage, type ProxyRequest, type Adapter, type ProviderCaps, type ProviderCallError, type ProviderMeta, type ProviderModel, type ProviderModelCatalog, type ProviderOutput, type ProviderRequest, type Surface, type ProviderUsage, type RequestLimits, type RouteTarget, type StopReason, type StreamEvent, type TokenCountInput } from "../domain/contracts";
+import { isTerminalEvent, type ContextStats, type ContentBlock, type NormalizedMessage, type ProxyRequest, type Adapter, type ProviderCaps, type ProviderCallError, type ProviderMeta, type ProviderModel, type ProviderModelCatalog, type ProviderOutput, type ProviderRequest, type Surface, type ProviderUsage, type RequestLimits, type RouteTarget, type StopReason, type StreamEvent, type TokenCountInput } from "../application/contracts";
 
 /**
  * Qoder — the Qoder CLI's `agent_chat_generation` SSE gateway
@@ -528,7 +528,7 @@ async function* decodeQoderStream(body: ReadableStream<Uint8Array>, coordinator:
     }
   }
   if (!terminal) {
-    throw new ProviderAdapterError({ kind: "stream_truncated", message: "Qoder stream ended before a terminal event", retryable: false, routeScope: "provider" });
+    throw new ProviderAdapterError({ kind: "stream_truncated", message: "Qoder stream ended before a terminal event", retryable: true, routeScope: "provider" });
   }
 }
 
@@ -652,7 +652,7 @@ export class QoderAdapter implements Adapter {
     // Route every upstream call (PAT exchange + inference) through the same
     // coordinator so proxy selection and connect/total timeouts cover the
     // whole exchange-then-call sequence.
-    const fetcher: QoderFetcher = (url, init) => executeFetch(url, init, coordinator, network);
+    const fetcher: QoderFetcher = (url, init) => executeFetch(url, init, coordinator, network, input.capture);
     let streamHandedOff = false;
     try {
       const auth = await exchangeQoderPat(input.credential, coordinator.signal, fetcher);

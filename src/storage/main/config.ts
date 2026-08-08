@@ -1,13 +1,14 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
-import type { ApplicationErrorKind, CredentialKind, RouteHealth, RouteScope, RouteStatus, RoutingPreset } from "../../domain/contracts";
-import { sanitizeMessage } from "../../domain/contracts";
-import type { RouteHealthStore } from "../../domain/contracts";
-import type { ModelLockRecord } from "../../domain/contracts";
+import type { ApplicationErrorKind, CredentialKind, RouteHealth, RouteScope, RouteStatus, RoutingPreset } from "../../application/contracts";
+import { sanitizeMessage } from "../../application/contracts";
+import type { RouteHealthStore } from "../../application/contracts";
+import type { ModelLockRecord } from "../../application/contracts";
 import type { AccountConfig, AccountHealthRecord, AccountHealthStore, CredentialConfigStore, ModelLockStore, OAuthTokenRecord, OAuthTokenStore, QuotaStateRecord, QuotaStateStore } from "../../auth/credentials";
 import type { ProxyConfig, ProxyPoolConfigStore } from "../../traffic/network";
 import type { FilterRuleRepository, IpBanRepository, IpBanView } from "../../console/views";
+import type { WarpAccount, WarpAccountCreateData, WarpAccountRepository, WarpAccountUpdateData } from "../../console/warp/types";
 import { getPersistenceEnv, type PersistenceEnv } from "./env";
 import { applyConfigRestore, exportConfigBackup, type BackupPayload, type RestoreResult, type RestoreValidation } from "./backup";
 
@@ -240,8 +241,11 @@ interface ShareLinkRow {
   id: string;
   api_key_id: string;
   token_hash: string;
+  kind: "monitor" | "setup";
   active: number;
   created_at: string;
+  expires_at: string | null;
+  used_at: string | null;
   last_viewed_at: string | null;
 }
 
@@ -282,6 +286,9 @@ function toApiKeyPublic(row: ApiKeyRow): ApiKeyPublic {
     monthlyTokenLimit: row.monthly_token_limit,
     oneTimeTokenLimit: row.one_time_token_limit,
     oneTimeTokensUsed: row.one_time_tokens_used,
+    quoteBigText: row.quote_big_text,
+    quoteSubText: row.quote_sub_text,
+    quoteBody: row.quote_body,
     maxConcurrentRequests: row.max_concurrent_requests,
     providerAllowlist: row.provider_allowlist,
     modelAllowlist: row.model_allowlist,
@@ -525,6 +532,18 @@ function createApiKeyRepository(db: () => Database): ApiKeyRepository {
         fields.push("monthly_token_limit = ?");
         values.push(patch.monthlyTokenLimit);
       }
+      if (patch.quoteBigText !== undefined) {
+        fields.push("quote_big_text = ?");
+        values.push(patch.quoteBigText);
+      }
+      if (patch.quoteSubText !== undefined) {
+        fields.push("quote_sub_text = ?");
+        values.push(patch.quoteSubText);
+      }
+      if (patch.quoteBody !== undefined) {
+        fields.push("quote_body = ?");
+        values.push(patch.quoteBody);
+      }
       if (patch.oneTimeTokenLimit !== undefined) {
         fields.push("one_time_token_limit = ?");
         values.push(patch.oneTimeTokenLimit);
@@ -717,6 +736,12 @@ function createHealthRepository(db: () => Database, table: string, keyColumn: st
     async list(): Promise<RouteHealth[]> {
       const rows = db().query(`SELECT status, error_kind, status_code, sanitized_message, occurred_at, retry_at, updated_at FROM ${table}`).all() as AccountHealthRow[];
       return rows.map(toHealth);
+    },
+    async listWithIds(routeIds?: readonly string[]): Promise<readonly { readonly id: string; readonly health: RouteHealth }[]> {
+      const placeholders = routeIds !== undefined && routeIds.length > 0 ? routeIds.map(() => "?").join(",") : "";
+      const where = placeholders.length > 0 ? ` WHERE ${keyColumn} IN (${placeholders})` : "";
+      const rows = db().query(`SELECT ${keyColumn} AS route_id, status, error_kind, status_code, sanitized_message, occurred_at, retry_at, updated_at FROM ${table}${where}`).all(...(routeIds ?? [])) as Array<AccountHealthRow & { route_id: string }>;
+      return rows.map((row) => ({ id: row.route_id, health: toHealth(row) }));
     },
     async upsert(routeId: string, health: RouteHealth): Promise<void> {
       // Route health is observability: never fail the caller when the
@@ -1105,8 +1130,11 @@ function createShareLinkRepository(db: () => Database): ShareLinkRepository {
     id: row.id,
     apiKeyId: row.api_key_id,
     tokenHash: row.token_hash,
+    kind: row.kind === "setup" ? "setup" : "monitor",
     active: row.active === 1,
     createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    usedAt: row.used_at,
     lastViewedAt: row.last_viewed_at,
   });
   return {
@@ -1117,13 +1145,18 @@ function createShareLinkRepository(db: () => Database): ShareLinkRepository {
     listByApiKey(apiKeyId: string): ShareLinkRecord[] {
       return (db().query("SELECT * FROM share_links WHERE api_key_id = ? ORDER BY created_at DESC").all(apiKeyId) as ShareLinkRow[]).map(toRecord);
     },
-    create(input: { id: string; apiKeyId: string; tokenHash: string; active?: boolean }): ShareLinkRecord {
+    create(input): ShareLinkRecord {
       const now = nowIso();
-      db().query("INSERT INTO share_links (id, api_key_id, token_hash, active, created_at) VALUES (?, ?, ?, ?, ?)").run(input.id, input.apiKeyId, input.tokenHash, input.active === false ? 0 : 1, now);
+      db().query("INSERT INTO share_links (id, api_key_id, token_hash, kind, active, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(input.id, input.apiKeyId, input.tokenHash, input.kind ?? "monitor", input.active === false ? 0 : 1, now, input.expiresAt ?? null);
       return toRecord(db().query("SELECT * FROM share_links WHERE id = ?").get(input.id) as ShareLinkRow);
     },
     patchActive(id: string, active: boolean): ShareLinkRecord | null {
       const result = db().query("UPDATE share_links SET active = ? WHERE id = ?").run(active ? 1 : 0, id);
+      if (result.changes === 0) return null;
+      return toRecord(db().query("SELECT * FROM share_links WHERE id = ?").get(id) as ShareLinkRow);
+    },
+    consumeSetup(id: string, now: string): ShareLinkRecord | null {
+      const result = db().query("UPDATE share_links SET active = 0, used_at = ? WHERE id = ? AND kind = 'setup' AND active = 1 AND (expires_at IS NULL OR expires_at > ?)").run(now, id, now);
       if (result.changes === 0) return null;
       return toRecord(db().query("SELECT * FROM share_links WHERE id = ?").get(id) as ShareLinkRow);
     },
@@ -1358,6 +1391,11 @@ export function createDurableOAuthTokenStore(db: () => Database): OAuthTokenStor
           expiresAtMs: typeof record.accessExpiresAt === "number" ? record.accessExpiresAt : null,
           refreshToken: typeof record.refreshToken === "string" && record.refreshToken.length > 0 ? record.refreshToken : null,
           kind: "oauth",
+          lastRefreshAtMs: typeof record.lastRefreshAtMs === "number" ? record.lastRefreshAtMs : null,
+          lastRefreshAttemptAtMs: typeof record.lastRefreshAttemptAtMs === "number" ? record.lastRefreshAttemptAtMs : null,
+          lastRefreshErrorKind: typeof record.lastRefreshErrorKind === "string" ? record.lastRefreshErrorKind as ApplicationErrorKind : null,
+          lastRefreshStatusCode: typeof record.lastRefreshStatusCode === "number" ? record.lastRefreshStatusCode : null,
+          refreshState: record.refreshState === "healthy" || record.refreshState === "retrying" || record.refreshState === "reauth_required" ? record.refreshState : undefined,
         };
       }
     } catch {
@@ -1366,7 +1404,7 @@ export function createDurableOAuthTokenStore(db: () => Database): OAuthTokenStor
     // Some OAuth-style providers accept a pasted bearer token without a
     // refresh token. Treat it as a durable access token instead of making the
     // coordinator report a misleading local refresh configuration failure.
-    return { accessToken: raw, expiresAtMs: null, refreshToken: null, kind: "oauth" };
+    return { accessToken: raw, expiresAtMs: null, refreshToken: null, kind: "oauth", refreshState: "healthy" };
   };
 
   return {
@@ -1396,6 +1434,11 @@ export function createDurableOAuthTokenStore(db: () => Database): OAuthTokenStor
         refreshToken: token.refreshToken,
         accessToken: token.accessToken,
         accessExpiresAt: token.expiresAtMs,
+        lastRefreshAtMs: token.lastRefreshAtMs ?? null,
+        lastRefreshAttemptAtMs: token.lastRefreshAttemptAtMs ?? null,
+        lastRefreshErrorKind: token.lastRefreshErrorKind ?? null,
+        lastRefreshStatusCode: token.lastRefreshStatusCode ?? null,
+        refreshState: token.refreshState ?? "healthy",
         updatedAt: Date.now(),
       };
       const hint = `…${token.accessToken.slice(-4)}`;
@@ -1486,6 +1529,7 @@ export interface ConfigPersistence {
   readonly shareLinks: ShareLinkRepository;
   readonly filterRules: FilterRuleRepository;
   readonly ipBans: IpBanRepository;
+  readonly warpAccounts: WarpAccountRepository;
   /** Repository-backed implementations of the routing/credentials/transport ports. */
   readonly stores: {
     readonly routeHealth: RouteHealthStore;
@@ -1657,6 +1701,142 @@ function createIpBanRepository(db: () => Database): IpBanRepository {
   };
 }
 
+interface WarpAccountRow {
+  id: string;
+  label: string;
+  device_id: string;
+  access_token: string;
+  license_key: string;
+  private_key: string;
+  address_v4: string;
+  address_v6: string;
+  public_key: string;
+  endpoint: string;
+  endpoint_port: number;
+  dns: string;
+  mtu: number;
+  socks_port: number;
+  enabled: number;
+  running: number;
+  pid: number | null;
+  prefer_ipv6: number;
+  custom_endpoint: string | null;
+  persistent_keepalive: number;
+  created_at: string;
+  updated_at: string | null;
+}
+
+function toWarpAccount(row: WarpAccountRow): WarpAccount {
+  return {
+    id: row.id,
+    label: row.label,
+    deviceId: row.device_id,
+    accessToken: row.access_token,
+    licenseKey: row.license_key,
+    privateKey: row.private_key,
+    addressV4: row.address_v4,
+    addressV6: row.address_v6,
+    publicKey: row.public_key,
+    endpoint: row.endpoint,
+    endpointPort: row.endpoint_port,
+    dns: row.dns,
+    mtu: row.mtu,
+    socksPort: row.socks_port,
+    enabled: row.enabled === 1,
+    running: row.running === 1,
+    pid: row.pid,
+    preferIpv6: row.prefer_ipv6 === 1,
+    customEndpoint: row.custom_endpoint,
+    persistentKeepalive: row.persistent_keepalive,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function createWarpAccountRepository(db: () => Database): WarpAccountRepository {
+  const get = (id: string): WarpAccount | null => {
+    const row = db().query("SELECT * FROM warp_accounts WHERE id = ?").get(id) as WarpAccountRow | null;
+    return row === null ? null : toWarpAccount(row);
+  };
+
+  return {
+    async list(): Promise<readonly WarpAccount[]> {
+      return (db().query("SELECT * FROM warp_accounts ORDER BY created_at ASC").all() as WarpAccountRow[]).map(toWarpAccount);
+    },
+    async get(id: string): Promise<WarpAccount | null> {
+      return get(id);
+    },
+    async create(data: WarpAccountCreateData): Promise<WarpAccount> {
+      const now = nowIso();
+      db().query(
+        "INSERT INTO warp_accounts (id, label, device_id, access_token, license_key, private_key, address_v4, address_v6, public_key, endpoint, endpoint_port, dns, mtu, socks_port, enabled, running, pid, prefer_ipv6, custom_endpoint, persistent_keepalive, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, NULL, ?, ?, ?, ?, NULL)",
+      ).run(
+        data.id,
+        data.label.trim() || `Warp-${data.socksPort}`,
+        data.deviceId,
+        data.accessToken,
+        data.licenseKey,
+        data.privateKey,
+        data.addressV4,
+        data.addressV6,
+        data.publicKey,
+        data.endpoint,
+        data.endpointPort,
+        data.dns,
+        data.mtu,
+        data.socksPort,
+        data.preferIpv6 === false ? 0 : 1,
+        data.customEndpoint ?? null,
+        Math.max(0, Math.min(120, Math.round(data.persistentKeepalive ?? 15))),
+        now,
+      );
+      const created = get(data.id);
+      if (created === null) throw new Error("Warp account was not persisted");
+      return created;
+    },
+    async update(id: string, patch: Partial<WarpAccountUpdateData>): Promise<WarpAccount | null> {
+      const fields: string[] = [];
+      const values: Array<string | number | null> = [];
+      if (patch.label !== undefined) {
+        const label = patch.label.trim();
+        if (label.length === 0) throw new Error("label cannot be empty");
+        fields.push("label = ?");
+        values.push(label);
+      }
+      if (patch.enabled !== undefined) {
+        fields.push("enabled = ?");
+        values.push(patch.enabled ? 1 : 0);
+      }
+      if (patch.socksPort !== undefined) {
+        fields.push("socks_port = ?");
+        values.push(Math.max(1, Math.min(65_535, Math.round(patch.socksPort))));
+      }
+      if (patch.preferIpv6 !== undefined) {
+        fields.push("prefer_ipv6 = ?");
+        values.push(patch.preferIpv6 ? 1 : 0);
+      }
+      if (patch.customEndpoint !== undefined) {
+        fields.push("custom_endpoint = ?");
+        values.push(patch.customEndpoint?.trim() || null);
+      }
+      if (patch.persistentKeepalive !== undefined) {
+        fields.push("persistent_keepalive = ?");
+        values.push(Math.max(0, Math.min(120, Math.round(patch.persistentKeepalive))));
+      }
+      if (fields.length === 0) return get(id);
+      values.push(nowIso(), id);
+      const result = db().query(`UPDATE warp_accounts SET ${fields.join(", ")}, updated_at = ? WHERE id = ?`).run(...values);
+      return result.changes === 0 ? null : get(id);
+    },
+    async remove(id: string): Promise<boolean> {
+      return db().query("DELETE FROM warp_accounts WHERE id = ?").run(id).changes > 0;
+    },
+    async setRunning(id: string, running: boolean, pid: number | null): Promise<void> {
+      db().query("UPDATE warp_accounts SET running = ?, pid = ?, updated_at = ? WHERE id = ?").run(running ? 1 : 0, pid, nowIso(), id);
+    },
+  };
+}
+
 export function createConfigPersistence(env: PersistenceEnv = getPersistenceEnv()): ConfigPersistence {
   let db: Database | null = null;
   let closed = false;
@@ -1674,8 +1854,18 @@ export function createConfigPersistence(env: PersistenceEnv = getPersistenceEnv(
         opened.exec("PRAGMA synchronous=FULL");
         opened.exec("PRAGMA foreign_keys=ON");
         opened.exec("PRAGMA busy_timeout=5000");
-        // Pre-migration: drop account_model_locks if it has the old schema
-        // (locked_until instead of retry_at). The CREATE INDEX in
+        // Direct-cutover migration for share links: monitor links are
+        // credential-free; setup links are short-lived and one-time.
+        try {
+          const shareCols = new Set((opened.prepare("PRAGMA table_info(share_links)").all() as { name: string }[]).map((column) => column.name));
+          if (shareCols.size > 0) {
+            if (!shareCols.has("kind")) opened.exec("ALTER TABLE share_links ADD COLUMN kind TEXT NOT NULL DEFAULT 'monitor'");
+            if (!shareCols.has("expires_at")) opened.exec("ALTER TABLE share_links ADD COLUMN expires_at TEXT");
+            if (!shareCols.has("used_at")) opened.exec("ALTER TABLE share_links ADD COLUMN used_at TEXT");
+          }
+        } catch {
+          // Table does not exist yet; CONFIG_SCHEMA_SQL creates the current form.
+        }
         // CONFIG_SCHEMA_SQL references retry_at, which would fail on old tables.
         try {
           const lockCols = opened.prepare("PRAGMA table_info(account_model_locks)").all() as { name: string }[];
@@ -1685,6 +1875,18 @@ export function createConfigPersistence(env: PersistenceEnv = getPersistenceEnv(
           }
         } catch {
           // Table doesn't exist yet — safe to ignore.
+        }
+        // Pre-migration: older proxy tables predate the repository's
+        // created_at column. Add it before the schema is applied so existing
+        // installations remain writable after the repository cutover.
+        try {
+          const proxyCols = opened.prepare("PRAGMA table_info(proxies)").all() as { name: string }[];
+          if (proxyCols.length > 0 && !proxyCols.some((column) => column.name === "created_at")) {
+            opened.exec("ALTER TABLE proxies ADD COLUMN created_at TEXT NOT NULL DEFAULT ''");
+            opened.query("UPDATE proxies SET created_at = ? WHERE created_at = ''").run(nowIso());
+          }
+        } catch {
+          // Table does not exist yet; CONFIG_SCHEMA_SQL creates the current form.
         }
         opened.exec(CONFIG_SCHEMA_SQL);
         db = opened;
@@ -1709,6 +1911,7 @@ export function createConfigPersistence(env: PersistenceEnv = getPersistenceEnv(
   const shareLinksRepo = createShareLinkRepository(getDb);
   const filterRulesRepo = createFilterRuleRepository(getDb);
   const ipBansRepo = createIpBanRepository(getDb);
+  const warpAccountsRepo = createWarpAccountRepository(getDb);
 
   return {
     env,
@@ -1725,6 +1928,7 @@ export function createConfigPersistence(env: PersistenceEnv = getPersistenceEnv(
     accessRules: accessRulesRepo,
     shareLinks: shareLinksRepo,
     filterRules: filterRulesRepo,
+    warpAccounts: warpAccountsRepo,
     ipBans: ipBansRepo,
     stores: {
       routeHealth: createDurableRouteHealthStore(getDb),

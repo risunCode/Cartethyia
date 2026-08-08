@@ -1,5 +1,5 @@
-import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../domain/contracts";
-import type { ProviderCallError } from "../domain/contracts";
+import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../application/contracts";
+import type { ProviderCallError } from "../application/contracts";
 import type { CustomProviderRecord, CustomProviderRepository } from "../storage";
 import { AbortCoordinator, ProviderAdapterError, aggregateCapabilities, capabilitiesOf, categoriesOf, executeFetch, isRecord, lineLimit, mapSseStream, modelOf, nullableNumber, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
 import { createAnthropicMapper } from "../open-sse/transport/protocols/anthropic";
@@ -21,11 +21,10 @@ import type { ProviderRegistry } from "./registry";
  * exposed through the shared cross-protocol boundary, so client surfaces are
  * translated before the request reaches the configured upstream.
  *
- * Each custom provider exposes one synthetic account (`custom:<slug>`) in
- * the route snapshot, so its stored credential participates in the standard
- * CredentialSelector selection/lease/cleanup path instead of being injected
- * outside it. The record is re-read at every call so credential rotation and
- * deletion apply immediately, and the base URL is SSRF-checked at dispatch.
+ * Credentials are selected from the provider account repository and arrive
+ * through the standard CredentialSelector lease path. The provider record is
+ * re-read at every call so URL/config changes and deletion apply immediately;
+ * the base URL is SSRF-checked at dispatch.
  */
 
 const CUSTOM_OPENAI_SURFACES: readonly Surface[] = ["openai-chat"];
@@ -138,7 +137,7 @@ export class CustomProviderAdapter implements Adapter {
       const anthropic = record.type === "anthropic-compatible";
       const headers = customHeaders(record, input.credential, request.stream, input.headers);
       const payload = anthropic ? buildMessagesPayload(request, this.capabilities) : buildChatPayload(request);
-      const response = await executeFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, input.network);
+      const response = await executeFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, input.network, input.capture);
       if (!response.ok) throw await readUpstreamError(response);
       if (!request.stream) {
         const body = await readJsonObject(response, coordinator);

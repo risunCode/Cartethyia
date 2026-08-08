@@ -1,4 +1,4 @@
-import { createCleanupStack } from "../domain/contracts";
+import { createCleanupStack } from "../application/contracts";
 
 /**
  * Minimal W3C Trace Context propagation (traceparent, tracestate).

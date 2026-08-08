@@ -170,6 +170,7 @@ const ADVANCED_NAV_GROUPS: { label: string; items: NavEntry[]; soon?: boolean }[
     label: "General",
     items: [
       { to: "/advanced", label: "Customization", icon: SlidersHorizontal },
+      { to: "/advanced/warp", label: "MultiWarp", icon: Globe },
       { to: "/advanced/filter-sanitize", label: "Filter Sanitize", icon: Filter },
       { to: "/advanced/token-saver", label: "Token Saver", icon: Coins },
       { to: "/advanced/cli-tools", label: "CLI Tools", icon: TerminalSquare },
@@ -204,6 +205,7 @@ const TITLES: Record<string, { title: string; sub: string; mobileSub: string }> 
   "/advanced": { title: "Customization", sub: "Background, sidebar icon, and appearance controls", mobileSub: "Appearance" },
   "/advanced/filter-sanitize": { title: "Filter Sanitize", sub: "Reasoning tag stripping and response content filtering", mobileSub: "Filter" },
   "/advanced/token-saver": { title: "Token Saver", sub: "Reduce token usage with compact encoding and caching", mobileSub: "Tokens" },
+  "/advanced/warp": { title: "MultiWarp", sub: "Cloudflare Warp account pool and egress instances", mobileSub: "Warp pool" },
   "/advanced/cli-tools": { title: "CLI Tools", sub: "Configure CLI tools for terminal access", mobileSub: "CLI config" },
   "/advanced/cli-tools/:toolId": { title: "CLI Tool", sub: "Tool configuration", mobileSub: "Tool config" },
   "/settings": { title: "Settings", sub: "Security, backup, runtime toggles", mobileSub: "Security & runtime" },

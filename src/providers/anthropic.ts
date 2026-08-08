@@ -28,12 +28,12 @@ import type {
   ProviderUsage,
   RouteTarget,
   TokenCountInput,
-} from "../domain/contracts";
-import type { ApplicationErrorKind, ProviderCallError } from "../domain/contracts";
-import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../domain/contracts";
+} from "../application/contracts";
+import type { ApplicationErrorKind, ProviderCallError } from "../application/contracts";
+import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../application/contracts";
 import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
 import { callAnthropicWire } from "../open-sse/transport/protocols/anthropic";
-import type { StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../domain/contracts";
+import type { StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../application/contracts";
 
 /**
  * Anthropic adapter: the "anthropic-messages" surface over the Messages

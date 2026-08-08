@@ -8,7 +8,7 @@
  * without clobbering user settings.
  */
 
-import type { Surface } from "../../domain/contracts";
+import type { Surface } from "../../application/contracts";
 
 /** The Cartethyia proxy surface a CLI tool targets. */
 export type CliToolSurface = Extract<Surface, "openai-chat" | "openai-responses" | "anthropic-messages">;

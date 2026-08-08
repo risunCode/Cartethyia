@@ -28,12 +28,12 @@ import type {
   ProviderUsage,
   RouteTarget,
   TokenCountInput,
-} from "../domain/contracts";
-import type { ProviderCallError } from "../domain/contracts";
-import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../domain/contracts";
+} from "../application/contracts";
+import type { ProviderCallError } from "../application/contracts";
+import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../application/contracts";
 import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../open-sse/translate/codecs/gemini-generate-content";
 import { callGeminiWire } from "../open-sse/transport/protocols/gemini";
-import type { StreamEvent } from "../domain/contracts";
+import type { StreamEvent } from "../application/contracts";
 
 /** Direct Gemini Generative Language API adapter. */
 const GEMINI_SURFACES: readonly Surface[] = ["openai-chat", "openai-responses", "anthropic-messages", "images"];

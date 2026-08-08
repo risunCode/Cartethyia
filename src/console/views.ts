@@ -9,9 +9,9 @@
  * Extracted from `services.ts` so each concern owns its own file.
  */
 
-import type { CredentialKind, ModelMetadata, ProviderModel, Surface, RoutingPreset, UsageDimension, UsagePeriod } from "../domain/contracts";
-import type { RouteHealth, RouteScope, RouteSwitch } from "../domain/contracts";
-import type { ModelMetadataResolver, ResolvedModelMetadata } from "../domain/model-metadata";
+import type { CredentialKind, ModelMetadata, ProviderModel, Surface, RoutingPreset, UsageDimension, UsagePeriod } from "../application/contracts";
+import type { RouteHealth, RouteScope, RouteSwitch } from "../application/contracts";
+import type { ModelMetadataResolver, ResolvedModelMetadata } from "../application/model-metadata";
 import type { ChartBucket, ModelTokenTotalsRow, UsageByRow, UsageCacheSummary } from "../storage";
 import type { BackupPayload, RestoreResult, RestoreValidation } from "../storage";
 import type { OAuthTokenStore, QuotaSnapshotState, QuotaStateStore } from "../auth/credentials";
@@ -51,7 +51,7 @@ export function consoleError(code: ConsoleErrorCode, message: string, requestId?
 export interface ConsoleRuntimeSettings {
   readonly proxyAuthMode: "open" | "api_key";
   readonly privacyMode: "masked" | "full";
-  readonly trackPayloads: "none" | "meta";
+  readonly trackPayloads: "none" | "bounded";
   readonly trackAssets: "none" | "meta" | "store";
   readonly logRetentionDays: number;
   readonly assetRetentionDays: number;
@@ -626,6 +626,12 @@ export interface RequestHistoryRow {
   readonly toolCount: number;
   readonly imageCount: number;
   readonly tfftMs: number | null;
+  readonly payloads?: {
+    readonly clientRequest: { readonly text: string; readonly truncated: boolean; readonly originalBytes: number; readonly capturedBytes: number } | null;
+    readonly providerRequest: { readonly text: string; readonly truncated: boolean; readonly originalBytes: number; readonly capturedBytes: number } | null;
+    readonly providerResponse: { readonly text: string; readonly truncated: boolean; readonly originalBytes: number; readonly capturedBytes: number } | null;
+    readonly clientResponse: { readonly text: string; readonly truncated: boolean; readonly originalBytes: number; readonly capturedBytes: number } | null;
+  } | null;
 }
 
 export interface UsageSummaryView {

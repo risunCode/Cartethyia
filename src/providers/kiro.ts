@@ -16,9 +16,9 @@ import type {
   RouteTarget,
   StreamEvent,
   TokenCountInput,
-} from "../domain/contracts";
-import type { NormalizedMessage } from "../domain/contracts";
-import type { ProviderCallError } from "../domain/contracts";
+} from "../application/contracts";
+import type { NormalizedMessage } from "../application/contracts";
+import type { ProviderCallError } from "../application/contracts";
 
 /**
  * Kiro AI adapter — https://kiro.dev/generateAssistantResponse.
@@ -371,7 +371,7 @@ export class KiroAdapter implements Adapter {
       let lastError: unknown;
       for (const url of orderedEndpoints(bundle?.region ?? "", bundle?.authMethod)) {
         try {
-          response = await executeFetch(url, { method: "POST", headers: kiroHeaders(accessToken, bundle?.authMethod), body: JSON.stringify(payload) }, coordinator, network);
+          response = await executeFetch(url, { method: "POST", headers: kiroHeaders(accessToken, bundle?.authMethod), body: JSON.stringify(payload) }, coordinator, network, input.capture);
           if (response.ok) break;
           try {
             await readUpstreamError(response);

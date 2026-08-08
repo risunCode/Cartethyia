@@ -34,7 +34,7 @@ import { existsSync, renameSync, unlinkSync, writeFileSync, readFileSync, copyFi
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { getPersistenceEnv, type PersistenceEnv } from "../../storage/main/env";
-import { sanitizeMessage } from "../../domain/contracts";
+import { sanitizeMessage } from "../../application/contracts";
 import {
   isSensitiveColumn,
   type ColumnInfo,

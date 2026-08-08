@@ -1,4 +1,4 @@
-import type { CredentialKind } from "../domain/contracts";
+import type { CredentialKind } from "../application/contracts";
 
 /** Provider-neutral token material returned by OAuth exchange and refresh drivers. */
 export interface TokenSet {

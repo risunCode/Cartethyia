@@ -12,16 +12,17 @@
  */
 
 import { Elysia, type HTTPHeaders } from "elysia";
-import { MAX_BACKUP_BYTES } from "../storage";
+import { MAX_BACKUP_BYTES, type ConfigPersistence } from "../storage";
 import { convert9RouterBackup } from "./compat/9router";
 import type { ModelProbeInput, ModelProbeResult, ProbePorts } from "./probe";
 import type { ConsoleDiagnostics } from "./diagnostics";
 import { createStudioSession, deleteStudioSession, getStudioSession, listStudioSessions, normalizeStudioMessages, patchStudioSession } from "./model-studio";
 import type { ConsoleLogStreamHub } from "./streams";
 import { createCliToolsApi } from "./cli-tools/api-routes";
-import type { ConfigPersistence } from "../storage";
+import { createWarpApi, type WarpApiMount } from "./warp/api-routes";
 import type { RuntimePersistence } from "../storage/runtime/runtime";
 import { createDbMapApi } from "./db-map/api-routes";
+import { createShareLink } from "./share";
 import type { DbMapPersistence } from "./db-map/service";
 import type { DbTarget } from "./db-map/types";
 import {
@@ -34,13 +35,13 @@ import {
   type ConsoleServices,
   type LoginResult,
 } from "./services";
-import { runProxyRequest, type ProxyRequestDependencies } from "../app/request";
+import { runProxyRequest, type ProxyRequestDependencies } from "../application/request";
 import { appendTerminalError } from "../open-sse/handlers";
 import { metrics, toPrometheus } from "../observability/metrics";
 import { extractTraceContext, injectTraceContext, traceMiddleware } from "../observability/tracing";
 import { encodeSurfaceStream } from "../providers/surfaces";
 import { beginProviderInFlight, endProviderInFlight, getInFlightCount, getProviderInFlight, subscribeInFlight } from "../traffic/in-flight";
-import type { PresentedProxyResponse } from "../domain/contracts";
+import type { PresentedProxyResponse } from "../application/contracts";
 
 export interface ConsoleRouterDependencies {
   readonly services: ConsoleServices;
@@ -190,6 +191,7 @@ function consoleLogStream(hub: ConsoleLogStreamHub, request: Request): Response 
 
 export function createConsoleApi(deps: ConsoleRouterDependencies) {
   const { services, diagnostics, config, runtime } = deps;
+  const warpApi: WarpApiMount = createWarpApi(config, runtime);
   const sessionGuard = makeSessionGuard(services);
 
   // Bridge the console's config/runtime singletons into db-map's coordination
@@ -217,8 +219,14 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
   };
 
   const app = new Elysia({ prefix: "/console/api" })
+    .onBeforeHandle(({ request, body, query }) => {
+      if (request.method !== "QUERY" || typeof body !== "object" || body === null || Array.isArray(body)) return;
+      for (const [key, value] of Object.entries(body)) {
+        if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") query[key] = String(value);
+      }
+    })
     // ---- public ----
-    .get("/ip", () => ({ ips: diagnostics.localIps() }))
+    .route("QUERY", "/ip", () => ({ ips: diagnostics.localIps() }))
     .post("/login", async ({ body, request, set }: { body: unknown; request: Request; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const snapshot = await services.settings.get();
       const result: LoginResult = await services.auth.login(
@@ -248,7 +256,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           set.headers["set-cookie"] = buildSessionClearCookie();
           return ok();
         })
-        .get("/session", async () => services.auth.session())
+        .route("QUERY", "/session", async () => services.auth.session())
         .post("/settings/password", async ({ body, set }) => {
           const value = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
           const result = await services.auth.changePassword(value.currentPassword, value.newPassword, value.confirmPassword);
@@ -268,7 +276,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           set.headers["set-cookie"] = buildSessionClearCookie();
           return ok();
         })
-        .get("/settings", async () => ({ settings: await services.settings.get() }))
+        .route("QUERY", "/settings", async () => ({ settings: await services.settings.get() }))
         .post("/settings", async ({ body }) => ({ settings: await services.settings.patchRuntime(body) }))
         // ---- backup / restore (dashboard Settings → "Backup & Restore") ----
         // Export is config-only by design: runtime metadata (usage history,
@@ -281,7 +289,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           if (!result.ok) { set.status = result.status; return consoleError(result.code ?? "invalid_request", result.message); }
           return { ok: true, message: result.message };
         })
-        .get("/settings/backup", async ({ request, set }: { request: Request; set: { status?: number | string; headers: HTTPHeaders } }) => {
+        .route("QUERY", "/settings/backup", async ({ request, set }: { request: Request; set: { status?: number | string; headers: HTTPHeaders } }) => {
           const verified = await services.backup.verifyPassword(request.headers.get("x-console-password"));
           if (!verified.ok) {
             set.status = verified.status;
@@ -322,7 +330,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           }
         })
         // ---- keys ----
-        .get("/keys", async () => ({ items: await services.keys.list() }))
+        .route("QUERY", "/keys", async () => ({ items: await services.keys.list() }))
         .post("/keys", async ({ body, set }) => {
           const result = await services.keys.create(body);
           if (!("key" in result)) {
@@ -348,13 +356,34 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           if (!(await services.keys.remove(params.id))) return notFound(set);
           return ok();
         })
-        .get("/keys/:id/credential", async ({ params, set }) => {
+        .route("QUERY", "/keys/:id/credential", async ({ params, set }) => {
           const secret = await services.keys.credential(params.id);
           if (secret === null) return notFound(set);
           return secret;
         })
+        .post("/keys/:id/share", async ({ params, request, set }) => {
+          const key = config.apiKeys.getById(params.id);
+          if (key === null) return notFound(set);
+          const link = await createShareLink(config, params.id, "monitor");
+          return { url: new URL(link.urlPath, request.url).toString(), expiresAt: link.expiresAt };
+        })
+        .post("/keys/:id/setup-link", async ({ params, request, set }) => {
+          const key = config.apiKeys.getById(params.id);
+          if (key === null) return notFound(set);
+          const link = await createShareLink(config, params.id, "setup");
+          return { url: new URL(link.urlPath, request.url).toString(), expiresAt: link.expiresAt };
+        })
+        .delete("/keys/:id/share", async ({ params, set }) => {
+          const key = config.apiKeys.getById(params.id);
+          if (key === null) return notFound(set);
+          let removed = 0;
+          for (const link of config.shareLinks.listByApiKey(params.id)) {
+            if (link.kind === "monitor" && link.active && config.shareLinks.patchActive(link.id, false)) removed += 1;
+          }
+          return { removed };
+        })
         // ---- providers ----
-        .get("/providers", async () => {
+        .route("QUERY", "/providers", async () => {
           const providers = await services.providers.list();
           const items = await Promise.all(providers.map(async (provider) => {
             const [routingResult, accountsResult, modelsResult] = await Promise.allSettled([
@@ -377,7 +406,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           }));
           return { items };
         })
-        .get("/providers/:id", async ({ params, set }) => {
+        .route("QUERY", "/providers/:id", async ({ params, set }) => {
           const [summary, config, routing, models, accounts, custom] = await Promise.all([
             services.providers.list(),
             services.providers.getConfig(params.id),
@@ -416,7 +445,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           return config;
         })
         .post("/providers/:id/routing", async ({ params, body }) => ({ settings: await services.providers.setRouting(params.id, body) }))
-        .get("/providers/:id/models", async ({ params }) => ({ items: await services.models.list(params.id) }))
+        .route("QUERY", "/providers/:id/models", async ({ params }) => ({ items: await services.models.list(params.id) }))
         .post("/providers/:id/models/fetch", async ({ params, set }) => {
           try {
             const discovered = await services.providers.discoverBuiltinModels(params.id);
@@ -463,7 +492,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           return ok({ enabled });
         })
         // ---- custom providers ----
-        .get("/custom-providers", async () => ({ items: await services.providers.listCustom() }))
+        .route("QUERY", "/custom-providers", async () => ({ items: await services.providers.listCustom() }))
         .post("/custom-providers", async ({ body, set }) => {
           const result = await services.providers.createCustom(body);
           if (!("id" in result)) {
@@ -481,7 +510,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           if (!(await services.providers.removeCustom(params.id))) return notFound(set);
           return ok();
         })
-        .get("/custom-providers/:id/credential", async ({ params, set }) => {
+        .route("QUERY", "/custom-providers/:id/credential", async ({ params, set }) => {
           const secret = await services.providers.customCredential(params.id);
           if (secret === null) return notFound(set);
           return secret;
@@ -509,7 +538,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           return ok();
         })
         // ---- accounts ----
-        .get("/providers/:id/accounts", async ({ params, query }) => {
+        .route("QUERY", "/providers/:id/accounts", async ({ params, query }) => {
           const limit = Number(query.limit) || 50;
           const cursor = typeof query.cursor === "string" && query.cursor.length > 0 ? query.cursor : undefined;
           return await services.accounts.listPaged(params.id, { limit, cursor });
@@ -560,7 +589,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           if (!(await services.accounts.remove(params.id))) return notFound(set);
           return ok();
         })
-        .get("/accounts/:id/credential", async ({ params, set }) => {
+        .route("QUERY", "/accounts/:id/credential", async ({ params, set }) => {
           const secret = await services.accounts.credential(params.id);
           if (secret === null) return notFound(set);
           return secret;
@@ -570,7 +599,13 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           if (quota === null) return notFound(set);
           return quota;
         })
-        .get("/accounts/:id/quota", async ({ params, set }) => {
+        .post("/quota/refresh", async ({ body }) => {
+          const value = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
+          const rawIds = Array.isArray(value.accountIds) ? value.accountIds : [];
+          const accountIds = rawIds.filter((id): id is string => typeof id === "string" && id.length > 0);
+          return { ok: true, ...services.quota.enqueueRefresh(accountIds) };
+        })
+        .route("QUERY", "/accounts/:id/quota", async ({ params, set }) => {
           const quota = await services.quota.get(params.id);
           if (quota === null) return notFound(set);
           return quota;
@@ -589,7 +624,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           }
           return result;
         })
-        .get("/oauth/sessions/:sessionId", async ({ params, set }) => {
+        .route("QUERY", "/oauth/sessions/:sessionId", async ({ params, set }) => {
           const session = await services.oauth.session(params.sessionId);
           if (session === null) return notFound(set, "OAuth login session not found");
           return session;
@@ -623,13 +658,13 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           if (!(await services.oauth.revoke(params.id, params.accountId))) return notFound(set, "account not found");
           return ok();
         })
-        .get("/accounts/:id/oauth-status", async ({ params, set }) => {
+        .route("QUERY", "/accounts/:id/oauth-status", async ({ params, set }) => {
           const status = await services.oauth.accountStatus(params.id);
           if (status === null) return notFound(set, "account not found");
           return status;
         })
         // ---- proxies ----
-        .get("/proxies", async ({ query }) => {
+        .route("QUERY", "/proxies", async ({ query }) => {
           const items = await services.proxies.list();
           const limit = typeof query.limit === "string" && Number.isFinite(Number(query.limit)) ? Math.min(Math.max(Number(query.limit), 1), 100) : 100;
           return { items: items.slice(0, limit) };
@@ -656,15 +691,15 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           if (!(await services.proxies.remove(params.id))) return notFound(set);
           return ok();
         })
-        .get("/proxies/:id/credential", async ({ params, set }) => {
+        .route("QUERY", "/proxies/:id/credential", async ({ params, set }) => {
           const secret = await services.proxies.credential(params.id);
           if (secret === null) return notFound(set);
           return secret;
         })
-        .get("/proxy-settings", async () => services.proxies.getSettings())
+        .route("QUERY", "/proxy-settings", async () => services.proxies.getSettings())
         .post("/proxy-settings", async ({ body }) => services.proxies.patchSettings(body))
         // ---- aliases and combos ----
-        .get("/aliases", async () => ({ items: await services.routing.listAliases() }))
+        .route("QUERY", "/aliases", async () => ({ items: await services.routing.listAliases() }))
         .post("/aliases", async ({ body, set }) => {
           const result = await services.routing.createAlias(body);
           if (!("alias" in result)) {
@@ -676,7 +711,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           if (!(await services.routing.deleteAlias(params.alias))) return notFound(set);
           return ok();
         })
-        .get("/combos", async () => ({ items: await services.routing.listCombos() }))
+        .route("QUERY", "/combos", async () => ({ items: await services.routing.listCombos() }))
         .post("/combos", async ({ body, set }) => {
           const result = await services.routing.putCombo(body);
           if (!("id" in result)) {
@@ -696,7 +731,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           return ok();
         })
         // ---- filter rules ----
-        .get("/filters", async () => services.filterRules.list())
+        .route("QUERY", "/filters", async () => services.filterRules.list())
         .post("/filters", async ({ body, set }) => {
           const result = await services.filterRules.create(body);
           if (!("ruleId" in result)) { set.status = result.status; return consoleError(result.code, result.message); }
@@ -717,37 +752,39 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           return ok();
         })
         // ---- CLI tools ----
+        // ---- Warp pool ----
+        .use(warpApi.app)
         .use(createCliToolsApi())
         // ---- Database Map ----
         .use(createDbMapApi(dbMapPersistence))
         .post("/resolve-preview", async ({ body }) => diagnostics.resolvePreview(body))
         // ---- usage / runtime metadata ----
-        .get("/usage/summary", async ({ query }) => ({
+        .route("QUERY", "/usage/summary", async ({ query }) => ({
           period: typeof query.period === "string" ? query.period : "24h",
           totals: await diagnostics.usageSummary(query.period),
         }))
-        .get("/usage/cache", async ({ query }) => ({ period: typeof query.period === "string" ? query.period : "24h", ...(await diagnostics.usageCache(query.period)) }))
-        .get("/usage/chart", async ({ query }) => ({ buckets: await diagnostics.usageChart(query.period) }))
-        .get("/usage/by-model", async ({ query }) => ({ rows: await diagnostics.usageBy("model", query.period) }))
-        .get("/usage/by-key", async ({ query }) => ({ rows: await diagnostics.usageBy("key", query.period) }))
-        .get("/usage/recent", async () => ({ items: (await diagnostics.requestHistory({ limit: 10 })).items }))
-        .get("/usage/requests", async ({ query }) => diagnostics.requestHistory(query))
-        .get("/usage/requests/:id", async ({ params, set }) => {
+        .route("QUERY", "/usage/cache", async ({ query }) => ({ period: typeof query.period === "string" ? query.period : "24h", ...(await diagnostics.usageCache(query.period)) }))
+        .route("QUERY", "/usage/chart", async ({ query }) => ({ buckets: await diagnostics.usageChart(query.period) }))
+        .route("QUERY", "/usage/by-model", async ({ query }) => ({ rows: await diagnostics.usageBy("model", query.period) }))
+        .route("QUERY", "/usage/by-key", async ({ query }) => ({ rows: await diagnostics.usageBy("key", query.period) }))
+        .route("QUERY", "/usage/recent", async () => ({ items: (await diagnostics.requestHistory({ limit: 10 })).items }))
+        .route("QUERY", "/usage/requests", async ({ query }) => diagnostics.requestHistory(query))
+        .route("QUERY", "/usage/requests/:id", async ({ params, set }) => {
           const row = await diagnostics.requestDetail(params.id);
           if (row === null) return notFound(set, "request not found");
           return row;
         })
-        .get("/usage/by-provider", async ({ query }) => ({ rows: await diagnostics.usageBy("provider", query.period) }))
+        .route("QUERY", "/usage/by-provider", async ({ query }) => ({ rows: await diagnostics.usageBy("provider", query.period) }))
         // ---- IP monitoring ----
-        .get("/ips/summary", async ({ query }) => {
+        .route("QUERY", "/ips/summary", async ({ query }) => {
           const limit = typeof query.limit === "string" ? Number(query.limit) : 100;
           return { items: await diagnostics.queryIpSummary(Number.isFinite(limit) ? limit : 100) };
         })
-        .get("/ips/:ip/requests", async ({ params, query }) => {
+        .route("QUERY", "/ips/:ip/requests", async ({ params, query }) => {
           return diagnostics.requestHistory({ ...query, clientIp: params.ip });
         })
         // ---- IP bans ----
-        .get("/ip-bans", async () => ({ items: await config.ipBans.list() }))
+        .route("QUERY", "/ip-bans", async () => ({ items: await config.ipBans.list() }))
         .post("/ip-bans", async ({ body, set }) => {
           const value = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
           const ip = typeof value.ip === "string" ? value.ip.trim() : "";
@@ -760,25 +797,25 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           return ok();
         })
         // ---- diagnostics ----
-        .get("/health/status", async () => diagnostics.status())
-        .get("/health/metrics", async () => diagnostics.metrics())
-        .get("/metrics", async ({ set }) => {
+        .route("QUERY", "/health/status", async () => diagnostics.status())
+        .route("QUERY", "/health/metrics", async () => diagnostics.metrics())
+        .route("QUERY", "/metrics", async ({ set }) => {
           set.headers["content-type"] = "text/plain; version=0.0.4; charset=utf-8";
           return toPrometheus();
         })
         .post("/health/gc", async () => diagnostics.gc())
-        .get("/live/in-flight", () => liveTrafficSnapshot(deps.liveTraffic))
+        .route("QUERY", "/live/in-flight", () => liveTrafficSnapshot(deps.liveTraffic))
         .get("/live/in-flight/stream", ({ request }) => liveTrafficStream(request, deps.liveTraffic))
-        .get("/overview", async () => diagnostics.overview())
-        .get("/console-logs", async ({ query }) => ({ items: await diagnostics.logs(query.limit) }))
+        .route("QUERY", "/overview", async () => diagnostics.overview())
+        .route("QUERY", "/console-logs", async ({ query }) => ({ items: await diagnostics.logs(query.limit) }))
         .delete("/console-logs", async () => {
           await deps.services.telemetry.clearLogs();
           deps.logStream.broadcastClear();
           return ok();
         })
         .get("/console-logs/stream", ({ request }) => consoleLogStream(deps.logStream, request))
-        .get("/model-studio/sessions", () => ({ items: listStudioSessions() }))
-        .get("/model-studio/sessions/:id", ({ params, set }) => {
+        .route("QUERY", "/model-studio/sessions", () => ({ items: listStudioSessions() }))
+        .route("QUERY", "/model-studio/sessions/:id", ({ params, set }) => {
           const session = getStudioSession(params.id);
           if (session === null) return notFound(set, "session not found");
           return session;
@@ -872,6 +909,6 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
         }),
     );
 
-  return { app };
+  return { app, warpService: warpApi.service };
 }
 

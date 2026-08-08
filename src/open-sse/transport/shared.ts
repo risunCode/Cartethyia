@@ -1,12 +1,12 @@
-import type { ApplicationErrorKind, ProviderCallError } from "../../domain/contracts";
-import { boundedRetryAt, deriveErrorSource, sanitizeMessage } from "../../domain/contracts";
-import { isUsageLimitOutcome, parseRateLimitReason } from "../../domain/rate-limit";
-import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../../domain/contracts";
-import type { CredentialKind } from "../../domain/contracts";
-import type { ModelCapabilityCategory, ModelContextLimits, ModelTokenPricing } from "../../domain/contracts";
-import type { NetworkSelection } from "../../domain/contracts";
-import type { NormalizedMessage, RequestLimits } from "../../domain/contracts";
-import { isTerminalEvent, type StreamEvent } from "../../domain/contracts";
+import type { ApplicationErrorKind, ProviderCallError } from "../../application/contracts";
+import { boundedRetryAt, deriveErrorSource, sanitizeMessage } from "../../application/contracts";
+import { isUsageLimitOutcome, parseRateLimitReason } from "../../application/rate-limit";
+import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../../application/contracts";
+import type { CredentialKind } from "../../application/contracts";
+import type { ModelCapabilityCategory, ModelContextLimits, ModelTokenPricing } from "../../application/contracts";
+import type { NetworkSelection } from "../../application/contracts";
+import type { NormalizedMessage, RequestLimits } from "../../application/contracts";
+import { isTerminalEvent, type StreamEvent } from "../../application/contracts";
 import { runtimeMemoryLimits } from "../../traffic/limits";
 import { buildProxyFetcher } from "../../traffic";
 import { ProtocolCodecError } from "../translate/errors";
@@ -278,9 +278,10 @@ export class AbortCoordinator {
  */
 
 
-export async function executeFetch(url: string, init: RequestInit, coordinator: AbortCoordinator, network?: NetworkSelection): Promise<Response> {
+export async function executeFetch(url: string, init: RequestInit, coordinator: AbortCoordinator, network?: NetworkSelection, capture?: { request(value: unknown): void; observeResponse(response: Response): Response }): Promise<Response> {
   try {
     const requestInit = { ...init, signal: coordinator.signal };
+    if (init.body !== undefined) capture?.request(typeof init.body === "string" ? init.body : String(init.body));
     // Direct (non-proxied) fetches follow redirects manually so every redirect
     // hop is re-validated through the SSRF guard — a safe initial URL must not
     // be able to redirect to a private/internal target. The initial URL is
@@ -302,7 +303,7 @@ export async function executeFetch(url: string, init: RequestInit, coordinator: 
         })
       : await buildProxyFetcher({ url: network.url, isRelay: network.isRelay })(url, requestInit);
     coordinator.markHeadersReceived();
-    return response;
+    return capture?.observeResponse(response) ?? response;
   } catch (error) {
     if (error instanceof ProviderAdapterError) throw error;
     if (isAbortError(error)) {
@@ -488,7 +489,7 @@ function mapStreamAbortError(coordinator: AbortCoordinator, error: unknown): Pro
     if (coordinator.causeOf() === "caller") {
       return new ProviderAdapterError({ kind: "client_aborted", message: "Stream aborted by caller", retryable: false, routeScope: null });
     }
-    return new ProviderAdapterError({ kind: "stream_timeout", message: "Upstream stream timed out", retryable: false, routeScope: "provider" });
+    return new ProviderAdapterError({ kind: "stream_timeout", message: "Upstream stream timed out", retryable: true, routeScope: "provider" });
   }
   return new ProviderAdapterError({ kind: "provider_protocol_error", message: sanitizeMessage(error), retryable: false, routeScope: "provider" });
 }
@@ -608,7 +609,7 @@ export async function* mapSseStream(config: SseDecodeConfig, mapper: StreamMappe
     }
   }
   if (!terminal) {
-    throw new ProviderAdapterError({ kind: "stream_truncated", message: "Upstream stream ended before a terminal event", retryable: false, routeScope: "provider" });
+    throw new ProviderAdapterError({ kind: "stream_truncated", message: "Upstream stream ended before a terminal event", retryable: true, routeScope: "provider" });
   }
 }
 
@@ -734,13 +735,15 @@ export interface OpenAIAdapterConfig {
   readonly auth?: "bearer" | "x-api-key" | "none";
   readonly models?: readonly ProviderModel[];
 }
+export interface ProviderCatalogAdapter {
+  readonly metadata: ProviderMeta;
+  readonly capabilities: ProviderCaps;
+  readonly models: ProviderModelCatalog;
+  resolveTarget(modelId: string, surface: Surface): RouteTarget;
+}
 
-/**
- * Creates a standalone OpenAI-compatible Chat Completions adapter.
- * Each provider file imports this to create its own adapter instance.
- */
-export function makeOpenAIAdapter(config: OpenAIAdapterConfig): Adapter {
-  const baseUrl = config.baseUrl.replace(/\/+$/, "");
+/** Builds the eager catalog half of an OpenAI-compatible adapter. */
+export function describeOpenAIAdapter(config: OpenAIAdapterConfig): ProviderCatalogAdapter {
   const models = config.models ?? [];
   const modelCatalog = createModelCatalog(models);
   const capabilities = aggregateCapabilities(models, OPENAI_FALLBACK_CAPS);
@@ -751,35 +754,6 @@ export function makeOpenAIAdapter(config: OpenAIAdapterConfig): Adapter {
     credentialKind: config.credentialKind,
     ...(config.credentialUrl ? { credentialUrl: config.credentialUrl } : {}),
   };
-  const auth = config.auth ?? "bearer";
-
-  function assertSupported(input: ProviderRequest): void {
-    if (input.target.providerId !== metadata.id) {
-      throw new ProviderAdapterError({
-        kind: "capability_unsupported",
-        message: `Adapter "${metadata.id}" cannot serve provider "${input.target.providerId}"`,
-        statusCode: 400,
-        routeScope: null,
-      });
-    }
-    if (!capabilities.surfaces.includes(input.target.surface)) {
-      throw new ProviderAdapterError({
-        kind: "capability_unsupported",
-        message: `Provider "${metadata.id}" does not support surface "${input.target.surface}"`,
-        statusCode: 400,
-        routeScope: null,
-      });
-    }
-    if (input.request.stream && !capabilities.streaming) {
-      throw new ProviderAdapterError({
-        kind: "capability_unsupported",
-        message: `Provider "${metadata.id}" does not support streaming`,
-        statusCode: 400,
-        routeScope: null,
-      });
-    }
-  }
-
   return {
     metadata,
     capabilities,
@@ -797,6 +771,48 @@ export function makeOpenAIAdapter(config: OpenAIAdapterConfig): Adapter {
       const upstreamModelId = entry?.upstreamId ?? modelId;
       return { providerId: metadata.id, modelId, upstreamModelId, surface };
     },
+  };
+}
+
+
+/**
+ * Creates a standalone OpenAI-compatible Chat Completions adapter.
+ * Each provider file imports this to create its own adapter instance.
+ */
+export function makeOpenAIAdapter(config: OpenAIAdapterConfig): Adapter {
+  const baseUrl = config.baseUrl.replace(/\/+$/, "");
+  const catalog = describeOpenAIAdapter(config);
+  const auth = config.auth ?? "bearer";
+
+  function assertSupported(input: ProviderRequest): void {
+    if (input.target.providerId !== catalog.metadata.id) {
+      throw new ProviderAdapterError({
+        kind: "capability_unsupported",
+        message: `Adapter "${catalog.metadata.id}" cannot serve provider "${input.target.providerId}"`,
+        statusCode: 400,
+        routeScope: null,
+      });
+    }
+    if (!catalog.capabilities.surfaces.includes(input.target.surface)) {
+      throw new ProviderAdapterError({
+        kind: "capability_unsupported",
+        message: `Provider "${catalog.metadata.id}" does not support surface "${input.target.surface}"`,
+        statusCode: 400,
+        routeScope: null,
+      });
+    }
+    if (input.request.stream && !catalog.capabilities.streaming) {
+      throw new ProviderAdapterError({
+        kind: "capability_unsupported",
+        message: `Adapter "${catalog.metadata.id}" does not support streaming`,
+        statusCode: 400,
+        routeScope: null,
+      });
+    }
+  }
+
+  return {
+    ...catalog,
     async call(input: ProviderRequest): Promise<ProviderOutput> {
       assertSupported(input);
       const { request, credential } = input;

@@ -1,1 +1,0 @@
-export { metrics, MetricNames, MetricLabels, toPrometheus } from "./metrics";

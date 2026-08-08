@@ -1,5 +1,6 @@
-import { sanitizeMessage, type ApplicationErrorKind, type AccountCandidate, type CredentialKind, type CredentialSelection, type ModelLockRecord, type ProviderCallError, type RouteHealth, type RouteStatus } from "../domain/contracts";
+import { sanitizeMessage, type ApplicationErrorKind, type AccountCandidate, type CredentialKind, type CredentialSelection, type ModelLockRecord, type ProviderCallError, type RouteHealth, type RouteStatus } from "../application/contracts";
 import { makeProviderError } from "../traffic";
+import type { TokenRefreshPool } from "./token-refresh";
 
 /**
  * Persistence ports for credential, quota, and account-health state.
@@ -56,7 +57,7 @@ export class MemoryAccountHealthStore implements AccountHealthStore {
 /**
  * Per-model lock persistence port. Backed by an in-memory Map for tests
  * (keyed by `${accountId}:${modelId}`) and a durable SQLite table in
- * production. The record type itself lives in domain/contracts to avoid a
+ * production. The record type itself lives in application/contracts to avoid a
  * circular import (contracts defines AccountCandidate which references it).
  */
 export interface ModelLockStore {
@@ -165,6 +166,16 @@ export interface OAuthTokenRecord {
   readonly expiresAtMs: number | null;
   readonly refreshToken: string | null;
   readonly kind: "oauth";
+  /** Timestamp of the last successful refresh, used by provider stale-token policies. */
+  readonly lastRefreshAtMs?: number | null;
+  /** Timestamp of the last refresh attempt, including failures. */
+  readonly lastRefreshAttemptAtMs?: number | null;
+  /** Sanitized application error kind from the last refresh failure. */
+  readonly lastRefreshErrorKind?: ApplicationErrorKind | null;
+  /** HTTP status from the last refresh failure, when available. */
+  readonly lastRefreshStatusCode?: number | null;
+  /** Persistent state used to stop retrying revoked grants. */
+  readonly refreshState?: "healthy" | "retrying" | "reauth_required";
 }
 
 export interface OAuthTokenStore {
@@ -388,117 +399,6 @@ export type OAuthRefreshResult =
   | { readonly ok: true; readonly token: OAuthTokenRecord }
   | { readonly ok: false; readonly error: ProviderCallError };
 
-export interface OAuthCoordinatorOptions {
-  readonly safetySkewMs?: number;
-  readonly nowMs?: () => number;
-}
-
-export interface OAuthLease {
-  readonly leaseId: string;
-  readonly token: OAuthTokenRecord;
-  /** Releases this lease exactly once; subsequent calls return false. */
-  release(): boolean;
-}
-
-/**
- * Expiry-driven, single-flight OAuth token coordination keyed per account.
- *
- * - A cached access token is used while `now + safetySkewMs < expiresAtMs`;
- *   otherwise a refresh runs and concurrent callers for the same account
- *   coalesce onto the single in-flight refresh (single-flight per account).
- * - Quota sweeps (QuotaCoordinator) never touch tokens here: refresh is
- *   driven purely by expiry, so request-time refresh does not churn
- *   credentials on the 15-minute quota sweep interval.
- * - Tokens are secrets: they only leave this module inside an OAuthLease /
- *   CredentialSelection and never appear in errors or health payloads.
- */
-export class OAuthCoordinator {
-  private readonly safetySkewMs: number;
-  private readonly nowMs: () => number;
-  private readonly inflight = new Map<string, Promise<OAuthTokenRecord>>();
-  private readonly leases = new Map<string, string>();
-  private readonly refcounts = new Map<string, number>();
-
-  constructor(
-    private readonly store: OAuthTokenStore,
-    private readonly refresher: OAuthRefresher,
-    options: OAuthCoordinatorOptions = {},
-  ) {
-    this.safetySkewMs = options.safetySkewMs ?? OAUTH_SAFETY_SKEW_MS;
-    this.nowMs = options.nowMs ?? (() => Date.now());
-  }
-
-  async getToken(accountId: string): Promise<OAuthTokenRecord | undefined> {
-    return this.store.get(accountId);
-  }
-
-  /** Returns a fresh access token, refreshing single-flight when the cached one is missing or near expiry. */
-  async ensureFresh(accountId: string): Promise<OAuthTokenRecord> {
-    const cached = await this.store.get(accountId);
-    // Some OAuth-style providers issue bearer tokens without a refresh token
-    // (for example Kimchi browser tokens). Keep using the access token and let
-    // the provider report authentication failure instead of fabricating a
-    // refresh configuration error locally.
-    if (cached !== undefined && (this.isFresh(cached) || cached.refreshToken === null)) return cached;
-    const inflight = this.inflight.get(accountId);
-    if (inflight !== undefined) return inflight;
-    const pending = this.refreshAndStore(accountId, cached ?? null);
-    this.inflight.set(accountId, pending);
-    pending.then(
-      () => {
-        this.inflight.delete(accountId);
-      },
-      () => {
-        this.inflight.delete(accountId);
-      },
-    );
-    return pending;
-  }
-
-  /** Acquires a lease on a fresh token; release it exactly once via `lease.release()` or `releaseLease`. */
-  async lease(accountId: string): Promise<OAuthLease> {
-    const token = await this.ensureFresh(accountId);
-    const leaseId = crypto.randomUUID();
-    this.leases.set(leaseId, accountId);
-    this.refcounts.set(accountId, (this.refcounts.get(accountId) ?? 0) + 1);
-    return { leaseId, token, release: () => this.releaseLease(leaseId) };
-  }
-
-  /** Releases a lease exactly once; returns false for unknown or already-released ids. */
-  releaseLease(leaseId: string): boolean {
-    const accountId = this.leases.get(leaseId);
-    if (accountId === undefined) return false;
-    this.leases.delete(leaseId);
-    const current = this.refcounts.get(accountId) ?? 1;
-    if (current <= 1) this.refcounts.delete(accountId);
-    else this.refcounts.set(accountId, current - 1);
-    return true;
-  }
-
-  activeLeaseCount(accountId: string): number {
-    return this.refcounts.get(accountId) ?? 0;
-  }
-
-  private isFresh(token: OAuthTokenRecord): boolean {
-    return token.expiresAtMs === null || token.expiresAtMs - this.nowMs() > this.safetySkewMs;
-  }
-
-  private async refreshAndStore(accountId: string, token: OAuthTokenRecord | null): Promise<OAuthTokenRecord> {
-    let result: OAuthRefreshResult;
-    try {
-      result = await this.refresher.refresh({ accountId, token });
-    } catch {
-      result = {
-        ok: false,
-        error: makeProviderError("provider_unavailable", "OAuth token refresh failed", { retryable: true, routeScope: "account" }),
-      };
-    }
-    if (!result.ok) throw result.error;
-    await this.store.set(accountId, result.token);
-    return result.token;
-  }
-}
-
 export const QUOTA_SWEEP_COOLDOWN_MS = 15 * 60_000;
 
 export interface QuotaRefresher {
@@ -517,10 +417,8 @@ export interface QuotaCoordinatorOptions {
 }
 
 /**
- * Cooldown-protected quota sweeps: at most one refresh per account per
- * 15-minute window. Quota work is display/telemetry work and never touches
- * OAuth tokens; request-time refresh is handled by OAuthCoordinator purely on
- * access-token expiry, so sweeps cannot churn credentials.
+ * Cooldown-protected quota state and account-level request coalescing.
+ * OAuth refresh is coordinated by TokenRefreshPool before quota fetches.
  */
 export class QuotaCoordinator {
   private readonly sweepCooldownMs: number;
@@ -674,7 +572,7 @@ export function rankAccountCandidates(
  *
  * Picks the first eligible candidate, then acquires the credential: static
  * secrets come from the injected CredentialConfigStore (env-backed for Wave
- * A), OAuth tokens come from the OAuthCoordinator as a refcounted lease.
+ * A), OAuth tokens come from the central TokenRefreshPool as a refcounted lease.
  * Returns the application-typed CredentialSelection; every selection carries a
  * leaseId released exactly once via `release()`.
  *
@@ -698,7 +596,7 @@ export class CredentialSelector {
 
   constructor(
     private readonly config: CredentialConfigStore,
-    private readonly oauth: OAuthCoordinator,
+    private readonly oauth: TokenRefreshPool,
   ) {}
 
   private getInFlight(accountId: string): number {

@@ -1,5 +1,5 @@
-import { ProviderAdapterError } from "../open-sse/transport/shared";
-import type { Adapter, Surface, RouteTarget } from "../domain/contracts";
+import { describeOpenAIAdapter, makeOpenAIAdapter, ProviderAdapterError, toProviderCallError, type ProviderCatalogAdapter } from "../open-sse/transport/shared";
+import type { Adapter, ContextStats, ProviderOutput, ProviderRequest, Surface, TokenCountInput, RouteTarget } from "../application/contracts";
 import { resolveWireSurface } from "../open-sse/translate";
 
 /**
@@ -10,6 +10,7 @@ import { resolveWireSurface } from "../open-sse/translate";
  */
 export class ProviderRegistry {
   private readonly adapters = new Map<string, Adapter>();
+  private readonly loaders = new Map<string, () => Promise<Adapter>>();
 
   register(adapter: Adapter): void {
     const id = adapter.metadata.id;
@@ -18,6 +19,38 @@ export class ProviderRegistry {
       throw new ProviderAdapterError({ kind: "internal_error", message: `Provider "${id}" is already registered`, routeScope: null });
     }
     this.adapters.set(id, adapter);
+    this.loaders.delete(id);
+  }
+
+  registerLazy(catalog: ProviderCatalogAdapter, loader: () => Promise<Adapter>): void {
+    let pending: Promise<Adapter> | null = null;
+    const load = (): Promise<Adapter> => {
+      if (pending === null) {
+        pending = loader().catch((error: unknown) => {
+          pending = null;
+          throw error;
+        });
+      }
+      return pending;
+    };
+    const lazy: Adapter = {
+      ...catalog,
+      async call(input: ProviderRequest): Promise<ProviderOutput> {
+        return (await load()).call(input);
+      },
+      async countTokens(input: TokenCountInput): Promise<ContextStats> {
+        return (await load()).countTokens(input);
+      },
+      mapError(error: unknown) {
+        return toProviderCallError(error);
+      },
+    };
+    this.register(lazy);
+    this.loaders.set(catalog.metadata.id, load);
+  }
+
+  async prewarm(providerIds: readonly string[]): Promise<void> {
+    await Promise.allSettled(providerIds.map((providerId) => this.loaders.get(providerId)?.()));
   }
 
   get(providerId: string): Adapter | null {
@@ -26,6 +59,7 @@ export class ProviderRegistry {
 
   /** Removes a registered adapter (dynamic custom-provider sync). Returns whether it was present. */
   unregister(providerId: string): boolean {
+    this.loaders.delete(providerId);
     return this.adapters.delete(providerId);
   }
 
@@ -95,20 +129,10 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     { CodeBuddyAdapter, CodeBuddyChinaAdapter },
     { ExaAdapter },
     { GrokBuildAdapter },
-    { OpenRouterAdapter },
-    { GroqAdapter },
-    { AlibabaAdapter },
-    { FireworksAdapter },
-    { DeepSeekAdapter: DeepSeekNativeAdapter },
+    { simpleOpenAIConfigs },
     { OllamaAdapter },
-    { MistralAdapter },
-    { SiliconFlowAdapter },
-    { CerebrasAdapter },
-    { NvidiaAdapter: NvidiaNativeAdapter },
     { BlackboxAIAdapter },
     { OpenCodeGoAdapter },
-    { XiaomiPAYGAdapter },
-    { XiaomiTokenPlanAdapter },
   ] = await Promise.all([
     import("./openai"),
     import("./anthropic"),
@@ -127,20 +151,10 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     import("./codebuddy"),
     import("./exa"),
     import("./grok-build"),
-    import("./openrouter"),
-    import("./groq"),
-    import("./alibaba"),
-    import("./fireworks"),
-    import("./deepseek"),
+    import("./openai-compatible"),
     import("./ollama"),
-    import("./mistral"),
-    import("./siliconflow"),
-    import("./cerebras"),
-    import("./nvidia"),
     import("./blackboxai"),
     import("./opencodego"),
-    import("./xiaomipg"),
-    import("./xiaomitp"),
   ]);
 
   const registry = new ProviderRegistry();
@@ -164,19 +178,11 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
   registry.register(new CodeBuddyChinaAdapter());
   registry.register(new ExaAdapter());
   registry.register(new GrokBuildAdapter());
-  registry.register(OpenRouterAdapter);
-  registry.register(GroqAdapter);
-  registry.register(AlibabaAdapter);
-  registry.register(FireworksAdapter);
-  registry.register(DeepSeekNativeAdapter);
+  for (const config of simpleOpenAIConfigs) {
+    registry.registerLazy(describeOpenAIAdapter(config), () => Promise.resolve(makeOpenAIAdapter(config)));
+  }
   registry.register(OllamaAdapter);
-  registry.register(MistralAdapter);
-  registry.register(SiliconFlowAdapter);
-  registry.register(CerebrasAdapter);
-  registry.register(NvidiaNativeAdapter);
   registry.register(BlackboxAIAdapter);
   registry.register(OpenCodeGoAdapter);
-  registry.register(XiaomiPAYGAdapter);
-  registry.register(XiaomiTokenPlanAdapter);
   return registry;
 }

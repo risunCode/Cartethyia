@@ -27,8 +27,8 @@ import type {
   RouteTarget,
   StreamEvent,
   TokenCountInput,
-} from "../domain/contracts";
-import type { ProviderCallError } from "../domain/contracts";
+} from "../application/contracts";
+import type { ProviderCallError } from "../application/contracts";
 
 /**
  * Google Antigravity — the Cloud Code Assist agentic backend (Gemini 3,
@@ -378,7 +378,7 @@ export class AntigravityAdapter implements Adapter {
     const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
     let streamHandedOff = false;
     try {
-      const response = await executeFetch(`${endpoint}/${ANTIGRAVITY_ACTION}`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network);
+      const response = await executeFetch(`${endpoint}/${ANTIGRAVITY_ACTION}`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
       if (!response.ok) throw await readUpstreamError(response);
       if (!response.body) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Antigravity returned an empty stream body", routeScope: "provider" });
       // The Antigravity transport only exposes the streaming endpoint; a

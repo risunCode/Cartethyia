@@ -1,15 +1,11 @@
-import type { CredentialKind, Adapter } from "../domain/contracts";
-import type { AccountCandidate, AffinityKey, ModelLockRecord, RouteCandidate, RouteSwitch } from "../domain/contracts";
-import type { ProxyRequest } from "../domain/contracts";
-import { AccountHealthManager, AnthropicOAuthDriver, AntigravityOAuthDriver, ClineOAuthDriver, ClinePassOAuthDriver, createAuthDriverRegistry, GrokBuildOAuthDriver, KimchiOAuthDriver, KiroOAuthDriver } from "../auth";
-import { QuotaCoordinator } from "../auth";
-import { CredentialSelector } from "../auth";
-import { OAuthCoordinator } from "../auth";
-import { createDriverAwareOAuthRefresher, createEnvOAuthRefresher } from "../auth";
-import { OAuthKeepalive } from "../auth/oauth-keepalive";
-import { AccountRecoverySweep } from "../open-sse/handlers/recovery-sweep";
-import type { AccountConfig, CredentialConfigStore, OAuthTokenRecord } from "../auth";
-import type { ApplicationErrorKind } from "../domain/contracts";
+import type { CredentialKind, Adapter } from "../application/contracts";
+import type { AccountCandidate, AffinityKey, ModelLockRecord, RouteCandidate, RouteSwitch } from "../application/contracts";
+import type { ProxyRequest } from "../application/contracts";
+import { AnthropicOAuthDriver, AntigravityOAuthDriver, ClineOAuthDriver, ClinePassOAuthDriver, createAuthDriverRegistry, GrokBuildOAuthDriver, KimchiOAuthDriver, KiroOAuthDriver, createDriverAwareOAuthRefresher, createEnvOAuthRefresher } from "../auth";
+import { AccountHealthManager, CredentialSelector, QuotaCoordinator, TokenRefreshPool, type OAuthTokenRecord } from "../auth";
+import { QuotaRefreshWorker } from "../auth/quota/refresh-worker";
+import { AccountRecoverySweep } from "../application/recovery-sweep";
+import type { ApplicationErrorKind } from "../application/contracts";
 import type { ProxyHealthRecord, ProxyHealthStore } from "../traffic";
 import { createConfigPersistence, createRuntimePersistence, type ConfigPersistence, type RuntimePersistence } from "../storage";
 import { ProxyHealthManager } from "../traffic";
@@ -17,11 +13,13 @@ import { NetworkSelector, type NetworkRoutingPolicy } from "../traffic";
 import { ProxyPool } from "../traffic";
 import { createDefaultRegistry, ProviderRegistry } from "../providers/registry";
 import { syncCustomAdapters } from "../providers/custom";
+import { compressWithHeadroom, headroomConfig } from "../open-sse/rtk";
 import { resolveWireSurface } from "../open-sse/translate";
-import { resolveModelChain } from "../domain/routing";
-import { resolveModelMetadata, type ModelMetadataLookup, type ModelMetadataResolver, type ResolvedModelMetadata } from "../domain/model-metadata";
-import { createRouteSnapshotCache, type RouteSnapshotCache } from "./routing-snapshot";
-import type { AccountRepository, AliasRepository, ComboRepository, CustomProviderRecord, CustomProviderRepository, ProxyRepository } from "../storage";
+import { resolveModelChain } from "../application/routing";
+import { resolveModelMetadata, type ModelMetadataLookup, type ModelMetadataResolver, type ResolvedModelMetadata } from "../application/model-metadata";
+import { createRouteSnapshotCache, type RouteSnapshotCache } from "../application/routing-snapshot";
+import type { AccountRepository, AliasRepository, ComboRepository, CustomProviderRepository, ProxyRepository } from "../storage";
+import type { FilterRuleRepository } from "../console/views";
 import { createConsoleApi } from "../console/api";
 import { createConsoleLogStreamHub } from "../console/streams";
 import { ConsoleDiagnostics } from "../console/diagnostics";
@@ -35,13 +33,16 @@ import { getInFlightCount } from "../traffic/in-flight";
 import { activePerIpFlights } from "../traffic/per-ip";
 import { runtimeMemoryLimits } from "../traffic/limits";
 import { Elysia } from "elysia";
-import { runProxyRequest, type ProxyRequestDependencies, type ProxyRequestLogEvent, type ProxyRoutePlan } from "./request";
+import { runProxyRequest, type ProxyRequestDependencies, type ProxyRequestLogEvent, type ProxyRoutePlan } from "../application/request";
+const REQUEST_LOGGING_ENABLED = Bun.env.CARTETHYIA_REQUEST_LOGS !== "0";
 
 export interface CartethyiaRuntime {
   readonly config: ConfigPersistence;
   readonly runtime: RuntimePersistence;
   readonly registry: ProviderRegistry;
   readonly proxy: ProxyRequestDependencies;
+  /** Monotonic routing/config revision used by all runtime caches. */
+  readonly routingRevision: () => number;
   readonly consoleApp: { readonly handle: (request: Request) => Response | Promise<Response> };
   /** Canonical model metadata: sync per-model lookup + async name resolution. */
   readonly models: ModelMetadataResolver;
@@ -102,16 +103,6 @@ function formatRequestLog(event: ProxyRequestLogEvent, privacyMode: "masked" | "
 async function accountCandidates(cache: RouteSnapshotCache, health: AccountHealthManager, quota: QuotaCoordinator, providerId: string): Promise<readonly AccountCandidate[]> {
   const snapshot = await cache.get();
   const stored: Array<{ readonly id: string; readonly providerId: string; readonly credentialKind: CredentialKind; readonly active: boolean }> = (snapshot.accountsByProvider.get(providerId) ?? []).map((row) => ({ id: row.id, providerId: row.providerId, credentialKind: row.credentialKind, active: row.active }));
-  const envVariables: readonly string[] = providerId === "openai"
-    ? ["OPENAI_API_KEY"]
-    : providerId === "anthropic"
-      ? ["ANTHROPIC_API_KEY"]
-      : providerId === "gemini"
-        ? ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
-        : [];
-  for (const variable of envVariables) {
-    if (process.env[variable]) stored.push({ id: `env-${providerId}-${variable.toLowerCase()}`, providerId, credentialKind: "api_key", active: true });
-  }
   if (stored.length === 0) return [];
   // Batch: 3 queries total regardless of account count (was 3×N individual queries).
   const accountIds = stored.map((row) => row.id);
@@ -131,47 +122,6 @@ async function accountCandidates(cache: RouteSnapshotCache, health: AccountHealt
   }));
 }
 
-function envCredentialStore(config: ConfigPersistence): CredentialConfigStore {
-  const env = process.env;
-  const direct = new Map<string, AccountConfig>();
-  const add = (providerId: string, variable: string, suffix = variable.toLowerCase()): void => {
-    const secret = env[variable];
-    if (!secret) return;
-    const id = `env-${providerId}-${suffix}`;
-    direct.set(id, { id, providerId, kind: "api_key", secret, enabled: true, priority: -100 });
-  };
-  add("openai", "OPENAI_API_KEY");
-  add("anthropic", "ANTHROPIC_API_KEY");
-  add("gemini", "GEMINI_API_KEY");
-  add("gemini", "GOOGLE_API_KEY");
-  // Custom provider API keys use the same provider account repository as
-  // built-in providers. The legacy provider-level credential remains a
-  // backwards-compatible fallback until an operator adds account rows.
-  const customAccount = (record: CustomProviderRecord): AccountConfig => {
-    const id = `custom:${record.slug}`;
-    return { id, providerId: record.slug, kind: "api_key", secret: record.credential, enabled: true, priority: 0 };
-  };
-  return {
-    async getAccount(id: string): Promise<AccountConfig | undefined> {
-      const value = direct.get(id);
-      if (value) return value;
-      if (id.startsWith("custom:")) {
-        const record = config.customProviders.getBySlug(id.slice("custom:".length));
-        return record === null ? undefined : customAccount(record);
-      }
-      return config.stores.credentialConfig.getAccount(id);
-    },
-    async listAccounts(): Promise<readonly AccountConfig[]> {
-      const stored = await config.stores.credentialConfig.listAccounts();
-      const customProviders = config.customProviders.list();
-      const customSlugs = new Set(customProviders.map((provider) => provider.slug));
-      const customAccounts = stored.filter((account) => customSlugs.has(account.providerId));
-      const configuredCustomProviders = new Set(customAccounts.map((account) => account.providerId));
-      const fallbacks = customProviders.filter((provider) => !configuredCustomProviders.has(provider.slug)).map(customAccount);
-      return [...stored, ...direct.values(), ...fallbacks];
-    },
-  };
-}
 
 function routeResolver(registry: ProviderRegistry, cache: RouteSnapshotCache, health: AccountHealthManager, quota: QuotaCoordinator): (request: ProxyRequest, affinity: AffinityKey) => Promise<ProxyRoutePlan> {
   return async (request, affinity) => {
@@ -230,14 +180,16 @@ function routeResolver(registry: ProviderRegistry, cache: RouteSnapshotCache, he
 /**
  * Monotonic revision of routing-relevant configuration. Every console
  * mutation that flows through the wrapped repositories below increments it;
- * the route snapshot cache rebuilds only when this counter moves, so the
- * data plane never re-reads routing config per request.
+ * the route snapshot and catalog caches rebuild only when this counter moves.
  */
-const routingRevision = { value: 0 };
-
-function withRoutingRevisionTracking(config: ConfigPersistence, registry: ProviderRegistry, proxyPool?: ProxyPool): ConfigPersistence {
+function withRoutingRevisionTracking(
+  config: ConfigPersistence,
+  registry: ProviderRegistry,
+  proxyPool?: ProxyPool,
+  revision: { value: number } = { value: 0 },
+): ConfigPersistence {
   const bump = (): void => {
-    routingRevision.value += 1;
+    revision.value += 1;
   };
   const invalidateProxyCache = (): void => proxyPool?.invalidate();
   const aliases: AliasRepository = {
@@ -350,21 +302,40 @@ function withRoutingRevisionTracking(config: ConfigPersistence, registry: Provid
       return deleted;
     },
   };
-  return { ...config, aliases, combos, proxies, accounts, customProviders, providerModels };
+  const filterRules: FilterRuleRepository = {
+    ...config.filterRules,
+    create: async (input) => {
+      const record = await config.filterRules.create(input);
+      bump();
+      return record;
+    },
+    update: async (id, patch) => {
+      const record = await config.filterRules.update(id, patch);
+      if (record !== null) bump();
+      return record;
+    },
+    remove: async (id) => {
+      const deleted = await config.filterRules.remove(id);
+      if (deleted) bump();
+      return deleted;
+    },
+  };
+  return { ...config, aliases, combos, proxies, accounts, customProviders, providerModels, filterRules };
 }
 
 export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
   const baseConfig = createConfigPersistence();
   const registry = await createDefaultRegistry();
   const pool = new ProxyPool(baseConfig.stores.proxyPool);
-  const config = withRoutingRevisionTracking(baseConfig, registry, pool);
+  const revision = { value: 0 };
+  const config = withRoutingRevisionTracking(baseConfig, registry, pool, revision);
   // Register configured custom providers (their adapters are keyed by slug);
   // later console mutations go through the tracked repository wrapper above.
   syncCustomAdapters(registry, config.customProviders);
   const runtime = createRuntimePersistence(config.env);
   const accountHealth = new AccountHealthManager(config.stores.accountHealth, {}, config.stores.modelLocks);
   const quota = new QuotaCoordinator(config.stores.quotaState);
-  const routeSnapshots = createRouteSnapshotCache({ config, registry, readRevision: () => routingRevision.value });
+  const routeSnapshots = createRouteSnapshotCache({ config, registry, readRevision: () => revision.value });
   // Canonical normalized model metadata: catalog models carry their static
   // context/categories/pricing; custom-provider models are tagged "custom"
   // with the provider record's updatedAt. Unknown models resolve to null and
@@ -419,13 +390,13 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
   let policyRevision = -1;
   let policy: NetworkRoutingPolicy = { preset: "auto", targetConcurrent: 0 };
   const readNetworkPolicy = () => {
-    if (policyRevision !== routingRevision.value) {
+    if (policyRevision !== revision.value) {
       const settings = config.proxies.getSettings();
       policy = {
         preset: settings?.routingPreset ?? "auto",
         targetConcurrent: settings?.targetConcurrent ?? 0,
       };
-      policyRevision = routingRevision.value;
+      policyRevision = revision.value;
     }
     return policy;
   };
@@ -439,14 +410,31 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
     { providerId: "kimchi", driver: new KimchiOAuthDriver() },
     { providerId: "grok-build", driver: new GrokBuildOAuthDriver() },
   ]);
-  const resolveProvider = async (accountId: string): Promise<string | null> => config.accounts.get(accountId)?.provider ?? null;
+  const credentialStore = config.stores.credentialConfig;
+  const resolveProvider = async (accountId: string): Promise<string | null> => config.accounts.get(accountId)?.provider ?? (await credentialStore.getAccount(accountId))?.providerId ?? null;
   const oauthRefresher = createDriverAwareOAuthRefresher({
     drivers: authDrivers,
     resolveProvider,
     fallback: createEnvOAuthRefresher({ resolveProvider }),
   });
-  const oauth = new OAuthCoordinator(config.stores.oauthToken, oauthRefresher);
-  const credentialStore = envCredentialStore(config);
+  const oauth = new TokenRefreshPool(credentialStore, config.stores.oauthToken, oauthRefresher, {
+    defaultPolicy: { refreshLeadMs: 5 * 60_000 },
+    resolvePolicy: (account) => {
+      const maxRefreshAgeMs: Record<string, number> = {
+        codex: 2 * 24 * 60 * 60_000,
+        claude: 4 * 60 * 60_000,
+        antigravity: 5 * 60_000,
+        "grok-build": 5 * 60_000,
+        kiro: 15 * 60_000,
+        cline: 30 * 60_000,
+        clinepass: 30 * 60_000,
+        kimchi: 5 * 60_000,
+      };
+      return { refreshLeadMs: 5 * 60_000, maxRefreshAgeMs: maxRefreshAgeMs[account.providerId] };
+    },
+    onRefreshed: (accountId) => runtime.consoleLogs.push("info", "oauth-refresh", `OAuth token refreshed for account ${accountId}`),
+    onFailed: (accountId, error) => runtime.consoleLogs.push("warn", "oauth-refresh", `OAuth refresh failed for account ${accountId}: ${error.kind}`),
+  });
   const accounts = new CredentialSelector(credentialStore, oauth);
   const admission = new ApiKeyAdmission(config.apiKeys);
   let recordRouteSwitch: ((event: RouteSwitch) => Promise<void>) | undefined;
@@ -456,10 +444,13 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
     accounts,
     network,
     telemetry: runtime.telemetry,
-    onRequestLog: (event) => {
-      const privacyMode = cachedPrivacyMode ??= requestPrivacyMode(config);
-      runtime.consoleLogs.push(requestLogLevel(event), "request", formatRequestLog(event, privacyMode));
-    },
+    createPayloadCapture: () => runtimeSettings(config).trackPayloads === "bounded" ? runtime.payloads : null,
+    onRequestLog: REQUEST_LOGGING_ENABLED
+      ? (event) => {
+          const privacyMode = cachedPrivacyMode ??= requestPrivacyMode(config);
+          runtime.consoleLogs.push(requestLogLevel(event), "request", formatRequestLog(event, privacyMode));
+        }
+      : undefined,
     resolveRoutes: routeResolver(registry, routeSnapshots, accountHealth, quota),
     accountCandidates: (providerId) => accountCandidates(routeSnapshots, accountHealth, quota, providerId),
     admission,
@@ -467,13 +458,16 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
       const { tokenSaverEnabled, tokenSaverQuality } = runtimeSettings(config);
       return { enabled: tokenSaverEnabled, quality: tokenSaverQuality };
     },
+    headroom: (request) => compressWithHeadroom(request, headroomConfig),
     filterRules: (() => {
       let cached: { enabled: boolean; rules: readonly { pattern: string; replacement: string; isRegex: boolean }[] } | undefined;
+      let cachedRevision = -1;
       return () => {
-        if (cached === undefined) {
+        if (cached === undefined || cachedRevision !== revision.value) {
           const { filterRulesEnabled } = runtimeSettings(config);
           const rows = config.filterRules.listSync();
           cached = { enabled: filterRulesEnabled, rules: rows.filter((rule) => rule.isActive).map((rule) => ({ pattern: rule.pattern, replacement: rule.replacement, isRegex: rule.isRegex })) };
+          cachedRevision = revision.value;
         }
         return cached;
       };
@@ -512,6 +506,19 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
   const consoleRepositories = createConsoleRepositories(config, runtime, registry);
   recordRouteSwitch = (event) => consoleRepositories.transitions.record(event.scope, event.previousRouteId ?? event.replacementRouteId ?? "unknown", event);
   const consoleServices = createConsoleServices({ repositories: consoleRepositories, registry, authDrivers, modelMetadata, oauthCoordinator: oauth });
+  const quotaRefreshWorker = new QuotaRefreshWorker(
+    credentialStore,
+    config.stores.quotaState,
+    async (accountId) => {
+      const view = await consoleServices.quota.refresh(accountId);
+      return view !== null && view.status !== "error";
+    },
+    {
+      supportsProvider: (providerId) => providerId === "cline" || providerId === "qoder" || providerId === "codex" || providerId === "claude" || providerId === "antigravity" || providerId === "kiro" || providerId === "grok-build",
+      onRefreshed: (accountId, quotaAvailable) => runtime.consoleLogs.push("info", "quota-refresh", `Quota refreshed for account ${accountId}: available=${quotaAvailable}`),
+      onFailed: (accountId) => runtime.consoleLogs.push("warn", "quota-refresh", `Quota refresh failed for account ${accountId}`),
+    },
+  );
   const prefixes = new Map(registry.list().map((adapter) => [adapter.metadata.id, adapter.metadata.id]));
   const diagnostics = new ConsoleDiagnostics({ services: consoleServices, repositories: consoleRepositories, registry, prefixes, runtimeCounters: { inFlight: () => getInFlightCount() } });
   const logStream = createConsoleLogStreamHub({
@@ -520,29 +527,41 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
     onPush: (listener) => runtime.consoleLogs.onPush(listener),
   });
   const consoleApi = createConsoleApi({ services: consoleServices, diagnostics, config: baseConfig, runtime, logStream, probe: probeProviderModel, probePorts: { registry, accounts: credentialStore, credentials: accounts, accountHealth, network }, liveTraffic: { byIp: () => activePerIpFlights.snapshot(), maxFlightsPerIp: () => runtimeSettings(config).maxFlightsPerIp }, proxy, resetConfig: baseConfig.resetAll, resetRuntime: runtime.resetAll });
+  const warpService = consoleApi.warpService;
   const consoleApp = new Elysia()
     .use(consoleApi.app);
   const gcIntervalMs = runtimeMemoryLimits.gcIntervalMs > 0
     ? runtimeMemoryLimits.gcIntervalMs
-    : 10 * 60_000; // fallback when adaptive (0) — GC itself defers to idle points anyway
+    : 10 * 60_000;
   const gcInterval = setInterval(scheduleGlobalGc, gcIntervalMs);
   gcInterval.unref?.();
 
-  // OAuth keepalive: proactively pre-refresh tokens before expiry so
-  // request-time lease() never hits a stale token. Memory-safe: unref'd
-  // interval, single-flight per account via OAuthCoordinator, failures
-  // are logged but never stop the sweep.
-  const oauthKeepalive = new OAuthKeepalive(credentialStore, oauth);
-  oauthKeepalive.start();
-
-  // Recovery sweep: transitions expired cooldowns → healthy and clears
-  // expired per-model locks that would otherwise linger until a request
-  // happens to select the account. unref'd interval — zero per-request
-  // overhead, never keeps the process alive.
+  // Central workers are unref'd, single-flight, and never stop on one account failure.
+  oauth.start();
+  quotaRefreshWorker.start();
   const recoverySweep = new AccountRecoverySweep(accountHealth, config.stores.modelLocks);
   recoverySweep.start();
-
-  return { config, runtime, registry, proxy, consoleApp, models: modelMetadata, close: () => { clearInterval(gcInterval); cancelScheduledGc(); retention.stop(); logStream.close(); oauthKeepalive.stop(); recoverySweep.stop(); runtime.close(); config.close(); } };
+  return {
+    config,
+    runtime,
+    registry,
+    proxy,
+    routingRevision: () => revision.value,
+    consoleApp,
+    models: modelMetadata,
+    close: () => {
+      clearInterval(gcInterval);
+      cancelScheduledGc();
+      retention.stop();
+      logStream.close();
+      warpService.shutdown().catch(() => {});
+      oauth.stop();
+      quotaRefreshWorker.stop();
+      recoverySweep.stop();
+      runtime.close();
+      config.close();
+    },
+  };
 }
 
 export { runProxyRequest };
@@ -554,7 +573,6 @@ export {
   requestPrivacyMode,
   maskIp,
   formatRequestLog,
-  envCredentialStore,
-  routeResolver,
   withRoutingRevisionTracking,
+  routeResolver,
 };

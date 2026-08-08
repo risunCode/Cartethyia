@@ -27,21 +27,19 @@
  * visible text only, bounded in length.
  */
 
-import type { ProviderCallError, SafeErrorSummary } from "../domain/contracts";
-import { createCleanupStack } from "../domain/contracts";
-import type { Adapter, ProviderModel, ProviderOutput, ProviderRequest, Surface, RouteTarget } from "../domain/contracts";
-import type { ProxyRequest, RequestLimits } from "../domain/contracts";
-import type { StreamEvent } from "../domain/contracts";
-import type { AccountCandidate, CredentialSelection } from "../domain/contracts";
+import type { ProviderCallError, SafeErrorSummary } from "../application/contracts";
+import { createCleanupStack } from "../application/contracts";
+import type { Adapter, ProviderModel, ProviderOutput, ProviderRequest, Surface, RouteTarget } from "../application/contracts";
+import type { ProxyRequest, RequestLimits } from "../application/contracts";
+import type { StreamEvent } from "../application/contracts";
+import type { AccountCandidate, CredentialSelection } from "../application/contracts";
 import type { ProviderRegistry } from "../providers/registry";
-import type { CredentialSelector } from "../auth";
+import type { CredentialSelector, CredentialConfigStore, AccountHealthManager } from "../auth";
 import { credentialUnavailableError } from "../auth";
-import type { CredentialConfigStore } from "../auth";
-import type { AccountHealthManager } from "../auth";
 import type { NetworkSelector } from "../traffic";
 import { networkUnavailableError } from "../traffic";
 import { makeProviderError } from "../traffic";
-import { isRecord } from "../domain/protocols";
+import { isRecord } from "../application/protocols";
 
 // ---------------------------------------------------------------- public contract
 

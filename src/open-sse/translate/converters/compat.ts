@@ -1,4 +1,4 @@
-import { jsonObject, narrowList, narrowRecord, narrowText, nullableNumber } from "../../../domain/protocols";
+import { jsonObject, narrowList, narrowRecord, narrowText, nullableNumber } from "../../../application/protocols";
 import { registerTranslation } from "../registry";
 
 let idCounter = 0;

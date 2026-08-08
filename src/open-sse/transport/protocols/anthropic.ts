@@ -1,6 +1,6 @@
 import { AbortCoordinator, ProviderAdapterError, executeFetch, isRecord, lineLimit, mapSseStream, nullableNumber, parseSseData, readJsonObject, readUpstreamError } from "../shared";
 import type { SseEvent, StreamMapper } from "../shared";
-import type { ApplicationErrorKind, ProviderCaps, ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../../../domain/contracts";
+import type { ApplicationErrorKind, ProviderCaps, ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../../../application/contracts";
 import { buildMessagesPayload, mapAnthropicUsage } from "../../translate/codecs/anthropic-messages";
 
 // ---------------------------------------------------------------- SSE mapping
@@ -156,7 +156,7 @@ export async function callAnthropicWire(
   const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
   let streamHandedOff = false;
   try {
-    const response = await executeFetch(`${baseUrl}/messages`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network);
+    const response = await executeFetch(`${baseUrl}/messages`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
     if (!response.ok) throw await readUpstreamError(response);
     if (!request.stream) {
       const body = await readJsonObject(response, coordinator);

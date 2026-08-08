@@ -1,12 +1,13 @@
 import { ProtocolCodecError } from "../errors";
 import { REASONING_EFFORTS, parseReasoningConfig } from "./openai-responses";
-import type { ProviderUsage } from "../../../domain/contracts";
+import type { ProviderUsage } from "../../../application/contracts";
 import { abortedError,
 classifyImageReference,
 isProtocolError,
 isRecord,
 messageText,
 narrowArray,
+narrowMessageArray,
 narrowNumber,
 narrowObject,
 narrowString,
@@ -29,8 +30,8 @@ MAX_TOOL_CALLS_PER_MESSAGE,
 MAX_TOOL_NAME_LENGTH,
 type NormalizeInput,
 type NormalizeResult,
-type ProtocolError, } from "../../../domain/protocols";
-import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, ReasoningConfig, ReasoningEffort, ReasoningSummary } from "../../../domain/contracts";
+type ProtocolError, } from "../../../application/protocols";
+import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, ReasoningConfig, ReasoningEffort, ReasoningSummary } from "../../../application/contracts";
 
 /**
  * Strict validation and normalization for OpenAI Chat Completions
@@ -115,6 +116,9 @@ function finalizeReasoning(root: Record<string, unknown>, state: { readonly seen
   const hasReasoningObject = reasoning !== undefined && reasoning !== null;
   if (hasReasoningObject && !isRecord(reasoning)) return protocolError("reasoning", "reasoning: expected an object");
   const reasoningObj = hasReasoningObject ? (reasoning as Record<string, unknown>) : undefined;
+  if (reasoningObj !== undefined && ("mode" in reasoningObj || "context" in reasoningObj)) {
+    return protocolError("reasoning", "reasoning.mode and reasoning.context are only supported on the Responses surface");
+  }
 
   // The Chat surface also accepts a top-level `reasoning_effort` string (the
   // legacy spelling). Normalize it into the config effort slot so builders
@@ -137,7 +141,7 @@ function finalizeReasoning(root: Record<string, unknown>, state: { readonly seen
 }
 
 function normalizeMessages(raw: unknown, images: ImageReference[], reasoningState: { seen: boolean }): NormalizedMessage[] | ProtocolError {
-  const list = narrowArray(raw, "messages", MAX_MESSAGE_COUNT);
+  const list = narrowMessageArray(raw, "messages", MAX_MESSAGE_COUNT);
   if (isProtocolError(list)) return list;
   const messages: NormalizedMessage[] = [];
   for (let i = 0; i < list.length; i++) {
@@ -379,21 +383,23 @@ export function toOpenAIImageUrl(image: ImageReference | undefined): string {
 
 /**
  * Maps an OpenAI chat usage record into application ProviderUsage. Cache read
- * tokens are always surfaced when the upstream reports them — the adapter no
- * longer gates cache-read detection on its own `explicitCache` declaration.
+ * tokens and reasoning tokens are surfaced when the upstream reports them.
  */
 export function mapChatUsage(usage: Record<string, unknown>): ProviderUsage {
   const inputTokens = nullableNumber(usage.prompt_tokens);
   const outputTokens = nullableNumber(usage.completion_tokens);
   const totalTokens = nullableNumber(usage.total_tokens);
-  const details = usage.prompt_tokens_details;
-  const cachedTokens = isRecord(details) ? nullableNumber(details.cached_tokens) : null;
+  const inputDetails = usage.prompt_tokens_details;
+  const outputDetails = usage.completion_tokens_details;
+  const cachedTokens = isRecord(inputDetails) ? nullableNumber(inputDetails.cached_tokens) : null;
+  const reasoningTokens = isRecord(outputDetails) ? nullableNumber(outputDetails.reasoning_tokens) : null;
   return {
     inputTokens,
     outputTokens,
     totalTokens: totalTokens ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null),
     cacheReadTokens: cachedTokens,
     cacheWriteTokens: null,
+    reasoningTokens,
     source: "provider",
   };
 }

@@ -1,4 +1,4 @@
-import type { ContentBlock, NormalizedMessage, ProxyRequest } from "../../domain/contracts";
+import type { ContentBlock, NormalizedMessage, ProxyRequest } from "../../application/contracts";
 
 /** Ensures every normalized tool-use block has a stable call identifier. */
 export function ensureToolCallIds(request: ProxyRequest): ProxyRequest {

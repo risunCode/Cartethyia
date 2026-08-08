@@ -1,14 +1,19 @@
-import type { ContentBlock, NormalizedMessage, ProxyRequest } from "../../domain/contracts";
+import type { ContentBlock, NormalizedMessage, ProxyRequest } from "../../application/contracts";
 import { autoDetectFilter, type RtkFilter } from "./autodetect";
 
 export type TokenSaverQuality = "lite" | "balanced" | "extreme";
 export { autoDetectFilter, type RtkFilter } from "./autodetect";
+export * from "./headroom";
+export { headroomConfig } from "./headroom-config";
 
 export interface TokenSaverConfig {
   readonly enabled: boolean;
   readonly quality: TokenSaverQuality;
   readonly smartTruncate?: boolean;
+  readonly emergency?: boolean;
 }
+
+export const RTK_EMERGENCY_MESSAGE_THRESHOLD = 512;
 
 const QUALITY_LIMITS: Record<TokenSaverQuality, { readonly maxChars: number; readonly keepLastTurns: number }> = {
   lite: { maxChars: 8_000, keepLastTurns: 3 },
@@ -127,7 +132,7 @@ function smartTruncate(text: string, maxChars: number, smart: boolean): { text: 
 
 /** Applies the full RTK smart-filter pipeline to older tool results. */
 export function applyTokenSaver(request: ProxyRequest, config: TokenSaverConfig): ProxyRequest {
-  if (!config.enabled || request.messages.length === 0) return request;
+  if ((!config.enabled && config.emergency !== true) || request.messages.length === 0) return request;
   const limits = QUALITY_LIMITS[config.quality];
   const cutoff = Math.max(0, request.messages.length - limits.keepLastTurns * 2);
   const messages: readonly NormalizedMessage[] = request.messages.map((message, index) => {

@@ -13,6 +13,10 @@ services:
       # Required: change these before any non-local use.
       - CONSOLE_PASSWORD=${CONSOLE_PASSWORD:-change-me}
       - CONSOLE_JWT_SECRET=${CONSOLE_JWT_SECRET:-replace-with-a-long-random-secret}
+      - CARTETHYIA_HEADROOM_ENABLED=${CARTETHYIA_HEADROOM_ENABLED:-false}
+      - CARTETHYIA_HEADROOM_URL=${CARTETHYIA_HEADROOM_URL:-}
+      - CARTETHYIA_HEADROOM_TIMEOUT_MS=${CARTETHYIA_HEADROOM_TIMEOUT_MS:-3000}
+      - CARTETHYIA_HEADROOM_COMPRESS_USER_MESSAGES=${CARTETHYIA_HEADROOM_COMPRESS_USER_MESSAGES:-false}
     volumes:
       - cartethyia-data:/app/data
     healthcheck:

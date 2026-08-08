@@ -129,12 +129,16 @@ CREATE TABLE IF NOT EXISTS share_links (
   id TEXT PRIMARY KEY,
   api_key_id TEXT NOT NULL,
   token_hash TEXT NOT NULL UNIQUE,
+  kind TEXT NOT NULL DEFAULT 'monitor',
   active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
+  expires_at TEXT,
+  used_at TEXT,
   last_viewed_at TEXT,
   FOREIGN KEY (api_key_id) REFERENCES api_keys(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_share_links_api_key ON share_links(api_key_id);
+CREATE INDEX IF NOT EXISTS idx_share_links_active ON share_links(active, kind, expires_at);
 
 CREATE TABLE IF NOT EXISTS provider_models (
   provider TEXT NOT NULL,
@@ -192,6 +196,7 @@ CREATE TABLE IF NOT EXISTS proxies (
   weight INTEGER NOT NULL DEFAULT 100,
   max_concurrency INTEGER NOT NULL DEFAULT 8,
   active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
   cooldown_until TEXT,
   cooldown_level INTEGER NOT NULL DEFAULT 0,
   consecutive_use_count INTEGER NOT NULL DEFAULT 0,
@@ -206,6 +211,32 @@ CREATE TABLE IF NOT EXISTS proxies (
 );
 CREATE INDEX IF NOT EXISTS idx_proxies_priority ON proxies(priority, name, id);
 CREATE INDEX IF NOT EXISTS idx_proxies_cooldown ON proxies(cooldown_until) WHERE cooldown_until IS NOT NULL;
+CREATE TABLE IF NOT EXISTS warp_accounts (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL DEFAULT '',
+  device_id TEXT NOT NULL,
+  access_token TEXT NOT NULL,
+  license_key TEXT NOT NULL,
+  private_key TEXT NOT NULL,
+  address_v4 TEXT NOT NULL,
+  address_v6 TEXT NOT NULL,
+  public_key TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  endpoint_port INTEGER NOT NULL DEFAULT 2408,
+  dns TEXT NOT NULL DEFAULT '1.1.1.1',
+  mtu INTEGER NOT NULL DEFAULT 1280,
+  socks_port INTEGER NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  running INTEGER NOT NULL DEFAULT 0,
+  pid INTEGER,
+  prefer_ipv6 INTEGER NOT NULL DEFAULT 1,
+  custom_endpoint TEXT,
+  persistent_keepalive INTEGER NOT NULL DEFAULT 15,
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_warp_accounts_socks_port ON warp_accounts(socks_port);
+
 
 CREATE TABLE IF NOT EXISTS proxy_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),

@@ -6,6 +6,7 @@ function boundedInteger(name: string, fallback: number, minimum: number, maximum
   return Math.min(Math.max(Math.floor(parsed), minimum), maximum);
 }
 
+
 /** Clamped process limits shared by request, stream, and in-memory state boundaries. */
 export const runtimeMemoryLimits = Object.freeze({
   requestBodyBytes: boundedInteger("CARTETHYIA_MAX_REQUEST_BODY_BYTES", 10 * 1024 * 1024, 64 * 1024, 64 * 1024 * 1024),

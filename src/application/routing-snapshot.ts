@@ -20,8 +20,8 @@
  * them without copying.
  */
 
-import type { CredentialKind } from "../domain/contracts";
-import type { ComboDefinition } from "../domain/routing";
+import type { CredentialKind } from "./contracts";
+import type { ComboDefinition } from "./routing";
 import type { ConfigPersistence } from "../storage";
 import type { ProviderRegistry } from "../providers/registry";
 
@@ -62,14 +62,36 @@ export interface RouteSnapshotCache {
 
 export function createRouteSnapshotCache(sources: RouteSnapshotSources): RouteSnapshotCache {
   let cached: RoutingSnapshot | null = null;
+  let rebuildPromise: Promise<RoutingSnapshot> | null = null;
+
+  const rebuild = async (): Promise<RoutingSnapshot> => {
+    while (true) {
+      const revision = sources.readRevision();
+      const snapshot = await buildSnapshot(sources, revision);
+      if (sources.readRevision() === revision) {
+        cached = snapshot;
+        return snapshot;
+      }
+    }
+  };
+
   return {
     async get(): Promise<RoutingSnapshot> {
       const revision = sources.readRevision();
       const current = cached;
       if (current !== null && current.revision === revision) return current;
-      const snapshot = await buildSnapshot(sources, revision);
-      cached = snapshot;
-      return snapshot;
+      if (rebuildPromise !== null) return rebuildPromise;
+      const promise = rebuild();
+      rebuildPromise = promise;
+      void promise.then(
+        () => {
+          if (rebuildPromise === promise) rebuildPromise = null;
+        },
+        () => {
+          if (rebuildPromise === promise) rebuildPromise = null;
+        },
+      );
+      return promise;
     },
   };
 }
@@ -134,14 +156,6 @@ async function buildSnapshot(sources: RouteSnapshotSources, revision: number): P
       accountsByProvider.set(row.provider, rows);
     }
     rows.push({ id: row.id, providerId: row.provider, credentialKind: row.credentialKind, active: row.active });
-  }
-  // Keep the legacy provider-level credential as a synthetic fallback only
-  // when no account rows exist. Once operators add BYOK rows, normal account
-  // selection (including round-robin) owns the provider.
-  for (const custom of config.customProviders?.list?.() ?? []) {
-    const rows = accountsByProvider.get(custom.slug);
-    if (rows && rows.length > 0) continue;
-    accountsByProvider.set(custom.slug, [{ id: `custom:${custom.slug}`, providerId: custom.slug, credentialKind: "api_key", active: true }]);
   }
 
   const frozenAccounts = new Map<string, readonly SnapshotAccountRow[]>();

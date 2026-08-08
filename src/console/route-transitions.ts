@@ -5,7 +5,7 @@
  * the interface and view types live in `views.ts`.
  */
 
-import type { RouteScope, RouteSwitch } from "../domain/contracts";
+import type { RouteScope, RouteSwitch } from "../application/contracts";
 import { runtimeMemoryLimits } from "../traffic/limits";
 import type { RouteTransitionStore } from "./views";
 

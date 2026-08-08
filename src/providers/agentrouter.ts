@@ -24,8 +24,8 @@ import type {
   Surface,
   RouteTarget,
   TokenCountInput,
-} from "../domain/contracts";
-import type { ProviderCallError } from "../domain/contracts";
+} from "../application/contracts";
+import type { ProviderCallError } from "../application/contracts";
 
 /**
  * AgentRouter — free-credits ($200 on signup) multi-model gateway speaking
@@ -162,7 +162,7 @@ export class AgentRouterAdapter implements Adapter {
     });
     let streamHandedOff = false;
     try {
-      const response = await executeFetch(AGENTROUTER_URL, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network);
+      const response = await executeFetch(AGENTROUTER_URL, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
       if (!response.ok) throw await readUpstreamError(response);
       if (!request.stream) {
         const body = await readJsonObject(response, coordinator);

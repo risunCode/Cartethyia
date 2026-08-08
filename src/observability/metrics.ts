@@ -1,4 +1,4 @@
-import { createCleanupStack } from "../domain/contracts";
+import { createCleanupStack } from "../application/contracts";
 
 /**
  * Minimal OpenTelemetry-compatible metrics collector with Prometheus exposition.

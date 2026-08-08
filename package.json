@@ -1,6 +1,6 @@
 {
   "name": "cartethyia",
-  "version": "1.0.8-alpha",
+  "version": "2.0.0-beta",
   "description": "OpenAI <-> Anthropic compat reverse proxy (Chat Completions, Responses, Messages) with prompt-cache passthrough and image decode.",
   "private": true,
   "type": "module",
@@ -8,24 +8,17 @@
   "scripts": {
     "dev": "bun run --watch src/main.ts",
     "start": "bun run src/main.ts",
-    "build": "bun build --compile --minify --bytecode --target bun --outfile dist/cartethyia src/main.ts",
+    "build": "bun build --compile --minify --bytecode --target bun --outfile bin/cartethyia src/main.ts",
     "test": "bun test ./test/**/*.test.ts",
     "test:coverage": "bun test --coverage --timeout 60000 test/",
-    "smoke:console": "bun run scripts/smoke-console.ts",
-    "live:alias": "bun run scripts/live-alias-test.ts",
-    "maturity:gate": "bun run scripts/maturity-gate.ts",
-    "canary:provider": "bun run scripts/provider-canary.ts",
     "bench": "bun test --timeout 60000 test/bench",
     "bench:baseline": "bun test --timeout 60000 test/bench/benchmark-edge-cases.test.ts"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "^2.13.0",
     "elysia": "^1.4.29",
-    "socks": "^2.8.9",
     "socks-proxy-agent": "^10.1.0"
   },
   "devDependencies": {
-    "@bufbuild/protoc-gen-es": "^2.13.0",
     "@types/bun": "latest",
     "typescript": "5"
   }

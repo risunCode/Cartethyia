@@ -18,6 +18,5 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src", "test/**/*.ts", "application-contracts.test.ts"],
-  "exclude": ["src.old"]
+  "include": ["src", "test/**/*.ts"]
 }

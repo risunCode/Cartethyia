@@ -13,8 +13,8 @@ import type {
   Surface,
   RouteTarget,
   TokenCountInput,
-} from "../domain/contracts";
-import type { ProviderCallError } from "../domain/contracts";
+} from "../application/contracts";
+import type { ProviderCallError } from "../application/contracts";
 import { createHash } from "node:crypto";
 
 /**
@@ -185,7 +185,7 @@ export class AnthropicOAuthAdapter implements Adapter {
     const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
     let streamHandedOff = false;
     try {
-      const response = await executeFetch(`${ANTHROPIC_BASE_URL}/messages`, { method: "POST", headers, body: attestClaudePayload(JSON.stringify(payload)) }, coordinator, network);
+      const response = await executeFetch(`${ANTHROPIC_BASE_URL}/messages`, { method: "POST", headers, body: attestClaudePayload(JSON.stringify(payload)) }, coordinator, network, input.capture);
       if (!response.ok) throw await readUpstreamError(response);
       if (!request.stream) {
         const body = await readJsonObject(response, coordinator);

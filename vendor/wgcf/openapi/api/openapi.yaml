@@ -1,0 +1,977 @@
+openapi: 3.0.1
+info:
+  title: Cloudflare WARP API
+  version: "536"
+servers:
+- url: /
+paths:
+  /{apiVersion}/client_config:
+    get:
+      operationId: GetClientConfig
+      parameters:
+      - explode: false
+        in: path
+        name: apiVersion
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetClientConfig_200_Response"
+          description: ""
+      summary: GetClientConfig
+  /{apiVersion}/reg:
+    post:
+      operationId: Register
+      parameters:
+      - explode: false
+        in: path
+        name: apiVersion
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Register_Request"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Register_200_Response"
+          description: ""
+      summary: Register
+  /{apiVersion}/reg/{sourceDeviceId}:
+    get:
+      operationId: GetSourceDevice
+      parameters:
+      - explode: false
+        in: path
+        name: apiVersion
+        required: true
+        schema:
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: sourceDeviceId
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetSourceDevice_200_Response"
+          description: ""
+      summary: GetSourceDevice
+    patch:
+      operationId: UpdateSourceDevice
+      parameters:
+      - explode: false
+        in: path
+        name: apiVersion
+        required: true
+        schema:
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: sourceDeviceId
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSourceDevice_Request"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateSourceDevice_200_Response"
+          description: ""
+      summary: UpdateSourceDevice
+  /{apiVersion}/reg/{sourceDeviceId}/account:
+    get:
+      operationId: GetAccount
+      parameters:
+      - explode: false
+        in: path
+        name: sourceDeviceId
+        required: true
+        schema:
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: apiVersion
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAccount_200_Response"
+          description: ""
+      summary: GetAccount
+    put:
+      operationId: UpdateAccount
+      parameters:
+      - explode: false
+        in: path
+        name: sourceDeviceId
+        required: true
+        schema:
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: apiVersion
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAccount_Request"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateAccount_200_Response"
+          description: ""
+      summary: UpdateAccount
+  /{apiVersion}/reg/{sourceDeviceId}/account/devices:
+    get:
+      operationId: GetBoundDevices
+      parameters:
+      - explode: false
+        in: path
+        name: sourceDeviceId
+        required: true
+        schema:
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: apiVersion
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/GetBoundDevices_200_Response"
+                type: array
+          description: ""
+      summary: GetBoundDevices
+  /{apiVersion}/reg/{sourceDeviceId}/account/license:
+    post:
+      operationId: ResetAccountLicense
+      parameters:
+      - explode: false
+        in: path
+        name: sourceDeviceId
+        required: true
+        schema:
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: apiVersion
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetAccountLicense_200_Response"
+          description: ""
+      summary: ResetAccountLicense
+  /{apiVersion}/reg/{sourceDeviceId}/account/reg/{boundDeviceId}:
+    delete:
+      operationId: DeleteBoundDevice
+      parameters:
+      - explode: false
+        in: path
+        name: sourceDeviceId
+        required: true
+        schema:
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: apiVersion
+        required: true
+        schema:
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: boundDeviceId
+        required: true
+        schema:
+          type: string
+        style: simple
+      responses:
+        "204":
+          description: ""
+      summary: DeleteBoundDevice
+    patch:
+      operationId: UpdateBoundDevice
+      parameters:
+      - explode: false
+        in: path
+        name: sourceDeviceId
+        required: true
+        schema:
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: apiVersion
+        required: true
+        schema:
+          type: string
+        style: simple
+      - explode: false
+        in: path
+        name: boundDeviceId
+        required: true
+        schema:
+          type: string
+        style: simple
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBoundDevice_Request"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/UpdateBoundDevice_200_Response"
+                type: array
+          description: ""
+      summary: UpdateBoundDevice
+components:
+  schemas:
+    Account:
+      example:
+        license: license
+        referral_count: 5.962133916683182
+        account_type: account_type
+        role: role
+        referral_renewal_countdown: 5.637376656633329
+        created: created
+        quota: 1.4658129805029452
+        warp_plus: true
+        usage: 2.3021358869347655
+        premium_data: 6.027456183070403
+        id: id
+        updated: updated
+      properties:
+        account_type:
+          type: string
+        created:
+          type: string
+        id:
+          type: string
+        license:
+          type: string
+        premium_data:
+          type: number
+        quota:
+          type: number
+        referral_count:
+          type: number
+        referral_renewal_countdown:
+          type: number
+        role:
+          type: string
+        updated:
+          type: string
+        warp_plus:
+          type: boolean
+        usage:
+          type: number
+      required:
+      - account_type
+      - created
+      - id
+      - license
+      - premium_data
+      - quota
+      - referral_count
+      - referral_renewal_countdown
+      - role
+      - updated
+      - warp_plus
+      type: object
+    BoundDevice:
+      properties:
+        activated:
+          type: string
+        active:
+          type: boolean
+        created:
+          type: string
+        id:
+          type: string
+        model:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+        type:
+          type: string
+      required:
+      - activated
+      - active
+      - created
+      - id
+      - role
+      - type
+      type: object
+    NetworkAddress:
+      example:
+        v6: v6
+        v4: v4
+      properties:
+        v4:
+          type: string
+        v6:
+          type: string
+      required:
+      - v4
+      - v6
+      type: object
+    Endpoint:
+      example:
+        v6: v6
+        host: host
+        v4: v4
+      properties:
+        host:
+          type: string
+        v4:
+          type: string
+        v6:
+          type: string
+      required:
+      - host
+      - v4
+      - v6
+      type: object
+    Peer:
+      example:
+        public_key: public_key
+        endpoint:
+          v6: v6
+          host: host
+          v4: v4
+      properties:
+        endpoint:
+          $ref: "#/components/schemas/Endpoint"
+        public_key:
+          type: string
+      required:
+      - endpoint
+      - public_key
+      type: object
+    Config:
+      example:
+        peers:
+        - public_key: public_key
+          endpoint:
+            v6: v6
+            host: host
+            v4: v4
+        - public_key: public_key
+          endpoint:
+            v6: v6
+            host: host
+            v4: v4
+        services:
+          http_proxy: http_proxy
+        interface:
+          addresses:
+            v6: v6
+            v4: v4
+        client_id: client_id
+      properties:
+        client_id:
+          type: string
+        interface:
+          $ref: "#/components/schemas/Config_interface"
+        peers:
+          items:
+            $ref: "#/components/schemas/Peer"
+          type: array
+        services:
+          $ref: "#/components/schemas/Config_services"
+      required:
+      - client_id
+      - interface
+      - peers
+      - services
+      type: object
+    SourceDevice:
+      properties:
+        created:
+          type: string
+        enabled:
+          type: boolean
+        fcm_token:
+          type: string
+        id:
+          type: string
+        install_id:
+          type: string
+        key:
+          type: string
+        locale:
+          type: string
+        model:
+          type: string
+        name:
+          type: string
+        place:
+          type: number
+        tos:
+          type: string
+        type:
+          type: string
+        updated:
+          type: string
+        waitlist_enabled:
+          type: boolean
+        warp_enabled:
+          type: boolean
+      required:
+      - created
+      - enabled
+      - fcm_token
+      - id
+      - install_id
+      - key
+      - locale
+      - model
+      - name
+      - place
+      - tos
+      - type
+      - updated
+      - waitlist_enabled
+      - warp_enabled
+      type: object
+    IPv4Network:
+      example:
+        address: address
+        netmask: netmask
+      properties:
+        address:
+          type: string
+        netmask:
+          type: string
+      required:
+      - address
+      - netmask
+      type: object
+    IPv6Network:
+      example:
+        address: address
+        prefix: 0.8008281904610115
+      properties:
+        address:
+          type: string
+        prefix:
+          type: number
+      required:
+      - address
+      - prefix
+      type: object
+    GetAccount_200_Response:
+      $ref: "#/components/schemas/Account"
+    GetBoundDevices_200_Response:
+      $ref: "#/components/schemas/BoundDevice"
+    GetClientConfig_200_Response:
+      example:
+        captive_portal:
+        - name: name
+          networks:
+          - address: address
+          - address: address
+        - name: name
+          networks:
+          - address: address
+          - address: address
+        denylist:
+        - visible: true
+          name: name
+          networks:
+            v6:
+            - address: address
+              prefix: 0.8008281904610115
+            - address: address
+              prefix: 0.8008281904610115
+            v4:
+            - address: address
+              netmask: netmask
+            - address: address
+              netmask: netmask
+          android-packages:
+          - android-packages
+          - android-packages
+        - visible: true
+          name: name
+          networks:
+            v6:
+            - address: address
+              prefix: 0.8008281904610115
+            - address: address
+              prefix: 0.8008281904610115
+            v4:
+            - address: address
+              netmask: netmask
+            - address: address
+              netmask: netmask
+          android-packages:
+          - android-packages
+          - android-packages
+        referral_reward_bytes: 1.4658129805029452
+        premium_data_bytes: 6.027456183070403
+      properties:
+        captive_portal:
+          items:
+            $ref: "#/components/schemas/GetClientConfig_200_Response_captive_portal_inner"
+          type: array
+        denylist:
+          items:
+            $ref: "#/components/schemas/GetClientConfig_200_Response_denylist_inner"
+          type: array
+        premium_data_bytes:
+          type: number
+        referral_reward_bytes:
+          type: number
+      required:
+      - captive_portal
+      - denylist
+      - premium_data_bytes
+      - referral_reward_bytes
+      type: object
+    GetSourceDevice_200_Response:
+      allOf:
+      - $ref: "#/components/schemas/SourceDevice"
+      - properties:
+          account:
+            $ref: "#/components/schemas/Account"
+          config:
+            $ref: "#/components/schemas/Config"
+        required:
+        - account
+        - config
+        type: object
+      example:
+        created: created
+        locale: locale
+        type: type
+        enabled: true
+        waitlist_enabled: true
+        install_id: install_id
+        warp_enabled: true
+        fcm_token: fcm_token
+        name: name
+        tos: tos
+        model: model
+        id: id
+        place: 0.8008281904610115
+        updated: updated
+        config:
+          peers:
+          - public_key: public_key
+            endpoint:
+              v6: v6
+              host: host
+              v4: v4
+          - public_key: public_key
+            endpoint:
+              v6: v6
+              host: host
+              v4: v4
+          services:
+            http_proxy: http_proxy
+          interface:
+            addresses:
+              v6: v6
+              v4: v4
+          client_id: client_id
+        key: key
+        account:
+          license: license
+          referral_count: 5.962133916683182
+          account_type: account_type
+          role: role
+          referral_renewal_countdown: 5.637376656633329
+          created: created
+          quota: 1.4658129805029452
+          warp_plus: true
+          usage: 2.3021358869347655
+          premium_data: 6.027456183070403
+          id: id
+          updated: updated
+    Register_200_Response:
+      allOf:
+      - $ref: "#/components/schemas/SourceDevice"
+      - properties:
+          account:
+            $ref: "#/components/schemas/Account"
+          config:
+            $ref: "#/components/schemas/Config"
+          token:
+            type: string
+        required:
+        - account
+        - config
+        - token
+        type: object
+      example:
+        created: created
+        locale: locale
+        type: type
+        enabled: true
+        token: token
+        waitlist_enabled: true
+        install_id: install_id
+        warp_enabled: true
+        fcm_token: fcm_token
+        name: name
+        tos: tos
+        model: model
+        id: id
+        place: 0.8008281904610115
+        updated: updated
+        config:
+          peers:
+          - public_key: public_key
+            endpoint:
+              v6: v6
+              host: host
+              v4: v4
+          - public_key: public_key
+            endpoint:
+              v6: v6
+              host: host
+              v4: v4
+          services:
+            http_proxy: http_proxy
+          interface:
+            addresses:
+              v6: v6
+              v4: v4
+          client_id: client_id
+        key: key
+        account:
+          license: license
+          referral_count: 5.962133916683182
+          account_type: account_type
+          role: role
+          referral_renewal_countdown: 5.637376656633329
+          created: created
+          quota: 1.4658129805029452
+          warp_plus: true
+          usage: 2.3021358869347655
+          premium_data: 6.027456183070403
+          id: id
+          updated: updated
+    Register_Request:
+      properties:
+        fcm_token:
+          type: string
+        install_id:
+          type: string
+        key:
+          type: string
+        locale:
+          type: string
+        model:
+          type: string
+        tos:
+          type: string
+        type:
+          type: string
+      required:
+      - fcm_token
+      - install_id
+      - key
+      - locale
+      - model
+      - tos
+      - type
+      type: object
+    ResetAccountLicense_200_Response:
+      example:
+        license: license
+      properties:
+        license:
+          type: string
+      required:
+      - license
+      type: object
+    UpdateAccount_200_Response:
+      example:
+        referral_count: 1.4658129805029452
+        role: role
+        referral_renewal_countdown: 5.962133916683182
+        created: created
+        quota: 6.027456183070403
+        warp_plus: true
+        premium_data: 0.8008281904610115
+        id: id
+        updated: updated
+      properties:
+        created:
+          type: string
+        id:
+          type: string
+        premium_data:
+          type: number
+        quota:
+          type: number
+        referral_count:
+          type: number
+        referral_renewal_countdown:
+          type: number
+        role:
+          type: string
+        updated:
+          type: string
+        warp_plus:
+          type: boolean
+      required:
+      - created
+      - id
+      - premium_data
+      - quota
+      - referral_count
+      - referral_renewal_countdown
+      - role
+      - updated
+      - warp_plus
+      type: object
+    UpdateAccount_Request:
+      properties:
+        license:
+          type: string
+      required:
+      - license
+      type: object
+    UpdateBoundDevice_200_Response:
+      $ref: "#/components/schemas/BoundDevice"
+    UpdateBoundDevice_Request:
+      properties:
+        active:
+          type: boolean
+        name:
+          type: string
+      type: object
+    UpdateSourceDevice_200_Response:
+      allOf:
+      - $ref: "#/components/schemas/SourceDevice"
+      - properties:
+          account:
+            $ref: "#/components/schemas/Account"
+          config:
+            $ref: "#/components/schemas/Config"
+        required:
+        - account
+        - config
+        type: object
+      example:
+        created: created
+        locale: locale
+        type: type
+        enabled: true
+        waitlist_enabled: true
+        install_id: install_id
+        warp_enabled: true
+        fcm_token: fcm_token
+        name: name
+        tos: tos
+        model: model
+        id: id
+        place: 0.8008281904610115
+        updated: updated
+        config:
+          peers:
+          - public_key: public_key
+            endpoint:
+              v6: v6
+              host: host
+              v4: v4
+          - public_key: public_key
+            endpoint:
+              v6: v6
+              host: host
+              v4: v4
+          services:
+            http_proxy: http_proxy
+          interface:
+            addresses:
+              v6: v6
+              v4: v4
+          client_id: client_id
+        key: key
+        account:
+          license: license
+          referral_count: 5.962133916683182
+          account_type: account_type
+          role: role
+          referral_renewal_countdown: 5.637376656633329
+          created: created
+          quota: 1.4658129805029452
+          warp_plus: true
+          usage: 2.3021358869347655
+          premium_data: 6.027456183070403
+          id: id
+          updated: updated
+    UpdateSourceDevice_Request:
+      properties:
+        key:
+          type: string
+      required:
+      - key
+      type: object
+    Config_interface:
+      example:
+        addresses:
+          v6: v6
+          v4: v4
+      properties:
+        addresses:
+          $ref: "#/components/schemas/NetworkAddress"
+      required:
+      - addresses
+      type: object
+    Config_services:
+      example:
+        http_proxy: http_proxy
+      properties:
+        http_proxy:
+          type: string
+      required:
+      - http_proxy
+      type: object
+    GetClientConfig_200_Response_captive_portal_inner_networks_inner:
+      example:
+        address: address
+      properties:
+        address:
+          type: string
+      required:
+      - address
+      type: object
+    GetClientConfig_200_Response_captive_portal_inner:
+      example:
+        name: name
+        networks:
+        - address: address
+        - address: address
+      properties:
+        name:
+          type: string
+        networks:
+          items:
+            $ref: "#/components/schemas/GetClientConfig_200_Response_captive_portal_inner_networks_inner"
+          type: array
+      required:
+      - name
+      - networks
+      type: object
+    GetClientConfig_200_Response_denylist_inner_networks:
+      example:
+        v6:
+        - address: address
+          prefix: 0.8008281904610115
+        - address: address
+          prefix: 0.8008281904610115
+        v4:
+        - address: address
+          netmask: netmask
+        - address: address
+          netmask: netmask
+      properties:
+        v4:
+          items:
+            $ref: "#/components/schemas/IPv4Network"
+          type: array
+        v6:
+          items:
+            $ref: "#/components/schemas/IPv6Network"
+          type: array
+      required:
+      - v4
+      - v6
+      type: object
+    GetClientConfig_200_Response_denylist_inner:
+      example:
+        visible: true
+        name: name
+        networks:
+          v6:
+          - address: address
+            prefix: 0.8008281904610115
+          - address: address
+            prefix: 0.8008281904610115
+          v4:
+          - address: address
+            netmask: netmask
+          - address: address
+            netmask: netmask
+        android-packages:
+        - android-packages
+        - android-packages
+      properties:
+        android-packages:
+          items:
+            type: string
+          type: array
+        name:
+          type: string
+        networks:
+          $ref: "#/components/schemas/GetClientConfig_200_Response_denylist_inner_networks"
+        visible:
+          type: boolean
+      required:
+      - name
+      - visible
+      type: object

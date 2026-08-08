@@ -1,4 +1,4 @@
-import type { Surface, ProviderUsage, StopReason, StreamEvent } from "../../domain/contracts";
+import type { Surface, ProviderUsage, StopReason, StreamEvent } from "../../application/contracts";
 
 const encoder = new TextEncoder();
 
@@ -47,7 +47,7 @@ function responseUsage(usage: ProviderUsage): Record<string, unknown> {
     output_tokens: output,
     total_tokens: usageNumber(usage.totalTokens) || input + output,
     input_tokens_details: { cached_tokens: usageNumber(usage.cacheReadTokens) },
-    output_tokens_details: { reasoning_tokens: 0 },
+    output_tokens_details: { reasoning_tokens: usageNumber(usage.reasoningTokens ?? null) },
   };
 }
 

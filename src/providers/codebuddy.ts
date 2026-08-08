@@ -1,5 +1,5 @@
 import { aggregateCapabilities, capabilitiesOf, createModelCatalog, modelOf, toProviderCallError } from "../open-sse/transport/shared";
-import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../domain/contracts";
+import type { ContextStats, Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget, TokenCountInput } from "../application/contracts";
 import { callChatCompletionsWire } from "../open-sse/transport/protocols/openai";
 import { ProviderAdapterError } from "../open-sse/transport/shared";
 

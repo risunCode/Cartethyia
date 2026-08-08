@@ -23,11 +23,15 @@ export function setUnauthorizedHandler(handler: () => void): void {
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const method = init.method ?? "QUERY";
+  const body = init.body ?? (method === "QUERY" ? "{}" : undefined);
   const res = await fetch(`/console/api${path}`, {
     credentials: "same-origin",
     ...init,
+    method,
+    body,
     headers: {
-      ...(init.body !== undefined ? { "content-type": "application/json" } : {}),
+      ...(body !== undefined ? { "content-type": "application/json" } : {}),
       ...(init.headers ?? {}),
     },
   });
@@ -51,7 +55,11 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return parsed as T;
 }
 
-export const apiGet = <T>(path: string) => api<T>(path);
+export const apiGet = <T>(path: string) => {
+  const queryString = path.includes("?") ? path.slice(path.indexOf("?") + 1) : "";
+  const queryBody = Object.fromEntries(new URLSearchParams(queryString));
+  return api<T>(path, { method: "QUERY", body: JSON.stringify(queryBody) });
+};
 export const apiPost = <T>(path: string, body?: unknown) =>
   api<T>(path, { method: "POST", body: body === undefined ? "{}" : JSON.stringify(body) });
 export const apiPatch = <T>(path: string, body?: unknown) =>

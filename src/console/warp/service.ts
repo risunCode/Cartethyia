@@ -79,27 +79,34 @@ export class WarpPoolService {
     this.repo = config.warpAccounts;
     this.poolInjector = createProxyPoolInjector(config);
     this.metricsRepo = runtime?.warpMetrics ?? null;
-    // Reconcile persisted state after restart and auto-restore enabled instances.
-    this.bootstrapInstances().catch(() => {});
-    // Start periodic metrics collection (every 15s) if runtime is provided.
-    if (this.metricsRepo !== null) {
+    // Reconcile stale persisted process state after restart. Warp instances
+    // are deliberately opt-in: the dashboard/API must start them explicitly.
+    this.reconcileInstances().catch(() => {});
+  }
+
+  /** Start telemetry only while at least one Warp instance is active. */
+  private ensureMetricsCollection(): void {
+    if (this.metricsRepo !== null && this.metricsTimer === null) {
       this.startMetricsCollection(15_000);
     }
   }
 
-  /**
-   * Startup reconciliation:
-   * 1) clear stale `running/pid` persisted from previous process
-   * 2) auto-start all enabled accounts so Warp proxies are re-injected
-   */
-  private async bootstrapInstances(): Promise<void> {
+  /** Release the timer when no Warp instance remains active. */
+  private stopMetricsCollection(): void {
+    if (this.metricsTimer !== null) {
+      clearInterval(this.metricsTimer);
+      this.metricsTimer = null;
+    }
+  }
+
+  /** Clear process state left by a previous server and remove stale proxies. */
+  private async reconcileInstances(): Promise<void> {
     const accounts = await this.repo.list();
     for (const account of accounts) {
-      if (account.running) {
-        await this.repo.setRunning(account.id, false, null);
-      }
+      if (!account.running && account.pid === null) continue;
+      await this.repo.setRunning(account.id, false, null);
+      await this.poolInjector.removeWarpProxy(account.id);
     }
-    await this.startAll();
   }
 
   /** Periodically collect process metrics for all running instances. */
@@ -272,6 +279,7 @@ export class WarpPoolService {
       });
       await this.repo.setRunning(id, true, pid);
       await this.poolInjector.upsertWarpProxy(id, account.socksPort, account.label);
+      this.ensureMetricsCollection();
       return { success: true, message: `Started ${account.label} on port ${account.socksPort}`, accountId: id };
     } catch (error) {
       await this.repo.setRunning(id, false, null);
@@ -291,6 +299,8 @@ export class WarpPoolService {
     this.healthCache.delete(id);
     await this.repo.setRunning(id, false, null);
     await this.poolInjector.removeWarpProxy(id);
+    const hasRunning = (await this.repo.list()).some((candidate) => candidate.running);
+    if (!hasRunning) this.stopMetricsCollection();
     return { success: true, message: `Stopped ${account.label}`, accountId: id };
   }
 
@@ -508,10 +518,7 @@ export class WarpPoolService {
 
   /** Graceful shutdown — stop metrics timer + stop all wireproxy instances. */
   async shutdown(): Promise<void> {
-    if (this.metricsTimer) {
-      clearInterval(this.metricsTimer);
-      this.metricsTimer = null;
-    }
+    this.stopMetricsCollection();
     // Clear process metrics state for all tracked pids.
     const accounts = await this.repo.list();
     for (const account of accounts) {

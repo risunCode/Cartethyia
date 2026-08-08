@@ -51,8 +51,8 @@ export function proxyIdFromSuffix(suffix: string): string {
   return suffix.toLowerCase().replace(/_/g, "-");
 }
 
-import { sanitizeMessage, deriveErrorSource, type ApplicationErrorKind, type NetworkSelection, type ProviderCallError, type RouteHealth, type RouteScope, type RouteStatus, type RoutingPreset } from "../domain/contracts";
-import { calculateRateLimitBackoffMs, parseRateLimitReason } from "../domain/rate-limit";
+import { sanitizeMessage, deriveErrorSource, type ApplicationErrorKind, type NetworkSelection, type ProviderCallError, type RouteHealth, type RouteScope, type RouteStatus, type RoutingPreset } from "../application/contracts";
+import { calculateRateLimitBackoffMs, parseRateLimitReason } from "../application/rate-limit";
 
 export interface ProxyHealthOptions {
   readonly nowMs?: () => number;
@@ -225,10 +225,12 @@ export class NetworkSelector {
 
     const preferred = input.preferredProxyId ?? null;
     const policy = this.readPolicy();
-    const candidates: ProxyConfig[] = [];
-    for (const proxy of proxies) {
-      if (await this.health.isUsable(proxy.id, now)) candidates.push(proxy);
-    }
+    const healthRecords = await this.health.list();
+    const healthByProxyId = new Map(healthRecords.map((record) => [record.proxyId, record]));
+    const candidates = proxies.filter((proxy) => {
+      const health = healthByProxyId.get(proxy.id);
+      return health === undefined || isRecordUsable(health, now);
+    });
     const ordered = [...candidates].sort((a, b) => {
       const preferredDiff = Number(b.id === preferred) - Number(a.id === preferred);
       if (preferredDiff !== 0) return preferredDiff;

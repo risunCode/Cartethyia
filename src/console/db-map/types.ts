@@ -10,8 +10,7 @@
  * Security:
  * - Every route sits behind the console session guard (applied by the
  *   parent console API app). The dashboard adds a client-side password
- *   re-auth gate (mirrors the Terminal page pattern) so the UI is not
- *   accessible without re-entering the console password within the TTL.
+ *   re-auth gate for sensitive data within the TTL.
  * - Sensitive column names are masked in row data returned by the schema
  *   and table-rows endpoints — see {@link SENSITIVE_COLUMN_NAMES}.
  * - SQL execution rejects PRAGMA statements that could change journal mode,

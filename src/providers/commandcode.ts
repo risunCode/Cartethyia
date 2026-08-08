@@ -13,9 +13,9 @@ import type {
   StreamEvent,
   StopReason,
   TokenCountInput,
-} from "../domain/contracts";
-import type { ProviderCallError } from "../domain/contracts";
-import type { NormalizedMessage } from "../domain/contracts";
+} from "../application/contracts";
+import type { ProviderCallError } from "../application/contracts";
+import type { NormalizedMessage } from "../application/contracts";
 
 /**
  * Command Code — https://api.commandcode.ai/alpha/generate — an NDJSON
@@ -139,7 +139,7 @@ export class CommandCodeAdapter implements Adapter {
     const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
     let streamHandedOff = false;
     try {
-      const response = await executeFetch(COMMANDCODE_URL, { method: "POST", headers: commandCodeHeaders(sessionId, input.credential), body: JSON.stringify(payload) }, coordinator, network);
+      const response = await executeFetch(COMMANDCODE_URL, { method: "POST", headers: commandCodeHeaders(sessionId, input.credential), body: JSON.stringify(payload) }, coordinator, network, input.capture);
       if (!response.ok) throw await readUpstreamError(response);
       if (!request.stream) { const body = await readJsonObject(response, coordinator); return { mode: "non_stream", body }; }
       if (!response.body) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Command Code returned an empty stream body", routeScope: "provider" });

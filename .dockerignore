@@ -13,6 +13,5 @@ coverage
 *.sqlite
 *.sqlite-*
 test
-src.old
 .kiro
 bin

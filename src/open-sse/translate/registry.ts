@@ -1,4 +1,4 @@
-import type { Surface } from "../../domain/contracts";
+import type { Surface } from "../../application/contracts";
 
 export type BodyConverter = (body: Record<string, unknown>) => Record<string, unknown>;
 

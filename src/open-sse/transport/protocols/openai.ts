@@ -1,6 +1,6 @@
 import { AbortCoordinator, ProviderAdapterError, executeFetch, isRecord, lineLimit, mapSseStream, nullableNumber, parseSseData, readJsonObject, readUpstreamError } from "../shared";
 import type { SseEvent, StreamMapper } from "../shared";
-import type { ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../../../domain/contracts";
+import type { ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../../../application/contracts";
 import { buildChatPayload, mapChatUsage } from "../../translate/codecs/openai-chat";
 import { buildResponsesPayload, mapResponsesUsage } from "../../translate/codecs/openai-responses";
 
@@ -25,7 +25,7 @@ export async function callChatCompletionsWire(
   });
   let streamHandedOff = false;
   try {
-    const response = await executeFetch(`${baseUrl}/chat/completions`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network);
+    const response = await executeFetch(`${baseUrl}/chat/completions`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
     if (!response.ok) throw await readUpstreamError(response);
     if (!request.stream) {
       const body = await readJsonObject(response, coordinator);
@@ -64,7 +64,7 @@ export async function callResponsesWire(
   });
   let streamHandedOff = false;
   try {
-    const response = await executeFetch(`${baseUrl}/responses`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network);
+    const response = await executeFetch(`${baseUrl}/responses`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
     if (!response.ok) throw await readUpstreamError(response);
     if (!request.stream) {
       const body = await readJsonObject(response, coordinator);
@@ -100,7 +100,7 @@ export async function callHostedImageWire(
   payload.stream = false;
   const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
   try {
-    const response = await executeFetch(url, { method: "POST", headers: { ...headers, accept: "application/json" }, body: JSON.stringify(payload) }, coordinator, network);
+    const response = await executeFetch(url, { method: "POST", headers: { ...headers, accept: "application/json" }, body: JSON.stringify(payload) }, coordinator, network, input.capture);
     if (!response.ok) throw await readUpstreamError(response);
     const body = await readJsonObject(response, coordinator);
     const data: Array<Record<string, unknown>> = [];
@@ -139,6 +139,8 @@ function mapChatFinishReason(finishReason: string | null): StopReason {
       return "tool_call";
     case "content_filter":
       return "content_filter";
+    case "error":
+      return "error";
     default:
       return "completed";
   }

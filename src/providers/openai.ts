@@ -28,20 +28,24 @@ import type {
   ProviderUsage,
   RouteTarget,
   TokenCountInput,
-} from "../domain/contracts";
-import type { ProviderCallError } from "../domain/contracts";
-import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../domain/contracts";
-import type { StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../domain/contracts";
-import { callChatCompletionsWire, callHostedImageWire, callResponsesWire } from "../open-sse/transport/protocols/openai";
-
+} from "../application/contracts";
+import type { ProviderCallError } from "../application/contracts";
+import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest } from "../application/contracts";
+import type { StopReason, StreamDecoder, StreamDecoderInput, StreamEvent } from "../application/contracts";
+import { callHostedImageWire, callResponsesWire } from "../open-sse/transport/protocols/openai";
 /**
- * OpenAI adapter: Chat Completions ("openai-chat") and Responses
- * ("openai-responses") surfaces over the OpenAI wire format.
+ * OpenAI adapter: Responses API ("openai-responses") and hosted image
+ * generation over the OpenAI wire format. Chat-compatible clients are
+ * translated to Responses by the surface resolver.
  */
 
-const OPENAI_SURFACES: readonly Surface[] = ["openai-chat", "openai-responses", "images"];
+const OPENAI_SURFACES: readonly Surface[] = ["openai-responses", "images"];
 
 const OPENAI_DEFAULT_MODELS: readonly ProviderModel[] = [
+  modelOf("gpt-5.6", "GPT-5.6", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true, images: true })),
+  modelOf("gpt-5.6-sol", "GPT-5.6 Sol", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true, images: true })),
+  modelOf("gpt-5.6-terra", "GPT-5.6 Terra", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true, images: true })),
+  modelOf("gpt-5.6-luna", "GPT-5.6 Luna", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true, images: true })),
   modelOf("gpt-5", "GPT-5", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true, images: true })),
   modelOf("gpt-5-mini", "GPT-5 Mini", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true })),
   modelOf("gpt-5-nano", "GPT-5 Nano", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true })),
@@ -107,14 +111,11 @@ export class OpenAIAdapter implements Adapter {
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {
     this.assertSupported(input);
-    const { request, credential } = input;
+    const { credential } = input;
     if (input.target.surface === "images") {
       return callHostedImageWire(input, `${this.baseUrl}/responses`, this.authHeaders(credential, false, input.headers));
     }
-    if (input.target.surface === "openai-chat") {
-      return callChatCompletionsWire(input, this.baseUrl, this.authHeaders(credential, request.stream, input.headers));
-    }
-    return callResponsesWire(input, this.baseUrl, this.authHeaders(credential, request.stream, input.headers));
+    return callResponsesWire(input, this.baseUrl, this.authHeaders(credential, input.request.stream, input.headers));
   }
 
   countTokens(_input: TokenCountInput): Promise<ContextStats> {

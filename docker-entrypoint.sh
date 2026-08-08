@@ -7,4 +7,4 @@ set -eu
 mkdir -p /app/data
 chown -R cartethyia:cartethyia /app/data
 
-exec su-exec cartethyia "$@"
+exec gosu cartethyia "$@"
