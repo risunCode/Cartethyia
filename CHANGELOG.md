@@ -2,6 +2,114 @@
 
 All notable changes to Cartethyia are documented here.
 
+## [2.0.0-beta] - 2026-08-08
+
+**2.0.0 Beta is here.** This release consolidates the OAuth and quota lifecycle around the account/provider runtime boundary, adds provider-aware background workers, and hardens the failure path for revoked refresh tokens.
+
+### Breaking changes
+
+- Safe read-only JSON APIs now use RFC 10008 `QUERY` internally. The model catalog is `QUERY /v1/models`; read-only console API routes also use `QUERY` with `Content-Type: application/json`. `GET` callers remain accepted through the gateway translator for the beta migration window.
+- SSE streams, health probes, static pages, and share links remain `GET`; proxy generation and state-changing console routes remain `POST`/`PATCH`/`DELETE`.
+
+### Added
+
+- Gateway GET-to-QUERY translator that converts legacy API GET requests and URL parameters into the canonical JSON QUERY request before routing and authentication.
+- Explicit 30-second server idle timeout with unlimited idle time for active proxy and console SSE requests, preventing long upstream waits from expiring the connection.
+
+### Protocol and runtime
+
+- Native OpenAI now uses the Responses API by default; Chat-compatible clients remain supported through protocol translation.
+- Added Responses reasoning controls (`effort`, `summary`, `mode`, `context`), concise summaries by default, reasoning-item/assistant-phase preservation, and reasoning-token telemetry.
+- Added optional RTK tool-result compression and fail-open Headroom integration.
+- Added managed WARP/WireProxy accounts with SOCKS5 proxy-pool injection, health checks, metrics, and manual lifecycle controls.
+- Removed custom cluster/concurrency runtime paths; the server now runs as one Bun process and relies on native async I/O.
+
+
+### Previous breaking changes
+
+- Internal quota transport is now owned by `src/providers/quota/fetcher.ts`; consumers should not depend on the console service layer for provider quota HTTP.
+- The duplicate `OAuthKeepalive` path was removed. Runtime refreshes now use the central `TokenRefreshPool` in `src/auth/token-refresh.ts`.
+- `CreateConsoleServicesOptions` now requires the shared OAuth refresh coordinator so manual, request-time, quota, and scheduled refreshes cannot diverge.
+### Added
+
+- **Central OAuth refresh pool** with account-level single-flight locking across request-time, manual, quota, and scheduled refresh calls.
+- **Proactive OAuth refresh worker** with bounded concurrency, provider-specific refresh lead times, stale-token policies, unref'd scheduling, and clean runtime shutdown.
+- **Provider refresh policy windows**: Codex (2 days), Claude (4 hours), Antigravity (5 minutes), Grok Build (5 minutes), Kiro (15 minutes), Cline/Cline Pass (30 minutes), and Kimchi (5 minutes).
+- **Persistent OAuth refresh health state**: `lastRefreshAtMs`, `lastRefreshAttemptAtMs`, `lastRefreshErrorKind`, `lastRefreshStatusCode`, and `refreshState`.
+- **Revocation-aware refresh handling**. `invalid_grant`, revoked, expired, reused, and HTTP 400 token responses become permanent `reauth_required` failures instead of retry loops.
+- **Central quota refresh worker** in `src/auth/quota/refresh-worker.ts` with bounded concurrency, per-account coalescing, persisted cadence, provider filtering, and failure cooldowns.
+- **General provider quota transport** in `src/providers/quota/fetcher.ts` with normalized `ProviderQuotaResult` and `ProviderQuotaWindow` contracts.
+- **Grok Build quota support** using billing and subscription endpoints.
+- **Quota provider coverage** for Codex, Claude, Antigravity, Kiro, Cline, Qoder, and Grok Build.
+- **OAuth account diagnostics** exposing refresh state, last successful refresh time, and the last sanitized refresh error kind.
+- **Regression coverage** for refresh races, rotated refresh-token persistence, revoked grants, quota worker overlap, quota cadence, HTTP auth failures, and Antigravity request headers.
+
+### Runtime architecture
+
+- Account lifecycle concerns are grouped under `src/auth/`: credentials, account health, token refresh, quota coordination, and quota polling.
+- OAuth driver mechanics remain under `src/auth/oauth/` and `src/auth/oauth-refresher.ts`, while the shared refresh pool owns when and how refreshes execute.
+- Provider-specific quota HTTP stays under `src/providers/quota/`, separate from console orchestration.
+- OpenSSE responsibilities are split into handlers, transport, stream processing, translation, protocol concerns, and RTK/headroom modules.
+- HTTP responsibilities are unified under `src/middleware/`: server startup, QUERY translation, proxy/console routes, and shared HTTP utilities.
+- Security boundaries are explicit under `src/security/`: access policy, SSRF validation, and redirect policy.
+- Traffic controls are grouped under `src/traffic/`: admission, memory limits, in-flight tracking, per-IP limits, rate limiting, and network routing.
+- Durable configuration and runtime telemetry remain separated under `src/storage/main/` and `src/storage/runtime/`.
+
+### Provider and quota behavior
+
+- HTTP non-2xx quota responses now become explicit error states instead of empty healthy snapshots.
+- OAuth quota refresh failures do not issue a quota request with a stale access token.
+- Antigravity quota discovery sends the project payload with the upstream client headers and POST contract.
+- Codex quota calls preserve the account identity header when the credential bundle provides one.
+- Claude quota calls preserve the OAuth beta/version headers and request identity contract.
+- Grok Build quota reads both billing credits and subscription metadata and normalizes available credit windows.
+- Quota polling is limited to providers with a registered quota handler; unsupported providers are not probed blindly.
+- Successful quota refresh timestamps and failed-account cooldowns prevent repeated upstream polling storms.
+
+### Changed
+
+- Manual `POST /console/api/oauth/refresh` now routes through the same account-level refresh flight as request-time and scheduled refreshes.
+- `CredentialSelector` consumes the shared token pool, so credential leases and token refreshes use one lifecycle owner.
+- Durable OAuth bundles preserve refresh timestamps, error status, and `reauth_required` across process restarts.
+- Console OAuth account status now reports refresh state without exposing access or refresh token values.
+- Quota snapshots preserve the last successful window only as diagnostic context; an OAuth refresh failure marks the account unavailable instead of treating stale data as healthy.
+- Worker startup and shutdown are wired into the main runtime composition; both timers are unref'd and stop cleanly.
+- Root and dashboard package versions are now `2.0.0-beta`.
+
+### Fixed
+
+- Concurrent manual/request refreshes no longer race a rotating provider refresh token.
+- Refresh failures no longer overwrite a valid rotated refresh token with an omitted response field.
+- Permanent OAuth failures no longer trigger repeated refresh attempts on every request.
+- HTTP 401/400 quota responses no longer become empty successful quota records.
+- Antigravity quota discovery no longer uses the old GET-only contract without project/client headers.
+- Unsupported providers are no longer hit by the quota polling worker when no quota adapter is registered.
+
+### Operational behavior
+
+- Refresh and quota workers use bounded concurrency and per-account single-flight maps.
+- A failed quota account receives a cooldown before another upstream quota attempt.
+- Worker callbacks emit sanitized account-level success/failure log events; token values and raw provider bodies are not logged.
+- Refresh policies are evaluated per provider rather than using one global expiry heuristic.
+- Reauthorization-required accounts remain visible to the console while being excluded from blind refresh retries.
+
+### Test surface
+
+- `oauth-refresh-workers.test.ts`: refresh races, rotated tokens, revoked grants, HTTP 400 classification, quota worker overlap/cadence, and endpoint headers.
+- `quota-queue.test.ts`: quota refresh coalescing and cooldown behavior.
+- `persistence-contracts.test.ts`: durable account/token/quota persistence.
+- `middleware-contracts.test.ts`: unified middleware boundary route and lifecycle contracts.
+- `translation-transport-contracts.test.ts`: cross-protocol and stream transport behavior.
+- `routing-cache.test.ts`, `core-policies.test.ts`, `session-ip.test.ts`, `rtk-headroom.test.ts`, and `warp-lifecycle-contracts.test.ts`: routing, policy, admission, context, and Warp lifecycle regressions.
+
+### Verification
+
+- `bun tsc --noEmit` — clean.
+- `bun test test/translation-transport-contracts.test.ts` — 37 passing.
+- `bun run test` — 315 passing.
+- `bun run build` — clean; the native `/health` smoke check returned HTTP 200.
+- The broader Bun test command still encounters the existing dashboard test-runtime mismatch (`document`/`vi.importActual`) outside this release's backend changes.
+
 ## [1.0.8-alpha] - 2026-08-06
 
 Diff from 1.0.7-alpha. The runtime/provider boundary refactor is completed, cross-protocol routing is explicit, in-memory tracking is now adaptive, and failover is no longer over-aggressive.
@@ -97,7 +205,6 @@ Diff from 1.0.7-alpha. The runtime/provider boundary refactor is completed, cros
 - Backend: 2,025 tests passing, 1 flaky (Windows temp-dir file lock in cleanup).
 - `bunx tsc --noEmit -p .` clean (zero errors).
 - Dashboard: TypeScript typecheck and production build passing.
-- No `src.old/` imports in active code or dashboard.
 
 ## [1.0.7-alpha] - 2026-08-02
 
@@ -119,7 +226,6 @@ Diff from 1.0.7-alpha. The runtime/provider boundary refactor is completed, cros
 
 ### Changed
 
-- Completed the clean runtime cutover: the flat `src/sdk` contracts now own request normalization, routing, provider adapters, recovery, response presentation, console APIs, and dashboard callers; the previous source remains isolated under `src.old` and is excluded from builds and artifacts.
 - Runtime telemetry now finalizes one compact metadata row per logical request while configuration and runtime SQLite databases remain separate; request content is not persisted by the new hot path.
 - Provider/account/proxy health and route replacement state are surfaced through the new console API and dashboard control-plane components with bounded sanitized error detail.
 - The public landing presentation now lives under `dashboard/public/landing`, is copied by the dashboard build, and is served by the same Cartethyia control process as `/console/`.
@@ -178,7 +284,7 @@ Deep pass targeting sustained 5,000 req/sec on the proxy hot path, covering both
 - **Account selection** now caches the unredacted provider-account snapshot for one second and invalidates it on account mutations, removing repeated SQLite account-list queries while keeping credential changes immediately visible after writes. Sticky selection maintains assignment counts instead of rebuilding them on every request.
 - **Cursor Connect streaming** now uses a reusable growing byte buffer and frame views instead of `number[]` plus `splice()` for every protobuf frame, reducing per-token allocations on that upstream path.
 - **Global memory cleanup** now uses `Bun.gc(false)` and waits for a proxy-idle point instead of calling synchronous `Bun.gc(true)` on a live request path. The health endpoint reports whether collection was scheduled or deferred; this is process-wide JavaScript/native heap cleanup, not an OS-wide RAM purge.
-- **`middleware.ts`**'s per-request access-log line used `console.log`, which is a synchronous blocking write whenever stdout is piped rather than an interactive TTY - the normal case under Docker/Railway. Now batched through `src/http/request-log-buffer.ts` (flushes every ~50ms or 200 lines).
+- The unified middleware boundary batches per-request access-log writes instead of synchronously writing each line.
 - Live-server benchmark on `GET /v1/models` (exercises the api-key cache, access-rule cache, and catalog cache together): 200-1,000 concurrent connections, 0 errors, ~10,900 req/sec sustained (up from ~5,000 before the catalog cache, and from a much lower ceiling before the config-db fixes above). `PRAGMA` and cache changes require no schema/data migration.
 
 ### Fixed
