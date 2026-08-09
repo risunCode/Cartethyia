@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ProviderService } from "../src/console/services";
+import { ProviderService } from "../src/console/services/composition";
 import type {
   AccountRepository,
   CustomProviderRepository,

@@ -14,13 +14,14 @@
  * collectable.
  */
 
-import type { ConsoleLogRow } from "../storage";
-import type { ConsoleLogLine } from "./services";
+import type { ConsoleLogCategoryFilter, ConsoleLogFilters, ConsoleLogRow } from "../storage";
+import { isLogCategoryFilter } from "../application/logging";
+import type { ConsoleLogLine } from "./services/composition";
 
 /** Row source backing the stream — newest-first `latest`, ascending `after`. */
 export interface ConsoleLogStreamSource {
-  latest(limit: number): readonly ConsoleLogRow[];
-  after(afterId: number, limit: number): readonly ConsoleLogRow[];
+  latest(limit: number, filters?: ConsoleLogFilters): readonly ConsoleLogRow[];
+  after(afterId: number, limit: number, filters?: ConsoleLogFilters): readonly ConsoleLogRow[];
   /** Optional push notification — when a row is written, call this to trigger immediate delivery. */
   onPush?: (listener: () => void) => () => void;
 }
@@ -47,29 +48,36 @@ const STREAM_LIMITS = Object.freeze({
   maxBatchLines: boundedInteger("CARTETHYIA_CONSOLE_LOG_BATCH_LINES", 100, 1, 500),
   maxEventBytes: boundedInteger("CARTETHYIA_CONSOLE_LOG_EVENT_BYTES", 256 * 1024, 8 * 1024, 4 * 1024 * 1024),
   tickMs: boundedInteger("CARTETHYIA_CONSOLE_LOG_TICK_MS", 2_000, 500, 30_000),
+  pushDebounceMs: boundedInteger("CARTETHYIA_CONSOLE_LOG_PUSH_DEBOUNCE_MS", 32, 16, 500),
 });
 
 interface LogStreamClient {
   readonly id: number;
+  readonly category: ConsoleLogCategoryFilter;
   lastId: number;
   closed: boolean;
   enqueue(frame: Uint8Array): void;
 }
 
 function wireLine(row: ConsoleLogRow): ConsoleLogLine {
-  return { id: row.id, ts: row.ts, level: row.level, scope: row.scope, msg: row.msg };
+  return { id: row.id, ts: row.ts, level: row.level, scope: row.scope, category: row.category, msg: row.msg };
 }
 
 export function createConsoleLogStreamHub(source: ConsoleLogStreamSource): ConsoleLogStreamHub {
   const encoder = new TextEncoder();
   let clients = new Map<number, LogStreamClient>();
   let nextClientId = 1;
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let timer: Timer | undefined;
+  let pushTimer: Timer | undefined;
 
   const stopTimer = (): void => {
     if (timer !== undefined) {
       clearInterval(timer);
       timer = undefined;
+    }
+    if (pushTimer !== undefined) {
+      clearTimeout(pushTimer);
+      pushTimer = undefined;
     }
   };
 
@@ -89,21 +97,22 @@ export function createConsoleLogStreamHub(source: ConsoleLogStreamSource): Conso
 
   const tick = (): void => {
     if (clients.size === 0) return;
-    // Batch: query once from the minimum lastId across all clients, then
-    // distribute rows to each client. Avoids N+1 queries (one per client)
-    // when multiple dashboard tabs are connected.
-    let minLastId = Number.POSITIVE_INFINITY;
+    const groups = new Map<ConsoleLogCategoryFilter, { minLastId: number; clientCount: number }>();
     for (const client of clients.values()) {
-      if (client.lastId < minLastId) minLastId = client.lastId;
+      const group = groups.get(client.category);
+      if (group === undefined) {
+        groups.set(client.category, { minLastId: client.lastId, clientCount: 1 });
+      } else {
+        group.minLastId = Math.min(group.minLastId, client.lastId);
+        group.clientCount += 1;
+      }
     }
-    if (!Number.isFinite(minLastId)) minLastId = 0;
-    const rows = source.after(minLastId, STREAM_LIMITS.maxBatchLines * clients.size);
-    if (rows.length === 0) {
-      for (const client of clients.values()) deliver(client, "ping", {});
-      return;
+    const rowsByCategory = new Map<ConsoleLogCategoryFilter, readonly ConsoleLogRow[]>();
+    for (const [category, group] of groups) {
+      rowsByCategory.set(category, source.after(group.minLastId, STREAM_LIMITS.maxBatchLines * group.clientCount, { category }));
     }
-    // Index rows by id for O(1) per-client filtering.
     for (const client of clients.values()) {
+      const rows = rowsByCategory.get(client.category) ?? [];
       let delivered = false;
       for (const row of rows) {
         if (row.id <= client.lastId) continue;
@@ -115,10 +124,14 @@ export function createConsoleLogStreamHub(source: ConsoleLogStreamSource): Conso
     }
   };
 
-  /** Immediate push delivery — triggered by the source's onPush callback. */
+  /** Coalesce source notifications so a log burst produces one DB read. */
   const pushTick = (): void => {
-    if (clients.size === 0) return;
-    tick();
+    if (clients.size === 0 || pushTimer !== undefined) return;
+    pushTimer = setTimeout(() => {
+      pushTimer = undefined;
+      tick();
+    }, STREAM_LIMITS.pushDebounceMs);
+    pushTimer.unref?.();
   };
 
   // Subscribe to push notifications for immediate delivery (no 2s delay).
@@ -147,6 +160,8 @@ export function createConsoleLogStreamHub(source: ConsoleLogStreamSource): Conso
   };
 
   const handle = (request: Request): Response => {
+    const categoryValue = new URL(request.url).searchParams.get("category");
+    const category: ConsoleLogCategoryFilter = isLogCategoryFilter(categoryValue) ? categoryValue : "all";
     let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
     let client: LogStreamClient | null = null;
 
@@ -175,10 +190,11 @@ export function createConsoleLogStreamHub(source: ConsoleLogStreamSource): Conso
           controller.close();
           return;
         }
-        const snapshot = source.latest(STREAM_LIMITS.maxSnapshotLines);
+        const snapshot = source.latest(STREAM_LIMITS.maxSnapshotLines, { category });
         const top = snapshot[0]?.id ?? 0;
         client = {
           id: nextClientId++,
+          category,
           lastId: top,
           closed: false,
           enqueue(frame) {

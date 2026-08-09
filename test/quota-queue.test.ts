@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { QuotaService } from "../src/console/services";
+import { QuotaService } from "../src/console/services/composition";
 
 const flushMicrotasks = async (): Promise<void> => {
   await Promise.resolve();

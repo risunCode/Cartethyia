@@ -22,7 +22,7 @@
  */
 
 import { Elysia, type HTTPHeaders } from "elysia";
-import { consoleError } from "../services";
+import { consoleError } from "../services/composition";
 import type { ConfigPersistence } from "../../storage/main/config";
 import type { RuntimePersistence } from "../../storage/runtime/runtime";
 import { WarpPoolService } from "./service";

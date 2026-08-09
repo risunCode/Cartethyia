@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { makeProviderError } from "../src/traffic";
-import { OAuthDriverError } from "../src/auth/oauth/base";
-import { createDriverAwareOAuthRefresher } from "../src/auth/oauth-refresher";
+import { OAuthDriverError } from "../src/application/auth/oauth/base";
+import { createDriverAwareOAuthRefresher } from "../src/application/auth/oauth-refresher";
 import {
   MemoryOAuthTokenStore,
   MemoryQuotaStateStore,
   type AccountConfig,
   type CredentialConfigStore,
   type OAuthTokenRecord,
-} from "../src/auth/credentials";
-import { QuotaRefreshWorker, TokenRefreshPool } from "../src/auth";
+} from "../src/application/auth/credentials";
+import { QuotaRefreshWorker, TokenRefreshPool } from "../src/application/auth";
 import { fetchProviderQuota } from "../src/providers/quota/fetcher";
 
 const account: AccountConfig = { id: "account-1", providerId: "codex", kind: "oauth", secret: null, enabled: true, priority: 1 };

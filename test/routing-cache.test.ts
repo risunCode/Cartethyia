@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { withRoutingRevisionTracking, type CartethyiaRuntime } from "../src/bootstrap/composition";
+import { withRoutingRevisionTracking } from "../src/bootstrap/routing";
+import type { CartethyiaRuntime } from "../src/bootstrap/composition";
 import { catalogRevision } from "../src/middleware/proxy";
 import { createRouteSnapshotCache } from "../src/application/routing-snapshot";
 import type { ConfigPersistence } from "../src/storage";

@@ -1,4 +1,4 @@
-import { hashConsolePassword, MemoryRouteTransitionStore, quotaViewFromState } from "./services";
+import { hashConsolePassword, MemoryRouteTransitionStore, quotaViewFromState } from "./services/composition";
 import type {
   AccountRepository as ConsoleAccountRepository,
   AccountListResult,
@@ -19,7 +19,7 @@ import type {
   RoutingConfigRepository,
   SettingsRepository as ConsoleSettingsRepository,
   RuntimeMetadataRepository as ConsoleRuntimeMetadataRepository,
-} from "./services";
+} from "./services/composition";
 import type { ProviderRegistry } from "../providers/registry";
 import type { ModelMetadata, ProviderModel, RouteHealth } from "../application/contracts";
 import type { BackupPayload, ConfigPersistence, ProviderAccountRecord, RestoreResult, RestoreValidation, RuntimePersistence } from "../storage";
@@ -511,7 +511,7 @@ function makeRuntimeMetadataRepository(runtime: RuntimePersistence, registry: Pr
     async queryLastProviderError(providerId) { return runtime.metadata.queryLastProviderError(providerId); },
     async queryIpSummary(limit) { return runtime.metadata.queryIpSummary(limit); },
     async sumKeyTokens(keyId) { return runtime.metadata.sumKeyTokens(keyId); },
-    async queryLogs(limit) { return runtime.consoleLogs.list({ limit }).items.map((row) => ({ id: row.id, ts: row.ts, level: row.level, scope: row.scope, msg: row.msg })); },
+    async queryLogs(limit) { return runtime.consoleLogs.list({ limit }).items.map((row) => ({ id: row.id, ts: row.ts, level: row.level, scope: row.scope, category: row.category, msg: row.msg })); },
     async clearLogs() { runtime.consoleLogs.clear(); },
     async recordModelProbe() { runtime.flush(); },
   };

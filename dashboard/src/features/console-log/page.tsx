@@ -15,7 +15,7 @@ import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/tabs";
 import { ConfirmDialog } from "../../components/shared";
-import { useConsoleLogStream, type ConsoleLogLevel } from "../../hooks/use-console-log-stream";
+import { useConsoleLogStream, type ConsoleLogCategory, type ConsoleLogLevel } from "../../hooks/use-console-log-stream";
 
 const LEVEL_COLORS: Record<ConsoleLogLevel, string> = {
   debug: "text-[var(--text-3)]",
@@ -24,10 +24,20 @@ const LEVEL_COLORS: Record<ConsoleLogLevel, string> = {
   error: "text-[var(--red)]",
 };
 
-type ConsoleLogFilter = ConsoleLogLevel | "all" | "web";
-const FILTERS: ConsoleLogFilter[] = ["all", "web", "debug", "info", "warn", "error"];
-
-// ── Console Log tab ──────────────────────────────────────────────────────────
+type LogLevelFilter = ConsoleLogLevel | "all";
+const CATEGORIES: Array<{ value: ConsoleLogCategory; label: string }> = [
+  { value: "all", label: "All logs (no web)" },
+  { value: "request", label: "Request logs" },
+  { value: "system", label: "System logs" },
+  { value: "web", label: "Web logs" },
+];
+const LEVELS: Array<{ value: LogLevelFilter; label: string }> = [
+  { value: "all", label: "All levels" },
+  { value: "debug", label: "debug" },
+  { value: "info", label: "info" },
+  { value: "warn", label: "warn" },
+  { value: "error", label: "error" },
+];
 
 const ConsoleLogRow = memo(function ConsoleLogRow({ line, isNew }: { line: { id: number; ts: string; level: ConsoleLogLevel; msg: string }; isNew: boolean }) {
   return (
@@ -41,9 +51,12 @@ const ConsoleLogRow = memo(function ConsoleLogRow({ line, isNew }: { line: { id:
   );
 });
 
+// ── Console Log tab ──────────────────────────────────────────────────────────
+
 function ConsoleLogTab() {
-  const { lines, newLineIds, status, attempts } = useConsoleLogStream();
-  const [filter, setFilter] = useState<ConsoleLogFilter>("all");
+  const [category, setCategory] = useState<ConsoleLogCategory>("all");
+  const [level, setLevel] = useState<LogLevelFilter>("all");
+  const { lines, newLineIds, status, attempts } = useConsoleLogStream(category);
   const [search, setSearch] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const [clearOpen, setClearOpen] = useState(false);
@@ -52,19 +65,17 @@ function ConsoleLogTab() {
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
     return lines.filter((line) => {
-      const isWebLog = line.scope === "http";
-      if (filter === "web" && !isWebLog) return false;
-      if (filter !== "all" && filter !== "web" && (isWebLog || line.level !== filter)) return false;
+      if (level !== "all" && line.level !== level) return false;
       if (!query) return true;
-      return `${line.ts} ${line.level} ${line.scope} ${line.msg}`.toLowerCase().includes(query);
+      return `${line.ts} ${line.level} ${line.category} ${line.scope} ${line.msg}`.toLowerCase().includes(query);
     });
-  }, [filter, lines, search]);
+  }, [level, lines, search]);
 
   useEffect(() => {
     if (!autoScroll) return;
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: 0, behavior: "auto" });
-  }, [visible.length, filter, autoScroll]);
+  }, [visible.length, level, autoScroll]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -82,6 +93,9 @@ function ConsoleLogTab() {
       toast.error(err instanceof ApiError ? err.message : "failed to clear logs");
     }
   };
+
+  const categoryLabel = CATEGORIES.find((option) => option.value === category)?.label ?? "All logs (no web)";
+  const levelLabel = LEVELS.find((option) => option.value === level)?.label ?? "All levels";
 
   return (
     <>
@@ -106,10 +120,16 @@ function ConsoleLogTab() {
             <Badge tone="err"><WifiOff size={11} className="mr-1" /> reconnecting ({attempts})</Badge>
           )}
           <Select
-            ariaLabel="Filter level"
-            value={filter}
-            onChange={(value) => setFilter(value as ConsoleLogFilter)}
-            options={FILTERS.map((value) => ({ value, label: value === "all" ? "All logs" : value === "web" ? "Web logs" : value }))}
+            ariaLabel="Log category"
+            value={category}
+            onChange={(value) => setCategory(value as ConsoleLogCategory)}
+            options={CATEGORIES}
+          />
+          <Select
+            ariaLabel="Log level"
+            value={level}
+            onChange={(value) => setLevel(value as LogLevelFilter)}
+            options={LEVELS}
           />
           <Button variant="secondary" size="sm" onClick={() => setAutoScroll(true)} disabled={autoScroll} title={autoScroll ? "Following the latest log line" : "Resume following the latest log line"}>
             <ArrowDown size={13} /> {autoScroll ? "Following" : "Follow"}
@@ -124,14 +144,14 @@ function ConsoleLogTab() {
         <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 font-mono text-[11.5px] leading-relaxed">
           {visible.length === 0 ? (
             <div className="flex h-full min-h-[220px] items-center justify-center">
-              <p className="text-center font-sans text-sm text-[var(--text-1)]">No log lines{filter !== "all" ? ` in ${filter === "web" ? "web logs" : `the ${filter} level`}` : ""}.</p>
+              <p className="text-center font-sans text-sm text-[var(--text-1)]">No log lines{category !== "all" || level !== "all" ? ` in ${categoryLabel}${level !== "all" ? ` · ${levelLabel}` : ""}` : ""}.</p>
             </div>
           ) : (
             visible.map((line) => <ConsoleLogRow key={line.id} line={line} isNew={newLineIds.has(line.id)} />)
           )}
         </div>
         <footer className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2 text-[10px] text-[var(--text-3)]">
-          <span className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap" aria-live="polite">Showing {visible.length} of {lines.length} lines{filter !== "all" ? ` · ${filter === "web" ? "web logs" : `${filter} logs`}` : ""}{search.trim() ? ` · search: "${search.trim()}"` : ""}</span>
+          <span className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap" aria-live="polite">Showing {visible.length} of {lines.length} lines · {categoryLabel}{level !== "all" ? ` · ${levelLabel}` : ""}{search.trim() ? ` · search: "${search.trim()}"` : ""}</span>
           <span className="shrink-0">{autoScroll ? "Following latest" : "Scroll paused"}</span>
         </footer>
       </Card>

@@ -108,7 +108,7 @@ function parseProxyEntry(entry: string): { readonly body: Record<string, unknown
     const protocol = parsed.protocol.slice(0, -1) as "http" | "https" | "socks5";
     const port = Number(parsed.port || (protocol === "https" ? 443 : protocol === "http" ? 80 : 1080));
     const normalizedHost = parsed.hostname.toLowerCase();
-    const isRelay = normalizedHost.endsWith(".vercel.app") || normalizedHost.endsWith(".workers.dev");
+    const isRelay = normalizedHost.endsWith(".vercel.app") || normalizedHost.endsWith(".workers.dev") || normalizedHost.endsWith(".netlify.app");
     return {
       body: {
         name: `${parsed.hostname}:${port}`,
@@ -745,7 +745,7 @@ function ProxyModal({ open, existing, onClose, onExited }: { open: boolean; exis
               <Textarea id="proxy-batch-entries" className="mt-1 w-full font-mono text-[11px]" rows={8} value={batchEntries} onChange={(e) => { setBatchEntries(e.target.value); setBatchCheckResults(null); setCheckedBatchInput(""); }} placeholder={"http://host:8080\nhttps://user:password@host:443\nsocks5://host:1080"} autoFocus />
               <p className="mt-1 text-[10.5px] text-[var(--text-3)]">HTTP, HTTPS, and SOCKS5 are detected from each URL. Credentials are optional.</p>
             </div>
-            <p className="text-[10.5px] text-[var(--text-3)]">Vercel and Cloudflare relays are detected automatically from their domain.</p>
+            <p className="text-[10.5px] text-[var(--text-3)]">Vercel, Netlify, and Cloudflare relays are detected automatically from their domain.</p>
             <div className="flex flex-col gap-2 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
               <label className="flex items-start gap-2 text-[11px] text-[var(--text-2)]">
                 <input className="mt-0.5 size-3.5" type="checkbox" checked={checkBeforeAdd} onChange={(event) => { setCheckBeforeAdd(event.target.checked); setBatchCheckResults(null); setCheckedBatchInput(""); }} />
@@ -802,7 +802,7 @@ function ProxyModal({ open, existing, onClose, onExited }: { open: boolean; exis
                 <Input className="mt-1 w-full" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={existing ? "Leave blank to keep" : ""} />
               </div>
             </div>
-            <p className="text-[10.5px] text-[var(--text-3)]">Vercel and Cloudflare relay status is detected automatically from the hostname.</p>
+            <p className="text-[10.5px] text-[var(--text-3)]">Vercel, Netlify, and Cloudflare relay status is detected automatically from the hostname.</p>
           </>
         )}
 

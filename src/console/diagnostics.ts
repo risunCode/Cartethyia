@@ -30,7 +30,7 @@ import type {
   UsageDimension,
   UsagePeriod,
   UsageSummaryView,
-} from "./services";
+} from "./services/composition";
 
 const SERVER_STARTED_AT = Date.now();
 const CPU_INFO = cpus();

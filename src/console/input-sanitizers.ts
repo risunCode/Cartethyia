@@ -72,7 +72,7 @@ export function defaultProxyPort(protocol: ProxyProtocol): number {
 
 export function isProxyRelayHost(host: string): boolean {
   const normalized = host.trim().toLowerCase().replace(/\.$/, "");
-  return normalized.endsWith(".vercel.app") || normalized.endsWith(".workers.dev");
+  return normalized.endsWith(".vercel.app") || normalized.endsWith(".workers.dev") || normalized.endsWith(".netlify.app");
 }
 
 /** Mutable write-only variant of a readonly interface, for request-body narrowing. */

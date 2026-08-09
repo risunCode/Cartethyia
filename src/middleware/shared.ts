@@ -18,5 +18,5 @@ export function errorResponse(status: number, code: ProxyErrorCode, message: str
 
 export function recordAccessLog(runtime: CartethyiaRuntime, pathname: string, request: Request, requestId: string, status: number, startedAt: number): void {
   const level = status >= 500 ? "error" : status >= 400 ? "warn" : "info";
-  runtime.runtime.consoleLogs.push(level, "http", `${request.method} ${pathname} ${status} ${Math.max(0, performance.now() - startedAt).toFixed(1)}ms request_id=${requestId}`);
+  runtime.logger.web(level, `${request.method} ${pathname} ${status} ${Math.max(0, performance.now() - startedAt).toFixed(1)}ms request_id=${requestId}`);
 }

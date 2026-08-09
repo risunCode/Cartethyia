@@ -1,6 +1,6 @@
 import type { OAuthRefresher, OAuthRefreshResult, OAuthTokenRecord } from "./credentials";
-import { makeProviderError } from "../traffic";
-import { assertPublicUrlAtDispatch } from "../security/ssrf-guard";
+import { makeProviderError } from "../../traffic";
+import { assertPublicUrlAtDispatch } from "../../security/ssrf-guard";
 import { OAuthDriverError, type OAuthFetch } from "./oauth/base";
 import type { AuthDriverRegistry } from "./drivers";
 import type { TokenSet } from "./contracts";

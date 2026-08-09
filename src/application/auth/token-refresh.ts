@@ -1,5 +1,5 @@
-import type { ProviderCallError } from "../application/contracts";
-import { makeProviderError } from "../traffic";
+import type { ProviderCallError } from "../contracts";
+import { makeProviderError } from "../../traffic";
 import type {
   AccountConfig,
   CredentialConfigStore,

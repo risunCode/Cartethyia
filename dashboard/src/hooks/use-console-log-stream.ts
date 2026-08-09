@@ -11,12 +11,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export type ConsoleLogLevel = "debug" | "info" | "warn" | "error";
+export type ConsoleLogCategory = "all" | "web" | "request" | "system";
 
 export interface ConsoleLogLine {
   id: number;
   ts: string;
   level: ConsoleLogLevel;
   scope: string;
+  category: Exclude<ConsoleLogCategory, "all">;
   msg: string;
 }
 
@@ -34,7 +36,7 @@ export interface ConsoleLogStream {
   attempts: number;
 }
 
-export function useConsoleLogStream(): ConsoleLogStream {
+export function useConsoleLogStream(category: ConsoleLogCategory = "all"): ConsoleLogStream {
   const [lines, setLines] = useState<ConsoleLogLine[]>([]);
   const [newLineIds, setNewLineIds] = useState<ReadonlySet<number>>(new Set());
   const [status, setStatus] = useState<StreamStatus>("connecting");
@@ -73,11 +75,17 @@ export function useConsoleLogStream(): ConsoleLogStream {
   useEffect(() => {
     let disposed = false;
     let source: EventSource | null = null;
+    const streamUrl = `${STREAM_URL}?category=${encodeURIComponent(category)}`;
+
+    setLines([]);
+    setNewLineIds(new Set());
+    pendingRef.current = [];
+    watermarkRef.current = 0;
 
     const connect = () => {
       if (disposed) return;
       setStatus(attemptsRef.current === 0 ? "connecting" : "error");
-      const es = new EventSource(STREAM_URL, { withCredentials: true });
+      const es = new EventSource(streamUrl, { withCredentials: true });
       source = es;
       es.addEventListener("init", (event) => {
         const data = JSON.parse((event as MessageEvent).data as string) as { lines: ConsoleLogLine[]; lastId?: number };
@@ -126,8 +134,7 @@ export function useConsoleLogStream(): ConsoleLogStream {
       clearTimeout(highlightTimerRef.current);
       source?.close();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scheduleFlush]);
+  }, [scheduleFlush, category]);
 
   return { lines, newLineIds, status, attempts };
 }

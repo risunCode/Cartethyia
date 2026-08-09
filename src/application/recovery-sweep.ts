@@ -20,7 +20,7 @@
  *   keeps cooldowns short, so a network probe is unnecessary overhead.
  */
 
-import type { AccountHealthManager, AccountHealthRecord, ModelLockStore } from "../auth/credentials";
+import type { AccountHealthManager, AccountHealthRecord, ModelLockStore } from "./auth/credentials";
 import type { ModelLockRecord } from "./contracts";
 
 const SWEEP_INTERVAL_MS = 60 * 1000; // 1 minute

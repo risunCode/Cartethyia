@@ -14,7 +14,7 @@
  */
 
 import { Elysia, type HTTPHeaders } from "elysia";
-import { consoleError } from "../services";
+import { consoleError } from "../services/composition";
 import { getPersistenceEnv } from "../../storage/main/env";
 import { DbMapService, type DbMapPersistence } from "./service";
 import type { DbTarget } from "./types";

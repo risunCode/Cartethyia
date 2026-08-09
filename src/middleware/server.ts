@@ -6,7 +6,7 @@ import { resolveConsoleStatic, applySecurityHeaders } from "../console/static";
 import { runtimeSettings } from "../console/runtime-settings";
 import { runtimeMemoryLimits } from "../traffic/limits";
 import { encodeSurfaceStream } from "../providers/surfaces";
-import { clientIp } from "../console/services";
+import { clientIp } from "../console/services/composition";
 import { activePerIpFlights } from "../traffic/per-ip";
 import { SlidingWindowRateLimiter } from "../traffic/rate-limiter";
 import { safeConsoleHandle } from "./console";

@@ -54,7 +54,7 @@ export async function safeConsoleHandle(runtime: CartethyiaRuntime, request: Req
     headers.set("accept-query", "application/json");
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   } catch (error) {
-    runtime.runtime.consoleLogs.push("error", "console", `${request.method} ${pathname} failed request_id=${requestId} error=${error instanceof Error ? error.name : "unknown"}`);
+    runtime.logger.system("error", "console", `${request.method} ${pathname} failed request_id=${requestId} error=${error instanceof Error ? error.name : "unknown"}`);
     return errorResponse(500, "internal_error", `Console ${request.method} request to ${pathname} failed`, requestId);
   }
 }

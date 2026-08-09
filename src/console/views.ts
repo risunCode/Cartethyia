@@ -10,11 +10,12 @@
  */
 
 import type { CredentialKind, ModelMetadata, ProviderModel, Surface, RoutingPreset, UsageDimension, UsagePeriod } from "../application/contracts";
+import type { LogCategory, LogLevel } from "../application/logging";
 import type { RouteHealth, RouteScope, RouteSwitch } from "../application/contracts";
 import type { ModelMetadataResolver, ResolvedModelMetadata } from "../application/model-metadata";
 import type { ChartBucket, ModelTokenTotalsRow, UsageByRow, UsageCacheSummary } from "../storage";
 import type { BackupPayload, RestoreResult, RestoreValidation } from "../storage";
-import type { OAuthTokenStore, QuotaSnapshotState, QuotaStateStore } from "../auth/credentials";
+import type { OAuthTokenStore, QuotaSnapshotState, QuotaStateStore } from "../application/auth/credentials";
 
 // ---------------------------------------------------------------------------
 // Error envelope
@@ -671,8 +672,9 @@ export interface IpSummaryView {
 export interface ConsoleLogLine {
   readonly id: number;
   readonly ts: string;
-  readonly level: string;
+  readonly level: LogLevel;
   readonly scope: string;
+  readonly category: LogCategory;
   readonly msg: string;
 }
 

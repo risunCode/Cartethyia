@@ -14,7 +14,7 @@
 
 import { Elysia, type HTTPHeaders } from "elysia";
 import type { ConfigPersistence } from "../../storage";
-import { consoleError } from "../services";
+import { consoleError } from "../services/composition";
 import { CliToolService } from "./service";
 import type { ApplyInput, CliMappingInput } from "./types";
 

@@ -34,7 +34,7 @@ import {
   isHttpsRequest,
   type ConsoleServices,
   type LoginResult,
-} from "./services";
+} from "./services/composition";
 import { runProxyRequest, type ProxyRequestDependencies } from "../application/request";
 import { appendTerminalError } from "../open-sse/handlers";
 import { toPrometheus } from "../observability/metrics";

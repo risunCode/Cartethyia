@@ -40,6 +40,14 @@ This follow-up hardens the provider boundary for Claude Code, Codex, Exa, and Bl
 - `dashboard`: `bun run build` — clean (one existing CSS optimizer warning for the mobile backdrop utility).
 - `bun run build` — native backend binary compiled successfully.
 
+### Console logging and SQLite runtime
+
+- Centralized application logging now routes events into explicit `web`, `request`, and `system` categories without changing the SQLite schema.
+- Console Log defaults to `All logs (no web)`; Web, Request, System, and level filters are independently selectable, and SSE snapshots are filtered server-side.
+- Legacy `http` rows remain classified as Web logs, so existing runtime databases work without migration.
+- Proxy relay auto-detection now recognizes Netlify `.netlify.app` hosts alongside Vercel and Cloudflare Workers.
+- SQLite runtime telemetry now reuses prepared write statements, coalesces console-log stream wakeups, keeps hot telemetry pages in memory, and runs bounded WAL/temporary-store tuning.
+
 ### Breaking changes
 
 - Safe read-only JSON APIs now use RFC 10008 `QUERY` internally. The model catalog is `QUERY /v1/models`; read-only console API routes also use `QUERY` with `Content-Type: application/json`. `GET` callers remain accepted through the gateway translator for the beta migration window.

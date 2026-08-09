@@ -10,7 +10,7 @@ import { applyCachePlan, buildCachePlan } from "./cache";
 import { isRouteAllowed } from "../security/access";
 import { isProtocolError } from "./protocols";
 import { normalizeRequest, parseRequestBody } from "../open-sse/translate";
-import { CredentialSelector } from "../auth";
+import { CredentialSelector } from "./auth";
 import { NetworkSelector } from "../traffic";
 import { beginProviderInFlight, decrementInFlight, endProviderInFlight, incrementInFlight } from "../traffic/in-flight";
 import { ApiKeyAdmission, estimateRequestTokens, type AdmissionLease, type AdmissionUsage } from "../traffic/admission";

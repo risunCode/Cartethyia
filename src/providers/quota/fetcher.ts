@@ -1,4 +1,4 @@
-import type { OAuthTokenRecord } from "../../auth/credentials";
+import type { OAuthTokenRecord } from "../../application/auth/credentials";
 import { claudeCodeOAuthBetas } from "../../providers/claude-code";
 
 
