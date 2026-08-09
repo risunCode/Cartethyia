@@ -3,10 +3,11 @@
 import { useState, useCallback, useRef, Fragment } from "react";
 import { Globe, Plus, Play, Square, Trash2, RefreshCw, Upload, Download, CheckCircle2, XCircle, Cpu, Wifi, Pencil, Save, X, Settings2 } from "lucide-react";
 import { cn } from "../../../lib/cn";
+import { downloadBlob } from "../../../lib/files";
 import { Button } from "../../../components/ui/button";
 import { Card, CardHeader } from "../../../components/ui/card";
 import { Input, Label, Textarea } from "../../../components/ui/input";
-import { StatePanel } from "../../../components/ui/state";
+import { StatePanel, StatCard } from "../../../components/ui/state";
 import { toast } from "../../../lib/toast";
 import { apiGet, apiPost, apiDelete, apiPatch, ApiError } from "../../../lib/api";
 import { qk } from "../../../lib/query-keys";
@@ -84,15 +85,6 @@ function useWarpMetricsSummary() {
   });
 }
 
-function downloadBlob(filename: string, content: string, mime: string = "application/json") {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 export function MultiWarpPage() {
   const accountsQuery = useWarpAccounts();
@@ -271,38 +263,35 @@ export function MultiWarpPage() {
 
       {/* Metrics Cards */}
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        <Card density="compact">
-          <div className="flex items-center gap-1.5 text-[var(--text-3)]">
-            <Cpu size={13} />
-            <span className="text-[10px] font-semibold uppercase tracking-wider">Memory Usage</span>
-          </div>
-          <p className="mt-1 text-lg font-bold tabular-nums text-[var(--text-1)]">{metrics ? `${metrics.totalRssMb} MB` : "—"}</p>
-          <p className="text-[10px] text-[var(--text-3)]">{runningCount} instances</p>
-        </Card>
-        <Card density="compact">
-          <div className="flex items-center gap-1.5 text-[var(--text-3)]">
-            <Wifi size={13} />
-            <span className="text-[10px] font-semibold uppercase tracking-wider">Bandwidth (Total)</span>
-          </div>
-          <p className="mt-1 text-lg font-bold tabular-nums text-[var(--text-1)]">{metrics ? `${metrics.totalBandwidthMb} MB` : "—"}</p>
-          <p className="text-[10px] text-[var(--text-3)]">RX {metrics?.totalRxMb ?? 0} / TX {metrics?.totalTxMb ?? 0}</p>
-        </Card>
-        <Card density="compact" className={healthyCount > 0 ? "border-[var(--accent)]/40" : undefined}>
-          <div className="flex items-center gap-1.5 text-[var(--text-3)]">
-            <Globe size={13} />
-            <span className="text-[10px] font-semibold uppercase tracking-wider">Running</span>
-          </div>
-          <p className={cn("mt-1 text-lg font-bold tabular-nums", healthyCount > 0 ? "text-[var(--accent)]" : "text-[var(--text-1)]")}>{runningCount}</p>
-          <p className="text-[10px] text-[var(--text-3)]">{healthyCount} healthy</p>
-        </Card>
-        <Card density="compact">
-          <div className="flex items-center gap-1.5 text-[var(--text-3)]">
-            <CheckCircle2 size={13} />
-            <span className="text-[10px] font-semibold uppercase tracking-wider">Total Accounts</span>
-          </div>
-          <p className="mt-1 text-lg font-bold tabular-nums text-[var(--text-1)]">{accounts.length}</p>
-          <p className="text-[10px] text-[var(--text-3)]">{enabledCount} enabled</p>
-        </Card>
+        <StatCard
+          label="Memory Usage"
+          icon={Cpu}
+          tone="neutral"
+          value={metrics ? `${metrics.totalRssMb} MB` : "—"}
+          description={`${runningCount} instances`}
+        />
+        <StatCard
+          label="Bandwidth (Total)"
+          icon={Wifi}
+          tone="info"
+          value={metrics ? `${metrics.totalBandwidthMb} MB` : "—"}
+          description={`RX ${metrics?.totalRxMb ?? 0} / TX ${metrics?.totalTxMb ?? 0}`}
+        />
+        <StatCard
+          label="Running"
+          icon={Globe}
+          tone={healthyCount > 0 ? "accent" : "neutral"}
+          value={<span className={healthyCount > 0 ? "text-[var(--accent)]" : undefined}>{runningCount}</span>}
+          description={`${healthyCount} healthy`}
+          className={healthyCount > 0 ? "border-[var(--accent)]/40" : undefined}
+        />
+        <StatCard
+          label="Total Accounts"
+          icon={CheckCircle2}
+          tone="neutral"
+          value={accounts.length}
+          description={`${enabledCount} enabled`}
+        />
       </div>
 
       {/* Action Bar — grid for desktop, stack on mobile */}

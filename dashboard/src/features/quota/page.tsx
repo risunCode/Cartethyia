@@ -7,9 +7,11 @@ import { StatePanel } from "../../components/ui/state";
 import { ProviderIcon } from "../../components/provider-icon";
 import { ConfirmDialog } from "../../components/shared";
 import { apiDelete, apiGet, apiPost } from "../../lib/api";
+import { getErrorMessage } from "../../lib/errors";
 import { cn } from "../../lib/cn";
 import { toast } from "../../lib/toast";
 import { qk } from "../../lib/query-keys";
+import { friendlyQuotaError, formatQuotaRefresh, formatQuotaWindowLabel, formatResetDistance, quotaBarTone } from "./formatters";
 
 /** Providers without a quota endpoint — filtered from the quota page entirely. */
 /** Providers that have a real quota endpoint in fetchProviderQuota. */
@@ -64,36 +66,11 @@ function normalizeQuotaResponse(value: unknown): QuotaData | null {
   const raw = asRecord(value);
   return normalizeQuota(raw && "quota" in raw ? raw.quota : value);
 }
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message ? error.message : "Unable to refresh this account";
-}
-
-function formatReset(value: string | null): string {
-  if (!value) return "no reset time";
-  const remaining = new Date(value).getTime() - Date.now();
-  if (!Number.isFinite(remaining) || remaining <= 0) return "resetting soon";
-  const minutes = Math.ceil(remaining / 60_000);
-  if (minutes < 60) return `in ${minutes}m`;
-  const hours = Math.ceil(minutes / 60);
-  if (hours < 48) return `in ${hours}h`;
-  return `in ${Math.ceil(hours / 24)}d`;
-}
-
-function formatWindowLabel(label: string): string {
-  const match = /^(\\d+)\\s*hour$/i.exec(label.trim());
-  if (!match) return label;
-  const hours = Number(match[1]);
-  if (!Number.isFinite(hours) || hours < 24 || hours % 24 !== 0) return label;
-  return `${hours / 24} Day (${hours} Hour)`;
-}
-
-/** Show email/name for hint; fall back to name if hint is a useless JWT prefix. */
+/** Shows an account identity instead of exposing an opaque JWT prefix. */
 function displayHint(hint: string, name: string): string {
   if (hint.startsWith("eyJ") || hint === "—") return name;
   return hint;
 }
-
 function isEmpty(account: QuotaEntry): boolean {
   return Boolean(account.quota?.windows.length && account.quota.windows.every((window) => window.remainingPercent !== null && window.remainingPercent <= 0));
 }
@@ -103,29 +80,7 @@ function firstResetAt(account: QuotaEntry): number {
   return Math.min(...resetTimes, Number.POSITIVE_INFINITY);
 }
 
-/** Friendly error mapping — replace raw HTTP/provider messages with human text. */
-function friendlyError(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const lower = raw.toLowerCase();
-  if (lower.includes("not available") || lower.includes("endpoint is not available")) return "Quota tracking is not supported for this provider";
-  if (lower.includes("usage limit") || lower.includes("quota") || lower.includes("rate limit")) return "Quota exhausted — wait for reset or upgrade plan";
-  if (lower.includes("http 500") || lower.includes("internal server error")) return "Provider temporarily unavailable — retry in a moment";
-  if (lower.includes("http 429") || lower.includes("too many requests")) return "Rate limited — slow down requests";
-  if (lower.includes("http 401") || lower.includes("unauthorized") || lower.includes("invalid")) return "Credential expired — re-login or refresh token";
-  if (lower.includes("http 403") || lower.includes("forbidden")) return "Access denied — check account permissions";
-  if (lower.includes("http 402") || lower.includes("payment")) return "Payment required — top up account balance";
-  if (lower.includes("connect") || lower.includes("network") || lower.includes("timeout")) return "Network error — check connection and retry";
-  return raw;
-}
 
-/** Progress bar color based on remaining percentage. */
-function barColors(remaining: number | null): { bar: string; text: string } {
-  if (remaining === null) return { bar: "bg-[var(--text-3)]", text: "text-[var(--text-3)]" };
-  if (remaining <= 0) return { bar: "bg-[var(--red)]", text: "text-[var(--red)]" };
-  if (remaining < 20) return { bar: "bg-[var(--red)]", text: "text-[var(--red)]" };
-  if (remaining < 50) return { bar: "bg-[var(--yellow)]", text: "text-[var(--yellow)]" };
-  return { bar: "bg-[var(--green)]", text: "text-[var(--green)]" };
-}
 
 const QUOTA_REFRESH_INTERVAL_MS = 5 * 60_000;
 
@@ -164,8 +119,8 @@ function QuotaCard({ account, onToggle, onDelete }: { account: QuotaEntry; onTog
   });
   const quota = quotaQuery.data;
   const busy = refresh.isPending || quotaQuery.isFetching;
-  const rawError = refresh.error ? errorMessage(refresh.error) : quotaQuery.error ? errorMessage(quotaQuery.error) : quota?.error ?? account.health?.sanitizedMessage;
-  const cardError = friendlyError(rawError);
+  const rawError = refresh.error ? getErrorMessage(refresh.error, "Unable to refresh this account") : quotaQuery.error ? getErrorMessage(quotaQuery.error, "Unable to refresh this account") : quota?.error ?? account.health?.sanitizedMessage;
+  const cardError = friendlyQuotaError(rawError);
   return (
     <div className="overflow-hidden rounded-2xl border border-[var(--inner-border)] bg-[var(--glass-bg)] shadow-[0_8px_30px_rgba(0,0,0,.12)] backdrop-blur-xl" aria-busy={busy}>
       {/* Header: icon + provider name + plan + account hint + actions */}
@@ -177,6 +132,7 @@ function QuotaCard({ account, onToggle, onDelete }: { account: QuotaEntry; onTog
             {quota?.plan && <span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">{quota.plan}</span>}
           </div>
           <div className="truncate text-[11px] text-[var(--text-2)]">{displayHint(account.credentialHint, account.name)}</div>
+          {quota && <div className="truncate text-[10px] text-[var(--text-3)]">{formatQuotaRefresh(quota.lastSuccessAt ?? quota.fetchedAt)}</div>}
         </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" className="size-8" title="Refresh quota" aria-label={`Refresh ${account.name} quota`} disabled={busy} onClick={() => refresh.mutate()}>
@@ -199,19 +155,18 @@ function QuotaCard({ account, onToggle, onDelete }: { account: QuotaEntry; onTog
       {/* Quota progress bars — 9Router style */}
       {quota?.windows.length ? (
         <div className="space-y-3 border-t border-[var(--inner-border)] px-4 py-3">
-          <div className="text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-2)]">Window Quota</div>
           {quota.windows.map((window, index) => {
             const remaining = window.remainingPercent ?? null;
             const used = window.used ?? null;
             const limit = window.limit ?? null;
-            const colors = barColors(remaining);
+            const colors = quotaBarTone(remaining);
             const usedPct = remaining !== null ? Math.max(0, Math.min(100, 100 - remaining)) : 0;
             return (
               <div key={`${window.kind ?? window.label}:${window.resetsAt ?? "none"}:${index}`}>
                 {/* Label + percentage */}
                 <div className="mb-1.5 flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-[var(--text-1)]">{formatWindowLabel(window.label)}</span>
-                  <span className={`text-[11px] font-bold tabular-nums ${colors.text}`}>{remaining !== null ? `${remaining}%` : "—"}</span>
+                  <span className="text-[11px] font-semibold text-[var(--text-1)]">{formatQuotaWindowLabel(window.label)}</span>
+                  {remaining !== null && <span className={`text-[11px] font-bold tabular-nums ${colors.text}`}>{remaining}%</span>}
                 </div>
                 {/* Pill progress bar */}
                 <div className="h-2 overflow-hidden rounded-full bg-[var(--inner-border)]">
@@ -219,8 +174,8 @@ function QuotaCard({ account, onToggle, onDelete }: { account: QuotaEntry; onTog
                 </div>
                 {/* Used / limit + reset */}
                 <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--text-3)]">
-                  <span className="tabular-nums">{used !== null && limit !== null ? `${used.toLocaleString()} / ${limit.toLocaleString()}` : "—"}</span>
-                  {window.resetsAt && <span className="tabular-nums">{formatReset(window.resetsAt)}</span>}
+                  {used !== null && limit !== null && <span className="tabular-nums">{used.toLocaleString()} / {limit.toLocaleString()}</span>}
+                  {window.resetsAt && <span className="tabular-nums">{formatResetDistance(window.resetsAt)}</span>}
                 </div>
               </div>
             );
@@ -260,7 +215,7 @@ export function QuotaPage() {
         void queryClient.invalidateQueries({ queryKey: qk.quota.management });
       }, 1_000);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => toast.error(getErrorMessage(error, "Unable to refresh quota")),
   });
   const [deleteTarget, setDeleteTarget] = useState<QuotaEntry | null>(null);
   useEffect(() => {
@@ -307,7 +262,7 @@ export function QuotaPage() {
       toast.error(error instanceof Error ? error.message : "Unable to delete account");
     }
   };
-  const lastUpdated = dataUpdatedAt > 0 ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
+  const lastUpdated = dataUpdatedAt > 0 ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Not updated";
   const emptyCount = accounts.filter(isEmpty).length;
 
   return (

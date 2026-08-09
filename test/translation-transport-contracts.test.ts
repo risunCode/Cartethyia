@@ -17,6 +17,7 @@ import { ensureToolCallIds, fixMissingToolResponses } from "../src/open-sse/conc
 import type { NormalizeInput } from "../src/application/protocols";
 import { isProtocolError } from "../src/application/protocols";
 import { OpenAIAdapter } from "../src/providers/openai";
+import { CodexAdapter } from "../src/providers/codex";
 
 const limits: RequestLimits = { maxBodyBytes: 10_000_000, connectTimeoutMs: 10_000, firstByteTimeoutMs: 30_000, idleTimeoutMs: 30_000, totalTimeoutMs: 120_000 };
 function ni(signal?: AbortSignal): NormalizeInput { return { signal: signal ?? new AbortController().signal, limits }; }
@@ -49,6 +50,30 @@ describe("surface routing", () => {
     expect(adapter.capabilities.surfaces).not.toContain("openai-chat");
     expect(resolveWireSurface(adapter.metadata, adapter.capabilities, "openai-chat")).toBe("openai-responses");
     expect(resolveWireSurface(adapter.metadata, adapter.capabilities, "openai-responses")).toBe("openai-responses");
+  });
+
+  test("Codex unwraps durable OAuth bundles before sending the ChatGPT request", async () => {
+    const payload = btoa(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "account-123" } })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    const accessToken = `header.${payload}.signature`;
+    const credential = JSON.stringify({ accessToken, providerAccountId: "account-123", email: "user@example.com" });
+    let request: { url: string; init: RequestInit | undefined } | undefined;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      request = { url: String(input), init };
+      return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_1", object: "response", output: [], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } })}\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch;
+    try {
+      const adapter = new CodexAdapter();
+      const result = await adapter.call({ target: adapter.resolveTarget("gpt-5.4", "openai-chat"), request: chatReq({ model: "codex/gpt-5.4" }), credential, network: { proxyId: null, url: null, release: async () => {} }, signal: new AbortController().signal });
+      expect(result.mode).toBe("non_stream");
+      expect(request?.url).toBe("https://chatgpt.com/backend-api/codex/responses");
+      expect(new Headers(request?.init?.headers).get("authorization")).toBe(`Bearer ${accessToken}`);
+      const sent = JSON.parse(String(request?.init?.body)) as Record<string, unknown>;
+      expect(sent.model).toBe("gpt-5.4");
+      expect(new Headers(request?.init?.headers).get("chatgpt-account-id")).toBe("account-123");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 
@@ -83,6 +108,15 @@ describe("Chat Completions normalization and payload", () => {
     expect(toOpenAIImageUrl({ kind: "data", value: "abc", mediaType: "image/jpeg" })).toBe("data:image/jpeg;base64,abc");
     expect(() => toOpenAIImageUrl({ kind: "file" as const, value: "x", mediaType: null })).toThrow(ProtocolCodecError);
   });
+  test("preserves Anthropic search results in Chat provider user context", () => {
+    const payload = buildChatPayload(chatReq({
+      messages: [
+        { role: "assistant", content: [{ type: "tool_use", toolName: "WebSearch", toolCallId: "call_1", toolArguments: JSON.stringify({ query: "risuncode" }) }] },
+        { role: "user", content: [{ type: "tool_result", toolCallId: "call_1", text: "{\"type\":\"web_search_tool_result\",\"content\":\"found\"}" }] },
+      ],
+    }));
+    expect((payload.messages as readonly Record<string, unknown>[])[1]?.content).toContain("web_search_tool_result");
+  });
   test("Chat rejects Responses-only reasoning mode and context", () => {
     expect(normalizeChatRequest({ model: "m", reasoning: { mode: "pro" }, messages: [] }, ni()).ok).toBe(false);
     expect(normalizeChatRequest({ model: "m", reasoning: { context: "all_turns" }, messages: [] }, ni()).ok).toBe(false);
@@ -94,17 +128,82 @@ describe("Chat Completions normalization and payload", () => {
 });
 
 describe("Anthropic Messages normalization and payload", () => {
-  test("requires max_tokens; rejects bad roles; system becomes leading message", () => {
+  test("requires max_tokens; accepts system messages; system becomes leading message", () => {
     expect(normalizeMessagesRequest({ model: "c", messages: [{ role: "user", content: "hi" }] }, ni()).ok).toBe(false);
     const r = normalizeMessagesRequest({ model: "c", max_tokens: 1024, system: "sys", messages: [{ role: "user", content: "hi" }] }, ni());
     expect(r.ok).toBe(true); if (!r.ok) return; expect(r.request.messages[0]?.role).toBe("system");
-    expect(normalizeMessagesRequest({ model: "c", max_tokens: 1024, messages: [{ role: "system", content: "hi" }] }, ni()).ok).toBe(false);
+    const r2 = normalizeMessagesRequest({ model: "c", max_tokens: 1024, messages: [{ role: "system", content: "sys" }, { role: "user", content: "hi" }] }, ni());
+    expect(r2.ok).toBe(true); if (!r2.ok) return; expect(r2.request.messages[0]?.role).toBe("system");
   });
   test("thinking blocks excluded from content but force reasoning; tool_use/tool_result normalized", () => {
     const r = normalizeMessagesRequest({ model: "c", max_tokens: 1024, messages: [{ role: "user", content: [{ type: "thinking", thinking: "p" }, { type: "text", text: "q" }] }] }, ni());
     expect(r.ok).toBe(true); if (!r.ok) return; expect(r.request.reasoning).toBe("enabled"); expect(r.request.messages[0]?.content).toHaveLength(1);
     const r2 = normalizeMessagesRequest({ model: "c", max_tokens: 1024, messages: [{ role: "assistant", content: [{ type: "tool_use", id: "t1", name: "s", input: { q: "x" } }] }] }, ni());
     expect(r2.ok).toBe(true); if (!r2.ok) return; expect(r2.request.messages[0]?.content[0]?.toolArguments).toBe(JSON.stringify({ q: "x" }));
+  });
+  test("accepts Claude Code adaptive thinking and normalizes it to enabled reasoning", () => {
+    const r = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "high" },
+      messages: [{ role: "user", content: "hi" }],
+    }, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.request.reasoning).toBe("enabled");
+  });
+  test("preserves Claude web search natively and exposes a function schema to other providers", () => {
+    const r = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],
+      messages: [{ role: "user", content: "search" }],
+    }, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.request.tools[0]?.nativeType).toBe("web_search_20250305");
+    expect(r.request.tools[0]?.inputSchema.required).toEqual(["query"]);
+    const payload = buildMessagesPayload(r.request, capabilitiesOf({ surfaces: ["anthropic-messages"], reasoning: true }));
+    expect(payload.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 5 }]);
+  });
+  test("preserves native web search result blocks as tool-result text", () => {
+    const r = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],
+      messages: [{
+        role: "user",
+        content: [{
+          type: "tool_result",
+          tool_use_id: "servertoolu_1",
+          content: [{ type: "web_search_result", title: "Risun", url: "https://github.com/risunCode", content: "Profile" }],
+        }],
+      }],
+    }, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.request.messages[0]?.content[0]?.text).toContain("Risun");
+    expect(r.request.messages[0]?.content[0]?.text).toContain("https://github.com/risunCode");
+    expect(r.request.tools).toHaveLength(0);
+  });
+  test("keeps Claude server-tool blocks in continuation context", () => {
+    const r = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      messages: [{
+        role: "assistant",
+        content: [
+          { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "risuncode" } },
+          { type: "web_search_tool_result", tool_use_id: "srv_1", content: [{ type: "web_search_result", title: "Risun" }] },
+        ],
+      }],
+    }, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.request.messages[0]?.content[0]?.type).toBe("text");
+    expect(r.request.messages[0]?.content[0]?.text).toContain("web_search");
+    expect(r.request.messages[0]?.content[1]?.text).toContain("Risun");
   });
   test("payload: thinking capped at 32000; invalid JSON tool args throws; cache control applied", () => {
     const caps = capabilitiesOf({ surfaces: ["anthropic-messages"], reasoning: true, explicitCache: true, promptCacheKey: true });

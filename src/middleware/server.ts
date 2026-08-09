@@ -157,14 +157,10 @@ export async function startServer(): Promise<void> {
       if (route === null || request.method !== "POST") {
         // Fast reject: only attempt static file resolution for genuine console asset paths.
         // Unknown/random paths skip filesystem I/O entirely and return 404 immediately.
-        if (url.pathname.startsWith("/console/") && !url.pathname.startsWith("/console/api/")) {
-          let asset: Bun.BunFile | null = null;
-          const resolution = await resolveConsoleStatic(url.pathname, async (file) => {
-            asset = Bun.file(file);
-            return asset.exists();
-          });
+        if ((url.pathname === "/console" || url.pathname.startsWith("/console/")) && !url.pathname.startsWith("/console/api/")) {
+          const resolution = await resolveConsoleStatic(url.pathname, async (file) => Bun.file(file).exists());
           if (resolution.kind !== "not-found") {
-            asset ??= Bun.file(resolution.file);
+            const asset = Bun.file(resolution.file);
             if (resolution.kind === "entry" && !(await asset.exists())) return errorResponse(404, "not_found", "Console entry not found");
             const headers = new Headers(resolution.kind === "entry" ? { "content-type": "text/html; charset=utf-8" } : undefined);
             applySecurityHeaders(headers, request);

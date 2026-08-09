@@ -38,6 +38,7 @@ import {
 import { runProxyRequest, type ProxyRequestDependencies } from "../application/request";
 import { appendTerminalError } from "../open-sse/handlers";
 import { toPrometheus } from "../observability/metrics";
+import { runtimeSettings } from "./runtime-settings";
 import { encodeSurfaceStream } from "../providers/surfaces";
 import { beginProviderInFlight, endProviderInFlight, getInFlightCount, getProviderInFlight, subscribeInFlight } from "../traffic/in-flight";
 import type { PresentedProxyResponse } from "../application/contracts";
@@ -70,6 +71,7 @@ interface RouteContext {
 function ok(extra: Record<string, unknown> = {}): Record<string, unknown> {
   return { ok: true, ...extra };
 }
+const PONYTAIL_SYSTEM_PROMPT = "Ponytail mode: prefer the smallest correct solution; reuse existing code; avoid unnecessary abstractions. Keep validation, security, error handling, and accessibility intact.";
 
 function notFound(set: { status?: number | string }, message = "resource not found"): ReturnType<typeof consoleError> {
   set.status = 404;
@@ -79,6 +81,11 @@ function notFound(set: { status?: number | string }, message = "resource not fou
 function conflict(set: { status?: number | string }, message: string): ReturnType<typeof consoleError> {
   set.status = 409;
   return consoleError("conflict", message);
+}
+
+async function resolveProviderId(services: ConsoleServices, id: string): Promise<string> {
+  const custom = (await services.providers.listCustom()).find((provider) => provider.id === id || provider.slug === id);
+  return custom?.slug ?? id;
 }
 
 function badRequest(set: { status?: number | string }, message: string): ReturnType<typeof consoleError> {
@@ -406,21 +413,22 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           return { items };
         })
         .route("QUERY", "/providers/:id", async ({ params, set }) => {
-          const [summary, config, routing, models, accounts, custom] = await Promise.all([
+          const custom = await services.providers.listCustom();
+          const customRecord = custom.find((entry) => entry.id === params.id || entry.slug === params.id);
+          const providerId = customRecord?.slug ?? params.id;
+          const [summary, config, routing, models, accounts] = await Promise.all([
             services.providers.list(),
-            services.providers.getConfig(params.id),
-            services.providers.getRouting(params.id),
-            services.models.list(params.id),
-            services.accounts.list(params.id),
-            services.providers.listCustom(),
+            services.providers.getConfig(providerId),
+            services.providers.getRouting(providerId),
+            services.models.list(providerId),
+            services.accounts.list(providerId),
           ]);
-          const provider = summary.find((entry) => entry.id === params.id);
-          const customRecord = custom.find((entry) => entry.id === params.id);
+          const provider = summary.find((entry) => entry.id === providerId);
           if (provider === undefined && customRecord === undefined) return notFound(set, "provider not found");
           return {
             ...(provider ?? {
-              id: params.id,
-              name: customRecord?.name ?? params.id,
+              id: providerId,
+              name: customRecord?.name ?? providerId,
               protocol: "openai",
               credentialKind: "api_key",
               surfaces: ["openai-chat"],
@@ -443,24 +451,25 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
           if (config === null) return notFound(set, "provider not found");
           return config;
         })
-        .post("/providers/:id/routing", async ({ params, body }) => ({ settings: await services.providers.setRouting(params.id, body) }))
-        .route("QUERY", "/providers/:id/models", async ({ params }) => ({ items: await services.models.list(params.id) }))
+        .post("/providers/:id/routing", async ({ params, body }) => ({ settings: await services.providers.setRouting(await resolveProviderId(services, params.id), body) }))
+        .route("QUERY", "/providers/:id/models", async ({ params }) => ({ items: await services.models.list(await resolveProviderId(services, params.id)) }))
         .post("/providers/:id/models/fetch", async ({ params, set }) => {
+          const providerId = await resolveProviderId(services, params.id);
           try {
-            const discovered = await services.providers.discoverBuiltinModels(params.id);
+            const discovered = await services.providers.discoverBuiltinModels(providerId);
             // Persist discovered models so they appear in the catalog and are
             // accepted by resolveTarget.
             for (const modelId of discovered) {
-              await services.models.addCustom(params.id, modelId);
+              await services.models.addCustom(providerId, modelId);
             }
-            return { items: await services.models.list(params.id), discovered };
+            return { items: await services.models.list(providerId), discovered };
           } catch (error) {
             return badRequest(set, error instanceof Error ? error.message : "Model fetch failed");
           }
         })
         .post("/providers/:id/models/discover", async ({ params, set }) => {
           try {
-            const models = await services.providers.discoverBuiltinModels(params.id);
+            const models = await services.providers.discoverBuiltinModels(await resolveProviderId(services, params.id));
             return { models };
           } catch (error) {
             return badRequest(set, error instanceof Error ? error.message : "Model discovery failed");
@@ -469,25 +478,25 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
         .post("/providers/:id/models", async ({ params, body, set }) => {
           const value = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
           if (typeof value.modelId !== "string" || value.modelId.trim().length === 0) return badRequest(set, "modelId is required");
-          const model = await services.models.addCustom(params.id, value.modelId);
+          const model = await services.models.addCustom(await resolveProviderId(services, params.id), value.modelId);
           if (model === null) return badRequest(set, "provider or model is invalid");
           return model;
         })
         .delete("/providers/:id/models/:modelId", async ({ params, set }) => {
-          if (!(await services.models.removeCustom(params.id, params.modelId))) return notFound(set, "only custom or fetched models can be deleted");
+          if (!(await services.models.removeCustom(await resolveProviderId(services, params.id), params.modelId))) return notFound(set, "only custom or fetched models can be deleted");
           return ok();
         })
         .patch("/providers/:id/models/:modelId", async ({ params, body, set }) => {
           const value = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
           if (typeof value.enabled !== "boolean") return badRequest(set, "enabled must be a boolean");
-          const model = await services.models.setEnabled(params.id, params.modelId, value.enabled);
+          const model = await services.models.setEnabled(await resolveProviderId(services, params.id), params.modelId, value.enabled);
           if (model === null) return notFound(set, "model not found");
           return model;
         })
         .post("/providers/:id/models/enabled", async ({ params, body }) => {
-          const value = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+          const value = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
           const enabled = value.enabled === true;
-          await services.models.setAllEnabled(params.id, enabled);
+          await services.models.setAllEnabled(await resolveProviderId(services, params.id), enabled);
           return ok({ enabled });
         })
         // ---- custom providers ----
@@ -538,12 +547,14 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
         })
         // ---- accounts ----
         .route("QUERY", "/providers/:id/accounts", async ({ params, query }) => {
+          const providerId = await resolveProviderId(services, params.id);
           const limit = Number(query.limit) || 50;
           const cursor = typeof query.cursor === "string" && query.cursor.length > 0 ? query.cursor : undefined;
-          return await services.accounts.listPaged(params.id, { limit, cursor });
+          return await services.accounts.listPaged(providerId, { limit, cursor });
         })
         .post("/providers/:id/accounts", async ({ params, body, set }) => {
-          const value = typeof body === "object" && body !== null ? { ...(body as Record<string, unknown>), providerId: params.id } : { providerId: params.id };
+          const providerId = await resolveProviderId(services, params.id);
+          const value = typeof body === "object" && body !== null ? { ...(body as Record<string, unknown>), providerId } : { providerId };
           const result = await services.accounts.create(value);
           if (!("id" in result)) {
             return badRequest(set, result.message);
@@ -753,7 +764,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
         // ---- CLI tools ----
         // ---- Warp pool ----
         .use(warpApi.app)
-        .use(createCliToolsApi())
+        .use(createCliToolsApi(config))
         // ---- Database Map ----
         .use(createDbMapApi(dbMapPersistence))
         .post("/resolve-preview", async ({ body }) => diagnostics.resolvePreview(body))
@@ -874,7 +885,16 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
         })
         .post("/model-studio/chat", async ({ body, request }) => {
           const value = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
-          const result = await runProxyRequest({ request: { endpoint: "/v1/chat/completions", surface: "openai-chat", headers: new Headers({ "content-type": "application/json", "x-client-name": "pi" }), body: { model: value.model, messages: value.messages, stream: true, max_tokens: value.maxTokens }, signal: request.signal }, authorization: { apiKeyId: null, trustedIdentity: "console:model-studio", providerAllowlist: null, modelAllowlist: null, modelDenylist: null } }, deps.proxy);
+          const reasoningEffort = typeof value.reasoningEffort === "string" && value.reasoningEffort !== "auto" && value.reasoningEffort !== "none" ? value.reasoningEffort : null;
+          const reasoningSummary = typeof value.reasoningSummary === "string" ? value.reasoningSummary : "detailed";
+          let reasoning: Record<string, unknown> | undefined;
+          if (reasoningEffort !== null) reasoning = { effort: reasoningEffort, summary: reasoningSummary };
+          else if (value.reasoningEffort === "none") reasoning = { enabled: false };
+          const messages = Array.isArray(value.messages) ? value.messages : [];
+          const modelStudioMessages = runtimeSettings(deps.config).ponytailEnabled
+            ? [{ role: "system", content: PONYTAIL_SYSTEM_PROMPT }, ...messages]
+            : messages;
+          const result = await runProxyRequest({ request: { endpoint: "/v1/chat/completions", surface: "openai-chat", headers: new Headers({ "content-type": "application/json", "x-client-name": "pi" }), body: { model: value.model, messages: modelStudioMessages, stream: true, max_tokens: value.maxTokens, ...(reasoning !== undefined ? { reasoning } : {}) }, signal: request.signal }, authorization: { apiKeyId: null, trustedIdentity: "console:model-studio", providerAllowlist: null, modelAllowlist: null, modelDenylist: null } }, deps.proxy);
           return presentProxyResult(result, "openai-chat", typeof value.model === "string" ? value.model : "unknown");
         })
         .post("/model-studio/image", async ({ body, request }) => {

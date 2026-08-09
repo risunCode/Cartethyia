@@ -320,6 +320,10 @@ export interface NormalizedTool {
   readonly name: string;
   readonly description: string | null;
   readonly inputSchema: Record<string, unknown>;
+  /** Original Anthropic server-tool type, when the client supplied one. */
+  readonly nativeType?: "web_search_20250305";
+  /** Bounded options preserved for Anthropic server tools. */
+  readonly nativeOptions?: Readonly<Record<string, unknown>>;
   /**
    * Precomputed `JSON.stringify(inputSchema).length`, set during normalization
    * so the cache planner reuses it instead of re-serializing the schema per
@@ -406,6 +410,7 @@ export function detectClient(headers: Headers, normalized?: ProxyRequest): Clien
   if (explicitName) return { name: explicitName, source: "explicit_header" };
 
   const userAgent = headers.get("user-agent")?.toLowerCase() ?? "";
+  if (userAgent.includes("claude-cli")) return { name: "claude_code", source: "user_agent" };
   for (const [needle, name] of Object.entries(names)) {
     if (userAgent.includes(needle.replace("_", "-")) || userAgent.includes(needle)) {
       return { name, source: "user_agent" };

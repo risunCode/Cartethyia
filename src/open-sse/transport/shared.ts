@@ -429,6 +429,8 @@ export async function readUpstreamError(response: Response): Promise<never> {
           errorKind = typeof parsed.error.type === "string" ? parsed.error.type : typeof parsed.error.code === "string" ? parsed.error.code : null;
         } else if (typeof parsed.message === "string") {
           message = parsed.message;
+        } else if (typeof parsed.detail === "string") {
+          message = parsed.detail;
         }
       }
     } catch {

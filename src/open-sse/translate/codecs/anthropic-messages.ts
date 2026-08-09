@@ -64,6 +64,16 @@ export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): 
 
   const tools = normalizeTools(root["tools"]);
   if (isProtocolError(tools)) return normalizeFail(tools);
+  // Claude Code can resend a native search tool after receiving its result.
+  // Once a search result is present, expose it to the model but do not
+  // advertise the same native search again; otherwise weaker models can loop
+  // on identical searches instead of answering from the returned context.
+  const hasSearchResult = messages.some((message) => message.content.some((block) => {
+    const text = block.text ?? "";
+    return (block.type === "tool_result" && text.includes("web_search")) ||
+      (block.type === "text" && text.includes("web_search_tool_result"));
+  }));
+  const effectiveTools = hasSearchResult ? tools.filter((tool) => tool.nativeType !== "web_search_20250305") : tools;
 
   const metadata = root["metadata"];
   const metadataUserId = isRecord(metadata) && typeof metadata.user_id === "string" && metadata.user_id.length <= 4096 ? metadata.user_id : undefined;
@@ -71,9 +81,9 @@ export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): 
 
   return normalizeOk({
     model,
-    messages: [...system, ...messages],
-    tools,
     stream,
+    messages: [...system, ...messages],
+    tools: effectiveTools,
     responseFormat: "text",
     reasoning,
     maxOutputTokens: maxTokens,
@@ -98,10 +108,10 @@ function normalizeThinking(raw: unknown): "enabled" | "disabled" | "default" | P
   const obj = narrowObject(raw, "thinking");
   if (isProtocolError(obj)) return obj;
   const type = obj["type"];
-  if (type === "enabled") return "enabled";
+  if (type === "enabled" || type === "adaptive") return "enabled";
   if (type === "disabled") return "disabled";
   if (typeof type === "string") return protocolError("thinking.type", `thinking.type: unsupported mode "${type}"`);
-  return protocolError("thinking.type", 'thinking.type: expected "enabled" or "disabled"');
+  return protocolError("thinking.type", 'thinking.type: expected "enabled", "adaptive", or "disabled"');
 }
 
 function normalizeSystem(raw: unknown): NormalizedMessage[] | ProtocolError {
@@ -153,8 +163,8 @@ function normalizeMessage(raw: unknown, field: string, images: ImageReference[],
   if (isProtocolError(obj)) return obj;
   const role = narrowString(obj["role"], `${field}.role`, 32);
   if (isProtocolError(role)) return role;
-  if (role !== "user" && role !== "assistant") {
-    return protocolError(`${field}.role`, `unsupported role "${role}" (Anthropic messages use only "user" and "assistant")`);
+  if (role !== "user" && role !== "assistant" && role !== "system") {
+    return protocolError(`${field}.role`, `unsupported role "${role}" (Anthropic messages use user, assistant, or system)`);
   }
   const content = normalizeContent(obj["content"], `${field}.content`, images, reasoningState);
   if (isProtocolError(content)) return content;
@@ -226,7 +236,11 @@ function normalizeBlock(raw: unknown, field: string, images: ImageReference[]): 
     }
     default:
       if (typeof type === "string") {
-        return { type: "unknown", text: typeof obj["text"] === "string" ? obj["text"] : undefined };
+        // Server-executed Claude blocks (for example server_tool_use and
+        // web_search_tool_result) must survive translation to non-Anthropic
+        // providers as bounded context, not disappear as unknown metadata.
+        const serialized = typeof obj["text"] === "string" ? obj["text"] : JSON.stringify(obj);
+        return { type: "text", text: serialized?.slice(0, MAX_TEXT_BLOCK_LENGTH) };
       }
       return protocolError(`${field}.type`, "content block type must be a string");
   }
@@ -257,7 +271,8 @@ function normalizeToolResult(raw: unknown, field: string, callId: string, images
       if (isProtocolError(image)) return image;
       blocks.push({ type: "tool_result", image, toolCallId: callId });
     } else if (typeof type === "string") {
-      blocks.push({ type: "tool_result", text: typeof obj["text"] === "string" ? obj["text"] : undefined, toolCallId: callId });
+      const serialized = typeof obj["text"] === "string" ? obj["text"] : JSON.stringify(obj);
+      blocks.push({ type: "tool_result", text: serialized?.slice(0, MAX_TEXT_BLOCK_LENGTH), toolCallId: callId });
     } else {
       return protocolError(`${itemField}.type`, "tool result block type must be a string");
     }
@@ -336,11 +351,13 @@ export function buildMessagesPayload(request: ProxyRequest, capabilities: Provid
   }
   if (request.metadataUserId !== undefined) payload.metadata = { user_id: request.metadataUserId };
   if (request.tools.length > 0) {
-    payload.tools = request.tools.map((tool) => ({
-      name: tool.name,
-      description: tool.description ?? undefined,
-      input_schema: tool.inputSchema,
-    }));
+    payload.tools = request.tools.map((tool) => tool.nativeType === "web_search_20250305"
+      ? { type: tool.nativeType, name: tool.name, ...(tool.nativeOptions ?? {}) }
+      : {
+        name: tool.name,
+        description: tool.description ?? undefined,
+        input_schema: tool.inputSchema,
+      });
   }
   if (request.reasoning === "enabled" && capabilities.reasoning) {
     payload.thinking = { type: "enabled", budget_tokens: Math.min(request.maxOutputTokens ?? DEFAULT_MAX_TOKENS, MAX_THINKING_BUDGET) };

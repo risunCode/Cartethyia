@@ -15,6 +15,23 @@ export interface ToolModelDef {
   readonly id: string;
   readonly name: string;
   readonly alias: string;
+  readonly roleLabel?: string;
+  readonly roleKind?: "primary" | "subagent" | "secondary" | "review";
+  readonly envKey?: string;
+  readonly defaultValue?: string;
+}
+
+export interface CliModelMapping {
+  readonly slotKey: string;
+  readonly sourceModel: string;
+  readonly targetModel: string;
+  readonly enabled: boolean;
+}
+
+export interface CliMappingSettings {
+  readonly toolId: string;
+  readonly enabled: boolean;
+  readonly mappings: readonly CliModelMapping[];
 }
 
 export interface ToolNote {
@@ -43,6 +60,7 @@ export interface ToolRegistryEntry {
   readonly description: string;
   readonly configType: string;
   readonly surface: string;
+  readonly mappingSupported: boolean;
   readonly defaultModels: readonly ToolModelDef[];
   readonly settingsFile?: string;
   readonly docsUrl?: string;
@@ -50,13 +68,17 @@ export interface ToolRegistryEntry {
   readonly guideSteps?: readonly GuideStep[];
   readonly codeBlock?: GuideCodeBlock;
 }
-
 export interface ApplyInput {
   readonly endpoint: string;
   readonly apiKey: string;
   readonly models: readonly string[];
+  readonly modelSlots?: Readonly<Record<string, string>>;
   readonly activeModel?: string;
   readonly subagentModel?: string;
+  readonly mapping?: {
+    readonly enabled: boolean;
+    readonly mappings: readonly CliModelMapping[];
+  };
 }
 
 export interface ApplyResult {

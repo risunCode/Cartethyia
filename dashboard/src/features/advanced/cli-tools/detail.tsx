@@ -2,18 +2,18 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Download, RotateCcw, Settings2, CheckCircle2, XCircle, Copy, ExternalLink } from "lucide-react";
+import { ArrowLeft, Download, RotateCcw, Settings2, CheckCircle2, XCircle, Copy } from "lucide-react";
 import { cn } from "../../../lib/cn";
+import { toast } from "../../../lib/toast";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { Card } from "../../../components/ui/card";
 import { Label } from "../../../components/ui/input";
-import { ModelPickerField, ModelTargetPicker } from "../../../components/model-picker";
-import { toast } from "../../../lib/toast";
-import { useToolRegistry, useToolStatuses, useApplyTool, useResetTool, useDownloadTool, useApiKeys, fetchApiKeyCredential } from "./api";
+import { Switch } from "../../../components/ui/switch";
+import { ConfiguredModelPicker } from "../../../components/model-picker";
 import { ToolIcon } from "./tool-icon";
+import { useToolRegistry, useToolStatuses, useToolMappings, useApplyTool, useResetTool, useDownloadTool, useApiKeys, fetchApiKeyCredential } from "./api";
 import type { ApplyInput, ToolRegistryEntry, ToolStatus } from "./types";
-
 export function CliToolDetailPage() {
   const { toolId } = useParams<{ toolId: string }>();
   const navigate = useNavigate();
@@ -43,6 +43,7 @@ export function CliToolDetailPage() {
   return <ToolDetailContent def={def} status={status} onBack={() => navigate("/advanced/cli-tools")} />;
 }
 
+
 function ToolDetailContent({
   def,
   status,
@@ -53,13 +54,41 @@ function ToolDetailContent({
   onBack: () => void;
 }) {
   const [selectedKeyId, setSelectedKeyId] = useState("");
-  const [selectedModels, setSelectedModels] = useState<string[]>(() => def.defaultModels.map((m) => m.id));
-  const [activeModel, setActiveModel] = useState("");
+  const [roleTargets, setRoleTargets] = useState<Record<string, string>>({});
+  const [mappingTargets, setMappingTargets] = useState<Record<string, string>>({});
+  const [mappingEnabled, setMappingEnabled] = useState(false);
 
   const apiKeysQuery = useApiKeys();
+  const mappingsQuery = useToolMappings(def.id);
   const applyMutation = useApplyTool();
   const resetMutation = useResetTool();
   const downloadMutation = useDownloadTool();
+  const roleMappings = useMemo(
+    () => def.defaultModels.map((model) => ({
+      roleKey: model.alias,
+      roleLabel: model.roleLabel ?? model.name,
+      modelName: model.name,
+      roleKind: model.roleKind,
+      envKey: model.envKey,
+      defaultModel: model.defaultValue ?? model.id,
+    })),
+    [def.defaultModels],
+  );
+
+  useEffect(() => {
+    setRoleTargets(Object.fromEntries(roleMappings.map((mapping) => [mapping.roleKey, mapping.defaultModel])));
+    setMappingTargets(Object.fromEntries(roleMappings.map((mapping) => [mapping.roleKey, mapping.defaultModel])));
+  }, [roleMappings]);
+
+  useEffect(() => {
+    const settings = mappingsQuery.data;
+    if (!settings) return;
+    setMappingEnabled(settings.enabled);
+    setMappingTargets((current) => ({
+      ...current,
+      ...Object.fromEntries(settings.mappings.map((mapping) => [mapping.slotKey, mapping.targetModel])),
+    }));
+  }, [mappingsQuery.data]);
 
   const isGuide = def.configType === "guide";
   const installed = status?.installed ?? false;
@@ -94,13 +123,29 @@ function ToolDetailContent({
       toast.error("Failed to fetch API key credential.");
       return null;
     }
+    const models = roleMappings.map((mapping) => roleTargets[mapping.roleKey] ?? mapping.defaultModel);
+    const modelSlots = Object.fromEntries(roleMappings.map((mapping) => [mapping.roleKey, roleTargets[mapping.roleKey] ?? mapping.defaultModel]));
+    const subagent = roleMappings.find((mapping) => mapping.roleKind === "subagent");
     return {
       endpoint,
       apiKey,
-      models: selectedModels,
-      activeModel: activeModel || selectedModels[0] || undefined,
+      models,
+      modelSlots,
+      activeModel: models[0],
+      subagentModel: subagent ? roleTargets[subagent.roleKey] ?? subagent.defaultModel : undefined,
+      mapping: def.mappingSupported
+        ? {
+            enabled: mappingEnabled,
+            mappings: roleMappings.map((mapping) => ({
+              slotKey: mapping.roleKey,
+              sourceModel: roleTargets[mapping.roleKey] ?? mapping.defaultModel,
+              targetModel: mappingTargets[mapping.roleKey] ?? roleTargets[mapping.roleKey] ?? mapping.defaultModel,
+              enabled: mappingEnabled,
+            })),
+          }
+        : undefined,
     };
-  }, [activeKeys, selectedKeyId, selectedModels, activeModel, endpoint]);
+  }, [activeKeys, selectedKeyId, endpoint, roleMappings, roleTargets, mappingTargets, mappingEnabled, def.mappingSupported]);
 
   const handleApply = useCallback(async () => {
     const input = await buildInput();
@@ -134,48 +179,118 @@ function ToolDetailContent({
         Back to CLI Tools
       </button>
 
-      {/* Tool header */}
       <Card className={cn(configured && "border-[var(--accent)]/40")}>
         <div className="flex items-start gap-3">
-          <ToolIcon toolId={def.id} name={def.name} size={48} />
-          <div className="min-w-0 flex-1">
+          <ToolIcon toolId={def.id} name={def.name} size={44} />
+          <div className="min-w-0 flex-1 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-bold text-[var(--text-1)]">{def.name}</h2>
+              <h2 className="text-base font-bold text-[var(--text-1)]">Connect {def.name} to Cartethyia</h2>
               {installed ? (
-                <span className="flex items-center gap-1 text-[10.5px] text-[var(--accent)]">
-                  <CheckCircle2 size={12} /> Installed
-                </span>
+                <span className="flex items-center gap-1 text-[10.5px] text-[var(--accent)]"><CheckCircle2 size={12} /> Installed</span>
               ) : (
-                <span className="flex items-center gap-1 text-[10.5px] text-[var(--text-3)]">
-                  <XCircle size={12} /> Not installed
-                </span>
+                <span className="flex items-center gap-1 text-[10.5px] text-[var(--text-3)]"><XCircle size={12} /> Not installed</span>
               )}
-              {configured && (
-                <Badge tone="accent">CONFIGURED</Badge>
-              )}
+              {configured && <Badge tone="accent">CONFIGURED</Badge>}
             </div>
-            <p className="mt-0.5 text-xs text-[var(--text-2)]">{def.description}</p>
-            {def.settingsFile && (
-              <p className="mt-1 text-[10.5px] font-mono text-[var(--text-3)]">{def.settingsFile}</p>
-            )}
-            {status?.currentEndpoint && (
-              <p className="mt-0.5 text-[10.5px] text-[var(--text-2)]">
-                Endpoint: <span className="font-mono">{status.currentEndpoint}</span>
-              </p>
-            )}
-            {def.docsUrl && (
-              <a
-                href={def.docsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1 inline-flex items-center gap-1 text-[10.5px] text-[var(--accent)] hover:underline"
-              >
-                <ExternalLink size={11} /> Documentation
-              </a>
-            )}
+            <p className="text-xs text-[var(--text-2)]">Choose one API key, then assign the model roles this tool uses. Quick Setup writes the configuration to the path shown above.</p>
+            {def.settingsFile && <p className="text-[10.5px] font-mono text-[var(--text-3)]">{def.settingsFile}</p>}
           </div>
         </div>
       </Card>
+
+      {/* Guide tools keep their setup instructions below. */}
+      {!isGuide && (
+        <Card>
+          <div className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <Label htmlFor="api-key-select">1. Cartethyia API key</Label>
+                <select
+                  id="api-key-select"
+                  value={selectedKeyId}
+                  onChange={(e) => setSelectedKeyId(e.target.value)}
+                  className="mt-1.5 w-full rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2 text-sm text-[var(--text-1)] outline-none transition-colors duration-150 focus:border-[var(--accent)]"
+                >
+                  {activeKeys.length === 0 && <option value="">No active keys — create one first</option>}
+                  {activeKeys.map((k) => <option key={k.id} value={k.id}>{k.name} ({k.keyPrefix}...)</option>)}
+                </select>
+                <p className="mt-1 text-[10.5px] text-[var(--text-3)]">The key is stored in Cartethyia and injected into the tool config.</p>
+              </div>
+              <div>
+                <Label htmlFor="cli-endpoint">2. Endpoint</Label>
+                <input
+                  id="cli-endpoint"
+                  value={endpoint}
+                  readOnly
+                  className="mt-1.5 w-full rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2 text-sm text-[var(--text-1)] outline-none"
+                />
+                <p className="mt-1 text-[10.5px] text-[var(--text-3)]">Automatically points this tool at the local Cartethyia proxy.</p>
+              </div>
+            </div>
+
+            <div className="border-t border-[var(--inner-border)] pt-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-[var(--text-1)]">3. Models</h3>
+                  <p className="mt-0.5 text-[11px] text-[var(--text-3)]">Native model values stay in {def.name}'s own config format.</p>
+                </div>
+                {def.mappingSupported && (
+                  <div className="flex items-center gap-2">
+                    <div className="text-right">
+                      <p className="text-[11px] font-semibold text-[var(--text-2)]">Enable Mapping</p>
+                      <p className="text-[10px] text-[var(--text-3)]">Route through Cartethyia without changing native IDs.</p>
+                    </div>
+                    <Switch checked={mappingEnabled} onChange={setMappingEnabled} label={`Enable model mapping for ${def.name}`} />
+                  </div>
+                )}
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {roleMappings.map((mapping) => (
+                  <div key={mapping.roleKey} className="min-w-0 rounded-xl border border-[var(--inner-border)] bg-[var(--surface-muted)]/30 p-3">
+                    <label className="mb-1.5 block text-[11px] font-semibold text-[var(--text-2)]">{mapping.roleLabel}</label>
+                    <ConfiguredModelPicker
+                      value={roleTargets[mapping.roleKey] ?? mapping.defaultModel}
+                      onChange={(value: string) => setRoleTargets((current) => ({ ...current, [mapping.roleKey]: value }))}
+                      placeholder={mapping.defaultModel}
+                    />
+                    <p className="mt-1 truncate text-[10px] text-[var(--text-3)]">{mapping.envKey ?? mapping.modelName}</p>
+                    {def.mappingSupported && (
+                      <div className="mt-3 border-t border-[var(--inner-border)] pt-2.5">
+                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Harness route target</p>
+                        <ConfiguredModelPicker
+                          value={mappingTargets[mapping.roleKey] ?? mapping.defaultModel}
+                          onChange={(value: string) => setMappingTargets((current) => ({ ...current, [mapping.roleKey]: value }))}
+                          placeholder="Select provider target…"
+                          includeCombos
+                          includeAliases
+                        />
+                        <p className="mt-1 text-[10px] text-[var(--text-3)]">Choose the target now; Enable Mapping controls whether this route is active when the configuration is applied.</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[var(--inner-border)] pt-4">
+              <Button onClick={handleApply} disabled={applyMutation.isPending || activeKeys.length === 0}>
+                <Settings2 size={14} className="mr-1.5" />
+                {applyMutation.isPending ? "Applying..." : "Quick Setup"}
+              </Button>
+              <Button variant="outline" onClick={handleDownload} disabled={downloadMutation.isPending}>
+                <Download size={14} className="mr-1.5" />
+                {downloadMutation.isPending ? "Downloading..." : "Download"}
+              </Button>
+              {configured && (
+                <Button variant="ghost" onClick={handleReset} disabled={resetMutation.isPending}>
+                  <RotateCcw size={14} className="mr-1.5" />
+                  {resetMutation.isPending ? "Resetting..." : "Reset"}
+                </Button>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Notes */}
       {def.notes && def.notes.length > 0 && (
@@ -195,68 +310,8 @@ function ToolDetailContent({
           ))}
         </div>
       )}
+      {isGuide && <GuideContent def={def} endpoint={endpoint} onCopy={handleCopy} />}
 
-      {/* Guide-only: show steps + code block */}
-      {isGuide ? (
-        <GuideContent def={def} endpoint={endpoint} onCopy={handleCopy} />
-      ) : (
-        <Card>
-          <div className="space-y-4">
-            {/* API key selector */}
-            <div>
-              <Label htmlFor="api-key-select">API Key</Label>
-              <select
-                id="api-key-select"
-                value={selectedKeyId}
-                onChange={(e) => setSelectedKeyId(e.target.value)}
-                className="w-full rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2 text-sm text-[var(--text-1)] outline-none transition-colors duration-150 focus:border-[var(--accent)]"
-              >
-              {activeKeys.length === 0 && <option value="">No active keys — create one first</option>}
-              {activeKeys.map((k) => (
-                <option key={k.id} value={k.id}>{k.name} ({k.keyPrefix}...)</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Model picker — uses the existing ModelPickerField with inline catalog browser */}
-          <ModelPickerField
-            label="Models"
-            hint="Pick from the catalog or type a custom model ID"
-            values={selectedModels}
-            onChange={setSelectedModels}
-            mode="models"
-          />
-
-          {/* Active model — single value picker */}
-          <div>
-            <label className="mb-1.5 block text-[11px] font-semibold text-[var(--text-2)]">Active Model</label>
-            <ModelTargetPicker
-              value={activeModel}
-              onChange={setActiveModel}
-              placeholder={selectedModels[0] ?? "auto"}
-            />
-          </div>
-
-          {/* Actions */}
-          <div className="flex flex-wrap gap-2 pt-2">
-            <Button onClick={handleApply} disabled={applyMutation.isPending || activeKeys.length === 0}>
-              <Settings2 size={14} className="mr-1.5" />
-              {applyMutation.isPending ? "Applying..." : "Quick Setup"}
-            </Button>
-            <Button variant="outline" onClick={handleDownload} disabled={downloadMutation.isPending}>
-              <Download size={14} className="mr-1.5" />
-              {downloadMutation.isPending ? "Downloading..." : "Download Config"}
-            </Button>
-            {configured && (
-              <Button variant="ghost" onClick={handleReset} disabled={resetMutation.isPending}>
-                <RotateCcw size={14} className="mr-1.5" />
-                {resetMutation.isPending ? "Resetting..." : "Reset"}
-              </Button>
-            )}
-          </div>
-          </div>
-        </Card>
-      )}
 
       {/* Guide tools also get download */}
       {isGuide && (

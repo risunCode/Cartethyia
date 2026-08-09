@@ -24,7 +24,6 @@ interface ComboRecord { id: string; name: string; models: string[]; strategy: "f
 interface ResolveResult { ok: boolean; trace: string[]; resolved: unknown }
 
 // ── Aliases sub-section ───────────────────────────────────────────────────
-
 function AliasesTab() {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: qk.aliases.all, queryFn: () => apiGet<{ items: AliasRecord[] }>("/aliases") });

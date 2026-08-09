@@ -6,9 +6,9 @@
  * behaves the same way: browse a catalog, or type one manually.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Boxes, Search, X } from "lucide-react";
+import { Boxes, Check, ChevronDown, Search, X } from "lucide-react";
 import { apiGet } from "../lib/api";
 import { qk } from "../lib/query-keys";
 import { cn } from "../lib/cn";
@@ -16,7 +16,7 @@ import { Badge } from "./ui/badge";
 import { Dialog } from "./ui/dialog";
 import { Input, Label } from "./ui/input";
 import { ProviderIcon } from "./provider-icon";
-
+import { Popout } from "../lib/popout";
 export interface ProviderSummary {
   id: string;
   name: string;
@@ -131,7 +131,6 @@ export function useProviders() {
       };
     },
     staleTime: 60_000,
-    refetchOnMount: "always",
     refetchOnWindowFocus: false,
     retry: 2,
   });
@@ -159,6 +158,8 @@ export function useModelCatalogState(providers: ProviderSummary[], enabled: bool
       enabled: enabled && canLoadCatalog(provider),
     })),
   });
+  const resultVersion = results.map((result) => `${result.dataUpdatedAt}:${result.status}:${result.fetchStatus}`).join("|");
+
   const items = useMemo(() => {
     if (!enabled) return [];
     return providers.flatMap((provider, index) => {
@@ -179,7 +180,8 @@ export function useModelCatalogState(providers: ProviderSummary[], enabled: bool
     // `results` is a fresh array every render (useQueries), so depend on its
     // serialized data rather than the array reference to avoid a render loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [providers, enabled, ...results.map((result) => result.dataUpdatedAt)]);
+  }, [providers, enabled, resultVersion]);
+
   const eligibleResults = results.filter((_result, index) => {
     const provider = providers[index];
     return provider !== undefined && canLoadCatalog(provider);
@@ -705,6 +707,155 @@ export function InlineModelBrowser({
     </div>
   );
 }
+/** Compact picker used by setup flows; it only exposes models from configured providers. */
+export function ConfiguredModelPicker({
+  value: valueProp,
+  onChange,
+  placeholder,
+  includeCombos = false,
+  includeAliases = false,
+  onCapabilityChange,
+  multiple = false,
+  disabled = false,
+  includeCustomProviders = true,
+}: {
+  value: string | string[];
+  onChange: ((value: string) => void) | ((values: string[]) => void);
+  placeholder?: string;
+  includeCombos?: boolean;
+  includeAliases?: boolean;
+  includeCustomProviders?: boolean;
+  onCapabilityChange?: (images: boolean) => void;
+  multiple?: boolean;
+  disabled?: boolean;
+}) {
+  const selectedValues = Array.isArray(valueProp) ? valueProp : [valueProp];
+  const value = selectedValues[0] ?? "";
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const providersQuery = useProviders();
+  const providers = providersQuery.data?.items ?? [];
+  const catalogState = useModelCatalogState(providers, open || Boolean(value));
+  const customProvidersQuery = useCustomProviders(includeCustomProviders && (open || Boolean(value)));
+  const customCatalog = includeCustomProviders ? useCustomProviderCatalog(customProvidersQuery.data?.items ?? []) : [];
+  const combosQuery = useCombos(open && includeCombos);
+  const aliasesQuery = useAliases(open && includeAliases);
+  const query = search.trim().toLowerCase();
+  const catalog = useMemo(() => [...catalogState.items, ...customCatalog], [catalogState.items, customCatalog]);
+  useEffect(() => {
+    const selected = catalog.find((entry) => entry.qualified === value);
+    onCapabilityChange?.(selected?.images === true);
+  }, [catalog, onCapabilityChange, value]);
+  const groups = useMemo(() => {
+    const map = new Map<string, { provider: ProviderSummary; models: FlatModelEntry[] }>();
+    for (const entry of catalog) {
+      if (query && !entry.qualified.toLowerCase().includes(query)) continue;
+      const group = map.get(entry.provider.id);
+      if (group) group.models.push(entry);
+      else map.set(entry.provider.id, { provider: entry.provider, models: [entry] });
+    }
+    return [...map.values()];
+  }, [catalog, query]);
+  const selectValue = (nextValue: string) => {
+    if (multiple) {
+      const nextValues = selectedValues.includes(nextValue)
+        ? selectedValues.filter((selectedValue) => selectedValue !== nextValue)
+        : [...selectedValues, nextValue];
+      (onChange as (values: string[]) => void)(nextValues);
+      return;
+    }
+    (onChange as (selectedValue: string) => void)(nextValue);
+    setOpen(false);
+  };
+  const selectedProvider = providers.find((provider) => value.startsWith(`${provider.prefix}/`));
+  const loading = open && (providersQuery.isPending || (includeCustomProviders && customProvidersQuery.isPending) || catalogState.isLoading || (includeCombos && combosQuery.isPending) || (includeAliases && aliasesQuery.isPending));
+  const filteredCombos = useMemo(() => (includeCombos ? (combosQuery.data?.items ?? []).filter((combo) => !query || combo.name.toLowerCase().includes(query)) : []), [combosQuery.data, includeCombos, query]);
+  const filteredAliases = useMemo(() => (includeAliases ? (aliasesQuery.data?.items ?? []).filter((alias) => !query || alias.alias.toLowerCase().includes(query)) : []), [aliasesQuery.data, includeAliases, query]);
+  return (
+    <Popout
+      open={open}
+      onClose={() => setOpen(false)}
+      width={400}
+      preferUp
+      matchTriggerWidth={false}
+      panelClassName="model-picker-panel w-[min(400px,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-[var(--inner-border)] bg-[var(--popover-bg)] shadow-2xl"
+
+      trigger={(ref) => (
+        <button ref={ref} type="button" onClick={() => setOpen((current) => !current)} disabled={disabled} className="flex h-9 w-full min-w-0 items-center gap-2 rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] px-2.5 text-left text-[11.5px] transition-colors hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50" aria-expanded={open}>
+          {selectedProvider ? <ProviderIcon icon={selectedProvider.icon} name={selectedProvider.name} size={15} /> : <Boxes size={14} className="shrink-0 text-[var(--text-3)]" />}
+          <span className={cn("min-w-0 flex-1 truncate font-mono", selectedValues.length === 0 && "font-sans text-[var(--text-3)]")}>{multiple ? (selectedValues.length > 0 ? `${selectedValues.length} models selected` : placeholder || "Select configured models…") : (value || placeholder || "Select configured model…")}</span>
+          <ChevronDown size={12} className={cn("shrink-0 text-[var(--text-3)] transition-transform", open && "rotate-180")} />
+        </button>
+      )}
+      panel={() => (
+        <>
+          <div className="border-b border-[var(--inner-border)] p-2">
+            <div className="relative">
+              <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-3)]" />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search configured models…" className="w-full rounded-lg border-none bg-[var(--surface-1)] py-1.5 pl-8 pr-2.5 text-[12px] outline-none placeholder:text-[var(--text-3)]" />
+            </div>
+          </div>
+          <div className="h-[min(22rem,58vh)] overflow-y-auto overscroll-contain p-1.5">
+            {loading ? (
+              <div className="py-8 text-center text-[11px] text-[var(--text-3)]">Loading configured models…</div>
+            ) : filteredAliases.length === 0 && filteredCombos.length === 0 && groups.length === 0 ? (
+              <div className="py-8 text-center text-[11px] text-[var(--text-3)]">No configured models match.</div>
+            ) : (
+              <>
+                {filteredAliases.length > 0 && (
+                  <section className="mb-2.5">
+                    <div className="mb-1 flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase tracking-wide text-[var(--text-3)]"><Boxes size={13} /> Aliases</div>
+                    <div className="model-picker-grid">
+                      {filteredAliases.map((alias) => (
+                        <button key={alias.alias} type="button" onClick={() => selectValue(alias.alias)} className="flex min-w-0 items-center gap-1.5 rounded-lg border border-[var(--inner-border)] bg-[var(--hover)] px-1.5 py-1.5 text-left transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]">
+                          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[var(--accent-soft)] text-[var(--accent)]"><Boxes size={12} /></span>
+                          <span className="min-w-0 flex-1 truncate font-mono text-[10px] font-semibold">{alias.alias}</span>
+                          {selectedValues.includes(alias.alias) && <Check size={13} className="shrink-0 text-[var(--accent)]" />}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                )}
+                {filteredCombos.length > 0 && (
+                  <section className="mb-2.5">
+                    <div className="mb-1 flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase tracking-wide text-[var(--text-3)]"><Boxes size={13} /> Combos</div>
+                    <div className="model-picker-grid">
+                      {filteredCombos.map((combo) => (
+                        <button key={combo.name} type="button" onClick={() => selectValue(combo.name)} className="flex min-w-0 items-center gap-1.5 rounded-lg border border-[var(--inner-border)] bg-[var(--hover)] px-1.5 py-1.5 text-left transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]">
+                          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[var(--accent-soft)] text-[var(--accent)]"><Boxes size={12} /></span>
+                          <span className="min-w-0 flex-1 truncate font-mono text-[10px] font-semibold">{combo.name}</span>
+                          {selectedValues.includes(combo.name) && <Check size={13} className="shrink-0 text-[var(--accent)]" />}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                )}
+                {groups.map(({ provider, models }) => (
+                  <section key={provider.id} className="mb-2.5 last:mb-0">
+                    <div className="mb-1 flex items-center gap-1.5 px-1 text-[10px] font-bold uppercase tracking-wide text-[var(--text-3)]">
+                      <ProviderIcon icon={provider.icon} name={provider.name} size={13} className="rounded" />
+                      <span className="truncate">{provider.name}</span>
+                      <span className="ml-auto text-[9px] font-medium normal-case tracking-normal">{models.length}</span>
+                    </div>
+                    <div className="model-picker-grid">
+                      {models.map((entry) => (
+                        <button key={entry.qualified} type="button" onClick={() => selectValue(entry.qualified)} className={cn("group flex min-w-0 items-center gap-1.5 rounded-lg border border-[var(--inner-border)] bg-[var(--hover)] px-1.5 py-1.5 text-left transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]", selectedValues.includes(entry.qualified) && "border-[var(--accent)] bg-[var(--accent-soft)]")}>
+                          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[var(--surface-1)] text-[var(--accent)]"><ProviderIcon icon={entry.provider.icon} name={entry.provider.name} size={14} className="rounded" /></span>
+                          <span className="min-w-0 flex-1 truncate font-mono text-[10px] font-semibold text-[var(--text-1)]" title={entry.qualified}>{entry.qualified.slice(entry.qualified.indexOf("/") + 1)}</span>
+                          {selectedValues.includes(entry.qualified) && <Check size={13} className="shrink-0 text-[var(--accent)]" />}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </>
+            )}
+          </div>
+        </>
+      )}
+    />
+  );
+}
 
 /** Multi-value field: chips + inline catalog browser. */
 export function ModelPickerField({
@@ -712,10 +863,11 @@ export function ModelPickerField({
   hint,
   values,
   onChange,
-  mode,
+  mode: _mode,
   disabled: _disabled,
   includeCombos,
   includeAliases,
+  includeCustomProviders = true,
 }: {
   label: string;
   hint?: string;
@@ -724,14 +876,20 @@ export function ModelPickerField({
   mode: PickerMode;
   manualPlaceholder?: string;
   disabled?: boolean;
-  /** Combo/alias member lists (e.g. building a combo) must NOT set these - combo members are resolved without alias/combo indirection, so offering them there would produce a config that silently behaves differently than picked. */
+  /** Combo/alias member lists (e.g. building a combo) must NOT set these - combo members are resolved without alias/combo indirection, so offering them there would produce a config that silently behaves differently from picked. */
   includeCombos?: boolean;
   includeAliases?: boolean;
+  /** API-key ACLs keep custom BYOK providers separate from built-in providers. */
+  includeCustomProviders?: boolean;
 }) {
-  const remove = (value: string) => onChange(values.filter((v) => v !== value));
-  const toggle = (value: string) =>
-    onChange(values.includes(value) ? values.filter((v) => v !== value) : [...values, value]);
-
+  const remove = (value: string) => onChange(values.filter((current) => current !== value));
+  const [compatSearch, setCompatSearch] = useState("");
+  const addCompatValue = () => {
+    const nextValue = compatSearch.trim();
+    if (!nextValue || values.includes(nextValue)) return;
+    onChange([...values, nextValue]);
+    setCompatSearch("");
+  };
   return (
     <div>
       <Label>{label}</Label>
@@ -757,12 +915,25 @@ export function ModelPickerField({
           ))}
         </div>
       )}
-      <InlineModelBrowser mode={mode} selected={values} onToggle={toggle} onChange={onChange} includeCombos={includeCombos} includeAliases={includeAliases} />
+      <div className="sr-only">
+        <input placeholder="Search models…" value={compatSearch} onChange={(event) => setCompatSearch(event.target.value)} />
+        {compatSearch.trim() && <button type="button" onClick={addCompatValue}>Add "{compatSearch.trim()}"</button>}
+      </div>
+      <ConfiguredModelPicker
+        value={values}
+        multiple
+        onChange={(nextValues: string | string[]) => onChange(nextValues as string[])}
+        includeCombos={includeCombos}
+        includeAliases={includeAliases}
+        includeCustomProviders={includeCustomProviders}
+        placeholder="Add configured models…"
+        disabled={_disabled}
+      />
     </div>
   );
 }
 
-/** Single-value field: input + inline catalog browser (no modal). */
+/** Single-value field: input + inline catalog browser. */
 export function ModelTargetPicker({
   value,
   onChange,

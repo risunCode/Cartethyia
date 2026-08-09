@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiDelete, ApiError } from "../../../lib/api";
 import { toast } from "../../../lib/toast";
 import { qk } from "../../../lib/query-keys";
-import type { ApplyInput, ApplyResult, DownloadResult, ToolRegistryEntry, ToolStatus } from "./types";
+import type { ApplyInput, ApplyResult, CliMappingSettings, DownloadResult, ToolRegistryEntry, ToolStatus } from "./types";
 
 /** Fetch the tool registry (static metadata for all tools). */
 export function useToolRegistry() {
@@ -21,6 +21,16 @@ export function useToolStatuses() {
     queryKey: qk.cliTools.statuses,
     queryFn: () => apiGet<Readonly<Record<string, ToolStatus>>>("/cli-tools/all-statuses"),
     refetchInterval: 15000,
+  });
+}
+
+/** Fetch persisted harness-specific mappings for one CLI tool. */
+export function useToolMappings(toolId: string | undefined) {
+  return useQuery({
+    queryKey: qk.cliTools.mappings(toolId),
+    queryFn: () => apiGet<CliMappingSettings>(`/cli-tools/${toolId}/mappings`),
+    enabled: Boolean(toolId),
+    staleTime: 30_000,
   });
 }
 

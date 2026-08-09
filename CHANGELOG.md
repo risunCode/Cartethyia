@@ -6,6 +6,40 @@ All notable changes to Cartethyia are documented here.
 
 **2.0.0 Beta is here.** This release consolidates the OAuth and quota lifecycle around the account/provider runtime boundary, adds provider-aware background workers, and hardens the failure path for revoked refresh tokens.
 
+### 2.0.0 Beta update — 2026-08-09
+
+This follow-up hardens the provider boundary for Claude Code, Codex, Exa, and Blackbox while consolidating the dashboard around the Overview workspace.
+
+### Added
+
+- **CLI model mappings**: persisted per-tool mapping settings and source-to-target model mappings for Claude, Codex, OpenCode, Cline, Cursor, and Copilot. Enabled mappings now participate in routing and `/v1/models`, are included in database backup/restore, and are configurable from Advanced → CLI Tools.
+- **Claude Code web search bridge**: native Anthropic web-search tools and server-result blocks now survive translation, helper requests route to Exa, Exa results are converted back to Claude's server-tool format, and repeated searches are suppressed after a result is present.
+- **Codex OAuth resilience**: durable OAuth bundles and raw access tokens are accepted, account identity/email extraction has broader fallbacks, and non-stream Codex Responses are collected from the SSE completion event.
+- **Exa runtime support**: environment-key fallback, Claude Code helper-query normalization, JSON-to-stream adaptation, and structured search metadata.
+- **Dashboard model workspace**: a configured-model picker now powers Model Studio and CLI setup flows. API-key allowlists explicitly exclude custom BYOK catalogs while normal model configuration continues to preserve them.
+- **Overview consolidation**: API-key management is integrated into Overview, the standalone API-key route is removed, and health/resource cards use the compact translucent dashboard treatment.
+
+### Provider and persistence changes
+
+- Built-in Blackbox now exposes only 17 verified text/chat models with complete upstream IDs. Failed image/video model entries and image-generation capabilities were removed; custom BYOK provider catalogs remain unchanged.
+- Legacy custom-provider account/model references are migrated to provider slugs on startup, and API-key credentials are normalized before transport.
+- Codex uses direct transport by default. Set `CARTETHYIA_CODEX_PROXY=true` only when an outbound proxy is explicitly required.
+- Backup/restore now includes CLI mapping tables, and persistence schemas cover mapping settings and source-model indexes.
+
+### Compatibility and reliability
+
+- Anthropic normalization accepts adaptive thinking, system messages, native web-search tools, and bounded server-result context.
+- OpenAI Chat conversion preserves tool-result text, and upstream error parsing also accepts plain `detail` fields.
+- Codex, quota, routing, translation, persistence, and dashboard picker regression coverage was extended for the new boundaries.
+
+### Verification
+
+- `bunx tsc --noEmit` — clean.
+- `bun run test` — 334 passing.
+- `dashboard`: `bunx vitest run src/components/model-picker.test.tsx` — 21 passing; `bun run test` — 157 passing.
+- `dashboard`: `bun run build` — clean (one existing CSS optimizer warning for the mobile backdrop utility).
+- `bun run build` — native backend binary compiled successfully.
+
 ### Breaking changes
 
 - Safe read-only JSON APIs now use RFC 10008 `QUERY` internally. The model catalog is `QUERY /v1/models`; read-only console API routes also use `QUERY` with `Content-Type: application/json`. `GET` callers remain accepted through the gateway translator for the beta migration window.
@@ -101,14 +135,6 @@ All notable changes to Cartethyia are documented here.
 - `middleware-contracts.test.ts`: unified middleware boundary route and lifecycle contracts.
 - `translation-transport-contracts.test.ts`: cross-protocol and stream transport behavior.
 - `routing-cache.test.ts`, `core-policies.test.ts`, `session-ip.test.ts`, `rtk-headroom.test.ts`, and `warp-lifecycle-contracts.test.ts`: routing, policy, admission, context, and Warp lifecycle regressions.
-
-### Verification
-
-- `bun tsc --noEmit` — clean.
-- `bun test test/translation-transport-contracts.test.ts` — 37 passing.
-- `bun run test` — 315 passing.
-- `bun run build` — clean; the native `/health` smoke check returned HTTP 200.
-- The broader Bun test command still encounters the existing dashboard test-runtime mismatch (`document`/`vi.importActual`) outside this release's backend changes.
 
 ## [1.0.8-alpha] - 2026-08-06
 

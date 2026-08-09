@@ -14,17 +14,24 @@ export interface StatCardProps {
   className?: string;
 }
 
+const statIconToneClasses: Record<IconTone, string> = {
+  neutral: "text-[var(--text-3)]",
+  accent: "text-[var(--accent)]",
+  success: "text-[var(--status-success)]",
+  warning: "text-[var(--status-warning)]",
+  danger: "text-[var(--status-danger)]",
+  info: "text-[var(--status-info)]",
+};
+
 export function StatCard({ label, value, description, icon: Icon, tone = "accent", loading = false, className }: StatCardProps) {
   return (
     <Card density="compact" className={cn("min-w-0", className)}>
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">{label}</div>
-          {loading ? <div className="mt-2 h-7 w-24 animate-pulse rounded bg-[var(--surface-muted)]" aria-label={`Loading ${label}`} /> : <div className="mt-1 text-xl font-bold tabular-nums">{value}</div>}
-          {description && <div className="mt-1 truncate text-[11px] text-[var(--text-tertiary)]">{description}</div>}
-        </div>
-        {Icon && <IconBadge icon={Icon} tone={tone} size="md" />}
+      <div className="flex min-w-0 items-center gap-1.5 text-[var(--text-3)]">
+        {Icon && <Icon size={13} className={statIconToneClasses[tone]} aria-hidden={true} />}
+        <div className="truncate text-[10px] font-semibold uppercase tracking-wider">{label}</div>
       </div>
+      {loading ? <div className="mt-2 h-6 w-24 animate-pulse rounded bg-[var(--surface-muted)]" aria-label={`Loading ${label}`} /> : <div className="mt-1 text-lg font-bold tabular-nums text-[var(--text-1)]">{value}</div>}
+      {description && <div className="text-[10px] text-[var(--text-3)]">{description}</div>}
     </Card>
   );
 }

@@ -285,6 +285,27 @@ describe("gateway: /v1/models authentication", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
 
+  test("includes enabled CLI mapping source models in the public catalog", async () => {
+    runtime.config.cliModelMappings.setEnabled("claude", true);
+    runtime.config.cliModelMappings.upsert({
+      toolId: "claude",
+      slotKey: "opus",
+      sourceModel: "claude/claude-opus-4-8",
+      targetModel: "opencodeft/deepseek-v4-flash-free",
+      enabled: true,
+    });
+    try {
+      const key = createApiKey("mapped-models-list-key");
+      const res = await fetchGatewayQuery("/v1/models", { headers: { "x-api-key": key } });
+      expect(res.status).toBe(200);
+      const body = await jsonObject(res);
+      const models = Array.isArray(body.data) ? body.data as Array<{ id?: unknown }> : [];
+      expect(models.some((model) => model.id === "claude/claude-opus-4-8")).toBe(true);
+    } finally {
+      runtime.config.cliModelMappings.reset("claude");
+    }
+  });
+
   test("valid Bearer token returns 200", async () => {
     const key = createApiKey("bearer-key");
     const res = await fetchGatewayQuery("/v1/models", {

@@ -7,10 +7,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Globe,
   Gauge,
-  Layers,
+  Globe,
   LayoutDashboard,
+  Layers,
   LogOut,
   MessageSquare,
   Menu,
@@ -170,10 +170,8 @@ const ADVANCED_NAV_GROUPS: { label: string; items: NavEntry[]; soon?: boolean }[
     label: "General",
     items: [
       { to: "/advanced", label: "Customization", icon: SlidersHorizontal },
-      { to: "/advanced/warp", label: "MultiWarp", icon: Globe },
       { to: "/advanced/filter-sanitize", label: "Filter Sanitize", icon: Filter },
       { to: "/advanced/token-saver", label: "Token Saver", icon: Coins },
-      { to: "/advanced/cli-tools", label: "CLI Tools", icon: TerminalSquare },
     ],
   },
   {
@@ -185,6 +183,8 @@ const ADVANCED_NAV_GROUPS: { label: string; items: NavEntry[]; soon?: boolean }[
   {
     label: "Tools",
     items: [
+      { to: "/advanced/warp", label: "MultiWarp", icon: Globe },
+      { to: "/advanced/cli-tools", label: "CLI Tools", icon: TerminalSquare },
       { to: "/advanced/automation", label: "Automation", icon: Workflow, badge: "Soon" },
     ],
   },
@@ -197,7 +197,6 @@ const TITLES: Record<string, { title: string; sub: string; mobileSub: string }> 
   "/usage": { title: "Usage", sub: "Usage summary and request overview", mobileSub: "Request activity" },
   "/providers": { title: "Providers", sub: "All supported AI providers", mobileSub: "All AI providers" },
   "/model-studio": { title: "Model Studio", sub: "Chat-test any provider, model, or combo live", mobileSub: "Test models live" },
-  "/api-keys": { title: "API Keys", sub: "Client credentials and access policies", mobileSub: "Client credentials" },
   "/combos": { title: "Combos & Alias", sub: "Fallback, round-robin, alias model", mobileSub: "Fallback & aliases" },
   "/quota": { title: "Quota Management", sub: "Provider account limits and reset windows", mobileSub: "Quota & resets" },
   "/proxy-requests": { title: "Proxy & Requests", sub: "Routing and request policy controls", mobileSub: "Proxy controls" },

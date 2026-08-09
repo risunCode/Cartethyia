@@ -41,7 +41,7 @@ Use [`.env.example`](../.env.example) as the authoritative variable list.
 
 Persist `DATA_DIR` across restarts. Store secrets in a platform secret manager, never in source control or image layers.
 
-Optional Headroom settings are controlled by `CARTETHYIA_HEADROOM_ENABLED`, `CARTETHYIA_HEADROOM_URL`, `CARTETHYIA_HEADROOM_TIMEOUT_MS`, and `CARTETHYIA_HEADROOM_COMPRESS_USER_MESSAGES`.
+Optional Headroom settings are controlled by `CARTETHYIA_HEADROOM_ENABLED`, `CARTETHYIA_HEADROOM_URL`, and `CARTETHYIA_HEADROOM_TIMEOUT_MS`. Long user messages are compressed automatically when Headroom is available.
 
 ## Your first request
 

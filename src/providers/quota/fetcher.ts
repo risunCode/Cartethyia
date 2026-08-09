@@ -54,6 +54,18 @@ function authCredential(credential: string): Record<string, unknown> {
   const parsed = record(credential.startsWith("{") ? (() => { try { return JSON.parse(credential); } catch { return null; } })() : null);
   return parsed ?? { accessToken: credential };
 }
+
+function codexJwtAccountId(accessToken: string): string | null {
+  const parts = accessToken.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const payload = record(JSON.parse(atob((parts[1] ?? "").replace(/-/g, "+").replace(/_/g, "/"))));
+    const auth = record(payload?.["https://api.openai.com/auth"]);
+    return text(auth?.chatgpt_account_id) ?? text(payload?.chatgpt_account_id) ?? text(payload?.account_id);
+  } catch {
+    return null;
+  }
+}
 async function getJson(url: string, headers: Record<string, string>, fetcher: FetchLike, body?: unknown): Promise<unknown> {
   const response = await fetcher(url, { method: body === undefined ? "GET" : "POST", headers: { accept: "application/json", ...headers, ...(body === undefined ? {} : { "content-type": "application/json" }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(TIMEOUT_MS) });
   const textBody = await response.text();
@@ -124,10 +136,20 @@ export async function fetchProviderQuota(providerId: string, credential: string,
   const fetchedAt = new Date().toISOString();
   try {
     if (providerId === "cline") return await cline(accessCredential, fetcher);
-    const fields = authCredential(accessCredential); const access = text(fields.accessToken) ?? accessCredential;
-    if (providerId === "antigravity") return antigravity(await getJson("https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels", { authorization: `Bearer ${access}`, "user-agent": "antigravity/hub/2.1.4", "x-client-name": "antigravity", "x-client-version": "1.0.0" }, fetcher, { project: fields.projectId ?? fields.providerAccountId }));
-    if (providerId === "codex") return codex(await getJson("https://chatgpt.com/backend-api/wham/usage", { authorization: `Bearer ${access}`, ...(text(fields.providerAccountId) ? { "chatgpt-account-id": text(fields.providerAccountId) as string } : {}) }, fetcher), fetchedAt);
-    if (providerId === "claude") return anthropic(await getJson("https://api.anthropic.com/api/oauth/usage", { authorization: `Bearer ${access}`, "anthropic-beta": claudeCodeOAuthBetas.join(","), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true", "x-app": "cli", "x-client-request-id": crypto.randomUUID(), "accept-encoding": "gzip, deflate, br", connection: "keep-alive" }, fetcher));
+    if (providerId === "codex") {
+      const fields = authCredential(credential);
+      const access = text(token?.accessToken) ?? text(fields.accessToken) ?? accessCredential;
+      const accountId = text(fields.providerAccountId) ?? text(fields.accountId) ?? text(fields.account_id) ?? codexJwtAccountId(access);
+      return codex(await getJson("https://chatgpt.com/backend-api/wham/usage", { authorization: `Bearer ${access}`, ...(accountId === null ? {} : { "chatgpt-account-id": accountId }) }, fetcher), fetchedAt);
+    }
+    const fields = authCredential(accessCredential);
+    const access = text(fields.accessToken) ?? accessCredential;
+    if (providerId === "antigravity") {
+      return antigravity(await getJson("https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels", { authorization: `Bearer ${access}`, "user-agent": "antigravity/hub/2.1.4", "x-client-name": "antigravity", "x-client-version": "1.0.0" }, fetcher, { project: fields.projectId ?? fields.providerAccountId }));
+    }
+    if (providerId === "claude") {
+      return anthropic(await getJson("https://api.anthropic.com/api/oauth/usage", { authorization: `Bearer ${access}`, "anthropic-beta": claudeCodeOAuthBetas.join(","), "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true", "x-app": "cli", "x-client-request-id": crypto.randomUUID(), "accept-encoding": "gzip, deflate, br", connection: "keep-alive" }, fetcher));
+    }
     if (providerId === "grok-build") {
       const headers = {
         authorization: `Bearer ${access}`,
@@ -142,7 +164,10 @@ export async function fetchProviderQuota(providerId: string, credential: string,
       ]);
       return grokBuild(billing, user);
     }
-    if (providerId === "kiro") { const region = text(fields.region) ?? "us-east-1"; return kiro(await getJson(`https://codewhisperer.${region}.amazonaws.com/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST`, { authorization: `Bearer ${access}`, "user-agent": "aws-sdk-js/1.0.0 KiroIDE" }, fetcher)); }
+    if (providerId === "kiro") {
+      const region = text(fields.region) ?? "us-east-1";
+      return kiro(await getJson(`https://codewhisperer.${region}.amazonaws.com/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST`, { authorization: `Bearer ${access}`, "user-agent": "aws-sdk-js/1.0.0 KiroIDE" }, fetcher));
+    }
     return { source: providerId, plan: null, windows: [], error: "Quota endpoint is not available for this provider." };
   } catch (error) {
     return { source: providerId, plan: null, windows: [], error: cleanError(error) };

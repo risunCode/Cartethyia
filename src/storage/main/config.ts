@@ -41,6 +41,8 @@ export type {
   ProxySettingsRecord,
   ProviderModelRecord,
   AliasRecord,
+  CliModelMappingRecord,
+  CliMappingSettingsRecord,
   ComboRecord,
   CustomProviderRecord,
   AccessRuleRecord,
@@ -51,6 +53,7 @@ export type {
   ProxyRepository,
   ProviderModelRepository,
   AliasRepository,
+  CliModelMappingRepository,
   ComboRepository,
   CustomProviderRepository,
   AccessRuleRepository,
@@ -86,6 +89,8 @@ import type {
   ProxySettingsRecord,
   ProviderModelRecord,
   AliasRecord,
+  CliModelMappingRecord,
+  CliMappingSettingsRecord,
   ComboRecord,
   CustomProviderRecord,
   AccessRuleRecord,
@@ -96,6 +101,7 @@ import type {
   ProxyRepository,
   ProviderModelRepository,
   AliasRepository,
+  CliModelMappingRepository,
   ComboRepository,
   CustomProviderRepository,
   AccessRuleRepository,
@@ -204,6 +210,22 @@ interface AliasRow {
   alias: string;
   model: string;
   created_at: string;
+}
+
+interface CliModelMappingRow {
+  tool_id: string;
+  slot_key: string;
+  source_model: string;
+  target_model: string;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface CliMappingSettingsRow {
+  tool_id: string;
+  enabled: number;
+  updated_at: string;
 }
 
 interface ComboRow {
@@ -994,6 +1016,55 @@ function createAliasRepository(db: () => Database): AliasRepository {
   };
 }
 
+function createCliModelMappingRepository(db: () => Database): CliModelMappingRepository {
+  const toMapping = (row: CliModelMappingRow): CliModelMappingRecord => ({
+    toolId: row.tool_id,
+    slotKey: row.slot_key,
+    sourceModel: row.source_model,
+    targetModel: row.target_model,
+    enabled: row.enabled === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  });
+  const toSettings = (row: CliMappingSettingsRow): CliMappingSettingsRecord => ({
+    toolId: row.tool_id,
+    enabled: row.enabled === 1,
+    updatedAt: row.updated_at,
+  });
+  return {
+    list(toolId: string): CliModelMappingRecord[] {
+      return (db().query("SELECT * FROM cli_model_mappings WHERE tool_id = ? ORDER BY slot_key ASC").all(toolId) as CliModelMappingRow[]).map(toMapping);
+    },
+    upsert(input): CliModelMappingRecord {
+      const now = nowIso();
+      db().query(
+        "INSERT INTO cli_model_mappings (tool_id, slot_key, source_model, target_model, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(tool_id, slot_key) DO UPDATE SET source_model = excluded.source_model, target_model = excluded.target_model, enabled = excluded.enabled, updated_at = excluded.updated_at",
+      ).run(input.toolId, input.slotKey, input.sourceModel, input.targetModel, input.enabled ? 1 : 0, now, now);
+      return toMapping(db().query("SELECT * FROM cli_model_mappings WHERE tool_id = ? AND slot_key = ?").get(input.toolId, input.slotKey) as CliModelMappingRow);
+    },
+    delete(toolId: string, slotKey: string): boolean {
+      return db().query("DELETE FROM cli_model_mappings WHERE tool_id = ? AND slot_key = ?").run(toolId, slotKey).changes > 0;
+    },
+    getSettings(toolId: string): CliMappingSettingsRecord | null {
+      const row = db().query("SELECT * FROM cli_tool_mapping_settings WHERE tool_id = ?").get(toolId) as CliMappingSettingsRow | null;
+      return row ? toSettings(row) : null;
+    },
+    setEnabled(toolId: string, enabled: boolean): CliMappingSettingsRecord {
+      const now = nowIso();
+      db().query(
+        "INSERT INTO cli_tool_mapping_settings (tool_id, enabled, updated_at) VALUES (?, ?, ?) ON CONFLICT(tool_id) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at",
+      ).run(toolId, enabled ? 1 : 0, now);
+      return toSettings(db().query("SELECT * FROM cli_tool_mapping_settings WHERE tool_id = ?").get(toolId) as CliMappingSettingsRow);
+    },
+    reset(toolId: string): void {
+      db().transaction(() => {
+        db().query("DELETE FROM cli_model_mappings WHERE tool_id = ?").run(toolId);
+        db().query("DELETE FROM cli_tool_mapping_settings WHERE tool_id = ?").run(toolId);
+      })();
+    },
+  };
+}
+
 function createComboRepository(db: () => Database): ComboRepository {
   const toRecord = (row: ComboRow): ComboRecord => {
     let models: readonly string[] = [];
@@ -1502,16 +1573,11 @@ export function createDurableProxyPoolConfigStore(db: () => Database): ProxyPool
       return row ? toConfig(row, excludedProviders()) : undefined;
     },
     async listProxies(): Promise<readonly ProxyConfig[]> {
-      // Single SELECT for the shared excluded-providers list instead of one
-      // per proxy row (the original toConfig() called excludedProviders() on
-      // every .map iteration — an N+1 on the transport hot path).
-      const excludedProviderIds = excludedProviders();
-      return (db().query("SELECT * FROM proxies ORDER BY priority ASC, name ASC").all() as ProxyRow[]).map((row) => toConfig(row, excludedProviderIds));
+      const excluded = excludedProviders();
+      return (db().query("SELECT * FROM proxies ORDER BY priority ASC, name ASC").all() as ProxyRow[]).map((row) => toConfig(row, excluded));
     },
   };
 }
-
-// ─────────────────────────────── Lifecycle ──────────────────────────────────
 
 export interface ConfigPersistence {
   readonly env: PersistenceEnv;
@@ -1523,6 +1589,7 @@ export interface ConfigPersistence {
   readonly proxies: ProxyRepository;
   readonly providerModels: ProviderModelRepository;
   readonly aliases: AliasRepository;
+  readonly cliModelMappings: CliModelMappingRepository;
   readonly combos: ComboRepository;
   readonly customProviders: CustomProviderRepository;
   readonly accessRules: AccessRuleRepository;
@@ -1530,7 +1597,6 @@ export interface ConfigPersistence {
   readonly filterRules: FilterRuleRepository;
   readonly ipBans: IpBanRepository;
   readonly warpAccounts: WarpAccountRepository;
-  /** Repository-backed implementations of the routing/credentials/transport ports. */
   readonly stores: {
     readonly routeHealth: RouteHealthStore;
     readonly accountHealth: AccountHealthStore;
@@ -1889,6 +1955,22 @@ export function createConfigPersistence(env: PersistenceEnv = getPersistenceEnv(
           // Table does not exist yet; CONFIG_SCHEMA_SQL creates the current form.
         }
         opened.exec(CONFIG_SCHEMA_SQL);
+        // Custom-provider adapters are keyed by slug, while older console
+        // account routes persisted the custom provider UUID. Re-home those
+        // rows so existing credentials remain eligible for runtime routing.
+        try {
+          const customProviders = opened.query("SELECT id, slug FROM custom_providers WHERE id <> slug").all() as Array<{ id: string; slug: string }>;
+          for (const provider of customProviders) {
+            opened.query("UPDATE provider_accounts SET provider = ? WHERE provider = ?").run(provider.slug, provider.id);
+            opened.query("UPDATE provider_models SET provider = ? WHERE provider = ?").run(provider.slug, provider.id);
+          }
+          // Header values cannot contain pasted line breaks or other
+          // whitespace. Normalize legacy API-key rows once at startup.
+          opened.exec("UPDATE provider_accounts SET credential = replace(replace(replace(replace(credential, char(10), ''), char(13), ''), char(9), ''), ' ', '') WHERE credential_kind = 'api_key'");
+          opened.exec("UPDATE custom_providers SET credential = replace(replace(replace(replace(credential, char(10), ''), char(13), ''), char(9), ''), ' ', '')");
+        } catch {
+          // Tables are created above; keep startup resilient for legacy partial databases.
+        }
         db = opened;
       } catch (error) {
         throw new Error(`configuration database unavailable: ${sanitizeMessage(error instanceof Error ? error.message : "open failed")}`);
@@ -1905,6 +1987,7 @@ export function createConfigPersistence(env: PersistenceEnv = getPersistenceEnv(
   const proxiesRepo = createProxyRepository(getDb);
   const providerModelsRepo = createProviderModelRepository(getDb);
   const aliasesRepo = createAliasRepository(getDb);
+  const cliModelMappingsRepo = createCliModelMappingRepository(getDb);
   const combosRepo = createComboRepository(getDb);
   const customProvidersRepo = createCustomProviderRepository(getDb);
   const accessRulesRepo = createAccessRuleRepository(getDb);
@@ -1923,6 +2006,7 @@ export function createConfigPersistence(env: PersistenceEnv = getPersistenceEnv(
     proxies: proxiesRepo,
     providerModels: providerModelsRepo,
     aliases: aliasesRepo,
+    cliModelMappings: cliModelMappingsRepo,
     combos: combosRepo,
     customProviders: customProvidersRepo,
     accessRules: accessRulesRepo,

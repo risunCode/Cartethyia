@@ -22,19 +22,20 @@ function codexIdentity(data: Record<string, unknown>, accessToken: string, idTok
   const idPayload = idToken ? decodeJwtPayload(idToken) : null;
   const accessAuth = accessPayload?.[CODEX_AUTH_PATH];
   const idAuth = idPayload?.[CODEX_AUTH_PATH];
-  const profile = accessPayload?.[CODEX_PROFILE_PATH];
+  const accessProfile = accessPayload?.[CODEX_PROFILE_PATH];
+  const idProfile = idPayload?.[CODEX_PROFILE_PATH];
+  const accessAuthRecord = accessAuth && typeof accessAuth === "object" ? accessAuth as Record<string, unknown> : null;
+  const idAuthRecord = idAuth && typeof idAuth === "object" ? idAuth as Record<string, unknown> : null;
+  const accessProfileRecord = accessProfile && typeof accessProfile === "object" ? accessProfile as Record<string, unknown> : null;
+  const idProfileRecord = idProfile && typeof idProfile === "object" ? idProfile as Record<string, unknown> : null;
   const accountId =
-    typeof accessAuth === "object" && accessAuth !== null
-      ? nonEmpty((accessAuth as Record<string, unknown>).chatgpt_account_id)
-      : undefined;
-  const email = typeof profile === "object" && profile !== null ? nonEmpty((profile as Record<string, unknown>).email) : undefined;
-  const planType =
-    typeof accessAuth === "object" && accessAuth !== null
-      ? nonEmpty((accessAuth as Record<string, unknown>).chatgpt_plan_type)
-      : undefined;
-  const idPlan = typeof idAuth === "object" && idAuth !== null ? nonEmpty((idAuth as Record<string, unknown>).chatgpt_plan_type) : undefined;
-  const fallbackAccount = nonEmpty(data.account_id);
-  return { accountId: accountId ?? fallbackAccount, email, planType: planType ?? idPlan };
+    nonEmpty(accessAuthRecord?.chatgpt_account_id) ??
+    nonEmpty(idAuthRecord?.chatgpt_account_id) ??
+    nonEmpty(data.account_id) ??
+    nonEmpty(data.chatgpt_account_id);
+  const email = nonEmpty(accessProfileRecord?.email) ?? nonEmpty(idProfileRecord?.email) ?? nonEmpty(data.email);
+  const planType = nonEmpty(accessAuthRecord?.chatgpt_plan_type) ?? nonEmpty(idAuthRecord?.chatgpt_plan_type);
+  return { accountId, email, planType };
 }
 
 /**
@@ -107,6 +108,7 @@ export class CodexOAuthDriver extends AuthorizationCodeDriver implements AuthDri
       expiresAt: new Date(fields.expiresAtMs).toISOString(),
       scope: nonEmpty(data.scope),
       providerAccountId: identity.accountId,
+      email: identity.email,
     };
   }
 }

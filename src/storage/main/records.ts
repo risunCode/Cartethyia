@@ -230,6 +230,23 @@ export interface AliasRecord {
   readonly createdAt: string;
 }
 
+export interface CliModelMappingRecord {
+  readonly toolId: string;
+  readonly slotKey: string;
+  readonly sourceModel: string;
+  readonly targetModel: string;
+  readonly enabled: boolean;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CliMappingSettingsRecord {
+  readonly toolId: string;
+  readonly enabled: boolean;
+  readonly updatedAt: string;
+}
+
+
 export interface ComboRecord {
   readonly id: string;
   readonly name: string;
@@ -339,6 +356,21 @@ export interface AliasRepository {
   get(alias: string): AliasRecord | null;
   upsert(alias: string, model: string): AliasRecord;
   delete(alias: string): boolean;
+}
+
+export interface CliModelMappingRepository {
+  list(toolId: string): CliModelMappingRecord[];
+  upsert(input: {
+    readonly toolId: string;
+    readonly slotKey: string;
+    readonly sourceModel: string;
+    readonly targetModel: string;
+    readonly enabled: boolean;
+  }): CliModelMappingRecord;
+  delete(toolId: string, slotKey: string): boolean;
+  getSettings(toolId: string): CliMappingSettingsRecord | null;
+  setEnabled(toolId: string, enabled: boolean): CliMappingSettingsRecord;
+  reset(toolId: string): void;
 }
 
 export interface ComboRepository {

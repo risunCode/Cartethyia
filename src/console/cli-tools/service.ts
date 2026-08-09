@@ -6,7 +6,8 @@
  * touch the filesystem directly — that is each injector's job.
  */
 
-import type { AllStatusesResult, ApplyInput, ApplyResult, DownloadResult, ToolInjector, ToolStatus, ToolDef } from "./types";
+import type { ConfigPersistence } from "../../storage";
+import type { AllStatusesResult, ApplyInput, ApplyResult, CliMappingInput, CliMappingSettings, DownloadResult, ToolInjector, ToolStatus, ToolDef } from "./types";
 import { TOOL_IDS, TOOL_REGISTRY, getToolDef, type ToolId } from "./registry";
 import { INJECTORS } from "./injectors";
 
@@ -18,7 +19,16 @@ interface ToolRegistryEntry {
   readonly description: string;
   readonly configType: string;
   readonly surface: string;
-  readonly defaultModels: readonly { readonly id: string; readonly name: string; readonly alias: string }[];
+  readonly mappingSupported: boolean;
+  readonly defaultModels: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly alias: string;
+    readonly roleLabel?: string;
+    readonly roleKind?: "primary" | "subagent" | "secondary" | "review";
+    readonly envKey?: string;
+    readonly defaultValue?: string;
+  }[];
   readonly settingsFile?: string;
   readonly docsUrl?: string;
   readonly notes?: readonly { readonly type: string; readonly text: string }[];
@@ -38,6 +48,8 @@ function sanitizeStatus(status: ToolStatus): ToolStatus {
 }
 
 export class CliToolService {
+  constructor(private readonly config: ConfigPersistence) {}
+
   /** Get status for a single tool. */
   async getStatus(toolId: string): Promise<ToolStatus | null> {
     const injector = injectorFor(toolId);
@@ -70,7 +82,7 @@ export class CliToolService {
     return Object.fromEntries(entries);
   }
 
-  /** Apply Cartethyia config to a tool's config files. */
+  /** Apply Cartethyia config to a tool's config files and mapping store. */
   async applyConfig(toolId: string, input: ApplyInput): Promise<ApplyResult> {
     const injector = injectorFor(toolId);
     if (injector === null) return { success: false, message: `Unknown tool: ${toolId}` };
@@ -78,23 +90,62 @@ export class CliToolService {
     if (!input.apiKey) return { success: false, message: "API key is required" };
     if (input.models.length === 0) return { success: false, message: "At least one model is required" };
     try {
-      return await injector.apply(input);
+      const result = await injector.apply(input);
+      if (result.success && input.mapping !== undefined) this.saveMappings(toolId, input.mapping);
+      return result;
     } catch (error) {
       return { success: false, message: error instanceof Error ? error.message : "Failed to apply config" };
     }
   }
 
-  /** Reset a tool's Cartethyia-specific config fields. */
+  /** Reset a tool's Cartethyia-specific config fields and mappings. */
   async resetConfig(toolId: string): Promise<ApplyResult> {
     const injector = injectorFor(toolId);
     if (injector === null) return { success: false, message: `Unknown tool: ${toolId}` };
     try {
-      return await injector.reset();
+      const result = await injector.reset();
+      if (result.success) this.config.cliModelMappings.reset(toolId);
+      return result;
     } catch (error) {
       return { success: false, message: error instanceof Error ? error.message : "Failed to reset config" };
     }
   }
 
+  /** Read persisted harness-specific mappings for a CLI tool. */
+  getMappings(toolId: string): CliMappingSettings {
+    const settings = this.config.cliModelMappings.getSettings(toolId);
+    return {
+      toolId,
+      enabled: settings?.enabled === true,
+      mappings: this.config.cliModelMappings.list(toolId).map((mapping) => ({
+        slotKey: mapping.slotKey,
+        sourceModel: mapping.sourceModel,
+        targetModel: mapping.targetModel,
+        enabled: mapping.enabled,
+      })),
+    };
+  }
+
+  /** Persist harness-specific mappings without changing the native CLI file. */
+  saveMappings(toolId: string, input: CliMappingInput): CliMappingSettings {
+    if (!this.isValidTool(toolId)) throw new Error(`Unknown tool: ${toolId}`);
+    const def: ToolDef = TOOL_REGISTRY[toolId as ToolId];
+    if (def.mappingSupported !== true) throw new Error(`${def.name} does not support model mapping`);
+    this.config.cliModelMappings.setEnabled(toolId, input.enabled);
+    const knownSlots = new Set(def.defaultModels.map((model) => model.alias));
+    for (const mapping of input.mappings) {
+      if (!knownSlots.has(mapping.slotKey)) throw new Error(`Unknown mapping slot: ${mapping.slotKey}`);
+      if (!mapping.sourceModel.trim() || !mapping.targetModel.trim()) throw new Error("Mapping source and target are required");
+      this.config.cliModelMappings.upsert({
+        toolId,
+        slotKey: mapping.slotKey,
+        sourceModel: mapping.sourceModel.trim(),
+        targetModel: mapping.targetModel.trim(),
+        enabled: mapping.enabled,
+      });
+    }
+    return this.getMappings(toolId);
+  }
   /** Download a tool's config as text (no filesystem write). */
   async downloadConfig(toolId: string, input: ApplyInput): Promise<DownloadResult | null> {
     const injector = injectorFor(toolId);
@@ -118,7 +169,16 @@ export class CliToolService {
         description: def.description,
         configType: def.configType,
         surface: def.surface,
-        defaultModels: def.defaultModels.map((m) => ({ id: m.id, name: m.name, alias: m.alias })),
+        mappingSupported: def.mappingSupported === true,
+        defaultModels: def.defaultModels.map((m) => ({
+          id: m.id,
+          name: m.name,
+          alias: m.alias,
+          roleLabel: m.roleLabel,
+          roleKind: m.roleKind,
+          envKey: m.envKey,
+          defaultValue: m.defaultValue,
+        })),
         settingsFile: def.settingsFile,
         docsUrl: def.docsUrl,
         notes: def.notes,

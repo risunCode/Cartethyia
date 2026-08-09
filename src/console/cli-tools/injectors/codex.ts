@@ -75,18 +75,20 @@ export const codexInjector: ToolInjector = {
   async apply(input: ApplyInput): Promise<ApplyResult> {
     const codexDir = `${homeDir()}/.codex`;
     await ensureDir(codexDir);
-    const model = input.activeModel ?? input.models[0] ?? "";
-    const subagent = input.subagentModel ?? model;
+    const model = input.modelSlots?.session ?? input.activeModel ?? input.models[0] ?? "";
+    const subagent = input.modelSlots?.subagent ?? input.subagentModel ?? model;
+    const review = input.modelSlots?.review;
     const baseUrl = ensureV1Suffix(input.endpoint);
 
     // config.toml — read existing, upsert fields.
     let text = (await readTextFile(configPath())) ?? "";
     text = tomlUpsertFlat(text, "model", model);
+    if (review !== undefined) text = tomlUpsertFlat(text, "review_model", review);
     text = tomlUpsertFlat(text, "model_provider", PROVIDER);
     text = tomlUpsertSection(text, `model_providers.${PROVIDER}`, [
-    `  name = "Cartethyia"`,
-    `  base_url = "${baseUrl}"`,
-    `  wire_api = "responses"`,
+      `  name = "Cartethyia"`,
+      `  base_url = "${baseUrl}"`,
+      `  wire_api = "responses"`,
     ].join("\n"));
     text = tomlUpsertSection(text, "agents.subagent", `  model = "${subagent}"`);
     await writeTextFile(configPath(), text);
@@ -121,11 +123,14 @@ export const codexInjector: ToolInjector = {
   },
 
   async download(input: ApplyInput): Promise<DownloadResult> {
-    const model = input.activeModel ?? input.models[0] ?? "";
-    const subagent = input.subagentModel ?? model;
+    const model = input.modelSlots?.session ?? input.activeModel ?? input.models[0] ?? "";
+    const subagent = input.modelSlots?.subagent ?? input.subagentModel ?? model;
+    const review = input.modelSlots?.review;
     const baseUrl = ensureV1Suffix(input.endpoint);
+    const reviewLine = review === undefined ? "" : `review_model = "${review}"\n`;
     const toml = [
       `model = "${model}"`,
+      reviewLine.trimEnd(),
       `model_provider = "${PROVIDER}"`,
       "",
       `[model_providers.${PROVIDER}]`,
@@ -136,7 +141,7 @@ export const codexInjector: ToolInjector = {
       "[agents.subagent]",
       `  model = "${subagent}"`,
       "",
-    ].join("\n");
+    ].filter((line) => line.length > 0).join("\n");
     const authJson = JSON.stringify({ [PROVIDER]: input.apiKey }, null, 2);
     const content = `# config.toml\n${toml}\n# auth.json\n${authJson}\n`;
     return { content, filename: "codex-config.txt", mimeType: "text/plain" };

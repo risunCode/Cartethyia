@@ -53,8 +53,8 @@ function ConsoleLogTab() {
     const query = search.trim().toLowerCase();
     return lines.filter((line) => {
       const isWebLog = line.scope === "http";
-      if (filter === "web" ? !isWebLog : isWebLog) return false;
-      if (filter !== "all" && filter !== "web" && line.level !== filter) return false;
+      if (filter === "web" && !isWebLog) return false;
+      if (filter !== "all" && filter !== "web" && (isWebLog || line.level !== filter)) return false;
       if (!query) return true;
       return `${line.ts} ${line.level} ${line.scope} ${line.msg}`.toLowerCase().includes(query);
     });

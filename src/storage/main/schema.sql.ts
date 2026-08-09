@@ -51,6 +51,24 @@ CREATE TABLE IF NOT EXISTS model_aliases (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS cli_tool_mapping_settings (
+  tool_id TEXT PRIMARY KEY,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS cli_model_mappings (
+  tool_id TEXT NOT NULL,
+  slot_key TEXT NOT NULL,
+  source_model TEXT NOT NULL,
+  target_model TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (tool_id, slot_key)
+);
+CREATE INDEX IF NOT EXISTS idx_cli_model_mappings_source ON cli_model_mappings(tool_id, source_model);
+
 CREATE TABLE IF NOT EXISTS combos (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,

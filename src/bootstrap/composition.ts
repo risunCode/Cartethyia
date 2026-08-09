@@ -1,4 +1,4 @@
-import type { CredentialKind } from "../application/contracts";
+import type { ClientIdentity, CredentialKind } from "../application/contracts";
 import type { AccountCandidate, AffinityKey, ModelLockRecord, RouteCandidate, RouteSwitch } from "../application/contracts";
 import type { ProxyRequest } from "../application/contracts";
 import { AnthropicOAuthDriver, AntigravityOAuthDriver, ClineOAuthDriver, ClinePassOAuthDriver, createAuthDriverRegistry, GrokBuildOAuthDriver, KimchiOAuthDriver, KiroOAuthDriver, createDriverAwareOAuthRefresher, createEnvOAuthRefresher } from "../auth";
@@ -13,12 +13,13 @@ import { NetworkSelector, type NetworkRoutingPolicy } from "../traffic";
 import { ProxyPool } from "../traffic";
 import { createDefaultRegistry, ProviderRegistry } from "../providers/registry";
 import { syncCustomAdapters } from "../providers/custom";
-import { compressWithHeadroom, headroomConfig } from "../open-sse/rtk";
+import { compressWithHeadroom } from "../open-sse/rtk";
 import { resolveWireSurface } from "../open-sse/translate";
 import { resolveModelChain } from "../application/routing";
 import { resolveModelMetadata, type ModelMetadataLookup, type ModelMetadataResolver, type ResolvedModelMetadata } from "../application/model-metadata";
+import { resolveCliModelMapping } from "../application/cli-model-mapping";
 import { createRouteSnapshotCache, type RouteSnapshotCache } from "../application/routing-snapshot";
-import type { AccountRepository, AliasRepository, ComboRepository, CustomProviderRepository, ProxyRepository } from "../storage";
+import type { AccountRepository, AliasRepository, CliModelMappingRepository, ComboRepository, CustomProviderRepository, ProxyRepository } from "../storage";
 import type { FilterRuleRepository } from "../console/views";
 import { createConsoleApi } from "../console/api";
 import { createConsoleLogStreamHub } from "../console/streams";
@@ -123,10 +124,54 @@ async function accountCandidates(cache: RouteSnapshotCache, health: AccountHealt
 }
 
 
-function routeResolver(registry: ProviderRegistry, cache: RouteSnapshotCache, _health: AccountHealthManager, _quota: QuotaCoordinator): (request: ProxyRequest, affinity: AffinityKey) => Promise<ProxyRoutePlan> {
-  return async (request, affinity) => {
+function isClaudeWebSearchHelper(request: ProxyRequest): boolean {
+  if (request.sourceSurface !== "anthropic-messages" || !request.tools.some((tool) => tool.name === "web_search")) return false;
+  const systemText = request.messages
+    .filter((message) => message.role === "system" || message.role === "developer")
+    .flatMap((message) => message.content)
+    .map((block) => block.text ?? "")
+    .join("\n");
+  const userText = [...request.messages]
+    .reverse()
+    .find((message) => message.role === "user")
+    ?.content
+    .map((block) => block.text ?? "")
+    .join("\n")
+    .trim() ?? "";
+  return systemText.includes("assistant for performing a web search tool use")
+    && /^Perform a web search for the query:\s*\S/i.test(userText);
+}
+
+function routeResolver(
+  registry: ProviderRegistry,
+  cache: RouteSnapshotCache,
+  _health: AccountHealthManager,
+  _quota: QuotaCoordinator,
+): (request: ProxyRequest, affinity: AffinityKey, client: ClientIdentity) => Promise<ProxyRoutePlan> {
+  return async (request, affinity, client) => {
     const snapshot = await cache.get();
-    const chain = resolveModelChain(request.model, { prefixes: snapshot.prefixes, aliases: snapshot.aliases, combos: snapshot.combos }, affinity);
+    if (isClaudeWebSearchHelper(request)) {
+      const adapter = registry.get("exa");
+      if (adapter !== null && resolveWireSurface(adapter.metadata, adapter.capabilities, request.sourceSurface) !== null) {
+        return {
+          affinity,
+          candidates: [{
+            id: "exa/exa-search",
+            providerId: "exa",
+            modelId: "exa-search",
+            surface: request.sourceSurface,
+            health: null,
+            enabled: true,
+            authorized: true,
+            compatible: true,
+          }],
+          requestedModel: "exa/exa-search",
+        };
+      }
+    }
+    const mappedModel = resolveCliModelMapping(client, request.model, snapshot.cliModelMappings);
+    const routedRequest = mappedModel === request.model ? request : { ...request, model: mappedModel };
+    const chain = resolveModelChain(routedRequest.model, { prefixes: snapshot.prefixes, aliases: snapshot.aliases, combos: snapshot.combos }, affinity);
     const resolved = chain.kind === "qualified" ? [chain.model] : chain.kind === "combo" ? chain.candidates : [];
     const candidates: RouteCandidate[] = [];
     for (const target of resolved) {
@@ -157,15 +202,15 @@ function routeResolver(registry: ProviderRegistry, cache: RouteSnapshotCache, _h
     // model id (e.g. "blackbox-pro") without a provider prefix.
     if (candidates.length === 0 && chain.kind === "unresolved") {
       for (const adapter of registry.list()) {
-        if (resolveWireSurface(adapter.metadata, adapter.capabilities, request.sourceSurface) === null) continue;
+        if (resolveWireSurface(adapter.metadata, adapter.capabilities, routedRequest.sourceSurface) === null) continue;
         const dbKnown = snapshot.knownModelIds.get(adapter.metadata.id);
-        const known = adapter.models.get(request.model) !== null || (dbKnown !== undefined && dbKnown.has(request.model));
+        const known = adapter.models.get(routedRequest.model) !== null || (dbKnown !== undefined && dbKnown.has(routedRequest.model));
         if (!known) continue;
         candidates.push({
-          id: `${adapter.metadata.id}/${request.model}`,
+          id: `${adapter.metadata.id}/${routedRequest.model}`,
           providerId: adapter.metadata.id,
-          modelId: request.model,
-          surface: request.sourceSurface,
+          modelId: routedRequest.model,
+          surface: routedRequest.sourceSurface,
           health: null,
           enabled: true,
           authorized: true,
@@ -173,7 +218,7 @@ function routeResolver(registry: ProviderRegistry, cache: RouteSnapshotCache, _h
         });
       }
     }
-    return { affinity, candidates, requestedModel: request.model };
+    return { affinity, candidates, requestedModel: routedRequest.model };
   };
 }
 
@@ -216,6 +261,28 @@ function withRoutingRevisionTracking(
       const deleted = config.combos.delete(id);
       bump();
       return deleted;
+    },
+  };
+  const cliModelMappings: CliModelMappingRepository = {
+    ...config.cliModelMappings,
+    upsert: (input) => {
+      const record = config.cliModelMappings.upsert(input);
+      bump();
+      return record;
+    },
+    delete: (toolId, slotKey) => {
+      const deleted = config.cliModelMappings.delete(toolId, slotKey);
+      if (deleted) bump();
+      return deleted;
+    },
+    setEnabled: (toolId, enabled) => {
+      const record = config.cliModelMappings.setEnabled(toolId, enabled);
+      bump();
+      return record;
+    },
+    reset: (toolId) => {
+      config.cliModelMappings.reset(toolId);
+      bump();
     },
   };
   const proxies: ProxyRepository = {
@@ -320,7 +387,7 @@ function withRoutingRevisionTracking(
       return deleted;
     },
   };
-  return { ...config, aliases, combos, proxies, accounts, customProviders, providerModels, filterRules };
+  return { ...config, aliases, combos, cliModelMappings, proxies, accounts, customProviders, providerModels, filterRules };
 }
 
 export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
@@ -458,7 +525,15 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
       const { tokenSaverEnabled, tokenSaverQuality } = runtimeSettings(config);
       return { enabled: tokenSaverEnabled, quality: tokenSaverQuality };
     },
-    headroom: (request) => compressWithHeadroom(request, headroomConfig),
+    headroom: (request) => {
+      const settings = runtimeSettings(config);
+      return compressWithHeadroom(request, {
+        enabled: settings.headroomEnabled,
+        url: settings.headroomUrl,
+        timeoutMs: settings.headroomTimeoutMs,
+        compressUserMessages: true,
+      });
+    },
     filterRules: (() => {
       let cached: { enabled: boolean; rules: readonly { pattern: string; replacement: string; isRegex: boolean }[] } | undefined;
       let cachedRevision = -1;
@@ -506,6 +581,24 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
   const consoleRepositories = createConsoleRepositories(config, runtime, registry);
   recordRouteSwitch = (event) => consoleRepositories.transitions.record(event.scope, event.previousRouteId ?? event.replacementRouteId ?? "unknown", event);
   const consoleServices = createConsoleServices({ repositories: consoleRepositories, registry, authDrivers, modelMetadata, oauthCoordinator: oauth });
+  const quotaAccountLabel = async (accountId: string): Promise<string> => {
+    const account = config.accounts.get(accountId);
+    const stored = await credentialStore.getAccount(accountId);
+    let identity = account?.name ?? accountId;
+    const raw = stored?.secret;
+    if (typeof raw === "string" && raw.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const email = typeof parsed.email === "string" && parsed.email.length > 0 ? parsed.email : null;
+        if (email !== null) identity = email;
+      } catch {
+        // Keep the configured account name when the credential bundle is malformed.
+      }
+    }
+    const providerId = account?.provider ?? stored?.providerId ?? "unknown";
+    const provider = providerId === "codex" ? "Codex" : registry.get(providerId)?.metadata.displayName ?? providerId;
+    return `{${provider}} Account @${identity}`;
+  };
   const quotaRefreshWorker = new QuotaRefreshWorker(
     credentialStore,
     config.stores.quotaState,
@@ -515,8 +608,8 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
     },
     {
       supportsProvider: (providerId) => providerId === "cline" || providerId === "qoder" || providerId === "codex" || providerId === "claude" || providerId === "antigravity" || providerId === "kiro" || providerId === "grok-build",
-      onRefreshed: (accountId, quotaAvailable) => runtime.consoleLogs.push("info", "quota-refresh", `Quota refreshed for account ${accountId}: available=${quotaAvailable}`),
-      onFailed: (accountId) => runtime.consoleLogs.push("warn", "quota-refresh", `Quota refresh failed for account ${accountId}`),
+      onRefreshed: (accountId, quotaAvailable) => { void quotaAccountLabel(accountId).then((label) => runtime.consoleLogs.push("info", "quota-refresh", `Quota Refreshed for ${label}: available=${quotaAvailable}`)); },
+      onFailed: (accountId) => { void quotaAccountLabel(accountId).then((label) => runtime.consoleLogs.push("warn", "quota-refresh", `Quota Refresh Failed for ${label}`)); },
     },
   );
   const prefixes = new Map(registry.list().map((adapter) => [adapter.metadata.id, adapter.metadata.id]));

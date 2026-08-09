@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Activity, Bot, Copy, Eye, FlaskConical, Link2, ListChecks, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "../../lib/toast";
 import { apiGet, apiPatch, apiDelete, apiPost } from "../../lib/api";
@@ -14,6 +14,7 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Input, Label } from "../../components/ui/input";
+import { Switch } from "../../components/ui/switch";
 import { ConfirmDialog } from "../../components/shared";
 import { HeaderPairsEditor, headersToPairs, pairsToHeaders, type HeaderPair } from "../../components/header-pairs-editor";
 
@@ -64,6 +65,8 @@ interface ModelTestResult {
   latencyMs: number;
   sample?: string;
   error?: string;
+  returnedModel?: string;
+  aliased?: boolean;
 }
 
 // Reasoning is assumed for every model here; vision is the one flag that
@@ -85,6 +88,14 @@ async function copyToClipboard(text: string) {
   } catch {
     toast.error("Clipboard access denied");
   }
+}
+
+function renderInlineMarkdown(text: string): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean).map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) return <strong key={index}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("`") && part.endsWith("`")) return <code key={index} className="rounded bg-[var(--kbd-bg)] px-1 py-0.5 font-mono text-[11px]">{part.slice(1, -1)}</code>;
+    return part;
+  });
 }
 
 export function CustomProviderDetailPage() {
@@ -127,13 +138,18 @@ export function CustomProviderDetailPage() {
   const accountWindow = useWindowedList(data?.accounts ?? [], 48);
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
-  const [credential, setCredential] = useState("");
   const [timeoutSeconds, setTimeoutSeconds] = useState(30);
   const [headerPairs, setHeaderPairs] = useState<HeaderPair[]>([]);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountName, setAccountName] = useState("");
   const [accountCredentials, setAccountCredentials] = useState("");
+  const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
+  const [editAccount, setEditAccount] = useState<CustomAccount | null>(null);
+  const [editAccountName, setEditAccountName] = useState("");
+  const [editAccountCredential, setEditAccountCredential] = useState("");
+  const [deleteAccount, setDeleteAccount] = useState<CustomAccount | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [manualModelId, setManualModelId] = useState("");
   const [pendingModelId, setPendingModelId] = useState<string | null>(null);
   const [modelTestStatus, setModelTestStatus] = useState<Record<string, ModelTestResult>>({});
@@ -146,7 +162,6 @@ export function CustomProviderDetailPage() {
     setBaseUrl(data.baseUrl);
     setTimeoutSeconds(data.timeoutSeconds);
     setHeaderPairs(headersToPairs(data.customHeaders));
-    setCredential("");
   }, [data]);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: qk.customProviders.detail(id) });
@@ -158,11 +173,9 @@ export function CustomProviderDetailPage() {
         baseUrl: baseUrl.trim(),
         timeoutSeconds,
         customHeaders: pairsToHeaders(headerPairs),
-        ...(credential.trim() ? { credential: credential.trim() } : {}),
       }),
     onSuccess: () => {
       toast.success("Saved");
-      setCredential("");
       setEditing(false);
       invalidate();
       void queryClient.invalidateQueries({ queryKey: qk.customProviders.all });
@@ -182,7 +195,7 @@ export function CustomProviderDetailPage() {
 
   const accountMutation = useMutation({
     mutationFn: async () => {
-      const values = accountCredentials.split(/\\r?\\n/).map((value) => value.trim()).filter(Boolean);
+      const values = accountCredentials.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
       if (!accountName.trim() || values.length === 0) throw new Error("Enter an account name and at least one API key.");
       await Promise.all(values.map((credential, index) => apiPost(`/providers/${id}/accounts`, {
         name: values.length === 1 ? accountName.trim() : `${accountName.trim()}-${index + 1}`,
@@ -199,6 +212,65 @@ export function CustomProviderDetailPage() {
       void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to add account"),
+  });
+
+  const updateAccountMutation = useMutation({
+    mutationFn: async () => {
+      if (!editAccount || !editAccountName.trim()) throw new Error("Account name is required.");
+      return apiPost(`/providers/${id}/accounts/${editAccount.id}`, {
+        name: editAccountName.trim(),
+        ...(editAccountCredential.trim() ? { credential: editAccountCredential.trim(), credentialKind: "api_key" } : {}),
+      });
+    },
+    onSuccess: () => {
+      toast.success("Account updated");
+      setEditAccount(null);
+      setEditAccountCredential("");
+      void queryClient.invalidateQueries({ queryKey: qk.customProviders.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to update account"),
+  });
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: (accountId: string) => apiDelete(`/providers/${id}/accounts/${accountId}`),
+    onSuccess: () => {
+      toast.success("Account deleted");
+      setDeleteAccount(null);
+      setSelectedAccounts((previous) => {
+        const next = new Set(previous);
+        if (deleteAccount) next.delete(deleteAccount.id);
+        return next;
+      });
+      void queryClient.invalidateQueries({ queryKey: qk.customProviders.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.catalog.providers });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to delete account"),
+  });
+
+  const bulkActiveMutation = useMutation({
+    mutationFn: (input: { ids: string[]; active: boolean }) => apiPatch(`/providers/${id}/accounts/batch`, input),
+    onSuccess: () => {
+      toast.success("Account status updated");
+      setSelectedAccounts(new Set());
+      void queryClient.invalidateQueries({ queryKey: qk.customProviders.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to update accounts"),
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) => apiPost(`/providers/${id}/accounts/batch-delete`, { ids }),
+    onSuccess: () => {
+      toast.success("Accounts deleted");
+      setSelectedAccounts(new Set());
+      setBulkDeleteOpen(false);
+      void queryClient.invalidateQueries({ queryKey: qk.customProviders.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.catalog.providers });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to delete accounts"),
   });
 
   const fetchMutation = useMutation({
@@ -237,15 +309,6 @@ export function CustomProviderDetailPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not delete model"),
   });
 
-  const routingMutation = useMutation({
-    mutationFn: (strategy: "priority" | "round-robin") => apiPost(`/providers/${id}/routing`, { strategy }),
-    onSuccess: () => {
-      toast.success("Routing updated");
-      void queryClient.invalidateQueries({ queryKey: qk.customProviders.detail(id) });
-      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Failed to update routing"),
-  });
 
   async function runTest(modelId: string) {
     setPendingModelId(modelId);
@@ -256,32 +319,38 @@ export function CustomProviderDetailPage() {
         model: modelId,
         credentialMode: "auto",
       });
+      const returned = probe.returnedModel?.trim();
+      const returnedLast = returned?.split("/").pop()?.toLowerCase();
+      const requestedLast = modelId.split("/").pop()?.toLowerCase();
       const result: ModelTestResult = {
         resolveOk: true,
         ok: probe.ok,
         latencyMs: probe.latencyMs,
         sample: probe.sample,
         error: probe.error?.message,
+        returnedModel: returned,
+        aliased: returned ? returnedLast !== requestedLast : undefined,
       };
       setModelTestStatus((prev) => ({ ...prev, [modelId]: result }));
-      // Same toast shape as the built-in providers' Test button.
-      if (result.ok) {
-        const time = formatDuration(result.latencyMs);
-        const returned = probe.returnedModel?.trim();
-        let aliasInfo: string;
-        if (!returned) {
-          aliasInfo = "";
-        } else if (returned.toLowerCase() === modelId.split("/").pop()?.toLowerCase()) {
-          aliasInfo = `Real model · ${returned}`;
-        } else {
-          aliasInfo = `Likely aliased · ${returned}`;
-        }
-        const title = aliasInfo ? `${modelId}\n${aliasInfo}  ·  ${time}` : `${modelId}  ·  ${time}`;
-        toast.success(title, {
-          description: result.sample ? result.sample : "No sample text in the response.",
-        });
-      } else {
+      if (!result.ok) {
         toast.error(`${modelId} failed`, { description: result.error ?? "Unknown error." });
+      } else {
+        const modelLine = returned
+          ? result.aliased
+            ? `Likely aliased \`${returned}\``
+            : `Real model \`${returned}\``
+          : null;
+        toast.success(`${modelId} · END ${formatDuration(result.latencyMs)}`, {
+          description: (
+            <div className="max-w-sm space-y-0.5">
+              {modelLine && <p className="text-[10px] text-[var(--text-3)]">{renderInlineMarkdown(modelLine)}</p>}
+              {result.sample && (
+                <p className="whitespace-pre-wrap text-[11px] leading-5 text-[var(--text-2)]">{renderInlineMarkdown(result.sample)}</p>
+              )}
+              {!result.sample && <p className="text-[10px] text-[var(--text-3)]">No sample text in the response.</p>}
+            </div>
+          ),
+        });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Test failed";
@@ -299,7 +368,6 @@ export function CustomProviderDetailPage() {
       setBaseUrl(data.baseUrl);
       setTimeoutSeconds(data.timeoutSeconds);
       setHeaderPairs(headersToPairs(data.customHeaders));
-      setCredential("");
       setEditing(false);
     },
     [data]
@@ -321,6 +389,14 @@ export function CustomProviderDetailPage() {
 
   const isAnthropic = data.kind === "anthropic";
   const headerCount = Object.keys(data.customHeaders).length;
+  const allAccountsSelected = data.accounts.length > 0 && selectedAccounts.size === data.accounts.length;
+  const pasteCredential = async (setValue: (value: string) => void) => {
+    try {
+      setValue(await navigator.clipboard.readText());
+    } catch {
+      toast.error("Clipboard access denied");
+    }
+  };
 
   return (
     <div className="dashboard-page space-y-4">
@@ -355,18 +431,18 @@ export function CustomProviderDetailPage() {
       </div>
 
       <Card>
-        <CardHeader title="Connection" icon={Link2} sub="Base URL, credential, custom headers, and per-request timeout for this endpoint.">
-          <div className="flex items-center gap-1.5">
+        <CardHeader title="Connection" icon={Link2} sub="Base URL, custom headers, and per-request timeout for this endpoint.">
+          <div className="flex w-full items-center gap-1.5 sm:w-auto">
             {!editing ? (
-              <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
+              <Button variant="secondary" size="sm" className="flex-1 justify-center sm:flex-none" onClick={() => setEditing(true)}>
                 <Pencil size={13} /> Edit
               </Button>
             ) : (
-              <Button variant="ghost" size="sm" onClick={cancelEdit}>
+              <Button variant="ghost" size="sm" className="flex-1 justify-center sm:flex-none" onClick={cancelEdit}>
                 <X size={13} /> Cancel
               </Button>
             )}
-            <Button variant="secondary" size="sm" className="text-[var(--red)]" onClick={() => setDeleteOpen(true)}>
+            <Button variant="secondary" size="sm" className="flex-1 justify-center text-[var(--red)] sm:flex-none" onClick={() => setDeleteOpen(true)}>
               <Trash2 size={13} /> Delete
             </Button>
           </div>
@@ -377,10 +453,6 @@ export function CustomProviderDetailPage() {
             <div className="flex items-center gap-2">
               <span className="w-24 shrink-0 text-[var(--text-3)]">Base URL</span>
               <code className="truncate font-mono text-[var(--text-1)]">{data.baseUrl}</code>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-24 shrink-0 text-[var(--text-3)]">Credential</span>
-              <span className="text-[var(--text-1)]">{data.credentialHint ? `ends in …${data.credentialHint}` : "unavailable"}</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="w-24 shrink-0 text-[var(--text-3)]">Timeout</span>
@@ -409,10 +481,6 @@ export function CustomProviderDetailPage() {
               <Label>Base URL</Label>
               <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
             </div>
-            <div>
-              <Label>Credential {data.credentialHint ? `— currently ends in …${data.credentialHint}` : ""} — leave empty to keep the current one</Label>
-              <Input type="password" placeholder="Paste a new key to rotate it" value={credential} onChange={(e) => setCredential(e.target.value)} />
-            </div>
             <div className="max-w-[160px]">
               <Label>Timeout (seconds)</Label>
               <Input
@@ -433,36 +501,98 @@ export function CustomProviderDetailPage() {
           </div>
         )}
       </Card>
-
       <Card>
         <CardHeader title="Accounts" icon={Link2} sub={`${data.accounts.length} API key account${data.accounts.length === 1 ? "" : "s"} · keys participate in provider routing`}>
-          <div className="flex flex-wrap items-center justify-end gap-1.5">
-            <Button variant="secondary" size="sm" onClick={() => routingMutation.mutate(data.routing.strategy === "round-robin" ? "priority" : "round-robin")} disabled={routingMutation.isPending || data.accounts.length < 2}>
-              <RefreshCw size={13} /> {data.routing.strategy === "round-robin" ? "Priority" : "Round robin"}
-            </Button>
-            <Button size="sm" onClick={() => setAccountOpen(true)}><Plus size={13} /> Add keys</Button>
+          <div className="flex w-full justify-end sm:w-auto">
+            <Button size="sm" className="w-full justify-center sm:w-auto" onClick={() => setAccountOpen(true)}><Plus size={13} /> Add keys</Button>
           </div>
         </CardHeader>
         {data.accounts.length === 0 ? (
           <div className="rounded-xl border border-dashed border-[var(--inner-border)] py-6 text-center text-sm text-[var(--text-3)]">No API key accounts yet.</div>
         ) : (
-          <div ref={accountWindow.containerRef} onScroll={accountWindow.onScroll} className="max-h-[400px] overflow-y-auto scrollbar-fade">
-            <div style={{ height: accountWindow.topPadding }} />
-            <div className="space-y-1.5">
-              {accountWindow.visibleItems.map((account: CustomAccount) => (
-                <div key={account.id} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2.5">
-                  <div className="min-w-0"><div className="truncate text-xs font-semibold">{account.name}</div><div className="font-mono text-[10px] text-[var(--text-2)]">{account.credentialHint}</div></div>
-                  <Badge tone={account.active ? "ok" : "default"}>{account.active ? "Active" : "Disabled"}</Badge>
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--inner-border)] px-3 py-2 text-[11px]">
+              <label className="flex items-center gap-2 font-medium text-[var(--text-2)]">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 accent-[var(--accent)]"
+                  checked={allAccountsSelected}
+                  onChange={(event) => setSelectedAccounts(event.target.checked ? new Set(data.accounts.map((account) => account.id)) : new Set())}
+                  aria-label="Select all accounts"
+                />
+                {selectedAccounts.size > 0 ? `${selectedAccounts.size} selected` : "Select accounts"}
+              </label>
+              {selectedAccounts.size > 0 && (
+                <div className="flex gap-1.5">
+                  <Button variant="secondary" size="sm" onClick={() => bulkActiveMutation.mutate({ ids: [...selectedAccounts], active: true })} disabled={bulkActiveMutation.isPending}>Enable</Button>
+                  <Button variant="secondary" size="sm" onClick={() => bulkActiveMutation.mutate({ ids: [...selectedAccounts], active: false })} disabled={bulkActiveMutation.isPending}>Disable</Button>
+                  <Button variant="ghost" size="sm" className="text-[var(--red)]" onClick={() => setBulkDeleteOpen(true)} disabled={bulkDeleteMutation.isPending}><Trash2 size={12} /> Delete</Button>
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedAccounts(new Set())}>Clear</Button>
                 </div>
-              ))}
+              )}
             </div>
-            <div style={{ height: accountWindow.bottomPadding }} />
-          </div>
+            <div ref={accountWindow.containerRef} onScroll={accountWindow.onScroll} className="max-h-[400px] overflow-y-auto scrollbar-fade">
+              <div style={{ height: accountWindow.topPadding }} />
+              <div className="space-y-1.5 p-3">
+                {accountWindow.visibleItems.map((account: CustomAccount) => (
+                  <div key={account.id} className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2.5">
+                    {editAccount?.id === account.id ? (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Input className="h-8 min-w-40 flex-1" value={editAccountName} onChange={(event) => setEditAccountName(event.target.value)} aria-label={`Edit ${account.name} name`} />
+                          <Badge tone={account.active ? "ok" : "default"}>{account.active ? "Active" : "Disabled"}</Badge>
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <Input className="h-8 min-w-0 flex-1 font-mono text-[11px]" type="password" value={editAccountCredential} onChange={(event) => setEditAccountCredential(event.target.value)} placeholder="Replace API key (optional)" aria-label={`Replace ${account.name} API key`} />
+                          <Button variant="secondary" size="sm" onClick={() => void pasteCredential(setEditAccountCredential)}><Copy size={12} /> Paste</Button>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => setEditAccount(null)}>Cancel</Button>
+                          <Button size="sm" disabled={updateAccountMutation.isPending || editAccountName.trim().length === 0} onClick={() => updateAccountMutation.mutate()}>{updateAccountMutation.isPending ? "Saving…" : "Save changes"}</Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 shrink-0 accent-[var(--accent)]"
+                            checked={selectedAccounts.has(account.id)}
+                            onChange={(event) => setSelectedAccounts((previous) => {
+                              const next = new Set(previous);
+                              if (event.target.checked) next.add(account.id);
+                              else next.delete(account.id);
+                              return next;
+                            })}
+                            aria-label={`Select ${account.name}`}
+                          />
+                          <div className="min-w-0"><div className="truncate text-xs font-semibold">{account.name}</div><div className="font-mono text-[10px] text-[var(--text-2)]">{account.credentialHint}</div></div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Badge tone={account.active ? "ok" : "default"}>{account.active ? "Active" : "Disabled"}</Badge>
+                          <Switch checked={account.active} onChange={(active) => bulkActiveMutation.mutate({ ids: [account.id], active })} label={`${account.active ? "Disable" : "Enable"} ${account.name}`} />
+                          <Button variant="ghost" size="icon" className="size-7" title="Edit account" aria-label={`Edit ${account.name}`} onClick={() => { setEditAccount(account); setEditAccountName(account.name); setEditAccountCredential(""); }}><Pencil size={13} /></Button>
+                          <Button variant="ghost" size="icon" className="size-7 text-[var(--red)]" title="Delete account" aria-label={`Delete ${account.name}`} onClick={() => setDeleteAccount(account)}><Trash2 size={13} /></Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div style={{ height: accountWindow.bottomPadding }} />
+            </div>
+          </>
         )}
         {accountOpen && (
           <div className="mt-3 space-y-3 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
             <Label>Account name<Input value={accountName} onChange={(event) => setAccountName(event.target.value)} placeholder="key-1" /></Label>
-            <Label>API keys<textarea value={accountCredentials} onChange={(event) => setAccountCredentials(event.target.value)} className="min-h-24 w-full rounded-xl border border-[var(--inner-border)] bg-[var(--input-bg)] p-3 font-mono text-xs text-[var(--text-1)] outline-none placeholder:text-[var(--text-3)]" placeholder="One API key per line" spellCheck={false} /></Label>
+            <div>
+              <Label>API keys</Label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <textarea value={accountCredentials} onChange={(event) => setAccountCredentials(event.target.value)} className="min-h-24 min-w-0 flex-1 rounded-xl border border-[var(--inner-border)] bg-[var(--input-bg)] p-3 font-mono text-xs text-[var(--text-1)] outline-none placeholder:text-[var(--text-3)]" placeholder="One API key per line" spellCheck={false} />
+                <Button variant="secondary" size="sm" className="self-start" onClick={() => void pasteCredential(setAccountCredentials)}><Copy size={12} /> Paste</Button>
+              </div>
+            </div>
             <div className="flex justify-end gap-2"><Button variant="ghost" onClick={() => setAccountOpen(false)}>Cancel</Button><Button disabled={accountMutation.isPending} onClick={() => accountMutation.mutate()}>{accountMutation.isPending ? "Adding…" : "Add accounts"}</Button></div>
           </div>
         )}
@@ -539,6 +669,24 @@ export function CustomProviderDetailPage() {
         )}
       </Card>
 
+      <ConfirmDialog
+        open={deleteAccount !== null}
+        onClose={() => setDeleteAccount(null)}
+        onConfirm={() => { if (deleteAccount) deleteAccountMutation.mutate(deleteAccount.id); }}
+        title="Delete account?"
+        message={deleteAccount ? `Delete account "${deleteAccount.name}"? This cannot be undone.` : ""}
+        confirmLabel="Delete"
+        danger
+      />
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={() => bulkDeleteMutation.mutate([...selectedAccounts])}
+        title="Delete selected accounts?"
+        message={`Delete ${selectedAccounts.size} selected account${selectedAccounts.size === 1 ? "" : "s"}? This cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+      />
       <ConfirmDialog
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}

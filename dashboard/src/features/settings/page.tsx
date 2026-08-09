@@ -7,7 +7,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { AlertTriangle, Download, FileJson, KeyRound, ShieldCheck, Trash2, Upload } from "lucide-react";
 import { toast } from "../../lib/toast";
-import { ApiError, apiGet, apiPost } from "../../lib/api";
+import { apiGet, apiPost } from "../../lib/api";
+import { getErrorMessage } from "../../lib/errors";
+import { downloadBlob, readJsonFile } from "../../lib/files";
 import { qk } from "../../lib/query-keys";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -45,7 +47,7 @@ function detectBackupKind(value: unknown): DetectedBackupKind | null {
 }
 
 function errorMessage(err: unknown): string {
-  return err instanceof ApiError ? err.message : "request failed";
+  return getErrorMessage(err, "Request failed");
 }
 
 export function SettingsPage() {
@@ -115,7 +117,7 @@ export function SettingsPage() {
     setRestoreKind(null);
     if (!file) return;
     try {
-      const parsed: unknown = JSON.parse(await file.text());
+      const parsed = await readJsonFile(file);
       const kind = detectBackupKind(parsed);
       if (!kind) throw new Error("Unsupported backup format");
       setRestoreKind(kind);
@@ -139,17 +141,12 @@ export function SettingsPage() {
           throw new Error(body?.error?.message ?? `backup failed (${res.status})`);
         }
         const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = `cartethyia-backup-${new Date().toISOString().slice(0, 10)}.json`;
-        anchor.click();
-        URL.revokeObjectURL(url);
+        downloadBlob(`cartethyia-backup-${new Date().toISOString().slice(0, 10)}.json`, blob, "application/json");
         toast.success("Backup downloaded");
         setAction(null);
       } else if (action === "restore") {
         if (!restoreFile) throw new Error("choose a backup file first");
-        const backup: unknown = JSON.parse(await restoreFile.text());
+        const backup = await readJsonFile(restoreFile);
         await apiPost<{ ok: boolean }>("/settings/restore", { password, backup });
         toast.success("Backup restored");
         setAction(null);

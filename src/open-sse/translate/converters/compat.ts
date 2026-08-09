@@ -128,6 +128,43 @@ function responsesToChat(body: Record<string, unknown>): Record<string, unknown>
   return { id: narrowText(body.id) ?? nextFallbackId("chatcmpl"), object: "chat.completion", created: nullableNumber(body.created_at) ?? Math.floor(Date.now() / 1000), model: narrowText(body.model) ?? "", choices: [{ index: 0, message, finish_reason: toolCalls.length > 0 ? "tool_calls" : "stop" }], usage: { prompt_tokens: inputTokens, completion_tokens: outputTokens, total_tokens: nullableNumber(usage?.total_tokens) ?? inputTokens + outputTokens } };
 }
 
+function webSearchToAnthropic(body: Record<string, unknown>): Record<string, unknown> {
+  const toolUseId = `servertoolu_${nextFallbackId("web")}`;
+  const query = narrowText(body.search_query) ?? "";
+  const results = narrowList(body.search_results).map((raw) => {
+    const result = narrowRecord(raw);
+    if (result === null) return null;
+    return {
+      type: "web_search_result",
+      title: narrowText(result.title) ?? "",
+      url: narrowText(result.url) ?? "",
+      ...(narrowText(result.publishedDate) !== null ? { published_date: narrowText(result.publishedDate) } : {}),
+      ...(narrowText(result.author) !== null ? { author: narrowText(result.author) } : {}),
+      ...(narrowText(result.text) !== null ? { content: narrowText(result.text) } : {}),
+    };
+  }).filter((result) => result !== null);
+  const choices = narrowList(body.choices);
+  const choice = narrowRecord(choices[0]);
+  const message = narrowRecord(choice?.message);
+  const summary = narrowText(message?.content) ?? (results.length > 0 ? "Search results returned." : "No results found.");
+  return {
+    id: narrowText(body.id) ?? nextFallbackId("msg"),
+    type: "message",
+    role: "assistant",
+    model: narrowText(body.model) ?? "exa-search",
+    content: [
+      { type: "server_tool_use", id: toolUseId, name: "web_search", input: { query } },
+      { type: "web_search_tool_result", tool_use_id: toolUseId, content: results },
+      { type: "text", text: summary },
+    ],
+    stop_reason: "end_turn",
+    stop_sequence: null,
+    usage: { input_tokens: 0, output_tokens: 0 },
+  };
+}
+
+registerTranslation("web-search", "anthropic-messages", webSearchToAnthropic);
+registerTranslation("web-search", "openai-chat", (body) => body);
 registerTranslation("openai-chat", "anthropic-messages", chatToAnthropic);
 registerTranslation("openai-chat", "openai-responses", chatToResponses);
 registerTranslation("anthropic-messages", "openai-chat", anthropicToChat);

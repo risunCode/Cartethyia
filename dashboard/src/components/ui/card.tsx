@@ -2,7 +2,7 @@ import type { ComponentType, HTMLAttributes, ReactNode } from "react";
 import { cn } from "../../lib/cn";
 
 export type CardDensity = "compact" | "default" | "comfortable";
-export type CardSurface = "base" | "muted" | "elevated";
+export type CardSurface = "base" | "muted" | "elevated" | "frame";
 
 const densityClasses: Record<CardDensity, string> = {
   compact: "p-3",
@@ -14,6 +14,8 @@ const surfaceClasses: Record<CardSurface, string> = {
   base: "glass",
   muted: "glass bg-[var(--surface-muted)]",
   elevated: "glass-2",
+  /** Structural frame for grouping cards without adding a second blur layer. */
+  frame: "border border-[var(--glass-border)] bg-[var(--surface-1)] shadow-[var(--shadow-card)]",
 };
 
 export interface CardProps extends HTMLAttributes<HTMLDivElement> {

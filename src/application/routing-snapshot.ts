@@ -24,6 +24,7 @@ import type { CredentialKind } from "./contracts";
 import type { ComboDefinition } from "./routing";
 import type { ConfigPersistence } from "../storage";
 import type { ProviderRegistry } from "../providers/registry";
+import type { CliModelMappingSnapshot } from "./cli-model-mapping";
 
 /** Minimal account row shape used for route candidate construction. */
 export interface SnapshotAccountRow {
@@ -42,6 +43,8 @@ export interface RoutingSnapshot {
   readonly aliases: ReadonlyMap<string, string>;
   /** Named combos (strategy + stickiness normalized). */
   readonly combos: ReadonlyMap<string, ComboDefinition>;
+  /** Harness-specific native-model mappings keyed by CLI registry ID. */
+  readonly cliModelMappings: ReadonlyMap<string, CliModelMappingSnapshot>;
   /** Account rows grouped by provider, in repository order. */
   readonly accountsByProvider: ReadonlyMap<string, readonly SnapshotAccountRow[]>;
   /** DB-stored model IDs per provider (fetched/custom) — supplements the adapter catalog for routing gates. */
@@ -147,6 +150,25 @@ async function buildSnapshot(sources: RouteSnapshotSources, revision: number): P
       },
     ]),
   );
+  const cliModelMappings = new Map<string, CliModelMappingSnapshot>();
+  const mappingStore = config.cliModelMappings;
+  if (mappingStore !== undefined) {
+    for (const toolId of ["claude", "codex", "opencode", "cline", "cursor", "copilot"]) {
+      const settings = mappingStore.getSettings(toolId);
+      const entries = mappingStore.list(toolId).map((row) => ({
+        sourceModel: row.sourceModel,
+        targetModel: row.targetModel,
+        enabled: row.enabled,
+      }));
+      if (settings !== null || entries.length > 0) {
+        cliModelMappings.set(toolId, {
+          enabled: settings?.enabled === true,
+          entries: Object.freeze(entries),
+        });
+      }
+    }
+  }
+
 
   const accountsByProvider = new Map<string, SnapshotAccountRow[]>();
   for (const row of config.accounts.list()) {
@@ -169,6 +191,7 @@ async function buildSnapshot(sources: RouteSnapshotSources, revision: number): P
     prefixes,
     aliases,
     combos,
+    cliModelMappings,
     accountsByProvider: frozenAccounts,
     knownModelIds: frozenModelIds,
   });

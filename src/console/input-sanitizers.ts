@@ -93,6 +93,10 @@ export function sanitizeRuntimePatch(value: Record<string, unknown>): WriteableP
   if (value.sidebarIconDataUrl === null || typeof value.sidebarIconDataUrl === "string") patch.sidebarIconDataUrl = value.sidebarIconDataUrl;
   if (typeof value.tokenSaverEnabled === "boolean") patch.tokenSaverEnabled = value.tokenSaverEnabled;
   if (value.tokenSaverQuality === "lite" || value.tokenSaverQuality === "balanced" || value.tokenSaverQuality === "extreme") patch.tokenSaverQuality = value.tokenSaverQuality;
+  if (typeof value.headroomEnabled === "boolean") patch.headroomEnabled = value.headroomEnabled;
+  if (value.headroomUrl === null || typeof value.headroomUrl === "string") patch.headroomUrl = value.headroomUrl;
+  if (typeof value.headroomTimeoutMs === "number" && Number.isFinite(value.headroomTimeoutMs)) patch.headroomTimeoutMs = Math.min(10_000, Math.max(250, Math.floor(value.headroomTimeoutMs)));
+  if (typeof value.ponytailEnabled === "boolean") patch.ponytailEnabled = value.ponytailEnabled;
   if (typeof value.filterRulesEnabled === "boolean") patch.filterRulesEnabled = value.filterRulesEnabled;
   return patch;
 }

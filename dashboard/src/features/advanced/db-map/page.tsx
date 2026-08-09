@@ -26,6 +26,7 @@ import { cn } from "../../../lib/cn";
 import { Button } from "../../../components/ui/button";
 import { Input, Label } from "../../../components/ui/input";
 import { Dialog } from "../../../components/ui/dialog";
+import { Card } from "../../../components/ui/card";
 import { useSchema, useExportDb, useImportDb } from "./api";
 import type { DbTarget } from "./types";
 import { TreeMap } from "./tree-map";
@@ -163,13 +164,13 @@ export function DatabaseMapPage() {
 
   if (!authed) {
     return (
-      <div className="dashboard-page flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-hidden">
+      <Card surface="frame" density="comfortable" className="dashboard-page flex min-h-0 flex-1 flex-col items-center justify-center gap-3 overflow-hidden">
         <Lock size={40} className="text-[var(--text-3)]/40" aria-hidden="true" />
         <p className="text-sm font-semibold text-[var(--text-3)]">Database Map is locked.</p>
         <p className="text-[10.5px] text-[var(--text-3)]/60">Re-authenticate to access schema, data, and SQL tools.</p>
         <Button type="button" size="sm" onClick={() => setShowGate(true)}>Unlock Database Map</Button>
         {showGate && <AuthGate onSuccess={() => { setAuthed(true); setShowGate(false); }} onClose={() => setShowGate(false)} />}
-      </div>
+      </Card>
     );
   }
 
@@ -177,7 +178,7 @@ export function DatabaseMapPage() {
   const secs = secondsLeft % 60;
 
   return (
-    <div className="dashboard-page flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+    <Card surface="frame" density="compact" className="dashboard-page flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2">
         <DbSelector db={db} onChange={setDb} />
@@ -258,6 +259,6 @@ export function DatabaseMapPage() {
           </div>
         </Dialog>
       )}
-    </div>
+    </Card>
   );
 }

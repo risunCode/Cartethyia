@@ -59,7 +59,8 @@ export const MAX_BLOCKS_PER_MESSAGE = 256;
 export const MAX_TEXT_BLOCK_LENGTH = 512_000;
 export const MAX_TOOL_COUNT = 128;
 export const MAX_TOOL_NAME_LENGTH = 256;
-export const MAX_TOOL_DESCRIPTION_LENGTH = 16_384;
+// Claude Code's built-in tools can carry long operational descriptions.
+export const MAX_TOOL_DESCRIPTION_LENGTH = 65_536;
 export const MAX_TOOL_SCHEMA_LENGTH = 65_536;
 export const MAX_TOOL_CALLS_PER_MESSAGE = 64;
 export const MAX_TOOL_ARGUMENT_LENGTH = 512_000;
@@ -197,12 +198,21 @@ export interface NormalizeToolListOptions {
  *
  * The three codecs differ only in tool wrapper shape (`function` unwrap vs
  * direct), the schema field name (`parameters` vs `input_schema`), and whether
- * the schema is required. `type` is uniformly optional and defaults to
- * `"function"` when absent, resolving the prior drift where OpenAI Chat
- * allowed a missing `type` but Responses rejected it. The serialized schema
- * length is computed once here and cached on each normalized tool so the cache
- * planner does not re-serialize the schema per request.
+ * the schema is required. Claude's server-side web search tool is preserved as
+ * native metadata while also receiving a function schema for OpenAI-compatible
+ * upstreams that do not understand Anthropic server-tool types.
  */
+const ANTHROPIC_WEB_SEARCH_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    query: { type: "string", description: "The search query." },
+    allowed_domains: { type: "array", items: { type: "string" } },
+    blocked_domains: { type: "array", items: { type: "string" } },
+  },
+  required: ["query"],
+  additionalProperties: false,
+};
+
 export function normalizeToolList(raw: unknown, options: NormalizeToolListOptions): NormalizedTool[] | ProtocolError {
   if (raw === undefined || raw === null) return [];
   const list = narrowArray(raw, "tools", MAX_TOOL_COUNT);
@@ -215,7 +225,8 @@ export function normalizeToolList(raw: unknown, options: NormalizeToolListOption
     const obj = narrowObject(item, field);
     if (isProtocolError(obj)) return obj;
     const type = obj["type"];
-    if (type !== undefined && type !== "function") {
+    const isNativeWebSearch = type === "web_search_20250305";
+    if (type !== undefined && type !== "function" && !isNativeWebSearch) {
       return protocolError(`${field}.type`, `unsupported tool type "${String(type)}"`);
     }
     const source = options.unwrapFunction ? narrowObject(obj["function"], `${field}.function`) : obj;
@@ -232,27 +243,46 @@ export function normalizeToolList(raw: unknown, options: NormalizeToolListOption
       if (isProtocolError(descriptionValue)) return descriptionValue;
       description = descriptionValue;
     }
-    const schemaFieldPath = options.unwrapFunction ? `${field}.function.${options.schemaField}` : `${field}.${options.schemaField}`;
-    const schemaRaw = source[options.schemaField];
     let inputSchema: Record<string, unknown>;
-    if (schemaRaw === undefined || schemaRaw === null) {
-      if (options.schemaRequired) return protocolError(schemaFieldPath, `${schemaFieldPath}: expected an object`);
-      inputSchema = {};
+    let nativeOptions: Readonly<Record<string, unknown>> | undefined;
+    if (isNativeWebSearch) {
+      if (name !== "web_search") return protocolError(nameField, `unsupported Anthropic server tool name "${name}"`);
+      inputSchema = ANTHROPIC_WEB_SEARCH_SCHEMA;
+      const maxUses = obj["max_uses"];
+      if (maxUses !== undefined) {
+        if (typeof maxUses !== "number" || !Number.isInteger(maxUses) || maxUses < 1 || maxUses > 100) {
+          return protocolError(`${field}.max_uses`, `${field}.max_uses: expected an integer from 1 to 100`);
+        }
+        nativeOptions = { max_uses: maxUses };
+      }
     } else {
-      const schema = narrowObject(schemaRaw, schemaFieldPath);
-      if (isProtocolError(schema)) return schema;
-      inputSchema = schema;
+      const schemaFieldPath = options.unwrapFunction ? `${field}.function.${options.schemaField}` : `${field}.${options.schemaField}`;
+      const schemaRaw = source[options.schemaField];
+      if (schemaRaw === undefined || schemaRaw === null) {
+        if (options.schemaRequired) return protocolError(schemaFieldPath, `${schemaFieldPath}: expected an object`);
+        inputSchema = {};
+      } else {
+        const schema = narrowObject(schemaRaw, schemaFieldPath);
+        if (isProtocolError(schema)) return schema;
+        inputSchema = schema;
+      }
     }
     let schemaJsonLength = 0;
     try {
       schemaJsonLength = JSON.stringify(inputSchema)?.length ?? 0;
     } catch {
-      return protocolError(schemaFieldPath, `${schemaFieldPath}: could not be serialized`);
+      return protocolError(`${field}.${options.schemaField}`, `${field}.${options.schemaField}: could not be serialized`);
     }
     if (schemaJsonLength > MAX_TOOL_SCHEMA_LENGTH) {
-      return protocolError(schemaFieldPath, `${schemaFieldPath}: exceeds ${MAX_TOOL_SCHEMA_LENGTH} characters when serialized`);
+      return protocolError(`${field}.${options.schemaField}`, `${field}.${options.schemaField}: exceeds ${MAX_TOOL_SCHEMA_LENGTH} characters when serialized`);
     }
-    tools.push({ name, description, inputSchema, schemaJsonLength });
+    tools.push({
+      name,
+      description,
+      inputSchema,
+      ...(isNativeWebSearch ? { nativeType: "web_search_20250305" as const, nativeOptions } : {}),
+      schemaJsonLength,
+    });
   }
   return tools;
 }

@@ -1,16 +1,16 @@
 /** CLI Tools page — responsive grid of tool cards linking to detail subpages. */
 
 import { Link } from "react-router-dom";
-import { CheckCircle2, XCircle, ArrowRight, Terminal } from "lucide-react";
+import { ArrowRight, CheckCircle2, XCircle, Terminal } from "lucide-react";
 import { cn } from "../../../lib/cn";
 import { Card } from "../../../components/ui/card";
 import { StatePanel } from "../../../components/ui/state";
 import { useToolRegistry, useToolStatuses } from "./api";
 import { ToolIcon } from "./tool-icon";
-
 export function CliToolsPage() {
   const registryQuery = useToolRegistry();
   const statusesQuery = useToolStatuses();
+  const tools = registryQuery.data ?? [];
 
   if (registryQuery.isLoading) {
     return (
@@ -28,7 +28,6 @@ export function CliToolsPage() {
     );
   }
 
-  const tools = registryQuery.data;
   const statuses = statusesQuery.data ?? {};
   const fileTools = tools.filter((t) => t.configType !== "guide");
   const guideTools = tools.filter((t) => t.configType === "guide");
@@ -62,9 +61,8 @@ export function CliToolsPage() {
                 key={def.id}
                 to={`/advanced/cli-tools/${def.id}`}
                 className={cn(
-                  "flex items-center gap-2.5 rounded-[var(--radius-card)] border p-2.5 transition-colors hover:border-[var(--accent)]/50",
+                  "glass flex items-center gap-2.5 rounded-[var(--radius-card)] border p-2.5 transition-colors hover:border-[var(--accent)]/50",
                   st?.configured ? "border-[var(--accent)]/40" : "border-[var(--inner-border)]",
-                  "bg-[var(--hover)]",
                 )}
               >
                 <ToolIcon toolId={def.id} name={def.name} size={32} />
@@ -98,7 +96,7 @@ export function CliToolsPage() {
             <Link
               key={def.id}
               to={`/advanced/cli-tools/${def.id}`}
-              className="flex items-center gap-2.5 rounded-[var(--radius-card)] border border-[var(--inner-border)] bg-[var(--hover)] p-2.5 transition-colors hover:border-[var(--accent)]/50"
+              className="glass flex items-center gap-2.5 rounded-[var(--radius-card)] border border-[var(--inner-border)] p-2.5 transition-colors hover:border-[var(--accent)]/50"
             >
               <ToolIcon toolId={def.id} name={def.name} size={32} />
               <div className="min-w-0 flex-1">

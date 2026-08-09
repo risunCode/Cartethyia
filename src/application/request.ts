@@ -58,7 +58,7 @@ export interface ProxyRequestDependencies {
   readonly accounts: CredentialSelector;
   readonly network: NetworkSelector;
   readonly telemetry: TelemetryWriter;
-  readonly resolveRoutes: (request: ProxyRequest, affinity: AffinityKey) => Promise<ProxyRoutePlan>;
+  readonly resolveRoutes: (request: ProxyRequest, affinity: AffinityKey, client: ClientIdentity) => Promise<ProxyRoutePlan>;
   readonly accountCandidates: (providerId: string) => Promise<readonly AccountCandidate[]>;
   readonly getProviderRouting?: (providerId: string) => { readonly strategy: "priority" | "round-robin"; readonly stickyLimit: number; readonly useStickyLimit: boolean };
   readonly onRouteFailure?: (candidate: RouteCandidate, error: ProviderCallError, selected: RouteAttemptSelection | null) => Promise<void>;
@@ -94,6 +94,8 @@ const DEFAULT_LIMITS = {
   idleTimeoutMs: 30_000,
   totalTimeoutMs: 120_000,
 } as const;
+/** Codex ChatGPT transport uses the direct path unless explicitly overridden. */
+const CODEX_PROXY_ENABLED = process.env.CARTETHYIA_CODEX_PROXY === "true";
 const BLACKBOX_FORCE_RESPONSES_MODELS: Record<string, true> = {
   "openai/gpt-5.3-codex": true,
   "openai/gpt-5.4": true,
@@ -281,7 +283,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
     const affinity: AffinityKey = input.authorization.apiKeyId
       ? { namespace: "api_key", value: input.authorization.apiKeyId }
       : { namespace: "trusted_identity", value: input.authorization.trustedIdentity ?? "anonymous" };
-    const routePlan = await dependencies.resolveRoutes(currentRequest, affinity);
+    const routePlan = await dependencies.resolveRoutes(currentRequest, affinity, client);
     const candidates = routePlan.candidates.filter((candidate) => isRouteAllowed(candidate.providerId, candidate.modelId, input.authorization, routePlan.requestedModel));
     resolvedPlan = { ...routePlan, candidates };
     if (resolvedPlan.candidates.length === 0) {
@@ -379,7 +381,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
           } satisfies ProviderCallError;
         }
         if (credential !== null) attemptCleanup.add({ release: async () => dependencies.accounts.release(credential.selection.leaseId) });
-        const network = await dependencies.network.select({ providerId: candidate.providerId, affinityKey });
+        const network = await dependencies.network.select({ providerId: candidate.providerId, affinityKey, preferDirect: candidate.providerId === "codex" && !CODEX_PROXY_ENABLED });
         if (network === null) {
           throw {
             statusCode: 503,

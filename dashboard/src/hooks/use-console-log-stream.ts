@@ -40,6 +40,7 @@ export function useConsoleLogStream(): ConsoleLogStream {
   const [status, setStatus] = useState<StreamStatus>("connecting");
   const [attempts, setAttempts] = useState(0);
   const attemptsRef = useRef(0);
+  const watermarkRef = useRef(0);
   const pendingRef = useRef<ConsoleLogLine[]>([]);
   const scheduledRef = useRef(false);
   const rafRef = useRef(0);
@@ -78,10 +79,10 @@ export function useConsoleLogStream(): ConsoleLogStream {
       setStatus(attemptsRef.current === 0 ? "connecting" : "error");
       const es = new EventSource(STREAM_URL, { withCredentials: true });
       source = es;
-
       es.addEventListener("init", (event) => {
-        const data = JSON.parse((event as MessageEvent).data as string) as { lines: ConsoleLogLine[] };
+        const data = JSON.parse((event as MessageEvent).data as string) as { lines: ConsoleLogLine[]; lastId?: number };
         pendingRef.current = [];
+        watermarkRef.current = Math.max(data.lastId ?? 0, ...data.lines.map((line) => line.id));
         setNewLineIds(new Set());
         setLines(data.lines.slice(0, MAX_LINES));
         setStatus("connected");
@@ -90,6 +91,8 @@ export function useConsoleLogStream(): ConsoleLogStream {
       });
       es.addEventListener("line", (event) => {
         const line = JSON.parse((event as MessageEvent).data as string) as ConsoleLogLine;
+        if (line.id <= watermarkRef.current) return;
+        watermarkRef.current = line.id;
         const pending = pendingRef.current;
         if (pending.length >= MAX_LINES) pending.splice(0, pending.length - MAX_LINES + 1);
         pending.push(line);
@@ -97,6 +100,7 @@ export function useConsoleLogStream(): ConsoleLogStream {
       });
       es.addEventListener("clear", () => {
         pendingRef.current = [];
+        watermarkRef.current = 0;
         setNewLineIds(new Set());
         setLines([]);
       });

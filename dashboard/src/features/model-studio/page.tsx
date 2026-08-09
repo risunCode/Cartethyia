@@ -4,17 +4,18 @@
  * Every send goes through the real dispatchQualifiedRoute pipeline.
  */
 
-import { isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
+import { isValidElement, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Bot, Boxes, Brain, Check, ChevronDown, Clock, Copy, ImagePlus,
+  Bot, Brain, Check, ChevronDown, Clock, Copy, ImagePlus,
   Loader2, MessageSquareText, MoreHorizontal, Pencil, Paperclip, Plus,
-  RotateCcw, Search, Send, Square, Timer, Trash2, User, X, Zap,
+  RotateCcw, Send, Square, Timer, Trash2, User, X, Zap,
 } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "../../lib/toast";
 import { ApiError, apiGet, apiPatch, apiPost, apiDelete } from "../../lib/api";
+import { getErrorMessage } from "../../lib/errors";
 import { cn } from "../../lib/cn";
 import { qk } from "../../lib/query-keys";
 import { Button } from "../../components/ui/button";
@@ -23,11 +24,11 @@ import { Input, Textarea } from "../../components/ui/input";
 import { Select } from "../../components/ui/tabs";
 import { Switch } from "../../components/ui/switch";
 import { ConfirmDialog } from "../../components/shared";
-import { ProviderIcon } from "../../components/provider-icon";
-import { useProviders, useModelCatalogState, useCombos, useAliases, useCustomProviders, useCustomProviderCatalog, type ProviderSummary, type FlatModelEntry } from "../../components/model-picker";
+import { ConfiguredModelPicker } from "../../components/model-picker";
 // Bundled character prompt — loaded at build time via Vite ?raw import.
-import jinhsiPromptText from "./jinhsi-prompt.txt?raw";
 import { Popout } from "../../lib/popout";
+import { formatStudioDuration as formatMs, formatStudioTokenCount as formatTokenCount } from "./formatters";
+import jinhsiPromptText from "./jinhsi-prompt.txt?raw";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -78,6 +79,10 @@ const THINK_LEVELS = [
   { value: "high", label: "Think: High" }, { value: "xhigh", label: "Think: X-High" },
   { value: "max", label: "Think: Max" },
 ];
+const OPENAI_REASONING_SUMMARIES = [
+  { value: "concise", label: "Summary: Concise" },
+  { value: "detailed", label: "Summary: Detailed" },
+];
 const ANTHROPIC_THINK_LEVELS = [
   { value: "auto", label: "Think: Auto" }, { value: "none", label: "Think: None" },
   { value: "low", label: "Think: Low (1K)" }, { value: "medium", label: "Think: Medium (4K)" },
@@ -108,13 +113,6 @@ function getThinkLevels(isAnthropic = false) { return isAnthropic ? ANTHROPIC_TH
 function estimateTextTokens(value: string): number { return Math.max(0, Math.ceil(Array.from(value).length / 4)); }
 function estimateMessageTokens(message: StudioMessage): number { return estimateTextTokens(message.content) + (message.images?.length ?? 0) * 1_000; }
 
-function formatTokenCount(value: number): string {
-  return value >= 1_000 ? `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k` : String(value);
-}
-function formatMs(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
-}
 
 function toWireContent(message: StudioMessage): string | ChatContentPart[] {
   if (!message.images || message.images.length === 0) return message.content;
@@ -148,7 +146,7 @@ function timeAgo(iso: string): string {
 // ── Streaming ──────────────────────────────────────────────────────────────
 
 async function streamModelStudioChat(
-  payload: { model: string; messages: { role: string; content: string | ChatContentPart[] }[]; maxTokens: number; reasoningEffort?: string },
+  payload: { model: string; messages: { role: string; content: string | ChatContentPart[] }[]; maxTokens: number; reasoningEffort?: string; reasoningSummary?: string },
   delta: { onText: (chunk: string) => void; onReasoning: (chunk: string) => void; onUsage: (usage: StudioUsage) => void; onFirstToken: (ms: number) => void },
   signal: AbortSignal
 ): Promise<void> {
@@ -310,74 +308,10 @@ function ContextIndicator({ messages, systemPrompt, compacting, onCompact }: { m
   );
 }
 
-// ── Model dropdown ─────────────────────────────────────────────────────────
-
-function ModelDropdown({ value, onChange, onCapabilityChange }: { value: string; onChange: (v: string) => void; onCapabilityChange: (images: boolean) => void }) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const providersQuery = useProviders();
-  const providers = providersQuery.data?.items ?? [];
-  const catalogState = useModelCatalogState(providers, open || Boolean(value));
-  const catalog = catalogState.items;
-  const customProvidersQuery = useCustomProviders(open || Boolean(value));
-  const customCatalog = useCustomProviderCatalog(customProvidersQuery.data?.items ?? []);
-  const aliasesQuery = useAliases(open);
-  const combosQuery = useCombos(open);
-  const catalogLoading = open && (providersQuery.isPending || customProvidersQuery.isPending || catalogState.isLoading || combosQuery.isPending || aliasesQuery.isPending);
-
-  useEffect(() => { const selected = [...catalog, ...customCatalog].find((e) => e.qualified === value); onCapabilityChange(selected?.images === true); }, [catalog, customCatalog, onCapabilityChange, value]);
-  useEffect(() => { if (!open) return; setSearch(""); const id = requestAnimationFrame(() => inputRef.current?.focus()); return () => cancelAnimationFrame(id); }, [open]);
-
-  const q = search.trim().toLowerCase();
-  const combos = (combosQuery.data?.items ?? []).filter((c) => !q || c.name.toLowerCase().includes(q));
-  const aliases = (aliasesQuery.data?.items ?? []).filter((a) => !q || a.alias.toLowerCase().includes(q));
-  const grouped = useMemo(() => {
-    const map = new Map<string, { provider: ProviderSummary; models: FlatModelEntry[] }>();
-    for (const entry of [...catalog, ...customCatalog]) { if (q && !entry.qualified.toLowerCase().includes(q)) continue; const g = map.get(entry.provider.id); if (g) g.models.push(entry); else map.set(entry.provider.id, { provider: entry.provider, models: [entry] }); }
-    return [...map.values()];
-  }, [catalog, customCatalog, q]);
-
-  const selectedProvider = providers.find((p) => value.startsWith(`${p.prefix}/`));
-  const pick = (qualified: string) => { onChange(qualified); setOpen(false); };
-  const panelClass = "popout-enter bg-[var(--popover-bg)] overflow-hidden overflow-y-auto rounded-2xl border border-[var(--inner-border)] shadow-2xl w-[min(320px,calc(100vw-1rem))]";
-
-  return (
-    <Popout
-      open={open}
-      onClose={() => setOpen(false)}
-      width={320}
-      preferUp
-      panelClassName={panelClass}
-      trigger={(ref) => (
-        <button ref={ref} type="button" onClick={() => setOpen((v) => !v)} className="flex h-8 max-w-full min-w-0 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] px-2 text-left text-[11.5px] transition-colors hover:border-[var(--accent)]" aria-expanded={open}>
-          {selectedProvider ? <ProviderIcon icon={selectedProvider.icon} name={selectedProvider.name} size={16} /> : <Boxes size={14} className="shrink-0 text-[var(--text-3)]" />}
-          <span className={cn("min-w-0 max-w-[40vw] truncate font-mono sm:max-w-[180px]", !value && "font-sans text-[var(--text-3)]")}>{value || "Select model…"}</span>
-          {selectedProvider && <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", selectedProvider.connections > 0 ? "bg-[var(--green)]" : "bg-[var(--red)]")} />}
-          <ChevronDown size={11} className={cn("shrink-0 text-[var(--text-3)] transition-transform", open && "rotate-180")} />
-        </button>
-      )}
-      panel={() => (
-        <>
-          <div className="border-b border-[var(--inner-border)] p-2">
-            <div className="relative"><Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-3)]" /><input ref={inputRef} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…" className="w-full rounded-lg border-none bg-[var(--surface-1)] py-1.5 pl-8 pr-2.5 text-[12.5px] outline-none placeholder:text-[var(--text-3)]" /></div>
-          </div>
-          <div className="max-h-80 overflow-y-auto p-1.5">
-            {aliases.length > 0 && (<div className="mb-1"><div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--text-3)]">Aliases</div>{aliases.map((a) => <button key={a.alias} type="button" onClick={() => pick(a.alias)} className={cn("flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12.5px] hover:bg-[var(--hover)]", value === a.alias && "bg-[var(--accent-soft)] text-[var(--accent)]")}><span className="min-w-0 flex-1 truncate font-mono">{a.alias}</span>{value === a.alias && <Check size={13} className="shrink-0" />}</button>)}</div>)}
-            {combos.length > 0 && (<div className="mb-1"><div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--text-3)]">Combos</div>{combos.map((c) => <button key={c.name} type="button" onClick={() => pick(c.name)} className={cn("flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12.5px] hover:bg-[var(--hover)]", value === c.name && "bg-[var(--accent-soft)] text-[var(--accent)]")}><Boxes size={14} className="shrink-0" /><span className="min-w-0 flex-1 truncate font-mono">{c.name}</span>{value === c.name && <Check size={13} className="shrink-0" />}</button>)}</div>)}
-            {catalogLoading ? <div className="py-8 text-center text-[11px] text-[var(--text-3)]">Loading…</div> : grouped.length === 0 && combos.length === 0 && aliases.length === 0 ? <div className="py-8 text-center text-[11px] text-[var(--text-3)]">No models match.</div> : grouped.map(({ provider, models }) => (
-              <div key={provider.id} className="mb-1"><div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--text-3)]"><span className={cn("h-1.5 w-1.5 rounded-full", provider.connections > 0 ? "bg-[var(--green)]" : "bg-[var(--text-3)]")} />{provider.name}</div>{models.map((e) => <button key={e.qualified} type="button" onClick={() => pick(e.qualified)} className={cn("flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12.5px] hover:bg-[var(--hover)]", value === e.qualified && "bg-[var(--accent-soft)] text-[var(--accent)]")}><span className="min-w-0 flex-1 truncate font-mono">{e.qualified.split("/").slice(1).join("/")}</span>{value === e.qualified && <Check size={13} className="shrink-0" />}</button>)}</div>
-            ))}
-          </div>
-        </>
-      )}
-    />
-  );
-}
 
 // ── Prompt popover ─────────────────────────────────────────────────────────
 
-function PromptPopover({ maxTokens, onMaxTokens, reasoningEffort, onReasoningEffort, providerId, systemPromptOverride, onSystemPromptOverride, systemPromptEnabled, onSystemPromptEnabled, bokepEnabled, onBokepEnabled, title, onTitleChange }: { maxTokens: number; onMaxTokens: (v: number) => void; reasoningEffort: string; onReasoningEffort: (v: string) => void; providerId?: string; systemPromptOverride: string; onSystemPromptOverride: (v: string) => void; systemPromptEnabled: boolean; onSystemPromptEnabled: (v: boolean) => void; bokepEnabled: boolean; onBokepEnabled: (v: boolean) => void; title: string; onTitleChange: (v: string) => void }) {
+function PromptPopover({ maxTokens, onMaxTokens, reasoningEffort, onReasoningEffort, reasoningSummary, onReasoningSummary, providerId, systemPromptOverride, onSystemPromptOverride, systemPromptEnabled, onSystemPromptEnabled, bokepEnabled, onBokepEnabled, title, onTitleChange }: { maxTokens: number; onMaxTokens: (v: number) => void; reasoningEffort: string; onReasoningEffort: (v: string) => void; reasoningSummary: string; onReasoningSummary: (v: string) => void; providerId?: string; systemPromptOverride: string; onSystemPromptOverride: (v: string) => void; systemPromptEnabled: boolean; onSystemPromptEnabled: (v: boolean) => void; bokepEnabled: boolean; onBokepEnabled: (v: boolean) => void; title: string; onTitleChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
   const [showBokepPreview, setShowBokepPreview] = useState(false);
   const isAnthropic = providerId === "anthropic";
@@ -410,9 +344,13 @@ function PromptPopover({ maxTokens, onMaxTokens, reasoningEffort, onReasoningEff
               className="mt-1 w-full rounded-lg border border-[var(--inner-border)] bg-[var(--surface-1)] px-2.5 py-1.5 text-[11.5px] outline-none focus:border-[var(--accent)]"
             />
           </div>
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(140px,200px)]">
-            <label className="min-w-0 text-[11px] font-semibold text-[var(--text-2)]">Thinking level<Select ariaLabel="Reasoning effort" value={reasoningEffort} onChange={handleReasoningChange} options={getThinkLevels(isAnthropic)} /></label>
-            <label className="min-w-0 text-[11px] font-semibold text-[var(--text-2)]">Max tokens<Input name="ms-max-tokens" type="number" inputMode="numeric" min={1} max={thinkingMaxTokens} value={String(Math.min(maxTokens, thinkingMaxTokens))} onChange={(e) => onMaxTokens(Math.min(thinkingMaxTokens, Math.max(1, Math.floor(Number(e.target.value) || 4096))))} /></label>
+          <div className="border-t border-[var(--inner-border)] pt-2">
+            {!isAnthropic && <p className="mb-2 text-[11px] font-semibold text-[var(--text-2)]">OpenAI advanced settings</p>}
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(140px,200px)]">
+              <label className="min-w-0 text-[11px] font-semibold text-[var(--text-2)]">Thinking level<Select ariaLabel="Reasoning effort" value={reasoningEffort} onChange={handleReasoningChange} options={getThinkLevels(isAnthropic)} /></label>
+              {!isAnthropic && <label className="min-w-0 text-[11px] font-semibold text-[var(--text-2)]">Reasoning summary<Select ariaLabel="Reasoning summary" value={reasoningSummary} onChange={onReasoningSummary} options={OPENAI_REASONING_SUMMARIES} /></label>}
+              <label className="min-w-0 text-[11px] font-semibold text-[var(--text-2)]">Max tokens<Input name="ms-max-tokens" type="number" inputMode="numeric" min={1} max={thinkingMaxTokens} value={String(Math.min(maxTokens, thinkingMaxTokens))} onChange={(e) => onMaxTokens(Math.min(thinkingMaxTokens, Math.max(1, Math.floor(Number(e.target.value) || 4096))))} /></label>
+            </div>
           </div>
           {/* System prompt injection — custom override (user's own text) */}
           <div className="border-t border-[var(--inner-border)] pt-2">
@@ -635,6 +573,7 @@ export function ModelStudioPage() {
   const [systemPrompt, setSystemPrompt] = useState("");
   const [maxTokens, setMaxTokens] = useState(4096);
   const [reasoningEffort, setReasoningEffort] = useState("auto");
+  const [reasoningSummary, setReasoningSummary] = useState("detailed");
   const [messages, setMessages] = useState<StudioMessage[]>([]);
   // System prompt injection — default off, user toggles in Options popover.
   const [systemPromptOverride, setSystemPromptOverride] = useState("");
@@ -669,7 +608,7 @@ export function ModelStudioPage() {
     if (!activeId || activeId !== syncedIdRef.current || sending) return;
     if (skipSaveRef.current) { skipSaveRef.current = false; return; }
     const timer = setTimeout(() => {
-      const persisted = messages.map(({ role, content, ts, images, usage, ttfbMs, completionMs }) => ({ role, content, ts, images, usage, ttfbMs, completionMs }));
+      const persisted = messages.map(({ role, content, ts, reasoning, images, usage, ttfbMs, completionMs }) => ({ role, content, ts, reasoning, images, usage, ttfbMs, completionMs }));
       void apiPatch(`/model-studio/sessions/${activeId}`, { title, model, systemPrompt, messages: persisted })
         .then(() => void queryClient.invalidateQueries({ queryKey: qk.modelStudio.sessions }))
         .catch((err) => { if (err instanceof ApiError && err.status === 404) { syncedIdRef.current = null; setActiveId(null); void queryClient.invalidateQueries({ queryKey: qk.modelStudio.sessions }); return; } toast.error("Failed to save session"); });
@@ -765,7 +704,7 @@ export function ModelStudioPage() {
       let errorMsg = "";
       try {
         await streamModelStudioChat(
-          { model: model.trim(), messages: payloadMessages, maxTokens, reasoningEffort: reasoningEffort === "none" || reasoningEffort === "auto" ? undefined : reasoningEffort },
+          { model: model.trim(), messages: payloadMessages, maxTokens, reasoningEffort: reasoningEffort === "none" || reasoningEffort === "auto" ? undefined : reasoningEffort, reasoningSummary: reasoningEffort === "none" || reasoningEffort === "auto" ? undefined : reasoningSummary },
           {
             onText: (chunk) => { textAcc += chunk; patchLast({ content: textAcc }); },
             onReasoning: (chunk) => { reasoningAcc += chunk; patchLast({ reasoning: reasoningAcc }); },
@@ -853,7 +792,7 @@ export function ModelStudioPage() {
       setMessages([{ role: "system", content: `[Compacted context]\n\n${result.summary}`, ts: new Date().toISOString(), ...(usage ? { usage } : {}) }]);
       setExpandedThinking(new Set());
       toast.success("Context compacted");
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Compaction failed"); }
+    } catch (error) { toast.error(getErrorMessage(error, "Compaction failed")); }
     finally { setCompacting(false); }
   }, [compacting, maxTokens, messages, model, systemPrompt]);
 
@@ -889,7 +828,7 @@ export function ModelStudioPage() {
       setMessages([...messages, { role: "user", content: text, ts: new Date().toISOString(), ...(images.length > 0 ? { images } : {}) }, { role: "assistant", content: "", ts: new Date().toISOString() }]);
       setSending(true);
       try { const result = await apiPost<{ data?: Array<{ b64_json?: string }> }>("/model-studio/image", { model: model.trim(), prompt: text || "Create an image from the attached reference.", ...(images.length > 0 ? { images } : {}) }); const generated = (result.data ?? []).flatMap((e) => typeof e.b64_json === "string" ? [`data:image/webp;base64,${e.b64_json}`] : []); patchLast({ content: generated.length > 0 ? `Generated ${generated.length} image${generated.length === 1 ? "" : "s"}.` : "No image returned.", completionMs: Math.round(performance.now() - sendStartTime), ...(generated.length > 0 ? { images: generated } : {}) }); }
-      catch (error) { patchLast({ content: `⚠ ${error instanceof Error ? error.message : "Image request failed"}`, completionMs: Math.round(performance.now() - sendStartTime) }); }
+      catch (error) { patchLast({ content: `⚠ ${getErrorMessage(error, "Image request failed")}`, completionMs: Math.round(performance.now() - sendStartTime) }); }
       finally { flushPatch(); setSending(false); }
       return;
     }
@@ -910,7 +849,7 @@ export function ModelStudioPage() {
       <div className="flex items-center gap-2 border-b border-[var(--inner-border)] px-3 py-2 sm:px-4 sm:py-2.5">
         <SessionPicker sessions={sessions} activeId={activeId} onSelect={setActiveId} onCreate={() => createSession.mutate("New chat")} creating={createSession.isPending} />
         <div className="ml-auto flex items-center gap-1.5">
-          <PromptPopover maxTokens={maxTokens} onMaxTokens={setMaxTokens} reasoningEffort={reasoningEffort} onReasoningEffort={setReasoningEffort} providerId={model.split("/")[0] || undefined} systemPromptOverride={systemPromptOverride} onSystemPromptOverride={setSystemPromptOverride} systemPromptEnabled={systemPromptEnabled} onSystemPromptEnabled={setSystemPromptEnabled} bokepEnabled={bokepEnabled} onBokepEnabled={setBokepEnabled} title={title} onTitleChange={setTitle} />
+          <PromptPopover maxTokens={maxTokens} onMaxTokens={setMaxTokens} reasoningEffort={reasoningEffort} onReasoningEffort={setReasoningEffort} reasoningSummary={reasoningSummary} onReasoningSummary={setReasoningSummary} providerId={model.split("/")[0] || undefined} systemPromptOverride={systemPromptOverride} onSystemPromptOverride={setSystemPromptOverride} systemPromptEnabled={systemPromptEnabled} onSystemPromptEnabled={setSystemPromptEnabled} bokepEnabled={bokepEnabled} onBokepEnabled={setBokepEnabled} title={title} onTitleChange={setTitle} />
           <Button variant="secondary" size="icon" className="h-8 w-8 shrink-0 text-[var(--red)]" onClick={() => activeId && setDeleteTarget(activeId)} disabled={!activeId} aria-label="Delete" title="Delete"><Trash2 size={14} /></Button>
         </div>
       </div>
@@ -939,7 +878,7 @@ export function ModelStudioPage() {
       </div>
 
       {/* Composer — compact, ChatGPT-style */}
-      <div className="shrink-0 border-t border-[var(--inner-border)] p-1.5 sm:p-2">
+      <div className="border-t border-[var(--inner-border)] p-2">
         <div className="rounded-2xl border border-[var(--inner-border)] bg-[var(--hover)] p-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-colors focus-within:border-[var(--accent)] focus-within:bg-[var(--glass-bg-2)] sm:p-2">
           {attachments.length > 0 && (
             <div className="mb-1.5 flex flex-wrap gap-1.5 px-1 pt-1">
@@ -954,7 +893,7 @@ export function ModelStudioPage() {
           <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} onPaste={(e) => { const files = Array.from(e.clipboardData.items).filter((item) => item.type.startsWith("image/")).map((item) => item.getAsFile()).filter((f): f is File => f !== null); if (files.length > 0) { e.preventDefault(); void addFiles(files); } }} placeholder="Message…" data-model-studio-composer rows={1} className="min-h-[36px] max-h-24 resize-none overflow-y-auto border-0 bg-transparent px-2 py-1 text-[13px] shadow-none focus:bg-transparent focus-visible:outline-0" />
           <div className="flex flex-wrap items-center gap-1 border-t border-[var(--inner-border)] pt-1.5">
             <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
-            <ModelDropdown value={model} onChange={setModel} onCapabilityChange={handleModelCapabilityChange} />
+            <ConfiguredModelPicker value={model} onChange={setModel} includeCombos includeAliases onCapabilityChange={handleModelCapabilityChange} placeholder="Select model…" />
             <ContextIndicator messages={messages} systemPrompt={systemPrompt} compacting={compacting} onCompact={() => void compactChat()} />
             <div className="ml-auto flex items-center gap-1">
               {imageCapable && <Button variant="secondary" size="icon" onClick={() => setImageMode((v) => !v)} aria-label={imageMode ? "Chat mode" : "Image mode"} title={imageMode ? "Chat mode" : "Image generation"} className={cn(imageMode && "border-[var(--accent)] text-[var(--accent)]")}><ImagePlus size={14} /></Button>}

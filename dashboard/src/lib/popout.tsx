@@ -40,6 +40,7 @@ export function Popout({
   panelClassName,
   width = 320,
   preferUp = false,
+  matchTriggerWidth = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -48,7 +49,10 @@ export function Popout({
   panelClassName?: string;
   width?: number;
   preferUp?: boolean;
+  /** Keep the panel at least as wide as its trigger unless explicitly disabled. */
+  matchTriggerWidth?: boolean;
 }) {
+
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -70,11 +74,13 @@ export function Popout({
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const margin = 8;
-    // Panel width: the configured `width` is the floor — content never shrinks
-    // below it — clamped into the viewport. We trust `panelClassName` (e.g.
-    // w-[min(360px,calc(100vw-1.5rem))]) to cap the inner content width.
-    const pw = Math.max(tr.width, Math.min(width, vw - margin * 2));
+    // Panel width: the configured `width` is the floor. Most popouts also
+    // match a wider trigger, but compact pickers opt out so a full-width form
+    // control does not turn the dropdown into a viewport-wide panel.
+    const minimumWidth = Math.min(width, vw - margin * 2);
+    const pw = matchTriggerWidth ? Math.max(tr.width, minimumWidth) : minimumWidth;
     const ph = panelEl.offsetHeight || 0;
+
     const spaceBelow = vh - tr.bottom;
     const spaceAbove = tr.top;
     // preferUp → open above unless there's clearly more room below.
@@ -101,7 +107,7 @@ export function Popout({
       maxHeight: `${maxHeight}px`,
       zIndex: 9999,
     });
-  }, [width, preferUp]);
+  }, [width, preferUp, matchTriggerWidth]);
 
   // Position synchronously before paint whenever `open` toggles or the
   // measured layout inputs change.

@@ -23,6 +23,7 @@ import {
   type RouteHealthSnapshot,
 } from "../../lib/account-health";
 import { staggerClass } from "../../lib/motion";
+import { displayAccountHint as displayHint, formatModelPricing, type ModelPricing } from "./formatters";
 import { useWindowedList } from "../../hooks/use-windowed-list";
 import { Skeleton } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -35,20 +36,12 @@ import { ProviderIcon } from "../../components/provider-icon";
 import { Switch } from "../../components/ui/switch";
 import { ConfirmDialog } from "../../components/shared";
 
-interface ModelPricing {
-  input: number;
-  output: number;
-  cacheRead?: number;
-  cacheWrite?: number;
-}
-
 interface ModelMetadataResponse {
   context?: { inputTokens?: number | null; outputTokens?: number | null };
   categories?: readonly ("vision" | "text" | "reasoning")[];
   pricing?: { inputPerMillion?: number | null; outputPerMillion?: number | null };
   source?: "catalog" | "custom";
 }
-
 interface ModelEntry {
   id: string;
   reasoning?: boolean;
@@ -59,20 +52,6 @@ interface ModelEntry {
   enabled: boolean;
   source: "built-in" | "manual" | "imported";
   pricing?: ModelPricing;
-}
-
-/** Show email/name for hint; fall back to name if hint is a useless JWT prefix. */
-function displayHint(hint: string, name: string): string {
-  if (hint.startsWith("eyJ") || hint === "—") return name;
-  return hint;
-}
-
-/** "$5 / $30 per 1M" style, or "Free" for a genuinely $0 flat-plan model, distinct from no pricing data at all. */
-function formatModelPricing(pricing: ModelPricing | undefined): string | null {
-  if (!pricing) return null;
-  if (pricing.input === 0 && pricing.output === 0) return "Free";
-  const fmt = (n: number) => (n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`);
-  return `${fmt(pricing.input)} / ${fmt(pricing.output)} per 1M`;
 }
 
 interface AccountEntry {
@@ -1796,6 +1775,7 @@ export function ProviderDetailPage() {
                         </td>
                         <td className="min-w-0 px-2 py-2.5 align-top">
                           <div className="max-w-48 truncate text-xs font-semibold sm:max-w-none">{displayHint(account.credentialHint, account.name)}</div>
+                          {displayHint(account.credentialHint, account.name) !== account.name ? <div className="mt-0.5 max-w-48 truncate text-[10px] text-[var(--text-3)] sm:max-w-none">{account.name}</div> : null}
                           <div className={cn("mt-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9.5px] font-medium", hasHealthError || accountTestStatus[account.id]?.state === "failed" ? "bg-[var(--red-soft)] text-[var(--red)]" : accountTestStatus[account.id]?.state === "passed" ? "bg-[var(--green-soft)] text-[var(--green)]" : "bg-[var(--hover)] text-[var(--text-3)]")} title={accessibleAccountStatus} aria-label={`Account status: ${accessibleAccountStatus}`}>
                             {accountTestStatus[account.id]?.state === "passed" ? "passed" : accountTestStatus[account.id]?.state === "failed" ? "error" : accountStatus}
                           </div>

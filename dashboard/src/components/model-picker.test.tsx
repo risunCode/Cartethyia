@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ModelPickerField, ModelTargetPicker, ModelPickerModal } from "./model-picker";
+import { ConfiguredModelPicker, ModelPickerField, ModelTargetPicker, ModelPickerModal } from "./model-picker";
+
 import { vi } from "vitest";
 
 // ModelPicker depends on react-query fetching real API data. To test the
@@ -47,10 +48,11 @@ describe("ModelPickerField", () => {
     expect(screen.queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
   });
 
-  test("renders the search input for the inline browser", () => {
+  test("opens the configured model browser", async () => {
     const onChange = vi.fn();
     render(withQueryClient(<ModelPickerField label="Models" values={[]} onChange={onChange} mode="models" />));
-    expect(screen.getByPlaceholderText("Search models\u2026")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add configured models…" }));
+    expect(await screen.findByPlaceholderText("Search configured models…")).toBeInTheDocument();
   });
 });
 
@@ -127,9 +129,11 @@ describe("ModelPickerField — configured provider visibility", () => {
       return new Response(JSON.stringify(responses[path] ?? { items: [] }), { status: 200, headers: { "content-type": "application/json" } });
     });
     render(withQueryClient(<ModelPickerField label="Models" values={[]} onChange={vi.fn()} mode="models" />));
+    fireEvent.click(screen.getByRole("button", { name: "Add configured models…" }));
     expect(await screen.findByText("free-model")).toBeInTheDocument();
     expect(screen.queryByText("gpt-5")).not.toBeInTheDocument();
     fetchSpy.mockRestore();
+
   });
 
   test("normalizes the live provider catalog modelId payload", async () => {
@@ -151,14 +155,37 @@ describe("ModelPickerField — configured provider visibility", () => {
     });
     try {
       render(withQueryClient(<ModelPickerField label="Models" values={[]} onChange={vi.fn()} mode="models" />));
+      fireEvent.click(screen.getByRole("button", { name: "Add configured models…" }));
       expect(await screen.findByText("kimi-k2.7")).toBeInTheDocument();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+
+  });
+  test("keeps custom BYOK providers out of API-key allowlist picker", async () => {
+    const responses: Record<string, unknown> = {
+      "/console/api/providers": { items: [] },
+      "/console/api/custom-providers": {
+        items: [{ slug: "bobox", name: "Custom Blackbox", credentialHint: "sk-test", models: [{ id: "blackboxai/z-ai/glm-5.2" }] }],
+      },
+    };
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      const path = url.replace(/^https?:\/\/[^/]+/, "");
+      return new Response(JSON.stringify(responses[path] ?? { items: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    try {
+      render(withQueryClient(<ModelPickerField label="Allowed models" values={[]} onChange={vi.fn()} mode="models" includeCustomProviders={false} />));
+      fireEvent.click(screen.getByRole("button", { name: "Add configured models…" }));
+      await screen.findByPlaceholderText("Search configured models…");
+      expect(screen.queryByText("blackboxai/z-ai/glm-5.2")).not.toBeInTheDocument();
     } finally {
       fetchSpy.mockRestore();
     }
   });
 });
 
-describe("ModelPickerField — alias/combo selected values are not double-classified as Custom", () => {
+describe("ConfiguredModelPicker selected values", () => {
   function stubCatalogFetch() {
     const responses: Record<string, unknown> = {
       "/console/api/providers": { items: [] },
@@ -174,49 +201,58 @@ describe("ModelPickerField — alias/combo selected values are not double-classi
     });
   }
 
-  test("a selected alias renders once, under Aliases, not under a spurious Custom section", async () => {
+  test("renders a selected alias in the Aliases section", async () => {
     const fetchSpy = stubCatalogFetch();
-    const onChange = vi.fn();
-    render(
-      withQueryClient(
-        <ModelPickerField label="Allowed" values={["gpt-5.6-sol"]} onChange={onChange} mode="models" includeCombos includeAliases />
-      )
-    );
-
-    // Wait for the aliases query to resolve and the Aliases section to render.
-    expect(await screen.findByText("Aliases (1)")).toBeInTheDocument();
-    // No "Custom" section should render \u2014 the alias is fully accounted for above.
-    expect(screen.queryByText(/^Custom \(/)).not.toBeInTheDocument();
-
+    render(withQueryClient(<ModelPickerField label="Allowed" values={["gpt-5.6-sol"]} onChange={vi.fn()} mode="models" includeCombos includeAliases />));
+    fireEvent.click(screen.getByRole("button", { name: "1 models selected" }));
+    expect(await screen.findByText("Aliases")).toBeInTheDocument();
+    expect(screen.queryByText(/^Custom/)).not.toBeInTheDocument();
     fetchSpy.mockRestore();
   });
 
-  test("a selected combo renders once, under Combos, not under a spurious Custom section", async () => {
+  test("renders a selected combo in the Combos section", async () => {
     const fetchSpy = stubCatalogFetch();
-    const onChange = vi.fn();
-    render(
-      withQueryClient(
-        <ModelPickerField label="Allowed" values={["fast-combo"]} onChange={onChange} mode="models" includeCombos includeAliases />
-      )
-    );
-
-    expect(await screen.findByText("Combos (1)")).toBeInTheDocument();
-    expect(screen.queryByText(/^Custom \(/)).not.toBeInTheDocument();
-
+    render(withQueryClient(<ModelPickerField label="Allowed" values={["fast-combo"]} onChange={vi.fn()} mode="models" includeCombos includeAliases />));
+    fireEvent.click(screen.getByRole("button", { name: "1 models selected" }));
+    expect(await screen.findByText("Combos")).toBeInTheDocument();
+    expect(screen.queryByText(/^Custom/)).not.toBeInTheDocument();
     fetchSpy.mockRestore();
   });
 
-  test("a genuinely unrecognized selected value still renders under Custom", async () => {
+  test("keeps an unrecognized selected value without inventing a catalog section", async () => {
     const fetchSpy = stubCatalogFetch();
-    const onChange = vi.fn();
-    render(
-      withQueryClient(
-        <ModelPickerField label="Allowed" values={["totally-manual-value"]} onChange={onChange} mode="models" includeCombos includeAliases />
-      )
-    );
-
-    expect(await screen.findByText("Custom (1)")).toBeInTheDocument();
-
+    render(withQueryClient(<ModelPickerField label="Allowed" values={["totally-manual-value"]} onChange={vi.fn()} mode="models" includeCombos includeAliases />));
+    fireEvent.click(screen.getByRole("button", { name: "1 models selected" }));
+    expect(await screen.findByPlaceholderText("Search configured models…")).toBeInTheDocument();
+    expect(screen.queryByText(/^Custom/)).not.toBeInTheDocument();
     fetchSpy.mockRestore();
+  });
+});
+
+describe("ConfiguredModelPicker lifecycle", () => {
+  test("does not emit changing dependency-array warnings as the catalog loads", async () => {
+    const responses: Record<string, unknown> = {
+      "/console/api/providers": {
+        items: [{ id: "opencodeft", name: "OpenCode Free", icon: "opencode", prefix: "opencodeft", credentialKind: "none", configured: false }],
+      },
+      "/console/api/custom-providers": { items: [] },
+      "/console/api/providers/opencodeft": { prefix: "opencodeft", models: [{ id: "free-model", enabled: true }] },
+    };
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+      const path = url.replace(/^https?:\/\/[^/]+/, "");
+      return new Response(JSON.stringify(responses[path] ?? { items: [] }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      render(withQueryClient(<ConfiguredModelPicker value="" onChange={vi.fn()} />));
+      fireEvent.click(screen.getByRole("button", { name: "Select configured model…" }));
+      expect(await screen.findByText("free-model")).toBeInTheDocument();
+      const errors = errorSpy.mock.calls.flat().join(" ");
+      expect(errors).not.toContain("The final argument passed to useMemo changed size");
+    } finally {
+      errorSpy.mockRestore();
+      fetchSpy.mockRestore();
+    }
   });
 });

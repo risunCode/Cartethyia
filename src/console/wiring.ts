@@ -142,6 +142,10 @@ function makeSettingsRepository(config: ConfigPersistence): ConsoleSettingsRepos
       if (patch.sessionTtlHours !== undefined) jsonPatch.sessionTtlHours = patch.sessionTtlHours;
       if (patch.tokenSaverEnabled !== undefined) jsonPatch.tokenSaverEnabled = patch.tokenSaverEnabled;
       if (patch.tokenSaverQuality !== undefined) jsonPatch.tokenSaverQuality = patch.tokenSaverQuality;
+      if (patch.headroomEnabled !== undefined) jsonPatch.headroomEnabled = patch.headroomEnabled;
+      if (patch.headroomUrl !== undefined) jsonPatch.headroomUrl = patch.headroomUrl;
+      if (patch.headroomTimeoutMs !== undefined) jsonPatch.headroomTimeoutMs = patch.headroomTimeoutMs;
+      if (patch.ponytailEnabled !== undefined) jsonPatch.ponytailEnabled = patch.ponytailEnabled;
       if (patch.filterRulesEnabled !== undefined) jsonPatch.filterRulesEnabled = patch.filterRulesEnabled;
       if (patch.sidebarIconDataUrl !== undefined) {
         const icon = normalizeSidebarIconDataUrl(patch.sidebarIconDataUrl);
@@ -265,64 +269,68 @@ function makeModelRepository(config: ConfigPersistence, registry: ProviderRegist
 
 function deriveCredentialHint(credential: string, credentialKind: string, name?: string): string {
   if (credentialKind === "oauth" || credentialKind === "token") {
-    // Try JSON bundle (email, name, etc.)
     if (credential.startsWith("{")) {
       try {
         const parsed = JSON.parse(credential) as Record<string, unknown>;
-        if (typeof parsed.email === "string" && parsed.email.length > 0) {
-          return parsed.email.length > 40 ? `${parsed.email.slice(0, 40)}…` : parsed.email;
-        }
-        if (typeof parsed.name === "string" && parsed.name.length > 0) {
-          return parsed.name.length > 40 ? `${parsed.name.slice(0, 40)}…` : parsed.name;
+        const direct = typeof parsed.email === "string" && parsed.email.length > 0 ? parsed.email : typeof parsed.name === "string" && parsed.name.length > 0 ? parsed.name : null;
+        if (direct !== null) return direct.length > 40 ? `${direct.slice(0, 40)}…` : direct;
+        const accessToken = typeof parsed.accessToken === "string" ? parsed.accessToken : typeof parsed.access_token === "string" ? parsed.access_token : null;
+        if (accessToken !== null && accessToken.includes(".")) {
+          const segment = accessToken.split(".")[1];
+          if (segment) {
+            const payload = JSON.parse(atob(segment.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>;
+            const profile = payload["https://api.openai.com/profile"];
+            const profileRecord = typeof profile === "object" && profile !== null ? profile as Record<string, unknown> : null;
+            const identity = typeof profileRecord?.email === "string" && profileRecord.email.length > 0 ? profileRecord.email : typeof payload.email === "string" && payload.email.length > 0 ? payload.email : typeof payload.name === "string" && payload.name.length > 0 ? payload.name : null;
+            if (identity !== null) return identity.length > 40 ? `${identity.slice(0, 40)}…` : identity;
+          }
         }
       } catch { /* fall through */ }
     }
-    // Try JWT decode (header.payload.signature) — extract email/name from payload
     if (credential.includes(".")) {
       try {
-        const parts = credential.split(".");
-        if (parts.length >= 2) {
-          const segment = parts[1];
-          if (segment === undefined || segment.length === 0) throw new Error("empty JWT payload");
+        const segment = credential.split(".")[1];
+        if (segment) {
           const payload = JSON.parse(atob(segment.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>;
-          if (typeof payload.email === "string" && payload.email.length > 0) {
-            return payload.email.length > 40 ? `${payload.email.slice(0, 40)}…` : payload.email;
-          }
-          if (typeof payload.name === "string" && payload.name.length > 0) {
-            return payload.name.length > 40 ? `${payload.name.slice(0, 40)}…` : payload.name;
-          }
-          if (typeof payload.sub === "string" && payload.sub.includes("@")) {
-            return payload.sub.length > 40 ? `${payload.sub.slice(0, 40)}…` : payload.sub;
-          }
+          if (typeof payload.email === "string" && payload.email.length > 0) return payload.email.length > 40 ? `${payload.email.slice(0, 40)}…` : payload.email;
+          if (typeof payload.name === "string" && payload.name.length > 0) return payload.name.length > 40 ? `${payload.name.slice(0, 40)}…` : payload.name;
+          if (typeof payload.sub === "string" && payload.sub.includes("@")) return payload.sub.length > 40 ? `${payload.sub.slice(0, 40)}…` : payload.sub;
         }
       } catch { /* fall through */ }
     }
   }
-  // Final fallback: use account name if provided, else truncated credential
   if (name && name.length > 0) return name.length > 40 ? `${name.slice(0, 40)}…` : name;
   return `${credential.slice(0, 4)}…`;
 }
 
 function makeAccountRepository(config: ConfigPersistence): ConsoleAccountRepository {
   const view = async (row: ProviderAccountRecord): Promise<AccountRowView> => {
-    const [health, quota] = await Promise.all([
+    const [health, quota, stored] = await Promise.all([
       config.accountHealth.get(row.id),
       config.stores.quotaState.get(row.id),
+      config.stores.credentialConfig.getAccount(row.id),
     ]);
-    return toAccountView(row, health, quotaViewFromState(quota?.quota));
+    const hydrated = stored?.secret ? { ...row, credentialHint: deriveCredentialHint(stored.secret, row.credentialKind, row.name) } : row;
+    return toAccountView(hydrated, health, quotaViewFromState(quota?.quota));
   };
   const views = async (rows: readonly ProviderAccountRecord[]): Promise<readonly AccountRowView[]> => {
     if (rows.length === 0) return [];
     const ids = rows.map((row) => row.id);
-    const [healthWithIds, quotaRows] = await Promise.all([
+    const [healthWithIds, quotaRows, credentials] = await Promise.all([
       config.accountHealth.listWithIds
         ? config.accountHealth.listWithIds(ids)
         : Promise.all(rows.map(async (row) => ({ id: row.id, health: await config.accountHealth.get(row.id) }))),
       config.stores.quotaState.listForAccountIds(ids),
+      Promise.all(rows.map(async (row) => ({ id: row.id, secret: (await config.stores.credentialConfig.getAccount(row.id))?.secret ?? null }))),
     ]);
     const healthById = new Map(healthWithIds.map((item) => [item.id, item.health] as const));
     const quotaById = new Map(quotaRows.map((item) => [item.accountId, item] as const));
-    return rows.map((row) => toAccountView(row, healthById.get(row.id) ?? null, quotaViewFromState(quotaById.get(row.id)?.quota)));
+    const credentialById = new Map(credentials.map((item) => [item.id, item.secret] as const));
+    return rows.map((row) => {
+      const secret = credentialById.get(row.id);
+      const hydrated = secret ? { ...row, credentialHint: deriveCredentialHint(secret, row.credentialKind, row.name) } : row;
+      return toAccountView(hydrated, healthById.get(row.id) ?? null, quotaViewFromState(quotaById.get(row.id)?.quota));
+    });
   };
   return {
     async list(providerId) { return views(config.accounts.list(providerId)); },

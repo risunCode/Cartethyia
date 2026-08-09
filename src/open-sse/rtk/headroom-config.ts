@@ -21,5 +21,5 @@ export const headroomConfig: HeadroomConfig = Object.freeze({
   enabled: Bun.env.CARTETHYIA_HEADROOM_ENABLED === "true",
   url: optionalHttpUrl("CARTETHYIA_HEADROOM_URL"),
   timeoutMs: boundedInteger("CARTETHYIA_HEADROOM_TIMEOUT_MS", 3_000, 250, 10_000),
-  compressUserMessages: Bun.env.CARTETHYIA_HEADROOM_COMPRESS_USER_MESSAGES === "true",
+  compressUserMessages: true,
 });

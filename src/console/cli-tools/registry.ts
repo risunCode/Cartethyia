@@ -25,12 +25,17 @@ export const TOOL_REGISTRY = {
       opusModel: "ANTHROPIC_DEFAULT_OPUS_MODEL",
       sonnetModel: "ANTHROPIC_DEFAULT_SONNET_MODEL",
       haikuModel: "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+      fableModel: "ANTHROPIC_DEFAULT_FABLE_MODEL",
+      mythosModel: "ANTHROPIC_CUSTOM_MODEL_OPTION",
     },
-    modelAliases: ["default", "sonnet", "opus", "haiku"],
+    modelAliases: ["default", "sonnet", "opus", "haiku", "fable"],
+    mappingSupported: true,
     defaultModels: [
-      { id: "opus", name: "Claude Opus", alias: "opus", envKey: "ANTHROPIC_DEFAULT_OPUS_MODEL", defaultValue: "cc/claude-opus-4-8" },
-      { id: "sonnet", name: "Claude Sonnet", alias: "sonnet", envKey: "ANTHROPIC_DEFAULT_SONNET_MODEL", defaultValue: "cc/claude-sonnet-5" },
-      { id: "haiku", name: "Claude Haiku", alias: "haiku", envKey: "ANTHROPIC_DEFAULT_HAIKU_MODEL", defaultValue: "cc/claude-haiku-4-5-20251001" },
+      { id: "opus", name: "Claude Opus", alias: "opus", roleLabel: "Opus default", envKey: "ANTHROPIC_DEFAULT_OPUS_MODEL", defaultValue: "claude/claude-opus-4-8" },
+      { id: "sonnet", name: "Claude Sonnet", alias: "sonnet", roleLabel: "Sonnet default", roleKind: "primary", envKey: "ANTHROPIC_DEFAULT_SONNET_MODEL", defaultValue: "claude/claude-sonnet-5" },
+      { id: "haiku", name: "Claude Haiku", alias: "haiku", roleLabel: "Haiku default", roleKind: "secondary", envKey: "ANTHROPIC_DEFAULT_HAIKU_MODEL", defaultValue: "claude/claude-haiku-4-5-20251001" },
+      { id: "fable", name: "Claude Fable 5", alias: "fable", roleLabel: "Fable default", roleKind: "secondary", envKey: "ANTHROPIC_DEFAULT_FABLE_MODEL", defaultValue: "claude/claude-fable-5" },
+      { id: "mythos", name: "Claude Mythos 5", alias: "mythos", roleLabel: "Mythos model", roleKind: "secondary", envKey: "ANTHROPIC_CUSTOM_MODEL_OPTION", defaultValue: "claude/claude-mythos-5" },
     ],
   },
 
@@ -42,9 +47,11 @@ export const TOOL_REGISTRY = {
     configType: "custom" as const,
     surface: "openai-responses" as const,
     settingsFile: "~/.codex/config.toml",
+    mappingSupported: true,
     defaultModels: [
-      { id: "gpt-5.1", name: "GPT-5.1", alias: "gpt-5.1" },
-      { id: "o4-mini", name: "o4-mini", alias: "o4-mini" },
+      { id: "gpt-5.1", name: "GPT-5.1", alias: "session", roleLabel: "Session model", roleKind: "primary", defaultValue: "gpt-5.1" },
+      { id: "o4-mini", name: "o4-mini", alias: "subagent", roleLabel: "Subagent model", roleKind: "subagent", defaultValue: "o4-mini" },
+      { id: "gpt-5.1-review", name: "GPT-5.1", alias: "review", roleLabel: "Review model", roleKind: "review", defaultValue: "gpt-5.1" },
     ],
   },
 
@@ -57,8 +64,8 @@ export const TOOL_REGISTRY = {
     surface: "openai-chat" as const,
     settingsFile: "~/.cline/data/globalState.json",
     defaultModels: [
-      { id: "cc/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
-      { id: "cc/claude-opus-4-8", name: "Claude Opus", alias: "opus" },
+      { id: "claude/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet", roleLabel: "Primary Agent", roleKind: "primary" },
+      { id: "claude/claude-opus-4-8", name: "Claude Opus", alias: "opus", roleLabel: "Advanced Agent", roleKind: "secondary" },
     ],
   },
 
@@ -71,8 +78,8 @@ export const TOOL_REGISTRY = {
     surface: "openai-chat" as const,
     settingsFile: "~/.config/opencode/opencode.json",
     defaultModels: [
-      { id: "cc/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
-      { id: "gpt-5.1", name: "GPT-5.1", alias: "gpt-5.1" },
+      { id: "claude/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet", roleLabel: "Primary Agent", roleKind: "primary" },
+      { id: "gpt-5.1", name: "GPT-5.1", alias: "gpt-5.1", roleLabel: "Fallback Agent", roleKind: "secondary" },
     ],
   },
 
@@ -85,7 +92,7 @@ export const TOOL_REGISTRY = {
     surface: "openai-chat" as const,
     settingsFile: "~/.factory/settings.json",
     defaultModels: [
-      { id: "cc/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
+      { id: "claude/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
       { id: "gpt-5.1", name: "GPT-5.1", alias: "gpt-5.1" },
     ],
   },
@@ -99,7 +106,7 @@ export const TOOL_REGISTRY = {
     surface: "openai-chat" as const,
     settingsFile: "~/.hermes/config.yaml",
     defaultModels: [
-      { id: "cc/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
+      { id: "claude/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
     ],
   },
 
@@ -126,7 +133,7 @@ export const TOOL_REGISTRY = {
     settingsFile: "Code/User/chatLanguageModels.json",
     defaultModels: [
       { id: "gpt-5.1", name: "GPT-5.1", alias: "gpt-5.1" },
-      { id: "cc/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
+      { id: "claude/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
     ],
   },
 
@@ -154,7 +161,7 @@ export const TOOL_REGISTRY = {
     settingsFile: "~/.jcode/config.toml",
     docsUrl: "https://github.com/1jehuang/jcode",
     defaultModels: [
-      { id: "cc/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
+      { id: "claude/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
     ],
   },
 
@@ -167,7 +174,7 @@ export const TOOL_REGISTRY = {
     surface: "openai-chat" as const,
     settingsFile: "~/.local/share/kilo/auth.json",
     defaultModels: [
-      { id: "cc/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
+      { id: "claude/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
     ],
   },
 
@@ -180,7 +187,7 @@ export const TOOL_REGISTRY = {
     surface: "anthropic-messages" as const,
     settingsFile: "~/.openclaw/openclaw.json",
     defaultModels: [
-      { id: "cc/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
+      { id: "claude/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
     ],
   },
 
@@ -193,7 +200,7 @@ export const TOOL_REGISTRY = {
     surface: "anthropic-messages" as const,
     settingsFile: "Claude/configLibrary/_meta.json",
     defaultModels: [
-      { id: "cc/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
+      { id: "claude/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
     ],
   },
 
@@ -206,7 +213,7 @@ export const TOOL_REGISTRY = {
     configType: "guide" as const,
     surface: "openai-chat" as const,
     defaultModels: [
-      { id: "cc/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
+      { id: "claude/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
       { id: "gpt-5.1", name: "GPT-5.1", alias: "gpt-5.1" },
     ],
     notes: [
@@ -230,7 +237,7 @@ export const TOOL_REGISTRY = {
     configType: "guide" as const,
     surface: "openai-chat" as const,
     defaultModels: [
-      { id: "cc/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
+      { id: "claude/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
     ],
     guideSteps: [
       { step: 1, title: "Open Settings", desc: "Go to Roo Settings panel" },
@@ -249,7 +256,7 @@ export const TOOL_REGISTRY = {
     configType: "guide" as const,
     surface: "openai-chat" as const,
     defaultModels: [
-      { id: "cc/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
+      { id: "claude/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
     ],
     guideSteps: [
       { step: 1, title: "Open Config", desc: "Open Continue configuration file" },
@@ -278,7 +285,7 @@ export const TOOL_REGISTRY = {
     surface: "openai-chat" as const,
     docsUrl: "/docs?section=cli-tools&tool=amp",
     defaultModels: [
-      { id: "cc/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
+      { id: "claude/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
     ],
     notes: [
       { type: "info", text: "Use Cartethyia model aliases to keep Amp shorthand mappings stable across provider updates." },
@@ -307,7 +314,7 @@ amp --model "{{model}}"`,
     surface: "openai-chat" as const,
     docsUrl: "https://qwenlm.github.io/qwen-code-docs/en/users/configuration/model-providers/",
     defaultModels: [
-      { id: "cc/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
+      { id: "claude/claude-sonnet-5", name: "Claude Sonnet 5", alias: "sonnet" },
       { id: "gpt-5.1", name: "GPT-5.1", alias: "gpt-5.1" },
     ],
     notes: [

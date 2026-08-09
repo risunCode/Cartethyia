@@ -35,6 +35,8 @@ export const BACKUP_TABLES = [
   "api_keys",
   "share_links",
   "model_aliases",
+  "cli_tool_mapping_settings",
+  "cli_model_mappings",
   "combos",
   "access_rules",
   "provider_accounts",
@@ -63,8 +65,10 @@ const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
   ],
   share_links: ["id", "api_key_id", "token_hash", "kind", "active", "created_at", "expires_at", "used_at", "last_viewed_at"],
   model_aliases: ["alias", "model", "created_at"],
+  cli_tool_mapping_settings: ["tool_id", "enabled", "updated_at"],
+  cli_model_mappings: ["tool_id", "slot_key", "source_model", "target_model", "enabled", "created_at", "updated_at"],
   combos: ["id", "name", "models_json", "strategy", "sticky_limit", "created_at", "updated_at"],
-  access_rules: ["scope", "mode", "entries_json", "updated_at"],
+  access_rules: ["scope", "mode", "entries_json", "created_at", "updated_at"],
   provider_accounts: [
     "id", "provider", "name", "credential_kind", "credential", "credential_hint",
     "priority", "active", "cooldown_until", "cooldown_level",
@@ -105,11 +109,10 @@ export type RestoreValidation =
 export interface RestoreResult {
   restored: Record<string, number>;
 }
-
 /** Delete dependent configuration before its providers, then restore in reverse. */
 const DELETE_ORDER: BackupTable[] = [
   "warp_accounts", "provider_accounts", "custom_providers", "access_rules",
-  "combos", "model_aliases", "share_links", "api_keys", "proxies", "proxy_settings", "ip_bans", "settings",
+  "cli_model_mappings", "cli_tool_mapping_settings", "combos", "model_aliases", "share_links", "api_keys", "proxies", "proxy_settings", "ip_bans", "settings",
 ];
 const INSERT_ORDER: BackupTable[] = [...DELETE_ORDER].reverse();
 

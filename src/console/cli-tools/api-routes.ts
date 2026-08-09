@@ -13,9 +13,10 @@
  */
 
 import { Elysia, type HTTPHeaders } from "elysia";
+import type { ConfigPersistence } from "../../storage";
 import { consoleError } from "../services";
 import { CliToolService } from "./service";
-import type { ApplyInput } from "./types";
+import type { ApplyInput, CliMappingInput } from "./types";
 
 function badRequest(set: { status?: number | string; headers: HTTPHeaders }, message: string): { error: { code: string; message: string } } {
   set.status = 400;
@@ -26,15 +27,50 @@ function notFound(set: { status?: number | string; headers: HTTPHeaders }): { er
   set.status = 404;
   return consoleError("not_found", "CLI tool not found");
 }
+function parseMapping(value: unknown): CliMappingInput | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const candidate = value as Record<string, unknown>;
+  const rawMappings = Array.isArray(candidate.mappings) ? candidate.mappings : [];
+  const mappings = rawMappings.flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return [];
+    const row = entry as Record<string, unknown>;
+    if (typeof row.slotKey !== "string" || typeof row.sourceModel !== "string" || typeof row.targetModel !== "string") return [];
+    return [{
+      slotKey: row.slotKey,
+      sourceModel: row.sourceModel,
+      targetModel: row.targetModel,
+      enabled: row.enabled !== false,
+    }];
+  });
+  return { enabled: candidate.enabled === true, mappings };
+}
+
+function parseApplyInput(body: unknown): ApplyInput {
+  const value = typeof body === "object" && body !== null && !Array.isArray(body) ? body as Record<string, unknown> : {};
+  const rawSlots = typeof value.modelSlots === "object" && value.modelSlots !== null && !Array.isArray(value.modelSlots) ? value.modelSlots as Record<string, unknown> : {};
+  return {
+    endpoint: typeof value.endpoint === "string" ? value.endpoint : "",
+    apiKey: typeof value.apiKey === "string" ? value.apiKey : "",
+    models: Array.isArray(value.models) ? value.models.filter((model): model is string => typeof model === "string") : [],
+    modelSlots: Object.fromEntries(Object.entries(rawSlots).filter((entry): entry is [string, string] => typeof entry[1] === "string")),
+    activeModel: typeof value.activeModel === "string" ? value.activeModel : undefined,
+    subagentModel: typeof value.subagentModel === "string" ? value.subagentModel : undefined,
+    mapping: parseMapping(value.mapping),
+  };
+}
 
 /** Create the CLI tools Elysia sub-app. The service is created once and shared. */
-export function createCliToolsApi(): Elysia {
-  const service = new CliToolService();
+export function createCliToolsApi(config: ConfigPersistence): Elysia {
+  const service = new CliToolService(config);
   const app = new Elysia();
 
   app
     .route("QUERY", "/cli-tools/registry", () => service.getRegistry())
     .route("QUERY", "/cli-tools/all-statuses", async () => service.getAllStatuses())
+    .route("QUERY", "/cli-tools/:toolId/mappings", ({ params, set }: { params: { toolId: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
+      if (!service.isValidTool(params.toolId)) return notFound(set);
+      return service.getMappings(params.toolId);
+    })
     .route("QUERY", "/cli-tools/:toolId", async ({ params, set }: { params: { toolId: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const status = await service.getStatus(params.toolId);
       if (status === null) return notFound(set);
@@ -42,14 +78,7 @@ export function createCliToolsApi(): Elysia {
     })
     .post("/cli-tools/:toolId", async ({ params, body, set }: { params: { toolId: string }; body: unknown; set: { status?: number | string; headers: HTTPHeaders } }) => {
       if (!service.isValidTool(params.toolId)) return notFound(set);
-      const value = typeof body === "object" && body !== null ? body as Partial<ApplyInput> : {};
-      const input: ApplyInput = {
-        endpoint: typeof value.endpoint === "string" ? value.endpoint : "",
-        apiKey: typeof value.apiKey === "string" ? value.apiKey : "",
-        models: Array.isArray(value.models) ? value.models.filter((m): m is string => typeof m === "string") : [],
-        activeModel: typeof value.activeModel === "string" ? value.activeModel : undefined,
-        subagentModel: typeof value.subagentModel === "string" ? value.subagentModel : undefined,
-      };
+      const input = parseApplyInput(body);
       const result = await service.applyConfig(params.toolId, input);
       if (!result.success) {
         set.status = 400;
@@ -68,14 +97,7 @@ export function createCliToolsApi(): Elysia {
     })
     .post("/cli-tools/:toolId/download", async ({ params, body, set }: { params: { toolId: string }; body: unknown; set: { status?: number | string; headers: HTTPHeaders } }) => {
       if (!service.isValidTool(params.toolId)) return notFound(set);
-      const value = typeof body === "object" && body !== null ? body as Partial<ApplyInput> : {};
-      const input: ApplyInput = {
-        endpoint: typeof value.endpoint === "string" ? value.endpoint : "",
-        apiKey: typeof value.apiKey === "string" ? value.apiKey : "",
-        models: Array.isArray(value.models) ? value.models.filter((m): m is string => typeof m === "string") : [],
-        activeModel: typeof value.activeModel === "string" ? value.activeModel : undefined,
-        subagentModel: typeof value.subagentModel === "string" ? value.subagentModel : undefined,
-      };
+      const input = parseApplyInput(body);
       if (!input.endpoint || !input.apiKey) return badRequest(set, "endpoint and apiKey are required");
       const result = await service.downloadConfig(params.toolId, input);
       if (result === null) return notFound(set);

@@ -109,6 +109,7 @@ export const qk = {
     registry: ["cli-tools", "registry"] as const,
     statuses: ["cli-tools", "statuses"] as const,
     apiKeys: ["cli-tools", "api-keys"] as const,
+    mappings: (toolId: string | undefined) => ["cli-tools", "mappings", toolId] as const,
   },
   dbMap: {
     schema: (db: string) => ["db-map", "schema", db] as const,

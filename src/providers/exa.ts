@@ -46,7 +46,7 @@ export interface ExaAdapterConfig {
   readonly id?: string;
   readonly displayName?: string;
   readonly baseUrl?: string;
-  readonly credentialKind?: "api_key";
+  readonly credentialKind?: "api_key" | "none";
   readonly models?: readonly ProviderModel[];
 }
 
@@ -106,11 +106,12 @@ export class ExaAdapter implements Adapter {
     const models = config.models ?? EXA_MODELS;
     this.models = createModelCatalog(models);
     this.capabilities = aggregateCapabilities(models, EXA_FALLBACK_CAPABILITIES);
+    const hasEnvironmentCredential = (Bun.env.EXA_API_KEY?.trim().length ?? 0) > 0;
     this.metadata = {
       id: config.id ?? "exa",
       displayName: config.displayName ?? "Exa AI",
       protocol: "exa",
-      credentialKind: config.credentialKind ?? "api_key",
+      credentialKind: config.credentialKind ?? (hasEnvironmentCredential ? "none" : "api_key"),
     };
   }
 
@@ -151,21 +152,25 @@ export class ExaAdapter implements Adapter {
         routeScope: null,
       });
     }
-    if (input.credential.length === 0) {
+    const credential = input.credential.trim() || Bun.env.EXA_API_KEY?.trim() || "";
+    if (credential.length === 0) {
       throw new ProviderAdapterError({
         kind: "authentication_failed",
-        message: "Exa API key is required.",
+        message: "Exa API key is required. Add an Exa account or set EXA_API_KEY.",
         statusCode: 401,
         routeScope: "account",
       });
     }
-
     const { request, signal, network } = input;
+    const helperRequest = isClaudeWebSearchRequest(request);
+    const stream = request.stream && !helperRequest;
     const messages = request.messages;
     const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
-    const query = lastUserMessage ? lastUserMessage.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n") : "";
+    const rawQuery = lastUserMessage ? lastUserMessage.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n") : "";
+    const helperQuery = /^Perform a web search for the query:\s*(.+)$/is.exec(rawQuery.trim())?.[1];
+    const query = (helperQuery ?? rawQuery).trim();
 
-    if (!query.trim()) {
+    if (!query) {
       throw new ProviderAdapterError({
         kind: "invalid_request",
         message: "Search query is required.",
@@ -175,7 +180,7 @@ export class ExaAdapter implements Adapter {
     }
 
     const searchRequest: ExaSearchRequest = {
-      query: query.trim(),
+      query,
       type: "auto",
       numResults: 10,
       contents: {
@@ -183,8 +188,9 @@ export class ExaAdapter implements Adapter {
         highlights: true,
         summary: { query: "Main points" },
       },
-      stream: request.stream,
+      stream,
     };
+
 
     // Check for tool calls that might specify search parameters
     for (const tool of request.tools) {
@@ -218,7 +224,7 @@ export class ExaAdapter implements Adapter {
           headers: {
             "content-type": "application/json",
             accept: request.stream ? "text/event-stream" : "application/json",
-            "x-api-key": input.credential,
+            "x-api-key": credential,
           },
           body: JSON.stringify(searchRequest),
         },
@@ -229,12 +235,16 @@ export class ExaAdapter implements Adapter {
 
       if (!response.ok) throw await readUpstreamError(response);
 
-      if (!request.stream) {
+      if (!stream) {
         const body = await readJsonObject(response, coordinator);
-        return { mode: "non_stream", body: this.formatSearchResponse(body) };
+        return { mode: "non_stream", body: this.formatSearchResponse(body, query) };
       }
-
-      if (!response.body) {
+      const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+      if (contentType.includes("application/json")) {
+        const body = this.formatSearchResponse(await readJsonObject(response, coordinator), query);
+        return { mode: "stream", events: streamJsonSearchResponse(body) };
+      }
+      if (response.body === null) {
         throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Exa returned an empty stream body", routeScope: "provider" });
       }
 
@@ -249,9 +259,9 @@ export class ExaAdapter implements Adapter {
     }
   }
 
-  private formatSearchResponse(body: Record<string, unknown>): Record<string, unknown> {
-    const results = isRecord(body) && Array.isArray(body.results) 
-      ? body.results.filter(isExaSearchResult) 
+  private formatSearchResponse(body: Record<string, unknown>, query: string): Record<string, unknown> {
+    const results = isRecord(body) && Array.isArray(body.results)
+      ? body.results.filter(isExaSearchResult)
       : [];
     const content = results.map((r) => {
       const parts = [`[${r.title}](${r.url})`];
@@ -268,6 +278,8 @@ export class ExaAdapter implements Adapter {
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
       model: "exa-search",
+      search_query: query,
+      search_results: results,
       choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
       usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
     };
@@ -277,6 +289,24 @@ export class ExaAdapter implements Adapter {
   mapError(error: unknown): ProviderCallError {
     return toProviderCallError(error);
   }
+
+}
+function isClaudeWebSearchRequest(request: ProviderRequest["request"]): boolean {
+  if (request.sourceSurface !== "anthropic-messages" || !request.tools.some((tool) => tool.name === "web_search")) return false;
+  const systemText = request.messages
+    .filter((message) => message.role === "system" || message.role === "developer")
+    .flatMap((message) => message.content)
+    .map((block) => block.text ?? "")
+    .join("\n");
+  const userText = [...request.messages]
+    .reverse()
+    .find((message) => message.role === "user")
+    ?.content
+    .map((block) => block.text ?? "")
+    .join("\n")
+    .trim() ?? "";
+  return systemText.includes("assistant for performing a web search tool use")
+    && /^Perform a web search for the query:\s*\S/i.test(userText);
 }
 
 function isExaSearchResult(value: unknown): value is ExaSearchResult {
@@ -285,6 +315,17 @@ function isExaSearchResult(value: unknown): value is ExaSearchResult {
 
 function isExaStreamChunk(value: unknown): value is ExaStreamChunk {
   return isRecord(value) && (value.type === "result" || value.type === "cost" || value.type === "done");
+}
+
+async function* streamJsonSearchResponse(body: Record<string, unknown>): AsyncIterable<StreamEvent> {
+  const choices = Array.isArray(body.choices) ? body.choices : [];
+  const choice = isRecord(choices[0]) ? choices[0] : null;
+  const message = choice !== null && isRecord(choice.message) ? choice.message : null;
+  const text = message !== null && typeof message.content === "string" ? message.content : "No results found.";
+  yield { type: "message_start", id: typeof body.id === "string" ? body.id : `exa-${crypto.randomUUID()}` };
+  yield { type: "text_delta", text };
+  yield { type: "usage", usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, cacheReadTokens: null, cacheWriteTokens: null, source: "unknown" } };
+  yield { type: "message_stop", reason: "completed" };
 }
 
 function createExaMapper(): StreamMapper {

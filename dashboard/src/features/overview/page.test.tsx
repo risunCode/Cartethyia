@@ -1,13 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { buildKeyLimitsInput, parseOverviewData } from "./page";
+import { buildKeyLimitsInput } from "./api-keys-panel";
+import { parseOverviewData } from "./page";
 
-// Regression: a bare (no "/") entry was always classified as a
-// providerAllowlist entry, treating every alias/combo name (also bare) as if
-// it were a provider id. That silently broke ACL for alias/combo allowlist
-// entries - a qualified request never matches a provider id that's really an
-// alias name, and a bare alias request skips the providerAllowlist check
-// entirely (no provider prefix to check against), so modelAllowlist is the
-// only list that actually gates it.
+// Regression: API key access uses one model whitelist. Every selected model,
+// alias, combo, or qualified provider/model is sent to modelAllowlist; an
+// empty selection leaves the allowlist unset so every model remains available.
 describe("parseOverviewData — current console response contract", () => {
   test("normalizes the registered provider and usage summary fields", () => {
     expect(parseOverviewData({ totals: { requests: 2, inputTokens: 10, outputTokens: 4, cachedTokens: 1, errors: 0 }, inFlight: 1, providers: [{ providerId: "openai", requests: 2, inputTokens: 10, cachedTokens: 1, outputTokens: 4, errors: 0 }], proxyAuthMode: "api_key", registered: ["openai"] })).toMatchObject({ registered: ["openai"], totals: { requests: 2, avgDurationMs: 0, estimatedCostUsd: 0 }, providers: [{ id: "openai", requestsToday: 2, status: "ok" }] });
@@ -18,50 +15,32 @@ describe("parseOverviewData — current console response contract", () => {
   });
 });
 
-describe("buildKeyLimitsInput — provider vs model/alias/combo classification", () => {
-  const providerIds = new Set(["kimchi", "openai", "anthropic"]);
-
-  test("a real provider id goes to providerAllowlist", () => {
-    const input = buildKeyLimitsInput("", "", "", "", ["kimchi"], providerIds);
-    expect(input.providerAllowlist).toEqual(["kimchi"]);
-    expect(input.modelAllowlist).toBeUndefined();
+describe("buildKeyLimitsInput — model whitelist and budgets", () => {
+  test("sends all selected models, aliases, combos, and qualified ids to one allowlist", () => {
+    const input = buildKeyLimitsInput("", "", "", "", ["openai/gpt-5", "fast", "fast-combo"]);
+    expect(input.modelAllowlist).toEqual(["openai/gpt-5", "fast", "fast-combo"]);
   });
 
-  test("a bare alias name (not a registered provider id) goes to modelAllowlist, not providerAllowlist", () => {
-    const input = buildKeyLimitsInput("", "", "", "", ["fast"], providerIds);
-    expect(input.modelAllowlist).toEqual(["fast"]);
-    expect(input.providerAllowlist).toBeUndefined();
-  });
-
-  test("a bare combo name (not a registered provider id) goes to modelAllowlist, not providerAllowlist", () => {
-    const input = buildKeyLimitsInput("", "", "", "", ["fast-combo"], providerIds);
-    expect(input.modelAllowlist).toEqual(["fast-combo"]);
-    expect(input.providerAllowlist).toBeUndefined();
-  });
-
-  test("a qualified provider/model entry always goes to modelAllowlist regardless of provider id set", () => {
-    const input = buildKeyLimitsInput("", "", "", "", ["kimchi/kimi-k2.7"], providerIds);
-    expect(input.modelAllowlist).toEqual(["kimchi/kimi-k2.7"]);
-    expect(input.providerAllowlist).toBeUndefined();
-  });
-
-  test("mixes providers, aliases/combos, and qualified models into their correct lists in one call", () => {
-    const input = buildKeyLimitsInput("", "", "", "", ["openai", "fast", "fast-combo", "kimchi/kimi-k2.7"], providerIds);
-    expect(input.providerAllowlist).toEqual(["openai"]);
-    expect(input.modelAllowlist).toEqual(["fast", "fast-combo", "kimchi/kimi-k2.7"]);
+  test("leaves the model allowlist unset when no models are selected", () => {
+    expect(buildKeyLimitsInput("", "", "", "", [])).toEqual({});
   });
 
   test("selects a one-time budget without sending recurring limits", () => {
-    const input = buildKeyLimitsInput("", "1000000", "30000000", "", [], providerIds, "1000000000", "one-time");
+    const input = buildKeyLimitsInput("", "1000000", "30000000", "", [], "1000000000", "one-time");
     expect(input).toMatchObject({ oneTimeTokenLimit: 1_000_000_000 });
     expect(input.dailyTokenLimit).toBeUndefined();
     expect(input.monthlyTokenLimit).toBeUndefined();
   });
 
-  test("preset-sized recurring budgets remain independent", () => {
-    const input = buildKeyLimitsInput("", "1000000", "1000000000000", "", [], providerIds);
+  test("keeps daily and monthly limits for the default recurring budget", () => {
+    const input = buildKeyLimitsInput("", "1000000", "1000000000000", "", []);
     expect(input.dailyTokenLimit).toBe(1_000_000);
     expect(input.monthlyTokenLimit).toBe(1_000_000_000_000);
     expect(input.oneTimeTokenLimit).toBeUndefined();
+  });
+
+  test("ignores invalid negative and fractional limits", () => {
+    const input = buildKeyLimitsInput("-1", "1.5", "not-a-number", "-2", []);
+    expect(input).toEqual({});
   });
 });

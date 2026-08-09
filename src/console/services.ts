@@ -121,6 +121,10 @@ import {
   verifyConsolePassword,
 } from "./session";
 
+
+function normalizeApiKeyCredential(value: string): string {
+  return value.replace(/\s+/g, "");
+}
 // ---------------------------------------------------------------------------
 // Model discovery for built-in providers
 // ---------------------------------------------------------------------------
@@ -478,13 +482,23 @@ export class ProviderService {
       kind: customProviderKind(value.kind),
       slug,
       baseUrl: value.baseUrl.trim(),
-      credential: stringOrUndefined(value.credential),
+      credential: normalizeApiKeyCredential(stringOrUndefined(value.credential) ?? ""),
       timeoutSeconds: numberOrUndefined(value.timeoutSeconds),
       autoFetchModels: booleanOrUndefined(value.autoFetchModels),
       customHeaders: recordOrUndefined(value.customHeaders),
     });
     if ("error" in result) {
       return { ok: false, status: 409, code: "conflict", message: "a custom provider with this slug already exists" };
+    }
+    const credential = await this.customProviders.credential(result.id);
+    const normalizedCredential = credential === null ? "" : normalizeApiKeyCredential(credential.credential);
+    if (normalizedCredential.length > 0) {
+      await this.accounts.create({
+        providerId: result.slug,
+        name: result.name,
+        credentialKind: "api_key",
+        credential: normalizedCredential,
+      });
     }
     return result;
   }
@@ -502,7 +516,7 @@ export class ProviderService {
       kind: customProviderKind(value.kind),
       slug: stringOrUndefined(value.slug),
       baseUrl: stringOrUndefined(value.baseUrl),
-      credential: stringOrUndefined(value.credential),
+      credential: typeof value.credential === "string" ? normalizeApiKeyCredential(value.credential) : undefined,
       timeoutSeconds: numberOrUndefined(value.timeoutSeconds),
       autoFetchModels: booleanOrUndefined(value.autoFetchModels),
       customHeaders: recordOrUndefined(value.customHeaders),
@@ -704,14 +718,16 @@ export class AccountService {
     if (typeof value.name !== "string" || value.name.trim().length === 0) {
       return { ok: false, status: 400, code: "invalid_request", message: "account name is required" };
     }
-    if (typeof value.credential !== "string" || value.credential.length === 0) {
+    const kind = credentialKind(value.credentialKind);
+    const credential = typeof value.credential === "string" ? kind === "api_key" ? normalizeApiKeyCredential(value.credential) : value.credential : "";
+    if (credential.length === 0) {
       return { ok: false, status: 400, code: "invalid_request", message: "credential is required" };
     }
     return this.repo.create({
       providerId: value.providerId,
       name: value.name.trim(),
-      credentialKind: credentialKind(value.credentialKind),
-      credential: value.credential,
+      credentialKind: kind,
+      credential,
       priority: numberOrUndefined(value.priority),
       active: booleanOrUndefined(value.active),
     });
@@ -721,9 +737,9 @@ export class AccountService {
     if (typeof patch !== "object" || patch === null) return null;
     const value = patch as Record<string, unknown>;
     return this.repo.update(id, {
-      name: stringOrUndefined(value.name),
       credentialKind: credentialKind(value.credentialKind),
-      credential: stringOrUndefined(value.credential),
+      name: stringOrUndefined(value.name),
+      credential: typeof value.credential === "string" ? credentialKind(value.credentialKind) === "api_key" ? normalizeApiKeyCredential(value.credential) : value.credential : undefined,
       priority: numberOrUndefined(value.priority),
       active: booleanOrUndefined(value.active),
     });

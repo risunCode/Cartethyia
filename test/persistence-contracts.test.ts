@@ -706,6 +706,37 @@ describe("share link repository", () => {
   });
 });
 
+describe("CLI model mapping repository", () => {
+  let persist: ConfigPersistence;
+  beforeEach(() => { resetConfigPersistenceForTests(); persist = makeConfig("cli-mappings"); });
+  afterEach(() => persist.close());
+
+  test("persists per-tool slot mappings and enable state", () => {
+    persist.settings.ensure();
+    persist.cliModelMappings.setEnabled("claude", true);
+    const mapping = persist.cliModelMappings.upsert({
+      toolId: "claude",
+      slotKey: "opus",
+      sourceModel: "claude/claude-opus-4-8",
+      targetModel: "openai/gpt-5.5",
+      enabled: true,
+    });
+    expect(mapping.targetModel).toBe("openai/gpt-5.5");
+    expect(persist.cliModelMappings.getSettings("claude")?.enabled).toBe(true);
+    expect(persist.cliModelMappings.list("claude")).toHaveLength(1);
+    expect(persist.cliModelMappings.list("codex")).toHaveLength(0);
+  });
+
+  test("reset removes mappings and settings", () => {
+    persist.settings.ensure();
+    persist.cliModelMappings.setEnabled("codex", true);
+    persist.cliModelMappings.upsert({ toolId: "codex", slotKey: "session", sourceModel: "gpt-5.1", targetModel: "openai/gpt-5.5", enabled: true });
+    persist.cliModelMappings.reset("codex");
+    expect(persist.cliModelMappings.getSettings("codex")).toBeNull();
+    expect(persist.cliModelMappings.list("codex")).toHaveLength(0);
+  });
+});
+
 describe("warp account repository", () => {
   let persist: ConfigPersistence;
   beforeEach(() => { resetConfigPersistenceForTests(); persist = makeConfig("warp"); });
@@ -976,7 +1007,7 @@ describe("backup export and restore", () => {
         settings: { id: 1, password_hash: null, password_version: 1, jwt_secret: null, settings_json: "{}", initialized_at: "2025-01-01T00:00:00Z", updated_at: "2025-01-01T00:00:00Z" },
         api_keys: [],
         share_links: [{ id: "bad-sl", api_key_id: "nonexistent-key", token_hash: "th-bad", active: 1, created_at: "2025-01-01T00:00:00Z", last_viewed_at: null }],
-        model_aliases: [], combos: [], access_rules: [], provider_accounts: [], custom_providers: [], warp_accounts: [], proxies: [], proxy_settings: { id: 1, enabled: 0, excluded_providers_json: "[]", smart_dynamic_routing: 0, smart_dynamic_proxy_count: 2, routing_preset: "auto", target_concurrent: 0, updated_at: "2025-01-01T00:00:00Z" }, ip_bans: [],
+        model_aliases: [], cli_tool_mapping_settings: [], cli_model_mappings: [], combos: [], access_rules: [], provider_accounts: [], custom_providers: [], warp_accounts: [], proxies: [], proxy_settings: { id: 1, enabled: 0, excluded_providers_json: "[]", smart_dynamic_routing: 0, smart_dynamic_proxy_count: 2, routing_preset: "auto", target_concurrent: 0, updated_at: "2025-01-01T00:00:00Z" }, ip_bans: [],
       },
     };
 
@@ -1094,8 +1125,9 @@ describe("restore validation — hostile/oversized/unknown payloads", () => {
 
   test("BACKUP_TABLES contains exactly the expected tables", () => {
     expect(BACKUP_TABLES).toEqual([
-      "settings", "api_keys", "share_links", "model_aliases", "combos",
-      "access_rules", "provider_accounts", "custom_providers", "warp_accounts",
+      "settings", "api_keys", "share_links", "model_aliases",
+      "cli_tool_mapping_settings", "cli_model_mappings", "combos", "access_rules",
+      "provider_accounts", "custom_providers", "warp_accounts",
       "proxies", "proxy_settings", "ip_bans",
     ]);
   });

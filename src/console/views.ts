@@ -62,6 +62,10 @@ export interface ConsoleRuntimeSettings {
   readonly sidebarIconDataUrl: string | null;
   readonly tokenSaverEnabled: boolean;
   readonly tokenSaverQuality: "lite" | "balanced" | "extreme";
+  readonly headroomEnabled: boolean;
+  readonly headroomUrl: string | null;
+  readonly headroomTimeoutMs: number;
+  readonly ponytailEnabled: boolean;
   readonly filterRulesEnabled: boolean;
 }
 

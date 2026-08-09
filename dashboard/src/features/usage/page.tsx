@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   ArrowDownToLine,
@@ -21,13 +20,13 @@ import {
   YAxis,
 } from "recharts";
 import { useInFlightSnapshot } from "../../hooks/use-inflight-stream";
+import { useUsageResource } from "./hooks/use-usage-resource";
 import { useProviders } from "../../components/model-picker";
 import { Badge } from "../../components/ui/badge";
 import { Card, CardHeader } from "../../components/ui/card";
 import { DataTable } from "../../components/ui/layout";
 import { Drawer } from "../../components/ui/drawer";
 import { Select, Tabs } from "../../components/ui/tabs";
-import { apiGet } from "../../lib/api";
 import { formatDuration, formatNumber, formatTime, formatTokens, formatUsd } from "../../lib/format";
 import { staggerClass } from "../../lib/motion";
 import { qk } from "../../lib/query-keys";
@@ -184,10 +183,7 @@ function asDimension(value: string | null): Dimension {
 
 
 function ChartPanel({ period, metric }: { period: Period; metric: Metric }) {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: qk.usage.chart(period),
-    queryFn: () => apiGet<{ buckets: ChartBucket[] }>(`/usage/chart?period=${period}`),
-  });
+  const { data, isLoading, isError } = useUsageResource<{ buckets: ChartBucket[] }>(qk.usage.chart(period), `/usage/chart?period=${period}`);
   if (isLoading) return <div className="h-56 animate-pulse rounded-xl bg-[var(--surface-muted)]" />;
   if (isError) return <p className="py-8 text-center text-sm text-[var(--text-3)]">Failed to load chart data.</p>;
   const buckets = (data?.buckets ?? []).map((bucket) => ({ ...bucket, total: bucket.input + bucket.output }));
@@ -210,11 +206,7 @@ function ChartPanel({ period, metric }: { period: Period; metric: Metric }) {
 
 function RequestDetailDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
   const providerNames = useProviderNames();
-  const { data, isLoading } = useQuery({
-    queryKey: qk.usage.detail(id),
-    queryFn: () => apiGet<RequestRow>(`/usage/requests/${encodeURIComponent(id ?? "")}`),
-    enabled: id !== null,
-  });
+  const { data, isLoading } = useUsageResource<RequestRow>(qk.usage.detail(id), `/usage/requests/${encodeURIComponent(id ?? "")}`, { enabled: id !== null });
   return (
     <Drawer open={id !== null} onClose={onClose} title="Request Detail">
       {isLoading && (
@@ -335,10 +327,7 @@ function RequestDetailDrawer({ id, onClose }: { id: string | null; onClose: () =
 
 function BreakdownSnapshot({ period, dimension, onDimensionChange }: { period: Period; dimension: Dimension; onDimensionChange: (value: string) => void }) {
   const providerNames = useProviderNames();
-  const byQuery = useQuery({
-    queryKey: qk.usage.by(period, dimension),
-    queryFn: () => apiGet<{ rows: ByRow[] }>(`/usage/by-${dimension}?period=${period}`),
-  });
+  const byQuery = useUsageResource<{ rows: ByRow[] }>(qk.usage.by(period, dimension), `/usage/by-${dimension}?period=${period}`);
   const rows = (byQuery.data?.rows ?? []).slice(0, 6);
   const maxTotal = rows.length > 0 ? Math.max(...rows.map((r) => r.total)) : 1;
   const totalRequests = rows.reduce((sum, r) => sum + r.requests, 0);
@@ -392,15 +381,8 @@ function BreakdownSnapshot({ period, dimension, onDimensionChange }: { period: P
 function BreakdownCard({ period, dimension, onDimensionChange }: { period: Period; dimension: Dimension; onDimensionChange: (value: string) => void }) {
   const providerNames = useProviderNames();
   const [mode, setMode] = useState<BreakdownMetric>("tokens");
-  const byQuery = useQuery({
-    queryKey: qk.usage.by(period, dimension),
-    queryFn: () => apiGet<{ rows: ByRow[] }>(`/usage/by-${dimension}?period=${period}`),
-  });
-  const cacheQuery = useQuery({
-    queryKey: qk.usage.cache(period),
-    queryFn: () => apiGet<CacheSummary & { period: Period }>(`/usage/cache?period=${period}`),
-    refetchInterval: 10_000,
-  });
+  const byQuery = useUsageResource<{ rows: ByRow[] }>(qk.usage.by(period, dimension), `/usage/by-${dimension}?period=${period}`);
+  const cacheQuery = useUsageResource<CacheSummary & { period: Period }>(qk.usage.cache(period), `/usage/cache?period=${period}`, { refetchInterval: 10_000 });
   const rows = byQuery.data?.rows ?? [];
   const cache = cacheQuery.data;
   const modeIsCosts = mode === "costs";
@@ -449,18 +431,9 @@ export function UsagePage() {
   const metric = asMetric(searchParams.get("metric"));
   const dimension = asDimension(searchParams.get("dim"));
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const summaryQuery = useQuery({
-    queryKey: qk.usage.summary(period),
-    queryFn: () => apiGet<SummaryResponse>(`/usage/summary?period=${period}`),
-    refetchInterval: 10_000,
-  });
+  const summaryQuery = useUsageResource<SummaryResponse>(qk.usage.summary(period), `/usage/summary?period=${period}`, { refetchInterval: 10_000 });
   const summary = summaryQuery.data?.totals;
-
-  const requestsQuery = useQuery({
-    queryKey: qk.usage.recentRequests,
-    queryFn: () => apiGet<{ items: RequestRow[] }>("/usage/requests?limit=10"),
-    refetchInterval: 5_000,
-  });
+  const requestsQuery = useUsageResource<{ items: RequestRow[] }>(qk.usage.recentRequests, "/usage/requests?limit=10", { refetchInterval: 5_000 });
   const requestItems = (requestsQuery.data?.items ?? []).filter((r) => r.statusCode > 0);
 
   const setParam = (key: string, value: string) => {

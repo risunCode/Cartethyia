@@ -13,6 +13,7 @@ import { Button } from "../../components/ui/button";
 import { Switch } from "../../components/ui/switch";
 import { apiGet, apiPost, apiPatch, apiDelete } from "../../lib/api";
 import { toast } from "../../lib/toast";
+import { getErrorMessage } from "../../lib/errors";
 import { qk } from "../../lib/query-keys";
 import { cn } from "../../lib/cn";
 
@@ -46,7 +47,6 @@ interface RuleFormState {
 
 const EMPTY_FORM: RuleFormState = { id: null, pattern: "", replacement: "", isRegex: true, isActive: true };
 
-const truncate = (s: string, n = 50) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
 /** Human-readable label from the ruleId — "remove_claude_code_identity" → "Remove Claude Code Identity" */
 function ruleLabel(ruleId: string): string {
@@ -66,26 +66,26 @@ export function FilterSanitizePage() {
   const settingsMutation = useMutation({
     mutationFn: (patch: Partial<{ filterRulesEnabled: boolean }>) => apiPost("/settings", patch),
     onSuccess: () => { void queryClient.invalidateQueries({ queryKey: qk.settings.all }); toast.success("Filter master toggle updated"); },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to update master toggle"),
+    onError: (e) => toast.error(getErrorMessage(e, "Failed to update master toggle")),
   });
 
   const createMutation = useMutation({
     mutationFn: (data: { pattern: string; replacement: string; isRegex: boolean; isActive: boolean }) => apiPost("/filters", data),
     onSuccess: () => { void queryClient.invalidateQueries({ queryKey: qk.filterRules.all }); setForm(null); toast.success("Filter rule created"); },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to create rule"),
+    onError: (e) => toast.error(getErrorMessage(e, "Failed to create rule")),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<{ pattern: string; replacement: string; isRegex: boolean; isActive: boolean }> }) =>
       apiPatch(`/filters/${id}`, data),
     onSuccess: () => { void queryClient.invalidateQueries({ queryKey: qk.filterRules.all }); setForm(null); toast.success("Filter rule updated"); },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to update rule"),
+    onError: (e) => toast.error(getErrorMessage(e, "Failed to update rule")),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => apiDelete(`/filters/${id}`),
     onSuccess: () => { void queryClient.invalidateQueries({ queryKey: qk.filterRules.all }); toast.success("Rule deleted"); },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete rule"),
+    onError: (e) => toast.error(getErrorMessage(e, "Failed to delete rule")),
   });
 
   const masterEnabled = settingsQuery.data?.settings.runtime.filterRulesEnabled ?? false;
@@ -144,62 +144,52 @@ export function FilterSanitizePage() {
           <div className="p-3 text-[12px] text-[var(--text-3)]">No rules configured. Click "Add Rule" to create one.</div>
         ) : (
           <div className="space-y-1.5 p-2">
-            {rules.map((rule) => (
-              <div
-                key={rule.id}
-                className={cn(
-                  "flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5",
-                  rule.isActive && masterEnabled
-                    ? "border-[var(--accent)]/30 bg-[var(--accent-soft)]"
-                    : "border-[var(--inner-border)] bg-[var(--hover)]",
-                )}
-              >
-                <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                  <span className="w-6 shrink-0 text-[10px] text-[var(--text-3)]">#{rule.sortOrder}</span>
-                  <span className="min-w-0 shrink truncate text-[12px] font-semibold text-[var(--text-1)]" title={rule.ruleId}>
-                    {ruleLabel(rule.ruleId)}
-                  </span>
-                  <Badge tone={rule.isRegex ? "info" : "default"}>{rule.isRegex ? "regex" : "string"}</Badge>
-                  {rule.replacement && (
-                    <span className="hidden shrink-0 truncate font-mono text-[10px] text-[var(--text-3)] sm:block" title={rule.replacement}>
-                      → {truncate(rule.replacement, 30)}
-                    </span>
+            {rules.map((rule) => {
+              const editing = form?.id === rule.id;
+              return (
+                <div key={rule.id} className={cn("rounded-lg border px-3 py-2.5", rule.isActive && masterEnabled ? "border-[var(--accent)]/30 bg-[var(--accent-soft)]" : "border-[var(--inner-border)] bg-[var(--hover)]")}>
+                  {editing ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[12px] font-semibold">{ruleLabel(rule.ruleId)}</span>
+                        <button type="button" onClick={() => setForm(null)} className="text-[var(--text-3)] hover:text-[var(--text-1)]" aria-label="Close inline editor"><X size={16} /></button>
+                      </div>
+                      <label className="block text-[11px] font-semibold text-[var(--text-3)]">Pattern<textarea className="mt-1 h-16 w-full resize-none rounded-lg border border-[var(--inner-border)] bg-[var(--hover)] p-2.5 font-mono text-[12px] text-[var(--text-1)] outline-none focus:border-[var(--accent)]" value={form.pattern} onChange={(e) => setForm({ ...form, pattern: e.target.value })} /></label>
+                      <label className="block text-[11px] font-semibold text-[var(--text-3)]">Replacement<textarea className="mt-1 h-14 w-full resize-none rounded-lg border border-[var(--inner-border)] bg-[var(--hover)] p-2.5 font-mono text-[12px] text-[var(--text-1)] outline-none focus:border-[var(--accent)]" placeholder="(empty to remove matched text)" value={form.replacement} onChange={(e) => setForm({ ...form, replacement: e.target.value })} /></label>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-4">
+                          <label className="flex cursor-pointer items-center gap-2 text-[12px]"><Switch checked={form.isRegex} onChange={(v) => setForm({ ...form, isRegex: v })} label="Regex" /><span>Regex</span></label>
+                          <label className="flex cursor-pointer items-center gap-2 text-[12px]"><Switch checked={form.isActive} onChange={(v) => setForm({ ...form, isActive: v })} label="Active" /><span>Active</span></label>
+                        </div>
+                        <div className="flex gap-2"><Button size="sm" onClick={handleSave} disabled={loading}>Save</Button><Button size="sm" variant="ghost" onClick={() => setForm(null)}>Cancel</Button></div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="w-6 shrink-0 text-[10px] text-[var(--text-3)]">#{rule.sortOrder}</span>
+                          <span className="text-[12px] font-semibold text-[var(--text-1)]" title={rule.ruleId}>{ruleLabel(rule.ruleId)}</span>
+                          <Badge tone={rule.isRegex ? "info" : "default"}>{rule.isRegex ? "regex" : "string"}</Badge>
+                        </div>
+                        <div className="mt-1 break-all font-mono text-[10px] text-[var(--text-2)]"><span className="font-sans text-[var(--text-3)]">pattern:</span> {rule.pattern}</div>
+                        <div className="mt-0.5 break-all font-mono text-[10px] text-[var(--text-2)]"><span className="font-sans text-[var(--text-3)]">replacement:</span> {rule.replacement || "(remove match)"}</div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <button type="button" onClick={() => handleToggle(rule)} className={cn("rounded-md p-1.5 transition-colors", rule.isActive ? "text-[var(--text-3)] hover:text-[#ff5f56]" : "text-[var(--text-3)] hover:text-[#27c93f]")} title={rule.isActive ? "Disable" : "Enable"}>{rule.isActive ? <PowerOff size={13} /> : <Power size={13} />}</button>
+                        <button type="button" onClick={() => setForm({ id: rule.id, pattern: rule.pattern, replacement: rule.replacement, isRegex: rule.isRegex, isActive: rule.isActive })} className="rounded-md p-1.5 text-[var(--text-3)] transition-colors hover:text-[var(--accent)]" title="Edit"><Pencil size={13} /></button>
+                        <button type="button" onClick={() => handleDelete(rule)} className="rounded-md p-1.5 text-[var(--text-3)] transition-colors hover:text-[#ff5f56]" title="Delete"><Trash2 size={13} /></button>
+                      </div>
+                    </div>
                   )}
                 </div>
-                <div className="flex shrink-0 items-center gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() => handleToggle(rule)}
-                    className={cn("rounded-md p-1.5 transition-colors", rule.isActive ? "text-[var(--text-3)] hover:text-[#ff5f56]" : "text-[var(--text-3)] hover:text-[#27c93f]")}
-                    title={rule.isActive ? "Disable" : "Enable"}
-                  >
-                    {rule.isActive ? <PowerOff size={13} /> : <Power size={13} />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setForm({ id: rule.id, pattern: rule.pattern, replacement: rule.replacement, isRegex: rule.isRegex, isActive: rule.isActive })}
-                    className="rounded-md p-1.5 text-[var(--text-3)] transition-colors hover:text-[var(--accent)]"
-                    title="Edit"
-                  >
-                    <Pencil size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(rule)}
-                    className="rounded-md p-1.5 text-[var(--text-3)] transition-colors hover:text-[#ff5f56]"
-                    title="Delete"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>
 
-      {/* Add/Edit form */}
-      {form && (
+      {form?.id === null && (
         <Card>
           <CardHeader title={form.id === null ? "New Rule" : `Edit: ${ruleLabel(rules.find((r) => r.id === form.id)?.ruleId ?? "")}`} icon={Filter}>
             <button type="button" onClick={() => setForm(null)} className="text-[var(--text-3)] hover:text-[var(--text-1)]" aria-label="Close form">

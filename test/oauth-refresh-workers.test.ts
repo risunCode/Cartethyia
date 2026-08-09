@@ -111,6 +111,22 @@ describe("general quota transport", () => {
     expect(result.error).not.toContain("stale-access-token");
   });
 
+  test("keeps Codex bundle identity while using the rotated access token for quota", async () => {
+    let request: { url: string; init: RequestInit | undefined } | undefined;
+    const fetcher = (async (url: string, init?: RequestInit) => {
+      request = { url, init };
+      return new Response(JSON.stringify({ plan_type: "plus", rate_limit: { primary_window: { used_percent: 12, limit_window_seconds: 18_000, reset_after_seconds: 600 } } }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const credential = JSON.stringify({ accessToken: "stale-bundle-access", providerAccountId: "account-123", email: "user@example.com" });
+    const result = await fetchProviderQuota("codex", credential, { accessToken: "rotated-access", expiresAtMs: null, refreshToken: null, kind: "oauth" }, fetcher);
+
+    expect(result.error).toBeNull();
+    expect(result.plan).toBe("plus");
+    expect(request?.url).toBe("https://chatgpt.com/backend-api/wham/usage");
+    expect(new Headers(request?.init?.headers).get("authorization")).toBe("Bearer rotated-access");
+    expect(new Headers(request?.init?.headers).get("chatgpt-account-id")).toBe("account-123");
+  });
+
   test("uses the Antigravity project-discovery POST contract and client headers", async () => {
     let request: { url: string; init: RequestInit | undefined } | undefined;
     const fetcher = (async (url: string, init?: RequestInit) => {

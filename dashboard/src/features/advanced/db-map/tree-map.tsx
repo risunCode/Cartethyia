@@ -20,6 +20,7 @@ import {
 import { cn } from "../../../lib/cn";
 import { useTableRows } from "./api";
 import type { ColumnInfo, DbTarget, TableInfo } from "./types";
+import { formatDbCell } from "./formatters";
 
 interface TreeMapProps {
   readonly db: DbTarget;
@@ -37,15 +38,6 @@ function typeIcon(type: string): typeof TypeIcon {
   return TypeIcon;
 }
 
-function formatCell(value: unknown): string {
-  if (value === null) return "∅";
-  if (value === undefined) return "";
-  if (typeof value === "string") return value.length > 80 ? value.slice(0, 80) + "…" : value;
-  if (typeof value === "number" || typeof value === "bigint") return String(value);
-  if (typeof value === "boolean") return value ? "1" : "0";
-  if (value instanceof Uint8Array) return `<${value.byteLength}B>`;
-  try { return JSON.stringify(value); } catch { return String(value); }
-}
 
 function ColumnRow({ col }: { readonly col: ColumnInfo }) {
   const Icon = typeIcon(col.type);
@@ -110,9 +102,9 @@ function InlineBody({ db, table }: { readonly db: DbTarget; readonly table: Tabl
                       "max-w-[180px] truncate border-b border-r border-[var(--inner-border)]/50 px-1.5 py-0.5 font-mono",
                       isMasked ? "text-[var(--status-warning)]" : "text-[var(--text-2)]",
                     )}
-                    title={typeof val === "string" ? val : formatCell(val)}
+                    title={typeof val === "string" ? val : formatDbCell(val)}
                   >
-                    {formatCell(val)}
+                    {formatDbCell(val)}
                   </td>
                 );
               })}

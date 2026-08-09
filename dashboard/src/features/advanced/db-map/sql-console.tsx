@@ -13,21 +13,13 @@ import { Play, AlertCircle, Terminal as TerminalIcon } from "lucide-react";
 import { cn } from "../../../lib/cn";
 import { useQuerySql, useExecuteSql } from "./api";
 import type { DbTarget } from "./types";
-
+import { formatDbCell } from "./formatters";
 interface SqlConsoleProps {
   readonly db: DbTarget;
 }
 
 type Mode = "query" | "execute";
 
-function formatCell(value: unknown): string {
-  if (value === null) return "∅";
-  if (value === undefined) return "";
-  if (typeof value === "string") return value.length > 200 ? value.slice(0, 200) + "…" : value;
-  if (typeof value === "number" || typeof value === "bigint") return String(value);
-  if (typeof value === "boolean") return value ? "1" : "0";
-  try { return JSON.stringify(value); } catch { return String(value); }
-}
 
 export function SqlConsole({ db }: SqlConsoleProps) {
   const [sql, setSql] = useState("SELECT * FROM api_keys LIMIT 10;");
@@ -151,8 +143,8 @@ export function SqlConsole({ db }: SqlConsoleProps) {
                           <td
                             key={col}
                             className={cn("max-w-[200px] truncate border-b border-[var(--inner-border)]/50 px-1.5 py-0.5 font-mono", val === "••••••" ? "text-[var(--status-warning)]" : "text-[var(--text-2)]")}
-                            title={typeof val === "string" ? val : formatCell(val)}
-                          >{formatCell(val)}</td>
+                            title={typeof val === "string" ? val : formatDbCell(val, 200)}
+                          >{formatDbCell(val, 200)}</td>
                         );
                       })}
                     </tr>

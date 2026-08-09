@@ -75,6 +75,25 @@ export async function buildCatalog(runtime: CartethyiaRuntime): Promise<readonly
     seen.add(name);
     entries.push({ id: name, owned_by: owner, metadata: result });
   }
+
+  const mappedRefs = ["claude", "codex", "opencode", "cline", "cursor", "copilot"].flatMap((toolId) => {
+    const settings = runtime.config.cliModelMappings.getSettings(toolId);
+    if (settings?.enabled !== true) return [];
+    return runtime.config.cliModelMappings.list(toolId).filter((mapping) => mapping.enabled);
+  });
+  const mappedTargets = await Promise.all(mappedRefs.map((mapping) => runtime.models.resolve(mapping.targetModel)));
+  for (let i = 0; i < mappedRefs.length; i += 1) {
+    const mapping = mappedRefs[i];
+    const target = mappedTargets[i];
+    if (mapping === undefined || target === undefined || target === null || seen.has(mapping.sourceModel)) continue;
+    seen.add(mapping.sourceModel);
+    const separator = mapping.sourceModel.indexOf("/");
+    entries.push({
+      id: mapping.sourceModel,
+      owned_by: separator > 0 ? mapping.sourceModel.slice(0, separator) : "mapped",
+      metadata: target,
+    });
+  }
   return entries;
 }
 

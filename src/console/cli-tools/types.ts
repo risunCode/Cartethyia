@@ -16,14 +16,40 @@ export type CliToolSurface = Extract<Surface, "openai-chat" | "openai-responses"
 /** How the tool's config is managed. */
 export type ConfigType = "env" | "custom" | "guide";
 
-/** A default model mapping for a tool (e.g. Claude's sonnet/opus/haiku slots). */
+/** A native model slot exposed by a CLI tool. */
 export interface ToolModelDef {
   readonly id: string;
   readonly name: string;
   readonly alias: string;
+  /** Human-readable slot label shown in the dashboard. */
+  readonly roleLabel?: string;
+  /** Injector slot used for semantic roles such as Codex's subagent. */
+  readonly roleKind?: "primary" | "subagent" | "secondary" | "review";
   readonly envKey?: string;
   readonly defaultValue?: string;
 }
+
+/** A persisted harness-specific route mapping for one native model slot. */
+export interface CliModelMapping {
+  readonly slotKey: string;
+  readonly sourceModel: string;
+  readonly targetModel: string;
+  readonly enabled: boolean;
+}
+
+/** Mapping settings sent with a CLI configuration apply request. */
+export interface CliMappingInput {
+  readonly enabled: boolean;
+  readonly mappings: readonly CliModelMapping[];
+}
+
+/** Persisted mapping settings for one CLI tool. */
+export interface CliMappingSettings {
+  readonly toolId: string;
+  readonly enabled: boolean;
+  readonly mappings: readonly CliModelMapping[];
+}
+
 
 /** A note shown in the tool card UI. */
 export interface ToolNote {
@@ -63,6 +89,7 @@ export interface ToolDef {
   readonly notes?: readonly ToolNote[];
   readonly guideSteps?: readonly GuideStep[];
   readonly codeBlock?: GuideCodeBlock;
+  readonly mappingSupported?: boolean;
 }
 
 /** Runtime status of a CLI tool on the host. */
@@ -85,12 +112,16 @@ export interface ApplyInput {
   readonly endpoint: string;
   /** Full API key secret from Cartethyia's key store. */
   readonly apiKey: string;
-  /** Model IDs to configure. */
+  /** Legacy ordered model list retained for injectors that use positional slots. */
   readonly models: readonly string[];
+  /** Native model values keyed by the tool's semantic slot names. */
+  readonly modelSlots?: Readonly<Record<string, string>>;
   /** Which model to set as active/primary (optional, defaults to models[0]). */
   readonly activeModel?: string;
   /** Subagent model (for tools that support it, e.g. Codex, OpenCode). */
   readonly subagentModel?: string;
+  /** Harness-specific mappings persisted separately from native CLI config. */
+  readonly mapping?: CliMappingInput;
 }
 
 /** Result of an apply or reset operation. */

@@ -78,7 +78,6 @@ export const router = createBrowserRouter(
         { path: "usage", lazy: lazyPage(() => import("../features/usage/page"), (m) => m.UsagePage) },
         { path: "providers", lazy: lazyPage(() => import("../features/providers/page"), (m) => m.ProvidersPage) },
         { path: "model-studio", lazy: lazyPage(() => import("../features/model-studio/page"), (m) => m.ModelStudioPage) },
-        { path: "api-keys", lazy: lazyPage(() => import("../features/api-keys/page"), (m) => m.ApiKeysPage) },
         { path: "providers/custom/:id", lazy: lazyPage(() => import("../features/providers/custom-detail"), (m) => m.CustomProviderDetailPage) },
         { path: "providers/:id", lazy: lazyPage(() => import("../features/providers/detail"), (m) => m.ProviderDetailPage) },
         { path: "combos", lazy: lazyPage(() => import("../features/combos/page"), (m) => m.CombosPage) },

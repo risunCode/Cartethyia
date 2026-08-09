@@ -9,8 +9,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, Clipboard, Download, FlaskConical, Gauge, Loader2, Network, Pencil, Plus, PowerOff, Route, ShieldCheck, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "../../lib/toast";
-import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from "../../lib/api";
+import { getErrorMessage as errorMessage } from "../../lib/errors";
+import { apiDelete, apiGet, apiPatch, apiPost } from "../../lib/api";
 import { qk } from "../../lib/query-keys";
+import { formatProxyTestTime } from "./formatters";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Dialog } from "../../components/ui/dialog";
@@ -22,15 +24,6 @@ import { Switch } from "../../components/ui/switch";
 import { ConfirmDialog } from "../../components/shared";
 import { ProviderIcon } from "../../components/provider-icon";
 
-function errorMessage(err: unknown): string {
-  return err instanceof ApiError ? err.message : "request failed";
-}
-
-function formatProxyTestTime(value: string | null): string {
-  if (!value) return "";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -266,7 +259,7 @@ function ProxyPoolSection() {
   };
 
   return (
-    <Card className="space-y-4">
+    <Card surface="frame" className="space-y-4">
       <CardHeader title="Proxy Pool" icon={ShieldCheck} sub="Outbound proxy servers - HTTP, HTTPS, and SOCKS5, with automatic failover">
         <Button size="sm" className="w-full sm:w-auto" onClick={() => openModal(null)}>
           <Plus size={14} /> New proxy
@@ -333,7 +326,7 @@ function ProxyPoolSection() {
           const isTesting = testingIds.has(proxy.id);
           const hasError = proxy.health?.status === "error";
           return (
-            <article key={proxy.id} className="rounded-2xl border border-[var(--inner-border)] bg-[var(--surface)] p-3.5 transition-colors hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)]">
+            <article key={proxy.id} className="rounded-2xl border border-[var(--inner-border)] bg-[var(--surface-1)] p-3.5 transition-colors hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)]">
               <div className="flex items-start gap-3">
                 <input className="mt-1 size-3.5 shrink-0" type="checkbox" checked={selectedIds.has(proxy.id)} onChange={() => toggleSelected(proxy.id)} aria-label={`Select ${proxy.name}`} />
                 <div className="min-w-0 flex-1">
@@ -526,7 +519,7 @@ function RoutingAndExceptionsSection() {
               const excluded = excludedProviders.includes(provider.id);
               const routing = provider.routing ?? { strategy: "priority" as const, stickyLimit: 1 };
               return (
-                <article key={provider.id} className="rounded-2xl border border-[var(--inner-border)] bg-[var(--surface)] p-3.5 transition-colors hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)]">
+                <article key={provider.id} className="rounded-2xl border border-[var(--inner-border)] bg-[var(--surface-1)] p-3.5 transition-colors hover:border-[var(--accent)]/40 hover:bg-[var(--surface-muted)]">
                   <div className="flex flex-col gap-3">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <ProviderIcon icon={icon} name={provider.name} size={24} />

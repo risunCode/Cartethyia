@@ -323,7 +323,11 @@ function toChatMessage(message: NormalizedMessage): Record<string, unknown> {
       return { role: "system", content: messageText(message) };
     case "user": {
       const hasImage = message.content.some((block) => block.type === "image");
-      if (!hasImage) return { role: "user", content: messageText(message) };
+      const content = [
+        messageText(message),
+        ...message.content.filter((block) => block.type === "tool_result").map((block) => block.text ?? ""),
+      ].filter((part) => part.length > 0).join("\n");
+      if (!hasImage) return { role: "user", content };
       return { role: "user", content: message.content.flatMap(toChatUserBlock) };
     }
     case "assistant": {

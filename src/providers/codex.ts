@@ -1,4 +1,4 @@
-import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, lineLimit, mapSseStream, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, decodeSseEvents, executeFetch, lineLimit, mapSseStream, modelOf, parseSseData, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
 import { isRecord } from "../application/protocols";
 import { callHostedImageWire, createResponsesMapper } from "../open-sse/transport/protocols/openai";
 import { buildResponsesPayload, mapResponsesUsage } from "../open-sse/translate/codecs/openai-responses";
@@ -59,7 +59,11 @@ function nonEmpty(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-/** Decodes the Codex access-token JWT to extract the ChatGPT account id. */
+interface CodexCredential {
+  readonly accessToken: string;
+  readonly accountId?: string;
+}
+
 function codexAccountId(accessToken: string): string | null {
   const parts = accessToken.split(".");
   if (parts.length !== 3) return null;
@@ -70,11 +74,45 @@ function codexAccountId(accessToken: string): string | null {
       const id = nonEmpty(auth.chatgpt_account_id);
       if (id) return id;
     }
-    return nonEmpty(payload.account_id) ?? null;
+    return nonEmpty(payload.chatgpt_account_id) ?? nonEmpty(payload.account_id) ?? null;
   } catch {
     return null;
   }
 }
+
+/** Accepts both the durable OAuth bundle and a raw Codex access token. */
+function codexCredential(value: string): CodexCredential | null {
+  let accessToken = value.trim();
+  let accountId: string | undefined;
+  if (accessToken.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(accessToken) as unknown;
+      if (isRecord(parsed)) {
+        accessToken = nonEmpty(parsed.accessToken) ?? nonEmpty(parsed.access_token) ?? nonEmpty(parsed.access) ?? "";
+        accountId = nonEmpty(parsed.providerAccountId) ?? nonEmpty(parsed.accountId) ?? nonEmpty(parsed.account_id) ?? nonEmpty(parsed.chatgpt_account_id);
+      }
+    } catch {
+      return null;
+    }
+  }
+  if (accessToken.length === 0) return null;
+  return { accessToken, accountId: accountId ?? codexAccountId(accessToken) ?? undefined };
+}
+
+async function readCodexNonStream(response: Response, coordinator: AbortCoordinator, request: ProviderRequest["request"]): Promise<ProviderOutput> {
+  if (!response.body) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Codex returned an empty stream body", routeScope: "provider" });
+  let completed: Record<string, unknown> | null = null;
+  for await (const sse of decodeSseEvents({ body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs })) {
+    if (sse.data === "[DONE]") continue;
+    const parsed = parseSseData(sse.data);
+    if (!isRecord(parsed)) continue;
+    if ((parsed.type === "response.completed" || parsed.type === "response.done") && isRecord(parsed.response)) completed = parsed.response;
+  }
+  if (completed === null) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Codex stream ended without a completed response", routeScope: "provider" });
+  const usageRecord = isRecord(completed.usage) ? completed.usage : null;
+  return { mode: "non_stream", body: completed, usage: usageRecord !== null ? mapResponsesUsage(usageRecord) : undefined };
+}
+
 
 /** Codex is the OAuth-gated ChatGPT Codex Responses transport. */
 export class CodexAdapter implements Adapter {
@@ -104,14 +142,15 @@ export class CodexAdapter implements Adapter {
     if (input.credential.length === 0) {
       throw new ProviderAdapterError({ kind: "authentication_failed", message: "A Codex OAuth access token is required.", statusCode: 401, routeScope: "account" });
     }
-    const accountId = codexAccountId(input.credential);
-    if (accountId === null) {
+    const credential = codexCredential(input.credential);
+    const accountId = credential?.accountId ?? null;
+    if (credential === null || accountId === null) {
       throw new ProviderAdapterError({ kind: "authentication_failed", message: "Codex OAuth credential is missing its ChatGPT account identity.", statusCode: 401, routeScope: "account" });
     }
     if (input.target.surface === "images") {
       return callHostedImageWire(input, `${CODEX_BASE_URL}/codex/responses`, {
         "content-type": "application/json",
-        authorization: `Bearer ${input.credential}`,
+        authorization: `Bearer ${credential.accessToken}`,
         "chatgpt-account-id": accountId,
         "openai-beta": "responses=experimental",
         originator: CODEX_ORIGINATOR,
@@ -123,6 +162,7 @@ export class CodexAdapter implements Adapter {
     // Codex rejects sampling controls and output-token caps with 400; the
     // native client lets the Codex backend choose these values.
     const payload = buildResponsesPayload(request);
+    payload.model = input.target.upstreamModelId;
     delete payload.temperature;
     delete payload.top_p;
     delete payload.max_output_tokens;
@@ -132,7 +172,7 @@ export class CodexAdapter implements Adapter {
     const headers: Record<string, string> = {
       "content-type": "application/json",
       accept: "text/event-stream",
-      authorization: `Bearer ${input.credential}`,
+      authorization: `Bearer ${credential.accessToken}`,
       "chatgpt-account-id": accountId,
       "openai-beta": "responses=experimental",
       originator: CODEX_ORIGINATOR,
@@ -144,11 +184,7 @@ export class CodexAdapter implements Adapter {
     try {
       const response = await executeFetch(`${CODEX_BASE_URL}/codex/responses`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
       if (!response.ok) throw await readUpstreamError(response);
-      if (!request.stream) {
-        const body = await readJsonObject(response, coordinator);
-        const usageRecord = isRecord(body.usage) ? body.usage : null;
-        return { mode: "non_stream", body, usage: usageRecord !== null ? mapResponsesUsage(usageRecord) : undefined };
-      }
+      if (!request.stream) return await readCodexNonStream(response, coordinator, request);
       if (!response.body) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Codex returned an empty stream body", routeScope: "provider" });
       streamHandedOff = true;
       return { mode: "stream", events: mapSseStream({ body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs }, createResponsesMapper()) };
