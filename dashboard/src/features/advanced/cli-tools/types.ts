@@ -27,11 +27,13 @@ export interface CliModelMapping {
   readonly targetModel: string;
   readonly enabled: boolean;
 }
-
-export interface CliMappingSettings {
-  readonly toolId: string;
+export interface CliMappingInput {
   readonly enabled: boolean;
   readonly mappings: readonly CliModelMapping[];
+}
+
+export interface CliMappingSettings extends CliMappingInput {
+  readonly toolId: string;
 }
 
 export interface ToolNote {

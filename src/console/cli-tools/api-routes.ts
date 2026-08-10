@@ -5,7 +5,9 @@
  *   GET    /cli-tools/registry           — all tool metadata
  *   GET    /cli-tools/all-statuses       — batch status for all tools
  *   GET    /cli-tools/:toolId            — single tool status
+ *   GET    /cli-tools/:toolId/mappings   — persisted harness route mappings
  *   POST   /cli-tools/:toolId            — apply config (inject to fs)
+ *   POST   /cli-tools/:toolId/mappings   — save harness route mappings
  *   DELETE /cli-tools/:toolId            — reset config (remove cartethyia fields)
  *   POST   /cli-tools/:toolId/download   — download config as text
  *
@@ -61,6 +63,16 @@ export function createCliToolsApi(config: ConfigPersistence): Elysia {
     .route("QUERY", "/cli-tools/:toolId/mappings", ({ params, set }: { params: { toolId: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
       if (!service.isValidTool(params.toolId)) return notFound(set, "CLI tool not found");
       return service.getMappings(params.toolId);
+    })
+    .post("/cli-tools/:toolId/mappings", ({ params, body, set }: { params: { toolId: string }; body: unknown; set: { status?: number | string; headers: HTTPHeaders } }) => {
+      if (!service.isValidTool(params.toolId)) return notFound(set, "CLI tool not found");
+      const input = parseMapping(body);
+      if (input === undefined) return badRequest(set, "Invalid mapping payload");
+      try {
+        return service.saveMappings(params.toolId, input);
+      } catch (error) {
+        return badRequest(set, error instanceof Error ? error.message : "Failed to save mappings");
+      }
     })
     .route("QUERY", "/cli-tools/:toolId", async ({ params, set }: { params: { toolId: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const status = await service.getStatus(params.toolId);

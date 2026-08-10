@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiDelete, ApiError } from "../../../lib/api";
 import { toast } from "../../../lib/toast";
 import { qk } from "../../../lib/query-keys";
-import type { ApplyInput, ApplyResult, CliMappingSettings, DownloadResult, ToolRegistryEntry, ToolStatus } from "./types";
+import type { ApplyInput, ApplyResult, CliMappingInput, CliMappingSettings, DownloadResult, ToolRegistryEntry, ToolStatus } from "./types";
 
 /** Fetch the tool registry (static metadata for all tools). */
 export function useToolRegistry() {
@@ -31,6 +31,22 @@ export function useToolMappings(toolId: string | undefined) {
     queryFn: () => apiGet<CliMappingSettings>(`/cli-tools/${toolId}/mappings`),
     enabled: Boolean(toolId),
     staleTime: 30_000,
+  });
+}
+
+/** Persist harness-specific mappings without writing the native CLI config. */
+export function useSaveToolMappings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ toolId, input }: { toolId: string; input: CliMappingInput }) =>
+      apiPost<CliMappingSettings>(`/cli-tools/${toolId}/mappings`, input),
+    onSuccess: (data, vars) => {
+      qc.setQueryData(qk.cliTools.mappings(vars.toolId), data);
+      toast.success(`${vars.toolId}: mapping saved`);
+    },
+    onError: (err: ApiError, vars) => {
+      toast.error(`${vars.toolId}: mapping save failed — ${err.message}`);
+    },
   });
 }
 

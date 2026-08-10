@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Download, RotateCcw, Settings2, CheckCircle2, XCircle, Copy } from "lucide-react";
+import { ArrowLeft, Download, RotateCcw, Settings2, CheckCircle2, XCircle, Copy, Save } from "lucide-react";
 import { cn } from "../../../lib/cn";
 import { toast } from "../../../lib/toast";
 import { Button } from "../../../components/ui/button";
@@ -12,7 +12,7 @@ import { Label } from "../../../components/ui/input";
 import { Switch } from "../../../components/ui/switch";
 import { ConfiguredModelPicker } from "../../../components/model-picker";
 import { ToolIcon } from "./tool-icon";
-import { useToolRegistry, useToolStatuses, useToolMappings, useApplyTool, useResetTool, useDownloadTool, useApiKeys, fetchApiKeyCredential } from "./api";
+import { useToolRegistry, useToolStatuses, useToolMappings, useSaveToolMappings, useApplyTool, useResetTool, useDownloadTool, useApiKeys, fetchApiKeyCredential } from "./api";
 import type { ApplyInput, ToolRegistryEntry, ToolStatus } from "./types";
 export function CliToolDetailPage() {
   const { toolId } = useParams<{ toolId: string }>();
@@ -60,6 +60,7 @@ function ToolDetailContent({
 
   const apiKeysQuery = useApiKeys();
   const mappingsQuery = useToolMappings(def.id);
+  const saveMappingMutation = useSaveToolMappings();
   const applyMutation = useApplyTool();
   const resetMutation = useResetTool();
   const downloadMutation = useDownloadTool();
@@ -83,10 +84,14 @@ function ToolDetailContent({
   useEffect(() => {
     const settings = mappingsQuery.data;
     if (!settings) return;
-    setMappingEnabled(settings.enabled);
+    const persistedMappings = Object.fromEntries(settings.mappings.map((mapping) => [mapping.slotKey, mapping]));
+    setRoleTargets((current) => ({
+      ...current,
+      ...Object.fromEntries(Object.entries(persistedMappings).map(([slotKey, mapping]) => [slotKey, mapping.sourceModel])),
+    }));
     setMappingTargets((current) => ({
       ...current,
-      ...Object.fromEntries(settings.mappings.map((mapping) => [mapping.slotKey, mapping.targetModel])),
+      ...Object.fromEntries(Object.entries(persistedMappings).map(([slotKey, mapping]) => [slotKey, mapping.targetModel])),
     }));
   }, [mappingsQuery.data]);
 
@@ -150,6 +155,22 @@ function ToolDetailContent({
     const input = await buildInput();
     if (input) applyMutation.mutate({ toolId: def.id, input });
   }, [buildInput, applyMutation, def.id]);
+
+  const handleSaveMapping = useCallback(() => {
+    if (!def.mappingSupported) return;
+    saveMappingMutation.mutate({
+      toolId: def.id,
+      input: {
+        enabled: mappingEnabled,
+        mappings: roleMappings.map((mapping) => ({
+          slotKey: mapping.roleKey,
+          sourceModel: roleTargets[mapping.roleKey] ?? mapping.defaultModel,
+          targetModel: mappingTargets[mapping.roleKey] ?? roleTargets[mapping.roleKey] ?? mapping.defaultModel,
+          enabled: mappingEnabled,
+        })),
+      },
+    });
+  }, [def.id, def.mappingSupported, mappingEnabled, mappingTargets, roleMappings, roleTargets, saveMappingMutation]);
 
   const handleReset = useCallback(() => {
     if (!confirm(`Reset ${def.name} config? This removes only Cartethyia-injected fields.`)) return;
@@ -225,8 +246,8 @@ function ToolDetailContent({
                 />
                 <p className="mt-1 text-[10.5px] text-[var(--text-3)]">Automatically points this tool at the local Cartethyia proxy.</p>
               </div>
-            </div>
 
+            </div>
             <div className="border-t border-[var(--inner-border)] pt-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -234,12 +255,22 @@ function ToolDetailContent({
                   <p className="mt-0.5 text-[11px] text-[var(--text-3)]">Native model values stay in {def.name}'s own config format.</p>
                 </div>
                 {def.mappingSupported && (
-                  <div className="flex items-center gap-2">
-                    <div className="text-right">
-                      <p className="text-[11px] font-semibold text-[var(--text-2)]">Enable Mapping</p>
-                      <p className="text-[10px] text-[var(--text-3)]">Route through Cartethyia without changing native IDs.</p>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleSaveMapping}
+                      disabled={saveMappingMutation.isPending}
+                    >
+                      <Save size={14} className="mr-1.5" />
+                      {saveMappingMutation.isPending ? "Saving…" : "Save Mapping"}
+                    </Button>
+                    <div className="flex items-center gap-2">
+                      <div className="text-right">
+                        <p className="text-[11px] font-semibold text-[var(--text-2)]">Enable Mapping</p>
+                        <p className="text-[10px] text-[var(--text-3)]">Route through Cartethyia without changing native IDs.</p>
+                      </div>
+                      <Switch checked={mappingEnabled} onChange={setMappingEnabled} label={`Enable model mapping for ${def.name}`} />
                     </div>
-                    <Switch checked={mappingEnabled} onChange={setMappingEnabled} label={`Enable model mapping for ${def.name}`} />
                   </div>
                 )}
               </div>
@@ -263,7 +294,7 @@ function ToolDetailContent({
                           includeCombos
                           includeAliases
                         />
-                        <p className="mt-1 text-[10px] text-[var(--text-3)]">Choose the target now; Enable Mapping controls whether this route is active when the configuration is applied.</p>
+                        <p className="mt-1 text-[10px] text-[var(--text-3)]">Save Mapping persists this harness route without changing the native CLI config.</p>
                       </div>
                     )}
                   </div>
