@@ -136,75 +136,68 @@ const SCRAPE_PROTOCOLS = [
 
 function ProxySearchResults({ result }: { result: ProxySearchResult | null }) {
   const queryClient = useQueryClient();
-  const [addingUrl, setAddingUrl] = useState<string | null>(null);
+  const [addingHealthy, setAddingHealthy] = useState(false);
   if (result === null || result.items.length === 0) return null;
 
-  const addProxy = async (item: ProxySearchItem): Promise<void> => {
-    if (item.saved || item.status === "error") return;
-    setAddingUrl(item.url);
+  const healthyItems = result.items.filter((item) => item.status === "healthy" && !item.saved);
+  const addHealthyToPool = async (): Promise<void> => {
+    if (healthyItems.length === 0) return;
+    setAddingHealthy(true);
+    const addedUrls: string[] = [];
+    let failed = 0;
     try {
-      await apiPost<{ id: string }>("/proxies", {
-        name: `${item.host}:${item.port}`,
-        protocol: item.protocol,
-        isRelay: false,
-        host: item.host,
-        port: item.port,
-        maxConcurrency: 8,
-        weight: 100,
-      });
+      for (let index = 0; index < healthyItems.length; index += 16) {
+        const batch = healthyItems.slice(index, index + 16);
+        const settled = await Promise.allSettled(batch.map((item) => apiPost<{ id: string }>("/proxies", {
+          name: `${item.host}:${item.port}`,
+          protocol: item.protocol,
+          isRelay: false,
+          host: item.host,
+          port: item.port,
+          maxConcurrency: 8,
+          weight: 100,
+        })));
+        settled.forEach((outcome, batchIndex) => {
+          if (outcome.status === "fulfilled") addedUrls.push(batch[batchIndex]!.url);
+          else failed += 1;
+        });
+      }
       queryClient.setQueryData<ProxySearchResult>(qk.proxies.search, (current) => current === undefined ? current : {
         ...current,
-        items: current.items.map((candidate) => candidate.url === item.url ? { ...candidate, saved: true } : candidate),
+        items: current.items.map((candidate) => addedUrls.includes(candidate.url) ? { ...candidate, saved: true } : candidate),
       });
       await queryClient.invalidateQueries({ queryKey: qk.proxies.all });
-      toast.success(`Added ${item.host}:${item.port}`);
-    } catch (error) {
-      toast.error(errorMessage(error));
+      if (failed === 0) toast.success(`Added ${addedUrls.length} healthy proxies to the pool`);
+      else toast.error(`Added ${addedUrls.length}; ${failed} healthy proxies failed`);
     } finally {
-      setAddingUrl(null);
+      setAddingHealthy(false);
     }
   };
 
+  const lines = result.items.flatMap((item, index) => {
+    const state = item.saved ? "IN POOL" : item.status.toUpperCase();
+    const details = [
+      `${String(index + 1).padStart(3, " ")}  ${state.padEnd(10, " ")} ${item.protocol}://${item.host}:${item.port}`,
+      `     ${item.country ?? "Unknown"}${item.latencyMs === null ? "" : ` · ${item.latencyMs}ms`}${item.error === null ? "" : ` · ${item.error}`}`,
+    ];
+    return details;
+  });
+
   return (
-    <section aria-label="Proxy search results" className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+    <section aria-label="Proxy search results" className="border border-[var(--inner-border)] bg-black/20 p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-xs font-bold">Search results</p>
-          <p className="text-[10.5px] text-[var(--text-3)]">Candidates stay here until you add them to the proxy pool.</p>
+          <p className="font-mono text-xs font-bold">Search results</p>
+          <p className="font-mono text-[10.5px] text-[var(--text-3)]">{result.scraped} found · {result.verified} healthy</p>
         </div>
-        <div className="flex items-center gap-1.5 text-[10px]">
-          <Badge tone="default">{result.scraped} found</Badge>
-          <Badge tone="ok">{result.verified} healthy</Badge>
-        </div>
+        <Button size="sm" disabled={addingHealthy || healthyItems.length === 0} onClick={() => void addHealthyToPool()}>
+          {addingHealthy ? <Loader2 size={12} className="animate-spin" /> : <Network size={12} />}
+          {addingHealthy ? "Adding…" : `Add healthy to pool (${healthyItems.length})`}
+        </Button>
       </div>
-      <div className="grid max-h-[30rem] grid-cols-1 gap-2 overflow-y-auto pr-0.5 sm:grid-cols-2 xl:grid-cols-3">
-        {result.items.map((item, index) => {
-          const statusLabel = item.status === "healthy" ? "Healthy" : item.status === "error" ? "Error" : "Unverified";
-          const statusTone = item.status === "healthy" ? "ok" : item.status === "error" ? "err" : "default";
-          return (
-            <article key={item.url} className="rounded-xl border border-[var(--inner-border)] bg-[var(--surface-1)] p-3">
-              <div className="flex items-start gap-2">
-                <span className="font-mono text-[10px] text-[var(--text-3)]">{String(index + 1).padStart(2, "0")}</span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <code className="truncate font-mono text-[11px] font-semibold">{item.host}:{item.port}</code>
-                    <Badge tone={statusTone} className="ml-auto shrink-0">{statusLabel}</Badge>
-                  </div>
-                  <p className="mt-1 truncate font-mono text-[10px] text-[var(--text-2)]">{item.protocol}://{item.host}:{item.port}</p>
-                </div>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <Badge tone="default">Region: {item.country ?? "Unknown"}</Badge>
-                {item.latencyMs !== null && <Badge tone="default">{item.latencyMs}ms</Badge>}
-                {item.error && <Badge tone="err" className="max-w-full truncate" title={item.error}>{item.error}</Badge>}
-              </div>
-              <Button className="mt-2 w-full" size="sm" variant={item.saved ? "ghost" : "secondary"} disabled={item.saved || item.status === "error" || addingUrl !== null} onClick={() => void addProxy(item)}>
-                <Network size={12} /> {item.saved ? "Already in pool" : addingUrl === item.url ? "Adding…" : "Add to pool"}
-              </Button>
-            </article>
-          );
-        })}
-      </div>
+      <pre aria-live="polite" className="max-h-[30rem] overflow-y-auto whitespace-pre-wrap break-all border border-[var(--inner-border)] bg-black/30 p-2 font-mono text-[10px] leading-5 text-[var(--text-2)]">
+        {lines.join("\n")}
+      </pre>
     </section>
   );
 }

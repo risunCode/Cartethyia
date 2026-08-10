@@ -93,10 +93,61 @@ function anthropic(body: unknown): ProviderQuotaResult {
   add("five_hour", "5 Hour", "session"); add("seven_day", "7 Day", "weekly");
   return { source: "claude", plan: text(payload.plan_type) ?? text(payload.plan), windows, error: null };
 }
+interface AntigravityQuotaFamily {
+  readonly key: string;
+  readonly label: string;
+}
+
+function antigravityQuotaFamily(modelId: string): AntigravityQuotaFamily {
+  if (/^(?:gemini[-_]|tab_)/i.test(modelId)) return { key: "google", label: "Google" };
+  if (/^(?:claude[-_]|gpt-oss[-_])/i.test(modelId)) return { key: "claude", label: "Claude" };
+  return { key: `model:${modelId}`, label: modelId };
+}
+
+function earlierReset(left: string | null, right: string | null): string | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return Date.parse(left) <= Date.parse(right) ? left : right;
+}
+
+function mergeAntigravityQuotaWindow(left: ProviderQuotaWindow, right: ProviderQuotaWindow): ProviderQuotaWindow {
+  const remaining = left.remainingPercent === null ? right.remainingPercent : right.remainingPercent === null ? left.remainingPercent : Math.min(left.remainingPercent, right.remainingPercent);
+  return { ...left, usedPercent: remaining === null ? null : 100 - remaining, remainingPercent: remaining, resetsAt: earlierReset(left.resetsAt, right.resetsAt) };
+}
+
 function antigravity(body: unknown): ProviderQuotaResult {
-  const payload = quotaRecord(body); const models = record(payload.models) ?? record(payload.modelQuotas) ?? record(payload.quota) ?? {}; const windows: ProviderQuotaWindow[] = [];
-  for (const [modelId, raw] of Object.entries(models)) { const model = record(raw); if (!model) continue; const infos = [model.quotaInfo, model.dailyQuotaInfo, model.weeklyQuotaInfo, model.quotaInfos, model.dailyQuotaInfos, model.weeklyQuotaInfos].flatMap((value) => Array.isArray(value) ? value : [value]); for (const infoRaw of infos) { const info = record(infoRaw); if (!info) continue; const remaining = number(info.remainingFraction); const reset = isoDate(info.resetTime); if (remaining === null && reset === null) continue; const label = text(info.windowLabel) ?? text(info.windowId) ?? "Quota"; windows.push(percentWindow("other", `${modelId} · ${label}`, remaining === null ? 100 : (1 - clampPercent(remaining * 100)), reset)); } }
-  return { source: "antigravity", plan: text(payload.tier) ?? text(payload.plan) ?? "Antigravity", windows, error: null };
+  const payload = quotaRecord(body);
+  const models = record(payload.models) ?? record(payload.modelQuotas) ?? record(payload.quota) ?? {};
+  const grouped = new Map<string, ProviderQuotaWindow>();
+  for (const [modelId, raw] of Object.entries(models)) {
+    const model = record(raw);
+    if (!model) continue;
+    const family = antigravityQuotaFamily(modelId);
+    const infos = [
+      ["quota", model.quotaInfo],
+      ["daily", model.dailyQuotaInfo],
+      ["weekly", model.weeklyQuotaInfo],
+      ["quotas", model.quotaInfos],
+      ["daily-quotas", model.dailyQuotaInfos],
+      ["weekly-quotas", model.weeklyQuotaInfos],
+    ] as const;
+    for (const [slot, value] of infos) {
+      const entries = Array.isArray(value) ? value : [value];
+      for (const infoRaw of entries) {
+        const info = record(infoRaw);
+        if (!info) continue;
+        const remaining = number(info.remainingFraction);
+        const reset = isoDate(info.resetTime);
+        if (remaining === null && reset === null) continue;
+        const windowLabel = text(info.windowLabel) ?? text(info.windowId) ?? "Quota";
+        const window = percentWindow(`${family.key}:${slot}`, `${family.label} · ${windowLabel}`, remaining === null ? 100 : (1 - Math.min(1, Math.max(0, remaining))) * 100, reset);
+        const key = `${family.key}:${slot}:${windowLabel}`;
+        const previous = grouped.get(key);
+        grouped.set(key, previous === undefined ? window : mergeAntigravityQuotaWindow(previous, window));
+      }
+    }
+  }
+  return { source: "antigravity", plan: text(payload.tier) ?? text(payload.plan) ?? "Antigravity", windows: [...grouped.values()], error: null };
 }
 function kiro(body: unknown): ProviderQuotaResult {
   const payload = quotaRecord(body); const list = Array.isArray(payload.usageBreakdownList) ? payload.usageBreakdownList : []; const reset = isoDate(payload.nextDateReset ?? payload.resetDate); const windows: ProviderQuotaWindow[] = [];
@@ -119,16 +170,55 @@ function grokBuild(body: unknown, userBody: unknown): ProviderQuotaResult {
   return { source: "grok-build", plan, windows, error: null };
 }
 
+const CLINE_QUOTA_HEADERS = {
+  accept: "application/json",
+  "content-type": "application/json",
+  "user-agent": "Cline/4.0.11",
+  "x-platform": "server",
+  "x-platform-version": "1.0.0",
+  "x-client-type": "cline-cli",
+  "x-client-version": "4.0.11",
+  "x-core-version": "4.0.11",
+  "x-is-multiroot": "false",
+} as const;
+
+function clineUsageWindows(value: unknown): ProviderQuotaWindow[] {
+  const payload = record(value);
+  const limits = Array.isArray(payload?.limits) ? payload.limits : [];
+  return limits.flatMap((raw, index) => {
+    const limit = record(raw);
+    if (!limit) return [];
+    const kind = text(limit.type) ?? `window-${index + 1}`;
+    const label = kind === "five_hour" ? "5 Hour" : kind === "weekly" ? "7 Day" : kind === "monthly" ? "30 Day" : kind;
+    const used = number(limit.percentUsed);
+    const resetsAt = isoDate(limit.resetsAt);
+    return used === null && resetsAt === null ? [] : [percentWindow(kind, label, used, resetsAt)];
+  });
+}
+
 async function cline(credential: string, fetcher: FetchLike): Promise<ProviderQuotaResult> {
-  const fields = authCredential(credential); const access = text(fields.accessToken);
+  const fields = authCredential(credential);
+  const access = text(fields.accessToken);
   if (!access) throw new Error("Cline credential has no access token.");
-  const headers = { authorization: `Bearer ${access.startsWith("workos:") ? access : `workos:${access}`}` };
+  const headers = {
+    ...CLINE_QUOTA_HEADERS,
+    authorization: `Bearer ${access.startsWith("workos:") ? access : `workos:${access}`}`,
+  };
   const me = record(await getJson("https://api.cline.bot/api/v1/users/me", headers, fetcher));
-  const userId = text(me?.id); if (!userId) throw new Error("Cline account response has no user id.");
-  const [planRaw, balanceRaw] = await Promise.allSettled([getJson("https://api.cline.bot/api/v1/users/me/plan", headers, fetcher), getJson(`https://api.cline.bot/api/v1/users/${encodeURIComponent(userId)}/balance`, headers, fetcher)]);
-  const plan = record(planRaw.status === "fulfilled" ? planRaw.value : null); const balance = record(balanceRaw.status === "fulfilled" ? balanceRaw.value : null); const amount = number(balance?.balance);
-  const errors = [planRaw.status === "rejected" ? "plan" : null, balanceRaw.status === "rejected" ? "balance" : null].filter(Boolean);
-  return { source: "cline", plan: text(plan?.plan && record(plan.plan)?.displayName) ?? text(plan?.displayName) ?? "Cline", windows: [{ kind: "credit", label: "Credits", usedPercent: null, remainingPercent: null, resetsAt: null, used: amount, limit: null }], error: errors.length > 0 ? `Failed to fetch ${errors.join(" and ")}.` : null };
+  const userId = text(me?.id);
+  if (!userId) throw new Error("Cline account response has no user id.");
+  const [planRaw, limitsRaw] = await Promise.allSettled([
+    getJson("https://api.cline.bot/api/v1/users/me/plan", headers, fetcher),
+    getJson("https://api.cline.bot/api/v1/users/me/plan/usage-limits", headers, fetcher),
+  ]);
+  const plan = record(planRaw.status === "fulfilled" ? planRaw.value : null);
+  const windows = clineUsageWindows(limitsRaw.status === "fulfilled" ? limitsRaw.value : null);
+  const error = limitsRaw.status === "rejected"
+    ? "Failed to fetch quota limits."
+    : windows.length === 0
+      ? "Cline quota response contained no usage limits."
+      : null;
+  return { source: "cline", plan: text(record(plan?.plan)?.displayName) ?? text(plan?.displayName) ?? "Cline", windows, error };
 }
 
 export async function fetchProviderQuota(providerId: string, credential: string, token: OAuthTokenRecord | undefined, fetcher: FetchLike = fetch): Promise<ProviderQuotaResult> {
