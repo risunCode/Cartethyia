@@ -49,16 +49,16 @@
   - [ ] 4.4 Apply canonical telemetry/log naming, then verify persistence, logging, and middleware contracts plus backend typecheck.
     - _Requirements: 4.2-4.3, 7.1-7.2, 8.1-8.11_
 
-- [ ] 5. Split console DTOs and domain services
-  - [ ] 5.1 Move console DTOs from `console/views.ts` into domain-owned `console/views/*.ts` modules for auth, accounts, providers, models, proxies, routing, settings, and telemetry.
+- [x] 5. Split console DTOs and domain services
+  - [x] 5.1 Move console DTOs from `console/views.ts` into domain-owned `console/views/*.ts` modules for auth, accounts, providers, models, proxies, routing, settings, and telemetry.
     - Keep request/response field names, secret redaction, and external console API bodies unchanged.
     - _Requirements: 1.1-1.2, 3.1, 5.3, 5.4, 8.1, 8.11_
-  - [ ] 5.2 Move auth/API-key, provider/model, account/OAuth/quota, proxy, routing, settings/filter-rule, telemetry, and backup services into `console/services/*.ts` modules.
+  - [x] 5.2 Move auth/API-key, provider/model, account/OAuth/quota, proxy, routing, settings/filter-rule, telemetry, and backup services into `console/services/*.ts` modules.
     - `console/services/composition.ts` remains the sole `createConsoleServices` owner; individual services receive explicit repositories/dependencies.
     - _Requirements: 1.1, 3.1-3.3, 5.1, 5.4, 8.2, 8.8-8.9_
   - [ ] 5.3 Move console repository factory helpers to canonical `createConsole…Repository` names and preserve their one-time construction in the console composition owner.
     - _Requirements: 5.1, 7.1, 8.2, 8.9-8.10_
-  - [ ] 5.4 Migrate all importers, remove `console/views.ts` and `console/services.ts`, and verify console, CLI, OAuth, proxy, and routing contracts plus backend typecheck.
+  - [x] 5.4 Migrate all importers, remove `console/views.ts` and `console/services.ts`, and verify console, CLI, OAuth, proxy, and routing contracts plus backend typecheck.
     - _Requirements: 3.1-3.3, 5.1-5.4, 7.1-7.2, 8.1-8.11_
 
 - [ ] 6. Split console HTTP route registration
