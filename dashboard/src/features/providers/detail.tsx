@@ -838,7 +838,7 @@ function OAuthConnectDialog({
   completing: boolean;
 }) {
   const waiting = status?.status === "waiting-for-user" || status?.status === "exchanging-code";
-  const isDeviceFlow = Boolean(session.userCode && session.verificationUri);
+  const isDeviceFlow = session.flow === "device";
   const hasCallback = Boolean(callbackValue.trim());
   const statusMessage = status?.status === "exchanging-code"
     ? "Finishing authorization…"
@@ -932,7 +932,7 @@ function OAuthConnectDialog({
             </Button>
           </div>
           <p className="text-[11px] leading-4 text-[var(--text-3)]">{session.instructions}</p>
-          {isDeviceFlow && <div className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3"><div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Device code</div><div className="mt-1 font-mono text-xl tracking-[0.2em] text-[var(--text-1)]">{session.userCode}</div><a href={session.verificationUri ?? session.authorizationUrl} target="_blank" rel="noreferrer" className="mt-1 block break-all text-[11px] text-[var(--accent)] hover:underline">{session.verificationUri ?? session.authorizationUrl}</a></div>}
+          {isDeviceFlow && session.userCode && <div className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3"><div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Device code</div><div className="mt-1 font-mono text-xl tracking-[0.2em] text-[var(--text-1)]">{session.userCode}</div><a href={session.verificationUri ?? session.authorizationUrl} target="_blank" rel="noreferrer" className="mt-1 block break-all text-[11px] text-[var(--accent)] hover:underline">{session.verificationUri ?? session.authorizationUrl}</a></div>}
         </section>
 
         {!isDeviceFlow && (
@@ -1108,6 +1108,8 @@ export function ProviderDetailPage() {
   const [deleteFetchedConfirmOpen, setDeleteFetchedConfirmOpen] = useState(false);
   const [addModelModalOpen, setAddModelModalOpen] = useState(false);
   const oauthPopupRef = useRef<Window | null>(null);
+  const preferredOAuthFlow: "browser" | "device" =
+    id === "codex" || id === "cursor" || id === "cline" ? "device" : "browser";
   const [pageVisible, setPageVisible] = useState(() => typeof document === "undefined" || !document.hidden);
 
   useEffect(() => {
@@ -1123,13 +1125,21 @@ export function ProviderDetailPage() {
     }),
     onSuccess: (session) => {
       setOauthSession(session);
-      if (session.flow !== "device") {
+      const popup = oauthPopupRef.current;
+      if (popup && !popup.closed) {
+        popup.location.href = session.authorizationUrl;
+      } else {
         oauthPopupRef.current = window.open(session.authorizationUrl, "cartethyia-oauth", "popup,width=720,height=820");
-        if (!oauthPopupRef.current) toast.error("Allow popups to start OAuth authorization, or use the authorization URL in the dialog.");
       }
+      if (!oauthPopupRef.current) toast.error("Allow popups to start OAuth authorization, or use the authorization URL in the dialog.");
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
+  const startPreferredOAuth = () => {
+    const popup = window.open("about:blank", "cartethyia-oauth", "popup,width=720,height=820");
+    if (popup) oauthPopupRef.current = popup;
+    oauthStartMutation.mutate(preferredOAuthFlow);
+  };
 
 
   const oauthStatusQuery = useQuery({
@@ -1199,7 +1209,6 @@ export function ProviderDetailPage() {
     enabled: Boolean(id),
     refetchOnWindowFocus: true,
   });
-
   useEffect(() => {
     if (!data || !id) return;
     const params = new URLSearchParams(location.search);
@@ -1209,7 +1218,7 @@ export function ProviderDetailPage() {
     if (handledActionRef.current === actionKey) return;
     handledActionRef.current = actionKey;
     if (action === "oauth" && data.supportsOAuth) {
-      oauthStartMutation.mutate("browser");
+      startPreferredOAuth();
     } else if (action === "json") {
       const requestedKind = params.get("kind");
       const initialKind = requestedKind === "oauth" && data.credentialKinds.includes("oauth")
@@ -1574,7 +1583,6 @@ export function ProviderDetailPage() {
 
       {(providerHealth?.status !== "healthy" && providerHealth?.status !== "refreshing") || data.failedRoute || data.replacementRoute || data.switchEvent ? (
         <section className="grid grid-cols-1 gap-2 sm:grid-cols-2" aria-label="Route health">
-          {providerHealth && <RouteHealthNotice title="Proxy health" route={{ health: providerHealth }} tone="failed" />}
           {data.failedRoute && <RouteHealthNotice title="Failed route" route={data.failedRoute} tone="failed" />}
           {data.replacementRoute && <RouteHealthNotice title="Replacement route" route={data.replacementRoute} tone="replacement" />}
           {data.switchEvent && <RouteSwitchNotice event={data.switchEvent} />}
@@ -1585,7 +1593,7 @@ export function ProviderDetailPage() {
         <CardHeader title="Accounts" icon={Cable} sub={`${data.accounts.length} account${data.accounts.length === 1 ? "" : "s"}`}>
           <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
             {data.supportsOAuth && (
-              <Button variant="secondary" className="h-8 min-w-0 px-2.5 text-[11px]" size="sm" disabled={oauthStartMutation.isPending} onClick={() => oauthStartMutation.mutate("browser")}>
+              <Button variant="secondary" className="h-8 min-w-0 px-2.5 text-[11px]" size="sm" disabled={oauthStartMutation.isPending} onClick={startPreferredOAuth}>
                 <ExternalLink size={12} /> <span className="truncate">{oauthStartMutation.isPending ? "Starting…" : "Connect OAuth"}</span>
               </Button>
             )}

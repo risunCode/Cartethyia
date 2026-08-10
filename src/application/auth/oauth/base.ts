@@ -13,7 +13,7 @@ import { assertPublicUrl, SsrfGuardError } from "../../../security/ssrf-guard";
  * below is a *pure driver*: it accepts an injectable `fetch` (with a timeout
  * and injectable clock) at construction time so tests never touch the network
  * and callers can route through a proxy or a local transport. Excluded
- * providers (Devin/Cursor/Grok) are intentionally not represented here.
+ * providers (Devin/Grok) are intentionally not represented here.
  */
 
 export const OAUTH_STATE_TTL_MS = 10 * 60_000;

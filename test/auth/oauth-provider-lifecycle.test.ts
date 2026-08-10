@@ -5,6 +5,7 @@ import { AntigravityOAuthDriver } from "../../src/application/auth/oauth/antigra
 import { ClineOAuthDriver } from "../../src/application/auth/oauth/cline";
 import { ClinePassOAuthDriver } from "../../src/application/auth/oauth/clinepass";
 import { CodexOAuthDriver } from "../../src/application/auth/oauth/codex";
+import { CursorOAuthDriver } from "../../src/application/auth/oauth/cursor";
 import { GrokBuildOAuthDriver } from "../../src/application/auth/oauth/grokbuild";
 import { KimchiOAuthDriver } from "../../src/application/auth/oauth/kimchi";
 import { KiroOAuthDriver } from "../../src/application/auth/oauth/kiro";
@@ -36,13 +37,17 @@ describe("registered OAuth provider lifecycle", () => {
       { providerId: "kiro", driver: new KiroOAuthDriver() },
       { providerId: "kimchi", driver: new KimchiOAuthDriver({ fetch: async () => response({}) }) },
     ]);
-    expect(registry.list().map((entry) => entry.providerId)).toEqual(["codex", "antigravity", "claude", "cline", "clinepass", "grok-build", "kiro", "kimchi"]);
+    expect(registry.list().map((entry) => entry.providerId)).toEqual(["codex", "cursor", "antigravity", "claude", "cline", "clinepass", "grok-build", "kiro", "kimchi"]);
     expect(registry.list().every((entry) => resolveAuthDriverCapabilities(entry.driver).supportsRefresh === (entry.providerId !== "kimchi"))).toBe(true);
   });
 
   test("refreshes Codex and preserves rotated refresh credentials", async () => {
     const driver = new CodexOAuthDriver(withResponse({ access_token: "codex-access", refresh_token: "codex-refresh", expires_in: 3600 }));
     await expect(refresh(driver, "codex")).resolves.toMatchObject({ accessToken: "codex-access", refreshToken: "codex-refresh" });
+  });
+  test("preserves the Codex refresh token when rotation omits it", async () => {
+    const driver = new CodexOAuthDriver(withResponse({ access_token: "codex-access", expires_in: 3600 }));
+    await expect(refresh(driver, "codex")).resolves.toMatchObject({ accessToken: "codex-access", refreshToken: "refresh-old" });
   });
   test("uses Codex device authorization without opening the fixed localhost callback", async () => {
     const calls: string[] = [];
@@ -87,6 +92,32 @@ describe("registered OAuth provider lifecycle", () => {
     expect(authorization.pathname).toBe("/oauth/authorize");
     expect(authorization.searchParams.get("code_challenge")).toBe("challenge");
     expect(authorization.searchParams.get("redirect_uri")).toBe("http://localhost:1455/auth/callback");
+  });
+
+  test("runs Cursor deep-control polling and refreshes rotated credentials", async () => {
+    const calls: string[] = [];
+    const responses = [
+      new Response(null, { status: 404 }),
+      response({ accessToken: "cursor-access", refreshToken: "cursor-refresh" }),
+      response({ accessToken: "cursor-access", refreshToken: "cursor-refresh" }),
+    ];
+    const driver = new CursorOAuthDriver({
+      fetch: async (input, init) => {
+        calls.push(`${init?.method ?? "GET"} ${String(input)}`);
+        return responses.shift() ?? new Response(null, { status: 404 });
+      },
+      nowMs: () => Date.parse("2026-08-10T00:00:00.000Z"),
+    });
+    const started = await driver.start({ providerId: "cursor", state: "cursor-state", flow: "device" });
+    const authorization = new URL(started.authorizationUrl);
+    expect(started).toMatchObject({ state: "cursor-state", flow: "device", verificationUri: "https://cursor.com/loginDeepControl" });
+    expect(authorization.searchParams.get("challenge")).toBeTruthy();
+    expect(authorization.searchParams.get("uuid")).toBeTruthy();
+    await expect(driver.poll?.("cursor-state")).resolves.toMatchObject({ status: "pending", intervalSeconds: 2 });
+    await expect(driver.poll?.("cursor-state")).resolves.toMatchObject({ status: "completed", tokenSet: { accessToken: "cursor-access", refreshToken: "cursor-refresh" } });
+    expect(calls[0]).toContain("https://api2.cursor.sh/auth/poll?uuid=");
+    await expect(refresh(driver, "cursor")).resolves.toMatchObject({ accessToken: "cursor-access", refreshToken: "cursor-refresh" });
+    expect(calls[2]).toBe("POST https://api2.cursor.sh/auth/exchange_user_api_key");
   });
 
   test("refreshes Anthropic without re-fetching organization identity", async () => {

@@ -9,12 +9,12 @@ import {
   CredentialSelector,
   type CredentialConfigStore,
   GrokBuildOAuthDriver,
+  type AccountHealthManager,
   KimchiOAuthDriver,
   KiroOAuthDriver,
   QuotaRefreshWorker,
   type QuotaStateStore,
   TokenRefreshPool,
-  type AccountHealthManager,
 } from "../application/auth";
 import type { ApplicationLogger } from "../console/logger";
 import type { ConfigPersistence } from "../storage";
@@ -33,7 +33,6 @@ export function createOAuthRuntime({ config, logger }: OAuthRuntimeDependencies)
     { providerId: "antigravity", driver: new AntigravityOAuthDriver() },
     { providerId: "claude", driver: new AnthropicOAuthDriver() },
     { providerId: "cline", driver: new ClineOAuthDriver() },
-    { providerId: "clinepass", driver: new ClinePassOAuthDriver() },
     { providerId: "kimchi", driver: new KimchiOAuthDriver() },
     { providerId: "grok-build", driver: new GrokBuildOAuthDriver() },
   ]);
@@ -55,6 +54,7 @@ export function createOAuthRuntime({ config, logger }: OAuthRuntimeDependencies)
         kiro: 15 * 60_000,
         cline: 30 * 60_000,
         clinepass: 30 * 60_000,
+        cursor: 30 * 60_000,
         kimchi: 5 * 60_000,
       };
       const minRefreshIntervalMs: Record<string, number> = {
@@ -65,6 +65,7 @@ export function createOAuthRuntime({ config, logger }: OAuthRuntimeDependencies)
         kiro: 60_000,
         cline: 60_000,
         clinepass: 60_000,
+        cursor: 60_000,
         kimchi: 5 * 60_000,
       };
       return { refreshLeadMs: 5 * 60_000, maxRefreshAgeMs: maxRefreshAgeMs[account.providerId], minRefreshIntervalMs: minRefreshIntervalMs[account.providerId] ?? 60_000, jitterMs: 30_000 };

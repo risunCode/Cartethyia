@@ -227,6 +227,12 @@ export function LandingPage(): ReactElement {
         ) {
           resolvedImageIndex += 1;
         }
+        while (
+          resolvedImageIndex > requestedImageIndex &&
+          readyImageUrlsRef.current.has(CHAPTERS[resolvedImageIndex - 1].image)
+        ) {
+          resolvedImageIndex -= 1;
+        }
         const transitionReady = resolvedImageIndex === requestedImageIndex;
         const renderedSceneProgress = transitionReady ? nextSceneProgress : 0;
         rootRef.current?.style.setProperty("--scene-progress", String(renderedSceneProgress));

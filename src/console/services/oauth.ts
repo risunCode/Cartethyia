@@ -129,9 +129,9 @@ export class OAuthService {
         scopes: Array.isArray(value.scopes) ? value.scopes.flatMap((item) => (typeof item === "string" ? [item] : [])) : undefined,
         flow: value.flow === "device" ? "device" : "browser",
       });
-      // Device-code flows complete through session polling; only browser
-      // authorization-code flows need a local callback listener.
-      if (result.userCode === null) {
+      // Device-code sessions are completed by status polling, even when a
+      // provider has no human-entered user code (Cursor deep-control flow).
+      if (result.flow !== "device") {
         registerOAuthCallback(providerId, result.sessionId, result.state, this.sessions, async (sessionId, input) => {
           await this.complete(sessionId, { code: input.code, state: input.state, error: input.error, value: input.value });
         });
@@ -142,7 +142,11 @@ export class OAuthService {
         providerId: result.providerId,
         name: result.name,
         authorizationUrl: result.authorizationUrl,
-        instructions: result.userCode ? "Open the verification URL, enter the device code, then check authorization here." : "Complete authorization in the provider window, then return here to finish the connection.",
+        instructions: result.flow === "device"
+          ? result.userCode
+            ? "Open the verification URL, enter the device code, then check authorization here."
+            : "Open the authorization URL, finish login, then wait here for the connection to complete."
+          : "Complete authorization in the provider window, then return here to finish the connection.",
         redirectUri: result.redirectUri,
         userCode: result.userCode,
         verificationUri: result.verificationUri,

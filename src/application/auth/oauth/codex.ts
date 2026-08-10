@@ -181,7 +181,8 @@ export class CodexOAuthDriver extends AuthorizationCodeDriver implements AuthDri
       "codex",
       "token refresh",
     );
-    return this.toTokenSet(data, false);
+    const tokenSet = this.toTokenSet(data, false);
+    return { ...tokenSet, refreshToken: tokenSet.refreshToken ?? input.refreshToken };
   }
 
   private toTokenSet(data: Record<string, unknown>, requireRefresh: boolean): TokenSet {
