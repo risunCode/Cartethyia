@@ -16,7 +16,6 @@ import { runtimeMemoryLimits } from "../traffic/limits";
 // ---------------------------------------------------------------------------
 
 export const SESSION_COOKIE_NAME = "cartethyia_console";
-export const CSRF_HEADER_NAME = "x-cartethyia-csrf";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS", "QUERY"]);
 const MAX_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -234,25 +233,6 @@ export async function verifySessionToken(token: string | null | undefined, optio
   return { ok: true, payload };
 }
 
-async function signSecurityValue(secret: string, value: string): Promise<string> {
-  const key = await hmacKey(secret);
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(value));
-  return base64UrlEncode(new Uint8Array(signature));
-}
-
-/** Derives a stateless, session-bound CSRF token from the session JTI. */
-export function createConsoleCsrfToken(secret: string, sessionId: string): Promise<string> {
-  return signSecurityValue(secret, `csrf:${sessionId}`);
-}
-
-export async function verifyConsoleCsrfToken(secret: string, sessionId: string, token: string | null): Promise<boolean> {
-  if (token === null || token.length === 0) return false;
-  const expected = await createConsoleCsrfToken(secret, sessionId);
-  if (token.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ token.charCodeAt(i);
-  return diff === 0;
-}
 
 export type GuardVerdict =
   | { readonly ok: true; readonly payload: SessionTokenPayload }
@@ -260,8 +240,8 @@ export type GuardVerdict =
 
 /**
  * Explicit, testable console guard: mutations must carry JSON, a same-origin
- * request, Fetch Metadata that is not cross-site, and a session-bound CSRF
- * token; every request must carry a valid session token.
+ * request, and non-cross-site Fetch Metadata; every request must carry a
+ * valid session token.
  */
 export async function guardConsoleRequest(
   request: Request,
@@ -287,9 +267,6 @@ export async function guardConsoleRequest(
     return result.reason === "expired"
       ? { ok: false, status: 401, code: "unauthorized", message: "session expired" }
       : { ok: false, status: 401, code: "unauthorized", message: "invalid session" };
-  }
-  if (mutating && !(await verifyConsoleCsrfToken(options.jwtSecret, result.payload.jti, request.headers.get(CSRF_HEADER_NAME)))) {
-    return { ok: false, status: 403, code: "forbidden", message: "invalid console CSRF token" };
   }
   return { ok: true, payload: result.payload };
 }

@@ -37,29 +37,15 @@ describe("dashboard API client", () => {
     expect(new Headers(init.headers).get("content-type")).toBe("application/json");
   });
 
-  test("sends JSON content type and CSRF protection for destructive mutations", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ csrfToken: "csrf-test-token" }), { status: 200 }))
-      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+  test("sends JSON content type without a CSRF bootstrap for destructive mutations", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     await apiDelete("/console-logs");
-    const [, init] = fetchMock.mock.calls[1] as [string, RequestInit];
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/console/api/console-logs", expect.objectContaining({ method: "DELETE", body: "{}", credentials: "same-origin" }));
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith("/console/api/console-logs", expect.objectContaining({ method: "DELETE", body: "{}", credentials: "same-origin" }));
     const headers = new Headers(init.headers);
     expect(headers.get("content-type")).toBe("application/json");
-    expect(headers.get("x-cartethyia-csrf")).toBe("csrf-test-token");
-  });
-  test("clears a cached CSRF token when a new login replaces the session", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response("{}", { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ csrfToken: "fresh-csrf-token" }), { status: 200 }))
-      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await api("/login", { method: "POST", body: "{}" });
-    await apiDelete("/console-logs");
-
-    const [, init] = fetchMock.mock.calls[2] as [string, RequestInit];
-    expect(new Headers(init.headers).get("x-cartethyia-csrf")).toBe("fresh-csrf-token");
+    expect(headers.has("x-cartethyia-csrf")).toBe(false);
   });
 });

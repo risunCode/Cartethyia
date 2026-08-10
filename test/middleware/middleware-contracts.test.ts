@@ -19,7 +19,7 @@ import { activePerIpFlights } from "../../src/traffic/per-ip";
 import { SlidingWindowRateLimiter } from "../../src/traffic/rate-limiter";
 import { runtimeMemoryLimits } from "../../src/traffic/limits";
 import { resetInFlightForTests } from "../../src/traffic/in-flight";
-import { createConsoleCsrfToken, signSessionToken, SESSION_COOKIE_NAME, verifySessionToken } from "../../src/console/session";
+import { signSessionToken, SESSION_COOKIE_NAME } from "../../src/console/session";
 import { safeConsoleHandle } from "../../src/middleware/console";
 import { aclFor, buildCatalog, readProxyBody, requestToken } from "../../src/middleware/proxy";
 import { errorResponse, recordAccessLog } from "../../src/middleware/shared";
@@ -827,7 +827,6 @@ describe("console: body-size fast rejection", () => {
 
 describe("console: valid session authenticated access", () => {
   let validToken: string;
-  let validCsrfToken: string;
 
   beforeAll(async () => {
     const current = runtime.config.settings.ensure();
@@ -836,9 +835,6 @@ describe("console: valid session authenticated access", () => {
       pv: current.passwordVersion,
       ttlSeconds: 3600,
     });
-    const verified = await verifySessionToken(validToken, { secret: current.jwtSecret ?? "", expectedPv: current.passwordVersion });
-    if (!verified.ok) throw new Error("test session token failed verification");
-    validCsrfToken = await createConsoleCsrfToken(current.jwtSecret ?? "", verified.payload.jti);
   });
 
   test("QUERY /console/api/session returns 200 with role admin", async () => {
@@ -880,7 +876,6 @@ describe("console: valid session authenticated access", () => {
         cookie: `${SESSION_COOKIE_NAME}=${validToken}`,
         origin: testServer.url,
         host: new URL(testServer.url).host,
-        "x-cartethyia-csrf": validCsrfToken,
       },
       body: JSON.stringify({}),
     });

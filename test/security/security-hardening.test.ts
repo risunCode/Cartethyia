@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { CSRF_HEADER_NAME, createConsoleCsrfToken, verifyConsoleCsrfToken } from "../../src/console/session";
 import { applySecurityHeaders } from "../../src/security/headers";
 import { assertProductionBootstrapEnvironment } from "../../src/security/secrets";
 import { createPayloadCapture } from "../../src/application/request/payload-capture";
@@ -15,16 +14,6 @@ describe("security hardening contracts", () => {
     expect(requestToken(request)).toBeNull();
   });
 
-  test("binds the CSRF token to the authenticated session identity", async () => {
-    const secret = "security-test-secret-that-is-long-enough-123";
-    const token = await createConsoleCsrfToken(secret, "session-one");
-
-    expect(token.length).toBeGreaterThan(40);
-    expect(CSRF_HEADER_NAME).toBe("x-cartethyia-csrf");
-    expect(await verifyConsoleCsrfToken(secret, "session-one", token)).toBe(true);
-    expect(await verifyConsoleCsrfToken(secret, "session-two", token)).toBe(false);
-    expect(await verifyConsoleCsrfToken(secret, "session-one", null)).toBe(false);
-  });
 
   test("rejects production placeholder bootstrap credentials", () => {
     expect(() => assertProductionBootstrapEnvironment({ NODE_ENV: "production", CONSOLE_PASSWORD: "change-me" })).toThrow();

@@ -1,8 +1,7 @@
 /**
  * Console HTTP composition.
  *
- * Public surface: `/console/api/login` is unauthenticated. The CSRF
- * bootstrap endpoint is safe but still requires a valid session; every other
+ * Public surface: `/console/api/login` is unauthenticated. Every other
  * `/console/api/*` route sits behind the explicit console guard.
  *
  * Routes only translate HTTP to application-service calls; they never touch
@@ -23,7 +22,6 @@ import {
   buildSessionCookie,
   clientIp,
   consoleError,
-  createConsoleCsrfToken,
   guardConsoleRequest,
   isHttpsRequest,
   type ConsoleServices,
@@ -111,16 +109,7 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
         if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") query[key] = String(value);
       }
     })
-    // ---- authenticated bootstrap/read-only helpers ----
-    .route("QUERY", "/csrf", async ({ request, set }: RouteContext) => {
-      const options = await services.auth.guardOptions();
-      const verdict = await guardConsoleRequest(request, options);
-      if (!verdict.ok) {
-        set.status = verdict.status;
-        return consoleError(verdict.code, verdict.message);
-      }
-      return { csrfToken: await createConsoleCsrfToken(options.jwtSecret, verdict.payload.jti) };
-    })
+    // ---- authenticated read-only helpers ----
     .route("QUERY", "/ip", async ({ request, set }: RouteContext) => {
       const verdict = await guardConsoleRequest(request, await services.auth.guardOptions());
       if (!verdict.ok) {
