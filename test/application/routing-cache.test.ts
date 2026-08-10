@@ -65,12 +65,18 @@ describe("catalog revision", () => {
 });
 
 describe("configuration cache invalidation", () => {
-  test("filter rule mutations advance the runtime revision", async () => {
+  test("routing config mutations advance the runtime revision", async () => {
     const revision = { value: 0 };
     const config = {
       aliases: {},
       combos: {},
       proxies: {},
+      cliModelMappings: {
+        setEnabled: () => ({ toolId: "claude", enabled: true, updatedAt: "" }),
+        upsert: () => ({ toolId: "claude", slotKey: "mythos", sourceModel: "claude/claude-mythos-5", targetModel: "openai/gpt-5.6-luna", enabled: true, createdAt: "", updatedAt: "" }),
+        delete: () => true,
+        reset: () => {},
+      },
       accounts: {},
       customProviders: {},
       providerModels: {},
@@ -86,8 +92,16 @@ describe("configuration cache invalidation", () => {
     const tracked = withRoutingRevisionTracking(config, registry, undefined, revision);
 
     await tracked.filterRules.create({ pattern: "test", replacement: "", isRegex: false });
+    tracked.cliModelMappings.setEnabled("claude", true);
+    tracked.cliModelMappings.upsert({
+      toolId: "claude",
+      slotKey: "mythos",
+      sourceModel: "claude/claude-mythos-5",
+      targetModel: "openai/gpt-5.6-luna",
+      enabled: true,
+    });
 
-    expect(revision.value).toBe(1);
+    expect(revision.value).toBe(3);
   });
 });
 describe("lazy provider adapters", () => {

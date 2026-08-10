@@ -42,7 +42,7 @@ export function createConsoleAssembly({ config, baseConfig, runtime, registry, a
     after: (afterId, limit, filters) => runtime.consoleLogs.after(afterId, limit, filters),
     onPush: (listener) => runtime.consoleLogs.onPush(listener),
   });
-  const api = createConsoleApi({ services, diagnostics, config: baseConfig, runtime, logStream, probe: probeProviderModel, probePorts: { registry, accounts: credentialStore, credentials: accounts, accountHealth, network }, liveTraffic: { byIp: () => activePerIpFlights.snapshot(), maxFlightsPerIp: () => runtimeSettings(config).maxFlightsPerIp }, proxy, resetConfig: baseConfig.resetAll, resetRuntime: runtime.resetAll });
+  const api = createConsoleApi({ services, diagnostics, config, runtime, logStream, probe: probeProviderModel, probePorts: { registry, accounts: credentialStore, credentials: accounts, accountHealth, network }, liveTraffic: { byIp: () => activePerIpFlights.snapshot(), maxFlightsPerIp: () => runtimeSettings(config).maxFlightsPerIp }, proxy, resetConfig: baseConfig.resetAll, resetRuntime: runtime.resetAll });
   return {
     consoleApp: api.app,
     warpService: api.warpService,

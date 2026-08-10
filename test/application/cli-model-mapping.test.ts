@@ -16,8 +16,8 @@ function mappings(toolId: string, enabled: boolean): ReadonlyMap<string, CliMode
     [toolId, {
       enabled,
       entries: [
-        { sourceModel: "claude/claude-opus-4-8", targetModel: "openai/gpt-5.5", enabled: true },
-        { sourceModel: "claude/claude-mythos-5", targetModel: "kimchi/minimax-m3", enabled: true },
+        { sourceModel: "claude-opus-4-8", targetModel: "openai/gpt-5.5", enabled: true },
+        { sourceModel: "claude-mythos-5", targetModel: "kimchi/minimax-m3", enabled: true },
         { sourceModel: "gpt-5.1", targetModel: "openai/o4-mini", enabled: false },
       ],
     }],
@@ -26,24 +26,33 @@ function mappings(toolId: string, enabled: boolean): ReadonlyMap<string, CliMode
 
 describe("CLI model mapping", () => {
   test("maps only the detected CLI's exact enabled native slot", () => {
-    expect(resolveCliModelMapping(claude, "claude/claude-opus-4-8", mappings("claude", true))).toBe("openai/gpt-5.5");
-    expect(resolveCliModelMapping(codex, "claude/claude-opus-4-8", mappings("claude", true))).toBe("claude/claude-opus-4-8");
+    expect(resolveCliModelMapping(claude, "claude-opus-4-8", mappings("claude", true))).toBe("openai/gpt-5.5");
+    expect(resolveCliModelMapping(codex, "claude-opus-4-8", mappings("claude", true))).toBe("claude-opus-4-8");
   });
 
   test("does not map disabled settings, disabled entries, or unknown clients", () => {
-    expect(resolveCliModelMapping(claude, "claude/claude-opus-4-8", mappings("claude", false))).toBe("claude/claude-opus-4-8");
+    expect(resolveCliModelMapping(claude, "claude-opus-4-8", mappings("claude", false))).toBe("claude-opus-4-8");
     expect(resolveCliModelMapping(claude, "gpt-5.1", mappings("claude", true))).toBe("gpt-5.1");
-    expect(resolveCliModelMapping(unknown, "claude/claude-opus-4-8", mappings("claude", true))).toBe("claude/claude-opus-4-8");
+    expect(resolveCliModelMapping(unknown, "claude-opus-4-8", mappings("claude", true))).toBe("claude-opus-4-8");
   });
 
   test("detects the current Claude CLI user agent for model mapping", () => {
     const client = detectClient(new Headers({ "user-agent": "claude-cli/2.1.226 (external, sdk-cli)" }));
     expect(client).toEqual({ name: "claude_code", source: "user_agent" });
-    expect(resolveCliModelMapping(client, "claude/claude-opus-4-8", mappings("claude", true))).toBe("openai/gpt-5.5");
+    expect(resolveCliModelMapping(client, "claude-opus-4-8", mappings("claude", true))).toBe("openai/gpt-5.5");
   });
 
-  test("matches Claude Code model IDs without the claude namespace", () => {
+  test("maps Claude Code's native Mythos model ID", () => {
     expect(resolveCliModelMapping(claude, "claude-mythos-5", mappings("claude", true))).toBe("kimchi/minimax-m3");
+  });
+
+  test("keeps legacy qualified Claude mapping rows working", () => {
+    expect(resolveCliModelMapping(claude, "claude-mythos-5", new Map([
+      ["claude", {
+        enabled: true,
+        entries: [{ sourceModel: "claude/claude-mythos-5", targetModel: "openai/gpt-5.6-luna", enabled: true }],
+      }],
+    ]))).toBe("openai/gpt-5.6-luna");
   });
 
   test("keeps client detector IDs stable", () => {
@@ -78,11 +87,11 @@ describe("CLI native slot injectors", () => {
     apiKey: "sk-test",
     models: ["fallback-model"],
     modelSlots: {
-      opus: "claude/source-opus",
-      sonnet: "claude/source-sonnet",
-      haiku: "claude/source-haiku",
-      fable: "claude/source-fable",
-      mythos: "claude/source-mythos",
+      opus: "source-opus",
+      sonnet: "source-sonnet",
+      haiku: "source-haiku",
+      fable: "source-fable",
+      mythos: "source-mythos",
       session: "gpt-5.5",
       subagent: "o4-mini",
       review: "gpt-5.5-review",
@@ -91,8 +100,8 @@ describe("CLI native slot injectors", () => {
 
   test("Claude download emits every configured native role", async () => {
     const result = await claudeInjector.download(input);
-    expect(result.content).toContain(`\"ANTHROPIC_DEFAULT_FABLE_MODEL\": \"claude/source-fable\"`);
-    expect(result.content).toContain(`\"ANTHROPIC_DEFAULT_MODEL\": \"claude/source-mythos\"`);
+    expect(result.content).toContain(`\"ANTHROPIC_DEFAULT_FABLE_MODEL\": \"source-fable\"`);
+    expect(result.content).toContain(`\"ANTHROPIC_DEFAULT_MODEL\": \"source-mythos\"`);
     expect(result.content).not.toContain("ANTHROPIC_CUSTOM_MODEL_OPTION");
     expect(result.content).toContain(`\"ANTHROPIC_AUTH_TOKEN\": \"sk-test\"`);
   });
