@@ -20,6 +20,7 @@ import type { NormalizeInput } from "../../src/application/protocols";
 import { isProtocolError } from "../../src/application/protocols";
 import { OpenAIAdapter } from "../../src/providers/openai";
 import { CodexAdapter } from "../../src/providers/codex";
+import { buildGeminiPayload } from "../../src/open-sse/translate/codecs/gemini-generate-content";
 
 const limits: RequestLimits = { maxBodyBytes: 10_000_000, connectTimeoutMs: 10_000, firstByteTimeoutMs: 30_000, idleTimeoutMs: 30_000, totalTimeoutMs: 120_000 };
 function ni(signal?: AbortSignal): NormalizeInput { return { signal: signal ?? new AbortController().signal, limits }; }
@@ -113,6 +114,45 @@ describe("Chat Completions normalization and payload", () => {
     expect(p.response_format).toEqual({ type: "json_object" }); expect(p.max_tokens).toBe(100); expect(p.reasoning_effort).toBe("medium");
     expect(toOpenAIImageUrl({ kind: "data", value: "abc", mediaType: "image/jpeg" })).toBe("data:image/jpeg;base64,abc");
     expect(() => toOpenAIImageUrl({ kind: "file" as const, value: "x", mediaType: null })).toThrow(ProtocolCodecError);
+  });
+  test("removes unsupported JSON Schema keywords from Gemini tool declarations", () => {
+    const payload = buildGeminiPayload(chatReq({
+      tools: [{
+        name: "search",
+        description: "Search",
+        inputSchema: {
+          $schema: "http://json-schema.org/draft-07/schema#",
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            query: { type: "string", minLength: 1 },
+            options: {
+              type: "object",
+              properties: { limit: { type: "integer", minimum: 1 } },
+              additionalProperties: false,
+            },
+          },
+          required: ["query"],
+        },
+      }],
+    }));
+    const parameters = (((payload.tools as readonly Record<string, unknown>[])[0]?.functionDeclarations as readonly Record<string, unknown>[])[0]?.parameters);
+    expect(parameters).toEqual({
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        options: { type: "object", properties: { limit: { type: "integer" } } },
+      },
+      required: ["query"],
+    });
+    const continuation = buildGeminiPayload(chatReq({
+      messages: [
+        { role: "assistant", content: [{ type: "tool_use", toolName: "search", toolCallId: "call_search", toolArguments: "{}" }] },
+        { role: "user", content: [{ type: "tool_result", toolCallId: "call_search", text: "{\"ok\":true}" }] },
+      ],
+    }));
+    const continuationContents = continuation.contents as readonly Record<string, unknown>[];
+    expect((continuationContents[1]?.parts as readonly unknown[])[0]).toEqual({ functionResponse: { name: "search", response: { ok: true } } });
   });
   test("preserves Anthropic search results in Chat provider user context", () => {
     const payload = buildChatPayload(chatReq({
