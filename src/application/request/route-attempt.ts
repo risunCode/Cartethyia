@@ -15,9 +15,21 @@ interface RouteAttemptState {
   readonly reactiveRefreshes: Set<string>;
   readonly accountCandidatesByProvider: Map<string, Promise<readonly AccountCandidate[]>>;
   reactiveRetryCandidateId: string | null;
+  /** Re-run the same provider/model after an account-scoped failure so credential selection can fail over. */
+  accountRetryCandidateId: string | null;
   nextCandidateIndex: number;
   successfulSelection: RouteAttemptSelection | null;
   successfulCandidateId: string | null;
+}
+export function markAccountRetry(state: RouteAttemptState, candidateId: string): void {
+  state.accountRetryCandidateId = candidateId;
+}
+
+function consumeRetryCandidate(state: RouteAttemptState): string | null {
+  const candidateId = state.reactiveRetryCandidateId ?? state.accountRetryCandidateId;
+  state.reactiveRetryCandidateId = null;
+  state.accountRetryCandidateId = null;
+  return candidateId;
 }
 
 function selectWireSurface(adapter: Adapter, candidate: { readonly modelId: string }, request: ProxyRequest): Surface | null {
@@ -35,7 +47,7 @@ export interface RouteAttemptContext {
 }
 
 export function createRouteAttemptState(): RouteAttemptState {
-  return { selectedAttempts: new Map(), selectedCredentialKinds: new Map(), selectedCandidateIds: new Map(), reactiveRefreshes: new Set(), accountCandidatesByProvider: new Map(), reactiveRetryCandidateId: null, nextCandidateIndex: 0, successfulSelection: null, successfulCandidateId: null };
+  return { selectedAttempts: new Map(), selectedCredentialKinds: new Map(), selectedCandidateIds: new Map(), reactiveRefreshes: new Set(), accountCandidatesByProvider: new Map(), reactiveRetryCandidateId: null, accountRetryCandidateId: null, nextCandidateIndex: 0, successfulSelection: null, successfulCandidateId: null };
 }
 
 export function getRouteAttemptSelection(state: RouteAttemptState): RouteAttemptSelection | null {
@@ -81,9 +93,8 @@ export function createRouteAttempt(context: RouteAttemptContext): (index: number
   const { input, dependencies, request, plan, capture, state } = context;
   return async (index: number): Promise<ProviderOutput> => {
     let candidate: RouteCandidate | undefined;
-    if (state.reactiveRetryCandidateId !== null) {
-      const retryCandidateId = state.reactiveRetryCandidateId;
-      state.reactiveRetryCandidateId = null;
+    const retryCandidateId = consumeRetryCandidate(state);
+    if (retryCandidateId !== null) {
       candidate = plan.candidates.find((item) => item.id === retryCandidateId);
     } else {
       const candidateIndex = state.nextCandidateIndex;

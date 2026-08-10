@@ -108,8 +108,7 @@ function ToolDetailContent({
 
   const endpoint = useMemo(() => {
     if (typeof window === "undefined") return "http://localhost:12800";
-    const { protocol, hostname, port } = window.location;
-    return `${protocol}//${hostname}:${port || "12800"}`;
+    return window.location.origin;
   }, []);
 
   const buildInput = useCallback(async (): Promise<ApplyInput | null> => {

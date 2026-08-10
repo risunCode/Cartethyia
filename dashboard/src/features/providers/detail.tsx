@@ -22,7 +22,6 @@ import {
   type AccountHealthSnapshot,
   type RouteHealthSnapshot,
 } from "../../lib/account-health";
-import { staggerClass } from "../../lib/motion";
 import { accountIdentity, formatModelPricing, type ModelPricing } from "./formatters";
 import { errorMessage, selectAccountTestModel } from "./detail-helpers";
 import { OAuthConnectActions, type OAuthFlowCapabilities } from "./oauth-connect-actions";
@@ -1285,12 +1284,10 @@ export function ProviderDetailPage() {
     [accountWindow, accountsQuery],
   );
 
-  // Bulk actions reuse the single-account endpoints — there is no bulk
-  // route on the server, so this fires the existing PATCH/DELETE per selected
-  // id and settles once every request has resolved.
+  // Use the server-side batch contract so one UI action maps to one mutation.
   const bulkActiveMutation = useMutation({
     mutationFn: ({ ids, active }: { ids: string[]; active: boolean }) =>
-      Promise.all(ids.map((accountId) => apiPost(`/providers/${id}/accounts/${accountId}`, { active }))),
+      apiPatch(`/providers/${id}/accounts/batch`, { ids, active }),
     onSuccess: (_res, { ids, active }) => {
       toast.success(`${ids.length} account${ids.length === 1 ? "" : "s"} ${active ? "enabled" : "disabled"}`);
       setSelectedAccounts(new Set());
@@ -1427,13 +1424,12 @@ export function ProviderDetailPage() {
 
   // ── Model management ──────────────────────────────────────────────────
 
-  const renderModel = (model: ModelEntry, index: number) => {
+  const renderModel = (model: ModelEntry) => {
     const qualified = `${data.prefix}/${model.id}`;
     const priceLabel = formatModelPricing(model.pricing);
     const testing = checkTesting(model.id);
     return (
-      <div key={model.id} {...staggerClass(index)}>
-        <Card className={cn("flex h-full min-h-[168px] flex-col gap-1.5 rounded-xl p-2.5 transition-transform duration-150 hover:-translate-y-0.5 sm:min-h-[180px]", !model.enabled && "opacity-65")}>
+      <Card key={model.id} className={cn("flex h-full min-h-[168px] flex-col gap-1.5 rounded-xl p-2.5 transition-transform duration-150 hover:-translate-y-0.5 sm:min-h-[180px]", !model.enabled && "opacity-65")}>
           {/* Header: icon + qualified name + copy — fixed height */}
           <div className="flex min-h-[34px] items-start gap-1.5">
             <Bot size={14} aria-hidden="true" className="mt-0.5 shrink-0 text-[var(--text-3)]" />
@@ -1510,7 +1506,6 @@ export function ProviderDetailPage() {
             </button>
           </div>
         </Card>
-      </div>
     );
   };
 
@@ -1862,7 +1857,7 @@ export function ProviderDetailPage() {
             {disabledModels.length > 0 && (
               <section className="mt-5 border-t border-[var(--inner-border)] pt-4">
                 <div className="mb-2 text-xs font-semibold text-[var(--text-2)]">Disabled models · {disabledModels.length}</div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{disabledModels.map((model, index) => renderModel(model, activeModels.length + index))}</div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{disabledModels.map((model) => renderModel(model))}</div>
               </section>
             )}
           </>

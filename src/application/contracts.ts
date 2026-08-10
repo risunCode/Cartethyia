@@ -116,7 +116,7 @@ export interface ProviderRequest {
   readonly credential: string;
   readonly network: NetworkSelection;
   readonly signal: AbortSignal;
-  /** Original client headers needed for transparent provider passthrough. */
+  /** Original client headers for provider-specific allowlisted passthrough only. */
   readonly headers?: Headers;
   readonly capture?: PayloadCapture;
 }

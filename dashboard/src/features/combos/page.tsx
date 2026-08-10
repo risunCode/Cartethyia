@@ -5,7 +5,6 @@ import { ArrowRight, Pencil, Plus, Route, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "../../lib/toast";
 import { apiGet, apiPost, apiPatch, apiDelete } from "../../lib/api";
-import { staggerClass } from "../../lib/motion";
 import { qk } from "../../lib/query-keys";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -70,8 +69,8 @@ function AliasesTab() {
         <p className="py-8 text-center text-sm text-[var(--text-3)]">No aliases defined yet.</p>
       ) : (
         <div className="mt-3 space-y-2">
-          {items.map((a, i) => (
-            <div key={a.alias} {...staggerClass(i)} className="flex items-center justify-between rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-4 py-2.5">
+          {items.map((a) => (
+            <div key={a.alias} className="flex items-center justify-between rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-4 py-2.5">
               <div className="flex min-w-0 items-center gap-2 text-sm">
                 <code className="max-w-[40%] truncate rounded bg-[var(--accent-soft)] px-1.5 py-0.5 text-xs font-semibold text-[var(--accent)]">{a.alias}</code>
                 <ArrowRight size={14} className="shrink-0 text-[var(--text-3)]" />
@@ -158,8 +157,8 @@ function CombosTab() {
         <p className="py-8 text-center text-sm text-[var(--text-3)]">No combos defined yet.</p>
       ) : (
         <div className="mt-3 space-y-2">
-          {items.map((c, i) => (
-            <div key={c.id} {...staggerClass(i)} className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-4 py-3">
+          {items.map((c) => (
+            <div key={c.id} className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-4 py-3">
               <div className="flex items-center justify-between">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="min-w-0 truncate text-sm font-bold">{c.name}</span>

@@ -229,12 +229,30 @@ export function createOpenAIResponsesStreamMapper(): StreamMapper {
   const callIds = new Map<number, string>();
   const activeCalls = new Set<string>();
   const emitted = new Set<string>();
+  const callAliases = new Map<string, string>();
   const startIfNeeded = (events: StreamEvent[]): StreamEvent[] => {
     if (!started) {
       started = true;
       events.unshift({ type: "message_start", id: id ?? `resp_${crypto.randomUUID()}` });
     }
     return events;
+  };
+  const resolveCallId = (itemId: string | null, outputIndex: number): string => {
+    if (itemId !== null) {
+      const alias = callAliases.get(itemId);
+      if (alias !== undefined) return alias;
+      if (activeCalls.has(itemId)) return itemId;
+    }
+    const indexed = callIds.get(outputIndex);
+    if (indexed !== undefined) return indexed;
+    if (itemId !== null && activeCalls.size === 1) {
+      const onlyCall = activeCalls.values().next().value;
+      if (typeof onlyCall === "string") {
+        callAliases.set(itemId, onlyCall);
+        return onlyCall;
+      }
+    }
+    return itemId ?? `call_${outputIndex}`;
   };
   return (sse: SseEvent): StreamEvent | readonly StreamEvent[] | null => {
     const parsed = parseSseData(sse.data);
@@ -261,11 +279,11 @@ export function createOpenAIResponsesStreamMapper(): StreamMapper {
         return typeof delta === "string" && delta.length > 0 ? { type: "thinking_delta", text: delta } : null;
       }
       case "response.function_call_arguments.delta": {
-        const itemId = typeof parsed.item_id === "string" ? parsed.item_id : null;
+        const rawItemId = typeof parsed.item_id === "string" ? parsed.item_id : null;
         const outputIndex = typeof parsed.output_index === "number" ? parsed.output_index : -1;
         const delta = typeof parsed.delta === "string" ? parsed.delta : "";
         if (delta.length === 0) return null;
-        const callId = itemId ?? callIds.get(outputIndex) ?? `call_${outputIndex}`;
+        const callId = resolveCallId(rawItemId, outputIndex);
         emitted.add(callId);
         return { type: "tool_call_delta", callId, delta };
       }
@@ -277,8 +295,10 @@ export function createOpenAIResponsesStreamMapper(): StreamMapper {
         }
         if (isRecord(item) && item.type === "function_call") {
           const callId = typeof item.call_id === "string" ? item.call_id : typeof item.id === "string" ? item.id : `call_${outputIndex}`;
+          const itemId = typeof item.id === "string" ? item.id : null;
           const name = typeof item.name === "string" ? item.name : "";
           callIds.set(outputIndex, callId);
+          if (itemId !== null && itemId !== callId) callAliases.set(itemId, callId);
           activeCalls.add(callId);
           return [...startIfNeeded([{ type: "tool_call_start", callId, name }])];
         }
@@ -291,7 +311,8 @@ export function createOpenAIResponsesStreamMapper(): StreamMapper {
           return startIfNeeded([{ type: "context_item", phase: "done", outputIndex, item }]);
         }
         if (isRecord(item) && item.type === "function_call") {
-          const callId = callIds.get(outputIndex) ?? (typeof item.call_id === "string" ? item.call_id : `call_${outputIndex}`);
+          const rawItemId = typeof item.call_id === "string" ? item.call_id : typeof item.id === "string" ? item.id : null;
+          const callId = resolveCallId(rawItemId, outputIndex);
           const args = typeof item.arguments === "string" ? item.arguments : "";
           const events: StreamEvent[] = [];
           if (args.length > 0 && !emitted.has(callId)) {

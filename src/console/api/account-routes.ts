@@ -1,27 +1,9 @@
 import { Elysia } from "elysia";
 import { consoleError, type ConsoleServices } from "../services/composition";
+import { badRequest, notFound, ok, resolveProviderId } from "./route-helpers";
 
 export interface AccountRouteDependencies {
   readonly services: ConsoleServices;
-}
-
-function ok(extra: Record<string, unknown> = {}): Record<string, unknown> {
-  return { ok: true, ...extra };
-}
-
-function notFound(set: { status?: number | string }, message = "resource not found"): ReturnType<typeof consoleError> {
-  set.status = 404;
-  return consoleError("not_found", message);
-}
-
-function badRequest(set: { status?: number | string }, message: string): ReturnType<typeof consoleError> {
-  set.status = 400;
-  return consoleError("invalid_request", message);
-}
-
-async function resolveProviderId(services: ConsoleServices, id: string): Promise<string> {
-  const custom = (await services.providers.listCustom()).find((provider) => provider.id === id || provider.slug === id);
-  return custom?.slug ?? id;
 }
 
 /** Registers account, quota, and OAuth lifecycle routes. */

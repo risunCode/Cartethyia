@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 import { MAX_BACKUP_BYTES } from "../../storage";
 import { convert9RouterBackup } from "../compat/9router";
 import { buildSessionClearCookie, consoleError, type ConsoleServices } from "../services/composition";
+import { ok } from "./route-helpers";
 
 export interface SettingsRouteDependencies {
   readonly services: ConsoleServices;
@@ -9,9 +10,6 @@ export interface SettingsRouteDependencies {
   readonly resetRuntime: () => void;
 }
 
-function ok(extra: Record<string, unknown> = {}): Record<string, unknown> {
-  return { ok: true, ...extra };
-}
 
 /** Registers authentication-session, settings, and backup routes. */
 export function registerSettingsRoutes<T extends Elysia<any, any, any, any, any, any>>(app: T, deps: SettingsRouteDependencies): T {

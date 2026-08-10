@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/button";
 import { StatePanel } from "../../components/ui/state";
 import { ProviderIcon } from "../../components/provider-icon";
 import { ConfirmDialog } from "../../components/shared";
-import { apiDelete, apiGet, apiPost } from "../../lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
 import { cn } from "../../lib/cn";
 import { toast } from "../../lib/toast";
@@ -69,6 +69,16 @@ function normalizeQuotaResponse(value: unknown): QuotaData | null {
 }
 function isEmpty(account: QuotaEntry): boolean {
   return Boolean(account.quota?.windows.length && account.quota.windows.every((window) => window.remainingPercent !== null && window.remainingPercent <= 0));
+}
+
+async function setAccountsActiveBatch(accounts: readonly QuotaEntry[], active: boolean): Promise<void> {
+  const idsByProvider = new Map<string, string[]>();
+  for (const account of accounts) {
+    const ids = idsByProvider.get(account.provider);
+    if (ids === undefined) idsByProvider.set(account.provider, [account.id]);
+    else ids.push(account.id);
+  }
+  await Promise.all([...idsByProvider].map(([provider, ids]) => apiPatch(`/providers/${provider}/accounts/batch`, { ids, active })));
 }
 
 function firstResetAt(account: QuotaEntry): number {
@@ -241,13 +251,13 @@ export function QuotaPage() {
   };
   const turnOffEmpty = async () => {
     const targets = accounts.filter((account) => account.active && isEmpty(account));
-    await Promise.all(targets.map((account) => apiPost(`/providers/${account.provider}/accounts/${account.id}`, { active: false })));
+    await setAccountsActiveBatch(targets, false);
     toast.success(`Disabled ${targets.length} empty accounts`);
     await refetch();
   };
   const turnOnAvailable = async () => {
     const targets = accounts.filter((account) => !account.active && account.quota?.windows.some((window) => window.remainingPercent !== null && window.remainingPercent > 0));
-    await Promise.all(targets.map((account) => apiPost(`/providers/${account.provider}/accounts/${account.id}`, { active: true })));
+    await setAccountsActiveBatch(targets, true);
     toast.success(`Enabled ${targets.length} available accounts`);
     await refetch();
   };

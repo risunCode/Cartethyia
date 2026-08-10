@@ -14,25 +14,10 @@
  */
 
 import { Elysia, type HTTPHeaders } from "elysia";
-import { consoleError } from "../services/composition";
 import { getPersistenceEnv } from "../../storage/main/env";
+import { badRequest, internalError, notFound } from "../api/route-helpers";
 import { DbMapService, type DbMapPersistence } from "./service";
 import type { DbTarget } from "./types";
-
-function badRequest(set: { status?: number | string; headers: HTTPHeaders }, message: string) {
-  set.status = 400;
-  return consoleError("invalid_request", message);
-}
-
-function notFound(set: { status?: number | string; headers: HTTPHeaders }, message: string) {
-  set.status = 404;
-  return consoleError("not_found", message);
-}
-
-function internalError(set: { status?: number | string; headers: HTTPHeaders }, message: string) {
-  set.status = 500;
-  return consoleError("internal_error", message);
-}
 
 function resolveTarget(value: unknown): DbTarget | null {
   if (value === "config" || value === "runtime") return value;
@@ -140,10 +125,7 @@ export function createDbMapApi(persistence: DbMapPersistence | null = null): Ely
       }
 
       const result = service.importDb(target, data);
-      if (!result.ok) {
-        set.status = 400;
-        return consoleError("invalid_request", result.error);
-      }
+      if (!result.ok) return badRequest(set, result.error);
 
       return { ok: true, message: result.message };
     });

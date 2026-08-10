@@ -19,6 +19,7 @@ import { type WarpApiMount } from "../warp/api-routes";
 import { createDbMapApi } from "../db-map/api-routes";
 import type { DbMapPersistence } from "../db-map/service";
 import { consoleError } from "../services/composition";
+import { badRequest, notFound, ok } from "./route-helpers";
 
 export interface DiagnosticRouteDependencies {
   readonly services: ConsoleServices;
@@ -37,19 +38,6 @@ export interface DiagnosticRouteDependencies {
   readonly warpApi: WarpApiMount;
 }
 
-function ok(extra: Record<string, unknown> = {}): Record<string, unknown> {
-  return { ok: true, ...extra };
-}
-
-function notFound(set: { status?: number | string }, message = "resource not found"): ReturnType<typeof consoleError> {
-  set.status = 404;
-  return consoleError("not_found", message);
-}
-
-function badRequest(set: { status?: number | string }, message: string): ReturnType<typeof consoleError> {
-  set.status = 400;
-  return consoleError("invalid_request", message);
-}
 
 function buildLiveTrafficSnapshot(liveTraffic: DiagnosticRouteDependencies["liveTraffic"]): { inFlight: number; byIp: readonly { ip: string; active: number }[]; byProvider: readonly { providerId: string; active: number }[]; maxFlightsPerIp: number } {
   return { inFlight: getInFlightCount(), byIp: liveTraffic.byIp(), byProvider: getProviderInFlight(), maxFlightsPerIp: liveTraffic.maxFlightsPerIp() };

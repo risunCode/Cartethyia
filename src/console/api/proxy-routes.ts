@@ -1,24 +1,12 @@
 import { Elysia } from "elysia";
-import { consoleError, type ConsoleServices } from "../services/composition";
+import { type ConsoleServices } from "../services/composition";
 import { COUNTRIES } from "../services/proxy-scraper";
+import { badRequest, notFound, ok } from "./route-helpers";
 
 export interface ProxyRouteDependencies {
   readonly services: ConsoleServices;
 }
 
-function ok(extra: Record<string, unknown> = {}): Record<string, unknown> {
-  return { ok: true, ...extra };
-}
-
-function notFound(set: { status?: number | string }): ReturnType<typeof consoleError> {
-  set.status = 404;
-  return consoleError("not_found", "resource not found");
-}
-
-function badRequest(set: { status?: number | string }, message: string): ReturnType<typeof consoleError> {
-  set.status = 400;
-  return consoleError("invalid_request", message);
-}
 
 /** Registers persisted proxy and proxy-settings routes. */
 export function registerProxyRoutes<T extends Elysia<any, any, any, any, any, any>>(app: T, deps: ProxyRouteDependencies): T {

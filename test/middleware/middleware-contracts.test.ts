@@ -2,9 +2,11 @@
 // NODE_ENV is unset, getPersistenceEnv() defaults DATA_DIR to ./data and
 // opens a pre-existing production database — which would seed settings and
 // API keys that contaminate the test contracts. These must be in module
-// scope (top-level) so they are set before createCartethyiaRuntime() runs.
+// The process environment may load the developer's .env; clear public-origin
+// policy so ephemeral test-server origins exercise the same-origin fallback.
+// These assignments must stay top-level so they run before createCartethyiaRuntime() initializes.
 process.env.NODE_ENV = "test";
-process.env.CARTETHYIA_REQUEST_LOGS = "0";
+process.env.PUBLIC_ORIGIN = "";
 const _dataDir = mkdtempSync(join(tmpdir(), "cartethyia-gateway-"));
 process.env.DATA_DIR = _dataDir;
 

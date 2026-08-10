@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 
 import {
   Activity,
@@ -10,15 +10,18 @@ import {
   MapPin,
   MemoryStick,
   Network,
+  ShieldAlert,
   TriangleAlert,
 } from "lucide-react";
-import { apiGet } from "../../lib/api";
+import { apiGet, apiPost } from "../../lib/api";
 import { formatBandwidthKb, formatDuration, formatMemoryMb } from "../../lib/format";
+import { toast } from "../../lib/toast";
 import { qk } from "../../lib/query-keys";
 import { ClipboardButton } from "../../components/patterns/clipboard-button";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
+import { Dialog } from "../../components/ui/dialog";
 import { StatCard, StatePanel } from "../../components/ui/state";
 import { ApiKeysPanel } from "./api-keys-panel";
 
@@ -108,6 +111,10 @@ interface HealthMetrics {
   netTotalKb: number | null;
   netRateKbps: number | null;
 }
+interface GcResponse {
+  status: "scheduled" | "deferred" | "already_pending";
+  inFlight: number;
+}
 
 interface WarpMetricsSummary {
   totalRssMb: number;
@@ -151,6 +158,17 @@ export function OverviewPage() {
     queryKey: qk.warp.metricsSummary,
     queryFn: () => apiGet<WarpMetricsSummary>("/warp/metrics/summary"),
     refetchInterval: 5_000,
+  });
+  const [cleanRamOpen, setCleanRamOpen] = useState(false);
+  const cleanRamMutation = useMutation({
+    mutationFn: () => apiPost<GcResponse>("/health/gc"),
+    onSuccess: (result) => {
+      setCleanRamOpen(false);
+      void healthQuery.refetch();
+      const message = result.status === "deferred" ? "GC queued until active proxy traffic is idle." : result.status === "already_pending" ? "A runtime GC request is already pending." : "Bun runtime GC requested.";
+      toast.success("Runtime memory cleanup requested", { description: message });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Unable to request runtime GC"),
   });
 
 
@@ -217,7 +235,10 @@ export function OverviewPage() {
                     <p className="mt-0.5 line-clamp-2 text-[9.5px] leading-[1.25] text-[var(--text-3)]">Bun Runtime · Cartethyia process</p>
                 </div>
                 </div>
-                <Badge tone="accent">Live</Badge>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <Badge tone="accent">Live</Badge>
+                  <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[10px]" onClick={() => setCleanRamOpen(true)} aria-label="Open runtime GC cleaner">Run GC</Button>
+                </div>
               </div>
               <div className="mt-3 flex items-baseline gap-2">
                 <span className="shrink-0 whitespace-nowrap text-[22px] font-bold leading-none tracking-tight tabular-nums">{health ? formatMemoryMb(health.memoryUsedMb) : "—"}</span>
@@ -367,6 +388,28 @@ export function OverviewPage() {
           </div>
         </div>
       </Card>
+      <Dialog
+        open={cleanRamOpen}
+        onClose={() => { if (!cleanRamMutation.isPending) setCleanRamOpen(false); }}
+        title="Release runtime memory"
+        footer={<>
+          <Button type="button" variant="ghost" onClick={() => setCleanRamOpen(false)} disabled={cleanRamMutation.isPending}>Cancel</Button>
+          <Button type="button" variant="danger" onClick={() => cleanRamMutation.mutate()} disabled={cleanRamMutation.isPending}>{cleanRamMutation.isPending ? "Running…" : "Run runtime GC"}</Button>
+        </>}
+      >
+        <div className="space-y-4 text-sm">
+          <div className="flex gap-3 rounded-xl border border-[rgba(10,132,255,0.35)] bg-[rgba(10,132,255,0.08)] p-3">
+            <ShieldAlert className="mt-0.5 shrink-0 text-[#0a84ff]" size={18} aria-hidden="true" />
+            <p className="text-[var(--text-2)]">This asks Bun to reclaim unused JavaScript and native allocator memory from the Cartethyia process.</p>
+          </div>
+          <ul className="list-disc space-y-2 pl-5 text-[var(--text-2)]">
+            <li>Cross-platform: works wherever Cartethyia runs under Bun.</li>
+            <li>Waits for active proxy traffic to become idle, so live requests are not synchronously paused.</li>
+            <li>It does not clear the operating system file cache, kill processes, or guarantee a lower RSS value.</li>
+          </ul>
+          <p className="text-xs text-[var(--text-3)]">This is the safe runtime cleanup path; no root privilege or external cleaner is required.</p>
+        </div>
+      </Dialog>
       <ApiKeysPanel />
 
     </div>

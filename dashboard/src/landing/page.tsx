@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ComponentType, type MouseEvent, type 
 import { Activity, ArrowDown, ArrowUpRight, Check, GithubIcon, Home, MessageCircle, Network, ShieldCheck, Sparkles, Terminal } from "lucide-react";
 
 import { Button } from "../components/ui/button";
-import { useMotionProfile } from "../lib/motion";
 
 interface Signal {
   readonly label: string;
@@ -172,12 +171,12 @@ const signalIcons: Record<SignalIconName, ComponentType<{ size?: number; "aria-h
   terminal: Terminal,
 };
 
-function handleAnchorClick(event: MouseEvent<HTMLAnchorElement>, target: string, reduceMotion = false): void {
+function handleAnchorClick(event: MouseEvent<HTMLAnchorElement>, target: string): void {
   if (!target.startsWith("#")) return;
   const element = document.querySelector<HTMLElement>(target);
   if (element === null) return;
   event.preventDefault();
-  element.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+  element.scrollIntoView({ behavior: "smooth", block: "start" });
   window.history.replaceState(null, "", target);
 }
 
@@ -194,8 +193,6 @@ function SignalRow({ signal }: { readonly signal: Signal }): ReactElement {
 
 export function LandingPage(): ReactElement {
   const [scrollState, setScrollState] = useState({ activeIndex: 0, imageIndex: 0, sceneProgress: 0, totalProgress: 0 });
-  const motionProfile = useMotionProfile();
-  const reduceMotion = motionProfile === "reduced";
   const { activeIndex, imageIndex, sceneProgress, totalProgress } = scrollState;
   const chapter = CHAPTERS[activeIndex] ?? CHAPTERS[0];
   const visualChapter = CHAPTERS[imageIndex] ?? CHAPTERS[0];
@@ -208,7 +205,7 @@ export function LandingPage(): ReactElement {
 
   useEffect(() => {
     document.title = "Cartethyia — The One-Stop AI Proxy Router";
-    const progressRenderStep = motionProfile === "mobile" ? 0.12 : motionProfile === "reduced" ? 0.2 : 0.04;
+    const progressRenderStep = 0.04;
     let frame: number | null = null;
     const updateScrollState = (): void => {
       const viewportHeight = Math.max(window.innerHeight, 1);
@@ -260,8 +257,8 @@ export function LandingPage(): ReactElement {
       window.removeEventListener("resize", scheduleUpdate);
       if (frame !== null) window.cancelAnimationFrame(frame);
     };
-  }, [motionProfile]);
 
+  }, []);
   useEffect(() => {
     const preloadImage = (image: string): void => {
       if (readyImageUrlsRef.current.has(image) || preloadingImageUrlsRef.current.has(image)) return;
@@ -286,11 +283,11 @@ export function LandingPage(): ReactElement {
   useEffect(() => {
     const root = document.documentElement;
     const previousSnap = root.style.scrollSnapType;
-    root.style.scrollSnapType = reduceMotion ? "none" : "y proximity";
+    root.style.scrollSnapType = "y proximity";
     return () => {
       root.style.scrollSnapType = previousSnap;
     };
-  }, [reduceMotion]);
+  }, []);
 
   function markImageReady(image: string): void {
     if (readyImageUrlsRef.current.has(image)) return;
@@ -299,7 +296,7 @@ export function LandingPage(): ReactElement {
   }
 
   function scrollToChapter(index: number): void {
-    chapterRefs.current[index]?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    chapterRefs.current[index]?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function handlePrimaryAction(): void {
@@ -327,7 +324,7 @@ export function LandingPage(): ReactElement {
           decoding="async"
           onLoad={() => markImageReady(visualChapter.image)}
         />
-        {nextVisualChapter !== undefined && motionProfile !== "reduced" ? (
+        {nextVisualChapter !== undefined ? (
           <img
             key={nextVisualChapter.image}
             src={nextVisualChapter.image}
@@ -343,15 +340,15 @@ export function LandingPage(): ReactElement {
 
       <header className="fixed inset-x-0 top-0 z-30">
         <div className="mx-auto flex h-16 w-[min(100%-2rem,1280px)] items-center justify-between gap-4 sm:h-[72px] sm:w-[min(100%-3rem,1280px)]">
-          <a className="inline-flex items-center gap-2.5 text-white no-underline" href="#top" onClick={(event) => handleAnchorClick(event, "#top", reduceMotion)}>
+          <a className="inline-flex items-center gap-2.5 text-white no-underline" href="#top" onClick={(event) => handleAnchorClick(event, "#top")}>
             <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/25 bg-white p-0.5 shadow-lg"><img className="h-full w-full rounded-[9px] object-cover" src={`${import.meta.env.BASE_URL}favicon.webp`} alt="" /></span>
             <span className="grid gap-0.5"><strong className="font-serif text-lg font-normal leading-none sm:text-xl">Cartethyia</strong><small className="text-[8px] font-bold tracking-[0.18em] text-white/55">AI PROXY ROUTER</small></span>
           </a>
           <nav className="hidden items-center gap-1 md:flex" aria-label="Primary navigation">
-            <a className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-white/65 transition hover:bg-white/10 hover:text-white" href="#top" onClick={(event) => handleAnchorClick(event, "#top", reduceMotion)}><Home size={14} aria-hidden="true" />Home</a>
+            <a className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-white/65 transition hover:bg-white/10 hover:text-white" href="#top" onClick={(event) => handleAnchorClick(event, "#top")}><Home size={14} aria-hidden="true" />Home</a>
             <a className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-white/65 transition hover:bg-white/10 hover:text-white" href="/console/login"><Terminal size={14} aria-hidden="true" />Console</a>
             <a className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-white/65 transition hover:bg-white/10 hover:text-white" href={GITHUB_URL} target="_blank" rel="noreferrer"><GithubIcon size={14} aria-hidden="true" />GitHub</a>
-            <a className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-white/65 transition hover:bg-white/10 hover:text-white" href={DISCORD_ANCHOR} onClick={(event) => handleAnchorClick(event, DISCORD_ANCHOR, reduceMotion)}><MessageCircle size={14} aria-hidden="true" />Discord</a>
+            <a className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-white/65 transition hover:bg-white/10 hover:text-white" href={DISCORD_ANCHOR} onClick={(event) => handleAnchorClick(event, DISCORD_ANCHOR)}><MessageCircle size={14} aria-hidden="true" />Discord</a>
           </nav>
           <a className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/25 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white hover:text-[#070b13]" href="/console/login">Enter console<ArrowUpRight size={14} aria-hidden="true" /></a>
         </div>
@@ -376,7 +373,7 @@ export function LandingPage(): ReactElement {
                 <div className="mt-7 grid sm:grid-cols-3 sm:gap-5">
                   {chapter.signals.map((signal) => <SignalRow key={`${chapter.id}-${signal.label}`} signal={signal} />)}
                 </div>
-                {activeIndex === CHAPTERS.length - 1 ? <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-xs font-semibold text-white/75"><a className="inline-flex items-center gap-2 transition hover:text-white" href={GITHUB_URL} target="_blank" rel="noreferrer"><GithubIcon size={15} aria-hidden="true" />Source on GitHub<ArrowUpRight size={14} aria-hidden="true" /></a><a className="inline-flex items-center gap-2 transition hover:text-white" href={DISCORD_ANCHOR} onClick={(event) => handleAnchorClick(event, DISCORD_ANCHOR, reduceMotion)}><MessageCircle size={15} aria-hidden="true" />Join the Discord<ArrowUpRight size={14} aria-hidden="true" /></a></div> : null}
+                {activeIndex === CHAPTERS.length - 1 ? <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-xs font-semibold text-white/75"><a className="inline-flex items-center gap-2 transition hover:text-white" href={GITHUB_URL} target="_blank" rel="noreferrer"><GithubIcon size={15} aria-hidden="true" />Source on GitHub<ArrowUpRight size={14} aria-hidden="true" /></a><a className="inline-flex items-center gap-2 transition hover:text-white" href={DISCORD_ANCHOR} onClick={(event) => handleAnchorClick(event, DISCORD_ANCHOR)}><MessageCircle size={15} aria-hidden="true" />Join the Discord<ArrowUpRight size={14} aria-hidden="true" /></a></div> : null}
               </section>
           </div>
         </div>

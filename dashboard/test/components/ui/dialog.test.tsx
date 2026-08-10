@@ -10,6 +10,7 @@ describe("overlay keyboard contracts", () => {
     render(<Dialog open onClose={onClose} title="Edit provider"><button type="button">Save</button></Dialog>);
     expect(screen.getByRole("dialog", { name: "Edit provider" })).toBeInTheDocument();
     await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
@@ -25,6 +26,7 @@ describe("overlay keyboard contracts", () => {
     await userEvent.click(screen.getByRole("button", { name: "Restore dialog" }));
     expect(screen.getByText("Modal content")).toBeInTheDocument();
     await userEvent.click(screen.getAllByRole("button", { name: "Close dialog" })[1]!);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 

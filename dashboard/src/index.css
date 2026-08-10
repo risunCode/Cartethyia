@@ -1,9 +1,5 @@
 @import "tailwindcss";
 
-@keyframes stagger-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
 
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(-8px) scale(0.98); }
@@ -52,35 +48,34 @@
   animation: sidebar-from-right 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
-.motion-dialog-overlay,
-.motion-drawer-overlay {
-  opacity: 1;
-  transition: opacity 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+.motion-dialog-overlay {
+  animation: dialog-overlay-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-.motion-dialog-overlay[data-state="closed"],
-.motion-drawer-overlay[data-state="closed"] {
-  opacity: 0;
+@keyframes dialog-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .motion-dialog-panel {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  transition: opacity 180ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: dialog-panel-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-.motion-dialog-panel[data-state="closed"] {
-  opacity: 0;
-  transform: translateY(8px) scale(0.97);
+@keyframes dialog-panel-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.motion-drawer-overlay {
+  animation: dialog-overlay-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .motion-drawer-panel {
-  transform: translateX(0);
-  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: drawer-panel-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-.motion-drawer-panel[data-state="closed"] {
-  transform: translateX(105%);
+@keyframes drawer-panel-in {
+  from { transform: translateX(105%); }
+  to { transform: translateX(0); }
 }
 
 .landing-scene-image {
@@ -104,10 +99,6 @@
   opacity: 1;
 }
 
-html[data-motion-profile="reduced"] .landing-scene-image {
-  transition: none;
-  will-change: auto;
-}
 
 .landing-scene-progress-vertical {
   height: calc(var(--scene-progress, 0) * 100%);
@@ -117,18 +108,6 @@ html[data-motion-profile="reduced"] .landing-scene-image {
   width: calc(var(--scene-progress, 0) * 100%);
 }
 
-html[data-motion-profile="mobile"] .route-enter,
-html[data-motion-profile="mobile"] .motion-entry-enter,
-html[data-motion-profile="mobile"] .sidebar-page-advanced {
-  animation-duration: 120ms;
-}
-
-html[data-motion-profile="reduced"] .route-enter,
-html[data-motion-profile="reduced"] .sidebar-page-advanced,
-html[data-motion-profile="reduced"] .landing-scene-image {
-  opacity: 1;
-  transform: none;
-}
 
 /* Login form entrance — CSS-only, zero framer-motion overhead */
 .login-enter {
@@ -140,11 +119,6 @@ html[data-motion-profile="reduced"] .landing-scene-image {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-html[data-motion-profile="reduced"] .login-enter {
-  animation: none;
-  opacity: 1;
-  transform: none;
-}
 
 /* Theme toggle icon swap — CSS-only crossfade + rotate */
 .theme-icon-enter {
@@ -156,14 +130,8 @@ html[data-motion-profile="reduced"] .login-enter {
   to { opacity: 1; transform: rotate(0) scale(1); }
 }
 
-html[data-motion-profile="reduced"] .theme-icon-enter {
-  animation: none;
-  opacity: 1;
-  transform: none;
-}
 
-/* Traffic chart active line — CSS-only dash animation, disabled on mobile/reduced.
-   `content-visibility: auto` on the chart container skips rendering when offscreen. */
+/* Traffic chart active line — CSS-only dash animation. */
 .traffic-line-active {
   animation: traffic-dash 0.8s linear infinite;
 }
@@ -182,15 +150,6 @@ html[data-motion-profile="reduced"] .theme-icon-enter {
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-html[data-motion-profile="mobile"] .chat-bubble-enter {
-  animation-duration: 0.18s;
-}
-
-html[data-motion-profile="reduced"] .chat-bubble-enter {
-  animation: none;
-  opacity: 1;
-  transform: none;
-}
 
 /* "Thinking" shimmer — glowing text that sweeps right, like iOS/ChatGPT loading */
 .thinking-shimmer {
@@ -218,18 +177,12 @@ html[data-motion-profile="reduced"] .chat-bubble-enter {
   100% { background-position: -100% 0; }
 }
 
-html[data-motion-profile="reduced"] .thinking-shimmer {
-  background: none;
-  -webkit-text-fill-color: var(--text-3);
-  color: var(--text-3);
-  animation: none;
-}
 
 @keyframes traffic-dash {
   to { stroke-dashoffset: -12; }
 }
 
-/* Popout/dropdown animation — CSS-driven, profile-aware */
+/* Popout/dropdown animation — CSS-driven. */
 @keyframes popout-in {
   from { opacity: 0; transform: translateY(-6px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -240,14 +193,6 @@ html[data-motion-profile="reduced"] .thinking-shimmer {
   transform-origin: top center;
 }
 
-html[data-motion-profile="mobile"] .popout-enter {
-  animation-duration: 0.12s;
-}
-
-html[data-motion-profile="reduced"] .popout-enter {
-  animation: none;
-  opacity: 1;
-}
 
 /* Ensure popout panels are always opaque and on top */
 .popout-enter {
@@ -268,40 +213,6 @@ html[data-motion-profile="reduced"] .popout-enter {
   }
 }
 
-html[data-motion-profile="max"] .traffic-line-active {
-  animation-duration: 0.5s;
-}
-
-html[data-motion-profile="reduced"] .traffic-line-active,
-html[data-motion-profile="mobile"] .traffic-line-active {
-  animation: none;
-}
-
-/* Disable backdrop-blur on mobile/reduced — GPU-heavy on 2GB RAM devices */
-html[data-motion-profile="mobile"] .backdrop-blur-\[6px\],
-html[data-motion-profile="reduced"] .backdrop-blur-\[6px\] {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  background-color: rgba(0, 0, 0, 0.6);
-}
-
-.stagger-item {
-  animation: stagger-in 0.12s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-
-html[data-motion-profile="mobile"] .stagger-item {
-  animation-duration: 0.09s;
-}
-
-html[data-motion-profile="max"] .stagger-item {
-  animation-duration: 0.18s;
-}
-
-html[data-motion-profile="reduced"] .stagger-item {
-  animation: none;
-  opacity: 1;
-  transform: none;
-}
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -607,27 +518,6 @@ html[data-glass="off"] .custom-background-layer {
   filter: none;
 }
 
-/* Constrained and reduced profiles avoid every blur/filter compositing path. */
-html[data-motion-profile="mobile"] .glass,
-html[data-motion-profile="mobile"] .glass-2,
-html[data-motion-profile="reduced"] .glass,
-html[data-motion-profile="reduced"] .glass-2 {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-html[data-motion-profile="mobile"] [class*="backdrop-blur"],
-html[data-motion-profile="reduced"] [class*="backdrop-blur"],
-html[data-motion-profile="mobile"] .toast-surface,
-html[data-motion-profile="reduced"] .toast-surface {
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
-}
-
-html[data-motion-profile="mobile"] .custom-background-layer,
-html[data-motion-profile="reduced"] .custom-background-layer {
-  filter: none;
-}
 
 
 /* A custom image is already a costly full-screen backdrop. Keep the frosted
@@ -684,42 +574,8 @@ html[data-motion-profile="reduced"] .custom-background-layer {
   border-radius: 8px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation: none !important;
-    transition: none !important;
-    scroll-behavior: auto !important;
-  }
-}
 
-html[data-motion-profile="reduced"] *,
-html[data-motion-profile="reduced"] *::before,
-html[data-motion-profile="reduced"] *::after {
-  animation: none !important;
-  transition: none !important;
-  scroll-behavior: auto !important;
-}
 
-/* Mobile prioritizes immediate interaction and scrolling over translucent blur and list choreography. */
-@media (max-width: 767px) {
-  .glass,
-  .glass-2 {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-
-  .skeleton {
-    animation: none;
-  }
-
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-  }
-}
 
 /* ── Theme transition ───────────────────────────────────────────────────────
    Crossfade the snapshots instead of clipping a full glass/chart surface. */
@@ -746,11 +602,5 @@ html[data-theme-wipe]::view-transition-new(root) {
   to { opacity: 1; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  html[data-theme-wipe]::view-transition-old(root),
-  html[data-theme-wipe]::view-transition-new(root) {
-    animation: none;
-  }
-}
 
 

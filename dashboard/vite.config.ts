@@ -18,6 +18,10 @@ export default defineConfig({
         target: "http://127.0.0.1:12800",
         changeOrigin: false,
       },
+      "/v1": {
+        target: "http://127.0.0.1:12800",
+        changeOrigin: false,
+      },
     },
   },
   build: {

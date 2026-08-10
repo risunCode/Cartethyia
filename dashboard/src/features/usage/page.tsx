@@ -28,7 +28,6 @@ import { DataTable } from "../../components/ui/layout";
 import { Drawer } from "../../components/ui/drawer";
 import { Select, Tabs } from "../../components/ui/tabs";
 import { formatDuration, formatNumber, formatTime, formatTokens, formatUsd } from "../../lib/format";
-import { staggerClass } from "../../lib/motion";
 import { qk } from "../../lib/query-keys";
 
 type Period = "1h" | "24h" | "7d" | "30d" | "all";
@@ -351,13 +350,12 @@ function BreakdownSnapshot({ period, dimension, onDimensionChange }: { period: P
       <div className="space-y-2 px-1">
         {byQuery.isLoading && <div className="space-y-2"><div className="h-10 animate-pulse rounded-xl bg-[var(--surface-muted)]" /><div className="h-10 animate-pulse rounded-xl bg-[var(--surface-muted)]" /></div>}
         {!byQuery.isLoading && rows.length === 0 && <div className="grid min-h-[180px] place-items-center rounded-xl border border-dashed border-[var(--inner-border)] px-3 py-8 text-center text-xs text-[var(--text-3)]">No usage for this period.</div>}
-        {rows.map((row, index) => {
+        {rows.map((row) => {
           const pct = maxTotal > 0 ? Math.max(2, (row.total / maxTotal) * 100) : 2;
           const displayName = dimension === "provider" ? providerDisplayName(row.name, providerNames) : row.name;
           return (
             <div
               key={row.name}
-              {...staggerClass(index)}
               className="relative overflow-hidden rounded-xl border border-[var(--inner-border)] bg-[var(--hover)]"
             >
               {/* Progress bar background */}
@@ -413,8 +411,8 @@ function BreakdownCard({ period, dimension, onDimensionChange }: { period: Perio
           <tbody>
             {byQuery.isLoading && <tr><td colSpan={modeIsCosts ? 8 : 7} className="px-3 py-8 text-center text-xs text-[var(--text-3)]">Loading breakdown…</td></tr>}
             {!byQuery.isLoading && rows.length === 0 && <tr><td colSpan={modeIsCosts ? 8 : 7} className="px-3 py-8 text-center text-xs text-[var(--text-3)]">No usage for this period.</td></tr>}
-            {rows.slice(0, 25).map((row, index) => (
-              <tr key={row.name} {...staggerClass(index)} className="border-b border-[var(--inner-border)] last:border-0 hover:bg-[var(--hover)]"><td className="max-w-[260px] truncate px-3 py-2.5 font-mono text-xs font-semibold">{dimension === "provider" ? providerDisplayName(row.name, providerNames) : row.name}</td><td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.requests)}</td><td className="px-3 py-2.5 text-right tabular-nums text-[var(--red)]">{row.errors > 0 ? formatNumber(row.errors) : "—"}</td><td className="px-3 py-2.5 text-right tabular-nums">{modeIsCosts ? "—" : formatTokens(row.input)}</td><td className="px-3 py-2.5 text-right tabular-nums text-[#bf5af2]">{modeIsCosts ? "—" : formatTokens(row.cached)}</td><td className="px-3 py-2.5 text-right tabular-nums">{modeIsCosts ? "—" : formatTokens(row.output)}</td><td className="px-3 py-2.5 text-right font-semibold tabular-nums">{modeIsCosts ? "—" : formatTokens(row.total)}</td>{modeIsCosts && <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-[#ffd60a]">{row.costUsd != null ? formatUsd(row.costUsd) : "—"}</td>}</tr>
+            {rows.slice(0, 25).map((row) => (
+              <tr key={row.name} className="border-b border-[var(--inner-border)] last:border-0 hover:bg-[var(--hover)]"><td className="max-w-[260px] truncate px-3 py-2.5 font-mono text-xs font-semibold">{dimension === "provider" ? providerDisplayName(row.name, providerNames) : row.name}</td><td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.requests)}</td><td className="px-3 py-2.5 text-right tabular-nums text-[var(--red)]">{row.errors > 0 ? formatNumber(row.errors) : "—"}</td><td className="px-3 py-2.5 text-right tabular-nums">{modeIsCosts ? "—" : formatTokens(row.input)}</td><td className="px-3 py-2.5 text-right tabular-nums text-[#bf5af2]">{modeIsCosts ? "—" : formatTokens(row.cached)}</td><td className="px-3 py-2.5 text-right tabular-nums">{modeIsCosts ? "—" : formatTokens(row.output)}</td><td className="px-3 py-2.5 text-right font-semibold tabular-nums">{modeIsCosts ? "—" : formatTokens(row.total)}</td>{modeIsCosts && <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-[#ffd60a]">{row.costUsd != null ? formatUsd(row.costUsd) : "—"}</td>}</tr>
             ))}
           </tbody>
         </DataTable>
@@ -445,8 +443,8 @@ export function UsagePage() {
   return (
     <div className="dashboard-page space-y-4">
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
-        {STAT_CARDS.map((card, index) => (
-          <div key={card.key} {...staggerClass(index)} className="glass min-w-0 rounded-[var(--radius-card)] p-3.5 transition-transform duration-200 hover:-translate-y-0.5">
+        {STAT_CARDS.map((card) => (
+          <div key={card.key} className="glass min-w-0 rounded-[var(--radius-card)] p-3.5 transition-transform duration-200 hover:-translate-y-0.5">
             <span className="mb-2.5 grid size-8 place-items-center rounded-[10px]" style={{ background: `${card.color}24`, color: card.color }}><card.icon size={15} /></span>
             <div className="text-lg font-bold leading-none tabular-nums sm:text-xl">{summaryQuery.isLoading ? "…" : card.format(summary?.[card.key] ?? null)}</div>
             <div className="mt-1 text-[10.5px] text-[var(--text-2)]">{card.note}</div>

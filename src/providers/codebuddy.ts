@@ -28,10 +28,8 @@ const chinaModels: readonly ProviderModel[] = [
   ["glm-5.2", "GLM 5.2", false, true, 1_000_000, 8_192], ["glm-5.1", "GLM 5.1", false, true, 200_000, 8_192], ["glm-5.0", "GLM 5.0", false, true, 200_000, 8_192], ["glm-5.0-turbo", "GLM 5.0 Turbo", false, true, 200_000, 8_192], ["glm-5v-turbo", "GLM 5v Turbo", false, true, 200_000, 8_192], ["glm-4.7", "GLM 4.7", false, true, 200_000, 8_192], ["minimax-m3", "MiniMax M3", false, true, 512_000, 8_192], ["minimax-m2.7", "MiniMax M2.7", false, true, 512_000, 8_192], ["kimi-k2.7", "Kimi K2.7", true, true, 256_000, 8_192], ["kimi-k2.6", "Kimi K2.6", false, true, 256_000, 8_192], ["kimi-k2.5", "Kimi K2.5", false, true, 164_000, 8_192], ["hy3-preview", "Hunyuan Hy3 Preview", false, false, 192_000, 8_192], ["deepseek-v4-pro", "DeepSeek V4 Pro", false, true, 1_000_000, 8_192],
 ].map(([id, name, reasoning, vision, contextWindow, maxOutputTokens]) => modelOf(id as string, name as string, capabilitiesOf({ surfaces: SURFACES, reasoning: reasoning as boolean, images: vision as boolean }), { upstreamId: upstreamIdFor(id as string, "codebuddy-cn"), context: { inputTokens: contextWindow as number | null, outputTokens: maxOutputTokens as number | null } }));
 
-function headers(credential: string, domain: string, incoming?: Headers): Record<string, string> {
-  const result: Record<string, string> = { "content-type": "application/json", accept: "text/event-stream, application/json", authorization: `Bearer ${credential}`, "x-product": "SaaS", "x-domain": domain, "x-requested-with": "XMLHttpRequest", "x-conversation-id": crypto.randomUUID(), "x-request-id": crypto.randomUUID().replace(/-/g, "") };
-  const clientName = incoming?.get("x-client-name"); if (clientName) result["x-client-name"] = clientName;
-  return result;
+function headers(credential: string, domain: string): Record<string, string> {
+  return { "content-type": "application/json", accept: "text/event-stream, application/json", authorization: `Bearer ${credential}`, "x-product": "SaaS", "x-domain": domain, "x-requested-with": "XMLHttpRequest", "x-conversation-id": crypto.randomUUID(), "x-request-id": crypto.randomUUID().replace(/-/g, "") };
 }
 
 abstract class CodeBuddyBaseAdapter implements Adapter {
@@ -48,7 +46,7 @@ abstract class CodeBuddyBaseAdapter implements Adapter {
   }
   async call(input: ProviderRequest): Promise<ProviderOutput> {
     if (!input.credential) throw new ProviderAdapterError({ kind: "authentication_failed", message: `${this.metadata.displayName} requires an API key.`, statusCode: 401, routeScope: "account" });
-    return callChatCompletionsWire(input, this.baseUrl, headers(input.credential, this.metadata.id === "codebuddy" ? "www.codebuddy.ai" : "www.codebuddy.cn", input.headers));
+    return callChatCompletionsWire(input, this.baseUrl, headers(input.credential, this.metadata.id === "codebuddy" ? "www.codebuddy.ai" : "www.codebuddy.cn"));
   }
   mapError(error: unknown) { return toProviderCallError(error); }
 }

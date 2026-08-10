@@ -22,21 +22,11 @@
  */
 
 import { Elysia, type HTTPHeaders } from "elysia";
-import { consoleError } from "../services/composition";
 import type { ConfigPersistence } from "../../storage/main/config";
 import type { RuntimePersistence } from "../../storage/runtime/runtime";
-import { WarpPoolService } from "./service";
 import type { WarpAccountInput, WarpBackupPayload, WarpImportInput } from "./types";
-
-function badRequest(set: { status?: number | string; headers: HTTPHeaders }, message: string): { error: { code: string; message: string } } {
-  set.status = 400;
-  return consoleError("invalid_request", message);
-}
-
-function notFound(set: { status?: number | string; headers: HTTPHeaders }): { error: { code: string; message: string } } {
-  set.status = 404;
-  return consoleError("not_found", "Warp account not found");
-}
+import { badRequest, notFound } from "../api/route-helpers";
+import { WarpPoolService } from "./service";
 
 /** Result of mounting the Warp Pool API — the Elysia sub-app and the owning service. */
 export interface WarpApiMount {
@@ -60,12 +50,12 @@ export function createWarpApi(config: ConfigPersistence, runtime?: RuntimePersis
     .route("QUERY", "/warp/accounts", async () => service.listAccounts())
     .route("QUERY", "/warp/accounts/:id", async ({ params, set }: { params: { id: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const account = await service.getAccount(params.id);
-      if (!account) return notFound(set);
+      if (!account) return notFound(set, "Warp account not found");
       return account;
     })
     .route("QUERY", "/warp/accounts/:id/credential", async ({ params, set }: { params: { id: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const account = await service.getCredential(params.id);
-      if (!account) return notFound(set);
+      if (!account) return notFound(set, "Warp account not found");
       return account;
     })
     .post("/warp/register", async ({ body, set }: { body: unknown; set: { status?: number | string; headers: HTTPHeaders } }) => {
@@ -91,18 +81,12 @@ export function createWarpApi(config: ConfigPersistence, runtime?: RuntimePersis
     })
     .post("/warp/accounts/:id/start", async ({ params, set }: { params: { id: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const result = await service.startInstance(params.id);
-      if (!result.success) {
-        set.status = 400;
-        return consoleError("invalid_request", result.message);
-      }
+      if (!result.success) return badRequest(set, result.message);
       return result;
     })
     .post("/warp/accounts/:id/stop", async ({ params, set }: { params: { id: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const result = await service.stopInstance(params.id);
-      if (!result.success) {
-        set.status = 400;
-        return consoleError("invalid_request", result.message);
-      }
+      if (!result.success) return badRequest(set, result.message);
       return result;
     })
     .post("/warp/start-all", async () => service.startAll())
@@ -117,12 +101,12 @@ export function createWarpApi(config: ConfigPersistence, runtime?: RuntimePersis
     .patch("/warp/accounts/:id", async ({ params, body, set }: { params: { id: string }; body: unknown; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const value = typeof body === "object" && body !== null ? body as { label?: string; enabled?: boolean; preferIpv6?: boolean; customEndpoint?: string | null; persistentKeepalive?: number } : {};
       const result = await service.updateAccount(params.id, value);
-      if (!result.success) return notFound(set);
+      if (!result.success) return notFound(set, "Warp account not found");
       return result;
     })
     .route("QUERY", "/warp/accounts/:id/profile", async ({ params, set }: { params: { id: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const exportData = await service.exportProfile(params.id);
-      if (!exportData) return notFound(set);
+      if (!exportData) return notFound(set, "Warp account not found");
       return exportData;
     })
     .route("QUERY", "/warp/backup", async () => service.exportAll())

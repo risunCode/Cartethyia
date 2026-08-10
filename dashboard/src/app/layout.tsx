@@ -121,15 +121,11 @@ function FooterClock({ statusData, isError }: { statusData: HealthStatus | undef
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
   const dark = resolvedTheme === "dark";
-  // Crossfade the next theme snapshot without repainting the full glass surface.
-  // Without View Transitions (or with reduced motion) the theme swaps instantly.
   const swapTheme = () => {
     const next = dark ? "light" : "dark";
     const startViewTransition = document.startViewTransition?.bind(document);
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
 
-    if (!startViewTransition || reduced || coarsePointer) {
+    if (!startViewTransition) {
       setTheme(next);
       return;
     }

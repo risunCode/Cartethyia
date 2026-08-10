@@ -9,6 +9,8 @@
     "dev": "bun run --watch src/main.ts",
     "start": "bun run src/main.ts",
     "build": "bun build --compile --minify --bytecode --target bun --outfile bin/cartethyia src/main.ts",
+    "build:dashboard": "cd dashboard && bun run build",
+    "build:all": "bun run build:dashboard && bun run build",
     "test": "bun test --timeout 60000 test/application test/auth test/console test/middleware test/open-sse test/providers test/security test/storage test/traffic test/architecture",
     "test:coverage": "bun test --timeout 60000 test/application test/auth test/console test/middleware test/open-sse test/providers test/security test/storage test/traffic test/architecture --coverage",
     "bench": "bun test --timeout 60000 test/bench",

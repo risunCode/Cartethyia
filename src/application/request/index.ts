@@ -1,4 +1,4 @@
-import { createCleanupStack, sanitizeMessage, deriveErrorSource, type ProviderCallError } from "../contracts";
+import { createCleanupStack, sanitizeMessage, deriveErrorSource, type ApplicationErrorKind, type ProviderCallError } from "../contracts";
 import type { PresentedProxyResponse } from "../contracts";
 import type { Adapter, ProviderOutput, Surface, ProviderUsage, RouteTarget, StreamEvent } from "../contracts";
 import type { AccountCandidate, AffinityKey, RouteCandidate, RouteSwitch } from "../contracts";
@@ -16,7 +16,7 @@ import { isProviderCallError, recoverCall } from "../../open-sse/handlers/recove
 import { translateBody, resolveModelWireSurface } from "../../open-sse/translate";
 import { writeErrorResponse, writeResponse } from "../../open-sse/handlers";
 import type { TokenSaverConfig } from "../../open-sse/rtk";
-import { createRouteAttempt, createRouteAttemptState, getRouteAttemptSelection, getSelectedAttempt, getSelectedCandidateId, getSelectedCredentialKind, getSuccessfulCandidateId, getNextCandidateId, hasNextCandidate, clearAccountCandidates, markReactiveRefresh } from "./route-attempt";
+import { createRouteAttempt, createRouteAttemptState, getRouteAttemptSelection, getSelectedAttempt, getSelectedCandidateId, getSelectedCredentialKind, getSuccessfulCandidateId, getNextCandidateId, hasNextCandidate, clearAccountCandidates, markAccountRetry, markReactiveRefresh } from "./route-attempt";
 import type { HeadroomOutcome } from "../../open-sse/rtk/headroom";
 import type { FilterRuleConfig } from "../filter-rules";
 import { prepareProxyRequest } from "./prepare";
@@ -40,11 +40,12 @@ export interface ProxyRequestLogEvent {
   readonly providerId: string | null;
   readonly model: string | null;
   readonly status: number | null;
+  readonly errorKind: ApplicationErrorKind | null;
   readonly durationMs: number;
   readonly inputTokens: number | null;
-  readonly outputTokens: number | null;
   readonly cachedTokens: number | null;
   readonly cacheWriteTokens: number | null;
+  readonly outputTokens: number | null;
   readonly messageCount: number;
   readonly toolCount: number;
   readonly clientName: string;
@@ -187,6 +188,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
       providerId: resolvedPlan.candidates[0]?.providerId ?? null,
       model: currentRequest.model,
       status: null,
+      errorKind: null,
       durationMs: Math.max(0, performance.now() - startedAt),
       inputTokens: null,
       outputTokens: null,
@@ -223,10 +225,16 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
         const selected = getSelectedAttempt(routeAttemptState, index);
         if (candidate !== null) {
           await dependencies.onRouteFailure?.(candidate, error, selected);
-          if (error.routeScope === "account") clearAccountCandidates(routeAttemptState, candidate.providerId);
+          if (error.routeScope === "account") {
+            clearAccountCandidates(routeAttemptState, candidate.providerId);
+          }
         }
         const authFailure = (error.statusCode === 401 || error.statusCode === 403) && (error.kind === "authentication_failed" || error.kind === "authorization_denied");
         const accountId = selected?.accountId ?? null;
+        if (candidate !== null && error.routeScope === "account" && !authFailure) {
+          markAccountRetry(routeAttemptState, candidate.id);
+          return;
+        }
         const canReact = authFailure && candidate !== null && accountId !== null && getSelectedCredentialKind(routeAttemptState, index) === "oauth" && markReactiveRefresh(routeAttemptState, accountId, candidate.id);
         if (canReact) {
           try {
@@ -302,6 +310,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
               providerId: providerId(),
               model: normalizedRequest?.model ?? null,
               status: responseStatus,
+              errorKind: null,
               durationMs: Math.max(0, performance.now() - startedAt),
               inputTokens: finalUsage?.inputTokens ?? null,
               outputTokens: finalUsage?.outputTokens ?? null,
@@ -342,6 +351,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
         providerId: providerId(),
         model: normalizedRequest.model,
         status: response.status,
+        errorKind: null,
         durationMs: Math.max(0, performance.now() - startedAt),
         inputTokens: output.usage?.inputTokens ?? null,
         outputTokens: output.usage?.outputTokens ?? null,
@@ -383,6 +393,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
       providerId: resolvedPlan?.candidates[0]?.providerId ?? null,
       model: normalizedRequest?.model ?? null,
       status: response.status,
+      errorKind: failure.kind,
       durationMs: Math.max(0, performance.now() - startedAt),
       inputTokens: null,
       outputTokens: null,

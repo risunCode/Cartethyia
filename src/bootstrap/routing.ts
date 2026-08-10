@@ -56,6 +56,7 @@ function formatRequestLog(event: ProxyRequestLogEvent, privacyMode: "masked" | "
     `tools=${event.toolCount}`,
   ];
   if (event.status !== null) parts.push(`status=${event.status}`);
+  if (event.errorKind !== null) parts.push(`error=${event.errorKind}`);
   if (event.event !== "incoming") {
     parts.push(`${Math.round(event.durationMs)}ms`);
     if (event.inputTokens !== null) parts.push(`in=${event.inputTokens}`);

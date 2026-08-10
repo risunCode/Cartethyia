@@ -440,6 +440,17 @@ describe("Responses SSE mapper sequencing", () => {
     const stop = events.find((e): e is Extract<StreamEvent, { type: "message_stop" }> => e.type === "message_stop");
     expect(stop?.reason).toBe("error");
   });
+  test("normalizes Codex function-call item ids onto the call id", async () => {
+    const coord = new AbortCoordinator(new AbortController().signal);
+    const events = await collect(mapSseStream({ body: sseBody([
+      '{"type":"response.created","response":{"id":"r1"}}',
+      '{"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_1","name":"echo"}}',
+      '{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\\"text\\":\\"OK\\"}"}',
+      '{"type":"response.completed","response":{"status":"completed"}}',
+    ]), coordinator: coord, maxLineBytes: 65536 }, createOpenAIResponsesStreamMapper()));
+    const deltas = events.filter((event): event is Extract<StreamEvent, { type: "tool_call_delta" }> => event.type === "tool_call_delta");
+    expect(deltas).toEqual([{ type: "tool_call_delta", callId: "call_1", delta: '{"text":"OK"}' }]);
+  });
   test("maps compaction and context items as ordered events", async () => {
     const coord = new AbortCoordinator(new AbortController().signal);
     const events = await collect(mapSseStream({ body: sseBody([

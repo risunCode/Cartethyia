@@ -7,7 +7,6 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "../../lib/toast";
 import { apiGet, apiPatch, apiDelete, apiPost } from "../../lib/api";
 import { formatTokens, formatDuration } from "../../lib/format";
-import { staggerClass } from "../../lib/motion";
 import { qk } from "../../lib/query-keys";
 import { useWindowedList } from "../../hooks/use-windowed-list";
 import { Badge } from "../../components/ui/badge";
@@ -626,11 +625,10 @@ export function CustomProviderDetailPage() {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-            {data.models.map((model, index) => {
+            {data.models.map((model) => {
               const qualified = `${data.slug}/${model.id}`;
               const testStatus = modelTestStatus[model.id];
               return (
-                <div key={model.id} {...staggerClass(index)}>
                   <Card className="flex h-full flex-col gap-1.5 p-2.5">
                     <div className="flex items-start gap-1.5">
                       <Bot size={13} className="mt-0.5 shrink-0 text-[var(--text-3)]" />
@@ -665,7 +663,6 @@ export function CustomProviderDetailPage() {
                       </Button>
                     </div>
                   </Card>
-                </div>
               );
             })}
           </div>

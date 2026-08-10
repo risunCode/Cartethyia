@@ -1,22 +1,14 @@
 import { Elysia } from "elysia";
 import type { ConfigPersistence } from "../../storage";
 import { createShareLink } from "../share";
-import { consoleError, type ConsoleServices } from "../services/composition";
+import { type ConsoleServices } from "../services/composition";
+import { conflict, notFound } from "./route-helpers";
 
 export interface ApiKeyRouteDependencies {
   readonly services: ConsoleServices;
   readonly config: ConfigPersistence;
 }
 
-function notFound(set: { status?: number | string }): ReturnType<typeof consoleError> {
-  set.status = 404;
-  return consoleError("not_found", "resource not found");
-}
-
-function conflict(set: { status?: number | string }, message: string): ReturnType<typeof consoleError> {
-  set.status = 409;
-  return consoleError("conflict", message);
-}
 
 /** Registers API key management and credential-link routes. */
 export function registerApiKeyRoutes<T extends Elysia<any, any, any, any, any, any>>(app: T, deps: ApiKeyRouteDependencies): T {

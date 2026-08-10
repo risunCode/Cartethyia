@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { ApiError, api, apiDelete, apiGet, setUnauthorizedHandler } from "../../src/lib/api";
+import { ApiError, api, apiDelete, apiDownload, apiGet, apiPostForm, setUnauthorizedHandler } from "../../src/lib/api";
 
 describe("dashboard API client", () => {
   afterEach(() => {
@@ -47,5 +47,33 @@ describe("dashboard API client", () => {
     const headers = new Headers(init.headers);
     expect(headers.get("content-type")).toBe("application/json");
     expect(headers.has("x-cartethyia-csrf")).toBe(false);
+  });
+
+  test("preserves multipart bodies without overriding the browser boundary", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const form = new FormData();
+    form.append("file", new Blob(["sqlite"]));
+
+    await apiPostForm("/db-map/import?db=config", form);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(form);
+    expect(new Headers(init.headers).has("content-type")).toBe(false);
+  });
+
+  test("downloads blobs and preserves the server filename", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("sqlite", {
+      status: 200,
+      headers: { "content-disposition": 'attachment; filename="config.sqlite"' },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await apiDownload("/db-map/export?db=config");
+
+    expect(result.filename).toBe("config.sqlite");
+    expect(await result.blob.text()).toBe("sqlite");
+    expect(fetchMock).toHaveBeenCalledWith("/console/api/db-map/export?db=config", expect.objectContaining({ method: "GET", credentials: "same-origin" }));
   });
 });

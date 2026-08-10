@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { AlertTriangle, Download, FileJson, KeyRound, ShieldCheck, Trash2, Upload } from "lucide-react";
 import { toast } from "../../lib/toast";
-import { apiGet, apiPost } from "../../lib/api";
+import { apiGet, apiPost, apiDownload } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
 import { downloadBlob, readJsonFile } from "../../lib/files";
 import { qk } from "../../lib/query-keys";
@@ -132,15 +132,9 @@ export function SettingsPage() {
     setActionError(null);
     try {
       if (action === "backup") {
-        const res = await fetch(`/console/api/settings/backup${backupIncludeUsage ? "?includeHistory=true" : ""}`, {
-          credentials: "same-origin",
+        const { blob } = await apiDownload(`/settings/backup${backupIncludeUsage ? "?includeHistory=true" : ""}`, {
           headers: { "x-console-password": password },
         });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-          throw new Error(body?.error?.message ?? `backup failed (${res.status})`);
-        }
-        const blob = await res.blob();
         downloadBlob(`cartethyia-backup-${new Date().toISOString().slice(0, 10)}.json`, blob, "application/json");
         toast.success("Backup downloaded");
         setAction(null);

@@ -27,7 +27,9 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = init.method ?? "QUERY";
   const body = init.body ?? (method === "QUERY" ? "{}" : undefined);
   const headers = new Headers(init.headers);
-  if (body !== undefined && !headers.has("content-type")) headers.set("content-type", "application/json");
+  if (body !== undefined && !(body instanceof FormData) && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
   const res = await fetch(`/console/api${path}`, {
     credentials: "same-origin",
     ...init,
@@ -35,6 +37,10 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     body,
     headers,
   });
+  return parseApiResponse<T>(path, res);
+}
+
+async function parseApiResponse<T>(path: string, res: Response): Promise<T> {
   if (res.status === 401 && path !== "/login") {
     onUnauthorized?.();
     throw new ApiError(401, "unauthorized", "session expired");
@@ -55,6 +61,39 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return parsed as T;
 }
 
+/** Execute a raw console API request while retaining response headers and body. */
+export async function apiRaw(path: string, init: RequestInit = {}): Promise<Response> {
+  const method = init.method ?? "QUERY";
+  const body = init.body ?? (method === "QUERY" ? "{}" : undefined);
+  const headers = new Headers(init.headers);
+  if (body !== undefined && !(body instanceof FormData) && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
+  const res = await fetch(`/console/api${path}`, {
+    credentials: "same-origin",
+    ...init,
+    method,
+    body,
+    headers,
+  });
+  if (res.status === 401 && path !== "/login") {
+    onUnauthorized?.();
+    throw new ApiError(401, "unauthorized", "session expired");
+  }
+  return res;
+}
+
+/** Download a console API response, surfacing structured server errors. */
+export async function apiDownload(path: string, init: RequestInit = {}): Promise<{ blob: Blob; filename: string | null }> {
+  const res = await apiRaw(path, { ...init, method: init.method ?? "GET" });
+  if (!res.ok) {
+    await parseApiResponse<never>(path, res);
+  }
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const filename = disposition.match(/filename="?([^"]+)"?/)?.[1] ?? null;
+  return { blob: await res.blob(), filename };
+}
+
 
 export const apiGet = <T>(path: string) => {
   const queryString = path.includes("?") ? path.slice(path.indexOf("?") + 1) : "";
@@ -63,6 +102,8 @@ export const apiGet = <T>(path: string) => {
 };
 export const apiPost = <T>(path: string, body?: unknown) =>
   api<T>(path, { method: "POST", body: body === undefined ? "{}" : JSON.stringify(body) });
+export const apiPostForm = <T>(path: string, body: FormData) =>
+  api<T>(path, { method: "POST", body });
 export const apiPatch = <T>(path: string, body?: unknown) =>
   api<T>(path, { method: "PATCH", body: body === undefined ? "{}" : JSON.stringify(body) });
 // Sends a body so `content-type: application/json` is set for console mutations.

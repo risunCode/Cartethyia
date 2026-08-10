@@ -3,7 +3,6 @@ import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
 import { type ReactNode } from "react";
 
-import { useMotionProfile } from "../lib/motion";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -11,16 +10,11 @@ export const queryClient = new QueryClient({
   },
 });
 
-function MotionProfileSync() {
-  useMotionProfile();
-  return null;
-}
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-        <MotionProfileSync />
         {children}
         <Toaster
           position="top-right"

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { Upload } from "lucide-react";
 import { Button } from "../../components/ui/button";
-import { useMotionProfile } from "../../lib/motion";
 
 export type CustomAssetKind = "image" | "video";
 
@@ -238,17 +237,14 @@ export function useCustomizationAssetUrl(asset: CustomAsset | null): string | nu
 export function CustomAtmosphere() {
   const [settings] = useCustomizationSettings();
   const customBackgroundUrl = useCustomizationAssetUrl(settings.backgroundAsset);
-  const motionProfile = useMotionProfile();
   const backgroundUrl = settings.backgroundAsset ? customBackgroundUrl : DEFAULT_BACKGROUND_URL;
-  // Solid surfaces are automatic on constrained or reduced-motion devices.
   useEffect(() => {
-    const automaticSolidMode = motionProfile === "mobile" || motionProfile === "reduced";
-    if (settings.solidMode || automaticSolidMode) {
+    if (settings.solidMode) {
       document.documentElement.setAttribute("data-glass", "off");
     } else {
       document.documentElement.removeAttribute("data-glass");
     }
-  }, [motionProfile, settings.solidMode]);
+  }, [settings.solidMode]);
 
   if (!backgroundUrl || !settings.backgroundEnabled) return null;
 

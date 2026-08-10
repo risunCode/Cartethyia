@@ -14,19 +14,10 @@
 
 import { Elysia, type HTTPHeaders } from "elysia";
 import type { ConfigPersistence } from "../../storage";
-import { consoleError } from "../services/composition";
+import { badRequest, notFound } from "../api/route-helpers";
 import { CliToolService } from "./service";
 import type { ApplyInput, CliMappingInput } from "./types";
 
-function badRequest(set: { status?: number | string; headers: HTTPHeaders }, message: string): { error: { code: string; message: string } } {
-  set.status = 400;
-  return consoleError("invalid_request", message);
-}
-
-function notFound(set: { status?: number | string; headers: HTTPHeaders }): { error: { code: string; message: string } } {
-  set.status = 404;
-  return consoleError("not_found", "CLI tool not found");
-}
 function parseMapping(value: unknown): CliMappingInput | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const candidate = value as Record<string, unknown>;
@@ -68,39 +59,33 @@ export function createCliToolsApi(config: ConfigPersistence): Elysia {
     .route("QUERY", "/cli-tools/registry", () => service.getRegistry())
     .route("QUERY", "/cli-tools/all-statuses", async () => service.getAllStatuses())
     .route("QUERY", "/cli-tools/:toolId/mappings", ({ params, set }: { params: { toolId: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
-      if (!service.isValidTool(params.toolId)) return notFound(set);
+      if (!service.isValidTool(params.toolId)) return notFound(set, "CLI tool not found");
       return service.getMappings(params.toolId);
     })
     .route("QUERY", "/cli-tools/:toolId", async ({ params, set }: { params: { toolId: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const status = await service.getStatus(params.toolId);
-      if (status === null) return notFound(set);
+      if (status === null) return notFound(set, "CLI tool not found");
       return status;
     })
     .post("/cli-tools/:toolId", async ({ params, body, set }: { params: { toolId: string }; body: unknown; set: { status?: number | string; headers: HTTPHeaders } }) => {
-      if (!service.isValidTool(params.toolId)) return notFound(set);
+      if (!service.isValidTool(params.toolId)) return notFound(set, "CLI tool not found");
       const input = parseApplyInput(body);
       const result = await service.applyConfig(params.toolId, input);
-      if (!result.success) {
-        set.status = 400;
-        return consoleError("invalid_request", result.message);
-      }
+      if (!result.success) return badRequest(set, result.message);
       return result;
     })
     .delete("/cli-tools/:toolId", async ({ params, set }: { params: { toolId: string }; set: { status?: number | string; headers: HTTPHeaders } }) => {
-      if (!service.isValidTool(params.toolId)) return notFound(set);
+      if (!service.isValidTool(params.toolId)) return notFound(set, "CLI tool not found");
       const result = await service.resetConfig(params.toolId);
-      if (!result.success) {
-        set.status = 400;
-        return consoleError("invalid_request", result.message);
-      }
+      if (!result.success) return badRequest(set, result.message);
       return result;
     })
     .post("/cli-tools/:toolId/download", async ({ params, body, set }: { params: { toolId: string }; body: unknown; set: { status?: number | string; headers: HTTPHeaders } }) => {
-      if (!service.isValidTool(params.toolId)) return notFound(set);
+      if (!service.isValidTool(params.toolId)) return notFound(set, "CLI tool not found");
       const input = parseApplyInput(body);
       if (!input.endpoint || !input.apiKey) return badRequest(set, "endpoint and apiKey are required");
       const result = await service.downloadConfig(params.toolId, input);
-      if (result === null) return notFound(set);
+      if (result === null) return notFound(set, "CLI tool not found");
       return result;
     });
 

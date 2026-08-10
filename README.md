@@ -89,7 +89,7 @@ Requirements: Bun 1.4 canary and a writable data directory.
 
 ```bash
 bun install
-cd dashboard && bun install && cd ..
+cd dashboard && bun install && bun run build && cd ..
 cp .env.example .env
 bun run dev
 ```
@@ -141,10 +141,10 @@ Use [`.env.example`](./.env.example) as the configuration reference. Common sett
 ```text
 PORT                         # server port (default 12800)
 DATA_DIR                     # persistent data directory (default ./data)
+PUBLIC_ORIGIN                # exact public console origin used for same-origin checks
+TRUST_PROXY                  # set true only when requests come through a trusted reverse proxy (default false)
 CONSOLE_PASSWORD             # console login password (required on first production startup)
 CONSOLE_JWT_SECRET           # JWT signing secret (generated only when no persisted secret exists)
-BOOTSTRAP_PROXY_API_KEY      # optional initial proxy API key
-DB_PATH                      # config SQLite path (default inside DATA_DIR)
 RUNTIME_DB_PATH              # runtime telemetry SQLite path (default inside DATA_DIR)
 MAX_FLIGHTS_PER_IP           # global concurrent requests per IP
 CARTETHYIA_PROXY_SCRAPE_CONCURRENCY # bounded scraper health checks (default 20, cap 64)
@@ -154,6 +154,7 @@ CARTETHYIA_HEADROOM_ENABLED       # enable optional fail-open Headroom /v1/compr
 CARTETHYIA_HEADROOM_URL           # Headroom base URL (for example http://127.0.0.1:8787)
 CARTETHYIA_HEADROOM_TIMEOUT_MS    # Headroom request timeout (default 3000)
 CARTETHYIA_HEADROOM_COMPRESS_USER_MESSAGES # opt in to Headroom user-message compression
+```
 Bun.serve() handles asynchronous HTTP and provider I/O concurrency natively. The server runs as one process; scale-out belongs to the deployment platform rather than the application runtime.
 Requests accept up to 2048 history items. Histories above 512 trigger an emergency RTK pass over older tool results; user and assistant turns are not silently removed. When Headroom is enabled, it runs as an additional fail-open tool-result compaction step.
 
@@ -163,7 +164,7 @@ For deployment, persist `DATA_DIR` and configure the console password, proxy API
 
 Warp instances are manual-only. A server restart clears stale `running`/PID state but never starts an account automatically; start instances explicitly from the MultiWarp console or API.
 
-`bun run build` produces the compiled server at `bin/cartethyia` (`bin/cartethyia.exe` on Windows). The dashboard remains a separate static build under `dashboard/dist` because the server serves those browser assets at runtime.
+`bun run build` produces the compiled server at `bin/cartethyia` (`bin/cartethyia.exe` on Windows). Use `bun run build:dashboard` to generate `dashboard/dist`, or `bun run build:all` to build the dashboard first and then the server. The dashboard must be built before serving a production-like backend because the server serves those browser assets at runtime.
 
 ## Docker
 
@@ -171,9 +172,12 @@ Warp instances are manual-only. A server restart clears stale `running`/PID stat
 docker build -t cartethyia .
 : "${CONSOLE_PASSWORD:?Set a non-empty CONSOLE_PASSWORD first}"
 : "${CONSOLE_JWT_SECRET:?Set a random CONSOLE_JWT_SECRET first}"
+: "${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN to the exact public console origin first}"
 docker run --rm -p 12800:8080 \
   -e PORT=8080 \
   -e DATA_DIR=/app/data \
+  -e PUBLIC_ORIGIN="$PUBLIC_ORIGIN" \
+  -e TRUST_PROXY="${TRUST_PROXY:-false}" \
   -e CONSOLE_PASSWORD="$CONSOLE_PASSWORD" \
   -e CONSOLE_JWT_SECRET="$CONSOLE_JWT_SECRET" \
   -e BOOTSTRAP_PROXY_API_KEY="${BOOTSTRAP_PROXY_API_KEY:-}" \

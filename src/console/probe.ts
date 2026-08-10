@@ -242,6 +242,7 @@ export async function probeProviderModel(input: ModelProbeInput, ports: ProbePor
 
     if (accountId !== null) {
       await ports.accountHealth.recordSuccess(accountId, input.provider);
+      await ports.accountHealth.clearModelLock(accountId, input.model);
     }
     return { ok: true, mode, latencyMs: latency(), firstVisibleTextMs, sample, returnedModel };
   } catch (error) {

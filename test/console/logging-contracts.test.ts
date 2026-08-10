@@ -7,6 +7,7 @@ import { createApplicationLogger } from "../../src/console/logger";
 import { createConsoleLogStreamHub } from "../../src/console/streams";
 import { createRuntimePersistence, type RuntimePersistence } from "../../src/storage/runtime/runtime";
 import type { PersistenceEnv } from "../../src/storage/main/env";
+import { formatRequestLog } from "../../src/bootstrap/routing";
 
 let counter = 0;
 
@@ -43,6 +44,31 @@ describe("centralized logging", () => {
       { level: "warn", scope: "request", message: "proxy failed" },
       { level: "error", scope: "oauth-refresh", message: "refresh failed" },
     ]);
+  });
+  test("includes the normalized upstream error kind in failed request logs", () => {
+    const message = formatRequestLog({
+      event: "failed",
+      requestId: "req-1",
+      endpoint: "/v1/chat/completions",
+      providerId: "cline",
+      model: "deepseek/deepseek-v4-flash",
+      status: 503,
+      errorKind: "provider_unavailable",
+      durationMs: 123,
+      inputTokens: null,
+      outputTokens: null,
+      cachedTokens: null,
+      cacheWriteTokens: null,
+      messageCount: 1,
+      toolCount: 0,
+      clientName: "pi",
+      clientSource: "explicit_header",
+      clientIp: "192.168.1.20",
+    }, "masked");
+
+    expect(message).toContain("status=503");
+    expect(message).toContain("error=provider_unavailable");
+    expect(message).toContain("client=pi/explicit_header");
   });
 
   test("includes web, request, and system logs in the default view", () => {

@@ -1,7 +1,7 @@
 /** API hooks for Database Map — schema, rows, query, execute, export, import. */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiPost, ApiError } from "../../../lib/api";
+import { apiGet, apiPost, apiPostForm, apiDownload, ApiError } from "../../../lib/api";
 import { toast } from "../../../lib/toast";
 import { qk } from "../../../lib/query-keys";
 import type {
@@ -64,24 +64,11 @@ export function useExecuteSql() {
 export function useExportDb() {
   return useMutation({
     mutationFn: async (db: DbTarget) => {
-      const res = await fetch(`/console/api/db-map/export?db=${db}`, { credentials: "same-origin" });
-      if (!res.ok) {
-        const text = await res.text();
-        try {
-          const err = JSON.parse(text);
-          throw new ApiError(res.status, err?.error?.code ?? "error", err?.error?.message ?? "export failed");
-        } catch {
-          throw new ApiError(res.status, "error", "export failed");
-        }
-      }
-      const blob = await res.blob();
-      const disposition = res.headers.get("content-disposition") ?? "";
-      const match = disposition.match(/filename="?([^"]+)"?/);
-      const filename = match?.[1] ?? `${db}-export.sqlite`;
+      const { blob, filename } = await apiDownload(`/db-map/export?db=${db}`);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = filename;
+      a.download = filename ?? `${db}-export.sqlite`;
       a.click();
       URL.revokeObjectURL(url);
     },
@@ -101,25 +88,7 @@ export function useImportDb() {
     mutationFn: async ({ db, file }: { db: DbTarget; file: File }) => {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch(`/console/api/db-map/import?db=${db}`, {
-        method: "POST",
-        credentials: "same-origin",
-        body: formData,
-      });
-      const text = await res.text();
-      let parsed: unknown = null;
-      if (text) {
-        try {
-          parsed = JSON.parse(text);
-        } catch {
-          parsed = text;
-        }
-      }
-      if (!res.ok) {
-        const err = parsed as { error?: { code: string; message: string } } | null;
-        throw new ApiError(res.status, err?.error?.code ?? "error", err?.error?.message ?? "import failed");
-      }
-      return parsed as ImportResult;
+      return apiPostForm<ImportResult>(`/db-map/import?db=${db}`, formData);
     },
     onSuccess: (data, vars) => {
       toast.success(data.message ?? "Database imported");

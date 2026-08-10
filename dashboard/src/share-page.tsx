@@ -5,7 +5,6 @@ import { Card } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 import { copyToClipboard } from "./lib/clipboard";
 import { useShareData, type ShareMonitorData, type ShareSetupData } from "./hooks/use-share-data";
-import { useMotionProfile } from "./lib/motion";
 
 interface ShareFieldProps {
   readonly label: string;
@@ -71,7 +70,6 @@ function formatDate(value: string | null): string {
 }
 
 export function SharePage(): ReactElement {
-  const profile = useMotionProfile();
   const isSetup = window.location.pathname.startsWith("/share/setup/");
   const dataPath = `${window.location.pathname.replace(/\/$/, "")}/data`;
   const dataState = useShareData<ShareMonitorData | ShareSetupData>(dataPath, isSetup ? undefined : 15_000);
@@ -112,7 +110,7 @@ export function SharePage(): ReactElement {
         </header>
 
         <main className="flex flex-1 items-center justify-center py-12 sm:py-16">
-          {(monitorData !== null || setupData !== null) ? <section className={profile === "reduced" ? "motion-static" : "motion-entry-enter"} aria-label="Shared page">
+          {(monitorData !== null || setupData !== null) ? <section className="motion-entry-enter" aria-label="Shared page">
             <Card surface="frame" density="comfortable" className="!overflow-hidden !rounded-[22px] !border-cyan-200/25 !bg-[linear-gradient(145deg,rgba(15,34,61,.9),rgba(4,12,26,.86))] !text-white !shadow-[0_30px_90px_rgba(0,0,0,.32),inset_0_1px_rgba(255,255,255,.08)]">
               {setupData !== null ? <div className="grid gap-2.5">
                 <p className="mb-1 text-xs leading-relaxed text-white/65">Use these values in your client. This one-time page will not show the key again after it is consumed.</p>

@@ -13,6 +13,18 @@ const account: AccountCandidate = {
   modelLocks: null,
 };
 
+const account2: AccountCandidate = { ...account, id: "oauth-account-2" };
+
+const accountRateLimit: ProviderCallError = {
+  statusCode: 429,
+  kind: "provider_rate_limited",
+  retryable: true,
+  routeScope: "account",
+  source: "upstream",
+  sanitizedMessage: "provider rate limit",
+  retryAt: null,
+};
+
 const authFailure: ProviderCallError = {
   statusCode: 401,
   kind: "authentication_failed",
@@ -31,7 +43,15 @@ function routeCandidate(id: string, modelId: string): RouteCandidate {
   return { id, providerId: "codex", modelId, surface: "openai-chat", health: null, enabled: true, authorized: true, compatible: true };
 }
 
-function makeDependencies(options: { readonly failures: number; readonly candidates: readonly RouteCandidate[]; readonly seenTargets: string[]; readonly forceRefreshCalls: { value: number }; readonly switches: RouteSwitchLog[] }): ProxyRequestDependencies {
+function makeDependencies(options: {
+  readonly failures: number;
+  readonly candidates: readonly RouteCandidate[];
+  readonly seenTargets: string[];
+  readonly forceRefreshCalls: { value: number };
+  readonly switches: RouteSwitchLog[];
+  readonly failure?: ProviderCallError;
+  readonly accounts?: readonly AccountCandidate[];
+}): ProxyRequestDependencies {
   let calls = 0;
   const adapter: Adapter = {
     metadata,
@@ -41,13 +61,18 @@ function makeDependencies(options: { readonly failures: number; readonly candida
     call: async (input): Promise<ProviderOutput> => {
       calls += 1;
       options.seenTargets.push(input.target.modelId);
-      if (calls <= options.failures) throw authFailure;
+      if (calls <= options.failures) throw options.failure ?? authFailure;
       return { mode: "non_stream", body: { ok: true, model: input.target.modelId } };
     },
-    mapError: () => authFailure,
+    mapError: () => options.failure ?? authFailure,
   };
+  let selections = 0;
   const fakeAccounts = {
-    select: async () => ({ selection: { accountId: account.id, kind: "oauth" as const, leaseId: "selection-lease", secret: "access-token" }, account, reason: "sole" as const }),
+    select: async () => {
+      const candidates = options.accounts ?? [account];
+      const chosen = candidates[Math.min(selections++, candidates.length - 1)] ?? account;
+      return { selection: { accountId: chosen.id, kind: "oauth" as const, leaseId: `selection-lease-${chosen.id}`, secret: "access-token" }, account: chosen, reason: "sole" as const };
+    },
     release: async () => {},
     forceRefresh: async () => { options.forceRefreshCalls.value += 1; },
   } as unknown as CredentialSelector;
@@ -60,7 +85,7 @@ function makeDependencies(options: { readonly failures: number; readonly candida
     network: { select: async () => ({ selection: { proxyId: null, url: null, release: async () => {} }, mode: "direct", proxyId: null, reason: "direct_forced" }) } as unknown as ProxyRequestDependencies["network"],
     telemetry,
     resolveRoutes: async () => ({ affinity: { namespace: "trusted_identity", value: "test" }, candidates: options.candidates }),
-    accountCandidates: async () => [account],
+    accountCandidates: async () => options.accounts ?? [account],
     maxAttempts: 3,
     onRouteSwitch: async (event) => { options.switches.push(event); },
   };
@@ -111,5 +136,25 @@ describe("request OAuth recovery", () => {
     expect(forceRefreshCalls.value).toBe(1);
     expect(switches).toHaveLength(1);
     expect(switches[0]).toMatchObject({ scope: "account", previousRouteId: "route-0", replacementRouteId: "route-1", reason: "authentication_failed" });
+  });
+  test("retries the same route to fail over after an account-scoped rate limit", async () => {
+    const seenTargets: string[] = [];
+    const forceRefreshCalls = { value: 0 };
+    const switches: RouteSwitchLog[] = [];
+    const dependencies = makeDependencies({
+      failures: 1,
+      failure: accountRateLimit,
+      accounts: [account, account2],
+      candidates: [routeCandidate("route-0", "model-0")],
+      seenTargets,
+      forceRefreshCalls,
+      switches,
+    });
+
+    const response = await runProxyRequest(input(), dependencies);
+
+    expect(response.status).toBe(200);
+    expect(seenTargets).toEqual(["model-0", "model-0"]);
+    expect(switches).toHaveLength(0);
   });
 });

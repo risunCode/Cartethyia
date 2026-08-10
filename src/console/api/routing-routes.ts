@@ -1,23 +1,11 @@
 import { Elysia } from "elysia";
 import { consoleError, type ConsoleServices } from "../services/composition";
+import { badRequest, notFound, ok } from "./route-helpers";
 
 export interface RoutingRouteDependencies {
   readonly services: ConsoleServices;
 }
 
-function ok(extra: Record<string, unknown> = {}): Record<string, unknown> {
-  return { ok: true, ...extra };
-}
-
-function notFound(set: { status?: number | string }): ReturnType<typeof consoleError> {
-  set.status = 404;
-  return consoleError("not_found", "resource not found");
-}
-
-function badRequest(set: { status?: number | string }, message: string): ReturnType<typeof consoleError> {
-  set.status = 400;
-  return consoleError("invalid_request", message);
-}
 
 /** Registers aliases, combos, and request filter policy routes. */
 export function registerRoutingRoutes<T extends Elysia<any, any, any, any, any, any>>(app: T, deps: RoutingRouteDependencies): T {

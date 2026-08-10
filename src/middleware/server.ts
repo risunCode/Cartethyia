@@ -277,7 +277,9 @@ export async function startServer(): Promise<void> {
           const headers = new Headers(presented.headers);
           headers.set("x-request-id", requestId);
           applyCommonSecurityHeaders(headers, { request, noStore: true });
-          return Response.json(bodyResponse.value, { status: presented.status, headers });
+          const response = Response.json(bodyResponse.value, { status: presented.status, headers });
+          release(response.status);
+          return response;
         }
         const requestedModel = typeof bodyRecord.model === "string" ? bodyRecord.model : "unknown";
         const stream = new ReadableStream<Uint8Array>({

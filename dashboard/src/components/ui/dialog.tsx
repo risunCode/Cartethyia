@@ -2,8 +2,6 @@ import { Maximize2, Minus, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { getExitDuration, useMotionProfile } from "../../lib/motion";
-
 export function Dialog({
   open,
   onClose,
@@ -25,61 +23,31 @@ export function Dialog({
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
   const onExitedRef = useRef(onExited);
-  const closeCompletedRef = useRef(false);
   const [present, setPresent] = useState(open);
-  const [closing, setClosing] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const motionProfile = useMotionProfile();
   onCloseRef.current = onClose;
   onExitedRef.current = onExited;
 
-  const completeClose = useCallback(() => {
-    if (!closing || closeCompletedRef.current) return;
-    closeCompletedRef.current = true;
+  const requestClose = useCallback(() => {
+    if (!present) return;
     setPresent(false);
-    setClosing(false);
     onCloseRef.current();
     onExitedRef.current?.();
-  }, [closing]);
-
-  const requestClose = useCallback(() => {
-    if (!present || closing || closeCompletedRef.current) return;
-    if (motionProfile === "reduced") {
-      closeCompletedRef.current = true;
-      setPresent(false);
-      onCloseRef.current();
-      onExitedRef.current?.();
-      return;
-    }
-    closeCompletedRef.current = false;
-    setClosing(true);
-  }, [closing, motionProfile, present]);
+  }, [present]);
 
   useEffect(() => {
     if (open) {
-      closeCompletedRef.current = false;
       setPresent(true);
-      setClosing(false);
       setMinimized(false);
       setExpanded(false);
       return;
     }
-    if (present && !closing) requestClose();
+    if (present) requestClose();
     // The close callback intentionally reads the latest refs/state while this
     // effect only reacts to the parent's open transition.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
-
-  useEffect(() => {
-    if (!closing) return;
-    if (motionProfile === "reduced") {
-      completeClose();
-      return;
-    }
-    const timeout = window.setTimeout(() => completeClose(), getExitDuration(motionProfile) + 40);
-    return () => window.clearTimeout(timeout);
-  }, [closing, completeClose, motionProfile]);
 
   useEffect(() => {
     if (!open || !present) return;
@@ -122,7 +90,7 @@ export function Dialog({
   if (!present) return null;
 
   return createPortal(
-    <div className="motion-dialog-overlay fixed inset-0 z-90 flex items-center justify-center p-4" data-state={closing ? "closed" : "open"}>
+    <div className="motion-dialog-overlay fixed inset-0 z-90 flex items-center justify-center p-4">
       <button type="button" aria-label="Close dialog" className="absolute inset-0 h-full w-full cursor-default bg-black/40 backdrop-blur-[6px]" onClick={requestClose} />
       <div
         ref={dialogRef}
@@ -130,11 +98,7 @@ export function Dialog({
         aria-modal="true"
         aria-labelledby="dashboard-dialog-title"
         tabIndex={-1}
-        data-state={closing ? "closed" : "open"}
         className={`motion-dialog-panel glass-2 relative flex w-full flex-col ${expanded ? "max-w-4xl max-h-[95vh]" : wide ? "max-w-2xl max-h-[85vh]" : "max-w-md max-h-[85vh]"} rounded-2xl p-5`}
-        onTransitionEnd={(event) => {
-          if (event.target === event.currentTarget) completeClose();
-        }}
       >
         <div className="mb-3 flex shrink-0 items-center gap-3 border-b border-[var(--inner-border)] pb-3">
           <div className="flex items-center gap-2" role="group" aria-label="Window controls">
