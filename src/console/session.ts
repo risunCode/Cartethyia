@@ -3,8 +3,9 @@
  * mutation guard, Argon2id password hashing, and per-IP login rate limiting.
  *
  * Extracted from `services.ts` so the security boundary owns its own file.
- * Mutations require an authenticated session, a JSON content type, and a
- * same-origin request; session cookies are HttpOnly + SameSite with a Secure
+ * Mutations require an authenticated session, a JSON content type, and
+ * non-cross-site Fetch Metadata; direct origins and same-origin browser
+ * proxies are accepted. Session cookies are HttpOnly + SameSite with a Secure
  * attribute when served over HTTPS.
  */
 
@@ -239,9 +240,22 @@ export type GuardVerdict =
   | { readonly ok: false; readonly status: 401 | 403; readonly code: "unauthorized" | "forbidden"; readonly message: string };
 
 /**
- * Explicit, testable console guard: mutations must carry JSON, a same-origin
- * request, and non-cross-site Fetch Metadata; every request must carry a
- * valid session token.
+ * Browser console requests normally carry both headers, while same-origin
+ * reverse proxies can omit `Origin` or preserve the browser's origin while
+ * forwarding to the backend. Fetch Metadata still rejects explicit cross-site
+ * and same-site requests.
+ */
+function allowsConsoleMutationOrigin(request: Request, trustProxy: boolean, env: RuntimeEnvironment | undefined): boolean {
+  const origin = request.headers.get("origin");
+  if (origin === null) return true;
+  if (isSameOriginRequest(request, trustProxy, env)) return true;
+  return request.headers.get("sec-fetch-site")?.toLowerCase() === "same-origin";
+}
+
+/**
+ * Explicit, testable console guard: mutations must carry JSON and non-cross-site
+ * Fetch Metadata; every request must carry a valid session token. Origin is
+ * accepted from direct console requests and same-origin browser proxies.
  */
 export async function guardConsoleRequest(
   request: Request,
@@ -257,7 +271,7 @@ export async function guardConsoleRequest(
       return { ok: false, status: 403, code: "forbidden", message: "cross-origin console request rejected" };
     }
     const originEnv = options.publicOrigin === undefined ? options.env : { PUBLIC_ORIGIN: options.publicOrigin ?? "" };
-    if (!isSameOriginRequest(request, options.trustProxy, originEnv)) {
+    if (!allowsConsoleMutationOrigin(request, options.trustProxy, originEnv)) {
       return { ok: false, status: 403, code: "forbidden", message: "same-origin console request required" };
     }
   }

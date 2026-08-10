@@ -786,6 +786,33 @@ describe("console: mutation guard — content-type and same-origin", () => {
     const body = await jsonObject(res);
     expect(body.error.code).toBe("authorization_denied");
   });
+  test("authenticated console mutation without Origin is accepted", async () => {
+    const res = await fetchConsole("/console/api/settings", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: `${SESSION_COOKIE_NAME}=${validToken}`,
+        host: new URL(testServer.url).host,
+      },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  test("same-origin browser proxy metadata accepts a forwarded frontend origin", async () => {
+    const res = await fetchConsole("/console/api/settings", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: `${SESSION_COOKIE_NAME}=${validToken}`,
+        origin: "http://127.0.0.1:5173",
+        "sec-fetch-site": "same-origin",
+        host: new URL(testServer.url).host,
+      },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(200);
+  });
 });
 
 // ───────────────────────────── Console: body-size fast rejection ─────────────────────────────

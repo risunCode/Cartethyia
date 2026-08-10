@@ -29,6 +29,10 @@ interface Chapter {
 }
 
 const GITHUB_URL = "https://github.com/risunCode/Cartethyia";
+const LANDING_ASSET_BASE_URL = `${import.meta.env.BASE_URL}when_yah/`;
+
+const landingImage = (fileName: string): string => `${LANDING_ASSET_BASE_URL}${fileName}`;
+
 const DISCORD_ANCHOR = "#chapter-6";
 
 const CHAPTERS: readonly Chapter[] = [
@@ -38,7 +42,7 @@ const CHAPTERS: readonly Chapter[] = [
     label: "The Blessed Maiden",
     title: "A single signal enters the unknown.",
     description: "Cartethyia gives every client one reliable gateway to the models beyond it — self-hosted, authenticated, and ready for the crossing.",
-    image: "/when_yah/fleurdelys_plus.webp",
+    image: landingImage("fleurdelys_plus.webp"),
     imageAlt: "The Blessed Maiden beneath a luminous blue sky",
     theme: "night",
     location: "THE FIRST CROSSING",
@@ -56,7 +60,7 @@ const CHAPTERS: readonly Chapter[] = [
     label: "The Resonant Core",
     title: "The route becomes the power.",
     description: "One surface can speak to many providers. Cartethyia translates protocols, balances targets, and keeps each request moving through the right vessel.",
-    image: "/when_yah/cartethyia-god.webp",
+    image: landingImage("cartethyia-god.webp"),
     imageAlt: "Cartethyia surrounded by a celestial blue routing field",
     theme: "core",
     location: "THE ROUTING SANCTUM",
@@ -74,7 +78,7 @@ const CHAPTERS: readonly Chapter[] = [
     label: "The Pink Blossom Calm",
     title: "Behind every powerful system, there is a quiet place to govern.",
     description: "Observe the flow, tune the balance, and let the models answer. Provider accounts, quotas, routing rules, API keys, and request logs stay in one calm console.",
-    image: "/when_yah/jinhsi-blossom.webp",
+    image: landingImage("jinhsi-blossom.webp"),
     imageAlt: "Jinhsi beneath soft pink blossoms",
     theme: "blossom",
     location: "THE QUIET CONTROL",
@@ -92,7 +96,7 @@ const CHAPTERS: readonly Chapter[] = [
     label: "The Many Voices",
     title: "Every route carries a living world.",
     description: "Providers, clients, and models bring different voices to the crossing. Cartethyia gives them one dependable gateway without silencing what makes each path unique.",
-    image: "/when_yah/wuthering-waves-hiyuki-aemeath-hiyuki-rover.webp",
+    image: landingImage("wuthering-waves-hiyuki-aemeath-hiyuki-rover.webp"),
     imageAlt: "A bright celebration of characters and many connected voices",
     theme: "voices",
     location: "THE LIVING NETWORK",
@@ -110,7 +114,7 @@ const CHAPTERS: readonly Chapter[] = [
     label: "The Red Thread",
     title: "A beautiful signal can still be dangerous.",
     description: "Every powerful route attracts pressure. Cartethyia watches the boundary, rejects hostile paths, and keeps a single failure from tearing through the whole network.",
-    image: "/when_yah/phrolova-a.webp",
+    image: landingImage("phrolova-a.webp"),
     imageAlt: "A white-haired figure surrounded by dark red threads and fractured signals",
     theme: "red",
     location: "THE FRACTURED PATH",
@@ -128,7 +132,7 @@ const CHAPTERS: readonly Chapter[] = [
     label: "The Gate of Discernment",
     title: "Not every signal should pass.",
     description: "Every game needs a gatekeeper. Cartethyia verifies intent, protects the route, and denies the requests that would fracture the system.",
-    image: "/when_yah/requestdeniawokkjpg.webp",
+    image: landingImage("requestdeniawokkjpg.webp"),
     imageAlt: "A radiant game-world gatekeeper surrounded by characters and cascading signals",
     theme: "denial",
     location: "THE GATE OF DISCERNMENT",
@@ -146,7 +150,7 @@ const CHAPTERS: readonly Chapter[] = [
     label: "The Open Shore",
     title: "The gateway is yours to shape.",
     description: "Find your way back to the source, share your route, and join the people building a dependable gateway across a changing AI landscape.",
-    image: "/when_yah/Shorekeeper.webp",
+    image: landingImage("Shorekeeper.webp"),
     imageAlt: "Shorekeeper watching over a luminous open shore",
     theme: "shore",
     location: "THE SHOREKEEPER",
@@ -198,28 +202,40 @@ export function LandingPage(): ReactElement {
   const nextVisualChapter = CHAPTERS[imageIndex + 1];
   const rootRef = useRef<HTMLDivElement>(null);
   const chapterRefs = useRef<Array<HTMLElement | null>>([]);
+  const readyImageUrlsRef = useRef<Set<string>>(new Set([CHAPTERS[0].image]));
+  const preloadingImageUrlsRef = useRef<Set<string>>(new Set([CHAPTERS[0].image]));
+  const scheduleScrollUpdateRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     document.title = "Cartethyia — The One-Stop AI Proxy Router";
+    const progressRenderStep = motionProfile === "mobile" ? 0.12 : motionProfile === "reduced" ? 0.2 : 0.04;
     let frame: number | null = null;
     const updateScrollState = (): void => {
       const viewportHeight = Math.max(window.innerHeight, 1);
       const rawScene = Math.max(0, window.scrollY / viewportHeight);
-      const nextImageIndex = Math.min(CHAPTERS.length - 1, Math.floor(rawScene));
+      const requestedImageIndex = Math.min(CHAPTERS.length - 1, Math.floor(rawScene));
       const nextActiveIndex = Math.min(CHAPTERS.length - 1, Math.max(0, Math.round(rawScene)));
-      const nextSceneProgress = nextImageIndex === CHAPTERS.length - 1 ? 1 : Math.min(1, Math.max(0, rawScene - nextImageIndex));
+      const nextSceneProgress = requestedImageIndex === CHAPTERS.length - 1 ? 1 : Math.min(1, Math.max(0, rawScene - requestedImageIndex));
       const maxScroll = Math.max(document.documentElement.scrollHeight - viewportHeight, 1);
       const nextTotalProgress = Math.min(1, Math.max(0, window.scrollY / maxScroll));
-      rootRef.current?.style.setProperty("--scene-progress", String(nextSceneProgress));
       rootRef.current?.style.setProperty("--total-progress", String(nextTotalProgress));
-      setScrollState((current) =>
-        current.activeIndex === nextActiveIndex &&
-        current.imageIndex === nextImageIndex &&
-        Math.abs(current.sceneProgress - nextSceneProgress) < 0.02 &&
-        Math.abs(current.totalProgress - nextTotalProgress) < 0.02
-          ? current
-          : { activeIndex: nextActiveIndex, imageIndex: nextImageIndex, sceneProgress: nextSceneProgress, totalProgress: nextTotalProgress },
-      );
+      setScrollState((current) => {
+        let resolvedImageIndex = current.imageIndex;
+        while (
+          resolvedImageIndex < requestedImageIndex &&
+          readyImageUrlsRef.current.has(CHAPTERS[resolvedImageIndex + 1].image)
+        ) {
+          resolvedImageIndex += 1;
+        }
+        const transitionReady = resolvedImageIndex === requestedImageIndex;
+        const renderedSceneProgress = transitionReady ? nextSceneProgress : 0;
+        rootRef.current?.style.setProperty("--scene-progress", String(renderedSceneProgress));
+        const progressChanged =
+          Math.abs(current.sceneProgress - renderedSceneProgress) >= progressRenderStep ||
+          Math.abs(current.totalProgress - nextTotalProgress) >= progressRenderStep;
+        if (current.activeIndex === nextActiveIndex && current.imageIndex === resolvedImageIndex && !progressChanged) return current;
+        return { activeIndex: nextActiveIndex, imageIndex: resolvedImageIndex, sceneProgress: renderedSceneProgress, totalProgress: nextTotalProgress };
+      });
     };
     const scheduleUpdate = (): void => {
       if (frame !== null) return;
@@ -228,26 +244,39 @@ export function LandingPage(): ReactElement {
         updateScrollState();
       });
     };
+    scheduleScrollUpdateRef.current = scheduleUpdate;
     scheduleUpdate();
     window.addEventListener("scroll", scheduleUpdate, { passive: true });
     window.addEventListener("resize", scheduleUpdate);
     return () => {
+      scheduleScrollUpdateRef.current = null;
       window.removeEventListener("scroll", scheduleUpdate);
       window.removeEventListener("resize", scheduleUpdate);
       if (frame !== null) window.cancelAnimationFrame(frame);
     };
-  }, []);
+  }, [motionProfile]);
+
   useEffect(() => {
-    const preloadedImages = CHAPTERS.map(({ image }) => {
+    const preloadImage = (image: string): void => {
+      if (readyImageUrlsRef.current.has(image) || preloadingImageUrlsRef.current.has(image)) return;
+      preloadingImageUrlsRef.current.add(image);
       const preload = new Image();
       preload.decoding = "async";
+      preload.onload = () => {
+        const decoded = typeof preload.decode === "function" ? preload.decode() : Promise.resolve();
+        void decoded.then(
+          () => markImageReady(image),
+          () => markImageReady(image),
+        );
+      };
+      preload.onerror = () => {
+        preloadingImageUrlsRef.current.delete(image);
+      };
       preload.src = image;
-      return preload;
-    });
-    return () => {
-      for (const preload of preloadedImages) preload.src = "";
     };
-  }, []);
+    CHAPTERS.slice(imageIndex + 1, imageIndex + 3).forEach((chapterToPreload) => preloadImage(chapterToPreload.image));
+  }, [imageIndex]);
+
   useEffect(() => {
     const root = document.documentElement;
     const previousSnap = root.style.scrollSnapType;
@@ -257,6 +286,11 @@ export function LandingPage(): ReactElement {
     };
   }, [reduceMotion]);
 
+  function markImageReady(image: string): void {
+    if (readyImageUrlsRef.current.has(image)) return;
+    readyImageUrlsRef.current.add(image);
+    scheduleScrollUpdateRef.current?.();
+  }
 
   function scrollToChapter(index: number): void {
     chapterRefs.current[index]?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
@@ -267,7 +301,7 @@ export function LandingPage(): ReactElement {
       window.location.assign("/console/login");
       return;
     }
-      scrollToChapter(activeIndex === CHAPTERS.length - 1 ? 0 : activeIndex + 1);
+    scrollToChapter(activeIndex === CHAPTERS.length - 1 ? 0 : activeIndex + 1);
   }
 
   function handleSecondaryAction(): void {
@@ -285,8 +319,18 @@ export function LandingPage(): ReactElement {
           className={`landing-scene-image landing-scene-image-current absolute inset-0 h-full w-full object-cover object-center${nextVisualChapter === undefined ? " landing-scene-image-final" : ""}`}
           fetchPriority={imageIndex === 0 ? "high" : "auto"}
           decoding="async"
+          onLoad={() => markImageReady(visualChapter.image)}
         />
-        {nextVisualChapter !== undefined ? <img key={nextVisualChapter.image} src={nextVisualChapter.image} alt="" decoding="async" className="landing-scene-image landing-scene-image-next absolute inset-0 h-full w-full object-cover object-center" /> : null}
+        {nextVisualChapter !== undefined && motionProfile !== "reduced" ? (
+          <img
+            key={nextVisualChapter.image}
+            src={nextVisualChapter.image}
+            alt=""
+            decoding="async"
+            onLoad={() => markImageReady(nextVisualChapter.image)}
+            className="landing-scene-image landing-scene-image-next absolute inset-0 h-full w-full object-cover object-center"
+          />
+        ) : null}
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(3,7,15,.48)_0%,rgba(3,7,15,.25)_34%,rgba(3,7,15,.08)_75%,rgba(3,7,15,.22)_100%)]" />
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(3,7,15,.36)_0%,transparent_34%,rgba(3,7,15,.48)_100%)]" />
       </div>
@@ -294,7 +338,7 @@ export function LandingPage(): ReactElement {
       <header className="fixed inset-x-0 top-0 z-30">
         <div className="mx-auto flex h-16 w-[min(100%-2rem,1280px)] items-center justify-between gap-4 sm:h-[72px] sm:w-[min(100%-3rem,1280px)]">
           <a className="inline-flex items-center gap-2.5 text-white no-underline" href="#top" onClick={(event) => handleAnchorClick(event, "#top", reduceMotion)}>
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/25 bg-white p-0.5 shadow-lg"><img className="h-full w-full rounded-[9px] object-cover" src="/favicon.webp" alt="" /></span>
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/25 bg-white p-0.5 shadow-lg"><img className="h-full w-full rounded-[9px] object-cover" src={`${import.meta.env.BASE_URL}favicon.webp`} alt="" /></span>
             <span className="grid gap-0.5"><strong className="font-serif text-lg font-normal leading-none sm:text-xl">Cartethyia</strong><small className="text-[8px] font-bold tracking-[0.18em] text-white/55">AI PROXY ROUTER</small></span>
           </a>
           <nav className="hidden items-center gap-1 md:flex" aria-label="Primary navigation">

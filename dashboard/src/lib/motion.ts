@@ -47,7 +47,7 @@ export function detectMotionProfile(): MotionProfile {
   };
   return resolveMotionProfile({
     reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    mobile: window.matchMedia("(max-width: 767px), (pointer: coarse)").matches,
+    mobile: window.matchMedia("(max-width: 767px)").matches,
     saveData: extendedNavigator.connection?.saveData === true,
     deviceMemory: extendedNavigator.deviceMemory,
     hardwareConcurrency: navigator.hardwareConcurrency,

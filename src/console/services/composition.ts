@@ -8,8 +8,9 @@
  * only cross-layer shapes used here.
  *
  * Security invariants:
- * - Mutations require an authenticated session, a JSON content type, and a
- *   same-origin request; session cookies are HttpOnly + SameSite with a
+ * - Mutations require an authenticated session, JSON content type, and
+ *   non-cross-site Fetch Metadata; direct origins and same-origin browser
+ *   proxies are accepted. Session cookies are HttpOnly + SameSite with a
  *   Secure attribute when served over HTTPS (see {@link guardConsoleRequest}
  *   and the cookie helpers in `./session.ts`).
  * - List/detail payloads never include secrets; only bounded credential

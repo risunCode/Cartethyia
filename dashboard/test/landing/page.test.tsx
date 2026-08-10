@@ -31,6 +31,8 @@ describe("LandingPage motion contracts", () => {
 
     expect(screen.getByRole("heading", { name: "A single signal enters the unknown." })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /Go to chapter/ })).toHaveLength(7);
+    expect(document.querySelectorAll(".landing-scene-image")).toHaveLength(1);
+    expect(document.querySelector(".landing-scene-image")?.getAttribute("src")).toBe("/when_yah/fleurdelys_plus.webp");
   });
   test("uses instant anchor scrolling when reduced motion is active", async () => {
     const scrollIntoViewMock = vi.fn();

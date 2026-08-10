@@ -85,7 +85,11 @@
 
 .landing-scene-image {
   opacity: 1;
-  transform: none;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  background-color: #070b13;
+  will-change: opacity;
+  transition: opacity 140ms linear;
 }
 
 .landing-scene-image-current {
@@ -98,6 +102,11 @@
 
 .landing-scene-image-final {
   opacity: 1;
+}
+
+html[data-motion-profile="reduced"] .landing-scene-image {
+  transition: none;
+  will-change: auto;
 }
 
 .landing-scene-progress-vertical {
