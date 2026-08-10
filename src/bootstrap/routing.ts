@@ -7,7 +7,7 @@ import { resolveCliModelMapping } from "../application/cli-model-mapping";
 import { resolveModelChain } from "../application/routing";
 import type { RouteSnapshotCache } from "../application/routing-snapshot";
 import { createRouteSnapshotCache } from "../application/routing-snapshot";
-import { resolveModelWireSurface, resolveWireSurface } from "../open-sse/translate";
+import { resolveModelWireSurface } from "../open-sse/translate";
 import { syncCustomAdapters } from "../providers/custom";
 import { ProviderRegistry } from "../providers/registry";
 import type { AccountRepository, AliasRepository, CliModelMappingRepository, ComboRepository, ConfigPersistence, CustomProviderRepository, ProxyRepository } from "../storage";
@@ -90,23 +90,6 @@ async function listAccountCandidates(cache: RouteSnapshotCache, health: AccountH
 }
 
 
-function isClaudeWebSearchRequest(request: ProxyRequest): boolean {
-  if (request.sourceSurface !== "anthropic-messages" || !request.tools.some((tool) => tool.name === "web_search")) return false;
-  const systemText = request.messages
-    .filter((message) => message.role === "system" || message.role === "developer")
-    .flatMap((message) => message.content)
-    .map((block) => block.text ?? "")
-    .join("\n");
-  const userText = [...request.messages]
-    .reverse()
-    .find((message) => message.role === "user")
-    ?.content
-    .map((block) => block.text ?? "")
-    .join("\n")
-    .trim() ?? "";
-  return systemText.includes("assistant for performing a web search tool use")
-    && /^Perform a web search for the query:\s*\S/i.test(userText);
-}
 
 function createRouteResolver(
   registry: ProviderRegistry,
@@ -116,25 +99,6 @@ function createRouteResolver(
 ): (request: ProxyRequest, affinity: AffinityKey, client: ClientIdentity) => Promise<ProxyRoutePlan> {
   return async (request, affinity, client) => {
     const snapshot = await cache.get();
-    if (isClaudeWebSearchRequest(request)) {
-      const adapter = registry.get("exa");
-      if (adapter !== null && resolveWireSurface(adapter.metadata, adapter.capabilities, request.sourceSurface) !== null) {
-        return {
-          affinity,
-          candidates: [{
-            id: "exa/exa-search",
-            providerId: "exa",
-            modelId: "exa-search",
-            surface: request.sourceSurface,
-            health: null,
-            enabled: true,
-            authorized: true,
-            compatible: true,
-          }],
-          requestedModel: "exa/exa-search",
-        };
-      }
-    }
     const mappedModel = resolveCliModelMapping(client, request.model, snapshot.cliModelMappings);
     const routedRequest = mappedModel === request.model ? request : { ...request, model: mappedModel };
     const chain = resolveModelChain(routedRequest.model, { prefixes: snapshot.prefixes, aliases: snapshot.aliases, combos: snapshot.combos }, affinity);

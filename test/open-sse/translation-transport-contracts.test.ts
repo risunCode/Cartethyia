@@ -215,7 +215,7 @@ describe("Anthropic Messages normalization and payload", () => {
     if (!r.ok) return;
     expect(r.request.reasoning).toBe("enabled");
   });
-  test("preserves Claude web search natively and exposes a function schema to other providers", () => {
+  test("preserves Claude web search natively and maps it to Responses web_search", () => {
     const r = normalizeMessagesRequest({
       model: "c",
       max_tokens: 1024,
@@ -228,6 +228,7 @@ describe("Anthropic Messages normalization and payload", () => {
     expect(r.request.tools[0]?.inputSchema.required).toEqual(["query"]);
     const payload = buildMessagesPayload(r.request, capabilitiesOf({ surfaces: ["anthropic-messages"], reasoning: true }));
     expect(payload.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 5 }]);
+    expect(buildResponsesPayload(r.request).tools).toEqual([{ type: "web_search" }]);
   });
   test("preserves native web search result blocks as tool-result text", () => {
     const r = normalizeMessagesRequest({
@@ -247,7 +248,7 @@ describe("Anthropic Messages normalization and payload", () => {
     if (!r.ok) return;
     expect(r.request.messages[0]?.content[0]?.text).toContain("Risun");
     expect(r.request.messages[0]?.content[0]?.text).toContain("https://github.com/risunCode");
-    expect(r.request.tools).toHaveLength(0);
+    expect(r.request.tools).toHaveLength(1);
   });
   test("keeps Claude server-tool blocks in continuation context", () => {
     const r = normalizeMessagesRequest({

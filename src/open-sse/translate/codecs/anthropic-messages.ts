@@ -67,16 +67,6 @@ export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): 
 
   const tools = normalizeTools(root["tools"]);
   if (isProtocolError(tools)) return normalizeFail(tools);
-  // Claude Code can resend a native search tool after receiving its result.
-  // Once a search result is present, expose it to the model but do not
-  // advertise the same native search again; otherwise weaker models can loop
-  // on identical searches instead of answering from the returned context.
-  const hasSearchResult = messages.some((message) => message.content.some((block) => {
-    const text = block.text ?? "";
-    return (block.type === "tool_result" && text.includes("web_search")) ||
-      (block.type === "text" && text.includes("web_search_tool_result"));
-  }));
-  const effectiveTools = hasSearchResult ? tools.filter((tool) => tool.nativeType !== "web_search_20250305") : tools;
 
   const metadata = root["metadata"];
   const metadataUserId = isRecord(metadata) && typeof metadata.user_id === "string" && metadata.user_id.length <= 4096 ? metadata.user_id : undefined;
@@ -85,7 +75,7 @@ export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): 
     model,
     stream,
     messages: [...system, ...messages],
-    tools: effectiveTools,
+    tools,
     responseFormat: "text",
     reasoning,
     maxOutputTokens: maxTokens,

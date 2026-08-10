@@ -444,14 +444,7 @@ export function buildResponsesPayload(request: ProxyRequest, options: { readonly
     stream: request.stream,
     input: [...request.messages.flatMap(toResponsesItem), ...(request.trailingReasoningItems ?? [])],
   };
-  if (request.tools.length > 0) {
-    payload.tools = request.tools.map((tool) => ({
-      type: "function",
-      name: tool.name,
-      description: tool.description ?? undefined,
-      parameters: tool.inputSchema,
-    }));
-  }
+  if (request.tools.length > 0) payload.tools = request.tools.map(toResponsesTool);
   if (request.maxOutputTokens !== null) payload.max_output_tokens = request.maxOutputTokens;
   if (request.cacheKey !== undefined) payload.prompt_cache_key = request.cacheKey;
   if (request.responseFormat !== "text") payload.text = { format: { type: "json_object" } };
@@ -486,6 +479,16 @@ function buildReasoningWire(flag: "enabled" | "disabled" | "default", config: Re
     return Object.keys(wire).length > 0 ? wire : { effort: "medium", summary: "concise" };
   }
   return flag === "enabled" ? { effort: "medium", summary: "concise" } : { enabled: false };
+}
+
+function toResponsesTool(tool: NormalizedTool): Record<string, unknown> {
+  if (tool.nativeType === "web_search_20250305") return { type: "web_search" };
+  return {
+    type: "function",
+    name: tool.name,
+    description: tool.description ?? undefined,
+    parameters: tool.inputSchema,
+  };
 }
 
 function toResponsesItem(message: NormalizedMessage): readonly Record<string, unknown>[] {
