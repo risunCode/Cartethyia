@@ -39,11 +39,8 @@ describe("registered OAuth provider lifecycle", () => {
       { providerId: "kimchi", driver: new KimchiOAuthDriver({ fetch: async () => response({}) }) },
     ]);
     expect(registry.list().map((entry) => entry.providerId)).toEqual(["codex", "cursor", "devin", "antigravity", "claude", "cline", "clinepass", "grok-build", "kiro", "kimchi"]);
-    expect(registry.list().every((entry) => resolveAuthDriverCapabilities(entry.driver).supportsRefresh)).toBe(true);
-    expect(resolveAuthDriverCapabilities(registry.get("codex")!)).toMatchObject({ supportsBrowser: true, supportsDevice: true });
-    expect(resolveAuthDriverCapabilities(registry.get("cursor")!)).toMatchObject({ supportsBrowser: false, supportsDevice: true });
-    expect(resolveAuthDriverCapabilities(registry.get("devin")!)).toMatchObject({ supportsBrowser: true, supportsDevice: false });
-    expect(resolveAuthDriverCapabilities(registry.get("kimchi")!)).toMatchObject({ supportsBrowser: false, supportsDevice: true });
+    expect(registry.list().filter((entry) => entry.providerId !== "kimchi").every((entry) => resolveAuthDriverCapabilities(entry.driver).supportsRefresh)).toBe(true);
+    expect(resolveAuthDriverCapabilities(registry.get("kimchi")!)).toMatchObject({ supportsBrowser: true, supportsDevice: false, supportsRefresh: false, accessOnly: true });
   });
 
   test("refreshes Codex and preserves rotated refresh credentials", async () => {
@@ -195,28 +192,25 @@ describe("registered OAuth provider lifecycle", () => {
     expect(JSON.parse(String(request?.init?.body))).toEqual({ refreshToken: "social-refresh" });
   });
 
-  test("runs Kimchi Kimi device flow and refreshes rotated credentials", async () => {
-    let pollCalls = 0;
+  test("uses Kimchi browser token callback instead of Kimi device authorization", async () => {
+    let request: { url: string; init: RequestInit | undefined } | undefined;
     const driver = new KimchiOAuthDriver({
-      fetch: async (request) => {
-        const url = String(request);
-        if (url.endsWith("/device_authorization")) {
-          return response({ device_code: "device-code", user_code: "ABCD-EFGH", verification_uri: "https://auth.kimi.com/verify", verification_uri_complete: "https://auth.kimi.com/verify?code=ABCD-EFGH", expires_in: 900, interval: 1 });
-        }
-        if (url.endsWith("/token")) {
-          pollCalls += 1;
-          if (pollCalls === 1) return new Response(JSON.stringify({ error: "authorization_pending" }), { status: 400, headers: { "content-type": "application/json" } });
-          return response({ access_token: "kimi-access", refresh_token: "kimi-refresh", expires_in: 3600 });
-        }
-        throw new Error(`Unexpected Kimi URL: ${url}`);
+      fetch: async (url, init) => {
+        request = { url: String(url), init };
+        return response({ providers: [] });
       },
       nowMs: () => Date.parse("2026-08-10T00:00:00.000Z"),
     });
-    const started = await driver.start({ providerId: "kimchi", state: "kimi-state", flow: "device" });
-    expect(started).toMatchObject({ state: "kimi-state", flow: "device", userCode: "ABCD-EFGH" });
-    await expect(driver.poll?.("kimi-state")).resolves.toMatchObject({ status: "pending" });
-    await expect(driver.poll?.("kimi-state")).resolves.toMatchObject({ status: "completed", tokenSet: { accessToken: "kimi-access", refreshToken: "kimi-refresh" } });
-    await expect(refresh(driver, "kimchi")).resolves.toMatchObject({ accessToken: "kimi-access", refreshToken: "kimi-refresh" });
+    const started = await driver.start({ providerId: "kimchi", state: "kimchi-state", flow: "browser" });
+    expect(started).toMatchObject({ state: "kimchi-state", flow: "browser" });
+    const authorization = new URL(started.authorizationUrl);
+    expect(authorization.origin).toBe("https://app.kimchi.dev");
+    expect(authorization.pathname).toBe("/cli-auth");
+    expect(authorization.searchParams.get("callback")).toBe("http://127.0.0.1:1457/callback");
+    expect(authorization.searchParams.get("state")).toBe("kimchi-state");
+    await expect(driver.exchange?.({ providerId: "kimchi", code: "kimchi-access", state: "kimchi-state" })).resolves.toEqual({ accessToken: "kimchi-access" });
+    expect(request?.url).toBe("https://api.cast.ai/v1/llm/openai/supported-providers");
+    expect(new Headers(request?.init?.headers).get("authorization")).toBe("Bearer kimchi-access");
   });
   test("uses Devin PKCE callback exchange and keeps the session token refreshable", async () => {
     const driver = new DevinOAuthDriver(withResponse({ token: "devin-token" }));

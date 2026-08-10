@@ -348,7 +348,7 @@ function normalizeTools(raw: unknown): NormalizedTool[] | ProtocolError {
  * plus the beta header in `call`) is emitted only when the adapter declares
  * explicitCache and promptCacheKey.
  */
-export function buildMessagesPayload(request: ProxyRequest, capabilities: ProviderCaps): Record<string, unknown> {
+export function buildMessagesPayload(request: ProxyRequest, capabilities: ProviderCaps, options: { readonly includeContextManagement?: boolean } = {}): Record<string, unknown> {
   const systemText = request.messages
     .filter((message) => message.role === "system" || message.role === "developer")
     .map((message) => messageText(message))
@@ -376,7 +376,7 @@ export function buildMessagesPayload(request: ProxyRequest, capabilities: Provid
         input_schema: tool.inputSchema,
       });
   }
-  if (request.contextManagement !== undefined) payload.context_management = request.contextManagement;
+  if (options.includeContextManagement !== false && request.contextManagement !== undefined) payload.context_management = request.contextManagement;
   if (request.reasoning === "enabled" && capabilities.reasoning) {
     payload.thinking = { type: "enabled", budget_tokens: Math.min(request.maxOutputTokens ?? DEFAULT_MAX_TOKENS, MAX_THINKING_BUDGET) };
   }

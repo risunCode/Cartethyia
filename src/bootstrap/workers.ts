@@ -56,7 +56,6 @@ export function createOAuthRuntime({ config, logger }: OAuthRuntimeDependencies)
         cline: 30 * 60_000,
         clinepass: 30 * 60_000,
         cursor: 30 * 60_000,
-        kimchi: 5 * 60_000,
       };
       const minRefreshIntervalMs: Record<string, number> = {
         codex: 60_000,
@@ -67,7 +66,6 @@ export function createOAuthRuntime({ config, logger }: OAuthRuntimeDependencies)
         cline: 60_000,
         clinepass: 60_000,
         cursor: 60_000,
-        kimchi: 5 * 60_000,
       };
       return { refreshLeadMs: 5 * 60_000, maxRefreshAgeMs: maxRefreshAgeMs[account.providerId], minRefreshIntervalMs: minRefreshIntervalMs[account.providerId] ?? 60_000, jitterMs: 30_000 };
     },

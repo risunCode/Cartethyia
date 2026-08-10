@@ -141,7 +141,7 @@ export class CustomProviderAdapter implements Adapter {
       const { request } = input;
       const anthropic = record.type === "anthropic-compatible";
       const headers = customHeaders(record, input.credential, request.stream, input.headers);
-      const payload = anthropic ? buildMessagesPayload(request, this.capabilities) : buildChatPayload(request);
+      const payload = anthropic ? buildMessagesPayload(request, this.capabilities, { includeContextManagement: false }) : buildChatPayload(request);
       const response = await executeFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, input.network, input.capture);
       if (!response.ok) throw await readUpstreamError(response);
       if (!request.stream) {

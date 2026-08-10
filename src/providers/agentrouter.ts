@@ -147,7 +147,7 @@ export class AgentRouterAdapter implements Adapter {
       });
     }
     const request = { ...input.request, model: input.target.upstreamModelId };
-    const payload = reorderBody(buildMessagesPayload(request, this.capabilities));
+    const payload = reorderBody(buildMessagesPayload(request, this.capabilities, { includeContextManagement: false }));
     const headers = buildHeaders(input.credential, request.stream);
     const { signal, network } = input;
     const coordinator = new AbortCoordinator(signal, {

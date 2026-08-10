@@ -127,9 +127,11 @@ describe("OAuth recovery contracts", () => {
 });
 
 describe("OAuth provider capabilities", () => {
-  test("marks Kimchi Kimi as a refreshable device-flow provider", () => {
+  test("marks Kimchi as a browser callback provider without refresh or device flow", () => {
     const capabilities = resolveAuthDriverCapabilities(new KimchiOAuthDriver({ fetch: async () => new Response("{}") }));
-    expect(capabilities.supportsRefresh).toBe(true);
-    expect(capabilities.accessOnly).toBe(false);
+    expect(capabilities.supportsBrowser).toBe(true);
+    expect(capabilities.supportsDevice).toBe(false);
+    expect(capabilities.supportsRefresh).toBe(false);
+    expect(capabilities.accessOnly).toBe(true);
   });
 });

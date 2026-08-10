@@ -438,7 +438,7 @@ function normalizeTools(raw: unknown): NormalizedTool[] | ProtocolError {
  * json_schema response formats are approximated as json_object because the
  * normalized request carries no schema body.
  */
-export function buildResponsesPayload(request: ProxyRequest): Record<string, unknown> {
+export function buildResponsesPayload(request: ProxyRequest, options: { readonly includeContextManagement?: boolean } = {}): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     model: request.model,
     stream: request.stream,
@@ -459,7 +459,7 @@ export function buildResponsesPayload(request: ProxyRequest): Record<string, unk
     payload.reasoning = buildReasoningWire(request.reasoning, request.reasoningConfig);
   }
   if (request.include !== undefined && request.include.length > 0) payload.include = [...request.include];
-  if (request.contextManagement !== undefined) {
+  if (options.includeContextManagement !== false && request.contextManagement !== undefined) {
     const contextManagement = request.contextManagement;
     if (Array.isArray(contextManagement)) payload.context_management = [...contextManagement];
     else if (isRecord(contextManagement) && Array.isArray(contextManagement.edits)) payload.context_management = contextManagement.edits;

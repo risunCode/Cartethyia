@@ -201,7 +201,7 @@ export class CodexAdapter implements Adapter {
     const { request, signal, network } = input;
     // Codex rejects sampling controls and output-token caps with 400; the
     // native client lets the Codex backend choose these values.
-    const payload = buildResponsesPayload(request);
+    const payload = buildResponsesPayload(request, { includeContextManagement: false });
     payload.model = input.target.upstreamModelId;
     delete payload.temperature;
     delete payload.top_p;

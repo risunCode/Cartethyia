@@ -252,6 +252,11 @@ test("converts Messages context-management edits for Responses providers", () =>
   const payload = buildResponsesPayload(chatReq({ contextManagement: { edits: [{ type: "clear_thinking_20251015", keep: "all" }] } }));
   expect(payload.context_management).toEqual([{ type: "clear_thinking_20251015", keep: "all" }]);
 });
+test("can omit remote context management for Codex and Anthropic adapters", () => {
+  const request = chatReq({ contextManagement: { edits: [{ type: "clear_thinking_20251015", keep: "all" }] } });
+  expect(buildResponsesPayload(request, { includeContextManagement: false }).context_management).toBeUndefined();
+  expect(buildMessagesPayload(request, capabilitiesOf({ surfaces: ["anthropic-messages"] }), { includeContextManagement: false }).context_management).toBeUndefined();
+});
 
 describe("OpenAI Responses normalization and payload", () => {
   test("input string normalizes; instructions become system; function_call items fold", () => {

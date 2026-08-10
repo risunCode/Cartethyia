@@ -350,7 +350,7 @@ export interface ProxyRequest {
   readonly reasoningConfig?: ReasoningConfig;
   /** Items to include alongside the response (e.g. `reasoning.encrypted_content`). */
   readonly include?: readonly string[];
-  /** Remote provider context-compaction configuration, preserved by native adapters. */
+  /** Optional remote-provider context configuration; unsupported adapters omit it on the wire. */
   readonly contextManagement?: Readonly<Record<string, unknown>> | readonly Readonly<Record<string, unknown>>[];
   /** Opaque Responses items that precede the next normalized message. */
   readonly reasoningItems?: readonly Record<string, unknown>[];

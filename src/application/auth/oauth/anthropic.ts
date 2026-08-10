@@ -8,8 +8,8 @@ import { AuthorizationCodeDriver, tokenFields } from "./base";
  * platform endpoint only issues `org:create_api_key` console tokens and never
  * grants `user:inference`). The access token authorizes the Anthropic
  * Messages transport used by the Anthropic OAuth provider adapter, which the
- * driver's `buildHeaders` mirrors the required OAuth beta, interleaved thinking,
- * context management, and `x-app: cli` headers.
+ * driver's headers mirror the required OAuth beta, interleaved thinking, and
+ * `x-app: cli` identity.
  *
  * Identity: the token response inlines `account: { uuid, email_address }`
  * (and `organization` on login); older or partial responses fall back to
@@ -26,7 +26,7 @@ export const ANTHROPIC_OAUTH_CALLBACK_PORT = 54545;
 export const ANTHROPIC_OAUTH_CALLBACK_PATH = "/callback";
 export const ANTHROPIC_OAUTH_SCOPES = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 export const ANTHROPIC_OAUTH_VERSION = "2023-06-01";
-export const ANTHROPIC_OAUTH_BETA = "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,advanced-tool-use-2025-11-20,effort-2025-11-24,extended-cache-ttl-2025-04-11";
+export const ANTHROPIC_OAUTH_BETA = "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,advanced-tool-use-2025-11-20,effort-2025-11-24,extended-cache-ttl-2025-04-11";
 const ANTHROPIC_BOOTSTRAP_MODEL = "claude-opus-4-8";
 
 /**

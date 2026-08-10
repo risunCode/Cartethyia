@@ -43,7 +43,6 @@ export const claudeCodeOAuthBetas = [
   "claude-code-20250219",
   "oauth-2025-04-20",
   "interleaved-thinking-2025-05-14",
-  "context-management-2025-06-27",
   "prompt-caching-scope-2026-01-05",
   "mid-conversation-system-2026-04-07",
   "advanced-tool-use-2025-11-20",
@@ -52,13 +51,11 @@ export const claudeCodeOAuthBetas = [
 ] as const;
 
 /**
- * Anthropic OAuth — the "Claude Code" surface. Same Anthropic Messages wire
- * format as the API-key Anthropic adapter, but authenticated with an OAuth
- * bearer token and the Claude Code CLI client-identity headers (oauth beta,
- * interleaved thinking, context management, dangerous-direct-browser-access,
+ * Claude Code compatibility surface, but authenticated with an OAuth
+ * bearer token and the Claude Code CLI client-identity headers (OAuth beta,
+ * interleaved thinking, prompt caching, dangerous-direct-browser-access,
  * and x-app: cli).
  */
-
 const ANTHROPIC_OAUTH_SURFACES: readonly Surface[] = ["anthropic-messages"];
 const ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
 const ANTHROPIC_OAUTH_VERSION = "2023-06-01";
@@ -168,7 +165,7 @@ export class AnthropicOAuthAdapter implements Adapter {
       throw new ProviderAdapterError({ kind: "authentication_failed", message: "A Claude Code OAuth credential is required.", statusCode: 401, routeScope: "account" });
     }
     const { request, signal, network } = input;
-    const payload = buildMessagesPayload(request, this.capabilities);
+    const payload = buildMessagesPayload(request, this.capabilities, { includeContextManagement: false });
     applyClaudeCodeCompatibility(payload, input);
     const headers: Record<string, string> = {
       "content-type": "application/json",
