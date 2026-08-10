@@ -57,6 +57,7 @@ function ToolDetailContent({
   const [roleTargets, setRoleTargets] = useState<Record<string, string>>({});
   const [mappingTargets, setMappingTargets] = useState<Record<string, string>>({});
   const [mappingEnabled, setMappingEnabled] = useState(true);
+  const isNativeClaude = def.id === "claude";
 
   const apiKeysQuery = useApiKeys();
   const mappingsQuery = useToolMappings(def.id);
@@ -78,8 +79,8 @@ function ToolDetailContent({
 
   useEffect(() => {
     setRoleTargets(Object.fromEntries(roleMappings.map((mapping) => [mapping.roleKey, mapping.defaultModel])));
-    setMappingTargets(Object.fromEntries(roleMappings.map((mapping) => [mapping.roleKey, mapping.defaultModel])));
-  }, [roleMappings]);
+    setMappingTargets(Object.fromEntries(roleMappings.map((mapping) => [mapping.roleKey, isNativeClaude ? "" : mapping.defaultModel])));
+  }, [isNativeClaude, roleMappings]);
 
   useEffect(() => {
     const settings = mappingsQuery.data;
@@ -127,29 +128,39 @@ function ToolDetailContent({
       toast.error("Failed to fetch API key credential.");
       return null;
     }
-    const models = roleMappings.map((mapping) => roleTargets[mapping.roleKey] ?? mapping.defaultModel);
-    const modelSlots = Object.fromEntries(roleMappings.map((mapping) => [mapping.roleKey, roleTargets[mapping.roleKey] ?? mapping.defaultModel]));
+    const models = isNativeClaude
+      ? []
+      : roleMappings.map((mapping) => roleTargets[mapping.roleKey] ?? mapping.defaultModel);
+    const modelSlots = isNativeClaude
+      ? undefined
+      : Object.fromEntries(roleMappings.map((mapping) => [mapping.roleKey, roleTargets[mapping.roleKey] ?? mapping.defaultModel]));
     const subagent = roleMappings.find((mapping) => mapping.roleKind === "subagent");
+    const mappings = roleMappings
+      .map((mapping) => {
+        const targetModel = mappingTargets[mapping.roleKey] ?? (isNativeClaude ? "" : roleTargets[mapping.roleKey] ?? mapping.defaultModel);
+        return {
+          slotKey: mapping.roleKey,
+          sourceModel: isNativeClaude ? mapping.roleKey : roleTargets[mapping.roleKey] ?? mapping.defaultModel,
+          targetModel,
+          enabled: mappingEnabled,
+        };
+      })
+      .filter((mapping) => mapping.targetModel.length > 0);
     return {
       endpoint,
       apiKey,
       models,
-      modelSlots,
-      activeModel: models[0],
-      subagentModel: subagent ? roleTargets[subagent.roleKey] ?? subagent.defaultModel : undefined,
+      ...(modelSlots === undefined ? {} : { modelSlots }),
+      activeModel: isNativeClaude ? undefined : models[0],
+      subagentModel: isNativeClaude || !subagent ? undefined : roleTargets[subagent.roleKey] ?? subagent.defaultModel,
       mapping: def.mappingSupported
         ? {
             enabled: mappingEnabled,
-            mappings: roleMappings.map((mapping) => ({
-              slotKey: mapping.roleKey,
-              sourceModel: roleTargets[mapping.roleKey] ?? mapping.defaultModel,
-              targetModel: mappingTargets[mapping.roleKey] ?? roleTargets[mapping.roleKey] ?? mapping.defaultModel,
-              enabled: mappingEnabled,
-            })),
+            mappings,
           }
         : undefined,
     };
-  }, [activeKeys, selectedKeyId, endpoint, roleMappings, roleTargets, mappingTargets, mappingEnabled, def.mappingSupported]);
+  }, [activeKeys, selectedKeyId, endpoint, isNativeClaude, roleMappings, roleTargets, mappingTargets, mappingEnabled, def.mappingSupported]);
 
   const handleApply = useCallback(async () => {
     const input = await buildInput();
@@ -158,19 +169,25 @@ function ToolDetailContent({
 
   const handleSaveMapping = useCallback(() => {
     if (!def.mappingSupported) return;
+    const mappings = roleMappings
+      .map((mapping) => {
+        const targetModel = mappingTargets[mapping.roleKey] ?? (isNativeClaude ? "" : roleTargets[mapping.roleKey] ?? mapping.defaultModel);
+        return {
+          slotKey: mapping.roleKey,
+          sourceModel: isNativeClaude ? mapping.roleKey : roleTargets[mapping.roleKey] ?? mapping.defaultModel,
+          targetModel,
+          enabled: mappingEnabled,
+        };
+      })
+      .filter((mapping) => mapping.targetModel.length > 0);
     saveMappingMutation.mutate({
       toolId: def.id,
       input: {
         enabled: mappingEnabled,
-        mappings: roleMappings.map((mapping) => ({
-          slotKey: mapping.roleKey,
-          sourceModel: roleTargets[mapping.roleKey] ?? mapping.defaultModel,
-          targetModel: mappingTargets[mapping.roleKey] ?? roleTargets[mapping.roleKey] ?? mapping.defaultModel,
-          enabled: mappingEnabled,
-        })),
+        mappings,
       },
     });
-  }, [def.id, def.mappingSupported, mappingEnabled, mappingTargets, roleMappings, roleTargets, saveMappingMutation]);
+  }, [def.id, def.mappingSupported, isNativeClaude, mappingEnabled, mappingTargets, roleMappings, roleTargets, saveMappingMutation]);
 
   const handleReset = useCallback(() => {
     if (!confirm(`Reset ${def.name} config? This removes only Cartethyia-injected fields.`)) return;
@@ -252,7 +269,11 @@ function ToolDetailContent({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-semibold text-[var(--text-1)]">3. Models</h3>
-                  <p className="mt-0.5 text-[11px] text-[var(--text-3)]">Native model values stay in {def.name}'s own config format.</p>
+                  <p className="mt-0.5 text-[11px] text-[var(--text-3)]">
+                    {isNativeClaude
+                      ? "Claude Code keeps its native model IDs; Cartethyia maps model families on the server."
+                      : `Native model values stay in ${def.name}'s own config format.`}
+                  </p>
                 </div>
                 {def.mappingSupported && (
                   <div className="flex items-center gap-2">
@@ -268,17 +289,35 @@ function ToolDetailContent({
                 {roleMappings.map((mapping) => (
                   <div key={mapping.roleKey} className="min-w-0 rounded-xl border border-[var(--inner-border)] bg-[var(--surface-muted)]/30 p-3">
                     <label className="mb-1.5 block text-[11px] font-semibold text-[var(--text-2)]">{mapping.roleLabel}</label>
-                    <ConfiguredModelPicker
-                      value={roleTargets[mapping.roleKey] ?? mapping.defaultModel}
-                      onChange={(value: string) => setRoleTargets((current) => ({ ...current, [mapping.roleKey]: value }))}
-                      placeholder={mapping.defaultModel}
-                    />
-                    <p className="mt-1 truncate text-[10px] text-[var(--text-3)]">{mapping.envKey ?? mapping.modelName}</p>
+                    {isNativeClaude ? (
+                      <div className="rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] px-2.5 py-2">
+                        <code className="text-[11px] text-[var(--text-1)]">{mapping.roleKey}</code>
+                        <p className="mt-1 text-[10px] text-[var(--text-3)]">Matches native Claude model IDs containing “{mapping.roleKey}”.</p>
+                      </div>
+                    ) : (
+                      <ConfiguredModelPicker
+                        value={roleTargets[mapping.roleKey] ?? mapping.defaultModel}
+                        onChange={(value: string) => setRoleTargets((current) => ({ ...current, [mapping.roleKey]: value }))}
+                        placeholder={mapping.defaultModel}
+                      />
+                    )}
+                    <p className="mt-1 truncate text-[10px] text-[var(--text-3)]">{isNativeClaude ? "Native Claude family" : mapping.envKey ?? mapping.modelName}</p>
                     {def.mappingSupported && (
                       <div className="mt-3 border-t border-[var(--inner-border)] pt-2.5">
-                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Harness route target</p>
+                        <div className="mb-1.5 flex items-center justify-between gap-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Harness route target</p>
+                          {mappingTargets[mapping.roleKey] && (
+                            <button
+                              type="button"
+                              onClick={() => setMappingTargets((current) => ({ ...current, [mapping.roleKey]: "" }))}
+                              className="text-[10px] text-[var(--text-3)] hover:text-[var(--text-1)]"
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
                         <ConfiguredModelPicker
-                          value={mappingTargets[mapping.roleKey] ?? mapping.defaultModel}
+                          value={mappingTargets[mapping.roleKey] ?? (isNativeClaude ? "" : mapping.defaultModel)}
                           onChange={(value: string) => setMappingTargets((current) => ({ ...current, [mapping.roleKey]: value }))}
                           placeholder="Select provider target…"
                           includeCombos

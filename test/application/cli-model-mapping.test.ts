@@ -18,7 +18,7 @@ function mappings(toolId: string, enabled: boolean): ReadonlyMap<string, CliMode
       entries: [
         { sourceModel: "claude-opus-4-8", targetModel: "openai/gpt-5.5", enabled: true },
         { sourceModel: "claude-mythos-5", targetModel: "kimchi/minimax-m3", enabled: true },
-        { sourceModel: "gpt-5.1", targetModel: "openai/o4-mini", enabled: false },
+        { sourceModel: "fable", targetModel: "openai/gpt-5.6-luna", enabled: true },
       ],
     }],
   ]);
@@ -42,17 +42,21 @@ describe("CLI model mapping", () => {
     expect(resolveCliModelMapping(client, "claude-opus-4-8", mappings("claude", true))).toBe("openai/gpt-5.5");
   });
 
+  test("maps the new Claude Fable family without a claude prefix", () => {
+    expect(resolveCliModelMapping(claude, "claude-fable-5", mappings("claude", true))).toBe("openai/gpt-5.6-luna");
+  });
   test("maps Claude Code's native Mythos model ID", () => {
     expect(resolveCliModelMapping(claude, "claude-mythos-5", mappings("claude", true))).toBe("kimchi/minimax-m3");
   });
 
-  test("keeps legacy qualified Claude mapping rows working", () => {
+  test("rejects unsupported Claude slash-prefixed mapping rows", () => {
+    expect(resolveCliModelMapping(claude, "claude/claude-mythos-5", mappings("claude", true))).toBe("claude/claude-mythos-5");
     expect(resolveCliModelMapping(claude, "claude-mythos-5", new Map([
       ["claude", {
         enabled: true,
         entries: [{ sourceModel: "claude/claude-mythos-5", targetModel: "openai/gpt-5.6-luna", enabled: true }],
       }],
-    ]))).toBe("openai/gpt-5.6-luna");
+    ]))).toBe("claude-mythos-5");
   });
 
   test("keeps client detector IDs stable", () => {
@@ -98,12 +102,16 @@ describe("CLI native slot injectors", () => {
     },
   };
 
-  test("Claude download emits every configured native role", async () => {
+  test("Claude download emits only the native connection", async () => {
     const result = await claudeInjector.download(input);
-    expect(result.content).toContain(`\"ANTHROPIC_DEFAULT_FABLE_MODEL\": \"source-fable\"`);
-    expect(result.content).toContain(`\"ANTHROPIC_DEFAULT_MODEL\": \"source-mythos\"`);
-    expect(result.content).not.toContain("ANTHROPIC_CUSTOM_MODEL_OPTION");
-    expect(result.content).toContain(`\"ANTHROPIC_AUTH_TOKEN\": \"sk-test\"`);
+    const downloaded = JSON.parse(result.content) as { env: Record<string, string> };
+    expect(downloaded.env).toEqual({
+      ANTHROPIC_BASE_URL: "http://localhost:12800",
+      ANTHROPIC_AUTH_TOKEN: "sk-test",
+    });
+    expect(result.content).not.toContain("ANTHROPIC_MODEL");
+    expect(result.content).not.toContain("ANTHROPIC_DEFAULT_");
+    expect(result.content).not.toContain("API_TIMEOUT_MS");
   });
 
   test("Claude download keeps the host base for Claude Code's appended /v1/messages path", async () => {

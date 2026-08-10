@@ -85,10 +85,11 @@ export class CliToolService {
   /** Apply Cartethyia config to a tool's config files and mapping store. */
   async applyConfig(toolId: string, input: ApplyInput): Promise<ApplyResult> {
     const injector = injectorFor(toolId);
-    if (injector === null) return { success: false, message: `Unknown tool: ${toolId}` };
+    const def = getToolDef(toolId);
+    if (injector === null || def === null) return { success: false, message: `Unknown tool: ${toolId}` };
     if (!input.endpoint) return { success: false, message: "Endpoint is required" };
     if (!input.apiKey) return { success: false, message: "API key is required" };
-    if (input.models.length === 0) return { success: false, message: "At least one model is required" };
+    if (def.id !== "claude" && input.models.length === 0) return { success: false, message: "At least one model is required" };
     try {
       const result = await injector.apply(input);
       if (result.success && input.mapping !== undefined) this.saveMappings(toolId, input.mapping);
@@ -132,11 +133,15 @@ export class CliToolService {
     if (!this.isValidTool(toolId)) throw new Error(`Unknown tool: ${toolId}`);
     const def: ToolDef = TOOL_REGISTRY[toolId as ToolId];
     if (def.mappingSupported !== true) throw new Error(`${def.name} does not support model mapping`);
-    this.config.cliModelMappings.setEnabled(toolId, input.enabled);
     const knownSlots = new Set(def.defaultModels.map((model) => model.alias));
+    const incomingSlots = new Set<string>();
     for (const mapping of input.mappings) {
       if (!knownSlots.has(mapping.slotKey)) throw new Error(`Unknown mapping slot: ${mapping.slotKey}`);
       if (!mapping.sourceModel.trim() || !mapping.targetModel.trim()) throw new Error("Mapping source and target are required");
+      incomingSlots.add(mapping.slotKey);
+    }
+    this.config.cliModelMappings.setEnabled(toolId, input.enabled);
+    for (const mapping of input.mappings) {
       this.config.cliModelMappings.upsert({
         toolId,
         slotKey: mapping.slotKey,
@@ -144,6 +149,9 @@ export class CliToolService {
         targetModel: mapping.targetModel.trim(),
         enabled: mapping.enabled,
       });
+    }
+    for (const existing of this.config.cliModelMappings.list(toolId)) {
+      if (!incomingSlots.has(existing.slotKey)) this.config.cliModelMappings.delete(toolId, existing.slotKey);
     }
     return this.getMappings(toolId);
   }

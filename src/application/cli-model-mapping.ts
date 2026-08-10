@@ -26,6 +26,19 @@ const CLIENT_TOOL_IDS: Readonly<Partial<Record<ClientName, string>>> = {
 export function cliToolIdForClient(clientName: ClientName): string | null {
   return CLIENT_TOOL_IDS[clientName] ?? null;
 }
+const CLAUDE_MODEL_FAMILIES = new Set(["opus", "sonnet", "haiku", "fable", "mythos"]);
+
+function normalizeClaudeModel(model: string): string {
+  return model.toLowerCase();
+}
+
+function matchesClaudeModel(sourceModel: string, requestModel: string): boolean {
+  const source = normalizeClaudeModel(sourceModel);
+  const request = normalizeClaudeModel(requestModel);
+  if (source.startsWith("claude/") || request.startsWith("claude/")) return false;
+  if (source === request) return true;
+  return CLAUDE_MODEL_FAMILIES.has(source) && request.includes(source);
+}
 
 
 export function resolveCliModelMapping(
@@ -37,8 +50,11 @@ export function resolveCliModelMapping(
   if (toolId === null) return sourceModel;
   const settings = mappings.get(toolId);
   if (settings === undefined || !settings.enabled) return sourceModel;
-  const entry = settings.entries.find((candidate) => candidate.enabled
-    && (candidate.sourceModel === sourceModel
-      || (toolId === "claude" && (candidate.sourceModel === `claude/${sourceModel}` || sourceModel === `claude/${candidate.sourceModel}`))));
+  const entry = settings.entries.find((candidate) =>
+    candidate.enabled
+    && (toolId === "claude"
+      ? matchesClaudeModel(candidate.sourceModel, sourceModel)
+      : candidate.sourceModel === sourceModel)
+  );
   return entry?.targetModel ?? sourceModel;
 }
