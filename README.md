@@ -3,11 +3,11 @@
 
 > **2.0.0 Beta is here.**
 > Cartethyia is still beta software. Expect provider API changes and validate your credentials, proxy settings, and persistent data before production use.
-> This project is maintained as a self-hosted deployment and currently does not accept pull requests.
+> This project is maintained as a self-hosted deployment, and pull requests are welcome as of the 2.0 beta.
 
 A self-hosted Bun + Elysia AI proxy with an authenticated web console. Cartethyia accepts OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages requests; routes them across 30+ provider adapters; translates protocols; manages OAuth/API-key accounts; and exposes routing, quota, usage, and health controls from one dashboard.
 
-**Current release:** `2.0.0-beta` (2026-08-08)
+**Current release:** `2.0.0-beta` (2026-08-10)
 
 ## Features
 

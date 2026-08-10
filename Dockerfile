@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ─── Stage 1: Build wgcf + Wireproxy from vendored source trees ──────────────
-FROM --platform=linux/amd64 golang:1.26.5-bookworm@sha256:6c5605ab3a9a9fb3c4eafe5b3d63cdbf3881caf113262b67862547b54a9db599 AS go-build
+FROM golang:1.26.5-bookworm@sha256:6c5605ab3a9a9fb3c4eafe5b3d63cdbf3881caf113262b67862547b54a9db599 AS go-build
 WORKDIR /build
 
 COPY vendor/wgcf/ ./wgcf/
@@ -11,7 +11,7 @@ COPY vendor/wireproxy/ ./wireproxy/
 RUN cd wireproxy && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/wireproxy ./cmd/wireproxy
 
 # ─── Stage 2: Build dashboard + install deps ────────────────────────────────
-FROM --platform=linux/amd64 oven/bun:canary-debian@sha256:994ab4c38ff6391322a2264dcf11860561a8621756270e11335e097eb774965a AS build
+FROM oven/bun:canary-debian@sha256:994ab4c38ff6391322a2264dcf11860561a8621756270e11335e097eb774965a AS build
 WORKDIR /app
 
 COPY package.json bun.lock ./
@@ -25,7 +25,7 @@ RUN cd dashboard && bun run build
 RUN bun build --compile --minify --bytecode --target bun --outfile /out/cartethyia src/main.ts
 
 # ─── Stage 3: Runtime ───────────────────────────────────────────────────────
-FROM --platform=linux/amd64 oven/bun:canary-debian@sha256:994ab4c38ff6391322a2264dcf11860561a8621756270e11335e097eb774965a AS runtime
+FROM oven/bun:canary-debian@sha256:994ab4c38ff6391322a2264dcf11860561a8621756270e11335e097eb774965a AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production \
@@ -34,6 +34,7 @@ ENV NODE_ENV=production \
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
+      adduser \
       ca-certificates \
       fastfetch \
       gosu \
