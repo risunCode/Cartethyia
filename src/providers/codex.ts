@@ -107,15 +107,50 @@ function codexCredential(value: string): CodexCredential | null {
 async function readCodexNonStream(response: Response, coordinator: AbortCoordinator, request: ProviderRequest["request"]): Promise<ProviderOutput> {
   if (!response.body) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Codex returned an empty stream body", routeScope: "provider" });
   let completed: Record<string, unknown> | null = null;
+  let text = "";
+  let reasoning = "";
+  const calls = new Map<string, { name: string; arguments: string }>();
   for await (const sse of decodeSseEvents({ body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs })) {
     if (sse.data === "[DONE]") continue;
     const parsed = parseSseData(sse.data);
     if (!isRecord(parsed)) continue;
+    if (parsed.type === "response.output_text.delta" && typeof parsed.delta === "string") text += parsed.delta;
+    if ((parsed.type === "response.reasoning_text.delta" || parsed.type === "response.reasoning_summary_text.delta") && typeof parsed.delta === "string") reasoning += parsed.delta;
+    if (parsed.type === "response.output_item.added" || parsed.type === "response.output_item.done") {
+      const item = isRecord(parsed.item) ? parsed.item : null;
+      if (item?.type === "function_call") {
+        const callId = nonEmpty(item.call_id) ?? nonEmpty(item.id);
+        if (callId !== undefined) calls.set(callId, { name: nonEmpty(item.name) ?? "", arguments: typeof item.arguments === "string" ? item.arguments : calls.get(callId)?.arguments ?? "" });
+      }
+    }
+    if (parsed.type === "response.function_call_arguments.delta" && typeof parsed.delta === "string") {
+      const callId = nonEmpty(parsed.item_id) ?? nonEmpty(parsed.call_id);
+      if (callId !== undefined) {
+        const previous = calls.get(callId) ?? { name: "", arguments: "" };
+        calls.set(callId, { ...previous, arguments: previous.arguments + parsed.delta });
+      }
+    }
     if ((parsed.type === "response.completed" || parsed.type === "response.done") && isRecord(parsed.response)) completed = parsed.response;
   }
   if (completed === null) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Codex stream ended without a completed response", routeScope: "provider" });
-  const usageRecord = isRecord(completed.usage) ? completed.usage : null;
-  return { mode: "non_stream", body: completed, usage: usageRecord !== null ? mapResponsesUsage(usageRecord) : undefined };
+  const existingOutput = Array.isArray(completed.output) ? completed.output.filter(isRecord) : [];
+  const additions: Record<string, unknown>[] = [];
+  const hasReasoning = existingOutput.some((item) => item.type === "reasoning");
+  const hasText = existingOutput.some((item) => {
+    if (item.type !== "message" || !Array.isArray(item.content)) return false;
+    return item.content.some((part) => isRecord(part) && part.type === "output_text" && typeof part.text === "string" && part.text.length > 0);
+  });
+  if (reasoning.length > 0 && !hasReasoning) additions.push({ type: "reasoning", id: `${String(completed.id ?? "resp")}-reasoning`, summary: [{ type: "summary_text", text: reasoning }] });
+  if (text.length > 0 && !hasText) additions.push({ type: "message", id: `${String(completed.id ?? "resp")}-message`, role: "assistant", status: "completed", content: [{ type: "output_text", text, annotations: [] }] });
+  for (const [callId, call] of calls) {
+    if (!existingOutput.some((item) => item.type === "function_call" && item.call_id === callId)) {
+      additions.push({ type: "function_call", id: callId, call_id: callId, name: call.name, arguments: call.arguments, status: "completed" });
+    }
+  }
+  const body: Record<string, unknown> = additions.length > 0 ? { ...completed, output: [...existingOutput, ...additions] } : { ...completed };
+  if (text.length > 0 && (typeof body.output_text !== "string" || body.output_text.length === 0)) body.output_text = text;
+  const usageRecord = isRecord(body.usage) ? body.usage : null;
+  return { mode: "non_stream", body, usage: usageRecord !== null ? mapResponsesUsage(usageRecord) : undefined };
 }
 
 

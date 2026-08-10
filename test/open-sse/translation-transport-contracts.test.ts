@@ -62,12 +62,16 @@ describe("surface routing", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       request = { url: String(input), init };
-      return new Response(`event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_1", object: "response", output: [], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } })}\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } });
+      return new Response(`data: {"type":"response.reasoning_summary_text.delta","delta":"think"}\n\ndata: {"type":"response.output_text.delta","delta":"hello"}\n\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "resp_1", object: "response", output: [], output_text: "", usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } })}\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } });
     }) as typeof fetch;
     try {
       const adapter = new CodexAdapter();
       const result = await adapter.call({ target: adapter.resolveTarget("gpt-5.4", "openai-responses"), request: chatReq({ model: "codex/gpt-5.4" }), credential, network: { proxyId: null, url: null, release: async () => {} }, signal: new AbortController().signal });
       expect(result.mode).toBe("non_stream");
+      if (result.mode === "non_stream") {
+        expect(result.body.output_text).toBe("hello");
+        expect(JSON.stringify(result.body.output)).toContain("think");
+      }
       expect(request?.url).toBe("https://chatgpt.com/backend-api/codex/responses");
       expect(new Headers(request?.init?.headers).get("authorization")).toBe(`Bearer ${accessToken}`);
       const sent = JSON.parse(String(request?.init?.body)) as Record<string, unknown>;
@@ -269,6 +273,12 @@ describe("OpenAI Responses normalization and payload", () => {
     expect(buildResponsesPayload(r.request).reasoning).toEqual({ effort: "high", summary: "detailed", mode: "pro", context: "all_turns" });
     expect((buildResponsesPayload(r.request).input as readonly unknown[])[0]).toEqual({ type: "reasoning", id: "rs_1", encrypted_content: "opaque", summary: [{ type: "summary_text", text: "prior thought" }] });
     expect((buildResponsesPayload(r.request).input as readonly unknown[])[1]).toMatchObject({ role: "assistant", phase: "final_answer" });
+  });
+  test("forwards legacy reasoning_effort into the Responses reasoning object", () => {
+    const r = normalizeResponsesRequest({ model: "gpt-5.6", reasoning_effort: "high", input: "hi" }, ni());
+    expect(r.ok).toBe(true); if (!r.ok) return;
+    expect(r.request.reasoning).toBe("enabled");
+    expect(buildResponsesPayload(r.request).reasoning).toEqual({ effort: "high", summary: "concise" });
   });
   test("reasoning blocks excluded; refusal never visible; payload defaults to concise summaries", () => {
     const r = normalizeResponsesRequest({ model: "o1", input: [{ type: "message", role: "user", content: [{ type: "reasoning" }, { type: "input_text", text: "real" }] }] }, ni());

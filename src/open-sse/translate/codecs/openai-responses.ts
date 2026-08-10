@@ -45,9 +45,14 @@ export function normalizeResponsesRequest(body: unknown, input: NormalizeInput):
 
   const responseFormat = normalizeResponseFormat(root["text"]);
   if (isProtocolError(responseFormat)) return normalizeFail(responseFormat);
-
   const reasoning = normalizeReasoning(root["reasoning"]);
   if (isProtocolError(reasoning)) return normalizeFail(reasoning);
+  let reasoningConfig = reasoning.config;
+  const topEffort = root["reasoning_effort"];
+  if (typeof topEffort === "string" && topEffort !== "" && reasoningConfig?.effort === undefined) {
+    if (!REASONING_EFFORTS.includes(topEffort)) return normalizeFail(protocolError("reasoning_effort", `reasoning_effort: unsupported value "${topEffort}"`));
+    reasoningConfig = { ...reasoningConfig, effort: topEffort as ReasoningEffort };
+  }
 
 
   const contextManagement = normalizeContextManagement(root["context_management"]);
@@ -70,7 +75,7 @@ export function normalizeResponsesRequest(body: unknown, input: NormalizeInput):
   const include = normalizeInclude(root["include"]);
   if (isProtocolError(include)) return normalizeFail(include);
 
-  const finalReasoning = reasoningState.seen ? "enabled" : reasoning.flag;
+  const finalReasoning = reasoningState.seen || reasoningConfig?.effort !== undefined || reasoningConfig?.enabled === true || reasoningConfig?.maxTokens !== undefined ? "enabled" : reasoning.flag;
 
   return normalizeOk({
     model,
@@ -79,7 +84,7 @@ export function normalizeResponsesRequest(body: unknown, input: NormalizeInput):
     stream,
     responseFormat,
     reasoning: finalReasoning,
-    reasoningConfig: reasoning.config,
+    reasoningConfig,
     include,
     ...(contextManagement === undefined ? {} : { contextManagement }),
     ...(inputMessages.trailingReasoningItems === undefined ? {} : { trailingReasoningItems: inputMessages.trailingReasoningItems }),
