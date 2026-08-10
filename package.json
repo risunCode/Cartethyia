@@ -15,6 +15,7 @@
     "bench:baseline": "bun test --timeout 60000 test/bench/benchmark-edge-cases.test.ts"
   },
   "dependencies": {
+    "devin-router": "../Public/DevinRouter",
     "elysia": "^1.4.29",
     "socks-proxy-agent": "^10.1.0"
   },
