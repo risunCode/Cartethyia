@@ -13,7 +13,7 @@ import type {
 } from "../views";
 import { loadRouteTransition } from "../views";
 import { booleanOrUndefined, boundedNumber, defaultProxyPort, isProxyRelayHost, nullableString, numberOrUndefined, proxyProtocol, stringListOrUndefined, stringOrUndefined } from "../input-sanitizers";
-import { mapWithConcurrency, scrapeProxies, type ScrapeOptions, type ScrapeProtocol, type ScrapeSource } from "./proxy-scraper";
+import { mapWithConcurrency, scrapeProxies, type ScrapedProxy, type ScrapeOptions, type ScrapeProtocol, type ScrapeSource } from "./proxy-scraper";
 
 const DEFAULT_PROXY_CANARY_URL = "https://www.google.com/generate_204";
 
@@ -32,6 +32,20 @@ export interface ProxyScrapeResult {
   readonly verified: number;
   readonly added: number;
   readonly skipped: number;
+}
+export type ProxySearchStatus = "healthy" | "error" | "unverified";
+
+export interface ProxySearchItem extends ScrapedProxy {
+  readonly status: ProxySearchStatus;
+  readonly latencyMs: number | null;
+  readonly error: string | null;
+  readonly saved: boolean;
+}
+
+export interface ProxySearchResult {
+  readonly items: readonly ProxySearchItem[];
+  readonly scraped: number;
+  readonly verified: number;
 }
 
 function proxyKey(protocol: string, host: string, port: number): string {
@@ -53,17 +67,18 @@ function normalizeScrapeInput(input: unknown): ScrapeOptions & { readonly verify
     verify: value.verify !== false,
   };
 }
-
-async function probeProxy(input: ProxyTestInput): Promise<ProxyTestResult> {
+async function probeProxy(input: ProxyTestInput, signal?: AbortSignal): Promise<ProxyTestResult> {
   const started = performance.now();
   const auth = input.username ? `${encodeURIComponent(input.username)}${input.password ? `:${encodeURIComponent(input.password)}` : ""}@` : "";
+  const probeSignal = signal === undefined ? AbortSignal.timeout(10_000) : AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
   try {
     const fetcher = buildProxyFetcher({ url: `${input.protocol}://${auth}${input.host}:${input.port}`, isRelay: input.isRelay });
-    const response = await fetcher(DEFAULT_PROXY_CANARY_URL, { method: "GET", signal: AbortSignal.timeout(10_000) });
+    const response = await fetcher(DEFAULT_PROXY_CANARY_URL, { method: "GET", signal: probeSignal });
     const latencyMs = Math.round(performance.now() - started);
     if (!response.ok && response.status !== 204) return { ok: false, latencyMs, statusCode: response.status, error: `Canary request returned HTTP ${response.status}` };
     return { ok: true, latencyMs, statusCode: response.status };
   } catch (error) {
+    if (signal?.aborted) throw error;
     return { ok: false, latencyMs: Math.round(performance.now() - started), error: error instanceof Error ? sanitizeMessage(error) : "Connection failed — network unreachable or DNS resolution failed" };
   }
 }
@@ -184,6 +199,28 @@ export class ProxyService {
     const port = numberOrUndefined(value.port);
     if (protocol === null || host === undefined || host.length === 0 || port === undefined || !Number.isInteger(port) || port < 1 || port > 65_535) return { ok: false, latencyMs: 0, error: "valid protocol, host, and port are required" };
     return probeProxy({ protocol, host, port, username: nullableString(value.username), password: nullableString(value.password), isRelay: isProxyRelayHost(host) });
+  }
+
+  /** Searches free proxy sources without persisting candidates to the routing pool. */
+  async search(input: unknown, signal?: AbortSignal): Promise<ProxySearchResult> {
+    const options = normalizeScrapeInput(input);
+    const scraped = await scrapeProxies(options, fetch, signal);
+    const existingKeys = new Set((await this.repo.list()).map((proxy) => proxyKey(proxy.protocol, proxy.host, proxy.port)));
+    const checked = options.verify
+      ? await mapWithConcurrency(scraped, SCRAPE_VERIFY_CONCURRENCY, async (proxy) => ({ proxy, result: await probeProxy({ protocol: proxy.protocol, host: proxy.host, port: proxy.port, isRelay: false }, signal) }))
+      : scraped.map((proxy) => ({ proxy, result: null }));
+    const items = checked.map(({ proxy, result }): ProxySearchItem => ({
+      ...proxy,
+      status: result === null ? "unverified" : result.ok ? "healthy" : "error",
+      latencyMs: result?.latencyMs ?? null,
+      error: result?.error ?? null,
+      saved: existingKeys.has(proxyKey(proxy.protocol, proxy.host, proxy.port)),
+    }));
+    return {
+      items,
+      scraped: items.length,
+      verified: items.filter((item) => item.status === "healthy").length,
+    };
   }
 
   /** Scrapes free proxy sources, verifies candidates in bounded parallel batches, and adds survivors to the pool. */

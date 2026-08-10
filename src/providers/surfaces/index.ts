@@ -25,6 +25,7 @@ function anthropicStop(reason: StopReason): string {
   if (reason === "length") return "max_tokens";
   if (reason === "tool_call") return "tool_use";
   if (reason === "content_filter") return "refusal";
+  if (reason === "compaction") return "compaction";
   return "end_turn";
 }
 
@@ -131,14 +132,16 @@ async function* encodeAnthropic(events: AsyncIterable<StreamEvent>, model: strin
   let finished = false;
   let blockIndex = -1;
   let textBlock: number | null = null;
+  let compactionBlock: number | null = null;
   let thinkingBlock: number | null = null;
   const toolBlockById = new Map<string, number>();
-
   const startMessage = (): Uint8Array => frame({ event: "message_start", data: { type: "message_start", message: { id, type: "message", role: "assistant", model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } } });
   const stopBlock = (index: number): Uint8Array => frame({ event: "content_block_stop", data: { type: "content_block_stop", index } });
+
   const closeTextBlocks = function* (): Generator<Uint8Array> {
     if (thinkingBlock !== null) { yield stopBlock(thinkingBlock); thinkingBlock = null; }
     if (textBlock !== null) { yield stopBlock(textBlock); textBlock = null; }
+    if (compactionBlock !== null) { yield stopBlock(compactionBlock); compactionBlock = null; }
   };
 
   for await (const event of events) {
@@ -147,8 +150,15 @@ async function* encodeAnthropic(events: AsyncIterable<StreamEvent>, model: strin
       if (!started) { started = true; yield startMessage(); }
       continue;
     }
-    if (!started) { started = true; yield startMessage(); }
-    if (event.type === "thinking_delta") {
+    if (event.type === "compaction_start") {
+      yield* closeTextBlocks();
+      compactionBlock = ++blockIndex;
+      yield frame({ event: "content_block_start", data: { type: "content_block_start", index: compactionBlock, content_block: { type: "compaction", content: "" } } });
+    } else if (event.type === "compaction_delta") {
+      if (compactionBlock !== null) yield frame({ event: "content_block_delta", data: { type: "content_block_delta", index: compactionBlock, delta: { type: "compaction_delta", content: event.text } } });
+    } else if (event.type === "compaction_stop") {
+      if (compactionBlock !== null) { yield stopBlock(compactionBlock); compactionBlock = null; }
+    } else if (event.type === "thinking_delta") {
       if (thinkingBlock === null) {
         yield* closeTextBlocks();
         thinkingBlock = ++blockIndex;
@@ -210,7 +220,10 @@ async function* encodeResponses(events: AsyncIterable<StreamEvent>, model: strin
       continue;
     }
     if (!started) { started = true; yield created(); }
-    if (event.type === "text_delta") {
+    if (event.type === "context_item") {
+      const wireType = event.phase === "added" ? "response.output_item.added" : "response.output_item.done";
+      yield frame({ data: { type: wireType, sequence_number: next(), output_index: event.outputIndex, item: event.item } });
+    } else if (event.type === "text_delta") {
       text += event.text;
       yield frame({ data: { type: "response.output_text.delta", sequence_number: next(), item_id: id, delta: event.text } });
     } else if (event.type === "thinking_delta") {

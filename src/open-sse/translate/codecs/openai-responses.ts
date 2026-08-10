@@ -17,6 +17,7 @@ normalizeToolList,
 nullableNumber,
 protocolError,
 pushImageReference,
+boundJsonLength,
 MAX_BLOCKS_PER_MESSAGE,
 MAX_MESSAGE_COUNT,
 MAX_MODEL_LENGTH,
@@ -48,6 +49,10 @@ export function normalizeResponsesRequest(body: unknown, input: NormalizeInput):
   const reasoning = normalizeReasoning(root["reasoning"]);
   if (isProtocolError(reasoning)) return normalizeFail(reasoning);
 
+
+  const contextManagement = normalizeContextManagement(root["context_management"]);
+  if (isProtocolError(contextManagement)) return normalizeFail(contextManagement);
+
   const maxOutputTokens = normalizeMaxOutputTokens(root["max_output_tokens"]);
   if (isProtocolError(maxOutputTokens)) return normalizeFail(maxOutputTokens);
 
@@ -69,13 +74,15 @@ export function normalizeResponsesRequest(body: unknown, input: NormalizeInput):
 
   return normalizeOk({
     model,
-    messages: [...instructions, ...inputMessages],
+    messages: [...instructions, ...inputMessages.messages],
     tools,
     stream,
     responseFormat,
     reasoning: finalReasoning,
     reasoningConfig: reasoning.config,
     include,
+    ...(contextManagement === undefined ? {} : { contextManagement }),
+    ...(inputMessages.trailingReasoningItems === undefined ? {} : { trailingReasoningItems: inputMessages.trailingReasoningItems }),
     maxOutputTokens,
     images,
     sourceSurface: "openai-responses",
@@ -169,10 +176,11 @@ export function parseReasoningConfig(
   const flag = config.effort !== undefined || config.enabled === true || config.maxTokens !== undefined || config.mode !== undefined || config.context !== undefined ? "enabled" : "default";
   return { flag, config: Object.keys(config).length > 0 ? config : undefined };
 }
-function normalizeInput(raw: unknown, images: ImageReference[], reasoningState: { seen: boolean }): NormalizedMessage[] | ProtocolError {
+
+function normalizeInput(raw: unknown, images: ImageReference[], reasoningState: { seen: boolean }): { messages: NormalizedMessage[]; trailingReasoningItems?: readonly Record<string, unknown>[] } | ProtocolError {
   if (typeof raw === "string") {
     if (raw.length > MAX_TEXT_BLOCK_LENGTH) return protocolError("input", `input: text exceeds ${MAX_TEXT_BLOCK_LENGTH} characters`);
-    return [{ role: "user", content: [{ type: "text", text: raw }] }];
+    return { messages: [{ role: "user", content: [{ type: "text", text: raw }] }] };
   }
   const list = narrowMessageArray(raw, "input", MAX_MESSAGE_COUNT);
   if (isProtocolError(list)) return list;
@@ -203,17 +211,22 @@ function normalizeInput(raw: unknown, images: ImageReference[], reasoningState: 
       if (isProtocolError(block)) return block;
       messages.push(withPendingReasoning({ role: "tool", content: [block] }, pendingReasoningItems));
     } else if (type === "reasoning") {
-      const item = normalizeReasoningItem(obj, field);
-      if (isProtocolError(item)) return item;
-      pendingReasoningItems.push(item);
+      const normalized = normalizeReasoningItem(obj, field);
+      if (isProtocolError(normalized)) return normalized;
+      pendingReasoningItems.push(normalized);
       reasoningState.seen = true;
+    } else if (type === "compaction") {
+      const bound = boundJsonLength(obj, field, MAX_TEXT_BLOCK_LENGTH);
+      if (bound !== null) return bound;
+      pendingReasoningItems.push(obj);
     } else if (typeof type === "string") {
       return protocolError(`${field}.type`, `unsupported input item type "${type}"`);
     } else {
       return protocolError(`${field}.type`, "input item type must be a string");
     }
   }
-  return messages;
+  const trailingReasoningItems = takePendingReasoning(pendingReasoningItems);
+  return trailingReasoningItems === undefined ? { messages } : { messages, trailingReasoningItems };
 }
 
 function normalizeReasoning(raw: unknown): { flag: "enabled" | "disabled" | "default"; config: ReasoningConfig | undefined } | ProtocolError {
@@ -222,6 +235,19 @@ function normalizeReasoning(raw: unknown): { flag: "enabled" | "disabled" | "def
   if (isProtocolError(obj)) return obj;
   return parseReasoningConfig(obj, "reasoning", obj["enabled"]);
 
+}
+function normalizeContextManagement(raw: unknown): readonly Readonly<Record<string, unknown>>[] | ProtocolError | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const list = narrowArray(raw, "context_management", 16);
+  if (isProtocolError(list)) return list;
+  const result: Readonly<Record<string, unknown>>[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const item = narrowObject(list[i], `context_management[${i}]`);
+    if (isProtocolError(item)) return item;
+    result.push(item);
+  }
+  const bound = boundJsonLength(result, "context_management", 64 * 1024);
+  return bound === null ? result : bound;
 }
 /** Normalizes the Responses `include` array (e.g. `reasoning.encrypted_content`). */
 function normalizeInclude(raw: unknown): readonly string[] | ProtocolError {
@@ -411,7 +437,7 @@ export function buildResponsesPayload(request: ProxyRequest): Record<string, unk
   const payload: Record<string, unknown> = {
     model: request.model,
     stream: request.stream,
-    input: request.messages.flatMap(toResponsesItem),
+    input: [...request.messages.flatMap(toResponsesItem), ...(request.trailingReasoningItems ?? [])],
   };
   if (request.tools.length > 0) {
     payload.tools = request.tools.map((tool) => ({
@@ -428,6 +454,7 @@ export function buildResponsesPayload(request: ProxyRequest): Record<string, unk
     payload.reasoning = buildReasoningWire(request.reasoning, request.reasoningConfig);
   }
   if (request.include !== undefined && request.include.length > 0) payload.include = [...request.include];
+  if (request.contextManagement !== undefined) payload.context_management = request.contextManagement;
   return payload;
 }
 
@@ -470,6 +497,9 @@ function toResponsesItem(message: NormalizedMessage): readonly Record<string, un
     }
     case "assistant": {
       const items: Record<string, unknown>[] = [...prefix];
+      for (const block of message.content) {
+        if (block.type === "compaction" && block.raw !== undefined) items.push(block.raw);
+      }
       const text = messageText(message);
       const calls = message.content.filter((block) => block.type === "tool_use");
       // A tool-call-only assistant turn (function_call items round-tripping)

@@ -49,4 +49,17 @@ describe("dashboard API client", () => {
     expect(headers.get("content-type")).toBe("application/json");
     expect(headers.get("x-cartethyia-csrf")).toBe("csrf-test-token");
   });
+  test("clears a cached CSRF token when a new login replaces the session", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ csrfToken: "fresh-csrf-token" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api("/login", { method: "POST", body: "{}" });
+    await apiDelete("/console-logs");
+
+    const [, init] = fetchMock.mock.calls[2] as [string, RequestInit];
+    expect(new Headers(init.headers).get("x-cartethyia-csrf")).toBe("fresh-csrf-token");
+  });
 });

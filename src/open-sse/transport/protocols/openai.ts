@@ -272,6 +272,9 @@ export function createOpenAIResponsesStreamMapper(): StreamMapper {
       case "response.output_item.added": {
         const outputIndex = typeof parsed.output_index === "number" ? parsed.output_index : -1;
         const item = parsed.item;
+        if (isRecord(item) && item.type === "compaction") {
+          return startIfNeeded([{ type: "context_item", phase: "added", outputIndex, item }]);
+        }
         if (isRecord(item) && item.type === "function_call") {
           const callId = typeof item.call_id === "string" ? item.call_id : typeof item.id === "string" ? item.id : `call_${outputIndex}`;
           const name = typeof item.name === "string" ? item.name : "";
@@ -284,6 +287,9 @@ export function createOpenAIResponsesStreamMapper(): StreamMapper {
       case "response.output_item.done": {
         const outputIndex = typeof parsed.output_index === "number" ? parsed.output_index : -1;
         const item = parsed.item;
+        if (isRecord(item) && item.type === "compaction") {
+          return startIfNeeded([{ type: "context_item", phase: "done", outputIndex, item }]);
+        }
         if (isRecord(item) && item.type === "function_call") {
           const callId = callIds.get(outputIndex) ?? (typeof item.call_id === "string" ? item.call_id : `call_${outputIndex}`);
           const args = typeof item.arguments === "string" ? item.arguments : "";

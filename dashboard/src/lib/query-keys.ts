@@ -40,9 +40,10 @@ export const qk = {
     metrics: ["health-metrics"] as const,
   },
 
-  /** GitHub releases API (external). */
+  /** GitHub repository branch heads (main/dev). */
   releases: {
     githubLatest: ["github-latest-release"] as const,
+    githubBranches: ["github-repository-branches"] as const,
   },
 
   /** `/console/api/providers` catalog surface. */
@@ -71,9 +72,10 @@ export const qk = {
     all: ["console", "combos"] as const,
   },
 
-  /** `/console/api/proxies` pool + `/console/api/proxy-settings`. */
+  /** `/console/api/proxies` pool and transient search results. */
   proxies: {
     all: ["console", "proxies"] as const,
+    search: ["console", "proxies", "search"] as const,
   },
   proxySettings: {
     all: ["console", "proxy-settings"] as const,

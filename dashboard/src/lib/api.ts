@@ -56,6 +56,9 @@ function clearCsrfToken(): void {
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  // A successful login can replace the session JTI; never reuse a CSRF token
+  // derived from the previous browser session.
+  if (path === "/login") clearCsrfToken();
   const method = init.method ?? "QUERY";
   const body = init.body ?? (method === "QUERY" ? "{}" : undefined);
   const headers = new Headers(init.headers);
@@ -68,6 +71,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     body,
     headers,
   });
+  if (path === "/login" && res.ok) clearCsrfToken();
   if (res.status === 401 && path !== "/login") {
     clearCsrfToken();
     onUnauthorized?.();

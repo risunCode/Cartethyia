@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { Upload } from "lucide-react";
 import { Button } from "../../components/ui/button";
+import { useMotionProfile } from "../../lib/motion";
 
 export type CustomAssetKind = "image" | "video";
 
@@ -20,7 +21,7 @@ export interface CustomizationSettings {
   solidMode: boolean;
 }
 
-const DEFAULT_BACKGROUND_URL = `${import.meta.env.BASE_URL}macos-big-sur-apple-layers-fluidic-colorful-dark-wwdc-2020-3840x2160-1432.jpg`;
+const DEFAULT_BACKGROUND_URL = `${import.meta.env.BASE_URL}default-backgrounds.webp`;
 const BACKGROUND_PREFERENCE_VERSION = 1;
 const DATABASE_NAME = "cartethyia-console-customization-v1";
 const DATABASE_VERSION = 1;
@@ -206,10 +207,16 @@ export function saveCustomizationSettings(patch: Partial<CustomizationSettings>)
 export function useCustomizationSettings(): [CustomizationSettings, (patch: Partial<CustomizationSettings>) => void] {
   const [settings, setSettings] = useState<CustomizationSettings>(readCustomizationSettings);
   useEffect(() => {
-    void hydrateCustomizationSettings().then(setSettings);
+    let active = true;
+    void hydrateCustomizationSettings().then(() => {
+      if (active) setSettings(readCustomizationSettings());
+    });
     const sync = () => setSettings(readCustomizationSettings());
     window.addEventListener(CHANGE_EVENT, sync);
-    return () => window.removeEventListener(CHANGE_EVENT, sync);
+    return () => {
+      active = false;
+      window.removeEventListener(CHANGE_EVENT, sync);
+    };
   }, []);
   return [settings, (patch) => setSettings(saveCustomizationSettings(patch))];
 }
@@ -231,17 +238,17 @@ export function useCustomizationAssetUrl(asset: CustomAsset | null): string | nu
 export function CustomAtmosphere() {
   const [settings] = useCustomizationSettings();
   const customBackgroundUrl = useCustomizationAssetUrl(settings.backgroundAsset);
+  const motionProfile = useMotionProfile();
   const backgroundUrl = settings.backgroundAsset ? customBackgroundUrl : DEFAULT_BACKGROUND_URL;
-
-  // Apply solid-mode data attribute to <html> — CSS overrides .glass to use
-  // solid warm surfaces with no backdrop-filter (eliminates GPU blur lag).
+  // Solid surfaces are automatic on constrained or reduced-motion devices.
   useEffect(() => {
-    if (settings.solidMode) {
+    const automaticSolidMode = motionProfile === "mobile" || motionProfile === "reduced";
+    if (settings.solidMode || automaticSolidMode) {
       document.documentElement.setAttribute("data-glass", "off");
     } else {
       document.documentElement.removeAttribute("data-glass");
     }
-  }, [settings.solidMode]);
+  }, [motionProfile, settings.solidMode]);
 
   if (!backgroundUrl || !settings.backgroundEnabled) return null;
 
@@ -250,22 +257,24 @@ export function CustomAtmosphere() {
     "--custom-bg-blur": `${settings.backgroundBlur}px`,
   } as CSSProperties;
 
-  return settings.backgroundAsset?.kind === "video" ? (
-    <video
-      className="custom-background-layer"
-      src={backgroundUrl}
-      autoPlay
-      muted
-      loop
-      playsInline
-      preload="metadata"
-      tabIndex={-1}
-      aria-hidden="true"
-      style={backgroundStyle}
-    />
-  ) : (
-    <div className="custom-background-layer" aria-hidden="true" style={{ ...backgroundStyle, backgroundImage: `url(${backgroundUrl})` }} />
-  );
+  if (settings.backgroundAsset?.kind === "video") {
+    return (
+      <video
+        className="custom-background-layer"
+        src={backgroundUrl}
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="auto"
+        tabIndex={-1}
+        aria-hidden="true"
+        style={backgroundStyle}
+      />
+    );
+  }
+
+  return <img className="custom-background-layer" src={backgroundUrl} alt="" aria-hidden="true" draggable={false} style={backgroundStyle} />;
 }
 
 export function classifyCustomAssetFile(file: Pick<File, "name" | "type">): CustomAssetKind | null {

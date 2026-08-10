@@ -6,11 +6,11 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Clipboard, Download, FlaskConical, Gauge, Loader2, Network, Pencil, Plus, PowerOff, Route, Search, ShieldCheck, Trash2 } from "lucide-react";
+import { Activity, Clipboard, Download, FlaskConical, Gauge, Loader2, Network, Pencil, Plus, PowerOff, Route, Search, Square, ShieldCheck, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "../../lib/toast";
 import { getErrorMessage as errorMessage } from "../../lib/errors";
-import { apiDelete, apiGet, apiPatch, apiPost } from "../../lib/api";
+import { api, apiDelete, apiGet, apiPatch, apiPost } from "../../lib/api";
 import { qk } from "../../lib/query-keys";
 import { formatProxyTestTime } from "./formatters";
 import { Button } from "../../components/ui/button";
@@ -103,11 +103,22 @@ interface ScrapeCountry {
   name: string;
 }
 
-interface ScrapeResult {
+interface ProxySearchItem {
+  url: string;
+  protocol: "http" | "socks5";
+  host: string;
+  port: number;
+  country: string | null;
+  status: "healthy" | "error" | "unverified";
+  latencyMs: number | null;
+  error: string | null;
+  saved: boolean;
+}
+
+interface ProxySearchResult {
+  items: ProxySearchItem[];
   scraped: number;
   verified: number;
-  added: number;
-  skipped: number;
 }
 
 const SCRAPE_SOURCES = [
@@ -123,37 +134,129 @@ const SCRAPE_PROTOCOLS = [
   { value: "socks5", label: "SOCKS5" },
 ] as const;
 
+function ProxySearchResults({ result }: { result: ProxySearchResult | null }) {
+  const queryClient = useQueryClient();
+  const [addingUrl, setAddingUrl] = useState<string | null>(null);
+  if (result === null || result.items.length === 0) return null;
+
+  const addProxy = async (item: ProxySearchItem): Promise<void> => {
+    if (item.saved || item.status === "error") return;
+    setAddingUrl(item.url);
+    try {
+      await apiPost<{ id: string }>("/proxies", {
+        name: `${item.host}:${item.port}`,
+        protocol: item.protocol,
+        isRelay: false,
+        host: item.host,
+        port: item.port,
+        maxConcurrency: 8,
+        weight: 100,
+      });
+      queryClient.setQueryData<ProxySearchResult>(qk.proxies.search, (current) => current === undefined ? current : {
+        ...current,
+        items: current.items.map((candidate) => candidate.url === item.url ? { ...candidate, saved: true } : candidate),
+      });
+      await queryClient.invalidateQueries({ queryKey: qk.proxies.all });
+      toast.success(`Added ${item.host}:${item.port}`);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setAddingUrl(null);
+    }
+  };
+
+  return (
+    <section aria-label="Proxy search results" className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-bold">Search results</p>
+          <p className="text-[10.5px] text-[var(--text-3)]">Candidates stay here until you add them to the proxy pool.</p>
+        </div>
+        <div className="flex items-center gap-1.5 text-[10px]">
+          <Badge tone="default">{result.scraped} found</Badge>
+          <Badge tone="ok">{result.verified} healthy</Badge>
+        </div>
+      </div>
+      <div className="grid max-h-[30rem] grid-cols-1 gap-2 overflow-y-auto pr-0.5 sm:grid-cols-2 xl:grid-cols-3">
+        {result.items.map((item, index) => {
+          const statusLabel = item.status === "healthy" ? "Healthy" : item.status === "error" ? "Error" : "Unverified";
+          const statusTone = item.status === "healthy" ? "ok" : item.status === "error" ? "err" : "default";
+          return (
+            <article key={item.url} className="rounded-xl border border-[var(--inner-border)] bg-[var(--surface-1)] p-3">
+              <div className="flex items-start gap-2">
+                <span className="font-mono text-[10px] text-[var(--text-3)]">{String(index + 1).padStart(2, "0")}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <code className="truncate font-mono text-[11px] font-semibold">{item.host}:{item.port}</code>
+                    <Badge tone={statusTone} className="ml-auto shrink-0">{statusLabel}</Badge>
+                  </div>
+                  <p className="mt-1 truncate font-mono text-[10px] text-[var(--text-2)]">{item.protocol}://{item.host}:{item.port}</p>
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <Badge tone="default">Region: {item.country ?? "Unknown"}</Badge>
+                {item.latencyMs !== null && <Badge tone="default">{item.latencyMs}ms</Badge>}
+                {item.error && <Badge tone="err" className="max-w-full truncate" title={item.error}>{item.error}</Badge>}
+              </div>
+              <Button className="mt-2 w-full" size="sm" variant={item.saved ? "ghost" : "secondary"} disabled={item.saved || item.status === "error" || addingUrl !== null} onClick={() => void addProxy(item)}>
+                <Network size={12} /> {item.saved ? "Already in pool" : addingUrl === item.url ? "Adding…" : "Add to pool"}
+              </Button>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function ProxyScraperSection() {
   const queryClient = useQueryClient();
   const { data: countryData } = useQuery({ queryKey: ["console", "proxy-scrape-countries"], queryFn: () => apiGet<{ countries: ScrapeCountry[] }>("/proxies/scrape/countries") });
+  const { data: searchResult = null, isFetching } = useQuery<ProxySearchResult | null>({
+    queryKey: qk.proxies.search,
+    queryFn: async () => null,
+    enabled: false,
+    initialData: null,
+  });
   const [source, setSource] = useState<(typeof SCRAPE_SOURCES)[number]["value"]>("all");
   const [country, setCountry] = useState("all");
   const [protocol, setProtocol] = useState<(typeof SCRAPE_PROTOCOLS)[number]["value"]>("all");
   const [limit, setLimit] = useState("50");
   const [verify, setVerify] = useState(true);
-  const [running, setRunning] = useState(false);
   const countries = countryData?.countries ?? [{ code: "all", name: "Any region" }];
 
-  const runScrape = async (): Promise<void> => {
-    setRunning(true);
+  const search = async (): Promise<void> => {
     try {
-      const result = await apiPost<ScrapeResult>("/proxies/scrape", { source, country, protocol, limit: Math.max(1, Math.min(500, Number(limit) || 50)), verify });
-      await queryClient.invalidateQueries({ queryKey: qk.proxies.all });
-      if (result.added > 0) toast.success(`Found ${result.scraped}, ${result.added} proxies added${verify ? ` · ${result.verified} healthy` : ""}`);
-      else if (result.scraped === 0) toast.error("No proxies found from the selected source");
-      else toast.success(`Found ${result.scraped}; ${result.skipped} already in the pool`);
+      const result = await queryClient.fetchQuery({
+        queryKey: qk.proxies.search,
+        queryFn: ({ signal }: { signal: AbortSignal }) => api<ProxySearchResult>("/proxies/search", {
+          method: "POST",
+          body: JSON.stringify({ source, country, protocol, limit: Math.max(1, Math.min(500, Number(limit) || 50)), verify }),
+          signal,
+        }),
+        staleTime: 0,
+      });
+      if (result.scraped === 0) toast.error("No proxies found from the selected source");
+      else toast.success(`Found ${result.scraped} proxies · ${result.verified} healthy`);
     } catch (error) {
-      toast.error(errorMessage(error));
-    } finally {
-      setRunning(false);
+      if (error instanceof Error && (error.name === "AbortError" || error.name === "CancelledError")) toast.success("Proxy search stopped");
+      else toast.error(errorMessage(error));
     }
+  };
+
+  const toggleSearch = async (): Promise<void> => {
+    if (isFetching) {
+      await queryClient.cancelQueries({ queryKey: qk.proxies.search });
+      return;
+    }
+    void search();
   };
 
   return (
     <Card surface="frame" className="space-y-3">
-      <CardHeader title="Proxy Scraper" icon={Search} sub="Fetch free HTTP and SOCKS5 proxies from multiple sources in parallel">
-        <Button size="sm" className="w-full sm:w-auto" disabled={running} onClick={() => void runScrape()}>
-          {running ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} {running ? "Searching…" : "Search proxies"}
+      <CardHeader title="Proxy Scraper" icon={Search} sub="Search candidates first, review their status, then add only the proxies you want">
+        <Button size="sm" className="w-full sm:w-auto" onClick={() => void toggleSearch()}>
+          {isFetching ? <Square size={12} /> : <Search size={13} />} {isFetching ? "Stop search" : "Search proxies"}
         </Button>
       </CardHeader>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -176,13 +279,15 @@ function ProxyScraperSection() {
       </div>
       <label className="flex items-start gap-2 text-[11px] text-[var(--text-2)]">
         <input className="mt-0.5 size-3.5" type="checkbox" checked={verify} onChange={(event) => setVerify(event.target.checked)} />
-        <span><span className="block font-semibold">Verify before adding</span><span className="mt-0.5 block text-[10px] text-[var(--text-3)]">Health checks run concurrently with a bounded worker pool to avoid overloading the server.</span></span>
+        <span><span className="block font-semibold">Verify before listing</span><span className="mt-0.5 block text-[10px] text-[var(--text-3)]">Healthy, failed, and unverified candidates are shown here; nothing is saved automatically.</span></span>
       </label>
+      <ProxySearchResults result={searchResult} />
     </Card>
   );
 }
 
 const EMPTY_FORM: ProxyFormState = { name: "", protocol: "socks5", host: "", port: "", username: "", password: "", maxConcurrency: "8", weight: "100" };
+
 
 function parseProxyEntry(entry: string): { readonly body: Record<string, unknown> } | { readonly error: string } {
   try {
@@ -231,6 +336,7 @@ function ProxyPoolSection() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [statuses, setStatuses] = useState<Record<string, string>>({});
   const [deleteSelectedOpen, setDeleteSelectedOpen] = useState(false);
+  const [deleteErrorOpen, setDeleteErrorOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProxyRecord | null>(null);
 
   const setProxyStatus = (id: string, status: string) => {
@@ -263,8 +369,8 @@ function ProxyPoolSection() {
       });
     }
   };
-
   const items = pool?.items ?? [];
+  const errorItems = items.filter((proxy) => proxy.health?.status === "error");
   const testedCount = items.filter((proxy) => proxy.lastTestAt != null).length;
   const successCount = items.filter((proxy) => proxy.lastTestSuccessAt != null && proxy.lastTestAt === proxy.lastTestSuccessAt).length;
   const errorCount = items.filter((proxy) => proxy.lastTestErrorAt != null && proxy.lastTestAt === proxy.lastTestErrorAt).length;
@@ -297,6 +403,20 @@ function ProxyPoolSection() {
       setSelectedIds(new Set());
       setDeleteSelectedOpen(false);
       toast.success(`Deleted ${targets.length} proxies`);
+      await qc.invalidateQueries({ queryKey: qk.proxies.all });
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  const deleteErrorProxies = async (): Promise<void> => {
+    const targets = errorItems;
+    if (targets.length === 0) return;
+    const errorIds = new Set(targets.map((proxy) => proxy.id));
+    try {
+      await Promise.all(targets.map((proxy) => apiDelete<{ ok: boolean }>(`/proxies/${proxy.id}`)));
+      setSelectedIds((current) => new Set([...current].filter((id) => !errorIds.has(id))));
+      setDeleteErrorOpen(false);
+      toast.success(`Deleted ${targets.length} error proxies`);
       await qc.invalidateQueries({ queryKey: qk.proxies.all });
     } catch (err) {
       toast.error(errorMessage(err));
@@ -382,6 +502,9 @@ function ProxyPoolSection() {
           <Button className="w-full sm:w-auto" variant="secondary" size="sm" disabled={selectedIds.size === 0} onClick={() => setDeleteSelectedOpen(true)}>
             <Trash2 size={12} /> Delete selected
           </Button>
+          <Button className="w-full sm:w-auto" variant="secondary" size="sm" disabled={errorItems.length === 0} onClick={() => setDeleteErrorOpen(true)}>
+            <Trash2 size={12} /> Delete error proxies
+          </Button>
         </div>
       </div>
 
@@ -457,6 +580,17 @@ function ProxyPoolSection() {
           danger
           onClose={() => setDeleteSelectedOpen(false)}
           onConfirm={() => void deleteSelected()}
+        />
+      )}
+      {deleteErrorOpen && (
+        <ConfirmDialog
+          open
+          title="Delete error proxies?"
+          message={`This will permanently remove ${errorItems.length} proxies currently marked as errors.`}
+          confirmLabel="Delete error proxies"
+          danger
+          onClose={() => setDeleteErrorOpen(false)}
+          onConfirm={() => void deleteErrorProxies()}
         />
       )}
       {deleteTarget && (

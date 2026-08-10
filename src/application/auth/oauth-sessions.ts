@@ -45,6 +45,7 @@ export interface OAuthStartSessionInput {
   readonly name: string;
   readonly redirectUri?: string;
   readonly scopes?: readonly string[];
+  readonly flow?: "browser" | "device";
 }
 
 export interface OAuthStartSessionResult {
@@ -59,6 +60,7 @@ export interface OAuthStartSessionResult {
   readonly intervalSeconds: number | null;
   readonly state: string;
   readonly expiresAtMs: number;
+  readonly flow: "browser" | "device";
 }
 
 /** Structured completion payload; `value` (a callback URL or query) is the legacy shorthand. */
@@ -80,6 +82,38 @@ export interface OAuthSessionManagerOptions {
   readonly randomSessionId?: () => string;
 }
 
+/** Structured completion payload; `value` (a callback URL or query) is the legacy shorthand. */
+export interface OAuthCompleteSessionInput {
+  readonly code?: string;
+  readonly state?: string;
+  readonly error?: string;
+  readonly codeVerifier?: string;
+  readonly redirectUri?: string;
+  readonly value?: string;
+}
+
+export function parseOAuthCallbackValue(value: string): { readonly code?: string; readonly state?: string; readonly error?: string } {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return {};
+  let query: string;
+  if (trimmed.startsWith("?") || trimmed.startsWith("&")) {
+    query = trimmed.slice(1);
+  } else if (trimmed.includes("=") && !trimmed.includes("://")) {
+    query = trimmed;
+  } else {
+    try {
+      query = new URL(trimmed).search.slice(1);
+    } catch {
+      return {};
+    }
+  }
+  const parts = new URLSearchParams(query);
+  const code = (parts.get("code") ?? parts.get("token"))?.trim();
+  const state = parts.get("state")?.trim();
+  const error = parts.get("error")?.trim();
+  return { code: code && code.length > 0 ? code : undefined, state: state && state.length > 0 ? state : undefined, error: error && error.length > 0 ? error : undefined };
+}
+
 interface SessionRecord {
   readonly sessionId: string;
   readonly providerId: string;
@@ -97,34 +131,9 @@ interface SessionRecord {
   errorKind: string | null;
   errorMessage: string | null;
   tokenSet: TokenSet | null;
-  authorizationUrl: string;
-  deviceFlow: boolean;
+  readonly authorizationUrl: string;
+  readonly deviceFlow: boolean;
 }
-
-/** Parses a callback `value` (full URL, relative path, or raw query) into code/state/error parts. */
-export function parseOAuthCallbackValue(value: string): { readonly code?: string; readonly state?: string; readonly error?: string } {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) return {};
-  let query: string;
-  if (trimmed.startsWith("?") || trimmed.startsWith("&")) {
-    query = trimmed.slice(1);
-  } else if (trimmed.includes("=") && !trimmed.includes("://")) {
-    query = trimmed;
-  } else {
-    try {
-      query = new URL(trimmed).search.slice(1);
-    } catch {
-      return {};
-    }
-  }
-  const parts = new URLSearchParams(query);
-  // Some providers (e.g. Kimchi) use `token` instead of `code` in the callback URL.
-  const code = (parts.get("code") ?? parts.get("token"))?.trim();
-  const state = parts.get("state")?.trim();
-  const error = parts.get("error")?.trim();
-  return { code: code && code.length > 0 ? code : undefined, state: state && state.length > 0 ? state : undefined, error: error && error.length > 0 ? error : undefined };
-}
-
 /**
  * Bounded, in-memory interactive OAuth login sessions.
  *
@@ -169,12 +178,11 @@ export class OAuthLoginSessionManager {
         scopes: input.scopes,
         state: crypto.randomUUID(),
         codeChallenge: pkce.challenge,
+        flow: input.flow,
       });
     } catch (error) {
       throw this.driverStartFailure(error, input.providerId);
     }
-    // The driver's returned state is the one embedded in the authorization
-    // URL; the bounded state store reserves exactly that state (one-time).
     const stateRecord = this.stateManager.create({ providerId: input.providerId, redirectUri: input.redirectUri, codeVerifier: pkce.verifier, state: startResult.state });
     const now = this.nowMs();
     this.evictExpired(now);
@@ -198,7 +206,7 @@ export class OAuthLoginSessionManager {
       errorMessage: null,
       tokenSet: null,
       authorizationUrl: startResult.authorizationUrl,
-      deviceFlow: driver.poll !== undefined,
+      deviceFlow: startResult.flow === "device" || (startResult.flow === undefined && driver.poll !== undefined),
     };
     this.sessions.set(sessionId, session);
     return {
@@ -213,6 +221,7 @@ export class OAuthLoginSessionManager {
       intervalSeconds: session.intervalSeconds,
       state: session.state,
       expiresAtMs: session.expiresAtMs,
+      flow: session.deviceFlow ? "device" : "browser",
     };
   }
 

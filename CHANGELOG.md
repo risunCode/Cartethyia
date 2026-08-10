@@ -24,6 +24,9 @@ This merge closes the current 2.0 beta stage with native provider transports, co
 - **Cursor provider**: native Cursor Agent Connect/HTTP/2 protobuf transport with streamed text, thinking, token usage, and session lifecycle handling.
 - **Dashboard surfaces**: share and landing pages, public share-data hooks, reusable custom outbound-header editing, and MP4/video background validation.
 - **Transport modules**: explicit abort coordination, bounded body reads, SSE decoding, stream mapping, upstream errors, fetch helpers, and protocol adapter contracts under `src/open-sse/transport/`.
+- **Repository updates**: server-side main/dev branch and latest-release checks now feed the dashboard without exposing GitHub API calls to the browser.
+- **Dashboard assets**: provider icons, social previews, favicons, and default/background imagery now use optimized WebP assets with obsolete raster copies removed.
+- **Provider catalogs**: Cursor and Devin catalog metadata are separated from adapter transport wiring for clearer lazy registration.
 
 ### Security and reliability
 

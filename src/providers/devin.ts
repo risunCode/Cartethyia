@@ -1,48 +1,13 @@
 import { DevinAccountLimitError, DevinApiError, DevinAuthError, DevinQuotaError } from "./devin/errors";
 import { DEVIN_API_URL, streamDevin } from "./devin/stream";
+import { DEVIN_CATALOG, DEVIN_MODEL } from "./devin/catalog";
 import type { ChatMessage, ChatTool, DevinModel } from "./devin/types";
 import { AbortCoordinator } from "../open-sse/transport/abort-coordinator";
 import { ProviderAdapterError, toProviderCallError } from "../open-sse/transport/errors";
 import { buildProxyFetcher } from "../traffic";
-import type {
-  Adapter,
-  ContentBlock,
-  ProviderCallError,
-  ProviderCaps,
-  ProviderMeta,
-  ProviderModel,
-  ProviderModelCatalog,
-  ProviderOutput,
-  ProviderRequest,
-  ProviderUsage,
-  RouteTarget,
-  StreamEvent,
-  Surface,
-} from "../application/contracts";
+import type { Adapter, ContentBlock, ProviderCallError, ProviderOutput, ProviderRequest, ProviderUsage, RouteTarget, StreamEvent, Surface } from "../application/contracts";
 import type { ProxyRequest } from "../application/contracts";
 
-const DEVIN_SURFACES: readonly Surface[] = ["openai-chat"];
-const DEVIN_MODEL_ID = "swe-1-6-slow";
-const DEVIN_FALLBACK_CAPABILITIES: ProviderCaps = {
-  surfaces: DEVIN_SURFACES,
-  streaming: true,
-  reasoning: true,
-  toolCalls: true,
-  images: false,
-  explicitCache: false,
-  promptCacheKey: false,
-};
-const DEVIN_MODEL: ProviderModel = {
-  id: DEVIN_MODEL_ID,
-  displayName: "SWE-1.6 Slow",
-  capabilities: DEVIN_FALLBACK_CAPABILITIES,
-  context: { inputTokens: 200_000, outputTokens: 64_000 },
-};
-const DEVIN_MODELS: readonly ProviderModel[] = [DEVIN_MODEL];
-
-function createModelCatalog(models: readonly ProviderModel[]): ProviderModelCatalog {
-  return { list: models, get: (modelId) => models.find((model) => model.id === modelId) ?? null };
-}
 
 type DevinStreamState = {
   readonly id: string;
@@ -52,20 +17,9 @@ type DevinStreamState = {
 };
 
 export class DevinAdapter implements Adapter {
-  readonly metadata: ProviderMeta = {
-    id: "devin",
-    displayName: "Devin",
-    protocol: "devin",
-    credentialKind: "api_key",
-    credentialKinds: ["api_key"],
-  };
-  readonly capabilities: ProviderCaps;
-  readonly models: ProviderModelCatalog;
-
-  constructor() {
-    this.models = createModelCatalog(DEVIN_MODELS);
-    this.capabilities = DEVIN_FALLBACK_CAPABILITIES;
-  }
+  readonly metadata = DEVIN_CATALOG.metadata;
+  readonly capabilities = DEVIN_CATALOG.capabilities;
+  readonly models = DEVIN_CATALOG.models;
 
   resolveTarget(modelId: string, surface: Surface): RouteTarget {
     this.assertSurface(surface);

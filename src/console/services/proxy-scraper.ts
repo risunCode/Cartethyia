@@ -77,26 +77,26 @@ export function parseProxyLine(line: string, country: string | null): ScrapedPro
   }
 }
 
-async function fetchText(url: string, fetchFn: FetchLike): Promise<string> {
-  const response = await fetchFn(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+async function fetchText(url: string, fetchFn: FetchLike, signal?: AbortSignal): Promise<string> {
+  const response = await fetchFn(url, { signal: signal === undefined ? AbortSignal.timeout(FETCH_TIMEOUT_MS) : AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]) });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.text();
 }
 
-async function scrapeProxyScrape(country: string, protocol: ScrapeProtocol, fetchFn: FetchLike): Promise<ScrapedProxy[]> {
+async function scrapeProxyScrape(country: string, protocol: ScrapeProtocol, fetchFn: FetchLike, signal?: AbortSignal): Promise<ScrapedProxy[]> {
   const params = new URLSearchParams({ request: "display_proxies", proxy_format: "protocolipport", format: "text" });
   if (country !== "all") params.set("country", country.toLowerCase());
   if (protocol !== "all") params.set("protocol", protocol);
-  const text = await fetchText(`https://api.proxyscrape.com/v4/free-proxy-list/get?${params}`, fetchFn);
+  const text = await fetchText(`https://api.proxyscrape.com/v4/free-proxy-list/get?${params}`, fetchFn, signal);
   const countryTag = country === "all" ? null : country;
   return text.split("\n").map((line) => parseProxyLine(line, countryTag)).filter((proxy): proxy is ScrapedProxy => proxy !== null);
 }
 
-async function scrapeGeonode(country: string, protocol: ScrapeProtocol, fetchFn: FetchLike): Promise<ScrapedProxy[]> {
+async function scrapeGeonode(country: string, protocol: ScrapeProtocol, fetchFn: FetchLike, signal?: AbortSignal): Promise<ScrapedProxy[]> {
   const params = new URLSearchParams({ limit: "500", page: "1", sort_by: "lastChecked", sort_type: "desc" });
   if (country !== "all") params.set("country", country);
   if (protocol !== "all") params.set("protocols", protocol);
-  const response = await fetchText(`https://proxylist.geonode.com/api/proxy-list?${params}`, fetchFn);
+  const response = await fetchText(`https://proxylist.geonode.com/api/proxy-list?${params}`, fetchFn, signal);
   const payload = JSON.parse(response) as { data?: { ip: string; port: string; protocols?: string[]; country?: string }[] };
   const proxies: ScrapedProxy[] = [];
   for (const row of payload.data ?? []) {
@@ -109,9 +109,9 @@ async function scrapeGeonode(country: string, protocol: ScrapeProtocol, fetchFn:
   return proxies;
 }
 
-async function scrapeProxifly(country: string, protocol: ScrapeProtocol, fetchFn: FetchLike): Promise<ScrapedProxy[]> {
+async function scrapeProxifly(country: string, protocol: ScrapeProtocol, fetchFn: FetchLike, signal?: AbortSignal): Promise<ScrapedProxy[]> {
   const path = country === "all" ? "proxies/all/data.txt" : `proxies/countries/${country}/data.txt`;
-  const text = await fetchText(`https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/${path}`, fetchFn);
+  const text = await fetchText(`https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/${path}`, fetchFn, signal);
   const countryTag = country === "all" ? null : country;
   return text
     .split("\n")
@@ -121,18 +121,19 @@ async function scrapeProxifly(country: string, protocol: ScrapeProtocol, fetchFn
 }
 
 /** Fetches selected free-proxy sources concurrently and de-duplicates URLs. */
-export async function scrapeProxies(options: ScrapeOptions = {}, fetchFn: FetchLike = fetch): Promise<ScrapedProxy[]> {
+export async function scrapeProxies(options: ScrapeOptions = {}, fetchFn: FetchLike = fetch, signal?: AbortSignal): Promise<ScrapedProxy[]> {
   const source = options.source ?? "all";
   const country = (options.country ?? "all").toLowerCase() === "all" ? "all" : (options.country ?? "all").toUpperCase();
   const protocol = options.protocol ?? "all";
   const limit = options.limit ?? 100;
   const tasks: Promise<ScrapedProxy[]>[] = [];
 
-  if (source === "proxyscrape" || source === "all") tasks.push(scrapeProxyScrape(country, protocol, fetchFn));
-  if (source === "geonode" || source === "all") tasks.push(scrapeGeonode(country, protocol, fetchFn));
-  if (source === "proxifly" || source === "all") tasks.push(scrapeProxifly(country, protocol, fetchFn));
+  if (source === "proxyscrape" || source === "all") tasks.push(scrapeProxyScrape(country, protocol, fetchFn, signal));
+  if (source === "geonode" || source === "all") tasks.push(scrapeGeonode(country, protocol, fetchFn, signal));
+  if (source === "proxifly" || source === "all") tasks.push(scrapeProxifly(country, protocol, fetchFn, signal));
 
   const settled = await Promise.allSettled(tasks);
+  if (signal?.aborted) throw signal.reason ?? new DOMException("Search cancelled", "AbortError");
   const seen = new Set<string>();
   const merged: ScrapedProxy[] = [];
   for (const result of settled) {

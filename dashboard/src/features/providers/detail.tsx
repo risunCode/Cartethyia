@@ -715,6 +715,7 @@ interface OAuthLoginStart {
   userCode?: string | null;
   verificationUri?: string | null;
   intervalSeconds?: number | null;
+  flow?: "browser" | "device";
 }
 
 interface OAuthLoginStatus {
@@ -821,6 +822,7 @@ function OAuthConnectDialog({
   status,
   callbackValue,
   onCallbackValueChange,
+  onUseDeviceFlow,
   onComplete,
   onCancel,
   completing,
@@ -830,6 +832,7 @@ function OAuthConnectDialog({
   status: OAuthLoginStatus | null;
   callbackValue: string;
   onCallbackValueChange: (value: string) => void;
+  onUseDeviceFlow: () => Promise<void>;
   onComplete: () => void;
   onCancel: () => void;
   completing: boolean;
@@ -874,7 +877,14 @@ function OAuthConnectDialog({
       title={`Connect ${providerName}`}
       footer={
         <div className="flex w-full items-center justify-between gap-2">
-          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+            {session.provider === "codex" && !isDeviceFlow && (
+              <Button variant="secondary" disabled={completing} onClick={() => void onUseDeviceFlow()}>
+                Use device code
+              </Button>
+            )}
+          </div>
           {!isDeviceFlow && (
             <Button disabled={!hasCallback || completing || !waiting} onClick={onComplete}>
               {completing ? "Checking…" : "Connect"}
@@ -1106,16 +1116,21 @@ export function ProviderDetailPage() {
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
-
   const oauthStartMutation = useMutation({
-    mutationFn: () => apiPost<OAuthLoginStart>(`/providers/${id}/oauth/start`, { name: `${data?.name ?? id} ${(data?.accounts.length ?? 0) + 1}` }),
+    mutationFn: (flow: "browser" | "device") => apiPost<OAuthLoginStart>(`/providers/${id}/oauth/start`, {
+      name: `${data?.name ?? id} ${(data?.accounts.length ?? 0) + 1}`,
+      flow,
+    }),
     onSuccess: (session) => {
       setOauthSession(session);
-      oauthPopupRef.current = window.open(session.authorizationUrl, "cartethyia-oauth", "popup,width=720,height=820");
-      if (!oauthPopupRef.current) toast.error("Allow popups to start OAuth authorization, or use the authorization URL in the dialog.");
+      if (session.flow !== "device") {
+        oauthPopupRef.current = window.open(session.authorizationUrl, "cartethyia-oauth", "popup,width=720,height=820");
+        if (!oauthPopupRef.current) toast.error("Allow popups to start OAuth authorization, or use the authorization URL in the dialog.");
+      }
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
+
 
   const oauthStatusQuery = useQuery({
     queryKey: qk.oauthLogin.session(oauthSession?.sessionId),
@@ -1194,7 +1209,7 @@ export function ProviderDetailPage() {
     if (handledActionRef.current === actionKey) return;
     handledActionRef.current = actionKey;
     if (action === "oauth" && data.supportsOAuth) {
-      oauthStartMutation.mutate();
+      oauthStartMutation.mutate("browser");
     } else if (action === "json") {
       const requestedKind = params.get("kind");
       const initialKind = requestedKind === "oauth" && data.credentialKinds.includes("oauth")
@@ -1570,7 +1585,7 @@ export function ProviderDetailPage() {
         <CardHeader title="Accounts" icon={Cable} sub={`${data.accounts.length} account${data.accounts.length === 1 ? "" : "s"}`}>
           <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
             {data.supportsOAuth && (
-              <Button variant="secondary" className="h-8 min-w-0 px-2.5 text-[11px]" size="sm" disabled={oauthStartMutation.isPending} onClick={() => oauthStartMutation.mutate()}>
+              <Button variant="secondary" className="h-8 min-w-0 px-2.5 text-[11px]" size="sm" disabled={oauthStartMutation.isPending} onClick={() => oauthStartMutation.mutate("browser")}>
                 <ExternalLink size={12} /> <span className="truncate">{oauthStartMutation.isPending ? "Starting…" : "Connect OAuth"}</span>
               </Button>
             )}
@@ -1903,12 +1918,16 @@ export function ProviderDetailPage() {
           status={oauthStatusQuery.data ?? null}
           callbackValue={oauthCallbackValue}
           onCallbackValueChange={setOauthCallbackValue}
+          onUseDeviceFlow={async () => {
+            await oauthCancelMutation.mutateAsync();
+            oauthStartMutation.mutate("device");
+          }}
           onComplete={() => {
             if (oauthSession.userCode && oauthSession.verificationUri) void oauthStatusQuery.refetch();
             else oauthCompleteMutation.mutate();
           }}
           onCancel={() => oauthCancelMutation.mutate()}
-          completing={oauthCompleteMutation.isPending || oauthCancelMutation.isPending}
+          completing={oauthCompleteMutation.isPending || oauthCancelMutation.isPending || oauthStartMutation.isPending}
         />
       )}
 

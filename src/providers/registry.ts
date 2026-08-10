@@ -1,5 +1,6 @@
 import { describeOpenAIAdapter, createOpenAIAdapter } from "../open-sse/transport/openai-adapter";
-import { createCursorAdapter } from "./cursor";
+import { describeCursor } from "./cursor/catalog";
+import { DEVIN_CATALOG } from "./devin/catalog";
 import { ProviderAdapterError, toProviderCallError } from "../open-sse/transport/errors";
 import type { ProviderCatalogAdapter } from "../open-sse/transport/contracts";
 import type { Adapter, ProviderOutput, ProviderRequest, Surface, RouteTarget } from "../application/contracts";
@@ -128,7 +129,6 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     { AntigravityAdapter },
     { CodeBuddyAdapter, CodeBuddyChinaAdapter },
     { ExaAdapter },
-    { DevinAdapter },
     { simpleOpenAIConfigs },
     { OllamaAdapter },
     { BlackboxAIAdapter },
@@ -149,7 +149,6 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     import("./antigravity"),
     import("./codebuddy"),
     import("./exa"),
-    import("./devin"),
     import("./openai-compatible"),
     import("./ollama"),
     import("./blackboxai"),
@@ -175,12 +174,19 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
   registry.register(new CodeBuddyAdapter());
   registry.register(new CodeBuddyChinaAdapter());
   registry.register(new ExaAdapter());
-  registry.register(new DevinAdapter());
+  // Keep generated Cursor/Devin protobuf modules out of the baseline process; load them only when a routed request needs the provider.
+  registry.registerLazy(DEVIN_CATALOG, async () => {
+    const { DevinAdapter } = await import("./devin");
+    return new DevinAdapter();
+  });
   for (const config of simpleOpenAIConfigs) {
     registry.registerLazy(describeOpenAIAdapter(config), () => Promise.resolve(createOpenAIAdapter(config)));
   }
   registry.register(OllamaAdapter);
-  registry.register(createCursorAdapter());
+  registry.registerLazy(describeCursor(), async () => {
+    const { createCursorAdapter } = await import("./cursor");
+    return createCursorAdapter();
+  });
   registry.register(BlackboxAIAdapter);
   registry.register(OpenCodeGoAdapter);
   return registry;

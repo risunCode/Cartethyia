@@ -35,6 +35,7 @@ export function registerProxyRoutes<T extends Elysia<any, any, any, any, any, an
       return result;
     })
     .route("QUERY", "/proxies/scrape/countries", () => ({ countries: COUNTRIES }))
+    .post("/proxies/search", async ({ body, request }) => services.proxies.search(body, request.signal))
     .post("/proxies/scrape", async ({ body }) => services.proxies.scrape(body))
     .patch("/proxies/:id", async ({ params, body, set }) => {
       const record = await services.proxies.update(params.id, body);

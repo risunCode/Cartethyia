@@ -38,7 +38,7 @@ function makeLine(id: number): ConsoleLogLine {
   return { id, ts: `2026-08-10T00:00:0${id}Z`, level: "info", scope: "test", category: "system", msg: `line ${id}` };
 }
 
-function Probe({ category = "all" }: { category?: "all" | "web" | "request" | "system" }): ReactElement {
+function Probe({ category = "request" }: { category?: "all" | "web" | "request" | "system" }): ReactElement {
   const { lines, newLineIds, status, attempts } = useConsoleLogStream(category);
   return <output role="status">{JSON.stringify({ status, attempts, ids: lines.map((line) => line.id), newIds: [...newLineIds] })}</output>;
 }
@@ -76,6 +76,7 @@ describe("useConsoleLogStream", () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     const view = render(<Probe />);
     await waitFor(() => expect(FakeEventSource.instance).not.toBeNull());
+    expect(FakeEventSource.instance?.url).toBe("/console/api/console-logs/stream?category=request");
 
     view.unmount();
 

@@ -294,7 +294,7 @@ export interface ImageReference {
 }
 
 export interface ContentBlock {
-  readonly type: "text" | "image" | "tool_use" | "tool_result" | "unknown";
+  readonly type: "text" | "image" | "tool_use" | "tool_result" | "compaction" | "unknown";
   readonly text?: string;
   readonly cacheControl?: "ephemeral";
   readonly image?: ImageReference;
@@ -303,6 +303,8 @@ export interface ContentBlock {
   /** JSON-encoded function arguments preserved across protocol adapters. */
   readonly toolArguments?: string;
   readonly toolResultIsError?: boolean;
+  /** Original opaque provider block, when it must round-trip unchanged. */
+  readonly raw?: Readonly<Record<string, unknown>>;
 }
 
 export interface NormalizedMessage {
@@ -348,8 +350,12 @@ export interface ProxyRequest {
   readonly reasoningConfig?: ReasoningConfig;
   /** Items to include alongside the response (e.g. `reasoning.encrypted_content`). */
   readonly include?: readonly string[];
-  /** Trailing opaque Responses reasoning items retained from input history. */
+  /** Remote provider context-compaction configuration, preserved by native adapters. */
+  readonly contextManagement?: Readonly<Record<string, unknown>> | readonly Readonly<Record<string, unknown>>[];
+  /** Opaque Responses items that precede the next normalized message. */
   readonly reasoningItems?: readonly Record<string, unknown>[];
+  /** Opaque Responses items that follow the last normalized message. */
+  readonly trailingReasoningItems?: readonly Record<string, unknown>[];
   readonly maxOutputTokens: number | null;
   readonly images: readonly ImageReference[];
   readonly imageOperation?: "generate" | "edit";
@@ -428,7 +434,7 @@ export function detectClient(headers: Headers, normalized?: ProxyRequest): Clien
   return { name: "unknown", source: "unknown" };
 }
 
-export type StopReason = "completed" | "length" | "tool_call" | "content_filter" | "error";
+export type StopReason = "completed" | "length" | "tool_call" | "content_filter" | "compaction" | "error";
 
 export type StreamEvent =
   | { readonly type: "message_start"; readonly id: string }
@@ -437,6 +443,10 @@ export type StreamEvent =
   | { readonly type: "tool_call_start"; readonly callId: string; readonly name: string }
   | { readonly type: "tool_call_delta"; readonly callId: string; readonly delta: string }
   | { readonly type: "tool_call_end"; readonly callId: string }
+  | { readonly type: "context_item"; readonly phase: "added" | "done"; readonly outputIndex: number; readonly item: Readonly<Record<string, unknown>> }
+  | { readonly type: "compaction_start" }
+  | { readonly type: "compaction_delta"; readonly text: string }
+  | { readonly type: "compaction_stop" }
   | { readonly type: "usage"; readonly usage: ProviderUsage }
   | { readonly type: "message_stop"; readonly reason: StopReason };
 

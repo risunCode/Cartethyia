@@ -12,11 +12,9 @@ import { createPortal } from "react-dom";
 /**
  * Popout — a fixed-position dropdown that portals its panel to `document.body`.
  *
- * Why a portal: the routed page sits inside a framer-motion `m.div` whose
- * `transform` becomes the containing block for `position: fixed` (see the
- * note in `Dialog.tsx`). Rendering the panel in place would anchor it to
- * that transformed ancestor instead of the viewport. Portalling to `<body>`
- * escapes the transform and keeps the panel on top. No library needed.
+ * Why a portal: the panel must escape routed layout stacking and clipping
+ * contexts so its fixed coordinates stay anchored to the viewport. Portalling
+ * to `document.body` keeps it on top without an animation library.
  *
  * How it avoids sizing/position jumps:
  * - The panel mounts visible, already `position: fixed` off the left edge

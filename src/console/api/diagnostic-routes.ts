@@ -9,6 +9,7 @@ import { toPrometheus } from "../../observability/metrics";
 import { beginProviderInFlight, endProviderInFlight, getInFlightCount, getProviderInFlight, subscribeInFlight } from "../../traffic/in-flight";
 import { runtimeSettings } from "../runtime-settings";
 import type { ConsoleDiagnostics } from "../diagnostics";
+import { fetchLatestRelease, fetchRepositoryUpdates } from "../repository-updates";
 import { createStudioSession, deleteStudioSession, getStudioSession, listStudioSessions, normalizeStudioMessages, patchStudioSession } from "../model-studio";
 import type { ConsoleLogStreamHub } from "../streams";
 import type { ConsoleServices } from "../services/composition";
@@ -159,8 +160,9 @@ export function registerDiagnosticRoutes<T extends Elysia<any, any, any, any, an
       const reason = typeof value.reason === "string" ? value.reason.trim() : "";
       return deps.config.ipBans.add(ip, reason);
     })
-    .delete("/ip-bans/:ip", async ({ params }) => { await deps.config.ipBans.remove(params.ip); return ok(); })
     .route("QUERY", "/health/status", async () => deps.diagnostics.status())
+    .route("QUERY", "/updates/repository", async () => ({ repository: "risunCode/Cartethyia", branches: await fetchRepositoryUpdates() }))
+    .route("QUERY", "/updates/release", async () => fetchLatestRelease())
     .route("QUERY", "/health/metrics", async () => deps.diagnostics.metrics())
     .route("QUERY", "/metrics", async ({ set }) => { set.headers["content-type"] = "text/plain; version=0.0.4; charset=utf-8"; return toPrometheus(); })
     .post("/health/gc", async () => deps.diagnostics.gc())

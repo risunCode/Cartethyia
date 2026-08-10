@@ -2,7 +2,7 @@ import { createCartethyiaRuntime, runProxyRequest, type CartethyiaRuntime } from
 import { lookupProxyEndpoint } from "../open-sse/translate";
 import { isRouteAllowed } from "../security/access";
 import { appendTerminalError } from "../open-sse/handlers";
-import { resolveConsoleStatic, resolveLandingStatic, applySecurityHeaders } from "../console/static";
+import { resolveConsoleStatic, resolveLandingStatic, applyStaticAssetHeaders, applyStaticEntryHeaders } from "../console/static";
 import { applySecurityHeaders as applyCommonSecurityHeaders, secureResponse } from "../security/headers";
 import { runtimeSettings } from "../console/runtime-settings";
 import { runtimeMemoryLimits } from "../traffic/limits";
@@ -120,7 +120,7 @@ export async function startServer(): Promise<void> {
           const asset = Bun.file(resolution.file);
           if (!(await asset.exists())) return errorResponse(404, "not_found", "Landing entry not found");
           const headers = new Headers({ "content-type": "text/html; charset=utf-8" });
-          applySecurityHeaders(headers, request);
+          applyStaticEntryHeaders(headers, request);
           return new Response(asset, { headers });
         }
         return errorResponse(404, "not_found", "Landing entry not found");
@@ -184,7 +184,8 @@ export async function startServer(): Promise<void> {
             const asset = Bun.file(resolution.file);
             if (resolution.kind === "entry" && !(await asset.exists())) return errorResponse(404, "not_found", "Console entry not found");
             const headers = new Headers(resolution.kind === "entry" ? { "content-type": "text/html; charset=utf-8" } : undefined);
-            applySecurityHeaders(headers, request);
+            if (resolution.kind === "entry") applyStaticEntryHeaders(headers, request);
+            else applyStaticAssetHeaders(headers, request, resolution.file);
             return new Response(asset, { headers });
           }
         }
@@ -193,7 +194,8 @@ export async function startServer(): Promise<void> {
           const asset = Bun.file(landingResolution.file);
           if (landingResolution.kind === "entry" && !(await asset.exists())) return errorResponse(404, "not_found", "Landing entry not found");
           const headers = new Headers(landingResolution.kind === "entry" ? { "content-type": "text/html; charset=utf-8" } : undefined);
-          applySecurityHeaders(headers, request);
+          if (landingResolution.kind === "entry") applyStaticEntryHeaders(headers, request);
+          else applyStaticAssetHeaders(headers, request, landingResolution.file);
           return new Response(asset, { headers });
         }
         return errorResponse(404, "not_found", "Route not found");

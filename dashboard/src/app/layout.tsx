@@ -1,4 +1,3 @@
-import { AnimatePresence, m } from "framer-motion";
 import {
   Bell,
   ChevronLeft,
@@ -17,11 +16,11 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "next-themes";
 import { cn } from "../lib/cn";
-import { detectMotionProfile, getPageTransition, getPopoverMotion, MOTION_OVERRIDE_EVENT, useMotionProfile, type MotionProfile } from "../lib/motion";
 import { apiGet, apiPost } from "../lib/api";
+import { isNewerRelease, isRepositoryUpdateAvailable, type RepositoryBranchUpdate } from "../lib/repository-updates";
 import { qk } from "../lib/query-keys";
 import { formatUptime } from "../lib/format";
 import { toast } from "../lib/toast";
@@ -32,6 +31,9 @@ import { ADVANCED_NAV_GROUPS, ADVANCED_PATHS, NAV_GROUPS, TITLES } from "./navig
 
 interface HealthStatus {
   version: string;
+  revision: string | null;
+  branch: string | null;
+  committedAt: number | null;
   startedAt: number;
   uptimeSeconds: number;
   now: number;
@@ -115,22 +117,6 @@ function FooterClock({ statusData, isError }: { statusData: HealthStatus | undef
 }
 
 
-/**
- * `<Outlet />` re-renders reactively off router context the instant
- * `location` changes, which fights a key-based AnimatePresence: the
- * *outgoing* m.div (still mounted, mid-exit) would swap to the *new*
- * route's content underneath its exit animation, leaving the freshly
- * navigated page stuck invisible at the exit's final opacity/scale until a
- * hard refresh. Freezing the resolved element in state (computed once per
- * mount, since the initializer only runs on first render) keeps the exiting
- * instance showing its own page while a separate, freshly keyed instance
- * renders the new one.
- */
-function AnimatedOutlet() {
-  const outlet = useOutlet();
-  const [frozen] = useState(outlet);
-  return frozen;
-}
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
@@ -179,18 +165,21 @@ function NotificationsDialog({
   statusData,
   isHealthError,
   updateAvailable,
+  releaseUpdateAvailable,
   latestTag,
+  repositoryUpdates,
 }: {
   open: boolean;
   onClose: () => void;
   statusData: HealthStatus | undefined;
   isHealthError: boolean;
   updateAvailable: boolean;
+  releaseUpdateAvailable: boolean;
   latestTag: string | undefined;
+  repositoryUpdates: readonly RepositoryBranchUpdate[];
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
-  const popupMotion = getPopoverMotion(useMotionProfile());
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
@@ -217,16 +206,15 @@ function NotificationsDialog({
     };
   }, [open]);
   return (
-    <AnimatePresence>
+    <>
       {open && (
-        <m.div
+        <div
           ref={panelRef}
           role="dialog"
           aria-modal="false"
           aria-label="Notifications"
           tabIndex={-1}
-          className="absolute right-0 top-[calc(100%+16px)] z-50 max-h-[calc(100dvh-120px)] w-[min(360px,calc(100vw-2rem))] origin-top-right overflow-auto rounded-[20px] border border-[var(--inner-border)] bg-[var(--bg-1)] p-2.5 shadow-[0_24px_60px_rgba(0,0,0,0.35)] sm:right-0 sm:w-[360px]"
-          {...popupMotion}
+          className="popout-enter absolute right-0 top-[calc(100%+16px)] z-50 max-h-[calc(100dvh-120px)] w-[min(360px,calc(100vw-2rem))] origin-top-right overflow-auto rounded-[20px] border border-[var(--inner-border)] bg-[var(--bg-1)] p-2.5 shadow-[0_24px_60px_rgba(0,0,0,0.35)] sm:right-0 sm:w-[360px]"
         >
           <div className="flex items-center gap-2 px-2 pb-2.5 pt-1">
             <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[var(--accent-soft)] text-[var(--accent)]">
@@ -249,17 +237,27 @@ function NotificationsDialog({
               </div>
             </div>
             {updateAvailable ? (
-              <div className="rounded-[18px] border border-[var(--accent)] bg-[var(--accent-soft)] p-3.5">
-                <p className="font-semibold text-[var(--accent)]">Update available</p>
-                <p className="mt-0.5 text-xs text-[var(--text-2)]">GitHub has {latestTag ? `v${latestTag}` : "a newer release"} available.</p>
-              </div>
+              <>
+                {releaseUpdateAvailable && (
+                  <div className="rounded-[18px] border border-[var(--accent)] bg-[var(--accent-soft)] p-3.5">
+                    <p className="font-semibold text-[var(--accent)]">Release update available</p>
+                    <p className="mt-0.5 text-xs text-[var(--text-2)]">GitHub has {latestTag ? `v${latestTag}` : "a newer release"} available.</p>
+                  </div>
+                )}
+                {repositoryUpdates.map((branch) => (
+                  <a key={branch.branch} href={branch.url} target="_blank" rel="noreferrer" className="block rounded-[18px] border border-[var(--accent)] bg-[var(--accent-soft)] p-3.5 transition-colors hover:bg-[var(--active-pill)]">
+                    <p className="font-semibold text-[var(--accent)]">{branch.branch} repository update</p>
+                    <p className="mt-0.5 text-xs text-[var(--text-2)]">A newer commit is available on the {branch.branch} branch.</p>
+                  </a>
+                ))}
+              </>
             ) : (
               <p className="px-1 py-2.5 text-center text-xs text-[var(--text-3)]">No new notifications.</p>
             )}
           </div>
-        </m.div>
+        </div>
       )}
-    </AnimatePresence>
+    </>
   );
 }
 
@@ -319,7 +317,6 @@ export function AppShell() {
   const [editingAdminName, setEditingAdminName] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [isStudioComposerFocused, setIsStudioComposerFocused] = useState(false);
-  const [motionProfile, setMotionProfile] = useState<MotionProfile>(() => detectMotionProfile());
 
   // ── Sidebar page (Main ↔ Advanced sliding launcher) ────────────────
   // State persists in localStorage so closing the drawer (mobile burger)
@@ -354,25 +351,6 @@ export function AppShell() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
-  useEffect(() => {
-    const mediaQueries = [
-      window.matchMedia("(max-width: 767px)"),
-      window.matchMedia("(pointer: coarse)"),
-      window.matchMedia("(prefers-reduced-motion: reduce)"),
-    ];
-    const update = () => {
-      const nextProfile = detectMotionProfile();
-      setMotionProfile(nextProfile);
-      document.documentElement.dataset.motionProfile = nextProfile;
-    };
-    update();
-    for (const media of mediaQueries) media.addEventListener("change", update);
-    window.addEventListener(MOTION_OVERRIDE_EVENT, update);
-    return () => {
-      for (const media of mediaQueries) media.removeEventListener("change", update);
-      window.removeEventListener(MOTION_OVERRIDE_EVENT, update);
-    };
-  }, []);
 
   useEffect(() => {
     const onFocusChange = () => setIsStudioComposerFocused(document.activeElement?.matches("[data-model-studio-composer]") ?? false);
@@ -396,7 +374,6 @@ export function AppShell() {
       ? patternKey
       : `/${segments[0] ?? "overview"}`;
   const meta = TITLES[pathKey] ?? { title: "Cartethyia", sub: "Internal console", mobileSub: "Internal console" };
-  const routeTransition = getPageTransition(motionProfile);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -462,17 +439,27 @@ export function AppShell() {
   });
   const releaseQuery = useQuery({
     queryKey: qk.releases.githubLatest,
-    queryFn: async () => {
-      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
-      if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-      return (await res.json()) as { tag_name: string; html_url: string };
-    },
+    queryFn: () => apiGet<{ tag_name: string; html_url: string } | null>("/updates/release"),
     staleTime: 30 * 60_000,
+    retry: false,
+  });
+  const repositoryQuery = useQuery({
+    queryKey: qk.releases.githubBranches,
+    queryFn: async () => (await apiGet<{ branches: readonly RepositoryBranchUpdate[] }>("/updates/repository")).branches,
+    staleTime: 15 * 60_000,
     retry: false,
   });
   const localVersion = statusQuery.data?.version;
   const latestTag = releaseQuery.data?.tag_name?.replace(/^v/, "");
-  const updateAvailable = Boolean(localVersion && latestTag && latestTag !== localVersion);
+  const releaseUpdateAvailable = isNewerRelease(localVersion, latestTag);
+  const repositoryUpdates = statusQuery.data === undefined
+    ? []
+    : (repositoryQuery.data ?? []).filter((branch) => isRepositoryUpdateAvailable({
+      revision: statusQuery.data?.revision ?? null,
+      committedAt: statusQuery.data?.committedAt ?? null,
+      startedAt: statusQuery.data?.startedAt ?? Date.now(),
+    }, branch));
+  const updateAvailable = releaseUpdateAvailable || repositoryUpdates.length > 0;
 
   const sidebar = useMemo(() => (
     <aside
@@ -512,7 +499,7 @@ export function AppShell() {
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-1 text-[11px] text-[var(--text-2)] transition-colors hover:text-[var(--accent)]"
-            title={updateAvailable ? `Update available on GitHub: v${latestTag}` : "View releases on GitHub"}
+            title={releaseUpdateAvailable ? `Update available on GitHub: v${latestTag}` : updateAvailable ? "Repository update available on GitHub" : "View releases on GitHub"}
           >
             v{localVersion ?? "\u2026"}
             {updateAvailable && (
@@ -543,15 +530,11 @@ export function AppShell() {
         }}
         onPointerLeave={() => { swipeStartX.current = null; swipeDelta.current = null; swipeActive.current = false; }}
       >
-        <AnimatePresence initial={false}>
+        <div>
           {sidebarPage === 0 ? (
-            <m.div
+            <div
               key="page-main"
-              initial={{ x: "-100%", opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: "-100%", opacity: 0 }}
-              transition={{ duration: motionProfile === "reduced" ? 0 : motionProfile === "mobile" ? 0.2 : 0.3, ease: [0.32, 0.72, 0, 1] }}
-              className="absolute inset-0 flex flex-col gap-1 overflow-y-auto scrollbar-fade"
+              className="sidebar-page-enter sidebar-page-main absolute inset-0 flex flex-col gap-1 overflow-y-auto scrollbar-fade"
             >
               {NAV_GROUPS.map((group) => (
                 <div key={group.label}>
@@ -584,11 +567,7 @@ export function AppShell() {
                         {({ isActive }) => (
                           <>
                             {isActive && (
-                              <m.span
-                                layoutId={motionProfile === "desktop" || motionProfile === "max" ? "sidebar-active" : undefined}
-                                transition={motionProfile === "max" ? { duration: 0.28, ease: "easeOut" } : { duration: 0.2, ease: "easeOut" }}
-                                className="absolute inset-0 rounded-[11px] border border-[var(--inner-border)] bg-[var(--active-pill)] shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
-                              />
+                              <span className="absolute inset-0 rounded-[11px] border border-[var(--inner-border)] bg-[var(--active-pill)] shadow-[0_2px_8px_rgba(0,0,0,0.06)]" />
                             )}
                             <item.icon size={18} className="relative shrink-0" />
                             <span className="relative">{item.label}</span>
@@ -604,15 +583,11 @@ export function AppShell() {
                   )}
                 </div>
               ))}
-            </m.div>
+            </div>
           ) : (
-            <m.div
+            <div
               key="page-advanced"
-              initial={{ x: "100%", opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: "100%", opacity: 0 }}
-              transition={{ duration: motionProfile === "reduced" ? 0 : motionProfile === "mobile" ? 0.2 : 0.3, ease: [0.32, 0.72, 0, 1] }}
-              className="absolute inset-0 flex flex-col gap-1 overflow-y-auto scrollbar-fade"
+              className="sidebar-page-enter sidebar-page-advanced absolute inset-0 flex flex-col gap-1 overflow-y-auto scrollbar-fade"
             >
               <button
                 type="button"
@@ -645,11 +620,7 @@ export function AppShell() {
                       {({ isActive }) => (
                         <>
                           {isActive && (
-                            <m.span
-                              layoutId={motionProfile === "desktop" || motionProfile === "max" ? "sidebar-active-adv" : undefined}
-                              transition={motionProfile === "max" ? { duration: 0.28, ease: "easeOut" } : { duration: 0.2, ease: "easeOut" }}
-                              className="absolute inset-0 rounded-[11px] border border-[var(--inner-border)] bg-[var(--active-pill)] shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
-                            />
+                            <span className="absolute inset-0 rounded-[11px] border border-[var(--inner-border)] bg-[var(--active-pill)] shadow-[0_2px_8px_rgba(0,0,0,0.06)]" />
                           )}
                           <item.icon size={18} className="relative shrink-0" />
                           <span className="relative">{item.label}</span>
@@ -664,9 +635,9 @@ export function AppShell() {
                   ))}
                 </div>
               ))}
-            </m.div>
+            </div>
           )}
-        </AnimatePresence>
+        </div>
       </div>
 
       <div className="mt-auto pt-4">
@@ -675,7 +646,6 @@ export function AppShell() {
           <div className="min-w-0 flex-1">
             {editingAdminName ? (
               <form className="flex items-center gap-1" onSubmit={(event) => { event.preventDefault(); const next = adminNameDraft.trim() || "Admin"; setAdminName(next); localStorage.setItem("cartethyia.adminName", next); setEditingAdminName(false); }}>
-                <Input autoFocus value={adminNameDraft} onChange={(event) => setAdminNameDraft(event.target.value)} aria-label="Admin display name" className="h-7 min-w-0 px-2 text-xs" />
                 <button type="submit" aria-label="Save admin name" title="Save" className="grid size-7 shrink-0 place-items-center rounded-md text-[var(--green)] hover:bg-[var(--active-pill)]"><Check size={14} /></button>
               </form>
             ) : (
@@ -689,7 +659,7 @@ export function AppShell() {
         </div>
       </div>
     </aside>
-  ), [drawerOpen, sidebarPage, switchSidebarPage, motionProfile, appearanceQuery.data?.settings.runtime.sidebarIconDataUrl, localVersion, updateAvailable, releaseQuery.data?.html_url, latestTag, adminName, adminNameDraft, editingAdminName]);
+  ), [drawerOpen, sidebarPage, switchSidebarPage, appearanceQuery.data?.settings.runtime.sidebarIconDataUrl, localVersion, updateAvailable, releaseUpdateAvailable, releaseQuery.data?.html_url, latestTag, adminName, adminNameDraft, editingAdminName]);
 
   return (
     <>
@@ -733,7 +703,7 @@ export function AppShell() {
             >
               <Bell size={17} />
             </button>
-            <NotificationsDialog open={notificationsOpen} onClose={() => setNotificationsOpen(false)} statusData={statusQuery.data} isHealthError={statusQuery.isError} updateAvailable={updateAvailable} latestTag={latestTag} />
+            <NotificationsDialog open={notificationsOpen} onClose={() => setNotificationsOpen(false)} statusData={statusQuery.data} isHealthError={statusQuery.isError} updateAvailable={updateAvailable} releaseUpdateAvailable={releaseUpdateAvailable} latestTag={latestTag} repositoryUpdates={repositoryUpdates} />
           </div>
         </header>
 
@@ -745,9 +715,9 @@ export function AppShell() {
             child's main-axis size stays content-driven unless it sets its
             own `flex-1`/`h-full`. */}
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          <m.div key={location.pathname} {...routeTransition} className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
-              <AnimatedOutlet />
-          </m.div>
+          <div key={location.pathname} className="route-enter flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+            <Outlet />
+          </div>
         </main>
 
         {/* Normal flow footer: `mt-auto` drops it to the bottom on short pages. */}

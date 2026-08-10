@@ -1,12 +1,11 @@
 import { useEffect, useState, type ReactElement } from "react";
-import { motion } from "framer-motion";
 import { Activity, BookOpen, Check, Clipboard, Gauge, Github as GithubIcon, Home, KeyRound, MessageCircle, Route } from "lucide-react";
 
 import { Card } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 import { copyToClipboard } from "./lib/clipboard";
-import { getPageTransition, useMotionProfile } from "./lib/motion";
 import { useShareData, type ShareMonitorData, type ShareSetupData } from "./hooks/use-share-data";
+import { useMotionProfile } from "./lib/motion";
 
 interface ShareFieldProps {
   readonly label: string;
@@ -73,7 +72,6 @@ function formatDate(value: string | null): string {
 
 export function SharePage(): ReactElement {
   const profile = useMotionProfile();
-  const transition = getPageTransition(profile);
   const isSetup = window.location.pathname.startsWith("/share/setup/");
   const dataPath = `${window.location.pathname.replace(/\/$/, "")}/data`;
   const dataState = useShareData<ShareMonitorData | ShareSetupData>(dataPath, isSetup ? undefined : 15_000);
@@ -94,13 +92,13 @@ export function SharePage(): ReactElement {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#07101d] font-sans text-white">
-      <div className="fixed inset-0 bg-[url('/when_yah/25817331.jpg')] bg-cover bg-center saturate-[.92]" aria-hidden="true" />
+      <div className="fixed inset-0 bg-cover bg-center saturate-[.92]" style={{ backgroundImage: "url('/when_yah/25817331.webp')" }} aria-hidden="true" />
       <div className="fixed inset-0 bg-[linear-gradient(90deg,rgba(3,9,20,.94),rgba(3,9,20,.76)_35%,rgba(3,9,20,.24)_76%,rgba(3,9,20,.68)),linear-gradient(180deg,rgba(3,8,18,.76),rgba(3,8,18,.18)_42%,rgba(3,8,18,.92))]" aria-hidden="true" />
       <div className="fixed inset-0 opacity-[.045] [background-image:radial-gradient(rgba(255,255,255,.5)_.5px,transparent_.7px)] [background-size:4px_4px]" aria-hidden="true" />
       <div className="relative z-10 mx-auto flex min-h-screen w-[min(100%-2rem,1120px)] flex-col py-5 sm:w-[min(100%-2.5rem,1120px)] sm:py-7">
         <header className="flex items-center justify-between gap-5">
           <a className="inline-flex items-center gap-2.5 text-white no-underline" href="/">
-            <img className="h-[34px] w-[34px] rounded-[10px] border border-cyan-200/35 bg-white object-cover shadow-xl" src="/favicon.png" alt="" />
+            <img className="h-[34px] w-[34px] rounded-[10px] border border-cyan-200/35 bg-white object-cover shadow-xl" src="/favicon.webp" alt="" />
             <span className="grid gap-0.5">
               <strong className="font-serif text-[21px] font-normal leading-none">Cartethyia</strong>
               <small className="text-[8px] font-bold tracking-[0.2em] text-white/55">AI PROXY ROUTER</small>
@@ -114,8 +112,7 @@ export function SharePage(): ReactElement {
         </header>
 
         <main className="flex flex-1 items-center justify-center py-12 sm:py-16">
-
-          {(monitorData !== null || setupData !== null) ? <motion.section {...transition} transition={{ ...transition.transition, delay: profile === "mobile" ? 0 : 0.08 }} aria-label="Shared page">
+          {(monitorData !== null || setupData !== null) ? <section className={profile === "reduced" ? "motion-static" : "motion-entry-enter"} aria-label="Shared page">
             <Card surface="frame" density="comfortable" className="!overflow-hidden !rounded-[22px] !border-cyan-200/25 !bg-[linear-gradient(145deg,rgba(15,34,61,.9),rgba(4,12,26,.86))] !text-white !shadow-[0_30px_90px_rgba(0,0,0,.32),inset_0_1px_rgba(255,255,255,.08)]">
               {setupData !== null ? <div className="grid gap-2.5">
                 <p className="mb-1 text-xs leading-relaxed text-white/65">Use these values in your client. This one-time page will not show the key again after it is consumed.</p>
@@ -167,7 +164,7 @@ export function SharePage(): ReactElement {
                 {monitorData.notes.title || monitorData.notes.subtitle || monitorData.notes.body ? <div className="rounded-2xl border border-cyan-200/15 bg-cyan-200/[0.05] p-4"><div className="text-[9px] font-bold uppercase tracking-[0.14em] text-cyan-100/60">Operator note</div>{monitorData.notes.title ? <h3 className="mt-2 font-serif text-xl text-white">{monitorData.notes.title}</h3> : null}{monitorData.notes.subtitle ? <p className="mt-1 text-xs font-medium text-cyan-100/75">{monitorData.notes.subtitle}</p> : null}{monitorData.notes.body ? <p className="mt-3 whitespace-pre-wrap text-xs leading-6 text-white/65">{monitorData.notes.body}</p> : null}</div> : null}
               </div> : null}
             </Card>
-          </motion.section> : null}
+          </section> : null}
         </main>
 
         <footer className="flex justify-between gap-5 text-[8px] font-bold uppercase tracking-[0.16em] text-white/40 max-sm:grid max-sm:gap-2"><span>Self-hosted by design</span><span>Built with Bun + Elysia</span></footer>

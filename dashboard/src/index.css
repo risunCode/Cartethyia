@@ -19,6 +19,116 @@
   animation: toast-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+@keyframes motion-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes motion-route-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sidebar-from-left {
+  from { opacity: 0; transform: translateX(-14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes sidebar-from-right {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.route-enter,
+.motion-entry-enter,
+.landing-chapter-enter {
+  animation: motion-route-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.sidebar-page-main {
+  animation: sidebar-from-left 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.sidebar-page-advanced {
+  animation: sidebar-from-right 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.motion-dialog-overlay,
+.motion-drawer-overlay {
+  opacity: 1;
+  transition: opacity 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.motion-dialog-overlay[data-state="closed"],
+.motion-drawer-overlay[data-state="closed"] {
+  opacity: 0;
+}
+
+.motion-dialog-panel {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition: opacity 180ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.motion-dialog-panel[data-state="closed"] {
+  opacity: 0;
+  transform: translateY(8px) scale(0.97);
+}
+
+.motion-drawer-panel {
+  transform: translateX(0);
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.motion-drawer-panel[data-state="closed"] {
+  transform: translateX(105%);
+}
+
+.landing-scene-image {
+  opacity: 1;
+  transform: scale(1);
+  animation: motion-fade-up 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.landing-scene-image-current {
+  opacity: calc(1 - var(--scene-progress, 0));
+}
+
+.landing-scene-image-next {
+  opacity: var(--scene-progress, 0);
+}
+
+.landing-scene-image-final {
+  opacity: 1;
+}
+
+.landing-scene-progress-vertical {
+  height: calc(var(--scene-progress, 0) * 100%);
+}
+
+.landing-scene-progress-horizontal {
+  width: calc(var(--scene-progress, 0) * 100%);
+}
+
+html[data-motion-profile="mobile"] .route-enter,
+html[data-motion-profile="mobile"] .motion-entry-enter,
+html[data-motion-profile="mobile"] .landing-chapter-enter,
+html[data-motion-profile="mobile"] .sidebar-page-main,
+html[data-motion-profile="mobile"] .sidebar-page-advanced {
+  animation-duration: 120ms;
+}
+
+html[data-motion-profile="reduced"] .route-enter,
+html[data-motion-profile="reduced"] .motion-entry-enter,
+html[data-motion-profile="reduced"] .landing-chapter-enter,
+html[data-motion-profile="reduced"] .sidebar-page-main,
+html[data-motion-profile="reduced"] .sidebar-page-advanced,
+html[data-motion-profile="reduced"] .landing-scene-image {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
 /* Login form entrance — CSS-only, zero framer-motion overhead */
 .login-enter {
   animation: login-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -375,10 +485,15 @@ select optgroup {
 
 .custom-background-layer {
   contain: strict;
+  display: block;
   position: fixed;
   inset: -2%;
   z-index: 0;
+  width: 104%;
+  height: 104%;
   pointer-events: none;
+  object-fit: cover;
+  object-position: center;
   background-position: center;
   background-repeat: no-repeat;
   background-size: cover;
@@ -405,6 +520,10 @@ select optgroup {
   backdrop-filter: blur(14px) saturate(1.2);
   border: 1px solid var(--glass-border-2);
   box-shadow: var(--shadow-card);
+}
+.login-enter.glass-2 {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .health-card {
   background: color-mix(in srgb, var(--surface-1) 48%, transparent);
@@ -487,6 +606,32 @@ html[data-glass="off"] .custom-background-layer {
   filter: none;
 }
 
+/* Constrained and reduced profiles avoid every blur/filter compositing path. */
+html[data-motion-profile="mobile"] .glass,
+html[data-motion-profile="mobile"] .glass-2,
+html[data-motion-profile="reduced"] .glass,
+html[data-motion-profile="reduced"] .glass-2 {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html[data-motion-profile="mobile"] [class*="backdrop-blur"],
+html[data-motion-profile="reduced"] [class*="backdrop-blur"],
+html[data-motion-profile="mobile"] .toast-surface,
+html[data-motion-profile="reduced"] .toast-surface {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html[data-motion-profile="mobile"] .custom-background-layer,
+html[data-motion-profile="reduced"] .custom-background-layer {
+  filter: none;
+}
+
+html[data-motion-profile="mobile"] .landing-scene-image {
+  animation-duration: 160ms;
+}
+
 /* A custom image is already a costly full-screen backdrop. Keep the frosted
    look, but avoid stacking the maximum blur on every card. */
 .custom-background-layer ~ .relative.z-10 .glass {
@@ -545,9 +690,18 @@ html[data-glass="off"] .custom-background-layer {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
   }
+}
+
+html[data-motion-profile="reduced"] *,
+html[data-motion-profile="reduced"] *::before,
+html[data-motion-profile="reduced"] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
 }
 
 /* Mobile prioritizes immediate interaction and scrolling over translucent blur and list choreography. */

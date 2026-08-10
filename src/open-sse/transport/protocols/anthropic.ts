@@ -19,6 +19,8 @@ function mapAnthropicStopReason(stopReason: string): StopReason {
       return "tool_call";
     case "refusal":
       return "content_filter";
+    case "compaction":
+      return "compaction";
     case "end_turn":
     case "stop_sequence":
     case "pause_turn":
@@ -42,6 +44,7 @@ export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: st
   let outputTokens: number | null = null;
   let stopReason: StopReason | null = null;
   const toolIds = new Map<number, string>();
+  const compactionBlocks = new Set<number>();
   return (sse: SseEvent): StreamEvent | readonly StreamEvent[] | null => {
     const parsed = parseSseData(sse.data);
     if (!isRecord(parsed)) return null;
@@ -66,6 +69,10 @@ export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: st
       case "content_block_start": {
         const index = nullableNumber(parsed.index) ?? -1;
         const block = parsed.content_block;
+        if (isRecord(block) && block.type === "compaction") {
+          compactionBlocks.add(index);
+          return { type: "compaction_start" };
+        }
         if (isRecord(block) && block.type === "tool_use" && typeof block.id === "string") {
           const name = toolNameTransform(typeof block.name === "string" ? block.name : "");
           toolIds.set(index, block.id);
@@ -77,6 +84,10 @@ export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: st
         const index = nullableNumber(parsed.index) ?? -1;
         const delta = parsed.delta;
         if (!isRecord(delta)) return null;
+        if (delta.type === "compaction_delta") {
+          const content = delta.content;
+          return compactionBlocks.has(index) && typeof content === "string" && content.length > 0 ? { type: "compaction_delta", text: content } : null;
+        }
         if (delta.type === "text_delta") {
           const text = delta.text;
           return typeof text === "string" && text.length > 0 ? { type: "text_delta", text } : null;
@@ -93,6 +104,7 @@ export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: st
       }
       case "content_block_stop": {
         const index = nullableNumber(parsed.index) ?? -1;
+        if (compactionBlocks.delete(index)) return { type: "compaction_stop" };
         const callId = toolIds.get(index);
         if (callId === undefined) return null;
         toolIds.delete(index);

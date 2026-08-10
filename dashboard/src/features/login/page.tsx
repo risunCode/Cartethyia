@@ -6,7 +6,7 @@ import { ApiError, apiPost } from "../../lib/api";
 import { Button } from "../../components/ui/button";
 import { Input, Label } from "../../components/ui/input";
 
-const LOGIN_BACKDROP_URL = `${import.meta.env.BASE_URL}CartethyiaPi/kepitsusu.jpg`;
+const LOGIN_BACKDROP_URL = `${import.meta.env.BASE_URL}default-backgrounds.webp`;
 const LOGIN_LOGO_URL = `${import.meta.env.BASE_URL}favicon_love.webp`;
 
 export function LoginPage() {

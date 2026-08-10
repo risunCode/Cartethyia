@@ -36,7 +36,7 @@ export interface ConsoleLogStream {
   attempts: number;
 }
 
-export function useConsoleLogStream(category: ConsoleLogCategory = "all"): ConsoleLogStream {
+export function useConsoleLogStream(category: ConsoleLogCategory = "request"): ConsoleLogStream {
   const [lines, setLines] = useState<ConsoleLogLine[]>([]);
   const [newLineIds, setNewLineIds] = useState<ReadonlySet<number>>(new Set());
   const [status, setStatus] = useState<StreamStatus>("connecting");

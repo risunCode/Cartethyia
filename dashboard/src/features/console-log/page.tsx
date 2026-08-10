@@ -26,7 +26,7 @@ const LEVEL_COLORS: Record<ConsoleLogLevel, string> = {
 
 type LogLevelFilter = ConsoleLogLevel | "all";
 const CATEGORIES: Array<{ value: ConsoleLogCategory; label: string }> = [
-  { value: "all", label: "All logs (no web)" },
+  { value: "all", label: "All logs" },
   { value: "request", label: "Request logs" },
   { value: "system", label: "System logs" },
   { value: "web", label: "Web logs" },
@@ -54,7 +54,7 @@ const ConsoleLogRow = memo(function ConsoleLogRow({ line, isNew }: { line: { id:
 // ── Console Log tab ──────────────────────────────────────────────────────────
 
 function ConsoleLogTab() {
-  const [category, setCategory] = useState<ConsoleLogCategory>("all");
+  const [category, setCategory] = useState<ConsoleLogCategory>("request");
   const [level, setLevel] = useState<LogLevelFilter>("all");
   const { lines, newLineIds, status, attempts } = useConsoleLogStream(category);
   const [search, setSearch] = useState("");
@@ -94,7 +94,7 @@ function ConsoleLogTab() {
     }
   };
 
-  const categoryLabel = CATEGORIES.find((option) => option.value === category)?.label ?? "All logs (no web)";
+  const categoryLabel = CATEGORIES.find((option) => option.value === category)?.label ?? "All logs";
   const levelLabel = LEVELS.find((option) => option.value === level)?.label ?? "All levels";
 
   return (

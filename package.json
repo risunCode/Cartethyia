@@ -9,8 +9,8 @@
     "dev": "bun run --watch src/main.ts",
     "start": "bun run src/main.ts",
     "build": "bun build --compile --minify --bytecode --target bun --outfile bin/cartethyia src/main.ts",
-    "test": "bun test --cwd test . ../src/application ../src/security ../src/traffic ../src/providers --timeout 60000",
-    "test:coverage": "bun test --cwd test . ../src/application ../src/security ../src/traffic ../src/providers --coverage --timeout 60000",
+    "test": "bun test --timeout 60000 test/application test/auth test/console test/middleware test/open-sse test/providers test/security test/storage test/traffic test/architecture",
+    "test:coverage": "bun test --timeout 60000 test/application test/auth test/console test/middleware test/open-sse test/providers test/security test/storage test/traffic test/architecture --coverage",
     "bench": "bun test --timeout 60000 test/bench",
     "bench:baseline": "bun test --timeout 60000 test/bench/benchmark-edge-cases.test.ts"
   },

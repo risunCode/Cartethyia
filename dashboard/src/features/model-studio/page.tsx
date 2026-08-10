@@ -4,15 +4,14 @@
  * Every send goes through the real dispatchQualifiedRoute pipeline.
  */
 
-import { isValidElement, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type UIEvent } from "react";
+import { isValidElement, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bot, Brain, Check, ChevronDown, Clock, Copy, ImagePlus,
   Loader2, MessageSquareText, MoreHorizontal, Pencil, Paperclip, Plus,
   RotateCcw, Send, Square, Timer, Trash2, User, X, Zap,
 } from "lucide-react";
-import ReactMarkdown, { type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import type { Components } from "react-markdown";
 import { toast } from "../../lib/toast";
 import { ApiError, apiGet, apiPatch, apiPost, apiDelete } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
@@ -180,8 +179,27 @@ const markdownComponents: Components = {
   },
 };
 
+const LazyMarkdown = lazy(async () => {
+  const [{ default: ReactMarkdown }, { default: remarkGfm }] = await Promise.all([
+    import("react-markdown"),
+    import("remark-gfm"),
+  ]);
+
+  function Markdown({ content }: { content: string }) {
+    return <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{content}</ReactMarkdown>;
+  }
+
+  return { default: Markdown };
+});
+
 function AssistantMarkdown({ content }: { content: string }) {
-  return <div className="min-w-0 text-[13px] leading-relaxed text-[var(--text-1)]"><ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{content}</ReactMarkdown></div>;
+  return (
+    <div className="min-w-0 text-[13px] leading-relaxed text-[var(--text-1)]">
+      <Suspense fallback={<span className="whitespace-pre-wrap">{content}</span>}>
+        <LazyMarkdown content={content} />
+      </Suspense>
+    </div>
+  );
 }
 
 // ── Context indicator ──────────────────────────────────────────────────────

@@ -33,6 +33,28 @@ import type {
 } from "./services/composition";
 
 const SERVER_STARTED_AT = Date.now();
+interface BuildRevision {
+  readonly revision: string | null;
+  readonly committedAt: number | null;
+  readonly branch: string | null;
+}
+
+function readBuildRevision(): BuildRevision {
+  const revisionFromEnv = process.env.CARTETHYIA_COMMIT?.trim();
+  const branchFromEnv = process.env.CARTETHYIA_BRANCH?.trim();
+  const committedAtFromEnv = process.env.CARTETHYIA_COMMIT_AT?.trim();
+  try {
+    const revision = revisionFromEnv || execSync("git rev-parse HEAD", { encoding: "utf8", timeout: 2_000 }).trim() || null;
+    const branch = branchFromEnv || execSync("git branch --show-current", { encoding: "utf8", timeout: 2_000 }).trim() || null;
+    const committedAtValue = committedAtFromEnv || execSync("git show -s --format=%cI HEAD", { encoding: "utf8", timeout: 2_000 }).trim();
+    const committedAt = Date.parse(committedAtValue);
+    return { revision, branch, committedAt: Number.isFinite(committedAt) ? committedAt : null };
+  } catch {
+    return { revision: revisionFromEnv || null, branch: branchFromEnv || null, committedAt: null };
+  }
+}
+
+const BUILD_REVISION = readBuildRevision();
 const CPU_INFO = cpus();
 
 let lastCpuUsage: NodeJS.CpuUsage | undefined;
@@ -180,6 +202,9 @@ function memorySnapshot(): MetricsView {
 
 export interface StatusView {
   readonly version: string;
+  readonly revision: string | null;
+  readonly branch: string | null;
+  readonly committedAt: number | null;
   readonly startedAt: number;
   readonly uptimeSeconds: number;
   readonly now: number;
@@ -259,6 +284,9 @@ export class ConsoleDiagnostics {
     const now = Date.now();
     return {
       version: typeof packageJson.version === "string" ? packageJson.version : "unknown",
+      revision: BUILD_REVISION.revision,
+      branch: BUILD_REVISION.branch,
+      committedAt: BUILD_REVISION.committedAt,
       startedAt: SERVER_STARTED_AT,
       uptimeSeconds: Math.floor((now - SERVER_STARTED_AT) / 1000),
       now,

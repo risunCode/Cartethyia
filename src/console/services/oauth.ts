@@ -28,6 +28,7 @@ export type OAuthStartResultView =
       readonly intervalSeconds: number | null;
       readonly state: string;
       readonly expiresAtMs: number;
+      readonly flow: "browser" | "device";
     }
   | { readonly ok: false; readonly status: number; readonly code: ConsoleErrorCode; readonly message: string };
 
@@ -126,13 +127,15 @@ export class OAuthService {
         name,
         redirectUri: typeof value.redirectUri === "string" && value.redirectUri.length > 0 ? value.redirectUri : undefined,
         scopes: Array.isArray(value.scopes) ? value.scopes.flatMap((item) => (typeof item === "string" ? [item] : [])) : undefined,
+        flow: value.flow === "device" ? "device" : "browser",
       });
-      // Start the local callback server for providers that use one
-      // (Codex, Anthropic, Antigravity, Kimchi). Device-flow providers
-      // (Kiro, Cline) don't need a local listener.
-      registerOAuthCallback(providerId, result.sessionId, result.state, this.sessions, async (sessionId, input) => {
-        await this.complete(sessionId, { code: input.code, state: input.state, error: input.error, value: input.value });
-      });
+      // Device-code flows complete through session polling; only browser
+      // authorization-code flows need a local callback listener.
+      if (result.userCode === null) {
+        registerOAuthCallback(providerId, result.sessionId, result.state, this.sessions, async (sessionId, input) => {
+          await this.complete(sessionId, { code: input.code, state: input.state, error: input.error, value: input.value });
+        });
+      }
       return {
         ok: true,
         sessionId: result.sessionId,
@@ -146,6 +149,7 @@ export class OAuthService {
         intervalSeconds: result.intervalSeconds,
         state: result.state,
         expiresAtMs: result.expiresAtMs,
+        flow: result.flow,
       };
     } catch (error) {
       return oauthSessionErrorView(error);

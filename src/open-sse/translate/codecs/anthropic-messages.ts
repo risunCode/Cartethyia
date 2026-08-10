@@ -54,6 +54,9 @@ export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): 
   const thinking = normalizeThinking(root["thinking"]);
   if (isProtocolError(thinking)) return normalizeFail(thinking);
 
+  const contextManagement = normalizeContextManagement(root["context_management"]);
+  if (isProtocolError(contextManagement)) return normalizeFail(contextManagement);
+
   const reasoningState = { seen: false };
   const images: ImageReference[] = [];
   const messages = normalizeMessages(root["messages"], images, reasoningState);
@@ -78,7 +81,6 @@ export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): 
   const metadata = root["metadata"];
   const metadataUserId = isRecord(metadata) && typeof metadata.user_id === "string" && metadata.user_id.length <= 4096 ? metadata.user_id : undefined;
   const reasoning = reasoningState.seen ? "enabled" : thinking;
-
   return normalizeOk({
     model,
     stream,
@@ -91,6 +93,7 @@ export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): 
     sourceSurface: "anthropic-messages",
     signal: input.signal,
     limits: input.limits,
+    ...(contextManagement === undefined ? {} : { contextManagement }),
     ...(metadataUserId === undefined ? {} : { metadataUserId }),
   });
 }
@@ -112,6 +115,13 @@ function normalizeThinking(raw: unknown): "enabled" | "disabled" | "default" | P
   if (type === "disabled") return "disabled";
   if (typeof type === "string") return protocolError("thinking.type", `thinking.type: unsupported mode "${type}"`);
   return protocolError("thinking.type", 'thinking.type: expected "enabled", "adaptive", or "disabled"');
+}
+function normalizeContextManagement(raw: unknown): Readonly<Record<string, unknown>> | ProtocolError | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const value = narrowObject(raw, "context_management");
+  if (isProtocolError(value)) return value;
+  const bound = boundJsonLength(value, "context_management", 64 * 1024);
+  return bound === null ? value : bound;
 }
 
 function normalizeSystem(raw: unknown): NormalizedMessage[] | ProtocolError {
@@ -233,6 +243,13 @@ function normalizeBlock(raw: unknown, field: string, images: ImageReference[]): 
       const bound = boundJsonLength(input, `${field}.input`, MAX_TOOL_ARGUMENT_LENGTH);
       if (bound !== null) return bound;
       return { type: "tool_use", toolName: name, toolCallId: id, toolArguments: JSON.stringify(input) };
+    }
+    case "compaction": {
+      const content = obj["content"];
+      if (content !== undefined && content !== null && typeof content !== "string") return protocolError(`${field}.content`, `${field}.content: expected a string or null`);
+      const bound = boundJsonLength(obj, field, MAX_TEXT_BLOCK_LENGTH);
+      if (bound !== null) return bound;
+      return { type: "compaction", text: typeof content === "string" ? content : undefined, raw: obj };
     }
     default:
       if (typeof type === "string") {
@@ -359,6 +376,7 @@ export function buildMessagesPayload(request: ProxyRequest, capabilities: Provid
         input_schema: tool.inputSchema,
       });
   }
+  if (request.contextManagement !== undefined) payload.context_management = request.contextManagement;
   if (request.reasoning === "enabled" && capabilities.reasoning) {
     payload.thinking = { type: "enabled", budget_tokens: Math.min(request.maxOutputTokens ?? DEFAULT_MAX_TOKENS, MAX_THINKING_BUDGET) };
   }
@@ -392,6 +410,7 @@ function toAnthropicMessage(message: NormalizedMessage): Record<string, unknown>
       const content: Record<string, unknown>[] = [];
       for (const block of message.content) {
         if (block.type === "text") content.push({ type: "text", text: block.text ?? "" });
+        else if (block.type === "compaction") content.push(block.raw ?? { type: "compaction", content: block.text ?? null });
         else if (block.type === "tool_use") content.push(toAnthropicToolUse(block));
       }
       return { role: "assistant", content };

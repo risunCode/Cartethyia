@@ -1,9 +1,8 @@
 import * as http2 from "node:http2";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import type { Adapter, ProviderCallError, ProviderMeta, ProviderOutput, ProviderRequest, ProviderUsage, RouteTarget, StreamEvent, Surface } from "../application/contracts";
+import type { Adapter, ProviderCallError, ProviderOutput, ProviderRequest, ProviderUsage, StreamEvent } from "../application/contracts";
+import { CURSOR_BASE_URL, describeCursor } from "./cursor/catalog";
 import { ProviderAdapterError, toProviderCallError } from "../open-sse/transport/errors";
-import { aggregateCapabilities, capabilitiesOf, createModelCatalog } from "../open-sse/transport/catalog";
-import type { ProviderCatalogAdapter } from "../open-sse/transport/contracts";
 import {
   AgentClientMessageSchema,
   AgentRunRequestSchema,
@@ -18,22 +17,8 @@ import {
 } from "./cursor/proto-gen/agent_pb";
 import { connectCursorProxy } from "./cursor/socket";
 
-const CURSOR_BASE_URL = "https://api2.cursor.sh";
 const CURSOR_CLIENT_VERSION = "cli-2026.02.13-41ac335";
 const CURSOR_PATH = "/agent.v1.AgentService/Run";
-const CURSOR_SURFACES = ["openai-chat", "openai-responses"] as const;
-const CURSOR_MODELS = [
-  ["default", "Auto", false],
-  ["claude-4.5-opus-high", "Claude 4.5 Opus", true],
-  ["claude-4.5-sonnet", "Claude 4.5 Sonnet", true],
-  ["claude-4.6-opus-high", "Claude 4.6 Opus", true],
-  ["claude-4.6-sonnet-medium", "Claude 4.6 Sonnet", true],
-  ["composer-1", "Composer 1", false],
-  ["composer-1.5", "Composer 1.5", false],
-  ["composer-2.5", "Composer 2.5", false],
-  ["composer-2.5-fast", "Composer 2.5 Fast", false],
-] as const;
-
 type QueueItem = StreamEvent | { type: "error"; error: unknown } | { type: "end" };
 
 class AsyncQueue<T> {
@@ -53,35 +38,10 @@ class AsyncQueue<T> {
     const item = this.items.shift();
     if (item !== undefined) return { value: item, done: false };
     if (this.closed) return { value: undefined as never, done: true };
-    return new Promise(resolve => this.waiters.push(resolve));
+    const { promise, resolve } = Promise.withResolvers<IteratorResult<T>>();
+    this.waiters.push(resolve);
+    return promise;
   }
-}
-
-function modelOf(id: string, displayName: string, reasoning: boolean) {
-  return { id, displayName, capabilities: capabilitiesOf({ surfaces: CURSOR_SURFACES, streaming: true, reasoning, toolCalls: false, images: false }) };
-}
-
-function describeCursor(): ProviderCatalogAdapter {
-  const models = CURSOR_MODELS.map(([id, name, reasoning]) => modelOf(id, name, reasoning));
-  const fallback = capabilitiesOf({ surfaces: CURSOR_SURFACES, streaming: true, reasoning: true, toolCalls: false, images: false });
-  const metadata: ProviderMeta = {
-    id: "cursor",
-    displayName: "Cursor",
-    protocol: "openai",
-    credentialKind: "oauth",
-    credentialKinds: ["oauth", "api_key", "manual"],
-    credentialUrl: "https://www.cursor.com/settings",
-  };
-  return {
-    metadata,
-    capabilities: aggregateCapabilities(models, fallback),
-    models: createModelCatalog(models),
-    resolveTarget(modelId: string, surface: Surface): RouteTarget {
-      if (!CURSOR_SURFACES.includes(surface as (typeof CURSOR_SURFACES)[number])) throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Cursor does not support surface "${surface}"`, statusCode: 400, routeScope: null });
-      const model = models.find(entry => entry.id === modelId) ?? models.find(entry => entry.id === "default");
-      return { providerId: "cursor", modelId: model?.id ?? modelId, upstreamModelId: model?.id ?? modelId, surface };
-    },
-  };
 }
 
 function textFromMessage(message: ProviderRequest["request"]["messages"][number]): string {

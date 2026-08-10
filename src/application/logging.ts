@@ -22,10 +22,10 @@ export function logCategorySql(category: LogCategoryFilter): string {
     case "web":
       return "scope IN ('http', 'web')";
     case "request":
-      return "scope = 'request'";
+      return "scope IN ('request', 'http', 'web')";
     case "system":
       return "scope NOT IN ('http', 'web', 'request')";
     case "all":
-      return "scope NOT IN ('http', 'web')";
+      return "1 = 1";
   }
 }

@@ -11,11 +11,11 @@ import { useState } from "react";
 import { cn } from "../lib/cn";
 
 const failedIcons = new Set<string>();
-const iconAssets: Record<string, { file: string; ext: "svg" | "png" }> = {
+const iconAssets: Record<string, { file: string; ext: "svg" | "webp" }> = {
   claude: { file: "claude-code", ext: "svg" },
-  opencodeft: { file: "opencode", ext: "png" },
-  opencodezen: { file: "opencode", ext: "png" },
-  opencodego: { file: "opencode-go", ext: "png" },
+  opencodeft: { file: "opencode", ext: "webp" },
+  opencodezen: { file: "opencode", ext: "webp" },
+  opencodego: { file: "opencode-go", ext: "webp" },
   "google-antigravity": { file: "antigravity", ext: "svg" },
   antigravity: { file: "antigravity", ext: "svg" },
   blackbox: { file: "blackbox", ext: "svg" },
@@ -24,8 +24,8 @@ const iconAssets: Record<string, { file: string; ext: "svg" | "png" }> = {
   "grok-build": { file: "grok-build", ext: "svg" },
 };
 
-function assetFor(icon: string): { file: string; ext: "svg" | "png" } {
-  return iconAssets[icon] ?? { file: icon, ext: "png" };
+function assetFor(icon: string): { file: string; ext: "svg" | "webp" } {
+  return iconAssets[icon] ?? { file: icon, ext: "webp" };
 }
 
 /** Derives the two-letter fallback shown when no icon asset resolves. */

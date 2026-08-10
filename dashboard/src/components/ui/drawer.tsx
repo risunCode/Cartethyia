@@ -1,8 +1,6 @@
-import { AnimatePresence, m } from "framer-motion";
 import { X } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useEffect, useRef } from "react";
-import { getDrawerMotion, useMotionProfile } from "../../lib/motion";
+import { useCallback, useEffect, useRef } from "react";
 
 export function Drawer({
   open,
@@ -17,9 +15,12 @@ export function Drawer({
 }) {
   const drawerRef = useRef<HTMLElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
-  const drawerMotion = getDrawerMotion(useMotionProfile());
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+
+  const requestClose = useCallback(() => {
+    onCloseRef.current();
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -30,7 +31,7 @@ export function Drawer({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onCloseRef.current();
+        requestClose();
         return;
       }
       if (event.key !== "Tab" || !drawerRef.current) return;
@@ -56,39 +57,36 @@ export function Drawer({
       document.body.style.overflow = previousOverflow;
       returnFocusRef.current?.focus();
     };
-  }, [open]);
+  }, [open, requestClose]);
 
-  // Portalled for the same reason as Dialog — see the note there.
+  if (!open) return null;
+
   return createPortal(
-    <AnimatePresence>
-      {open && (
-        <m.div className="fixed inset-0 z-90" {...drawerMotion.overlay}>
-          <button type="button" aria-label="Close drawer" className="absolute inset-0 h-full w-full cursor-default bg-black/40 backdrop-blur-[6px]" onClick={onClose} />
-          <m.aside
-            ref={drawerRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="dashboard-drawer-title"
-            tabIndex={-1}
-            className="glass-2 absolute inset-x-2 top-2 bottom-2 flex w-auto min-w-0 flex-col rounded-2xl p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] overscroll-contain sm:inset-y-4 sm:right-4 sm:left-auto sm:w-full sm:max-w-md sm:p-5"
-            {...drawerMotion.panel}
+    <div className="motion-drawer-overlay fixed inset-0 z-90" data-state="open">
+      <button type="button" aria-label="Close drawer" className="absolute inset-0 h-full w-full cursor-default bg-black/40 backdrop-blur-[6px]" onClick={requestClose} />
+      <aside
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dashboard-drawer-title"
+        tabIndex={-1}
+        data-state="open"
+        className="motion-drawer-panel glass-2 absolute inset-x-2 top-2 bottom-2 flex w-auto min-w-0 flex-col rounded-2xl p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] overscroll-contain sm:inset-y-4 sm:right-4 sm:left-auto sm:w-full sm:max-w-md sm:p-5"
+      >
+        <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+          <h2 id="dashboard-drawer-title" className="min-w-0 truncate text-base font-bold">{title}</h2>
+          <button
+            type="button"
+            onClick={requestClose}
+            aria-label="Close drawer"
+            className="rounded-lg p-1.5 text-[var(--text-3)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text-1)]"
           >
-            <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
-              <h2 id="dashboard-drawer-title" className="min-w-0 truncate text-base font-bold">{title}</h2>
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Close drawer"
-                className="rounded-lg p-1.5 text-[var(--text-3)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text-1)]"
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">{children}</div>
-          </m.aside>
-        </m.div>
-      )}
-    </AnimatePresence>,
-    document.body
+            <X size={16} />
+          </button>
+        </div>
+        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">{children}</div>
+      </aside>
+    </div>,
+    document.body,
   );
 }

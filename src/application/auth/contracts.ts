@@ -20,6 +20,7 @@ export interface OAuthStartInput {
   readonly scopes?: readonly string[];
   readonly state?: string;
   readonly codeChallenge?: string;
+  readonly flow?: "browser" | "device";
 }
 
 export interface OAuthStartResult {
@@ -29,7 +30,9 @@ export interface OAuthStartResult {
   readonly userCode?: string;
   readonly verificationUri?: string;
   readonly intervalSeconds?: number;
+  readonly flow?: "browser" | "device";
 }
+
 
 export interface OAuthExchangeInput {
   readonly providerId: string;

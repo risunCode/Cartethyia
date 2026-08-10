@@ -4,25 +4,25 @@ import { useState, type ComponentType } from "react";
 import { cn } from "../../../lib/cn";
 
 /** Asset mapping for tools that have icons in /providers/. */
-const TOOL_ICONS: Record<string, { file: string; ext: "svg" | "png" }> = {
+const TOOL_ICONS: Record<string, { file: string; ext: "svg" | "webp" }> = {
   claude: { file: "claude-code", ext: "svg" },
-  codex: { file: "codex", ext: "png" },
-  cline: { file: "cline", ext: "png" },
-  opencode: { file: "opencode", ext: "png" },
-  droid: { file: "droid", ext: "png" },
-  hermes: { file: "hermes", ext: "png" },
+  codex: { file: "codex", ext: "webp" },
+  cline: { file: "cline", ext: "webp" },
+  opencode: { file: "opencode", ext: "webp" },
+  droid: { file: "droid", ext: "webp" },
+  hermes: { file: "hermes", ext: "webp" },
   "grok-build": { file: "grok", ext: "svg" },
-  copilot: { file: "copilot", ext: "png" },
-  "deepseek-tui": { file: "deepseek-tui", ext: "png" },
-  jcode: { file: "jcode", ext: "png" },
-  kilo: { file: "kilocode", ext: "png" },
-  openclaw: { file: "openclaw", ext: "png" },
-  cowork: { file: "claude", ext: "png" },
-  cursor: { file: "cursor", ext: "png" },
-  roo: { file: "roo", ext: "png" },
-  continue: { file: "continue", ext: "png" },
-  amp: { file: "amp", ext: "png" },
-  qwen: { file: "qwen", ext: "png" },
+  copilot: { file: "copilot", ext: "webp" },
+  "deepseek-tui": { file: "deepseek-tui", ext: "webp" },
+  jcode: { file: "jcode", ext: "webp" },
+  kilo: { file: "kilocode", ext: "webp" },
+  openclaw: { file: "openclaw", ext: "webp" },
+  cowork: { file: "claude", ext: "webp" },
+  cursor: { file: "cursor", ext: "webp" },
+  roo: { file: "roo", ext: "webp" },
+  continue: { file: "continue", ext: "webp" },
+  amp: { file: "amp", ext: "webp" },
+  qwen: { file: "qwen", ext: "webp" },
 };
 
 const failedIcons = new Set<string>();

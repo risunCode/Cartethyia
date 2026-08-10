@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildKeyLimitsInput } from "../../../src/features/overview/api-keys-panel";
+import { buildKeyLimitsInput, parseTokenLimit } from "../../../src/features/overview/api-keys-panel";
 import { parseOverviewData } from "../../../src/features/overview/page";
 
 // Regression: API key access uses one model whitelist. Every selected model,
@@ -37,6 +37,27 @@ describe("buildKeyLimitsInput — model whitelist and budgets", () => {
     expect(input.dailyTokenLimit).toBe(1_000_000);
     expect(input.monthlyTokenLimit).toBe(1_000_000_000_000);
     expect(input.oneTimeTokenLimit).toBeUndefined();
+  });
+
+  test("accepts measured token presets and custom suffix values", () => {
+    expect(parseTokenLimit("1M")).toBe(1_000_000);
+    expect(parseTokenLimit("100M")).toBe(100_000_000);
+    expect(parseTokenLimit("1B")).toBe(1_000_000_000);
+    expect(parseTokenLimit("1T")).toBe(1_000_000_000_000);
+    expect(parseTokenLimit("1.5B")).toBe(1_500_000_000);
+    expect(buildKeyLimitsInput("", "1.5B", "100M", "", [])).toMatchObject({
+      dailyTokenLimit: 1_500_000_000,
+      monthlyTokenLimit: 100_000_000,
+    });
+  });
+
+  test("rejects malformed token measurements without changing other limits", () => {
+    expect(parseTokenLimit("1.2.3B")).toBeUndefined();
+    expect(parseTokenLimit("one billion")).toBeUndefined();
+    expect(buildKeyLimitsInput("30", "1.2.3B", "", "4", [])).toEqual({
+      rateLimitRpm: 30,
+      maxConcurrentRequests: 4,
+    });
   });
 
   test("ignores invalid negative and fractional limits", () => {

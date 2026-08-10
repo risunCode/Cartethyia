@@ -41,6 +41,21 @@ interface CreatedKey {
 }
 
 type TokenBudgetMode = "recurring" | "one-time";
+
+const TOKEN_BUDGET_PRESETS = [
+  { label: "1M", value: "1M", amount: 1_000_000, description: "1 million" },
+  { label: "100M", value: "100M", amount: 100_000_000, description: "100 million" },
+  { label: "1B", value: "1B", amount: 1_000_000_000, description: "1 billion" },
+  { label: "1T", value: "1T", amount: 1_000_000_000_000, description: "1 trillion" },
+] as const;
+
+const TOKEN_SUFFIX_MULTIPLIERS: Record<string, number> = {
+  K: 1_000,
+  M: 1_000_000,
+  B: 1_000_000_000,
+  T: 1_000_000_000_000,
+};
+
 interface KeyLimitsInput {
   rateLimitRpm?: number;
   dailyTokenLimit?: number;
@@ -57,6 +72,44 @@ function parseLimit(value: string): number | undefined {
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
+/** Parses token counts with optional K/M/B/T suffixes, e.g. 1.5B. */
+export function parseTokenLimit(value: string): number | undefined {
+  const trimmed = value.trim().replace(/,/g, "");
+  if (!trimmed) return undefined;
+  const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*([kmbt])?$/i);
+  if (!match) return undefined;
+  const multiplier = match[2] ? TOKEN_SUFFIX_MULTIPLIERS[match[2].toUpperCase()] : 1;
+  const parsed = Number(match[1]) * multiplier;
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function tokenInputValue(value: number | null): string {
+  if (value === null) return "";
+  return TOKEN_BUDGET_PRESETS.find((preset) => preset.amount === value)?.value ?? String(value);
+}
+
+function compactTokenLimit(value: number): string {
+  const preset = TOKEN_BUDGET_PRESETS.find((entry) => entry.amount === value);
+  if (preset) return preset.label;
+  const units = [
+    { suffix: "T", amount: 1_000_000_000_000 },
+    { suffix: "B", amount: 1_000_000_000 },
+    { suffix: "M", amount: 1_000_000 },
+    { suffix: "K", amount: 1_000 },
+  ];
+  const unit = units.find((entry) => value >= entry.amount);
+  if (!unit) return value.toLocaleString();
+  const amount = value / unit.amount;
+  return `${Number(amount.toFixed(2))}${unit.suffix}`;
+}
+
+function tokenLimitMeasurement(value: string): string {
+  if (!value.trim()) return "Leave empty for unlimited.";
+  const parsed = parseTokenLimit(value);
+  if (parsed === undefined) return "Use whole tokens or a suffix such as 1.5B.";
+  return `${parsed.toLocaleString()} tokens · ${compactTokenLimit(parsed)}`;
+}
+
 /** Builds the API key ACL and budget payload shared by create and edit forms. */
 export function buildKeyLimitsInput(
   rpm: string,
@@ -67,15 +120,17 @@ export function buildKeyLimitsInput(
   oneTime = "",
   budgetMode: TokenBudgetMode = "recurring",
 ): KeyLimitsInput {
+  const rateLimitRpm = parseLimit(rpm);
+  const maxConcurrentRequests = parseLimit(concurrent);
+  const tokenLimit = budgetMode === "one-time" ? parseTokenLimit(oneTime) : undefined;
+  const dailyTokenLimit = budgetMode === "recurring" ? parseTokenLimit(daily) : undefined;
+  const monthlyTokenLimit = budgetMode === "recurring" ? parseTokenLimit(monthly) : undefined;
   return {
-    ...(parseLimit(rpm) !== undefined ? { rateLimitRpm: parseLimit(rpm) } : {}),
-    ...(budgetMode === "one-time"
-      ? (parseLimit(oneTime) !== undefined ? { oneTimeTokenLimit: parseLimit(oneTime) } : {})
-      : {
-          ...(parseLimit(daily) !== undefined ? { dailyTokenLimit: parseLimit(daily) } : {}),
-          ...(parseLimit(monthly) !== undefined ? { monthlyTokenLimit: parseLimit(monthly) } : {}),
-        }),
-    ...(parseLimit(concurrent) !== undefined ? { maxConcurrentRequests: parseLimit(concurrent) } : {}),
+    ...(rateLimitRpm !== undefined ? { rateLimitRpm } : {}),
+    ...(tokenLimit !== undefined ? { oneTimeTokenLimit: tokenLimit } : {}),
+    ...(dailyTokenLimit !== undefined ? { dailyTokenLimit } : {}),
+    ...(monthlyTokenLimit !== undefined ? { monthlyTokenLimit } : {}),
+    ...(maxConcurrentRequests !== undefined ? { maxConcurrentRequests } : {}),
     ...(selected.length > 0 ? { modelAllowlist: selected } : {}),
   };
 }
@@ -97,15 +152,71 @@ interface KeyFormProps {
   onDone: (input: { name: string; customKey?: string; prefix?: string; limits: KeyLimitsInput; quoteBigText?: string; quoteSubText?: string; quoteBody?: string }) => void;
   onClose: () => void;
 }
+interface TokenBudgetFieldProps {
+  id: string;
+  name: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled: boolean;
+}
+
+function TokenBudgetField({ id, name, label, value, onChange, disabled }: TokenBudgetFieldProps) {
+  const parsed = parseTokenLimit(value);
+  const selectedPreset = TOKEN_BUDGET_PRESETS.find((preset) => preset.amount === parsed)?.value ?? "custom";
+  const presetClass = "rounded-md border px-2 py-1 text-[10px] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--focus-ring)] disabled:opacity-40";
+  return (
+    <div className="min-w-0">
+      <Label htmlFor={id}>{label}</Label>
+      <Input id={id} name={name} type="text" inputMode="decimal" value={value} onChange={(event) => onChange(event.target.value)} placeholder="Unlimited…" disabled={disabled} />
+      <div className="mt-2 flex flex-wrap items-center gap-1.5" role="group" aria-label={`${label} presets`}>
+        {TOKEN_BUDGET_PRESETS.map((preset) => (
+          <button
+            key={preset.value}
+            type="button"
+            aria-pressed={selectedPreset === preset.value}
+            aria-label={`${preset.label}, ${preset.description} tokens`}
+            onClick={() => onChange(preset.value)}
+            disabled={disabled}
+            className={cn(
+              presetClass,
+              selectedPreset === preset.value
+                ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+                : "border-[var(--inner-border)] text-[var(--text-3)] hover:bg-[var(--hover)] hover:text-[var(--text-1)]"
+            )}
+          >
+            {preset.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          aria-pressed={selectedPreset === "custom"}
+          onClick={() => { if (selectedPreset !== "custom") onChange(""); }}
+          disabled={disabled}
+          className={cn(
+            presetClass,
+            selectedPreset === "custom"
+              ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]"
+              : "border-[var(--inner-border)] text-[var(--text-3)] hover:bg-[var(--hover)] hover:text-[var(--text-1)]"
+          )}
+        >
+          Custom
+        </button>
+      </div>
+      <p aria-live="polite" className="mt-1.5 text-[10px] tabular-nums text-[var(--text-3)]">{tokenLimitMeasurement(value)}</p>
+    </div>
+  );
+}
+
 
 function KeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps) {
   const [name, setName] = useState(record?.name ?? "");
   const [customKey, setCustomKey] = useState("");
   const [prefix, setPrefix] = useState("");
   const [rpm, setRpm] = useState(record?.rateLimitRpm?.toString() ?? "");
-  const [daily, setDaily] = useState(record?.dailyTokenLimit?.toString() ?? "");
-  const [monthly, setMonthly] = useState(record?.monthlyTokenLimit?.toString() ?? "");
-  const [oneTime, setOneTime] = useState(record?.oneTimeTokenLimit?.toString() ?? "");
+  const [daily, setDaily] = useState(tokenInputValue(record?.dailyTokenLimit ?? null));
+  const [monthly, setMonthly] = useState(tokenInputValue(record?.monthlyTokenLimit ?? null));
+  const [oneTime, setOneTime] = useState(tokenInputValue(record?.oneTimeTokenLimit ?? null));
   const [budgetMode, setBudgetMode] = useState<TokenBudgetMode>(record?.oneTimeTokenLimit != null ? "one-time" : "recurring");
   const [concurrent, setConcurrent] = useState(record?.maxConcurrentRequests?.toString() ?? "");
   const [models, setModels] = useState<string[]>(record?.modelAllowlist ? [...record.modelAllowlist] : []);
@@ -209,20 +320,11 @@ function KeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps) {
           </div>
         </div>
         {isOneTimeBudget ? (
-          <div>
-            <Label htmlFor="api-key-one-time">One-time token limit</Label>
-            <Input id="api-key-one-time" name="oneTimeTokenLimit" type="number" min="0" inputMode="numeric" value={oneTime} onChange={(event) => setOneTime(event.target.value)} placeholder="Unlimited…" disabled={busy} />
-          </div>
+          <TokenBudgetField id="api-key-one-time" name="oneTimeTokenLimit" label="One-time token limit" value={oneTime} onChange={setOneTime} disabled={busy} />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="api-key-daily">Daily token limit</Label>
-              <Input id="api-key-daily" name="dailyTokenLimit" type="number" min="0" inputMode="numeric" value={daily} onChange={(event) => setDaily(event.target.value)} placeholder="Unlimited…" disabled={busy} />
-            </div>
-            <div>
-              <Label htmlFor="api-key-monthly">Monthly token limit</Label>
-              <Input id="api-key-monthly" name="monthlyTokenLimit" type="number" min="0" inputMode="numeric" value={monthly} onChange={(event) => setMonthly(event.target.value)} placeholder="Unlimited…" disabled={busy} />
-            </div>
+            <TokenBudgetField id="api-key-daily" name="dailyTokenLimit" label="Daily token limit" value={daily} onChange={setDaily} disabled={busy} />
+            <TokenBudgetField id="api-key-monthly" name="monthlyTokenLimit" label="Monthly token limit" value={monthly} onChange={setMonthly} disabled={busy} />
           </div>
         )}
       </section>

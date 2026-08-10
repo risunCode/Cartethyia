@@ -44,7 +44,7 @@ Add metadata, adapter, registry entry, models, capabilities, request/stream deco
 
 ```bash
 bunx tsc --noEmit
-bun test --timeout 60000 test/
+bun run test
 cd dashboard && bun run test && bun run build
 ```
 
