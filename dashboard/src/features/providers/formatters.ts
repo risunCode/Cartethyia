@@ -11,6 +11,9 @@ export interface AccountIdentity {
   readonly secondary: string | null;
 }
 
+function isEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
 function isTokenHint(value: string): boolean {
   return value.startsWith("eyJ") || value.startsWith("sk-") || value.startsWith("…");
 }

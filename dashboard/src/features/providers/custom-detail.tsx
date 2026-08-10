@@ -16,6 +16,7 @@ import { Card, CardHeader } from "../../components/ui/card";
 import { Input, Label } from "../../components/ui/input";
 import { Switch } from "../../components/ui/switch";
 import { ConfirmDialog } from "../../components/shared";
+import { HeaderPairsEditor, headersToPairs, pairsToHeaders, type HeaderPair } from "../../components/header-pairs-editor";
 import { accountIdentity } from "./formatters";
 
 interface CustomProviderModel {
@@ -538,6 +539,7 @@ export function CustomProviderDetailPage() {
                   const identity = accountIdentity(account.credentialHint, account.name);
                   return (
                   <div key={account.id} className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2.5">
+                    {editAccount?.id === account.id ? (
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <Input className="h-8 min-w-40 flex-1" value={editAccountName} onChange={(event) => setEditAccountName(event.target.value)} aria-label={`Edit ${account.name} name`} />

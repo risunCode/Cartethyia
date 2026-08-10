@@ -11,6 +11,7 @@ import { getErrorMessage } from "../../lib/errors";
 import { cn } from "../../lib/cn";
 import { toast } from "../../lib/toast";
 import { qk } from "../../lib/query-keys";
+import { friendlyQuotaError, formatQuotaRefresh, formatQuotaWindowLabel, formatResetDistance, quotaBarTone } from "./formatters";
 import { accountIdentity } from "../providers/formatters";
 
 /** Providers without a quota endpoint — filtered from the quota page entirely. */
@@ -129,6 +130,7 @@ function QuotaCard({ account, onToggle, onDelete }: { account: QuotaEntry; onTog
           </div>
           <div className="truncate text-[11px] text-[var(--text-2)]">{identity.primary}</div>
           {identity.secondary !== null && <div className="truncate text-[10px] text-[var(--text-3)]">{identity.secondary}</div>}
+          {quota && <div className="truncate text-[10px] text-[var(--text-3)]">{formatQuotaRefresh(quota.lastSuccessAt ?? quota.fetchedAt)}</div>}
         </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" className="size-8" title="Refresh quota" aria-label={`Refresh ${account.name} quota`} disabled={busy} onClick={() => refresh.mutate()}>
