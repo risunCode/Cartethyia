@@ -8,7 +8,7 @@ import type { HealthRepository } from "../records";
 const HEALTH_TABLES = new Set(["provider_account_health", "proxy_health"]);
 const HEALTH_KEY_COLUMNS = new Set(["account_id", "proxy_id"]);
 
-export function createHealthRepository(db: () => Database, table: string, keyColumn: string, scope: RouteScope): HealthRepository {
+export function createConsoleHealthRepository(db: () => Database, table: string, keyColumn: string, scope: RouteScope): HealthRepository {
   if (!HEALTH_TABLES.has(table) || !HEALTH_KEY_COLUMNS.has(keyColumn)) {
     throw new Error(`Refusing to query unknown health table: ${table}`);
   }

@@ -4,7 +4,7 @@ import { credentialKindOf, toProviderAccount, type ProviderAccountRow } from "..
 import type { AccountCreateInput, AccountListPage, AccountListPagination, AccountRepository, AccountPatchInput, ProviderAccountRecord } from "../records";
 
 
-export function createAccountRepository(db: () => Database): AccountRepository {
+export function createConsoleAccountRepository(db: () => Database): AccountRepository {
   return {
     list(provider?: string): ProviderAccountRecord[] {
       const rows = provider

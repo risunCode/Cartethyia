@@ -9,16 +9,16 @@ import { createConfigDatabase } from "./database";
 import { getPersistenceEnv, type PersistenceEnv } from "./env";
 import { clearAllDatabaseTables } from "./schema";
 import type { AccessRuleRepository, AccountRepository, AliasRepository, ApiKeyRepository, CliModelMappingRepository, ComboRepository, CustomProviderRepository, HealthRepository, ProviderModelRepository, ProxyRepository, SettingsRepository, ShareLinkRepository } from "./records";
-import { createAccountRepository } from "./repositories/accounts";
-import { createApiKeyRepository } from "./repositories/api-keys";
-import { createAccessRuleRepository, createCustomProviderRepository } from "./repositories/custom-providers";
-import { createHealthRepository } from "./repositories/health";
-import { createFilterRuleRepository, createIpBanRepository } from "./repositories/policies";
-import { createProxyRepository } from "./repositories/proxies";
-import { createAliasRepository, createCliModelMappingRepository, createComboRepository, createProviderModelRepository } from "./repositories/routing";
-import { createSettingsRepository } from "./repositories/settings";
-import { createShareLinkRepository } from "./repositories/share-links";
-import { createWarpAccountRepository } from "./repositories/warp-accounts";
+import { createConsoleAccountRepository } from "./repositories/accounts";
+import { createConsoleApiKeyRepository } from "./repositories/api-keys";
+import { createConsoleAccessRuleRepository, createConsoleCustomProviderRepository } from "./repositories/custom-providers";
+import { createConsoleHealthRepository } from "./repositories/health";
+import { createConsoleFilterRuleRepository, createConsoleIpBanRepository } from "./repositories/policies";
+import { createConsoleProxyRepository } from "./repositories/proxies";
+import { createConsoleAliasRepository, createConsoleCliModelMappingRepository, createConsoleComboRepository, createConsoleProviderModelRepository } from "./repositories/routing";
+import { createConsoleSettingsRepository } from "./repositories/settings";
+import { createConsoleShareLinkRepository } from "./repositories/share-links";
+import { createConsoleWarpAccountRepository } from "./repositories/warp-accounts";
 import { createDurableAccountHealthStore, createDurableCredentialConfigStore, createDurableModelLockStore, createDurableOAuthTokenStore, createDurableProxyPoolConfigStore, createDurableQuotaStateStore, createDurableRouteHealthStore } from "./stores";
 export interface ConfigPersistence {
   readonly env: PersistenceEnv;
@@ -84,22 +84,22 @@ export function createConfigPersistence(env: PersistenceEnv = getPersistenceEnv(
   const database = createConfigDatabase(env);
   const getDb = database.getDb;
 
-  const settingsRepo = createSettingsRepository(getDb, env);
-  const apiKeysRepo = createApiKeyRepository(getDb);
-  const accountsRepo = createAccountRepository(getDb);
-  const accountHealthRepo = createHealthRepository(getDb, "provider_account_health", "account_id", "account");
-  const proxyHealthRepo = createHealthRepository(getDb, "proxy_health", "proxy_id", "proxy");
-  const proxiesRepo = createProxyRepository(getDb);
-  const providerModelsRepo = createProviderModelRepository(getDb);
-  const aliasesRepo = createAliasRepository(getDb);
-  const cliModelMappingsRepo = createCliModelMappingRepository(getDb);
-  const combosRepo = createComboRepository(getDb);
-  const customProvidersRepo = createCustomProviderRepository(getDb);
-  const accessRulesRepo = createAccessRuleRepository(getDb);
-  const shareLinksRepo = createShareLinkRepository(getDb);
-  const filterRulesRepo = createFilterRuleRepository(getDb);
-  const ipBansRepo = createIpBanRepository(getDb);
-  const warpAccountsRepo = createWarpAccountRepository(getDb);
+  const settingsRepo = createConsoleSettingsRepository(getDb, env);
+  const apiKeysRepo = createConsoleApiKeyRepository(getDb);
+  const accountsRepo = createConsoleAccountRepository(getDb);
+  const accountHealthRepo = createConsoleHealthRepository(getDb, "provider_account_health", "account_id", "account");
+  const proxyHealthRepo = createConsoleHealthRepository(getDb, "proxy_health", "proxy_id", "proxy");
+  const proxiesRepo = createConsoleProxyRepository(getDb);
+  const providerModelsRepo = createConsoleProviderModelRepository(getDb);
+  const aliasesRepo = createConsoleAliasRepository(getDb);
+  const cliModelMappingsRepo = createConsoleCliModelMappingRepository(getDb);
+  const combosRepo = createConsoleComboRepository(getDb);
+  const customProvidersRepo = createConsoleCustomProviderRepository(getDb);
+  const accessRulesRepo = createConsoleAccessRuleRepository(getDb);
+  const shareLinksRepo = createConsoleShareLinkRepository(getDb);
+  const filterRulesRepo = createConsoleFilterRuleRepository(getDb);
+  const ipBansRepo = createConsoleIpBanRepository(getDb);
+  const warpAccountsRepo = createConsoleWarpAccountRepository(getDb);
 
   return {
     env,

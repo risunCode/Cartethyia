@@ -4,7 +4,7 @@ import type { AccountConfig, AccountHealthRecord, AccountHealthStore, Credential
 import type { ProxyConfig, ProxyPoolConfigStore } from "../../traffic/network";
 import { credentialKindOf } from "./mappers";
 import { nowIso, orNullString, toErrorKind, toRouteStatus } from "./schema";
-import { createHealthRepository } from "./repositories/health";
+import { createConsoleHealthRepository } from "./repositories/health";
 import type { ProviderAccountRow, ProxyRow } from "./mappers";
 
 /**
@@ -13,8 +13,8 @@ import type { ProviderAccountRow, ProxyRow } from "./mappers";
  * only bounded sanitized scalars.
  */
 export function createDurableRouteHealthStore(db: () => Database): RouteHealthStore {
-  const account = createHealthRepository(db, "provider_account_health", "account_id", "account");
-  const proxy = createHealthRepository(db, "proxy_health", "proxy_id", "proxy");
+  const account = createConsoleHealthRepository(db, "provider_account_health", "account_id", "account");
+  const proxy = createConsoleHealthRepository(db, "proxy_health", "proxy_id", "proxy");
   return {
     async readHealth(scope: RouteScope, routeId: string): Promise<RouteHealth | null> {
       return scope === "proxy" ? proxy.get(routeId) : account.get(routeId);

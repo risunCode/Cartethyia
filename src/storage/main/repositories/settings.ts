@@ -4,7 +4,7 @@ import { configError, nowIso } from "../schema";
 import { toSettings, type SettingsRow } from "../mappers";
 import type { RuntimeSettings, SettingsRecord, SettingsRepository } from "../records";
 
-export function createSettingsRepository(db: () => Database, env: PersistenceEnv): SettingsRepository {
+export function createConsoleSettingsRepository(db: () => Database, env: PersistenceEnv): SettingsRepository {
   const getRow = (): SettingsRow | null => db().query("SELECT * FROM settings WHERE id = 1").get() as SettingsRow | null;
   // Cache the parsed settings JSON — invalidated on any mutation. This avoids
   // a SQLite read + JSON.parse on every hot-path call (tokenSaver, provider

@@ -3,7 +3,7 @@ import { nowIso } from "../schema";
 import type { AccessRuleRow, CustomProviderRow } from "../mappers";
 import type { AccessRuleRecord, AccessRuleRepository, CustomProviderRecord, CustomProviderRepository } from "../records";
 
-export function createCustomProviderRepository(db: () => Database): CustomProviderRepository { const toRecord = (row: CustomProviderRow): CustomProviderRecord => {
+export function createConsoleCustomProviderRepository(db: () => Database): CustomProviderRepository { const toRecord = (row: CustomProviderRow): CustomProviderRecord => {
   let models: readonly unknown[] = [];
   try {
     const parsed: unknown = JSON.parse(row.models_json);
@@ -75,7 +75,7 @@ return {
   },
 }; }
 
-export function createAccessRuleRepository(db: () => Database): AccessRuleRepository { const toRecord = (row: AccessRuleRow): AccessRuleRecord => {
+export function createConsoleAccessRuleRepository(db: () => Database): AccessRuleRepository { const toRecord = (row: AccessRuleRow): AccessRuleRecord => {
   let entries: readonly unknown[] = [];
   try {
     const parsed: unknown = JSON.parse(row.entries_json);

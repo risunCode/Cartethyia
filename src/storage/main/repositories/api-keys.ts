@@ -6,7 +6,7 @@ import type { ApiKeyCreateInput, ApiKeyPublic, ApiKeyRepository, ApiKeyUpdateInp
 const SECRET_CACHE_TTL_MS = 5_000;
 const SECRET_CACHE_MAX = 512;
 
-export function createApiKeyRepository(db: () => Database): ApiKeyRepository {
+export function createConsoleApiKeyRepository(db: () => Database): ApiKeyRepository {
   const secretCache = new Map<string, { at: number; value: ApiKeyPublic }>();
   const pendingTouches = new Set<string>();
   let touchTimer: Timer | null = null;

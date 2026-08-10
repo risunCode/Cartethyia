@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { nowIso } from "../schema";
 import type { ShareLinkRow } from "../mappers";
 import type { ShareLinkRecord, ShareLinkRepository } from "../records";
-export function createShareLinkRepository(db: () => Database): ShareLinkRepository {
+export function createConsoleShareLinkRepository(db: () => Database): ShareLinkRepository {
   const toRecord = (row: ShareLinkRow): ShareLinkRecord => ({
     id: row.id,
     apiKeyId: row.api_key_id,

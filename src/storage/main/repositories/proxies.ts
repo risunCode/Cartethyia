@@ -4,7 +4,7 @@ import { toProxy, type ProxyRow, type ProxySettingsRow } from "../mappers";
 import type { ProxyCreateInput, ProxyPatchInput, ProxyRecord, ProxyRepository, ProxySettingsRecord, ProxyTestRecordInput } from "../records";
 
 
-export function createProxyRepository(db: () => Database): ProxyRepository {
+export function createConsoleProxyRepository(db: () => Database): ProxyRepository {
   const getSettingsRow = (): ProxySettingsRow | null => db().query("SELECT * FROM proxy_settings WHERE id = 1").get() as ProxySettingsRow | null;
 
   const toSettings = (row: ProxySettingsRow): ProxySettingsRecord => {

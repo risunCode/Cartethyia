@@ -54,7 +54,7 @@ function toWarpAccount(row: WarpAccountRow): WarpAccount {
   };
 }
 
-export function createWarpAccountRepository(db: () => Database): WarpAccountRepository { const get = (id: string): WarpAccount | null => {
+export function createConsoleWarpAccountRepository(db: () => Database): WarpAccountRepository { const get = (id: string): WarpAccount | null => {
   const row = db().query("SELECT * FROM warp_accounts WHERE id = ?").get(id) as WarpAccountRow | null;
   return row === null ? null : toWarpAccount(row);
 };

@@ -14,7 +14,7 @@ interface FilterRuleRow {
   updated_at: string | null;
 }
 
-export function createFilterRuleRepository(db: () => Database): FilterRuleRepository { const toView = (row: FilterRuleRow) => ({
+export function createConsoleFilterRuleRepository(db: () => Database): FilterRuleRepository { const toView = (row: FilterRuleRow) => ({
   id: row.id,
   ruleId: row.rule_id,
   pattern: row.pattern,
@@ -95,7 +95,7 @@ return {
 
 // ───────────────────── IP bans ──────────────────────────────────────────────
 
-export function createIpBanRepository(db: () => Database): IpBanRepository { const toView = (row: { ip: string; reason: string; created_at: string }): IpBanView => ({
+export function createConsoleIpBanRepository(db: () => Database): IpBanRepository { const toView = (row: { ip: string; reason: string; created_at: string }): IpBanView => ({
   ip: row.ip,
   reason: row.reason,
   createdAt: row.created_at,

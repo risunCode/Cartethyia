@@ -3,7 +3,7 @@ import { nowIso } from "../schema";
 import type { AliasRow, CliMappingSettingsRow, CliModelMappingRow, ComboRow, ProviderModelRow } from "../mappers";
 import type { AliasRecord, AliasRepository, CliMappingSettingsRecord, CliModelMappingRecord, CliModelMappingRepository, ComboRecord, ComboRepository, ProviderModelRecord, ProviderModelRepository } from "../records";
 
-export function createProviderModelRepository(db: () => Database): ProviderModelRepository { const toRecord = (row: ProviderModelRow): ProviderModelRecord => ({
+export function createConsoleProviderModelRepository(db: () => Database): ProviderModelRepository { const toRecord = (row: ProviderModelRow): ProviderModelRecord => ({
   provider: row.provider,
   modelId: row.model_id,
   enabled: row.enabled === 1,
@@ -39,7 +39,7 @@ return {
   },
 }; }
 
-export function createAliasRepository(db: () => Database): AliasRepository { const toRecord = (row: AliasRow): AliasRecord => ({ alias: row.alias, model: row.model, createdAt: row.created_at });
+export function createConsoleAliasRepository(db: () => Database): AliasRepository { const toRecord = (row: AliasRow): AliasRecord => ({ alias: row.alias, model: row.model, createdAt: row.created_at });
 return {
   list(): AliasRecord[] {
     return (db().query("SELECT * FROM model_aliases ORDER BY alias ASC").all() as AliasRow[]).map(toRecord);
@@ -59,7 +59,7 @@ return {
   },
 }; }
 
-export function createCliModelMappingRepository(db: () => Database): CliModelMappingRepository { const toMapping = (row: CliModelMappingRow): CliModelMappingRecord => ({
+export function createConsoleCliModelMappingRepository(db: () => Database): CliModelMappingRepository { const toMapping = (row: CliModelMappingRow): CliModelMappingRecord => ({
   toolId: row.tool_id,
   slotKey: row.slot_key,
   sourceModel: row.source_model,
@@ -106,7 +106,7 @@ return {
   },
 }; }
 
-export function createComboRepository(db: () => Database): ComboRepository { const toRecord = (row: ComboRow): ComboRecord => {
+export function createConsoleComboRepository(db: () => Database): ComboRepository { const toRecord = (row: ComboRow): ComboRecord => {
   let models: readonly string[] = [];
   try {
     const parsed: unknown = JSON.parse(row.models_json);
