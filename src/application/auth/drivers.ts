@@ -49,13 +49,18 @@ export class MapAuthDriverRegistry implements AuthDriverRegistry {
 
 /** Derives explicit capability flags for legacy drivers that predate metadata. */
 export function resolveAuthDriverCapabilities(driver: AuthDriver): AuthDriverCapabilities {
-  return driver.capabilities ?? {
-    supportsStart: driver.start !== undefined,
-    supportsPoll: driver.poll !== undefined,
-    supportsExchange: driver.exchange !== undefined,
-    supportsRefresh: driver.refresh !== undefined,
-    supportsRevoke: driver.revoke !== undefined,
-    accessOnly: driver.kind === "oauth" && driver.refresh === undefined,
+  const declared = driver.capabilities;
+  const supportsPoll = declared?.supportsPoll ?? driver.poll !== undefined;
+  const supportsExchange = declared?.supportsExchange ?? driver.exchange !== undefined;
+  return {
+    supportsStart: declared?.supportsStart ?? driver.start !== undefined,
+    supportsPoll,
+    supportsExchange,
+    supportsRefresh: declared?.supportsRefresh ?? driver.refresh !== undefined,
+    supportsRevoke: declared?.supportsRevoke ?? driver.revoke !== undefined,
+    accessOnly: declared?.accessOnly ?? (driver.kind === "oauth" && driver.refresh === undefined),
+    supportsBrowser: declared?.supportsBrowser ?? (supportsExchange && !supportsPoll),
+    supportsDevice: declared?.supportsDevice ?? supportsPoll,
   };
 }
 

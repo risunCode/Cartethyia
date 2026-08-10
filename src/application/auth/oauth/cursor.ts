@@ -1,4 +1,4 @@
-import type { AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
+import type { AuthDriver, AuthDriverCapabilities, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
 import {
   AuthorizationCodeDriver,
   base64Decode,
@@ -54,6 +54,16 @@ function cursorExpiry(accessToken: string, nowMs: number): string {
 
 /** OAuth driver for Cursor's PKCE deep-control login and token polling flow. */
 export class CursorOAuthDriver extends AuthorizationCodeDriver implements AuthDriver {
+  readonly capabilities: AuthDriverCapabilities = {
+    supportsStart: true,
+    supportsPoll: true,
+    supportsExchange: true,
+    supportsRefresh: true,
+    supportsRevoke: false,
+    accessOnly: false,
+    supportsBrowser: false,
+    supportsDevice: true,
+  };
   protected override get providerId(): string {
     return "cursor";
   }

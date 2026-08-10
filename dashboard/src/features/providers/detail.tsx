@@ -25,6 +25,7 @@ import {
 import { staggerClass } from "../../lib/motion";
 import { accountIdentity, formatModelPricing, type ModelPricing } from "./formatters";
 import { errorMessage, selectAccountTestModel } from "./detail-helpers";
+import { OAuthConnectActions, type OAuthFlowCapabilities } from "./oauth-connect-actions";
 import { useWindowedList } from "../../hooks/use-windowed-list";
 import { Skeleton } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -92,6 +93,7 @@ interface ProviderDetail {
   icon: string;
   authKind: "none" | "session" | "oauth" | "api-key";
   supportsOAuth: boolean;
+  oauthFlows: OAuthFlowCapabilities;
   credentialKinds: string[];
   authHint: string;
   credentialUrl: string | null;
@@ -135,6 +137,7 @@ interface ProviderDetailResponse {
   credentialKind: "api_key" | "oauth" | "session" | "manual" | "none";
   credentialKinds?: Array<"api_key" | "oauth" | "session" | "manual" | "none">;
   credentialUrl?: string | null;
+  oauthFlows?: OAuthFlowCapabilities;
   enabled: boolean;
   models: Array<{ modelId: string; displayName?: string; enabled: boolean; source?: "built-in" | "manual" | "imported"; metadata?: ModelMetadataResponse }>;
   modelManagement?: { canAddModels: boolean; canFetchModels: boolean };
@@ -147,12 +150,14 @@ export function normalizeProviderDetail(response: ProviderDetailResponse): Provi
     ? "api-key"
     : response.credentialKind === "manual" ? "none" : response.credentialKind;
   const supportsOAuth = response.credentialKinds?.includes("oauth") ?? response.credentialKind === "oauth";
+  const oauthFlows: OAuthFlowCapabilities = response.oauthFlows ?? { browser: false, device: false };
   return {
     id: response.id,
     name: response.name,
     icon: response.id,
     authKind,
     supportsOAuth,
+    oauthFlows,
     credentialKinds: response.credentialKinds ?? [response.credentialKind],
     authHint: authKind === "none" ? "No authentication required" : supportsOAuth ? "Use an API key or connect an OAuth account." : "Add an account credential to route requests.",
     credentialUrl: response.credentialUrl ?? null,
@@ -822,7 +827,6 @@ function OAuthConnectDialog({
   status,
   callbackValue,
   onCallbackValueChange,
-  onUseDeviceFlow,
   onComplete,
   onCancel,
   completing,
@@ -832,7 +836,6 @@ function OAuthConnectDialog({
   status: OAuthLoginStatus | null;
   callbackValue: string;
   onCallbackValueChange: (value: string) => void;
-  onUseDeviceFlow: () => Promise<void>;
   onComplete: () => void;
   onCancel: () => void;
   completing: boolean;
@@ -877,14 +880,7 @@ function OAuthConnectDialog({
       title={`Connect ${providerName}`}
       footer={
         <div className="flex w-full items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-            {session.provider === "codex" && !isDeviceFlow && (
-              <Button variant="secondary" disabled={completing} onClick={() => void onUseDeviceFlow()}>
-                Use device code
-              </Button>
-            )}
-          </div>
+          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
           {!isDeviceFlow && (
             <Button disabled={!hasCallback || completing || !waiting} onClick={onComplete}>
               {completing ? "Checking…" : "Connect"}
@@ -908,9 +904,8 @@ function OAuthConnectDialog({
             Or paste callback URL manually
           </div>
         )}
-
         <section className="space-y-2">
-          <div className="text-sm font-semibold">Step 1: Open this URL in your browser</div>
+          <div className="text-sm font-semibold">{isDeviceFlow ? "Step 1: Open the verification page" : "Step 1: Open this URL in your browser"}</div>
           <div className="flex min-w-0 gap-2">
             <a
               href={session.authorizationUrl}
@@ -1108,8 +1103,6 @@ export function ProviderDetailPage() {
   const [deleteFetchedConfirmOpen, setDeleteFetchedConfirmOpen] = useState(false);
   const [addModelModalOpen, setAddModelModalOpen] = useState(false);
   const oauthPopupRef = useRef<Window | null>(null);
-  const preferredOAuthFlow: "browser" | "device" =
-    id === "codex" || id === "cursor" || id === "cline" ? "device" : "browser";
   const [pageVisible, setPageVisible] = useState(() => typeof document === "undefined" || !document.hidden);
 
   useEffect(() => {
@@ -1135,11 +1128,14 @@ export function ProviderDetailPage() {
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
-  const startPreferredOAuth = () => {
-    const popup = window.open("about:blank", "cartethyia-oauth", "popup,width=720,height=820");
-    if (popup) oauthPopupRef.current = popup;
-    oauthStartMutation.mutate(preferredOAuthFlow);
+  const startOAuth = (flow: "browser" | "device") => {
+    if (flow === "browser") {
+      const popup = window.open("about:blank", "cartethyia-oauth", "popup,width=720,height=820");
+      if (popup) oauthPopupRef.current = popup;
+    }
+    oauthStartMutation.mutate(flow);
   };
+  const startPreferredOAuth = () => startOAuth(data?.oauthFlows.browser ? "browser" : "device");
 
 
   const oauthStatusQuery = useQuery({
@@ -1217,7 +1213,7 @@ export function ProviderDetailPage() {
     const actionKey = `${id}:${action}:${params.get("kind") ?? ""}`;
     if (handledActionRef.current === actionKey) return;
     handledActionRef.current = actionKey;
-    if (action === "oauth" && data.supportsOAuth) {
+    if (action === "oauth" && (data.oauthFlows.browser || data.oauthFlows.device)) {
       startPreferredOAuth();
     } else if (action === "json") {
       const requestedKind = params.get("kind");
@@ -1602,11 +1598,7 @@ export function ProviderDetailPage() {
       <Card className="space-y-4">
         <CardHeader title="Accounts" icon={Cable} sub={`${data.accounts.length} account${data.accounts.length === 1 ? "" : "s"}`}>
           <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
-            {data.supportsOAuth && (
-              <Button variant="secondary" className="h-8 min-w-0 px-2.5 text-[11px]" size="sm" disabled={oauthStartMutation.isPending} onClick={startPreferredOAuth}>
-                <ExternalLink size={12} /> <span className="truncate">{oauthStartMutation.isPending ? "Starting…" : "Connect OAuth"}</span>
-              </Button>
-            )}
+            <OAuthConnectActions flows={data.oauthFlows} pending={oauthStartMutation.isPending} onStart={startOAuth} />
             <Button className="h-8 min-w-0 px-2.5 text-[11px]" size="sm" onClick={() => setAccountModal({ open: true, existing: null })}>
               <Plus size={13} /> <span className="truncate">New account</span>
             </Button>
@@ -1940,10 +1932,6 @@ export function ProviderDetailPage() {
           status={oauthStatusQuery.data ?? null}
           callbackValue={oauthCallbackValue}
           onCallbackValueChange={setOauthCallbackValue}
-          onUseDeviceFlow={async () => {
-            await oauthCancelMutation.mutateAsync();
-            oauthStartMutation.mutate("device");
-          }}
           onComplete={() => {
             if (oauthSession.userCode && oauthSession.verificationUri) void oauthStatusQuery.refetch();
             else oauthCompleteMutation.mutate();

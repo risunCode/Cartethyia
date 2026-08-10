@@ -89,6 +89,35 @@ describe("central OAuth refresh pool", () => {
       expect(result.error.retryable).toBe(false);
     }
   });
+  test("passes the persisted credential bundle into provider-aware refresh", async () => {
+    const kiroAccount: AccountConfig = {
+      id: "kiro-account",
+      providerId: "kiro",
+      kind: "oauth",
+      secret: JSON.stringify({ accessToken: "old-access", clientId: "client-id", clientSecret: "client-secret", region: "us-east-1" }),
+      enabled: true,
+      priority: 1,
+    };
+    const store = new MemoryOAuthTokenStore();
+    await store.set(kiroAccount.id, expiredToken());
+    let receivedCredential: string | null | undefined;
+    const pool = new TokenRefreshPool(
+      { getAccount: async () => kiroAccount, listAccounts: async () => [kiroAccount] },
+      store,
+      {
+        refresh: async ({ account }) => {
+          receivedCredential = account?.secret;
+          return { ok: true, token: { accessToken: "new-access", expiresAtMs: 100_000, refreshToken: "new-refresh", kind: "oauth" } };
+        },
+      },
+      { nowMs: () => 10_000 },
+    );
+
+    await pool.ensureFresh(kiroAccount.id);
+
+    expect(receivedCredential).toBe(kiroAccount.secret);
+  });
+
 });
 
 describe("central quota refresh worker", () => {
@@ -161,8 +190,9 @@ describe("general quota transport", () => {
   test("merges Antigravity Google and Claude aliases into family windows", async () => {
     const fetcher = (async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({
       models: {
-        "gemini-3.1-flash-lite": { quotaInfo: { remainingFraction: 0.8, resetTime: "2030-01-01T00:00:00Z" } },
+        "gemini-3.1-flash-lite": { quotaInfo: { remainingFraction: 0.1, resetTime: "2030-01-01T00:00:00Z" } },
         "gemini-pro-agent": { quotaInfo: { remainingFraction: 0.8, resetTime: "2030-01-01T00:00:00Z" } },
+        "gemini-3-flash-agent": { isInternal: true, quotaInfo: { remainingFraction: 0.1, resetTime: "2030-01-01T00:00:00Z" } },
         "claude-sonnet-4-6": { quotaInfo: { remainingFraction: 0.6, resetTime: "2030-01-02T00:00:00Z" } },
         "claude-opus-4-6-thinking": { quotaInfo: { remainingFraction: 0.6, resetTime: "2030-01-02T00:00:00Z" } },
         "gpt-oss-120b-medium": { quotaInfo: { remainingFraction: 0.4, resetTime: "2030-01-03T00:00:00Z" } },

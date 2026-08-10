@@ -58,6 +58,8 @@ export class KimchiOAuthDriver implements AuthDriver {
     supportsRefresh: true,
     supportsRevoke: false,
     accessOnly: false,
+    supportsBrowser: false,
+    supportsDevice: true,
   };
   private readonly http: OAuthHttpClient;
   private readonly nowMs: () => number;

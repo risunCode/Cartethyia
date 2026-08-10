@@ -46,6 +46,8 @@ export interface RefreshTokenInput {
   readonly providerId: string;
   readonly accountId: string;
   readonly refreshToken: string;
+  /** Persisted provider credential bundle, when a driver needs client metadata. */
+  readonly credential?: string | null;
 }
 
 export interface RevokeTokenInput {
@@ -53,7 +55,7 @@ export interface RevokeTokenInput {
   readonly accountId: string;
   readonly token: string;
 }
-/** Explicit OAuth lifecycle capabilities; access-only providers opt out of refresh. */
+/** Explicit OAuth lifecycle and entry-flow capabilities. */
 export interface AuthDriverCapabilities {
   readonly supportsStart: boolean;
   readonly supportsPoll: boolean;
@@ -61,6 +63,10 @@ export interface AuthDriverCapabilities {
   readonly supportsRefresh: boolean;
   readonly supportsRevoke: boolean;
   readonly accessOnly: boolean;
+  /** Authorization-code/redirect login can be started by the console. */
+  readonly supportsBrowser: boolean;
+  /** Device-code login can be started and polled by the console. */
+  readonly supportsDevice: boolean;
 }
 
 /** Shared provider auth contract; provider-specific wire details stay in providers. */

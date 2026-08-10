@@ -1,5 +1,6 @@
 import type { CredentialKind } from "../../application/contracts";
 import { extractAccessTokenOrRaw } from "../../application/auth";
+import type { AuthDriverRegistry } from "../../application/auth";
 import type { ProviderRegistry } from "../../providers/registry";
 import { assertPublicUrl, assertPublicUrlAtDispatch, fetchWithSsrfGuard } from "../../security/ssrf-guard";
 import type {
@@ -9,6 +10,7 @@ import type {
   CustomProviderView,
   ProviderConfigRepository,
   ProviderConfigView,
+  ProviderOAuthFlows,
   ProviderRoutingSettings,
   ProviderSummaryView,
 } from "../views";
@@ -140,7 +142,6 @@ function stripProviderPrefix(modelId: string, providerId: string): string {
   return stripped.length > 0 ? stripped : modelId;
 }
 type CustomProviderMutationError = { readonly ok: false; readonly status: 400 | 409; readonly code: ConsoleErrorCode; readonly message: string };
-
 export class ProviderService {
   private static readonly CUSTOM_PROVIDER_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
@@ -149,6 +150,7 @@ export class ProviderService {
     private readonly providerConfig: ProviderConfigRepository,
     private readonly customProviders: CustomProviderRepository,
     private readonly accounts: AccountRepository,
+    private readonly authDrivers?: AuthDriverRegistry,
   ) {}
 
   /** Legacy slug rules: pattern, built-in/reserved rejection, custom collisions (400/409). */
@@ -175,17 +177,25 @@ export class ProviderService {
     const [configRows, customRows] = await Promise.all([this.providerConfig.list(), this.customProviders.list()]);
     const enabledById = new Map(configRows.map((row) => [row.id, row.enabled]));
     const customIds = new Set(customRows.map((row) => row.id).concat(customRows.map((row) => row.slug)));
-    return this.registry.list().map((adapter) => ({
-      id: adapter.metadata.id,
-      name: adapter.metadata.displayName,
-      protocol: adapter.metadata.protocol,
-      credentialKind: adapter.metadata.credentialKind,
-      credentialKinds: adapter.metadata.credentialKinds ?? [adapter.metadata.credentialKind],
-      credentialUrl: adapter.metadata.credentialUrl ?? null,
-      surfaces: adapter.capabilities.surfaces,
-      enabled: enabledById.get(adapter.metadata.id) ?? true,
-      custom: customIds.has(adapter.metadata.id),
-    }));
+    return this.registry.list().map((adapter) => {
+      const capabilities = this.authDrivers?.getCapabilities(adapter.metadata.id);
+      const oauthFlows: ProviderOAuthFlows = {
+        browser: capabilities?.supportsStart === true && capabilities.supportsBrowser,
+        device: capabilities?.supportsStart === true && capabilities.supportsDevice,
+      };
+      return {
+        id: adapter.metadata.id,
+        name: adapter.metadata.displayName,
+        protocol: adapter.metadata.protocol,
+        credentialKind: adapter.metadata.credentialKind,
+        credentialKinds: adapter.metadata.credentialKinds ?? [adapter.metadata.credentialKind],
+        credentialUrl: adapter.metadata.credentialUrl ?? null,
+        surfaces: adapter.capabilities.surfaces,
+        enabled: enabledById.get(adapter.metadata.id) ?? true,
+        custom: customIds.has(adapter.metadata.id),
+        oauthFlows,
+      };
+    });
   }
 
   async getConfig(id: string): Promise<ProviderConfigView | null> {

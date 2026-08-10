@@ -76,6 +76,12 @@ export interface CustomProviderRepository {
   credential(id: string): Promise<{ readonly credential: string } | null>;
 }
 
+/** Interactive OAuth entry points exposed by a provider's registered driver. */
+export interface ProviderOAuthFlows {
+  readonly browser: boolean;
+  readonly device: boolean;
+}
+
 /** Built-in provider with its config state, as shown in console lists. */
 export interface ProviderSummaryView {
   readonly id: string;
@@ -87,4 +93,5 @@ export interface ProviderSummaryView {
   readonly surfaces: readonly Surface[];
   readonly enabled: boolean;
   readonly custom: boolean;
+  readonly oauthFlows: ProviderOAuthFlows;
 }

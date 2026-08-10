@@ -125,7 +125,7 @@ export function createConsoleServices(options: CreateConsoleServicesOptions): Co
   return {
     auth: new AuthService(repositories.settings, loginLimiter),
     keys: new ApiKeyService(repositories.keys),
-    providers: new ProviderService(registry, repositories.providerConfig, repositories.customProviders, repositories.accounts),
+    providers: new ProviderService(registry, repositories.providerConfig, repositories.customProviders, repositories.accounts, authDrivers),
     models: new ModelService(repositories.models, registry, modelMetadata),
     accounts: new AccountService(repositories.accounts, repositories.transitions),
     oauth: new OAuthService({

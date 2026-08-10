@@ -445,7 +445,7 @@ export class AccountHealthManager {
 export const OAUTH_SAFETY_SKEW_MS = 30_000;
 
 export interface OAuthRefresher {
-  refresh(input: { readonly accountId: string; readonly token: OAuthTokenRecord | null }): Promise<OAuthRefreshResult>;
+  refresh(input: { readonly accountId: string; readonly token: OAuthTokenRecord | null; readonly account?: AccountConfig }): Promise<OAuthRefreshResult>;
 }
 
 /** Result-typed refresh surface so failures always map to application errors. */

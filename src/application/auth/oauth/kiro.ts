@@ -25,9 +25,11 @@ const KIRO_SCOPES: readonly string[] = ["codewhisperer:completions", "codewhispe
 const KIRO_ISSUER = "https://identitycenter.amazonaws.com/ssoins-722374e8c3c8e6c6";
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 const DESKTOP_REFRESH_URL = "https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken";
-const DEFAULT_MAX_SESSIONS = 10_000;
+const KIRO_USER_AGENT = "kiro-cli/1.0.0";
+const AWS_REGION_PATTERN = /^[a-z]{2}-[a-z]+-\d{1,2}$/;
 const DEFAULT_EXPIRES_IN_SECONDS = 600;
 const DEFAULT_INTERVAL_SECONDS = 5;
+const DEFAULT_MAX_SESSIONS = 10_000;
 
 export interface KiroOAuthDriverOptions extends OAuthDriverOptions {
   /** OIDC region used for client registration and device authorization (default "us-east-1"). */
@@ -87,6 +89,13 @@ function pick(record: Record<string, unknown>, keys: readonly string[]): string 
     if (value !== undefined) return value;
   }
   return undefined;
+}
+
+function safeRegion(region: string): string {
+  if (!AWS_REGION_PATTERN.test(region)) {
+    throw new OAuthDriverError("validation", "Kiro credential contains an invalid AWS region.", 400, false);
+  }
+  return region;
 }
 
 /**
@@ -183,7 +192,7 @@ export class KiroOAuthDriver implements AuthDriver {
   constructor(options: KiroOAuthDriverOptions = {}) {
     this.http = new OAuthHttpClient(options);
     this.nowMs = options.nowMs ?? (() => Date.now());
-    this.defaultRegion = (options.defaultRegion?.trim() || DEFAULT_REGION).toLowerCase();
+    this.defaultRegion = safeRegion((options.defaultRegion?.trim() || DEFAULT_REGION).toLowerCase());
     this.defaultStartUrl = options.defaultStartUrl?.trim() || DEFAULT_START_URL;
     this.defaultAuthMethod = options.defaultAuthMethod?.trim() || DEFAULT_AUTH_METHOD;
     this.maxSessions = Math.max(1, Math.floor(options.maxSessions ?? DEFAULT_MAX_SESSIONS));
@@ -265,17 +274,32 @@ export class KiroOAuthDriver implements AuthDriver {
     return this.toDeviceTokenSet(session, accessToken, refreshToken, result);
   }
 
-  /** Refreshes through the desktop refresh endpoint (works without client credentials). */
+  /** Refreshes through regional OIDC when client metadata is persisted, otherwise desktop Kiro auth. */
   async refresh(input: RefreshTokenInput): Promise<TokenSet> {
     if (input.providerId !== "kiro") {
       throw new OAuthDriverError("validation", `Kiro driver cannot refresh provider "${input.providerId}".`, 400, false);
     }
-    const result = await this.http.postJson(DESKTOP_REFRESH_URL, { refreshToken: input.refreshToken }, "kiro", "token refresh");
+    const bundle = input.credential === null || input.credential === undefined ? null : parseKiroCredential(input.credential);
+    const result =
+      bundle?.clientId && bundle.clientSecret
+        ? await this.http.postJson(
+            `https://oidc.${safeRegion(bundle.region ?? this.defaultRegion)}.amazonaws.com/token`,
+            { clientId: bundle.clientId, clientSecret: bundle.clientSecret, refreshToken: input.refreshToken, grantType: "refresh_token" },
+            "kiro",
+            "token refresh",
+          )
+        : await this.http.postJson(
+            DESKTOP_REFRESH_URL,
+            { refreshToken: input.refreshToken },
+            "kiro",
+            "token refresh",
+            { "user-agent": KIRO_USER_AGENT },
+          );
     const accessToken = stringField(result, "accessToken") ?? stringField(result, "access_token");
     if (!accessToken) throw new OAuthDriverError("validation", "Kiro refresh did not return an access token.", 401, false);
     return {
       accessToken,
-      refreshToken: input.refreshToken,
+      refreshToken: stringField(result, "refreshToken") ?? stringField(result, "refresh_token") ?? input.refreshToken,
       expiresAt: new Date(this.nowMs() + Math.max(60, numberField(result, "expiresIn") ?? numberField(result, "expires_in") ?? 3600) * 1000).toISOString(),
       ...(stringField(result, "scope") ? { scope: stringField(result, "scope") as string } : {}),
     };
@@ -294,17 +318,24 @@ export class KiroOAuthDriver implements AuthDriver {
     const result =
       bundle.clientId && bundle.clientSecret
         ? await this.http.postJson(
-            `https://oidc.${bundle.region ?? this.defaultRegion}.amazonaws.com/token`,
+            `https://oidc.${safeRegion(bundle.region ?? this.defaultRegion)}.amazonaws.com/token`,
             { clientId: bundle.clientId, clientSecret: bundle.clientSecret, refreshToken: bundle.refreshToken, grantType: "refresh_token" },
             "kiro",
             "token refresh",
           )
-        : await this.http.postJson(DESKTOP_REFRESH_URL, { refreshToken: bundle.refreshToken }, "kiro", "token refresh");
+        : await this.http.postJson(
+            DESKTOP_REFRESH_URL,
+            { refreshToken: bundle.refreshToken },
+            "kiro",
+            "token refresh",
+            { "user-agent": KIRO_USER_AGENT },
+          );
     const accessToken = stringField(result, "accessToken") ?? stringField(result, "access_token");
     if (!accessToken) throw new OAuthDriverError("validation", "Kiro refresh did not return an access token.", 401, false);
     return {
       ...bundle,
       accessToken,
+      refreshToken: stringField(result, "refreshToken") ?? stringField(result, "refresh_token") ?? bundle.refreshToken,
       expiresAt: new Date(this.nowMs() + Math.max(60, numberField(result, "expiresIn") ?? numberField(result, "expires_in") ?? 3600) * 1000).toISOString(),
     };
   }

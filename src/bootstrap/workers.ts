@@ -33,6 +33,7 @@ export function createOAuthRuntime({ config, logger }: OAuthRuntimeDependencies)
     { providerId: "antigravity", driver: new AntigravityOAuthDriver() },
     { providerId: "claude", driver: new AnthropicOAuthDriver() },
     { providerId: "cline", driver: new ClineOAuthDriver() },
+    { providerId: "clinepass", driver: new ClinePassOAuthDriver() },
     { providerId: "kimchi", driver: new KimchiOAuthDriver() },
     { providerId: "grok-build", driver: new GrokBuildOAuthDriver() },
   ]);

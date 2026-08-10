@@ -1,4 +1,4 @@
-import type { AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
+import type { AuthDriver, AuthDriverCapabilities, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
 import { AuthorizationCodeDriver, decodeJwtPayload, nonEmpty, tokenFields, OAuthDriverError } from "./base";
 
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -65,6 +65,16 @@ function codexIdentity(data: Record<string, unknown>, accessToken: string, idTok
  * so a provider adapter can attach it.
  */
 export class CodexOAuthDriver extends AuthorizationCodeDriver implements AuthDriver {
+  readonly capabilities: AuthDriverCapabilities = {
+    supportsStart: true,
+    supportsPoll: true,
+    supportsExchange: true,
+    supportsRefresh: true,
+    supportsRevoke: false,
+    accessOnly: false,
+    supportsBrowser: true,
+    supportsDevice: true,
+  };
   private readonly deviceSessions = new Map<string, CodexDeviceSession>();
   protected override get providerId(): string {
     return "codex";

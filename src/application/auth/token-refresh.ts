@@ -239,7 +239,8 @@ export class TokenRefreshPool {
 
       let result: OAuthRefreshResult;
       try {
-        result = await this.refresher.refresh({ accountId, token: base });
+        const account = await this.accounts.getAccount(accountId);
+        result = await this.refresher.refresh({ accountId, token: base, account });
       } catch {
         result = {
           ok: false,

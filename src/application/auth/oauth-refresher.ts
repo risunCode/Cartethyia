@@ -212,7 +212,7 @@ function driverRefreshFailure(error: unknown): OAuthRefreshResult {
  */
 export function createDriverAwareOAuthRefresher(options: DriverAwareRefresherOptions): OAuthRefresher {
   return {
-    async refresh({ accountId, token }) {
+    async refresh({ accountId, token, account }) {
       const providerId = await options.resolveProvider(accountId);
       if (providerId === null) {
         return failure(503, "credential_unavailable", true, "OAuth account is unavailable");
@@ -225,7 +225,7 @@ export function createDriverAwareOAuthRefresher(options: DriverAwareRefresherOpt
           return failure(503, "credential_unavailable", true, "OAuth refresh token is unavailable");
         }
         try {
-          const next = await driver.refresh?.({ providerId, accountId, refreshToken });
+          const next = await driver.refresh?.({ providerId, accountId, refreshToken, credential: account?.secret });
           if (next === undefined) return failure(503, "credential_unavailable", false, "OAuth refresh is not supported for this provider");
           return { ok: true, token: tokenRecordFromTokenSet(next, refreshToken) };
         } catch (error) {
@@ -239,7 +239,7 @@ export function createDriverAwareOAuthRefresher(options: DriverAwareRefresherOpt
         return failure(503, "credential_unavailable", false, "OAuth refresh is not supported for this provider");
       }
       if (options.fallback !== undefined) {
-        return options.fallback.refresh({ accountId, token });
+        return options.fallback.refresh({ accountId, token, account });
       }
       return failure(503, "credential_unavailable", true, "OAuth refresh is not configured for this provider");
     },

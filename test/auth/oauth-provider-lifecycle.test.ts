@@ -40,6 +40,10 @@ describe("registered OAuth provider lifecycle", () => {
     ]);
     expect(registry.list().map((entry) => entry.providerId)).toEqual(["codex", "cursor", "devin", "antigravity", "claude", "cline", "clinepass", "grok-build", "kiro", "kimchi"]);
     expect(registry.list().every((entry) => resolveAuthDriverCapabilities(entry.driver).supportsRefresh)).toBe(true);
+    expect(resolveAuthDriverCapabilities(registry.get("codex")!)).toMatchObject({ supportsBrowser: true, supportsDevice: true });
+    expect(resolveAuthDriverCapabilities(registry.get("cursor")!)).toMatchObject({ supportsBrowser: false, supportsDevice: true });
+    expect(resolveAuthDriverCapabilities(registry.get("devin")!)).toMatchObject({ supportsBrowser: true, supportsDevice: false });
+    expect(resolveAuthDriverCapabilities(registry.get("kimchi")!)).toMatchObject({ supportsBrowser: false, supportsDevice: true });
   });
 
   test("refreshes Codex and preserves rotated refresh credentials", async () => {
@@ -147,6 +151,48 @@ describe("registered OAuth provider lifecycle", () => {
     const kiro = new KiroOAuthDriver(withResponse({ accessToken: "kiro-access", expiresIn: 3600 }));
     await expect(refresh(grok, "grok-build")).resolves.toMatchObject({ accessToken: "grok-access", refreshToken: "refresh-old" });
     await expect(refresh(kiro, "kiro")).resolves.toMatchObject({ accessToken: "kiro-access", refreshToken: "refresh-old" });
+  });
+  test("refreshes Kiro builder credentials through the regional OIDC endpoint", async () => {
+    let request: { url: string; init: RequestInit | undefined } | undefined;
+    const driver = new KiroOAuthDriver({
+      fetch: async (url, init) => {
+        request = { url: String(url), init };
+        return response({ accessToken: "kiro-access", refreshToken: "kiro-refresh", expiresIn: 3600 });
+      },
+      nowMs: () => Date.parse("2026-08-10T00:00:00.000Z"),
+    });
+    const credential = JSON.stringify({ accessToken: "old-access", refreshToken: "refresh-old", clientId: "client-id", clientSecret: "client-secret", region: "us-west-2" });
+
+    await expect(driver.refresh({ providerId: "kiro", accountId: "kiro-account", refreshToken: "refresh-old", credential })).resolves.toMatchObject({
+      accessToken: "kiro-access",
+      refreshToken: "kiro-refresh",
+    });
+    expect(request?.url).toBe("https://oidc.us-west-2.amazonaws.com/token");
+    expect(JSON.parse(String(request?.init?.body))).toEqual({
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      refreshToken: "refresh-old",
+      grantType: "refresh_token",
+    });
+    expect(new Headers(request?.init?.headers).get("user-agent")).toBeNull();
+  });
+
+  test("uses the desktop Kiro refresh contract for social credentials", async () => {
+    let request: { url: string; init: RequestInit | undefined } | undefined;
+    const driver = new KiroOAuthDriver({
+      fetch: async (url, init) => {
+        request = { url: String(url), init };
+        return response({ accessToken: "kiro-social-access", expiresIn: 3600 });
+      },
+    });
+
+    await expect(driver.refresh({ providerId: "kiro", accountId: "kiro-account", refreshToken: "social-refresh", credential: JSON.stringify({ accessToken: "old-access", authMethod: "google" }) })).resolves.toMatchObject({
+      accessToken: "kiro-social-access",
+      refreshToken: "social-refresh",
+    });
+    expect(request?.url).toBe("https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken");
+    expect(new Headers(request?.init?.headers).get("user-agent")).toBe("kiro-cli/1.0.0");
+    expect(JSON.parse(String(request?.init?.body))).toEqual({ refreshToken: "social-refresh" });
   });
 
   test("runs Kimchi Kimi device flow and refreshes rotated credentials", async () => {
