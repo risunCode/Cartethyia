@@ -178,7 +178,8 @@ function normalizeMessage(raw: unknown, field: string, images: ImageReference[],
   }
   const content = normalizeContent(obj["content"], `${field}.content`, images, reasoningState);
   if (isProtocolError(content)) return content;
-  return { role, content };
+  const normalizedRole = role === "user" && content.length > 0 && content.every((block) => block.type === "tool_result") ? "tool" : role;
+  return { role: normalizedRole, content };
 }
 
 function normalizeContent(raw: unknown, field: string, images: ImageReference[], reasoningState: { seen: boolean }): ContentBlock[] | ProtocolError {

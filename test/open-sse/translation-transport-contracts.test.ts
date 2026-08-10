@@ -187,6 +187,22 @@ describe("Anthropic Messages normalization and payload", () => {
     const r2 = normalizeMessagesRequest({ model: "c", max_tokens: 1024, messages: [{ role: "assistant", content: [{ type: "tool_use", id: "t1", name: "s", input: { q: "x" } }] }] }, ni());
     expect(r2.ok).toBe(true); if (!r2.ok) return; expect(r2.request.messages[0]?.content[0]?.toolArguments).toBe(JSON.stringify({ q: "x" }));
   });
+  test("maps Anthropic tool_result messages to Responses function_call_output", () => {
+    const r = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      messages: [
+        { role: "assistant", content: [{ type: "tool_use", id: "call_GituTSNbE7QONnysXu4r9rxT", name: "Skill", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "call_GituTSNbE7QONnysXu4r9rxT", content: "loaded" }] },
+      ],
+    }, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.request.messages[1]?.role).toBe("tool");
+    const input = buildResponsesPayload(r.request).input as readonly Record<string, unknown>[];
+    expect(input).toContainEqual({ type: "function_call", call_id: "call_GituTSNbE7QONnysXu4r9rxT", name: "Skill", arguments: "{}" });
+    expect(input).toContainEqual({ type: "function_call_output", call_id: "call_GituTSNbE7QONnysXu4r9rxT", output: "loaded" });
+  });
   test("accepts Claude Code adaptive thinking and normalizes it to enabled reasoning", () => {
     const r = normalizeMessagesRequest({
       model: "c",
