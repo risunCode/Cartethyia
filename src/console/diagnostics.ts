@@ -14,7 +14,7 @@
 import { cpus, freemem, networkInterfaces, totalmem } from "node:os";
 import { platform } from "node:os";
 import { readFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import packageJson from "../../package.json";
 import type { ProviderRegistry } from "../providers/registry";
 import { scheduleGlobalGc, type GcScheduleResult } from "../traffic/memory";
@@ -39,19 +39,27 @@ interface BuildRevision {
   readonly branch: string | null;
 }
 
+function readGitValue(args: string[]): string | null {
+  try {
+    return execFileSync("git", args, {
+      encoding: "utf8",
+      timeout: 2_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 function readBuildRevision(): BuildRevision {
   const revisionFromEnv = process.env.CARTETHYIA_COMMIT?.trim();
   const branchFromEnv = process.env.CARTETHYIA_BRANCH?.trim();
   const committedAtFromEnv = process.env.CARTETHYIA_COMMIT_AT?.trim();
-  try {
-    const revision = revisionFromEnv || execSync("git rev-parse HEAD", { encoding: "utf8", timeout: 2_000 }).trim() || null;
-    const branch = branchFromEnv || execSync("git branch --show-current", { encoding: "utf8", timeout: 2_000 }).trim() || null;
-    const committedAtValue = committedAtFromEnv || execSync("git show -s --format=%cI HEAD", { encoding: "utf8", timeout: 2_000 }).trim();
-    const committedAt = Date.parse(committedAtValue);
-    return { revision, branch, committedAt: Number.isFinite(committedAt) ? committedAt : null };
-  } catch {
-    return { revision: revisionFromEnv || null, branch: branchFromEnv || null, committedAt: null };
-  }
+  const revision = revisionFromEnv || readGitValue(["rev-parse", "HEAD"]);
+  const branch = branchFromEnv || readGitValue(["branch", "--show-current"]);
+  const committedAtValue = committedAtFromEnv || readGitValue(["show", "-s", "--format=%cI", "HEAD"]);
+  const committedAt = committedAtValue === null ? null : Date.parse(committedAtValue);
+  return { revision, branch, committedAt: Number.isFinite(committedAt) ? committedAt : null };
 }
 
 const BUILD_REVISION = readBuildRevision();
