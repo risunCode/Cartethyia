@@ -105,9 +105,8 @@ export class ClineOAuthDriver implements AuthDriver {
 
   /**
    * Non-blocking device-flow poll: makes a single WorkOS authenticate
-   * request and returns the result. Uses raw fetch because WorkOS returns
-   * HTTP 400 for authorization_pending / slow_down / expired_token, which
-   * the standard postForm would throw on.
+   * request and returns the result. The shared OAuth HTTP client preserves
+   * bounded JSON error bodies for authorization_pending / slow_down.
    */
   async poll(state: string): Promise<{ readonly status: "pending" | "completed" | "expired"; readonly tokenSet?: TokenSet }> {
     const context = this.devices.get(state);
@@ -116,23 +115,20 @@ export class ClineOAuthDriver implements AuthDriver {
       this.devices.delete(state);
       return { status: "expired" };
     }
-    let response: Response;
+    let result;
     try {
-      response = await fetch(`${CLINE_WORKOS_API_BASE_URL}${CLINE_TOKEN_PATH}`, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: CLINE_DEVICE_GRANT_TYPE,
-          device_code: context.deviceCode,
-          client_id: this.clientId,
-        }).toString(),
-      });
+      result = await this.http.postFormResult(
+        `${CLINE_WORKOS_API_BASE_URL}${CLINE_TOKEN_PATH}`,
+        { grant_type: CLINE_DEVICE_GRANT_TYPE, device_code: context.deviceCode, client_id: this.clientId },
+        "cline",
+        "device authorization",
+      );
     } catch {
       return { status: "pending" };
     }
-    const data: Record<string, unknown> = await response.json() as Record<string, unknown>;
+    const data = result.body ?? {};
     const error = typeof data.error === "string" ? data.error : undefined;
-    if (error === undefined && response.ok) {
+    if (error === undefined && result.ok) {
       const accessToken = typeof data.access_token === "string" ? data.access_token : undefined;
       const refreshToken = typeof data.refresh_token === "string" ? data.refresh_token : undefined;
       if (accessToken === undefined || refreshToken === undefined) {

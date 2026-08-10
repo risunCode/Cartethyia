@@ -61,9 +61,9 @@ interface CallbackServer {
 
 interface CallbackServerEntry {
   readonly server: CallbackServer;
-  /** Session lookup by state parameter (for callback matching). */
+  /** Session lookup by the exact state parameter (for callback matching). */
   readonly stateToSession: Map<string, { providerId: string; sessionId: string }>;
-  /** All active sessions on this port (for fallback matching). */
+  /** All active sessions on this port, used for lifecycle cleanup. */
   readonly activeSessions: Map<string, { providerId: string; sessionId: string }>;
 }
 
@@ -127,25 +127,15 @@ function ensureCallbackServer(
         const stateParam = url.searchParams.get("state");
         const error = url.searchParams.get("error");
 
-        // Find the matching session by state.
-        let matched: { providerId: string; sessionId: string } | undefined;
-        if (stateParam !== null && stateParam.length > 0) {
-          matched = stateToSession.get(stateParam);
+        // State is mandatory. Never route a callback to an arbitrary waiting
+        // session when a provider omits or alters the CSRF binding.
+        if (stateParam === null || stateParam.length === 0) {
+          return new Response("OAuth session not found or expired.", {
+            status: 400,
+            headers: { "content-type": "text/plain; charset=utf-8" },
+          });
         }
-        // Fallback: first waiting session for this provider (for flows
-        // that don't embed state in the callback, e.g. ClinePass).
-        if (matched === undefined) {
-          for (const entry of activeSessions.values()) {
-            if (entry.providerId === providerId) {
-              const sessionView = sessionManager.get(entry.sessionId);
-              if (sessionView !== null && sessionView.status === "waiting-for-user") {
-                matched = entry;
-                break;
-              }
-            }
-          }
-        }
-
+        const matched = stateToSession.get(stateParam);
         if (matched === undefined) {
           return new Response("OAuth session not found or expired.", {
             status: 400,
@@ -158,12 +148,12 @@ function ensureCallbackServer(
           // can parse provider-specific params (e.g. Kimchi's `token=`).
           const fullUrl = `http://127.0.0.1:${endpoint.port}${endpoint.path}${url.search}`;
           const input: OAuthCompleteSessionInput = error
-            ? { error, state: stateParam ?? undefined }
-            : { value: fullUrl, state: stateParam ?? undefined };
+            ? { error, state: stateParam }
+            : { value: fullUrl, state: stateParam };
 
           await onComplete(matched.sessionId, input);
           activeSessions.delete(matched.sessionId);
-          if (stateParam) stateToSession.delete(stateParam);
+          stateToSession.delete(stateParam);
           return new Response("OAuth login completed. You can close this tab.", {
             headers: { "content-type": "text/plain; charset=utf-8" },
           });
@@ -171,8 +161,8 @@ function ensureCallbackServer(
           const message = failure instanceof Error ? failure.message : "OAuth login failed";
           log("warn", "exchange_failed", `provider=${providerId} session=${matched.sessionId} error=${message}`);
           activeSessions.delete(matched.sessionId);
-          if (stateParam) stateToSession.delete(stateParam);
-          return new Response(`OAuth login failed: ${message}`, {
+          stateToSession.delete(stateParam);
+          return new Response("OAuth login failed. Return to the application and try again.", {
             status: 500,
             headers: { "content-type": "text/plain; charset=utf-8" },
           });

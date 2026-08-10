@@ -1,4 +1,5 @@
 import type { CartethyiaRuntime } from "../bootstrap/composition";
+import { applySecurityHeaders } from "../security/headers";
 
 export type ProxyErrorCode =
   | "invalid_request"
@@ -13,7 +14,9 @@ export type ProxyErrorCode =
   | "uri_too_long";
 
 export function errorResponse(status: number, code: ProxyErrorCode, message: string, requestId = crypto.randomUUID()): Response {
-  return Response.json({ error: { type: "error", code, message, request_id: requestId } }, { status, headers: { "cache-control": "no-store", "x-request-id": requestId } });
+  const headers = new Headers({ "cache-control": "no-store", "x-request-id": requestId });
+  applySecurityHeaders(headers, { noStore: true });
+  return Response.json({ error: { type: "error", code, message, request_id: requestId } }, { status, headers });
 }
 
 export function recordAccessLog(runtime: CartethyiaRuntime, pathname: string, request: Request, requestId: string, status: number, startedAt: number): void {

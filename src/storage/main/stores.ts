@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import type { ApplicationErrorKind, ModelLockRecord, RouteHealth, RouteHealthStore, RouteScope } from "../../application/contracts";
 import type { AccountConfig, AccountHealthRecord, AccountHealthStore, CredentialConfigStore, ModelLockStore, OAuthTokenRecord, OAuthTokenStore, QuotaStateRecord, QuotaStateStore } from "../../application/auth/credentials";
+import { fingerprintOAuthToken } from "../../application/auth/credentials";
 import type { ProxyConfig, ProxyPoolConfigStore } from "../../traffic/network";
 import { credentialKindOf } from "./mappers";
 import { nowIso, orNullString, toErrorKind, toRouteStatus } from "./schema";
@@ -226,20 +227,58 @@ export function createDurableOAuthTokenStore(db: () => Database): OAuthTokenStor
           expiresAtMs: typeof record.accessExpiresAt === "number" ? record.accessExpiresAt : null,
           refreshToken: typeof record.refreshToken === "string" && record.refreshToken.length > 0 ? record.refreshToken : null,
           kind: "oauth",
+          generation: typeof record.generation === "number" && Number.isSafeInteger(record.generation) && record.generation >= 0 ? record.generation : 0,
           lastRefreshAtMs: typeof record.lastRefreshAtMs === "number" ? record.lastRefreshAtMs : null,
           lastRefreshAttemptAtMs: typeof record.lastRefreshAttemptAtMs === "number" ? record.lastRefreshAttemptAtMs : null,
           lastRefreshErrorKind: typeof record.lastRefreshErrorKind === "string" ? record.lastRefreshErrorKind as ApplicationErrorKind : null,
           lastRefreshStatusCode: typeof record.lastRefreshStatusCode === "number" ? record.lastRefreshStatusCode : null,
-          refreshState: record.refreshState === "healthy" || record.refreshState === "retrying" || record.refreshState === "reauth_required" ? record.refreshState : undefined,
+          refreshState: record.refreshState === "healthy" || record.refreshState === "retrying" || record.refreshState === "reauth_required" ? record.refreshState : "healthy",
+          refreshRetryAtMs: typeof record.refreshRetryAtMs === "number" ? record.refreshRetryAtMs : null,
+          refreshFailureCount: typeof record.refreshFailureCount === "number" && Number.isSafeInteger(record.refreshFailureCount) && record.refreshFailureCount >= 0 ? record.refreshFailureCount : 0,
         };
       }
     } catch {
       // A raw bearer token is not JSON; preserve it as a non-refreshable OAuth token.
     }
-    // Some OAuth-style providers accept a pasted bearer token without a
-    // refresh token. Treat it as a durable access token instead of making the
-    // coordinator report a misleading local refresh configuration failure.
-    return { accessToken: raw, expiresAtMs: null, refreshToken: null, kind: "oauth", refreshState: "healthy" };
+    return { accessToken: raw, expiresAtMs: null, refreshToken: null, kind: "oauth", generation: 0, refreshState: "healthy", refreshRetryAtMs: null, refreshFailureCount: 0 };
+  };
+
+  const readExisting = (accountId: string): { provider: string; credential: string | null } | null =>
+    db().query("SELECT provider, credential FROM provider_accounts WHERE id = ?").get(accountId) as { provider: string; credential: string | null } | null;
+
+  const buildBundle = (existing: { provider: string; credential: string | null }, token: OAuthTokenRecord): Record<string, unknown> => {
+    let previous: Record<string, unknown> = {};
+    if (existing.credential) {
+      try {
+        const parsed: unknown = JSON.parse(existing.credential);
+        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) previous = parsed as Record<string, unknown>;
+      } catch {
+        previous = {};
+      }
+    }
+    return {
+      ...previous,
+      version: 1,
+      provider: existing.provider,
+      refreshToken: token.refreshToken,
+      accessToken: token.accessToken,
+      accessExpiresAt: token.expiresAtMs,
+      generation: token.generation ?? 0,
+      lastRefreshAtMs: token.lastRefreshAtMs ?? null,
+      lastRefreshAttemptAtMs: token.lastRefreshAttemptAtMs ?? null,
+      lastRefreshErrorKind: token.lastRefreshErrorKind ?? null,
+      lastRefreshStatusCode: token.lastRefreshStatusCode ?? null,
+      refreshState: token.refreshState ?? "healthy",
+      refreshRetryAtMs: token.refreshRetryAtMs ?? null,
+      refreshFailureCount: token.refreshFailureCount ?? 0,
+      updatedAt: Date.now(),
+    };
+  };
+
+  const writeToken = (accountId: string, existing: { provider: string; credential: string | null }, token: OAuthTokenRecord): void => {
+    const bundle = buildBundle(existing, token);
+    const hint = `…${token.accessToken.slice(-4)}`;
+    db().query("UPDATE provider_accounts SET credential = ?, credential_hint = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(bundle), hint, nowIso(), accountId);
   };
 
   return {
@@ -248,39 +287,41 @@ export function createDurableOAuthTokenStore(db: () => Database): OAuthTokenStor
       return row ? toToken(row.credential) : undefined;
     },
     async set(accountId: string, token: OAuthTokenRecord): Promise<void> {
-      // Single SELECT: fetch provider, credential kind, and the existing
-      // credential bundle in one query (was two separate SELECTs — one for
-      // existence + provider, one for the previous credential to merge).
-      const existing = db().query("SELECT provider, credential_kind, credential FROM provider_accounts WHERE id = ?").get(accountId) as { provider: string; credential_kind: string; credential: string | null } | null;
-      if (!existing) return;
-      let previous: Record<string, unknown> = {};
-      if (existing.credential) {
-        try {
-          const parsed: unknown = JSON.parse(existing.credential);
-          if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) previous = parsed as Record<string, unknown>;
-        } catch {
-          previous = {};
-        }
-      }
-      const bundle: Record<string, unknown> = {
-        ...previous,
-        version: 1,
-        provider: existing.provider,
-        refreshToken: token.refreshToken,
-        accessToken: token.accessToken,
-        accessExpiresAt: token.expiresAtMs,
-        lastRefreshAtMs: token.lastRefreshAtMs ?? null,
-        lastRefreshAttemptAtMs: token.lastRefreshAttemptAtMs ?? null,
-        lastRefreshErrorKind: token.lastRefreshErrorKind ?? null,
-        lastRefreshStatusCode: token.lastRefreshStatusCode ?? null,
-        refreshState: token.refreshState ?? "healthy",
-        updatedAt: Date.now(),
-      };
-      const hint = `…${token.accessToken.slice(-4)}`;
-      db().query("UPDATE provider_accounts SET credential = ?, credential_hint = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(bundle), hint, nowIso(), accountId);
+      const existing = readExisting(accountId);
+      if (existing) writeToken(accountId, existing, token);
+    },
+    async tryAcquireRefreshLease(input): Promise<boolean> {
+      const leaseUntilMs = input.nowMs + Math.max(1_000, input.leaseMs);
+      const result = db().query(
+        `INSERT INTO oauth_refresh_leases (account_id, owner_id, generation, token_fingerprint, lease_until_ms, acquired_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(account_id) DO UPDATE SET
+           owner_id = excluded.owner_id,
+           generation = excluded.generation,
+           token_fingerprint = excluded.token_fingerprint,
+           lease_until_ms = excluded.lease_until_ms,
+           acquired_at_ms = excluded.acquired_at_ms
+         WHERE oauth_refresh_leases.lease_until_ms <= ? OR oauth_refresh_leases.owner_id = ?`,
+      ).run(input.accountId, input.ownerId, input.generation, input.tokenFingerprint, leaseUntilMs, input.nowMs, input.nowMs, input.ownerId);
+      return result.changes > 0;
+    },
+    async releaseRefreshLease(accountId, ownerId): Promise<void> {
+      db().query("DELETE FROM oauth_refresh_leases WHERE account_id = ? AND owner_id = ?").run(accountId, ownerId);
+    },
+    async compareAndSwap(input): Promise<boolean> {
+      const transaction = db().transaction(() => {
+        const existing = readExisting(input.accountId);
+        if (!existing) return false;
+        const current = existing.credential === null ? undefined : toToken(existing.credential);
+        if (current === undefined || (current.generation ?? 0) !== input.expectedGeneration || fingerprintOAuthToken(current) !== input.expectedTokenFingerprint) return false;
+        writeToken(input.accountId, existing, input.token);
+        return true;
+      });
+      return transaction();
     },
     async delete(accountId: string): Promise<void> {
       db().query("UPDATE provider_accounts SET credential = '', credential_hint = '', updated_at = ? WHERE id = ?").run(nowIso(), accountId);
+      db().query("DELETE FROM oauth_refresh_leases WHERE account_id = ?").run(accountId);
     },
   };
 }

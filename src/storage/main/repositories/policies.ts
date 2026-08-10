@@ -93,37 +93,61 @@ return {
   },
 }; }
 
-// ───────────────────── IP bans ──────────────────────────────────────────────
+// ───────────────────── IP bans and abuse scoring ────────────────────────────
 
-export function createConsoleIpBanRepository(db: () => Database): IpBanRepository { const toView = (row: { ip: string; reason: string; created_at: string }): IpBanView => ({
-  ip: row.ip,
-  reason: row.reason,
-  createdAt: row.created_at,
-});
+const OFFENSE_WINDOW_MS = 10 * 60_000;
+const OFFENSE_THRESHOLDS: Readonly<Record<string, number>> = {
+  invalid_api_key: 8,
+  ambiguous_credentials: 3,
+  request_too_large: 3,
+  rate_limit: 12,
+};
 
-return {
-  async list(): Promise<readonly IpBanView[]> {
-    const rows = db().query("SELECT ip, reason, created_at FROM ip_bans ORDER BY created_at DESC").all() as { ip: string; reason: string; created_at: string }[];
-    return rows.map(toView);
-  },
+export function createConsoleIpBanRepository(db: () => Database): IpBanRepository {
+  const toView = (row: { ip: string; reason: string; created_at: string }): IpBanView => ({
+    ip: row.ip,
+    reason: row.reason,
+    createdAt: row.created_at,
+  });
 
-  async add(ip: string, reason = ""): Promise<IpBanView> {
-    const now = nowIso();
-    db().query("INSERT INTO ip_bans (ip, reason, created_at) VALUES (?, ?, ?) ON CONFLICT(ip) DO UPDATE SET reason = excluded.reason, created_at = excluded.created_at").run(ip, reason, now);
-    return { ip, reason, createdAt: now };
-  },
+  return {
+    async list(): Promise<readonly IpBanView[]> {
+      const rows = db().query("SELECT ip, reason, created_at FROM ip_bans ORDER BY created_at DESC").all() as { ip: string; reason: string; created_at: string }[];
+      return rows.map(toView);
+    },
 
-  async remove(ip: string): Promise<boolean> {
-    const result = db().query("DELETE FROM ip_bans WHERE ip = ?").run(ip);
-    return result.changes > 0;
-  },
+    async add(ip: string, reason = ""): Promise<IpBanView> {
+      const now = nowIso();
+      db().query("INSERT INTO ip_bans (ip, reason, created_at) VALUES (?, ?, ?) ON CONFLICT(ip) DO UPDATE SET reason = excluded.reason, created_at = excluded.created_at").run(ip, reason, now);
+      return { ip, reason, createdAt: now };
+    },
 
-  async isBanned(ip: string): Promise<boolean> {
-    return db().query("SELECT 1 FROM ip_bans WHERE ip = ?").get(ip) !== null;
-  },
+    async remove(ip: string): Promise<boolean> {
+      const result = db().query("DELETE FROM ip_bans WHERE ip = ?").run(ip);
+      return result.changes > 0;
+    },
 
-  async bannedSet(): Promise<ReadonlySet<string>> {
-    const rows = db().query("SELECT ip FROM ip_bans").all() as { ip: string }[];
-    return new Set(rows.map((row) => row.ip));
-  },
-}; }
+    async isBanned(ip: string): Promise<boolean> {
+      return db().query("SELECT 1 FROM ip_bans WHERE ip = ?").get(ip) !== null;
+    },
+
+    async bannedSet(): Promise<ReadonlySet<string>> {
+      const rows = db().query("SELECT ip FROM ip_bans").all() as { ip: string }[];
+      return new Set(rows.map((row) => row.ip));
+    },
+
+    async recordOffense(ip: string, category: string) {
+      const nowMs = Date.now();
+      const now = new Date(nowMs).toISOString();
+      const threshold = OFFENSE_THRESHOLDS[category] ?? 5;
+      const existing = db().query("SELECT strike_count, window_started_at FROM security_offenses WHERE ip = ? AND category = ?").get(ip, category) as { strike_count: number; window_started_at: string } | null;
+      const withinWindow = existing !== null && nowMs - Date.parse(existing.window_started_at) <= OFFENSE_WINDOW_MS;
+      const strikeCount = withinWindow ? existing.strike_count + 1 : 1;
+      const windowStartedAt = withinWindow ? existing.window_started_at : now;
+      db().query("INSERT INTO security_offenses (ip, category, strike_count, window_started_at, last_event_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(ip, category) DO UPDATE SET strike_count = excluded.strike_count, window_started_at = excluded.window_started_at, last_event_at = excluded.last_event_at").run(ip, category, strikeCount, windowStartedAt, now);
+      const thresholdReached = strikeCount >= threshold;
+      if (thresholdReached) await this.add(ip, `security offense: ${category} (${strikeCount} strikes in 10 minutes)`);
+      return { ip, category, strikeCount, thresholdReached, bannedUntil: null };
+    },
+  };
+}

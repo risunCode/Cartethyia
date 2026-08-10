@@ -29,7 +29,7 @@ export const MAX_BACKUP_BYTES = 64 * 1024 * 1024;
 /** Defense-in-depth cap on rows per table after the byte bound. */
 const MAX_ROWS_PER_TABLE = 100_000;
 
-/** Config tables included in a backup — mirrors the current CONFIG_SCHEMA_SQL. */
+/** Config tables included in a backup; transient security_offenses counters are deliberately excluded while operator-managed ip_bans remain durable. */
 export const BACKUP_TABLES = [
   "settings",
   "api_keys",

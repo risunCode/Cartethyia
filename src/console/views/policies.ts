@@ -44,10 +44,20 @@ export interface IpBanView {
   readonly createdAt: string;
 }
 
+export interface SecurityOffenseDecision {
+  readonly ip: string;
+  readonly category: string;
+  readonly strikeCount: number;
+  readonly thresholdReached: boolean;
+  readonly bannedUntil: string | null;
+}
+
 export interface IpBanRepository {
   list(): Promise<readonly IpBanView[]>;
   add(ip: string, reason?: string): Promise<IpBanView>;
   remove(ip: string): Promise<boolean>;
   isBanned(ip: string): Promise<boolean>;
   bannedSet(): Promise<ReadonlySet<string>>;
+  /** Durable offense scoring; implementations may auto-promote threshold breaches to an IP ban. */
+  recordOffense?(ip: string, category: string): Promise<SecurityOffenseDecision>;
 }

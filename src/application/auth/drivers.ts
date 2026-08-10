@@ -1,4 +1,4 @@
-import type { AuthDriver } from "./contracts";
+import type { AuthDriver, AuthDriverCapabilities } from "./contracts";
 import { CodexOAuthDriver } from "./oauth";
 
 /** A provider-id keyed {@link AuthDriver} registration. */
@@ -16,6 +16,7 @@ export interface AuthDriverEntry {
 export interface AuthDriverRegistry {
   get(providerId: string): AuthDriver | null;
   has(providerId: string): boolean;
+  getCapabilities(providerId: string): AuthDriverCapabilities | null;
   list(): readonly AuthDriverEntry[];
   register(providerId: string, driver: AuthDriver): void;
 }
@@ -32,6 +33,11 @@ export class MapAuthDriverRegistry implements AuthDriverRegistry {
     return this.drivers.has(providerId);
   }
 
+  getCapabilities(providerId: string): AuthDriverCapabilities | null {
+    const driver = this.drivers.get(providerId);
+    return driver === undefined ? null : resolveAuthDriverCapabilities(driver);
+  }
+
   list(): readonly AuthDriverEntry[] {
     return [...this.drivers.entries()].map(([providerId, driver]) => ({ providerId, driver }));
   }
@@ -40,6 +46,18 @@ export class MapAuthDriverRegistry implements AuthDriverRegistry {
     if (providerId.length === 0) throw new Error("provider id must not be empty");
     this.drivers.set(providerId, driver);
   }
+}
+
+/** Derives explicit capability flags for legacy drivers that predate metadata. */
+export function resolveAuthDriverCapabilities(driver: AuthDriver): AuthDriverCapabilities {
+  return driver.capabilities ?? {
+    supportsStart: driver.start !== undefined,
+    supportsPoll: driver.poll !== undefined,
+    supportsExchange: driver.exchange !== undefined,
+    supportsRefresh: driver.refresh !== undefined,
+    supportsRevoke: driver.revoke !== undefined,
+    accessOnly: driver.kind === "oauth" && driver.refresh === undefined,
+  };
 }
 
 /**

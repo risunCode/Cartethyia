@@ -86,8 +86,8 @@ export function sanitizeRuntimePatch(value: Record<string, unknown>): WriteableP
   if (value.trackAssets === "none" || value.trackAssets === "meta" || value.trackAssets === "store") patch.trackAssets = value.trackAssets;
   if (typeof value.logRetentionDays === "number" && Number.isFinite(value.logRetentionDays)) patch.logRetentionDays = Math.max(0, Math.floor(value.logRetentionDays));
   if (typeof value.assetRetentionDays === "number" && Number.isFinite(value.assetRetentionDays)) patch.assetRetentionDays = Math.max(0, Math.floor(value.assetRetentionDays));
-  if (typeof value.maxFlightsPerIp === "number" && Number.isFinite(value.maxFlightsPerIp)) patch.maxFlightsPerIp = Math.max(1, Math.floor(value.maxFlightsPerIp));
-  if (typeof value.sessionTtlHours === "number" && Number.isFinite(value.sessionTtlHours)) patch.sessionTtlHours = Math.max(1, Math.floor(value.sessionTtlHours));
+  if (typeof value.maxFlightsPerIp === "number" && Number.isFinite(value.maxFlightsPerIp)) patch.maxFlightsPerIp = Math.min(10_000, Math.max(1, Math.floor(value.maxFlightsPerIp)));
+  if (typeof value.sessionTtlHours === "number" && Number.isFinite(value.sessionTtlHours)) patch.sessionTtlHours = Math.min(168, Math.max(1, Math.floor(value.sessionTtlHours)));
   if (typeof value.trustProxy === "boolean") patch.trustProxy = value.trustProxy;
   if (typeof value.cacheMarkersEnabled === "boolean") patch.cacheMarkersEnabled = value.cacheMarkersEnabled;
   if (value.sidebarIconDataUrl === null || typeof value.sidebarIconDataUrl === "string") patch.sidebarIconDataUrl = value.sidebarIconDataUrl;

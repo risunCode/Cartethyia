@@ -1,11 +1,17 @@
 import type { Adapter, ProviderCaps, ProviderMeta, ProviderModel, ProviderModelCatalog, ProviderOutput, ProviderRequest, Surface, RouteTarget } from "../application/contracts";
 import type { ProviderCallError } from "../application/contracts";
 import type { CustomProviderRecord, CustomProviderRepository } from "../storage";
-import { AbortCoordinator, ProviderAdapterError, aggregateCapabilities, capabilitiesOf, categoriesOf, executeFetch, lineLimit, mapSseStream, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { AbortCoordinator } from "../open-sse/transport/abort-coordinator";
+import { ProviderAdapterError, readUpstreamError, toProviderCallError } from "../open-sse/transport/errors";
+import { aggregateCapabilities, capabilitiesOf, categoriesOf, modelOf, createModelCatalog } from "../open-sse/transport/catalog";
+import { executeFetch } from "../open-sse/transport/fetch";
+import { lineLimit } from "../open-sse/transport/sse-decoder";
+import { mapSseStream } from "../open-sse/transport/stream-mapper";
+import { readJsonObject } from "../open-sse/transport/body-reader";
 import { isRecord } from "../application/protocols";
-import { createAnthropicMapper } from "../open-sse/transport/protocols/anthropic";
+import { createAnthropicMessagesStreamMapper } from "../open-sse/transport/protocols/anthropic";
 import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
-import { createChatMapper } from "../open-sse/transport/protocols/openai";
+import { createOpenAIChatStreamMapper } from "../open-sse/transport/protocols/openai";
 import { buildChatPayload, mapChatUsage } from "../open-sse/translate/codecs/openai-chat";
 import { assertPublicUrlAtDispatch } from "../security/ssrf-guard";
 import type { ProviderRegistry } from "./registry";
@@ -154,7 +160,7 @@ export class CustomProviderAdapter implements Adapter {
       }
       streamHandedOff = true;
       const sse = { body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs };
-      return { mode: "stream", events: anthropic ? mapSseStream(sse, createAnthropicMapper()) : mapSseStream(sse, createChatMapper()) };
+      return { mode: "stream", events: anthropic ? mapSseStream(sse, createAnthropicMessagesStreamMapper()) : mapSseStream(sse, createOpenAIChatStreamMapper()) };
     } finally {
       if (!streamHandedOff) coordinator.dispose();
     }

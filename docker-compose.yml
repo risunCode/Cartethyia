@@ -5,14 +5,21 @@ services:
       dockerfile: Dockerfile
     image: cartethyia
     restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    pids_limit: 512
     ports:
       - "12800:8080"
     environment:
       - PORT=8080
       - DATA_DIR=/app/data
-      # Required: change these before any non-local use.
-      - CONSOLE_PASSWORD=${CONSOLE_PASSWORD:-change-me}
-      - CONSOLE_JWT_SECRET=${CONSOLE_JWT_SECRET:-replace-with-a-long-random-secret}
+      # Required: Compose fails closed when production credentials are absent.
+      - CONSOLE_PASSWORD=${CONSOLE_PASSWORD:?CONSOLE_PASSWORD must be set}
+      - CONSOLE_JWT_SECRET=${CONSOLE_JWT_SECRET:?CONSOLE_JWT_SECRET must be set}
       - CARTETHYIA_HEADROOM_ENABLED=${CARTETHYIA_HEADROOM_ENABLED:-false}
       - CARTETHYIA_HEADROOM_URL=${CARTETHYIA_HEADROOM_URL:-}
       - CARTETHYIA_HEADROOM_TIMEOUT_MS=${CARTETHYIA_HEADROOM_TIMEOUT_MS:-3000}

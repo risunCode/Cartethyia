@@ -1,11 +1,5 @@
-import {
-  ProviderAdapterError,
-  aggregateCapabilities,
-  capabilitiesOf,
-  createModelCatalog,
-  modelOf,
-  toProviderCallError,
-} from "../open-sse/transport/shared";
+import { ProviderAdapterError, toProviderCallError } from "../open-sse/transport/errors";
+import { aggregateCapabilities, capabilitiesOf, createModelCatalog, modelOf } from "../open-sse/transport/catalog";
 import type {
   CredentialKind,
   Adapter,

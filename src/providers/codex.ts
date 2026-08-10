@@ -1,6 +1,11 @@
-import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, decodeSseEvents, executeFetch, lineLimit, mapSseStream, modelOf, parseSseData, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { AbortCoordinator } from "../open-sse/transport/abort-coordinator";
+import { ProviderAdapterError, readUpstreamError, toProviderCallError } from "../open-sse/transport/errors";
+import { capabilitiesOf, createModelCatalog, modelOf } from "../open-sse/transport/catalog";
+import { decodeSseEvents, lineLimit, parseSseData } from "../open-sse/transport/sse-decoder";
+import { executeFetch } from "../open-sse/transport/fetch";
+import { mapSseStream } from "../open-sse/transport/stream-mapper";
 import { isRecord } from "../application/protocols";
-import { callHostedImageWire, createResponsesMapper } from "../open-sse/transport/protocols/openai";
+import { callHostedImageWire, createOpenAIResponsesStreamMapper } from "../open-sse/transport/protocols/openai";
 import { buildResponsesPayload, mapResponsesUsage } from "../open-sse/translate/codecs/openai-responses";
 import type {
   Adapter,
@@ -187,7 +192,7 @@ export class CodexAdapter implements Adapter {
       if (!request.stream) return await readCodexNonStream(response, coordinator, request);
       if (!response.body) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Codex returned an empty stream body", routeScope: "provider" });
       streamHandedOff = true;
-      return { mode: "stream", events: mapSseStream({ body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs }, createResponsesMapper()) };
+      return { mode: "stream", events: mapSseStream({ body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs }, createOpenAIResponsesStreamMapper()) };
     } finally {
       if (!streamHandedOff) coordinator.dispose();
     }

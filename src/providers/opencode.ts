@@ -1,5 +1,8 @@
-import { ProviderAdapterError, capabilitiesOf, createModelCatalog, modelOf, toProviderCallError } from "../open-sse/transport/shared";
+import { ProviderAdapterError, toProviderCallError } from "../open-sse/transport/errors";
+import { capabilitiesOf, createModelCatalog, modelOf } from "../open-sse/transport/catalog";
 import { callChatCompletionsWire } from "../open-sse/transport/protocols/openai";
+import { createOpenAIAdapter } from "../open-sse/transport/openai-adapter";
+import type { OpenAIAdapterConfig } from "../open-sse/transport/contracts";
 import type {
   Adapter,
   ProviderCaps,
@@ -169,4 +172,26 @@ export class OpenCodeZenAdapter implements Adapter {
 }
 
 export const openCodeZenModelCatalog = OPENCODE_ZEN_MODELS;
+
+/** OpenCode Go is the bundled, API-key-authenticated OpenCode route. */
+export const opencodegoConfig = {
+  id: "opencodego",
+  displayName: "OpenCode Go",
+  baseUrl: "https://opencode.ai/zen/go/v1",
+  credentialKind: "api_key",
+  models: [
+    modelOf("grok-4.5", "Grok 4.5", capabilitiesOf({ surfaces: OPENCODE_SURFACES, reasoning: true })),
+    modelOf("glm-5.2", "GLM 5.2", capabilitiesOf({ surfaces: OPENCODE_SURFACES, reasoning: true })),
+    modelOf("kimi-k3", "Kimi K3", capabilitiesOf({ surfaces: OPENCODE_SURFACES, reasoning: true, images: true })),
+    modelOf("kimi-k2.7-code", "Kimi K2.7 Code", capabilitiesOf({ surfaces: OPENCODE_SURFACES, reasoning: true })),
+    modelOf("mimo-v2.5-pro", "MiMo V2.5 Pro", capabilitiesOf({ surfaces: OPENCODE_SURFACES, reasoning: true })),
+    modelOf("qwen3.7-max", "Qwen 3.7 Max", capabilitiesOf({ surfaces: OPENCODE_SURFACES, reasoning: true })),
+    modelOf("minimax-m3", "MiniMax M3", capabilitiesOf({ surfaces: OPENCODE_SURFACES, reasoning: true })),
+    modelOf("deepseek-v4-pro", "DeepSeek V4 Pro", capabilitiesOf({ surfaces: OPENCODE_SURFACES, reasoning: true })),
+    modelOf("deepseek-v4-flash", "DeepSeek V4 Flash", capabilitiesOf({ surfaces: OPENCODE_SURFACES, reasoning: true })),
+    modelOf("hy3", "HY3", capabilitiesOf({ surfaces: OPENCODE_SURFACES, reasoning: true })),
+  ],
+} as const satisfies OpenAIAdapterConfig;
+
+export const OpenCodeGoAdapter = createOpenAIAdapter(opencodegoConfig);
 

@@ -1,4 +1,5 @@
 import type { OAuthStartInput, OAuthStartResult } from "../contracts";
+import { assertPublicUrl, SsrfGuardError } from "../../../security/ssrf-guard";
 
 /**
  * Shared plumbing for provider OAuth drivers.
@@ -18,6 +19,7 @@ import type { OAuthStartInput, OAuthStartResult } from "../contracts";
 export const OAUTH_STATE_TTL_MS = 10 * 60_000;
 export const OAUTH_REFRESH_SKEW_MS = 5 * 60_000;
 const DEFAULT_TOKEN_TIMEOUT_MS = 30_000;
+const DEFAULT_OAUTH_RESPONSE_MAX_BYTES = 64 * 1024;
 
 /** Injectable fetch-compatible transport (mirrors the global `fetch` shape). */
 export type OAuthFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -26,6 +28,7 @@ export interface OAuthDriverOptions {
   readonly fetch?: OAuthFetch;
   readonly nowMs?: () => number;
   readonly timeoutMs?: number;
+  readonly maxBytes?: number;
 }
 
 /** Typed OAuth driver failure; `status` mirrors an HTTP status where applicable. */
@@ -33,15 +36,18 @@ export class OAuthDriverError extends Error {
   readonly kind: string;
   readonly status: number;
   readonly retryable: boolean;
+  readonly retryAt: string | null;
 
-  constructor(kind: string, message: string, status = 502, retryable = false) {
+  constructor(kind: string, message: string, status = 502, retryable = false, retryAt: string | null = null) {
     super(message);
     this.name = "OAuthDriverError";
     this.kind = kind;
     this.status = status;
     this.retryable = retryable;
+    this.retryAt = retryAt;
   }
 }
+
 
 export function nonEmpty(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -122,13 +128,24 @@ export function parseJsonRecord(value: unknown): Record<string, unknown> {
  * {@link OAuthDriverError}; 5xx / 408 / 429 are flagged retryable, matching
  * the legacy token keeper's error policy.
  */
+export interface OAuthHttpResult {
+  readonly ok: boolean;
+  readonly status: number;
+  readonly body: Record<string, unknown> | null;
+  readonly retryAt: string | null;
+}
+
 export class OAuthHttpClient {
   private readonly fetchFn: OAuthFetch;
   private readonly timeoutMs: number;
+  private readonly maxBytes: number;
+  private readonly nowMs: () => number;
 
   constructor(options: OAuthDriverOptions = {}) {
     this.fetchFn = options.fetch ?? fetch;
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TOKEN_TIMEOUT_MS;
+    this.timeoutMs = Math.max(1, options.timeoutMs ?? DEFAULT_TOKEN_TIMEOUT_MS);
+    this.maxBytes = Math.max(1, options.maxBytes ?? DEFAULT_OAUTH_RESPONSE_MAX_BYTES);
+    this.nowMs = options.nowMs ?? (() => Date.now());
   }
 
   async postForm(
@@ -155,53 +172,151 @@ export class OAuthHttpClient {
   ): Promise<Record<string, unknown>> {
     return this.send(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) }, provider, operation);
   }
+  /** POST form and preserve a bounded JSON error body for device-flow polling. */
+  async postFormResult(
+    url: string,
+    body: Record<string, string>,
+    provider: string,
+    operation: string,
+    headers: Record<string, string> = {},
+  ): Promise<OAuthHttpResult> {
+    return this.request(
+      url,
+      { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", ...headers }, body: new URLSearchParams(body).toString() },
+      provider,
+      operation,
+    );
+  }
+
+  /** POST JSON and preserve a bounded JSON error body for protocol-specific flows. */
+  async postJsonResult(
+    url: string,
+    body: Record<string, unknown>,
+    provider: string,
+    operation: string,
+    headers: Record<string, string> = {},
+  ): Promise<OAuthHttpResult> {
+    return this.request(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) }, provider, operation);
+  }
 
   /** GET that never throws on HTTP errors / network failure — for best-effort enrichment calls. */
   async tryGet(url: string, headers: Record<string, string>, _provider: string, _operation: string): Promise<{ ok: boolean; status: number; text: string }> {
     let response: Response;
     try {
-      response = await this.withTimeout(this.fetchFn(url, { headers }));
+      response = await this.fetchWithTimeout(url, { headers });
+      const text = await this.readBoundedText(response);
+      return text === null ? { ok: false, status: response.status, text: "" } : { ok: response.ok, status: response.status, text };
     } catch {
       return { ok: false, status: 0, text: "" };
     }
-    return { ok: response.ok, status: response.status, text: await response.text() };
   }
 
   private async send(url: string, init: RequestInit, provider: string, operation: string): Promise<Record<string, unknown>> {
+    const result = await this.request(url, init, provider, operation);
+    if (!result.ok) {
+      const retryable = result.status >= 500 || result.status === 408 || result.status === 429;
+      throw new OAuthDriverError(`${operation}-http`, `${provider} OAuth ${operation} failed with HTTP ${result.status}.`, result.status, retryable, result.retryAt);
+    }
+    if (result.body === null) throw new OAuthDriverError("malformed-response", `${provider} OAuth ${operation} returned invalid JSON.`, 502);
+    return result.body;
+  }
+
+  private async request(url: string, init: RequestInit, provider: string, operation: string): Promise<OAuthHttpResult> {
     let response: Response;
     try {
-      response = await this.withTimeout(this.fetchFn(url, init));
+      response = await this.fetchWithTimeout(url, init);
     } catch (error) {
       if (error instanceof OAuthDriverError) throw error;
-      throw new OAuthDriverError("timeout", `${provider} OAuth ${operation} timed out.`, 502, true);
+      throw new OAuthDriverError("network", `${provider} OAuth ${operation} network request failed.`, 503, true);
     }
-    const text = await response.text();
-    if (!response.ok) {
-      const retryable = response.status >= 500 || response.status === 408 || response.status === 429;
-      throw new OAuthDriverError(`${operation}-http`, `${provider} OAuth ${operation} failed with HTTP ${response.status}.`, response.status, retryable);
+    if (response.status >= 300 && response.status < 400) {
+      throw new OAuthDriverError("redirect", `${provider} OAuth ${operation} returned an unexpected redirect.`, 502, false);
     }
+    const contentType = response.headers.get("content-type");
+    if (!response.ok && !isJsonContentType(contentType)) {
+      return { ok: false, status: response.status, body: null, retryAt: parseRetryAfter(response.headers.get("retry-after"), this.nowMs()) };
+    }
+    if (!isJsonContentType(contentType)) {
+      throw new OAuthDriverError("content-type", `${provider} OAuth ${operation} returned an unexpected content type.`, 502, false);
+    }
+    const text = await this.readBoundedText(response);
+    if (text === null) {
+      if (!response.ok) return { ok: false, status: response.status, body: null, retryAt: parseRetryAfter(response.headers.get("retry-after"), this.nowMs()) };
+      throw new OAuthDriverError("response-too-large", `${provider} OAuth ${operation} response exceeded the size limit.`, 502, false);
+    }
+    let body: Record<string, unknown> | null = null;
     try {
-      return parseJsonRecord(JSON.parse(text) as unknown);
+      body = parseJsonRecord(JSON.parse(text) as unknown);
     } catch {
+      if (!response.ok) return { ok: false, status: response.status, body: null, retryAt: parseRetryAfter(response.headers.get("retry-after"), this.nowMs()) };
       throw new OAuthDriverError("malformed-response", `${provider} OAuth ${operation} returned invalid JSON.`, 502);
+    }
+    return { ok: response.ok, status: response.status, body, retryAt: parseRetryAfter(response.headers.get("retry-after"), this.nowMs()) };
+  }
+
+  private async fetchWithTimeout(input: string | URL | Request, init: RequestInit): Promise<Response> {
+    const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    try {
+      assertPublicUrl(rawUrl, { label: "OAuth URL", allowedProtocols: { "https:": true } });
+    } catch (error) {
+      if (error instanceof SsrfGuardError) throw new OAuthDriverError("validation", error.message, 400, false);
+      throw error;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      return await this.fetchFn(input, { ...init, redirect: "manual", signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted) throw new OAuthDriverError("timeout", "OAuth request timed out.", 502, true);
+      throw error;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
-  private withTimeout<T>(promise: Promise<T>): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new OAuthDriverError("timeout", "OAuth request timed out.", 502, true)), this.timeoutMs);
-      promise.then(
-        (value) => {
-          clearTimeout(timer);
-          resolve(value);
-        },
-        (error) => {
-          clearTimeout(timer);
-          reject(error);
-        },
-      );
-    });
+  private async readBoundedText(response: Response): Promise<string | null> {
+    const contentLength = Number(response.headers.get("content-length") ?? NaN);
+    if (Number.isFinite(contentLength) && contentLength > this.maxBytes) return null;
+    if (response.body === null) return null;
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value === undefined) continue;
+        totalBytes += value.byteLength;
+        if (totalBytes > this.maxBytes) {
+          await reader.cancel();
+          return null;
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const buffer = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      buffer.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(buffer);
   }
+}
+
+function isJsonContentType(contentType: string | null): boolean {
+  const normalized = contentType?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  return normalized === "application/json" || normalized.endsWith("+json");
+}
+
+function parseRetryAfter(value: string | null, nowMs: number): string | null {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return new Date(nowMs + Number(trimmed) * 1000).toISOString();
+  const parsed = Date.parse(trimmed);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 }
 
 /** Shared {@link OAuthStartResult} shaping and PKCE/state handling for authorization-code drivers. */

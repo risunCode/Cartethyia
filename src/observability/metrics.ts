@@ -35,7 +35,7 @@ export class MetricsCollector {
 
   /** Increment a counter by 1 (or by `value`). */
   incrementCounter(name: string, labels: MetricLabels = {}, value = 1): void {
-    const key = this.makeKey(name, labels);
+    const key = this.buildMetricKey(name, labels);
     const mergedLabels = { ...this.defaultLabels, ...labels };
     const existing = this.counters.get(key);
     if (existing) {
@@ -52,7 +52,7 @@ export class MetricsCollector {
 
   /** Record a value in a histogram (latency in ms, size in bytes, etc.). */
   recordHistogram(name: string, value: number, labels: MetricLabels = {}): void {
-    const key = this.makeKey(name, labels);
+    const key = this.buildMetricKey(name, labels);
     const mergedLabels = { ...this.defaultLabels, ...labels };
     const existing = this.histograms.get(key);
     const buckets = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000];
@@ -77,7 +77,7 @@ export class MetricsCollector {
 
   /** Set a gauge value. */
   setGauge(name: string, value: number, labels: MetricLabels = {}): void {
-    const key = this.makeKey(name, labels);
+    const key = this.buildMetricKey(name, labels);
     const mergedLabels = { ...this.defaultLabels, ...labels };
     const existing = this.gauges.get(key);
     if (existing) {
@@ -152,7 +152,7 @@ export class MetricsCollector {
     return { buckets: bucketMap, sum: value, count: 1, labels };
   }
 
-  private makeKey(name: string, labels: MetricLabels): string {
+  private buildMetricKey(name: string, labels: MetricLabels): string {
     const labelKeys = Object.keys(labels).sort();
     return name + "|" + labelKeys.map((k) => `${k}=${labels[k]}`).join(",");
   }

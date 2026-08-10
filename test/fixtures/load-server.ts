@@ -51,6 +51,8 @@ export interface LoadServerHandle {
   readonly limiter: SlidingWindowRateLimiter;
   /** Per-IP flight tracker (the shared process-global). */
   readonly flights: typeof activePerIpFlights;
+  /** Bytes retained by the optional leak-detection sink. */
+  readonly retainedBytes: () => number;
   /** Fully release all resources. Idempotent. */
   dispose(): void;
 }
@@ -212,6 +214,7 @@ export function startLoadServer(options: LoadServerOptions = {}): LoadServerHand
     server,
     limiter,
     flights,
+    retainedBytes: () => retained.length * retainBytes,
     dispose(): void {
       if (disposed) return;
       disposed = true;

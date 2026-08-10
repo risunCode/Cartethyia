@@ -14,6 +14,36 @@ This follow-up hardens the provider boundary for Claude Code, Codex, Exa, and Bl
 
 This follow-up completes the console HTTP composition split, separates proxy request lifecycle stages, and tightens the dashboard navigation and feature boundaries without changing the public API contract.
 
+### 2.0.0 Beta merge — 2026-08-10
+
+This merge closes the current 2.0 beta stage with native provider transports, completed runtime boundaries, dashboard share/customization surfaces, and security hardening.
+
+### Added
+
+- **Devin provider**: native Codeium Cascade protobuf streaming with vendored generated bindings, tool-call translation, usage mapping, and API-key/JWT credential support.
+- **Cursor provider**: native Cursor Agent Connect/HTTP/2 protobuf transport with streamed text, thinking, token usage, and session lifecycle handling.
+- **Dashboard surfaces**: share and landing pages, public share-data hooks, reusable custom outbound-header editing, and MP4/video background validation.
+- **Transport modules**: explicit abort coordination, bounded body reads, SSE decoding, stream mapping, upstream errors, fetch helpers, and protocol adapter contracts under `src/open-sse/transport/`.
+
+### Security and reliability
+
+- **SSRF protection**: dispatch-time DNS resolution checks, private/link-local/metadata blocking, and validation on every redirect hop for user-supplied URLs.
+- **Response policy**: common security headers, CSP, HSTS, no-store handling, and secure response wrapping across API, console, static, and error paths.
+- **OAuth hardening**: shared callback-server lifecycle, strict callback state/path handling, device polling limits, and sanitized HTTP/error handling.
+- **Container hardening**: required production secrets, restrictive data-directory permissions, read-only Docker runtime, `no-new-privileges`, and a hardened temporary filesystem.
+
+### Changed
+
+- **Runtime boundaries**: auth, request preparation/route attempts, console composition, provider registration, and storage repositories now use the grouped source layout without legacy facades.
+- **Provider cleanup**: stale OpenCode Go and shared transport modules were removed; provider catalogs and registry wiring now use the canonical adapter contracts.
+
+### Verification
+
+- `bunx tsc --noEmit` — clean.
+- `bun run test` — 403 passing.
+- `dashboard`: `bun run test:ci` — 180 passing, typecheck clean, production build clean.
+- `bun run build` — native backend binary compiled successfully.
+
 ### Changed
 
 - **Console route composition**: authentication, providers, accounts/OAuth, API keys, proxies, routing policies, settings/backup, diagnostics, telemetry, streams, and Model Studio routes now register through explicit domain modules under `src/console/api/`.

@@ -1,6 +1,7 @@
-import { capabilitiesOf, modelOf, type OpenAIAdapterConfig } from "../open-sse/transport/shared";
+import { capabilitiesOf, modelOf } from "../open-sse/transport/catalog";
+import type { OpenAIAdapterConfig } from "../open-sse/transport/contracts";
 
-const NATIVE_SURFACES = ["openai-chat"] as const;
+const OPENAI_CHAT_SURFACES = ["openai-chat"] as const;
 
 export const simpleOpenAIConfigs: readonly OpenAIAdapterConfig[] = [
   {
@@ -36,8 +37,8 @@ export const simpleOpenAIConfigs: readonly OpenAIAdapterConfig[] = [
     baseUrl: "https://api.deepseek.com/v1",
     credentialKind: "api_key",
     models: [
-      modelOf("deepseek-chat", "DeepSeek V3", capabilitiesOf({ surfaces: NATIVE_SURFACES })),
-      modelOf("deepseek-reasoner", "DeepSeek R1", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, toolCalls: false })),
+      modelOf("deepseek-chat", "DeepSeek V3", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES })),
+      modelOf("deepseek-reasoner", "DeepSeek R1", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true, toolCalls: false })),
     ],
   },
   {
@@ -46,8 +47,8 @@ export const simpleOpenAIConfigs: readonly OpenAIAdapterConfig[] = [
     baseUrl: "https://api.mistral.ai/v1",
     credentialKind: "api_key",
     models: [
-      modelOf("mistral-large-latest", "Mistral Large", capabilitiesOf({ surfaces: NATIVE_SURFACES })),
-      modelOf("mistral-small-latest", "Mistral Small", capabilitiesOf({ surfaces: NATIVE_SURFACES })),
+      modelOf("mistral-large-latest", "Mistral Large", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES })),
+      modelOf("mistral-small-latest", "Mistral Small", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES })),
     ],
   },
   {
@@ -56,9 +57,9 @@ export const simpleOpenAIConfigs: readonly OpenAIAdapterConfig[] = [
     baseUrl: "https://api.siliconflow.cn/v1",
     credentialKind: "api_key",
     models: [
-      modelOf("deepseek-ai/DeepSeek-V3", "DeepSeek V3", capabilitiesOf({ surfaces: NATIVE_SURFACES })),
-      modelOf("deepseek-ai/DeepSeek-R1", "DeepSeek R1", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, toolCalls: false })),
-      modelOf("Qwen/Qwen3-235B-A22B-Thinking", "Qwen3 Thinking", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
+      modelOf("deepseek-ai/DeepSeek-V3", "DeepSeek V3", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES })),
+      modelOf("deepseek-ai/DeepSeek-R1", "DeepSeek R1", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true, toolCalls: false })),
+      modelOf("Qwen/Qwen3-235B-A22B-Thinking", "Qwen3 Thinking", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true })),
     ],
   },
   {
@@ -67,8 +68,8 @@ export const simpleOpenAIConfigs: readonly OpenAIAdapterConfig[] = [
     baseUrl: "https://api.cerebras.ai/v1",
     credentialKind: "api_key",
     models: [
-      modelOf("llama-3.3-70b", "Llama 3.3 70B", capabilitiesOf({ surfaces: NATIVE_SURFACES })),
-      modelOf("llama-4-scout-17b-16e-instruct", "Llama 4 Scout", capabilitiesOf({ surfaces: NATIVE_SURFACES })),
+      modelOf("llama-3.3-70b", "Llama 3.3 70B", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES })),
+      modelOf("llama-4-scout-17b-16e-instruct", "Llama 4 Scout", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES })),
     ],
   },
   {
@@ -77,8 +78,8 @@ export const simpleOpenAIConfigs: readonly OpenAIAdapterConfig[] = [
     baseUrl: "https://integrate.api.nvidia.com/v1",
     credentialKind: "api_key",
     models: [
-      modelOf("nvidia/llama-3.1-nemotron-ultra-253b-v1", "Nemotron Ultra 253B", capabilitiesOf({ surfaces: NATIVE_SURFACES })),
-      modelOf("deepseek-ai/deepseek-r1", "DeepSeek R1", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, toolCalls: false })),
+      modelOf("nvidia/llama-3.1-nemotron-ultra-253b-v1", "Nemotron Ultra 253B", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES })),
+      modelOf("deepseek-ai/deepseek-r1", "DeepSeek R1", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true, toolCalls: false })),
     ],
   },
   {
@@ -87,8 +88,8 @@ export const simpleOpenAIConfigs: readonly OpenAIAdapterConfig[] = [
     baseUrl: "https://api.xiaomimimo.com/v1",
     credentialKind: "api_key",
     models: [
-      modelOf("mimo-v2.5-pro", "MiMo V2.5 Pro", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
-      modelOf("mimo-v2.5", "MiMo V2.5", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
+      modelOf("mimo-v2.5-pro", "MiMo V2.5 Pro", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true })),
+      modelOf("mimo-v2.5", "MiMo V2.5", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true, images: true })),
     ],
   },
   {
@@ -97,8 +98,8 @@ export const simpleOpenAIConfigs: readonly OpenAIAdapterConfig[] = [
     baseUrl: "https://token-plan-sgp.xiaomimimo.com/v1",
     credentialKind: "api_key",
     models: [
-      modelOf("mimo-v2.5-pro", "MiMo V2.5 Pro", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
-      modelOf("mimo-v2.5", "MiMo V2.5", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true, images: true })),
+      modelOf("mimo-v2.5-pro", "MiMo V2.5 Pro", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true })),
+      modelOf("mimo-v2.5", "MiMo V2.5", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true, images: true })),
     ],
   },
 ];

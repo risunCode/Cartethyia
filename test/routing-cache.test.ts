@@ -5,7 +5,7 @@ import { catalogRevision } from "../src/middleware/proxy";
 import { createRouteSnapshotCache } from "../src/application/routing-snapshot";
 import type { ConfigPersistence } from "../src/storage";
 import { ProviderRegistry } from "../src/providers/registry";
-import { describeOpenAIAdapter, makeOpenAIAdapter } from "../src/open-sse/transport/shared";
+import { describeOpenAIAdapter, createOpenAIAdapter } from "../src/open-sse/transport/openai-adapter";
 
 function sources(readRevision: () => number, aliases: () => readonly unknown[]) {
   const config = {
@@ -103,7 +103,7 @@ describe("lazy provider adapters", () => {
 
     registry.registerLazy(describeOpenAIAdapter(config), async () => {
       loads += 1;
-      return makeOpenAIAdapter(config);
+      return createOpenAIAdapter(config);
     });
 
     expect(loads).toBe(0);

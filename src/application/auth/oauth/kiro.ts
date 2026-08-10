@@ -1,5 +1,5 @@
 import type { AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
-import { OAuthDriverError, OAuthHttpClient, type OAuthDriverOptions, type OAuthFetch } from "./base";
+import { OAuthDriverError, OAuthHttpClient, type OAuthDriverOptions } from "./base";
 
 /**
  * Kiro OAuth driver — AWS IAM Identity Center device authorization flow.
@@ -25,7 +25,6 @@ const KIRO_SCOPES: readonly string[] = ["codewhisperer:completions", "codewhispe
 const KIRO_ISSUER = "https://identitycenter.amazonaws.com/ssoins-722374e8c3c8e6c6";
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 const DESKTOP_REFRESH_URL = "https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken";
-const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_SESSIONS = 10_000;
 const DEFAULT_EXPIRES_IN_SECONDS = 600;
 const DEFAULT_INTERVAL_SECONDS = 5;
@@ -148,15 +147,6 @@ function numberField(record: Record<string, unknown>, key: string): number | und
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function parseOptionalJson(text: string): Record<string, unknown> {
-  if (text.length === 0) return {};
-  try {
-    const parsed: unknown = JSON.parse(text);
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
-}
 
 interface KiroDeviceSession {
   readonly id: string;
@@ -183,9 +173,7 @@ export class KiroOAuthDriver implements AuthDriver {
   readonly kind = "oauth" as const;
 
   private readonly http: OAuthHttpClient;
-  private readonly fetchFn: OAuthFetch;
   private readonly nowMs: () => number;
-  private readonly timeoutMs: number;
   private readonly defaultRegion: string;
   private readonly defaultStartUrl: string;
   private readonly defaultAuthMethod: string;
@@ -194,9 +182,7 @@ export class KiroOAuthDriver implements AuthDriver {
 
   constructor(options: KiroOAuthDriverOptions = {}) {
     this.http = new OAuthHttpClient(options);
-    this.fetchFn = options.fetch ?? fetch;
     this.nowMs = options.nowMs ?? (() => Date.now());
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.defaultRegion = (options.defaultRegion?.trim() || DEFAULT_REGION).toLowerCase();
     this.defaultStartUrl = options.defaultStartUrl?.trim() || DEFAULT_START_URL;
     this.defaultAuthMethod = options.defaultAuthMethod?.trim() || DEFAULT_AUTH_METHOD;
@@ -381,20 +367,19 @@ export class KiroOAuthDriver implements AuthDriver {
    * legacy token keeper) and throws on any other upstream failure.
    */
   private async postDeviceToken(session: KiroDeviceSession): Promise<Record<string, unknown> | null> {
-    const response = await this.withTimeout(
-      this.fetchFn(`https://oidc.${session.region}.amazonaws.com/token`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ clientId: session.clientId, clientSecret: session.clientSecret, deviceCode: session.deviceCode, grantType: DEVICE_GRANT_TYPE }),
-      }),
+    const result = await this.http.postJsonResult(
+      `https://oidc.${session.region}.amazonaws.com/token`,
+      { clientId: session.clientId, clientSecret: session.clientSecret, deviceCode: session.deviceCode, grantType: DEVICE_GRANT_TYPE },
+      "kiro",
+      "device authorization",
     );
-    const result = parseOptionalJson(await response.text());
-    if (!response.ok) {
-      const error = stringField(result, "error");
-      if (response.status === 400 && (error === "authorization_pending" || error === "slow_down" || error === undefined)) return null;
-      throw new OAuthDriverError("device-auth", `Kiro device authorization failed (${response.status}).`, response.status, false);
+    const body = result.body ?? {};
+    if (!result.ok) {
+      const error = stringField(body, "error");
+      if (result.status === 400 && (error === "authorization_pending" || error === "slow_down" || error === undefined)) return null;
+      throw new OAuthDriverError("device-auth", `Kiro device authorization failed (${result.status}).`, result.status, false, result.retryAt);
     }
-    return result;
+    return body;
   }
 
   private toDeviceTokenSet(session: KiroDeviceSession, accessToken: string, refreshToken: string, data: Record<string, unknown>): KiroDeviceTokenSet {
@@ -411,21 +396,6 @@ export class KiroOAuthDriver implements AuthDriver {
     };
   }
 
-  private withTimeout<T>(promise: Promise<T>): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new OAuthDriverError("timeout", "Kiro OAuth request timed out.", 502, true)), this.timeoutMs);
-      promise.then(
-        (value) => {
-          clearTimeout(timer);
-          resolve(value);
-        },
-        (error) => {
-          clearTimeout(timer);
-          reject(error);
-        },
-      );
-    });
-  }
 
   private putSession(session: KiroDeviceSession): void {
     const now = this.nowMs();

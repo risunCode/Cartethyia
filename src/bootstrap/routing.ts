@@ -7,7 +7,7 @@ import { resolveCliModelMapping } from "../application/cli-model-mapping";
 import { resolveModelChain } from "../application/routing";
 import type { RouteSnapshotCache } from "../application/routing-snapshot";
 import { createRouteSnapshotCache } from "../application/routing-snapshot";
-import { resolveWireSurface } from "../open-sse/translate";
+import { resolveModelWireSurface, resolveWireSurface } from "../open-sse/translate";
 import { syncCustomAdapters } from "../providers/custom";
 import { ProviderRegistry } from "../providers/registry";
 import type { AccountRepository, AliasRepository, CliModelMappingRepository, ComboRepository, ConfigPersistence, CustomProviderRepository, ProxyRepository } from "../storage";
@@ -89,7 +89,7 @@ async function listAccountCandidates(cache: RouteSnapshotCache, health: AccountH
 }
 
 
-function isClaudeWebSearchHelper(request: ProxyRequest): boolean {
+function isClaudeWebSearchRequest(request: ProxyRequest): boolean {
   if (request.sourceSurface !== "anthropic-messages" || !request.tools.some((tool) => tool.name === "web_search")) return false;
   const systemText = request.messages
     .filter((message) => message.role === "system" || message.role === "developer")
@@ -115,7 +115,7 @@ function createRouteResolver(
 ): (request: ProxyRequest, affinity: AffinityKey, client: ClientIdentity) => Promise<ProxyRoutePlan> {
   return async (request, affinity, client) => {
     const snapshot = await cache.get();
-    if (isClaudeWebSearchHelper(request)) {
+    if (isClaudeWebSearchRequest(request)) {
       const adapter = registry.get("exa");
       if (adapter !== null && resolveWireSurface(adapter.metadata, adapter.capabilities, request.sourceSurface) !== null) {
         return {
@@ -148,8 +148,9 @@ function createRouteResolver(
       // DB-stored fetched/custom models supplement the adapter catalog so
       // they pass the gate without a server restart.
       const dbKnown = snapshot.knownModelIds.get(target.providerId);
-      const known = adapter.models.list.length === 0 || adapter.models.get(target.modelId) !== null || (dbKnown !== undefined && dbKnown.has(target.modelId));
-      if (!known || resolveWireSurface(adapter.metadata, adapter.capabilities, request.sourceSurface) === null) continue;
+      const model = adapter.models.get(target.modelId);
+      const known = adapter.models.list.length === 0 || model !== null || (dbKnown !== undefined && dbKnown.has(target.modelId));
+      if (!known || resolveModelWireSurface(adapter.metadata, adapter.capabilities, model?.capabilities ?? null, request.sourceSurface) === null) continue;
       candidates.push({
         id: `${target.providerId}/${target.modelId}`,
         providerId: target.providerId,
@@ -167,9 +168,10 @@ function createRouteResolver(
     // model id (e.g. "blackbox-pro") without a provider prefix.
     if (candidates.length === 0 && chain.kind === "unresolved") {
       for (const adapter of registry.list()) {
-        if (resolveWireSurface(adapter.metadata, adapter.capabilities, routedRequest.sourceSurface) === null) continue;
+        const model = adapter.models.get(routedRequest.model);
+        if (resolveModelWireSurface(adapter.metadata, adapter.capabilities, model?.capabilities ?? null, routedRequest.sourceSurface) === null) continue;
         const dbKnown = snapshot.knownModelIds.get(adapter.metadata.id);
-        const known = adapter.models.get(routedRequest.model) !== null || (dbKnown !== undefined && dbKnown.has(routedRequest.model));
+        const known = model !== null || (dbKnown !== undefined && dbKnown.has(routedRequest.model));
         if (!known) continue;
         candidates.push({
           id: `${adapter.metadata.id}/${routedRequest.model}`,

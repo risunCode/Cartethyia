@@ -1,5 +1,6 @@
 import type { ContentBlock, NormalizedMessage, ProxyRequest } from "../../application/contracts";
 import { isRecord } from "../../application/protocols";
+import { assertPublicUrlAtDispatch, fetchWithSsrfGuard } from "../../security/ssrf-guard";
 const MIN_HEADROOM_TEXT = 500;
 const MAX_HEADROOM_RESPONSE_BYTES = 4 * 1024 * 1024;
 
@@ -132,6 +133,14 @@ export async function compressWithHeadroom(request: ProxyRequest, config: Headro
   if (config.url === null) return initialOutcome(request, "missing_url");
   const endpoint = endpointFor(config.url);
   if (endpoint === null) return initialOutcome(request, "invalid_url");
+  const allowedProtocols: Readonly<Record<string, true>> = Bun.env.NODE_ENV === "development" || Bun.env.NODE_ENV === "test" ? { "http:": true, "https:": true } : { "https:": true };
+  const parsedEndpoint = new URL(endpoint);
+  const localTestEndpoint = Bun.env.NODE_ENV === "test" && (parsedEndpoint.hostname === "127.0.0.1" || parsedEndpoint.hostname === "localhost" || parsedEndpoint.hostname === "::1");
+  try {
+    if (!localTestEndpoint) await assertPublicUrlAtDispatch(endpoint, { label: "Headroom URL", allowedProtocols });
+  } catch {
+    return initialOutcome(request, "blocked_url");
+  }
   const projection = buildProjection(request.messages, config.compressUserMessages);
   if (projection.messages.length === 0) return initialOutcome(request, "no_compressible_messages");
 
@@ -142,12 +151,16 @@ export async function compressWithHeadroom(request: ProxyRequest, config: Headro
   try {
     const payload: Record<string, unknown> = { messages: projection.messages, model: request.model };
     if (config.compressUserMessages) payload.config = { compress_user_messages: true };
-    const response = await fetch(endpoint, {
+    const requestInit: RequestInit = {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
       body: JSON.stringify(payload),
       signal: controller.signal,
-    });
+      redirect: "manual",
+    };
+    const response = localTestEndpoint
+      ? await fetch(endpoint, requestInit)
+      : await fetchWithSsrfGuard(endpoint, requestInit, { maxRedirects: 2 });
     if (!response.ok) return initialOutcome(request, `http_${response.status}`);
     const contentLength = Number(response.headers.get("content-length") ?? "0");
     if (Number.isFinite(contentLength) && contentLength > MAX_HEADROOM_RESPONSE_BYTES) return initialOutcome(request, "response_too_large");

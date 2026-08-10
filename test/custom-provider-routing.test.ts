@@ -96,4 +96,20 @@ describe("custom provider BYOK routing", () => {
     });
     expect(adapter.resolveTarget("z-ai/glm-5.2", "openai-chat").upstreamModelId).toBe("z-ai/glm-5.2");
   });
+  test("rejects private custom provider targets before persistence", async () => {
+    const customProviders = {
+      list: async () => [],
+      create: async () => customProviderView(),
+    } as unknown as CustomProviderRepository;
+    const service = new ProviderService(new ProviderRegistry(), {} as ProviderConfigRepository, customProviders, {} as AccountRepository);
+
+    const result = await service.createCustom({
+      name: "Private",
+      slug: "private-target",
+      kind: "openai-compatible",
+      baseUrl: "http://127.0.0.1:8080/v1",
+    });
+
+    expect(result).toMatchObject({ ok: false, status: 400, code: "invalid_request" });
+  });
 });

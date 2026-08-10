@@ -1,17 +1,12 @@
-import { AbortCoordinator,
-ProviderAdapterError,
-aggregateCapabilities,
-capabilitiesOf,
-createModelCatalog,
-executeFetch,
-lineLimit,
-mapSseStream,
-modelOf,
-readJsonObject,
-readUpstreamError,
-toProviderCallError, } from "../open-sse/transport/shared";
+import { AbortCoordinator } from "../open-sse/transport/abort-coordinator";
+import { ProviderAdapterError, readUpstreamError, toProviderCallError } from "../open-sse/transport/errors";
+import { aggregateCapabilities, capabilitiesOf, createModelCatalog, modelOf } from "../open-sse/transport/catalog";
+import { executeFetch } from "../open-sse/transport/fetch";
+import { lineLimit } from "../open-sse/transport/sse-decoder";
+import { mapSseStream } from "../open-sse/transport/stream-mapper";
+import { readJsonObject } from "../open-sse/transport/body-reader";
+import type { SseEvent, StreamMapper } from "../open-sse/transport/contracts";
 import { isRecord } from "../application/protocols";
-import type { SseEvent, StreamMapper } from "../open-sse/transport/shared";
 import type {
   Adapter,
   ProviderCaps,
@@ -162,13 +157,13 @@ export class ExaAdapter implements Adapter {
       });
     }
     const { request, signal, network } = input;
-    const helperRequest = isClaudeWebSearchRequest(request);
-    const stream = request.stream && !helperRequest;
+    const claudeWebSearchRequest = isClaudeWebSearchRequest(request);
+    const stream = request.stream && !claudeWebSearchRequest;
     const messages = request.messages;
     const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
     const rawQuery = lastUserMessage ? lastUserMessage.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n") : "";
-    const helperQuery = /^Perform a web search for the query:\s*(.+)$/is.exec(rawQuery.trim())?.[1];
-    const query = (helperQuery ?? rawQuery).trim();
+    const searchQueryMatch = /^Perform a web search for the query:\s*(.+)$/is.exec(rawQuery.trim())?.[1];
+    const query = (searchQueryMatch ?? rawQuery).trim();
 
     if (!query) {
       throw new ProviderAdapterError({

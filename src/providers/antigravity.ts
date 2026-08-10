@@ -1,16 +1,12 @@
-import { AbortCoordinator,
-ProviderAdapterError,
-capabilitiesOf,
-createModelCatalog,
-executeFetch,
-lineLimit,
-mapSseStream,
-modelOf,
-readUpstreamError,
-toProviderCallError, } from "../open-sse/transport/shared";
+import { AbortCoordinator } from "../open-sse/transport/abort-coordinator";
+import { ProviderAdapterError, readUpstreamError, toProviderCallError } from "../open-sse/transport/errors";
+import { capabilitiesOf, createModelCatalog, modelOf } from "../open-sse/transport/catalog";
+import { executeFetch } from "../open-sse/transport/fetch";
+import { lineLimit } from "../open-sse/transport/sse-decoder";
+import { mapSseStream } from "../open-sse/transport/stream-mapper";
+import type { SseEvent } from "../open-sse/transport/contracts";
 import { isRecord } from "../application/protocols";
-import type { SseEvent } from "../open-sse/transport/shared";
-import { createGeminiMapper } from "../open-sse/transport/protocols/gemini";
+import { createGeminiGenerateContentStreamMapper } from "../open-sse/transport/protocols/gemini";
 import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../open-sse/translate/codecs/gemini-generate-content";
 import type {
   ProxyRequest,
@@ -378,7 +374,7 @@ export class AntigravityAdapter implements Adapter {
       if (!response.body) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Antigravity returned an empty stream body", routeScope: "provider" });
       // The Antigravity transport only exposes the streaming endpoint; a
       // non-stream request drains the SSE frames and folds them into one body.
-      const mapper = createGeminiMapper();
+      const mapper = createGeminiGenerateContentStreamMapper();
       const events = mapSseStream(
         { body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs },
         (sse) => mapper(normalizeAntigravityFrame(sse)),

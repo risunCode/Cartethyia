@@ -1,6 +1,6 @@
 import type { ConsoleErrorCode, SettingsRepository } from "../views";
 import type { LoginLimiter } from "../session";
-import { hashConsolePassword, MemoryLoginLimiter, signSessionToken, verifyConsolePassword } from "../session";
+import { configuredPublicOrigin, hashConsolePassword, MemoryLoginLimiter, signSessionToken, verifyConsolePassword } from "../session";
 
 export interface LoginResult {
   readonly ok: boolean;
@@ -30,7 +30,7 @@ export class AuthService {
   // `password_version`. Re-reading the full snapshot (SQLite row + JSON parse
   // + bootstrap password/JWT rotation checks) on every authenticated console
   // request is wasteful when nothing changed — the guard runs on every hit.
-  private cachedGuard: { readonly key: string; readonly result: { readonly jwtSecret: string; readonly passwordVersion: number; readonly trustProxy: boolean } } | null = null;
+  private cachedGuard: { readonly key: string; readonly result: { readonly jwtSecret: string; readonly passwordVersion: number; readonly trustProxy: boolean; readonly publicOrigin: string | null } } | null = null;
 
   constructor(
     private readonly settings: SettingsRepository,
@@ -66,11 +66,11 @@ export class AuthService {
   }
 
   /** Guard inputs: never returns the password hash, only what the guard needs. */
-  async guardOptions(): Promise<{ readonly jwtSecret: string; readonly passwordVersion: number; readonly trustProxy: boolean }> {
+  async guardOptions(): Promise<{ readonly jwtSecret: string; readonly passwordVersion: number; readonly trustProxy: boolean; readonly publicOrigin: string | null }> {
     const snapshot = await this.settings.get();
     const key = `${snapshot.updatedAt}:${snapshot.passwordVersion}`;
     if (this.cachedGuard !== null && this.cachedGuard.key === key) return this.cachedGuard.result;
-    const result = { jwtSecret: snapshot.jwtSecret, passwordVersion: snapshot.passwordVersion, trustProxy: snapshot.runtime.trustProxy };
+    const result = { jwtSecret: snapshot.jwtSecret, passwordVersion: snapshot.passwordVersion, trustProxy: snapshot.runtime.trustProxy, publicOrigin: configuredPublicOrigin() };
     this.cachedGuard = { key, result };
     return result;
   }

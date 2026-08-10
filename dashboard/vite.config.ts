@@ -2,7 +2,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-
 export default defineConfig({
   base: "/console/",
   plugins: [react(), tailwindcss()],
@@ -26,6 +25,11 @@ export default defineConfig({
     sourcemap: false,
     chunkSizeWarningLimit: 900,
     rollupOptions: {
+      input: {
+        console: "index.html",
+        landing: "landing.html",
+        share: "share.html",
+      },
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;

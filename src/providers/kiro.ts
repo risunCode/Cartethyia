@@ -1,6 +1,9 @@
-import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, modelOf, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { AbortCoordinator } from "../open-sse/transport/abort-coordinator";
+import { ProviderAdapterError, readUpstreamError, toProviderCallError } from "../open-sse/transport/errors";
+import { capabilitiesOf, createModelCatalog, modelOf } from "../open-sse/transport/catalog";
+import { executeFetch } from "../open-sse/transport/fetch";
 import { isRecord, messageText } from "../application/protocols";
-import type { CapabilitySeed } from "../open-sse/transport/shared";
+import type { CapabilitySeed } from "../open-sse/transport/contracts";
 import { parseKiroCredential } from "../application/auth/oauth/kiro";
 import type {
   ProxyRequest,

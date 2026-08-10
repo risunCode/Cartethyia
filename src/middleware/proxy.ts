@@ -18,10 +18,19 @@ export interface CachedAcl {
   readonly modelDenylist: readonly string[] | null;
 }
 
+export function hasConflictingCredentials(request: Request): boolean {
+  return request.headers.get("authorization") !== null && request.headers.get("x-api-key") !== null;
+}
+
 export function requestToken(request: Request): string | null {
   const bearer = request.headers.get("authorization");
-  if (bearer?.toLowerCase().startsWith("bearer ")) return bearer.slice(7).trim() || null;
-  return request.headers.get("x-api-key");
+  const apiKey = request.headers.get("x-api-key");
+  if (hasConflictingCredentials(request)) return null;
+  if (bearer !== null) {
+    if (!bearer.toLowerCase().startsWith("bearer ")) return null;
+    return bearer.slice(7).trim() || null;
+  }
+  return apiKey?.trim() || null;
 }
 
 function splitAcl(value: string | null): readonly string[] | null {

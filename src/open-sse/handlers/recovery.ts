@@ -299,9 +299,9 @@ async function* recoverableEvents(initial: AsyncIterable<StreamEvent>, options: 
         } catch (error) {
           failure = toProviderCallError(error, options.mapError);
         }
+        await options.onFailure?.(failure, index);
         const retryable = index < maxAttempts && !lifecycle.meaningfulOutput && !lifecycle.terminalSeen && options.shouldRetry(failure) && !signal.aborted;
         if (!retryable) throw failure;
-        await options.onFailure?.(failure, index);
         index++;
         await options.waitBeforeRetry(failure, index, signal);
       }
@@ -310,9 +310,9 @@ async function* recoverableEvents(initial: AsyncIterable<StreamEvent>, options: 
         output = await attempt(index);
       } catch (error) {
         const failure = toProviderCallError(error, options.mapError);
+        await options.onFailure?.(failure, index);
         const retryable = index < maxAttempts && !lifecycle.meaningfulOutput && !lifecycle.terminalSeen && options.shouldRetry(failure) && !signal.aborted;
         if (!retryable) throw failure;
-        await options.onFailure?.(failure, index);
         index++;
         await options.waitBeforeRetry(failure, index, signal);
         continue;

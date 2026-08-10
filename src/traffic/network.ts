@@ -270,7 +270,7 @@ export class NetworkSelector {
 }
 
 export function networkUnavailableError(providerId: string, retryAt: string | null = null): ProviderCallError {
-  return makeProviderError("network_unavailable", `No outbound network path available for provider ${providerId}`, {
+  return createProviderError("network_unavailable", `No outbound network path available for provider ${providerId}`, {
     retryable: true,
     routeScope: "proxy",
     retryAt,
@@ -449,7 +449,7 @@ export interface ProviderErrorOptions {
 }
 
 /** Builds an application-typed ProviderCallError with a sanitized message (no secrets). */
-export function makeProviderError(kind: ApplicationErrorKind, message: string, options: ProviderErrorOptions = {}): ProviderCallError {
+export function createProviderError(kind: ApplicationErrorKind, message: string, options: ProviderErrorOptions = {}): ProviderCallError {
   return {
     statusCode: options.statusCode ?? null,
     kind,

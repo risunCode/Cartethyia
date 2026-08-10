@@ -17,25 +17,59 @@ export class ApiError extends Error {
 }
 
 let onUnauthorized: (() => void) | null = null;
+let csrfToken: string | null = null;
+let csrfRequest: Promise<string> | null = null;
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS", "QUERY"]);
+const CSRF_HEADER = "x-cartethyia-csrf";
 
 export function setUnauthorizedHandler(handler: () => void): void {
   onUnauthorized = handler;
 }
 
+async function loadCsrfToken(): Promise<string> {
+  if (csrfToken !== null) return csrfToken;
+  if (csrfRequest !== null) return csrfRequest;
+  csrfRequest = (async () => {
+    const response = await fetch("/console/api/csrf", {
+      method: "QUERY",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    if (!response.ok) throw new ApiError(response.status, "unauthorized", "console CSRF bootstrap failed");
+    const body = (await response.json()) as { csrfToken?: unknown };
+    if (typeof body.csrfToken !== "string" || body.csrfToken.length === 0) throw new ApiError(500, "internal_error", "console CSRF bootstrap returned an invalid token");
+    csrfToken = body.csrfToken;
+    return body.csrfToken;
+  })();
+  try {
+    return await csrfRequest;
+  } finally {
+    csrfRequest = null;
+  }
+}
+
+function clearCsrfToken(): void {
+  csrfToken = null;
+  csrfRequest = null;
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = init.method ?? "QUERY";
   const body = init.body ?? (method === "QUERY" ? "{}" : undefined);
+  const headers = new Headers(init.headers);
+  if (body !== undefined && !headers.has("content-type")) headers.set("content-type", "application/json");
+  if (!SAFE_METHODS.has(method) && path !== "/login") headers.set(CSRF_HEADER, await loadCsrfToken());
   const res = await fetch(`/console/api${path}`, {
     credentials: "same-origin",
     ...init,
     method,
     body,
-    headers: {
-      ...(body !== undefined ? { "content-type": "application/json" } : {}),
-      ...(init.headers ?? {}),
-    },
+    headers,
   });
   if (res.status === 401 && path !== "/login") {
+    clearCsrfToken();
     onUnauthorized?.();
     throw new ApiError(401, "unauthorized", "session expired");
   }

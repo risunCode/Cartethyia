@@ -18,6 +18,7 @@ import { afterAll, describe, expect, mock, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+const REPO_ROOT = join(import.meta.dir, "..");
 import type { WarpAccount, WarpAccountCreateData } from "../src/console/warp/types";
 import type { WarpMetricRow, WarpMetricsRepository, WarpMetricsSummary, RuntimePersistence } from "../src/storage/runtime/runtime";
 
@@ -54,7 +55,7 @@ function resetFakes(): void {
   clearedPids.clear();
 }
 
-mock.module(join(process.cwd(), "src", "console", "warp", "wireproxy.ts"), () => ({
+mock.module(join(REPO_ROOT, "src", "console", "warp", "wireproxy.ts"), () => ({
   startWireProxy: mock(async (_accountId: string, config: { socksPort: number }) => {
     if (startShouldFail) throw new Error("wireproxy start failed (injected)");
     const pid = ++nextPid;
@@ -75,7 +76,7 @@ mock.module(join(process.cwd(), "src", "console", "warp", "wireproxy.ts"), () =>
   destroyHealthAgent: mock(() => {}),
 }));
 
-mock.module(join(process.cwd(), "src", "console", "warp", "wireproxy-metrics.ts"), () => ({
+mock.module(join(REPO_ROOT, "src", "console", "warp", "wireproxy-metrics.ts"), () => ({
   readProcessMetrics: mock(async (pid: number) => {
     if (pid <= 0) return { rssKb: 0, rxBytes: 0, txBytes: 0 };
     return { rssKb: 4_096, rxBytes: 1_024, txBytes: 2_048 };

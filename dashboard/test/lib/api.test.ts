@@ -28,17 +28,25 @@ describe("dashboard API client", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     await apiGet("/usage/requests?limit=25&cursor=next");
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(fetchMock).toHaveBeenCalledWith("/console/api/usage/requests?limit=25&cursor=next", expect.objectContaining({
       method: "QUERY",
       body: JSON.stringify({ limit: "25", cursor: "next" }),
-      headers: { "content-type": "application/json" },
+      credentials: "same-origin",
     }));
+    expect(new Headers(init.headers).get("content-type")).toBe("application/json");
   });
 
-  test("sends JSON content type for destructive mutations", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+  test("sends JSON content type and CSRF protection for destructive mutations", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ csrfToken: "csrf-test-token" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     await apiDelete("/console-logs");
-    expect(fetchMock).toHaveBeenCalledWith("/console/api/console-logs", expect.objectContaining({ method: "DELETE", body: "{}", headers: { "content-type": "application/json" } }));
+    const [, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/console/api/console-logs", expect.objectContaining({ method: "DELETE", body: "{}", credentials: "same-origin" }));
+    const headers = new Headers(init.headers);
+    expect(headers.get("content-type")).toBe("application/json");
+    expect(headers.get("x-cartethyia-csrf")).toBe("csrf-test-token");
   });
 });

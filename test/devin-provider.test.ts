@@ -34,6 +34,7 @@ describe("DevinAdapter", () => {
     expect(adapter.resolveTarget("swe-1-6-slow", "openai-chat")).toEqual({ providerId: "devin", modelId: "swe-1-6-slow", upstreamModelId: "swe-1-6-slow", surface: "openai-chat" });
   });
 
+
   test("is registered in the default provider registry", async () => {
     const registry = await createDefaultRegistry();
     expect(registry.get("devin")?.metadata.displayName).toBe("Devin");

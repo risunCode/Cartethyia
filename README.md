@@ -47,10 +47,13 @@ A self-hosted Bun + Elysia AI proxy with an authenticated web console. Cartethyi
 
 | Category | Providers |
 | --- | --- |
-| **OAuth** | Claude Code (Anthropic OAuth), Codex, Cline, Cline Pass, Antigravity, Grok Build, Kiro (AWS Builder ID) |
-| **API-key** | OpenAI, Anthropic, Gemini, Cloudflare Workers AI, Groq, Alibaba Cloud / DashScope, Fireworks AI, DeepSeek, Ollama Cloud, Mistral, SiliconFlow, Cerebras, NVIDIA NIM, Blackbox AI, OpenRouter, OpenCode Free, OpenCode Zen, OpenCode Go, Xiaomi MiMo (PAYG + Token Plan), CodeBuddy, CodeBuddy CN, Exa |
+| **OAuth** | Claude Code (Anthropic OAuth), Codex, Cline, Cline Pass, Antigravity, Grok Build, Kiro (AWS Builder ID), Cursor |
+| **API-key** | OpenAI, Anthropic, Gemini, Cloudflare Workers AI, Groq, Alibaba Cloud / DashScope, Fireworks AI, DeepSeek, Ollama Cloud, Mistral, SiliconFlow, Cerebras, NVIDIA NIM, Blackbox AI, OpenRouter, OpenCode Free, OpenCode Zen, OpenCode Go, Xiaomi MiMo (PAYG + Token Plan), CodeBuddy, CodeBuddy CN, Exa, Devin |
 | **Compatible** | AgentRouter, Command Code, Qoder, Kimchi |
 | **Custom** | Console-managed OpenAI-compatible and Anthropic-compatible endpoints with custom headers, model metadata, and `<slug>/<model>` routing |
+
+Devin uses the native Codeium Cascade protobuf stream with generated bindings vendored under `src/providers/devin/proto-gen`. Add a Devin account from the provider console with its raw JWT/API key, `Bearer <jwt>`, or `devin-session-token$<jwt>` credential. The built-in model is `swe-1-6-slow` (200K context, 64K output).
+Cursor uses the native Cursor Agent Connect/HTTP2 protobuf stream with vendored bindings under `src/providers/cursor/proto-gen`. Add a Cursor account from the provider console with its access token. The adapter exposes Cursor's text/reasoning models through OpenAI Chat and Responses surfaces, including `composer-2.5` (standard) and `composer-2.5-fast` (fast/default), routes HTTP proxy connections, and intentionally rejects client tool definitions because Cartethyia does not execute Cursor's native workspace tools.
 
 Provider adapters that proxy as a specific upstream client identity (Claude Code, Grok Build, Kiro, Qoder, etc.) emit that client's canonical `User-Agent` fingerprint so the upstream sees a legitimate session. Cartethyia never presents its own identity upstream.
 
@@ -137,9 +140,9 @@ Use [`.env.example`](./.env.example) as the configuration reference. Common sett
 ```text
 PORT                         # server port (default 12800)
 DATA_DIR                     # persistent data directory (default ./data)
-CONSOLE_PASSWORD             # console login password
-CONSOLE_JWT_SECRET           # JWT signing secret (auto-generated if unset)
-BOOTSTRAP_PROXY_API_KEY      # initial proxy API key
+CONSOLE_PASSWORD             # console login password (required on first production startup)
+CONSOLE_JWT_SECRET           # JWT signing secret (generated only when no persisted secret exists)
+BOOTSTRAP_PROXY_API_KEY      # optional initial proxy API key
 DB_PATH                      # config SQLite path (default inside DATA_DIR)
 RUNTIME_DB_PATH              # runtime telemetry SQLite path (default inside DATA_DIR)
 MAX_FLIGHTS_PER_IP           # global concurrent requests per IP
@@ -165,12 +168,14 @@ Warp instances are manual-only. A server restart clears stale `running`/PID stat
 
 ```bash
 docker build -t cartethyia .
+: "${CONSOLE_PASSWORD:?Set a strong CONSOLE_PASSWORD first}"
+: "${CONSOLE_JWT_SECRET:?Set a random CONSOLE_JWT_SECRET first}"
 docker run --rm -p 12800:8080 \
   -e PORT=8080 \
   -e DATA_DIR=/app/data \
-  -e CONSOLE_PASSWORD=change-me \
-  -e CONSOLE_JWT_SECRET=replace-with-a-long-random-secret \
-  -e BOOTSTRAP_PROXY_API_KEY=change-me \
+  -e CONSOLE_PASSWORD="$CONSOLE_PASSWORD" \
+  -e CONSOLE_JWT_SECRET="$CONSOLE_JWT_SECRET" \
+  -e BOOTSTRAP_PROXY_API_KEY="${BOOTSTRAP_PROXY_API_KEY:-}" \
   -v cartethyia-data:/app/data \
   cartethyia
 ```

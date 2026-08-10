@@ -31,6 +31,10 @@ describe("share links", () => {
     expect(body.key).toBeUndefined();
     expect(body.dailyUsed).toBe(12);
     expect(body.monthlyUsed).toBe(30);
+    expect(body.quotaAvailable).toBe(true);
+    expect(body.apiKey).toEqual({ id: "key-1", prefix: "ck-secret", active: true });
+    expect(body.notes).toEqual({ title: null, subtitle: null, body: null });
+    expect(typeof body.inFlight).toBe("number");
   });
 
   test("setup data reveals the key once and rejects reuse", async () => {

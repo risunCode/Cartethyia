@@ -1,6 +1,8 @@
-import { capabilitiesOf, makeOpenAIAdapter, modelOf, type OpenAIAdapterConfig } from "../open-sse/transport/shared";
+import { capabilitiesOf, modelOf } from "../open-sse/transport/catalog";
+import type { OpenAIAdapterConfig } from "../open-sse/transport/contracts";
+import { createOpenAIAdapter } from "../open-sse/transport/openai-adapter";
 
-const NATIVE_SURFACES = ["openai-chat"] as const;
+const OPENAI_CHAT_SURFACES = ["openai-chat"] as const;
 
 export const ollamaConfig = {
   id: "ollama",
@@ -8,13 +10,13 @@ export const ollamaConfig = {
   baseUrl: "https://ollama.com/v1",
   credentialKind: "api_key",
   models: [
-    modelOf("gpt-oss:20b", "GPT-OSS 20B", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
-    modelOf("gpt-oss:120b", "GPT-OSS 120B", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
-    modelOf("gemma4:31b", "Gemma 4 31B", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
-    modelOf("minimax-m2.5", "MiniMax M2.5", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
-    modelOf("minimax-m3", "MiniMax M3", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
-    modelOf("nemotron-3-super", "Nemotron 3 Super", capabilitiesOf({ surfaces: NATIVE_SURFACES, reasoning: true })),
+    modelOf("gpt-oss:20b", "GPT-OSS 20B", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true })),
+    modelOf("gpt-oss:120b", "GPT-OSS 120B", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true })),
+    modelOf("gemma4:31b", "Gemma 4 31B", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true })),
+    modelOf("minimax-m2.5", "MiniMax M2.5", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true })),
+    modelOf("minimax-m3", "MiniMax M3", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true })),
+    modelOf("nemotron-3-super", "Nemotron 3 Super", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true })),
   ],
 } as const satisfies OpenAIAdapterConfig;
 
-export const OllamaAdapter = makeOpenAIAdapter(ollamaConfig);
+export const OllamaAdapter = createOpenAIAdapter(ollamaConfig);

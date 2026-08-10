@@ -13,10 +13,10 @@ import { beginProviderInFlight, decrementInFlight, endProviderInFlight, incremen
 import type { ApiKeyAdmission, AdmissionLease, AdmissionUsage } from "../../traffic/admission";
 import type { ApiKeyPublic } from "../../storage";
 import { isProviderCallError, recoverCall } from "../../open-sse/handlers/recovery";
-import { translateBody, resolveWireSurface } from "../../open-sse/translate";
+import { translateBody, resolveModelWireSurface } from "../../open-sse/translate";
 import { writeErrorResponse, writeResponse } from "../../open-sse/handlers";
 import type { TokenSaverConfig } from "../../open-sse/rtk";
-import { createRouteAttempt, createRouteAttemptState, getRouteAttemptSelection, getSelectedAttempt, getSuccessfulCandidateId, clearAccountCandidates } from "./route-attempt";
+import { createRouteAttempt, createRouteAttemptState, getRouteAttemptSelection, getSelectedAttempt, getSelectedCandidateId, getSelectedCredentialKind, getSuccessfulCandidateId, getNextCandidateId, hasNextCandidate, clearAccountCandidates, markReactiveRefresh } from "./route-attempt";
 import type { HeadroomOutcome } from "../../open-sse/rtk/headroom";
 import type { FilterRuleConfig } from "../filter-rules";
 import { prepareProxyRequest } from "./prepare";
@@ -87,8 +87,9 @@ export interface AuthorizedProxyRequestInput {
 }
 /** Codex ChatGPT transport uses the direct path unless explicitly overridden. */
 const CODEX_PROXY_ENABLED = process.env.CARTETHYIA_CODEX_PROXY === "true";
-function selectWireSurface(adapter: Adapter, _candidate: RouteCandidate, request: ProxyRequest): Surface | null {
-  return resolveWireSurface(adapter.metadata, adapter.capabilities, request.sourceSurface);
+function selectWireSurface(adapter: Adapter, candidate: RouteCandidate, request: ProxyRequest): Surface | null {
+  const model = adapter.models.get(candidate.modelId);
+  return resolveModelWireSurface(adapter.metadata, adapter.capabilities, model?.capabilities ?? null, request.sourceSurface);
 }
 
 function normalizeError(error: unknown): ProviderCallError {
@@ -207,6 +208,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
       capture,
       state: routeAttemptState,
     });
+    let reactiveRetryReady = false;
 
     const output = await recoverCall({
       attempt,
@@ -216,15 +218,39 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
       mapError: normalizeError,
       onFailure: async (error, index) => {
         const candidates = resolvedPlan?.candidates ?? [];
-        const candidate = candidates[index % Math.max(candidates.length, 1)];
-        if (candidate) {
-          await dependencies.onRouteFailure?.(candidate, error, getSelectedAttempt(routeAttemptState, index));
+        const selectedCandidateId = getSelectedCandidateId(routeAttemptState, index);
+        const candidate = selectedCandidateId === null ? null : candidates.find((item) => item.id === selectedCandidateId) ?? null;
+        const selected = getSelectedAttempt(routeAttemptState, index);
+        if (candidate !== null) {
+          await dependencies.onRouteFailure?.(candidate, error, selected);
           if (error.routeScope === "account") clearAccountCandidates(routeAttemptState, candidate.providerId);
-          const replacement = candidates[index + 1] ?? null;
-          if (error.routeScope === "account" || error.routeScope === "proxy") {
-            await dependencies.onRouteSwitch?.({ scope: error.routeScope, previousRouteId: candidate.id, replacementRouteId: replacement?.id ?? null, reason: error.kind, occurredAt: new Date().toISOString() });
-          }
         }
+        const authFailure = (error.statusCode === 401 || error.statusCode === 403) && (error.kind === "authentication_failed" || error.kind === "authorization_denied");
+        const accountId = selected?.accountId ?? null;
+        const canReact = authFailure && candidate !== null && accountId !== null && getSelectedCredentialKind(routeAttemptState, index) === "oauth" && markReactiveRefresh(routeAttemptState, accountId, candidate.id);
+        if (canReact) {
+          try {
+            await dependencies.accounts.forceRefresh(accountId);
+            reactiveRetryReady = true;
+          } catch {
+            reactiveRetryReady = false;
+          }
+          return;
+        }
+        if (candidate !== null && (error.routeScope === "account" || error.routeScope === "proxy")) {
+          const replacementId = resolvedPlan === undefined ? null : getNextCandidateId(routeAttemptState, resolvedPlan);
+          const replacement = replacementId === null ? null : candidates.find((item) => item.id === replacementId) ?? null;
+          await dependencies.onRouteSwitch?.({ scope: error.routeScope, previousRouteId: candidate.id, replacementRouteId: replacement?.id ?? null, reason: error.kind, occurredAt: new Date().toISOString() });
+        }
+      },
+      shouldRetry: (error) => {
+        const authFailure = (error.statusCode === 401 || error.statusCode === 403) && (error.kind === "authentication_failed" || error.kind === "authorization_denied");
+        if (reactiveRetryReady && authFailure) {
+          reactiveRetryReady = false;
+          return true;
+        }
+        if (authFailure && resolvedPlan !== undefined && hasNextCandidate(routeAttemptState, resolvedPlan)) return true;
+        return error.retryable && !input.request.signal.aborted;
       },
     });
     const plan = resolvedPlan;

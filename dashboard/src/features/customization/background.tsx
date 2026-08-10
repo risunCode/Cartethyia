@@ -22,13 +22,16 @@ export interface CustomizationSettings {
 
 const DEFAULT_BACKGROUND_URL = `${import.meta.env.BASE_URL}macos-big-sur-apple-layers-fluidic-colorful-dark-wwdc-2020-3840x2160-1432.jpg`;
 const BACKGROUND_PREFERENCE_VERSION = 1;
-const DATABASE_NAME = "cartethyia-customization";
+const DATABASE_NAME = "cartethyia-console-customization-v1";
 const DATABASE_VERSION = 1;
 const STORE_NAME = "settings";
 const RECORD_KEY = "current";
-const LEGACY_STORAGE_KEY = "cartethyia.customization";
-const CHANGE_EVENT = "cartethyia-customization-change";
+// Keep Cartethyia isolated from other local apps that may reuse the older
+// generic customization key.
+const LEGACY_STORAGE_KEY = "cartethyia.console.customization";
+const CHANGE_EVENT = "cartethyia-console-customization-change";
 export const MAX_CUSTOM_ASSET_BYTES = 200 * 1024 * 1024;
+const VIDEO_FILE_EXTENSIONS = new Set(["mp4", "webm", "ogv", "mov"]);
 
 const DEFAULTS: CustomizationSettings = {
   backgroundAsset: null,
@@ -265,8 +268,12 @@ export function CustomAtmosphere() {
   );
 }
 
-function isSupportedMedia(file: File): boolean {
-  return file.type.startsWith("image/") || file.type.startsWith("video/");
+export function classifyCustomAssetFile(file: Pick<File, "name" | "type">): CustomAssetKind | null {
+  const mediaType = file.type.toLowerCase();
+  if (mediaType.startsWith("image/")) return "image";
+  if (mediaType.startsWith("video/")) return "video";
+  const extension = file.name.toLowerCase().split(".").pop();
+  return extension !== undefined && VIDEO_FILE_EXTENSIONS.has(extension) ? "video" : null;
 }
 
 function isOversized(file: File): boolean {
@@ -294,8 +301,9 @@ export function BackgroundUpload({ onError }: { onError: (message: string) => vo
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (!isSupportedMedia(file)) {
-      onError("Choose an image or video file.");
+    const kind = classifyCustomAssetFile(file);
+    if (kind === null) {
+      onError("Choose an image or video file (MP4, WebM, OGV, or MOV).");
       return;
     }
     if (isOversized(file) && !allowOversize) {
@@ -303,7 +311,7 @@ export function BackgroundUpload({ onError }: { onError: (message: string) => vo
       return;
     }
     setSettings({
-      backgroundAsset: { kind: file.type.startsWith("video/") ? "video" : "image", blob: file, name: file.name },
+      backgroundAsset: { kind, blob: file, name: file.name },
       backgroundEnabled: true,
     });
   };
@@ -315,7 +323,8 @@ export function BackgroundUpload({ onError }: { onError: (message: string) => vo
           <Upload size={14} aria-hidden="true" />
           {settings.backgroundAsset ? "Change override" : "Override built-in background"}
         </Button>
-        <input ref={inputRef} type="file" accept="image/*,video/*" className="sr-only" onChange={handleFile} />
+        <input ref={inputRef} type="file" accept="image/*,video/*,.mp4,.webm,.ogv,.mov" className="sr-only" onChange={handleFile} />
+        <p className="text-[10.5px] text-[var(--text-3)]">Supports images and video: MP4, WebM, OGV, or MOV.</p>
       </div>
       <AssetLimitNotice allowOversize={allowOversize} onChange={setAllowOversize} />
     </div>

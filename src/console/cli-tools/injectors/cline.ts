@@ -42,16 +42,16 @@ interface ClineSecrets {
   [key: string]: unknown;
 }
 
-function dataDir(): string {
+function resolveClineDataDirectory(): string {
   return `${homeDir()}/.cline/data`;
 }
 
 function globalStatePath(): string {
-  return `${dataDir()}/globalState.json`;
+  return `${resolveClineDataDirectory()}/globalState.json`;
 }
 
 function secretsPath(): string {
-  return `${dataDir()}/secrets.json`;
+  return `${resolveClineDataDirectory()}/secrets.json`;
 }
 
 /** Cline is considered configured for Cartethyia when the act-mode provider is
@@ -87,7 +87,7 @@ export const clineInjector: ToolInjector = {
   },
 
   async apply(input: ApplyInput): Promise<ApplyResult> {
-    await ensureDir(dataDir());
+    await ensureDir(resolveClineDataDirectory());
     const model = input.activeModel ?? input.models[0] ?? "";
     const baseUrl = stripV1Suffix(input.endpoint);
 

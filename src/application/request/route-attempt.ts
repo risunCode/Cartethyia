@@ -1,21 +1,28 @@
-import type { Adapter, ProviderOutput, ProxyRequest, RouteTarget, StreamEvent } from "../contracts";
+import type { Adapter, ProviderOutput, ProxyRequest, RouteCandidate, RouteTarget, StreamEvent, Surface } from "../contracts";
 import type { AccountCandidate } from "../contracts";
+import type { CredentialKind } from "../contracts";
 import { createCleanupStack, deriveErrorSource } from "../contracts";
 import type { ProxyAuthorization, ProxyRequestDependencies, RouteAttemptSelection, ProxyRoutePlan } from "./index";
 import { beginProviderInFlight, endProviderInFlight } from "../../traffic/in-flight";
-import { translateBody, resolveWireSurface } from "../../open-sse/translate";
+import { translateBody, resolveModelWireSurface } from "../../open-sse/translate";
 
 const CODEX_PROXY_ENABLED = process.env.CARTETHYIA_CODEX_PROXY === "true";
 
 interface RouteAttemptState {
   readonly selectedAttempts: Map<number, RouteAttemptSelection>;
+  readonly selectedCredentialKinds: Map<number, CredentialKind>;
+  readonly selectedCandidateIds: Map<number, string>;
+  readonly reactiveRefreshes: Set<string>;
   readonly accountCandidatesByProvider: Map<string, Promise<readonly AccountCandidate[]>>;
+  reactiveRetryCandidateId: string | null;
+  nextCandidateIndex: number;
   successfulSelection: RouteAttemptSelection | null;
   successfulCandidateId: string | null;
 }
 
-function selectWireSurface(adapter: Adapter, request: ProxyRequest): ReturnType<typeof resolveWireSurface> {
-  return resolveWireSurface(adapter.metadata, adapter.capabilities, request.sourceSurface);
+function selectWireSurface(adapter: Adapter, candidate: { readonly modelId: string }, request: ProxyRequest): Surface | null {
+  const model = adapter.models.get(candidate.modelId);
+  return resolveModelWireSurface(adapter.metadata, adapter.capabilities, model?.capabilities ?? null, request.sourceSurface);
 }
 
 export interface RouteAttemptContext {
@@ -28,7 +35,7 @@ export interface RouteAttemptContext {
 }
 
 export function createRouteAttemptState(): RouteAttemptState {
-  return { selectedAttempts: new Map(), accountCandidatesByProvider: new Map(), successfulSelection: null, successfulCandidateId: null };
+  return { selectedAttempts: new Map(), selectedCredentialKinds: new Map(), selectedCandidateIds: new Map(), reactiveRefreshes: new Set(), accountCandidatesByProvider: new Map(), reactiveRetryCandidateId: null, nextCandidateIndex: 0, successfulSelection: null, successfulCandidateId: null };
 }
 
 export function getRouteAttemptSelection(state: RouteAttemptState): RouteAttemptSelection | null {
@@ -43,6 +50,29 @@ export function getSelectedAttempt(state: RouteAttemptState, index: number): Rou
   return state.selectedAttempts.get(index) ?? null;
 }
 
+export function getSelectedCandidateId(state: RouteAttemptState, index: number): string | null {
+  return state.selectedCandidateIds.get(index) ?? null;
+}
+
+export function getSelectedCredentialKind(state: RouteAttemptState, index: number): CredentialKind | null {
+  return state.selectedCredentialKinds.get(index) ?? null;
+}
+
+export function markReactiveRefresh(state: RouteAttemptState, accountId: string, candidateId: string): boolean {
+  if (state.reactiveRefreshes.has(accountId)) return false;
+  state.reactiveRefreshes.add(accountId);
+  state.reactiveRetryCandidateId = candidateId;
+  return true;
+}
+
+export function hasNextCandidate(state: RouteAttemptState, plan: ProxyRoutePlan): boolean {
+  return state.nextCandidateIndex < plan.candidates.length;
+}
+
+export function getNextCandidateId(state: RouteAttemptState, plan: ProxyRoutePlan): string | null {
+  return plan.candidates[state.nextCandidateIndex]?.id ?? null;
+}
+
 export function clearAccountCandidates(state: RouteAttemptState, providerId: string): void {
   state.accountCandidatesByProvider.delete(providerId);
 }
@@ -50,8 +80,18 @@ export function clearAccountCandidates(state: RouteAttemptState, providerId: str
 export function createRouteAttempt(context: RouteAttemptContext): (index: number) => Promise<ProviderOutput> {
   const { input, dependencies, request, plan, capture, state } = context;
   return async (index: number): Promise<ProviderOutput> => {
-    const candidate = plan.candidates[index % plan.candidates.length];
+    let candidate: RouteCandidate | undefined;
+    if (state.reactiveRetryCandidateId !== null) {
+      const retryCandidateId = state.reactiveRetryCandidateId;
+      state.reactiveRetryCandidateId = null;
+      candidate = plan.candidates.find((item) => item.id === retryCandidateId);
+    } else {
+      const candidateIndex = state.nextCandidateIndex;
+      state.nextCandidateIndex += 1;
+      candidate = plan.candidates[candidateIndex];
+    }
     if (!candidate) throw { statusCode: 503, kind: "provider_unavailable", retryable: true, routeScope: "provider", source: deriveErrorSource("provider_unavailable", "provider"), sanitizedMessage: "No route candidate available", retryAt: null };
+    state.selectedCandidateIds.set(index, candidate.id);
     const adapter = dependencies.providers.get(candidate.providerId);
     if (!adapter) throw { statusCode: 503, kind: "credential_unavailable", retryable: false, routeScope: "provider", source: deriveErrorSource("credential_unavailable", "provider"), sanitizedMessage: "Provider is not configured", retryAt: null };
     const attemptCleanup = createCleanupStack();
@@ -73,7 +113,9 @@ export function createRouteAttempt(context: RouteAttemptContext): (index: number
       attemptCleanup.add({ release: network.selection.release });
       const selected = { accountId: credential?.selection.accountId ?? null, proxyId: network.proxyId } satisfies RouteAttemptSelection;
       state.selectedAttempts.set(index, selected);
-      const wireSurface = selectWireSurface(adapter, request);
+      state.selectedCredentialKinds.set(index, credential?.account.credentialKind ?? "none");
+      state.selectedCandidateIds.set(index, candidate.id);
+      const wireSurface = selectWireSurface(adapter, candidate, request);
       if (wireSurface === null) throw { statusCode: 400, kind: "capability_unsupported", retryable: false, routeScope: "provider", source: deriveErrorSource("capability_unsupported", "provider"), sanitizedMessage: `Provider "${candidate.providerId}" cannot translate this protocol surface`, retryAt: null };
       const target: RouteTarget = adapter.resolveTarget(candidate.modelId || request.model, wireSurface);
       let providerStreamHandedOff = false;

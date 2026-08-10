@@ -17,6 +17,16 @@ export function resolveWireSurface(metadata: ProviderMeta, capabilities: Provide
   return capabilities.surfaces.includes("openai-responses") ? "openai-responses" : null;
 }
 
+/** Resolves a wire surface using model-specific capabilities when the catalog knows the model. */
+export function resolveModelWireSurface(
+  metadata: ProviderMeta,
+  providerCapabilities: ProviderCaps,
+  modelCapabilities: ProviderCaps | null,
+  clientSurface: Surface,
+): Surface | null {
+  return resolveWireSurface(metadata, modelCapabilities ?? providerCapabilities, clientSurface);
+}
+
 /** Converts a provider's non-stream body from its wire shape to the client's requested surface. */
 export function translateBody(
   body: Record<string, unknown>,

@@ -38,7 +38,7 @@ import type { CredentialSelector, CredentialConfigStore, AccountHealthManager } 
 import { credentialUnavailableError } from "../application/auth";
 import type { NetworkSelector } from "../traffic";
 import { networkUnavailableError } from "../traffic";
-import { makeProviderError } from "../traffic";
+import { createProviderError } from "../traffic";
 import { isRecord } from "../application/protocols";
 
 // ---------------------------------------------------------------- public contract
@@ -129,7 +129,7 @@ export async function probeProviderModel(input: ModelProbeInput, ports: ProbePor
   const latency = (): number => Math.max(0, Math.round(performance.now() - startedAt));
 
   if (input.signal.aborted) {
-    return failure(null, latency(), makeProviderError("client_aborted", "Probe aborted before it started", { retryable: false, routeScope: null }));
+    return failure(null, latency(), createProviderError("client_aborted", "Probe aborted before it started", { retryable: false, routeScope: null }));
   }
 
   const controller = new AbortController();
@@ -146,7 +146,7 @@ export async function probeProviderModel(input: ModelProbeInput, ports: ProbePor
     // ---- capability resolution (no hardcoded surface) ----
     adapter = ports.registry.get(input.provider);
     if (adapter === null) {
-      throw makeProviderError("provider_unavailable", `Provider "${input.provider}" is not registered`, { retryable: false, routeScope: null });
+      throw createProviderError("provider_unavailable", `Provider "${input.provider}" is not registered`, { retryable: false, routeScope: null });
     }
     const model = adapter.models.get(input.model);
     // Catalog is informational, not a gate — operator-added models pass through.
@@ -154,7 +154,7 @@ export async function probeProviderModel(input: ModelProbeInput, ports: ProbePor
     // AND the adapter is not a custom/permissive adapter.
     const surface = resolveProbeSurface(adapter, model);
     if (surface === null) {
-      throw makeProviderError("capability_unsupported", `Model "${input.model}" on provider "${input.provider}" does not expose a text-generation surface`, { statusCode: 400, retryable: false, routeScope: "provider" });
+      throw createProviderError("capability_unsupported", `Model "${input.model}" on provider "${input.provider}" does not expose a text-generation surface`, { statusCode: 400, retryable: false, routeScope: "provider" });
     }
     const capabilities = model !== null ? model.capabilities : adapter.capabilities;
     // Probes intentionally use the completed response path for all compatible
@@ -268,7 +268,7 @@ function toSafeSummary(error: ProviderCallError): SafeErrorSummary {
 function toProbeError(error: unknown, adapter: Adapter | null): ProviderCallError {
   if (isProviderCallError(error)) return error;
   if (adapter !== null) return adapter.mapError(error);
-  return makeProviderError("provider_protocol_error", "Probe failed before provider resolution", { retryable: false, routeScope: null });
+  return createProviderError("provider_protocol_error", "Probe failed before provider resolution", { retryable: false, routeScope: null });
 }
 
 function isProviderCallError(value: unknown): value is ProviderCallError {
@@ -303,13 +303,13 @@ async function selectCredential(input: ModelProbeInput, ports: ProbePorts, adapt
   if (input.credentialMode === "manual") {
     const needsSecret = adapter.metadata.credentialKind !== "manual";
     if (needsSecret && (input.credential === undefined || input.credential.length === 0)) {
-      throw makeProviderError("invalid_request", "manual credential mode requires a credential", { statusCode: 400, retryable: false, routeScope: null });
+      throw createProviderError("invalid_request", "manual credential mode requires a credential", { statusCode: 400, retryable: false, routeScope: null });
     }
     return { accountId: null, kind: "manual", leaseId: crypto.randomUUID(), secret: input.credential ?? "" };
   }
 
   if (input.credentialMode === "account" && input.accountId === undefined) {
-    throw makeProviderError("invalid_request", "account credential mode requires an accountId", { statusCode: 400, retryable: false, routeScope: null });
+    throw createProviderError("invalid_request", "account credential mode requires an accountId", { statusCode: 400, retryable: false, routeScope: null });
   }
 
   const configs = await ports.accounts.listAccounts();
@@ -328,7 +328,7 @@ async function selectCredential(input: ModelProbeInput, ports: ProbePorts, adapt
     });
   }
   if (input.credentialMode === "account" && candidates.length === 0) {
-    throw makeProviderError("invalid_request", `Account "${input.accountId}" is not configured for provider "${input.provider}"`, { statusCode: 400, retryable: false, routeScope: null });
+    throw createProviderError("invalid_request", `Account "${input.accountId}" is not configured for provider "${input.provider}"`, { statusCode: 400, retryable: false, routeScope: null });
   }
 
   const result = await ports.credentials.select({

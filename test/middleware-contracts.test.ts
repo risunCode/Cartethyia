@@ -19,7 +19,7 @@ import { activePerIpFlights } from "../src/traffic/per-ip";
 import { SlidingWindowRateLimiter } from "../src/traffic/rate-limiter";
 import { runtimeMemoryLimits } from "../src/traffic/limits";
 import { resetInFlightForTests } from "../src/traffic/in-flight";
-import { signSessionToken, SESSION_COOKIE_NAME } from "../src/console/session";
+import { createConsoleCsrfToken, signSessionToken, SESSION_COOKIE_NAME, verifySessionToken } from "../src/console/session";
 import { safeConsoleHandle } from "../src/middleware/console";
 import { aclFor, buildCatalog, readProxyBody, requestToken } from "../src/middleware/proxy";
 import { errorResponse, recordAccessLog } from "../src/middleware/shared";
@@ -717,7 +717,7 @@ describe("console: authenticated routes — invalid session", () => {
   });
 
   test("token signed with wrong secret returns 401", async () => {
-    const token = await signSessionToken({ secret: "wrong-secret", pv: 1, ttlSeconds: 3600 });
+    const token = await signSessionToken({ secret: "wrong-secret-that-is-long-enough-123456", pv: 1, ttlSeconds: 3600 });
     const res = await fetchConsoleQuery("/console/api/session", { cookie: `${SESSION_COOKIE_NAME}=${token}` });
     expect(res.status).toBe(401);
   });
@@ -827,6 +827,7 @@ describe("console: body-size fast rejection", () => {
 
 describe("console: valid session authenticated access", () => {
   let validToken: string;
+  let validCsrfToken: string;
 
   beforeAll(async () => {
     const current = runtime.config.settings.ensure();
@@ -835,6 +836,9 @@ describe("console: valid session authenticated access", () => {
       pv: current.passwordVersion,
       ttlSeconds: 3600,
     });
+    const verified = await verifySessionToken(validToken, { secret: current.jwtSecret ?? "", expectedPv: current.passwordVersion });
+    if (!verified.ok) throw new Error("test session token failed verification");
+    validCsrfToken = await createConsoleCsrfToken(current.jwtSecret ?? "", verified.payload.jti);
   });
 
   test("QUERY /console/api/session returns 200 with role admin", async () => {
@@ -876,6 +880,7 @@ describe("console: valid session authenticated access", () => {
         cookie: `${SESSION_COOKIE_NAME}=${validToken}`,
         origin: testServer.url,
         host: new URL(testServer.url).host,
+        "x-cartethyia-csrf": validCsrfToken,
       },
       body: JSON.stringify({}),
     });

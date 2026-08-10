@@ -1,5 +1,5 @@
 import { sanitizeMessage, type ApplicationErrorKind, type AccountCandidate, type CredentialKind, type CredentialSelection, type ModelLockRecord, type ProviderCallError, type RouteHealth, type RouteStatus } from "../contracts";
-import { makeProviderError } from "../../traffic";
+import { createProviderError } from "../../traffic";
 import type { TokenRefreshPool } from "./token-refresh";
 
 /**
@@ -160,12 +160,14 @@ export class MemoryQuotaStateStore implements QuotaStateStore {
   }
 }
 
-/** Cached OAuth token view; the access token is a secret and must never be logged or exposed. */
+/** Cached OAuth token view; token fields are secrets and must never be logged or exposed. */
 export interface OAuthTokenRecord {
   readonly accessToken: string;
   readonly expiresAtMs: number | null;
   readonly refreshToken: string | null;
   readonly kind: "oauth";
+  /** Monotonic generation used to reject stale cross-instance writes. */
+  readonly generation?: number;
   /** Timestamp of the last successful refresh, used by provider stale-token policies. */
   readonly lastRefreshAtMs?: number | null;
   /** Timestamp of the last refresh attempt, including failures. */
@@ -176,16 +178,48 @@ export interface OAuthTokenRecord {
   readonly lastRefreshStatusCode?: number | null;
   /** Persistent state used to stop retrying revoked grants. */
   readonly refreshState?: "healthy" | "retrying" | "reauth_required";
+  /** Earliest time a retrying refresh may call the provider again. */
+  readonly refreshRetryAtMs?: number | null;
+  /** Consecutive refresh failures since the last successful refresh. */
+  readonly refreshFailureCount?: number;
 }
 
+/** Stable non-secret identity used for refresh-token compare-and-swap. */
+export function fingerprintOAuthToken(token: OAuthTokenRecord | null): string {
+  const value = token?.refreshToken ?? token?.accessToken ?? "";
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+/** Optional durable coordination hooks implemented by the SQLite token store. */
 export interface OAuthTokenStore {
   get(accountId: string): Promise<OAuthTokenRecord | undefined>;
   set(accountId: string, token: OAuthTokenRecord): Promise<void>;
   delete(accountId: string): Promise<void>;
+  tryAcquireRefreshLease?(input: {
+    readonly accountId: string;
+    readonly ownerId: string;
+    readonly generation: number;
+    readonly tokenFingerprint: string;
+    readonly nowMs: number;
+    readonly leaseMs: number;
+  }): Promise<boolean>;
+  releaseRefreshLease?(accountId: string, ownerId: string): Promise<void>;
+  compareAndSwap?(input: {
+    readonly accountId: string;
+    readonly expectedGeneration: number;
+    readonly expectedTokenFingerprint: string;
+    readonly token: OAuthTokenRecord;
+  }): Promise<boolean>;
 }
 
 export class MemoryOAuthTokenStore implements OAuthTokenStore {
   private readonly tokens = new Map<string, OAuthTokenRecord>();
+  private readonly leases = new Map<string, { readonly ownerId: string; readonly generation: number; readonly tokenFingerprint: string; readonly leaseUntilMs: number }>();
 
   async get(accountId: string): Promise<OAuthTokenRecord | undefined> {
     return this.tokens.get(accountId);
@@ -197,8 +231,28 @@ export class MemoryOAuthTokenStore implements OAuthTokenStore {
 
   async delete(accountId: string): Promise<void> {
     this.tokens.delete(accountId);
+    this.leases.delete(accountId);
+  }
+
+  async tryAcquireRefreshLease(input: { readonly accountId: string; readonly ownerId: string; readonly generation: number; readonly tokenFingerprint: string; readonly nowMs: number; readonly leaseMs: number }): Promise<boolean> {
+    const existing = this.leases.get(input.accountId);
+    if (existing !== undefined && existing.leaseUntilMs > input.nowMs && existing.ownerId !== input.ownerId) return false;
+    this.leases.set(input.accountId, { ownerId: input.ownerId, generation: input.generation, tokenFingerprint: input.tokenFingerprint, leaseUntilMs: input.nowMs + input.leaseMs });
+    return true;
+  }
+
+  async releaseRefreshLease(accountId: string, ownerId: string): Promise<void> {
+    if (this.leases.get(accountId)?.ownerId === ownerId) this.leases.delete(accountId);
+  }
+
+  async compareAndSwap(input: { readonly accountId: string; readonly expectedGeneration: number; readonly expectedTokenFingerprint: string; readonly token: OAuthTokenRecord }): Promise<boolean> {
+    const current = this.tokens.get(input.accountId);
+    if (current === undefined || (current.generation ?? 0) !== input.expectedGeneration || fingerprintOAuthToken(current) !== input.expectedTokenFingerprint) return false;
+    this.tokens.set(input.accountId, input.token);
+    return true;
   }
 }
+
 
 /** Static account configuration: identity, credential kind, and secret (never logged). */
 export interface AccountConfig {
@@ -647,10 +701,10 @@ export class CredentialSelector {
 
     const accountConfig = await this.config.getAccount(chosen.id);
     if (accountConfig === undefined) {
-      throw makeProviderError("credential_unavailable", `Account ${chosen.id} has no credential configuration`, { retryable: false, routeScope: "account" });
+      throw createProviderError("credential_unavailable", `Account ${chosen.id} has no credential configuration`, { retryable: false, routeScope: "account" });
     }
     if (!accountConfig.enabled) {
-      throw makeProviderError("credential_unavailable", `Account ${chosen.id} is disabled`, { retryable: false, routeScope: "account" });
+      throw createProviderError("credential_unavailable", `Account ${chosen.id} is disabled`, { retryable: false, routeScope: "account" });
     }
 
     let secret: string;
@@ -667,7 +721,7 @@ export class CredentialSelector {
     } else {
       const configuredSecret = accountConfig.secret;
       if (configuredSecret === null || configuredSecret.length === 0) {
-        throw makeProviderError("credential_unavailable", `Account ${chosen.id} has no secret configured`, { retryable: false, routeScope: "account" });
+        throw createProviderError("credential_unavailable", `Account ${chosen.id} has no secret configured`, { retryable: false, routeScope: "account" });
       }
       secret = configuredSecret;
     }
@@ -696,6 +750,11 @@ export class CredentialSelector {
     };
   }
 
+  /** Forces the shared OAuth coordinator to refresh one account. */
+  async forceRefresh(accountId: string): Promise<OAuthTokenRecord> {
+    return this.oauth.forceRefresh(accountId);
+  }
+
   /** Releases the credential lease exactly once; safe for unknown or already-released ids. */
   async release(leaseId: string): Promise<void> {
     const lease = this.leases.get(leaseId);
@@ -707,7 +766,7 @@ export class CredentialSelector {
 }
 
 export function credentialUnavailableError(providerId: string, retryAt: string | null = null): ProviderCallError {
-  return makeProviderError("credential_unavailable", `No eligible account available for provider ${providerId}`, {
+  return createProviderError("credential_unavailable", `No eligible account available for provider ${providerId}`, {
     retryable: true,
     routeScope: "account",
     retryAt,

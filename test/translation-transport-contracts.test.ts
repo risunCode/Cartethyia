@@ -7,12 +7,13 @@ import {
   resolveWireSurface, parseRequestBody, lookupProxyEndpoint, toOpenAIImageUrl,
 } from "../src/open-sse/translate";
 import { ProtocolCodecError, StreamDecodeError } from "../src/open-sse/translate/errors";
-import {
-  ProviderAdapterError, AbortCoordinator, toProviderCallError, parseSseData,
-  parseRetryAfterSeconds, decodeSseEvents, mapSseStream, capabilitiesOf,
-} from "../src/open-sse/transport/shared";
-import { createChatMapper, createResponsesMapper } from "../src/open-sse/transport/protocols/openai";
-import { createAnthropicMapper } from "../src/open-sse/transport/protocols/anthropic";
+import { ProviderAdapterError, parseRetryAfterSeconds, toProviderCallError } from "../src/open-sse/transport/errors";
+import { AbortCoordinator } from "../src/open-sse/transport/abort-coordinator";
+import { parseSseData, decodeSseEvents } from "../src/open-sse/transport/sse-decoder";
+import { mapSseStream } from "../src/open-sse/transport/stream-mapper";
+import { capabilitiesOf } from "../src/open-sse/transport/catalog";
+import { createOpenAIChatStreamMapper, createOpenAIResponsesStreamMapper } from "../src/open-sse/transport/protocols/openai";
+import { createAnthropicMessagesStreamMapper } from "../src/open-sse/transport/protocols/anthropic";
 import { ensureToolCallIds, fixMissingToolResponses } from "../src/open-sse/concerns/tool-calls";
 import type { NormalizeInput } from "../src/application/protocols";
 import { isProtocolError } from "../src/application/protocols";
@@ -303,7 +304,7 @@ describe("Chat SSE mapper sequencing", () => {
       '{"id":"1","choices":[{"delta":{"content":"hi"}}]}',
       '{"usage":{"prompt_tokens":5,"completion_tokens":2}}',
       "[DONE]",
-    ]), coordinator: coord, maxLineBytes: 65536 }, createChatMapper()));
+    ]), coordinator: coord, maxLineBytes: 65536 }, createOpenAIChatStreamMapper()));
     const types = events.map((e: StreamEvent) => e.type);
     expect(types[0]).toBe("message_start");
     expect(types).toContain("text_delta");
@@ -316,7 +317,7 @@ describe("Chat SSE mapper sequencing", () => {
       '{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"f","arguments":"{\\"x\\"" }}]}}]}',
       '{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":":1}" }}]}}]}',
       "[DONE]",
-    ]), coordinator: coord, maxLineBytes: 65536 }, createChatMapper()));
+    ]), coordinator: coord, maxLineBytes: 65536 }, createOpenAIChatStreamMapper()));
     const types = events.map((e: StreamEvent) => e.type);
     expect(types).toContain("tool_call_start");
     expect(types).toContain("tool_call_delta");
@@ -327,7 +328,7 @@ describe("Chat SSE mapper sequencing", () => {
     const events = await collect(mapSseStream({ body: sseBody([
       '{"choices":[{"delta":{},"finish_reason":"error"}]}',
       "[DONE]",
-    ]), coordinator: coord, maxLineBytes: 65536 }, createChatMapper()));
+    ]), coordinator: coord, maxLineBytes: 65536 }, createOpenAIChatStreamMapper()));
     const stop = events.find((e): e is Extract<StreamEvent, { type: "message_stop" }> => e.type === "message_stop");
     expect(stop?.reason).toBe("error");
   });
@@ -341,7 +342,7 @@ describe("Anthropic SSE mapper sequencing", () => {
       '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}',
       '{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}',
       '{"type":"message_stop"}',
-    ]), coordinator: coord, maxLineBytes: 65536 }, createAnthropicMapper()));
+    ]), coordinator: coord, maxLineBytes: 65536 }, createAnthropicMessagesStreamMapper()));
     const types = events.map((e: StreamEvent) => e.type);
     expect(types[0]).toBe("message_start");
     expect(types).toContain("text_delta");
@@ -355,7 +356,7 @@ describe("Anthropic SSE mapper sequencing", () => {
       '{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{}"}}',
       '{"type":"content_block_stop","index":0}',
       '{"type":"message_stop"}',
-    ]), coordinator: coord, maxLineBytes: 65536 }, createAnthropicMapper()));
+    ]), coordinator: coord, maxLineBytes: 65536 }, createAnthropicMessagesStreamMapper()));
     const types = events.map((e: StreamEvent) => e.type);
     expect(types).toContain("tool_call_start");
     expect(types).toContain("tool_call_delta");
@@ -367,7 +368,7 @@ describe("Anthropic SSE mapper sequencing", () => {
       '{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"pondering"}}',
       '{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}',
       '{"type":"message_stop"}',
-    ]), coordinator: coord, maxLineBytes: 65536 }, createAnthropicMapper()));
+    ]), coordinator: coord, maxLineBytes: 65536 }, createAnthropicMessagesStreamMapper()));
     expect(events.some((e: StreamEvent) => e.type === "thinking_delta")).toBe(true);
     const stop = events.find((e): e is Extract<StreamEvent, { type: "message_stop" }> => e.type === "message_stop");
     expect(stop?.reason).toBe("tool_call");
@@ -381,7 +382,7 @@ describe("Responses SSE mapper sequencing", () => {
       '{"type":"response.created","response":{"id":"r1"}}',
       '{"type":"response.output_text.delta","delta":"hi"}',
       '{"type":"response.completed","response":{"usage":{"input_tokens":5,"output_tokens":2}}}',
-    ]), coordinator: coord, maxLineBytes: 65536 }, createResponsesMapper()));
+    ]), coordinator: coord, maxLineBytes: 65536 }, createOpenAIResponsesStreamMapper()));
     const types = events.map((e: StreamEvent) => e.type);
     expect(types[0]).toBe("message_start");
     expect(types).toContain("text_delta");
@@ -392,7 +393,7 @@ describe("Responses SSE mapper sequencing", () => {
     const coord = new AbortCoordinator(new AbortController().signal);
     const events = await collect(mapSseStream({ body: sseBody([
       '{"type":"response.failed"}',
-    ]), coordinator: coord, maxLineBytes: 65536 }, createResponsesMapper()));
+    ]), coordinator: coord, maxLineBytes: 65536 }, createOpenAIResponsesStreamMapper()));
     const stop = events.find((e): e is Extract<StreamEvent, { type: "message_stop" }> => e.type === "message_stop");
     expect(stop?.reason).toBe("error");
   });
@@ -401,11 +402,11 @@ describe("Responses SSE mapper sequencing", () => {
 describe("malformed and truncated streams", () => {
   test("stream without terminal event throws stream_truncated", async () => {
     const coord = new AbortCoordinator(new AbortController().signal);
-    expect(collect(mapSseStream({ body: sseBody(['{"choices":[{"delta":{"content":"hi"}}]}']), coordinator: coord, maxLineBytes: 65536 }, createChatMapper())).then(() => false, () => true)).resolves.toBe(true);
+    expect(collect(mapSseStream({ body: sseBody(['{"choices":[{"delta":{"content":"hi"}}]}']), coordinator: coord, maxLineBytes: 65536 }, createOpenAIChatStreamMapper())).then(() => false, () => true)).resolves.toBe(true);
   });
   test("invalid JSON in SSE data throws ProviderAdapterError", async () => {
     const coord = new AbortCoordinator(new AbortController().signal);
-    expect(collect(mapSseStream({ body: sseBody(["not json"]), coordinator: coord, maxLineBytes: 65536 }, createChatMapper())).then(() => false, (e: unknown) => e instanceof ProviderAdapterError)).resolves.toBe(true);
+    expect(collect(mapSseStream({ body: sseBody(["not json"]), coordinator: coord, maxLineBytes: 65536 }, createOpenAIChatStreamMapper())).then(() => false, (e: unknown) => e instanceof ProviderAdapterError)).resolves.toBe(true);
   });
   test("oversized SSE line throws ProviderAdapterError", async () => {
     const coord = new AbortCoordinator(new AbortController().signal);

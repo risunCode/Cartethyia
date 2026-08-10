@@ -2,7 +2,8 @@ import { createCartethyiaRuntime, runProxyRequest, type CartethyiaRuntime } from
 import { lookupProxyEndpoint } from "../open-sse/translate";
 import { isRouteAllowed } from "../security/access";
 import { appendTerminalError } from "../open-sse/handlers";
-import { resolveConsoleStatic, applySecurityHeaders } from "../console/static";
+import { resolveConsoleStatic, resolveLandingStatic, applySecurityHeaders } from "../console/static";
+import { applySecurityHeaders as applyCommonSecurityHeaders, secureResponse } from "../security/headers";
 import { runtimeSettings } from "../console/runtime-settings";
 import { runtimeMemoryLimits } from "../traffic/limits";
 import { encodeSurfaceStream } from "../providers/surfaces";
@@ -10,7 +11,7 @@ import { clientIp } from "../console/services/composition";
 import { activePerIpFlights } from "../traffic/per-ip";
 import { SlidingWindowRateLimiter } from "../traffic/rate-limiter";
 import { safeConsoleHandle } from "./console";
-import { aclFor, buildCatalog, catalogRevision, readProxyBody, requestToken, type CatalogEntry } from "./proxy";
+import { aclFor, buildCatalog, catalogRevision, hasConflictingCredentials, readProxyBody, requestToken, type CatalogEntry } from "./proxy";
 import { errorResponse, recordAccessLog } from "./shared";
 import { handleShareRequest } from "../console/share";
 import { translateLegacyGet } from "./query";
@@ -29,6 +30,18 @@ async function refreshBannedIps(runtime: CartethyiaRuntime): Promise<void> {
 
 function isIpBanned(ip: string): boolean {
   return bannedIpsCache.has(ip);
+}
+async function recordSecurityEvent(runtime: CartethyiaRuntime, requestId: string, ip: string, category: string): Promise<void> {
+  const decision = await runtime.config.ipBans.recordOffense?.(ip, category);
+  runtime.logger.web("warn", JSON.stringify({
+    event: "security_event",
+    category,
+    ip,
+    request_id: requestId,
+    strike_count: decision?.strikeCount ?? null,
+    threshold_reached: decision?.thresholdReached ?? false,
+  }));
+  if (decision?.thresholdReached) await refreshBannedIps(runtime);
 }
 let catalogCache: { readonly revision: number; readonly entries: readonly CatalogEntry[] } | null = null;
 let catalogBuildPromise: Promise<{ readonly revision: number; readonly entries: readonly CatalogEntry[] }> | null = null;
@@ -84,6 +97,7 @@ let consoleInFlight = 0;
 
 export async function startServer(): Promise<void> {
   const runtime = await createCartethyiaRuntime();
+  await refreshBannedIps(runtime);
   const rateLimiter = new SlidingWindowRateLimiter(runtimeMemoryLimits.rateLimitMaxRequests, runtimeMemoryLimits.rateLimitWindowMs);
   let globalInFlight = 0;
   const server = Bun.serve({
@@ -95,21 +109,28 @@ export async function startServer(): Promise<void> {
       // Fast reject: absurdly long paths never reach routing or filesystem I/O.
       if (url.pathname.length > 2048) return errorResponse(414, "uri_too_long", "URI too long");
       if (url.pathname === "/health" && request.method === "GET") {
-        return new Response(`${PUBLIC_V1_HEALTH_BODY}\n`, {
+        return secureResponse(new Response(`${PUBLIC_V1_HEALTH_BODY}\n`, {
           status: 200,
           headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
-        });
+        }), { request, noStore: true });
       }
       if (url.pathname === "/") {
-        return Response.redirect(new URL("/console/login", request.url).toString(), 302);
+        const resolution = await resolveLandingStatic(url.pathname, async (file) => Bun.file(file).exists());
+        if (resolution.kind === "entry") {
+          const asset = Bun.file(resolution.file);
+          if (!(await asset.exists())) return errorResponse(404, "not_found", "Landing entry not found");
+          const headers = new Headers({ "content-type": "text/html; charset=utf-8" });
+          applySecurityHeaders(headers, request);
+          return new Response(asset, { headers });
+        }
+        return errorResponse(404, "not_found", "Landing entry not found");
       }
       if (url.pathname === "/v1/models" && request.method === "QUERY") {
         if (!(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) {
           return errorResponse(415, "invalid_request", "QUERY requests require Content-Type: application/json");
         }
-        const queryBody = await readProxyBody(request, "/v1/models");
-        if (queryBody instanceof Response) return queryBody;
         server.timeout(request, 0);
+        if (hasConflictingCredentials(request)) return errorResponse(400, "invalid_request", "Use exactly one API credential header.");
         const token = requestToken(request);
         const key = token === null ? null : runtime.config.apiKeys.getBySecret(token);
         if (key === null) return errorResponse(401, "authentication_failed", "A valid x-api-key header (or Authorization: Bearer token) is required to use this proxy.");
@@ -134,7 +155,7 @@ export async function startServer(): Promise<void> {
           .filter((entry) => isRouteAllowed(entry.owned_by, entry.id, acl))
           .map((entry) => ({ id: entry.id, object: "model" as const, owned_by: entry.owned_by, metadata: entry.metadata }));
         const response = Response.json({ object: "list", data }, { headers: { "cache-control": "no-store", "accept-query": "application/json" } });
-        return response;
+        return secureResponse(response, { request, noStore: true });
       }
       if (url.pathname === "/console/api" || url.pathname.startsWith("/console/api/")) {
         if (url.pathname.endsWith("/stream")) server.timeout(request, 0);
@@ -155,7 +176,7 @@ export async function startServer(): Promise<void> {
       const route = lookupProxyEndpoint(url.pathname);
       if (route !== null && request.method === "POST") server.timeout(request, 0);
       if (route === null || request.method !== "POST") {
-        // Fast reject: only attempt static file resolution for genuine console asset paths.
+        // Fast reject: only attempt static file resolution for known public and console asset paths.
         // Unknown/random paths skip filesystem I/O entirely and return 404 immediately.
         if ((url.pathname === "/console" || url.pathname.startsWith("/console/")) && !url.pathname.startsWith("/console/api/")) {
           const resolution = await resolveConsoleStatic(url.pathname, async (file) => Bun.file(file).exists());
@@ -167,21 +188,42 @@ export async function startServer(): Promise<void> {
             return new Response(asset, { headers });
           }
         }
+        const landingResolution = await resolveLandingStatic(url.pathname, async (file) => Bun.file(file).exists());
+        if (landingResolution.kind !== "not-found") {
+          const asset = Bun.file(landingResolution.file);
+          if (landingResolution.kind === "entry" && !(await asset.exists())) return errorResponse(404, "not_found", "Landing entry not found");
+          const headers = new Headers(landingResolution.kind === "entry" ? { "content-type": "text/html; charset=utf-8" } : undefined);
+          applySecurityHeaders(headers, request);
+          return new Response(asset, { headers });
+        }
         return errorResponse(404, "not_found", "Route not found");
       }
       const requestId = crypto.randomUUID();
       const startedAt = performance.now();
+      const settings = proxyRuntimeSettings(runtime);
+      const ip = clientIp(request, settings.trustProxy);
+      if (hasConflictingCredentials(request)) {
+        void recordSecurityEvent(runtime, requestId, ip, "ambiguous_credentials");
+        const response = errorResponse(400, "invalid_request", "Use exactly one API credential header.", requestId);
+        recordAccessLog(runtime, url.pathname, request, requestId, response.status, startedAt);
+        return response;
+      }
       const token = requestToken(request);
       const key = token === null ? null : runtime.config.apiKeys.getBySecret(token);
       if (key === null) {
+        void recordSecurityEvent(runtime, requestId, ip, "invalid_api_key");
         const response = errorResponse(401, "authentication_failed", "A valid x-api-key header (or Authorization: Bearer token) is required to use this proxy.", requestId);
         recordAccessLog(runtime, url.pathname, request, requestId, response.status, startedAt);
         return response;
       }
-      // Global concurrency guard: reject when at capacity so 10k concurrent requests
-      // can't exhaust resources. Authenticated requests are counted; unauthenticated
-      // ones bail above and don't consume a slot.
+      if (Date.now() - bannedIpsCacheAt > BANNED_IPS_TTL_MS) void refreshBannedIps(runtime);
+      if (isIpBanned(ip)) {
+        const response = errorResponse(403, "authorization_denied", "Your IP address has been banned.", requestId);
+        recordAccessLog(runtime, url.pathname, request, requestId, response.status, startedAt);
+        return response;
+      }
       if (globalInFlight >= MAX_GLOBAL_IN_FLIGHT) {
+        void recordSecurityEvent(runtime, requestId, ip, "rate_limit");
         const response = errorResponse(429, "rate_limit_error", "Server is at capacity. Try again shortly.", requestId);
         response.headers.set("retry-after", "5");
         recordAccessLog(runtime, url.pathname, request, requestId, response.status, startedAt);
@@ -191,23 +233,16 @@ export async function startServer(): Promise<void> {
       const parsedBody = await readProxyBody(request, route.endpoint);
       if (parsedBody instanceof Response) {
         globalInFlight--;
+        if (parsedBody.status === 413) void recordSecurityEvent(runtime, requestId, ip, "request_too_large");
         recordAccessLog(runtime, url.pathname, request, requestId, parsedBody.status, startedAt);
         return parsedBody;
       }
       const body = parsedBody;
       const bodyRecord = typeof body === "object" && body !== null && !Array.isArray(body) ? body as Record<string, unknown> : {};
-      const settings = proxyRuntimeSettings(runtime);
-      const ip = clientIp(request, settings.trustProxy);
-      if (Date.now() - bannedIpsCacheAt > BANNED_IPS_TTL_MS) void refreshBannedIps(runtime);
-      if (isIpBanned(ip)) {
-        globalInFlight--;
-        const response = errorResponse(403, "authorization_denied", "Your IP address has been banned.", requestId);
-        recordAccessLog(runtime, url.pathname, request, requestId, response.status, startedAt);
-        return response;
-      }
       const rateLimit = rateLimiter.tryAcquire(ip);
       if (!rateLimit.allowed) {
         globalInFlight--;
+        void recordSecurityEvent(runtime, requestId, ip, "rate_limit");
         const response = errorResponse(429, "rate_limit_error", "Rate limit exceeded. Try again shortly.", requestId);
         response.headers.set("retry-after", String(Math.ceil(rateLimit.retryAfterMs / 1000)));
         recordAccessLog(runtime, url.pathname, request, requestId, response.status, startedAt);
@@ -216,6 +251,7 @@ export async function startServer(): Promise<void> {
       const flight = perIpFlights.tryAcquire(ip, settings.maxFlightsPerIp);
       if (flight === null) {
         globalInFlight--;
+        void recordSecurityEvent(runtime, requestId, ip, "rate_limit");
         const response = errorResponse(429, "rate_limit_error", "Too many concurrent requests from this IP. Try again shortly.", requestId);
         recordAccessLog(runtime, url.pathname, request, requestId, response.status, startedAt);
         return response;
@@ -236,9 +272,9 @@ export async function startServer(): Promise<void> {
         runtime.config.apiKeys.touch(key.id);
         const bodyResponse = presented.body;
         if (bodyResponse.mode === "json") {
-          release(presented.status);
           const headers = new Headers(presented.headers);
           headers.set("x-request-id", requestId);
+          applyCommonSecurityHeaders(headers, { request, noStore: true });
           return Response.json(bodyResponse.value, { status: presented.status, headers });
         }
         const requestedModel = typeof bodyRecord.model === "string" ? bodyRecord.model : "unknown";
@@ -259,6 +295,7 @@ export async function startServer(): Promise<void> {
         });
         const headers = new Headers(presented.headers);
         headers.set("x-request-id", requestId);
+        applyCommonSecurityHeaders(headers, { request, noStore: true });
         return new Response(stream, { status: presented.status, headers });
       } catch (error) {
         release(500);

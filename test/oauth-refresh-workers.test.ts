@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { makeProviderError } from "../src/traffic";
+import { createProviderError } from "../src/traffic";
 import { OAuthDriverError } from "../src/application/auth/oauth/base";
 import { createDriverAwareOAuthRefresher } from "../src/application/auth/oauth-refresher";
 import {
@@ -44,7 +44,7 @@ describe("central OAuth refresh pool", () => {
     const store = new MemoryOAuthTokenStore();
     await store.set(account.id, expiredToken());
     let calls = 0;
-    const revoked = makeProviderError("authentication_failed", "OAuth refresh token revoked", { statusCode: 400, retryable: false, routeScope: "account" });
+    const revoked = createProviderError("authentication_failed", "OAuth refresh token revoked", { statusCode: 400, retryable: false, routeScope: "account" });
     const pool = new TokenRefreshPool(accounts, store, {
       refresh: async () => {
         calls += 1;

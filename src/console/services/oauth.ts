@@ -3,6 +3,7 @@ import { sanitizeMessage } from "../../application/contracts";
 import { OAUTH_SAFETY_SKEW_MS, TokenRefreshPool, type OAuthTokenRecord } from "../../application/auth";
 import type { TokenSet } from "../../application/auth";
 import type { AuthDriverRegistry } from "../../application/auth";
+import { resolveAuthDriverCapabilities } from "../../application/auth";
 import { OAuthLoginSessionManager, OAuthSessionError, type OAuthLoginSessionView } from "../../application/auth";
 import { registerOAuthCallback, unregisterOAuthCallback } from "../../application/auth/oauth-callback-server";
 import type { AccountRepository, ConsoleErrorCode } from "../views";
@@ -215,10 +216,19 @@ export class OAuthService {
     if (account === null) return { ok: false, status: 404, code: "not_found", message: "account not found" };
     if (account.credentialKind !== "oauth") return { ok: false, status: 400, code: "invalid_request", message: "account is not OAuth-linked" };
     const token = await this.tokens.get(accountId);
-    if (token?.refreshToken === null && token.accessToken.length > 0) {
-      return { ok: true, expiresAt: token.expiresAtMs === null ? null : new Date(token.expiresAtMs).toISOString() };
+    const driver = this.drivers.get(account.providerId);
+    const capabilities = driver === null ? null : resolveAuthDriverCapabilities(driver);
+    if (token?.refreshToken === null && token !== undefined && token.accessToken.length > 0) {
+      const expiresAtMs = token.expiresAtMs;
+      if (expiresAtMs === null || expiresAtMs - Date.now() > OAUTH_SAFETY_SKEW_MS) {
+        return { ok: true, expiresAt: expiresAtMs === null ? null : new Date(expiresAtMs).toISOString() };
+      }
+      if (capabilities?.accessOnly === true || capabilities?.supportsRefresh === false) {
+        return { ok: false, status: 401, code: "unauthorized", message: "OAuth reauthentication is required" };
+      }
     }
     if (token?.refreshToken === null || token === undefined) return { ok: false, status: 400, code: "invalid_request", message: "account has no access token" };
+    if (capabilities?.supportsRefresh === false) return { ok: false, status: 401, code: "unauthorized", message: "OAuth provider does not support refresh" };
     try {
       const refreshed = await this.tokenRefresh.forceRefresh(accountId);
       return { ok: true, expiresAt: refreshed.expiresAtMs === null ? null : new Date(refreshed.expiresAtMs).toISOString() };
@@ -242,9 +252,10 @@ export class OAuthService {
     const resolvedProvider = providerId.length > 0 ? providerId : account.providerId;
     const driver = this.drivers.get(resolvedProvider);
     const token = await this.tokens.get(accountId);
-    if (driver?.revoke !== undefined && token !== undefined) {
+    const capabilities = driver === null ? null : resolveAuthDriverCapabilities(driver);
+    if (capabilities?.supportsRevoke === true && token !== undefined) {
       try {
-        await driver.revoke({ providerId: resolvedProvider, accountId, token: token.accessToken });
+        await driver?.revoke?.({ providerId: resolvedProvider, accountId, token: token.accessToken });
       } catch {
         // Best-effort: local disable + token clear still apply.
       }
@@ -263,6 +274,7 @@ export class OAuthService {
     const expiresAtMs = token?.expiresAtMs ?? null;
     const expired = token === undefined || (expiresAtMs !== null && expiresAtMs - Date.now() <= OAUTH_SAFETY_SKEW_MS);
     const driver = this.drivers.get(account.providerId);
+    const capabilities = driver === null ? null : resolveAuthDriverCapabilities(driver);
     return {
       accountId,
       providerId: account.providerId,
@@ -270,12 +282,11 @@ export class OAuthService {
       hasRefreshToken,
       accessTokenExpiresAt: expiresAtMs === null ? null : new Date(expiresAtMs).toISOString(),
       expired,
-      refreshable: driver?.refresh !== undefined && hasRefreshToken,
-      revocable: driver?.revoke !== undefined || hasRefreshToken,
+      refreshable: capabilities?.supportsRefresh === true && !capabilities.accessOnly && hasRefreshToken,
+      revocable: capabilities?.supportsRevoke === true || hasRefreshToken,
       refreshState: token?.refreshState ?? "unknown",
       lastRefreshAt: token?.lastRefreshAtMs == null ? null : new Date(token.lastRefreshAtMs).toISOString(),
       lastRefreshErrorKind: token?.lastRefreshErrorKind ?? null,
     };
   }
-
 }

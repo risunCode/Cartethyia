@@ -1,7 +1,7 @@
 import type { CredentialKind } from "../../application/contracts";
 import { extractAccessTokenOrRaw } from "../../application/auth";
 import type { ProviderRegistry } from "../../providers/registry";
-import { assertPublicUrlAtDispatch } from "../../security/ssrf-guard";
+import { assertPublicUrl, assertPublicUrlAtDispatch, fetchWithSsrfGuard } from "../../security/ssrf-guard";
 import type {
   AccountRepository,
   ConsoleErrorCode,
@@ -22,6 +22,30 @@ import {
 } from "../input-sanitizers";
 export function normalizeApiKeyCredential(value: string): string {
   return value.replace(/\s+/g, "");
+}
+const BLOCKED_CUSTOM_HEADERS = new Set(["authorization", "proxy-authorization", "x-api-key", "host", "content-length", "connection", "transfer-encoding"]);
+
+function customHeadersOrUndefined(value: unknown): Readonly<Record<string, string>> | undefined {
+  const headers = recordOrUndefined(value);
+  if (headers === undefined) return undefined;
+  const filtered: Record<string, string> = {};
+  for (const [key, item] of Object.entries(headers)) {
+    const normalized = key.trim().toLowerCase();
+    if (normalized.length === 0 || BLOCKED_CUSTOM_HEADERS.has(normalized) || normalized.startsWith("proxy-")) continue;
+    filtered[key.trim()] = item;
+  }
+  return filtered;
+}
+
+function customBaseUrlError(value: unknown): string | null {
+  if (typeof value !== "string" || value.trim().length === 0) return "provider base URL is required";
+  try {
+    const url = assertPublicUrl(value.trim(), { label: "Custom provider base URL", allowedProtocols: Bun.env.NODE_ENV === "development" || Bun.env.NODE_ENV === "test" ? { "http:": true, "https:": true } : { "https:": true } });
+    if (url.username !== "" || url.password !== "" || url.hash !== "") return "custom provider base URL must not contain credentials or a fragment";
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : "invalid custom provider base URL";
+  }
 }
 // ---------------------------------------------------------------------------
 // Model discovery for built-in providers
@@ -201,18 +225,20 @@ export class ProviderService {
     if (slugError !== null) {
       return { ok: false, status: slugError.status, code: slugError.code, message: slugError.message };
     }
-    if (typeof value.baseUrl !== "string" || value.baseUrl.trim().length === 0) {
-      return { ok: false, status: 400, code: "invalid_request", message: "provider base URL is required" };
+    const baseUrl = typeof value.baseUrl === "string" ? value.baseUrl.trim() : "";
+    const baseUrlError = customBaseUrlError(baseUrl);
+    if (baseUrlError !== null) {
+      return { ok: false, status: 400, code: "invalid_request", message: baseUrlError };
     }
     const result = await this.customProviders.create({
       name: value.name.trim(),
       kind: customProviderKind(value.kind),
       slug,
-      baseUrl: value.baseUrl.trim(),
+      baseUrl,
       credential: normalizeApiKeyCredential(stringOrUndefined(value.credential) ?? ""),
       timeoutSeconds: numberOrUndefined(value.timeoutSeconds),
       autoFetchModels: booleanOrUndefined(value.autoFetchModels),
-      customHeaders: recordOrUndefined(value.customHeaders),
+      customHeaders: customHeadersOrUndefined(value.customHeaders),
     });
     if ("error" in result) {
       return { ok: false, status: 409, code: "conflict", message: "a custom provider with this slug already exists" };
@@ -238,6 +264,10 @@ export class ProviderService {
       const slugError = await this.customSlugError(rawSlug.trim(), id);
       if (slugError !== null) return { ok: false, ...slugError };
     }
+    if (value.baseUrl !== undefined) {
+      const baseUrlError = customBaseUrlError(value.baseUrl);
+      if (baseUrlError !== null) return { ok: false, status: 400, code: "invalid_request", message: baseUrlError };
+    }
     return this.customProviders.update(id, {
       name: stringOrUndefined(value.name),
       kind: customProviderKind(value.kind),
@@ -246,7 +276,7 @@ export class ProviderService {
       credential: typeof value.credential === "string" ? normalizeApiKeyCredential(value.credential) : undefined,
       timeoutSeconds: numberOrUndefined(value.timeoutSeconds),
       autoFetchModels: booleanOrUndefined(value.autoFetchModels),
-      customHeaders: recordOrUndefined(value.customHeaders),
+      customHeaders: customHeadersOrUndefined(value.customHeaders),
       enabled: booleanOrUndefined(value.enabled),
     });
   }
@@ -265,14 +295,13 @@ export class ProviderService {
     const credential = await this.customProviders.credential(id);
     const baseUrl = provider.baseUrl.replace(/\/+$/, "");
     const modelsUrl = `${baseUrl}/models`;
-    await assertPublicUrlAtDispatch(modelsUrl, { label: `Custom provider "${provider.name}" model discovery` });
-    const response = await fetch(modelsUrl, {
+    const response = await fetchWithSsrfGuard(modelsUrl, {
       headers: {
         accept: "application/json",
         ...(credential?.credential ? provider.kind === "anthropic" ? { "x-api-key": credential.credential, "anthropic-version": "2023-06-01" } : { authorization: `Bearer ${credential.credential}` } : {}),
       },
       signal: AbortSignal.timeout(Math.min(provider.timeoutSeconds * 1000, 30_000)),
-    });
+    }, { maxRedirects: 2 });
     if (!response.ok) return { error: `Model discovery returned HTTP ${response.status}.` };
     const body: unknown = await response.json();
     const rows = typeof body === "object" && body !== null && "data" in body && Array.isArray((body as { data?: unknown }).data) ? (body as { data: unknown[] }).data : Array.isArray(body) ? body : [];
@@ -293,13 +322,14 @@ export class ProviderService {
     const baseUrl = provider.baseUrl.replace(/\/+$/, "");
     const start = performance.now();
     try {
-      const response = await fetch(baseUrl, {
+      await assertPublicUrlAtDispatch(baseUrl, { label: `Custom provider "${provider.name}" health check` });
+      const response = await fetchWithSsrfGuard(baseUrl, {
         method: "HEAD",
         headers: {
           ...(credential?.credential ? provider.kind === "anthropic" ? { "x-api-key": credential.credential, "anthropic-version": "2023-06-01" } : { authorization: `Bearer ${credential.credential}` } : {}),
         },
         signal: AbortSignal.timeout(Math.min(provider.timeoutSeconds * 1000, 10_000)),
-      });
+      }, { maxRedirects: 2 });
       const latencyMs = Math.max(0, Math.round(performance.now() - start));
       if (response.ok || response.status === 401 || response.status === 403 || response.status === 404 || response.status === 405) {
         return { ok: true, latencyMs };

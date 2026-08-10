@@ -119,10 +119,8 @@ export class GrokBuildOAuthDriver implements AuthDriver {
   }
 
   /**
-   * Non-blocking device-flow poll: makes a single token request and returns
-   * the result. Uses raw fetch because the token endpoint returns HTTP 400
-   * for `authorization_pending` / `slow_down` / `expired_token`, which the
-   * standard postForm would throw on.
+   * Non-blocking device-flow poll: makes a single token request and preserves
+   * bounded JSON error bodies for authorization_pending / slow_down.
    */
   async poll(state: string): Promise<{ readonly status: "pending" | "completed" | "expired"; readonly tokenSet?: TokenSet }> {
     const context = this.devices.get(state);
@@ -131,23 +129,20 @@ export class GrokBuildOAuthDriver implements AuthDriver {
       this.devices.delete(state);
       return { status: "expired" };
     }
-    let response: Response;
+    let result;
     try {
-      response = await fetch(GROK_BUILD_TOKEN_URL, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-          device_code: context.deviceCode,
-          client_id: this.clientId,
-        }).toString(),
-      });
+      result = await this.http.postFormResult(
+        GROK_BUILD_TOKEN_URL,
+        { grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: context.deviceCode, client_id: this.clientId },
+        "grok-build",
+        "device authorization",
+      );
     } catch {
       return { status: "pending" };
     }
-    const data = (await response.json()) as Record<string, unknown>;
+    const data = result.body ?? {};
     const error = typeof data.error === "string" ? data.error : undefined;
-    if (error === undefined && response.ok) {
+    if (error === undefined && result.ok) {
       const tokenSet = parseGrokBuildTokenResponse(data, "token exchange", this.nowMs(), true);
       this.devices.delete(state);
       return { status: "completed", tokenSet };

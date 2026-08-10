@@ -1,4 +1,7 @@
-import { describeOpenAIAdapter, makeOpenAIAdapter, ProviderAdapterError, toProviderCallError, type ProviderCatalogAdapter } from "../open-sse/transport/shared";
+import { describeOpenAIAdapter, createOpenAIAdapter } from "../open-sse/transport/openai-adapter";
+import { createCursorAdapter } from "./cursor";
+import { ProviderAdapterError, toProviderCallError } from "../open-sse/transport/errors";
+import type { ProviderCatalogAdapter } from "../open-sse/transport/contracts";
 import type { Adapter, ProviderOutput, ProviderRequest, Surface, RouteTarget } from "../application/contracts";
 import { resolveWireSurface } from "../open-sse/translate";
 
@@ -113,7 +116,7 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     { AnthropicAdapter },
     { GeminiAdapter },
     { CloudflareAdapter },
-    { OpenCodeFreeAdapter, OpenCodeZenAdapter },
+    { OpenCodeFreeAdapter, OpenCodeZenAdapter, OpenCodeGoAdapter },
     { KimchiAdapter },
     { AgentRouterAdapter },
     { ClineAdapter, ClinePassAdapter },
@@ -129,7 +132,6 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     { simpleOpenAIConfigs },
     { OllamaAdapter },
     { BlackboxAIAdapter },
-    { OpenCodeGoAdapter },
   ] = await Promise.all([
     import("./openai"),
     import("./anthropic"),
@@ -151,7 +153,6 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     import("./openai-compatible"),
     import("./ollama"),
     import("./blackboxai"),
-    import("./opencodego"),
   ]);
 
   const registry = new ProviderRegistry();
@@ -176,9 +177,10 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
   registry.register(new ExaAdapter());
   registry.register(new DevinAdapter());
   for (const config of simpleOpenAIConfigs) {
-    registry.registerLazy(describeOpenAIAdapter(config), () => Promise.resolve(makeOpenAIAdapter(config)));
+    registry.registerLazy(describeOpenAIAdapter(config), () => Promise.resolve(createOpenAIAdapter(config)));
   }
   registry.register(OllamaAdapter);
+  registry.register(createCursorAdapter());
   registry.register(BlackboxAIAdapter);
   registry.register(OpenCodeGoAdapter);
   return registry;

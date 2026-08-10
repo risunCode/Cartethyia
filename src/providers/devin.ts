@@ -1,22 +1,8 @@
-import {
-  DevinAccountLimitError,
-  DevinApiError,
-  DevinAuthError,
-  DevinQuotaError,
-  streamDevin,
-  type ChatMessage,
-  type ChatTool,
-  type DevinModel,
-} from "devin-router";
-import {
-  AbortCoordinator,
-  ProviderAdapterError,
-  aggregateCapabilities,
-  capabilitiesOf,
-  createModelCatalog,
-  modelOf,
-  toProviderCallError,
-} from "../open-sse/transport/shared";
+import { DevinAccountLimitError, DevinApiError, DevinAuthError, DevinQuotaError } from "./devin/errors";
+import { DEVIN_API_URL, streamDevin } from "./devin/stream";
+import type { ChatMessage, ChatTool, DevinModel } from "./devin/types";
+import { AbortCoordinator } from "../open-sse/transport/abort-coordinator";
+import { ProviderAdapterError, toProviderCallError } from "../open-sse/transport/errors";
 import { buildProxyFetcher } from "../traffic";
 import type {
   Adapter,
@@ -35,22 +21,33 @@ import type {
 } from "../application/contracts";
 import type { ProxyRequest } from "../application/contracts";
 
-const DEVIN_API_URL = "https://server.codeium.com";
-
 const DEVIN_SURFACES: readonly Surface[] = ["openai-chat"];
 const DEVIN_MODEL_ID = "swe-1-6-slow";
-const DEVIN_MODEL = modelOf(
-  DEVIN_MODEL_ID,
-  "SWE-1.6 Slow",
-  capabilitiesOf({ surfaces: DEVIN_SURFACES, reasoning: true, toolCalls: true }),
-  { context: { inputTokens: 200_000, outputTokens: 64_000 } },
-);
+const DEVIN_FALLBACK_CAPABILITIES: ProviderCaps = {
+  surfaces: DEVIN_SURFACES,
+  streaming: true,
+  reasoning: true,
+  toolCalls: true,
+  images: false,
+  explicitCache: false,
+  promptCacheKey: false,
+};
+const DEVIN_MODEL: ProviderModel = {
+  id: DEVIN_MODEL_ID,
+  displayName: "SWE-1.6 Slow",
+  capabilities: DEVIN_FALLBACK_CAPABILITIES,
+  context: { inputTokens: 200_000, outputTokens: 64_000 },
+};
 const DEVIN_MODELS: readonly ProviderModel[] = [DEVIN_MODEL];
-const DEVIN_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: DEVIN_SURFACES, reasoning: true, toolCalls: true });
+
+function createModelCatalog(models: readonly ProviderModel[]): ProviderModelCatalog {
+  return { list: models, get: (modelId) => models.find((model) => model.id === modelId) ?? null };
+}
 
 type DevinStreamState = {
   readonly id: string;
   readonly activeTools: Set<string>;
+  readonly toolArguments: Map<string, string>;
   usage: ProviderUsage | undefined;
 };
 
@@ -67,7 +64,7 @@ export class DevinAdapter implements Adapter {
 
   constructor() {
     this.models = createModelCatalog(DEVIN_MODELS);
-    this.capabilities = aggregateCapabilities(DEVIN_MODELS, DEVIN_FALLBACK_CAPABILITIES);
+    this.capabilities = DEVIN_FALLBACK_CAPABILITIES;
   }
 
   resolveTarget(modelId: string, surface: Surface): RouteTarget {
@@ -125,7 +122,7 @@ export class DevinAdapter implements Adapter {
       .map((block) => block.text ?? "")
       .filter((text) => text.length > 0)
       .join("\n\n");
-    const state: DevinStreamState = { id: `devin-${crypto.randomUUID()}`, activeTools: new Set(), usage: undefined };
+    const state: DevinStreamState = { id: `devin-${crypto.randomUUID()}`, activeTools: new Set(), toolArguments: new Map(), usage: undefined };
     return this.mapStream(
       streamDevin(model, { messages, systemPrompt }, { messages, tools, maxTokens: model.maxTokens, signal: coordinator.signal, fetch: fetchImpl }, credential),
       state,
@@ -151,7 +148,12 @@ export class DevinAdapter implements Adapter {
             state.activeTools.add(chunk.id);
             yield { type: "tool_call_start", callId: chunk.id, name: chunk.name };
           }
-          if (chunk.args) yield { type: "tool_call_delta", callId: chunk.id, delta: chunk.args };
+          const args = chunk.args ?? "";
+          const previousArguments = state.toolArguments.get(chunk.id) ?? "";
+          const accumulatedArguments = args.startsWith(previousArguments) ? args : previousArguments + args;
+          state.toolArguments.set(chunk.id, accumulatedArguments);
+          const delta = accumulatedArguments.slice(previousArguments.length);
+          if (delta) yield { type: "tool_call_delta", callId: chunk.id, delta };
         } else if (chunk.type === "usage" && typeof chunk.input === "number" && typeof chunk.output === "number") {
           state.usage = { inputTokens: chunk.input, outputTokens: chunk.output, totalTokens: chunk.input + chunk.output, cacheReadTokens: null, cacheWriteTokens: null, source: "provider" };
           yield { type: "usage", usage: state.usage };
@@ -161,6 +163,7 @@ export class DevinAdapter implements Adapter {
           const reason = chunk.stopReason === "length" ? "length" : state.activeTools.size > 0 ? "tool_call" : "completed";
           for (const callId of state.activeTools) yield { type: "tool_call_end", callId };
           state.activeTools.clear();
+          state.toolArguments.clear();
           yield { type: "message_stop", reason };
           return;
         }
@@ -185,7 +188,7 @@ export class DevinAdapter implements Adapter {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Devin cannot serve provider "${input.target.providerId}"`, statusCode: 400, routeScope: null });
     }
     this.assertSurface(input.target.surface);
-    if (!input.request.stream && input.request.responseFormat !== "text") {
+    if (input.request.responseFormat !== "text") {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: "Devin only supports text responses.", statusCode: 400, routeScope: "provider" });
     }
   }

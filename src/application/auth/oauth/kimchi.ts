@@ -1,4 +1,4 @@
-import type { AuthDriver, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
+import type { AuthDriver, AuthDriverCapabilities, OAuthExchangeInput, OAuthStartInput, OAuthStartResult, RefreshTokenInput, TokenSet } from "../contracts";
 import { OAuthDriverError, OAuthHttpClient, type OAuthDriverOptions } from "./base";
 
 const KIMCHI_WEB_URL = "https://app.kimchi.dev";
@@ -23,6 +23,14 @@ function tokenFromInput(value: string | undefined): string {
 /** Kimchi browser-token OAuth flow; access tokens are validated and non-refreshable. */
 export class KimchiOAuthDriver implements AuthDriver {
   readonly kind = "oauth" as const;
+  readonly capabilities: AuthDriverCapabilities = {
+    supportsStart: true,
+    supportsPoll: false,
+    supportsExchange: true,
+    supportsRefresh: false,
+    supportsRevoke: false,
+    accessOnly: true,
+  };
   private readonly http: OAuthHttpClient;
   private readonly nowMs: () => number;
 

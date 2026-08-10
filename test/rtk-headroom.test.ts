@@ -3,11 +3,11 @@ import type { NormalizedMessage, ProxyRequest } from "../src/application/contrac
 import { createCleanupStack } from "../src/application/contracts";
 import { isRecord } from "../src/application/protocols";
 import { normalizeChatRequest } from "../src/open-sse/translate";
-import { createChatMapper } from "../src/open-sse/transport/protocols/openai";
+import { createOpenAIChatStreamMapper } from "../src/open-sse/transport/protocols/openai";
 import { applyTokenSaver } from "../src/open-sse/rtk";
 import { compressWithHeadroom } from "../src/open-sse/rtk/headroom";
 import { recoverCall } from "../src/open-sse/handlers/recovery";
-import { ProviderAdapterError } from "../src/open-sse/transport/shared";
+import { ProviderAdapterError } from "../src/open-sse/transport/errors";
 
 const limits = {
   maxBodyBytes: 10_000_000,
@@ -90,7 +90,7 @@ describe("RTK and Headroom", () => {
   });
 
   test("OpenAI error finish reason remains a terminal error", () => {
-    const mapper = createChatMapper();
+    const mapper = createOpenAIChatStreamMapper();
     mapper({ event: null, data: JSON.stringify({ choices: [{ delta: {}, finish_reason: "error" }] }) });
     const mapped = mapper({ event: null, data: "[DONE]" });
     const events = Array.isArray(mapped) ? mapped : mapped === null ? [] : [mapped];

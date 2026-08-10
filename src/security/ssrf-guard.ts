@@ -111,6 +111,7 @@ export async function assertPublicUrlAtDispatch(
 
   const lookup = options.lookup ?? ((host) => Bun.dns.lookup(host, { family: 0 }));
   const records = await lookup(hostname);
+  if (records.length === 0) throw new SsrfGuardError("invalid_url", `Invalid ${options.label ?? "URL"}: hostname did not resolve`);
   for (const record of records) {
     if (isBlockedIp(record.address)) {
       throw new SsrfGuardError("blocked_ip", `Blocked private IP address "${url.hostname}": "${record.address}"`);

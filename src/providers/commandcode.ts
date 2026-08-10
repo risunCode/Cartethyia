@@ -1,4 +1,8 @@
-import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { AbortCoordinator } from "../open-sse/transport/abort-coordinator";
+import { ProviderAdapterError, readUpstreamError, toProviderCallError } from "../open-sse/transport/errors";
+import { capabilitiesOf, createModelCatalog, modelOf } from "../open-sse/transport/catalog";
+import { executeFetch } from "../open-sse/transport/fetch";
+import { readJsonObject } from "../open-sse/transport/body-reader";
 import { isRecord, messageText } from "../application/protocols";
 import type {
   Adapter,

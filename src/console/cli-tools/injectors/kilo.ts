@@ -28,14 +28,14 @@ import {
 const IS_WIN: boolean = platform() === "win32";
 const IS_MAC: boolean = platform() === "darwin";
 
-function dataDir(): string {
+function resolveKiloDataDirectory(): string {
   if (IS_WIN) return join(process.env.LOCALAPPDATA ?? homeDir(), "kilo");
   if (IS_MAC) return join(homeDir(), "Library", "Application Support", "kilo");
   return join(homeDir(), ".local", "share", "kilo");
 }
 
 function authPath(): string {
-  return join(dataDir(), "auth.json");
+  return join(resolveKiloDataDirectory(), "auth.json");
 }
 
 function vscodeSettingsPath(): string {
@@ -73,7 +73,7 @@ export const kiloInjector: ToolInjector = {
   },
 
   async apply(input: ApplyInput): Promise<ApplyResult> {
-    const dir = dataDir();
+    const dir = resolveKiloDataDirectory();
     await ensureDir(dir);
     const model = input.activeModel ?? input.models[0] ?? "";
     const baseUrl = ensureV1Suffix(input.endpoint);

@@ -1,6 +1,12 @@
-import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, lineLimit, mapSseStream, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { AbortCoordinator } from "../open-sse/transport/abort-coordinator";
+import { ProviderAdapterError, readUpstreamError, toProviderCallError } from "../open-sse/transport/errors";
+import { capabilitiesOf, createModelCatalog, modelOf } from "../open-sse/transport/catalog";
+import { executeFetch } from "../open-sse/transport/fetch";
+import { lineLimit } from "../open-sse/transport/sse-decoder";
+import { mapSseStream } from "../open-sse/transport/stream-mapper";
+import { readJsonObject } from "../open-sse/transport/body-reader";
 import { isRecord } from "../application/protocols";
-import { createAnthropicMapper } from "../open-sse/transport/protocols/anthropic";
+import { createAnthropicMessagesStreamMapper } from "../open-sse/transport/protocols/anthropic";
 import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
 import type {
   Adapter,
@@ -194,7 +200,7 @@ export class AnthropicOAuthAdapter implements Adapter {
       }
       if (!response.body) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Claude Code returned an empty stream body", routeScope: "provider" });
       streamHandedOff = true;
-      return { mode: "stream", events: mapSseStream({ body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs }, createAnthropicMapper((name) => name.startsWith(claudeToolPrefix) ? name.slice(claudeToolPrefix.length) : name)) };
+      return { mode: "stream", events: mapSseStream({ body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs }, createAnthropicMessagesStreamMapper((name) => name.startsWith(claudeToolPrefix) ? name.slice(claudeToolPrefix.length) : name)) };
     } finally {
       if (!streamHandedOff) coordinator.dispose();
     }

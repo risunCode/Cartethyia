@@ -1,5 +1,10 @@
-import { AbortCoordinator, ProviderAdapterError, executeFetch, lineLimit, mapSseStream, parseSseData, readJsonObject, readUpstreamError } from "../shared";
-import type { SseEvent, StreamMapper } from "../shared";
+import { AbortCoordinator } from "../abort-coordinator";
+import { ProviderAdapterError, readUpstreamError } from "../errors";
+import { executeFetch } from "../fetch";
+import { lineLimit, parseSseData } from "../sse-decoder";
+import { mapSseStream } from "../stream-mapper";
+import { readJsonObject } from "../body-reader";
+import type { SseEvent, StreamMapper } from "../contracts";
 import type { ProviderOutput, ProviderRequest, StopReason, StreamEvent } from "../../../application/contracts";
 import { isRecord } from "../../../application/protocols";
 import { buildChatPayload, mapChatUsage } from "../../translate/codecs/openai-chat";
@@ -39,7 +44,7 @@ export async function callChatCompletionsWire(
     streamHandedOff = true;
     const events = mapSseStream(
       { body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs },
-      createChatMapper(),
+      createOpenAIChatStreamMapper(),
     );
     return { mode: "stream", events };
   } finally {
@@ -78,7 +83,7 @@ export async function callResponsesWire(
     streamHandedOff = true;
     const events = mapSseStream(
       { body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs },
-      createResponsesMapper(),
+      createOpenAIResponsesStreamMapper(),
     );
     return { mode: "stream", events };
   } finally {
@@ -153,7 +158,7 @@ function mapChatFinishReason(finishReason: string | null): StopReason {
  * text_delta, tool call argument fragments become tool_call_delta, and the
  * trailing usage chunk (include_usage) becomes a usage event.
  */
-export function createChatMapper(): StreamMapper {
+export function createOpenAIChatStreamMapper(): StreamMapper {
   let started = false;
   let id: string | null = null;
   let lastFinishReason: string | null = null;
@@ -217,7 +222,7 @@ export function createChatMapper(): StreamMapper {
  * tool_call_delta, and the terminal response.completed carries usage and the
  * stop reason.
  */
-export function createResponsesMapper(): StreamMapper {
+export function createOpenAIResponsesStreamMapper(): StreamMapper {
   let started = false;
   let id: string | null = null;
   let stopReason: StopReason | null = null;

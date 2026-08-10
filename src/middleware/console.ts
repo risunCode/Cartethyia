@@ -1,8 +1,8 @@
 import type { CartethyiaRuntime } from "../bootstrap/composition";
 import { runtimeRecordFromJson } from "../console/runtime-settings";
 import { guardConsoleRequest } from "../console/session";
+import { secureResponse } from "../security/headers";
 import { errorResponse, recordAccessLog } from "./shared";
-
 export async function safeConsoleHandle(runtime: CartethyiaRuntime, request: Request): Promise<Response> {
   const pathname = new URL(request.url).pathname;
   if (request.method === "QUERY" && !(request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) {
@@ -28,14 +28,16 @@ export async function safeConsoleHandle(runtime: CartethyiaRuntime, request: Req
   // other route. When settings aren't initialized yet (snapshot === null)
   // there is no JWT secret or password version to validate against, so we
   // skip the pre-check and let Elysia's own guard handle it after bootstrap.
-  const isPublic = pathname === "/console/api/login" || pathname === "/console/api/ip";
+  const isPublic = pathname === "/console/api/login";
   if (!isPublic) {
     const snapshot = runtime.config.settings.get();
     if (snapshot !== null) {
+      const guardSettings = runtimeRecordFromJson(snapshot.settingsJson);
       const verdict = await guardConsoleRequest(request, {
         jwtSecret: snapshot.jwtSecret ?? "",
         passwordVersion: snapshot.passwordVersion,
-        trustProxy: runtimeRecordFromJson(snapshot.settingsJson).trustProxy === true,
+        trustProxy: guardSettings.trustProxy === true,
+        publicOrigin: typeof Bun.env.PUBLIC_ORIGIN === "string" ? Bun.env.PUBLIC_ORIGIN : undefined,
       });
       if (!verdict.ok) {
         const code = verdict.code === "forbidden" ? "authorization_denied" : "authentication_failed";
@@ -43,16 +45,15 @@ export async function safeConsoleHandle(runtime: CartethyiaRuntime, request: Req
       }
     }
   }
-
   const requestId = crypto.randomUUID();
   const startedAt = performance.now();
   try {
     const response = await runtime.consoleApp.handle(request);
     recordAccessLog(runtime, pathname, request, requestId, response.status, startedAt);
-    if (request.method !== "QUERY") return response;
     const headers = new Headers(response.headers);
-    headers.set("accept-query", "application/json");
-    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+    if (request.method === "QUERY") headers.set("accept-query", "application/json");
+    const secured = secureResponse(new Response(response.body, { status: response.status, statusText: response.statusText, headers }), { request, noStore: pathname.startsWith("/console/api") });
+    return secured;
   } catch (error) {
     runtime.logger.system("error", "console", `${request.method} ${pathname} failed request_id=${requestId} error=${error instanceof Error ? error.name : "unknown"}`);
     return errorResponse(500, "internal_error", `Console ${request.method} request to ${pathname} failed`, requestId);

@@ -1,6 +1,12 @@
-import { AbortCoordinator, ProviderAdapterError, capabilitiesOf, createModelCatalog, executeFetch, lineLimit, mapSseStream, modelOf, readJsonObject, readUpstreamError, toProviderCallError } from "../open-sse/transport/shared";
+import { AbortCoordinator } from "../open-sse/transport/abort-coordinator";
+import { ProviderAdapterError, readUpstreamError, toProviderCallError } from "../open-sse/transport/errors";
+import { capabilitiesOf, createModelCatalog, modelOf } from "../open-sse/transport/catalog";
+import { executeFetch } from "../open-sse/transport/fetch";
+import { lineLimit } from "../open-sse/transport/sse-decoder";
+import { mapSseStream } from "../open-sse/transport/stream-mapper";
+import { readJsonObject } from "../open-sse/transport/body-reader";
 import { isRecord } from "../application/protocols";
-import { createChatMapper } from "../open-sse/transport/protocols/openai";
+import { createOpenAIChatStreamMapper } from "../open-sse/transport/protocols/openai";
 import { buildChatPayload } from "../open-sse/translate/codecs/openai-chat";
 import type {
   Adapter,
@@ -128,7 +134,7 @@ async function callClineOnce(input: ProviderRequest, bearer: string): Promise<Pr
     streamHandedOff = true;
     const events = mapSseStream(
       { body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs },
-      createChatMapper(),
+      createOpenAIChatStreamMapper(),
     );
     return { mode: "stream", events };
   } finally {

@@ -45,7 +45,7 @@ export function createOAuthRuntime({ config, logger }: OAuthRuntimeDependencies)
     fallback: createEnvOAuthRefresher({ resolveProvider }),
   });
   const oauth = new TokenRefreshPool(credentialStore, config.stores.oauthToken, oauthRefresher, {
-    defaultPolicy: { refreshLeadMs: 5 * 60_000 },
+    defaultPolicy: { refreshLeadMs: 5 * 60_000, minRefreshIntervalMs: 60_000, jitterMs: 30_000 },
     resolvePolicy: (account) => {
       const maxRefreshAgeMs: Record<string, number> = {
         codex: 2 * 24 * 60 * 60_000,
@@ -57,7 +57,17 @@ export function createOAuthRuntime({ config, logger }: OAuthRuntimeDependencies)
         clinepass: 30 * 60_000,
         kimchi: 5 * 60_000,
       };
-      return { refreshLeadMs: 5 * 60_000, maxRefreshAgeMs: maxRefreshAgeMs[account.providerId] };
+      const minRefreshIntervalMs: Record<string, number> = {
+        codex: 60_000,
+        claude: 60_000,
+        antigravity: 5 * 60_000,
+        "grok-build": 5 * 60_000,
+        kiro: 60_000,
+        cline: 60_000,
+        clinepass: 60_000,
+        kimchi: 5 * 60_000,
+      };
+      return { refreshLeadMs: 5 * 60_000, maxRefreshAgeMs: maxRefreshAgeMs[account.providerId], minRefreshIntervalMs: minRefreshIntervalMs[account.providerId] ?? 60_000, jitterMs: 30_000 };
     },
     onRefreshed: (accountId) => logger.system("info", "oauth-refresh", `OAuth token refreshed for account ${accountId}`),
     onFailed: (accountId, error) => logger.system("warn", "oauth-refresh", `OAuth refresh failed for account ${accountId}: ${error.kind}`),

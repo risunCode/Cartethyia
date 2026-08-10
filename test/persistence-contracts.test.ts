@@ -15,6 +15,7 @@ import {
   configError,
   type ConfigPersistence,
 } from "../src/storage/main/config";
+import { fingerprintOAuthToken } from "../src/application/auth/credentials";
 import {
   ensureRuntimeSchema,
   createRuntimePersistence,
@@ -75,9 +76,20 @@ describe("config schema initialization and idempotency", () => {
 
   test("all CONFIG_SCHEMA_SQL tables exist after open", () => {
     const tables = (persist.db().query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
-    for (const t of ["account_model_locks","access_rules","api_keys","combos","custom_providers","filter_rules","ip_bans","model_aliases","provider_account_health","provider_accounts","provider_models","proxy_health","proxy_settings","proxies","settings","share_links","warp_accounts"]) {
+    for (const t of ["account_model_locks","access_rules","api_keys","combos","custom_providers","filter_rules","ip_bans","model_aliases","oauth_refresh_leases","provider_account_health","provider_accounts","provider_models","proxy_health","proxy_settings","proxies","settings","share_links","warp_accounts"]) {
       expect(tables).toContain(t);
     }
+  });
+
+  test("durable OAuth store enforces lease ownership and token generation CAS", async () => {
+    persist.accounts.create({ id: "oauth-cas", provider: "codex", name: "oauth-cas", credentialKind: "oauth", credential: JSON.stringify({ accessToken: "access-old", refreshToken: "refresh-old", accessExpiresAt: 1 }), credentialHint: "…-old" });
+    const token = await persist.stores.oauthToken.get("oauth-cas");
+    expect(token?.generation).toBe(0);
+    const acquired = await persist.stores.oauthToken.tryAcquireRefreshLease?.({ accountId: "oauth-cas", ownerId: "owner-a", generation: 0, tokenFingerprint: fingerprintOAuthToken(token ?? null), nowMs: 10_000, leaseMs: 15_000 });
+    expect(acquired).toBe(true);
+    expect(await persist.stores.oauthToken.tryAcquireRefreshLease?.({ accountId: "oauth-cas", ownerId: "owner-b", generation: 0, tokenFingerprint: fingerprintOAuthToken(token ?? null), nowMs: 10_000, leaseMs: 15_000 })).toBe(false);
+    expect(await persist.stores.oauthToken.compareAndSwap?.({ accountId: "oauth-cas", expectedGeneration: 0, expectedTokenFingerprint: "stale", token: { accessToken: "access-new", expiresAtMs: 100_000, refreshToken: "refresh-new", kind: "oauth", generation: 1 } })).toBe(false);
+    await persist.stores.oauthToken.releaseRefreshLease?.("oauth-cas", "owner-a");
   });
 
   test("closeForSwap then reopen reopens the same file", () => {
@@ -634,11 +646,15 @@ describe("upsert repositories (aliases, combos, custom providers, access rules, 
     expect(await persist.ipBans.isBanned("5.6.7.8")).toBe(false);
   });
 
-  test("ip ban bannedSet returns all banned IPs", async () => {
+  test("durable offense scoring promotes repeated abuse to an IP ban", async () => {
     persist.settings.ensure();
-    await persist.ipBans.add("1.1.1.1"); await persist.ipBans.add("2.2.2.2");
-    const set = await persist.ipBans.bannedSet();
-    expect(set.size).toBe(2); expect(set.has("1.1.1.1")).toBe(true); expect(set.has("2.2.2.2")).toBe(true);
+    expect(persist.ipBans.recordOffense).toBeFunction();
+    for (let index = 0; index < 8; index += 1) {
+      const decision = await persist.ipBans.recordOffense!("9.8.7.6", "invalid_api_key");
+      if (index < 7) expect(decision.thresholdReached).toBe(false);
+      else expect(decision.thresholdReached).toBe(true);
+    }
+    expect(await persist.ipBans.isBanned("9.8.7.6")).toBe(true);
   });
 });
 

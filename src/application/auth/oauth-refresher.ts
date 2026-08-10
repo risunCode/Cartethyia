@@ -1,8 +1,9 @@
 import type { OAuthRefresher, OAuthRefreshResult, OAuthTokenRecord } from "./credentials";
-import { makeProviderError } from "../../traffic";
+import { createProviderError } from "../../traffic";
 import { assertPublicUrlAtDispatch } from "../../security/ssrf-guard";
 import { OAuthDriverError, type OAuthFetch } from "./oauth/base";
 import type { AuthDriverRegistry } from "./drivers";
+import { resolveAuthDriverCapabilities } from "./drivers";
 import type { TokenSet } from "./contracts";
 
 const OAUTH_REFRESH_TIMEOUT_MS = 15_000;
@@ -73,8 +74,15 @@ function parseTokenBody(body: unknown, nowMs: number): { readonly accessToken: s
   };
 }
 
-function failure(statusCode: number, kind: "credential_unavailable" | "provider_unavailable" | "authentication_failed" | "provider_protocol_error" | "network_unavailable", retryable: boolean, sanitizedMessage: string): OAuthRefreshResult {
-  return { ok: false, error: makeProviderError(kind, sanitizedMessage, { retryable, routeScope: "account", statusCode }) };
+function failure(statusCode: number, kind: "credential_unavailable" | "provider_unavailable" | "authentication_failed" | "provider_protocol_error" | "network_unavailable", retryable: boolean, sanitizedMessage: string, retryAt: string | null = null): OAuthRefreshResult {
+  return { ok: false, error: createProviderError(kind, sanitizedMessage, { retryable, routeScope: "account", statusCode, retryAt }) };
+}
+function parseRetryAfterHeader(value: string | null, nowMs: number): string | null {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) return new Date(nowMs + Number(trimmed) * 1000).toISOString();
+  const parsed = Date.parse(trimmed);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 }
 
 export interface EnvOAuthRefresherOptions {
@@ -133,10 +141,15 @@ export function createEnvOAuthRefresher(options: EnvOAuthRefresherOptions): OAut
           signal: AbortSignal.timeout(timeoutMs),
         });
         if (response.status >= 300 && response.status < 400) {
-          return failure(response.status, "provider_unavailable", true, "OAuth token endpoint returned an unexpected redirect");
+          return failure(response.status, "provider_protocol_error", false, "OAuth token endpoint returned an unexpected redirect");
         }
+        const retryAt = parseRetryAfterHeader(response.headers.get("retry-after"), nowMs());
         if (!response.ok) {
-          return failure(response.status || 503, response.status === 401 ? "authentication_failed" : "provider_unavailable", response.status !== 401, "OAuth token refresh failed");
+          return failure(response.status || 503, response.status === 401 ? "authentication_failed" : "provider_unavailable", response.status !== 401, "OAuth token refresh failed", retryAt);
+        }
+        const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+        if (contentType !== "application/json" && !contentType.endsWith("+json")) {
+          return failure(502, "provider_protocol_error", false, "OAuth token response had an unexpected content type");
         }
         const body = await readResponseBody(response, maxBytes);
         const record = body === null ? null : parseTokenBody(body, nowMs());
@@ -180,11 +193,11 @@ function driverRefreshFailure(error: unknown): OAuthRefreshResult {
     // Token endpoints report revoked, expired, reused, and invalid grants as
     // HTTP 400. These are permanent account failures, not provider outages.
     if (error.status === 400 || error.status === 401 || error.status === 403 || /(invalid_grant|refresh.?token.?reuse|revok|expired)/.test(normalized)) {
-      return failure(error.status, "authentication_failed", false, raw);
+      return failure(error.status, "authentication_failed", false, raw, error.retryAt);
     }
-    if (error.status === 429) return failure(error.status, "provider_unavailable", true, raw);
-    if (error.status >= 500) return failure(error.status, "provider_unavailable", error.retryable, raw);
-    return failure(error.status >= 400 && error.status < 500 ? error.status : 502, "provider_protocol_error", error.retryable, raw);
+    if (error.status === 429) return failure(error.status, "provider_unavailable", true, raw, error.retryAt);
+    if (error.status >= 500) return failure(error.status, "provider_unavailable", error.retryable, raw, error.retryAt);
+    return failure(error.status >= 400 && error.status < 500 ? error.status : 502, "provider_protocol_error", error.retryable, raw, error.retryAt);
   }
   return failure(503, "provider_unavailable", true, "OAuth token refresh failed");
 }
@@ -204,18 +217,26 @@ export function createDriverAwareOAuthRefresher(options: DriverAwareRefresherOpt
       if (providerId === null) {
         return failure(503, "credential_unavailable", true, "OAuth account is unavailable");
       }
-      const refreshToken = token?.refreshToken ?? null;
       const driver = options.drivers.get(providerId);
-      if (driver?.refresh !== undefined) {
+      const refreshToken = token?.refreshToken ?? null;
+      const capabilities = driver === null ? null : resolveAuthDriverCapabilities(driver);
+      if (driver !== null && capabilities !== null && capabilities.supportsRefresh) {
         if (refreshToken === null) {
           return failure(503, "credential_unavailable", true, "OAuth refresh token is unavailable");
         }
         try {
-          const next = await driver.refresh({ providerId, accountId, refreshToken });
+          const next = await driver.refresh?.({ providerId, accountId, refreshToken });
+          if (next === undefined) return failure(503, "credential_unavailable", false, "OAuth refresh is not supported for this provider");
           return { ok: true, token: tokenRecordFromTokenSet(next, refreshToken) };
         } catch (error) {
           return driverRefreshFailure(error);
         }
+      }
+      if (driver !== null && capabilities?.accessOnly === true) {
+        return failure(401, "authentication_failed", false, "OAuth provider requires reauthentication");
+      }
+      if (driver !== null && capabilities?.supportsRefresh === false) {
+        return failure(503, "credential_unavailable", false, "OAuth refresh is not supported for this provider");
       }
       if (options.fallback !== undefined) {
         return options.fallback.refresh({ accountId, token });

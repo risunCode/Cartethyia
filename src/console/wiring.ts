@@ -23,6 +23,7 @@ import type {
 import type { ProviderRegistry } from "../providers/registry";
 import type { ModelMetadata, ProviderModel, RouteHealth } from "../application/contracts";
 import type { BackupPayload, ConfigPersistence, ProviderAccountRecord, RestoreResult, RestoreValidation, RuntimePersistence } from "../storage";
+import { assertProductionBootstrapEnvironment, generateConsoleJwtSecret, isValidBootstrapPassword } from "../security/secrets";
 import { normalizeSidebarIconDataUrl, runtimeRecord, runtimeSettings } from "./runtime-settings";
 
 function listOrNull(value: string | null): readonly string[] | null {
@@ -116,15 +117,18 @@ function modelView(row: ReturnType<ConfigPersistence["providerModels"]["list"]>[
   };
 }
 
-function makeSettingsRepository(config: ConfigPersistence): ConsoleSettingsRepository {
+function createConsoleSettingsRepository(config: ConfigPersistence): ConsoleSettingsRepository {
   return {
     async get() {
+      assertProductionBootstrapEnvironment();
       const row = config.settings.ensure();
-      if (row.jwtSecret === null) config.settings.rotateJwtSecret(crypto.randomUUID());
+      if (row.jwtSecret === null) config.settings.rotateJwtSecret(Bun.env.CONSOLE_JWT_SECRET?.trim() || generateConsoleJwtSecret());
       if (row.passwordHash === null) {
         const bootstrapPassword = Bun.env.CONSOLE_PASSWORD;
-        if (bootstrapPassword !== undefined && bootstrapPassword.length >= 5) {
+        if (bootstrapPassword !== undefined && isValidBootstrapPassword(bootstrapPassword)) {
           config.settings.setPasswordHash(await hashConsolePassword(bootstrapPassword));
+        } else if ((Bun.env.NODE_ENV ?? "production") !== "development" && Bun.env.NODE_ENV !== "test") {
+          throw new Error("CONSOLE_PASSWORD is required on first production startup");
         }
       }
       const current = config.settings.ensure();
@@ -162,7 +166,7 @@ function makeSettingsRepository(config: ConfigPersistence): ConsoleSettingsRepos
   };
 }
 
-function makeKeyRepository(config: ConfigPersistence): ConsoleApiKeyRepository {
+function createConsoleApiKeyRepository(config: ConfigPersistence): ConsoleApiKeyRepository {
   const createSecret = (): string => `ck-${crypto.randomUUID().replaceAll("-", "")}`;
   return {
     async list() { return config.apiKeys.list().map(toApiKeyView); },
@@ -221,7 +225,7 @@ function makeKeyRepository(config: ConfigPersistence): ConsoleApiKeyRepository {
   };
 }
 
-function makeProviderConfigRepository(config: ConfigPersistence, registry: ProviderRegistry): ProviderConfigRepository {
+function createConsoleProviderConfigRepository(config: ConfigPersistence, registry: ProviderRegistry): ProviderConfigRepository {
   const enabled = new Map<string, boolean>();
   const defaults = { strategy: "priority" as const, stickyLimit: 1, useStickyLimit: false };
   const readRouting = (id: string): ProviderRoutingSettings => {
@@ -251,7 +255,7 @@ function makeProviderConfigRepository(config: ConfigPersistence, registry: Provi
   };
 }
 
-function makeModelRepository(config: ConfigPersistence, registry: ProviderRegistry): ModelRepository {
+function createConsoleModelRepository(config: ConfigPersistence, registry: ProviderRegistry): ModelRepository {
   return {
     async list(providerId) {
       const persisted = config.providerModels.list(providerId);
@@ -303,7 +307,7 @@ function deriveCredentialHint(credential: string, credentialKind: string, name?:
   return `${credential.slice(0, 4)}…`;
 }
 
-function makeAccountRepository(config: ConfigPersistence): ConsoleAccountRepository {
+function createConsoleAccountRepository(config: ConfigPersistence): ConsoleAccountRepository {
   const view = async (row: ProviderAccountRecord): Promise<AccountRowView> => {
     const [health, quota, stored] = await Promise.all([
       config.accountHealth.get(row.id),
@@ -351,7 +355,7 @@ function makeAccountRepository(config: ConfigPersistence): ConsoleAccountReposit
   };
 }
 
-function makeProxyRepository(config: ConfigPersistence): ConsoleProxyRepository {
+function createConsoleProxyRepository(config: ConfigPersistence): ConsoleProxyRepository {
   return {
     async list() {
       const rows = config.proxies.list();
@@ -372,7 +376,7 @@ function makeProxyRepository(config: ConfigPersistence): ConsoleProxyRepository 
   };
 }
 
-function makeProxySettingsRepository(config: ConfigPersistence): ProxySettingsRepository {
+function createConsoleProxySettingsRepository(config: ConfigPersistence): ProxySettingsRepository {
   return {
     async get() {
       const row = config.proxies.getSettings();
@@ -406,7 +410,7 @@ function makeProxySettingsRepository(config: ConfigPersistence): ProxySettingsRe
   };
 }
 
-function makeRoutingRepository(config: ConfigPersistence): RoutingConfigRepository {
+function createConsoleRoutingRepository(config: ConfigPersistence): RoutingConfigRepository {
   return {
     async listAliases() { return config.aliases.list(); },
     async putAlias(alias, model) { return config.aliases.upsert(alias, model); },
@@ -418,7 +422,7 @@ function makeRoutingRepository(config: ConfigPersistence): RoutingConfigReposito
   };
 }
 
-function makeRuntimeMetadataRepository(runtime: RuntimePersistence, registry: ProviderRegistry, config: ConfigPersistence): ConsoleRuntimeMetadataRepository {
+function createConsoleRuntimeMetadataRepository(runtime: RuntimePersistence, registry: ProviderRegistry, config: ConfigPersistence): ConsoleRuntimeMetadataRepository {
   const mapRow = (row: Awaited<ReturnType<RuntimePersistence["metadata"]["queryRequests"]>>["items"][number]) => ({
     requestId: row.requestId,
     endpoint: row.endpoint,
@@ -566,13 +570,14 @@ async function seedDefaultFilterRules(config: ConfigPersistence): Promise<void> 
 }
 
 export function createConsoleRepositories(config: ConfigPersistence, runtime: RuntimePersistence, registry: ProviderRegistry): ConsoleRepositories {
+  assertProductionBootstrapEnvironment();
   ensureBootstrapProxyKey(config);
   void seedDefaultFilterRules(config);
-  const settings = makeSettingsRepository(config);
-  return { settings, keys: makeKeyRepository(config), providerConfig: makeProviderConfigRepository(config, registry), customProviders: makeCustomProviderRepository(config), models: makeModelRepository(config, registry), accounts: makeAccountRepository(config), oauthTokens: config.stores.oauthToken, quotaState: config.stores.quotaState, proxies: makeProxyRepository(config), proxySettings: makeProxySettingsRepository(config), routing: makeRoutingRepository(config), filterRules: config.filterRules, backup: makeBackupRepository(config), runtimeMetadata: makeRuntimeMetadataRepository(runtime, registry, config), transitions: new MemoryRouteTransitionStore() };
+  const settings = createConsoleSettingsRepository(config);
+  return { settings, keys: createConsoleApiKeyRepository(config), providerConfig: createConsoleProviderConfigRepository(config, registry), customProviders: createConsoleCustomProviderRepository(config), models: createConsoleModelRepository(config, registry), accounts: createConsoleAccountRepository(config), oauthTokens: config.stores.oauthToken, quotaState: config.stores.quotaState, proxies: createConsoleProxyRepository(config), proxySettings: createConsoleProxySettingsRepository(config), routing: createConsoleRoutingRepository(config), filterRules: config.filterRules, backup: createConsoleBackupRepository(config), runtimeMetadata: createConsoleRuntimeMetadataRepository(runtime, registry, config), transitions: new MemoryRouteTransitionStore() };
 }
 
-function makeBackupRepository(config: ConfigPersistence): ConsoleBackupRepository {
+function createConsoleBackupRepository(config: ConfigPersistence): ConsoleBackupRepository {
   return {
     exportBackup(): BackupPayload {
       return config.backup();
@@ -583,7 +588,7 @@ function makeBackupRepository(config: ConfigPersistence): ConsoleBackupRepositor
   };
 }
 
-function makeCustomProviderRepository(config: ConfigPersistence): ConsoleCustomProviderRepository {
+function createConsoleCustomProviderRepository(config: ConfigPersistence): ConsoleCustomProviderRepository {
   const view = (row: ReturnType<ConfigPersistence["customProviders"]["list"]>[number]) => ({ id: row.id, slug: row.slug, name: row.name, kind: row.type === "anthropic-compatible" ? "anthropic" as const : "openai-compatible" as const, baseUrl: row.baseUrl, credentialHint: row.credential.length > 0 ? `${row.credential.slice(0, 4)}…` : "", timeoutSeconds: row.timeoutSeconds, autoFetchModels: true, customHeaders: row.customHeaders, models: row.models, enabled: true, createdAt: row.createdAt, updatedAt: row.updatedAt });
   return {
     async list() { return config.customProviders.list().map(view); },

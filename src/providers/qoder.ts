@@ -1,28 +1,22 @@
 import { createCipheriv, createHash, constants, publicEncrypt, randomUUID } from "node:crypto";
 
-import { AbortCoordinator,
-ProviderAdapterError,
-aggregateCapabilities,
-capabilitiesOf,
-createModelCatalog,
-decodeSseEvents,
-executeFetch,
-lineLimit,
-modelOf,
-readUpstreamError,
-toProviderCallError, } from "../open-sse/transport/shared";
+import { AbortCoordinator } from "../open-sse/transport/abort-coordinator";
+import { ProviderAdapterError, readUpstreamError, toProviderCallError } from "../open-sse/transport/errors";
+import { aggregateCapabilities, capabilitiesOf, createModelCatalog, modelOf } from "../open-sse/transport/catalog";
+import { decodeSseEvents, lineLimit } from "../open-sse/transport/sse-decoder";
+import { executeFetch } from "../open-sse/transport/fetch";
+import type { SseEvent } from "../open-sse/transport/contracts";
 import { isRecord } from "../application/protocols";
-import type { SseEvent } from "../open-sse/transport/shared";
-import { createChatMapper } from "../open-sse/transport/protocols/openai";
+import { createOpenAIChatStreamMapper } from "../open-sse/transport/protocols/openai";
 import { isTerminalEvent, type ContentBlock, type NormalizedMessage, type ProxyRequest, type Adapter, type ProviderCaps, type ProviderCallError, type ProviderMeta, type ProviderModel, type ProviderModelCatalog, type ProviderOutput, type ProviderRequest, type Surface, type ProviderUsage, type RequestLimits, type RouteTarget, type StopReason, type StreamEvent } from "../application/contracts";
 
 /**
  * Qoder — the Qoder CLI's `agent_chat_generation` SSE gateway
- * (https://api2.qoder.sh), restored from the legacy provider. A Qoder
- * personal access token (PAT) is exchanged per request for short-lived COSY
- * signing credentials (RSA-wrapped AES session key, MD5 request signature,
- * stable per-PAT machine id), then the OpenAI-shaped chat payload is encoded
- * with Qoder's custom base64 reorder alphabet and POSTed as raw bytes.
+ * (https://api2.qoder.sh). A Qoder personal access token (PAT) is exchanged
+ * per request for short-lived COSY signing credentials (RSA-wrapped AES
+ * session key, MD5 request signature, stable per-PAT machine id), then the
+ * OpenAI-shaped chat payload is encoded with Qoder's custom base64 reorder
+ * alphabet and POSTed as raw bytes.
  *
  * The upstream is streaming-only: the adapter always requests `stream: true`
  * and unwraps Qoder's `{statusCodeValue, body}` SSE envelopes into plain
@@ -39,15 +33,43 @@ import { isTerminalEvent, type ContentBlock, type NormalizedMessage, type ProxyR
 const QODER_SURFACES: readonly Surface[] = ["openai-chat"];
 const QODER_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: QODER_SURFACES, reasoning: true, images: true });
 
+// ---------------------------------------------------------------- wire profile
+
+export interface QoderModeProfile {
+  readonly cosyVersion: string;
+  readonly chatUrl: string;
+  readonly businessProduct: string;
+  readonly businessType: string;
+  readonly businessVersion: string;
+  readonly cosyScene: string;
+  readonly mirrorTopLevelSystem: boolean;
+  readonly sendBusinessHeaders: boolean;
+  readonly sendModelSourceHeaders: boolean;
+  readonly emptyAliyunUserType: boolean;
+}
+
+/** Current Qoder CLI COSY wire profile. */
+export const QODER_MODE_PROFILE: QoderModeProfile = {
+  cosyVersion: "1.0.22",
+  chatUrl: "https://api2.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1",
+  businessProduct: "cli",
+  businessType: "agent",
+  businessVersion: "1.0.22",
+  cosyScene: "assistant",
+  mirrorTopLevelSystem: true,
+  sendBusinessHeaders: true,
+  sendModelSourceHeaders: true,
+  emptyAliyunUserType: true,
+};
+
 // ---------------------------------------------------------------- wire constants
 
 const APPCODE = "cosy";
-const COSY_VERSION = "1.0.22";
+const COSY_VERSION = QODER_MODE_PROFILE.cosyVersion;
 const SIG_SECRET = "d2FyLCB3YXIgbmV2ZXIgY2hhbmdlcw==";
 const QODER_JOB_TOKEN_URL = "https://center.qoder.sh/algo/api/v3/user/jobToken?Encode=1";
 export const QODER_USAGE_URL = "https://openapi.qoder.sh/api/v2/quota/usage";
-export const QODER_CHAT_URL = "https://api2.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1";
-
+export const QODER_CHAT_URL = QODER_MODE_PROFILE.chatUrl;
 const STANDARD_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const QODER_ALPHABET = "_doRTgHZBKcGVjlvpC,@aFSx#DPuNJme&i*MzLOEn)sUrthbf%Y^w.(kIQyXqWA!";
 const QODER_RSA_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
@@ -93,10 +115,8 @@ const QODER_MODELS: readonly ProviderModel[] = [
   modelOf("dfmodel", "Qoder DeepSeek V4 Flash", capabilitiesOf({ surfaces: QODER_SURFACES, reasoning: true, images: true })),
   modelOf("gm51model", "Qoder GLM 5.2", capabilitiesOf({ surfaces: QODER_SURFACES, reasoning: true, images: true })),
   modelOf("kmodel", "Qoder Kimi K2.7", capabilitiesOf({ surfaces: QODER_SURFACES, reasoning: true, images: true })),
-  modelOf("mmodel", "Qoder MiniMax M2.7", capabilitiesOf({ surfaces: QODER_SURFACES, reasoning: true, images: true })),
-  // Present in the legacy static config (and accepted by the legacy call
-  // path) even though the legacy catalog omitted it — catalog membership is
-  // what makes it resolvable in the catalog-driven registry.
+  // Accepted by Qoder's catalog-driven registry and resolved to the current
+  // upstream model key.
   modelOf("kmodel_latest", "Qoder Kimi K2.7 Latest", capabilitiesOf({ surfaces: QODER_SURFACES, images: true })),
 ];
 
@@ -270,9 +290,12 @@ function buildCosyHeaders(body: Uint8Array, url: string, auth: QoderAuth): Recor
     "cosy-organization-id": "",
     "cosy-organization-tags": "",
     "x-request-id": randomUUID(),
-    "cosy-business-product": "cli",
-    "cosy-business-type": "agent",
-    "cosy-scene": "assistant",
+    ...(QODER_MODE_PROFILE.sendBusinessHeaders ? {
+      "cosy-business-product": QODER_MODE_PROFILE.businessProduct,
+      "cosy-business-type": QODER_MODE_PROFILE.businessType,
+      "cosy-business-version": QODER_MODE_PROFILE.businessVersion,
+      "cosy-scene": QODER_MODE_PROFILE.cosyScene,
+    } : {}),
     "cosy-version": COSY_VERSION,
     "cosy-machineid": auth.machineId,
     "cosy-machinetoken": auth.machineId,
@@ -296,7 +319,7 @@ export async function fetchQoderUsage(auth: QoderAuth, signal: AbortSignal, fetc
   }
 }
 
-/** Maps Qoder inner/HTTP status codes onto typed adapter errors (legacy semantics, current kinds). */
+/** Maps Qoder inner/HTTP status codes onto typed adapter errors. */
 function qoderHttpError(status: number, operation: string): ProviderAdapterError {
   if (status === 401) return new ProviderAdapterError({ kind: "authentication_failed", message: `Qoder ${operation} rejected the supplied credential.`, statusCode: status, routeScope: "account" });
   if (status === 403) return new ProviderAdapterError({ kind: "authorization_denied", message: `Qoder ${operation} rejected the supplied credential.`, statusCode: status, routeScope: "account" });
@@ -320,8 +343,10 @@ export async function callQoder(
     method: "POST",
     headers: {
       ...buildCosyHeaders(encoded, url, auth),
-      "x-model-key": modelId,
-      "x-model-source": typeof modelConfig?.source === "string" ? modelConfig.source : "system",
+      ...(QODER_MODE_PROFILE.sendModelSourceHeaders ? {
+        "x-model-key": modelId,
+        "x-model-source": typeof modelConfig?.source === "string" ? modelConfig.source : "system",
+      } : {}),
       Accept: "text/event-stream",
       "Cache-Control": "no-cache",
       "Accept-Encoding": "identity",
@@ -417,7 +442,7 @@ function buildQoderRequest(
     chat_record_id: recordId,
     session_id: sessionId,
     stream: true,
-    aliyun_user_type: "",
+    ...(QODER_MODE_PROFILE.emptyAliyunUserType ? { aliyun_user_type: "" } : {}),
     chat_task: "FREE_INPUT",
     is_reply: true,
     is_retry: false,
@@ -429,8 +454,7 @@ function buildQoderRequest(
     code_language: "",
     chat_prompt: "",
     image_urls: null,
-    // chat_context: plain strings not objects
-   chat_context: {
+    chat_context: {
       chatPrompt: "",
       imageUrls: null,
       extra: {
@@ -450,14 +474,14 @@ function buildQoderRequest(
       format: "openai",
       source: "system",
     },
-    system,
+    ...(QODER_MODE_PROFILE.mirrorTopLevelSystem ? { system } : {}),
     messages: qoderMessages,
     tools: body.tools.map((tool) => ({ type: "function", function: { name: tool.name, description: tool.description ?? undefined, parameters: tool.inputSchema } })),
     parameters: { max_tokens: maxTokens },
     business: {
-      product: "cli",
-      version: "1.0.0",
-      type: "agent",
+      product: QODER_MODE_PROFILE.businessProduct,
+      version: QODER_MODE_PROFILE.businessVersion,
+      type: QODER_MODE_PROFILE.businessType,
       stage: "start",
       id: randomUUID(),
       name: latestUserText.slice(0, 30),
@@ -472,8 +496,7 @@ function buildQoderRequest(
  * Maps one Qoder SSE data line (an `{statusCodeValue, body}` envelope) to
  * zero or more OpenAI chat-completion-chunk frames. Malformed/telemetry
  * envelopes are skipped; non-200 envelope statuses throw a typed adapter
- * error (current contracts replace the legacy "inject an error chunk"
- * 9router pattern).
+ * error under the current stream contract.
  */
 function qoderEnvelopeToFrames(data: string): SseEvent[] {
   if (data === "[DONE]") return [{ event: null, data: "[DONE]" }];
@@ -501,7 +524,7 @@ function qoderEnvelopeToFrames(data: string): SseEvent[] {
 /**
  * Decodes Qoder's raw SSE envelope stream into OpenAI chat-completion-chunk
  * frames, re-emitting a synthetic `[DONE]` at EOF when the upstream closed
- * without one (legacy flush behavior).
+ * without one (stream completion safety behavior).
  */
 async function* unwrapQoderEnvelopes(body: ReadableStream<Uint8Array>, coordinator: AbortCoordinator, limits: RequestLimits): AsyncGenerator<SseEvent> {
   let doneEmitted = false;
@@ -517,7 +540,7 @@ async function* unwrapQoderEnvelopes(body: ReadableStream<Uint8Array>, coordinat
 /** Decodes the unwrapped Qoder stream into canonical StreamEvents with the shared chat mapper. */
 async function* decodeQoderStream(body: ReadableStream<Uint8Array>, coordinator: AbortCoordinator, limits: RequestLimits): AsyncGenerator<StreamEvent> {
   let terminal = false;
-  const mapper = createChatMapper();
+  const mapper = createOpenAIChatStreamMapper();
   for await (const sse of unwrapQoderEnvelopes(body, coordinator, limits)) {
     const mapped = mapper(sse);
     if (mapped === null) continue;

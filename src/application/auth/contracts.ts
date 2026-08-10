@@ -50,9 +50,20 @@ export interface RevokeTokenInput {
   readonly accountId: string;
   readonly token: string;
 }
+/** Explicit OAuth lifecycle capabilities; access-only providers opt out of refresh. */
+export interface AuthDriverCapabilities {
+  readonly supportsStart: boolean;
+  readonly supportsPoll: boolean;
+  readonly supportsExchange: boolean;
+  readonly supportsRefresh: boolean;
+  readonly supportsRevoke: boolean;
+  readonly accessOnly: boolean;
+}
+
 /** Shared provider auth contract; provider-specific wire details stay in providers. */
 export interface AuthDriver {
   readonly kind: CredentialKind;
+  readonly capabilities?: AuthDriverCapabilities;
   start?(input: OAuthStartInput): Promise<OAuthStartResult>;
   poll?(state: string): Promise<{ readonly status: "pending" | "completed" | "expired"; readonly intervalSeconds?: number; readonly tokenSet?: TokenSet }>;
   exchange?(input: OAuthExchangeInput): Promise<TokenSet>;

@@ -1,12 +1,17 @@
-import { AbortCoordinator, ProviderAdapterError, executeFetch, lineLimit, mapSseStream, readJsonObject, readUpstreamError } from "../shared";
-import type { SseEvent, StreamMapper } from "../shared";
+import { AbortCoordinator } from "../abort-coordinator";
+import { ProviderAdapterError, readUpstreamError } from "../errors";
+import { executeFetch } from "../fetch";
+import { lineLimit } from "../sse-decoder";
+import { mapSseStream } from "../stream-mapper";
+import { readJsonObject } from "../body-reader";
+import type { SseEvent, StreamMapper } from "../contracts";
 import type { ProviderOutput, ProviderRequest, StreamEvent } from "../../../application/contracts";
 import { isRecord } from "../../../application/protocols";
 import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../../translate/codecs/gemini-generate-content";
 import { geminiCandidate, responseParts } from "../../translate/codecs/gemini-generate-content";
 
 /** SSE stream mapper for Gemini-style generateContent streams. */
-export function createGeminiMapper(): StreamMapper {
+export function createGeminiGenerateContentStreamMapper(): StreamMapper {
   let started = false;
   let stopped = false;
   const activeCalls = new Set<string>();
@@ -74,7 +79,7 @@ export async function callGeminiWire(input: ProviderRequest, baseUrl: string, cr
     }
     if (!response.body) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Gemini returned an empty stream body", routeScope: "provider" });
     streamHandedOff = true;
-    return { mode: "stream", events: mapSseStream({ body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs }, createGeminiMapper()) };
+    return { mode: "stream", events: mapSseStream({ body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs }, createGeminiGenerateContentStreamMapper()) };
   } finally {
     if (!streamHandedOff) coordinator.dispose();
   }

@@ -1,5 +1,10 @@
-import { AbortCoordinator, ProviderAdapterError, executeFetch, lineLimit, mapSseStream, parseSseData, readJsonObject, readUpstreamError } from "../shared";
-import type { SseEvent, StreamMapper } from "../shared";
+import { AbortCoordinator } from "../abort-coordinator";
+import { ProviderAdapterError, readUpstreamError } from "../errors";
+import { executeFetch } from "../fetch";
+import { lineLimit, parseSseData } from "../sse-decoder";
+import { mapSseStream } from "../stream-mapper";
+import { readJsonObject } from "../body-reader";
+import type { SseEvent, StreamMapper } from "../contracts";
 import type { ApplicationErrorKind, ProviderCaps, ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamEvent } from "../../../application/contracts";
 import { isRecord, nullableNumber } from "../../../application/protocols";
 import { buildMessagesPayload, mapAnthropicUsage } from "../../translate/codecs/anthropic-messages";
@@ -28,7 +33,7 @@ function mapAnthropicStopReason(stopReason: string): StopReason {
  * map to tool_call_delta, message_delta emits the aggregated usage event,
  * and message_stop terminates with the mapped stop reason.
  */
-export function createAnthropicMapper(toolNameTransform: (name: string) => string = (name) => name): StreamMapper {
+export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: string) => string = (name) => name): StreamMapper {
   let started = false;
   let id: string | null = null;
   let inputTokens: number | null = null;
@@ -153,7 +158,7 @@ export async function callAnthropicWire(
     }
     if (!response.body) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Upstream returned an empty stream body", routeScope: "provider" });
     streamHandedOff = true;
-    return { mode: "stream", events: mapSseStream({ body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs }, createAnthropicMapper()) };
+    return { mode: "stream", events: mapSseStream({ body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs }, createAnthropicMessagesStreamMapper()) };
   } finally {
     if (!streamHandedOff) coordinator.dispose();
   }

@@ -106,6 +106,17 @@ CREATE TABLE IF NOT EXISTS provider_accounts (
 CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider_priority ON provider_accounts(provider, priority, name, id);
 CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider_id ON provider_accounts(provider, id);
 CREATE INDEX IF NOT EXISTS idx_provider_accounts_cooldown ON provider_accounts(cooldown_until) WHERE cooldown_until IS NOT NULL;
+CREATE TABLE IF NOT EXISTS oauth_refresh_leases (
+  account_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  token_fingerprint TEXT NOT NULL,
+  lease_until_ms INTEGER NOT NULL,
+  acquired_at_ms INTEGER NOT NULL,
+  FOREIGN KEY (account_id) REFERENCES provider_accounts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_leases_expiry ON oauth_refresh_leases(lease_until_ms);
+
 
 CREATE TABLE IF NOT EXISTS provider_account_health (
   account_id TEXT PRIMARY KEY,
@@ -284,5 +295,13 @@ CREATE TABLE IF NOT EXISTS ip_bans (
   ip TEXT PRIMARY KEY,
   reason TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS security_offenses (
+  ip TEXT NOT NULL,
+  category TEXT NOT NULL,
+  strike_count INTEGER NOT NULL DEFAULT 0,
+  window_started_at TEXT NOT NULL,
+  last_event_at TEXT NOT NULL,
+  PRIMARY KEY (ip, category)
 );
 `;
