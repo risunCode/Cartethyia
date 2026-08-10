@@ -49,13 +49,13 @@ export const codexInjector: ToolInjector = {
 
   async getStatus(): Promise<ToolStatus> {
     const path = configPath();
-    const installed = await checkBinaryInstalled("codex", path);
-    if (!installed) {
-      return { toolId: "codex", installed: false, configured: false, settingsPath: null, currentEndpoint: null, currentApiKeyPrefix: null, currentModels: null };
-    }
+    const installed = await checkBinaryInstalled("codex");
     const text = await readTextFile(path);
+    if (!installed && !text) {
+      return { toolId: "codex", installed: false, configured: false, settingsPath: path, currentEndpoint: null, currentApiKeyPrefix: null, currentModels: null };
+    }
     if (!text) {
-      return { toolId: "codex", installed: true, configured: false, settingsPath: path, currentEndpoint: null, currentApiKeyPrefix: null, currentModels: null };
+      return { toolId: "codex", installed, configured: false, settingsPath: path, currentEndpoint: null, currentApiKeyPrefix: null, currentModels: null };
     }
     const baseUrl = tomlGet(text, "base_url");
     const model = tomlGet(text, "model");
@@ -63,7 +63,7 @@ export const codexInjector: ToolInjector = {
     const apiKey = auth?.[PROVIDER] ?? null;
     return {
       toolId: "codex",
-      installed: true,
+      installed,
       configured: tomlHasSection(text, `model_providers.${PROVIDER}`),
       settingsPath: path,
       currentEndpoint: baseUrl,

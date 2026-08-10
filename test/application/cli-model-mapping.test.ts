@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { claudeInjector } from "../../src/console/cli-tools/injectors/claude";
 import { codexInjector } from "../../src/console/cli-tools/injectors/codex";
 import { cliToolIdForClient, resolveCliModelMapping, type CliModelMappingSnapshot } from "../../src/application/cli-model-mapping";
+import { CliToolService } from "../../src/console/cli-tools/service";
+import type { ConfigPersistence } from "../../src/storage";
 import type { ApplyInput } from "../../src/console/cli-tools/types";
 import { detectClient, type ClientIdentity } from "../../src/application/contracts";
 
@@ -47,6 +49,23 @@ describe("CLI model mapping", () => {
   });
 });
 
+describe("CLI mapping persistence defaults", () => {
+  test("defaults mapping enabled when no CLI installation or persisted toggle exists", () => {
+    const service = new CliToolService({
+      cliModelMappings: {
+        getSettings: () => null,
+        list: () => [],
+      },
+    } as unknown as ConfigPersistence);
+
+    expect(service.getMappings("claude")).toEqual({
+      toolId: "claude",
+      enabled: true,
+      mappings: [],
+    });
+  });
+});
+
 
 describe("CLI native slot injectors", () => {
   const input: ApplyInput = {
@@ -68,7 +87,9 @@ describe("CLI native slot injectors", () => {
   test("Claude download emits every configured native role", async () => {
     const result = await claudeInjector.download(input);
     expect(result.content).toContain(`\"ANTHROPIC_DEFAULT_FABLE_MODEL\": \"claude/source-fable\"`);
-    expect(result.content).toContain(`\"ANTHROPIC_CUSTOM_MODEL_OPTION\": \"claude/source-mythos\"`);
+    expect(result.content).toContain(`\"ANTHROPIC_DEFAULT_MODEL\": \"claude/source-mythos\"`);
+    expect(result.content).not.toContain("ANTHROPIC_CUSTOM_MODEL_OPTION");
+    expect(result.content).toContain(`\"ANTHROPIC_AUTH_TOKEN\": \"sk-test\"`);
   });
 
   test("Claude download keeps the host base for Claude Code's appended /v1/messages path", async () => {

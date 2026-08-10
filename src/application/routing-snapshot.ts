@@ -162,7 +162,7 @@ async function buildSnapshot(sources: RouteSnapshotSources, revision: number): P
       }));
       if (settings !== null || entries.length > 0) {
         cliModelMappings.set(toolId, {
-          enabled: settings?.enabled === true,
+          enabled: settings?.enabled !== false,
           entries: Object.freeze(entries),
         });
       }

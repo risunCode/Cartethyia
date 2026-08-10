@@ -26,7 +26,7 @@ export const TOOL_REGISTRY = {
       sonnetModel: "ANTHROPIC_DEFAULT_SONNET_MODEL",
       haikuModel: "ANTHROPIC_DEFAULT_HAIKU_MODEL",
       fableModel: "ANTHROPIC_DEFAULT_FABLE_MODEL",
-      mythosModel: "ANTHROPIC_CUSTOM_MODEL_OPTION",
+      mythosModel: "ANTHROPIC_DEFAULT_MODEL",
     },
     modelAliases: ["default", "sonnet", "opus", "haiku", "fable"],
     mappingSupported: true,
@@ -35,7 +35,7 @@ export const TOOL_REGISTRY = {
       { id: "sonnet", name: "Claude Sonnet", alias: "sonnet", roleLabel: "Sonnet default", roleKind: "primary", envKey: "ANTHROPIC_DEFAULT_SONNET_MODEL", defaultValue: "claude/claude-sonnet-5" },
       { id: "haiku", name: "Claude Haiku", alias: "haiku", roleLabel: "Haiku default", roleKind: "secondary", envKey: "ANTHROPIC_DEFAULT_HAIKU_MODEL", defaultValue: "claude/claude-haiku-4-5-20251001" },
       { id: "fable", name: "Claude Fable 5", alias: "fable", roleLabel: "Fable default", roleKind: "secondary", envKey: "ANTHROPIC_DEFAULT_FABLE_MODEL", defaultValue: "claude/claude-fable-5" },
-      { id: "mythos", name: "Claude Mythos 5", alias: "mythos", roleLabel: "Mythos model", roleKind: "secondary", envKey: "ANTHROPIC_CUSTOM_MODEL_OPTION", defaultValue: "claude/claude-mythos-5" },
+      { id: "mythos", name: "Claude Mythos 5", alias: "mythos", roleLabel: "Mythos model", roleKind: "secondary", envKey: "ANTHROPIC_DEFAULT_MODEL", defaultValue: "claude/claude-mythos-5" },
     ],
   },
 

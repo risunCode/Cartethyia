@@ -33,6 +33,8 @@ function envKeys(): readonly string[] {
     "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL",
     "ANTHROPIC_DEFAULT_FABLE_MODEL",
+    "ANTHROPIC_DEFAULT_MODEL",
+    // Remove the legacy key when resetting older Cartethyia-managed settings.
     "ANTHROPIC_CUSTOM_MODEL_OPTION",
     "API_TIMEOUT_MS",
   ];
@@ -47,24 +49,24 @@ export const claudeInjector: ToolInjector = {
 
   async getStatus(): Promise<ToolStatus> {
     const path = settingsPath();
-    const installed = await checkBinaryInstalled("claude", path);
-    if (!installed) {
-      return { toolId: "claude", installed: false, configured: false, settingsPath: null, currentEndpoint: null, currentApiKeyPrefix: null, currentModels: null };
-    }
+    const installed = await checkBinaryInstalled("claude");
     const settings = (await readJsonFile(path)) as { env?: Record<string, string> } | null;
+    if (!installed && settings === null) {
+      return { toolId: "claude", installed: false, configured: false, settingsPath: path, currentEndpoint: null, currentApiKeyPrefix: null, currentModels: null };
+    }
     const env = settings?.env;
     const endpoint = env?.ANTHROPIC_BASE_URL ?? null;
     const apiKey = env?.ANTHROPIC_AUTH_TOKEN ?? null;
     const models = env
-      ? [env.ANTHROPIC_DEFAULT_OPUS_MODEL, env.ANTHROPIC_DEFAULT_SONNET_MODEL, env.ANTHROPIC_DEFAULT_HAIKU_MODEL, env.ANTHROPIC_DEFAULT_FABLE_MODEL, env.ANTHROPIC_CUSTOM_MODEL_OPTION]
+      ? [env.ANTHROPIC_DEFAULT_OPUS_MODEL, env.ANTHROPIC_DEFAULT_SONNET_MODEL, env.ANTHROPIC_DEFAULT_HAIKU_MODEL, env.ANTHROPIC_DEFAULT_FABLE_MODEL, env.ANTHROPIC_DEFAULT_MODEL]
         .filter((model): model is string => typeof model === "string")
       : null;
     return {
       toolId: "claude",
-      installed: true,
+      installed,
       configured: isLocalEndpoint(endpoint),
       settingsPath: path,
-      currentEndpoint: endpoint ?? null,
+      currentEndpoint: endpoint,
       currentApiKeyPrefix: keyPrefix(apiKey),
       currentModels: models,
     };
@@ -80,6 +82,9 @@ export const claudeInjector: ToolInjector = {
     // Claude Code appends `/v1/messages` to ANTHROPIC_BASE_URL itself.
     // Store the host base so a configured `/v1` endpoint does not become `/v1/v1/messages`.
     env.ANTHROPIC_BASE_URL = stripV1Suffix(input.endpoint);
+    env.ANTHROPIC_AUTH_TOKEN = input.apiKey;
+    // Remove the legacy custom slot before writing the canonical Mythos setting.
+    delete env.ANTHROPIC_CUSTOM_MODEL_OPTION;
     const opus = slotModel(input, "opus", 0);
     const sonnet = slotModel(input, "sonnet", 1);
     const haiku = slotModel(input, "haiku", 2);
@@ -89,7 +94,7 @@ export const claudeInjector: ToolInjector = {
     if (sonnet !== undefined) env.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnet;
     if (haiku !== undefined) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = haiku;
     if (fable !== undefined) env.ANTHROPIC_DEFAULT_FABLE_MODEL = fable;
-    if (mythos !== undefined) env.ANTHROPIC_CUSTOM_MODEL_OPTION = mythos;
+    if (mythos !== undefined) env.ANTHROPIC_DEFAULT_MODEL = mythos;
     if (input.activeModel) env.ANTHROPIC_MODEL = input.activeModel;
     settings.env = env;
     settings.hasCompletedOnboarding = true;
@@ -123,7 +128,7 @@ export const claudeInjector: ToolInjector = {
     if (sonnet !== undefined) env.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnet;
     if (haiku !== undefined) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = haiku;
     if (fable !== undefined) env.ANTHROPIC_DEFAULT_FABLE_MODEL = fable;
-    if (mythos !== undefined) env.ANTHROPIC_CUSTOM_MODEL_OPTION = mythos;
+    if (mythos !== undefined) env.ANTHROPIC_DEFAULT_MODEL = mythos;
     if (input.activeModel) env.ANTHROPIC_MODEL = input.activeModel;
     const content = JSON.stringify({ hasCompletedOnboarding: true, env }, null, 2);
     return { content, filename: "settings.json", mimeType: "application/json" };

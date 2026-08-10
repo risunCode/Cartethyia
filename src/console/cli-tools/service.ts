@@ -116,7 +116,8 @@ export class CliToolService {
     const settings = this.config.cliModelMappings.getSettings(toolId);
     return {
       toolId,
-      enabled: settings?.enabled === true,
+      // Mapping is opt-out: an absent row means the native slot routes are enabled.
+      enabled: settings?.enabled !== false,
       mappings: this.config.cliModelMappings.list(toolId).map((mapping) => ({
         slotKey: mapping.slotKey,
         sourceModel: mapping.sourceModel,

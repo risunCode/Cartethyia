@@ -56,7 +56,7 @@ function ToolDetailContent({
   const [selectedKeyId, setSelectedKeyId] = useState("");
   const [roleTargets, setRoleTargets] = useState<Record<string, string>>({});
   const [mappingTargets, setMappingTargets] = useState<Record<string, string>>({});
-  const [mappingEnabled, setMappingEnabled] = useState(false);
+  const [mappingEnabled, setMappingEnabled] = useState(true);
 
   const apiKeysQuery = useApiKeys();
   const mappingsQuery = useToolMappings(def.id);
