@@ -67,7 +67,7 @@ function toGeminiPart(block: ContentBlock, toolNames: ReadonlyMap<string, string
   if (block.type === "text") return [{ text: block.text ?? "" }];
   if (block.type === "image" && block.image) return [toGeminiImage(block.image)];
   if (block.type === "tool_use") return [{ functionCall: { name: block.toolName ?? "", args: parseJsonObject(block.toolArguments ?? block.text ?? "{}"), ...(block.toolCallId ? { id: block.toolCallId } : {}) } }];
-  if (block.type === "tool_result") return [{ functionResponse: { name: block.toolName ?? (block.toolCallId ? toolNames.get(block.toolCallId) : undefined) ?? block.toolCallId ?? "tool", response: parseJsonObject(block.text ?? "") } }];
+  if (block.type === "tool_result") return [{ functionResponse: { name: block.toolName ?? (block.toolCallId ? toolNames.get(block.toolCallId) : undefined) ?? block.toolCallId ?? "tool", response: parseJsonObject(block.text ?? ""), ...(block.toolCallId ? { id: block.toolCallId } : {}) } }];
   return [];
 }
 

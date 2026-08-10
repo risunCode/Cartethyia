@@ -152,7 +152,7 @@ describe("Chat Completions normalization and payload", () => {
       ],
     }));
     const continuationContents = continuation.contents as readonly Record<string, unknown>[];
-    expect((continuationContents[1]?.parts as readonly unknown[])[0]).toEqual({ functionResponse: { name: "search", response: { ok: true } } });
+    expect((continuationContents[1]?.parts as readonly unknown[])[0]).toEqual({ functionResponse: { name: "search", response: { ok: true }, id: "call_search" } });
   });
   test("preserves Anthropic search results in Chat provider user context", () => {
     const payload = buildChatPayload(chatReq({
