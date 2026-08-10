@@ -24,8 +24,8 @@ export function assertProductionBootstrapEnvironment(env: SecretEnvironment = Bu
     throw new Error("CONSOLE_PASSWORD must be a non-empty, non-placeholder password");
   }
   const bootstrapApiKey = env.BOOTSTRAP_PROXY_API_KEY?.trim();
-  if (bootstrapApiKey !== undefined && !isStrongValue(bootstrapApiKey, MIN_PRODUCTION_SECRET_LENGTH)) {
-    throw new Error("BOOTSTRAP_PROXY_API_KEY must be a non-placeholder secret of at least 32 characters");
+  if (bootstrapApiKey !== undefined && !isStrongValue(bootstrapApiKey, MIN_BOOTSTRAP_PASSWORD_LENGTH)) {
+    throw new Error("BOOTSTRAP_PROXY_API_KEY must be a non-empty, non-placeholder key");
   }
 }
 

@@ -31,9 +31,10 @@ describe("security hardening contracts", () => {
     expect(() => assertProductionBootstrapEnvironment({ NODE_ENV: "production", CONSOLE_JWT_SECRET: "replace-with-a-long-random-secret" })).toThrow();
     expect(() => assertProductionBootstrapEnvironment({ NODE_ENV: "production", CONSOLE_PASSWORD: "a-strong-production-password", CONSOLE_JWT_SECRET: "a-strong-production-jwt-secret-with-32-chars" })).not.toThrow();
   });
-  test("accepts short non-placeholder bootstrap passwords", () => {
-    expect(() => assertProductionBootstrapEnvironment({ NODE_ENV: "production", CONSOLE_PASSWORD: "Deras#" })).not.toThrow();
-    expect(() => assertProductionBootstrapEnvironment({ NODE_ENV: "production", CONSOLE_PASSWORD: "" })).toThrow();
+  test("accepts short non-placeholder bootstrap credentials", () => {
+    expect(() => assertProductionBootstrapEnvironment({ NODE_ENV: "production", CONSOLE_PASSWORD: "Deras#", BOOTSTRAP_PROXY_API_KEY: "risuncode-internal" })).not.toThrow();
+    expect(() => assertProductionBootstrapEnvironment({ NODE_ENV: "production", CONSOLE_PASSWORD: "Deras#", BOOTSTRAP_PROXY_API_KEY: "" })).toThrow();
+    expect(() => assertProductionBootstrapEnvironment({ NODE_ENV: "production", CONSOLE_PASSWORD: "Deras#", BOOTSTRAP_PROXY_API_KEY: "change-me" })).toThrow();
   });
 
   test("allows browser-local custom media while keeping console CSP restrictive", () => {
