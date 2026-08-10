@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatQuotaWindowLabel, formatResetDistance } from "./formatters";
+import { formatQuotaWindowLabel, formatResetDistance } from "../../../src/features/quota/formatters";
 
 describe("quota display formatters", () => {
   test("uses named windows and converts hour labels to days", () => {

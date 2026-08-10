@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { normalizeProviderDetail } from "./detail";
+import { normalizeProviderDetail } from "../../../src/features/providers/detail";
 
 type ProviderDetailInput = Parameters<typeof normalizeProviderDetail>[0];
 

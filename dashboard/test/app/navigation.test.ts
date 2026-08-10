@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { ADVANCED_NAV_GROUPS, ADVANCED_PATHS, NAV_GROUPS, TITLES } from "./navigation";
+import { ADVANCED_NAV_GROUPS, ADVANCED_PATHS, NAV_GROUPS, TITLES } from "../../src/app/navigation";
 
 describe("dashboard navigation metadata", () => {
   test("keeps every navigable sidebar path unique", () => {

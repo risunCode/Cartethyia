@@ -125,7 +125,7 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     { AntigravityAdapter },
     { CodeBuddyAdapter, CodeBuddyChinaAdapter },
     { ExaAdapter },
-    { GrokBuildAdapter },
+    { DevinAdapter },
     { simpleOpenAIConfigs },
     { OllamaAdapter },
     { BlackboxAIAdapter },
@@ -147,7 +147,7 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
     import("./antigravity"),
     import("./codebuddy"),
     import("./exa"),
-    import("./grok-build"),
+    import("./devin"),
     import("./openai-compatible"),
     import("./ollama"),
     import("./blackboxai"),
@@ -174,7 +174,7 @@ export async function createDefaultRegistry(): Promise<ProviderRegistry> {
   registry.register(new CodeBuddyAdapter());
   registry.register(new CodeBuddyChinaAdapter());
   registry.register(new ExaAdapter());
-  registry.register(new GrokBuildAdapter());
+  registry.register(new DevinAdapter());
   for (const config of simpleOpenAIConfigs) {
     registry.registerLazy(describeOpenAIAdapter(config), () => Promise.resolve(makeOpenAIAdapter(config)));
   }

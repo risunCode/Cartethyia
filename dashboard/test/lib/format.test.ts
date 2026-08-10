@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatDuration, formatMemoryMb, formatNumber, formatTime, formatTokens, formatUptime, formatUsd } from "./format";
+import { formatDuration, formatMemoryMb, formatNumber, formatTime, formatTokens, formatUptime, formatUsd } from "../../src/lib/format";
 
 describe("formatNumber", () => {
   test("renders an em-dash for null/undefined instead of a bare 0 or NaN", () => {

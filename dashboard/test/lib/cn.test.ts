@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { cn } from "./cn";
+import { cn } from "../../src/lib/cn";
 
 describe("cn — className merger", () => {
   test("returns a single class unchanged", () => {

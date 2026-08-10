@@ -1,5 +1,5 @@
 export type Surface = "openai-chat" | "openai-responses" | "anthropic-messages" | "images" | "web-search";
-export type Protocol = "openai" | "anthropic" | "gemini" | "exa";
+export type Protocol = "openai" | "anthropic" | "gemini" | "exa" | "devin";
 export type CredentialKind = "api_key" | "oauth" | "manual" | "none";
 
 /** Network routing preset shared by proxy settings and the network selector. */

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { detectBackupKind } from "./page";
+import { detectBackupKind } from "../../../src/features/settings/page";
 
 describe("detectBackupKind", () => {
   test("accepts a Cartethyia backup object with tables", () => {

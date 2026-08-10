@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { ConfiguredModelPicker, ModelPickerField, ModelTargetPicker, ModelPickerModal } from "./model-picker";
+import { ConfiguredModelPicker, ModelPickerField, ModelTargetPicker, ModelPickerModal } from "../../src/components/model-picker";
 import { vi } from "vitest";
-import { withQueryClient, mockJsonFetch } from "../test/query-client";
+import { withQueryClient, mockJsonFetch } from "../query-client";
 
 // ModelPicker depends on react-query fetching real API data. To test the
 // rendered structure without network I/O we wrap every component in a

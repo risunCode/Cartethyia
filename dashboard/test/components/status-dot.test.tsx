@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { render } from "@testing-library/react";
-import { StatusDot } from "./status-dot";
+import { StatusDot } from "../../src/components/status-dot";
 
 describe("StatusDot", () => {
   test("renders the green 'ok' indicator", () => {

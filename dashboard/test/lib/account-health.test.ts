@@ -7,7 +7,7 @@ import {
   MAX_HEALTH_MESSAGE_LENGTH,
   MAX_VISIBLE_HEALTH_STATUS_LENGTH,
   type AccountHealthAccount,
-} from "./account-health";
+} from "../../src/lib/account-health";
 
 const NOW = Date.parse("2026-08-02T00:00:00.000Z");
 

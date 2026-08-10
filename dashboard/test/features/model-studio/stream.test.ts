@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { streamModelStudioChat, studioUsageFromChatUsage } from "./stream";
+import { streamModelStudioChat, studioUsageFromChatUsage } from "../../../src/features/model-studio/stream";
 
 function streamResponse(chunks: string[]): Response {
   const body = new ReadableStream<Uint8Array>({

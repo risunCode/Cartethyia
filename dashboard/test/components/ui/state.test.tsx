@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
-import { StatePanel, StatCard } from "./state";
+import { StatePanel, StatCard } from "../../../src/components/ui/state";
 
 describe("dashboard state primitives", () => {
   test("renders loading, empty, and error states with semantic status", () => {

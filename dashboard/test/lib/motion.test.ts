@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { getDialogMotion, getPageTransition, resolveMotionProfile } from "./motion";
+import { getDialogMotion, getPageTransition, resolveMotionProfile } from "../../src/lib/motion";
 
 describe("motion profiles", () => {
   test("uses the max profile for high-end desktop hardware", () => {

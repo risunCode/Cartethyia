@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { ApiError } from "../../lib/api";
-import { errorMessage, selectAccountTestModel } from "./detail-helpers";
+import { ApiError } from "../../../src/lib/api";
+import { errorMessage, selectAccountTestModel } from "../../../src/features/providers/detail-helpers";
 
 describe("provider detail helpers", () => {
   test("prefers the provider-specific connection test model", () => {

@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { useInFlightSnapshot } from "./use-inflight-stream";
+import { useInFlightSnapshot } from "../../src/hooks/use-inflight-stream";
 
 class FakeEventSource {
   static instance: FakeEventSource | null = null;

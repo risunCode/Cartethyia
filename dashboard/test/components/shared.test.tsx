@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ConfirmDialog, PasswordModal } from "./shared";
+import { ConfirmDialog, PasswordModal } from "../../src/components/shared";
 
 describe("ConfirmDialog", () => {
   test("renders nothing in the DOM when closed", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { ModelTargetPicker, ModelPickerField } from "../../components/model-picker";
-import { withQueryClient } from "../../test/query-client";
+import { ModelTargetPicker, ModelPickerField } from "../../../src/components/model-picker";
+import { withQueryClient } from "../../query-client";
 // These components are the "provider-form" building blocks used in the
 // provider detail page, key ACL fields, combo forms, and alias fields.
 // Testing them here with their own render assertions covers the provider-form

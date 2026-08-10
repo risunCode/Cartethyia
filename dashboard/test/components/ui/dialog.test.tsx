@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Dialog } from "./dialog";
-import { Drawer } from "./drawer";
+import { Dialog } from "../../../src/components/ui/dialog";
+import { Drawer } from "../../../src/components/ui/drawer";
 
 describe("overlay keyboard contracts", () => {
   test("Dialog exposes its name and closes on Escape", async () => {

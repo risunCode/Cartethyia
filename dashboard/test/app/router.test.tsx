@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { guardLoader, router } from "./router";
+import { guardLoader, router } from "../../src/app/router";
 
 describe("dashboard router", () => {
   test("guards protected routes and preserves destination", async () => {

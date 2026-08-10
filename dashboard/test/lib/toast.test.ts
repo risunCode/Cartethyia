@@ -7,7 +7,7 @@ const sonnerMocks = vi.hoisted(() => ({
 
 vi.mock("sonner", () => ({ toast: sonnerMocks }));
 
-import { toast } from "./toast";
+import { toast } from "../../src/lib/toast";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;

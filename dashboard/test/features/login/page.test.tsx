@@ -1,12 +1,13 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
+import type * as ApiModule from "../../../src/lib/api";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { LoginPage } from "./page";
-import { ApiError, apiPost } from "../../lib/api";
+import { LoginPage } from "../../../src/features/login/page";
+import { ApiError, apiPost } from "../../../src/lib/api";
 
-vi.mock("../../lib/api", async () => {
-  const actual = await vi.importActual<typeof import("../../lib/api")>("../../lib/api");
+vi.mock("../../../src/lib/api", async () => {
+  const actual = await vi.importActual<typeof ApiModule>("../../../src/lib/api");
   return { ...actual, apiPost: vi.fn() };
 });
 

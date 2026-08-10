@@ -1,10 +1,11 @@
 import { describe, expect, test, vi } from "vitest";
+import type * as ApiModule from "../../src/lib/api";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { InlineModelBrowser, ModelPickerField, ModelTargetPicker } from "./model-picker";
-import { withQueryClient } from "../test/query-client";
+import { InlineModelBrowser, ModelPickerField, ModelTargetPicker } from "../../src/components/model-picker";
+import { withQueryClient } from "../query-client";
 
-vi.mock("../lib/api", async () => {
-  const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
+vi.mock("../../src/lib/api", async () => {
+  const actual = await vi.importActual<typeof ApiModule>("../../src/lib/api");
   return {
     ...actual,
     apiGet: vi.fn((path: string) => {

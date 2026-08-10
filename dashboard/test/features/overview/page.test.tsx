@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { buildKeyLimitsInput } from "./api-keys-panel";
-import { parseOverviewData } from "./page";
+import { buildKeyLimitsInput } from "../../../src/features/overview/api-keys-panel";
+import { parseOverviewData } from "../../../src/features/overview/page";
 
 // Regression: API key access uses one model whitelist. Every selected model,
 // alias, combo, or qualified provider/model is sent to modelAllowlist; an
