@@ -11,7 +11,7 @@ import { getErrorMessage } from "../../lib/errors";
 import { cn } from "../../lib/cn";
 import { toast } from "../../lib/toast";
 import { qk } from "../../lib/query-keys";
-import { friendlyQuotaError, formatQuotaRefresh, formatQuotaWindowLabel, formatResetDistance, quotaBarTone } from "./formatters";
+import { accountIdentity } from "../providers/formatters";
 
 /** Providers without a quota endpoint — filtered from the quota page entirely. */
 /** Providers that have a real quota endpoint in fetchProviderQuota. */
@@ -66,11 +66,6 @@ function normalizeQuotaResponse(value: unknown): QuotaData | null {
   const raw = asRecord(value);
   return normalizeQuota(raw && "quota" in raw ? raw.quota : value);
 }
-/** Shows an account identity instead of exposing an opaque JWT prefix. */
-function displayHint(hint: string, name: string): string {
-  if (hint.startsWith("eyJ") || hint === "—") return name;
-  return hint;
-}
 function isEmpty(account: QuotaEntry): boolean {
   return Boolean(account.quota?.windows.length && account.quota.windows.every((window) => window.remainingPercent !== null && window.remainingPercent <= 0));
 }
@@ -121,6 +116,7 @@ function QuotaCard({ account, onToggle, onDelete }: { account: QuotaEntry; onTog
   const busy = refresh.isPending || quotaQuery.isFetching;
   const rawError = refresh.error ? getErrorMessage(refresh.error, "Unable to refresh this account") : quotaQuery.error ? getErrorMessage(quotaQuery.error, "Unable to refresh this account") : quota?.error ?? account.health?.sanitizedMessage;
   const cardError = friendlyQuotaError(rawError);
+  const identity = accountIdentity(account.credentialHint, account.name);
   return (
     <div className="overflow-hidden rounded-2xl border border-[var(--inner-border)] bg-[var(--glass-bg)] shadow-[0_8px_30px_rgba(0,0,0,.12)] backdrop-blur-xl" aria-busy={busy}>
       {/* Header: icon + provider name + plan + account hint + actions */}
@@ -131,8 +127,8 @@ function QuotaCard({ account, onToggle, onDelete }: { account: QuotaEntry; onTog
             <div className="truncate text-sm font-bold">{account.providerName}</div>
             {quota?.plan && <span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">{quota.plan}</span>}
           </div>
-          <div className="truncate text-[11px] text-[var(--text-2)]">{displayHint(account.credentialHint, account.name)}</div>
-          {quota && <div className="truncate text-[10px] text-[var(--text-3)]">{formatQuotaRefresh(quota.lastSuccessAt ?? quota.fetchedAt)}</div>}
+          <div className="truncate text-[11px] text-[var(--text-2)]">{identity.primary}</div>
+          {identity.secondary !== null && <div className="truncate text-[10px] text-[var(--text-3)]">{identity.secondary}</div>}
         </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" className="size-8" title="Refresh quota" aria-label={`Refresh ${account.name} quota`} disabled={busy} onClick={() => refresh.mutate()}>

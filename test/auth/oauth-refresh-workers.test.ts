@@ -59,6 +59,23 @@ describe("central OAuth refresh pool", () => {
     expect((await store.get(account.id))?.refreshState).toBe("reauth_required");
     expect((await store.get(account.id))?.lastRefreshStatusCode).toBe(400);
   });
+  test("explicit retry clears stale reauthentication state after a driver fix", async () => {
+    const store = new MemoryOAuthTokenStore();
+    await store.set(account.id, { ...expiredToken(), refreshState: "reauth_required", lastRefreshStatusCode: 401 });
+    let calls = 0;
+    const pool = new TokenRefreshPool(accounts, store, {
+      refresh: async () => {
+        calls += 1;
+        return { ok: true, token: { accessToken: "recovered-access-token", expiresAtMs: 100_000, refreshToken: "recovered-refresh-token", kind: "oauth" } };
+      },
+    }, { nowMs: () => 10_000 });
+
+    const recovered = await pool.retryReauthentication(account.id);
+
+    expect(calls).toBe(1);
+    expect(recovered.accessToken).toBe("recovered-access-token");
+    expect((await store.get(account.id))?.refreshState).toBe("healthy");
+  });
   test("classifies HTTP 400 refresh-token responses as permanent reauthentication", async () => {
     const refresher = createDriverAwareOAuthRefresher({
       drivers: { get: () => ({ refresh: async () => { throw new OAuthDriverError("token-refresh-http", "provider OAuth token refresh failed with HTTP 400", 400, false); } }) } as never,

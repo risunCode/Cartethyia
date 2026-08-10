@@ -238,7 +238,7 @@ export class OAuthService {
     if (token?.refreshToken === null || token === undefined) return { ok: false, status: 400, code: "invalid_request", message: "account has no access token" };
     if (capabilities?.supportsRefresh === false) return { ok: false, status: 401, code: "unauthorized", message: "OAuth provider does not support refresh" };
     try {
-      const refreshed = await this.tokenRefresh.forceRefresh(accountId);
+      const refreshed = await this.tokenRefresh.retryReauthentication(accountId);
       return { ok: true, expiresAt: refreshed.expiresAtMs === null ? null : new Date(refreshed.expiresAtMs).toISOString() };
     } catch (error) {
       if (typeof error === "object" && error !== null && "kind" in error && "sanitizedMessage" in error) {

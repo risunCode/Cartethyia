@@ -99,6 +99,23 @@ export class TokenRefreshPool {
     this.throwIfRefreshDeferred(cached);
     return this.refreshSingleFlight(accountId, cached ?? null);
   }
+  /**
+   * Retries an explicit refresh after a previous permanent failure. This is
+   * intentionally separate from request-time refreshes so invalid credentials
+   * are not retried on every model call.
+   */
+  async retryReauthentication(accountId: string): Promise<OAuthTokenRecord> {
+    const cached = await this.store.get(accountId);
+    if (cached?.refreshState === "reauth_required") {
+      await this.store.set(accountId, {
+        ...cached,
+        refreshState: "retrying",
+        refreshRetryAtMs: null,
+        refreshFailureCount: 0,
+      });
+    }
+    return this.forceRefresh(accountId);
+  }
 
   async lease(accountId: string): Promise<TokenLease> {
     const token = await this.ensureFresh(accountId);

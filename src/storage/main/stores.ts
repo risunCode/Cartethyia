@@ -243,8 +243,8 @@ export function createDurableOAuthTokenStore(db: () => Database): OAuthTokenStor
     return { accessToken: raw, expiresAtMs: null, refreshToken: null, kind: "oauth", generation: 0, refreshState: "healthy", refreshRetryAtMs: null, refreshFailureCount: 0 };
   };
 
-  const readExisting = (accountId: string): { provider: string; credential: string | null } | null =>
-    db().query("SELECT provider, credential FROM provider_accounts WHERE id = ?").get(accountId) as { provider: string; credential: string | null } | null;
+  const readExisting = (accountId: string): { provider: string; credential: string | null; credentialHint: string | null } | null =>
+    db().query("SELECT provider, credential, credential_hint AS credentialHint FROM provider_accounts WHERE id = ?").get(accountId) as { provider: string; credential: string | null; credentialHint: string | null } | null;
 
   const buildBundle = (existing: { provider: string; credential: string | null }, token: OAuthTokenRecord): Record<string, unknown> => {
     let previous: Record<string, unknown> = {};
@@ -275,9 +275,9 @@ export function createDurableOAuthTokenStore(db: () => Database): OAuthTokenStor
     };
   };
 
-  const writeToken = (accountId: string, existing: { provider: string; credential: string | null }, token: OAuthTokenRecord): void => {
+  const writeToken = (accountId: string, existing: { provider: string; credential: string | null; credentialHint: string | null }, token: OAuthTokenRecord): void => {
     const bundle = buildBundle(existing, token);
-    const hint = `…${token.accessToken.slice(-4)}`;
+    const hint = existing.credentialHint?.trim() || `…${token.accessToken.slice(-4)}`;
     db().query("UPDATE provider_accounts SET credential = ?, credential_hint = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(bundle), hint, nowIso(), accountId);
   };
 

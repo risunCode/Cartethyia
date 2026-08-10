@@ -16,7 +16,7 @@ import { Card, CardHeader } from "../../components/ui/card";
 import { Input, Label } from "../../components/ui/input";
 import { Switch } from "../../components/ui/switch";
 import { ConfirmDialog } from "../../components/shared";
-import { HeaderPairsEditor, headersToPairs, pairsToHeaders, type HeaderPair } from "../../components/header-pairs-editor";
+import { accountIdentity } from "./formatters";
 
 interface CustomProviderModel {
   id: string;
@@ -534,9 +534,10 @@ export function CustomProviderDetailPage() {
             <div ref={accountWindow.containerRef} onScroll={accountWindow.onScroll} className="max-h-[400px] overflow-y-auto scrollbar-fade">
               <div style={{ height: accountWindow.topPadding }} />
               <div className="space-y-1.5 p-3">
-                {accountWindow.visibleItems.map((account: CustomAccount) => (
+                {accountWindow.visibleItems.map((account: CustomAccount) => {
+                  const identity = accountIdentity(account.credentialHint, account.name);
+                  return (
                   <div key={account.id} className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2.5">
-                    {editAccount?.id === account.id ? (
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <Input className="h-8 min-w-40 flex-1" value={editAccountName} onChange={(event) => setEditAccountName(event.target.value)} aria-label={`Edit ${account.name} name`} />
@@ -566,7 +567,7 @@ export function CustomProviderDetailPage() {
                             })}
                             aria-label={`Select ${account.name}`}
                           />
-                          <div className="min-w-0"><div className="truncate text-xs font-semibold">{account.name}</div><div className="font-mono text-[10px] text-[var(--text-2)]">{account.credentialHint}</div></div>
+                          <div className="min-w-0"><div className="truncate text-xs font-semibold">{identity.primary}</div>{identity.secondary !== null && <div className="truncate text-[10px] text-[var(--text-2)]">{identity.secondary}</div>}</div>
                         </div>
                         <div className="flex shrink-0 items-center gap-1">
                           <Badge tone={account.active ? "ok" : "default"}>{account.active ? "Active" : "Disabled"}</Badge>
@@ -577,7 +578,7 @@ export function CustomProviderDetailPage() {
                       </div>
                     )}
                   </div>
-                ))}
+                  ); })}
               </div>
               <div style={{ height: accountWindow.bottomPadding }} />
             </div>

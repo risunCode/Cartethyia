@@ -23,7 +23,7 @@ import {
   type RouteHealthSnapshot,
 } from "../../lib/account-health";
 import { staggerClass } from "../../lib/motion";
-import { displayAccountHint as displayHint, formatModelPricing, type ModelPricing } from "./formatters";
+import { accountIdentity, formatModelPricing, type ModelPricing } from "./formatters";
 import { errorMessage, selectAccountTestModel } from "./detail-helpers";
 import { useWindowedList } from "../../hooks/use-windowed-list";
 import { Skeleton } from "../../components/ui/badge";
@@ -1304,6 +1304,16 @@ export function ProviderDetailPage() {
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
+  const oauthRefreshMutation = useMutation({
+    mutationFn: (accountId: string) => apiPost<{ ok: boolean }>("/oauth/refresh", { accountId }),
+    onSuccess: () => {
+      toast.success("OAuth token refreshed");
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.accounts(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.catalog.providers });
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
 
   const bulkDeleteMutation = useMutation({
     mutationFn: (ids: string[]) => Promise.all(ids.map((accountId) => apiDelete<{ ok: boolean }>(`/providers/${id}/accounts/${accountId}`))),
@@ -1767,6 +1777,7 @@ export function ProviderDetailPage() {
                   <tbody>
                     {accountWindow.topPadding > 0 && <tr aria-hidden="true" style={{ height: accountWindow.topPadding }}><td colSpan={5} /></tr>}
                     {accountWindow.visibleItems.map((account) => {
+                      const identity = accountIdentity(account.credentialHint, account.name);
                       const accountStatus = renderAccountStatus(account);
                       const accessibleAccountStatus = formatAccountHealthAccessibleStatus(account) ?? accountStatus;
                       const hasHealthError = Boolean(formatAccountHealthStatus(account));
@@ -1790,14 +1801,17 @@ export function ProviderDetailPage() {
                           />
                         </td>
                         <td className="min-w-0 px-2 py-2.5 align-top">
-                          <div className="max-w-48 truncate text-xs font-semibold sm:max-w-none">{displayHint(account.credentialHint, account.name)}</div>
-                          {displayHint(account.credentialHint, account.name) !== account.name ? <div className="mt-0.5 max-w-48 truncate text-[10px] text-[var(--text-3)] sm:max-w-none">{account.name}</div> : null}
+                          <div className="max-w-48 truncate text-xs font-semibold sm:max-w-none">{identity.primary}</div>
+                          {identity.secondary !== null ? <div className="mt-0.5 max-w-48 truncate text-[10px] text-[var(--text-3)] sm:max-w-none">{identity.secondary}</div> : null}
                           <div className={cn("mt-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9.5px] font-medium", hasHealthError || accountTestStatus[account.id]?.state === "failed" ? "bg-[var(--red-soft)] text-[var(--red)]" : accountTestStatus[account.id]?.state === "passed" ? "bg-[var(--green-soft)] text-[var(--green)]" : "bg-[var(--hover)] text-[var(--text-3)]")} title={accessibleAccountStatus} aria-label={`Account status: ${accessibleAccountStatus}`}>
                             {accountTestStatus[account.id]?.state === "passed" ? "passed" : accountTestStatus[account.id]?.state === "failed" ? "error" : accountStatus}
                           </div>
                         </td>
                         <td className="w-[104px] px-1.5 py-2.5 align-top sm:w-auto sm:px-2">
                           <div className="flex items-center justify-end gap-0.5 whitespace-nowrap sm:gap-1">
+                            {account.credentialKind === "oauth" && <Button variant="ghost" size="icon" className="size-6 sm:size-7" title="Refresh OAuth token" aria-label={`Refresh OAuth token for ${account.name}`} disabled={oauthRefreshMutation.isPending} onClick={() => oauthRefreshMutation.mutate(account.id)}>
+                              <RefreshCw size={13} className={oauthRefreshMutation.isPending ? "animate-spin" : ""} />
+                            </Button>}
                             <Button variant="ghost" size="icon" className="size-6 sm:size-7" title="Test connection" aria-label={`Test ${account.name}`} disabled={accountConnectionTest.isPending || data.models.length === 0} onClick={() => accountConnectionTest.testAccount(account)}>
                               <FlaskConical size={13} />
                             </Button>

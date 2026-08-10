@@ -91,6 +91,13 @@ describe("config schema initialization and idempotency", () => {
     expect(await persist.stores.oauthToken.compareAndSwap?.({ accountId: "oauth-cas", expectedGeneration: 0, expectedTokenFingerprint: "stale", token: { accessToken: "access-new", expiresAtMs: 100_000, refreshToken: "refresh-new", kind: "oauth", generation: 1 } })).toBe(false);
     await persist.stores.oauthToken.releaseRefreshLease?.("oauth-cas", "owner-a");
   });
+  test("preserves account identity hint while rotating OAuth tokens", async () => {
+    persist.accounts.create({ id: "oauth-identity", provider: "cursor", name: "Cursor 1", credentialKind: "oauth", credential: JSON.stringify({ accessToken: "access-old", refreshToken: "refresh-old", email: "risundaily@gmail.com", accessExpiresAt: 1 }), credentialHint: "risundaily@gmail.com" });
+    await persist.stores.oauthToken.set("oauth-identity", { accessToken: "access-new", expiresAtMs: 100_000, refreshToken: "refresh-new", kind: "oauth" });
+    const row = persist.db().query("SELECT credential_hint AS credentialHint, credential FROM provider_accounts WHERE id = ?").get("oauth-identity") as { credentialHint: string; credential: string };
+    expect(row.credentialHint).toBe("risundaily@gmail.com");
+    expect(JSON.parse(row.credential).email).toBe("risundaily@gmail.com");
+  });
 
   test("closeForSwap then reopen reopens the same file", () => {
     persist.settings.ensure();

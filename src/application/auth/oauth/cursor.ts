@@ -25,14 +25,14 @@ interface CursorSession {
 
 interface CursorTokenResponse {
   readonly accessToken: string;
-  readonly refreshToken?: string;
+  readonly refreshToken: string;
 }
 
-function cursorTokenResponse(data: Record<string, unknown>, operation: string): CursorTokenResponse {
+function cursorTokenResponse(data: Record<string, unknown>, operation: string, fallbackRefreshToken?: string): CursorTokenResponse {
   const accessToken = nonEmpty(data.accessToken) ?? nonEmpty(data.access_token);
-  const refreshToken = nonEmpty(data.refreshToken) ?? nonEmpty(data.refresh_token);
-  if (accessToken === undefined) {
-    throw new OAuthDriverError("validation", `Cursor OAuth ${operation} response is missing access token.`, 502);
+  const refreshToken = nonEmpty(data.refreshToken) ?? nonEmpty(data.refresh_token) ?? fallbackRefreshToken;
+  if (accessToken === undefined || refreshToken === undefined) {
+    throw new OAuthDriverError("validation", `Cursor OAuth ${operation} response is missing token fields.`, 502);
   }
   return { accessToken, refreshToken };
 }
@@ -148,12 +148,11 @@ export class CursorOAuthDriver extends AuthorizationCodeDriver implements AuthDr
       {},
       "cursor",
       "token refresh",
-      { authorization: `Bearer ${input.refreshToken}` },
     );
-    const token = cursorTokenResponse(data, "token refresh");
+    const token = cursorTokenResponse(data, "token refresh", input.refreshToken);
     return {
       accessToken: token.accessToken,
-      refreshToken: token.refreshToken ?? input.refreshToken,
+      refreshToken: token.refreshToken,
       expiresAt: cursorExpiry(token.accessToken, this.nowMs()),
     };
   }

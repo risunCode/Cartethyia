@@ -49,6 +49,10 @@ describe("registered OAuth provider lifecycle", () => {
     const driver = new CodexOAuthDriver(withResponse({ access_token: "codex-access", expires_in: 3600 }));
     await expect(refresh(driver, "codex")).resolves.toMatchObject({ accessToken: "codex-access", refreshToken: "refresh-old" });
   });
+  test("preserves ClinePass refresh token when refresh response omits rotation", async () => {
+    const driver = new ClinePassOAuthDriver(withResponse({ accessToken: "clinepass-access", expiresAt: "2026-08-10T01:00:00.000Z" }));
+    await expect(refresh(driver, "clinepass")).resolves.toMatchObject({ accessToken: "clinepass-access", refreshToken: "refresh-old" });
+  });
   test("uses Codex device authorization without opening the fixed localhost callback", async () => {
     const calls: string[] = [];
     let pollCount = 0;

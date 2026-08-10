@@ -18,9 +18,9 @@ function decodeCode(code: string): Record<string, unknown> | null {
   }
 }
 
-function tokenSet(data: Record<string, unknown>, nowMs: number): TokenSet {
+function tokenSet(data: Record<string, unknown>, nowMs: number, fallbackRefreshToken?: string): TokenSet {
   const access = typeof data.access_token === "string" ? data.access_token : typeof data.accessToken === "string" ? data.accessToken : undefined;
-  const refresh = typeof data.refresh_token === "string" ? data.refresh_token : typeof data.refreshToken === "string" ? data.refreshToken : undefined;
+  const refresh = typeof data.refresh_token === "string" ? data.refresh_token : typeof data.refreshToken === "string" ? data.refreshToken : fallbackRefreshToken;
   if (!access) throw new OAuthDriverError("validation", "ClinePass OAuth response is missing an access token.", 502, false);
   const expires = typeof data.expires_at === "string" ? data.expires_at : typeof data.expiresAt === "string" ? data.expiresAt : undefined;
   const userInfo = typeof data.userInfo === "object" && data.userInfo !== null && !Array.isArray(data.userInfo) ? data.userInfo as Record<string, unknown> : data;
@@ -60,6 +60,6 @@ export class ClinePassOAuthDriver implements AuthDriver {
   async refresh(input: RefreshTokenInput): Promise<TokenSet> {
     const response = await this.http.postJson("https://api.cline.bot/api/v1/auth/refresh", { refreshToken: input.refreshToken, grantType: "refresh_token" }, "clinepass", "token refresh");
     const body = typeof response.data === "object" && response.data !== null && !Array.isArray(response.data) ? response.data as Record<string, unknown> : response;
-    return tokenSet(body, this.nowMs());
+    return tokenSet(body, this.nowMs(), input.refreshToken);
   }
 }

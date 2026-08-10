@@ -32,7 +32,8 @@ describe("Blackbox GLM surface routing", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("declares GLM as Anthropic Messages only and rejects OpenAI surfaces", () => {
+  test("catalogs and routes only the requested GLM models", () => {
+    expect(blackboxaiConfig.models.map((model) => model.id)).toEqual(["z-ai/glm-5.2", "z-ai/glm-5.2-vercel"]);
     const glm = blackboxaiConfig.models.find((model) => model.id === "z-ai/glm-5.2");
     const glmVercel = blackboxaiConfig.models.find((model) => model.id === "z-ai/glm-5.2-vercel");
     expect(glm?.capabilities.surfaces).toEqual(["anthropic-messages"]);
