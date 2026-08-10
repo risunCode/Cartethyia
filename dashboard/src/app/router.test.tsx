@@ -14,9 +14,34 @@ describe("dashboard router", () => {
     await expect(guardLoader({ request: new Request("http://localhost/console/overview") })).resolves.toBeNull();
   });
 
-  test("keeps all console sections registered", () => {
+  test("keeps canonical console sections and advanced routes registered", () => {
     const shell = router.routes.find((route) => route.path === "/");
-    const paths = shell?.children?.map((route) => route.path).filter((path): path is string => typeof path === "string") ?? [];
-    expect(paths).toEqual(expect.arrayContaining(["overview", "usage", "providers", "model-studio", "proxy-requests", "console-log", "settings", "advanced"]));
+    const children = shell?.children ?? [];
+    const paths = children.map((route) => route.path).filter((path): path is string => typeof path === "string");
+
+    expect(paths).toEqual(expect.arrayContaining([
+      "overview",
+      "usage",
+      "providers",
+      "model-studio",
+      "proxy-requests",
+      "console-log",
+      "settings",
+      "advanced",
+      "advanced/filter-sanitize",
+      "advanced/token-saver",
+      "advanced/cli-tools",
+      "advanced/automation",
+    ]));
+  });
+
+  test("keeps legacy advanced URLs as explicit redirects", () => {
+    const shell = router.routes.find((route) => route.path === "/");
+    const children = shell?.children ?? [];
+    const customization = children.find((route) => route.path === "customization");
+    const tokenSaver = children.find((route) => route.path === "token-saver");
+
+    expect(customization?.element).toMatchObject({ props: { to: "/advanced", replace: true } });
+    expect(tokenSaver?.element).toMatchObject({ props: { to: "/advanced/token-saver", replace: true } });
   });
 });

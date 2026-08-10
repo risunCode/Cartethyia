@@ -13,8 +13,46 @@ import type {
 } from "../views";
 import { loadRouteTransition } from "../views";
 import { booleanOrUndefined, boundedNumber, defaultProxyPort, isProxyRelayHost, nullableString, numberOrUndefined, proxyProtocol, stringListOrUndefined, stringOrUndefined } from "../input-sanitizers";
+import { mapWithConcurrency, scrapeProxies, type ScrapeOptions, type ScrapeProtocol, type ScrapeSource } from "./proxy-scraper";
 
 const DEFAULT_PROXY_CANARY_URL = "https://www.google.com/generate_204";
+
+const DEFAULT_SCRAPE_LIMIT = 50;
+const MAX_SCRAPE_LIMIT = 500;
+const DEFAULT_SCRAPE_VERIFY_CONCURRENCY = 20;
+const MAX_SCRAPE_VERIFY_CONCURRENCY = 64;
+const configuredScrapeConcurrency = Number(process.env.CARTETHYIA_PROXY_SCRAPE_CONCURRENCY);
+const SCRAPE_VERIFY_CONCURRENCY = Math.min(
+  MAX_SCRAPE_VERIFY_CONCURRENCY,
+  Math.max(1, Number.isFinite(configuredScrapeConcurrency) ? Math.floor(configuredScrapeConcurrency) : DEFAULT_SCRAPE_VERIFY_CONCURRENCY),
+);
+
+export interface ProxyScrapeResult {
+  readonly scraped: number;
+  readonly verified: number;
+  readonly added: number;
+  readonly skipped: number;
+}
+
+function proxyKey(protocol: string, host: string, port: number): string {
+  return `${protocol}://${host.toLowerCase()}:${port}`;
+}
+
+function normalizeScrapeInput(input: unknown): ScrapeOptions & { readonly verify: boolean } {
+  const value = typeof input === "object" && input !== null ? input as Record<string, unknown> : {};
+  const source: ScrapeSource = value.source === "proxyscrape" || value.source === "geonode" || value.source === "proxifly" ? value.source : "all";
+  const protocol: ScrapeProtocol = value.protocol === "http" || value.protocol === "socks5" ? value.protocol : "all";
+  const rawCountry = typeof value.country === "string" ? value.country.trim() : "all";
+  const country = rawCountry.toLowerCase() === "all" ? "all" : /^[a-z]{2}$/i.test(rawCountry) ? rawCountry.toUpperCase() : "all";
+  const rawLimit = typeof value.limit === "number" && Number.isFinite(value.limit) ? Math.round(value.limit) : DEFAULT_SCRAPE_LIMIT;
+  return {
+    source,
+    protocol,
+    country,
+    limit: Math.min(MAX_SCRAPE_LIMIT, Math.max(1, rawLimit)),
+    verify: value.verify !== false,
+  };
+}
 
 async function probeProxy(input: ProxyTestInput): Promise<ProxyTestResult> {
   const started = performance.now();

@@ -1,19 +1,14 @@
 import { describe, expect, test } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConfiguredModelPicker, ModelPickerField, ModelTargetPicker, ModelPickerModal } from "./model-picker";
-
 import { vi } from "vitest";
+import { withQueryClient, mockJsonFetch } from "../test/query-client";
 
 // ModelPicker depends on react-query fetching real API data. To test the
 // rendered structure without network I/O we wrap every component in a
 // QueryClientProvider (required by the hooks) and stub fetch for any
 // incidental queries that fire on mount.
 
-function withQueryClient(children: React.ReactNode) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
 
 describe("ModelPickerField", () => {
   test("renders the label", () => {
@@ -108,6 +103,15 @@ describe("ModelPickerModal", () => {
     render(withQueryClient(<ModelPickerModal open onClose={onClose} mode="models" selected={[]} onToggle={vi.fn()} />));
     expect(screen.getByPlaceholderText("Search models\u2026")).toBeInTheDocument();
   });
+  test("shows a semantic empty state when provider catalog has no entries", async () => {
+    const fetchSpy = mockJsonFetch({ "/console/api/providers": { items: [] } });
+    try {
+      render(withQueryClient(<ModelPickerModal open onClose={vi.fn()} mode="providers" selected={[]} onToggle={vi.fn()} />));
+      expect(await screen.findByText("No providers match your search.")).toBeInTheDocument();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
 
 describe("ModelPickerField — configured provider visibility", () => {
@@ -123,11 +127,7 @@ describe("ModelPickerField — configured provider visibility", () => {
       "/console/api/providers/openai": { prefix: "openai", models: [{ id: "gpt-5", enabled: true }] },
       "/console/api/providers/opencodeft": { prefix: "opencodeft", models: [{ id: "free-model", enabled: true }] },
     };
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = typeof input === "string" ? input : (input as Request).url;
-      const path = url.replace(/^https?:\/\/[^/]+/, "");
-      return new Response(JSON.stringify(responses[path] ?? { items: [] }), { status: 200, headers: { "content-type": "application/json" } });
-    });
+    const fetchSpy = mockJsonFetch(responses);
     render(withQueryClient(<ModelPickerField label="Models" values={[]} onChange={vi.fn()} mode="models" />));
     fireEvent.click(screen.getByRole("button", { name: "Add configured models…" }));
     expect(await screen.findByText("free-model")).toBeInTheDocument();
@@ -148,11 +148,7 @@ describe("ModelPickerField — configured provider visibility", () => {
         models: [{ providerId: "kimchi", modelId: "kimi-k2.7", enabled: true }],
       },
     };
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = typeof input === "string" ? input : (input as Request).url;
-      const path = url.replace(/^https?:\/\/[^/]+/, "");
-      return new Response(JSON.stringify(responses[path] ?? { items: [] }), { status: 200, headers: { "content-type": "application/json" } });
-    });
+    const fetchSpy = mockJsonFetch(responses);
     try {
       render(withQueryClient(<ModelPickerField label="Models" values={[]} onChange={vi.fn()} mode="models" />));
       fireEvent.click(screen.getByRole("button", { name: "Add configured models…" }));
@@ -169,11 +165,7 @@ describe("ModelPickerField — configured provider visibility", () => {
         items: [{ slug: "bobox", name: "Custom Blackbox", credentialHint: "sk-test", models: [{ id: "blackboxai/z-ai/glm-5.2" }] }],
       },
     };
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = typeof input === "string" ? input : (input as Request).url;
-      const path = url.replace(/^https?:\/\/[^/]+/, "");
-      return new Response(JSON.stringify(responses[path] ?? { items: [] }), { status: 200, headers: { "content-type": "application/json" } });
-    });
+    const fetchSpy = mockJsonFetch(responses);
     try {
       render(withQueryClient(<ModelPickerField label="Allowed models" values={[]} onChange={vi.fn()} mode="models" includeCustomProviders={false} />));
       fireEvent.click(screen.getByRole("button", { name: "Add configured models…" }));
@@ -193,12 +185,7 @@ describe("ConfiguredModelPicker selected values", () => {
       "/console/api/aliases": { items: [{ alias: "gpt-5.6-sol", model: "openai/gpt-5.6-sol" }] },
       "/console/api/combos": { items: [{ name: "fast-combo" }] },
     };
-    return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = typeof input === "string" ? input : (input as Request).url;
-      const path = url.replace(/^https?:\/\/[^/]+/, "");
-      const body = responses[path];
-      return new Response(JSON.stringify(body ?? { items: [] }), { status: 200, headers: { "content-type": "application/json" } });
-    });
+    return mockJsonFetch(responses);
   }
 
   test("renders a selected alias in the Aliases section", async () => {
@@ -238,11 +225,7 @@ describe("ConfiguredModelPicker lifecycle", () => {
       "/console/api/custom-providers": { items: [] },
       "/console/api/providers/opencodeft": { prefix: "opencodeft", models: [{ id: "free-model", enabled: true }] },
     };
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = typeof input === "string" ? input : (input as Request).url;
-      const path = url.replace(/^https?:\/\/[^/]+/, "");
-      return new Response(JSON.stringify(responses[path] ?? { items: [] }), { status: 200, headers: { "content-type": "application/json" } });
-    });
+    const fetchSpy = mockJsonFetch(responses);
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       render(withQueryClient(<ConfiguredModelPicker value="" onChange={vi.fn()} />));

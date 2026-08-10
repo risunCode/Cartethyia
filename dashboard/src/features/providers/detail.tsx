@@ -141,7 +141,7 @@ interface ProviderDetailResponse {
   routing?: { strategy?: "priority" | "round-robin"; stickyLimit?: number; useStickyLimit?: boolean; proxyRouteId?: string | null };
 }
 
-function normalizeProviderDetail(response: ProviderDetailResponse): ProviderDetail {
+export function normalizeProviderDetail(response: ProviderDetailResponse): ProviderDetail {
   const authKind = response.credentialKind === "api_key"
     ? "api-key"
     : response.credentialKind === "manual" ? "none" : response.credentialKind;

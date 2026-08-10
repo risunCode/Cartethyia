@@ -10,6 +10,23 @@ All notable changes to Cartethyia are documented here.
 
 This follow-up hardens the provider boundary for Claude Code, Codex, Exa, and Blackbox while consolidating the dashboard around the Overview workspace.
 
+### 2.0.0 Beta update — 2026-08-10
+
+This follow-up completes the console HTTP composition split and tightens the dashboard navigation and feature boundaries without changing the public API contract.
+
+### Changed
+
+- **Console route composition**: authentication, providers, accounts/OAuth, API keys, proxies, routing policies, settings/backup, diagnostics, telemetry, streams, and Model Studio routes now register through explicit domain modules under `src/console/api/`.
+- **Dashboard navigation**: advanced tools, provider detail, Model Studio streaming, and shared navigation helpers are separated into focused modules with updated route and component coverage.
+
+### Verification
+
+- `bun tsc --noEmit` — clean.
+- `bun test test/*.test.ts` — 339 passing.
+- `dashboard`: `bun run test` — 162 passing.
+- `dashboard`: `bun run build` — clean.
+- `bun run build` — native backend binary compiled successfully.
+
 ### Added
 
 - **CLI model mappings**: persisted per-tool mapping settings and source-to-target model mappings for Claude, Codex, OpenCode, Cline, Cursor, and Copilot. Enabled mappings now participate in routing and `/v1/models`, are included in database backup/restore, and are configurable from Advanced → CLI Tools.

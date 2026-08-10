@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { InlineModelBrowser, ModelPickerField, ModelTargetPicker } from "./model-picker";
+import { withQueryClient } from "../test/query-client";
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -26,11 +26,6 @@ vi.mock("../lib/api", async () => {
     }),
   };
 });
-
-function withQueryClient(children: React.ReactNode) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
 
 describe("InlineModelBrowser", () => {
   test("renders the search input in providers mode", () => {

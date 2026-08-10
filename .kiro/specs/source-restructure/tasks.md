@@ -61,16 +61,15 @@
   - [x] 5.4 Migrate all importers, remove `console/views.ts` and `console/services.ts`, and verify console, CLI, OAuth, proxy, and routing contracts plus backend typecheck.
     - _Requirements: 3.1-3.3, 5.1-5.4, 7.1-7.2, 8.1-8.11_
 
-- [ ] 6. Split console HTTP route registration
-  - [ ] 6.1 Extract auth, account, provider, model, proxy, routing, settings, telemetry, backup, and stream route groups from `console/api.ts` into named `console/api/*-routes.ts` modules.
+- [x] 6. Split console HTTP route registration
+  - [x] 6.1 Extract auth, account, provider, model, proxy, routing, settings, telemetry, backup, and stream route groups from `console/api.ts` into named `console/api/*-routes.ts` modules.
     - Each module exports `register<Domain>Routes` and receives an explicit route-dependencies object; it creates no long-lived dependency.
     - _Requirements: 1.1-1.2, 3.1, 5.2, 5.4, 8.3, 8.9_
-  - [ ] 6.2 Create `console/api/index.ts` as the sole `createConsoleApi` composition entrypoint and move only shared API construction there.
+  - [x] 6.2 Create `console/api/index.ts` as the sole `createConsoleApi` composition entrypoint and move only shared API construction there.
     - Construct each console sub-application once and retain its owner/lifecycle contract.
-    - _Requirements: 3.1-3.3, 5.2, 8.2-8.4, 8.9_
-  - [ ] 6.3 Rename the session guard, traffic response helpers, and response presentation functions according to the naming contract without changing route behavior.
+  - [x] 6.3 Rename the session guard, traffic response helpers, and response presentation functions according to the naming contract without changing route behavior.
     - _Requirements: 5.4, 8.2-8.7, 8.10_
-  - [ ] 6.4 Migrate every route importer, delete `console/api.ts`, and verify middleware contracts, authenticated console API smoke coverage, backend typecheck, and dashboard build.
+  - [x] 6.4 Migrate every route importer, delete `console/api.ts`, and verify middleware contracts, authenticated console API smoke coverage, backend typecheck, and dashboard build.
     - _Requirements: 3.1-3.4, 5.2, 7.1-7.2, 8.1-8.11_
 
 - [ ] 7. Split the proxy request lifecycle

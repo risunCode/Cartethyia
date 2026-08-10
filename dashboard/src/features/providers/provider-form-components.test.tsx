@@ -1,18 +1,12 @@
 import { describe, expect, test, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ModelTargetPicker, ModelPickerField } from "../../components/model-picker";
-
+import { withQueryClient } from "../../test/query-client";
 // These components are the "provider-form" building blocks used in the
 // provider detail page, key ACL fields, combo forms, and alias fields.
 // Testing them here with their own render assertions covers the provider-form
 // component coverage gap without needing to mount the entire 1000-line
 // ProviderDetailPage (which requires full react-router + route params).
-
-function withQueryClient(children: React.ReactNode) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-}
 
 describe("ModelTargetPicker \u2014 single-value form field", () => {
   test("renders an input with the current value", () => {

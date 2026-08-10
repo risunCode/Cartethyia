@@ -167,8 +167,8 @@ html[data-motion-profile="mobile"] .traffic-line-active {
 }
 
 /* Disable backdrop-blur on mobile/reduced — GPU-heavy on 2GB RAM devices */
-html[data-motion-profile="mobile"] .backdrop-blur-[6px],
-html[data-motion-profile="reduced"] .backdrop-blur-[6px] {
+html[data-motion-profile="mobile"] .backdrop-blur-\[6px\],
+html[data-motion-profile="reduced"] .backdrop-blur-\[6px\] {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   background-color: rgba(0, 0, 0, 0.6);

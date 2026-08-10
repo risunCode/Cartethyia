@@ -40,7 +40,7 @@ interface SettingsResponse {
 type SensitiveAction = "backup" | "restore" | null;
 type DetectedBackupKind = "restore";
 
-function detectBackupKind(value: unknown): DetectedBackupKind | null {
+export function detectBackupKind(value: unknown): DetectedBackupKind | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const candidate = Object.fromEntries(Object.entries(value));
   return candidate.app === "cartethyia" && typeof candidate.tables === "object" && candidate.tables !== null ? "restore" : null;
