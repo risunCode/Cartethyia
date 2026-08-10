@@ -18,6 +18,9 @@ export interface ScrapeOptions {
   readonly limit?: number;
 }
 
+/** Fetch function seam used by source scrapers and deterministic tests. */
+export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
 export const COUNTRIES: readonly { readonly code: string; readonly name: string }[] = [
   { code: "all", name: "Any region" },
   { code: "US", name: "United States" },
@@ -61,23 +64,26 @@ export function parseProxyLine(line: string, country: string | null): ScrapedPro
   if (trimmed.length === 0) return null;
 
   try {
+    const authority = trimmed.match(/^[a-z0-9]+:\/\/(\[[^\]]+\]|[^/:\s]+):(\d+)$/i);
+    if (authority === null) return null;
     const parsed = new URL(trimmed);
     const protocol = normalizeProtocol(parsed.protocol.slice(0, -1));
-    const port = Number(parsed.port);
-    if (protocol === null || parsed.hostname.length === 0 || !Number.isInteger(port) || port < 1 || port > 65_535) return null;
-    return { url: `${protocol}://${parsed.hostname}:${port}`, protocol, host: parsed.hostname, port, country };
+    const host = parsed.hostname;
+    const port = Number(authority[2]);
+    if (protocol === null || host.length === 0 || !Number.isInteger(port) || port < 1 || port > 65_535) return null;
+    return { url: `${protocol}://${host}:${port}`, protocol, host, port, country };
   } catch {
     return null;
   }
 }
 
-async function fetchText(url: string, fetchFn: typeof fetch): Promise<string> {
+async function fetchText(url: string, fetchFn: FetchLike): Promise<string> {
   const response = await fetchFn(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.text();
 }
 
-async function scrapeProxyScrape(country: string, protocol: ScrapeProtocol, fetchFn: typeof fetch): Promise<ScrapedProxy[]> {
+async function scrapeProxyScrape(country: string, protocol: ScrapeProtocol, fetchFn: FetchLike): Promise<ScrapedProxy[]> {
   const params = new URLSearchParams({ request: "display_proxies", proxy_format: "protocolipport", format: "text" });
   if (country !== "all") params.set("country", country.toLowerCase());
   if (protocol !== "all") params.set("protocol", protocol);
@@ -86,7 +92,7 @@ async function scrapeProxyScrape(country: string, protocol: ScrapeProtocol, fetc
   return text.split("\n").map((line) => parseProxyLine(line, countryTag)).filter((proxy): proxy is ScrapedProxy => proxy !== null);
 }
 
-async function scrapeGeonode(country: string, protocol: ScrapeProtocol, fetchFn: typeof fetch): Promise<ScrapedProxy[]> {
+async function scrapeGeonode(country: string, protocol: ScrapeProtocol, fetchFn: FetchLike): Promise<ScrapedProxy[]> {
   const params = new URLSearchParams({ limit: "500", page: "1", sort_by: "lastChecked", sort_type: "desc" });
   if (country !== "all") params.set("country", country);
   if (protocol !== "all") params.set("protocols", protocol);
@@ -103,7 +109,7 @@ async function scrapeGeonode(country: string, protocol: ScrapeProtocol, fetchFn:
   return proxies;
 }
 
-async function scrapeProxifly(country: string, protocol: ScrapeProtocol, fetchFn: typeof fetch): Promise<ScrapedProxy[]> {
+async function scrapeProxifly(country: string, protocol: ScrapeProtocol, fetchFn: FetchLike): Promise<ScrapedProxy[]> {
   const path = country === "all" ? "proxies/all/data.txt" : `proxies/countries/${country}/data.txt`;
   const text = await fetchText(`https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/${path}`, fetchFn);
   const countryTag = country === "all" ? null : country;
@@ -115,7 +121,7 @@ async function scrapeProxifly(country: string, protocol: ScrapeProtocol, fetchFn
 }
 
 /** Fetches selected free-proxy sources concurrently and de-duplicates URLs. */
-export async function scrapeProxies(options: ScrapeOptions = {}, fetchFn: typeof fetch = fetch): Promise<ScrapedProxy[]> {
+export async function scrapeProxies(options: ScrapeOptions = {}, fetchFn: FetchLike = fetch): Promise<ScrapedProxy[]> {
   const source = options.source ?? "all";
   const country = (options.country ?? "all").toLowerCase() === "all" ? "all" : (options.country ?? "all").toUpperCase();
   const protocol = options.protocol ?? "all";

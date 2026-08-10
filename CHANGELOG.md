@@ -12,17 +12,19 @@ This follow-up hardens the provider boundary for Claude Code, Codex, Exa, and Bl
 
 ### 2.0.0 Beta update — 2026-08-10
 
-This follow-up completes the console HTTP composition split and tightens the dashboard navigation and feature boundaries without changing the public API contract.
+This follow-up completes the console HTTP composition split, separates proxy request lifecycle stages, and tightens the dashboard navigation and feature boundaries without changing the public API contract.
 
 ### Changed
 
 - **Console route composition**: authentication, providers, accounts/OAuth, API keys, proxies, routing policies, settings/backup, diagnostics, telemetry, streams, and Model Studio routes now register through explicit domain modules under `src/console/api/`.
+- **Proxy request lifecycle**: deterministic preparation, bounded payload capture, and route-attempt execution now live under `src/application/request/`.
+- **Routing behavior**: Blackbox-specific forced Responses model overrides were removed; surface resolution now follows the adapter capability resolver directly.
 - **Dashboard navigation**: advanced tools, provider detail, Model Studio streaming, and shared navigation helpers are separated into focused modules with updated route and component coverage.
 
 ### Verification
 
 - `bun tsc --noEmit` — clean.
-- `bun test test/*.test.ts` — 339 passing.
+- Focused proxy lifecycle contracts — 53 passing.
 - `dashboard`: `bun run test` — 162 passing.
 - `dashboard`: `bun run build` — clean.
 - `bun run build` — native backend binary compiled successfully.

@@ -84,11 +84,9 @@ export const router = createBrowserRouter(
         { path: "quota", lazy: lazyPage(() => import("../features/quota/page"), (m) => m.QuotaPage) },
         { path: "proxy-requests", lazy: lazyPage(() => import("../features/proxy-requests/page"), (m) => m.ProxyRequestsPage) },
         { path: "console-log", lazy: lazyPage(() => import("../features/console-log/page"), (m) => m.ConsoleLogPage) },
-        { path: "customization", element: <Navigate to="/advanced" replace /> },
         { path: "advanced", lazy: lazyPage(() => import("../features/customization/page"), (m) => m.CustomizationPage) },
         { path: "advanced/filter-sanitize", lazy: lazyPage(() => import("../features/advanced/filter-sanitize"), (m) => m.FilterSanitizePage) },
         { path: "advanced/token-saver", lazy: lazyPage(() => import("../features/token-saver/page"), (m) => m.TokenSaverPage) },
-        { path: "token-saver", element: <Navigate to="/advanced/token-saver" replace /> },
         { path: "settings", lazy: lazyPage(() => import("../features/settings/page"), (m) => m.SettingsPage) },
         // ── Advanced sidebar page 2 ────────────────────────────────────
         { path: "advanced/automation", lazy: lazyPage(() => import("../features/advanced/automation"), (m) => m.AutomationPage) },

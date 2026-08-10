@@ -143,6 +143,7 @@ BOOTSTRAP_PROXY_API_KEY      # initial proxy API key
 DB_PATH                      # config SQLite path (default inside DATA_DIR)
 RUNTIME_DB_PATH              # runtime telemetry SQLite path (default inside DATA_DIR)
 MAX_FLIGHTS_PER_IP           # global concurrent requests per IP
+CARTETHYIA_PROXY_SCRAPE_CONCURRENCY # bounded scraper health checks (default 20, cap 64)
 LOG_RETENTION_DAYS           # console log retention
 ASSET_RETENTION_DAYS         # asset retention
 CARTETHYIA_HEADROOM_ENABLED       # enable optional fail-open Headroom /v1/compress

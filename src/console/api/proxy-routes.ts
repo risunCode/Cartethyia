@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import { consoleError, type ConsoleServices } from "../services/composition";
+import { COUNTRIES } from "../services/proxy-scraper";
 
 export interface ProxyRouteDependencies {
   readonly services: ConsoleServices;
@@ -33,6 +34,8 @@ export function registerProxyRoutes<T extends Elysia<any, any, any, any, any, an
       if (!("id" in result)) return badRequest(set, result.message);
       return result;
     })
+    .route("QUERY", "/proxies/scrape/countries", () => ({ countries: COUNTRIES }))
+    .post("/proxies/scrape", async ({ body }) => services.proxies.scrape(body))
     .patch("/proxies/:id", async ({ params, body, set }) => {
       const record = await services.proxies.update(params.id, body);
       if (record === null) return notFound(set);

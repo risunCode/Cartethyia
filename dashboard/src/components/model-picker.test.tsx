@@ -112,6 +112,15 @@ describe("ModelPickerModal", () => {
       fetchSpy.mockRestore();
     }
   });
+  test("shows an error state when provider catalog request fails", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("upstream unavailable", { status: 503 }));
+    try {
+      render(withQueryClient(<ModelPickerModal open onClose={vi.fn()} mode="providers" selected={[]} onToggle={vi.fn()} />));
+      expect(await screen.findByText("Unable to load provider and model catalog.", {}, { timeout: 5_000 })).toBeInTheDocument();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
 
 describe("ModelPickerField — configured provider visibility", () => {

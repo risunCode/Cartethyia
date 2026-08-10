@@ -44,14 +44,14 @@ describe("model studio stream transport", () => {
     const onReasoning = vi.fn();
     const onUsage = vi.fn();
     const onFirstToken = vi.fn();
-
+    const controller = new AbortController();
     await streamModelStudioChat(
       { model: "openai/gpt-5", messages: [], maxTokens: 128 },
       { onText, onReasoning, onUsage, onFirstToken },
-      new AbortController().signal,
+      controller.signal,
     );
 
-    expect(fetchMock).toHaveBeenCalledWith("/console/api/model-studio/chat", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenCalledWith("/console/api/model-studio/chat", expect.objectContaining({ method: "POST", signal: controller.signal }));
     expect(onText).toHaveBeenCalledWith("Hello");
     expect(onReasoning).toHaveBeenCalledWith("thinking");
     expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({ inputTokens: 2, outputTokens: 3 }));

@@ -28,7 +28,7 @@ Non-goals:
 #### Acceptance Criteria
 
 1. WHEN sebuah halaman di-load dari router THEN source module, exported component, route metadata, dan test suite SHALL memakai istilah kanonik yang sama.
-2. WHEN route legacy seperti `/customization` atau `/token-saver` masih dipertahankan THEN route tersebut SHALL hanya menjadi redirect eksplisit ke route kanonik dan SHALL memiliki tes regresi.
+2. WHEN a request targets retired legacy paths `/customization` or `/token-saver` THEN the router SHALL NOT register those paths, and canonical advanced paths SHALL remain registered.
 3. WHEN wrapper seperti `AdvancedPage` atau `CliToolsPage` tidak menambah perilaku THEN router SHALL mengimpor entrypoint kanonik langsung atau wrapper SHALL memiliki alasan arsitektural yang terdokumentasi.
 4. WHEN file/simbol exported di-rename THEN seluruh references, dynamic imports, tests, dan string route terkait SHALL ikut diperbarui menggunakan symbol-aware tooling.
 

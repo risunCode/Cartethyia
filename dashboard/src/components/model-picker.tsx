@@ -262,6 +262,10 @@ export function ModelPickerModal({
     catalogState.isLoading ||
     (Boolean(includeCombos) && combosQuery.isPending)
   );
+  const catalogError = open && (
+    (mode === "providers" && providersQuery.isError) ||
+    (mode === "models" && (catalogState.isError || (Boolean(includeCombos) && combosQuery.isError)))
+  );
   const [search, setSearch] = useState("");
   const [providerFilter, setProviderFilter] = useState<string | null>(null);
 
@@ -343,6 +347,8 @@ export function ModelPickerModal({
         <div className="max-h-80 overflow-y-auto rounded-xl border border-[var(--inner-border)]">
           {(mode === "providers" && providersQuery.isPending) || (mode === "models" && catalogLoading) ? (
             <div className="py-8 text-center text-xs text-[var(--text-3)]">Loading provider and model catalog…</div>
+          ) : catalogError ? (
+            <div className="py-8 text-center text-xs text-[var(--red)]">Unable to load provider and model catalog.</div>
           ) : mode === "providers" ? (
             filteredProviders.length === 0 ? (
               <div className="py-8 text-center text-xs text-[var(--text-3)]">No providers match your search.</div>
@@ -363,7 +369,8 @@ export function ModelPickerModal({
                 </button>
               ))
             )
-          ) : (
+          )
+          : (
             <>
               {includeCombos &&
                 filteredCombos.map((combo) => (

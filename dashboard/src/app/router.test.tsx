@@ -35,13 +35,11 @@ describe("dashboard router", () => {
     ]));
   });
 
-  test("keeps legacy advanced URLs as explicit redirects", () => {
+  test("does not register retired legacy routes", () => {
     const shell = router.routes.find((route) => route.path === "/");
-    const children = shell?.children ?? [];
-    const customization = children.find((route) => route.path === "customization");
-    const tokenSaver = children.find((route) => route.path === "token-saver");
+    const paths = shell?.children?.map((route) => route.path) ?? [];
 
-    expect(customization?.element).toMatchObject({ props: { to: "/advanced", replace: true } });
-    expect(tokenSaver?.element).toMatchObject({ props: { to: "/advanced/token-saver", replace: true } });
+    expect(paths).not.toContain("customization");
+    expect(paths).not.toContain("token-saver");
   });
 });

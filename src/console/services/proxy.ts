@@ -186,6 +186,49 @@ export class ProxyService {
     return probeProxy({ protocol, host, port, username: nullableString(value.username), password: nullableString(value.password), isRelay: isProxyRelayHost(host) });
   }
 
+  /** Scrapes free proxy sources, verifies candidates in bounded parallel batches, and adds survivors to the pool. */
+  async scrape(input: unknown): Promise<ProxyScrapeResult> {
+    const options = normalizeScrapeInput(input);
+    const scraped = await scrapeProxies(options);
+    if (scraped.length === 0) return { scraped: 0, verified: 0, added: 0, skipped: 0 };
+
+    const checked = options.verify
+      ? await mapWithConcurrency(scraped, SCRAPE_VERIFY_CONCURRENCY, async (proxy) => ({ proxy, result: await probeProxy({ protocol: proxy.protocol, host: proxy.host, port: proxy.port }) }))
+      : scraped.map((proxy) => ({ proxy, result: null }));
+    const verified = checked.filter((item) => item.result === null || item.result.ok);
+    const existingKeys = new Set((await this.repo.list()).map((proxy) => proxyKey(proxy.protocol, proxy.host, proxy.port)));
+    let added = 0;
+
+    for (const item of verified) {
+      const key = proxyKey(item.proxy.protocol, item.proxy.host, item.proxy.port);
+      if (existingKeys.has(key)) continue;
+      const created = await this.repo.create({
+        name: `${item.proxy.host}:${item.proxy.port}`,
+        protocol: item.proxy.protocol,
+        isRelay: false,
+        host: item.proxy.host,
+        port: item.proxy.port,
+        maxConcurrency: 8,
+        weight: 100,
+        active: true,
+      });
+      existingKeys.add(key);
+      added += 1;
+
+      if (item.result !== null) {
+        const testedAt = new Date().toISOString();
+        try {
+          await this.repo.recordTest(created.id, { testedAt, ok: true, latencyMs: item.result.latencyMs, statusCode: item.result.statusCode ?? null, error: null });
+          await this.repo.setHealth(created.id, { scope: "proxy", status: "healthy", statusCode: item.result.statusCode ?? null, failureKind: null, sanitizedMessage: null, occurredAt: testedAt, retryAt: null });
+        } catch {
+          // Health is observability; a persistence failure must not hide the added proxy.
+        }
+      }
+    }
+
+    return { scraped: scraped.length, verified: verified.length, added, skipped: verified.length - added };
+  }
+
   async getSettings(): Promise<ProxySettingsView> {
     return this.settings.get();
   }

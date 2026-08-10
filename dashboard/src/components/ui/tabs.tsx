@@ -46,7 +46,7 @@ export function Select({
 }: {
   value: string;
   onChange: (value: string) => void;
-  options: { value: string; label: string }[];
+  options: readonly { readonly value: string; readonly label: string }[];
   ariaLabel?: string;
   className?: string;
 }) {

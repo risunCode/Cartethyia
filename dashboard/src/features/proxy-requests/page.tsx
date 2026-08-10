@@ -6,7 +6,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Clipboard, Download, FlaskConical, Gauge, Loader2, Network, Pencil, Plus, PowerOff, Route, ShieldCheck, Trash2 } from "lucide-react";
+import { Activity, Clipboard, Download, FlaskConical, Gauge, Loader2, Network, Pencil, Plus, PowerOff, Route, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "../../lib/toast";
 import { getErrorMessage as errorMessage } from "../../lib/errors";
@@ -96,6 +96,90 @@ interface BatchCheckResult {
   body?: Record<string, unknown>;
   latencyMs?: number;
   error?: string;
+}
+
+interface ScrapeCountry {
+  code: string;
+  name: string;
+}
+
+interface ScrapeResult {
+  scraped: number;
+  verified: number;
+  added: number;
+  skipped: number;
+}
+
+const SCRAPE_SOURCES = [
+  { value: "all", label: "All sources" },
+  { value: "proxyscrape", label: "ProxyScrape" },
+  { value: "geonode", label: "Geonode" },
+  { value: "proxifly", label: "Proxifly" },
+] as const;
+
+const SCRAPE_PROTOCOLS = [
+  { value: "all", label: "HTTP + SOCKS5" },
+  { value: "http", label: "HTTP" },
+  { value: "socks5", label: "SOCKS5" },
+] as const;
+
+function ProxyScraperSection() {
+  const queryClient = useQueryClient();
+  const { data: countryData } = useQuery({ queryKey: ["console", "proxy-scrape-countries"], queryFn: () => apiGet<{ countries: ScrapeCountry[] }>("/proxies/scrape/countries") });
+  const [source, setSource] = useState<(typeof SCRAPE_SOURCES)[number]["value"]>("all");
+  const [country, setCountry] = useState("all");
+  const [protocol, setProtocol] = useState<(typeof SCRAPE_PROTOCOLS)[number]["value"]>("all");
+  const [limit, setLimit] = useState("50");
+  const [verify, setVerify] = useState(true);
+  const [running, setRunning] = useState(false);
+  const countries = countryData?.countries ?? [{ code: "all", name: "Any region" }];
+
+  const runScrape = async (): Promise<void> => {
+    setRunning(true);
+    try {
+      const result = await apiPost<ScrapeResult>("/proxies/scrape", { source, country, protocol, limit: Math.max(1, Math.min(500, Number(limit) || 50)), verify });
+      await queryClient.invalidateQueries({ queryKey: qk.proxies.all });
+      if (result.added > 0) toast.success(`Found ${result.scraped}, ${result.added} proxies added${verify ? ` · ${result.verified} healthy` : ""}`);
+      else if (result.scraped === 0) toast.error("No proxies found from the selected source");
+      else toast.success(`Found ${result.scraped}; ${result.skipped} already in the pool`);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <Card surface="frame" className="space-y-3">
+      <CardHeader title="Proxy Scraper" icon={Search} sub="Fetch free HTTP and SOCKS5 proxies from multiple sources in parallel">
+        <Button size="sm" className="w-full sm:w-auto" disabled={running} onClick={() => void runScrape()}>
+          {running ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} {running ? "Searching…" : "Search proxies"}
+        </Button>
+      </CardHeader>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <label className="text-[10.5px] text-[var(--text-3)]">
+          Source
+          <Select ariaLabel="Scrape source" className="mt-1 w-full" value={source} onChange={(value) => setSource(value as typeof source)} options={SCRAPE_SOURCES} />
+        </label>
+        <label className="text-[10.5px] text-[var(--text-3)]">
+          Region
+          <Select ariaLabel="Scrape region" className="mt-1 w-full" value={country} onChange={setCountry} options={countries.map((item) => ({ value: item.code, label: item.name }))} />
+        </label>
+        <label className="text-[10.5px] text-[var(--text-3)]">
+          Protocol
+          <Select ariaLabel="Scrape protocol" className="mt-1 w-full" value={protocol} onChange={(value) => setProtocol(value as typeof protocol)} options={SCRAPE_PROTOCOLS} />
+        </label>
+        <label className="text-[10.5px] text-[var(--text-3)]">
+          Candidate limit
+          <Input className="mt-1 h-9 w-full" type="number" min={1} max={500} value={limit} onChange={(event) => setLimit(event.target.value)} />
+        </label>
+      </div>
+      <label className="flex items-start gap-2 text-[11px] text-[var(--text-2)]">
+        <input className="mt-0.5 size-3.5" type="checkbox" checked={verify} onChange={(event) => setVerify(event.target.checked)} />
+        <span><span className="block font-semibold">Verify before adding</span><span className="mt-0.5 block text-[10px] text-[var(--text-3)]">Health checks run concurrently with a bounded worker pool to avoid overloading the server.</span></span>
+      </label>
+    </Card>
+  );
 }
 
 const EMPTY_FORM: ProxyFormState = { name: "", protocol: "socks5", host: "", port: "", username: "", password: "", maxConcurrency: "8", weight: "100" };
@@ -835,6 +919,7 @@ function ProxyModal({ open, existing, onClose, onExited }: { open: boolean; exis
 export function ProxyRequestsPage() {
   return (
     <div className="dashboard-page space-y-4">
+      <ProxyScraperSection />
       <ProxyPoolSection />
       <RoutingAndExceptionsSection />
     </div>

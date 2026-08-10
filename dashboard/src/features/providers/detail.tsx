@@ -8,7 +8,7 @@ import { ArrowLeft, ArrowUpDown, Bot, Brain, Cable, CheckCircle2, Copy, Download
 import { Link, useLocation, useParams } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "../../lib/toast";
-import { ApiError, apiGet, apiPost, apiPatch, apiDelete } from "../../lib/api";
+import { apiGet, apiPost, apiPatch, apiDelete } from "../../lib/api";
 import { qk } from "../../lib/query-keys";
 import { cn } from "../../lib/cn";
 import { extractCredentialFromPaste } from "../../lib/credentialExtract";
@@ -24,6 +24,7 @@ import {
 } from "../../lib/account-health";
 import { staggerClass } from "../../lib/motion";
 import { displayAccountHint as displayHint, formatModelPricing, type ModelPricing } from "./formatters";
+import { errorMessage, selectAccountTestModel } from "./detail-helpers";
 import { useWindowedList } from "../../hooks/use-windowed-list";
 import { Skeleton } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -203,10 +204,6 @@ type AccountTestStatus =
 
 type AccountSortKey = "name" | "status";
 
-function errorMessage(err: unknown): string {
-  if (err instanceof ApiError || err instanceof Error) return err.message;
-  return "request failed";
-}
 
 function renderInlineMarkdown(text: string): ReactNode[] {
   return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean).map((part, index) => {
@@ -240,10 +237,6 @@ async function copyToClipboard(text: string): Promise<void> {
  * model name + TFFT + END timing, real-model line, and sample text. No
  * inline card, no modal.
  */
-function selectAccountTestModel(providerId: string, models: ModelEntry[]): ModelEntry | undefined {
-  const preferredId = providerId === "codex" ? "gpt-5.4-mini" : null;
-  return (preferredId ? models.find((model) => model.id === preferredId) : undefined) ?? models[0];
-}
 
 async function probeModel(provider: string, model: string, credentialMode: "auto" | "account", accountId?: string): Promise<TestResult> {
   const result = await apiPost<{ ok: boolean; latencyMs: number; firstVisibleTextMs?: number; sample?: string; error?: { message?: string }; returnedModel?: string }>("/model-studio/probe", {

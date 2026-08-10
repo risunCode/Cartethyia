@@ -23,7 +23,7 @@ The large files are not split mechanically. Each extraction must have a stable i
 ## Canonical naming decisions
 
 1. Keep user-facing URLs canonical as currently deployed: `/advanced`, `/advanced/token-saver`, `/advanced/cli-tools`, and so on.
-2. Keep `/customization` and `/token-saver` as explicit compatibility redirects, with route tests. Do not remove them in this cleanup.
+2. Retire `/customization` and `/token-saver` completely. The router must not register either path; callers must use the canonical `/advanced` and `/advanced/token-saver` paths.
 3. Make `CustomizationPage` the direct entrypoint for `/advanced`; remove `AdvancedPage` only after the route test and references confirm it is unused. The source domain remains `features/customization` because the page owns appearance/customization behavior, while `advanced` is a navigation namespace.
 4. Make `CliToolsPage` from `features/advanced/cli-tools/page` the direct route entrypoint; remove `CliToolsPage` indirection from `features/advanced/tools.tsx`. Keep `AutomationPage` only if its route still needs the placeholder.
 5. Do not rename every generic `page.tsx`. Rename only ambiguous exported symbols/files when a concrete collision or indirection exists. Candidate high-value rename: provider `detail.tsx` / `custom-detail.tsx` to explicit provider-detail names, performed with LSP references and a single atomic verification.
@@ -94,3 +94,11 @@ Only after Batch B passes:
 ## Verification and rollback
 
 Each batch is independently revertible and must leave the suite/build green. A rename batch is accepted only when no stale import or exported symbol remains and both legacy and canonical navigation scenarios pass. A component extraction is accepted only when its focused tests and the original page contract pass; if not, revert the extraction instead of weakening assertions.
+
+
+## Implementation decisions
+
+- Navigation metadata is now isolated in `src/app/navigation.ts`.
+- The Model Studio SSE transport and usage types are isolated in `src/features/model-studio/stream.ts`; the page remains the orchestration boundary.
+- Provider detail normalization and stable model-test/error helpers are isolated and tested; stateful account/OAuth/routing sections remain together because their mutation ownership is tightly coupled.
+- The picker now exposes an explicit catalog error state instead of presenting a failed request as an empty result.

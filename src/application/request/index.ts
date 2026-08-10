@@ -1,27 +1,26 @@
-import { createCleanupStack, sanitizeMessage, deriveErrorSource, type ProviderCallError, type PayloadCapture } from "./contracts";
-import type { PresentedProxyResponse } from "./contracts";
-import type { Adapter, ProviderOutput, Surface, ProviderUsage, RouteTarget, StreamEvent } from "./contracts";
-import type { AccountCandidate, AffinityKey, RouteCandidate, RouteSwitch } from "./contracts";
-import type { ProxyRequest, RunProxyRequestInput } from "./contracts";
-import { detectClient } from "./contracts";
-import type { ClientIdentity } from "./contracts";
-import type { RequestTelemetryHandle, TelemetryWriter } from "./contracts";
-import { applyCachePlan, buildCachePlan } from "./cache";
-import { isRouteAllowed } from "../security/access";
-import { isProtocolError } from "./protocols";
-import { normalizeRequest, parseRequestBody } from "../open-sse/translate";
-import { CredentialSelector } from "./auth";
-import { NetworkSelector } from "../traffic";
-import { beginProviderInFlight, decrementInFlight, endProviderInFlight, incrementInFlight } from "../traffic/in-flight";
-import { ApiKeyAdmission, estimateRequestTokens, type AdmissionLease, type AdmissionUsage } from "../traffic/admission";
-import type { ApiKeyPublic } from "../storage";
-import { isProviderCallError, recoverCall } from "../open-sse/handlers/recovery";
-import { translateBody, resolveWireSurface } from "../open-sse/translate";
-import { writeErrorResponse, writeResponse } from "../open-sse/handlers";
-import { applyTokenSaver, RTK_EMERGENCY_MESSAGE_THRESHOLD, type TokenSaverConfig } from "../open-sse/rtk";
-import type { HeadroomOutcome } from "../open-sse/rtk/headroom";
-import { ensureToolCallIds } from "../open-sse/concerns/tool-calls";
-import { applyFilterRules, type FilterRuleConfig } from "./filter-rules";
+import { createCleanupStack, sanitizeMessage, deriveErrorSource, type ProviderCallError } from "../contracts";
+import type { PresentedProxyResponse } from "../contracts";
+import type { Adapter, ProviderOutput, Surface, ProviderUsage, RouteTarget, StreamEvent } from "../contracts";
+import type { AccountCandidate, AffinityKey, RouteCandidate, RouteSwitch } from "../contracts";
+import type { ProxyRequest, RunProxyRequestInput } from "../contracts";
+import { detectClient } from "../contracts";
+import type { ClientIdentity } from "../contracts";
+import type { RequestTelemetryHandle, TelemetryWriter } from "../contracts";
+import { isRouteAllowed } from "../../security/access";
+import { CredentialSelector } from "../auth";
+import { NetworkSelector } from "../../traffic";
+import { beginProviderInFlight, decrementInFlight, endProviderInFlight, incrementInFlight } from "../../traffic/in-flight";
+import type { ApiKeyAdmission, AdmissionLease, AdmissionUsage } from "../../traffic/admission";
+import type { ApiKeyPublic } from "../../storage";
+import { isProviderCallError, recoverCall } from "../../open-sse/handlers/recovery";
+import { translateBody, resolveWireSurface } from "../../open-sse/translate";
+import { writeErrorResponse, writeResponse } from "../../open-sse/handlers";
+import type { TokenSaverConfig } from "../../open-sse/rtk";
+import { createRouteAttempt, createRouteAttemptState, getRouteAttemptSelection, getSelectedAttempt, getSuccessfulCandidateId, clearAccountCandidates } from "./route-attempt";
+import type { HeadroomOutcome } from "../../open-sse/rtk/headroom";
+import type { FilterRuleConfig } from "../filter-rules";
+import { prepareProxyRequest } from "./prepare";
+import { createPayloadCapture } from "./payload-capture";
 
 export interface ProxyRoutePlan {
   readonly affinity: AffinityKey;
@@ -86,34 +85,10 @@ export interface AuthorizedProxyRequestInput {
   readonly request: RunProxyRequestInput;
   readonly authorization: ProxyAuthorization;
 }
-
-const DEFAULT_LIMITS = {
-  maxBodyBytes: 10 * 1024 * 1024,
-  connectTimeoutMs: 10_000,
-  firstByteTimeoutMs: 30_000,
-  idleTimeoutMs: 30_000,
-  totalTimeoutMs: 120_000,
-} as const;
 /** Codex ChatGPT transport uses the direct path unless explicitly overridden. */
 const CODEX_PROXY_ENABLED = process.env.CARTETHYIA_CODEX_PROXY === "true";
-const BLACKBOX_FORCE_RESPONSES_MODELS: Record<string, true> = {
-  "openai/gpt-5.3-codex": true,
-  "openai/gpt-5.4": true,
-};
-
-function selectWireSurface(
-  adapter: Adapter,
-  candidate: RouteCandidate,
-  request: ProxyRequest,
-): Surface | null {
-  const resolved = resolveWireSurface(adapter.metadata, adapter.capabilities, request.sourceSurface);
-  if (resolved === null) return null;
-  if (adapter.metadata.id !== "blackboxai") return resolved;
-  if (request.sourceSurface !== "openai-chat") return resolved;
-  if (!adapter.capabilities.surfaces.includes("openai-responses")) return resolved;
-  const modelId = candidate.modelId || request.model;
-  if (BLACKBOX_FORCE_RESPONSES_MODELS[modelId] !== true) return resolved;
-  return "openai-responses";
+function selectWireSurface(adapter: Adapter, _candidate: RouteCandidate, request: ProxyRequest): Surface | null {
+  return resolveWireSurface(adapter.metadata, adapter.capabilities, request.sourceSurface);
 }
 
 function normalizeError(error: unknown): ProviderCallError {
@@ -145,100 +120,7 @@ function telemetryStart(input: RunProxyRequestInput, requestId: string, client: 
     imageCount: 0,
   });
 }
-const MAX_CAPTURE_BYTES = 16 * 1024;
-const REDACT_KEY = /(authorization|api[_-]?key|token|secret|password|cookie|credential)/i;
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
 
-function redactPayload(value: unknown, depth = 0): unknown {
-  if (depth > 8 || value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map((item) => redactPayload(item, depth + 1));
-  const result: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value as Record<string, unknown>)) result[key] = REDACT_KEY.test(key) ? "[REDACTED]" : redactPayload(item, depth + 1);
-  return result;
-}
-
-function artifact(value: unknown, truncated = false, originalBytes?: number): { text: string; truncated: boolean; originalBytes: number; capturedBytes: number } {
-  let text: string;
-  if (typeof value === "string") {
-    try { text = JSON.stringify(redactPayload(JSON.parse(value))) ?? value; } catch { text = value; }
-  } else {
-    text = JSON.stringify(redactPayload(value)) ?? String(value);
-  }
-  const bytes = encoder.encode(text);
-  const original = originalBytes ?? bytes.byteLength;
-  if (bytes.byteLength <= MAX_CAPTURE_BYTES) return { text, truncated, originalBytes: original, capturedBytes: bytes.byteLength };
-  return { text: decoder.decode(bytes.slice(0, MAX_CAPTURE_BYTES)), truncated: true, originalBytes: original, capturedBytes: MAX_CAPTURE_BYTES };
-}
-
-function createPayloadCapture(requestId: string, sink: { save(requestId: string, kind: "client_request" | "provider_request" | "provider_response" | "client_response", artifact: { text: string; truncated: boolean; originalBytes: number; capturedBytes: number }): void }): PayloadCapture {
-  const pending = new Set<Promise<void>>();
-  const save = (kind: "client_request" | "provider_request" | "provider_response" | "client_response", value: unknown, truncated = false, originalBytes?: number): void => {
-    if (sink === null) return;
-    sink.save(requestId, kind, artifact(value, truncated, originalBytes));
-  };
-  return {
-    request(value): void { save("client_request", value); },
-    response(value): void { save("client_response", value); },
-    observeResponse(response): Response {
-      if (response.body === null || sink === null) return response;
-      const [captureBranch, consumerBranch] = response.body.tee();
-      const task = (async () => {
-        const reader = captureBranch.getReader();
-        const chunks: Uint8Array[] = [];
-        let total = 0;
-        let truncated = false;
-        try {
-          while (total < MAX_CAPTURE_BYTES) {
-            const next = await reader.read();
-            if (next.done) break;
-            const remaining = MAX_CAPTURE_BYTES - total;
-            const chunk = next.value.slice(0, remaining);
-            chunks.push(chunk);
-            total += chunk.byteLength;
-            if (next.value.byteLength > remaining) { truncated = true; break; }
-          }
-          if (truncated) await reader.cancel();
-        } finally { reader.releaseLock(); }
-        const merged = new Uint8Array(total);
-        let offset = 0;
-        for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.byteLength; }
-        save("provider_response", decoder.decode(merged), truncated, truncated ? MAX_CAPTURE_BYTES + 1 : total);
-      })().catch(() => {});
-      pending.add(task);
-      void task.finally(() => pending.delete(task));
-      return new Response(consumerBranch, { status: response.status, statusText: response.statusText, headers: response.headers });
-    },
-    async settle(): Promise<void> { await Promise.all(pending); },
-  };
-}
-interface PreparedProxyRequest {
-  readonly request: ProxyRequest;
-  readonly admissionEstimate: number;
-}
-
-async function prepareProxyRequest(input: AuthorizedProxyRequestInput, dependencies: ProxyRequestDependencies): Promise<PreparedProxyRequest> {
-  const parsed = typeof input.request.body === "string" ? parseRequestBody(input.request.body, DEFAULT_LIMITS) : input.request.body;
-  if (isProtocolError(parsed)) throw parsed;
-  const normalized = normalizeRequest(input.request.endpoint, parsed, { signal: input.request.signal, limits: DEFAULT_LIMITS });
-  if (!normalized.ok) throw normalized.error;
-
-  const toolSafeRequest = ensureToolCallIds(normalized.request);
-  let preparedRequest = toolSafeRequest;
-  if (dependencies.filterRules !== undefined) preparedRequest = applyFilterRules(preparedRequest, dependencies.filterRules());
-
-  const tokenSaverConfig = dependencies.tokenSaver?.();
-  if (tokenSaverConfig !== undefined) {
-    preparedRequest = applyTokenSaver(preparedRequest, { ...tokenSaverConfig, emergency: preparedRequest.messages.length > RTK_EMERGENCY_MESSAGE_THRESHOLD });
-  }
-  if (dependencies.headroom !== undefined) preparedRequest = (await dependencies.headroom(preparedRequest)).request;
-
-  const admissionBody = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  const admissionEstimate = dependencies.admission !== undefined && input.authorization.apiKey !== undefined
-    ? estimateRequestTokens(admissionBody)
-    : 0;
-  return { request: applyCachePlan(preparedRequest, buildCachePlan(preparedRequest)), admissionEstimate };
-}
 
 export async function runProxyRequest(input: AuthorizedProxyRequestInput, dependencies: ProxyRequestDependencies): Promise<PresentedProxyResponse> {
   const requestId = input.request.requestId ?? crypto.randomUUID();
@@ -316,135 +198,15 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
       clientIp: input.request.clientIp ?? null,
     });
 
-    const selectedAttempts = new Map<number, RouteAttemptSelection>();
-    const accountCandidatesByProvider = new Map<string, Promise<readonly AccountCandidate[]>>();
-    let successfulSelection: RouteAttemptSelection | null = null;
-    let successfulCandidateId: string | null = null;
-    const attempt = async (index: number): Promise<ProviderOutput> => {
-      const candidate = resolvedPlan?.candidates[index % resolvedPlan.candidates.length];
-      if (!candidate) {
-        throw {
-          statusCode: 503,
-          kind: "provider_unavailable",
-          retryable: true,
-        routeScope: "provider",
-        source: deriveErrorSource("provider_unavailable", "provider"),
-        sanitizedMessage: "No route candidate available",
-          retryAt: null,
-        } satisfies ProviderCallError;
-      }
-      const adapter = dependencies.providers.get(candidate.providerId);
-      if (!adapter) {
-        throw {
-          statusCode: 503,
-          kind: "credential_unavailable",
-          retryable: false,
-        routeScope: "provider",
-        source: deriveErrorSource("credential_unavailable", "provider"),
-        sanitizedMessage: "Provider is not configured",
-        retryAt: null,
-        } satisfies ProviderCallError;
-      }
-      const attemptCleanup = createCleanupStack();
-      let handedOff = false;
-      try {
-        const adapterNeedsCredential = adapter.metadata.credentialKind !== "none";
-        const providerRouting = dependencies.getProviderRouting?.(candidate.providerId);
-        const affinityKey = input.authorization.apiKeyId ?? input.authorization.trustedIdentity ?? "anonymous";
-        let accountCandidatesPromise = accountCandidatesByProvider.get(candidate.providerId);
-        if (accountCandidatesPromise === undefined) {
-          accountCandidatesPromise = dependencies.accountCandidates(candidate.providerId).catch((error: unknown) => {
-            accountCandidatesByProvider.delete(candidate.providerId);
-            throw error;
-          });
-          accountCandidatesByProvider.set(candidate.providerId, accountCandidatesPromise);
-        }
-        const credential = adapterNeedsCredential
-          ? await dependencies.accounts.select({
-              providerId: candidate.providerId,
-              candidates: await accountCandidatesPromise,
-              strategy: providerRouting?.strategy ?? "priority",
-              affinityKey,
-              stickyLimit: providerRouting?.useStickyLimit === true ? providerRouting.stickyLimit : undefined,
-              modelId: candidate.modelId,
-            })
-          : null;
-        if (adapterNeedsCredential && credential === null) {
-          throw {
-            statusCode: 503,
-            kind: "credential_unavailable",
-            retryable: true,
-        routeScope: "account",
-        source: deriveErrorSource("credential_unavailable", "account"),
-        sanitizedMessage: "No eligible account available",
-            retryAt: null,
-          } satisfies ProviderCallError;
-        }
-        if (credential !== null) attemptCleanup.add({ release: async () => dependencies.accounts.release(credential.selection.leaseId) });
-        const network = await dependencies.network.select({ providerId: candidate.providerId, affinityKey, preferDirect: candidate.providerId === "codex" && !CODEX_PROXY_ENABLED });
-        if (network === null) {
-          throw {
-            statusCode: 503,
-            kind: "network_unavailable",
-            retryable: true,
-        routeScope: "proxy",
-        source: deriveErrorSource("network_unavailable", "proxy"),
-        sanitizedMessage: "No outbound network path available",
-            retryAt: null,
-          } satisfies ProviderCallError;
-        }
-        attemptCleanup.add({ release: network.selection.release });
-        const selected = { accountId: credential?.selection.accountId ?? null, proxyId: network.proxyId } satisfies RouteAttemptSelection;
-        selectedAttempts.set(index, selected);
-        const wireSurface = selectWireSurface(adapter, candidate, currentRequest);
-        if (wireSurface === null) {
-          throw {
-            statusCode: 400,
-            kind: "capability_unsupported",
-            retryable: false,
-        routeScope: "provider",
-        source: deriveErrorSource("capability_unsupported", "provider"),
-        sanitizedMessage: `Provider "${candidate.providerId}" cannot translate this protocol surface`,
-            retryAt: null,
-          } satisfies ProviderCallError;
-        }
-        const target: RouteTarget = adapter.resolveTarget(candidate.modelId || currentRequest.model, wireSurface);
-        let output: ProviderOutput;
-        let providerStreamHandedOff = false;
-        beginProviderInFlight(candidate.providerId);
-        try {
-          output = await adapter.call({ target, request: currentRequest, credential: credential?.selection.secret ?? "", network: network.selection, signal: input.request.signal, headers: input.request.headers, capture: capture ?? undefined });
-        } catch (error) {
-          endProviderInFlight(candidate.providerId);
-          throw adapter.mapError(error);
-        }
-        successfulSelection = selected;
-        successfulCandidateId = candidate.id;
-        if (output.mode === "stream") {
-          handedOff = true;
-          providerStreamHandedOff = true;
-          return { ...output, events: (async function*() {
-            try {
-              yield* output.events;
-            } finally {
-              endProviderInFlight(candidate.providerId);
-              await attemptCleanup.run();
-            }
-          })() };
-        }
-        if (!providerStreamHandedOff) endProviderInFlight(candidate.providerId);
-        await attemptCleanup.run();
-        if (output.mode === "non_stream" && target.surface !== currentRequest.sourceSurface) {
-          return {
-            ...output,
-            body: translateBody(output.body, adapter.metadata.protocol, target.surface, currentRequest.sourceSurface),
-          };
-        }
-        return output;
-      } finally {
-        if (!handedOff) await attemptCleanup.run();
-      }
-    };
+    const routeAttemptState = createRouteAttemptState();
+    const attempt = createRouteAttempt({
+      input,
+      dependencies,
+      request: currentRequest,
+      plan: resolvedPlan,
+      capture,
+      state: routeAttemptState,
+    });
 
     const output = await recoverCall({
       attempt,
@@ -456,8 +218,8 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
         const candidates = resolvedPlan?.candidates ?? [];
         const candidate = candidates[index % Math.max(candidates.length, 1)];
         if (candidate) {
-          await dependencies.onRouteFailure?.(candidate, error, selectedAttempts.get(index) ?? null);
-          if (error.routeScope === "account") accountCandidatesByProvider.delete(candidate.providerId);
+          await dependencies.onRouteFailure?.(candidate, error, getSelectedAttempt(routeAttemptState, index));
+          if (error.routeScope === "account") clearAccountCandidates(routeAttemptState, candidate.providerId);
           const replacement = candidates[index + 1] ?? null;
           if (error.routeScope === "account" || error.routeScope === "proxy") {
             await dependencies.onRouteSwitch?.({ scope: error.routeScope, previousRouteId: candidate.id, replacementRouteId: replacement?.id ?? null, reason: error.kind, occurredAt: new Date().toISOString() });
@@ -466,10 +228,14 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
       },
     });
     const plan = resolvedPlan;
-    const providerId = (): string | null => (successfulCandidateId === null ? plan.candidates[0]?.providerId ?? null : plan.candidates.find((candidate) => candidate.id === successfulCandidateId)?.providerId ?? plan.candidates[0]?.providerId ?? null);
+    const providerId = (): string | null => {
+      const successfulCandidateId = getSuccessfulCandidateId(routeAttemptState);
+      return successfulCandidateId === null ? plan.candidates[0]?.providerId ?? null : plan.candidates.find((candidate) => candidate.id === successfulCandidateId)?.providerId ?? plan.candidates[0]?.providerId ?? null;
+    };
     const reportRouteSuccess = async (): Promise<void> => {
+      const successfulCandidateId = getSuccessfulCandidateId(routeAttemptState);
       const candidate = successfulCandidateId === null ? null : plan.candidates.find((item) => item.id === successfulCandidateId) ?? null;
-      if (candidate !== null) await dependencies.onRouteSuccess?.(candidate, successfulSelection);
+      if (candidate !== null) await dependencies.onRouteSuccess?.(candidate, getRouteAttemptSelection(routeAttemptState));
     };
     let responseStatus: number | null = null;
     let presentedOutput = output;
