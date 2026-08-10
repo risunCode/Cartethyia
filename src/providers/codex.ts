@@ -30,7 +30,7 @@ import type { ProviderCallError } from "../application/contracts";
  * from the access-token JWT so no out-of-band account metadata is required.
  */
 
-const CODEX_SURFACES: readonly Surface[] = ["openai-chat", "images"];
+const CODEX_SURFACES: readonly Surface[] = ["openai-responses", "images"];
 const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 const CODEX_VERSION = "0.144.1";
 const CODEX_ORIGINATOR = "pi";
@@ -141,8 +141,8 @@ export class CodexAdapter implements Adapter {
   }
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {
-    if (input.target.surface !== "openai-chat" && input.target.surface !== "images") {
-      throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${input.target.surface}"`, statusCode: 400, routeScope: null });
+    if (input.target.surface !== "openai-responses" && input.target.surface !== "images") {
+      throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support the OpenAI Responses surface`, statusCode: 400, routeScope: null });
     }
     if (input.credential.length === 0) {
       throw new ProviderAdapterError({ kind: "authentication_failed", message: "A Codex OAuth access token is required.", statusCode: 401, routeScope: "account" });

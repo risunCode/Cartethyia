@@ -54,7 +54,7 @@ describe("surface routing", () => {
     expect(resolveWireSurface(adapter.metadata, adapter.capabilities, "openai-responses")).toBe("openai-responses");
   });
 
-  test("Codex unwraps durable OAuth bundles before sending the ChatGPT request", async () => {
+  test("Codex unwraps durable OAuth bundles before sending the Responses request", async () => {
     const payload = btoa(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "account-123" } })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
     const accessToken = `header.${payload}.signature`;
     const credential = JSON.stringify({ accessToken, providerAccountId: "account-123", email: "user@example.com" });
@@ -66,7 +66,7 @@ describe("surface routing", () => {
     }) as typeof fetch;
     try {
       const adapter = new CodexAdapter();
-      const result = await adapter.call({ target: adapter.resolveTarget("gpt-5.4", "openai-chat"), request: chatReq({ model: "codex/gpt-5.4" }), credential, network: { proxyId: null, url: null, release: async () => {} }, signal: new AbortController().signal });
+      const result = await adapter.call({ target: adapter.resolveTarget("gpt-5.4", "openai-responses"), request: chatReq({ model: "codex/gpt-5.4" }), credential, network: { proxyId: null, url: null, release: async () => {} }, signal: new AbortController().signal });
       expect(result.mode).toBe("non_stream");
       expect(request?.url).toBe("https://chatgpt.com/backend-api/codex/responses");
       expect(new Headers(request?.init?.headers).get("authorization")).toBe(`Bearer ${accessToken}`);
