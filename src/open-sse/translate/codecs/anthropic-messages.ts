@@ -163,9 +163,31 @@ function normalizeMessages(raw: unknown, images: ImageReference[], reasoningStat
     if (item === undefined) continue;
     const message = normalizeMessage(item, field, images, reasoningState);
     if (isProtocolError(message)) return message;
-    messages.push(message);
+    messages.push(...expandToolResultMessages(message));
   }
   return messages;
+}
+
+function expandToolResultMessages(message: NormalizedMessage): NormalizedMessage[] {
+  if (!message.content.some((block) => block.type === "tool_result")) return [message];
+  const expanded: NormalizedMessage[] = [];
+  let visibleBlocks: ContentBlock[] = [];
+  const flushVisible = () => {
+    if (visibleBlocks.length > 0) {
+      expanded.push({ ...message, role: "user", content: visibleBlocks });
+      visibleBlocks = [];
+    }
+  };
+  for (const block of message.content) {
+    if (block.type === "tool_result") {
+      flushVisible();
+      expanded.push({ ...message, role: "tool", content: [block] });
+    } else {
+      visibleBlocks.push(block);
+    }
+  }
+  flushVisible();
+  return expanded;
 }
 
 function normalizeMessage(raw: unknown, field: string, images: ImageReference[], reasoningState: { seen: boolean }): NormalizedMessage | ProtocolError {
@@ -178,8 +200,7 @@ function normalizeMessage(raw: unknown, field: string, images: ImageReference[],
   }
   const content = normalizeContent(obj["content"], `${field}.content`, images, reasoningState);
   if (isProtocolError(content)) return content;
-  const normalizedRole = role === "user" && content.length > 0 && content.every((block) => block.type === "tool_result") ? "tool" : role;
-  return { role: normalizedRole, content };
+  return { role, content };
 }
 
 function normalizeContent(raw: unknown, field: string, images: ImageReference[], reasoningState: { seen: boolean }): ContentBlock[] | ProtocolError {
