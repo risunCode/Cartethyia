@@ -17,6 +17,7 @@ function mappings(toolId: string, enabled: boolean): ReadonlyMap<string, CliMode
       enabled,
       entries: [
         { sourceModel: "claude/claude-opus-4-8", targetModel: "openai/gpt-5.5", enabled: true },
+        { sourceModel: "claude/claude-mythos-5", targetModel: "kimchi/minimax-m3", enabled: true },
         { sourceModel: "gpt-5.1", targetModel: "openai/o4-mini", enabled: false },
       ],
     }],
@@ -39,6 +40,10 @@ describe("CLI model mapping", () => {
     const client = detectClient(new Headers({ "user-agent": "claude-cli/2.1.226 (external, sdk-cli)" }));
     expect(client).toEqual({ name: "claude_code", source: "user_agent" });
     expect(resolveCliModelMapping(client, "claude/claude-opus-4-8", mappings("claude", true))).toBe("openai/gpt-5.5");
+  });
+
+  test("matches Claude Code model IDs without the claude namespace", () => {
+    expect(resolveCliModelMapping(claude, "claude-mythos-5", mappings("claude", true))).toBe("kimchi/minimax-m3");
   });
 
   test("keeps client detector IDs stable", () => {

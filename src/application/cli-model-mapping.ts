@@ -27,7 +27,13 @@ export function cliToolIdForClient(clientName: ClientName): string | null {
   return CLIENT_TOOL_IDS[clientName] ?? null;
 }
 
-/** Resolve one CLI-native model through its harness-specific route mapping. */
+function modelIdsMatch(toolId: string, configuredModel: string, requestModel: string): boolean {
+  if (toolId !== "claude") return configuredModel === requestModel;
+  const configuredId = configuredModel.startsWith("claude/") ? configuredModel.slice("claude/".length) : configuredModel;
+  const requestId = requestModel.startsWith("claude/") ? requestModel.slice("claude/".length) : requestModel;
+  return configuredId === requestId;
+}
+
 export function resolveCliModelMapping(
   client: ClientIdentity,
   sourceModel: string,
@@ -37,6 +43,6 @@ export function resolveCliModelMapping(
   if (toolId === null) return sourceModel;
   const settings = mappings.get(toolId);
   if (settings === undefined || !settings.enabled) return sourceModel;
-  const entry = settings.entries.find((candidate) => candidate.enabled && candidate.sourceModel === sourceModel);
+  const entry = settings.entries.find((candidate) => candidate.enabled && modelIdsMatch(toolId, candidate.sourceModel, sourceModel));
   return entry?.targetModel ?? sourceModel;
 }

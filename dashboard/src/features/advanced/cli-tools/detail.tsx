@@ -255,22 +255,12 @@ function ToolDetailContent({
                   <p className="mt-0.5 text-[11px] text-[var(--text-3)]">Native model values stay in {def.name}'s own config format.</p>
                 </div>
                 {def.mappingSupported && (
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={handleSaveMapping}
-                      disabled={saveMappingMutation.isPending}
-                    >
-                      <Save size={14} className="mr-1.5" />
-                      {saveMappingMutation.isPending ? "Saving…" : "Save Mapping"}
-                    </Button>
-                    <div className="flex items-center gap-2">
-                      <div className="text-right">
-                        <p className="text-[11px] font-semibold text-[var(--text-2)]">Enable Mapping</p>
-                        <p className="text-[10px] text-[var(--text-3)]">Route through Cartethyia without changing native IDs.</p>
-                      </div>
-                      <Switch checked={mappingEnabled} onChange={setMappingEnabled} label={`Enable model mapping for ${def.name}`} />
+                  <div className="flex items-center gap-2">
+                    <div className="text-right">
+                      <p className="text-[11px] font-semibold text-[var(--text-2)]">Enable Mapping</p>
+                      <p className="text-[10px] text-[var(--text-3)]">Route through Cartethyia without changing native IDs.</p>
                     </div>
+                    <Switch checked={mappingEnabled} onChange={setMappingEnabled} label={`Enable model mapping for ${def.name}`} />
                   </div>
                 )}
               </div>
@@ -303,6 +293,16 @@ function ToolDetailContent({
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[var(--inner-border)] pt-4">
+              {def.mappingSupported && (
+                <Button
+                  variant="outline"
+                  onClick={handleSaveMapping}
+                  disabled={saveMappingMutation.isPending}
+                >
+                  <Save size={14} className="mr-1.5" />
+                  {saveMappingMutation.isPending ? "Saving…" : "Save Mapping"}
+                </Button>
+              )}
               <Button onClick={handleApply} disabled={applyMutation.isPending || activeKeys.length === 0}>
                 <Settings2 size={14} className="mr-1.5" />
                 {applyMutation.isPending ? "Applying..." : "Quick Setup"}
