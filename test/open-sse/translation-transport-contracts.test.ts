@@ -248,6 +248,10 @@ test("round-trips Responses compaction configuration and opaque items", () => {
   expect(input[0]).toEqual({ type: "compaction", encrypted_content: "opaque" });
   expect(input[1]).toEqual({ role: "user", content: "continue" });
 });
+test("converts Messages context-management edits for Responses providers", () => {
+  const payload = buildResponsesPayload(chatReq({ contextManagement: { edits: [{ type: "clear_thinking_20251015", keep: "all" }] } }));
+  expect(payload.context_management).toEqual([{ type: "clear_thinking_20251015", keep: "all" }]);
+});
 
 describe("OpenAI Responses normalization and payload", () => {
   test("input string normalizes; instructions become system; function_call items fold", () => {

@@ -459,7 +459,11 @@ export function buildResponsesPayload(request: ProxyRequest): Record<string, unk
     payload.reasoning = buildReasoningWire(request.reasoning, request.reasoningConfig);
   }
   if (request.include !== undefined && request.include.length > 0) payload.include = [...request.include];
-  if (request.contextManagement !== undefined) payload.context_management = request.contextManagement;
+  if (request.contextManagement !== undefined) {
+    const contextManagement = request.contextManagement;
+    if (Array.isArray(contextManagement)) payload.context_management = [...contextManagement];
+    else if (isRecord(contextManagement) && Array.isArray(contextManagement.edits)) payload.context_management = contextManagement.edits;
+  }
   return payload;
 }
 
