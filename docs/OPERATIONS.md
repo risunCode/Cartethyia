@@ -4,11 +4,13 @@
 
 ```bash
 docker build -t cartethyia .
+: "${CONSOLE_PASSWORD:?Set a non-empty CONSOLE_PASSWORD first}"
+: "${CONSOLE_JWT_SECRET:?Set a random CONSOLE_JWT_SECRET first}"
 docker run --rm -p 12800:8080 \
   -e PORT=8080 -e DATA_DIR=/app/data \
-  -e CONSOLE_PASSWORD=change-me \
-  -e CONSOLE_JWT_SECRET=replace-me \
-  -e BOOTSTRAP_PROXY_API_KEY=change-me \
+  -e CONSOLE_PASSWORD="$CONSOLE_PASSWORD" \
+  -e CONSOLE_JWT_SECRET="$CONSOLE_JWT_SECRET" \
+  -e BOOTSTRAP_PROXY_API_KEY="${BOOTSTRAP_PROXY_API_KEY:-}" \
   -v cartethyia-data:/app/data cartethyia
 ```
 

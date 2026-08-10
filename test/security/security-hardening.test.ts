@@ -31,6 +31,10 @@ describe("security hardening contracts", () => {
     expect(() => assertProductionBootstrapEnvironment({ NODE_ENV: "production", CONSOLE_JWT_SECRET: "replace-with-a-long-random-secret" })).toThrow();
     expect(() => assertProductionBootstrapEnvironment({ NODE_ENV: "production", CONSOLE_PASSWORD: "a-strong-production-password", CONSOLE_JWT_SECRET: "a-strong-production-jwt-secret-with-32-chars" })).not.toThrow();
   });
+  test("accepts short non-placeholder bootstrap passwords", () => {
+    expect(() => assertProductionBootstrapEnvironment({ NODE_ENV: "production", CONSOLE_PASSWORD: "Deras#" })).not.toThrow();
+    expect(() => assertProductionBootstrapEnvironment({ NODE_ENV: "production", CONSOLE_PASSWORD: "" })).toThrow();
+  });
 
   test("allows browser-local custom media while keeping console CSP restrictive", () => {
     const headers = new Headers();

@@ -169,7 +169,7 @@ Warp instances are manual-only. A server restart clears stale `running`/PID stat
 
 ```bash
 docker build -t cartethyia .
-: "${CONSOLE_PASSWORD:?Set a strong CONSOLE_PASSWORD first}"
+: "${CONSOLE_PASSWORD:?Set a non-empty CONSOLE_PASSWORD first}"
 : "${CONSOLE_JWT_SECRET:?Set a random CONSOLE_JWT_SECRET first}"
 docker run --rm -p 12800:8080 \
   -e PORT=8080 \

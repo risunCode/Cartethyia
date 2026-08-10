@@ -1,5 +1,5 @@
 const MIN_PRODUCTION_SECRET_LENGTH = 32;
-const MIN_PRODUCTION_PASSWORD_LENGTH = 12;
+const MIN_BOOTSTRAP_PASSWORD_LENGTH = 1;
 const PLACEHOLDER_PATTERN = /^(?:change-me|replace-with|replace_me|password|secret|default|example)(?:[-_].*)?$/i;
 
 type SecretEnvironment = Readonly<Record<string, string | undefined>>;
@@ -20,8 +20,8 @@ export function assertProductionBootstrapEnvironment(env: SecretEnvironment = Bu
     throw new Error("CONSOLE_JWT_SECRET must be a non-placeholder secret of at least 32 characters");
   }
   const consolePassword = env.CONSOLE_PASSWORD;
-  if (consolePassword !== undefined && !isStrongValue(consolePassword, MIN_PRODUCTION_PASSWORD_LENGTH)) {
-    throw new Error("CONSOLE_PASSWORD must be a non-placeholder password of at least 12 characters");
+  if (consolePassword !== undefined && !isStrongValue(consolePassword, MIN_BOOTSTRAP_PASSWORD_LENGTH)) {
+    throw new Error("CONSOLE_PASSWORD must be a non-empty, non-placeholder password");
   }
   const bootstrapApiKey = env.BOOTSTRAP_PROXY_API_KEY?.trim();
   if (bootstrapApiKey !== undefined && !isStrongValue(bootstrapApiKey, MIN_PRODUCTION_SECRET_LENGTH)) {
@@ -38,9 +38,8 @@ export function generateConsoleJwtSecret(): string {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/g, "");
 }
 
-/** Returns whether a bootstrap password can initialize the console in the active environment. */
+/** Returns whether a bootstrap password can initialize the console. Production accepts any non-empty, non-placeholder value. */
 export function isValidBootstrapPassword(password: string | undefined, env: SecretEnvironment = Bun.env): password is string {
   if (password === undefined) return false;
-  const minimum = isProductionLike(env) ? MIN_PRODUCTION_PASSWORD_LENGTH : 5;
-  return isStrongValue(password, minimum);
+  return isStrongValue(password, MIN_BOOTSTRAP_PASSWORD_LENGTH);
 }
