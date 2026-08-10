@@ -58,6 +58,19 @@ describe("model studio stream transport", () => {
     expect(onFirstToken).toHaveBeenCalledOnce();
   });
 
+  test("flushes a final unterminated frame and accepts provider text aliases", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamResponse([
+      'data: {"choices":[{"delta":{"text":"final result"}}]}',
+    ])));
+    const onText = vi.fn();
+    await streamModelStudioChat(
+      { model: "composer-2.5-fast", messages: [], maxTokens: 128 },
+      { onText, onReasoning: vi.fn(), onUsage: vi.fn(), onFirstToken: vi.fn() },
+      new AbortController().signal,
+    );
+    expect(onText).toHaveBeenCalledWith("final result");
+  });
+
   test("reports a structured server error when streaming cannot start", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: "model unavailable" } }), { status: 503 })));
 

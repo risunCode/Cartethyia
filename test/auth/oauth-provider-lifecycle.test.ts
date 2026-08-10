@@ -8,6 +8,7 @@ import { CodexOAuthDriver } from "../../src/application/auth/oauth/codex";
 import { CursorOAuthDriver } from "../../src/application/auth/oauth/cursor";
 import { GrokBuildOAuthDriver } from "../../src/application/auth/oauth/grokbuild";
 import { KimchiOAuthDriver } from "../../src/application/auth/oauth/kimchi";
+import { DevinOAuthDriver } from "../../src/application/auth/oauth/devin";
 import { KiroOAuthDriver } from "../../src/application/auth/oauth/kiro";
 import type { AuthDriver, RefreshTokenInput, TokenSet } from "../../src/application/auth/contracts";
 
@@ -37,8 +38,8 @@ describe("registered OAuth provider lifecycle", () => {
       { providerId: "kiro", driver: new KiroOAuthDriver() },
       { providerId: "kimchi", driver: new KimchiOAuthDriver({ fetch: async () => response({}) }) },
     ]);
-    expect(registry.list().map((entry) => entry.providerId)).toEqual(["codex", "cursor", "antigravity", "claude", "cline", "clinepass", "grok-build", "kiro", "kimchi"]);
-    expect(registry.list().every((entry) => resolveAuthDriverCapabilities(entry.driver).supportsRefresh === (entry.providerId !== "kimchi"))).toBe(true);
+    expect(registry.list().map((entry) => entry.providerId)).toEqual(["codex", "cursor", "devin", "antigravity", "claude", "cline", "clinepass", "grok-build", "kiro", "kimchi"]);
+    expect(registry.list().every((entry) => resolveAuthDriverCapabilities(entry.driver).supportsRefresh)).toBe(true);
   });
 
   test("refreshes Codex and preserves rotated refresh credentials", async () => {
@@ -148,9 +149,34 @@ describe("registered OAuth provider lifecycle", () => {
     await expect(refresh(kiro, "kiro")).resolves.toMatchObject({ accessToken: "kiro-access", refreshToken: "refresh-old" });
   });
 
-  test("keeps Kimchi explicitly access-only", async () => {
-    const driver = new KimchiOAuthDriver({ fetch: async () => response({}) });
-    expect(resolveAuthDriverCapabilities(driver)).toMatchObject({ supportsRefresh: false, accessOnly: true });
-    await expect(driver.refresh?.(input("kimchi"))).rejects.toMatchObject({ status: 400 });
+  test("runs Kimchi Kimi device flow and refreshes rotated credentials", async () => {
+    let pollCalls = 0;
+    const driver = new KimchiOAuthDriver({
+      fetch: async (request) => {
+        const url = String(request);
+        if (url.endsWith("/device_authorization")) {
+          return response({ device_code: "device-code", user_code: "ABCD-EFGH", verification_uri: "https://auth.kimi.com/verify", verification_uri_complete: "https://auth.kimi.com/verify?code=ABCD-EFGH", expires_in: 900, interval: 1 });
+        }
+        if (url.endsWith("/token")) {
+          pollCalls += 1;
+          if (pollCalls === 1) return new Response(JSON.stringify({ error: "authorization_pending" }), { status: 400, headers: { "content-type": "application/json" } });
+          return response({ access_token: "kimi-access", refresh_token: "kimi-refresh", expires_in: 3600 });
+        }
+        throw new Error(`Unexpected Kimi URL: ${url}`);
+      },
+      nowMs: () => Date.parse("2026-08-10T00:00:00.000Z"),
+    });
+    const started = await driver.start({ providerId: "kimchi", state: "kimi-state", flow: "device" });
+    expect(started).toMatchObject({ state: "kimi-state", flow: "device", userCode: "ABCD-EFGH" });
+    await expect(driver.poll?.("kimi-state")).resolves.toMatchObject({ status: "pending" });
+    await expect(driver.poll?.("kimi-state")).resolves.toMatchObject({ status: "completed", tokenSet: { accessToken: "kimi-access", refreshToken: "kimi-refresh" } });
+    await expect(refresh(driver, "kimchi")).resolves.toMatchObject({ accessToken: "kimi-access", refreshToken: "kimi-refresh" });
+  });
+  test("uses Devin PKCE callback exchange and keeps the session token refreshable", async () => {
+    const driver = new DevinOAuthDriver(withResponse({ token: "devin-token" }));
+    const started = await driver.start({ providerId: "devin", state: "devin-state", codeChallenge: "challenge" });
+    expect(new URL(started.authorizationUrl).searchParams.get("code_challenge")).toBe("challenge");
+    await expect(driver.exchange?.({ providerId: "devin", code: "authorization-code", codeVerifier: "verifier" })).resolves.toMatchObject({ accessToken: "devin-token", refreshToken: "devin-token" });
+    await expect(refresh(driver, "devin")).resolves.toMatchObject({ accessToken: "refresh-old", refreshToken: "refresh-old" });
   });
 });

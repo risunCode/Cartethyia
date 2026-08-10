@@ -127,9 +127,9 @@ describe("OAuth recovery contracts", () => {
 });
 
 describe("OAuth provider capabilities", () => {
-  test("marks Kimchi as an explicit access-only provider", () => {
+  test("marks Kimchi Kimi as a refreshable device-flow provider", () => {
     const capabilities = resolveAuthDriverCapabilities(new KimchiOAuthDriver({ fetch: async () => new Response("{}") }));
-    expect(capabilities.supportsRefresh).toBe(false);
-    expect(capabilities.accessOnly).toBe(true);
+    expect(capabilities.supportsRefresh).toBe(true);
+    expect(capabilities.accessOnly).toBe(false);
   });
 });

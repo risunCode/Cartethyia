@@ -52,6 +52,35 @@ export async function streamModelStudioChat(
 ): Promise<void> {
   const startTime = performance.now();
   let firstTokenRecorded = false;
+  const recordFirstToken = () => {
+    if (firstTokenRecorded) return;
+    firstTokenRecorded = true;
+    delta.onFirstToken(performance.now() - startTime);
+  };
+  const processFrame = (frame: string): void => {
+    const dataLines = frame.split(/\r?\n/).filter((line) => line.startsWith("data:"));
+    if (dataLines.length === 0) return;
+    const data = dataLines.map((line) => line.slice(5).trim()).join("\n");
+    if (!data || data === "[DONE]") return;
+    let parsed: { choices?: Array<{ delta?: { content?: string; text?: string; reasoning_content?: string; reasoning?: string } }>; output_text?: string; usage?: ChatUsagePayload };
+    try {
+      parsed = JSON.parse(data) as typeof parsed;
+    } catch {
+      return;
+    }
+    const choiceDelta = parsed.choices?.[0]?.delta;
+    const text = choiceDelta?.content ?? choiceDelta?.text ?? parsed.output_text;
+    const reasoning = choiceDelta?.reasoning_content ?? choiceDelta?.reasoning;
+    if (text) {
+      recordFirstToken();
+      delta.onText(text);
+    }
+    if (reasoning) {
+      recordFirstToken();
+      delta.onReasoning(reasoning);
+    }
+    if (parsed.usage) delta.onUsage(studioUsageFromChatUsage(parsed.usage));
+  };
   const res = await fetch("/console/api/model-studio/chat", {
     method: "POST",
     credentials: "same-origin",
@@ -69,7 +98,6 @@ export async function streamModelStudioChat(
     }
     throw new Error(message);
   }
-
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -77,29 +105,10 @@ export async function streamModelStudioChat(
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    const frames = buffer.split("\n\n");
+    const frames = buffer.split(/\r?\n\r?\n/);
     buffer = frames.pop() ?? "";
-    for (const frame of frames) {
-      const dataLine = frame.split("\n").find((line) => line.startsWith("data:"));
-      if (!dataLine) continue;
-      const data = dataLine.slice(5).trim();
-      if (!data || data === "[DONE]") continue;
-      let parsed: { choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>; usage?: ChatUsagePayload };
-      try {
-        parsed = JSON.parse(data) as typeof parsed;
-      } catch {
-        continue;
-      }
-      const choiceDelta = parsed.choices?.[0]?.delta;
-      if (choiceDelta?.content || choiceDelta?.reasoning_content) {
-        if (!firstTokenRecorded) {
-          firstTokenRecorded = true;
-          delta.onFirstToken(performance.now() - startTime);
-        }
-      }
-      if (choiceDelta?.content) delta.onText(choiceDelta.content);
-      if (choiceDelta?.reasoning_content) delta.onReasoning(choiceDelta.reasoning_content);
-      if (parsed.usage) delta.onUsage(studioUsageFromChatUsage(parsed.usage));
-    }
+    for (const frame of frames) processFrame(frame);
   }
+  buffer += decoder.decode();
+  if (buffer.trim()) processFrame(buffer);
 }

@@ -29,7 +29,7 @@ function requestFor(overrides: Partial<ProviderRequest> = {}): ProviderRequest {
 describe("DevinAdapter", () => {
   test("exposes the verified Devin model and OpenAI chat surface", () => {
     const adapter = new DevinAdapter();
-    expect(adapter.metadata).toMatchObject({ id: "devin", protocol: "devin", credentialKind: "api_key" });
+    expect(adapter.metadata).toMatchObject({ id: "devin", protocol: "devin", credentialKind: "oauth", credentialKinds: ["oauth", "api_key"] });
     expect(adapter.models.get("swe-1-6-slow")?.displayName).toBe("SWE-1.6 Slow");
     expect(adapter.resolveTarget("swe-1-6-slow", "openai-chat")).toEqual({ providerId: "devin", modelId: "swe-1-6-slow", upstreamModelId: "swe-1-6-slow", surface: "openai-chat" });
   });

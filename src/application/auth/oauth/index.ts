@@ -9,3 +9,4 @@ export * from "./kiro";
 export * from "./cline";
 export * from "./clinepass";
 export * from "./kimchi";
+export { DevinOAuthDriver } from "./devin";

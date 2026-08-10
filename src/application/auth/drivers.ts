@@ -1,5 +1,5 @@
 import type { AuthDriver, AuthDriverCapabilities } from "./contracts";
-import { CodexOAuthDriver, CursorOAuthDriver } from "./oauth";
+import { CodexOAuthDriver, CursorOAuthDriver, DevinOAuthDriver } from "./oauth";
 /** A provider-id keyed {@link AuthDriver} registration. */
 export interface AuthDriverEntry {
   readonly providerId: string;
@@ -69,6 +69,7 @@ export function createAuthDriverRegistry(initial: readonly AuthDriverEntry[] = [
   const registry = new MapAuthDriverRegistry();
   registry.register("codex", new CodexOAuthDriver());
   registry.register("cursor", new CursorOAuthDriver());
+  registry.register("devin", new DevinOAuthDriver());
   for (const entry of initial) registry.register(entry.providerId, entry.driver);
   return registry;
 }

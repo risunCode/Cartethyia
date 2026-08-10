@@ -158,4 +158,47 @@ describe("general quota transport", () => {
     expect(request?.init?.body).toBe(JSON.stringify({ project: "project-1" }));
     expect(new Headers(request?.init?.headers).get("x-client-name")).toBe("antigravity");
   });
+  test("merges Antigravity Google and Claude aliases into family windows", async () => {
+    const fetcher = (async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({
+      models: {
+        "gemini-3.1-flash-lite": { quotaInfo: { remainingFraction: 0.8, resetTime: "2030-01-01T00:00:00Z" } },
+        "gemini-pro-agent": { quotaInfo: { remainingFraction: 0.8, resetTime: "2030-01-01T00:00:00Z" } },
+        "claude-sonnet-4-6": { quotaInfo: { remainingFraction: 0.6, resetTime: "2030-01-02T00:00:00Z" } },
+        "claude-opus-4-6-thinking": { quotaInfo: { remainingFraction: 0.6, resetTime: "2030-01-02T00:00:00Z" } },
+        "gpt-oss-120b-medium": { quotaInfo: { remainingFraction: 0.4, resetTime: "2030-01-03T00:00:00Z" } },
+      },
+    }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+    const result = await fetchProviderQuota("antigravity", JSON.stringify({ accessToken: "access", projectId: "project-1" }), undefined, fetcher);
+
+    expect(result.windows).toHaveLength(2);
+    expect(result.windows.map((window) => window.label)).toEqual(["Google · Quota", "Claude · Quota"]);
+    expect(result.windows.map((window) => window.remainingPercent)).toEqual([80, 40]);
+  });
+  test("uses Cline usage limits and tolerates an unavailable optional plan endpoint", async () => {
+    const urls: string[] = [];
+    const authorizationHeaders: string[] = [];
+    const fetcher = (async (url: string, init?: RequestInit) => {
+      urls.push(url);
+      authorizationHeaders.push(new Headers(init?.headers).get("authorization") ?? "");
+      if (url.endsWith("/users/me")) {
+        return new Response(JSON.stringify({ success: true, data: { id: "cline-user-1" } }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url.endsWith("/users/me/plan")) {
+        return new Response(JSON.stringify({ success: false, error: "plan unavailable" }), { status: 503, headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ success: true, data: { limits: [{ type: "five_hour", percentUsed: 30, resetsAt: "2030-01-01T00:00:00Z" }] } }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+
+    const result = await fetchProviderQuota("cline", JSON.stringify({ accessToken: "stale-cline-access" }), { accessToken: "rotated-cline-access", expiresAtMs: null, refreshToken: "refresh", kind: "oauth" }, fetcher);
+
+    expect(authorizationHeaders).toEqual(["Bearer workos:rotated-cline-access", "Bearer workos:rotated-cline-access", "Bearer workos:rotated-cline-access"]);
+    expect(result.error).toBeNull();
+    expect(result.plan).toBe("Cline");
+    expect(result.windows).toMatchObject([{ kind: "five_hour", label: "5 Hour", remainingPercent: 70, resetsAt: "2030-01-01T00:00:00.000Z" }]);
+    expect(urls).toEqual(expect.arrayContaining([
+      "https://api.cline.bot/api/v1/users/me",
+      "https://api.cline.bot/api/v1/users/me/plan",
+      "https://api.cline.bot/api/v1/users/me/plan/usage-limits",
+    ]));
+  });
 });
