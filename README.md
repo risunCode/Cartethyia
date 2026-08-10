@@ -1,4 +1,5 @@
 # Cartethyia
+<img width="1760" height="576" alt="image (1)" src="https://github.com/user-attachments/assets/666f3a3d-136e-49d7-8bec-ff967f93b78f" />
 
 > **2.0.0 Beta is here.**
 > Cartethyia is still beta software. Expect provider API changes and validate your credentials, proxy settings, and persistent data before production use.
