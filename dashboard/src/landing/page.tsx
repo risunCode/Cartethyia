@@ -11,7 +11,7 @@ interface Signal {
 }
 
 type SignalIconName = "activity" | "network" | "shield" | "sparkles" | "terminal";
-type SceneTheme = "night" | "god" | "blossom" | "shore";
+type SceneTheme = "night" | "core" | "blossom" | "voices" | "red" | "denial" | "shore";
 
 interface Chapter {
   readonly id: string;
@@ -29,7 +29,7 @@ interface Chapter {
 }
 
 const GITHUB_URL = "https://github.com/risunCode/Cartethyia";
-const DISCORD_ANCHOR = "#chapter-3";
+const DISCORD_ANCHOR = "#chapter-6";
 
 const CHAPTERS: readonly Chapter[] = [
   {
@@ -51,14 +51,14 @@ const CHAPTERS: readonly Chapter[] = [
     secondaryLabel: "Read the route",
   },
   {
-    id: "the-god",
+    id: "resonant-core",
     number: "02",
-    label: "The God",
+    label: "The Resonant Core",
     title: "The route becomes the power.",
     description: "One surface can speak to many providers. Cartethyia translates protocols, balances targets, and keeps each request moving through the right vessel.",
     image: "/when_yah/cartethyia-god.webp",
     imageAlt: "Cartethyia surrounded by a celestial blue routing field",
-    theme: "god",
+    theme: "core",
     location: "THE ROUTING SANCTUM",
     signals: [
       { label: "The many voices", value: "30+", icon: "network" },
@@ -87,8 +87,62 @@ const CHAPTERS: readonly Chapter[] = [
     secondaryLabel: "See the controls",
   },
   {
-    id: "shorekeeper",
+    id: "many-voices",
     number: "04",
+    label: "The Many Voices",
+    title: "Every route carries a living world.",
+    description: "Providers, clients, and models bring different voices to the crossing. Cartethyia gives them one dependable gateway without silencing what makes each path unique.",
+    image: "/when_yah/wuthering-waves-hiyuki-aemeath-hiyuki-rover.webp",
+    imageAlt: "A bright celebration of characters and many connected voices",
+    theme: "voices",
+    location: "THE LIVING NETWORK",
+    signals: [
+      { label: "The many voices", value: "CONNECTED", icon: "network" },
+      { label: "The shared world", value: "OPEN", icon: "sparkles" },
+      { label: "The crossing", value: "ALIGNED", icon: "terminal" },
+    ],
+    primaryLabel: "Continue the chronicle",
+    secondaryLabel: "Meet the voices",
+  },
+  {
+    id: "red-thread",
+    number: "05",
+    label: "The Red Thread",
+    title: "A beautiful signal can still be dangerous.",
+    description: "Every powerful route attracts pressure. Cartethyia watches the boundary, rejects hostile paths, and keeps a single failure from tearing through the whole network.",
+    image: "/when_yah/phrolova-a.webp",
+    imageAlt: "A white-haired figure surrounded by dark red threads and fractured signals",
+    theme: "red",
+    location: "THE FRACTURED PATH",
+    signals: [
+      { label: "The threat", value: "SEEN", icon: "activity" },
+      { label: "The boundary", value: "HELD", icon: "shield" },
+      { label: "The fallback", value: "READY", icon: "network" },
+    ],
+    primaryLabel: "Enter the console",
+    secondaryLabel: "Face the gate",
+  },
+  {
+    id: "request-denial",
+    number: "06",
+    label: "The Gate of Discernment",
+    title: "Not every signal should pass.",
+    description: "Every game needs a gatekeeper. Cartethyia verifies intent, protects the route, and denies the requests that would fracture the system.",
+    image: "/when_yah/requestdeniawokkjpg.webp",
+    imageAlt: "A radiant game-world gatekeeper surrounded by characters and cascading signals",
+    theme: "denial",
+    location: "THE GATE OF DISCERNMENT",
+    signals: [
+      { label: "The verdict", value: "CLEAR", icon: "shield" },
+      { label: "The boundary", value: "GUARDED", icon: "network" },
+      { label: "The route", value: "TRUSTED", icon: "sparkles" },
+    ],
+    primaryLabel: "Enter the console",
+    secondaryLabel: "Meet the shore",
+  },
+  {
+    id: "shorekeeper",
+    number: "07",
     label: "The Open Shore",
     title: "The gateway is yours to shape.",
     description: "Find your way back to the source, share your route, and join the people building a dependable gateway across a changing AI landscape.",
@@ -184,6 +238,17 @@ export function LandingPage(): ReactElement {
     };
   }, []);
   useEffect(() => {
+    const preloadedImages = CHAPTERS.map(({ image }) => {
+      const preload = new Image();
+      preload.decoding = "async";
+      preload.src = image;
+      return preload;
+    });
+    return () => {
+      for (const preload of preloadedImages) preload.src = "";
+    };
+  }, []);
+  useEffect(() => {
     const root = document.documentElement;
     const previousSnap = root.style.scrollSnapType;
     root.style.scrollSnapType = reduceMotion ? "none" : "y proximity";
@@ -198,11 +263,11 @@ export function LandingPage(): ReactElement {
   }
 
   function handlePrimaryAction(): void {
-    if (activeIndex === 0 || activeIndex === 2) {
+    if (activeIndex === 0 || activeIndex === 2 || activeIndex === 4 || activeIndex === 5) {
       window.location.assign("/console/login");
       return;
     }
-    scrollToChapter(activeIndex === CHAPTERS.length - 1 ? 3 : activeIndex + 1);
+      scrollToChapter(activeIndex === CHAPTERS.length - 1 ? 0 : activeIndex + 1);
   }
 
   function handleSecondaryAction(): void {
@@ -219,8 +284,9 @@ export function LandingPage(): ReactElement {
           alt=""
           className={`landing-scene-image landing-scene-image-current absolute inset-0 h-full w-full object-cover object-center${nextVisualChapter === undefined ? " landing-scene-image-final" : ""}`}
           fetchPriority={imageIndex === 0 ? "high" : "auto"}
+          decoding="async"
         />
-        {nextVisualChapter !== undefined ? <img key={nextVisualChapter.image} src={nextVisualChapter.image} alt="" className="landing-scene-image landing-scene-image-next absolute inset-0 h-full w-full object-cover object-center" /> : null}
+        {nextVisualChapter !== undefined ? <img key={nextVisualChapter.image} src={nextVisualChapter.image} alt="" decoding="async" className="landing-scene-image landing-scene-image-next absolute inset-0 h-full w-full object-cover object-center" /> : null}
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(3,7,15,.48)_0%,rgba(3,7,15,.25)_34%,rgba(3,7,15,.08)_75%,rgba(3,7,15,.22)_100%)]" />
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(3,7,15,.36)_0%,transparent_34%,rgba(3,7,15,.48)_100%)]" />
       </div>
@@ -249,7 +315,7 @@ export function LandingPage(): ReactElement {
                 className="landing-chapter-enter pointer-events-auto w-full max-w-2xl"
                 aria-label={chapter.label}
               >
-                <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-200"><span>{chapter.number} / 04</span><span className="h-px w-10 bg-current opacity-70" /><span>{chapter.label}</span></div>
+                <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-200"><span>{chapter.number} / 07</span><span className="h-px w-10 bg-current opacity-70" /><span>{chapter.label}</span></div>
                 <p className="mt-5 text-[10px] font-bold uppercase tracking-[0.2em] text-white/55">{chapter.location}</p>
                 <h1 className="mt-3 max-w-xl font-serif text-[clamp(38px,6vw,78px)] font-normal leading-[.98] tracking-[-.045em] text-white drop-shadow-2xl">{chapter.title}</h1>
                 <p className="mt-5 max-w-xl text-sm leading-7 text-white/80 sm:text-base">{chapter.description}</p>
@@ -270,8 +336,8 @@ export function LandingPage(): ReactElement {
         </div>
       </main>
 
-      <div className="fixed right-32 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-3 text-[9px] font-bold uppercase tracking-[0.16em] text-white/60 max-md:bottom-14 max-md:left-4 max-md:right-4 max-md:top-auto max-md:translate-y-0 max-md:flex-row" aria-label={`Scene ${chapter.number} progress, overall ${Math.round(totalProgress * 100)} percent`}>
-        <span className="whitespace-nowrap">{chapter.number} / 04</span>
+      <div className="fixed right-32 top-1/2 z-20 hidden -translate-y-1/2 flex-col items-center gap-3 text-[9px] font-bold uppercase tracking-[0.16em] text-white/60 max-md:bottom-14 max-md:left-4 max-md:right-4 max-md:top-auto max-md:flex max-md:translate-y-0 max-md:flex-row" aria-label={`Scene ${chapter.number} progress, overall ${Math.round(totalProgress * 100)} percent`}>
+        <span className="whitespace-nowrap">{chapter.number} / 07</span>
         <div className="hidden h-20 w-px bg-white/25 md:block" role="progressbar" aria-label={`Progress through ${chapter.label}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(sceneProgress * 100)}>
           <span className="landing-scene-progress landing-scene-progress-vertical block w-full bg-cyan-200" />
         </div>

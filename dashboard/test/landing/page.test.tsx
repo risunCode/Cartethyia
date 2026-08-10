@@ -30,7 +30,7 @@ describe("LandingPage motion contracts", () => {
     render(<LandingPage />);
 
     expect(screen.getByRole("heading", { name: "A single signal enters the unknown." })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /Go to chapter/ })).toHaveLength(4);
+    expect(screen.getAllByRole("button", { name: /Go to chapter/ })).toHaveLength(7);
   });
   test("uses instant anchor scrolling when reduced motion is active", async () => {
     const scrollIntoViewMock = vi.fn();

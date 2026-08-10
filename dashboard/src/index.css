@@ -40,8 +40,7 @@
 }
 
 .route-enter,
-.motion-entry-enter,
-.landing-chapter-enter {
+.motion-entry-enter {
   animation: motion-route-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
@@ -86,8 +85,7 @@
 
 .landing-scene-image {
   opacity: 1;
-  transform: scale(1);
-  animation: motion-fade-up 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform: none;
 }
 
 .landing-scene-image-current {
@@ -112,19 +110,13 @@
 
 html[data-motion-profile="mobile"] .route-enter,
 html[data-motion-profile="mobile"] .motion-entry-enter,
-html[data-motion-profile="mobile"] .landing-chapter-enter,
-html[data-motion-profile="mobile"] .sidebar-page-main,
 html[data-motion-profile="mobile"] .sidebar-page-advanced {
   animation-duration: 120ms;
 }
 
 html[data-motion-profile="reduced"] .route-enter,
-html[data-motion-profile="reduced"] .motion-entry-enter,
-html[data-motion-profile="reduced"] .landing-chapter-enter,
-html[data-motion-profile="reduced"] .sidebar-page-main,
 html[data-motion-profile="reduced"] .sidebar-page-advanced,
 html[data-motion-profile="reduced"] .landing-scene-image {
-  animation: none;
   opacity: 1;
   transform: none;
 }
@@ -628,9 +620,6 @@ html[data-motion-profile="reduced"] .custom-background-layer {
   filter: none;
 }
 
-html[data-motion-profile="mobile"] .landing-scene-image {
-  animation-duration: 160ms;
-}
 
 /* A custom image is already a costly full-screen backdrop. Keep the frosted
    look, but avoid stacking the maximum blur on every card. */
