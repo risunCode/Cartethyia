@@ -285,13 +285,17 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
         events: (async function*() {
           let observedUsage: ProviderUsage | null = null;
           let terminalReason: string | null = null;
+          let streamErrorKind: ApplicationErrorKind | null = null;
           let firstTokenRecorded = false;
           try {
             for await (const event of output.events) {
               if (clientStreamEvents.length < 128) clientStreamEvents.push(event);
               if (!firstTokenRecorded && event.type === "text_delta") { telemetry.recordFirstToken(); firstTokenRecorded = true; }
               if (event.type === "usage") observedUsage = event.usage;
-              if (event.type === "message_stop") terminalReason = event.reason;
+              if (event.type === "message_stop") {
+                terminalReason = event.reason;
+                streamErrorKind = event.error?.kind ?? null;
+              }
               yield event;
             }
             if (terminalReason !== null && terminalReason !== "error") {
@@ -308,9 +312,9 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
               requestId,
               endpoint: input.request.endpoint,
               providerId: providerId(),
+              errorKind: streamErrorKind,
               model: normalizedRequest?.model ?? null,
               status: responseStatus,
-              errorKind: null,
               durationMs: Math.max(0, performance.now() - startedAt),
               inputTokens: finalUsage?.inputTokens ?? null,
               outputTokens: finalUsage?.outputTokens ?? null,
@@ -324,11 +328,10 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
             });
             if (capture !== null) {
               capture.response({ mode: "stream", events: clientStreamEvents });
-              await capture.settle();
             }
             await telemetry.finish({
               statusCode: responseStatus ?? 200,
-              errorKind: null,
+              errorKind: streamErrorKind,
               usage: finalUsage,
               providerId: providerId(),
               model: normalizedRequest?.model ?? null,

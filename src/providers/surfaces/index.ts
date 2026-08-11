@@ -113,7 +113,7 @@ async function* encodeOpenAIChat(events: AsyncIterable<StreamEvent>, model: stri
     } else if (event.type === "message_stop" && !finished) {
       finished = true;
       if (event.reason === "error") {
-        yield frame({ data: { error: { message: "Stream interrupted", type: "stream_error" }, choices: [{ index: 0, delta: {}, finish_reason: "error" }] } });
+        yield frame({ data: { error: { message: event.error?.message ?? "Stream interrupted", type: "stream_error", code: event.error?.kind }, choices: [{ index: 0, delta: {}, finish_reason: "error" }] } });
       } else {
         yield chunk({}, openAIStop(event.reason, sawTool));
       }
@@ -198,7 +198,7 @@ async function* encodeAnthropic(events: AsyncIterable<StreamEvent>, model: strin
       for (const index of toolBlockById.values()) yield stopBlock(index);
       toolBlockById.clear();
       if (event.reason === "error") {
-        yield frame({ event: "error", data: { type: "error", error: { type: "stream_error", message: "Stream interrupted" } } });
+        yield frame({ event: "error", data: { type: "error", error: { type: event.error?.kind ?? "stream_error", message: event.error?.message ?? "Stream interrupted" } } });
       } else {
         yield frame({ event: "message_delta", data: { type: "message_delta", delta: { stop_reason: anthropicStop(event.reason), stop_sequence: null }, usage: {} } });
         yield frame({ event: "message_stop", data: { type: "message_stop" } });
@@ -253,7 +253,7 @@ async function* encodeResponses(events: AsyncIterable<StreamEvent>, model: strin
       activeCalls.clear();
       const status = responseStatus(event.reason);
       if (status === "failed") {
-        yield frame({ data: { type: "response.failed", sequence_number: next(), response: { id, object: "response", status: "failed", error: { message: "Stream interrupted" } } } });
+        yield frame({ data: { type: "response.failed", sequence_number: next(), response: { id, object: "response", status: "failed", error: { code: event.error?.kind ?? "stream_error", message: event.error?.message ?? "Stream interrupted" } } } });
       } else {
         const response: Record<string, unknown> = { id, object: "response", created_at: Math.floor(Date.now() / 1000), model, status, output_text: text };
         if (usage !== null) response.usage = responseUsage(usage);

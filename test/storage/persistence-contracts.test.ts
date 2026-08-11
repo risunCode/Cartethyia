@@ -209,10 +209,12 @@ describe("api key repository", () => {
     expect(f).not.toBeNull(); expect(f!.keyPrefix).toBe("sk-1");
   });
 
-  test("getBySecret finds the key; wrong secret returns null", () => {
+  test("getBySecret finds active keys and rejects revoked keys immediately", () => {
     persist.settings.ensure();
     persist.apiKeys.create({ id: "ak2", name: "s", key: "sk-find", keyPrefix: "sk-find" });
     expect(persist.apiKeys.getBySecret("sk-find")?.id).toBe("ak2");
+    expect(persist.apiKeys.revoke("ak2")).toBe(true);
+    expect(persist.apiKeys.getBySecret("sk-find")).toBeNull();
     expect(persist.apiKeys.getBySecret("sk-wrong")).toBeNull();
   });
 
@@ -245,6 +247,16 @@ describe("api key repository", () => {
     persist.apiKeys.create({ id: "ak6", name: "orig", key: "sk-orig", keyPrefix: "sk-orig" });
     const u = persist.apiKeys.update("ak6", { name: "renamed", key: "sk-newsecret" });
     expect(u!.name).toBe("renamed"); expect(u!.keyPrefix).toBe("sk-newsecret"); expect(u!.active).toBe(true);
+  });
+
+  test("getBySecret reflects disable and key regeneration immediately", () => {
+    persist.settings.ensure();
+    persist.apiKeys.create({ id: "ak10", name: "fresh", key: "sk-old-key", keyPrefix: "sk-old-key" });
+    expect(persist.apiKeys.update("ak10", { active: false })).not.toBeNull();
+    expect(persist.apiKeys.getBySecret("sk-old-key")).toBeNull();
+    expect(persist.apiKeys.update("ak10", { key: "sk-new-key" })?.active).toBe(true);
+    expect(persist.apiKeys.getBySecret("sk-old-key")).toBeNull();
+    expect(persist.apiKeys.getBySecret("sk-new-key")?.id).toBe("ak10");
   });
 
   test("update on missing returns null", () => {

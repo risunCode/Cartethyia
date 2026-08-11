@@ -1,3 +1,4 @@
+import { sanitizeMessage } from "../application/contracts";
 import {
   AnthropicOAuthDriver,
   AntigravityOAuthDriver,
@@ -88,10 +89,14 @@ export interface QuotaRefreshWorkerDependencies {
 export function createQuotaRefreshWorker({ credentialStore, quotaState, refreshQuota, labelAccount, logger }: QuotaRefreshWorkerDependencies): QuotaRefreshWorker {
   return new QuotaRefreshWorker(credentialStore, quotaState, refreshQuota, {
     onRefreshed: (accountId, quotaAvailable) => {
-      void labelAccount(accountId).then((label) => logger.system("info", "quota-refresh", `Quota Refreshed for ${label}: available=${quotaAvailable}`));
+      void labelAccount(accountId)
+        .then((label) => logger.system("info", "quota-refresh", `Quota Refreshed for ${label}: available=${quotaAvailable}`))
+        .catch((error: unknown) => logger.system("warn", "quota-refresh", `Quota refresh logging failed: ${sanitizeMessage(error)}`));
     },
     onFailed: (accountId) => {
-      void labelAccount(accountId).then((label) => logger.system("warn", "quota-refresh", `Quota Refresh Failed for ${label}`));
+      void labelAccount(accountId)
+        .then((label) => logger.system("warn", "quota-refresh", `Quota Refresh Failed for ${label}`))
+        .catch((error: unknown) => logger.system("warn", "quota-refresh", `Quota failure logging failed: ${sanitizeMessage(error)}`));
     },
   });
 }

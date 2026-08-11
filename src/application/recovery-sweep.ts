@@ -1,5 +1,4 @@
 /**
- * Account recovery sweep — proactively re-enables cooled-down accounts.
  *
  * Without this sweep, a `cooling_down` account only becomes usable again
  * lazily: the routing layer's `isRecordUsable` check passes once
@@ -21,7 +20,7 @@
  */
 
 import type { AccountHealthManager, AccountHealthRecord, ModelLockStore } from "./auth/credentials";
-import type { ModelLockRecord } from "./contracts";
+import { sanitizeMessage, type ModelLockRecord } from "./contracts";
 
 const SWEEP_INTERVAL_MS = 60 * 1000; // 1 minute
 
@@ -46,7 +45,11 @@ export class AccountRecoverySweep {
 
   start(): void {
     if (this.timer !== null) return;
-    this.timer = setInterval(() => void this.sweep(), this.intervalMs);
+    this.timer = setInterval(() => {
+      void this.sweep().catch((error: unknown) => {
+        console.warn(`[RecoverySweep] sweep failed: ${sanitizeMessage(error)}`);
+      });
+    }, this.intervalMs);
     if (typeof this.timer.unref === "function") this.timer.unref();
   }
 

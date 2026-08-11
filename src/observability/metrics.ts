@@ -24,6 +24,9 @@ interface Gauge {
 }
 
 export class MetricsCollector {
+  private static readonly MAX_SERIES_PER_METRIC = 100;
+  private static readonly MAX_LABELS = 8;
+  private static readonly MAX_LABEL_LENGTH = 128;
   private counters = new Map<string, Counter[]>();
   private histograms = new Map<string, Histogram[]>();
   private gauges = new Map<string, Gauge[]>();
@@ -33,63 +36,64 @@ export class MetricsCollector {
     this.defaultLabels = defaultLabels;
   }
 
+  private normalizeLabels(labels: MetricLabels): MetricLabels | null {
+    const merged = { ...this.defaultLabels, ...labels };
+    const entries = Object.entries(merged);
+    if (entries.length > MetricsCollector.MAX_LABELS) return null;
+    for (const [key, value] of entries) {
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) || value.length > MetricsCollector.MAX_LABEL_LENGTH) return null;
+    }
+    return merged;
+  }
+
+  private canAddSeries<T extends { labels: MetricLabels }>(series: T[] | undefined, labels: MetricLabels): boolean {
+    return series === undefined || series.some((item) => this.labelsEqual(item.labels, labels)) || series.length < MetricsCollector.MAX_SERIES_PER_METRIC;
+  }
+
   /** Increment a counter by 1 (or by `value`). */
   incrementCounter(name: string, labels: MetricLabels = {}, value = 1): void {
-    const key = this.buildMetricKey(name, labels);
-    const mergedLabels = { ...this.defaultLabels, ...labels };
+    const mergedLabels = this.normalizeLabels(labels);
+    if (mergedLabels === null) return;
+    const key = this.buildMetricKey(name, mergedLabels);
     const existing = this.counters.get(key);
+    if (!this.canAddSeries(existing, mergedLabels)) return;
     if (existing) {
       const found = existing.find((c) => this.labelsEqual(c.labels, mergedLabels));
-      if (found) {
-        found.value += value;
-      } else {
-        existing.push({ value, labels: mergedLabels });
-      }
-    } else {
-      this.counters.set(key, [{ value, labels: mergedLabels }]);
-    }
+      if (found) found.value += value;
+      else existing.push({ value, labels: mergedLabels });
+    } else this.counters.set(key, [{ value, labels: mergedLabels }]);
   }
 
   /** Record a value in a histogram (latency in ms, size in bytes, etc.). */
   recordHistogram(name: string, value: number, labels: MetricLabels = {}): void {
-    const key = this.buildMetricKey(name, labels);
-    const mergedLabels = { ...this.defaultLabels, ...labels };
+    const mergedLabels = this.normalizeLabels(labels);
+    if (mergedLabels === null) return;
+    const key = this.buildMetricKey(name, mergedLabels);
     const existing = this.histograms.get(key);
     const buckets = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000];
+    if (!this.canAddSeries(existing, mergedLabels)) return;
     if (existing) {
       const found = existing.find((h) => this.labelsEqual(h.labels, mergedLabels));
       if (found) {
         found.count++;
         found.sum += value;
-        for (const bucket of buckets) {
-          if (value <= bucket) {
-            found.buckets.set(bucket, (found.buckets.get(bucket) ?? 0) + 1);
-          }
-        }
-      } else {
-        const newHist = this.createHistogram(value, buckets, mergedLabels);
-        existing.push(newHist);
-      }
-    } else {
-      this.histograms.set(key, [this.createHistogram(value, buckets, mergedLabels)]);
-    }
+        for (const bucket of buckets) if (value <= bucket) found.buckets.set(bucket, (found.buckets.get(bucket) ?? 0) + 1);
+      } else existing.push(this.createHistogram(value, buckets, mergedLabels));
+    } else this.histograms.set(key, [this.createHistogram(value, buckets, mergedLabels)]);
   }
 
   /** Set a gauge value. */
   setGauge(name: string, value: number, labels: MetricLabels = {}): void {
-    const key = this.buildMetricKey(name, labels);
-    const mergedLabels = { ...this.defaultLabels, ...labels };
+    const mergedLabels = this.normalizeLabels(labels);
+    if (mergedLabels === null) return;
+    const key = this.buildMetricKey(name, mergedLabels);
     const existing = this.gauges.get(key);
+    if (!this.canAddSeries(existing, mergedLabels)) return;
     if (existing) {
       const found = existing.find((g) => this.labelsEqual(g.labels, mergedLabels));
-      if (found) {
-        found.value = value;
-      } else {
-        existing.push({ value, labels: mergedLabels });
-      }
-    } else {
-      this.gauges.set(key, [{ value, labels: mergedLabels }]);
-    }
+      if (found) found.value = value;
+      else existing.push({ value, labels: mergedLabels });
+    } else this.gauges.set(key, [{ value, labels: mergedLabels }]);
   }
 
   /** Get Prometheus-format metrics text. */
@@ -113,13 +117,11 @@ export class MetricsCollector {
       lines.push(`# TYPE ${name} histogram`);
       for (const h of histograms) {
         const labelStr = this.formatLabels(h.labels);
-        let cumCount = 0;
         const buckets = Array.from(h.buckets.entries()).sort((a, b) => a[0] - b[0]);
         for (const [le, count] of buckets) {
-          cumCount += count;
-          lines.push(`${name}_bucket${labelStr}${labelStr ? "," : ""}le="${le}" ${cumCount}`);
+          lines.push(`${name}_bucket${this.formatLabels({ ...h.labels, le: String(le) })} ${count}`);
         }
-        lines.push(`${name}_bucket${labelStr}${labelStr ? "," : ""}le="+Inf" ${h.count}`);
+        lines.push(`${name}_bucket${this.formatLabels({ ...h.labels, le: "+Inf" })} ${h.count}`);
         lines.push(`${name}_sum${labelStr} ${h.sum}`);
         lines.push(`${name}_count${labelStr} ${h.count}`);
       }
@@ -136,7 +138,6 @@ export class MetricsCollector {
 
     return lines.join("\n") + "\n";
   }
-
   /** Reset all metrics. */
   reset(): void {
     this.counters.clear();
@@ -146,15 +147,11 @@ export class MetricsCollector {
 
   private createHistogram(value: number, buckets: number[], labels: MetricLabels): Histogram {
     const bucketMap = new Map<number, number>();
-    for (const bucket of buckets) {
-      if (value <= bucket) bucketMap.set(bucket, 1);
-    }
+    for (const bucket of buckets) bucketMap.set(bucket, value <= bucket ? 1 : 0);
     return { buckets: bucketMap, sum: value, count: 1, labels };
   }
-
-  private buildMetricKey(name: string, labels: MetricLabels): string {
-    const labelKeys = Object.keys(labels).sort();
-    return name + "|" + labelKeys.map((k) => `${k}=${labels[k]}`).join(",");
+  private buildMetricKey(name: string, _labels: MetricLabels): string {
+    return name;
   }
 
   private labelsEqual(a: MetricLabels, b: MetricLabels): boolean {
@@ -168,7 +165,7 @@ export class MetricsCollector {
   private formatLabels(labels: MetricLabels): string {
     const entries = Object.entries(labels).sort((a, b) => a[0].localeCompare(b[0]));
     if (entries.length === 0) return "";
-    return "{" + entries.map(([k, v]) => `${k}="${v}"`).join(",") + "}";
+    return "{" + entries.map(([k, v]) => `${k}="${v.replaceAll("\\", "\\\\").replaceAll("\n", "\\n").replaceAll('"', '\\"')}"`).join(",") + "}";
   }
 
   private getVersion(): string {

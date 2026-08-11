@@ -15,7 +15,9 @@
 
 import { Elysia, type HTTPHeaders } from "elysia";
 import { getPersistenceEnv } from "../../storage/main/env";
+import { boundedRequest, readBoundedBytes, BoundedBodyTooLargeError } from "../../open-sse/translate";
 import { badRequest, internalError, notFound } from "../api/route-helpers";
+import { consoleError } from "../services/composition";
 import { DbMapService, type DbMapPersistence } from "./service";
 import type { DbTarget } from "./types";
 
@@ -27,8 +29,13 @@ function resolveTarget(value: unknown): DbTarget | null {
 /** Max import payload size for the multipart/raw body read (64 MiB). */
 const MAX_IMPORT_BODY_BYTES = 64 * 1024 * 1024;
 
+export interface DbMapApiOptions {
+  /** Server-side password verification required for raw database export/import. */
+  readonly verifySensitiveOperation?: (password: unknown) => Promise<boolean>;
+}
+
 /** Create the Database Map Elysia sub-app. The service is created once and shared. */
-export function createDbMapApi(persistence: DbMapPersistence | null = null): Elysia {
+export function createDbMapApi(persistence: DbMapPersistence | null = null, options: DbMapApiOptions = {}): Elysia {
   const service = new DbMapService(getPersistenceEnv(), persistence);
   const app = new Elysia();
 
@@ -82,9 +89,14 @@ export function createDbMapApi(persistence: DbMapPersistence | null = null): Ely
         return internalError(set, msg);
       }
     })
-    .route("QUERY", "/db-map/export", ({ query, set }: { query: Record<string, string | undefined>; set: { status?: number | string; headers: HTTPHeaders } }) => {
+    .get("/db-map/export", async ({ query, request, set }: { query: Record<string, string | undefined>; request: Request; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const target = resolveTarget(query.db);
       if (!target) return badRequest(set, "db must be 'config' or 'runtime'");
+      const verified = await options.verifySensitiveOperation?.(request.headers.get("x-console-password")) ?? false;
+      if (!verified) {
+        set.status = 401;
+        return consoleError("unauthorized", "password re-authentication is required for database export");
+      }
       const result = service.exportDb(target);
       if (!result.ok) return internalError(set, result.error);
       // Return raw binary with download headers — Elysia can return a Response
@@ -100,27 +112,48 @@ export function createDbMapApi(persistence: DbMapPersistence | null = null): Ely
     .post("/db-map/import", async ({ query, request, set }: { query: Record<string, string | undefined>; request: Request; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const target = resolveTarget(query.db);
       if (!target) return badRequest(set, "db must be 'config' or 'runtime'");
+      const verified = await options.verifySensitiveOperation?.(request.headers.get("x-console-password")) ?? false;
+      if (!verified) {
+        set.status = 401;
+        return consoleError("unauthorized", "password re-authentication is required for database import");
+      }
+      const contentLength = Number(request.headers.get("content-length") ?? "NaN");
+      if (Number.isFinite(contentLength) && contentLength > MAX_IMPORT_BODY_BYTES) {
+        set.status = 413;
+        return consoleError("invalid_request", `import file exceeds ${MAX_IMPORT_BODY_BYTES} bytes`);
+      }
 
-      const contentLength = Number(request.headers.get("content-length") ?? "0");
-      if (contentLength > MAX_IMPORT_BODY_BYTES) return badRequest(set, `import file exceeds ${MAX_IMPORT_BODY_BYTES} bytes`);
-
-      // Accept raw body (application/octet-stream) or multipart file upload
+      // Accept raw body (application/octet-stream) or multipart file upload.
       const contentType = (request.headers.get("content-type") ?? "").toLowerCase();
       let data: Uint8Array;
-
       try {
         if (contentType.includes("multipart/form-data")) {
-          const form = await request.formData();
+          const form = await boundedRequest(request, MAX_IMPORT_BODY_BYTES).formData();
           const file = form.get("file") ?? form.get("database");
           if (typeof file === "string" || file === null) return badRequest(set, "no file uploaded");
           const blob = file as unknown as { arrayBuffer: () => Promise<ArrayBuffer> };
-          data = new Uint8Array(await blob.arrayBuffer());
+          const bytes = new Uint8Array(await blob.arrayBuffer());
+          if (bytes.byteLength > MAX_IMPORT_BODY_BYTES) {
+            set.status = 413;
+            return consoleError("invalid_request", `import file exceeds ${MAX_IMPORT_BODY_BYTES} bytes`);
+          }
+          data = bytes;
         } else {
-          // Raw body — treat as octet-stream
-          const buf = await request.arrayBuffer();
-          data = new Uint8Array(buf);
+          const bytes = await readBoundedBytes(request, MAX_IMPORT_BODY_BYTES);
+          if (!bytes.ok) {
+            if (bytes.reason === "too_large") {
+              set.status = 413;
+              return consoleError("invalid_request", `import file exceeds ${MAX_IMPORT_BODY_BYTES} bytes`);
+            }
+            return badRequest(set, "failed to read upload body");
+          }
+          data = bytes.value;
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof BoundedBodyTooLargeError) {
+          set.status = 413;
+          return consoleError("invalid_request", `import file exceeds ${MAX_IMPORT_BODY_BYTES} bytes`);
+        }
         return badRequest(set, "failed to read upload body");
       }
 

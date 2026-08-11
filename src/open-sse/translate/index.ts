@@ -53,7 +53,7 @@ export { normalizeImageRequest } from "./codecs/images";
 export { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse, geminiCandidate, responseParts } from "./codecs/gemini-generate-content";
 export { ProtocolCodecError, StreamDecodeError, type StreamDecodeKind } from "./errors";
 export { detectSurface, lookupProxyEndpoint, normalizeRequest, parseRequestBody } from "./surface";
-export { readBoundedJson, type JsonBodyResult } from "./body";
+export { boundedRequest, readBoundedBytes, readBoundedJson, BoundedBodyTooLargeError, type BoundedBytesResult, type JsonBodyResult } from "./body";
 
 // Side-effect registration keeps the conversion graph extensible without a central table.
 import "./converters/compat";

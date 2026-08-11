@@ -287,6 +287,28 @@ describe("gateway: /v1/models authentication", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
 
+  test("revoking or disabling a key immediately invalidates authentication", async () => {
+    const key = createApiKey("revocation-freshness");
+    expect((await fetchGatewayQuery("/v1/models", { headers: { "x-api-key": key } })).status).toBe(200);
+    const row = runtime.config.apiKeys.getBySecret(key);
+    expect(row).not.toBeNull();
+    runtime.config.apiKeys.revoke(row!.id);
+    expect((await fetchGatewayQuery("/v1/models", { headers: { "x-api-key": key } })).status).toBe(401);
+  });
+
+  test("updated ACL and one-time usage are read from fresh key rows", () => {
+    const key = createApiKey("fresh-policy", { oneTimeTokenLimit: 100, providerAllowlist: "openai" });
+    const initial = runtime.config.apiKeys.getBySecret(key);
+    expect(initial).not.toBeNull();
+    expect(aclFor(initial!).providerAllowlist).toEqual(["openai"]);
+    runtime.config.apiKeys.update(initial!.id, { providerAllowlist: "anthropic" });
+    runtime.config.apiKeys.consumeOneTimeTokens(initial!.id, 7);
+    const updated = runtime.config.apiKeys.getBySecret(key);
+    expect(updated).not.toBeNull();
+    expect(aclFor(updated!).providerAllowlist).toEqual(["anthropic"]);
+    expect(updated!.oneTimeTokensUsed).toBe(7);
+  });
+
   test("includes enabled CLI mapping source models in the public catalog", async () => {
     runtime.config.cliModelMappings.setEnabled("claude", true);
     runtime.config.cliModelMappings.upsert({

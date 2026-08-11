@@ -3,40 +3,25 @@ import { nowIso } from "../schema";
 import { toApiKeyPublic, type ApiKeyRow } from "../mappers";
 import type { ApiKeyCreateInput, ApiKeyPublic, ApiKeyRepository, ApiKeyUpdateInput } from "../records";
 
-const SECRET_CACHE_TTL_MS = 5_000;
-const SECRET_CACHE_MAX = 512;
 
 export function createConsoleApiKeyRepository(db: () => Database): ApiKeyRepository {
-  const secretCache = new Map<string, { at: number; value: ApiKeyPublic }>();
   const pendingTouches = new Set<string>();
   let touchTimer: Timer | null = null;
 
-  const getSecretCached = (key: string): ApiKeyPublic | null => {
-    const hit = secretCache.get(key);
-    if (hit && Date.now() - hit.at < SECRET_CACHE_TTL_MS) return hit.value;
-    secretCache.delete(key);
-    // Fetch candidates by prefix wildcard to narrow the candidate set, then
-    // verify the full secret with a timing-safe comparison so SQLite's
-    // index lookup cannot leak prefix validity through response timing.
+  const getBySecret = (key: string): ApiKeyPublic | null => {
     const prefix = key.slice(0, Math.min(8, key.length));
-    const candidates = db().query("SELECT * FROM api_keys WHERE key LIKE ?").all(`${prefix}%`) as ApiKeyRow[];
-    let match: ApiKeyRow | null = null;
+    const candidates = db().query("SELECT * FROM api_keys WHERE key LIKE ? AND active = 1 AND revoked_at IS NULL").all(`${prefix}%`) as ApiKeyRow[];
     for (const candidate of candidates) {
-      if (candidate.key.length === key.length) {
-        try {
-          if (crypto.timingSafeEqual(Buffer.from(candidate.key), Buffer.from(key))) {
-            match = candidate;
-            break;
-          }
-        } catch { /* length mismatch — skip */ }
+      if (candidate.key.length !== key.length) continue;
+      try {
+        if (crypto.timingSafeEqual(Buffer.from(candidate.key), Buffer.from(key))) return toApiKeyPublic(candidate);
+      } catch {
+        // Length mismatch is already checked; ignore malformed candidate data.
       }
     }
-    if (!match) return null;
-    const value = toApiKeyPublic(match);
-    if (secretCache.size >= SECRET_CACHE_MAX) secretCache.clear();
-    secretCache.set(key, { at: Date.now(), value });
-    return value;
+    return null;
   };
+
 
   const flushTouches = (): void => {
     if (touchTimer) {
@@ -61,9 +46,7 @@ export function createConsoleApiKeyRepository(db: () => Database): ApiKeyReposit
       const row = db().query("SELECT * FROM api_keys WHERE id = ?").get(id) as ApiKeyRow | null;
       return row ? toApiKeyPublic(row) : null;
     },
-    getBySecret(key: string): ApiKeyPublic | null {
-      return getSecretCached(key);
-    },
+    getBySecret,
     credential(id: string): string | null {
       const row = db().query("SELECT key FROM api_keys WHERE id = ?").get(id) as { key: string } | null;
       return row?.key ?? null;

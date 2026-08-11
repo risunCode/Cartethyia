@@ -66,9 +66,8 @@ Provider adapters that proxy as a specific upstream client identity (Claude Code
 - **API Keys** — full lifecycle (create, edit, enable, disable, revoke, regenerate), token budgets (monthly/one-time), per-key RPM/concurrency limits, provider/model allowlists and denylists, public share pages with connection details and usage.
 - **Combos & Aliases** — create, edit, delete; live resolve-preview showing the actual routed target.
 - **Proxy Pools** — CRUD, batch URL import, protocol detection, priority/active controls.
-- **Usage** — token/cost charts, per-key/per-provider/per-model breakdowns, request history with IP monitoring.
 - **Console Log** — live request logs with proxy pool, token counts, tool names, and message preview.
-- **Database Map** — browse schema, run SELECT queries, export/import databases. Sensitive columns are masked.
+- **Database Map** — browse schema, run SELECT queries, export/import databases. Table and query views mask sensitive columns; raw SQLite exports contain the underlying secrets and must be handled as sensitive files.
 - **Terminal** — in-browser shell with btop, htop, speedtest, fastfetch, curl, sqlite.
 - **Settings** — system prompt, filter rules, JWT/session config, adaptive scaling controls.
 - Responsive desktop and mobile layouts, reduced-motion support, custom backgrounds, seasonal effects.

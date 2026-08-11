@@ -295,7 +295,7 @@ export interface SettingsRepository {
 export interface ApiKeyRepository {
   list(): ApiKeyPublic[];
   getById(id: string): ApiKeyPublic | null;
-  /** Full secret lookup — hot auth path, bounded TTL cache. */
+  /** Full secret lookup against current active, non-revoked database rows. */
   getBySecret(key: string): ApiKeyPublic | null;
   credential(id: string): string | null;
   create(input: ApiKeyCreateInput): ApiKeyPublic;

@@ -19,6 +19,7 @@ import { type WarpApiMount } from "../warp/api-routes";
 import { createDbMapApi } from "../db-map/api-routes";
 import type { DbMapPersistence } from "../db-map/service";
 import { consoleError } from "../services/composition";
+import { toPrometheus } from "../../observability/metrics";
 import { badRequest, notFound, ok } from "./route-helpers";
 
 export interface DiagnosticRouteDependencies {
@@ -145,7 +146,7 @@ export function registerDiagnosticRoutes<T extends Elysia<any, any, any, any, an
   return app
     .use(deps.warpApi.app)
     .use(createCliToolsApi(deps.config))
-    .use(createDbMapApi(deps.dbMapPersistence))
+    .use(createDbMapApi(deps.dbMapPersistence, { verifySensitiveOperation: async (password) => (await deps.services.backup.verifyPassword(password)).ok }))
     .post("/resolve-preview", async ({ body }) => deps.diagnostics.resolvePreview(body))
     .route("QUERY", "/usage/summary", async ({ query }) => ({ period: typeof query.period === "string" ? query.period : "24h", totals: await deps.diagnostics.usageSummary(query.period) }))
     .route("QUERY", "/usage/cache", async ({ query }) => ({ period: typeof query.period === "string" ? query.period : "24h", ...(await deps.diagnostics.usageCache(query.period)) }))

@@ -38,6 +38,27 @@ const ANTHROPIC_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({
   explicitCache: true,
   promptCacheKey: true,
 });
+const FORWARDABLE_GATEWAY_HEADERS: Record<string, true> = { "x-app": true, "x-client-request-id": true };
+const BLOCKED_GATEWAY_HEADERS: Record<string, true> = {
+  authorization: true,
+  "proxy-authorization": true,
+  "x-api-key": true,
+  host: true,
+  "content-length": true,
+  connection: true,
+  "transfer-encoding": true,
+};
+
+function forwardGatewayHeaders(source: Headers | undefined, target: Record<string, string>): void {
+  if (source === undefined) return;
+  for (const [name, value] of source) {
+    const normalized = name.toLowerCase();
+    if (BLOCKED_GATEWAY_HEADERS[normalized] === true) continue;
+    if (FORWARDABLE_GATEWAY_HEADERS[normalized] !== true && !normalized.startsWith("anthropic-") && !normalized.startsWith("x-claude-code-")) continue;
+    if (normalized === "anthropic-version" || normalized === "anthropic-beta") continue;
+    target[normalized] = value;
+  }
+}
 
 
 export interface AnthropicAdapterConfig {
@@ -89,7 +110,6 @@ export class AnthropicAdapter implements Adapter {
     }
     const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };
   }
-
   async call(input: ProviderRequest): Promise<ProviderOutput> {
     this.assertSupported(input);
     const { request, credential } = input;
@@ -98,11 +118,10 @@ export class AnthropicAdapter implements Adapter {
       accept: request.stream ? "text/event-stream" : "application/json",
       "anthropic-version": input.headers?.get("anthropic-version") ?? "2023-06-01",
     };
-    const betaValues: string[] = [];
     const incomingBeta = input.headers?.get("anthropic-beta");
-    if (incomingBeta) betaValues.push(incomingBeta);
-    if (this.capabilities.explicitCache && this.capabilities.promptCacheKey) betaValues.push("prompt-caching-2024-07-31");
-    if (betaValues.length > 0) headers["anthropic-beta"] = [...new Set(betaValues.flatMap((value) => value.split(",").map((item) => item.trim()).filter(Boolean)))].join(",");
+    if (incomingBeta) headers["anthropic-beta"] = incomingBeta;
+    else if (this.capabilities.explicitCache && this.capabilities.promptCacheKey) headers["anthropic-beta"] = "prompt-caching-2024-07-31";
+    forwardGatewayHeaders(input.headers, headers);
     const userAgent = input.headers?.get("user-agent");
     if (userAgent) headers["user-agent"] = userAgent;
     if (this.auth === "bearer") headers.authorization = `Bearer ${credential}`;

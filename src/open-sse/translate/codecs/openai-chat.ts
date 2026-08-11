@@ -69,6 +69,9 @@ export function normalizeChatRequest(body: unknown, input: NormalizeInput): Norm
   const reasoning = finalizeReasoning(root, reasoningState);
   if (isProtocolError(reasoning)) return normalizeFail(reasoning);
   const finalFlag = reasoningState.seen && reasoning.flag === "default" ? "enabled" : reasoning.flag;
+  const maxOutputTokens = normalizeMaxOutputTokens(root);
+  if (isProtocolError(maxOutputTokens)) return normalizeFail(maxOutputTokens);
+
 
   const rawCacheKey = root["prompt_cache_key"];
   const cacheKey = typeof rawCacheKey === "string" && rawCacheKey.length <= 256 ? rawCacheKey : undefined;
@@ -78,6 +81,7 @@ export function normalizeChatRequest(body: unknown, input: NormalizeInput): Norm
     tools,
     stream,
     responseFormat,
+    maxOutputTokens,
     reasoning: finalFlag,
     reasoningConfig: reasoning.config,
     images,

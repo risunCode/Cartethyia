@@ -11,6 +11,7 @@ import { ProviderAdapterError, parseRetryAfterSeconds, toProviderCallError } fro
 import { AbortCoordinator } from "../../src/open-sse/transport/abort-coordinator";
 import { parseSseData, decodeSseEvents } from "../../src/open-sse/transport/sse-decoder";
 import { mapSseStream } from "../../src/open-sse/transport/stream-mapper";
+import { appendTerminalError } from "../../src/open-sse/handlers";
 import { capabilitiesOf } from "../../src/open-sse/transport/catalog";
 import { encodeSurfaceStream } from "../../src/providers/surfaces";
 import { createOpenAIChatStreamMapper, createOpenAIResponsesStreamMapper } from "../../src/open-sse/transport/protocols/openai";
@@ -93,6 +94,18 @@ describe("Chat Completions normalization and payload", () => {
     expect(normalizeChatRequest({ model: "m", messages: [{ role: "wizard", content: "x" }] }, ni()).ok).toBe(false);
     expect(normalizeChatRequest({ model: "m", messages: [], stream: "yes" }, ni()).ok).toBe(false);
     expect(normalizeChatRequest({ model: "m", messages: [], response_format: { type: "yaml" } }, ni()).ok).toBe(false);
+  });
+  test("normalizes Chat max output token fields", () => {
+    const legacy = normalizeChatRequest({ model: "m", max_tokens: 321, messages: [{ role: "user", content: "hi" }] }, ni());
+    expect(legacy.ok).toBe(true);
+    if (!legacy.ok) return;
+    expect(legacy.request.maxOutputTokens).toBe(321);
+
+    const completion = normalizeChatRequest({ model: "m", max_tokens: 321, max_completion_tokens: 654, messages: [{ role: "user", content: "hi" }] }, ni());
+    expect(completion.ok).toBe(true);
+    if (!completion.ok) return;
+    expect(completion.request.maxOutputTokens).toBe(654);
+    expect(normalizeChatRequest({ model: "m", max_tokens: -1, messages: [] }, ni()).ok).toBe(false);
   });
   test("tool role tags tool_result; reasoning_content forces enabled; image classified; SSRF rejected", () => {
     const r = normalizeChatRequest({ model: "m", messages: [
@@ -371,9 +384,13 @@ describe("Anthropic Messages normalization and payload", () => {
       cacheKey: "external-key",
       wirePayload: { model: "m", max_tokens: 10, messages: [{ role: "user", content: "hi" }], stream: false },
     }), capabilitiesOf({ surfaces: ["anthropic-messages"], reasoning: true, explicitCache: true, promptCacheKey: true }));
-    const content = payload.messages?.[0]?.content;
+    const rawMessages: unknown = payload.messages;
+    const firstMessage = Array.isArray(rawMessages) ? rawMessages[0] : undefined;
+    const content = typeof firstMessage === "object" && firstMessage !== null && "content" in firstMessage ? firstMessage.content : undefined;
     expect(Array.isArray(content)).toBe(true);
-    expect((content as Array<Record<string, unknown>>)[0]?.cache_control).toEqual({ type: "ephemeral" });
+    if (!Array.isArray(content)) return;
+    const firstContent = content[0];
+    expect(firstContent && typeof firstContent === "object" && "cache_control" in firstContent ? firstContent.cache_control : undefined).toEqual({ type: "ephemeral" });
   });
 });
 
@@ -621,6 +638,17 @@ describe("Anthropic SSE mapper sequencing", () => {
       },
     });
   });
+
+  test("maps Anthropic rate-limit stream errors to typed provider errors", async () => {
+    const coord = new AbortCoordinator(new AbortController().signal);
+    const result = collect(mapSseStream({ body: sseBody([
+      '{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}',
+    ]), coordinator: coord, maxLineBytes: 65536 }, createAnthropicMessagesStreamMapper()))
+      .then(() => null, (error: unknown) => error);
+    const error = await result;
+    expect(error).toBeInstanceOf(ProviderAdapterError);
+    expect((error as ProviderAdapterError).kind).toBe("provider_rate_limited");
+  });
 });
 
 describe("Responses SSE mapper sequencing", () => {
@@ -637,14 +665,26 @@ describe("Responses SSE mapper sequencing", () => {
     expect(types).toContain("usage");
     expect(types[types.length - 1]).toBe("message_stop");
   });
-  test("response.failed emits error stop reason", async () => {
+  test("response.failed emits a sanitized typed error summary", async () => {
     const coord = new AbortCoordinator(new AbortController().signal);
     const events = await collect(mapSseStream({ body: sseBody([
-      '{"type":"response.failed"}',
+      '{"type":"response.failed","response":{"error":{"code":"rate_limit_exceeded","message":"api_key=top-secret"}}}',
     ]), coordinator: coord, maxLineBytes: 65536 }, createOpenAIResponsesStreamMapper()));
     const stop = events.find((e): e is Extract<StreamEvent, { type: "message_stop" }> => e.type === "message_stop");
-    expect(stop?.reason).toBe("error");
+    expect(stop).toMatchObject({ type: "message_stop", reason: "error", error: { kind: "provider_rate_limited", statusCode: null } });
+    expect(stop?.error?.message).toBe("credential=[redacted]");
+    expect(stop?.error?.message).not.toContain("top-secret");
   });
+  test("response.failed closes active tool calls before the terminal error", async () => {
+    const coord = new AbortCoordinator(new AbortController().signal);
+    const events = await collect(mapSseStream({ body: sseBody([
+      '{"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_1","name":"echo"}}',
+      '{"type":"response.failed","response":{"error":{"code":"invalid_request","message":"bad input"}}}',
+    ]), coordinator: coord, maxLineBytes: 65536 }, createOpenAIResponsesStreamMapper()));
+    expect(events.map((event) => event.type)).toEqual(["message_start", "tool_call_start", "tool_call_end", "message_stop"]);
+    expect(events.at(-1)).toMatchObject({ type: "message_stop", reason: "error", error: { kind: "invalid_request", message: "bad input" } });
+  });
+
   test("normalizes Codex function-call item ids onto the call id", async () => {
     const coord = new AbortCoordinator(new AbortController().signal);
     const events = await collect(mapSseStream({ body: sseBody([
@@ -692,6 +732,24 @@ describe("Responses SSE mapper sequencing", () => {
     const responses = new TextDecoder().decode(Buffer.concat((await collect(encodeSurfaceStream("openai-responses", responseSource(), "gpt-5.6"))).map((chunk) => Buffer.from(chunk))));
     expect(responses).toContain('"type":"response.output_item.added"');
     expect(responses).toContain('"type":"response.output_item.done"');
+  });
+});
+
+describe("terminal stream error propagation", () => {
+  test("converts a mid-stream provider failure into one typed terminal event", async () => {
+    const observed: unknown[] = [];
+    async function* source(): AsyncGenerator<StreamEvent> {
+      yield { type: "message_start", id: "m1" };
+      yield { type: "text_delta", text: "partial" };
+      throw new Error("Bearer upstream-secret");
+    }
+    const events = await collect(appendTerminalError(source(), { onError: (error) => observed.push(error) }));
+    expect(events).toEqual([
+      { type: "message_start", id: "m1" },
+      { type: "text_delta", text: "partial" },
+      { type: "message_stop", reason: "error", error: { statusCode: null, kind: "provider_protocol_error", message: "Bearer [redacted]", retryAt: null } },
+    ]);
+    expect(observed).toHaveLength(1);
   });
 });
 

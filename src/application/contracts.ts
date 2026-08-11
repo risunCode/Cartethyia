@@ -464,7 +464,7 @@ export type StreamEvent =
   | { readonly type: "compaction_delta"; readonly text: string }
   | { readonly type: "compaction_stop" }
   | { readonly type: "usage"; readonly usage: ProviderUsage }
-  | { readonly type: "message_stop"; readonly reason: StopReason };
+  | { readonly type: "message_stop"; readonly reason: StopReason; readonly error?: SafeErrorSummary };
 
 
 export interface StreamLifecycle {
@@ -634,7 +634,9 @@ export function createCleanupStack(): CleanupStack {
   return {
     add(handle: CleanupHandle): void {
       if (finished) {
-        void handle.release();
+        void handle.release().catch((error: unknown) => {
+          console.warn(`[Cleanup] release failed: ${sanitizeMessage(error)}`);
+        });
         return;
       }
       handles.push(handle);

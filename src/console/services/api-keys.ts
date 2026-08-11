@@ -1,6 +1,5 @@
 import type { ApiKeyRepository, ApiKeySecretResult, ApiKeyView, ConsoleErrorCode } from "../views";
-import { limitOrUndefined, sanitizeKeyUpdate, stringListOrUndefined, stringOrUndefined } from "../input-sanitizers";
-
+import { isValidCustomApiKey, limitOrUndefined, sanitizeKeyUpdate, stringListOrUndefined, stringOrUndefined } from "../input-sanitizers";
 export class ApiKeyService {
   constructor(private readonly repo: ApiKeyRepository) {}
 
@@ -17,7 +16,7 @@ export class ApiKeyService {
       return { ok: false, status: 400, code: "invalid_request", message: "key name is required" };
     }
     const customKey = stringOrUndefined(value.key);
-    if (customKey !== undefined && !/^[A-Za-z0-9_-]+$/.test(customKey) && !(customKey.length >= 8 && customKey.length <= 256)) {
+    if (customKey !== undefined && !isValidCustomApiKey(customKey)) {
       return { ok: false, status: 400, code: "invalid_request", message: "custom API key must be 8-256 letters, digits, underscores, or hyphens" };
     }
     const result = await this.repo.create({

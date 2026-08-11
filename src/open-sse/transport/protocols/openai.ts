@@ -5,8 +5,9 @@ import { lineLimit, parseSseData } from "../sse-decoder";
 import { mapSseStream } from "../stream-mapper";
 import { readJsonObject } from "../body-reader";
 import type { SseEvent, StreamMapper } from "../contracts";
-import type { ProviderOutput, ProviderRequest, StopReason, StreamEvent } from "../../../application/contracts";
+import type { ProviderOutput, ProviderRequest, SafeErrorSummary, StopReason, StreamEvent } from "../../../application/contracts";
 import { isRecord } from "../../../application/protocols";
+import { sanitizeMessage } from "../../../application/contracts";
 import { buildChatPayload, mapChatUsage } from "../../translate/codecs/openai-chat";
 import { buildResponsesPayload, mapResponsesUsage } from "../../translate/codecs/openai-responses";
 
@@ -135,6 +136,22 @@ function deltaString(delta: Record<string, unknown>, keys: readonly string[]): s
     if (typeof value === "string" && value.length > 0) return value;
   }
   return null;
+}
+function responsesFailureSummary(response: Record<string, unknown> | null): SafeErrorSummary {
+  const error = response !== null && isRecord(response.error) ? response.error : null;
+  const code = error !== null && typeof error.code === "string" ? error.code : "";
+  const message = error !== null && typeof error.message === "string" ? error.message : "Upstream Responses request failed";
+  const normalized = code.toLowerCase();
+  const kind =
+    normalized.includes("rate_limit") ? "provider_rate_limited" :
+    normalized.includes("quota") ? "quota_exceeded" :
+    normalized.includes("server") || normalized.includes("overload") ? "provider_unavailable" :
+    normalized === "authentication_error" ? "authentication_failed" :
+    normalized === "permission_error" ? "authorization_denied" :
+    normalized === "invalid_request" || normalized === "invalid_prompt" ? "invalid_request" :
+    normalized === "max_output_tokens" ? "stream_truncated" :
+    "provider_protocol_error";
+  return { statusCode: null, kind, message: sanitizeMessage(message), retryAt: null };
 }
 
 function mapChatFinishReason(finishReason: string | null): StopReason {
@@ -329,10 +346,11 @@ export function createOpenAIResponsesStreamMapper(): StreamMapper {
         return null;
       case "response.failed": {
         stopReason = "error";
+        const response = isRecord(parsed.response) ? parsed.response : null;
         const events: StreamEvent[] = [];
         for (const callId of activeCalls) events.push({ type: "tool_call_end", callId });
         activeCalls.clear();
-        events.push({ type: "message_stop", reason: "error" });
+        events.push({ type: "message_stop", reason: "error", error: responsesFailureSummary(response) });
         return startIfNeeded(events);
       }
       case "response.usage": {

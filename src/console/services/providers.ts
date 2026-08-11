@@ -82,6 +82,45 @@ const MODEL_ENDPOINTS: Record<string, string> = {
   "exa": "https://api.exa.ai",
 };
 
+const CUSTOM_MODELS_MAX_BYTES = 1_048_576;
+const CUSTOM_MODELS_MAX_RECORDS = 500;
+const CUSTOM_MODEL_MAX_FIELD_LENGTH = 256;
+
+async function readBoundedJson(response: Response, maxBytes: number): Promise<unknown | null> {
+  const contentLength = Number(response.headers.get("content-length") ?? NaN);
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) return null;
+  if (response.body === null) return null;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value === undefined) continue;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+  } catch {
+    return null;
+  }
+}
+
 function extractModelIds(body: unknown, allowArray = true): string[] {
   if (body === null || typeof body !== "object") return [];
   if (Array.isArray(body)) {
@@ -313,15 +352,30 @@ export class ProviderService {
       signal: AbortSignal.timeout(Math.min(provider.timeoutSeconds * 1000, 30_000)),
     }, { maxRedirects: 2 });
     if (!response.ok) return { error: `Model discovery returned HTTP ${response.status}.` };
-    const body: unknown = await response.json();
-    const rows = typeof body === "object" && body !== null && "data" in body && Array.isArray((body as { data?: unknown }).data) ? (body as { data: unknown[] }).data : Array.isArray(body) ? body : [];
-    const models = rows.flatMap((row) => {
-      if (typeof row === "string") return [{ id: row, name: row }];
-      if (typeof row !== "object" || row === null) return [];
-      const value = row as Record<string, unknown>;
-      const modelId = typeof value.id === "string" ? value.id : null;
-      return modelId === null ? [] : [{ id: modelId, name: typeof value.name === "string" ? value.name : modelId, context: { inputTokens: typeof value.context_length === "number" ? value.context_length : null, outputTokens: typeof value.max_output_tokens === "number" ? value.max_output_tokens : null }, categories: [], pricing: { inputPerMillion: null, outputPerMillion: null } }];
-    });
+    const body = await readBoundedJson(response, CUSTOM_MODELS_MAX_BYTES);
+    if (body === null) return { error: "Model discovery response was invalid or exceeded the size limit." };
+    const rows: unknown[] = typeof body === "object" && body !== null && "data" in body && Array.isArray((body as { data?: unknown }).data) ? (body as { data: unknown[] }).data : Array.isArray(body) ? body : [];
+    if (rows.length > CUSTOM_MODELS_MAX_RECORDS) return { error: "Model discovery returned too many models." };
+    const models: unknown[] = [];
+    for (const row of rows) {
+      let modelId: string | null = null;
+      let modelName: string | null = null;
+      let contextLength: number | null = null;
+      let maxOutputTokens: number | null = null;
+      if (typeof row === "string") {
+        modelId = row;
+        modelName = row;
+      } else if (typeof row === "object" && row !== null && !Array.isArray(row)) {
+        const value = row as Record<string, unknown>;
+        if (typeof value.id === "string") modelId = value.id;
+        modelName = typeof value.name === "string" ? value.name : modelId;
+        contextLength = typeof value.context_length === "number" ? value.context_length : null;
+        maxOutputTokens = typeof value.max_output_tokens === "number" ? value.max_output_tokens : null;
+      }
+      if (modelId === null || modelName === null) continue;
+      if (modelId.length === 0 || modelId.length > CUSTOM_MODEL_MAX_FIELD_LENGTH || modelName.length > CUSTOM_MODEL_MAX_FIELD_LENGTH) return { error: "Model discovery returned an oversized model field." };
+      models.push({ id: modelId, name: modelName, context: { inputTokens: contextLength, outputTokens: maxOutputTokens }, categories: [], pricing: { inputPerMillion: null, outputPerMillion: null } });
+    }
     return (await this.customProviders.updateModels(id, models)) ?? { error: "custom provider not found" };
   }
 

@@ -29,6 +29,26 @@ function mapAnthropicStopReason(stopReason: string): StopReason {
   }
 }
 
+function mapAnthropicStreamError(type: string): { kind: ApplicationErrorKind; retryable: boolean; routeScope: "account" | "provider" } {
+  switch (type) {
+    case "rate_limit_error":
+      return { kind: "provider_rate_limited", retryable: true, routeScope: "account" };
+    case "overloaded_error":
+    case "api_error":
+      return { kind: "provider_unavailable", retryable: true, routeScope: "provider" };
+    case "authentication_error":
+      return { kind: "authentication_failed", retryable: false, routeScope: "account" };
+    case "permission_error":
+      return { kind: "authorization_denied", retryable: false, routeScope: "account" };
+    case "invalid_request_error":
+    case "request_too_large":
+    case "not_found_error":
+      return { kind: "invalid_request", retryable: false, routeScope: "provider" };
+    default:
+      return { kind: "provider_protocol_error", retryable: false, routeScope: "provider" };
+  }
+}
+
 /**
  * Messages SSE mapper: message_start carries the upstream id, thinking and
  * text deltas map to thinking_delta/text_delta, tool input JSON fragments
@@ -130,18 +150,16 @@ export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: st
       }
       case "message_stop":
         return { type: "message_stop", reason: stopReason ?? "completed" };
-      case "ping":
-        return null;
       case "error": {
         const error = parsed.error;
-        const kind: ApplicationErrorKind =
-          isRecord(error) && (error.type === "rate_limit_error" || error.type === "overloaded_error") ? "provider_rate_limited" : "provider_protocol_error";
+        const errorType = isRecord(error) && typeof error.type === "string" ? error.type : "";
+        const mapped = mapAnthropicStreamError(errorType);
         const message = isRecord(error) && typeof error.message === "string" ? error.message : "Upstream stream error";
         throw new ProviderAdapterError({
-          kind,
+          kind: mapped.kind,
           message,
-          retryable: kind === "provider_rate_limited",
-          routeScope: kind === "provider_rate_limited" ? "account" : "provider",
+          retryable: mapped.retryable,
+          routeScope: mapped.routeScope,
         });
       }
       default:

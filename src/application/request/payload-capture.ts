@@ -63,9 +63,12 @@ export function createPayloadCapture(requestId: string, sink: { save(requestId: 
         let offset = 0;
         for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.byteLength; }
         save("provider_response", decoder.decode(merged), truncated, truncated ? MAX_CAPTURE_BYTES + 1 : total);
-      })().catch(() => {});
+      })();
       pending.add(task);
-      void task.finally(() => pending.delete(task));
+      void task.then(
+        () => pending.delete(task),
+        () => pending.delete(task),
+      );
       return new Response(consumerBranch, { status: response.status, statusText: response.statusText, headers: response.headers });
     },
     async settle(): Promise<void> { await Promise.all(pending); },

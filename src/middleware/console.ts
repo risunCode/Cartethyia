@@ -1,6 +1,7 @@
 import type { CartethyiaRuntime } from "../bootstrap/composition";
 import { runtimeRecordFromJson } from "../console/runtime-settings";
 import { guardConsoleRequest } from "../console/session";
+import { boundedRequest, BoundedBodyTooLargeError } from "../open-sse/translate";
 import { secureResponse } from "../security/headers";
 import { errorResponse, recordAccessLog } from "./shared";
 export async function safeConsoleHandle(runtime: CartethyiaRuntime, request: Request): Promise<Response> {
@@ -9,15 +10,14 @@ export async function safeConsoleHandle(runtime: CartethyiaRuntime, request: Req
     return errorResponse(415, "invalid_request", "QUERY requests require Content-Type: application/json");
   }
 
-  // Fast body-size rejection: a single header parse, no crypto or DB work.
-  // Restore endpoints allow up to MAX_BACKUP_BYTES (64 MiB — sidebar icon
-  // data URLs alone can reach ~36 MiB). All other console routes cap at 5 MiB.
+  // Restore endpoints allow up to 64 MiB; other console bodies are capped at 5 MiB.
   const contentLength = request.headers.get("content-length");
   const isRestorePath = pathname === "/console/api/settings/restore" || pathname === "/console/api/settings/restore/9router";
   const maxBodyBytes = isRestorePath ? 64 * 1024 * 1024 : 5_000_000;
-  if (contentLength !== null && Number(contentLength) > maxBodyBytes) {
+  if (contentLength !== null && Number.isFinite(Number(contentLength)) && Number(contentLength) > maxBodyBytes) {
     return errorResponse(413, "request_too_large", "Request body too large");
   }
+  const boundedBodyRequest = request.body === null ? request : boundedRequest(request, maxBodyBytes);
 
   // Fast auth check before Elysia parses the body. Elysia's lifecycle parses
   // the request body BEFORE .guard({ beforeHandle }) runs, so under a flood of
@@ -48,13 +48,14 @@ export async function safeConsoleHandle(runtime: CartethyiaRuntime, request: Req
   const requestId = crypto.randomUUID();
   const startedAt = performance.now();
   try {
-    const response = await runtime.consoleApp.handle(request);
-    recordAccessLog(runtime, pathname, request, requestId, response.status, startedAt);
+    const response = await runtime.consoleApp.handle(boundedBodyRequest);
+    recordAccessLog(runtime, pathname, boundedBodyRequest, requestId, response.status, startedAt);
     const headers = new Headers(response.headers);
     if (request.method === "QUERY") headers.set("accept-query", "application/json");
     const secured = secureResponse(new Response(response.body, { status: response.status, statusText: response.statusText, headers }), { request, noStore: pathname.startsWith("/console/api") });
     return secured;
   } catch (error) {
+    if (error instanceof BoundedBodyTooLargeError) return errorResponse(413, "request_too_large", "Request body too large", requestId);
     runtime.logger.system("error", "console", `${request.method} ${pathname} failed request_id=${requestId} error=${error instanceof Error ? error.name : "unknown"}`);
     return errorResponse(500, "internal_error", `Console ${request.method} request to ${pathname} failed`, requestId);
   }

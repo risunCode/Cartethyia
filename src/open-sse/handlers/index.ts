@@ -1,8 +1,9 @@
-import type { ProviderCallError } from "../../application/contracts";
+import type { ProviderCallError, SafeErrorSummary } from "../../application/contracts";
 import { publicErrorBody } from "../../application/contracts";
 import type { ProviderOutput } from "../../application/contracts";
 import type { PresentedProxyResponse } from "../../application/contracts";
 import { isTerminalEvent, type StreamEvent } from "../../application/contracts";
+import { toProviderCallError } from "../transport/errors";
 import type { StreamLifecycleController } from "./recovery";
 
 /**
@@ -77,8 +78,13 @@ export function writeErrorResponse(error: ProviderCallError, requestId: string):
  * The one post-header terminal stream error event. Surface encoders map it
  * to their protocol-valid error frame; it is emitted at most once per stream.
  */
-export function terminalErrorEvent(): StreamEvent {
-  return { type: "message_stop", reason: "error" };
+function safeStreamError(error: unknown): SafeErrorSummary {
+  const mapped = toProviderCallError(error);
+  return { statusCode: mapped.statusCode, kind: mapped.kind, message: mapped.sanitizedMessage, retryAt: mapped.retryAt };
+}
+
+export function terminalErrorEvent(error?: SafeErrorSummary): StreamEvent {
+  return { type: "message_stop", reason: "error", ...(error === undefined ? {} : { error }) };
 }
 
 export interface AppendTerminalErrorOptions {
@@ -94,13 +100,15 @@ export interface AppendTerminalErrorOptions {
  */
 export async function* appendTerminalError(events: AsyncIterable<StreamEvent>, options: AppendTerminalErrorOptions = {}): AsyncGenerator<StreamEvent> {
   let terminal = false;
+  let streamError: SafeErrorSummary | undefined;
   try {
     for await (const event of events) {
       if (isTerminalEvent(event)) terminal = true;
       yield event;
     }
   } catch (error) {
+    streamError = safeStreamError(error);
     options.onError?.(error);
   }
-  if (!terminal) yield terminalErrorEvent();
+  if (!terminal) yield terminalErrorEvent(streamError);
 }
