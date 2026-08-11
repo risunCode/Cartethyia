@@ -23,6 +23,7 @@ describe("normalizeProviderDetail", () => {
       models: [{
         modelId: "gpt-5",
         enabled: true,
+        capabilities: { chat: true, media: true, websearch: true },
         metadata: {
           categories: ["reasoning", "vision"],
           context: { inputTokens: 128_000, outputTokens: 4_096 },
@@ -53,6 +54,8 @@ describe("normalizeProviderDetail", () => {
         id: "gpt-5",
         reasoning: true,
         vision: true,
+        websearch: true,
+        capabilities: { chat: true, media: true, websearch: true },
         contextWindow: 128_000,
         maxOutputTokens: 4_096,
         pricing: { input: 1.25, output: 10 },

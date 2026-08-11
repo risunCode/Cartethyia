@@ -672,18 +672,19 @@ export class CredentialSelector {
     const ranked = rankAccountCandidates(input.candidates, input.preferredAccountId ?? null, now, input.modelId);
     const eligible = ranked.filter((candidate) => isAccountEligible(candidate, now, input.modelId));
     const stickyLimit = input.stickyLimit === undefined ? 0 : Math.max(1, Math.min(100, Math.round(input.stickyLimit)));
-    // Fix: use >= not > so sticky activates when pool size equals stickyLimit.
-    // The old `>` meant a pool of 3 accounts with stickyLimit=3 never entered
-    // the sticky path — it fell through to plain round-robin (no affinity).
-    const stickyPool = stickyLimit > 0 && input.affinityKey && eligible.length >= stickyLimit
+    const hasStickyAffinity = stickyLimit > 0 && input.affinityKey !== undefined && input.affinityKey !== null && eligible.length >= stickyLimit;
+    // A cache-affine request must stay on one deterministic credential. Round-robin
+    // still balances different affinity keys, but rotating one key per request
+    // destroys the provider-side prompt cache it is trying to reuse.
+    const stickyPool = hasStickyAffinity
       ? Array.from({ length: stickyLimit }, (_, offset) => eligible[(stableCredentialHash(`${input.affinityKey}:${input.providerId}`) + offset) % eligible.length]).filter((candidate): candidate is AccountCandidate => candidate !== undefined)
       : eligible;
 
     let chosen: AccountCandidate | undefined;
-    if (input.strategy === "round-robin" && stickyPool.length > 1) {
-      // In-flight aware round-robin (etteum-pool pattern): prefer idle
-      // accounts (in-flight == 0). If all are busy, fall back to the
-      // least-loaded account, breaking ties by the round-robin cursor.
+    if (hasStickyAffinity) {
+      chosen = stickyPool[0];
+    } else if (input.strategy === "round-robin" && stickyPool.length > 1) {
+      // In-flight aware round-robin for non-affine traffic.
       const cursor = this.roundRobinCursor.get(input.providerId) ?? 0;
       const idle = stickyPool.filter((c) => this.getInFlight(c.id) === 0);
       const pool = idle.length > 0 ? idle : stickyPool;

@@ -1,3 +1,4 @@
+import { findCacheBreakpoint } from "../../../application/cache";
 import { ProtocolCodecError } from "../errors";
 import type { ProviderCaps, ProviderUsage } from "../../../application/contracts";
 
@@ -35,7 +36,7 @@ type NormalizeInput,
 type NormalizeResult,
 type ProtocolError, } from "../../../application/protocols";
 import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool } from "../../../application/contracts";
-import { preserveWireField, preserveWireFields } from "../policy";
+import { preserveWirePayload } from "../policy/fields";
 
 export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): NormalizeResult {
   const aborted = abortedError(input.signal);
@@ -123,8 +124,9 @@ function normalizeContextManagement(raw: unknown): Readonly<Record<string, unkno
 function normalizeSystem(raw: unknown): NormalizedMessage[] | ProtocolError {
   if (raw === undefined || raw === null) return [];
   if (typeof raw === "string") {
-    if (raw.length > MAX_TEXT_BLOCK_LENGTH) return protocolError("system", `system: text exceeds ${MAX_TEXT_BLOCK_LENGTH} characters`);
-    return [{ role: "system", content: [{ type: "text", text: raw }] }];
+    const text = normalizeTextBlock(raw, "system");
+    if (isProtocolError(text)) return text;
+    return [{ role: "system", content: [{ type: "text", text }] }];
   }
   const list = narrowArray(raw, "system", MAX_BLOCKS_PER_MESSAGE);
   if (isProtocolError(list)) return list;
@@ -137,7 +139,7 @@ function normalizeSystem(raw: unknown): NormalizedMessage[] | ProtocolError {
     if (isProtocolError(obj)) return obj;
     const type = obj["type"];
     if (type === "text") {
-      const text = narrowString(obj["text"], `${field}.text`, MAX_TEXT_BLOCK_LENGTH);
+      const text = normalizeTextBlock(obj["text"], `${field}.text`);
       if (isProtocolError(text)) return text;
       blocks.push({ type: "text", text });
     } else if (typeof type === "string") {
@@ -147,6 +149,16 @@ function normalizeSystem(raw: unknown): NormalizedMessage[] | ProtocolError {
     }
   }
   return [{ role: "system", content: blocks }];
+}
+
+/**
+ * Validates context text without imposing a smaller proxy-side limit. The
+ * request body is already bounded at the transport layer, and cross-protocol
+ * adapters must receive the client's exact text.
+ */
+function normalizeTextBlock(value: unknown, field: string): string | ProtocolError {
+  if (typeof value !== "string") return protocolError(field, `${field}: expected a string`);
+  return value;
 }
 
 function normalizeMessages(raw: unknown, images: ImageReference[], reasoningState: { seen: boolean }): NormalizedMessage[] | ProtocolError {
@@ -201,8 +213,9 @@ function normalizeMessage(raw: unknown, field: string, images: ImageReference[],
 
 function normalizeContent(raw: unknown, field: string, images: ImageReference[], reasoningState: { seen: boolean }): ContentBlock[] | ProtocolError {
   if (typeof raw === "string") {
-    if (raw.length > MAX_TEXT_BLOCK_LENGTH) return protocolError(field, `${field}: text exceeds ${MAX_TEXT_BLOCK_LENGTH} characters`);
-    return [{ type: "text", text: raw }];
+    const text = normalizeTextBlock(raw, field);
+    if (isProtocolError(text)) return text;
+    return [{ type: "text", text }];
   }
   const list = narrowArray(raw, field, MAX_BLOCKS_PER_MESSAGE);
   if (isProtocolError(list)) return list;
@@ -212,9 +225,10 @@ function normalizeContent(raw: unknown, field: string, images: ImageReference[],
     const blockField = `${field}[${i}]`;
     if (item === undefined) continue;
     if (isRecord(item) && item["type"] === "thinking") {
-      // Thinking blocks carry reasoning, never visible text; the
-      // request-level `reasoning` flag preserves the distinction.
+      const thinking = normalizeTextBlock(item["thinking"], `${blockField}.thinking`);
+      if (isProtocolError(thinking)) return thinking;
       reasoningState.seen = true;
+      blocks.push({ type: "reasoning", nativeType: "thinking", reasoningText: thinking, nativePayload: { ...item }, raw: item });
       continue;
     }
     if (isRecord(item) && item["type"] === "tool_result") {
@@ -240,7 +254,7 @@ function normalizeBlock(raw: unknown, field: string, images: ImageReference[]): 
   const type = obj["type"];
   switch (type) {
     case "text": {
-      const text = narrowString(obj["text"], `${field}.text`, MAX_TEXT_BLOCK_LENGTH);
+      const text = normalizeTextBlock(obj["text"], `${field}.text`);
       if (isProtocolError(text)) return text;
       const cacheControl = isRecord(obj["cache_control"]) && obj["cache_control"]["type"] === "ephemeral" ? "ephemeral" as const : undefined;
       return { type: "text", text, ...(cacheControl === undefined ? {} : { cacheControl }) };
@@ -266,17 +280,11 @@ function normalizeBlock(raw: unknown, field: string, images: ImageReference[]): 
     case "compaction": {
       const content = obj["content"];
       if (content !== undefined && content !== null && typeof content !== "string") return protocolError(`${field}.content`, `${field}.content: expected a string or null`);
-      const bound = boundJsonLength(obj, field, MAX_TEXT_BLOCK_LENGTH);
-      if (bound !== null) return bound;
       return { type: "compaction", text: typeof content === "string" ? content : undefined, raw: obj };
     }
     default:
       if (typeof type === "string") {
-        // Server-executed Claude blocks (for example server_tool_use and
-        // web_search_tool_result) must survive translation to non-Anthropic
-        // providers as bounded context, not disappear as unknown metadata.
-        const serialized = typeof obj["text"] === "string" ? obj["text"] : JSON.stringify(obj);
-        return { type: "text", text: serialized?.slice(0, MAX_TEXT_BLOCK_LENGTH) };
+        return { type: "native", nativeType: type, nativePayload: { ...obj }, raw: obj };
       }
       return protocolError(`${field}.type`, "content block type must be a string");
   }
@@ -285,8 +293,9 @@ function normalizeBlock(raw: unknown, field: string, images: ImageReference[]): 
 function normalizeToolResult(raw: unknown, field: string, callId: string, images: ImageReference[]): ContentBlock[] | ProtocolError {
   if (raw === undefined || raw === null) return [{ type: "tool_result", toolCallId: callId }];
   if (typeof raw === "string") {
-    if (raw.length > MAX_TEXT_BLOCK_LENGTH) return protocolError(field, `${field}: text exceeds ${MAX_TEXT_BLOCK_LENGTH} characters`);
-    return [{ type: "tool_result", text: raw, toolCallId: callId }];
+    const text = normalizeTextBlock(raw, field);
+    if (isProtocolError(text)) return text;
+    return [{ type: "tool_result", text, toolCallId: callId }];
   }
   const list = narrowArray(raw, field, MAX_BLOCKS_PER_MESSAGE);
   if (isProtocolError(list)) return list;
@@ -299,20 +308,20 @@ function normalizeToolResult(raw: unknown, field: string, callId: string, images
     if (isProtocolError(obj)) return obj;
     const type = obj["type"];
     if (type === "text") {
-      const text = narrowString(obj["text"], `${itemField}.text`, MAX_TEXT_BLOCK_LENGTH);
+      const text = normalizeTextBlock(obj["text"], `${itemField}.text`);
       if (isProtocolError(text)) return text;
       blocks.push({ type: "tool_result", text, toolCallId: callId });
     } else if (type === "image") {
       const image = normalizeImage(obj["source"], `${itemField}.source`, images);
       if (isProtocolError(image)) return image;
       blocks.push({ type: "tool_result", image, toolCallId: callId });
+      const serialized = typeof obj["text"] === "string" ? obj["text"] : JSON.stringify(obj);
+      blocks.push({ type: "tool_result", text: serialized, toolCallId: callId, raw: obj });
     } else if (typeof type === "string") {
       const serialized = typeof obj["text"] === "string" ? obj["text"] : JSON.stringify(obj);
-      const bound = boundJsonLength(obj, itemField, MAX_TEXT_BLOCK_LENGTH);
-      if (bound !== null) return bound;
-      blocks.push({ type: "tool_result", text: serialized?.slice(0, MAX_TEXT_BLOCK_LENGTH), toolCallId: callId, raw: obj });
+      blocks.push({ type: "tool_result", text: serialized, toolCallId: callId, nativeType: type, nativePayload: { ...obj }, raw: obj });
     } else {
-      return protocolError(`${itemField}.type`, "tool result block type must be a string");
+      return protocolError(`${itemField}.type`, "tool result block must have a string type");
     }
   }
   return blocks;
@@ -398,10 +407,10 @@ export function buildMessagesPayload(request: ProxyRequest, capabilities: Provid
     stream: request.stream,
     messages: request.messages
       .filter((message) => message.role !== "system" && message.role !== "developer")
-      .map((message) => toAnthropicMessage(message)),
+      .map((message) => toAnthropicMessage(message, capabilities)),
   };
   if (systemText.length > 0) {
-    payload.system = cacheEnabled ? [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }] : systemText;
+    payload.system = systemText;
   }
   if (request.metadataUserId !== undefined) payload.metadata = { user_id: request.metadataUserId };
   if (request.mcpServers !== undefined) payload.mcp_servers = request.mcpServers;
@@ -427,16 +436,49 @@ export function buildMessagesPayload(request: ProxyRequest, capabilities: Provid
   if (request.reasoning === "enabled" && capabilities.reasoning) {
     payload.thinking = { type: "enabled", budget_tokens: Math.min(request.maxOutputTokens ?? DEFAULT_MAX_TOKENS, MAX_THINKING_BUDGET) };
   }
-  preserveWireFields(payload, request, "anthropic-messages", ["model", "max_tokens", "stream", "messages", "system", "metadata", "mcp_servers", "tools", "context_management", "thinking"]);
-  for (const field of ["model", "max_tokens", "stream", "messages", "system", "metadata", "mcp_servers", "tools", "context_management", "thinking"] as const) {
-    if (field === "context_management" && options.includeContextManagement === false) continue;
-    preserveWireField(payload, request, "anthropic-messages", field);
-  }
-  if (cacheEnabled) {
-    applySystemCacheControl(payload);
-    applyLastUserCacheControl(payload);
-  }
+  preserveWirePayload(payload, request, "anthropic-messages", options.includeContextManagement === false ? ["model", "max_tokens", "stream", "messages", "system", "metadata", "mcp_servers", "tools", "thinking"] : ["model", "max_tokens", "stream", "messages", "system", "metadata", "mcp_servers", "tools", "context_management", "thinking"]);
+  if (cacheEnabled) applyAnthropicCacheControl(payload, request);
   return payload;
+}
+
+function applyAnthropicCacheControl(payload: Record<string, unknown>, request: ProxyRequest): void {
+  const position = findCacheBreakpoint(request);
+  if (position !== null) {
+    const target = request.messages[position.messageIndex];
+    if (target?.role === "system" || target?.role === "developer") {
+      applySystemCacheControl(payload);
+      return;
+    }
+    const messages = payload.messages;
+    if (Array.isArray(messages)) {
+      let wireIndex = 0;
+      for (let messageIndex = 0; messageIndex < request.messages.length; messageIndex += 1) {
+        const message = request.messages[messageIndex];
+        if (message === undefined || message.role === "system" || message.role === "developer") continue;
+        if (messageIndex === position.messageIndex && markAnthropicMessage(messages[wireIndex])) return;
+        wireIndex += 1;
+      }
+    }
+  }
+  applySystemCacheControl(payload);
+  applyLastUserCacheControl(payload);
+}
+
+function markAnthropicMessage(message: unknown): boolean {
+  if (!isRecord(message)) return false;
+  const content = message.content;
+  if (typeof content === "string" && content.length > 0) {
+    message.content = [{ type: "text", text: content, cache_control: { type: "ephemeral" } }];
+    return true;
+  }
+  if (!Array.isArray(content)) return false;
+  for (let index = content.length - 1; index >= 0; index -= 1) {
+    const block = content[index];
+    if (!isRecord(block) || block.type !== "text") continue;
+    content[index] = { ...block, cache_control: { type: "ephemeral" } };
+    return true;
+  }
+  return false;
 }
 
 function applySystemCacheControl(payload: Record<string, unknown>): void {
@@ -481,7 +523,7 @@ function applyLastUserCacheControl(payload: Record<string, unknown>): void {
 }
 
 
-function toAnthropicMessage(message: NormalizedMessage): Record<string, unknown> {
+function toAnthropicMessage(message: NormalizedMessage, capabilities: ProviderCaps): Record<string, unknown> {
   switch (message.role) {
     case "user":
       return { role: "user", content: message.content.flatMap(toAnthropicUserBlock) };
@@ -489,14 +531,21 @@ function toAnthropicMessage(message: NormalizedMessage): Record<string, unknown>
       const content: Record<string, unknown>[] = [];
       for (const block of message.content) {
         if (block.type === "text") content.push({ type: "text", text: block.text ?? "" });
+        else if (block.type === "reasoning" && capabilities.reasoning && block.reasoningText !== undefined) content.push({ type: "thinking", thinking: block.reasoningText });
         else if (block.type === "compaction") content.push(block.raw ?? { type: "compaction", content: block.text ?? null });
         else if (block.type === "tool_use") content.push(toAnthropicToolUse(block));
+        else if (block.type === "native" && capabilities.toolCalls && isRecord(block.nativePayload)) content.push({ ...block.nativePayload });
       }
       return { role: "assistant", content };
     }
     case "tool": {
       const first = message.content[0];
-      const content = message.content.map((block) => block.raw ?? block.text ?? "");
+      const content: Array<string | Readonly<Record<string, unknown>>> = [];
+      for (const block of message.content) {
+        if (block.raw !== undefined) content.push(block.raw);
+        else if (block.image !== undefined) content.push({ type: "image", source: toAnthropicImageSource(block.image) });
+        else content.push(block.text ?? "");
+      }
       return {
         role: "user",
         content: [{
@@ -509,7 +558,6 @@ function toAnthropicMessage(message: NormalizedMessage): Record<string, unknown>
     }
     case "system":
     case "developer":
-      // filtered out by buildMessagesPayload; defensive fallback
       return { role: "user", content: [{ type: "text", text: messageText(message) }] };
   }
 }
@@ -543,6 +591,8 @@ function toAnthropicUserBlock(block: ContentBlock): readonly Record<string, unkn
       return [{ type: "image", source: toAnthropicImageSource(block.image) }];
     case "tool_result":
       return [{ type: "tool_result", tool_use_id: block.toolCallId ?? "", content: block.text ?? "", ...(block.toolResultIsError ? { is_error: true } : {}) }];
+    case "native":
+      return isRecord(block.nativePayload) ? [{ ...block.nativePayload }] : [];
     default:
       return [];
   }
@@ -573,21 +623,3 @@ function toAnthropicImageSource(image: ImageReference | undefined): Record<strin
   });
 }
 
-/**
- * Maps an Anthropic usage record into application ProviderUsage. Cache read
- * and write tokens are always surfaced when the upstream reports them.
- */
-export function mapAnthropicUsage(usage: Record<string, unknown>): ProviderUsage {
-  const inputTokens = nullableNumber(usage.input_tokens);
-  const outputTokens = nullableNumber(usage.output_tokens);
-  const cacheReadTokens = nullableNumber(usage.cache_read_input_tokens);
-  const cacheWriteTokens = nullableNumber(usage.cache_creation_input_tokens);
-  return {
-    inputTokens,
-    outputTokens,
-    totalTokens: inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null,
-    cacheReadTokens,
-    cacheWriteTokens,
-    source: "provider",
-  };
-}

@@ -1,7 +1,8 @@
 import { ProtocolCodecError } from "../errors";
-import { REASONING_EFFORTS, parseReasoningConfig } from "./openai-responses";
 import type { ProviderUsage } from "../../../application/contracts";
+import { REASONING_EFFORTS, parseReasoningConfig } from "./openai-responses";
 import { abortedError,
+boundJsonLength,
 classifyImageReference,
 isProtocolError,
 isRecord,
@@ -30,7 +31,8 @@ type NormalizeInput,
 type NormalizeResult,
 type ProtocolError, } from "../../../application/protocols";
 import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, ReasoningConfig, ReasoningEffort, ReasoningSummary } from "../../../application/contracts";
-import { preserveWireField, preserveWireFields } from "../policy";
+import { preserveWirePayload } from "../policy/fields";
+import { applyOpenAIChatCacheBreakpoint } from "../policy/cache";
 
 /**
  * Strict validation and normalization for OpenAI Chat Completions
@@ -217,9 +219,9 @@ function normalizeContent(raw: unknown, field: string, images: ImageReference[])
       if (isProtocolError(image)) return image;
       blocks.push({ type: "image", image });
     } else if (typeof type === "string") {
-      // Unknown block types are narrowed to a typed "unknown" block, never
-      // dropped or assumed to be visible text.
-      blocks.push({ type: "unknown", text: typeof obj["text"] === "string" ? obj["text"] : undefined });
+      const bound = boundJsonLength(obj, blockField, MAX_TEXT_BLOCK_LENGTH);
+      if (bound !== null) return bound;
+      blocks.push({ type: "native", nativeType: type, nativePayload: { ...obj }, raw: obj });
     } else {
       return protocolError(`${blockField}.type`, "content block type must be a string");
     }
@@ -287,7 +289,15 @@ function normalizeTools(raw: unknown): NormalizedTool[] | ProtocolError {
  * payload. json_schema response formats are approximated as json_object
  * because the normalized request carries no schema body.
  */
-export function buildChatPayload(request: ProxyRequest): Record<string, unknown> {
+export function buildChatPayload(request: ProxyRequest, options: { readonly allowNativeTools?: boolean } = {}): Record<string, unknown> {
+  if (!options.allowNativeTools && request.tools.some((tool) => tool.nativeType !== undefined)) {
+    throw new ProtocolCodecError({
+      kind: "capability_unsupported",
+      message: "Anthropic native server tools require an upstream adapter with explicit native-tool support",
+      statusCode: 400,
+      routeScope: "provider",
+    });
+  }
   const payload: Record<string, unknown> = {
     model: request.model,
     stream: request.stream,
@@ -318,12 +328,11 @@ export function buildChatPayload(request: ProxyRequest): Record<string, unknown>
     }
   }
   if (request.stream) payload.stream_options = { include_usage: true };
-  preserveWireFields(payload, request, "openai-chat", ["model", "stream", "messages", "tools", "max_tokens", "max_completion_tokens", "prompt_cache_key", "response_format", "reasoning_effort", "reasoning", "stream_options"]);
-  for (const field of ["model", "stream", "messages", "tools", "max_tokens", "max_completion_tokens", "prompt_cache_key", "response_format", "reasoning_effort", "reasoning", "stream_options"] as const) {
-    preserveWireField(payload, request, "openai-chat", field);
-  }
+  preserveWirePayload(payload, request, "openai-chat", ["model", "stream", "messages", "tools", "max_tokens", "max_completion_tokens", "prompt_cache_key", "prompt_cache_options", "response_format", "reasoning_effort", "reasoning", "stream_options"]);
+  applyOpenAIChatCacheBreakpoint(payload, request);
   return payload;
 }
+
 
 function toChatMessage(message: NormalizedMessage): Record<string, unknown> {
   switch (message.role) {
@@ -350,7 +359,7 @@ function toChatMessage(message: NormalizedMessage): Record<string, unknown> {
     }
     case "tool": {
       const block = message.content[0];
-      return { role: "tool", tool_call_id: block?.toolCallId ?? "", content: block?.text ?? "" };
+      return { role: "tool", tool_call_id: block?.toolCallId ?? "", content: message.content.map((item) => item.text ?? "").join("\n") };
     }
   }
 }
@@ -392,25 +401,3 @@ export function toOpenAIImageUrl(image: ImageReference | undefined): string {
   });
 }
 
-/**
- * Maps an OpenAI chat usage record into application ProviderUsage. Cache read
- * tokens and reasoning tokens are surfaced when the upstream reports them.
- */
-export function mapChatUsage(usage: Record<string, unknown>): ProviderUsage {
-  const inputTokens = nullableNumber(usage.prompt_tokens);
-  const outputTokens = nullableNumber(usage.completion_tokens);
-  const totalTokens = nullableNumber(usage.total_tokens);
-  const inputDetails = usage.prompt_tokens_details;
-  const outputDetails = usage.completion_tokens_details;
-  const cachedTokens = isRecord(inputDetails) ? nullableNumber(inputDetails.cached_tokens) : null;
-  const reasoningTokens = isRecord(outputDetails) ? nullableNumber(outputDetails.reasoning_tokens) : null;
-  return {
-    inputTokens,
-    outputTokens,
-    totalTokens: totalTokens ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null),
-    cacheReadTokens: cachedTokens,
-    cacheWriteTokens: null,
-    reasoningTokens,
-    source: "provider",
-  };
-}

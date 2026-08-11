@@ -40,6 +40,7 @@ export interface CapabilitySeed {
   readonly images?: boolean;
   readonly explicitCache?: boolean;
   readonly promptCacheKey?: boolean;
+  readonly search?: boolean;
 }
 
 /** Optional normalized metadata used to describe a provider model. */

@@ -25,6 +25,7 @@ import type { ModelMetadata, ProviderModel, RouteHealth } from "../application/c
 import type { BackupPayload, ConfigPersistence, ProviderAccountRecord, RestoreResult, RestoreValidation, RuntimePersistence } from "../storage";
 import { assertProductionBootstrapEnvironment, generateConsoleJwtSecret, isValidBootstrapPassword } from "../security/secrets";
 import { normalizeSidebarIconDataUrl, runtimeRecord, runtimeSettings } from "./runtime-settings";
+import { modelCapabilityView } from "./views/models";
 
 function listOrNull(value: string | null): readonly string[] | null {
   if (value === null || value.trim() === "") return null;
@@ -102,7 +103,6 @@ function modelMetadataFor(providerId: string, model: ProviderModel, config: Conf
     updatedAt: custom !== null ? custom.updatedAt : null,
   };
 }
-
 function modelView(row: ReturnType<ConfigPersistence["providerModels"]["list"]>[number], registry: ProviderRegistry, config: ConfigPersistence): ModelView {
   const catalog = registry.get(row.provider)?.models.list.find((model) => model.id === row.modelId);
   const model = catalog ?? null;
@@ -113,6 +113,7 @@ function modelView(row: ReturnType<ConfigPersistence["providerModels"]["list"]>[
     enabled: row.enabled,
     source: model === null ? (row.source === "imported" ? "imported" : "manual") : "built-in",
     images: model?.capabilities.images,
+    capabilities: model === null ? undefined : modelCapabilityView(model),
     metadata: model === null ? undefined : modelMetadataFor(row.provider, model, config),
   };
 }

@@ -21,22 +21,27 @@ import { callHostedImageWire, callResponsesWire } from "../open-sse/transport/pr
  */
 
 const OPENAI_SURFACES: readonly Surface[] = ["openai-responses", "images"];
+const OPENAI_TEXT_SURFACES: readonly Surface[] = ["openai-responses"];
+
+function openAiTextCapabilities(seed: { readonly reasoning?: boolean; readonly images?: boolean } = {}): ProviderCaps {
+  return capabilitiesOf({ surfaces: OPENAI_TEXT_SURFACES, ...seed, explicitCache: true, promptCacheKey: true });
+}
 
 const OPENAI_DEFAULT_MODELS: readonly ProviderModel[] = [
-  modelOf("gpt-5.6", "GPT-5.6", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true, images: true })),
-  modelOf("gpt-5.6-sol", "GPT-5.6 Sol", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true, images: true })),
-  modelOf("gpt-5.6-terra", "GPT-5.6 Terra", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true, images: true })),
-  modelOf("gpt-5.6-luna", "GPT-5.6 Luna", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true, images: true })),
-  modelOf("gpt-5", "GPT-5", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true, images: true })),
-  modelOf("gpt-5-mini", "GPT-5 Mini", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true })),
-  modelOf("gpt-5-nano", "GPT-5 Nano", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true })),
-  modelOf("gpt-4.1", "GPT-4.1", capabilitiesOf({ surfaces: OPENAI_SURFACES, images: true })),
-  modelOf("gpt-4.1-mini", "GPT-4.1 Mini", capabilitiesOf({ surfaces: OPENAI_SURFACES, images: true })),
-  modelOf("gpt-4.1-nano", "GPT-4.1 Nano", capabilitiesOf({ surfaces: OPENAI_SURFACES })),
-  modelOf("gpt-4o", "GPT-4o", capabilitiesOf({ surfaces: OPENAI_SURFACES, images: true })),
-  modelOf("gpt-4o-mini", "GPT-4o Mini", capabilitiesOf({ surfaces: OPENAI_SURFACES, images: true })),
-  modelOf("o3", "O3", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true })),
-  modelOf("o4-mini", "O4 Mini", capabilitiesOf({ surfaces: OPENAI_SURFACES, reasoning: true })),
+  modelOf("gpt-5.6", "GPT-5.6", openAiTextCapabilities({ reasoning: true, images: true })),
+  modelOf("gpt-5.6-sol", "GPT-5.6 Sol", openAiTextCapabilities({ reasoning: true, images: true })),
+  modelOf("gpt-5.6-terra", "GPT-5.6 Terra", openAiTextCapabilities({ reasoning: true, images: true })),
+  modelOf("gpt-5.6-luna", "GPT-5.6 Luna", openAiTextCapabilities({ reasoning: true, images: true })),
+  modelOf("gpt-5", "GPT-5", openAiTextCapabilities({ reasoning: true, images: true })),
+  modelOf("gpt-5-mini", "GPT-5 Mini", openAiTextCapabilities({ reasoning: true })),
+  modelOf("gpt-5-nano", "GPT-5 Nano", openAiTextCapabilities({ reasoning: true })),
+  modelOf("gpt-4.1", "GPT-4.1", openAiTextCapabilities({ images: true })),
+  modelOf("gpt-4.1-mini", "GPT-4.1 Mini", openAiTextCapabilities({ images: true })),
+  modelOf("gpt-4.1-nano", "GPT-4.1 Nano", openAiTextCapabilities()),
+  modelOf("gpt-4o", "GPT-4o", openAiTextCapabilities({ images: true })),
+  modelOf("gpt-4o-mini", "GPT-4o Mini", openAiTextCapabilities({ images: true })),
+  modelOf("o3", "O3", openAiTextCapabilities({ reasoning: true })),
+  modelOf("o4-mini", "O4 Mini", openAiTextCapabilities({ reasoning: true })),
   modelOf("dall-e-3", "DALL-E 3", capabilitiesOf({ surfaces: ["images"], images: true })),
   modelOf("gpt-image-1", "GPT Image 1", capabilitiesOf({ surfaces: ["images"], images: true })),
 ];

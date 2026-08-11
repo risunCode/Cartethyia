@@ -89,9 +89,9 @@ export function markCacheSections(request: ProxyRequest): readonly CacheSection[
   return sections;
 }
 
-export function applyCachePlan(request: ProxyRequest, plan: CachePlan): ProxyRequest {
+export function applyCachePlan(request: ProxyRequest, plan: CachePlan, affinityKey?: string | null): ProxyRequest {
   if (!plan.hasStablePrefix || plan.prefixFingerprint === null) return request;
-  const cacheKey = request.cacheKey ?? plan.prefixFingerprint;
+  const cacheKey = request.cacheKey ?? fnv1a64([plan.prefixFingerprint, request.model, request.sourceSurface, affinityKey ?? "anonymous"]);
   if (plan.prefixEndMessageIndex === null || plan.prefixEndBlockIndex === null) {
     return { ...request, cacheKey };
   }
@@ -111,6 +111,50 @@ export function applyCachePlan(request: ProxyRequest, plan: CachePlan): ProxyReq
     return { ...message, content };
   });
   return { ...request, messages, cacheKey };
+}
+
+export interface CacheBreakpointPosition {
+  readonly messageIndex: number;
+  readonly blockIndex: number;
+}
+
+/**
+ * Finds the latest text block that can carry an explicit provider cache
+ * breakpoint. Assistant/tool suffixes fall back to the nearest earlier
+ * system, developer, or user text block because OpenAI only accepts
+ * breakpoints on input content blocks.
+ */
+export function findCacheBreakpoint(request: ProxyRequest): CacheBreakpointPosition | null {
+  let targetMessageIndex: number | null = null;
+  let targetBlockIndex: number | null = null;
+  for (let messageIndex = 0; messageIndex < request.messages.length; messageIndex += 1) {
+    const message = request.messages[messageIndex];
+    if (message === undefined) continue;
+    for (let blockIndex = 0; blockIndex < message.content.length; blockIndex += 1) {
+      if (message.content[blockIndex]?.cacheControl === "ephemeral") {
+        targetMessageIndex = messageIndex;
+        targetBlockIndex = blockIndex;
+        break;
+      }
+    }
+    if (targetMessageIndex !== null) break;
+  }
+  if (targetMessageIndex === null || targetBlockIndex === null) return null;
+  for (let messageIndex = targetMessageIndex; messageIndex >= 0; messageIndex -= 1) {
+    const message = request.messages[messageIndex];
+    if (message === undefined || (message.role !== "system" && message.role !== "developer" && message.role !== "user")) continue;
+    const start = messageIndex === targetMessageIndex ? targetBlockIndex : message.content.length - 1;
+    for (let blockIndex = start; blockIndex >= 0; blockIndex -= 1) {
+      if (message.content[blockIndex]?.type === "text") return { messageIndex, blockIndex };
+    }
+  }
+  return null;
+}
+
+/** GPT-5.6+ accepts explicit OpenAI prompt cache breakpoints. */
+export function supportsOpenAIPromptBreakpoints(model: string): boolean {
+  const match = /(?:^|\/)gpt-5\.(\d+)(?:$|[-.])/i.exec(model);
+  return match !== null && Number.parseInt(match[1] ?? "0", 10) >= 6;
 }
 
 export function buildCachePlan(request: ProxyRequest): CachePlan {

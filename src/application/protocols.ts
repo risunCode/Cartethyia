@@ -198,9 +198,9 @@ export interface NormalizeToolListOptions {
  *
  * The three codecs differ only in tool wrapper shape (`function` unwrap vs
  * direct), the schema field name (`parameters` vs `input_schema`), and whether
- * the schema is required. Claude's server-side web search tool is preserved as
- * native metadata while also receiving a function schema for OpenAI-compatible
- * upstreams that do not understand Anthropic server-tool types.
+ * the schema is required. Claude's server-side tools are preserved as bounded
+ * native metadata; target adapters decide whether they can forward or
+ * explicitly adapt them.
  */
 const ANTHROPIC_WEB_SEARCH_SCHEMA: Record<string, unknown> = {
   type: "object",
@@ -213,8 +213,24 @@ const ANTHROPIC_WEB_SEARCH_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
+const ANTHROPIC_WEB_FETCH_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    url: { type: "string", description: "The URL to fetch." },
+    allowed_domains: { type: "array", items: { type: "string" } },
+    blocked_domains: { type: "array", items: { type: "string" } },
+  },
+  required: ["url"],
+  additionalProperties: false,
+};
+
 const ANTHROPIC_NATIVE_TOOL_TYPES: Record<string, string> = {
   web_search_20250305: "web_search_20250305",
+  web_search_20260209: "web_search_20260209",
+  web_search_20260318: "web_search_20260318",
+  web_fetch_20250910: "web_fetch_20250910",
+  web_fetch_20260209: "web_fetch_20260209",
+  web_fetch_20260318: "web_fetch_20260318",
   code_execution_20250825: "code_execution_20250825",
   code_execution_20260120: "code_execution_20260120",
   code_execution_20260521: "code_execution_20260521",
@@ -227,6 +243,11 @@ const ANTHROPIC_NATIVE_TOOL_TYPES: Record<string, string> = {
 
 const ANTHROPIC_NATIVE_TOOL_NAMES: Record<string, string> = {
   web_search_20250305: "web_search",
+  web_search_20260209: "web_search",
+  web_search_20260318: "web_search",
+  web_fetch_20250910: "web_fetch",
+  web_fetch_20260209: "web_fetch",
+  web_fetch_20260318: "web_fetch",
   code_execution_20250825: "code_execution",
   code_execution_20260120: "code_execution",
   code_execution_20260521: "code_execution",
@@ -236,6 +257,10 @@ const ANTHROPIC_NATIVE_TOOL_NAMES: Record<string, string> = {
   tool_search_tool_bm25: "tool_search_tool_bm25",
   mcp_toolset: "mcp_toolset",
 };
+
+function isAnthropicWebToolType(value: string | undefined): boolean {
+  return value?.startsWith("web_search_") === true || value?.startsWith("web_fetch_") === true;
+}
 
 export function normalizeToolList(raw: unknown, options: NormalizeToolListOptions): NormalizedTool[] | ProtocolError {
   if (raw === undefined || raw === null) return [];
@@ -254,7 +279,7 @@ export function normalizeToolList(raw: unknown, options: NormalizeToolListOption
     // passthrough and are still available to cross-protocol adapters.
     const nativeType = type !== undefined && type !== "function" ? type : undefined;
     const isKnownNative = nativeType !== undefined && ANTHROPIC_NATIVE_TOOL_TYPES[nativeType] !== undefined;
-    const isNativeWebSearch = nativeType === "web_search_20250305";
+    const isNativeWebTool = isAnthropicWebToolType(nativeType);
     const source = options.unwrapFunction && nativeType === undefined
       ? narrowObject(obj["function"], `${field}.function`)
       : obj;
@@ -278,22 +303,21 @@ export function normalizeToolList(raw: unknown, options: NormalizeToolListOption
       if (isKnownNative && name !== ANTHROPIC_NATIVE_TOOL_NAMES[nativeType] && nativeType !== "mcp_toolset") {
         return protocolError(nameField, `unsupported Anthropic server tool name "${name}"`);
       }
-      inputSchema = isNativeWebSearch ? ANTHROPIC_WEB_SEARCH_SCHEMA : {};
-      if (isNativeWebSearch) {
+      if (nativeType.startsWith("web_search_")) inputSchema = ANTHROPIC_WEB_SEARCH_SCHEMA;
+      else if (nativeType.startsWith("web_fetch_")) inputSchema = ANTHROPIC_WEB_FETCH_SCHEMA;
+      else inputSchema = {};
+      const optionsObject = { ...obj };
+      delete optionsObject.type;
+      delete optionsObject.name;
+      if (isNativeWebTool) {
         const maxUses = obj["max_uses"];
-        if (maxUses !== undefined) {
-          if (typeof maxUses !== "number" || !Number.isInteger(maxUses) || maxUses < 1 || maxUses > 100) {
-            return protocolError(`${field}.max_uses`, `${field}.max_uses: expected an integer from 1 to 100`);
-          }
-          nativeOptions = { max_uses: maxUses };
+        if (maxUses !== undefined && (typeof maxUses !== "number" || !Number.isInteger(maxUses) || maxUses < 1 || maxUses > 100)) {
+          return protocolError(`${field}.max_uses`, `${field}.max_uses: expected an integer from 1 to 100`);
         }
-      } else {
-        inputSchema = {};
-        const optionsObject = { ...obj };
-        delete optionsObject.type;
-        delete optionsObject.name;
-        nativeOptions = optionsObject;
       }
+      const nativeOptionsError = boundJsonLength(optionsObject, field, MAX_TEXT_BLOCK_LENGTH);
+      if (nativeOptionsError !== null) return nativeOptionsError;
+      nativeOptions = optionsObject;
     } else {
       const schemaFieldPath = options.unwrapFunction ? `${field}.function.${options.schemaField}` : `${field}.${options.schemaField}`;
       const schemaRaw = source[options.schemaField];
@@ -344,9 +368,6 @@ export function normalizeToolList(raw: unknown, options: NormalizeToolListOption
         normalized.push(value);
       }
       inputExamples = normalized;
-    }
-    if (nativeType === "web_search_20250305" && deferLoading !== undefined) {
-      nativeOptions = { ...(nativeOptions ?? {}), defer_loading: deferLoading };
     }
     tools.push({
       name,

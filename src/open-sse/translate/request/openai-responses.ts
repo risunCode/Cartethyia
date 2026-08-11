@@ -1,4 +1,5 @@
 import { toOpenAIImageUrl } from "./openai-chat";
+import { ProtocolCodecError } from "../errors";
 import type { ProviderUsage } from "../../../application/contracts";
 import { abortedError,
 classifyImageReference,
@@ -29,7 +30,8 @@ type NormalizeInput,
 type NormalizeResult,
 type ProtocolError, } from "../../../application/protocols";
 import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, ReasoningConfig, ReasoningContext, ReasoningEffort, ReasoningMode, ReasoningSummary } from "../../../application/contracts";
-import { preserveWireField, preserveWireFields } from "../policy";
+import { preserveWirePayload } from "../policy/fields";
+import { applyOpenAIResponsesCacheBreakpoint } from "../policy/cache";
 
 export function normalizeResponsesRequest(body: unknown, input: NormalizeInput): NormalizeResult {
   const aborted = abortedError(input.signal);
@@ -331,7 +333,8 @@ function normalizeReasoningItem(obj: Record<string, unknown>, field: string): Re
     }
     item.summary = normalized;
   }
-  return item;
+  const bound = boundJsonLength(item, field, MAX_TEXT_BLOCK_LENGTH);
+  return bound === null ? item : bound;
 }
 
 function normalizeMessageContent(raw: unknown, field: string, images: ImageReference[], reasoningState: { seen: boolean }): ContentBlock[] | ProtocolError {
@@ -342,11 +345,12 @@ function normalizeMessageContent(raw: unknown, field: string, images: ImageRefer
   for (let i = 0; i < list.length; i++) {
     const item = list[i];
     const blockField = `${field}[${i}]`;
-    if (item === undefined) continue;
     if (isRecord(item) && item["type"] === "reasoning") {
-      // Reasoning blocks carry no visible text; the request-level flag
-      // preserves the reasoning/text distinction.
+      const normalized = normalizeReasoningItem(item, blockField);
+      if (isProtocolError(normalized)) return normalized;
       reasoningState.seen = true;
+      const summary = Array.isArray(normalized.summary) ? normalized.summary.filter(isRecord) : undefined;
+      blocks.push({ type: "reasoning", nativeType: "reasoning", nativePayload: { ...normalized }, reasoningEncryptedContent: typeof normalized.encrypted_content === "string" ? normalized.encrypted_content : undefined, reasoningSummary: summary, raw: normalized });
       continue;
     }
     const block = normalizeResponseBlock(item, blockField, images);
@@ -462,13 +466,11 @@ export function buildResponsesPayload(request: ProxyRequest, options: { readonly
     if (Array.isArray(contextManagement)) payload.context_management = [...contextManagement];
     else if (isRecord(contextManagement) && Array.isArray(contextManagement.edits)) payload.context_management = contextManagement.edits;
   }
-  preserveWireFields(payload, request, "openai-responses", ["model", "stream", "input", "tools", "max_output_tokens", "prompt_cache_key", "text", "reasoning", "include", "context_management"]);
-  for (const field of ["model", "stream", "input", "tools", "max_output_tokens", "prompt_cache_key", "text", "reasoning", "include", "context_management"] as const) {
-    if (field === "context_management" && options.includeContextManagement === false) continue;
-    preserveWireField(payload, request, "openai-responses", field);
-  }
+  preserveWirePayload(payload, request, "openai-responses", options.includeContextManagement === false ? ["model", "stream", "input", "tools", "max_output_tokens", "prompt_cache_key", "prompt_cache_options", "text", "reasoning", "include"] : ["model", "stream", "input", "tools", "max_output_tokens", "prompt_cache_key", "prompt_cache_options", "text", "reasoning", "include", "context_management"]);
+  applyOpenAIResponsesCacheBreakpoint(payload, request, toResponsesItem);
   return payload;
 }
+
 
 /**
  * Builds the `reasoning` wire object, preserving structured effort, summary,
@@ -492,13 +494,39 @@ function buildReasoningWire(flag: "enabled" | "disabled" | "default", config: Re
 }
 
 function toResponsesTool(tool: NormalizedTool): Record<string, unknown> {
-  if (tool.nativeType === "web_search_20250305") return { type: "web_search" };
+  const normalizedName = tool.name.toLowerCase().replace(/[^a-z]/g, "");
+  if (tool.nativeType?.startsWith("web_search_") === true || normalizedName === "websearch") return { type: "web_search" };
+  if (tool.nativeType?.startsWith("web_fetch_") === true) {
+    throw new ProtocolCodecError({
+      kind: "capability_unsupported",
+      message: "Anthropic web fetch tools require an Anthropic-compatible upstream",
+      statusCode: 400,
+      routeScope: "provider",
+    });
+  }
   return {
     type: "function",
     name: tool.name,
     description: tool.description ?? undefined,
     parameters: tool.inputSchema,
   };
+}
+
+function toResponsesReasoningItem(block: ContentBlock): Record<string, unknown> {
+  const raw = block.raw;
+  const item: Record<string, unknown> = { type: "reasoning" };
+  if (isRecord(raw)) {
+    if (typeof raw.id === "string") item.id = raw.id;
+    if (typeof raw.encrypted_content === "string") item.encrypted_content = raw.encrypted_content;
+    if (Array.isArray(raw.summary)) item.summary = raw.summary;
+  }
+  if (typeof item.encrypted_content !== "string" && block.reasoningEncryptedContent !== undefined) {
+    item.encrypted_content = block.reasoningEncryptedContent;
+  }
+  if (!Array.isArray(item.summary)) {
+    item.summary = block.reasoningSummary ?? (block.reasoningText === undefined ? [] : [{ type: "summary_text", text: block.reasoningText }]);
+  }
+  return item;
 }
 
 function toResponsesItem(message: NormalizedMessage): readonly Record<string, unknown>[] {
@@ -520,12 +548,11 @@ function toResponsesItem(message: NormalizedMessage): readonly Record<string, un
     case "assistant": {
       const items: Record<string, unknown>[] = [...prefix];
       for (const block of message.content) {
-        if (block.type === "compaction" && block.raw !== undefined) items.push(block.raw);
+        if (block.type === "compaction" && block.raw !== undefined) items.push({ ...block.raw });
+        else if (block.type === "reasoning") items.push(toResponsesReasoningItem(block));
       }
       const text = messageText(message);
       const calls = message.content.filter((block) => block.type === "tool_use");
-      // A tool-call-only assistant turn (function_call items round-tripping)
-      // must not fabricate an empty visible assistant message.
       if (text.length > 0 || calls.length === 0) {
         items.push({ role: "assistant", content: [{ type: "output_text", text }], ...(message.phase === undefined ? {} : { phase: message.phase }) });
       }
@@ -541,30 +568,8 @@ function toResponsesItem(message: NormalizedMessage): readonly Record<string, un
     }
     case "tool": {
       const block = message.content[0];
-      return [...prefix, { type: "function_call_output", call_id: block?.toolCallId ?? "", output: block?.text ?? "" }];
+      return [...prefix, { type: "function_call_output", call_id: block?.toolCallId ?? "", output: message.content.map((item) => item.text ?? "").join("\n") }];
     }
   }
 }
 
-/**
- * Maps an OpenAI Responses usage record into application ProviderUsage. Cache
- * read tokens and reasoning tokens are surfaced when the upstream reports them.
- */
-export function mapResponsesUsage(usage: Record<string, unknown>): ProviderUsage {
-  const inputTokens = nullableNumber(usage.input_tokens);
-  const outputTokens = nullableNumber(usage.output_tokens);
-  const totalTokens = nullableNumber(usage.total_tokens);
-  const inputDetails = usage.input_tokens_details;
-  const outputDetails = usage.output_tokens_details;
-  const cachedTokens = isRecord(inputDetails) ? nullableNumber(inputDetails.cached_tokens) : null;
-  const reasoningTokens = isRecord(outputDetails) ? nullableNumber(outputDetails.reasoning_tokens) : null;
-  return {
-    inputTokens,
-    outputTokens,
-    totalTokens: totalTokens ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null),
-    cacheReadTokens: cachedTokens,
-    cacheWriteTokens: null,
-    reasoningTokens,
-    source: "provider",
-  };
-}

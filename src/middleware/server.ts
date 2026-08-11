@@ -7,7 +7,7 @@ import { resolveConsoleStatic, resolveLandingStatic, applyStaticAssetHeaders, ap
 import { applySecurityHeaders as applyCommonSecurityHeaders, secureResponse } from "../security/headers";
 import { runtimeSettings } from "../console/runtime-settings";
 import { runtimeMemoryLimits } from "../traffic/limits";
-import { createSurfaceStream } from "../providers/surfaces";
+import { createSurfaceStream } from "../open-sse/transport/surface-encoder";
 import { clientIp } from "../console/services/composition";
 import { activePerIpFlights } from "../traffic/per-ip";
 import { SlidingWindowRateLimiter } from "../traffic/rate-limiter";

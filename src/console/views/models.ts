@@ -1,7 +1,27 @@
-import type { ModelMetadata, ProviderModel } from "../../application/contracts";
+import type { ModelMetadata, ProviderModel, Surface } from "../../application/contracts";
 // ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
+
+/** Capability groups surfaced by the Providers catalog selector. */
+export interface ModelCapabilityView {
+  readonly chat: boolean;
+  readonly media: boolean;
+  readonly websearch: boolean;
+}
+
+/** Derives UI capability groups from one canonical provider model. */
+export function modelCapabilityView(model: ProviderModel): ModelCapabilityView {
+  const surfaces = model.capabilities.surfaces;
+  const chatSurfaces: readonly Surface[] = ["openai-chat", "openai-responses", "anthropic-messages"];
+  return {
+    chat: surfaces.some((surface) => chatSurfaces.includes(surface)),
+    // Media is generation-only. Vision/input support (`capabilities.images`)
+    // must not make a chat model appear as an image/video generator.
+    media: surfaces.includes("images"),
+    websearch: model.capabilities.search === true || surfaces.includes("web-search"),
+  };
+}
 
 /** A provider model with its persisted enabled state. */
 export type ModelSource = "built-in" | "manual" | "imported";
@@ -13,6 +33,7 @@ export interface ModelView {
   readonly enabled: boolean;
   readonly source: ModelSource;
   readonly images?: boolean;
+  readonly capabilities?: ModelCapabilityView;
   /** Normalized metadata from the canonical catalog source; absent when unknown. */
   readonly metadata?: ModelMetadata;
 }

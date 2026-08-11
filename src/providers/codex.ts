@@ -6,7 +6,8 @@ import { executeFetch } from "../open-sse/transport/fetch";
 import { mapSseStream } from "../open-sse/transport/stream-mapper";
 import { isRecord } from "../application/protocols";
 import { callHostedImageWire, createOpenAIResponsesStreamMapper } from "../open-sse/transport/protocols/openai";
-import { buildResponsesPayload, mapResponsesUsage } from "../open-sse/translate/codecs/openai-responses";
+import { buildResponsesPayload } from "../open-sse/translate/request/openai-responses";
+import { mapResponsesUsage } from "../open-sse/translate/response/openai";
 import type {
   Adapter,
   ProviderCaps,
@@ -29,27 +30,27 @@ import type { ProviderCallError } from "../application/contracts";
  * stripped and the request is forced to stream. The account id is extracted
  * from the access-token JWT so no out-of-band account metadata is required.
  */
-
 const CODEX_SURFACES: readonly Surface[] = ["openai-responses", "images"];
+const CODEX_TEXT_SURFACES: readonly Surface[] = ["openai-responses"];
 const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 const CODEX_VERSION = "0.144.1";
 const CODEX_ORIGINATOR = "pi";
 const CODEX_AUTH_PATH = "https://api.openai.com/auth";
 
 const CODEX_MODELS: readonly ProviderModel[] = [
-  modelOf("gpt-5.6-sol", "GPT 5.6 Sol", capabilitiesOf({ surfaces: CODEX_SURFACES, reasoning: true, images: true })),
-  modelOf("gpt-5.6-terra", "GPT 5.6 Terra", capabilitiesOf({ surfaces: CODEX_SURFACES, reasoning: true, images: true })),
-  modelOf("gpt-5.6-luna", "GPT 5.6 Luna", capabilitiesOf({ surfaces: CODEX_SURFACES, reasoning: true, images: true })),
-  modelOf("gpt-5.5", "GPT 5.5", capabilitiesOf({ surfaces: CODEX_SURFACES, reasoning: true, images: true })),
-  modelOf("gpt-5.4", "GPT 5.4", capabilitiesOf({ surfaces: CODEX_SURFACES, reasoning: true, images: true })),
-  modelOf("gpt-5.4-mini", "GPT 5.4 Mini", capabilitiesOf({ surfaces: CODEX_SURFACES, reasoning: true, images: true })),
-  modelOf("gpt-5.3-codex-spark", "GPT 5.3 Codex Spark", capabilitiesOf({ surfaces: CODEX_SURFACES, reasoning: true, images: true })),
+  modelOf("gpt-5.6-sol", "GPT 5.6 Sol", capabilitiesOf({ surfaces: CODEX_TEXT_SURFACES, reasoning: true, images: true, search: true })),
+  modelOf("gpt-5.6-terra", "GPT 5.6 Terra", capabilitiesOf({ surfaces: CODEX_TEXT_SURFACES, reasoning: true, images: true, search: true })),
+  modelOf("gpt-5.6-luna", "GPT 5.6 Luna", capabilitiesOf({ surfaces: CODEX_TEXT_SURFACES, reasoning: true, images: true, search: true })),
+  modelOf("gpt-5.5", "GPT 5.5", capabilitiesOf({ surfaces: CODEX_TEXT_SURFACES, reasoning: true, images: true, search: true })),
+  modelOf("gpt-5.4", "GPT 5.4", capabilitiesOf({ surfaces: CODEX_TEXT_SURFACES, reasoning: true, images: true, search: true })),
+  modelOf("gpt-5.4-mini", "GPT 5.4 Mini", capabilitiesOf({ surfaces: CODEX_TEXT_SURFACES, reasoning: true, images: true, search: true })),
+  modelOf("gpt-5.3-codex-spark", "GPT 5.3 Codex Spark", capabilitiesOf({ surfaces: CODEX_TEXT_SURFACES, reasoning: true, images: true, search: true })),
   modelOf("gpt-5.5-image", "GPT 5.5 Image", capabilitiesOf({ surfaces: ["images"], images: true })),
   modelOf("gpt-5.4-image", "GPT 5.4 Image", capabilitiesOf({ surfaces: ["images"], images: true })),
   modelOf("gpt-5.3-image", "GPT 5.3 Image", capabilitiesOf({ surfaces: ["images"], images: true })),
 ];
 
-const CODEX_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: CODEX_SURFACES, reasoning: true, images: true });
+const CODEX_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: CODEX_SURFACES, reasoning: true, images: true, search: true });
 
 function base64Decode(value: string): string {
   const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -227,7 +228,10 @@ export class CodexAdapter implements Adapter {
       if (!request.stream) return await readCodexNonStream(response, coordinator, request);
       if (!response.body) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Codex returned an empty stream body", routeScope: "provider" });
       streamHandedOff = true;
-      return { mode: "stream", events: mapSseStream({ body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs }, createOpenAIResponsesStreamMapper()) };
+      return { mode: "stream", events: mapSseStream(
+        { body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs },
+        createOpenAIResponsesStreamMapper(),
+      ) };
     } finally {
       if (!streamHandedOff) coordinator.dispose();
     }

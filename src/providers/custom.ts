@@ -10,9 +10,11 @@ import { mapSseStream } from "../open-sse/transport/stream-mapper";
 import { readJsonObject } from "../open-sse/transport/body-reader";
 import { isRecord } from "../application/protocols";
 import { createAnthropicMessagesStreamMapper } from "../open-sse/transport/protocols/anthropic";
-import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
+import { buildMessagesPayload } from "../open-sse/translate/request/anthropic";
+import { mapAnthropicUsage } from "../open-sse/translate/response/anthropic";
 import { createOpenAIChatStreamMapper } from "../open-sse/transport/protocols/openai";
-import { buildChatPayload, mapChatUsage } from "../open-sse/translate/codecs/openai-chat";
+import { buildChatPayload } from "../open-sse/translate/request/openai-chat";
+import { mapChatUsage } from "../open-sse/translate/response/openai";
 import { assertPublicUrlAtDispatch } from "../security/ssrf-guard";
 import type { ProviderRegistry } from "./registry";
 
@@ -140,7 +142,7 @@ export class CustomProviderAdapter implements Adapter {
     try {
       const { request } = input;
       const anthropic = record.type === "anthropic-compatible";
-      const headers = customHeaders(record, input.credential, request.stream);
+      const headers = customHeaders(record, input.credential, request.stream, input.headers);
       const payload = anthropic ? buildMessagesPayload(request, this.capabilities, { includeContextManagement: false }) : buildChatPayload(request);
       const response = await executeFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, input.network, input.capture);
       if (!response.ok) throw await readUpstreamError(response);
@@ -185,9 +187,9 @@ export class CustomProviderAdapter implements Adapter {
 }
 
 /**
- * Custom provider outbound headers. The stored credential is used and custom
- * headers apply LAST so an operator's org/routing/WAF-bypass header wins on
- * collision (legacy rule).
+ * Custom provider outbound headers. Authentication and protocol defaults are
+ * established first, then operator headers and allowlisted Claude gateway
+ * headers are applied without permitting blocked connection/auth headers.
  */
 /** Headers that operators must not override via custom provider config —
  *  they control routing, auth, or connection semantics and could be used
@@ -217,7 +219,7 @@ const BLOCKED_CUSTOM_HEADERS = new Set([
   "connection",
 ]);
 
-function customHeaders(record: CustomProviderRecord, credential: string, stream: boolean): Record<string, string> {
+function customHeaders(record: CustomProviderRecord, credential: string, stream: boolean, sourceHeaders?: Headers): Record<string, string> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
     accept: stream ? "text/event-stream" : "application/json",
@@ -234,6 +236,14 @@ function customHeaders(record: CustomProviderRecord, credential: string, stream:
     // Reject header names with CRLF characters (injection prevention)
     if (/[\r\n]/.test(name) || /[\r\n]/.test(value)) continue;
     headers[lower] = value;
+  }
+  if (record.type === "anthropic-compatible") {
+    const version = sourceHeaders?.get("anthropic-version");
+    if (version !== null && version !== undefined && version.length > 0) headers["anthropic-version"] = version;
+    const beta = sourceHeaders?.get("anthropic-beta");
+    if (beta !== null && beta !== undefined) headers["anthropic-beta"] = beta;
+    const workspace = sourceHeaders?.get("anthropic-workspace-id");
+    if (workspace !== null && workspace !== undefined) headers["anthropic-workspace-id"] = workspace;
   }
   return headers;
 }

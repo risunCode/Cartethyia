@@ -184,6 +184,8 @@ export interface SelectNetworkInput {
   readonly preferredProxyId?: string | null;
   /** Stable caller identity used only by the target-user preset. */
   readonly affinityKey?: string | null;
+  /** Prefer a deterministic proxy for cache-affine requests. */
+  readonly sticky?: boolean;
   readonly nowMs?: number;
 }
 
@@ -234,9 +236,9 @@ export class NetworkSelector {
     const ordered = [...candidates].sort((a, b) => {
       const preferredDiff = Number(b.id === preferred) - Number(a.id === preferred);
       if (preferredDiff !== 0) return preferredDiff;
-      if (policy.preset === "target-user" && input.affinityKey) {
+      if (input.affinityKey && (input.sticky === true || policy.preset === "target-user")) {
         const seed = stableHash(`${input.affinityKey}:${input.providerId}`);
-        const offset = (seed % candidates.length);
+        const offset = seed % candidates.length;
         const aIndex = candidates.findIndex((candidate) => candidate.id === a.id);
         const bIndex = candidates.findIndex((candidate) => candidate.id === b.id);
         return ((aIndex - offset + candidates.length) % candidates.length) - ((bIndex - offset + candidates.length) % candidates.length);

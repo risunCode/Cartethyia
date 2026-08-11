@@ -24,6 +24,11 @@ export interface ProviderSummary {
   prefix: string;
   modelCount: number;
   connections: number;
+  capabilityCounts?: {
+    chat: number;
+    media: number;
+    websearch: number;
+  };
   credentialKind?: "api_key" | "oauth" | "session" | "manual" | "none";
   credentialKinds?: Array<"api_key" | "oauth" | "session" | "manual" | "none">;
   enabled?: boolean;

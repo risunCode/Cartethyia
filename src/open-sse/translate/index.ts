@@ -1,5 +1,4 @@
-import type { ProviderCaps, ProviderMeta, Protocol, Surface } from "../../application/contracts";
-import { lookupTranslation } from "./registry";
+import type { ProviderCaps, ProviderMeta, Surface } from "../../application/contracts";
 
 /** Resolves the provider-native wire surface while preserving the client surface in the normalized request. */
 export function resolveWireSurface(metadata: ProviderMeta, capabilities: ProviderCaps, clientSurface: Surface): Surface | null {
@@ -27,33 +26,17 @@ export function resolveModelWireSurface(
   return resolveWireSurface(metadata, modelCapabilities ?? providerCapabilities, clientSurface);
 }
 
-/** Converts a provider's non-stream body from its wire shape to the client's requested surface. */
-export function translateBody(
-  body: Record<string, unknown>,
-  protocol: Protocol,
-  wireSurface: Surface,
-  clientSurface: Surface,
-): Record<string, unknown> {
-  if (wireSurface === clientSurface || clientSurface === "images" || protocol === "gemini") return body;
-  const direct = lookupTranslation(wireSurface, clientSurface);
-  if (direct !== undefined) return direct(body);
-  if (wireSurface !== "openai-chat" && clientSurface !== "openai-chat") {
-    const toHub = lookupTranslation(wireSurface, "openai-chat");
-    const fromHub = lookupTranslation("openai-chat", clientSurface);
-    if (toHub !== undefined && fromHub !== undefined) return fromHub(toHub(body));
-  }
-  return body;
-}
+export { translateNonStreamResponse, decodeNonStreamResponse, encodeNonStreamResponse } from "./response/index";
 
-export { registerTranslation, lookupTranslation, type BodyConverter } from "./registry";
-export { normalizeChatRequest, buildChatPayload, mapChatUsage, toOpenAIImageUrl } from "./codecs/openai-chat";
-export { normalizeMessagesRequest, buildMessagesPayload, mapAnthropicUsage } from "./codecs/anthropic-messages";
-export { normalizeResponsesRequest, buildResponsesPayload, mapResponsesUsage, REASONING_EFFORTS, REASONING_SUMMARIES, REASONING_MODES, REASONING_CONTEXTS, parseReasoningConfig } from "./codecs/openai-responses";
-export { normalizeImageRequest } from "./codecs/images";
-export { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse, geminiCandidate, responseParts } from "./codecs/gemini-generate-content";
+export { registerResponseTranslation, lookupResponseTranslation, type ResponseProjector, type ResponseTranslationContext } from "./registry";
+export { normalizeChatRequest, buildChatPayload, toOpenAIImageUrl } from "./request/openai-chat";
+export { normalizeMessagesRequest, buildMessagesPayload } from "./request/anthropic";
+export { normalizeResponsesRequest, buildResponsesPayload, REASONING_EFFORTS, REASONING_SUMMARIES, REASONING_MODES, REASONING_CONTEXTS, parseReasoningConfig } from "./request/openai-responses";
+export { mapChatUsage, decodeChatResponse, decodeResponsesResponse, mapResponsesUsage } from "./response/openai";
+export { mapAnthropicUsage, decodeAnthropicResponse } from "./response/anthropic";
+export { normalizeImageRequest } from "./request/images";
+export { translateGeminiImageResponse } from "./response/gemini";
+export { mapGeminiUsage, translateGeminiResponse, geminiCandidate, responseParts } from "./response/gemini";
 export { ProtocolCodecError, StreamDecodeError, type StreamDecodeKind } from "./errors";
 export { detectSurface, lookupProxyEndpoint, normalizeRequest, parseRequestBody } from "./surface";
 export { boundedRequest, readBoundedBytes, readBoundedJson, BoundedBodyTooLargeError, type BoundedBytesResult, type JsonBodyResult } from "./body";
-
-// Side-effect registration keeps the conversion graph extensible without a central table.
-import "./converters/compat";

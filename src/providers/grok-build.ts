@@ -6,7 +6,8 @@ import { executeFetch } from "../open-sse/transport/fetch";
 import { mapSseStream } from "../open-sse/transport/stream-mapper";
 import { isRecord } from "../application/protocols";
 import { createOpenAIResponsesStreamMapper } from "../open-sse/transport/protocols/openai";
-import { buildResponsesPayload, mapResponsesUsage } from "../open-sse/translate/codecs/openai-responses";
+import { buildResponsesPayload } from "../open-sse/translate/request/openai-responses";
+import { mapResponsesUsage } from "../open-sse/translate/response/openai";
 import type {
   Adapter,
   ProviderCaps,

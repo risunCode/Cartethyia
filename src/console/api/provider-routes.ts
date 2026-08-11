@@ -24,11 +24,17 @@ export function registerProviderRoutes<T extends Elysia<any, any, any, any, any,
           : { strategy: "priority" as const, stickyLimit: 1, useStickyLimit: false };
         const accounts = accountsResult.status === "fulfilled" ? accountsResult.value : [];
         const models = modelsResult.status === "fulfilled" ? modelsResult.value : [];
+        const enabledModels = models.filter((model) => model.enabled);
         return {
           ...provider,
           routing,
           accountCount: accounts.length,
           modelCount: models.length,
+          capabilityCounts: {
+            chat: enabledModels.filter((model) => model.capabilities?.chat === true).length,
+            media: enabledModels.filter((model) => model.capabilities?.media === true).length,
+            websearch: enabledModels.filter((model) => model.capabilities?.websearch === true).length,
+          },
           configured: provider.credentialKind === "none" || accounts.some((account) => account.active),
         };
       }));

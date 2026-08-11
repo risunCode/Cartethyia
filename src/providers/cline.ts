@@ -7,7 +7,7 @@ import { mapSseStream } from "../open-sse/transport/stream-mapper";
 import { readJsonObject } from "../open-sse/transport/body-reader";
 import { isRecord } from "../application/protocols";
 import { createOpenAIChatStreamMapper } from "../open-sse/transport/protocols/openai";
-import { buildChatPayload } from "../open-sse/translate/codecs/openai-chat";
+import { buildChatPayload } from "../open-sse/translate/request/openai-chat";
 import type {
   Adapter,
   ProviderCaps,

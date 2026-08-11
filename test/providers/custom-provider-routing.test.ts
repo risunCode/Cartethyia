@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ProxyRequest } from "../../src/application/contracts";
 import { ProviderService } from "../../src/console/services/composition";
 import type {
   AccountRepository,
@@ -111,5 +112,85 @@ describe("custom provider BYOK routing", () => {
     });
 
     expect(result).toMatchObject({ ok: false, status: 400, code: "invalid_request" });
+  });
+  test("forwards Claude gateway headers and native tool options to Anthropic-compatible upstreams", async () => {
+    const record: CustomProviderRecord = {
+      id: "custom-provider-id",
+      slug: "anthropic-gateway",
+      name: "Anthropic Gateway",
+      type: "anthropic-compatible",
+      baseUrl: "https://93.184.216.34/v1",
+      credential: "unused-in-test",
+      timeoutSeconds: 30,
+      models: [{ id: "claude-custom", name: "Claude Custom" }],
+      customHeaders: { "anthropic-beta": "operator-beta", "x-routing": "edge" },
+      createdAt: "2026-08-09T00:00:00.000Z",
+      updatedAt: "2026-08-09T00:00:00.000Z",
+    };
+    const source = {
+      list: () => [record],
+      getBySlug: (slug: string) => slug === record.slug ? record : null,
+    };
+    const adapter = new CustomProviderAdapter(record, source);
+    const request: ProxyRequest = {
+      model: "claude-custom",
+      messages: [{ role: "user", content: [{ type: "text", text: "search" }] }],
+      tools: [{
+        name: "web_search",
+        description: null,
+        inputSchema: {},
+        nativeType: "web_search_20260318",
+        nativeOptions: { max_uses: 2, allowed_domains: ["example.com"] },
+      }],
+      stream: false,
+      responseFormat: "text",
+      reasoning: "default",
+      maxOutputTokens: 100,
+      images: [],
+      sourceSurface: "anthropic-messages",
+      signal: new AbortController().signal,
+      limits: { maxBodyBytes: 10_000_000, connectTimeoutMs: 10_000, firstByteTimeoutMs: 30_000, idleTimeoutMs: 30_000, totalTimeoutMs: 120_000 },
+    };
+    let captured: { url: string; init: RequestInit | undefined } | undefined;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      captured = { url: String(input), init };
+      return new Response(JSON.stringify({
+        id: "msg_1",
+        content: [{ type: "text", text: "ok" }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    try {
+      const result = await adapter.call({
+        target: adapter.resolveTarget("claude-custom", "anthropic-messages"),
+        request,
+        credential: "sk-gateway",
+        network: { proxyId: null, url: null, release: async () => {} },
+        signal: request.signal,
+        headers: new Headers({
+          "anthropic-version": "2023-06-01",
+          "anthropic-beta": "web-search-20260318",
+          "anthropic-workspace-id": "workspace-1",
+        }),
+      });
+      expect(result.mode).toBe("non_stream");
+      expect(captured?.url).toBe("https://93.184.216.34/v1/messages");
+      const headers = new Headers(captured?.init?.headers);
+      expect(headers.get("x-api-key")).toBe("sk-gateway");
+      expect(headers.get("anthropic-version")).toBe("2023-06-01");
+      expect(headers.get("anthropic-beta")).toBe("web-search-20260318");
+      expect(headers.get("anthropic-workspace-id")).toBe("workspace-1");
+      expect(headers.get("x-routing")).toBe("edge");
+      const sent = JSON.parse(String(captured?.init?.body)) as Record<string, unknown>;
+      expect(sent.tools).toEqual([{
+        type: "web_search_20260318",
+        name: "web_search",
+        max_uses: 2,
+        allowed_domains: ["example.com"],
+      }]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

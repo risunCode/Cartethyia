@@ -1,7 +1,6 @@
 import type { PresentedProxyResponse } from "../application/contracts";
-import { narrowRecord } from "../application/protocols";
-import { lookupTranslation } from "../open-sse/translate/registry";
-import "../open-sse/translate/converters/compat";
+import { narrowRecord, narrowText } from "../application/protocols";
+import { translateNonStreamResponse } from "../open-sse/translate/response/index";
 
 export type ModelStudioSurface = "openai-chat" | "anthropic-messages";
 
@@ -40,10 +39,9 @@ export async function dispatchModelStudioRequest(
 export function normalizeModelStudioResponse(result: PresentedProxyResponse, surface: ModelStudioSurface): PresentedProxyResponse {
   if (surface === "openai-chat" || result.status >= 400 || result.body.mode !== "json") return result;
   const payload = narrowRecord(result.body.value);
-  const converter = lookupTranslation(surface, "openai-chat");
-  if (payload === null || converter === undefined) return result;
+  if (payload === null) return result;
   return {
     ...result,
-    body: { mode: "json", value: converter(payload) },
+    body: { mode: "json", value: translateNonStreamResponse(payload, surface, "openai-chat", narrowText(payload.model) ?? "") },
   };
 }

@@ -6,6 +6,8 @@ import {
   mapChatUsage, mapAnthropicUsage, mapResponsesUsage,
   resolveWireSurface, parseRequestBody, lookupProxyEndpoint, toOpenAIImageUrl,
 } from "../../src/open-sse/translate";
+import { decodeNonStreamResponse, translateNonStreamResponse } from "../../src/open-sse/translate/response/index";
+import { lookupResponseTranslation } from "../../src/open-sse/translate/registry";
 import { ProtocolCodecError, StreamDecodeError } from "../../src/open-sse/translate/errors";
 import { ProviderAdapterError, parseRetryAfterSeconds, toProviderCallError } from "../../src/open-sse/transport/errors";
 import { AbortCoordinator } from "../../src/open-sse/transport/abort-coordinator";
@@ -13,16 +15,16 @@ import { parseSseData, decodeSseEvents } from "../../src/open-sse/transport/sse-
 import { mapSseStream } from "../../src/open-sse/transport/stream-mapper";
 import { appendTerminalError } from "../../src/open-sse/handlers";
 import { capabilitiesOf } from "../../src/open-sse/transport/catalog";
-import { encodeSurfaceStream } from "../../src/providers/surfaces";
+import { encodeSurfaceStream } from "../../src/open-sse/transport/surface-encoder";
 import { createOpenAIChatStreamMapper, createOpenAIResponsesStreamMapper } from "../../src/open-sse/transport/protocols/openai";
 import { createAnthropicMessagesStreamMapper } from "../../src/open-sse/transport/protocols/anthropic";
-import { ensureToolCallIds, fixMissingToolResponses } from "../../src/open-sse/concerns/tool-calls";
+import { ensureToolCallIds, fixMissingToolResponses } from "../../src/open-sse/translate/concerns/tools";
 import type { NormalizeInput } from "../../src/application/protocols";
 import { isProtocolError } from "../../src/application/protocols";
 import { buildCachePlan, applyCachePlan } from "../../src/application/cache";
 import { OpenAIAdapter } from "../../src/providers/openai";
 import { CodexAdapter } from "../../src/providers/codex";
-import { buildGeminiPayload } from "../../src/open-sse/translate/codecs/gemini-generate-content";
+import { buildGeminiPayload } from "../../src/open-sse/translate/request/gemini";
 
 const limits: RequestLimits = { maxBodyBytes: 10_000_000, connectTimeoutMs: 10_000, firstByteTimeoutMs: 30_000, idleTimeoutMs: 30_000, totalTimeoutMs: 120_000 };
 function ni(signal?: AbortSignal): NormalizeInput { return { signal: signal ?? new AbortController().signal, limits }; }
@@ -206,11 +208,23 @@ describe("Anthropic Messages normalization and payload", () => {
     const r2 = normalizeMessagesRequest({ model: "c", max_tokens: 1024, messages: [{ role: "system", content: "sys" }, { role: "user", content: "hi" }] }, ni());
     expect(r2.ok).toBe(true); if (!r2.ok) return; expect(r2.request.messages[0]?.role).toBe("system");
   });
-  test("thinking blocks excluded from content but force reasoning; tool_use/tool_result normalized", () => {
+  test("preserves thinking as hidden reasoning while forcing enabled mode", () => {
     const r = normalizeMessagesRequest({ model: "c", max_tokens: 1024, messages: [{ role: "user", content: [{ type: "thinking", thinking: "p" }, { type: "text", text: "q" }] }] }, ni());
-    expect(r.ok).toBe(true); if (!r.ok) return; expect(r.request.reasoning).toBe("enabled"); expect(r.request.messages[0]?.content).toHaveLength(1);
+    expect(r.ok).toBe(true); if (!r.ok) return; expect(r.request.reasoning).toBe("enabled"); expect(r.request.messages[0]?.content).toHaveLength(2); expect(r.request.messages[0]?.content[0]?.type).toBe("reasoning");
     const r2 = normalizeMessagesRequest({ model: "c", max_tokens: 1024, messages: [{ role: "assistant", content: [{ type: "tool_use", id: "t1", name: "s", input: { q: "x" } }] }] }, ni());
     expect(r2.ok).toBe(true); if (!r2.ok) return; expect(r2.request.messages[0]?.content[0]?.toolArguments).toBe(JSON.stringify({ q: "x" }));
+  });
+  test("converts Anthropic thinking blocks into Responses reasoning items", () => {
+    const r = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      messages: [{ role: "assistant", content: [{ type: "thinking", thinking: "prior", signature: "anthropic-signature" }] }],
+    }, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const input = buildResponsesPayload(r.request).input as readonly Record<string, unknown>[];
+    expect(input).toContainEqual({ type: "reasoning", summary: [{ type: "summary_text", text: "prior" }] });
+    expect(input.some((item) => item.type === "thinking")).toBe(false);
   });
   test("maps Anthropic tool_result messages to Responses function_call_output", () => {
     const r = normalizeMessagesRequest({
@@ -240,20 +254,134 @@ describe("Anthropic Messages normalization and payload", () => {
     if (!r.ok) return;
     expect(r.request.reasoning).toBe("enabled");
   });
+  test("passes oversized Claude Code text blocks without mutating the raw request", () => {
+    const oversized = "x".repeat(512_001);
+    const body = {
+      model: "c",
+      max_tokens: 1024,
+      messages: [
+        { role: "user", content: "one" },
+        { role: "assistant", content: "two" },
+        { role: "user", content: "three" },
+        { role: "assistant", content: [{ type: "text", text: "keep" }, { type: "text", text: oversized }] },
+      ],
+    };
+    const r = normalizeMessagesRequest(body, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.request.messages[3]?.content[1]?.text).toBe(oversized);
+    const originalContent = body.messages[3]?.content;
+    expect(Array.isArray(originalContent) ? originalContent[1]?.text : undefined).toBe(oversized);
+  });
+  test("passes oversized Anthropic tool output through Responses translation", () => {
+    const oversized = "result".repeat(100_000);
+    const r = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      messages: [{
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "call_large", content: oversized }],
+      }],
+    }, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const input = buildResponsesPayload(r.request).input as readonly Record<string, unknown>[];
+    const output = input.find((item) => item.type === "function_call_output")?.output;
+    expect(output).toBe(oversized);
+  });
   test("preserves Claude web search natively and maps it to Responses web_search", () => {
     const r = normalizeMessagesRequest({
       model: "c",
       max_tokens: 1024,
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],
+      tools: [{
+        type: "web_search_20250305",
+        name: "web_search",
+        max_uses: 5,
+        allowed_domains: ["anthropic.com"],
+        blocked_domains: ["example.invalid"],
+        user_location: { type: "approximate", country: "ID" },
+      }],
       messages: [{ role: "user", content: "search" }],
     }, ni());
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.request.tools[0]?.nativeType).toBe("web_search_20250305");
     expect(r.request.tools[0]?.inputSchema.required).toEqual(["query"]);
+    expect(r.request.tools[0]?.nativeOptions).toEqual({
+      max_uses: 5,
+      allowed_domains: ["anthropic.com"],
+      blocked_domains: ["example.invalid"],
+      user_location: { type: "approximate", country: "ID" },
+    });
     const payload = buildMessagesPayload(r.request, capabilitiesOf({ surfaces: ["anthropic-messages"], reasoning: true }));
-    expect(payload.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 5 }]);
+    expect(payload.tools).toEqual([{
+      type: "web_search_20250305",
+      name: "web_search",
+      max_uses: 5,
+      allowed_domains: ["anthropic.com"],
+      blocked_domains: ["example.invalid"],
+      user_location: { type: "approximate", country: "ID" },
+    }]);
     expect(buildResponsesPayload(r.request).tools).toEqual([{ type: "web_search" }]);
+  });
+  test("projects function-shaped Claude WebSearch tools to hosted Responses search", () => {
+    const r = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      tools: [{ name: "WebSearch", description: "Search the web", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } }],
+      messages: [{ role: "user", content: "search" }],
+    }, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(buildResponsesPayload(r.request).tools).toEqual([{ type: "web_search" }]);
+  });
+  test("preserves Claude web fetch versions and options natively", () => {
+    const r = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      tools: [{
+        type: "web_fetch_20260318",
+        name: "web_fetch",
+        max_uses: 3,
+        allowed_domains: ["docs.anthropic.com"],
+      }],
+      messages: [{ role: "user", content: "fetch" }],
+    }, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.request.tools[0]?.nativeType).toBe("web_fetch_20260318");
+    expect(r.request.tools[0]?.inputSchema.required).toEqual(["url"]);
+    expect(r.request.tools[0]?.nativeOptions).toEqual({
+      max_uses: 3,
+      allowed_domains: ["docs.anthropic.com"],
+    });
+    expect(buildMessagesPayload(r.request, capabilitiesOf({ surfaces: ["anthropic-messages"], reasoning: true })).tools).toEqual([{
+      type: "web_fetch_20260318",
+      name: "web_fetch",
+      max_uses: 3,
+      allowed_domains: ["docs.anthropic.com"],
+    }]);
+  });
+  test("rejects native server tools on incompatible projections", () => {
+    const webFetch = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      tools: [{ type: "web_fetch_20260318", name: "web_fetch" }],
+      messages: [{ role: "user", content: "fetch" }],
+    }, ni());
+    expect(webFetch.ok).toBe(true);
+    if (!webFetch.ok) return;
+    expect(() => buildResponsesPayload(webFetch.request)).toThrow(ProtocolCodecError);
+
+    const webSearch = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      tools: [{ type: "web_search_20260318", name: "web_search" }],
+      messages: [{ role: "user", content: "search" }],
+    }, ni());
+    expect(webSearch.ok).toBe(true);
+    if (!webSearch.ok) return;
+    expect(() => buildChatPayload(webSearch.request)).toThrow(ProtocolCodecError);
   });
   test("preserves Advanced Tool Use definitions and MCP connector configuration", () => {
     const r = normalizeMessagesRequest({
@@ -329,7 +457,7 @@ describe("Anthropic Messages normalization and payload", () => {
     expect(r.request.messages[0]?.content[0]?.text).toContain("https://github.com/risunCode");
     expect(r.request.tools).toHaveLength(1);
   });
-  test("keeps Claude server-tool blocks in continuation context", () => {
+  test("keeps Claude server-tool blocks as bounded native continuation context", () => {
     const r = normalizeMessagesRequest({
       model: "c",
       max_tokens: 1024,
@@ -343,9 +471,10 @@ describe("Anthropic Messages normalization and payload", () => {
     }, ni());
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.request.messages[0]?.content[0]?.type).toBe("text");
-    expect(r.request.messages[0]?.content[0]?.text).toContain("web_search");
-    expect(r.request.messages[0]?.content[1]?.text).toContain("Risun");
+    expect(r.request.messages[0]?.content[0]?.type).toBe("native");
+    expect(r.request.messages[0]?.content[0]?.nativeType).toBe("server_tool_use");
+    expect(r.request.messages[0]?.content[0]?.nativePayload).toMatchObject({ name: "web_search" });
+    expect(r.request.messages[0]?.content[1]?.nativeType).toBe("web_search_tool_result");
   });
   test("accepts future native tool types and preserves them on the Anthropic surface", () => {
     const futureTool = { type: "future_tool_20270101", name: "future_tool", configuration: { mode: "opaque" } };
@@ -369,6 +498,7 @@ describe("Anthropic Messages normalization and payload", () => {
       tools: [{ type: "future_tool_20270101", name: "future_tool" }],
       messages: [{ role: "user", content: "adapt" }],
     }, ni());
+
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(buildResponsesPayload(r.request).tools).toEqual([{
@@ -378,6 +508,43 @@ describe("Anthropic Messages normalization and payload", () => {
       parameters: {},
     }]);
   });
+test("emits explicit OpenAI cache breakpoints only for GPT-5.6", () => {
+  const request = chatReq({
+    model: "gpt-5.6",
+    cacheKey: "tenant-session-prefix",
+    messages: [
+      { role: "system", content: [{ type: "text", text: "stable instructions", cacheControl: "ephemeral" }] },
+      { role: "user", content: [{ type: "text", text: "changing question" }] },
+    ],
+  });
+  const chatPayload = buildChatPayload(request);
+  expect(chatPayload.prompt_cache_options).toEqual({ mode: "explicit", ttl: "30m" });
+  expect(chatPayload.messages).toEqual([
+    { role: "system", content: [{ type: "text", text: "stable instructions", prompt_cache_breakpoint: { mode: "explicit" } }] },
+    { role: "user", content: "changing question" },
+  ]);
+
+  const responsesPayload = buildResponsesPayload({ ...request, sourceSurface: "openai-responses" });
+  expect(responsesPayload.prompt_cache_options).toEqual({ mode: "explicit", ttl: "30m" });
+  expect(responsesPayload.input).toContainEqual({
+    role: "system",
+    content: [{ type: "input_text", text: "stable instructions", prompt_cache_breakpoint: { mode: "explicit" } }],
+  });
+  expect(buildChatPayload({ ...request, model: "gpt-5" }).prompt_cache_options).toBeUndefined();
+});
+
+test("scopes generated cache keys to the caller affinity", () => {
+  const request = chatReq({
+    model: "gpt-5.6",
+    messages: [{ role: "system", content: [{ type: "text", text: "stable" }] }],
+  });
+  const plan = buildCachePlan(request);
+  const first = applyCachePlan(request, plan, "api_key:key-a");
+  const repeat = applyCachePlan(request, plan, "api_key:key-a");
+  const other = applyCachePlan(request, plan, "api_key:key-b");
+  expect(first.cacheKey).toBe(repeat.cacheKey);
+  expect(first.cacheKey).not.toBe(other.cacheKey);
+});
   test("payload: thinking capped at 32000; invalid JSON tool args throws; cache control applied", () => {
     const caps = capabilitiesOf({ surfaces: ["anthropic-messages"], reasoning: true, explicitCache: true, promptCacheKey: true });
     expect(buildMessagesPayload(chatReq({ sourceSurface: "anthropic-messages", reasoning: "enabled", maxOutputTokens: 100000 }), caps).thinking).toEqual({ type: "enabled", budget_tokens: 32000 });
@@ -487,9 +654,9 @@ describe("OpenAI Responses normalization and payload", () => {
     expect(r.request.reasoning).toBe("enabled");
     expect(buildResponsesPayload(r.request).reasoning).toEqual({ effort: "high", summary: "concise" });
   });
-  test("reasoning blocks excluded; refusal never visible; payload defaults to concise summaries", () => {
+  test("preserves reasoning blocks as hidden semantic items; refusal never visible; payload defaults to concise summaries", () => {
     const r = normalizeResponsesRequest({ model: "o1", input: [{ type: "message", role: "user", content: [{ type: "reasoning" }, { type: "input_text", text: "real" }] }] }, ni());
-    expect(r.ok).toBe(true); if (!r.ok) return; expect(r.request.reasoning).toBe("enabled"); expect(r.request.messages[0]?.content).toHaveLength(1);
+    expect(r.ok).toBe(true); if (!r.ok) return; expect(r.request.reasoning).toBe("enabled"); expect(r.request.messages[0]?.content).toHaveLength(2); expect(r.request.messages[0]?.content[0]?.type).toBe("reasoning");
     const r2 = normalizeResponsesRequest({ model: "o1", input: [{ type: "message", role: "assistant", content: [{ type: "refusal" }] }] }, ni());
     expect(r2.ok).toBe(true); if (!r2.ok) return; expect(r2.request.messages[0]?.content[0]?.type).toBe("unknown");
     expect(buildResponsesPayload(chatReq({ sourceSurface: "openai-responses", reasoning: "enabled" })).reasoning).toEqual({ effort: "medium", summary: "concise" });
@@ -497,21 +664,147 @@ describe("OpenAI Responses normalization and payload", () => {
 });
 
 describe("usage mapping", () => {
-  test("chat: maps tokens, computes total, surfaces cache and reasoning", () => {
+  test("chat: maps tokens, computes total, surfaces cache read/write and reasoning", () => {
     expect(mapChatUsage({ prompt_tokens: 5, completion_tokens: 7 }).totalTokens).toBe(12);
-    expect(mapChatUsage({ prompt_tokens: 10, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 8 }, completion_tokens_details: { reasoning_tokens: 3 } }).cacheReadTokens).toBe(8);
+    expect(mapChatUsage({ prompt_tokens: 10, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 8, cache_write_tokens: 2 }, completion_tokens_details: { reasoning_tokens: 3 } }).cacheReadTokens).toBe(8);
+    expect(mapChatUsage({ prompt_tokens: 10, completion_tokens: 5, prompt_tokens_details: { cache_write_tokens: 2 } }).cacheWriteTokens).toBe(2);
     expect(mapChatUsage({ prompt_tokens: 10, completion_tokens: 5, completion_tokens_details: { reasoning_tokens: 3 } }).reasoningTokens).toBe(3);
   });
   test("anthropic: maps tokens, surfaces cache read/write", () => {
     const u = mapAnthropicUsage({ input_tokens: 5, output_tokens: 3, cache_read_input_tokens: 100, cache_creation_input_tokens: 50 });
     expect(u.totalTokens).toBe(8); expect(u.cacheReadTokens).toBe(100); expect(u.cacheWriteTokens).toBe(50);
   });
-  test("responses: maps tokens, surfaces cache and reasoning", () => {
+  test("responses: maps tokens, surfaces cache read/write and reasoning", () => {
     expect(mapResponsesUsage({ input_tokens: 5, output_tokens: 7 }).totalTokens).toBe(12);
-    expect(mapResponsesUsage({ input_tokens: 10, output_tokens: 5, input_tokens_details: { cached_tokens: 8 }, output_tokens_details: { reasoning_tokens: 3 } }).cacheReadTokens).toBe(8);
+    expect(mapResponsesUsage({ input_tokens: 10, output_tokens: 5, input_tokens_details: { cached_tokens: 8, cache_write_tokens: 2 }, output_tokens_details: { reasoning_tokens: 3 } }).cacheReadTokens).toBe(8);
+    expect(mapResponsesUsage({ input_tokens: 10, output_tokens: 5, input_tokens_details: { cache_write_tokens: 2 } }).cacheWriteTokens).toBe(2);
     expect(mapResponsesUsage({ input_tokens: 10, output_tokens: 5, output_tokens_details: { reasoning_tokens: 3 } }).reasoningTokens).toBe(3);
   });
 });
+describe("semantic non-stream response translation", () => {
+  test("Chat to Anthropic preserves text, reasoning, tool IDs, arguments, and usage", () => {
+    const body = {
+      id: "chat_1",
+      model: "gpt-5.6",
+      choices: [{
+        message: {
+          role: "assistant",
+          content: "answer",
+          reasoning_content: "private",
+          tool_calls: [{ id: "call_1", type: "function", function: { name: "lookup", arguments: "{\"q\":\"x\"}" } }],
+        },
+        finish_reason: "tool_calls",
+      }],
+      usage: { prompt_tokens: 5, completion_tokens: 3, prompt_tokens_details: { cached_tokens: 2 } },
+    };
+    const translated = translateNonStreamResponse(body, "openai-chat", "anthropic-messages", "gpt-5.6");
+    expect(translated.content).toEqual([
+      { type: "thinking", thinking: "private" },
+      { type: "text", text: "answer" },
+      { type: "tool_use", id: "call_1", name: "lookup", input: { q: "x" } },
+    ]);
+    expect(translated.stop_reason).toBe("tool_use");
+    expect(translated.usage).toMatchObject({ input_tokens: 5, output_tokens: 3 });
+  });
+
+  test("Anthropic to Chat keeps reasoning separate from visible text and restores tool calls", () => {
+    const body = {
+      id: "msg_1",
+      model: "claude",
+      content: [
+        { type: "thinking", thinking: "private" },
+        { type: "text", text: "answer" },
+        { type: "tool_use", id: "toolu_1", name: "lookup", input: { q: "x" } },
+      ],
+      stop_reason: "tool_use",
+      usage: { input_tokens: 5, output_tokens: 3 },
+    };
+    const translated = translateNonStreamResponse(body, "anthropic-messages", "openai-chat", "claude");
+    const choice = (translated.choices as readonly Record<string, unknown>[])[0] as Record<string, unknown>;
+    const message = choice.message as Record<string, unknown>;
+    expect(message.content).toBe("answer");
+    expect(message.reasoning_content).toBe("private");
+    expect(message.tool_calls).toEqual([{ id: "toolu_1", type: "function", function: { name: "lookup", arguments: "{\"q\":\"x\"}" } }]);
+    expect(choice.finish_reason).toBe("tool_calls");
+  });
+  test("decodes native Anthropic blocks and preserves pause_turn in non-stream responses", () => {
+    const resultBlock = { type: "web_search_tool_result", tool_use_id: "srv_1", content: [{ type: "web_search_result", title: "Example", url: "https://example.com" }] };
+    const body = {
+      id: "msg_web",
+      model: "claude",
+      content: [
+        { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "latest" } },
+        resultBlock,
+      ],
+      stop_reason: "pause_turn",
+      usage: { input_tokens: 1, output_tokens: 2 },
+    };
+    const document = decodeNonStreamResponse("anthropic-messages", body, "claude");
+    expect(document.events).toContainEqual({
+      type: "server_tool_result",
+      block: resultBlock,
+    });
+    expect(document.events.at(-1)).toEqual({ type: "message_stop", reason: "pause_turn" });
+  });
+  test("decodes Responses web_search_call as a native server-tool block", () => {
+    const body = {
+      id: "resp_web",
+      output: [
+        { type: "web_search_call", id: "ws_1", status: "completed", action: { type: "search", query: "risuncode" } },
+        { type: "message", role: "assistant", content: [{ type: "output_text", text: "Risun Code", annotations: [] }] },
+      ],
+      status: "completed",
+    };
+    const document = decodeNonStreamResponse("openai-responses", body, "claude");
+    expect(document.events).toContainEqual({
+      type: "native_block_start",
+      index: 1,
+      block: { type: "server_tool_use", id: "ws_1", name: "web_search", input: { query: "risuncode" } },
+    });
+    expect(document.events).toContainEqual({ type: "native_block_stop", index: 1 });
+  });
+
+  test("Chat and Responses projections preserve function-call IDs and reasoning semantics", () => {
+    const chat = {
+      id: "chat_2",
+      model: "gpt-5.6",
+      choices: [{ message: { role: "assistant", content: "done", reasoning_content: "private", tool_calls: [{ id: "call_2", type: "function", function: { name: "lookup", arguments: "{\"q\":\"x\"}" } }] }, finish_reason: "tool_calls" }],
+    };
+    const responses = translateNonStreamResponse(chat, "openai-chat", "openai-responses", "gpt-5.6");
+    expect(responses.output).toContainEqual({ type: "reasoning", id: "chat_2-reasoning", summary: [{ type: "summary_text", text: "private" }] });
+    expect(responses.output).toContainEqual({ type: "function_call", id: "call_2", call_id: "call_2", name: "lookup", arguments: "{\"q\":\"x\"}", status: "completed" });
+    const roundTrip = translateNonStreamResponse(responses, "openai-responses", "openai-chat", "gpt-5.6");
+    const roundChoice = (roundTrip.choices as readonly Record<string, unknown>[])[0] as Record<string, unknown>;
+    const roundMessage = roundChoice.message as Record<string, unknown>;
+    expect(roundMessage.reasoning_content).toBe("private");
+    expect(roundMessage.tool_calls).toEqual([{ id: "call_2", type: "function", function: { name: "lookup", arguments: "{\"q\":\"x\"}" } }]);
+  });
+
+  test("same-surface bodies are preserved exactly and unsupported edges fail typed", () => {
+    const body = { id: "same", choices: [] };
+    expect(translateNonStreamResponse(body, "openai-chat", "openai-chat", "m")).toBe(body);
+    expect(lookupResponseTranslation("openai-chat", "openai-responses")).toBeDefined();
+    expect(() => translateNonStreamResponse(body, "anthropic-messages", "openai-responses", "m")).toThrow(ProtocolCodecError);
+  });
+
+  test("decoded non-stream events align with stream semantics", async () => {
+    const body = { id: "chat_stream", model: "m", choices: [{ message: { role: "assistant", content: "hello" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 1 } };
+    const nonStream = decodeNonStreamResponse("openai-chat", body, "m").events;
+    const coordinator = new AbortCoordinator(new AbortController().signal);
+    const streamed = await collect(mapSseStream({ body: sseBody([
+      JSON.stringify({ id: "chat_stream", choices: [{ delta: { content: "hello" } }] }),
+      JSON.stringify({ usage: { prompt_tokens: 2, completion_tokens: 1 } }),
+      "[DONE]",
+    ]), coordinator, maxLineBytes: 65536 }, createOpenAIChatStreamMapper()));
+    expect(nonStream.some((event) => event.type === "text_delta" && event.text === "hello")).toBe(true);
+    expect(streamed.some((event) => event.type === "text_delta" && event.text === "hello")).toBe(true);
+    expect(nonStream.some((event) => event.type === "usage")).toBe(true);
+    expect(streamed.some((event) => event.type === "usage")).toBe(true);
+    expect(nonStream[nonStream.length - 1]?.type).toBe("message_stop");
+    expect(streamed[streamed.length - 1]?.type).toBe("message_stop");
+  });
+});
+
 
 describe("SSE parsing and error classification", () => {
   test("parseSseData: [DONE] yields null; invalid JSON throws", () => {
@@ -649,6 +942,51 @@ describe("Anthropic SSE mapper sequencing", () => {
       },
     });
   });
+  test("preserves native web search blocks and pause_turn through Anthropic SSE", async () => {
+    const coord = new AbortCoordinator(new AbortController().signal);
+    const events = await collect(mapSseStream({ body: sseBody([
+      JSON.stringify({ type: "message_start", message: { id: "m_web", usage: { input_tokens: 1 } } }),
+      JSON.stringify({ type: "content_block_start", index: 1, content_block: { type: "server_tool_use", id: "srv_1", name: "web_search", input: {} } }),
+      JSON.stringify({ type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"query":"latest"}' } }),
+      JSON.stringify({ type: "content_block_stop", index: 1 }),
+      JSON.stringify({
+        type: "content_block_start",
+        index: 2,
+        content_block: {
+          type: "web_search_tool_result",
+          tool_use_id: "srv_1",
+          content: [{ type: "web_search_result", title: "Example", url: "https://example.com" }],
+        },
+      }),
+      JSON.stringify({ type: "content_block_stop", index: 2 }),
+      JSON.stringify({ type: "message_delta", delta: { stop_reason: "pause_turn" }, usage: { output_tokens: 2 } }),
+      JSON.stringify({ type: "message_stop" }),
+    ]), coordinator: coord, maxLineBytes: 65536 }, createAnthropicMessagesStreamMapper()));
+    expect(events).toEqual(expect.arrayContaining([
+      { type: "native_block_start", index: 1, block: { type: "server_tool_use", id: "srv_1", name: "web_search", input: {} } },
+      { type: "native_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"query":"latest"}' } },
+      { type: "native_block_stop", index: 1 },
+      {
+        type: "server_tool_result",
+        block: {
+          type: "web_search_tool_result",
+          tool_use_id: "srv_1",
+          content: [{ type: "web_search_result", title: "Example", url: "https://example.com" }],
+        },
+      },
+      { type: "message_stop", reason: "pause_turn" },
+    ]));
+
+    async function* source(): AsyncGenerator<StreamEvent> {
+      for (const event of events) yield event;
+    }
+    const chunks = await collect(encodeSurfaceStream("anthropic-messages", source(), "claude"));
+    const output = new TextDecoder().decode(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))));
+    expect(output).toContain('"type":"server_tool_use"');
+    expect(output).toContain('"partial_json":"{\\"query\\":\\"latest\\"}"');
+    expect(output).toContain('"type":"web_search_tool_result"');
+    expect(output).toContain('"stop_reason":"pause_turn"');
+  });
 
   test("maps Anthropic rate-limit stream errors to typed provider errors", async () => {
     const coord = new AbortCoordinator(new AbortController().signal);
@@ -718,6 +1056,21 @@ describe("Responses SSE mapper sequencing", () => {
     const items = events.filter((event): event is Extract<StreamEvent, { type: "context_item" }> => event.type === "context_item");
     expect(items.map((item) => item.phase)).toEqual(["added", "done"]);
     expect(items[1]?.item).toMatchObject({ type: "compaction", encrypted_content: "opaque" });
+  });
+  test("maps hosted Responses web search calls to native Anthropic blocks", async () => {
+    const coord = new AbortCoordinator(new AbortController().signal);
+    const events = await collect(mapSseStream({ body: sseBody([
+      '{"type":"response.created","response":{"id":"r1"}}',
+      '{"type":"response.output_item.added","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"in_progress","action":{"type":"search","query":"risuncode"}}}',
+      '{"type":"response.output_item.done","output_index":0,"item":{"type":"web_search_call","id":"ws_1","status":"completed","action":{"type":"search","query":"risuncode"}}}',
+      '{"type":"response.completed","response":{"status":"completed"}}',
+    ]), coordinator: coord, maxLineBytes: 65536 }, createOpenAIResponsesStreamMapper()));
+    expect(events).toContainEqual({
+      type: "native_block_start",
+      index: 0,
+      block: { type: "server_tool_use", id: "ws_1", name: "web_search", input: { query: "risuncode" } },
+    });
+    expect(events).toContainEqual({ type: "native_block_stop", index: 0 });
   });
   test("emits native Anthropic blocks and Responses context items", async () => {
     const events: StreamEvent[] = [

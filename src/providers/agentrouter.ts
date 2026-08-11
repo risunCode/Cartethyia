@@ -7,7 +7,8 @@ import { mapSseStream } from "../open-sse/transport/stream-mapper";
 import { readJsonObject } from "../open-sse/transport/body-reader";
 import { isRecord } from "../application/protocols";
 import { createAnthropicMessagesStreamMapper } from "../open-sse/transport/protocols/anthropic";
-import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
+import { buildMessagesPayload } from "../open-sse/translate/request/anthropic";
+import { mapAnthropicUsage } from "../open-sse/translate/response/anthropic";
 import type {
   Adapter,
   ProviderCaps,

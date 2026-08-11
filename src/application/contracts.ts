@@ -30,6 +30,8 @@ export interface ProviderCaps {
   readonly images: boolean;
   readonly explicitCache: boolean;
   readonly promptCacheKey: boolean;
+  /** Whether the model/provider can execute a native web search tool. */
+  readonly search?: boolean;
 }
 
 /** Normalized capability categories projected from a model's capability booleans. */
@@ -294,7 +296,7 @@ export interface ImageReference {
 }
 
 export interface ContentBlock {
-  readonly type: "text" | "image" | "tool_use" | "tool_result" | "compaction" | "unknown";
+  readonly type: "text" | "image" | "tool_use" | "tool_result" | "compaction" | "reasoning" | "native" | "unknown";
   readonly text?: string;
   readonly cacheControl?: "ephemeral";
   readonly image?: ImageReference;
@@ -303,6 +305,16 @@ export interface ContentBlock {
   /** JSON-encoded function arguments preserved across protocol adapters. */
   readonly toolArguments?: string;
   readonly toolResultIsError?: boolean;
+  /** Provider-native block discriminator, retained only when target capabilities support it. */
+  readonly nativeType?: string;
+  /** Bounded provider-native block payload that is never rendered as visible text. */
+  readonly nativePayload?: Readonly<Record<string, unknown>>;
+  /** Visible reasoning summary text, kept separate from ordinary text blocks. */
+  readonly reasoningText?: string;
+  /** Encrypted provider reasoning content, never exposed as visible text. */
+  readonly reasoningEncryptedContent?: string;
+  /** Structured reasoning summary entries preserved across compatible projections. */
+  readonly reasoningSummary?: readonly Readonly<Record<string, unknown>>[];
   /** Original opaque provider block, when it must round-trip unchanged. */
   readonly raw?: Readonly<Record<string, unknown>>;
 }
@@ -449,7 +461,7 @@ export function detectClient(headers: Headers, normalized?: ProxyRequest): Clien
   return { name: "unknown", source: "unknown" };
 }
 
-export type StopReason = "completed" | "length" | "tool_call" | "content_filter" | "compaction" | "error";
+export type StopReason = "completed" | "length" | "tool_call" | "content_filter" | "compaction" | "pause_turn" | "error";
 
 export type StreamEvent =
   | { readonly type: "message_start"; readonly id: string }
@@ -459,6 +471,9 @@ export type StreamEvent =
   | { readonly type: "tool_call_delta"; readonly callId: string; readonly delta: string }
   | { readonly type: "tool_call_end"; readonly callId: string }
   | { readonly type: "server_tool_result"; readonly block: Readonly<Record<string, unknown>> }
+  | { readonly type: "native_block_start"; readonly index: number; readonly block: Readonly<Record<string, unknown>> }
+  | { readonly type: "native_block_delta"; readonly index: number; readonly delta: Readonly<Record<string, unknown>> }
+  | { readonly type: "native_block_stop"; readonly index: number }
   | { readonly type: "context_item"; readonly phase: "added" | "done"; readonly outputIndex: number; readonly item: Readonly<Record<string, unknown>> }
   | { readonly type: "compaction_start" }
   | { readonly type: "compaction_delta"; readonly text: string }

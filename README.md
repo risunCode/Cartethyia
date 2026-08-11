@@ -16,7 +16,7 @@ A self-hosted Bun + Elysia AI proxy with an authenticated web console. Cartethyi
 - **OpenAI Chat Completions** (`POST /v1/chat/completions`), **OpenAI Responses** (`POST /v1/responses`), and **Anthropic Messages** (`POST /v1/messages`) — all three client surfaces served from one process.
 - **Cross-protocol translation** — a request on any surface can route to any compatible upstream provider through shared codecs. A Chat request can hit an Anthropic upstream, a Messages request can hit an OpenAI Responses upstream, etc.
 - **Image generation** at `POST /v1/images/generations` (OpenAI-compatible).
-- **Streaming and non-streaming** — SSE/NDJSON framing with canonical `StreamEvent` values, translated back to the requested client surface. Reasoning/thinking content, tool calls, usage, stop reasons, and refusals are preserved end-to-end.
+- **Provider prompt caching** — stable prefixes receive provider-native cache breakpoints; OpenAI GPT-5.6+ uses explicit 30-minute breakpoints and affinity-scoped `prompt_cache_key`, while Anthropic uses exact `cache_control` markers. Cache reads/writes are surfaced in usage telemetry.
 - **Model catalog** at `QUERY /v1/models` — lists direct models, router aliases, and combos permitted by the authenticated API key. `GET /v1/models` remains an external compatibility alias and is translated at the unified HTTP boundary.
 
 ### Routing and failover
@@ -30,7 +30,7 @@ A self-hosted Bun + Elysia AI proxy with an authenticated web console. Cartethyi
   - **T3 permanent** (invalid request, client abort) → no cooldown, skipped entirely.
 - **Graduated backoff** — opaque/unknown 429s start at a 30s base that grows exponentially with failure count, escalating to the full 5-minute default only after repeated failures. A single transient blip no longer takes an account offline.
 - **Scheduled recovery sweep** — an unref'd 1-minute interval transitions expired cooldowns to healthy and clears expired per-model locks, so accounts recover proactively without waiting for a request to happen to select them.
-- **Sticky round-robin** with in-flight awareness — idle accounts are preferred over busy ones within the sticky pool.
+- **Cache-affine routing** — requests with reusable prefixes lock to deterministic account/proxy selections; non-affine round-robin traffic remains load-aware and rotates across idle capacity.
 - **Proxy pool** — route provider traffic through HTTP/HTTPS/SOCKS5 proxies with priority, weight, concurrency caps, and per-proxy health.
 
 ### OAuth and quota lifecycle

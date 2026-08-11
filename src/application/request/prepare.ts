@@ -4,7 +4,7 @@ import { isProtocolError } from "../protocols";
 import { normalizeRequest, parseRequestBody } from "../../open-sse/translate";
 import { estimateRequestTokens } from "../../traffic/admission";
 import { applyTokenSaver, RTK_EMERGENCY_MESSAGE_THRESHOLD } from "../../open-sse/rtk";
-import { ensureToolCallIds } from "../../open-sse/concerns/tool-calls";
+import { ensureToolCallIds } from "../../open-sse/translate/concerns/tools";
 import { applyFilterRules } from "../filter-rules";
 import type { AuthorizedProxyRequestInput, ProxyRequestDependencies } from "./index";
 
@@ -36,5 +36,8 @@ export async function prepareProxyRequest(input: AuthorizedProxyRequestInput, de
 
   const admissionBody = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
   const admissionEstimate = dependencies.admission !== undefined && input.authorization.apiKey !== undefined ? estimateRequestTokens(admissionBody) : 0;
-  return { request: applyCachePlan(preparedRequest, buildCachePlan(preparedRequest)), admissionEstimate };
+  const affinityKey = input.authorization.apiKeyId !== undefined
+    ? `api_key:${input.authorization.apiKeyId}`
+    : `trusted_identity:${input.authorization.trustedIdentity ?? "anonymous"}`;
+  return { request: applyCachePlan(preparedRequest, buildCachePlan(preparedRequest), affinityKey), admissionEstimate };
 }

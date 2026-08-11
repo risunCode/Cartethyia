@@ -1,8 +1,5 @@
 import { isRecord, normalizeFail, protocolError, type NormalizeInput, type NormalizeResult, type ProtocolError } from "../../application/protocols";
-import { normalizeChatRequest } from "./codecs/openai-chat";
-import { normalizeMessagesRequest } from "./codecs/anthropic-messages";
-import { normalizeResponsesRequest } from "./codecs/openai-responses";
-import { normalizeImageRequest } from "./codecs/images";
+import { normalizeChatRequest, normalizeMessagesRequest, normalizeResponsesRequest, normalizeImageRequest } from "./request/index";
 import type { Surface, ProxyEndpoint, RequestLimits } from "../../application/contracts";
 
 /**

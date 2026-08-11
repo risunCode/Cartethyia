@@ -4,7 +4,7 @@ import type { CredentialKind } from "../contracts";
 import { createCleanupStack, deriveErrorSource } from "../contracts";
 import type { ProxyAuthorization, ProxyRequestDependencies, RouteAttemptSelection, ProxyRoutePlan } from "./index";
 import { beginProviderInFlight, endProviderInFlight } from "../../traffic/in-flight";
-import { translateBody, resolveModelWireSurface } from "../../open-sse/translate";
+import { translateNonStreamResponse, resolveModelWireSurface } from "../../open-sse/translate";
 
 const CODEX_PROXY_ENABLED = process.env.CARTETHYIA_CODEX_PROXY === "true";
 
@@ -111,15 +111,21 @@ export function createRouteAttempt(context: RouteAttemptContext): (index: number
       const adapterNeedsCredential = adapter.metadata.credentialKind !== "none";
       const providerRouting = dependencies.getProviderRouting?.(candidate.providerId);
       const affinityKey = input.authorization.apiKeyId ?? input.authorization.trustedIdentity ?? "anonymous";
+      let stickyLimit: number | undefined;
+      if (request.cacheKey !== undefined) {
+        stickyLimit = Math.max(1, providerRouting?.stickyLimit ?? 1);
+      } else if (providerRouting?.useStickyLimit === true) {
+        stickyLimit = providerRouting.stickyLimit;
+      }
       let accountCandidatesPromise = state.accountCandidatesByProvider.get(candidate.providerId);
       if (accountCandidatesPromise === undefined) {
         accountCandidatesPromise = dependencies.accountCandidates(candidate.providerId).catch((error: unknown) => { state.accountCandidatesByProvider.delete(candidate.providerId); throw error; });
         state.accountCandidatesByProvider.set(candidate.providerId, accountCandidatesPromise);
       }
-      const credential = adapterNeedsCredential ? await dependencies.accounts.select({ providerId: candidate.providerId, candidates: await accountCandidatesPromise, strategy: providerRouting?.strategy ?? "priority", affinityKey, stickyLimit: providerRouting?.useStickyLimit === true ? providerRouting.stickyLimit : undefined, modelId: candidate.modelId }) : null;
+      const credential = adapterNeedsCredential ? await dependencies.accounts.select({ providerId: candidate.providerId, candidates: await accountCandidatesPromise, strategy: providerRouting?.strategy ?? "priority", affinityKey, stickyLimit, modelId: candidate.modelId }) : null;
       if (adapterNeedsCredential && credential === null) throw { statusCode: 503, kind: "credential_unavailable", retryable: true, routeScope: "account", source: deriveErrorSource("credential_unavailable", "account"), sanitizedMessage: "No eligible account available", retryAt: null };
       if (credential !== null) attemptCleanup.add({ release: async () => dependencies.accounts.release(credential.selection.leaseId) });
-      const network = await dependencies.network.select({ providerId: candidate.providerId, affinityKey, preferDirect: candidate.providerId === "codex" && !CODEX_PROXY_ENABLED });
+      const network = await dependencies.network.select({ providerId: candidate.providerId, affinityKey, sticky: request.cacheKey !== undefined || providerRouting?.useStickyLimit === true, preferDirect: candidate.providerId === "codex" && !CODEX_PROXY_ENABLED });
       if (network === null) throw { statusCode: 503, kind: "network_unavailable", retryable: true, routeScope: "proxy", source: deriveErrorSource("network_unavailable", "proxy"), sanitizedMessage: "No outbound network path available", retryAt: null };
       attemptCleanup.add({ release: network.selection.release });
       const selected = { accountId: credential?.selection.accountId ?? null, proxyId: network.proxyId } satisfies RouteAttemptSelection;
@@ -150,7 +156,7 @@ export function createRouteAttempt(context: RouteAttemptContext): (index: number
       }
       if (!providerStreamHandedOff) endProviderInFlight(candidate.providerId);
       await attemptCleanup.run();
-      if (output.mode === "non_stream" && target.surface !== request.sourceSurface) return { ...output, body: translateBody(output.body, adapter.metadata.protocol, target.surface, request.sourceSurface) };
+      if (output.mode === "non_stream" && target.surface !== request.sourceSurface) return { ...output, body: translateNonStreamResponse(output.body, target.surface, request.sourceSurface, request.model) };
       return output;
     } finally {
       if (!handedOff) await attemptCleanup.run();

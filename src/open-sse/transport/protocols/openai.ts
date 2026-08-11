@@ -8,8 +8,9 @@ import type { SseEvent, StreamMapper } from "../contracts";
 import type { ProviderOutput, ProviderRequest, SafeErrorSummary, StopReason, StreamEvent } from "../../../application/contracts";
 import { isRecord } from "../../../application/protocols";
 import { sanitizeMessage } from "../../../application/contracts";
-import { buildChatPayload, mapChatUsage } from "../../translate/codecs/openai-chat";
-import { buildResponsesPayload, mapResponsesUsage } from "../../translate/codecs/openai-responses";
+import { buildChatPayload } from "../../translate/request/openai-chat";
+import { buildResponsesPayload } from "../../translate/request/openai-responses";
+import { mapChatUsage, mapResponsesUsage } from "../../translate/response/openai";
 
 // ---------------------------------------------------------------- HTTP execution
 
@@ -233,17 +234,65 @@ export function createOpenAIChatStreamMapper(): StreamMapper {
   };
 }
 
+function responsesWebSearchBlock(item: Record<string, unknown>, outputIndex: number): { readonly index: number; readonly id: string; readonly block: Readonly<Record<string, unknown>> } {
+  const id = typeof item.id === "string" && item.id.length > 0 ? item.id : `web_search_${outputIndex}`;
+  const action = isRecord(item.action) ? item.action : null;
+  const query = typeof action?.query === "string"
+    ? action.query
+    : Array.isArray(action?.queries)
+      ? action.queries.filter((value): value is string => typeof value === "string").join("\n")
+      : undefined;
+  return {
+    index: outputIndex,
+    id,
+    block: {
+      type: "server_tool_use",
+      id,
+      name: "web_search",
+      input: query === undefined ? {} : { query },
+    },
+  };
+}
+function responsesWebSearchCitations(item: Record<string, unknown>): readonly Readonly<Record<string, unknown>>[] {
+  const citations: Readonly<Record<string, unknown>>[] = [];
+  const seen = new Set<string>();
+  for (const rawPart of Array.isArray(item.content) ? item.content : []) {
+    if (!isRecord(rawPart) || !Array.isArray(rawPart.annotations)) continue;
+    for (const rawAnnotation of rawPart.annotations) {
+      if (!isRecord(rawAnnotation) || rawAnnotation.type !== "url_citation" || typeof rawAnnotation.url !== "string" || seen.has(rawAnnotation.url)) continue;
+      seen.add(rawAnnotation.url);
+      citations.push({
+        type: "web_search_result",
+        title: typeof rawAnnotation.title === "string" ? rawAnnotation.title : rawAnnotation.url,
+        url: rawAnnotation.url,
+      });
+    }
+  }
+  return citations;
+}
+
+function responsesWebSearchResultBlock(toolUseId: string, content: readonly Readonly<Record<string, unknown>>[]): Readonly<Record<string, unknown>> {
+  return { type: "web_search_tool_result", tool_use_id: toolUseId, content };
+}
+
+
+
 /**
  * Responses API SSE mapper: output_text.delta becomes text_delta, reasoning
  * deltas become thinking_delta, function_call_arguments deltas become
- * tool_call_delta, and the terminal response.completed carries usage and the
- * stop reason.
+ * tool_call_delta, hosted web searches become native server-tool blocks, and
+ * the terminal response.completed carries usage and the stop reason.
  */
 export function createOpenAIResponsesStreamMapper(): StreamMapper {
   let started = false;
   let id: string | null = null;
   let stopReason: StopReason | null = null;
   const callIds = new Map<number, string>();
+  const activeSearches = new Map<number, string>();
+  const searchIndicesById = new Map<string, number>();
+  const startedSearches = new Set<string>();
+  const stoppedSearches = new Set<string>();
+  const searchResults = new Map<string, Readonly<Record<string, unknown>>[]>();
   const activeCalls = new Set<string>();
   const emitted = new Set<string>();
   const callAliases = new Map<string, string>();
@@ -288,12 +337,26 @@ export function createOpenAIResponsesStreamMapper(): StreamMapper {
       }
       case "response.output_text.delta": {
         const delta = parsed.delta;
-        return typeof delta === "string" && delta.length > 0 ? { type: "text_delta", text: delta } : null;
+        if (typeof delta !== "string" || delta.length === 0) return null;
+        return { type: "text_delta", text: delta };
       }
       case "response.reasoning_text.delta":
       case "response.reasoning_summary_text.delta": {
         const delta = parsed.delta;
         return typeof delta === "string" && delta.length > 0 ? { type: "thinking_delta", text: delta } : null;
+      }
+      case "response.output_text.annotation.added": {
+        const annotation = parsed.annotation;
+        if (!isRecord(annotation) || annotation.type !== "url_citation" || typeof annotation.url !== "string") return null;
+        for (const citations of searchResults.values()) {
+          if (citations.some((citation) => citation.url === annotation.url)) continue;
+          citations.push({
+            type: "web_search_result",
+            title: typeof annotation.title === "string" ? annotation.title : annotation.url,
+            url: annotation.url,
+          });
+        }
+        return null;
       }
       case "response.function_call_arguments.delta": {
         const rawItemId = typeof parsed.item_id === "string" ? parsed.item_id : null;
@@ -304,9 +367,55 @@ export function createOpenAIResponsesStreamMapper(): StreamMapper {
         emitted.add(callId);
         return { type: "tool_call_delta", callId, delta };
       }
+      case "response.web_search_call.in_progress":
+      case "response.web_search_call.searching": {
+        const outputIndex = typeof parsed.output_index === "number" ? parsed.output_index : -1;
+        const item = isRecord(parsed.item) ? parsed.item : {
+          id: typeof parsed.item_id === "string" ? parsed.item_id : undefined,
+          action: isRecord(parsed.action) ? parsed.action : undefined,
+        };
+        const search = responsesWebSearchBlock(item, outputIndex);
+        if (startedSearches.has(search.id) || activeSearches.has(search.index)) return null;
+        startedSearches.add(search.id);
+        activeSearches.set(search.index, search.id);
+        searchIndicesById.set(search.id, search.index);
+        searchResults.set(search.id, searchResults.get(search.id) ?? []);
+        return startIfNeeded([{ type: "native_block_start", index: search.index, block: search.block }]);
+      }
+      case "response.web_search_call.completed": {
+        const outputIndex = typeof parsed.output_index === "number" ? parsed.output_index : -1;
+        const item = isRecord(parsed.item) ? parsed.item : {
+          id: typeof parsed.item_id === "string" ? parsed.item_id : undefined,
+          action: isRecord(parsed.action) ? parsed.action : undefined,
+        };
+        const search = responsesWebSearchBlock(item, outputIndex);
+        const index = searchIndicesById.get(search.id) ?? search.index;
+        searchResults.set(search.id, searchResults.get(search.id) ?? []);
+        const events: StreamEvent[] = [];
+        if (!startedSearches.has(search.id)) {
+          startedSearches.add(search.id);
+          events.push({ type: "native_block_start", index, block: search.block });
+        }
+        if (!stoppedSearches.has(search.id)) {
+          stoppedSearches.add(search.id);
+          events.push({ type: "native_block_stop", index });
+        }
+        activeSearches.delete(index);
+        searchIndicesById.delete(search.id);
+        return events.length > 0 ? startIfNeeded(events) : null;
+      }
       case "response.output_item.added": {
         const outputIndex = typeof parsed.output_index === "number" ? parsed.output_index : -1;
         const item = parsed.item;
+        if (isRecord(item) && item.type === "web_search_call") {
+          const search = responsesWebSearchBlock(item, outputIndex);
+          if (startedSearches.has(search.id) || activeSearches.has(search.index)) return null;
+          startedSearches.add(search.id);
+          activeSearches.set(search.index, search.id);
+          searchIndicesById.set(search.id, search.index);
+          searchResults.set(search.id, searchResults.get(search.id) ?? []);
+          return startIfNeeded([{ type: "native_block_start", index: search.index, block: search.block }]);
+        }
         if (isRecord(item) && item.type === "compaction") {
           return startIfNeeded([{ type: "context_item", phase: "added", outputIndex, item }]);
         }
@@ -324,6 +433,32 @@ export function createOpenAIResponsesStreamMapper(): StreamMapper {
       case "response.output_item.done": {
         const outputIndex = typeof parsed.output_index === "number" ? parsed.output_index : -1;
         const item = parsed.item;
+        if (isRecord(item) && item.type === "message") {
+          const citations = responsesWebSearchCitations(item);
+          for (const results of searchResults.values()) {
+            for (const citation of citations) {
+              if (!results.some((result) => result.url === citation.url)) results.push(citation);
+            }
+          }
+          return null;
+        }
+        if (isRecord(item) && item.type === "web_search_call") {
+          const search = responsesWebSearchBlock(item, outputIndex);
+          searchResults.set(search.id, searchResults.get(search.id) ?? []);
+          const index = searchIndicesById.get(search.id) ?? search.index;
+          const events: StreamEvent[] = [];
+          if (!startedSearches.has(search.id)) {
+            startedSearches.add(search.id);
+            events.push({ type: "native_block_start", index, block: search.block });
+          }
+          if (!stoppedSearches.has(search.id)) {
+            stoppedSearches.add(search.id);
+            events.push({ type: "native_block_stop", index });
+          }
+          activeSearches.delete(index);
+          searchIndicesById.delete(search.id);
+          return events.length > 0 ? startIfNeeded(events) : null;
+        }
         if (isRecord(item) && item.type === "compaction") {
           return startIfNeeded([{ type: "context_item", phase: "done", outputIndex, item }]);
         }
@@ -350,6 +485,12 @@ export function createOpenAIResponsesStreamMapper(): StreamMapper {
         const events: StreamEvent[] = [];
         for (const callId of activeCalls) events.push({ type: "tool_call_end", callId });
         activeCalls.clear();
+        for (const [index] of activeSearches) events.push({ type: "native_block_stop", index });
+        activeSearches.clear();
+        searchIndicesById.clear();
+        searchResults.clear();
+        startedSearches.clear();
+        stoppedSearches.clear();
         events.push({ type: "message_stop", reason: "error", error: responsesFailureSummary(response) });
         return startIfNeeded(events);
       }
@@ -372,6 +513,16 @@ export function createOpenAIResponsesStreamMapper(): StreamMapper {
         }
         for (const callId of activeCalls) events.push({ type: "tool_call_end", callId });
         activeCalls.clear();
+        for (const [index, toolUseId] of activeSearches) {
+          events.push({ type: "native_block_stop", index });
+          searchResults.set(toolUseId, searchResults.get(toolUseId) ?? []);
+        }
+        activeSearches.clear();
+        searchIndicesById.clear();
+        startedSearches.clear();
+        stoppedSearches.clear();
+        for (const [toolUseId, content] of searchResults) events.push({ type: "server_tool_result", block: responsesWebSearchResultBlock(toolUseId, content) });
+        searchResults.clear();
         events.push({ type: "message_stop", reason: stopReason });
         return startIfNeeded(events);
       }

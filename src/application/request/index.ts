@@ -13,7 +13,8 @@ import { beginProviderInFlight, decrementInFlight, endProviderInFlight, incremen
 import type { ApiKeyAdmission, AdmissionLease, AdmissionUsage } from "../../traffic/admission";
 import type { ApiKeyPublic } from "../../storage";
 import { isProviderCallError, recoverCall } from "../../open-sse/handlers/recovery";
-import { translateBody, resolveModelWireSurface } from "../../open-sse/translate";
+import { resolveModelWireSurface } from "../../open-sse/translate";
+import { ProtocolCodecError } from "../../open-sse/translate/errors";
 import { writeErrorResponse, writeResponse } from "../../open-sse/handlers";
 import type { TokenSaverConfig } from "../../open-sse/rtk";
 import { createRouteAttempt, createRouteAttemptState, getRouteAttemptSelection, getSelectedAttempt, getSelectedCandidateId, getSelectedCredentialKind, getSuccessfulCandidateId, getNextCandidateId, hasNextCandidate, clearAccountCandidates, markAccountRetry, markReactiveRefresh } from "./route-attempt";
@@ -26,6 +27,7 @@ export interface ProxyRoutePlan {
   readonly affinity: AffinityKey;
   readonly candidates: readonly RouteCandidate[];
   readonly requestedModel?: string;
+  readonly unsupportedReason?: string;
 }
 
 export interface RouteAttemptSelection {
@@ -95,6 +97,7 @@ function selectWireSurface(adapter: Adapter, candidate: RouteCandidate, request:
 
 function normalizeError(error: unknown): ProviderCallError {
   if (isProviderCallError(error)) return error;
+  if (error instanceof ProtocolCodecError) return error.toProviderCallError(sanitizeMessage(error.message));
   return {
     statusCode: null,
     kind: "internal_error",
@@ -156,7 +159,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
       ? plan?.candidates[0] ?? null
       : plan?.candidates.find((item) => item.id === successfulCandidateId) ?? plan?.candidates[0] ?? null;
     const adapter = candidate === null ? undefined : dependencies.providers.get(candidate.providerId);
-    let wireSurface: string | null = null;
+    let wireSurface: Surface | null = null;
     let upstreamModel: string | null = candidate?.modelId ?? null;
     if (adapter !== undefined && candidate !== null && request !== undefined) {
       wireSurface = selectWireSurface(adapter, candidate, request);
@@ -200,13 +203,17 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
     const candidates = routePlan.candidates.filter((candidate) => isRouteAllowed(candidate.providerId, candidate.modelId, input.authorization, routePlan.requestedModel));
     resolvedPlan = { ...routePlan, candidates };
     if (resolvedPlan.candidates.length === 0) {
+      const unsupported = routePlan.unsupportedReason !== undefined;
+      const kind = unsupported ? "capability_unsupported" : "model_not_found";
       throw {
-        statusCode: 404,
-        kind: "model_not_found",
+        statusCode: unsupported ? 400 : 404,
+        kind,
         retryable: false,
         routeScope: "provider",
-        source: deriveErrorSource("model_not_found", "provider"),
-        sanitizedMessage: routePlan.candidates.length > 0 ? "Model or provider is blocked by the API key ACL" : "No eligible route found",
+        source: deriveErrorSource(kind, "provider"),
+        sanitizedMessage: routePlan.candidates.length > 0
+          ? "Model or provider is blocked by the API key ACL"
+          : routePlan.unsupportedReason ?? "No eligible route found",
         retryAt: null,
       } satisfies ProviderCallError;
     }

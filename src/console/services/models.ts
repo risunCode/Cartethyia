@@ -1,6 +1,7 @@
 import type { ModelMetadata } from "../../application/contracts";
 import type { ModelMetadataResolver } from "../../application/model-metadata";
 import type { ProviderRegistry } from "../../providers/registry";
+import { modelCapabilityView } from "../views/models";
 import type { ModelRepository, ModelView } from "../views";
 
 export class ModelService {
@@ -23,7 +24,7 @@ export class ModelService {
     const merged: ModelView[] = [];
     for (const model of catalog) {
       seen.add(model.id);
-      merged.push({ providerId, modelId: model.id, displayName: model.displayName, enabled: storedByModel.get(model.id)?.enabled ?? true, source: "built-in", images: model.capabilities.images, metadata: this.metadataFor(providerId, model.id) });
+      merged.push({ providerId, modelId: model.id, displayName: model.displayName, enabled: storedByModel.get(model.id)?.enabled ?? true, source: "built-in", images: model.capabilities.images, capabilities: modelCapabilityView(model), metadata: this.metadataFor(providerId, model.id) });
     }
     for (const row of stored) {
       if (seen.has(row.modelId)) continue;

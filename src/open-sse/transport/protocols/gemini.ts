@@ -7,8 +7,8 @@ import { readJsonObject } from "../body-reader";
 import type { SseEvent, StreamMapper } from "../contracts";
 import type { ProviderOutput, ProviderRequest, StreamEvent } from "../../../application/contracts";
 import { isRecord } from "../../../application/protocols";
-import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../../translate/codecs/gemini-generate-content";
-import { geminiCandidate, responseParts } from "../../translate/codecs/gemini-generate-content";
+import { buildGeminiPayload } from "../../translate/request/gemini";
+import { geminiCandidate, mapGeminiUsage, responseParts, translateGeminiImageResponse, translateGeminiResponse } from "../../translate/response/gemini";
 
 /** SSE stream mapper for Gemini-style generateContent streams. */
 export function createGeminiGenerateContentStreamMapper(): StreamMapper {
@@ -48,19 +48,6 @@ export function createGeminiGenerateContentStreamMapper(): StreamMapper {
   };
 }
 
-function translateGeminiImageResponse(body: Record<string, unknown>): Record<string, unknown> {
-  const { response, parts } = geminiCandidate(body);
-  const data: Record<string, unknown>[] = [];
-  let revisedPrompt = "";
-  for (const part of parts) {
-    const inlineData = isRecord(part.inlineData) ? part.inlineData : null;
-    if (inlineData !== null && typeof inlineData.data === "string") {
-      data.push({ b64_json: inlineData.data, ...(typeof inlineData.mimeType === "string" ? { mime_type: inlineData.mimeType } : {}) });
-    }
-    if (typeof part.text === "string" && part.text.trim().length > 0) revisedPrompt += `${revisedPrompt.length > 0 ? " " : ""}${part.text.trim()}`;
-  }
-  return { created: Math.floor(Date.now() / 1000), data, ...(revisedPrompt.length > 0 ? { revised_prompt: revisedPrompt } : {}), ...(typeof response.responseId === "string" ? { id: response.responseId } : {}) };
-}
 
 /** Executes a Gemini generateContent request after the provider supplies credentials. */
 export async function callGeminiWire(input: ProviderRequest, baseUrl: string, credential: string): Promise<ProviderOutput> {

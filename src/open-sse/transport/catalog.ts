@@ -21,6 +21,7 @@ export function capabilitiesOf(seed: CapabilitySeed): ProviderCaps {
     images: seed.images ?? false,
     explicitCache: seed.explicitCache ?? false,
     promptCacheKey: seed.promptCacheKey ?? false,
+    search: seed.search ?? false,
   };
 }
 
@@ -62,6 +63,7 @@ export function aggregateCapabilities(models: readonly ProviderModel[], fallback
   let images = false;
   let explicitCache = false;
   let promptCacheKey = false;
+  let search = false;
   for (const model of models) {
     const caps = model.capabilities;
     for (const surface of caps.surfaces) {
@@ -73,6 +75,7 @@ export function aggregateCapabilities(models: readonly ProviderModel[], fallback
     images ||= caps.images;
     explicitCache ||= caps.explicitCache;
     promptCacheKey ||= caps.promptCacheKey;
+    search ||= caps.search === true;
   }
-  return { surfaces, streaming, reasoning, toolCalls, images, explicitCache, promptCacheKey };
+  return { surfaces, streaming, reasoning, toolCalls, images, explicitCache, promptCacheKey, search };
 }

@@ -89,7 +89,29 @@ async function listAccountCandidates(cache: RouteSnapshotCache, health: AccountH
   }));
 }
 
+function requestsNativeWebSearch(request: ProxyRequest): boolean {
+  return request.tools.some((tool) => {
+    const normalizedName = tool.name.toLowerCase().replace(/[^a-z]/g, "");
+    return normalizedName === "websearch"
+      || normalizedName === "websearchpreview"
+      || tool.nativeType?.startsWith("web_search_") === true;
+  });
+}
 
+function supportsNativeWebSearch(registry: ProviderRegistry, target: { readonly providerId: string; readonly modelId: string }): boolean {
+  const adapter = registry.get(target.providerId);
+  if (adapter === null) return false;
+  return (adapter.models.get(target.modelId)?.capabilities ?? adapter.capabilities).search === true;
+}
+
+function hasConfiguredExa(snapshot: Awaited<ReturnType<RouteSnapshotCache["get"]>>): boolean {
+  return (snapshot.accountsByProvider.get("exa") ?? []).some((account) => account.active)
+    || (Bun.env.EXA_API_KEY?.trim().length ?? 0) > 0;
+}
+
+function webSearchUnsupportedReason(): string {
+  return "The selected upstream does not support native web search. Configure Exa or select an upstream with native web search support.";
+}
 
 function createRouteResolver(
   registry: ProviderRegistry,
@@ -150,7 +172,30 @@ function createRouteResolver(
         });
       }
     }
-    return { affinity, candidates, requestedModel: routedRequest.model };
+    let unsupportedReason: string | undefined;
+    if (requestsNativeWebSearch(routedRequest)) {
+      const nativeCandidates = candidates.filter((candidate) => supportsNativeWebSearch(registry, candidate));
+      candidates.splice(0, candidates.length, ...nativeCandidates);
+      if (candidates.length === 0) {
+        const exa = registry.get("exa");
+        const exaModel = exa?.models.get("exa-search");
+        if (exa !== null && exaModel !== null && exaModel !== undefined && hasConfiguredExa(snapshot) && resolveModelWireSurface(exa.metadata, exa.capabilities, exaModel.capabilities, request.sourceSurface) !== null) {
+          candidates.push({
+            id: "exa/exa-search",
+            providerId: "exa",
+            modelId: "exa-search",
+            surface: request.sourceSurface,
+            health: null,
+            enabled: true,
+            authorized: true,
+            compatible: true,
+          });
+        } else {
+          unsupportedReason = webSearchUnsupportedReason();
+        }
+      }
+    }
+    return { affinity, candidates, requestedModel: routedRequest.model, ...(unsupportedReason === undefined ? {} : { unsupportedReason }) };
   };
 }
 

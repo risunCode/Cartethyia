@@ -31,11 +31,11 @@ const EXA_SURFACES: readonly Surface[] = ["web-search"];
 const EXA_BASE_URL = "https://api.exa.ai";
 
 const EXA_MODELS: readonly ProviderModel[] = [
-  modelOf("exa-search", "Exa Neural Search", capabilitiesOf({ surfaces: EXA_SURFACES })),
-  modelOf("exa-deep-research", "Exa Deep Researcher", capabilitiesOf({ surfaces: EXA_SURFACES })),
+  modelOf("exa-search", "Exa Neural Search", capabilitiesOf({ surfaces: EXA_SURFACES, search: true })),
+  modelOf("exa-deep-research", "Exa Deep Researcher", capabilitiesOf({ surfaces: EXA_SURFACES, search: true })),
 ];
 
-const EXA_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: EXA_SURFACES });
+const EXA_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: EXA_SURFACES, search: true });
 
 export interface ExaAdapterConfig {
   readonly id?: string;
@@ -157,8 +157,7 @@ export class ExaAdapter implements Adapter {
       });
     }
     const { request, signal, network } = input;
-    const claudeWebSearchRequest = isClaudeWebSearchRequest(request);
-    const stream = request.stream && !claudeWebSearchRequest;
+    const stream = request.stream;
     const messages = request.messages;
     const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
     const rawQuery = lastUserMessage ? lastUserMessage.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("\n") : "";
@@ -285,23 +284,6 @@ export class ExaAdapter implements Adapter {
     return toProviderCallError(error);
   }
 
-}
-function isClaudeWebSearchRequest(request: ProviderRequest["request"]): boolean {
-  if (request.sourceSurface !== "anthropic-messages" || !request.tools.some((tool) => tool.name === "web_search")) return false;
-  const systemText = request.messages
-    .filter((message) => message.role === "system" || message.role === "developer")
-    .flatMap((message) => message.content)
-    .map((block) => block.text ?? "")
-    .join("\n");
-  const userText = [...request.messages]
-    .reverse()
-    .find((message) => message.role === "user")
-    ?.content
-    .map((block) => block.text ?? "")
-    .join("\n")
-    .trim() ?? "";
-  return systemText.includes("assistant for performing a web search tool use")
-    && /^Perform a web search for the query:\s*\S/i.test(userText);
 }
 
 function isExaSearchResult(value: unknown): value is ExaSearchResult {

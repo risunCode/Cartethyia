@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { withRoutingRevisionTracking } from "../../src/bootstrap/routing";
+import { withRoutingRevisionTracking, routeResolver } from "../../src/bootstrap/routing";
 import type { CartethyiaRuntime } from "../../src/bootstrap/composition";
 import { catalogRevision } from "../../src/middleware/proxy";
-import { createRouteSnapshotCache } from "../../src/application/routing-snapshot";
+import { createRouteSnapshotCache, type RoutingSnapshot } from "../../src/application/routing-snapshot";
+import type { Adapter, NormalizedTool, ProviderCaps, ProviderMeta, ProviderModel, ProviderOutput, ProxyRequest, RouteTarget } from "../../src/application/contracts";
 import type { ConfigPersistence } from "../../src/storage";
+import { capabilitiesOf, createModelCatalog, modelOf } from "../../src/open-sse/transport/catalog";
 import { ProviderRegistry } from "../../src/providers/registry";
 import { describeOpenAIAdapter, createOpenAIAdapter } from "../../src/open-sse/transport/openai-adapter";
-
 function sources(readRevision: () => number, aliases: () => readonly unknown[]) {
   const config = {
     aliases: { list: aliases },
@@ -129,5 +130,109 @@ describe("lazy provider adapters", () => {
     expect(loads).toBe(1);
     await registry.prewarm(["lazy-test"]);
     expect(loads).toBe(1);
+  });
+});
+function makeAdapter(
+  providerId: string,
+  protocol: ProviderMeta["protocol"],
+  modelId: string,
+  capabilities: ProviderCaps,
+): Adapter {
+  const metadata: ProviderMeta = { id: providerId, displayName: providerId, protocol, credentialKind: "none" };
+  const model: ProviderModel = modelOf(modelId, modelId, capabilities);
+  const models = createModelCatalog([model]);
+  const output: ProviderOutput = { mode: "non_stream", body: {} };
+  return {
+    metadata,
+    capabilities,
+    models,
+    resolveTarget: (resolvedModelId, surface): RouteTarget => ({ providerId, modelId: resolvedModelId, upstreamModelId: resolvedModelId, surface }),
+    call: async (): Promise<ProviderOutput> => output,
+    mapError: () => ({
+      statusCode: 500,
+      kind: "internal_error",
+      retryable: false,
+      routeScope: "provider",
+      source: "internal",
+      sanitizedMessage: "test adapter error",
+      retryAt: null,
+    }),
+  };
+}
+
+function searchRequest(model: string): ProxyRequest {
+  const tool: NormalizedTool = { name: "web_search", description: null, inputSchema: {} };
+  return {
+    model,
+    messages: [],
+    tools: [tool],
+    stream: false,
+    responseFormat: "text",
+    reasoning: "default",
+    maxOutputTokens: null,
+    images: [],
+    sourceSurface: "anthropic-messages",
+    signal: new AbortController().signal,
+    limits: { maxBodyBytes: 1_000_000, connectTimeoutMs: 1_000, firstByteTimeoutMs: 1_000, idleTimeoutMs: 1_000, totalTimeoutMs: 1_000 },
+  };
+}
+
+function routeSnapshot(prefixes: ReadonlyMap<string, string>, accountsByProvider: RoutingSnapshot["accountsByProvider"] = new Map()): RoutingSnapshot {
+  return {
+    revision: 0,
+    prefixes,
+    aliases: new Map(),
+    combos: new Map(),
+    cliModelMappings: new Map(),
+    accountsByProvider,
+    knownModelIds: new Map(),
+  };
+}
+
+const claudeClient = { name: "claude_code", source: "unknown" } as const;
+const affinity = { namespace: "trusted_identity", value: "routing-test" } as const;
+
+describe("web-search route capability policy", () => {
+  test("does not substitute an unsupported mapped route with Codex", async () => {
+    const registry = new ProviderRegistry();
+    registry.register(makeAdapter("kimchi", "openai", "deepseek-v4-flash", capabilitiesOf({ surfaces: ["openai-chat"] })));
+    const snapshot = routeSnapshot(new Map([["kimchi", "kimchi"]]));
+    const resolve = routeResolver(registry, { get: async () => snapshot }, null as never, null as never);
+
+    const plan = await resolve(searchRequest("kimchi/deepseek-v4-flash"), affinity, claudeClient);
+
+    expect(plan.candidates).toEqual([]);
+    expect(plan.unsupportedReason).toBe("The selected upstream does not support native web search. Configure Exa or select an upstream with native web search support.");
+  });
+
+  test("uses Exa only when it is configured", async () => {
+    const registry = new ProviderRegistry();
+    registry.register(makeAdapter("kimchi", "openai", "deepseek-v4-flash", capabilitiesOf({ surfaces: ["openai-chat"] })));
+    registry.register(makeAdapter("exa", "exa", "exa-search", capabilitiesOf({ surfaces: ["web-search"], search: true })));
+    const snapshot = routeSnapshot(
+      new Map([["kimchi", "kimchi"]]),
+      new Map([["exa", [{ id: "exa-account", providerId: "exa", credentialKind: "api_key", active: true }]]]),
+    );
+    const resolve = routeResolver(registry, { get: async () => snapshot }, null as never, null as never);
+
+    const plan = await resolve(searchRequest("kimchi/deepseek-v4-flash"), affinity, claudeClient);
+
+    expect(plan.candidates.map((candidate) => candidate.id)).toEqual(["exa/exa-search"]);
+    expect(plan.unsupportedReason).toBeUndefined();
+  });
+
+  test("keeps the mapped native-search route ahead of Exa", async () => {
+    const registry = new ProviderRegistry();
+    registry.register(makeAdapter("codex", "openai", "gpt-5.5", capabilitiesOf({ surfaces: ["openai-responses"], search: true })));
+    registry.register(makeAdapter("exa", "exa", "exa-search", capabilitiesOf({ surfaces: ["web-search"], search: true })));
+    const snapshot = routeSnapshot(
+      new Map([["codex", "codex"]]),
+      new Map([["exa", [{ id: "exa-account", providerId: "exa", credentialKind: "api_key", active: true }]]]),
+    );
+    const resolve = routeResolver(registry, { get: async () => snapshot }, null as never, null as never);
+
+    const plan = await resolve(searchRequest("codex/gpt-5.5"), affinity, claudeClient);
+
+    expect(plan.candidates.map((candidate) => candidate.id)).toEqual(["codex/gpt-5.5"]);
   });
 });

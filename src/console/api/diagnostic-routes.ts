@@ -4,7 +4,7 @@ import type { RuntimePersistence } from "../../storage/runtime/runtime";
 import type { PresentedProxyResponse } from "../../application/contracts";
 import { runProxyRequest, type ProxyRequestDependencies } from "../../application/request";
 import { appendTerminalError } from "../../open-sse/handlers";
-import { encodeSurfaceStream } from "../../providers/surfaces";
+import { encodeSurfaceStream } from "../../open-sse/transport/surface-encoder";
 import { beginProviderInFlight, endProviderInFlight, getInFlightCount, getProviderInFlight, subscribeInFlight } from "../../traffic/in-flight";
 import { runtimeSettings } from "../runtime-settings";
 import { dispatchModelStudioRequest, normalizeModelStudioResponse, type ModelStudioSurface } from "../model-studio-routing";

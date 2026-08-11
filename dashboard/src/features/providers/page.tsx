@@ -1,10 +1,10 @@
 /** Providers page — registry list grouped by credential kind (REQ-11). */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckSquare, ChevronRight, Plus, Square, Trash2 } from "lucide-react";
+import { CheckSquare, ChevronDown, ChevronRight, Plus, Square, Trash2 } from "lucide-react";
 import { HeaderPairsEditor, pairsToHeaders, type HeaderPair } from "../../components/header-pairs-editor";
 import { memo, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { toast } from "../../lib/toast";
 import { apiGet, apiPost, apiDelete } from "../../lib/api";
 import { qk } from "../../lib/query-keys";
@@ -26,10 +26,27 @@ interface ProviderInfo {
   authKind: "none" | "session" | "oauth" | "api-key";
   prefix: string;
   modelCount: number;
+  capabilityCounts: {
+    chat: number;
+    media: number;
+    websearch: number;
+  };
   status: "ok" | "warn";
   connections: number;
   supportsOAuth: boolean;
   supportsApiKey: boolean;
+}
+
+type ProviderCapability = keyof ProviderInfo["capabilityCounts"];
+
+const PROVIDER_CAPABILITIES: readonly { value: ProviderCapability; label: string }[] = [
+  { value: "chat", label: "Chat" },
+  { value: "media", label: "Image / Video" },
+  { value: "websearch", label: "Web Search" },
+];
+function providerCapabilityFromSearch(search: string): ProviderCapability {
+  const requested = new URLSearchParams(search).get("capability");
+  return requested === "media" || requested === "websearch" ? requested : "chat";
 }
 
 /** Display order for built-in providers: free tier, OAuth, then API key/PAT. */
@@ -312,10 +329,10 @@ function StatusLine({ provider }: { provider: ProviderInfo }) {
   );
 }
 
-const ProviderCard = memo(function ProviderCard({ provider }: { provider: ProviderInfo }) {
+const ProviderCard = memo(function ProviderCard({ provider, capability }: { provider: ProviderInfo; capability: ProviderCapability }) {
   return (
     <Card className="p-3 transition-transform duration-150 hover:-translate-y-0.5 hover:shadow-lg">
-      <Link to={`/providers/${provider.id}`} className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
+      <Link to={`/providers/${provider.id}?capability=${encodeURIComponent(capability)}`} className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
         <div className="flex items-center gap-2.5">
           <ProviderIcon icon={provider.icon} name={provider.name} size={32} />
           <div className="min-w-0">
@@ -337,12 +354,14 @@ const ProviderCard = memo(function ProviderCard({ provider }: { provider: Provid
         </div>
       </Link>
 
-    </Card>
+      </Card>
   );
 });
 
 export function ProvidersPage() {
+  const location = useLocation();
   const { data, isLoading, isFetching, isError, refetch } = useProviders();
+  const [capability, setCapability] = useState<ProviderCapability>(() => providerCapabilityFromSearch(location.search));
   const items: ProviderInfo[] = (data?.items ?? []).map((provider) => ({
     id: provider.id,
     name: provider.name,
@@ -350,16 +369,21 @@ export function ProvidersPage() {
     authKind: (provider.credentialKind === "api_key" ? "api-key" : provider.credentialKind === "manual" ? "none" : provider.credentialKind ?? "none") as ProviderInfo["authKind"],
     prefix: provider.prefix,
     modelCount: provider.modelCount,
+    capabilityCounts: provider.capabilityCounts ?? { chat: provider.modelCount, media: 0, websearch: 0 },
     status: (provider.enabled !== false && (provider.credentialKind === "manual" || provider.credentialKind === "none" || provider.configured === true) ? "ok" : "warn") as ProviderInfo["status"],
     connections: provider.connections,
     supportsOAuth: provider.credentialKinds?.includes("oauth") ?? provider.credentialKind === "oauth",
     supportsApiKey: provider.credentialKinds?.includes("api_key") ?? provider.credentialKind === "api_key",
   }));
   const registryLoading = isLoading || (isFetching && items.length === 0);
+  const capabilityLabel = PROVIDER_CAPABILITIES.find((option) => option.value === capability)?.label ?? "Chat";
+  const capabilityItems = items
+    .filter((provider) => provider.capabilityCounts[capability] > 0)
+    .map((provider) => ({ ...provider, modelCount: provider.capabilityCounts[capability] }));
 
   const sections = SECTIONS.map((section) => ({
     ...section,
-    providers: items
+    providers: capabilityItems
       .filter((provider) => section.authKinds.includes(provider.authKind))
       .sort((left, right) => right.connections - left.connections || left.name.localeCompare(right.name)),
   })).filter((section) => section.providers.length > 0);
@@ -389,8 +413,30 @@ export function ProvidersPage() {
         <StatePanel kind="error" title="Failed to load providers" action={<Button variant="secondary" onClick={() => refetch()}>Retry</Button>} />
       ) : (
         <div className="space-y-6">
-          <CustomProvidersSection />
-          {sections.map((section) => (
+          <div className="flex flex-col gap-3 rounded-xl border border-[var(--inner-border)] bg-[var(--glass-bg-2)]/55 px-4 py-3 backdrop-blur-xl lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <label htmlFor="provider-capability" className="text-xs font-semibold uppercase tracking-wider text-[var(--text-3)]">Provider capability</label>
+              <p className="mt-1 text-xs text-[var(--text-3)]">Showing providers with models that support {capabilityLabel.toLowerCase()}.</p>
+            </div>
+            <div className="relative w-full shrink-0 lg:w-64">
+              <select
+                id="provider-capability"
+                value={capability}
+                onChange={(event) => {
+                  setCapability(event.target.value as ProviderCapability);
+                  setVisibleCount(12);
+                }}
+                className="h-10 w-full appearance-none rounded-lg border border-[var(--inner-border)] bg-[var(--glass-bg-2)] px-3 pr-9 text-sm font-medium text-[var(--text-1)] outline-none transition focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/30"
+              >
+                {PROVIDER_CAPABILITIES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+              <ChevronDown size={15} aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-3)]" />
+            </div>
+          </div>
+          {capability === "chat" && <CustomProvidersSection />}
+          {sections.length === 0 ? (
+            <StatePanel kind="empty" title={`No ${capabilityLabel} providers`} description="No configured models currently advertise this capability." />
+          ) : sections.map((section) => (
             <section key={section.title} className="space-y-3">
               <div className="flex items-baseline justify-between gap-2">
                 <h2 className="text-base font-semibold tracking-tight">{section.title} ({section.providers.length})</h2>
@@ -398,7 +444,7 @@ export function ProvidersPage() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {section.providers.slice(0, visibleCount).map((provider) => (
                   <div key={provider.id} className="min-w-0 [contain-intrinsic-size:160px] [content-visibility:auto]">
-                    <ProviderCard provider={provider} />
+                    <ProviderCard provider={provider} capability={capability} />
                   </div>
                 ))}
               </div>

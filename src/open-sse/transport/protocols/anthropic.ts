@@ -7,7 +7,8 @@ import { readJsonObject } from "../body-reader";
 import type { SseEvent, StreamMapper } from "../contracts";
 import type { ApplicationErrorKind, ProviderCaps, ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamEvent } from "../../../application/contracts";
 import { isRecord, nullableNumber } from "../../../application/protocols";
-import { buildMessagesPayload, mapAnthropicUsage } from "../../translate/codecs/anthropic-messages";
+import { buildMessagesPayload } from "../../translate/request/anthropic";
+import { mapAnthropicUsage } from "../../translate/response/anthropic";
 
 // ---------------------------------------------------------------- SSE mapping
 
@@ -21,12 +22,23 @@ function mapAnthropicStopReason(stopReason: string): StopReason {
       return "content_filter";
     case "compaction":
       return "compaction";
+    case "pause_turn":
+      return "pause_turn";
     case "end_turn":
     case "stop_sequence":
-    case "pause_turn":
     default:
       return "completed";
   }
+}
+
+function isNativeAnthropicBlock(block: Record<string, unknown>): boolean {
+  const type = block.type;
+  return typeof type === "string" && type.startsWith("server_");
+}
+
+function isServerToolResultBlock(block: Record<string, unknown>): boolean {
+  const type = block.type;
+  return typeof type === "string" && type.endsWith("_tool_result");
 }
 
 function mapAnthropicStreamError(type: string): { kind: ApplicationErrorKind; retryable: boolean; routeScope: "account" | "provider" } {
@@ -52,8 +64,9 @@ function mapAnthropicStreamError(type: string): { kind: ApplicationErrorKind; re
 /**
  * Messages SSE mapper: message_start carries the upstream id, thinking and
  * text deltas map to thinking_delta/text_delta, tool input JSON fragments
- * map to tool_call_delta, message_delta emits the aggregated usage event,
- * and message_stop terminates with the mapped stop reason.
+ * map to tool_call_delta, native server-tool blocks retain their lifecycle
+ * and payloads, message_delta emits aggregated usage and pause_turn, and
+ * message_stop terminates with the mapped stop reason.
  */
 export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: string) => string = (name) => name): StreamMapper {
   let started = false;
@@ -64,6 +77,7 @@ export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: st
   let outputTokens: number | null = null;
   let stopReason: StopReason | null = null;
   const toolIds = new Map<number, string>();
+  const nativeBlockIndexes = new Set<number>();
   const compactionBlocks = new Set<number>();
   return (sse: SseEvent): StreamEvent | readonly StreamEvent[] | null => {
     const parsed = parseSseData(sse.data);
@@ -98,9 +112,11 @@ export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: st
           toolIds.set(index, block.id);
           return { type: "tool_call_start", callId: block.id, name };
         }
-        // Preserve every future/server Anthropic block through the unified
-        // event model; same-surface encoders can emit it unchanged.
-        if (isRecord(block) && typeof block.type === "string") return { type: "server_tool_result", block };
+        if (isRecord(block) && isServerToolResultBlock(block)) return { type: "server_tool_result", block };
+        if (isRecord(block) && isNativeAnthropicBlock(block)) {
+          nativeBlockIndexes.add(index);
+          return { type: "native_block_start", index, block };
+        }
         return null;
       }
       case "content_block_delta": {
@@ -111,6 +127,7 @@ export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: st
           const content = delta.content;
           return compactionBlocks.has(index) && typeof content === "string" && content.length > 0 ? { type: "compaction_delta", text: content } : null;
         }
+        if (nativeBlockIndexes.has(index)) return { type: "native_block_delta", index, delta };
         if (delta.type === "text_delta") {
           const text = delta.text;
           return typeof text === "string" && text.length > 0 ? { type: "text_delta", text } : null;
@@ -121,12 +138,14 @@ export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: st
         }
         if (delta.type === "input_json_delta") {
           const partial = delta.partial_json;
-          return typeof partial === "string" && partial.length > 0 ? { type: "tool_call_delta", callId: toolIds.get(index) ?? `tool_${index}`, delta: partial } : null;
+          const callId = toolIds.get(index);
+          return typeof partial === "string" && partial.length > 0 && callId !== undefined ? { type: "tool_call_delta", callId, delta: partial } : null;
         }
         return null;
       }
       case "content_block_stop": {
         const index = nullableNumber(parsed.index) ?? -1;
+        if (nativeBlockIndexes.delete(index)) return { type: "native_block_stop", index };
         if (compactionBlocks.delete(index)) return { type: "compaction_stop" };
         const callId = toolIds.get(index);
         if (callId === undefined) return null;

@@ -26,6 +26,7 @@ function anthropicStop(reason: StopReason): string {
   if (reason === "tool_call") return "tool_use";
   if (reason === "content_filter") return "refusal";
   if (reason === "compaction") return "compaction";
+  if (reason === "pause_turn") return "pause_turn";
   return "end_turn";
 }
 
@@ -135,6 +136,7 @@ async function* encodeAnthropic(events: AsyncIterable<StreamEvent>, model: strin
   let compactionBlock: number | null = null;
   let thinkingBlock: number | null = null;
   const toolBlockById = new Map<string, number>();
+  const nativeBlockByIndex = new Map<number, number>();
   const startMessage = (): Uint8Array => frame({ event: "message_start", data: { type: "message_start", message: { id, type: "message", role: "assistant", model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } } });
   const stopBlock = (index: number): Uint8Array => frame({ event: "content_block_stop", data: { type: "content_block_stop", index } });
 
@@ -155,9 +157,21 @@ async function* encodeAnthropic(events: AsyncIterable<StreamEvent>, model: strin
       const index = ++blockIndex;
       yield frame({ event: "content_block_start", data: { type: "content_block_start", index, content_block: event.block } });
       yield stopBlock(index);
-      continue;
-    }
-    if (event.type === "compaction_start") {
+    } else if (event.type === "native_block_start") {
+      yield* closeTextBlocks();
+      const index = ++blockIndex;
+      nativeBlockByIndex.set(event.index, index);
+      yield frame({ event: "content_block_start", data: { type: "content_block_start", index, content_block: event.block } });
+    } else if (event.type === "native_block_delta") {
+      const index = nativeBlockByIndex.get(event.index);
+      if (index !== undefined) yield frame({ event: "content_block_delta", data: { type: "content_block_delta", index, delta: event.delta } });
+    } else if (event.type === "native_block_stop") {
+      const index = nativeBlockByIndex.get(event.index);
+      if (index !== undefined) {
+        yield stopBlock(index);
+        nativeBlockByIndex.delete(event.index);
+      }
+    } else if (event.type === "compaction_start") {
       yield* closeTextBlocks();
       compactionBlock = ++blockIndex;
       yield frame({ event: "content_block_start", data: { type: "content_block_start", index: compactionBlock, content_block: { type: "compaction", content: "" } } });
@@ -197,6 +211,8 @@ async function* encodeAnthropic(events: AsyncIterable<StreamEvent>, model: strin
       yield* closeTextBlocks();
       for (const index of toolBlockById.values()) yield stopBlock(index);
       toolBlockById.clear();
+      for (const index of nativeBlockByIndex.values()) yield stopBlock(index);
+      nativeBlockByIndex.clear();
       if (event.reason === "error") {
         yield frame({ event: "error", data: { type: "error", error: { type: event.error?.kind ?? "stream_error", message: event.error?.message ?? "Stream interrupted" } } });
       } else {

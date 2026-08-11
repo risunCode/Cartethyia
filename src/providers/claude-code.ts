@@ -7,7 +7,8 @@ import { mapSseStream } from "../open-sse/transport/stream-mapper";
 import { readJsonObject } from "../open-sse/transport/body-reader";
 import { isRecord } from "../application/protocols";
 import { createAnthropicMessagesStreamMapper } from "../open-sse/transport/protocols/anthropic";
-import { buildMessagesPayload, mapAnthropicUsage } from "../open-sse/translate/codecs/anthropic-messages";
+import { buildMessagesPayload } from "../open-sse/translate/request/anthropic";
+import { mapAnthropicUsage } from "../open-sse/translate/response/anthropic";
 import type {
   Adapter,
   ProviderCaps,
@@ -50,6 +51,17 @@ export const claudeCodeOAuthBetas = [
   "effort-2025-11-24",
   "extended-cache-ttl-2025-04-11",
 ] as const;
+function claudeOAuthBetaHeader(sourceHeaders?: Headers): string {
+  const values = new Set<string>(claudeCodeOAuthBetas);
+  const incoming = sourceHeaders?.get("anthropic-beta");
+  if (incoming !== null && incoming !== undefined) {
+    for (const value of incoming.split(",")) {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) values.add(trimmed);
+    }
+  }
+  return [...values].join(",");
+}
 
 /**
  * Claude Code compatibility surface, but authenticated with an OAuth
@@ -62,6 +74,7 @@ const ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
 const ANTHROPIC_OAUTH_VERSION = "2023-06-01";
 const ANTHROPIC_BUILTIN_TOOLS = new Set([
   "web_search",
+  "web_fetch",
   "code_execution",
   "code_execution_20250825",
   "code_execution_20260120",
@@ -75,13 +88,13 @@ const ANTHROPIC_BUILTIN_TOOLS = new Set([
   "mcp_toolset",
 ]);
 const ANTHROPIC_OAUTH_MODELS: readonly ProviderModel[] = [
-  modelOf("claude-fable-5", "Claude Fable 5", capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, reasoning: true, images: true, explicitCache: true, promptCacheKey: true })),
-  modelOf("claude-opus-5", "Claude Opus 5", capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, reasoning: true, images: true, explicitCache: true, promptCacheKey: true })),
-  modelOf("claude-sonnet-5", "Claude Sonnet 5", capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, reasoning: true, images: true, explicitCache: true, promptCacheKey: true })),
-  modelOf("claude-haiku-4-5", "Claude Haiku 4.5", capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, images: true, explicitCache: true, promptCacheKey: true })),
+  modelOf("claude-fable-5", "Claude Fable 5", capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, reasoning: true, images: true, search: true, explicitCache: true, promptCacheKey: true })),
+  modelOf("claude-opus-5", "Claude Opus 5", capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, reasoning: true, images: true, search: true, explicitCache: true, promptCacheKey: true })),
+  modelOf("claude-sonnet-5", "Claude Sonnet 5", capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, reasoning: true, images: true, search: true, explicitCache: true, promptCacheKey: true })),
+  modelOf("claude-haiku-4-5", "Claude Haiku 4.5", capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, images: true, search: true, explicitCache: true, promptCacheKey: true })),
 ];
 
-const ANTHROPIC_OAUTH_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, reasoning: true, images: true, explicitCache: true, promptCacheKey: true });
+const ANTHROPIC_OAUTH_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, reasoning: true, images: true, search: true, explicitCache: true, promptCacheKey: true });
 
 function isClaudeMetadataUserId(value: string): boolean {
   if (/^user_[0-9a-f]{64}_account_[0-9a-f-]{36}_session_[0-9a-f-]{36}$/i.test(value)) return true;
@@ -175,9 +188,6 @@ export class AnthropicOAuthAdapter implements Adapter {
     if (input.target.providerId !== this.metadata.id || input.target.surface !== "anthropic-messages") {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" only serves the Anthropic Messages surface`, statusCode: 400, routeScope: null });
     }
-    if (input.credential.length === 0) {
-      throw new ProviderAdapterError({ kind: "authentication_failed", message: "A Claude Code OAuth credential is required.", statusCode: 401, routeScope: "account" });
-    }
     const { request, signal, network } = input;
     const payload = buildMessagesPayload(request, this.capabilities, { includeContextManagement: false });
     applyClaudeCodeCompatibility(payload, input);
@@ -186,8 +196,8 @@ export class AnthropicOAuthAdapter implements Adapter {
       accept: request.stream ? "text/event-stream" : "application/json",
       "accept-encoding": "gzip, deflate, br",
       connection: "keep-alive",
-      "anthropic-version": ANTHROPIC_OAUTH_VERSION,
-      "anthropic-beta": claudeCodeOAuthBetas.join(","),
+      "anthropic-version": input.headers?.get("anthropic-version") || ANTHROPIC_OAUTH_VERSION,
+      "anthropic-beta": claudeOAuthBetaHeader(input.headers),
       "anthropic-dangerous-direct-browser-access": "true",
       "x-app": "cli",
       "x-client-request-id": crypto.randomUUID(),

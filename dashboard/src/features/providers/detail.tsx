@@ -43,11 +43,20 @@ interface ModelMetadataResponse {
   pricing?: { inputPerMillion?: number | null; outputPerMillion?: number | null };
   source?: "catalog" | "custom";
 }
+type ProviderCapability = "chat" | "media" | "websearch";
+
+const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
+  chat: "Chat",
+  media: "Image / Video",
+  websearch: "Web Search",
+};
+
 interface ModelEntry {
   id: string;
   reasoning?: boolean;
   vision?: boolean;
   websearch?: boolean;
+  capabilities: Record<ProviderCapability, boolean>;
   contextWindow?: number;
   maxOutputTokens?: number;
   enabled: boolean;
@@ -138,7 +147,7 @@ interface ProviderDetailResponse {
   credentialUrl?: string | null;
   oauthFlows?: OAuthFlowCapabilities;
   enabled: boolean;
-  models: Array<{ modelId: string; displayName?: string; enabled: boolean; source?: "built-in" | "manual" | "imported"; metadata?: ModelMetadataResponse }>;
+  models: Array<{ modelId: string; displayName?: string; enabled: boolean; source?: "built-in" | "manual" | "imported"; capabilities?: { chat?: boolean; media?: boolean; websearch?: boolean }; metadata?: ModelMetadataResponse }>;
   modelManagement?: { canAddModels: boolean; canFetchModels: boolean };
   accounts: Array<AccountEntry & { providerId?: string }>;
   routing?: { strategy?: "priority" | "round-robin"; stickyLimit?: number; useStickyLimit?: boolean; proxyRouteId?: string | null };
@@ -178,6 +187,12 @@ export function normalizeProviderDetail(response: ProviderDetailResponse): Provi
         source: model.source ?? (metadata?.source === "custom" ? "manual" : "built-in"),
         reasoning: categories.includes("reasoning"),
         vision: categories.includes("vision"),
+        websearch: model.capabilities?.websearch === true,
+        capabilities: {
+          chat: model.capabilities?.chat === true,
+          media: model.capabilities?.media === true,
+          websearch: model.capabilities?.websearch === true,
+        },
         contextWindow: contextWindow ?? undefined,
         maxOutputTokens: maxOutputTokens ?? undefined,
         pricing: input !== null && output !== null ? { input, output } : undefined,
@@ -1406,8 +1421,16 @@ export function ProviderDetailPage() {
   const connections = data.accounts.filter((a) => a.active).length;
   const noAuth = data.authKind === "none";
   const providerHealth = data.proxyHealth ?? data.health ?? null;
-  const activeModels = data.models.filter((model) => model.enabled);
-  const disabledModels = data.models.filter((model) => !model.enabled);
+  const requestedCapability = new URLSearchParams(location.search).get("capability");
+  const selectedCapability: ProviderCapability | null = requestedCapability === "chat" || requestedCapability === "media" || requestedCapability === "websearch"
+    ? requestedCapability
+    : null;
+  const capabilityLabel = selectedCapability === null ? null : PROVIDER_CAPABILITY_LABELS[selectedCapability];
+  const visibleModels = selectedCapability === null
+    ? data.models
+    : data.models.filter((model) => model.capabilities[selectedCapability]);
+  const activeModels = visibleModels.filter((model) => model.enabled);
+  const disabledModels = visibleModels.filter((model) => !model.enabled);
   const fetchedModels = data.models.filter((model) => model.source !== "built-in");
   const toggleAccountSort = (key: AccountSortKey) => {
     setAccountSort((current) => current.key === key
@@ -1513,7 +1536,7 @@ export function ProviderDetailPage() {
     <div className="dashboard-page space-y-4">
       <div>
         <Link
-          to="/providers"
+          to={selectedCapability === null ? "/providers" : `/providers?capability=${encodeURIComponent(selectedCapability)}`}
           className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--text-2)] transition-colors hover:text-[var(--text-1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
         >
           <ArrowLeft size={13} /> Back to Providers
@@ -1827,8 +1850,11 @@ export function ProviderDetailPage() {
         <div className="mb-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-sm font-bold">Available Models</div>
-              <div className="mt-0.5 text-[11.5px] text-[var(--text-2)]">{data.models.filter((model) => model.enabled).length} active · {data.models.filter((model) => !model.enabled).length} disabled</div>
+              <div className="text-sm font-bold">{capabilityLabel ? `${capabilityLabel} Models` : "Available Models"}</div>
+              <div className="mt-0.5 text-[11.5px] text-[var(--text-2)]">
+                {activeModels.length} active · {disabledModels.length} disabled
+                {capabilityLabel ? ` · showing models with ${capabilityLabel.toLowerCase()} capability` : ""}
+              </div>
             </div>
             <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
               {data.modelManagement.canAddModels && <Button variant="secondary" size="sm" onClick={() => setAddModelModalOpen(true)}>

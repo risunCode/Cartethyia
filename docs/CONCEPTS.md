@@ -48,7 +48,7 @@ Invalid client requests and client aborts must not poison an account. Provider a
 
 A client model ID resolves to a direct provider model, alias, or combo. Aliases keep a stable client ID while operators change targets. Combos support fallback or round-robin behavior.
 
-Selection considers provider/model eligibility, ACLs, account health, retry timestamps, per-model locks, sticky affinity, priority, and current in-flight work. Each attempt leases an account and must release or commit it after completion.
+Selection considers provider/model eligibility, ACLs, account health, retry timestamps, per-model locks, cache affinity, priority, and current in-flight work. Requests with a reusable cache prefix use deterministic account/proxy affinity; non-affine round-robin traffic remains load-aware. Each attempt leases an account and must release or commit it after completion.
 
 ## Account selection
 

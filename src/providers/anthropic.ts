@@ -24,17 +24,18 @@ import { callAnthropicWire } from "../open-sse/transport/protocols/anthropic";
 const ANTHROPIC_SURFACES: readonly Surface[] = ["anthropic-messages"];
 
 const ANTHROPIC_DEFAULT_MODELS: readonly ProviderModel[] = [
-  modelOf("claude-opus-4-1", "Claude Opus 4.1", capabilitiesOf({ surfaces: ANTHROPIC_SURFACES, reasoning: true, images: true, explicitCache: true, promptCacheKey: true })),
-  modelOf("claude-sonnet-4-5", "Claude Sonnet 4.5", capabilitiesOf({ surfaces: ANTHROPIC_SURFACES, reasoning: true, images: true, explicitCache: true, promptCacheKey: true })),
-  modelOf("claude-haiku-4-5", "Claude Haiku 4.5", capabilitiesOf({ surfaces: ANTHROPIC_SURFACES, images: true, explicitCache: true, promptCacheKey: true })),
-  modelOf("claude-3-7-sonnet", "Claude 3.7 Sonnet", capabilitiesOf({ surfaces: ANTHROPIC_SURFACES, reasoning: true, images: true, explicitCache: true, promptCacheKey: true })),
-  modelOf("claude-3-5-haiku-latest", "Claude 3.5 Haiku", capabilitiesOf({ surfaces: ANTHROPIC_SURFACES, images: true, explicitCache: true, promptCacheKey: true })),
+  modelOf("claude-opus-4-1", "Claude Opus 4.1", capabilitiesOf({ surfaces: ANTHROPIC_SURFACES, reasoning: true, images: true, search: true, explicitCache: true, promptCacheKey: true })),
+  modelOf("claude-sonnet-4-5", "Claude Sonnet 4.5", capabilitiesOf({ surfaces: ANTHROPIC_SURFACES, reasoning: true, images: true, search: true, explicitCache: true, promptCacheKey: true })),
+  modelOf("claude-haiku-4-5", "Claude Haiku 4.5", capabilitiesOf({ surfaces: ANTHROPIC_SURFACES, images: true, search: true, explicitCache: true, promptCacheKey: true })),
+  modelOf("claude-3-7-sonnet", "Claude 3.7 Sonnet", capabilitiesOf({ surfaces: ANTHROPIC_SURFACES, reasoning: true, images: true, search: true, explicitCache: true, promptCacheKey: true })),
+  modelOf("claude-3-5-haiku-latest", "Claude 3.5 Haiku", capabilitiesOf({ surfaces: ANTHROPIC_SURFACES, images: true, search: true, explicitCache: true, promptCacheKey: true })),
 ];
 
 const ANTHROPIC_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({
   surfaces: ANTHROPIC_SURFACES,
   reasoning: true,
   images: true,
+  search: true,
   explicitCache: true,
   promptCacheKey: true,
 });

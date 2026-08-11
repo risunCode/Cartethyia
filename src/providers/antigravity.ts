@@ -7,7 +7,8 @@ import { mapSseStream } from "../open-sse/transport/stream-mapper";
 import type { SseEvent } from "../open-sse/transport/contracts";
 import { isRecord } from "../application/protocols";
 import { createGeminiGenerateContentStreamMapper } from "../open-sse/transport/protocols/gemini";
-import { buildGeminiPayload, mapGeminiUsage, translateGeminiResponse } from "../open-sse/translate/codecs/gemini-generate-content";
+import { buildGeminiPayload } from "../open-sse/translate/request/gemini";
+import { mapGeminiUsage, translateGeminiResponse } from "../open-sse/translate/response/gemini";
 import type {
   ProxyRequest,
   Adapter,
@@ -53,18 +54,16 @@ export const ANTIGRAVITY_SYSTEM_INSTRUCTION = "You are Antigravity, a powerful a
 export const ANTIGRAVITY_USER_AGENT = `antigravity/hub/2.1.4 ${process.platform === "win32" ? "windows" : process.platform}/${process.arch === "x64" ? "amd64" : process.arch === "ia32" ? "386" : process.arch}`;
 
 const ANTIGRAVITY_MODELS: readonly ProviderModel[] = [
-  modelOf("gemini-3.1-pro", "Gemini 3.1 Pro", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true })),
-  modelOf("gemini-pro-agent", "Gemini Pro Agent", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true })),
-  modelOf("gemini-3.1-pro-preview", "Gemini 3.1 Pro Preview", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true })),
-  modelOf("gemini-3.5-flash", "Gemini 3.5 Flash", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true })),
-  modelOf("gemini-3-flash", "Gemini 3 Flash", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true })),
-  modelOf("claude-sonnet-4-6", "Claude Sonnet 4.6", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true })),
-  modelOf("claude-opus-4-6", "Claude Opus 4.6", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true })),
-  modelOf("claude-opus-4-6-thinking", "Claude Opus 4.6 Thinking", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true })),
-  modelOf("gpt-oss-120b", "GPT-OSS 120B", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true })),
+  modelOf("gemini-3.1-pro", "Gemini 3.1 Pro", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true, search: true }), { upstreamId: "gemini-pro-agent" }),
+  modelOf("gemini-3.5-flash", "Gemini 3.5 Flash", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true, search: true }), { upstreamId: "gemini-3.5-flash-extra-low" }),
+  modelOf("gemini-3-flash", "Gemini 3 Flash", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true, search: true })),
+  modelOf("claude-sonnet-4-6", "Claude Sonnet 4.6", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true, search: true })),
+  modelOf("claude-opus-4-6", "Claude Opus 4.6", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true, search: true })),
+  modelOf("claude-opus-4-6-thinking", "Claude Opus 4.6 Thinking", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true, search: true })),
+  modelOf("gpt-oss-120b", "GPT-OSS 120B", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, search: true }), { upstreamId: "gpt-oss-120b-medium" }),
 ];
 
-const ANTIGRAVITY_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true });
+const ANTIGRAVITY_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true, search: true });
 
 interface AntigravityWireProfile {
   modelEnum?: string;
@@ -91,13 +90,14 @@ export const ANTIGRAVITY_WIRE_PROFILES: Readonly<Record<string, AntigravityWireP
   "claude-opus-4-6-thinking": { maxOutputTokens: 64_000 },
 };
 
-/** Collapses logical Antigravity model ids to the upstream wire ids. */
+/** Collapses logical Antigravity model ids to the wire ids accepted upstream. */
 export function antigravityWireModelId(modelId: string): string {
-  if (modelId === "gemini-3.1-pro" || modelId === "gemini-3.1-pro-low") return "gemini-3.1-pro-low";
-  if (modelId === "gemini-3.1-pro-high") return "gemini-pro-agent";
+  if (modelId === "gemini-3.1-pro" || modelId === "gemini-3.1-pro-high") return "gemini-pro-agent";
+  if (modelId === "gemini-3.1-pro-low") return "gemini-3.1-pro-low";
   if (modelId === "gemini-3.5-flash") return "gemini-3.5-flash-extra-low";
   if (modelId === "gemini-3.5-flash-medium") return "gemini-3.5-flash-low";
   if (modelId === "gemini-3.5-flash-high") return "gemini-3-flash-agent";
+  if (modelId === "gpt-oss-120b") return "gpt-oss-120b-medium";
   return modelId;
 }
 
@@ -339,7 +339,7 @@ export class AntigravityAdapter implements Adapter {
       }
       this.sessionStates.set(conversationId, state);
     }
-    const payload = buildAntigravityRequest(input.request, credential, input.target.modelId, conversationId, state);
+    const payload = buildAntigravityRequest(input.request, credential, input.target.upstreamModelId, conversationId, state);
     const headers: Record<string, string> = {
       "content-type": "application/json",
       accept: "text/event-stream",
