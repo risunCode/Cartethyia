@@ -69,6 +69,9 @@ export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: st
       case "content_block_start": {
         const index = nullableNumber(parsed.index) ?? -1;
         const block = parsed.content_block;
+        if (isRecord(block) && block.type === "tool_search_tool_result") {
+          return { type: "server_tool_result", block };
+        }
         if (isRecord(block) && block.type === "compaction") {
           compactionBlocks.add(index);
           return { type: "compaction_start" };

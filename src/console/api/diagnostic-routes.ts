@@ -5,9 +5,9 @@ import type { PresentedProxyResponse } from "../../application/contracts";
 import { runProxyRequest, type ProxyRequestDependencies } from "../../application/request";
 import { appendTerminalError } from "../../open-sse/handlers";
 import { encodeSurfaceStream } from "../../providers/surfaces";
-import { toPrometheus } from "../../observability/metrics";
 import { beginProviderInFlight, endProviderInFlight, getInFlightCount, getProviderInFlight, subscribeInFlight } from "../../traffic/in-flight";
 import { runtimeSettings } from "../runtime-settings";
+import { dispatchModelStudioRequest, normalizeModelStudioResponse, type ModelStudioSurface } from "../model-studio-routing";
 import type { ConsoleDiagnostics } from "../diagnostics";
 import { fetchLatestRelease, fetchRepositoryUpdates } from "../repository-updates";
 import { createStudioSession, deleteStudioSession, getStudioSession, listStudioSessions, normalizeStudioMessages, patchStudioSession } from "../model-studio";
@@ -88,6 +88,31 @@ function buildProxyResponse(result: PresentedProxyResponse, surface: "openai-cha
     },
   });
   return new Response(stream, { status: result.status, headers: result.headers });
+}
+
+
+async function runModelStudioProxy(
+  body: Record<string, unknown>,
+  request: Request,
+  proxy: ProxyRequestDependencies,
+): Promise<{ readonly result: PresentedProxyResponse; readonly surface: ModelStudioSurface }> {
+  const dispatched = await dispatchModelStudioRequest(body, (attempt) => runProxyRequest({
+    request: {
+      endpoint: attempt.endpoint,
+      surface: attempt.surface,
+      headers: new Headers({ "content-type": "application/json", "x-client-name": "pi" }),
+      body: attempt.body,
+      signal: request.signal,
+    },
+    authorization: {
+      apiKeyId: null,
+      trustedIdentity: "console:model-studio",
+      providerAllowlist: null,
+      modelAllowlist: null,
+      modelDenylist: null,
+    },
+  }, proxy));
+  return { result: normalizeModelStudioResponse(dispatched.result, dispatched.surface), surface: dispatched.surface };
 }
 
 const PROBE_LIMIT_KEYS = ["connectMs", "firstVisibleTextMs", "idleMs", "totalMs", "maxOutputTokens", "maxSampleChars"] as const;
@@ -188,7 +213,8 @@ export function registerDiagnosticRoutes<T extends Elysia<any, any, any, any, an
         { role: "system", content: `You are a conversation summarizer. Summarize the following conversation concisely, preserving key context, decisions, and any code or technical details. Keep it under 500 words.${systemPrompt ? `\n\nOriginal system prompt: ${systemPrompt.slice(0, 1000)}` : ""}` },
         { role: "user", content: `Summarize this conversation:\n\n${conversationText}` },
       ];
-      const result = await runProxyRequest({ request: { endpoint: "/v1/chat/completions", surface: "openai-chat", headers: new Headers({ "content-type": "application/json", "x-client-name": "pi" }), body: { model, messages: compactMessages, stream: false, max_tokens: Math.min(maxTokens, 2048) }, signal: request.signal }, authorization: { apiKeyId: null, trustedIdentity: "console:model-studio", providerAllowlist: null, modelAllowlist: null, modelDenylist: null } }, deps.proxy);
+      const dispatched = await runModelStudioProxy({ model, messages: compactMessages, stream: false, max_tokens: Math.min(maxTokens, 2048) }, request, deps.proxy);
+      const result = dispatched.result;
       if (result.status >= 400 || result.body.mode !== "json") return { summary: "Compaction failed: upstream error.", usage: undefined };
       const responseBody = result.body.value as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } };
       return { summary: responseBody?.choices?.[0]?.message?.content?.trim() || "Compaction produced no output.", usage: responseBody?.usage };
@@ -202,8 +228,8 @@ export function registerDiagnosticRoutes<T extends Elysia<any, any, any, any, an
       else if (value.reasoningEffort === "none") reasoning = { enabled: false };
       const messages = Array.isArray(value.messages) ? value.messages : [];
       const modelStudioMessages = runtimeSettings(deps.config).ponytailEnabled ? [{ role: "system", content: "Ponytail mode: prefer the smallest correct solution; reuse existing code; avoid unnecessary abstractions. Keep validation, security, error handling, and accessibility intact." }, ...messages] : messages;
-      const result = await runProxyRequest({ request: { endpoint: "/v1/chat/completions", surface: "openai-chat", headers: new Headers({ "content-type": "application/json", "x-client-name": "pi" }), body: { model: value.model, messages: modelStudioMessages, stream: true, max_tokens: value.maxTokens, ...(reasoning !== undefined ? { reasoning } : {}) }, signal: request.signal }, authorization: { apiKeyId: null, trustedIdentity: "console:model-studio", providerAllowlist: null, modelAllowlist: null, modelDenylist: null } }, deps.proxy);
-      return buildProxyResponse(result, "openai-chat", typeof value.model === "string" ? value.model : "unknown");
+      const dispatched = await runModelStudioProxy({ model: value.model, messages: modelStudioMessages, stream: true, max_tokens: value.maxTokens, ...(reasoning !== undefined ? { reasoning } : {}) }, request, deps.proxy);
+      return buildProxyResponse(dispatched.result, "openai-chat", typeof value.model === "string" ? value.model : "unknown");
     })
     .post("/model-studio/image", async ({ body, request }) => {
       const value = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};

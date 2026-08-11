@@ -150,6 +150,13 @@ async function* encodeAnthropic(events: AsyncIterable<StreamEvent>, model: strin
       if (!started) { started = true; yield startMessage(); }
       continue;
     }
+    if (event.type === "server_tool_result") {
+      yield* closeTextBlocks();
+      const index = ++blockIndex;
+      yield frame({ event: "content_block_start", data: { type: "content_block_start", index, content_block: event.block } });
+      yield stopBlock(index);
+      continue;
+    }
     if (event.type === "compaction_start") {
       yield* closeTextBlocks();
       compactionBlock = ++blockIndex;

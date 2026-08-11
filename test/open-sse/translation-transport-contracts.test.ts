@@ -230,6 +230,60 @@ describe("Anthropic Messages normalization and payload", () => {
     expect(payload.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 5 }]);
     expect(buildResponsesPayload(r.request).tools).toEqual([{ type: "web_search" }]);
   });
+  test("preserves Advanced Tool Use definitions and MCP connector configuration", () => {
+    const r = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      mcp_servers: [{ type: "url", url: "https://mcp.example.test/sse", name: "example" }],
+      tools: [
+        { type: "tool_search_tool_regex_20251119", name: "tool_search_tool_regex" },
+        {
+          name: "query_database",
+          description: "Query the database",
+          input_schema: { type: "object", properties: { sql: { type: "string" } } },
+          defer_loading: true,
+          allowed_callers: ["code_execution_20260120"],
+          input_examples: [{ sql: "select 1" }],
+        },
+        { type: "mcp_toolset", mcp_server_name: "example" },
+      ],
+      messages: [{ role: "user", content: "query" }],
+    }, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.request.tools[0]?.nativeType).toBe("tool_search_tool_regex_20251119");
+    expect(r.request.tools[1]?.deferLoading).toBe(true);
+    expect(r.request.tools[1]?.allowedCallers).toEqual(["code_execution_20260120"]);
+    expect(r.request.tools[1]?.inputExamples).toEqual([{ sql: "select 1" }]);
+    expect(buildMessagesPayload(r.request, capabilitiesOf({ surfaces: ["anthropic-messages"], reasoning: true })).tools).toEqual([
+      { type: "tool_search_tool_regex_20251119", name: "tool_search_tool_regex" },
+      {
+        name: "query_database",
+        description: "Query the database",
+        input_schema: { type: "object", properties: { sql: { type: "string" } } },
+        defer_loading: true,
+        allowed_callers: ["code_execution_20260120"],
+        input_examples: [{ sql: "select 1" }],
+      },
+      { type: "mcp_toolset", mcp_server_name: "example" },
+    ]);
+    expect((buildMessagesPayload(r.request, capabilitiesOf({ surfaces: ["anthropic-messages"], reasoning: true })).mcp_servers)).toEqual([
+      { type: "url", url: "https://mcp.example.test/sse", name: "example" },
+    ]);
+  });
+  test("preserves versioned code execution as an Anthropic server tool", () => {
+    const r = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      tools: [{ type: "code_execution_20260120", name: "code_execution" }],
+      messages: [{ role: "user", content: "run it" }],
+    }, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(buildMessagesPayload(r.request, capabilitiesOf({ surfaces: ["anthropic-messages"], reasoning: true })).tools).toEqual([
+      { type: "code_execution_20260120", name: "code_execution" },
+    ]);
+  });
   test("preserves native web search result blocks as tool-result text", () => {
     const r = normalizeMessagesRequest({
       model: "c",
@@ -492,6 +546,22 @@ describe("Anthropic SSE mapper sequencing", () => {
     expect(events.map((event) => event.type)).toEqual(expect.arrayContaining(["compaction_start", "compaction_delta", "compaction_stop"]));
     expect(events.some((event) => event.type === "text_delta")).toBe(false);
   });
+  test("preserves Anthropic tool search server results", async () => {
+    const coord = new AbortCoordinator(new AbortController().signal);
+    const events = await collect(mapSseStream({ body: sseBody([
+      '{"type":"content_block_start","index":0,"content_block":{"type":"tool_search_tool_result","tool_use_id":"srvtoolu_1","content":{"type":"tool_search_tool_search_result","tool_references":[{"type":"tool_reference","tool_name":"query_database"}]}}}',
+      '{"type":"message_stop"}',
+    ]), coordinator: coord, maxLineBytes: 65536 }, createAnthropicMessagesStreamMapper()));
+    const result = events.find((event): event is Extract<StreamEvent, { type: "server_tool_result" }> => event.type === "server_tool_result");
+    expect(result?.block).toEqual({
+      type: "tool_search_tool_result",
+      tool_use_id: "srvtoolu_1",
+      content: {
+        type: "tool_search_tool_search_result",
+        tool_references: [{ type: "tool_reference", tool_name: "query_database" }],
+      },
+    });
+  });
 });
 
 describe("Responses SSE mapper sequencing", () => {
@@ -545,12 +615,14 @@ describe("Responses SSE mapper sequencing", () => {
       { type: "compaction_start" },
       { type: "compaction_delta", text: "summary" },
       { type: "compaction_stop" },
+      { type: "server_tool_result", block: { type: "tool_search_tool_result", tool_use_id: "srvtoolu_1", content: { type: "tool_search_tool_search_result", tool_references: [{ type: "tool_reference", tool_name: "query_database" }] } } },
       { type: "message_stop", reason: "completed" },
     ];
     async function* source(): AsyncGenerator<StreamEvent, void, unknown> { for (const event of events) yield event; }
     const anthropic = new TextDecoder().decode(Buffer.concat((await collect(encodeSurfaceStream("anthropic-messages", source(), "claude"))).map((chunk) => Buffer.from(chunk))));
     expect(anthropic).toContain('"type":"compaction"');
     expect(anthropic).toContain('"type":"compaction_delta"');
+    expect(anthropic).toContain('"type":"tool_search_tool_result"');
     const responseEvents: StreamEvent[] = [
       { type: "message_start", id: "r1" },
       { type: "context_item", phase: "added", outputIndex: 0, item: { type: "compaction", id: "cmp_1" } },

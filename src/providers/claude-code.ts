@@ -46,6 +46,7 @@ export const claudeCodeOAuthBetas = [
   "prompt-caching-scope-2026-01-05",
   "mid-conversation-system-2026-04-07",
   "advanced-tool-use-2025-11-20",
+  "mcp-client-2025-11-20",
   "effort-2025-11-24",
   "extended-cache-ttl-2025-04-11",
 ] as const;
@@ -59,7 +60,20 @@ export const claudeCodeOAuthBetas = [
 const ANTHROPIC_OAUTH_SURFACES: readonly Surface[] = ["anthropic-messages"];
 const ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
 const ANTHROPIC_OAUTH_VERSION = "2023-06-01";
-const ANTHROPIC_BUILTIN_TOOLS = new Set(["web_search", "code_execution", "text_editor", "computer"]);
+const ANTHROPIC_BUILTIN_TOOLS = new Set([
+  "web_search",
+  "code_execution",
+  "code_execution_20250825",
+  "code_execution_20260120",
+  "code_execution_20260521",
+  "text_editor",
+  "computer",
+  "tool_search_tool_regex_20251119",
+  "tool_search_tool_bm25_20251119",
+  "tool_search_tool_regex",
+  "tool_search_tool_bm25",
+  "mcp_toolset",
+]);
 const ANTHROPIC_OAUTH_MODELS: readonly ProviderModel[] = [
   modelOf("claude-fable-5", "Claude Fable 5", capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, reasoning: true, images: true, explicitCache: true, promptCacheKey: true })),
   modelOf("claude-opus-5", "Claude Opus 5", capabilitiesOf({ surfaces: ANTHROPIC_OAUTH_SURFACES, reasoning: true, images: true, explicitCache: true, promptCacheKey: true })),

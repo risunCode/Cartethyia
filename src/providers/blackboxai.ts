@@ -2,8 +2,7 @@ import { capabilitiesOf, modelOf } from "../open-sse/transport/catalog";
 import type { OpenAIAdapterConfig } from "../open-sse/transport/contracts";
 import { createOpenAIAdapter } from "../open-sse/transport/openai-adapter";
 
-const OPENAI_SURFACES = ["openai-chat", "openai-responses"] as const;
-const ANTHROPIC_SURFACES = ["anthropic-messages"] as const;
+const OPENAI_CHAT_SURFACES = ["openai-chat"] as const;
 
 /**
  * Blackbox AI's upstream API expects the full `blackboxai/<vendor>/<model>` id
@@ -19,8 +18,8 @@ export const blackboxaiConfig = {
   baseUrl: "https://api.blackbox.ai/v1",
   credentialKind: "api_key",
   models: [
-    modelOf("z-ai/glm-5.2", "GLM 5.2", capabilitiesOf({ surfaces: ANTHROPIC_SURFACES, reasoning: true }), { upstreamId: "blackboxai/z-ai/glm-5.2" }),
-    modelOf("z-ai/glm-5.2-vercel", "GLM 5.2 Vercel", capabilitiesOf({ surfaces: ANTHROPIC_SURFACES, reasoning: true }), { upstreamId: "blackboxai/z-ai/glm-5.2-vercel" }),
+    modelOf("z-ai/glm-5.2", "GLM 5.2", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true }), { upstreamId: "blackboxai/z-ai/glm-5.2" }),
+    modelOf("z-ai/glm-5.2-vercel", "GLM 5.2 Vercel", capabilitiesOf({ surfaces: OPENAI_CHAT_SURFACES, reasoning: true }), { upstreamId: "blackboxai/z-ai/glm-5.2-vercel" }),
   ],
 } as const satisfies OpenAIAdapterConfig;
 

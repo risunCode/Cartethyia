@@ -29,6 +29,7 @@ MAX_MODEL_LENGTH,
 MAX_OUTPUT_TOKENS,
 MAX_TEXT_BLOCK_LENGTH,
 MAX_TOOL_ARGUMENT_LENGTH,
+MAX_TOOL_COUNT,
 MAX_TOOL_NAME_LENGTH,
 type NormalizeInput,
 type NormalizeResult,
@@ -67,6 +68,8 @@ export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): 
 
   const tools = normalizeTools(root["tools"]);
   if (isProtocolError(tools)) return normalizeFail(tools);
+  const mcpServers = normalizeMcpServers(root["mcp_servers"]);
+  if (isProtocolError(mcpServers)) return normalizeFail(mcpServers);
 
   const metadata = root["metadata"];
   const metadataUserId = isRecord(metadata) && typeof metadata.user_id === "string" && metadata.user_id.length <= 4096 ? metadata.user_id : undefined;
@@ -84,6 +87,7 @@ export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): 
     signal: input.signal,
     limits: input.limits,
     ...(contextManagement === undefined ? {} : { contextManagement }),
+    ...(mcpServers === undefined ? {} : { mcpServers }),
     ...(metadataUserId === undefined ? {} : { metadataUserId }),
   });
 }
@@ -301,7 +305,9 @@ function normalizeToolResult(raw: unknown, field: string, callId: string, images
       blocks.push({ type: "tool_result", image, toolCallId: callId });
     } else if (typeof type === "string") {
       const serialized = typeof obj["text"] === "string" ? obj["text"] : JSON.stringify(obj);
-      blocks.push({ type: "tool_result", text: serialized?.slice(0, MAX_TEXT_BLOCK_LENGTH), toolCallId: callId });
+      const bound = boundJsonLength(obj, itemField, MAX_TEXT_BLOCK_LENGTH);
+      if (bound !== null) return bound;
+      blocks.push({ type: "tool_result", text: serialized?.slice(0, MAX_TEXT_BLOCK_LENGTH), toolCallId: callId, raw: obj });
     } else {
       return protocolError(`${itemField}.type`, "tool result block type must be a string");
     }
@@ -338,6 +344,22 @@ function normalizeImage(raw: unknown, field: string, images: ImageReference[]): 
 
 function normalizeTools(raw: unknown): NormalizedTool[] | ProtocolError {
   return normalizeToolList(raw, { unwrapFunction: false, schemaField: "input_schema", schemaRequired: true });
+}
+
+function normalizeMcpServers(raw: unknown): readonly Readonly<Record<string, unknown>>[] | ProtocolError | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const list = narrowArray(raw, "mcp_servers", MAX_TOOL_COUNT);
+  if (isProtocolError(list)) return list;
+  const servers: Readonly<Record<string, unknown>>[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const field = `mcp_servers[${i}]`;
+    const server = narrowObject(list[i], field);
+    if (isProtocolError(server)) return server;
+    const sizeError = boundJsonLength(server, field, MAX_TEXT_BLOCK_LENGTH);
+    if (sizeError !== null) return sizeError;
+    servers.push(server);
+  }
+  return servers;
 }
 
 /**
@@ -379,14 +401,24 @@ export function buildMessagesPayload(request: ProxyRequest, capabilities: Provid
     payload.system = cacheEnabled ? [{ type: "text", text: systemText, cache_control: { type: "ephemeral" } }] : systemText;
   }
   if (request.metadataUserId !== undefined) payload.metadata = { user_id: request.metadataUserId };
+  if (request.mcpServers !== undefined) payload.mcp_servers = request.mcpServers;
   if (request.tools.length > 0) {
-    payload.tools = request.tools.map((tool) => tool.nativeType === "web_search_20250305"
-      ? { type: tool.nativeType, name: tool.name, ...(tool.nativeOptions ?? {}) }
-      : {
+    payload.tools = request.tools.map((tool) => {
+      if (tool.nativeType !== undefined) {
+        return tool.nativeType === "mcp_toolset"
+          ? { type: tool.nativeType, ...(tool.nativeOptions ?? {}) }
+          : { type: tool.nativeType, name: tool.name, ...(tool.nativeOptions ?? {}) };
+      }
+      const definition: Record<string, unknown> = {
         name: tool.name,
         description: tool.description ?? undefined,
         input_schema: tool.inputSchema,
-      });
+      };
+      if (tool.deferLoading !== undefined) definition.defer_loading = tool.deferLoading;
+      if (tool.allowedCallers !== undefined) definition.allowed_callers = tool.allowedCallers;
+      if (tool.inputExamples !== undefined) definition.input_examples = tool.inputExamples;
+      return definition;
+    });
   }
   if (options.includeContextManagement !== false && request.contextManagement !== undefined) payload.context_management = request.contextManagement;
   if (request.reasoning === "enabled" && capabilities.reasoning) {
@@ -428,8 +460,17 @@ function toAnthropicMessage(message: NormalizedMessage): Record<string, unknown>
       return { role: "assistant", content };
     }
     case "tool": {
-      const block = message.content[0];
-      return { role: "user", content: [{ type: "tool_result", tool_use_id: block?.toolCallId ?? "", content: block?.text ?? "", ...(block?.toolResultIsError ? { is_error: true } : {}) }] };
+      const first = message.content[0];
+      const content = message.content.map((block) => block.raw ?? block.text ?? "");
+      return {
+        role: "user",
+        content: [{
+          type: "tool_result",
+          tool_use_id: first?.toolCallId ?? "",
+          content: content.length === 1 && first?.raw === undefined ? content[0] : content,
+          ...(first?.toolResultIsError ? { is_error: true } : {}),
+        }],
+      };
     }
     case "system":
     case "developer":

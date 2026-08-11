@@ -323,7 +323,16 @@ export interface NormalizedTool {
   readonly description: string | null;
   readonly inputSchema: Record<string, unknown>;
   /** Original Anthropic server-tool type, when the client supplied one. */
-  readonly nativeType?: "web_search_20250305";
+  readonly nativeType?:
+    | "web_search_20250305"
+    | "code_execution_20250825"
+    | "code_execution_20260120"
+    | "code_execution_20260521"
+    | "tool_search_tool_regex_20251119"
+    | "tool_search_tool_bm25_20251119"
+    | "tool_search_tool_regex"
+    | "tool_search_tool_bm25"
+    | "mcp_toolset";
   /** Bounded options preserved for Anthropic server tools. */
   readonly nativeOptions?: Readonly<Record<string, unknown>>;
   /**
@@ -332,6 +341,12 @@ export interface NormalizedTool {
    * request. Absent on hand-built tools; consumers fall back to serializing.
    */
   readonly schemaJsonLength?: number;
+  /** Anthropic Advanced Tool Use: omit the definition until tool search discovers it. */
+  readonly deferLoading?: boolean;
+  /** Anthropic Programmatic Tool Calling: callers allowed to invoke this tool. */
+  readonly allowedCallers?: readonly string[];
+  /** Anthropic tool-use examples (`input_examples` on the wire). */
+  readonly inputExamples?: readonly Record<string, unknown>[];
 }
 
 export interface ProxyRequest {
@@ -352,6 +367,8 @@ export interface ProxyRequest {
   readonly include?: readonly string[];
   /** Optional remote-provider context configuration; unsupported adapters omit it on the wire. */
   readonly contextManagement?: Readonly<Record<string, unknown>> | readonly Readonly<Record<string, unknown>>[];
+  /** Anthropic MCP connector server definitions, forwarded only on Messages requests. */
+  readonly mcpServers?: readonly Readonly<Record<string, unknown>>[];
   /** Opaque Responses items that precede the next normalized message. */
   readonly reasoningItems?: readonly Record<string, unknown>[];
   /** Opaque Responses items that follow the last normalized message. */
@@ -443,6 +460,7 @@ export type StreamEvent =
   | { readonly type: "tool_call_start"; readonly callId: string; readonly name: string }
   | { readonly type: "tool_call_delta"; readonly callId: string; readonly delta: string }
   | { readonly type: "tool_call_end"; readonly callId: string }
+  | { readonly type: "server_tool_result"; readonly block: Readonly<Record<string, unknown>> }
   | { readonly type: "context_item"; readonly phase: "added" | "done"; readonly outputIndex: number; readonly item: Readonly<Record<string, unknown>> }
   | { readonly type: "compaction_start" }
   | { readonly type: "compaction_delta"; readonly text: string }

@@ -213,6 +213,30 @@ const ANTHROPIC_WEB_SEARCH_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
+const ANTHROPIC_NATIVE_TOOL_TYPES: Record<string, NonNullable<NormalizedTool["nativeType"]>> = {
+  web_search_20250305: "web_search_20250305",
+  code_execution_20250825: "code_execution_20250825",
+  code_execution_20260120: "code_execution_20260120",
+  code_execution_20260521: "code_execution_20260521",
+  tool_search_tool_regex_20251119: "tool_search_tool_regex_20251119",
+  tool_search_tool_bm25_20251119: "tool_search_tool_bm25_20251119",
+  tool_search_tool_regex: "tool_search_tool_regex",
+  tool_search_tool_bm25: "tool_search_tool_bm25",
+  mcp_toolset: "mcp_toolset",
+};
+
+const ANTHROPIC_NATIVE_TOOL_NAMES: Record<NonNullable<NormalizedTool["nativeType"]>, string> = {
+  web_search_20250305: "web_search",
+  code_execution_20250825: "code_execution",
+  code_execution_20260120: "code_execution",
+  code_execution_20260521: "code_execution",
+  tool_search_tool_regex_20251119: "tool_search_tool_regex",
+  tool_search_tool_bm25_20251119: "tool_search_tool_bm25",
+  tool_search_tool_regex: "tool_search_tool_regex",
+  tool_search_tool_bm25: "tool_search_tool_bm25",
+  mcp_toolset: "mcp_toolset",
+};
+
 export function normalizeToolList(raw: unknown, options: NormalizeToolListOptions): NormalizedTool[] | ProtocolError {
   if (raw === undefined || raw === null) return [];
   const list = narrowArray(raw, "tools", MAX_TOOL_COUNT);
@@ -224,15 +248,19 @@ export function normalizeToolList(raw: unknown, options: NormalizeToolListOption
     if (item === undefined) continue;
     const obj = narrowObject(item, field);
     if (isProtocolError(obj)) return obj;
-    const type = obj["type"];
-    const isNativeWebSearch = type === "web_search_20250305";
-    if (type !== undefined && type !== "function" && !isNativeWebSearch) {
+    const type = typeof obj["type"] === "string" ? obj["type"] : undefined;
+    const nativeType = type === undefined ? undefined : ANTHROPIC_NATIVE_TOOL_TYPES[type];
+    const isNativeWebSearch = nativeType === "web_search_20250305";
+    if (type !== undefined && type !== "function" && nativeType === undefined) {
       return protocolError(`${field}.type`, `unsupported tool type "${String(type)}"`);
     }
-    const source = options.unwrapFunction ? narrowObject(obj["function"], `${field}.function`) : obj;
+    const source = options.unwrapFunction && nativeType === undefined
+      ? narrowObject(obj["function"], `${field}.function`)
+      : obj;
     if (isProtocolError(source)) return source;
     const nameField = options.unwrapFunction ? `${field}.function.name` : `${field}.name`;
-    const name = narrowString(source["name"], nameField, MAX_TOOL_NAME_LENGTH);
+    const rawName = source["name"] ?? (nativeType === undefined ? undefined : ANTHROPIC_NATIVE_TOOL_NAMES[nativeType]);
+    const name = narrowString(rawName, nameField, MAX_TOOL_NAME_LENGTH);
     if (isProtocolError(name)) return name;
     if (name.trim() === "") return protocolError(nameField, "tool name must not be empty");
     let description: string | null = null;
@@ -245,15 +273,25 @@ export function normalizeToolList(raw: unknown, options: NormalizeToolListOption
     }
     let inputSchema: Record<string, unknown>;
     let nativeOptions: Readonly<Record<string, unknown>> | undefined;
-    if (isNativeWebSearch) {
-      if (name !== "web_search") return protocolError(nameField, `unsupported Anthropic server tool name "${name}"`);
+    if (nativeType !== undefined) {
+      if (name !== ANTHROPIC_NATIVE_TOOL_NAMES[nativeType] && nativeType !== "mcp_toolset") {
+        return protocolError(nameField, `unsupported Anthropic server tool name "${name}"`);
+      }
       inputSchema = ANTHROPIC_WEB_SEARCH_SCHEMA;
-      const maxUses = obj["max_uses"];
-      if (maxUses !== undefined) {
-        if (typeof maxUses !== "number" || !Number.isInteger(maxUses) || maxUses < 1 || maxUses > 100) {
-          return protocolError(`${field}.max_uses`, `${field}.max_uses: expected an integer from 1 to 100`);
+      if (isNativeWebSearch) {
+        const maxUses = obj["max_uses"];
+        if (maxUses !== undefined) {
+          if (typeof maxUses !== "number" || !Number.isInteger(maxUses) || maxUses < 1 || maxUses > 100) {
+            return protocolError(`${field}.max_uses`, `${field}.max_uses: expected an integer from 1 to 100`);
+          }
+          nativeOptions = { max_uses: maxUses };
         }
-        nativeOptions = { max_uses: maxUses };
+      } else {
+        inputSchema = {};
+        const optionsObject = { ...obj };
+        delete optionsObject.type;
+        delete optionsObject.name;
+        nativeOptions = optionsObject;
       }
     } else {
       const schemaFieldPath = options.unwrapFunction ? `${field}.function.${options.schemaField}` : `${field}.${options.schemaField}`;
@@ -276,12 +314,48 @@ export function normalizeToolList(raw: unknown, options: NormalizeToolListOption
     if (schemaJsonLength > MAX_TOOL_SCHEMA_LENGTH) {
       return protocolError(`${field}.${options.schemaField}`, `${field}.${options.schemaField}: exceeds ${MAX_TOOL_SCHEMA_LENGTH} characters when serialized`);
     }
+    let deferLoading: boolean | undefined;
+    if (source["defer_loading"] !== undefined) {
+      const value = narrowBoolean(source["defer_loading"], `${field}.defer_loading`);
+      if (isProtocolError(value)) return value;
+      deferLoading = value;
+    }
+    let allowedCallers: readonly string[] | undefined;
+    if (source["allowed_callers"] !== undefined) {
+      const values = narrowArray(source["allowed_callers"], `${field}.allowed_callers`, MAX_TOOL_COUNT);
+      if (isProtocolError(values)) return values;
+      const normalized: string[] = [];
+      for (let j = 0; j < values.length; j++) {
+        const value = narrowString(values[j], `${field}.allowed_callers[${j}]`, MAX_TOOL_NAME_LENGTH);
+        if (isProtocolError(value)) return value;
+        normalized.push(value);
+      }
+      allowedCallers = normalized;
+    }
+    let inputExamples: readonly Record<string, unknown>[] | undefined;
+    if (source["input_examples"] !== undefined) {
+      const values = narrowArray(source["input_examples"], `${field}.input_examples`, 10);
+      if (isProtocolError(values)) return values;
+      const normalized: Record<string, unknown>[] = [];
+      for (let j = 0; j < values.length; j++) {
+        const value = narrowObject(values[j], `${field}.input_examples[${j}]`);
+        if (isProtocolError(value)) return value;
+        normalized.push(value);
+      }
+      inputExamples = normalized;
+    }
+    if (nativeType === "web_search_20250305" && deferLoading !== undefined) {
+      nativeOptions = { ...(nativeOptions ?? {}), defer_loading: deferLoading };
+    }
     tools.push({
       name,
       description,
       inputSchema,
-      ...(isNativeWebSearch ? { nativeType: "web_search_20250305" as const, nativeOptions } : {}),
+      ...(nativeType !== undefined ? { nativeType, nativeOptions } : {}),
       schemaJsonLength,
+      ...(deferLoading !== undefined ? { deferLoading } : {}),
+      ...(allowedCallers !== undefined ? { allowedCallers } : {}),
+      ...(inputExamples !== undefined ? { inputExamples } : {}),
     });
   }
   return tools;
