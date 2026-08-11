@@ -5,9 +5,10 @@ import { decodeSseEvents, lineLimit, parseSseData } from "../open-sse/transport/
 import { executeFetch } from "../open-sse/transport/fetch";
 import { mapSseStream } from "../open-sse/transport/stream-mapper";
 import { isRecord } from "../application/protocols";
-import { callHostedImageWire, createOpenAIResponsesStreamMapper } from "../open-sse/transport/protocols/openai";
+import { createOpenAIResponsesStreamMapper } from "../open-sse/transport/protocols/openai";
 import { buildResponsesPayload } from "../open-sse/translate/request/openai-responses";
 import { mapResponsesUsage } from "../open-sse/translate/response/openai";
+import { runtimeMemoryLimits } from "../traffic/limits";
 import type {
   Adapter,
   ProviderCaps,
@@ -154,6 +155,71 @@ async function readCodexNonStream(response: Response, coordinator: AbortCoordina
   return { mode: "non_stream", body, usage: usageRecord !== null ? mapResponsesUsage(usageRecord) : undefined };
 }
 
+const CODEX_IMAGE_MODEL_SUFFIX = "-image";
+const CODEX_IMAGE_VERSION = "0.136.0";
+const CODEX_IMAGE_ORIGINATOR = "codex_cli_rs";
+
+function codexImageModelId(modelId: string): string {
+  return modelId.endsWith(CODEX_IMAGE_MODEL_SUFFIX)
+    ? modelId.slice(0, -CODEX_IMAGE_MODEL_SUFFIX.length)
+    : modelId;
+}
+
+/** Builds the Codex image-generation Responses payload expected by ChatGPT accounts. */
+export function buildCodexImagePayload(request: ProviderRequest["request"], modelId: string): Record<string, unknown> {
+  const payload = buildResponsesPayload(request, { includeContextManagement: false });
+  payload.model = codexImageModelId(modelId);
+  payload.instructions = "";
+  payload.tools = [{ type: "image_generation", output_format: "png" }];
+  payload.tool_choice = "auto";
+  payload.parallel_tool_calls = false;
+  payload.prompt_cache_key = crypto.randomUUID();
+  payload.stream = true;
+  payload.store = false;
+  payload.reasoning = null;
+  return payload;
+}
+
+async function readCodexImageStream(response: Response, coordinator: AbortCoordinator, request: ProviderRequest["request"]): Promise<ProviderOutput> {
+  if (!response.body) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Codex returned an empty image stream body", routeScope: "provider" });
+  let imageB64: string | null = null;
+  let revisedPrompt: string | undefined;
+  for await (const sse of decodeSseEvents({ body: response.body, coordinator, maxLineBytes: Math.max(lineLimit(request.limits), runtimeMemoryLimits.streamEventBytes), maxEventBytes: runtimeMemoryLimits.streamEventBytes, idleTimeoutMs: request.limits.idleTimeoutMs })) {
+    if (sse.data === "[DONE]") continue;
+    const parsed = parseSseData(sse.data);
+    if (!isRecord(parsed)) continue;
+    const item = isRecord(parsed.item) ? parsed.item : null;
+    if (item?.type === "image_generation_call" && typeof item.result === "string") {
+      imageB64 = item.result;
+      if (typeof item.revised_prompt === "string") revisedPrompt = item.revised_prompt;
+    }
+    const completed = isRecord(parsed.response) ? parsed.response : null;
+    if (completed !== null && Array.isArray(completed.output)) {
+      for (const outputItem of completed.output) {
+        if (!isRecord(outputItem) || outputItem.type !== "image_generation_call" || typeof outputItem.result !== "string") continue;
+        imageB64 = outputItem.result;
+        if (typeof outputItem.revised_prompt === "string") revisedPrompt = outputItem.revised_prompt;
+      }
+    }
+  }
+  if (imageB64 === null) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Codex did not return an image. A ChatGPT Plus or Pro account may be required.", retryable: false, routeScope: "provider" });
+  const entry: Record<string, unknown> = { b64_json: imageB64 };
+  if (revisedPrompt !== undefined) entry.revised_prompt = revisedPrompt;
+  return { mode: "non_stream", body: { created: Math.floor(Date.now() / 1000), data: [entry] } };
+}
+
+async function callCodexImageWire(input: ProviderRequest, url: string, headers: Record<string, string>): Promise<ProviderOutput> {
+  const { request, signal, network } = input;
+  const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
+  try {
+    const response = await executeFetch(url, { method: "POST", headers: { ...headers, accept: "text/event-stream, application/json" }, body: JSON.stringify(buildCodexImagePayload(request, input.target.upstreamModelId)) }, coordinator, network, input.capture);
+    if (!response.ok) throw await readUpstreamError(response);
+    return await readCodexImageStream(response, coordinator, request);
+  } finally {
+    coordinator.dispose();
+  }
+}
+
 
 /** Codex is the OAuth-gated ChatGPT Codex Responses transport. */
 export class CodexAdapter implements Adapter {
@@ -189,14 +255,16 @@ export class CodexAdapter implements Adapter {
       throw new ProviderAdapterError({ kind: "authentication_failed", message: "Codex OAuth credential is missing its ChatGPT account identity.", statusCode: 401, routeScope: "account" });
     }
     if (input.target.surface === "images") {
-      return callHostedImageWire(input, `${CODEX_BASE_URL}/codex/responses`, {
+      return callCodexImageWire(input, `${CODEX_BASE_URL}/codex/responses`, {
         "content-type": "application/json",
         authorization: `Bearer ${credential.accessToken}`,
         "chatgpt-account-id": accountId,
         "openai-beta": "responses=experimental",
-        originator: CODEX_ORIGINATOR,
-        version: CODEX_VERSION,
-        "user-agent": `codex-cli/${CODEX_VERSION}`,
+        originator: CODEX_IMAGE_ORIGINATOR,
+        version: CODEX_IMAGE_VERSION,
+        "user-agent": `codex_cli_rs/${CODEX_IMAGE_VERSION}`,
+        session_id: crypto.randomUUID(),
+        "x-client-request-id": crypto.randomUUID(),
       });
     }
     const { request, signal, network } = input;

@@ -2,13 +2,15 @@ import { AbortCoordinator } from "../open-sse/transport/abort-coordinator";
 import { ProviderAdapterError, readUpstreamError, toProviderCallError } from "../open-sse/transport/errors";
 import { capabilitiesOf, createModelCatalog, modelOf } from "../open-sse/transport/catalog";
 import { executeFetch } from "../open-sse/transport/fetch";
-import { lineLimit } from "../open-sse/transport/sse-decoder";
 import { mapSseStream } from "../open-sse/transport/stream-mapper";
+import { lineLimit } from "../open-sse/transport/sse-decoder";
+import { readJsonObject } from "../open-sse/transport/body-reader";
 import type { SseEvent } from "../open-sse/transport/contracts";
 import { isRecord } from "../application/protocols";
 import { createGeminiGenerateContentStreamMapper } from "../open-sse/transport/protocols/gemini";
 import { buildGeminiPayload } from "../open-sse/translate/request/gemini";
-import { mapGeminiUsage, translateGeminiResponse } from "../open-sse/translate/response/gemini";
+import { mapGeminiUsage, translateGeminiImageResponse, translateGeminiResponse } from "../open-sse/translate/response/gemini";
+import { runtimeMemoryLimits } from "../traffic/limits";
 import type {
   ProxyRequest,
   Adapter,
@@ -46,21 +48,22 @@ import type { ProviderCallError } from "../application/contracts";
  * id as the account id so the console can store it with the credential.
  */
 
-export const ANTIGRAVITY_SURFACES: readonly Surface[] = ["openai-chat"];
+export const ANTIGRAVITY_SURFACES: readonly Surface[] = ["openai-chat", "images"];
 export const ANTIGRAVITY_DAILY_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com";
 export const ANTIGRAVITY_SANDBOX_ENDPOINT = "https://daily-cloudcode-pa.sandbox.googleapis.com";
 export const ANTIGRAVITY_ACTION = "v1internal:streamGenerateContent?alt=sse";
 export const ANTIGRAVITY_SYSTEM_INSTRUCTION = "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**";
-export const ANTIGRAVITY_USER_AGENT = `antigravity/hub/2.1.4 ${process.platform === "win32" ? "windows" : process.platform}/${process.arch === "x64" ? "amd64" : process.arch === "ia32" ? "386" : process.arch}`;
+export const ANTIGRAVITY_USER_AGENT = `antigravity/hub/2.1.4 ${process.platform === "win32" ? "windows" : process.platform}/${process.arch === "x64" ? "amd64" : process.arch}`;
+export const ANTIGRAVITY_IMAGE_ENDPOINT = "https://cloudcode-pa.googleapis.com";
+export const ANTIGRAVITY_IMAGE_USER_AGENT = "antigravity/ide/2.1.1 darwin/arm64";
 
 const ANTIGRAVITY_MODELS: readonly ProviderModel[] = [
-  modelOf("gemini-3.1-pro", "Gemini 3.1 Pro", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true, search: true }), { upstreamId: "gemini-pro-agent" }),
-  modelOf("gemini-3.5-flash", "Gemini 3.5 Flash", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true, search: true }), { upstreamId: "gemini-3.5-flash-extra-low" }),
-  modelOf("gemini-3-flash", "Gemini 3 Flash", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true, search: true })),
-  modelOf("claude-sonnet-4-6", "Claude Sonnet 4.6", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true, search: true })),
-  modelOf("claude-opus-4-6", "Claude Opus 4.6", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true, search: true })),
-  modelOf("claude-opus-4-6-thinking", "Claude Opus 4.6 Thinking", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true, search: true })),
-  modelOf("gpt-oss-120b", "GPT-OSS 120B", capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, search: true }), { upstreamId: "gpt-oss-120b-medium" }),
+  modelOf("gemini-3.1-pro", "Gemini 3.1 Pro", capabilitiesOf({ surfaces: ["openai-chat"], reasoning: true, images: true, search: true }), { upstreamId: "gemini-pro-agent" }),
+  modelOf("gemini-3.5-flash", "Gemini 3.5 Flash", capabilitiesOf({ surfaces: ["openai-chat"], reasoning: true, images: true, search: true }), { upstreamId: "gemini-3.5-flash-extra-low" }),
+  modelOf("gemini-3-flash", "Gemini 3 Flash", capabilitiesOf({ surfaces: ["openai-chat"], reasoning: true, images: true, search: true })),
+  modelOf("claude-sonnet-4-6", "Claude Sonnet 4.6", capabilitiesOf({ surfaces: ["openai-chat"], reasoning: true, images: true, search: true })),
+  modelOf("gpt-oss-120b", "GPT-OSS 120B", capabilitiesOf({ surfaces: ["openai-chat"], reasoning: true, search: true }), { upstreamId: "gpt-oss-120b-medium" }),
+  modelOf("gemini-3.1-flash-image", "Gemini 3.1 Flash Image", capabilitiesOf({ surfaces: ["images"] })),
 ];
 
 const ANTIGRAVITY_FALLBACK_CAPABILITIES: ProviderCaps = capabilitiesOf({ surfaces: ANTIGRAVITY_SURFACES, reasoning: true, images: true, search: true });
@@ -87,7 +90,6 @@ export const ANTIGRAVITY_WIRE_PROFILES: Readonly<Record<string, AntigravityWireP
   "gemini-pro-agent": { modelEnum: "MODEL_PLACEHOLDER_M16", maxOutputTokens: 65_535 },
   // Claude on `daily-cloudcode-pa` rejects maxOutputTokens > 64000 with 400.
   "claude-sonnet-4-6": { maxOutputTokens: 64_000 },
-  "claude-opus-4-6-thinking": { maxOutputTokens: 64_000 },
 };
 
 /** Collapses logical Antigravity model ids to the wire ids accepted upstream. */
@@ -151,12 +153,53 @@ export function parseAntigravityCredential(credential: string): AntigravityCrede
   return null;
 }
 
-/**
- * Builds the Antigravity Cloud Code envelope around a standard Gemini
- * generateContent payload: `project` + agent `requestId` + wire model +
- * telemetry `labels`, plus the per-wire generation overrides (fixed
- * maxOutputTokens, thinking budget, optional googleSearch tool).
- */
+function imageSessionId(): string {
+  return `${crypto.randomUUID()}${Date.now()}`;
+}
+
+function buildAntigravityImageRequest(request: ProxyRequest, credential: AntigravityCredential, modelId: string, sessionState?: AntigravitySessionState): Record<string, unknown> {
+  const state = sessionState;
+  if (state) {
+    state.agentId ??= crypto.randomUUID();
+    state.trajectoryId ??= crypto.randomUUID();
+    state.sessionId ??= imageSessionId();
+    state.stepIndex = (state.stepIndex ?? 0) + 1;
+  }
+  const geminiPayload = buildGeminiPayload(request);
+  const rawContents = Array.isArray(geminiPayload.contents) ? geminiPayload.contents : [];
+  const contents = rawContents.flatMap((content) => {
+    if (!isRecord(content) || !Array.isArray(content.parts)) return [];
+    const parts = content.parts.flatMap((part) => isRecord(part) && typeof part.text === "string" ? [{ text: part.text }] : []);
+    return parts.length > 0 ? [{ role: typeof content.role === "string" ? content.role : "user", parts }] : [];
+  });
+  const trajectoryId = state?.trajectoryId ?? crypto.randomUUID();
+  const agentId = state?.agentId ?? crypto.randomUUID();
+  const step = state?.stepIndex ?? 1;
+  const sessionId = state?.sessionId ?? imageSessionId();
+  return {
+    project: credential.projectId,
+    requestId: `agent/${agentId}/${Date.now()}/${trajectoryId}/${step}`,
+    model: modelId,
+    userAgent: "antigravity",
+    requestType: "image_gen",
+    request: {
+      contents: contents.length > 0 ? contents : [{ role: "user", parts: [{ text: "" }] }],
+      generationConfig: {
+        temperature: 1,
+        topP: 0.95,
+        topK: 40,
+        maxOutputTokens: 8192,
+        imageConfig: { aspectRatio: "1:1" },
+      },
+      sessionId,
+    },
+  };
+}
+
+export function buildAntigravityImagePayload(request: ProxyRequest, credential: AntigravityCredential, modelId: string): Record<string, unknown> {
+  return buildAntigravityImageRequest(request, credential, modelId);
+}
+
 function signedAntigravitySessionId(seed?: string): string {
   if (seed && /^\\d+$/.test(seed)) return seed;
   const hex = (seed ?? crypto.randomUUID()).replace(/[^0-9a-f]/gi, "").slice(0, 15) || "1";
@@ -164,6 +207,7 @@ function signedAntigravitySessionId(seed?: string): string {
 }
 
 export function buildAntigravityRequest(request: ProxyRequest, credential: AntigravityCredential, modelId: string, conversationId?: string, sessionState?: AntigravitySessionState): Record<string, unknown> {
+  if (request.sourceSurface === "images") return buildAntigravityImageRequest(request, credential, modelId, sessionState);
   const geminiPayload = buildGeminiPayload(request);
   const state = sessionState;
   if (state) {
@@ -269,6 +313,16 @@ export async function foldAntigravityStream(events: AsyncIterable<StreamEvent>, 
         if (call !== undefined) parts.push({ functionCall: { id: event.callId, name: call.name, args: parseJsonObject(call.args.join("")) } });
         break;
       }
+      case "native_block_start": {
+        const source = isRecord(event.block.source) ? event.block.source : null;
+        if (event.block.type === "image" && source !== null && source.type === "base64" && typeof source.data === "string") {
+          parts.push({ inlineData: { data: source.data, mimeType: typeof source.media_type === "string" ? source.media_type : "image/png" } });
+        }
+        break;
+      }
+      case "native_block_delta":
+      case "native_block_stop":
+        break;
       case "usage":
         usage = event.usage;
         break;
@@ -313,15 +367,20 @@ export class AntigravityAdapter implements Adapter {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${surface}"`, statusCode: 400, routeScope: null });
     }
-    if (this.models.get(modelId) === null) {
+    const entry = this.models.get(modelId);
+    if (entry === null) {
       throw new ProviderAdapterError({ kind: "model_not_found", message: `Model "${modelId}" is not in the "${this.metadata.id}" catalog`, statusCode: 404, routeScope: "provider" });
     }
-    const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };
+    if (!entry.capabilities.surfaces.includes(surface)) {
+      throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Model "${modelId}" does not support surface "${surface}"`, statusCode: 400, routeScope: "provider" });
+    }
+    return { providerId: this.metadata.id, modelId, upstreamModelId: entry.upstreamId ?? modelId, surface };
   }
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {
-    if (input.target.providerId !== this.metadata.id || input.target.surface !== "openai-chat") {
-      throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" only serves the OpenAI Chat surface`, statusCode: 400, routeScope: null });
+    const entry = this.models.get(input.target.modelId);
+    if (input.target.providerId !== this.metadata.id || entry === null || !entry.capabilities.surfaces.includes(input.target.surface)) {
+      throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support the requested model surface`, statusCode: 400, routeScope: null });
     }
     const credential = parseAntigravityCredential(input.credential);
     if (credential === null) {
@@ -332,14 +391,13 @@ export class AntigravityAdapter implements Adapter {
     if (!state) {
       state = {};
       if (this.sessionStates.size >= MAX_SESSION_STATES) {
-        // Evict the oldest-inserted conversation — V8 Map preserves insertion
-        // order, so the first key is the least-recently-created session.
         const oldest = this.sessionStates.keys().next();
         if (!oldest.done) this.sessionStates.delete(oldest.value as string);
       }
       this.sessionStates.set(conversationId, state);
     }
     const payload = buildAntigravityRequest(input.request, credential, input.target.upstreamModelId, conversationId, state);
+    if (input.target.surface === "images") return this.imageRoundTrip(input, payload, credential.accessToken);
     const headers: Record<string, string> = {
       "content-type": "application/json",
       accept: "text/event-stream",
@@ -350,18 +408,32 @@ export class AntigravityAdapter implements Adapter {
     try {
       return await attempt(ANTIGRAVITY_DAILY_ENDPOINT);
     } catch (error) {
-      // Sandbox fallback mirrors the Antigravity client: transient upstream
-      // failures (rate limit or 5xx) retry once against the sandbox endpoint.
       if (error instanceof ProviderAdapterError && (error.statusCode === 429 || (error.statusCode ?? 0) >= 500)) {
         return attempt(ANTIGRAVITY_SANDBOX_ENDPOINT);
       }
       throw error;
     }
   }
-
-
-  mapError(error: unknown): ProviderCallError {
-    return toProviderCallError(error);
+  private async imageRoundTrip(input: ProviderRequest, payload: Record<string, unknown>, accessToken: string): Promise<ProviderOutput> {
+    const { request, signal, network } = input;
+    const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
+    try {
+      const response = await executeFetch(`${ANTIGRAVITY_IMAGE_ENDPOINT}/v1internal:generateContent`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          authorization: `Bearer ${accessToken}`,
+          "user-agent": ANTIGRAVITY_IMAGE_USER_AGENT,
+        },
+        body: JSON.stringify(payload),
+      }, coordinator, network, input.capture);
+      if (!response.ok) throw await readUpstreamError(response);
+      const body = await readJsonObject(response, coordinator, runtimeMemoryLimits.streamEventBytes);
+      return { mode: "non_stream", body: translateGeminiImageResponse(body), usage: mapGeminiUsage(body) };
+    } finally {
+      coordinator.dispose();
+    }
   }
 
   private async roundTrip(input: ProviderRequest, endpoint: string, payload: Record<string, unknown>, headers: Record<string, string>, state: AntigravitySessionState): Promise<ProviderOutput> {
@@ -372,8 +444,6 @@ export class AntigravityAdapter implements Adapter {
       const response = await executeFetch(`${endpoint}/${ANTIGRAVITY_ACTION}`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
       if (!response.ok) throw await readUpstreamError(response);
       if (!response.body) throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Antigravity returned an empty stream body", routeScope: "provider" });
-      // The Antigravity transport only exposes the streaming endpoint; a
-      // non-stream request drains the SSE frames and folds them into one body.
       const mapper = createGeminiGenerateContentStreamMapper();
       const events = mapSseStream(
         { body: response.body, coordinator, maxLineBytes: lineLimit(request.limits), idleTimeoutMs: request.limits.idleTimeoutMs },
@@ -382,7 +452,8 @@ export class AntigravityAdapter implements Adapter {
       if (!request.stream) {
         const folded = await foldAntigravityStream(events, request.model);
         if (typeof folded.body.responseId === "string") state.lastExecutionId = folded.body.responseId;
-        return { mode: "non_stream", body: translateGeminiResponse(folded.body, request.sourceSurface, request.model), usage: folded.usage ?? undefined };
+        const body = request.sourceSurface === "images" ? translateGeminiImageResponse(folded.body) : translateGeminiResponse(folded.body, "openai-chat", request.model);
+        return { mode: "non_stream", body, usage: folded.usage ?? undefined };
       }
       streamHandedOff = true;
       const statefulEvents = (async function* (): AsyncIterable<StreamEvent> {
@@ -395,6 +466,9 @@ export class AntigravityAdapter implements Adapter {
     } finally {
       if (!streamHandedOff) coordinator.dispose();
     }
+  }
+  mapError(error: unknown): ProviderCallError {
+    return toProviderCallError(error);
   }
 }
 

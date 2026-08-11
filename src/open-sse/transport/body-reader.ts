@@ -10,9 +10,9 @@ function isAbortError(error: unknown): boolean {
 const MAX_JSON_BODY_BYTES = 1_048_576;
 
 /** Reads a non-stream JSON body under the bounded transport policy. */
-export async function readJsonObject(response: Response, coordinator: AbortCoordinator): Promise<Record<string, unknown>> {
+export async function readJsonObject(response: Response, coordinator: AbortCoordinator, maxBytes = MAX_JSON_BODY_BYTES): Promise<Record<string, unknown>> {
   try {
-    const text = await readBoundedText(response.body, MAX_JSON_BODY_BYTES);
+    const text = await readBoundedText(response.body, maxBytes);
     if (text.length === 0) {
       throw new ProviderAdapterError({ kind: "provider_protocol_error", message: "Upstream returned an empty body", routeScope: "provider" });
     }

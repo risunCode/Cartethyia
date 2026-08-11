@@ -6,11 +6,29 @@ import type { ApiKeyCreateInput, ApiKeyPublic, ApiKeyRepository, ApiKeyUpdateInp
 
 export function createConsoleApiKeyRepository(db: () => Database): ApiKeyRepository {
   const pendingTouches = new Set<string>();
+  const keyCache = new Map<string, { readonly rows: readonly ApiKeyRow[]; readonly expiresAtMs: number }>();
+  const API_KEY_CACHE_TTL_MS = 250;
+  const MAX_CACHED_PREFIXES = 1_024;
   let touchTimer: Timer | null = null;
+
+  const invalidateKeyCache = (): void => {
+    keyCache.clear();
+  };
 
   const getBySecret = (key: string): ApiKeyPublic | null => {
     const prefix = key.slice(0, Math.min(8, key.length));
-    const candidates = db().query("SELECT * FROM api_keys WHERE key LIKE ? AND active = 1 AND revoked_at IS NULL").all(`${prefix}%`) as ApiKeyRow[];
+    const now = Date.now();
+    const cached = keyCache.get(prefix);
+    const candidates = cached !== undefined && cached.expiresAtMs > now
+      ? cached.rows
+      : db().query("SELECT * FROM api_keys WHERE key LIKE ? AND active = 1 AND revoked_at IS NULL").all(`${prefix}%`) as ApiKeyRow[];
+    if (cached === undefined || cached.expiresAtMs <= now) {
+      keyCache.set(prefix, { rows: candidates, expiresAtMs: now + API_KEY_CACHE_TTL_MS });
+      if (keyCache.size > MAX_CACHED_PREFIXES) {
+        const oldest = keyCache.keys().next().value;
+        if (typeof oldest === "string") keyCache.delete(oldest);
+      }
+    }
     for (const candidate of candidates) {
       if (candidate.key.length !== key.length) continue;
       try {
@@ -57,6 +75,7 @@ export function createConsoleApiKeyRepository(db: () => Database): ApiKeyReposit
         "INSERT INTO api_keys (id, name, key, key_prefix, active, rate_limit_rpm, daily_token_limit, monthly_token_limit, one_time_token_limit, max_concurrent_requests, provider_allowlist, model_allowlist, model_denylist, created_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       ).run(input.id, input.name, input.key, input.keyPrefix, input.rateLimitRpm ?? null, input.dailyTokenLimit ?? null, input.monthlyTokenLimit ?? null, input.oneTimeTokenLimit ?? null, input.maxConcurrentRequests ?? null, input.providerAllowlist ?? null, input.modelAllowlist ?? null, input.modelDenylist ?? null, now);
       const row = db().query("SELECT * FROM api_keys WHERE id = ?").get(input.id) as ApiKeyRow;
+      invalidateKeyCache();
       return toApiKeyPublic(row);
     },
     update(id: string, patch: ApiKeyUpdateInput): ApiKeyPublic | null {
@@ -122,15 +141,18 @@ export function createConsoleApiKeyRepository(db: () => Database): ApiKeyReposit
       }
       if (fields.length === 0) return toApiKeyPublic(existing);
       db().query(`UPDATE api_keys SET ${fields.join(", ")} WHERE id = ?`).run(...values, id);
+      invalidateKeyCache();
       const row = db().query("SELECT * FROM api_keys WHERE id = ?").get(id) as ApiKeyRow | null;
       return row ? toApiKeyPublic(row) : null;
     },
     revoke(id: string): boolean {
       const result = db().query("UPDATE api_keys SET active = 0, revoked_at = ? WHERE id = ? AND revoked_at IS NULL").run(nowIso(), id);
+      if (result.changes > 0) invalidateKeyCache();
       return result.changes > 0;
     },
     delete(id: string): boolean {
       const result = db().query("DELETE FROM api_keys WHERE id = ?").run(id);
+      if (result.changes > 0) invalidateKeyCache();
       return result.changes > 0;
     },
     touch(id: string): void {
@@ -152,6 +174,7 @@ export function createConsoleApiKeyRepository(db: () => Database): ApiKeyReposit
     consumeOneTimeTokens(id: string, tokens: number): void {
       if (!Number.isFinite(tokens) || tokens <= 0) return;
       db().query("UPDATE api_keys SET one_time_tokens_used = MIN(one_time_token_limit, one_time_tokens_used + ?) WHERE id = ? AND one_time_token_limit IS NOT NULL").run(Math.floor(tokens), id);
+      invalidateKeyCache();
     },
   };
 }

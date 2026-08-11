@@ -56,6 +56,8 @@ import { calculateRateLimitBackoffMs, parseRateLimitReason } from "../applicatio
 
 export interface ProxyHealthOptions {
   readonly nowMs?: () => number;
+  /** Cache duration for persisted health reads. Zero disables caching. */
+  readonly cacheTtlMs?: number;
 }
 
 export interface ProxyHealthRecord {
@@ -89,18 +91,42 @@ export interface ProxyHealthStore {
  */
 export class ProxyHealthManager {
   private readonly nowMs: () => number;
+  private readonly cacheTtlMs: number;
+  private readonly records = new Map<string, ProxyHealthRecord>();
+  private cacheValidUntilMs = 0;
+  private loadPromise: Promise<void> | null = null;
 
   constructor(
     private readonly store: ProxyHealthStore,
     options: ProxyHealthOptions = {},
   ) {
     this.nowMs = options.nowMs ?? (() => Date.now());
+    this.cacheTtlMs = Math.max(0, options.cacheTtlMs ?? 250);
+  }
+
+  private async ensureCache(nowMs: number): Promise<void> {
+    if (this.cacheValidUntilMs > nowMs) return;
+    if (this.loadPromise !== null) return this.loadPromise;
+    const loadPromise = this.store.list().then((records) => {
+      this.records.clear();
+      for (const record of records) this.records.set(record.proxyId, record);
+      this.cacheValidUntilMs = nowMs + this.cacheTtlMs;
+    }).finally(() => {
+      if (this.loadPromise === loadPromise) this.loadPromise = null;
+    });
+    this.loadPromise = loadPromise;
+    return loadPromise;
+  }
+
+  private async readRecord(proxyId: string, nowMs: number): Promise<ProxyHealthRecord | undefined> {
+    await this.ensureCache(nowMs);
+    return this.records.get(proxyId);
   }
 
   async recordFailure(proxyId: string, error: ProviderCallError): Promise<ProxyHealthRecord | null> {
     if (!error.retryable) return null;
     const now = this.nowMs();
-    const previous = await this.store.get(proxyId);
+    const previous = await this.readRecord(proxyId, now);
     const failureCount = Math.min(255, (previous?.failureCount ?? 0) + 1);
     const delayMs = cooldownDelayMs(error, proxyCooldownPolicyFor(error.kind), failureCount, now);
     const disabledUntilMs = delayMs > 0 ? now + delayMs : null;
@@ -117,11 +143,14 @@ export class ProxyHealthManager {
       generation: (previous?.generation ?? 0) + 1,
     };
     await this.store.set(record);
+    this.records.set(proxyId, record);
+    this.cacheValidUntilMs = Math.max(this.cacheValidUntilMs, now + this.cacheTtlMs);
     return record;
   }
 
   async recordSuccess(proxyId: string): Promise<ProxyHealthRecord> {
-    const previous = await this.store.get(proxyId);
+    const now = this.nowMs();
+    const previous = await this.readRecord(proxyId, now);
     const record: ProxyHealthRecord = {
       proxyId,
       status: "healthy",
@@ -135,23 +164,27 @@ export class ProxyHealthManager {
       generation: (previous?.generation ?? 0) + 1,
     };
     await this.store.set(record);
+    this.records.set(proxyId, record);
+    this.cacheValidUntilMs = Math.max(this.cacheValidUntilMs, now + this.cacheTtlMs);
     return record;
   }
 
   async getHealth(proxyId: string): Promise<RouteHealth | null> {
-    const record = await this.store.get(proxyId);
+    const record = await this.readRecord(proxyId, this.nowMs());
     return record === undefined ? null : deriveRouteHealth(record, "proxy", this.nowMs());
   }
 
   async isUsable(proxyId: string, nowMs: number = this.nowMs()): Promise<boolean> {
-    const record = await this.store.get(proxyId);
+    const record = await this.readRecord(proxyId, nowMs);
     return record === undefined || isRecordUsable(record, nowMs);
   }
 
   async list(): Promise<readonly ProxyHealthRecord[]> {
-    return this.store.list();
+    await this.ensureCache(this.nowMs());
+    return [...this.records.values()];
   }
 }
+
 
 export type NetworkMode = "direct" | "proxy";
 
@@ -233,15 +266,18 @@ export class NetworkSelector {
       const health = healthByProxyId.get(proxy.id);
       return health === undefined || isRecordUsable(health, now);
     });
+    const candidateIndexes = new Map(candidates.map((candidate, index) => [candidate.id, index]));
+    const affinityEnabled = typeof input.affinityKey === "string" && input.affinityKey.length > 0 && (input.sticky === true || policy.preset === "target-user");
+    const affinityOffset = affinityEnabled && candidates.length > 0
+      ? stableHash(`${input.affinityKey}:${input.providerId}`) % candidates.length
+      : 0;
     const ordered = [...candidates].sort((a, b) => {
       const preferredDiff = Number(b.id === preferred) - Number(a.id === preferred);
       if (preferredDiff !== 0) return preferredDiff;
-      if (input.affinityKey && (input.sticky === true || policy.preset === "target-user")) {
-        const seed = stableHash(`${input.affinityKey}:${input.providerId}`);
-        const offset = seed % candidates.length;
-        const aIndex = candidates.findIndex((candidate) => candidate.id === a.id);
-        const bIndex = candidates.findIndex((candidate) => candidate.id === b.id);
-        return ((aIndex - offset + candidates.length) % candidates.length) - ((bIndex - offset + candidates.length) % candidates.length);
+      if (affinityEnabled) {
+        const aIndex = candidateIndexes.get(a.id) ?? 0;
+        const bIndex = candidateIndexes.get(b.id) ?? 0;
+        return ((aIndex - affinityOffset + candidates.length) % candidates.length) - ((bIndex - affinityOffset + candidates.length) % candidates.length);
       }
       const aBaseCapacity = policy.preset === "target-concurrent" && policy.targetConcurrent > 0 ? Math.min(a.maxConcurrency, policy.targetConcurrent) : a.maxConcurrency;
       const bBaseCapacity = policy.preset === "target-concurrent" && policy.targetConcurrent > 0 ? Math.min(b.maxConcurrency, policy.targetConcurrent) : b.maxConcurrency;
@@ -254,7 +290,7 @@ export class NetworkSelector {
 
     const maxOverride = policy.preset === "target-concurrent" && policy.targetConcurrent > 0 ? policy.targetConcurrent : undefined;
     for (const proxy of ordered) {
-      const handle = await this.pool.acquireSlot(proxy.id, maxOverride);
+      const handle = this.pool.acquireSlot(proxy, maxOverride);
       if (handle !== null) {
         const selection: NetworkSelection = { proxyId: proxy.id, url: proxy.url, isRelay: proxy.isRelay, release: handle.release };
         return { selection, mode: "proxy", proxyId: proxy.id, reason: "proxy" };
@@ -662,11 +698,10 @@ export class ProxySlotManager {
     };
   }
 }
-
-/** Config-backed proxy pool; health and network-path decisions live in NetworkSelector. */
 export class ProxyPool {
   private readonly slots: ProxySlotManager;
   private cached: readonly ProxyConfig[] | null = null;
+  private cachedById: ReadonlyMap<string, ProxyConfig> | null = null;
   private loadPromise: Promise<readonly ProxyConfig[]> | null = null;
   private cacheGeneration = 0;
   /** Per-provider enabled-proxy cache keyed by providerId, invalidated with the main cache. */
@@ -682,6 +717,7 @@ export class ProxyPool {
   /** Invalidates the in-memory config snapshot after a console mutation. */
   invalidate(): void {
     this.cached = null;
+    this.cachedById = null;
     this.loadPromise = null;
     this.enabledForCache.clear();
     this.cacheGeneration += 1;
@@ -694,7 +730,10 @@ export class ProxyPool {
     const promise: Promise<readonly ProxyConfig[]> = this.config.listProxies()
       .then((proxies) => {
         const sorted = Object.freeze([...proxies].sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id)));
-        if (generation === this.cacheGeneration) this.cached = sorted;
+        if (generation === this.cacheGeneration) {
+          this.cached = sorted;
+          this.cachedById = new Map(sorted.map((proxy) => [proxy.id, proxy]));
+        }
         if (this.loadPromise === promise) this.loadPromise = null;
         return sorted;
       })
@@ -707,7 +746,8 @@ export class ProxyPool {
   }
 
   async get(proxyId: string): Promise<ProxyConfig | undefined> {
-    return (await this.list()).find((proxy) => proxy.id === proxyId);
+    const proxies = await this.list();
+    return this.cachedById?.get(proxyId) ?? proxies.find((proxy) => proxy.id === proxyId);
   }
 
   async enabledFor(providerId: string): Promise<readonly ProxyConfig[]> {
@@ -723,10 +763,9 @@ export class ProxyPool {
     return this.slots.activeCount(proxyId);
   }
 
-  async acquireSlot(proxyId: string, maxConcurrencyOverride?: number): Promise<ProxySlotHandle | null> {
-    const proxy = (await this.list()).find((candidate) => candidate.id === proxyId);
-    if (proxy === undefined || !proxy.enabled) return null;
+  acquireSlot(proxy: ProxyConfig, maxConcurrencyOverride?: number): ProxySlotHandle | null {
+    if (!proxy.enabled) return null;
     const maxConcurrency = maxConcurrencyOverride === undefined ? proxy.maxConcurrency : Math.min(proxy.maxConcurrency, maxConcurrencyOverride);
-    return this.slots.tryAcquire(proxyId, maxConcurrency);
+    return this.slots.tryAcquire(proxy.id, maxConcurrency);
   }
 }

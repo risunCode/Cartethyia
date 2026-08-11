@@ -30,6 +30,13 @@ export function registerProviderRoutes<T extends Elysia<any, any, any, any, any,
           routing,
           accountCount: accounts.length,
           modelCount: models.length,
+          models: enabledModels.map((model) => ({
+            id: model.modelId,
+            name: model.displayName,
+            enabled: model.enabled,
+            images: model.images,
+            capabilities: model.capabilities,
+          })),
           capabilityCounts: {
             chat: enabledModels.filter((model) => model.capabilities?.chat === true).length,
             media: enabledModels.filter((model) => model.capabilities?.media === true).length,

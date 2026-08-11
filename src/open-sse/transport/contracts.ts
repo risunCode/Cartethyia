@@ -1,5 +1,6 @@
 import type {
   CredentialKind,
+  MediaGenerationKind,
   ModelCapabilityCategory,
   ModelContextLimits,
   ModelTokenPricing,
@@ -38,6 +39,7 @@ export interface CapabilitySeed {
   readonly reasoning?: boolean;
   readonly toolCalls?: boolean;
   readonly images?: boolean;
+  readonly mediaGeneration?: readonly MediaGenerationKind[];
   readonly explicitCache?: boolean;
   readonly promptCacheKey?: boolean;
   readonly search?: boolean;

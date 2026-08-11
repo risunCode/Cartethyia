@@ -1,4 +1,5 @@
 export type Surface = "openai-chat" | "openai-responses" | "anthropic-messages" | "images" | "web-search";
+export type MediaGenerationKind = "image" | "video";
 export type Protocol = "openai" | "anthropic" | "gemini" | "exa" | "devin";
 export type CredentialKind = "api_key" | "oauth" | "manual" | "none";
 
@@ -27,7 +28,10 @@ export interface ProviderCaps {
   readonly streaming: boolean;
   readonly reasoning: boolean;
   readonly toolCalls: boolean;
+  /** Whether the model can accept image input for vision. */
   readonly images: boolean;
+  /** Media generation kinds supported by the model. */
+  readonly mediaGeneration: readonly MediaGenerationKind[];
   readonly explicitCache: boolean;
   readonly promptCacheKey: boolean;
   /** Whether the model/provider can execute a native web search tool. */
@@ -428,25 +432,29 @@ export interface RunProxyRequestInput {
   readonly clientIp?: string | null;
 }
 
+const CLIENT_NAMES: Readonly<Record<string, ClientName>> = Object.freeze({
+  github_copilot: "github_copilot",
+  claude_code: "claude_code",
+  codex: "codex",
+  cursor: "cursor",
+  cline: "cline",
+  opencode: "opencode",
+  pi: "pi",
+});
+const CLIENT_USER_AGENT_NEEDLES = Object.freeze(
+  Object.entries(CLIENT_NAMES).map(([needle, name]) => ({ needle: needle.replace("_", "-"), rawNeedle: needle, name })),
+);
+
 export function detectClient(headers: Headers, normalized?: ProxyRequest): ClientIdentity {
   const explicit = headers.get("x-client-name")?.trim().toLowerCase();
-  const names: Readonly<Record<string, ClientName>> = {
-    github_copilot: "github_copilot",
-    claude_code: "claude_code",
-    codex: "codex",
-    cursor: "cursor",
-    cline: "cline",
-    opencode: "opencode",
-    pi: "pi",
-  };
-  const explicitName = explicit ? names[explicit] : undefined;
+  const explicitName = explicit ? CLIENT_NAMES[explicit] : undefined;
   if (explicitName) return { name: explicitName, source: "explicit_header" };
 
   const userAgent = headers.get("user-agent")?.toLowerCase() ?? "";
   if (userAgent.includes("claude-cli")) return { name: "claude_code", source: "user_agent" };
-  for (const [needle, name] of Object.entries(names)) {
-    if (userAgent.includes(needle.replace("_", "-")) || userAgent.includes(needle)) {
-      return { name, source: "user_agent" };
+  for (const entry of CLIENT_USER_AGENT_NEEDLES) {
+    if (userAgent.includes(entry.needle) || userAgent.includes(entry.rawNeedle)) {
+      return { name: entry.name, source: "user_agent" };
     }
   }
 

@@ -12,19 +12,27 @@ export function geminiCandidate(body: Record<string, unknown>): { readonly respo
   return { response, candidate, parts };
 }
 
-/** Folds Gemini text, thought, and function-call parts while preserving call IDs. */
-export function responseParts(parts: readonly Record<string, unknown>[]): { readonly text: string; readonly calls: readonly { readonly id: string; readonly name: string; readonly args: Record<string, unknown> }[]; readonly thought: string } {
+/** Folds Gemini text, thought, function-call, and inline image parts. */
+export function responseParts(parts: readonly Record<string, unknown>[]): {
+  readonly text: string;
+  readonly calls: readonly { readonly id: string; readonly name: string; readonly args: Record<string, unknown> }[];
+  readonly thought: string;
+  readonly images: readonly { readonly data: string; readonly mimeType: string | null }[];
+} {
   const text: string[] = [];
   const thought: string[] = [];
   const calls: Array<{ id: string; name: string; args: Record<string, unknown> }> = [];
+  const images: Array<{ data: string; mimeType: string | null }> = [];
   let callIndex = 0;
   for (const part of parts) {
     if (typeof part.text === "string") (part.thought === true ? thought : text).push(part.text);
+    const inlineData = isRecord(part.inlineData) ? part.inlineData : null;
+    if (inlineData !== null && typeof inlineData.data === "string") images.push({ data: inlineData.data, mimeType: typeof inlineData.mimeType === "string" ? inlineData.mimeType : null });
     if (isRecord(part.functionCall) && typeof part.functionCall.name === "string") {
       calls.push({ id: typeof part.functionCall.id === "string" ? part.functionCall.id : `call_${callIndex++}`, name: part.functionCall.name, args: isRecord(part.functionCall.args) ? part.functionCall.args : {} });
     }
   }
-  return { text: text.join(""), calls, thought: thought.join("") };
+  return { text: text.join(""), calls, thought: thought.join(""), images };
 }
 
 /** Maps Gemini usageMetadata into the provider-neutral usage shape. */

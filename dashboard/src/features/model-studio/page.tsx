@@ -7,8 +7,8 @@
 import { isValidElement, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Bot, Brain, Check, ChevronDown, Clock, Copy, ImagePlus,
-  Loader2, MessageSquareText, MoreHorizontal, Pencil, Paperclip, Plus,
+  Bot, Brain, Check, ChevronDown, Clock, Copy, Loader2,
+  MessageSquareText, MoreHorizontal, Paperclip, Pencil, Plus,
   RotateCcw, Send, Square, Timer, Trash2, User, X, Zap,
 } from "lucide-react";
 import type { Components } from "react-markdown";
@@ -20,13 +20,13 @@ import { qk } from "../../lib/query-keys";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Input, Textarea } from "../../components/ui/input";
-import { Select } from "../../components/ui/tabs";
+import { Select, Tabs } from "../../components/ui/tabs";
 import { Switch } from "../../components/ui/switch";
 import { ConfirmDialog } from "../../components/shared";
 import { ConfiguredModelPicker } from "../../components/model-picker";
-// Bundled character prompt — loaded at build time via Vite ?raw import.
 import { Popout } from "../../lib/popout";
 import { formatStudioDuration as formatMs, formatStudioTokenCount as formatTokenCount } from "./formatters";
+import { MediaWorkspace, type StudioMediaResult, type StudioMediaType } from "./media-workspace";
 import { streamModelStudioChat, studioUsageFromChatUsage, type ChatContentPart, type ChatUsagePayload, type StudioUsage } from "./stream";
 import jinhsiPromptText from "./jinhsi-prompt.txt?raw";
 
@@ -50,7 +50,17 @@ interface StudioMessage {
 interface PendingAttachment { id: string; dataUrl: string; name: string }
 
 interface StudioSessionSummary { id: string; title: string; model: string; messageCount: number; createdAt: string; updatedAt: string }
-interface StudioSession { id: string; title: string; model: string; systemPrompt: string; messages: StudioMessage[]; createdAt: string; updatedAt: string }
+interface StudioSession { id: string; title: string; model: string; systemPrompt: string; messages: StudioMessage[]; media?: StudioMediaResult[]; createdAt: string; updatedAt: string }
+
+type StudioMode = "chat" | "media";
+
+function readStudioMode(): StudioMode {
+  return new URLSearchParams(window.location.search).get("mode") === "media" ? "media" : "chat";
+}
+
+function readStudioMediaType(): StudioMediaType {
+  return new URLSearchParams(window.location.search).get("media") === "video" ? "video" : "image";
+}
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -492,6 +502,8 @@ export function ModelStudioPage() {
   const [editingMessageDraft, setEditingMessageDraft] = useState("");
   const [compacting, setCompacting] = useState(false);
   const [autoFollowMessages, setAutoFollowMessages] = useState(true);
+  const [studioMode, setStudioMode] = useState<StudioMode>(() => readStudioMode());
+  const [mediaType, setMediaType] = useState<StudioMediaType>(() => readStudioMediaType());
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const sessionsQuery = useQuery({ queryKey: qk.modelStudio.sessions, queryFn: () => apiGet<{ items: StudioSessionSummary[] }>("/model-studio/sessions") });
@@ -519,6 +531,22 @@ export function ModelStudioPage() {
 
   const [title, setTitle] = useState("");
   const [model, setModel] = useState("");
+  const modelForModeRef = useRef<Record<StudioMode, string>>({ chat: "", media: "" });
+  const [mediaResultsBySession, setMediaResultsBySession] = useState<Record<string, StudioMediaResult[]>>({});
+  const activeMediaResults = activeId ? mediaResultsBySession[activeId] ?? [] : [];
+  const setActiveMediaResults = useCallback((results: StudioMediaResult[]) => {
+    if (!activeId) return;
+    setMediaResultsBySession((previous) => ({ ...previous, [activeId]: results }));
+  }, [activeId]);
+  const setActiveModel = useCallback((nextModel: string) => {
+    modelForModeRef.current[studioMode] = nextModel;
+    setModel(nextModel);
+  }, [studioMode]);
+  const switchStudioMode = useCallback((nextMode: StudioMode) => {
+    modelForModeRef.current[studioMode] = model;
+    setStudioMode(nextMode);
+    setModel(modelForModeRef.current[nextMode]);
+  }, [model, studioMode]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [maxTokens, setMaxTokens] = useState(4096);
   const [reasoningEffort, setReasoningEffort] = useState("auto");
@@ -550,20 +578,27 @@ export function ModelStudioPage() {
 
   if (sessionQuery.data && syncedIdRef.current !== sessionQuery.data.id) {
     syncedIdRef.current = sessionQuery.data.id; skipSaveRef.current = true;
-    setTitle(sessionQuery.data.title); setModel(sessionQuery.data.model); setSystemPrompt(sessionQuery.data.systemPrompt); setMessages(sessionQuery.data.messages);
+    setTitle(sessionQuery.data.title); modelForModeRef.current[studioMode] = sessionQuery.data.model; setModel(sessionQuery.data.model); setSystemPrompt(sessionQuery.data.systemPrompt); setMessages(sessionQuery.data.messages); setMediaResultsBySession((previous) => ({ ...previous, [sessionQuery.data.id]: sessionQuery.data.media ?? [] }));
   }
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("mode", studioMode);
+    if (studioMode === "chat") url.searchParams.delete("media");
+    else url.searchParams.set("media", mediaType);
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [mediaType, studioMode]);
 
   useEffect(() => {
     if (!activeId || activeId !== syncedIdRef.current || sending) return;
     if (skipSaveRef.current) { skipSaveRef.current = false; return; }
     const timer = setTimeout(() => {
       const persisted = messages.map(({ role, content, ts, reasoning, images, usage, ttfbMs, completionMs }) => ({ role, content, ts, reasoning, images, usage, ttfbMs, completionMs }));
-      void apiPatch(`/model-studio/sessions/${activeId}`, { title, model, systemPrompt, messages: persisted })
+      void apiPatch(`/model-studio/sessions/${activeId}`, { title, model, systemPrompt, messages: persisted, media: activeMediaResults })
         .then(() => void queryClient.invalidateQueries({ queryKey: qk.modelStudio.sessions }))
         .catch((err) => { if (err instanceof ApiError && err.status === 404) { syncedIdRef.current = null; setActiveId(null); void queryClient.invalidateQueries({ queryKey: qk.modelStudio.sessions }); return; } toast.error("Failed to save session"); });
     }, AUTOSAVE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [title, model, systemPrompt, messages, activeId, sending]);
+  }, [title, model, systemPrompt, messages, activeMediaResults, activeId, sending]);
 
   useEffect(() => setAutoFollowMessages(true), [activeId]);
 
@@ -589,9 +624,6 @@ export function ModelStudioPage() {
 
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
-  const [imageMode, setImageMode] = useState(false);
-  const [imageCapable, setImageCapable] = useState(false);
-  const handleModelCapabilityChange = useCallback((images: boolean) => { setImageCapable(images); if (!images) setImageMode(false); }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const addFiles = async (files: FileList | File[]) => {
@@ -770,17 +802,6 @@ export function ModelStudioPage() {
     const text = draft.trim();
     if ((!text && attachments.length === 0) || !model.trim() || sending) return;
     const images = attachments.map((a) => a.dataUrl);
-    const sendStartTime = performance.now();
-
-    if (imageMode) {
-      setDraft(""); setAttachments([]);
-      setMessages([...messages, { role: "user", content: text, ts: new Date().toISOString(), ...(images.length > 0 ? { images } : {}) }, { role: "assistant", content: "", ts: new Date().toISOString() }]);
-      setSending(true);
-      try { const result = await apiPost<{ data?: Array<{ b64_json?: string }> }>("/model-studio/image", { model: model.trim(), prompt: text || "Create an image from the attached reference.", ...(images.length > 0 ? { images } : {}) }); const generated = (result.data ?? []).flatMap((e) => typeof e.b64_json === "string" ? [`data:image/webp;base64,${e.b64_json}`] : []); patchLast({ content: generated.length > 0 ? `Generated ${generated.length} image${generated.length === 1 ? "" : "s"}.` : "No image returned.", completionMs: Math.round(performance.now() - sendStartTime), ...(generated.length > 0 ? { images: generated } : {}) }); }
-      catch (error) { patchLast({ content: `⚠ ${getErrorMessage(error, "Image request failed")}`, completionMs: Math.round(performance.now() - sendStartTime) }); }
-      finally { flushPatch(); setSending(false); }
-      return;
-    }
 
     setDraft(""); setAttachments([]);
     const userMessage: StudioMessage = { role: "user", content: text, ts: new Date().toISOString(), ...(images.length > 0 ? { images } : {}) };
@@ -795,8 +816,14 @@ export function ModelStudioPage() {
   return (
     <Card className="dashboard-page flex h-[calc(100dvh-102px)] min-h-0 flex-col gap-0 overflow-hidden p-0 sm:h-[calc(100dvh-118px)]">
       {/* Session bar — compact, mobile-first */}
-      <div className="flex items-center gap-2 border-b border-[var(--inner-border)] px-3 py-2 sm:px-4 sm:py-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--inner-border)] px-3 py-2 sm:flex-nowrap sm:px-4 sm:py-2.5">
         <SessionPicker sessions={sessions} activeId={activeId} onSelect={setActiveId} onCreate={() => createSession.mutate("New chat")} creating={createSession.isPending} />
+        <Tabs
+          ariaLabel="Model Studio mode"
+          tabs={[{ id: "chat", label: "Chat" }, { id: "media", label: "Media" }]}
+          value={studioMode}
+          onChange={(value) => switchStudioMode(value as StudioMode)}
+        />
         <div className="ml-auto flex items-center gap-1.5">
           <PromptPopover maxTokens={maxTokens} onMaxTokens={setMaxTokens} reasoningEffort={reasoningEffort} onReasoningEffort={setReasoningEffort} reasoningSummary={reasoningSummary} onReasoningSummary={setReasoningSummary} providerId={model.split("/")[0] || undefined} systemPromptOverride={systemPromptOverride} onSystemPromptOverride={setSystemPromptOverride} systemPromptEnabled={systemPromptEnabled} onSystemPromptEnabled={setSystemPromptEnabled} bokepEnabled={bokepEnabled} onBokepEnabled={setBokepEnabled} title={title} onTitleChange={setTitle} />
           <Button variant="secondary" size="icon" className="h-8 w-8 shrink-0 text-[var(--red)]" onClick={() => activeId && setDeleteTarget(activeId)} disabled={!activeId} aria-label="Delete" title="Delete"><Trash2 size={14} /></Button>
@@ -805,53 +832,56 @@ export function ModelStudioPage() {
       {sessionsQuery.isError && <div role="alert" className="border-b border-[var(--status-warning)]/30 bg-[var(--status-warning)]/10 px-3 py-1.5 text-[10px] text-[var(--status-warning)]">Session storage unavailable. Messages stay local until recovered.</div>}
       {sessionQuery.isError && <div role="alert" className="border-b border-[var(--status-danger)]/30 bg-[var(--status-danger)]/10 px-3 py-1.5 text-[10px] text-[var(--status-danger)]">Session load failed. Select another or create new.</div>}
 
-      {/* Messages — iOS-style scroll area */}
-      <div ref={scrollRef} onScroll={onMessagesScroll} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2.5 py-2 sm:space-y-3 sm:px-4 sm:py-3">
-        {messages.length === 0 ? (
-          <div className="flex h-full min-h-[120px] flex-col items-center justify-center gap-2 text-center text-[var(--text-3)] sm:min-h-[200px]">
-            <Bot size={24} /><p className="text-[11px]">Pick a model and send a message to start.</p>
+      {studioMode === "media" ? (
+        <MediaWorkspace type={mediaType} model={model} results={activeMediaResults} onTypeChange={setMediaType} onModelChange={setActiveModel} onResultsChange={setActiveMediaResults} />
+      ) : (
+        <>
+          <div ref={scrollRef} onScroll={onMessagesScroll} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2.5 py-2 sm:space-y-3 sm:px-4 sm:py-3">
+            {messages.length === 0 ? (
+              <div className="flex h-full min-h-[120px] flex-col items-center justify-center gap-2 text-center text-[var(--text-3)] sm:min-h-[200px]">
+                <Bot size={24} /><p className="text-[11px]">Pick a model and send a message to start.</p>
+              </div>
+            ) : (
+              <>
+                {autoCompactBanner && (
+                  <div role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg border border-[var(--accent)]/35 bg-[var(--accent-soft)] px-3 py-1.5 text-[10px] font-medium text-[var(--accent)]">
+                    <Loader2 size={12} className="animate-spin" /> {autoCompactBanner}
+                  </div>
+                )}
+                {compacting && !autoCompactBanner && <div role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg border border-dashed border-[var(--accent)]/35 bg-[var(--accent-soft)] px-3 py-1.5 text-[10px] text-[var(--accent)]"><Loader2 size={12} className="animate-spin" /> Compacting…</div>}
+                {messages.map((message, index) => (
+                  <MessageRow key={message.ts + index} message={message} index={index} isStreaming={sending && index === messages.length - 1} thinkingOpen={expandedThinking.has(index) || (sending && index === messages.length - 1)} editing={editingMessageIndex === index} editDraft={editingMessageDraft} onEditDraft={setEditingMessageDraft} onEdit={onEditMessage} onSaveEdit={onSaveEdit} onCancelEdit={onCancelEdit} onCopy={onCopyMessage} onDelete={onDeleteMessage} onThinkingToggle={toggleThinking} onRetry={onRetryMessage} />
+                ))}
+              </>
+            )}
           </div>
-        ) : (
-          <>
-        {autoCompactBanner && (
-          <div role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg border border-[var(--accent)]/35 bg-[var(--accent-soft)] px-3 py-1.5 text-[10px] font-medium text-[var(--accent)]">
-            <Loader2 size={12} className="animate-spin" /> {autoCompactBanner}
-          </div>
-        )}
-        {compacting && !autoCompactBanner && <div role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg border border-dashed border-[var(--accent)]/35 bg-[var(--accent-soft)] px-3 py-1.5 text-[10px] text-[var(--accent)]"><Loader2 size={12} className="animate-spin" /> Compacting…</div>}
-            {messages.map((message, index) => (
-              <MessageRow key={message.ts + index} message={message} index={index} isStreaming={sending && index === messages.length - 1} thinkingOpen={expandedThinking.has(index) || (sending && index === messages.length - 1)} editing={editingMessageIndex === index} editDraft={editingMessageDraft} onEditDraft={setEditingMessageDraft} onEdit={onEditMessage} onSaveEdit={onSaveEdit} onCancelEdit={onCancelEdit} onCopy={onCopyMessage} onDelete={onDeleteMessage} onThinkingToggle={toggleThinking} onRetry={onRetryMessage} />
-            ))}
-          </>
-        )}
-      </div>
 
-      {/* Composer — compact, ChatGPT-style */}
-      <div className="border-t border-[var(--inner-border)] p-2">
-        <div className="rounded-2xl border border-[var(--inner-border)] bg-[var(--hover)] p-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-colors focus-within:border-[var(--accent)] focus-within:bg-[var(--glass-bg-2)] sm:p-2">
-          {attachments.length > 0 && (
-            <div className="mb-1.5 flex flex-wrap gap-1.5 px-1 pt-1">
-              {attachments.map((a) => (
-                <div key={a.id} className="group relative h-12 w-12 shrink-0 sm:h-14 sm:w-14">
-                  <img src={a.dataUrl} alt={a.name} className="h-full w-full rounded-lg border border-[var(--inner-border)] object-cover" />
-                  <button type="button" onClick={() => removeAttachment(a.id)} aria-label={`Remove ${a.name}`} className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-[var(--red)] text-white shadow transition-transform group-hover:scale-110"><X size={8} /></button>
+          <div className="border-t border-[var(--inner-border)] p-2">
+            <div className="rounded-2xl border border-[var(--inner-border)] bg-[var(--hover)] p-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-colors focus-within:border-[var(--accent)] focus-within:bg-[var(--glass-bg-2)] sm:p-2">
+              {attachments.length > 0 && (
+                <div className="mb-1.5 flex flex-wrap gap-1.5 px-1 pt-1">
+                  {attachments.map((a) => (
+                    <div key={a.id} className="group relative h-12 w-12 shrink-0 sm:h-14 sm:w-14">
+                      <img src={a.dataUrl} alt={a.name} width={56} height={56} className="h-full w-full rounded-lg border border-[var(--inner-border)] object-cover" />
+                      <button type="button" onClick={() => removeAttachment(a.id)} aria-label={`Remove ${a.name}`} className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-[var(--red)] text-white shadow transition-transform group-hover:scale-110"><X size={8} /></button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-          <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} onPaste={(e) => { const files = Array.from(e.clipboardData.items).filter((item) => item.type.startsWith("image/")).map((item) => item.getAsFile()).filter((f): f is File => f !== null); if (files.length > 0) { e.preventDefault(); void addFiles(files); } }} placeholder="Message…" data-model-studio-composer rows={1} className="min-h-[36px] max-h-24 resize-none overflow-y-auto border-0 bg-transparent px-2 py-1 text-[13px] shadow-none focus:bg-transparent focus-visible:outline-0" />
-          <div className="flex flex-wrap items-center gap-1 border-t border-[var(--inner-border)] pt-1.5">
-            <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
-            <ConfiguredModelPicker value={model} onChange={setModel} includeCombos includeAliases onCapabilityChange={handleModelCapabilityChange} placeholder="Select model…" />
-            <ContextIndicator messages={messages} systemPrompt={systemPrompt} compacting={compacting} onCompact={() => void compactChat()} />
-            <div className="ml-auto flex items-center gap-1">
-              {imageCapable && <Button variant="secondary" size="icon" onClick={() => setImageMode((v) => !v)} aria-label={imageMode ? "Chat mode" : "Image mode"} title={imageMode ? "Chat mode" : "Image generation"} className={cn(imageMode && "border-[var(--accent)] text-[var(--accent)]")}><ImagePlus size={14} /></Button>}
-              <Button variant="secondary" size="icon" onClick={() => fileInputRef.current?.click()} aria-label="Attach image" title="Attach image"><Paperclip size={14} /></Button>
-              {sending ? <Button variant="secondary" size="icon" onClick={() => abortRef.current?.abort()} aria-label="Stop"><Square size={14} /></Button> : <Button size="icon" onClick={() => void send()} disabled={(!draft.trim() && attachments.length === 0) || !model.trim()} aria-label="Send"><Send size={14} /></Button>}
+              )}
+              <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} onPaste={(e) => { const files = Array.from(e.clipboardData.items).filter((item) => item.type.startsWith("image/")).map((item) => item.getAsFile()).filter((f): f is File => f !== null); if (files.length > 0) { e.preventDefault(); void addFiles(files); } }} placeholder="Message…" data-model-studio-composer rows={1} className="min-h-[36px] max-h-24 resize-none overflow-y-auto border-0 bg-transparent px-2 py-1 text-[13px] shadow-none focus:bg-transparent focus-visible:outline-0" />
+              <div className="flex flex-wrap items-center gap-1 border-t border-[var(--inner-border)] pt-1.5">
+                <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
+                <ConfiguredModelPicker value={model} onChange={setActiveModel} capability="chat" includeCombos includeAliases placeholder="Select model…" />
+                <ContextIndicator messages={messages} systemPrompt={systemPrompt} compacting={compacting} onCompact={() => void compactChat()} />
+                <div className="ml-auto flex items-center gap-1">
+                  <Button variant="secondary" size="icon" onClick={() => fileInputRef.current?.click()} aria-label="Attach image" title="Attach image"><Paperclip size={14} /></Button>
+                  {sending ? <Button variant="secondary" size="icon" onClick={() => abortRef.current?.abort()} aria-label="Stop"><Square size={14} /></Button> : <Button size="icon" onClick={() => void send()} disabled={(!draft.trim() && attachments.length === 0) || !model.trim()} aria-label="Send"><Send size={14} /></Button>}
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
 
       <ConfirmDialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)} onConfirm={() => deleteTarget && deleteSession.mutate(deleteTarget)} title="Delete session?" message={`Delete "${activeSummary?.title ?? "this session"}" and its messages? This can't be undone.`} danger confirmLabel="Delete" />
     </Card>

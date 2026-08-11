@@ -10,7 +10,7 @@ import { runtimeSettings } from "../runtime-settings";
 import { dispatchModelStudioRequest, normalizeModelStudioResponse, type ModelStudioSurface } from "../model-studio-routing";
 import type { ConsoleDiagnostics } from "../diagnostics";
 import { fetchLatestRelease, fetchRepositoryUpdates } from "../repository-updates";
-import { createStudioSession, deleteStudioSession, getStudioSession, listStudioSessions, normalizeStudioMessages, patchStudioSession } from "../model-studio";
+import { createStudioSession, deleteStudioSession, getStudioSession, listStudioSessions, normalizeStudioMedia, normalizeStudioMessages, patchStudioSession } from "../model-studio";
 import type { ConsoleLogStreamHub } from "../streams";
 import type { ConsoleServices } from "../services/composition";
 import type { ModelProbeInput, ModelProbeResult, ProbePorts } from "../probe";
@@ -195,8 +195,10 @@ export function registerDiagnosticRoutes<T extends Elysia<any, any, any, any, an
     .patch("/model-studio/sessions/:id", ({ params, body, set }) => {
       const value = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
       const messages = value.messages === undefined ? undefined : normalizeStudioMessages(value.messages);
+      const media = value.media === undefined ? undefined : normalizeStudioMedia(value.media);
       if (value.messages !== undefined && messages === null) return badRequest(set, "messages must be a valid array");
-      const session = patchStudioSession(params.id, { title: typeof value.title === "string" ? value.title : undefined, model: typeof value.model === "string" ? value.model : undefined, systemPrompt: typeof value.systemPrompt === "string" ? value.systemPrompt : undefined, messages: messages ?? undefined });
+      if (value.media !== undefined && media === null) return badRequest(set, "media must be a valid array");
+      const session = patchStudioSession(params.id, { title: typeof value.title === "string" ? value.title : undefined, model: typeof value.model === "string" ? value.model : undefined, systemPrompt: typeof value.systemPrompt === "string" ? value.systemPrompt : undefined, messages: messages ?? undefined, media: media ?? undefined });
       if (session === null) return notFound(set, "session not found");
       return session;
     })
@@ -237,6 +239,15 @@ export function registerDiagnosticRoutes<T extends Elysia<any, any, any, any, an
       const images = Array.isArray(value.images) ? value.images : [];
       const endpoint = images.length > 0 ? "/v1/images/edits" : "/v1/images/generations";
       const result = await runProxyRequest({ request: { endpoint, surface: "images", headers: new Headers({ "content-type": "application/json", "x-client-name": "pi" }), body: { model: value.model, prompt: value.prompt, ...(images.length > 0 ? { images } : {}) }, signal: request.signal }, authorization: { apiKeyId: null, trustedIdentity: "console:model-studio", providerAllowlist: null, modelAllowlist: null, modelDenylist: null } }, deps.proxy);
+      return buildProxyResponse(result, "images", typeof value.model === "string" ? value.model : "unknown");
+    })
+    .post("/model-studio/media", async ({ body, request, set }) => {
+      const value = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
+      if (value.type !== "image") return badRequest(set, "No configured upstream supports video generation.");
+      const images = Array.isArray(value.images) ? value.images : [];
+      const endpoint = images.length > 0 ? "/v1/images/edits" : "/v1/images/generations";
+      const count = typeof value.n === "number" && Number.isInteger(value.n) ? Math.min(4, Math.max(1, value.n)) : 1;
+      const result = await runProxyRequest({ request: { endpoint, surface: "images", headers: new Headers({ "content-type": "application/json", "x-client-name": "model-studio" }), body: { model: value.model, prompt: value.prompt, n: count, ...(images.length > 0 ? { images } : {}) }, signal: request.signal }, authorization: { apiKeyId: null, trustedIdentity: "console:model-studio", providerAllowlist: null, modelAllowlist: null, modelDenylist: null } }, deps.proxy);
       return buildProxyResponse(result, "images", typeof value.model === "string" ? value.model : "unknown");
     })
     .post("/model-studio/probe", async ({ body, request, set }) => {

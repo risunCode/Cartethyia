@@ -243,7 +243,16 @@ export async function startServer(): Promise<void> {
         return response;
       }
       globalInFlight++;
-      const parsedBody = await readProxyBody(request, route.endpoint);
+      let parsedBody: Awaited<ReturnType<typeof readProxyBody>>;
+      try {
+        parsedBody = await readProxyBody(request, route.endpoint);
+      } catch (error) {
+        globalInFlight--;
+        runtime.logger.web("warn", JSON.stringify({ event: "request_body_read_failed", request_id: requestId, error: sanitizeMessage(error) }));
+        const response = errorResponse(400, "invalid_request", "The request body could not be read.", requestId);
+        recordAccessLog(runtime, url.pathname, request, requestId, response.status, startedAt);
+        return response;
+      }
       if (parsedBody instanceof Response) {
         globalInFlight--;
         if (parsedBody.status === 413) {

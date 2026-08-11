@@ -10,7 +10,8 @@ function boundedInteger(name: string, fallback: number, minimum: number, maximum
 /** Clamped process limits shared by request, stream, and in-memory state boundaries. */
 export const runtimeMemoryLimits = Object.freeze({
   requestBodyBytes: boundedInteger("CARTETHYIA_MAX_REQUEST_BODY_BYTES", 10 * 1024 * 1024, 64 * 1024, 64 * 1024 * 1024),
-  streamLineBytes: boundedInteger("CARTETHYIA_MAX_STREAM_LINE_BYTES", 1 * 1024 * 1024, 4 * 1024, 8 * 1024 * 1024),
+  // Image-generation providers can emit a base64 result in one SSE data line.
+  streamLineBytes: boundedInteger("CARTETHYIA_MAX_STREAM_LINE_BYTES", 4 * 1024 * 1024, 4 * 1024, 8 * 1024 * 1024),
   streamEventBytes: boundedInteger("CARTETHYIA_MAX_STREAM_EVENT_BYTES", 4 * 1024 * 1024, 16 * 1024, 16 * 1024 * 1024),
   studioMaxSessions: boundedInteger("CARTETHYIA_STUDIO_MAX_SESSIONS", 128, 1, 2_048),
   studioMaxSessionBytes: boundedInteger("CARTETHYIA_STUDIO_MAX_SESSION_BYTES", 2 * 1024 * 1024, 64 * 1024, 16 * 1024 * 1024),

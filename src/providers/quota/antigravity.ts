@@ -13,7 +13,6 @@ const IMPORTANT_MODELS = new Set([
   "gemini-pro-agent",
   "gemini-3.1-pro-low",
   "claude-sonnet-4-6",
-  "claude-opus-4-6-thinking",
   "gpt-oss-120b-medium",
   "gemini-3-flash",
   "gemini-3.1-flash-image",

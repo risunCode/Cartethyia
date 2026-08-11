@@ -11,10 +11,10 @@
     "build": "bun build --compile --minify --bytecode --target bun --outfile bin/cartethyia src/main.ts",
     "build:dashboard": "cd dashboard && bun run build",
     "build:all": "bun run build:dashboard && bun run build",
-    "test": "bun test --timeout 60000 test/application test/auth test/console test/middleware test/open-sse test/providers test/security test/storage test/traffic test/architecture",
-    "test:coverage": "bun test --timeout 60000 test/application test/auth test/console test/middleware test/open-sse test/providers test/security test/storage test/traffic test/architecture --coverage",
-    "bench": "bun test --timeout 60000 test/bench",
-    "bench:baseline": "bun test --timeout 60000 test/bench/benchmark-edge-cases.test.ts"
+    "test": "bun test --timeout 60000 test/application test/auth test/console test/middleware test/open-sse test/providers test/security test/storage test/traffic test/architecture test/observability",
+    "test:coverage": "bun test --timeout 60000 test/application test/auth test/console test/middleware test/open-sse test/providers test/security test/storage test/traffic test/architecture test/observability --coverage",
+    "bench": "bun test --timeout 120000 test/bench test/traffic/load-stress.test.ts",
+    "bench:baseline": "bun test --timeout 120000 test/bench/benchmark-edge-cases.test.ts"
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.13.0",

@@ -7,6 +7,8 @@ import type { ModelMetadata, ProviderModel, Surface } from "../../application/co
 export interface ModelCapabilityView {
   readonly chat: boolean;
   readonly media: boolean;
+  readonly imageGeneration: boolean;
+  readonly videoGeneration: boolean;
   readonly websearch: boolean;
 }
 
@@ -14,11 +16,13 @@ export interface ModelCapabilityView {
 export function modelCapabilityView(model: ProviderModel): ModelCapabilityView {
   const surfaces = model.capabilities.surfaces;
   const chatSurfaces: readonly Surface[] = ["openai-chat", "openai-responses", "anthropic-messages"];
+  const imageGeneration = model.capabilities.mediaGeneration.includes("image") || surfaces.includes("images");
+  const videoGeneration = model.capabilities.mediaGeneration.includes("video");
   return {
     chat: surfaces.some((surface) => chatSurfaces.includes(surface)),
-    // Media is generation-only. Vision/input support (`capabilities.images`)
-    // must not make a chat model appear as an image/video generator.
-    media: surfaces.includes("images"),
+    media: imageGeneration || videoGeneration,
+    imageGeneration,
+    videoGeneration,
     websearch: model.capabilities.search === true || surfaces.includes("web-search"),
   };
 }

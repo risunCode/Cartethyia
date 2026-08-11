@@ -38,8 +38,8 @@ export const ANTIGRAVITY_SCOPES: readonly string[] = [
   "https://www.googleapis.com/auth/experimentsandconfigs",
 ];
 const ANTIGRAVITY_TIER_LEGACY = "legacy-tier";
-const ANTIGRAVITY_PROJECT_ONBOARD_MAX_ATTEMPTS = 5;
-const ANTIGRAVITY_PROJECT_ONBOARD_INTERVAL_MS = 2_000;
+const ANTIGRAVITY_PROJECT_ONBOARD_MAX_ATTEMPTS = 24;
+const ANTIGRAVITY_PROJECT_ONBOARD_INTERVAL_MS = 5_000;
 
 /** Cloud Code Assist project-discovery metadata (must match the Antigravity CLI). */
 export const ANTIGRAVITY_LOAD_CODE_ASSIST_METADATA = Object.freeze({
@@ -49,6 +49,7 @@ export const ANTIGRAVITY_LOAD_CODE_ASSIST_METADATA = Object.freeze({
 }) as Readonly<Record<string, string>>;
 
 interface LongRunningOperationResponse {
+  name?: string;
   done?: boolean;
   response?: {
     cloudaicompanionProject?: string | { id?: string };
@@ -182,8 +183,8 @@ export class AntigravityOAuthDriver extends AuthorizationCodeDriver implements A
 
   /**
    * Discovers the account's Cloud Code Assist project, provisioning one when
-   * none exists. Mirrors the Antigravity CLI: `loadCodeAssist` first, then
-   * `onboardUser` polled up to five times at two-second intervals.
+   * none exists. `onboardUser` returns a long-running operation for new
+   * accounts; poll that operation by name instead of re-submitting onboarding.
    */
   private async discoverProject(accessToken: string): Promise<string> {
     const headers: Record<string, string> = {
@@ -191,42 +192,105 @@ export class AntigravityOAuthDriver extends AuthorizationCodeDriver implements A
       "content-type": "application/json",
       "user-agent": "antigravity/hub/2.1.4",
     };
-    const loaded = await this.http.postJson(
-      `${ANTIGRAVITY_CLOUD_CODE_ENDPOINT}/v1internal:loadCodeAssist`,
-      { metadata: ANTIGRAVITY_LOAD_CODE_ASSIST_METADATA },
-      "antigravity",
-      "project discovery",
-      headers,
-    );
-    const existing = readProjectId(loaded.cloudaicompanionProject);
-    if (existing !== undefined) return existing;
-    const tierId = defaultTierId(Array.isArray(loaded.allowedTiers) ? (loaded.allowedTiers as Array<{ id?: string; isDefault?: boolean }>) : undefined);
-    for (let attempt = 1; attempt <= this.onboardingMaxAttempts; attempt += 1) {
-      if (attempt > 1) {
-        const { promise, resolve } = Promise.withResolvers<void>();
-        setTimeout(resolve, this.onboardingIntervalMs);
-        await promise;
-      }
-      const operation = await this.http.postJson(
-        `${ANTIGRAVITY_CLOUD_CODE_ENDPOINT}/v1internal:onboardUser`,
-        { tierId, metadata: ANTIGRAVITY_LOAD_CODE_ASSIST_METADATA },
+    const loadProject = async (): Promise<{ projectId: string | undefined; response: Record<string, unknown> }> => {
+      const response = await this.http.postJson(
+        `${ANTIGRAVITY_CLOUD_CODE_ENDPOINT}/v1internal:loadCodeAssist`,
+        { metadata: ANTIGRAVITY_LOAD_CODE_ASSIST_METADATA },
         "antigravity",
-        "project provisioning",
+        "project discovery",
         headers,
       );
-      const done = operation.done === true;
-      if (typeof operation.done !== "boolean" || done) {
-        const projectId = readProjectId((operation as unknown as LongRunningOperationResponse).response?.cloudaicompanionProject);
-        if (projectId !== undefined) return projectId;
+      return { projectId: readProjectId(response.cloudaicompanionProject), response };
+    };
+    let loaded = await loadProject();
+    const existing = loaded.projectId;
+    if (existing !== undefined) return existing;
+
+    const tierId = defaultTierId(Array.isArray(loaded.response.allowedTiers) ? (loaded.response.allowedTiers as Array<{ id?: string; isDefault?: boolean }>) : undefined);
+    const reloadProject = async (): Promise<string | undefined> => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (attempt > 0) await wait();
+        loaded = await loadProject();
+        if (loaded.projectId !== undefined) return loaded.projectId;
       }
-      if (done) break;
+      return undefined;
+    };
+    const readOperationProject = (operation: Record<string, unknown>): string | undefined => {
+      const response = asRecord(operation.response);
+      return readProjectId(response?.cloudaicompanionProject);
+    };
+    const wait = async (): Promise<void> => {
+      const { promise, resolve } = Promise.withResolvers<void>();
+      setTimeout(resolve, this.onboardingIntervalMs);
+      await promise;
+    };
+
+    let operation = await this.http.postJson(
+      `${ANTIGRAVITY_CLOUD_CODE_ENDPOINT}/v1internal:onboardUser`,
+      { tierId, metadata: ANTIGRAVITY_LOAD_CODE_ASSIST_METADATA },
+      "antigravity",
+      "project provisioning",
+      headers,
+    );
+    let projectId = readOperationProject(operation);
+    if (projectId !== undefined) return projectId;
+
+    const operationName = typeof operation.name === "string" ? operation.name.trim() : "";
+    if (operationName.length > 0) {
+      for (let attempt = 1; attempt < this.onboardingMaxAttempts; attempt += 1) {
+        await wait();
+        operation = await this.http.getJson(
+          `${ANTIGRAVITY_CLOUD_CODE_ENDPOINT}/v1internal/${operationName}`,
+          "antigravity",
+          "project provisioning poll",
+          headers,
+        );
+        projectId = readOperationProject(operation);
+        if (projectId !== undefined) return projectId;
+        if (operation.done === true) break;
+      }
+    } else {
+      // Keep compatibility with older responses that omit the LRO name.
+      for (let attempt = 1; attempt < this.onboardingMaxAttempts; attempt += 1) {
+        await wait();
+        operation = await this.http.postJson(
+          `${ANTIGRAVITY_CLOUD_CODE_ENDPOINT}/v1internal:onboardUser`,
+          { tierId, metadata: ANTIGRAVITY_LOAD_CODE_ASSIST_METADATA },
+          "antigravity",
+          "project provisioning",
+          headers,
+        );
+        projectId = readOperationProject(operation);
+        if (projectId !== undefined) return projectId;
+        if (operation.done === true) break;
+      }
     }
+    projectId = await reloadProject();
+    if (projectId !== undefined) return projectId;
+
+    const ineligibleReasons = Array.isArray(loaded.response.ineligibleTiers)
+      ? loaded.response.ineligibleTiers
+        .map((tier) => asRecord(tier)?.reasonMessage)
+        .filter((reason): reason is string => typeof reason === "string" && reason.length > 0)
+      : [];
+    const allowedTierIds = Array.isArray(loaded.response.allowedTiers)
+      ? loaded.response.allowedTiers
+        .map((tier) => asRecord(tier)?.id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+      : [];
+    const detail = ineligibleReasons.length > 0
+      ? ` Google reported: ${ineligibleReasons.join("; ")}`
+      : allowedTierIds.length > 0
+        ? ` Available tiers: ${allowedTierIds.join(", ")}.`
+        : "";
+
     throw new OAuthDriverError(
       "provisioning",
-      `Google Antigravity: onboardUser did not return a provisioned project id after ${this.onboardingMaxAttempts} attempts.`,
+      `Google Antigravity: onboarding completed, but Google did not expose a provisioned project id.${detail}`,
       502,
       false,
     );
+
   }
 }
 

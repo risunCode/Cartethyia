@@ -5,14 +5,16 @@ export function Tabs({
   value,
   onChange,
   panelId,
+  ariaLabel,
 }: {
   tabs: { id: string; label: string }[];
   value: string;
   onChange: (id: string) => void;
   panelId?: string;
+  ariaLabel?: string;
 }) {
   return (
-    <div className="flex flex-wrap gap-1.5" role="tablist">
+    <div className="flex flex-wrap gap-1.5" role="tablist" aria-label={ariaLabel}>
       {tabs.map((tab) => (
         <button
           key={tab.id}

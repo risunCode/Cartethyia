@@ -194,7 +194,6 @@ describe("general quota transport", () => {
         "gemini-pro-agent": { quotaInfo: { remainingFraction: 0.8, resetTime: "2030-01-01T00:00:00Z" } },
         "gemini-3-flash-agent": { isInternal: true, quotaInfo: { remainingFraction: 0.1, resetTime: "2030-01-01T00:00:00Z" } },
         "claude-sonnet-4-6": { quotaInfo: { remainingFraction: 0.6, resetTime: "2030-01-02T00:00:00Z" } },
-        "claude-opus-4-6-thinking": { quotaInfo: { remainingFraction: 0.6, resetTime: "2030-01-02T00:00:00Z" } },
         "gpt-oss-120b-medium": { quotaInfo: { remainingFraction: 0.4, resetTime: "2030-01-03T00:00:00Z" } },
       },
     }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;

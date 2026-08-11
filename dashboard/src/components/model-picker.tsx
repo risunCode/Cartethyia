@@ -6,8 +6,8 @@
  * behaves the same way: browse a catalog, or type one manually.
  */
 
-import { useEffect, useMemo, useState } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Boxes, Check, ChevronDown, Search, X } from "lucide-react";
 import { apiGet } from "../lib/api";
 import { qk } from "../lib/query-keys";
@@ -24,6 +24,7 @@ export interface ProviderSummary {
   prefix: string;
   modelCount: number;
   connections: number;
+  models?: CatalogModel[];
   capabilityCounts?: {
     chat: number;
     media: number;
@@ -41,12 +42,22 @@ interface CatalogModel {
   name?: string;
   enabled?: boolean;
   images?: boolean;
+  capabilities?: {
+    chat?: boolean;
+    media?: boolean;
+    imageGeneration?: boolean;
+    videoGeneration?: boolean;
+  };
 }
 
-interface ProviderCatalogDetail {
-  id?: string;
-  prefix?: string;
-  models: CatalogModel[];
+
+export type ModelPickerCapability = "chat" | "image" | "video";
+
+export interface ModelCapabilityFlags {
+  chat: boolean;
+  media: boolean;
+  imageGeneration: boolean;
+  videoGeneration: boolean;
 }
 
 export interface ComboSummary {
@@ -62,7 +73,7 @@ export interface AliasSummary {
 export interface FlatModelEntry {
   provider: ProviderSummary;
   qualified: string;
-  images: boolean;
+  capabilities: ModelCapabilityFlags;
 }
 
 interface CustomProviderCatalogEntry {
@@ -74,7 +85,7 @@ interface CustomProviderCatalogEntry {
 }
 
 /**
- * Custom OpenAI/Anthropic-compatible providers (Console \u2192 Providers \u2192
+ * Custom OpenAI/Anthropic-compatible providers (Console → Providers →
  * Custom) live in a separate table/endpoint from the built-in registry
  * (`custom_providers`, not `provider_registry`). The list endpoint already
  * embeds each provider's discovered `models`, so no per-id detail fetch is
@@ -92,9 +103,6 @@ export function useCustomProviders(enabled: boolean) {
 /**
  * Flattens custom providers into the same `FlatModelEntry` shape built-in
  * providers use, so both sources merge into one searchable/groupable list.
- * Regression: this catalog was previously never fetched at all \u2014 a custom
- * (BYOK) provider's models could never be picked for an API key's
- * allowed/denied model list, only typed in manually.
  */
 export function useCustomProviderCatalog(customProviders: CustomProviderCatalogEntry[]): FlatModelEntry[] {
   return useMemo(
@@ -111,9 +119,8 @@ export function useCustomProviderCatalog(customProviders: CustomProviderCatalogE
         return provider.models.flatMap((model) => {
           const modelId = typeof model === "string" ? model : model.id ?? model.modelId;
           if (!modelId) return [];
-          // Avoid double-prefixing when modelId already starts with the slug.
           const qualified = modelId.startsWith(`${provider.slug}/`) ? modelId : `${provider.slug}/${modelId}`;
-          return [{ provider: summary, qualified, images: false }];
+          return [{ provider: summary, qualified, capabilities: { chat: true, media: false, imageGeneration: false, videoGeneration: false } }];
         });
       }),
     [customProviders]
@@ -153,48 +160,36 @@ interface ModelCatalogState {
 function canLoadCatalog(provider: ProviderSummary): boolean {
   return provider.credentialKind === "none" || provider.configured === true;
 }
+function modelCapabilityFlags(model: CatalogModel): ModelCapabilityFlags {
+  const declared = model.capabilities;
+  const imageGeneration = declared?.imageGeneration ?? declared?.media === true;
+  const videoGeneration = declared?.videoGeneration === true;
+  return {
+    chat: declared?.chat ?? true,
+    media: declared?.media ?? (imageGeneration || videoGeneration),
+    imageGeneration,
+    videoGeneration,
+  };
+}
 
 export function useModelCatalogState(providers: ProviderSummary[], enabled: boolean): ModelCatalogState {
-  const results = useQueries({
-    queries: providers.map((provider) => ({
-      queryKey: qk.catalog.provider(provider.id),
-      queryFn: () => apiGet<ProviderCatalogDetail>(`/providers/${encodeURIComponent(provider.id)}`),
-      staleTime: 60_000,
-      enabled: enabled && canLoadCatalog(provider),
-    })),
-  });
-  const resultVersion = results.map((result) => `${result.dataUpdatedAt}:${result.status}:${result.fetchStatus}`).join("|");
-
   const items = useMemo(() => {
     if (!enabled) return [];
-    return providers.flatMap((provider, index) => {
+    return providers.flatMap((provider) => {
       if (!canLoadCatalog(provider)) return [];
-      const detail = results[index]?.data;
-      if (!detail || !Array.isArray(detail.models)) return [];
-      return detail.models.flatMap((model) => {
+      return (provider.models ?? []).flatMap((model) => {
         const modelId = model.id ?? model.modelId;
         if (!modelId || model.enabled === false) return [];
-        const prefix = detail.prefix ?? provider.prefix;
-        // Avoid double-prefixing: some providers (e.g. Blackbox) return model
-        // IDs that already include the provider prefix (e.g. "blackboxai/z-ai/glm-5.2").
-        // If modelId starts with `${prefix}/`, use it as-is.
-        const qualified = modelId.startsWith(`${prefix}/`) ? modelId : `${prefix}/${modelId}`;
-        return [{ provider, qualified, images: model.images === true }];
+        const qualified = modelId.startsWith(`${provider.prefix}/`) ? modelId : `${provider.prefix}/${modelId}`;
+        return [{ provider, qualified, capabilities: modelCapabilityFlags(model) }];
       });
     });
-    // `results` is a fresh array every render (useQueries), so depend on its
-    // serialized data rather than the array reference to avoid a render loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [providers, enabled, resultVersion]);
+  }, [providers, enabled]);
 
-  const eligibleResults = results.filter((_result, index) => {
-    const provider = providers[index];
-    return provider !== undefined && canLoadCatalog(provider);
-  });
   return {
     items,
-    isLoading: enabled && eligibleResults.some((result) => result.isPending),
-    isError: enabled && eligibleResults.some((result) => result.isError),
+    isLoading: false,
+    isError: false,
   };
 }
 
@@ -726,7 +721,7 @@ export function ConfiguredModelPicker({
   placeholder,
   includeCombos = false,
   includeAliases = false,
-  onCapabilityChange,
+  capability,
   multiple = false,
   disabled = false,
   includeCustomProviders = true,
@@ -736,8 +731,8 @@ export function ConfiguredModelPicker({
   placeholder?: string;
   includeCombos?: boolean;
   includeAliases?: boolean;
+  capability?: ModelPickerCapability;
   includeCustomProviders?: boolean;
-  onCapabilityChange?: (images: boolean) => void;
   multiple?: boolean;
   disabled?: boolean;
 }) {
@@ -750,24 +745,28 @@ export function ConfiguredModelPicker({
   const catalogState = useModelCatalogState(providers, open || Boolean(value));
   const customProvidersQuery = useCustomProviders(includeCustomProviders && (open || Boolean(value)));
   const customCatalog = includeCustomProviders ? useCustomProviderCatalog(customProvidersQuery.data?.items ?? []) : [];
-  const combosQuery = useCombos(open && includeCombos);
-  const aliasesQuery = useAliases(open && includeAliases);
+  const combosQuery = useCombos(open && includeCombos && capability === undefined);
+  const aliasesQuery = useAliases(open && includeAliases && capability === undefined);
   const query = search.trim().toLowerCase();
   const catalog = useMemo(() => [...catalogState.items, ...customCatalog], [catalogState.items, customCatalog]);
-  useEffect(() => {
-    const selected = catalog.find((entry) => entry.qualified === value);
-    onCapabilityChange?.(selected?.images === true);
-  }, [catalog, onCapabilityChange, value]);
+  const filteredCatalog = useMemo(() => {
+    if (capability === undefined) return catalog;
+    return catalog.filter((entry) => {
+      if (capability === "chat") return entry.capabilities.chat;
+      if (capability === "image") return entry.capabilities.imageGeneration;
+      return entry.capabilities.videoGeneration;
+    });
+  }, [capability, catalog]);
   const groups = useMemo(() => {
     const map = new Map<string, { provider: ProviderSummary; models: FlatModelEntry[] }>();
-    for (const entry of catalog) {
+    for (const entry of filteredCatalog) {
       if (query && !entry.qualified.toLowerCase().includes(query)) continue;
       const group = map.get(entry.provider.id);
       if (group) group.models.push(entry);
       else map.set(entry.provider.id, { provider: entry.provider, models: [entry] });
     }
     return [...map.values()];
-  }, [catalog, query]);
+  }, [filteredCatalog, query]);
   const selectValue = (nextValue: string) => {
     if (multiple) {
       const nextValues = selectedValues.includes(nextValue)
@@ -780,9 +779,9 @@ export function ConfiguredModelPicker({
     setOpen(false);
   };
   const selectedProvider = providers.find((provider) => value.startsWith(`${provider.prefix}/`));
-  const loading = open && (providersQuery.isPending || (includeCustomProviders && customProvidersQuery.isPending) || catalogState.isLoading || (includeCombos && combosQuery.isPending) || (includeAliases && aliasesQuery.isPending));
-  const filteredCombos = useMemo(() => (includeCombos ? (combosQuery.data?.items ?? []).filter((combo) => !query || combo.name.toLowerCase().includes(query)) : []), [combosQuery.data, includeCombos, query]);
-  const filteredAliases = useMemo(() => (includeAliases ? (aliasesQuery.data?.items ?? []).filter((alias) => !query || alias.alias.toLowerCase().includes(query)) : []), [aliasesQuery.data, includeAliases, query]);
+  const loading = open && (providersQuery.isPending || (includeCustomProviders && customProvidersQuery.isPending) || catalogState.isLoading || (capability === undefined && includeCombos && combosQuery.isPending) || (capability === undefined && includeAliases && aliasesQuery.isPending));
+  const filteredCombos = useMemo(() => (includeCombos && capability === undefined ? (combosQuery.data?.items ?? []).filter((combo) => !query || combo.name.toLowerCase().includes(query)) : []), [capability, combosQuery.data, includeCombos, query]);
+  const filteredAliases = useMemo(() => (includeAliases && capability === undefined ? (aliasesQuery.data?.items ?? []).filter((alias) => !query || alias.alias.toLowerCase().includes(query)) : []), [capability, includeAliases, aliasesQuery.data, query]);
   return (
     <Popout
       open={open}

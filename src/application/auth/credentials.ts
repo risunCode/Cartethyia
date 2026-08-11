@@ -269,10 +269,62 @@ export interface CredentialConfigStore {
   listAccounts(): Promise<readonly AccountConfig[]>;
 }
 
+export interface CredentialConfigCacheOptions {
+  readonly nowMs?: () => number;
+  readonly ttlMs?: number;
+  /** Optional mutation revision; a change clears all cached account views immediately. */
+  readonly readRevision?: () => number;
+}
+
+/**
+ * Adds a short-lived read cache for request-time account selection without
+ * changing the durable store used by OAuth refresh and console mutations.
+ */
+export function createCachedCredentialConfigStore(
+  store: CredentialConfigStore,
+  options: CredentialConfigCacheOptions = {},
+): CredentialConfigStore {
+  const nowMs = options.nowMs ?? (() => Date.now());
+  const ttlMs = Math.max(0, options.ttlMs ?? 250);
+  const readRevision = options.readRevision ?? (() => 0);
+  let cacheRevision = readRevision();
+  const accounts = new Map<string, { readonly value: AccountConfig | undefined; readonly expiresAtMs: number }>();
+  let listCache: { readonly value: readonly AccountConfig[]; readonly expiresAtMs: number } | undefined;
+  const invalidateIfRevisionChanged = (): void => {
+    const revision = readRevision();
+    if (revision === cacheRevision) return;
+    cacheRevision = revision;
+    accounts.clear();
+    listCache = undefined;
+  };
+
+  return {
+    async getAccount(id) {
+      invalidateIfRevisionChanged();
+      const now = nowMs();
+      const cached = accounts.get(id);
+      if (cached !== undefined && cached.expiresAtMs > now) return cached.value;
+      const value = await store.getAccount(id);
+      accounts.set(id, { value, expiresAtMs: now + ttlMs });
+      return value;
+    },
+    async listAccounts() {
+      invalidateIfRevisionChanged();
+      const now = nowMs();
+      if (listCache !== undefined && listCache.expiresAtMs > now) return listCache.value;
+      const value = await store.listAccounts();
+      listCache = { value, expiresAtMs: now + ttlMs };
+      for (const account of value) accounts.set(account.id, { value: account, expiresAtMs: now + ttlMs });
+      return value;
+    },
+  };
+}
+
 import { accountCooldownPolicyFor, cooldownDelayMs, deriveRouteHealth, isRecordUsable } from "../../traffic";
 
 export interface AccountHealthOptions {
   readonly nowMs?: () => number;
+  readonly cacheTtlMs?: number;
 }
 
 /**
@@ -293,6 +345,9 @@ export interface AccountHealthOptions {
  */
 export class AccountHealthManager {
   private readonly nowMs: () => number;
+  private readonly cacheTtlMs: number;
+  private readonly healthCache = new Map<string, { readonly record: AccountHealthRecord | undefined; readonly expiresAtMs: number }>();
+  private readonly modelLocksCache = new Map<string, { readonly records: readonly ModelLockRecord[]; readonly expiresAtMs: number }>();
 
   constructor(
     private readonly store: AccountHealthStore,
@@ -300,12 +355,50 @@ export class AccountHealthManager {
     private readonly modelLockStore: ModelLockStore | null = null,
   ) {
     this.nowMs = options.nowMs ?? (() => Date.now());
+    this.cacheTtlMs = Math.max(0, options.cacheTtlMs ?? 250);
+  }
+
+  private async readHealthRecord(accountId: string, nowMs: number): Promise<AccountHealthRecord | undefined> {
+    const cached = this.healthCache.get(accountId);
+    if (cached !== undefined && cached.expiresAtMs > nowMs) return cached.record;
+    const record = await this.store.get(accountId);
+    this.healthCache.set(accountId, { record, expiresAtMs: nowMs + this.cacheTtlMs });
+    return record;
+  }
+
+  private async readHealthRecords(accountIds: readonly string[], nowMs: number): Promise<Map<string, AccountHealthRecord>> {
+    const missingIds = accountIds.filter((accountId) => {
+      const cached = this.healthCache.get(accountId);
+      return cached === undefined || cached.expiresAtMs <= nowMs;
+    });
+    if (missingIds.length > 0) {
+      const records = await this.store.listForAccountIds(missingIds);
+      const byId = new Map(records.map((record) => [record.accountId, record]));
+      for (const accountId of missingIds) {
+        this.healthCache.set(accountId, { record: byId.get(accountId), expiresAtMs: nowMs + this.cacheTtlMs });
+      }
+    }
+    const result = new Map<string, AccountHealthRecord>();
+    for (const accountId of accountIds) {
+      const record = this.healthCache.get(accountId)?.record;
+      if (record !== undefined) result.set(accountId, record);
+    }
+    return result;
+  }
+
+  private async readModelLocks(accountId: string, nowMs: number): Promise<readonly ModelLockRecord[]> {
+    if (this.modelLockStore === null) return [];
+    const cached = this.modelLocksCache.get(accountId);
+    if (cached !== undefined && cached.expiresAtMs > nowMs) return cached.records;
+    const records = await this.modelLockStore.listForAccount(accountId);
+    this.modelLocksCache.set(accountId, { records, expiresAtMs: nowMs + this.cacheTtlMs });
+    return records;
   }
 
   async recordFailure(accountId: string, providerId: string, error: ProviderCallError): Promise<AccountHealthRecord | null> {
     if (!error.retryable) return null;
     const now = this.nowMs();
-    const previous = await this.store.get(accountId);
+    const previous = await this.readHealthRecord(accountId, now);
     const failureCount = Math.min(255, (previous?.failureCount ?? 0) + 1);
     const delayMs = cooldownDelayMs(error, accountCooldownPolicyFor(error.kind), failureCount, now);
     const disabledUntilMs = delayMs > 0 ? now + delayMs : null;
@@ -323,11 +416,13 @@ export class AccountHealthManager {
       generation: (previous?.generation ?? 0) + 1,
     };
     await this.store.set(record);
+    this.healthCache.set(accountId, { record, expiresAtMs: now + this.cacheTtlMs });
     return record;
   }
 
   async recordSuccess(accountId: string, providerId: string): Promise<AccountHealthRecord> {
-    const previous = await this.store.get(accountId);
+    const now = this.nowMs();
+    const previous = await this.readHealthRecord(accountId, now);
     const record: AccountHealthRecord = {
       accountId,
       providerId,
@@ -342,16 +437,17 @@ export class AccountHealthManager {
       generation: (previous?.generation ?? 0) + 1,
     };
     await this.store.set(record);
+    this.healthCache.set(accountId, { record, expiresAtMs: now + this.cacheTtlMs });
     return record;
   }
 
   async getHealth(accountId: string): Promise<RouteHealth | null> {
-    const record = await this.store.get(accountId);
+    const record = await this.readHealthRecord(accountId, this.nowMs());
     return record === undefined ? null : deriveRouteHealth(record, "account", this.nowMs());
   }
 
   async isUsable(accountId: string, nowMs: number = this.nowMs()): Promise<boolean> {
-    const record = await this.store.get(accountId);
+    const record = await this.readHealthRecord(accountId, nowMs);
     return record === undefined || isRecordUsable(record, nowMs);
   }
 
@@ -359,37 +455,25 @@ export class AccountHealthManager {
     return this.store.list();
   }
 
-  /**
-   * Records a per-model lock so an error on model A (e.g. claude/sonnet-4)
-   * does NOT block model B (e.g. claude/haiku-4) on the same account. Uses
-   * the same cooldown logic as recordFailure (cooldownDelayMs), but stores
-   * in the ModelLockStore instead of AccountHealthStore.
-   *
-   * - If `error.retryable === false`, skip (non-retryable = no model lock).
-   * - If delayMs === 0 (T2 transient error → no cooldown), skip.
-   * - Returns the stored record, or null when skipped.
-   */
   async recordModelLock(accountId: string, modelId: string, error: ProviderCallError): Promise<ModelLockRecord | null> {
-    if (this.modelLockStore === null) return null;
-    if (!error.retryable) return null;
+    if (this.modelLockStore === null || !error.retryable) return null;
     const now = this.nowMs();
-    const previous = await this.modelLockStore.get(accountId, modelId);
+    const previous = (await this.readModelLocks(accountId, now)).find((record) => record.modelId === modelId);
     const failureCount = Math.min(255, (previous?.failureCount ?? 0) + 1);
     const delayMs = cooldownDelayMs(error, accountCooldownPolicyFor(error.kind), failureCount, now);
-    // T2 transient errors (5xx, network, stream, protocol) → no cooldown.
-    // The model is likely still working; the recovery loop retries.
     if (delayMs === 0) return null;
-    const retryAtMs = now + delayMs;
     const record: ModelLockRecord = {
       accountId,
       modelId,
-      retryAt: new Date(retryAtMs).toISOString(),
+      retryAt: new Date(now + delayMs).toISOString(),
       errorKind: error.kind,
       statusCode: error.statusCode,
       sanitizedMessage: sanitizeMessage(error.sanitizedMessage),
       failureCount,
     };
     await this.modelLockStore.set(record);
+    const current = (await this.readModelLocks(accountId, now)).filter((item) => item.modelId !== modelId);
+    this.modelLocksCache.set(accountId, { records: [...current, record], expiresAtMs: now + this.cacheTtlMs });
     return record;
   }
 
@@ -397,50 +481,57 @@ export class AccountHealthManager {
   async clearModelLock(accountId: string, modelId: string): Promise<void> {
     if (this.modelLockStore === null) return;
     await this.modelLockStore.delete(accountId, modelId);
+    const now = this.nowMs();
+    const cached = this.modelLocksCache.get(accountId);
+    if (cached !== undefined && cached.expiresAtMs > now) {
+      this.modelLocksCache.set(accountId, { records: cached.records.filter((record) => record.modelId !== modelId), expiresAtMs: cached.expiresAtMs });
+    }
   }
 
-  /**
-   * Checks whether a model is available (no active model lock) for the
-   * given account at the specified time. Returns true when no lock store
-   * is configured, when no lock exists, or when the lock's retry_at has
-   * already passed.
-   */
   async isModelAvailable(accountId: string, modelId: string, nowMs: number = this.nowMs()): Promise<boolean> {
-    if (this.modelLockStore === null) return true;
-    const lock = await this.modelLockStore.get(accountId, modelId);
-    if (lock === undefined) return true;
-    return Date.parse(lock.retryAt) <= nowMs;
+    const lock = (await this.readModelLocks(accountId, nowMs)).find((record) => record.modelId === modelId);
+    return lock === undefined || Date.parse(lock.retryAt) <= nowMs;
   }
 
-  /** Lists all per-model locks for the given account (for candidate construction). */
   async listModelLocksForAccount(accountId: string): Promise<readonly ModelLockRecord[]> {
-    if (this.modelLockStore === null) return [];
-    return this.modelLockStore.listForAccount(accountId);
+    return this.readModelLocks(accountId, this.nowMs());
   }
 
-  /** Batch-load health for multiple accounts — eliminates N+1 in accountCandidates. */
   async getHealthBatch(accountIds: readonly string[]): Promise<Map<string, RouteHealth>> {
     if (accountIds.length === 0) return new Map();
-    const records = await this.store.listForAccountIds(accountIds);
+    const records = await this.readHealthRecords(accountIds, this.nowMs());
     const now = this.nowMs();
     const map = new Map<string, RouteHealth>();
-    for (const record of records) map.set(record.accountId, deriveRouteHealth(record, "account", now));
+    for (const record of records.values()) map.set(record.accountId, deriveRouteHealth(record, "account", now));
     return map;
   }
 
-  /** Batch-load model locks for multiple accounts, grouped by accountId — eliminates N+1. */
   async listModelLocksForAccounts(accountIds: readonly string[]): Promise<Map<string, readonly ModelLockRecord[]>> {
     if (this.modelLockStore === null || accountIds.length === 0) return new Map();
-    const allLocks = await this.modelLockStore.listForAccountIds(accountIds);
-    const map = new Map<string, ModelLockRecord[]>();
-    for (const lock of allLocks) {
-      const list = map.get(lock.accountId);
-      if (list === undefined) map.set(lock.accountId, [lock]);
-      else list.push(lock);
+    const now = this.nowMs();
+    const missingIds = accountIds.filter((accountId) => {
+      const cached = this.modelLocksCache.get(accountId);
+      return cached === undefined || cached.expiresAtMs <= now;
+    });
+    if (missingIds.length > 0) {
+      const allLocks = await this.modelLockStore.listForAccountIds(missingIds);
+      const grouped = new Map<string, ModelLockRecord[]>();
+      for (const lock of allLocks) {
+        const list = grouped.get(lock.accountId);
+        if (list === undefined) grouped.set(lock.accountId, [lock]);
+        else list.push(lock);
+      }
+      for (const accountId of missingIds) this.modelLocksCache.set(accountId, { records: grouped.get(accountId) ?? [], expiresAtMs: now + this.cacheTtlMs });
     }
-    return map as Map<string, readonly ModelLockRecord[]>;
+    const result = new Map<string, readonly ModelLockRecord[]>();
+    for (const accountId of accountIds) {
+      const records = this.modelLocksCache.get(accountId)?.records;
+      if (records !== undefined && records.length > 0) result.set(accountId, records);
+    }
+    return result;
   }
 }
+
 
 export const OAUTH_SAFETY_SKEW_MS = 30_000;
 
@@ -468,6 +559,7 @@ export interface QuotaSweepResult {
 export interface QuotaCoordinatorOptions {
   readonly sweepCooldownMs?: number;
   readonly nowMs?: () => number;
+  readonly cacheTtlMs?: number;
 }
 
 /**
@@ -477,7 +569,9 @@ export interface QuotaCoordinatorOptions {
 export class QuotaCoordinator {
   private readonly sweepCooldownMs: number;
   private readonly nowMs: () => number;
+  private readonly cacheTtlMs: number;
   private readonly inflight = new Map<string, Promise<QuotaSweepResult>>();
+  private readonly cache = new Map<string, { readonly record: QuotaStateRecord | undefined; readonly expiresAtMs: number }>();
 
   constructor(
     private readonly store: QuotaStateStore,
@@ -485,26 +579,52 @@ export class QuotaCoordinator {
   ) {
     this.sweepCooldownMs = options.sweepCooldownMs ?? QUOTA_SWEEP_COOLDOWN_MS;
     this.nowMs = options.nowMs ?? (() => Date.now());
+    this.cacheTtlMs = Math.max(0, options.cacheTtlMs ?? 1_000);
+  }
+
+  private async readRecord(accountId: string, nowMs: number): Promise<QuotaStateRecord | undefined> {
+    const cached = this.cache.get(accountId);
+    if (cached !== undefined && cached.expiresAtMs > nowMs) return cached.record;
+    const record = await this.store.get(accountId);
+    this.cache.set(accountId, { record, expiresAtMs: nowMs + this.cacheTtlMs });
+    return record;
+  }
+
+  private async readRecords(accountIds: readonly string[], nowMs: number): Promise<Map<string, QuotaStateRecord>> {
+    const missingIds = accountIds.filter((accountId) => {
+      const cached = this.cache.get(accountId);
+      return cached === undefined || cached.expiresAtMs <= nowMs;
+    });
+    if (missingIds.length > 0) {
+      const records = await this.store.listForAccountIds(missingIds);
+      const byId = new Map(records.map((record) => [record.accountId, record]));
+      for (const accountId of missingIds) {
+        this.cache.set(accountId, { record: byId.get(accountId), expiresAtMs: nowMs + this.cacheTtlMs });
+      }
+    }
+    const result = new Map<string, QuotaStateRecord>();
+    for (const accountId of accountIds) {
+      const record = this.cache.get(accountId)?.record;
+      if (record !== undefined) result.set(accountId, record);
+    }
+    return result;
   }
 
   async getQuotaAvailable(accountId: string): Promise<boolean> {
-    const record = await this.store.get(accountId);
-    return record?.quotaAvailable ?? true;
+    return (await this.readRecord(accountId, this.nowMs()))?.quotaAvailable ?? true;
   }
 
-  /** Batch-load quota availability for multiple accounts — eliminates N+1 in accountCandidates. */
   async getQuotaAvailableBatch(accountIds: readonly string[]): Promise<Map<string, boolean>> {
     if (accountIds.length === 0) return new Map();
-    const records = await this.store.listForAccountIds(accountIds);
+    const records = await this.readRecords(accountIds, this.nowMs());
     const map = new Map<string, boolean>();
-    for (const record of records) map.set(record.accountId, record.quotaAvailable);
+    for (const record of records.values()) map.set(record.accountId, record.quotaAvailable);
     return map;
   }
 
-  /** Refreshes quota only when the per-account cooldown has elapsed; concurrent sweeps coalesce. */
   async refreshQuotaIfDue(accountId: string, refresh: QuotaRefresher["refreshQuota"]): Promise<QuotaSweepResult> {
     const now = this.nowMs();
-    const record = await this.store.get(accountId);
+    const record = await this.readRecord(accountId, now);
     const lastRefreshAtMs = record?.lastQuotaRefreshAtMs ?? null;
     if (lastRefreshAtMs !== null && now - lastRefreshAtMs < this.sweepCooldownMs) {
       return {
@@ -518,24 +638,22 @@ export class QuotaCoordinator {
     const pending = this.performRefresh(accountId, refresh);
     this.inflight.set(accountId, pending);
     pending.then(
-      () => {
-        this.inflight.delete(accountId);
-      },
-      () => {
-        this.inflight.delete(accountId);
-      },
+      () => this.inflight.delete(accountId),
+      () => this.inflight.delete(accountId),
     );
     return pending;
   }
 
   async setQuotaAvailable(accountId: string, quotaAvailable: boolean): Promise<void> {
-    const previous = await this.store.get(accountId);
+    const now = this.nowMs();
+    const previous = await this.readRecord(accountId, now);
     const record: QuotaStateRecord = {
       accountId,
       quotaAvailable,
       lastQuotaRefreshAtMs: previous?.lastQuotaRefreshAtMs ?? null,
     };
     await this.store.set(record);
+    this.cache.set(accountId, { record, expiresAtMs: now + this.cacheTtlMs });
   }
 
   private async performRefresh(accountId: string, refresh: QuotaRefresher["refreshQuota"]): Promise<QuotaSweepResult> {
@@ -543,6 +661,7 @@ export class QuotaCoordinator {
     const now = this.nowMs();
     const record: QuotaStateRecord = { accountId, quotaAvailable, lastQuotaRefreshAtMs: now };
     await this.store.set(record);
+    this.cache.set(accountId, { record, expiresAtMs: now + this.cacheTtlMs });
     return { refreshed: true, quotaAvailable, nextRefreshAtMs: now + this.sweepCooldownMs };
   }
 }

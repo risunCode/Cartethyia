@@ -11,6 +11,7 @@ const DEVIN_FALLBACK_CAPABILITIES: ProviderCaps = {
   reasoning: true,
   toolCalls: true,
   images: false,
+  mediaGeneration: [],
   explicitCache: false,
   promptCacheKey: false,
 };

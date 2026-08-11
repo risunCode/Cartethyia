@@ -10,7 +10,7 @@ describe("Providers catalog capability view", () => {
       capabilitiesOf({ surfaces: ["openai-responses"], images: true }),
     );
 
-    expect(modelCapabilityView(model)).toEqual({ chat: true, media: false, websearch: false });
+    expect(modelCapabilityView(model)).toEqual({ chat: true, media: false, imageGeneration: false, videoGeneration: false, websearch: false });
   });
 
   test("classifies image generation surfaces as media", () => {
@@ -20,6 +20,16 @@ describe("Providers catalog capability view", () => {
       capabilitiesOf({ surfaces: ["images"], images: true }),
     );
 
-    expect(modelCapabilityView(model)).toEqual({ chat: false, media: true, websearch: false });
+    expect(modelCapabilityView(model)).toEqual({ chat: false, media: true, imageGeneration: true, videoGeneration: false, websearch: false });
+  });
+
+  test("classifies explicit video generation independently from vision input", () => {
+    const model = modelOf(
+      "video-generator",
+      "Video Generator",
+      capabilitiesOf({ surfaces: ["openai-chat"], mediaGeneration: ["video"] }),
+    );
+
+    expect(modelCapabilityView(model)).toEqual({ chat: true, media: true, imageGeneration: false, videoGeneration: true, websearch: false });
   });
 });

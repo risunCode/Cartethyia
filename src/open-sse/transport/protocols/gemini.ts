@@ -14,6 +14,7 @@ import { geminiCandidate, mapGeminiUsage, responseParts, translateGeminiImageRes
 export function createGeminiGenerateContentStreamMapper(): StreamMapper {
   let started = false;
   let stopped = false;
+  let nextNativeBlockIndex = 0;
   const activeCalls = new Set<string>();
   return (sse: SseEvent): StreamEvent | readonly StreamEvent[] | null => {
     let parsed: unknown;
@@ -33,6 +34,13 @@ export function createGeminiGenerateContentStreamMapper(): StreamMapper {
       }
       const argumentsText = JSON.stringify(call.args);
       if (argumentsText.length > 0 && argumentsText !== "{}") events.push({ type: "tool_call_delta", callId: call.id, delta: argumentsText });
+    }
+    for (const image of output.images) {
+      const index = nextNativeBlockIndex++;
+      events.push(
+        { type: "native_block_start", index, block: { type: "image", source: { type: "base64", media_type: image.mimeType ?? "image/png", data: image.data } } },
+        { type: "native_block_stop", index },
+      );
     }
     if (isRecord(parsed.usageMetadata)) {
       const usage = mapGeminiUsage(parsed);

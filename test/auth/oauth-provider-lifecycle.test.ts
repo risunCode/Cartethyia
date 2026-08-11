@@ -135,6 +135,86 @@ describe("registered OAuth provider lifecycle", () => {
     const driver = new AntigravityOAuthDriver(withResponse({ access_token: "google-access", refresh_token: "google-refresh", expires_in: 3600 }));
     await expect(refresh(driver, "antigravity")).resolves.toMatchObject({ accessToken: "google-access", refreshToken: "google-refresh" });
   });
+  test("preserves Antigravity refresh token when Google omits rotation", async () => {
+    const driver = new AntigravityOAuthDriver(withResponse({ access_token: "google-access", expires_in: 3600 }));
+    await expect(refresh(driver, "antigravity")).resolves.toMatchObject({ accessToken: "google-access", refreshToken: "refresh-old" });
+  });
+  test("polls the Antigravity onboarding long-running operation", async () => {
+    const calls: string[] = [];
+    let pollCount = 0;
+    const driver = new AntigravityOAuthDriver({
+      nowMs: () => Date.parse("2026-08-10T00:00:00.000Z"),
+      onboardingIntervalMs: 0,
+      onboardingMaxAttempts: 4,
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        if (url === "https://oauth2.googleapis.com/token") {
+          return response({ access_token: "google-access", refresh_token: "google-refresh", expires_in: 3600 });
+        }
+        if (url.startsWith("https://www.googleapis.com/oauth2/v1/userinfo")) {
+          return response({ email: "user@example.test" });
+        }
+        if (url.endsWith("/v1internal:loadCodeAssist")) {
+          return response({ allowedTiers: [{ id: "free-tier", isDefault: true }] });
+        }
+        if (url.endsWith("/v1internal:onboardUser")) {
+          return response({ name: "operations/project-1", done: false });
+        }
+        if (url.endsWith("/v1internal/operations/project-1")) {
+          pollCount += 1;
+          return pollCount === 1
+            ? response({ name: "operations/project-1", done: false })
+            : response({ name: "operations/project-1", done: true, response: { cloudaicompanionProject: { id: "project-1" } } });
+        }
+        throw new Error(`unexpected OAuth URL: ${url}`);
+      },
+    });
+
+    await expect(driver.exchange({
+      providerId: "antigravity",
+      code: "authorization-code",
+      redirectUri: "http://localhost:51121/oauth-callback",
+      codeVerifier: "code-verifier",
+    })).resolves.toMatchObject({
+      accessToken: "google-access",
+      refreshToken: "google-refresh",
+      providerAccountId: "project-1",
+      email: "user@example.test",
+    });
+    expect(calls.filter((call) => call.includes("/v1internal:onboardUser"))).toHaveLength(1);
+    expect(calls.filter((call) => call.includes("/v1internal/operations/project-1"))).toHaveLength(2);
+  });
+  test("reloads Antigravity project metadata after a completed empty onboarding response", async () => {
+    let loadCount = 0;
+    const driver = new AntigravityOAuthDriver({
+      onboardingIntervalMs: 0,
+      fetch: async (input) => {
+        const url = String(input);
+        if (url === "https://oauth2.googleapis.com/token") {
+          return response({ access_token: "google-access", refresh_token: "google-refresh", expires_in: 3600 });
+        }
+        if (url.startsWith("https://www.googleapis.com/oauth2/v1/userinfo")) {
+          return new Response(null, { status: 404 });
+        }
+        if (url.endsWith("/v1internal:loadCodeAssist")) {
+          loadCount += 1;
+          return loadCount === 1
+            ? response({ allowedTiers: [{ id: "free-tier", isDefault: true }] })
+            : response({ cloudaicompanionProject: "project-after-onboarding" });
+        }
+        if (url.endsWith("/v1internal:onboardUser")) return response({ done: true });
+        throw new Error(`unexpected OAuth URL: ${url}`);
+      },
+    });
+
+    await expect(driver.exchange({
+      providerId: "antigravity",
+      code: "authorization-code",
+      redirectUri: "http://localhost:51121/oauth-callback",
+    })).resolves.toMatchObject({ providerAccountId: "project-after-onboarding" });
+    expect(loadCount).toBe(2);
+  });
 
   test("refreshes Cline and ClinePass through their provider response shapes", async () => {
     const cline = new ClineOAuthDriver(withResponse({ success: true, data: { accessToken: "cline-access", refreshToken: "cline-refresh", expiresIn: 3600 } }));

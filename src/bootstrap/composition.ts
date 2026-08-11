@@ -10,7 +10,7 @@ import { createConfigPersistence, createRuntimePersistence, type ConfigPersisten
 import { ApiKeyAdmission } from "../traffic/admission";
 import { ProxyHealthManager, ProxyPool, type NetworkRoutingPolicy, NetworkSelector, type ProxyHealthRecord, type ProxyHealthStore } from "../traffic";
 import { runProxyRequest, type ProxyRequestDependencies } from "../application/request";
-import { accountCandidates, applicationKind, formatRequestLog, requestLogLevel, requestPrivacyMode, routeResolver, withRoutingRevisionTracking } from "./routing";
+import { accountCandidates, applicationKind, formatRequestLog, requestLogLevel, routeResolver, withRoutingRevisionTracking } from "./routing";
 import { createModelMetadataResolver } from "./registry";
 import { createAccountRecoverySweep, createOAuthRuntime, createQuotaAccountLabel, createQuotaRefreshWorker } from "./workers";
 import { createRuntimeLifecycle } from "./lifecycle";
@@ -79,10 +79,19 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
     return policy;
   };
   const network = new NetworkSelector(pool, proxyHealth, readNetworkPolicy);
-  const { accounts, authDrivers, credentialStore, oauth } = createOAuthRuntime({ config, logger });
+  const { accounts, authDrivers, credentialStore, oauth } = createOAuthRuntime({ config, logger, routingRevision: () => revision.value });
   const admission = new ApiKeyAdmission(config.apiKeys);
   let recordRouteSwitch: ((event: RouteSwitch) => Promise<void>) | undefined;
-  let cachedPrivacyMode: "masked" | "full" | undefined;
+  let cachedSettingsJson: Record<string, unknown> | undefined;
+  let cachedRuntimeSettings: ReturnType<typeof runtimeSettings> | undefined;
+  const readRuntimeSettings = (): ReturnType<typeof runtimeSettings> => {
+    const settings = config.settings.getSettingsJson();
+    if (cachedRuntimeSettings === undefined || cachedSettingsJson !== settings) {
+      cachedSettingsJson = settings;
+      cachedRuntimeSettings = runtimeSettings(config);
+    }
+    return cachedRuntimeSettings;
+  };
   const proxy: ProxyRequestDependencies = {
     providers: { get: (providerId: string) => registry.get(providerId) ?? undefined },
     accounts,
@@ -90,19 +99,26 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
     telemetry: runtime.telemetry,
     onRequestLog: REQUEST_LOGGING_ENABLED
       ? (event) => {
-          const privacyMode = cachedPrivacyMode ??= requestPrivacyMode(config);
+          if (event.event === "incoming") return;
+          const privacyMode = readRuntimeSettings().privacyMode;
           logger.request(requestLogLevel(event), formatRequestLog(event, privacyMode));
         }
       : undefined,
+    createPayloadCapture: (requestId) => {
+      if (readRuntimeSettings().trackPayloads === "none") return null;
+      return {
+        save: (id, kind, artifact) => runtime.payloads.save(id, kind, artifact),
+      };
+    },
     resolveRoutes: routeResolver(registry, routeSnapshots, accountHealth, quota),
     accountCandidates: (providerId) => accountCandidates(routeSnapshots, accountHealth, quota, providerId),
     admission,
     tokenSaver: () => {
-      const { tokenSaverEnabled, tokenSaverQuality } = runtimeSettings(config);
+      const { tokenSaverEnabled, tokenSaverQuality } = readRuntimeSettings();
       return { enabled: tokenSaverEnabled, quality: tokenSaverQuality };
     },
     headroom: (request) => {
-      const settings = runtimeSettings(config);
+      const settings = readRuntimeSettings();
       return compressWithHeadroom(request, {
         enabled: settings.headroomEnabled,
         url: settings.headroomUrl,
@@ -115,7 +131,7 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
       let cachedRevision = -1;
       return () => {
         if (cached === undefined || cachedRevision !== revision.value) {
-          const { filterRulesEnabled } = runtimeSettings(config);
+          const { filterRulesEnabled } = readRuntimeSettings();
           const rows = config.filterRules.listSync();
           cached = { enabled: filterRulesEnabled, rules: rows.filter((rule) => rule.isActive).map((rule) => ({ pattern: rule.pattern, replacement: rule.replacement, isRegex: rule.isRegex })) };
           cachedRevision = revision.value;

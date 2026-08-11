@@ -172,6 +172,14 @@ export class OAuthHttpClient {
   ): Promise<Record<string, unknown>> {
     return this.send(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) }, provider, operation);
   }
+  async getJson(
+    url: string,
+    provider: string,
+    operation: string,
+    headers: Record<string, string> = {},
+  ): Promise<Record<string, unknown>> {
+    return this.send(url, { method: "GET", headers }, provider, operation);
+  }
   /** POST form and preserve a bounded JSON error body for device-flow polling. */
   async postFormResult(
     url: string,

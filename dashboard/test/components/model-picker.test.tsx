@@ -128,13 +128,11 @@ describe("ModelPickerField — configured provider visibility", () => {
     const responses: Record<string, unknown> = {
       "/console/api/providers": {
         items: [
-          { id: "openai", name: "OpenAI", icon: "openai", prefix: "openai", credentialKind: "api_key", configured: false },
-          { id: "opencodeft", name: "OpenCode Free", icon: "opencode", prefix: "opencodeft", credentialKind: "none", configured: false },
+          { id: "openai", name: "OpenAI", icon: "openai", prefix: "openai", credentialKind: "api_key", configured: false, models: [{ id: "gpt-5", enabled: true }] },
+          { id: "opencodeft", name: "OpenCode Free", icon: "opencode", prefix: "opencodeft", credentialKind: "none", configured: false, models: [{ id: "free-model", enabled: true }] },
         ],
       },
       "/console/api/custom-providers": { items: [] },
-      "/console/api/providers/openai": { prefix: "openai", models: [{ id: "gpt-5", enabled: true }] },
-      "/console/api/providers/opencodeft": { prefix: "opencodeft", models: [{ id: "free-model", enabled: true }] },
     };
     const fetchSpy = mockJsonFetch(responses);
     render(withQueryClient(<ModelPickerField label="Models" values={[]} onChange={vi.fn()} mode="models" />));
@@ -148,14 +146,17 @@ describe("ModelPickerField — configured provider visibility", () => {
   test("normalizes the live provider catalog modelId payload", async () => {
     const responses: Record<string, unknown> = {
       "/console/api/providers": {
-        items: [{ id: "kimchi", name: "Kimchi", credentialKind: "oauth", configured: true, accountCount: 1, modelCount: 1 }],
+        items: [{
+          id: "kimchi",
+          name: "Kimchi",
+          credentialKind: "oauth",
+          configured: true,
+          accountCount: 1,
+          modelCount: 1,
+          models: [{ providerId: "kimchi", modelId: "kimi-k2.7", enabled: true }],
+        }],
       },
       "/console/api/custom-providers": { items: [] },
-      "/console/api/providers/kimchi": {
-        id: "kimchi",
-        name: "Kimchi",
-        models: [{ providerId: "kimchi", modelId: "kimi-k2.7", enabled: true }],
-      },
     };
     const fetchSpy = mockJsonFetch(responses);
     try {
@@ -229,10 +230,17 @@ describe("ConfiguredModelPicker lifecycle", () => {
   test("does not emit changing dependency-array warnings as the catalog loads", async () => {
     const responses: Record<string, unknown> = {
       "/console/api/providers": {
-        items: [{ id: "opencodeft", name: "OpenCode Free", icon: "opencode", prefix: "opencodeft", credentialKind: "none", configured: false }],
+        items: [{
+          id: "opencodeft",
+          name: "OpenCode Free",
+          icon: "opencode",
+          prefix: "opencodeft",
+          credentialKind: "none",
+          configured: false,
+          models: [{ id: "free-model", enabled: true }],
+        }],
       },
       "/console/api/custom-providers": { items: [] },
-      "/console/api/providers/opencodeft": { prefix: "opencodeft", models: [{ id: "free-model", enabled: true }] },
     };
     const fetchSpy = mockJsonFetch(responses);
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -244,6 +252,38 @@ describe("ConfiguredModelPicker lifecycle", () => {
       expect(errors).not.toContain("The final argument passed to useMemo changed size");
     } finally {
       errorSpy.mockRestore();
+      fetchSpy.mockRestore();
+    }
+  });
+  test("filters image capability models from the aggregated provider catalog", async () => {
+    const responses: Record<string, unknown> = {
+      "/console/api/providers": {
+        items: [{
+          id: "media-provider",
+          name: "Media Provider",
+          icon: "media-provider",
+          prefix: "media",
+          credentialKind: "api_key",
+          configured: true,
+          models: [
+            { id: "image-model", enabled: true, capabilities: { chat: false, media: true, imageGeneration: true, videoGeneration: false } },
+            { id: "video-model", enabled: true, capabilities: { chat: false, media: true, imageGeneration: false, videoGeneration: true } },
+            { id: "chat-model", enabled: true, capabilities: { chat: true, media: false, imageGeneration: false, videoGeneration: false } },
+          ],
+        }],
+      },
+      "/console/api/custom-providers": { items: [] },
+    };
+    const fetchSpy = mockJsonFetch(responses);
+    try {
+      render(withQueryClient(<ConfiguredModelPicker value="" onChange={vi.fn()} capability="image" />));
+      fireEvent.click(screen.getByRole("button", { name: "Select configured model…" }));
+      expect(await screen.findByText("image-model")).toBeInTheDocument();
+      expect(screen.queryByText("video-model")).not.toBeInTheDocument();
+      expect(screen.queryByText("chat-model")).not.toBeInTheDocument();
+      const providerDetailCalls = fetchSpy.mock.calls.filter(([input]) => String(input).includes("/console/api/providers/"));
+      expect(providerDetailCalls).toHaveLength(0);
+    } finally {
       fetchSpy.mockRestore();
     }
   });

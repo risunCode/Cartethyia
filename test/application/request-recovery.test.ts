@@ -36,7 +36,7 @@ const authFailure: ProviderCallError = {
 };
 
 const metadata: ProviderMeta = { id: "codex", displayName: "Codex", protocol: "openai", credentialKind: "oauth" };
-const capabilities: ProviderCaps = { surfaces: ["openai-chat"], streaming: false, reasoning: false, toolCalls: false, images: false, explicitCache: false, promptCacheKey: false };
+const capabilities: ProviderCaps = { surfaces: ["openai-chat"], streaming: false, reasoning: false, toolCalls: false, images: false, mediaGeneration: [], explicitCache: false, promptCacheKey: false };
 const models: ProviderModelCatalog = { list: [], get: () => null };
 
 function routeCandidate(id: string, modelId: string): RouteCandidate {

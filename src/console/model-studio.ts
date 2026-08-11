@@ -20,12 +20,26 @@ export interface StudioMessage {
   readonly images?: string[];
 }
 
+export type StudioMediaType = "image" | "video";
+
+export interface StudioMediaResult {
+  readonly id: string;
+  readonly type: StudioMediaType;
+  readonly model: string;
+  readonly prompt: string;
+  readonly urls: readonly string[];
+  readonly aspectRatio: string;
+  readonly count: number;
+  readonly createdAt: string;
+}
+
 export interface StudioSession {
   readonly id: string;
   readonly title: string;
   readonly model: string;
   readonly systemPrompt: string;
   readonly messages: readonly StudioMessage[];
+  readonly media: readonly StudioMediaResult[];
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -44,6 +58,8 @@ const sessionBytes = new Map<string, number>();
 let totalSessionBytes = 0;
 const encoder = new TextEncoder();
 const MAX_STUDIO_MESSAGES = 200;
+const MAX_STUDIO_MEDIA_RESULTS = 24;
+const MAX_STUDIO_MEDIA_URLS = 4;
 const MAX_TITLE_CHARS = 200;
 const MAX_MODEL_CHARS = 200;
 const MAX_SYSTEM_PROMPT_CHARS = 32_000;
@@ -51,6 +67,8 @@ const MAX_MESSAGE_CONTENT_CHARS = 128_000;
 const MAX_MESSAGE_REASONING_CHARS = 128_000;
 const MAX_MESSAGE_IMAGES = 4;
 const MAX_MESSAGE_IMAGE_CHARS = 256_000;
+const MAX_MEDIA_PROMPT_CHARS = 16_000;
+const MAX_MEDIA_URL_CHARS = 512_000;
 
 function now(): string {
   return new Date().toISOString();
@@ -89,6 +107,42 @@ export function normalizeStudioMessages(value: unknown): StudioMessage[] | null 
   return value.slice(-MAX_STUDIO_MESSAGES).map(boundStudioMessage);
 }
 
+function isStudioMediaResult(value: unknown): value is StudioMediaResult {
+  if (typeof value !== "object" || value === null) return false;
+  const result = value as Record<string, unknown>;
+  return typeof result.id === "string"
+    && (result.type === "image" || result.type === "video")
+    && typeof result.model === "string"
+    && typeof result.prompt === "string"
+    && Array.isArray(result.urls)
+    && result.urls.every((url) => typeof url === "string")
+    && typeof result.aspectRatio === "string"
+    && typeof result.count === "number"
+    && Number.isInteger(result.count)
+    && result.count >= 1
+    && result.count <= 4
+    && typeof result.createdAt === "string";
+}
+
+function boundStudioMediaResult(result: StudioMediaResult): StudioMediaResult {
+  return {
+    id: boundedText(result.id, 64),
+    type: result.type,
+    model: boundedText(result.model, MAX_MODEL_CHARS),
+    prompt: boundedText(result.prompt, MAX_MEDIA_PROMPT_CHARS),
+    urls: result.urls.filter((url) => url.length <= MAX_MEDIA_URL_CHARS).slice(-MAX_STUDIO_MEDIA_URLS),
+    aspectRatio: boundedText(result.aspectRatio, 16),
+    count: Math.min(4, Math.max(1, Math.trunc(result.count))),
+    createdAt: boundedText(result.createdAt, 64),
+  };
+}
+
+/** Normalizes bounded media gallery metadata and rejects malformed entries. */
+export function normalizeStudioMedia(value: unknown): StudioMediaResult[] | null {
+  if (!Array.isArray(value) || !value.every(isStudioMediaResult)) return null;
+  return value.slice(-MAX_STUDIO_MEDIA_RESULTS).map(boundStudioMediaResult);
+}
+
 function measureSession(session: StudioSession): number {
   let bytes = utf8Bytes(session.id) + utf8Bytes(session.title) + utf8Bytes(session.model) + utf8Bytes(session.systemPrompt) + utf8Bytes(session.createdAt) + utf8Bytes(session.updatedAt);
   for (const message of session.messages) {
@@ -96,9 +150,12 @@ function measureSession(session: StudioSession): number {
     if (message.reasoning !== undefined) bytes += utf8Bytes(message.reasoning);
     for (const image of message.images ?? []) bytes += utf8Bytes(image);
   }
+  for (const result of session.media) {
+    bytes += utf8Bytes(result.id) + utf8Bytes(result.type) + utf8Bytes(result.model) + utf8Bytes(result.prompt) + utf8Bytes(result.aspectRatio) + utf8Bytes(result.createdAt);
+    for (const url of result.urls) bytes += utf8Bytes(url);
+  }
   return bytes;
 }
-
 function removeSession(id: string): void {
   const bytes = sessionBytes.get(id) ?? 0;
   sessions.delete(id);
@@ -163,6 +220,7 @@ export function createStudioSession(input: { title?: string; model?: string; sys
     model: boundedText(input.model?.trim() || "", MAX_MODEL_CHARS),
     systemPrompt: boundedText(input.systemPrompt ?? "", MAX_SYSTEM_PROMPT_CHARS),
     messages: [],
+    media: [],
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -170,8 +228,8 @@ export function createStudioSession(input: { title?: string; model?: string; sys
   return session;
 }
 
-/** Updates session metadata and bounded message metadata from the Dashboard. */
-export function patchStudioSession(id: string, input: { title?: string; model?: string; systemPrompt?: string; messages?: StudioMessage[] }): StudioSession | null {
+/** Updates session metadata and bounded message/media metadata from the Dashboard. */
+export function patchStudioSession(id: string, input: { title?: string; model?: string; systemPrompt?: string; messages?: StudioMessage[]; media?: StudioMediaResult[] }): StudioSession | null {
   evictExpired();
   const existing = sessions.get(id);
   if (existing === undefined) return null;
@@ -181,6 +239,7 @@ export function patchStudioSession(id: string, input: { title?: string; model?: 
     model: boundedText(input.model?.trim() ?? existing.model, MAX_MODEL_CHARS),
     systemPrompt: boundedText(input.systemPrompt ?? existing.systemPrompt, MAX_SYSTEM_PROMPT_CHARS),
     messages: input.messages === undefined ? existing.messages : input.messages.slice(-MAX_STUDIO_MESSAGES).map(boundStudioMessage),
+    media: input.media === undefined ? existing.media : input.media.slice(-MAX_STUDIO_MEDIA_RESULTS).map(boundStudioMediaResult),
     updatedAt: now(),
   };
   if (!storeSession(updated)) return existing;

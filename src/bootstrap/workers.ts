@@ -7,6 +7,7 @@ import {
   createAuthDriverRegistry,
   createDriverAwareOAuthRefresher,
   createEnvOAuthRefresher,
+  createCachedCredentialConfigStore,
   CredentialSelector,
   type CredentialConfigStore,
   GrokBuildOAuthDriver,
@@ -25,10 +26,11 @@ import type { ProviderRegistry } from "../providers/registry";
 export interface OAuthRuntimeDependencies {
   readonly config: ConfigPersistence;
   readonly logger: ApplicationLogger;
+  readonly routingRevision?: () => number;
 }
 
 /** Builds the provider OAuth registry and the shared token refresh coordinator. */
-export function createOAuthRuntime({ config, logger }: OAuthRuntimeDependencies) {
+export function createOAuthRuntime({ config, logger, routingRevision }: OAuthRuntimeDependencies) {
   const authDrivers = createAuthDriverRegistry([
     { providerId: "kiro", driver: new KiroOAuthDriver() },
     { providerId: "antigravity", driver: new AntigravityOAuthDriver() },
@@ -39,6 +41,7 @@ export function createOAuthRuntime({ config, logger }: OAuthRuntimeDependencies)
     { providerId: "grok-build", driver: new GrokBuildOAuthDriver() },
   ]);
   const credentialStore = config.stores.credentialConfig;
+  const requestCredentialStore = createCachedCredentialConfigStore(credentialStore, { ttlMs: 250, readRevision: routingRevision });
   const resolveProvider = async (accountId: string): Promise<string | null> => config.accounts.get(accountId)?.provider ?? (await credentialStore.getAccount(accountId))?.providerId ?? null;
   const oauthRefresher = createDriverAwareOAuthRefresher({
     drivers: authDrivers,
@@ -73,7 +76,7 @@ export function createOAuthRuntime({ config, logger }: OAuthRuntimeDependencies)
     onRefreshed: (accountId) => logger.system("info", "oauth-refresh", `OAuth token refreshed for account ${accountId}`),
     onFailed: (accountId, error) => logger.system("warn", "oauth-refresh", `OAuth refresh failed for account ${accountId}: ${error.kind}`),
   });
-  return { authDrivers, credentialStore, oauth, accounts: new CredentialSelector(credentialStore, oauth) };
+  return { authDrivers, credentialStore, oauth, accounts: new CredentialSelector(requestCredentialStore, oauth) };
 }
 
 

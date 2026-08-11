@@ -12,6 +12,29 @@ export interface FilterRuleConfig {
   readonly rules: readonly ResolvedFilterRule[];
 }
 
+type CompiledFilterRule =
+  | { readonly regex: RegExp; readonly replacement: string; readonly isRegex: true }
+  | { readonly pattern: string; readonly replacement: string; readonly isRegex: false };
+
+const compiledRuleCache = new WeakMap<FilterRuleConfig, readonly CompiledFilterRule[]>();
+
+function compileRules(config: FilterRuleConfig): readonly CompiledFilterRule[] {
+  const cached = compiledRuleCache.get(config);
+  if (cached !== undefined) return cached;
+  const compiled = config.rules.map((rule) => {
+    if (rule.isRegex) {
+      try {
+        return { regex: new RegExp(rule.pattern, "gi"), replacement: rule.replacement, isRegex: true as const };
+      } catch {
+        return null;
+      }
+    }
+    return { pattern: rule.pattern, replacement: rule.replacement, isRegex: false as const };
+  }).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  compiledRuleCache.set(config, compiled);
+  return compiled;
+}
+
 /**
  * Pre-request content sanitizer. Applies pattern → replacement rules to all
  * text fields in the normalized request: message content blocks, reasoning
@@ -34,17 +57,7 @@ export function applyFilterRules(request: ProxyRequest, config: FilterRuleConfig
   ) || request.tools.some((tool) => tool.description !== null && tool.description.length > 0);
   if (!hasText) return request;
 
-  const compiled = config.rules.map((rule) => {
-    if (rule.isRegex) {
-      try {
-        return { regex: new RegExp(rule.pattern, "gi"), replacement: rule.replacement, isRegex: true as const };
-      } catch {
-        // Skip invalid regex patterns silently — don't break the request
-        return null;
-      }
-    }
-    return { pattern: rule.pattern, replacement: rule.replacement, isRegex: false as const };
-  }).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  const compiled = compileRules(config);
 
   if (compiled.length === 0) return request;
 

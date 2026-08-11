@@ -19,6 +19,7 @@ export function capabilitiesOf(seed: CapabilitySeed): ProviderCaps {
     reasoning: seed.reasoning ?? false,
     toolCalls: seed.toolCalls ?? true,
     images: seed.images ?? false,
+    mediaGeneration: [...(seed.mediaGeneration ?? (seed.surfaces.includes("images") ? ["image"] : []))],
     explicitCache: seed.explicitCache ?? false,
     promptCacheKey: seed.promptCacheKey ?? false,
     search: seed.search ?? false,
@@ -55,12 +56,13 @@ export function modelOf(id: string, displayName: string, capabilities: ProviderC
 
 /** Aggregates model capabilities, preserving fallback semantics for empty catalogs. */
 export function aggregateCapabilities(models: readonly ProviderModel[], fallback: ProviderCaps): ProviderCaps {
-  if (models.length === 0) return { ...fallback, surfaces: [...fallback.surfaces] };
+  if (models.length === 0) return { ...fallback, surfaces: [...fallback.surfaces], mediaGeneration: [...fallback.mediaGeneration] };
   const surfaces: Surface[] = [];
   let streaming = false;
   let reasoning = false;
   let toolCalls = false;
   let images = false;
+  const mediaGeneration = new Set<ProviderCaps["mediaGeneration"][number]>();
   let explicitCache = false;
   let promptCacheKey = false;
   let search = false;
@@ -69,6 +71,7 @@ export function aggregateCapabilities(models: readonly ProviderModel[], fallback
     for (const surface of caps.surfaces) {
       if (!surfaces.includes(surface)) surfaces.push(surface);
     }
+    for (const kind of caps.mediaGeneration) mediaGeneration.add(kind);
     streaming ||= caps.streaming;
     reasoning ||= caps.reasoning;
     toolCalls ||= caps.toolCalls;
@@ -77,5 +80,5 @@ export function aggregateCapabilities(models: readonly ProviderModel[], fallback
     promptCacheKey ||= caps.promptCacheKey;
     search ||= caps.search === true;
   }
-  return { surfaces, streaming, reasoning, toolCalls, images, explicitCache, promptCacheKey, search };
+  return { surfaces, streaming, reasoning, toolCalls, images, mediaGeneration: [...mediaGeneration], explicitCache, promptCacheKey, search };
 }
