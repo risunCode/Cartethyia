@@ -1,6 +1,6 @@
 import { createCleanupStack, sanitizeMessage, deriveErrorSource, type ApplicationErrorKind, type ProviderCallError } from "../contracts";
 import type { PresentedProxyResponse } from "../contracts";
-import type { Adapter, ProviderOutput, Surface, ProviderUsage, RequestRoutingMetadata, RouteTarget, StreamEvent } from "../contracts";
+import type { Adapter, ProviderOutput, Surface, ProviderUsage, RequestRoutingMetadata, RouteTarget, StreamEvent, WebSearchFallback } from "../contracts";
 import type { AccountCandidate, AffinityKey, RouteCandidate, RouteSwitch } from "../contracts";
 import type { ProxyRequest, RunProxyRequestInput } from "../contracts";
 import { detectClient } from "../contracts";
@@ -28,6 +28,9 @@ export interface ProxyRoutePlan {
   readonly candidates: readonly RouteCandidate[];
   readonly requestedModel?: string;
   readonly unsupportedReason?: string;
+  readonly webSearch?: boolean;
+  readonly webSearchPassthrough?: boolean;
+  readonly maxAttempts?: number;
 }
 
 export interface RouteAttemptSelection {
@@ -150,6 +153,8 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
   let normalizedRequest: ProxyRequest | undefined;
   let resolvedPlan: ProxyRoutePlan | undefined;
   const routeAttemptState = createRouteAttemptState();
+
+  const webSearchFallbacks: WebSearchFallback[] = [];
   let streamHandedOff = false;
   const routeMetadata = (errorMessage: string | null = null): RequestRoutingMetadata => {
     const request = normalizedRequest;
@@ -177,6 +182,10 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
       upstreamModel,
       wireSurface,
       errorMessage,
+      ...(candidate?.searchRoute === undefined
+        ? {}
+        : { webSearchRoute: candidate.searchRoute, webSearchPassthrough: candidate.searchRoute === "passthrough" }),
+      ...(webSearchFallbacks.length === 0 ? {} : { webSearchFallbacks: [...webSearchFallbacks] }),
     };
   };
   const settleAdmission = (usage: AdmissionUsage | null): void => {
@@ -249,7 +258,13 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
 
     const output = await recoverCall({
       attempt,
-      maxAttempts: Math.min(Math.max(dependencies.maxAttempts ?? 2, 1), 6),
+      maxAttempts: Math.min(
+        Math.max(
+          resolvedPlan.webSearch === true ? resolvedPlan.maxAttempts ?? 2 : dependencies.maxAttempts ?? 2,
+          1,
+        ),
+        6,
+      ),
       signal: input.request.signal,
       cleanup,
       mapError: normalizeError,
@@ -280,9 +295,12 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
           }
           return;
         }
+        const replacementId = resolvedPlan === undefined ? null : getNextCandidateId(routeAttemptState, resolvedPlan);
+        const replacement = replacementId === null ? null : candidates.find((item) => item.id === replacementId) ?? null;
+        if (candidate !== null && resolvedPlan?.webSearch === true && replacement?.id !== candidate.id) {
+          webSearchFallbacks.push({ previousRouteId: candidate.id, replacementRouteId: replacement?.id ?? null, reason: error.kind });
+        }
         if (candidate !== null && (error.routeScope === "account" || error.routeScope === "proxy")) {
-          const replacementId = resolvedPlan === undefined ? null : getNextCandidateId(routeAttemptState, resolvedPlan);
-          const replacement = replacementId === null ? null : candidates.find((item) => item.id === replacementId) ?? null;
           await dependencies.onRouteSwitch?.({ scope: error.routeScope, previousRouteId: candidate.id, replacementRouteId: replacement?.id ?? null, reason: error.kind, occurredAt: new Date().toISOString() });
         }
       },
@@ -293,6 +311,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
           return true;
         }
         if (authFailure && resolvedPlan !== undefined && hasNextCandidate(routeAttemptState, resolvedPlan)) return true;
+        if (resolvedPlan?.webSearch === true && error.kind === "capability_unsupported" && hasNextCandidate(routeAttemptState, resolvedPlan)) return true;
         return error.retryable && !input.request.signal.aborted;
       },
     });

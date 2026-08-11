@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
 import { type ConsoleServices } from "../services/composition";
-import { COUNTRIES } from "../services/proxy-scraper";
+import { SCRAPE_SOURCE_CATALOG, COUNTRIES } from "../services/proxy-scraper";
 import { badRequest, notFound, ok } from "./route-helpers";
 
 export interface ProxyRouteDependencies {
@@ -23,7 +23,10 @@ export function registerProxyRoutes<T extends Elysia<any, any, any, any, any, an
       return result;
     })
     .route("QUERY", "/proxies/scrape/countries", () => ({ countries: COUNTRIES }))
+    .route("QUERY", "/proxies/scrape/catalog", () => ({ sources: SCRAPE_SOURCE_CATALOG.map(({ id, label, protocols, countryAware }) => ({ id, label, protocols, countryAware })) }))
+    .route("QUERY", "/web-search-routing", async () => services.webSearchRouting.get())
     .post("/proxies/search", async ({ body, request }) => services.proxies.search(body, request.signal))
+    .post("/proxies/import", async ({ body }) => services.proxies.importCandidates(body))
     .post("/proxies/scrape", async ({ body }) => services.proxies.scrape(body))
     .patch("/proxies/:id", async ({ params, body, set }) => {
       const record = await services.proxies.update(params.id, body);

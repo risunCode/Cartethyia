@@ -275,6 +275,7 @@ CREATE TABLE IF NOT EXISTS proxy_settings (
   smart_dynamic_proxy_count INTEGER NOT NULL DEFAULT 2,
   routing_preset TEXT NOT NULL DEFAULT 'auto',
   target_concurrent INTEGER NOT NULL DEFAULT 0,
+  web_search_preference TEXT NOT NULL DEFAULT 'auto',
   updated_at TEXT NOT NULL
 );
 

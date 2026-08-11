@@ -16,6 +16,12 @@ export function registerAccountRoutes<T extends Elysia<any, any, any, any, any, 
       const cursor = typeof query.cursor === "string" && query.cursor.length > 0 ? query.cursor : undefined;
       return await services.accounts.listPaged(providerId, { limit, cursor });
     })
+    .post("/providers/:id/accounts/batch", async ({ params, body, set }) => {
+      const providerId = await resolveProviderId(services, params.id);
+      const result = await services.accounts.createBatch(providerId, body);
+      if (!("created" in result)) return badRequest(set, result.message);
+      return result;
+    })
     .post("/providers/:id/accounts", async ({ params, body, set }) => {
       const providerId = await resolveProviderId(services, params.id);
       const value = typeof body === "object" && body !== null ? { ...(body as Record<string, unknown>), providerId } : { providerId };

@@ -76,9 +76,16 @@ export const qk = {
   proxies: {
     all: ["console", "proxies"] as const,
     search: ["console", "proxies", "search"] as const,
+    scrapeCatalog: ["console", "proxies", "scrape-catalog"] as const,
+    scrapeCountries: ["console", "proxies", "scrape-countries"] as const,
   },
   proxySettings: {
     all: ["console", "proxy-settings"] as const,
+  },
+
+  /** `/console/api/web-search-routing` computed policy and availability. */
+  webSearchRouting: {
+    all: ["console", "web-search-routing"] as const,
   },
 
   /** `/console/api/providers` routing view (summary list for routing UI). */

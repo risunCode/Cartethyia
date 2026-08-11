@@ -5,6 +5,8 @@ export type CredentialKind = "api_key" | "oauth" | "manual" | "none";
 
 /** Network routing preset shared by proxy settings and the network selector. */
 export type RoutingPreset = "auto" | "target-user" | "target-concurrent";
+export type WebSearchPreference = "auto" | "prefer-codex" | "prefer-exa";
+export type WebSearchRouteKind = "native" | "codex" | "antigravity" | "exa" | "passthrough";
 
 /** Usage aggregation dimension for telemetry queries. */
 export type UsageDimension = "model" | "provider" | "key";
@@ -189,6 +191,7 @@ export interface RouteCandidate {
   readonly enabled: boolean;
   readonly authorized: boolean;
   readonly compatible: boolean;
+  readonly searchRoute?: WebSearchRouteKind;
 }
 
 
@@ -525,6 +528,12 @@ export interface RequestTelemetry {
   readonly switches: readonly RouteSwitch[];
 }
 
+export interface WebSearchFallback {
+  readonly previousRouteId: string;
+  readonly replacementRouteId: string | null;
+  readonly reason: string;
+}
+
 /** Compact route metadata persisted for console diagnostics. */
 export interface RequestRoutingMetadata {
   readonly requestedModel: string | null;
@@ -532,6 +541,12 @@ export interface RequestRoutingMetadata {
   readonly upstreamModel: string | null;
   readonly wireSurface: string | null;
   readonly errorMessage: string | null;
+  /** Search route selected for the request, when web-search routing was active. */
+  readonly webSearchRoute?: WebSearchRouteKind;
+  /** True when the original route handled a web-search request without a search provider. */
+  readonly webSearchPassthrough?: boolean;
+  /** Provider fallback attempts kept internal to the client response. */
+  readonly webSearchFallbacks?: readonly WebSearchFallback[];
 }
 
 export interface RequestTelemetryHandle {

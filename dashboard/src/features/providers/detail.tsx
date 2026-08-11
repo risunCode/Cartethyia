@@ -12,6 +12,7 @@ import { apiGet, apiPost, apiPatch, apiDelete } from "../../lib/api";
 import { qk } from "../../lib/query-keys";
 import { cn } from "../../lib/cn";
 import { extractCredentialFromPaste } from "../../lib/credentialExtract";
+import { createAccountsInBatches, type AccountBatchItem } from "../../lib/account-batch";
 import { formatDuration, formatTokens } from "../../lib/format";
 import {
   formatAccountHealthAccessibleStatus,
@@ -613,32 +614,28 @@ function AccountModal({
         : credential.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
 
   const mutation = useMutation({
-    mutationFn: async (): Promise<number> => {
+    mutationFn: async (): Promise<{ readonly created: number; readonly skipped: number }> => {
       if (existing) {
         const patch: Record<string, unknown> = { name: name.trim(), credentialKind: selectedKind };
         if (credential) patch.credential = selectedKind === "oauth" ? credential.trim() : extractCredentialFromPaste(credential).value;
         await apiPost<{ ok?: boolean }>(`/providers/${providerId}/accounts/${existing.id}`, patch);
-        return 1;
+        return { created: 1, skipped: 0 };
       }
 
       const existingNames = new Set(accounts.map((account) => account.name));
-      const names = credentials.map((_, index) => {
-        if (credentials.length === 1) return name.trim();
+      const items: AccountBatchItem[] = credentials.map((value, index) => {
+        if (credentials.length === 1) return { name: name.trim(), credentialKind: selectedKind, credential: value };
         let number = index + 1;
         let candidate = `${providerId}-${number}`;
         while (existingNames.has(candidate)) candidate = `${providerId}-${++number}`;
         existingNames.add(candidate);
-        return candidate;
+        return { name: candidate, credentialKind: selectedKind, credential: value };
       });
-      await Promise.all(credentials.map((value, index) => apiPost<{ id?: string }>(`/providers/${providerId}/accounts`, {
-        name: names[index],
-        credentialKind: selectedKind,
-        credential: value,
-      })));
-      return credentials.length;
+      return createAccountsInBatches(providerId, items);
     },
-    onSuccess: (created) => {
-      toast.success(existing ? "Account updated" : `${created} connection${created === 1 ? "" : "s"} added`);
+    onSuccess: ({ created, skipped }) => {
+      const suffix = skipped > 0 ? `, ${skipped} skipped` : "";
+      toast.success(existing ? "Account updated" : `${created} connection${created === 1 ? "" : "s"} added${suffix}`);
       void queryClient.invalidateQueries({ queryKey: qk.provider.detail(providerId) });
       void queryClient.invalidateQueries({ queryKey: qk.catalog.providers });
       onClose();

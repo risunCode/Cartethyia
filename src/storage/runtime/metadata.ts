@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { RequestRoutingMetadata, UsageDimension, UsagePeriod } from "../../application/contracts";
+import { isWebSearchRouteKind } from "../../application/web-search-routing";
 import { mapClientName, mapClientSource, orZero, periodStartUtc, utcDayBounds, utcMonthBounds, type ChartBucket, type IpSummaryRow, type ModelTokenTotalsRow, type ProviderModelTotalsRow, type ProviderTodayRow, type RuntimeMetadataRepository, type RuntimeRequestFilters, type RuntimeRequestPage, type RuntimeRequestRow, type UsageByRow, type UsageCacheRow, type UsageCacheSummary, type UsageSummary } from "./runtime";
 
 interface RequestHistoryRow {
@@ -44,12 +45,23 @@ function parseRoutingMetadata(value: string | null): RequestRoutingMetadata {
     const parsed: unknown = JSON.parse(value);
     if (typeof parsed !== "object" || parsed === null) throw new Error("metadata is not an object");
     const record = parsed as Record<string, unknown>;
+    const webSearchRoute = isWebSearchRouteKind(record.webSearchRoute) ? record.webSearchRoute : undefined;
+    const webSearchFallbacks = Array.isArray(record.webSearchFallbacks)
+      ? record.webSearchFallbacks.slice(0, 32).flatMap((entry): Array<{ readonly previousRouteId: string; readonly replacementRouteId: string | null; readonly reason: string }> => {
+          if (typeof entry !== "object" || entry === null) return [];
+          const value = entry as Record<string, unknown>;
+          if (typeof value.previousRouteId !== "string" || typeof value.reason !== "string") return [];
+          return [{ previousRouteId: value.previousRouteId, replacementRouteId: typeof value.replacementRouteId === "string" ? value.replacementRouteId : null, reason: value.reason }];
+        })
+      : [];
     return {
       requestedModel: typeof record.requestedModel === "string" ? record.requestedModel : null,
       mappedModel: typeof record.mappedModel === "string" ? record.mappedModel : null,
       upstreamModel: typeof record.upstreamModel === "string" ? record.upstreamModel : null,
       wireSurface: typeof record.wireSurface === "string" ? record.wireSurface : null,
       errorMessage: typeof record.errorMessage === "string" ? record.errorMessage : null,
+      ...(webSearchRoute === undefined ? {} : { webSearchRoute, webSearchPassthrough: record.webSearchPassthrough === true || webSearchRoute === "passthrough" }),
+      ...(webSearchFallbacks.length === 0 ? {} : { webSearchFallbacks }),
     };
   } catch {
     return { requestedModel: null, mappedModel: null, upstreamModel: null, wireSurface: null, errorMessage: null };

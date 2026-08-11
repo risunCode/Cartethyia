@@ -193,7 +193,7 @@ const claudeClient = { name: "claude_code", source: "unknown" } as const;
 const affinity = { namespace: "trusted_identity", value: "routing-test" } as const;
 
 describe("web-search route capability policy", () => {
-  test("does not substitute an unsupported mapped route with Codex", async () => {
+  test("keeps an unsupported mapped route as a non-blocking passthrough", async () => {
     const registry = new ProviderRegistry();
     registry.register(makeAdapter("kimchi", "openai", "deepseek-v4-flash", capabilitiesOf({ surfaces: ["openai-chat"] })));
     const snapshot = routeSnapshot(new Map([["kimchi", "kimchi"]]));
@@ -201,11 +201,13 @@ describe("web-search route capability policy", () => {
 
     const plan = await resolve(searchRequest("kimchi/deepseek-v4-flash"), affinity, claudeClient);
 
-    expect(plan.candidates).toEqual([]);
-    expect(plan.unsupportedReason).toBe("The selected upstream does not support native web search. Configure Exa or select an upstream with native web search support.");
+    expect(plan.candidates.map((candidate) => candidate.id)).toEqual(["kimchi/deepseek-v4-flash"]);
+    expect(plan.candidates[0]?.searchRoute).toBe("passthrough");
+    expect(plan.webSearchPassthrough).toBe(true);
+    expect(plan.unsupportedReason).toBeUndefined();
   });
 
-  test("uses Exa only when it is configured", async () => {
+  test("uses Exa before the original route when it is configured", async () => {
     const registry = new ProviderRegistry();
     registry.register(makeAdapter("kimchi", "openai", "deepseek-v4-flash", capabilitiesOf({ surfaces: ["openai-chat"] })));
     registry.register(makeAdapter("exa", "exa", "exa-search", capabilitiesOf({ surfaces: ["web-search"], search: true })));
@@ -217,11 +219,12 @@ describe("web-search route capability policy", () => {
 
     const plan = await resolve(searchRequest("kimchi/deepseek-v4-flash"), affinity, claudeClient);
 
-    expect(plan.candidates.map((candidate) => candidate.id)).toEqual(["exa/exa-search"]);
-    expect(plan.unsupportedReason).toBeUndefined();
+    expect(plan.candidates.map((candidate) => candidate.id)).toEqual(["exa/exa-search", "kimchi/deepseek-v4-flash"]);
+    expect(plan.candidates[0]?.searchRoute).toBe("exa");
+    expect(plan.candidates[1]?.searchRoute).toBe("passthrough");
   });
 
-  test("keeps the mapped native-search route ahead of Exa", async () => {
+  test("keeps the mapped native-search route ahead of fallback providers", async () => {
     const registry = new ProviderRegistry();
     registry.register(makeAdapter("codex", "openai", "gpt-5.5", capabilitiesOf({ surfaces: ["openai-responses"], search: true })));
     registry.register(makeAdapter("exa", "exa", "exa-search", capabilitiesOf({ surfaces: ["web-search"], search: true })));
@@ -233,6 +236,26 @@ describe("web-search route capability policy", () => {
 
     const plan = await resolve(searchRequest("codex/gpt-5.5"), affinity, claudeClient);
 
-    expect(plan.candidates.map((candidate) => candidate.id)).toEqual(["codex/gpt-5.5"]);
+    expect(plan.candidates.map((candidate) => candidate.id)).toEqual(["codex/gpt-5.5", "exa/exa-search"]);
+    expect(plan.candidates[0]?.searchRoute).toBe("native");
+  });
+
+  test("applies Prefer Exa ordering across fallback providers", async () => {
+    const registry = new ProviderRegistry();
+    registry.register(makeAdapter("kimchi", "openai", "deepseek-v4-flash", capabilitiesOf({ surfaces: ["openai-chat"] })));
+    registry.register(makeAdapter("codex", "openai", "gpt-5.5", capabilitiesOf({ surfaces: ["openai-responses"], search: true })));
+    registry.register(makeAdapter("antigravity", "gemini", "gemini-3-flash", capabilitiesOf({ surfaces: ["openai-chat"], search: true })));
+    registry.register(makeAdapter("exa", "exa", "exa-search", capabilitiesOf({ surfaces: ["web-search"], search: true })));
+    const snapshot = routeSnapshot(new Map([["kimchi", "kimchi"]]));
+    const resolve = routeResolver(registry, { get: async () => snapshot }, null as never, null as never, () => "prefer-exa");
+
+    const plan = await resolve(searchRequest("kimchi/deepseek-v4-flash"), affinity, claudeClient);
+
+    expect(plan.candidates.map((candidate) => candidate.id)).toEqual([
+      "exa/exa-search",
+      "codex/gpt-5.5",
+      "antigravity/gemini-3-flash",
+      "kimchi/deepseek-v4-flash",
+    ]);
   });
 });

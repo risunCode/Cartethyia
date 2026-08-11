@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from "../../concurrency";
 import type { AccountConfig, CredentialConfigStore, QuotaStateStore } from "../credentials";
 
 const DEFAULT_QUOTA_INTERVAL_MS = 5 * 60_000;
@@ -63,7 +64,7 @@ export class QuotaRefreshWorker {
     this.sweeping = true;
     try {
       const accounts = (await this.accounts.listAccounts()).filter((account) => account.enabled && this.supportsProvider(account.providerId));
-      await this.mapWithConcurrency(accounts, async (account) => {
+      await mapWithConcurrency(accounts, this.concurrency, async (account) => {
         if (!(await this.isDue(account))) return;
         try {
           const quotaAvailable = await this.refreshSingleFlight(account.id);
@@ -96,17 +97,4 @@ export class QuotaRefreshWorker {
     return pending;
   }
 
-  private async mapWithConcurrency<T>(items: readonly T[], task: (item: T) => Promise<void>): Promise<void> {
-    let cursor = 0;
-    const worker = async (): Promise<void> => {
-      for (;;) {
-        const index = cursor;
-        cursor += 1;
-        const item = items[index];
-        if (item === undefined) return;
-        await task(item);
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(this.concurrency, items.length) }, () => worker()));
-  }
 }

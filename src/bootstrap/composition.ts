@@ -1,5 +1,5 @@
 import { AccountHealthManager, QuotaCoordinator } from "../application/auth";
-import type { RouteSwitch } from "../application/contracts";
+import type { RouteSwitch, WebSearchPreference } from "../application/contracts";
 import type { ModelMetadataResolver } from "../application/model-metadata";
 import { createRouteSnapshotCache } from "../application/routing-snapshot";
 import { compressWithHeadroom } from "../open-sse/rtk";
@@ -67,6 +67,8 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
   const proxyHealth = new ProxyHealthManager(proxyHealthStore);
   let policyRevision = -1;
   let policy: NetworkRoutingPolicy = { preset: "auto", targetConcurrent: 0 };
+  let webSearchPreferenceRevision = -1;
+  let webSearchPreference: WebSearchPreference = "auto";
   const readNetworkPolicy = () => {
     if (policyRevision !== revision.value) {
       const settings = config.proxies.getSettings();
@@ -74,9 +76,19 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
         preset: settings?.routingPreset ?? "auto",
         targetConcurrent: settings?.targetConcurrent ?? 0,
       };
+      webSearchPreference = settings?.webSearchPreference ?? "auto";
       policyRevision = revision.value;
+      webSearchPreferenceRevision = revision.value;
     }
     return policy;
+  };
+  const readWebSearchPreference = (): WebSearchPreference => {
+    if (webSearchPreferenceRevision !== revision.value) {
+      const settings = config.proxies.getSettings();
+      webSearchPreference = settings?.webSearchPreference ?? "auto";
+      webSearchPreferenceRevision = revision.value;
+    }
+    return webSearchPreference;
   };
   const network = new NetworkSelector(pool, proxyHealth, readNetworkPolicy);
   const { accounts, authDrivers, credentialStore, oauth } = createOAuthRuntime({ config, logger, routingRevision: () => revision.value });
@@ -110,7 +122,7 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
         save: (id, kind, artifact) => runtime.payloads.save(id, kind, artifact),
       };
     },
-    resolveRoutes: routeResolver(registry, routeSnapshots, accountHealth, quota),
+    resolveRoutes: routeResolver(registry, routeSnapshots, accountHealth, quota, readWebSearchPreference),
     accountCandidates: (providerId) => accountCandidates(routeSnapshots, accountHealth, quota, providerId),
     admission,
     tokenSaver: () => {

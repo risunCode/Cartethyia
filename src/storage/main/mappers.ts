@@ -87,6 +87,7 @@ smart_dynamic_routing: number;
 smart_dynamic_proxy_count: number;
 routing_preset: string;
 target_concurrent: number;
+web_search_preference: string;
 updated_at: string; }
 
 export interface ProviderModelRow { provider: string;

@@ -388,6 +388,7 @@ function createConsoleProxySettingsRepository(config: ConfigPersistence): ProxyS
         stickyProxyCount: row?.smartDynamicProxyCount ?? 1,
         routingPreset: row?.routingPreset ?? "auto",
         targetConcurrent: row?.targetConcurrent ?? 0,
+        webSearchPreference: row?.webSearchPreference ?? "auto",
       };
     },
     async patch(patch) {
@@ -398,6 +399,7 @@ function createConsoleProxySettingsRepository(config: ConfigPersistence): ProxyS
         smartDynamicProxyCount: patch.stickyProxyCount,
         routingPreset: patch.routingPreset,
         targetConcurrent: patch.targetConcurrent,
+        webSearchPreference: patch.webSearchPreference,
       });
       return {
         enabled: row.enabled,
@@ -406,6 +408,7 @@ function createConsoleProxySettingsRepository(config: ConfigPersistence): ProxyS
         stickyProxyCount: row.smartDynamicProxyCount,
         routingPreset: row.routingPreset,
         targetConcurrent: row.targetConcurrent,
+        webSearchPreference: row.webSearchPreference,
       };
     },
   };

@@ -30,8 +30,9 @@ type NormalizeInput,
 type NormalizeResult,
 type ProtocolError, } from "../../../application/protocols";
 import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, ReasoningConfig, ReasoningContext, ReasoningEffort, ReasoningMode, ReasoningSummary } from "../../../application/contracts";
-import { preserveWirePayload } from "../policy/fields";
+import { isWebSearchTool } from "../../../application/web-search-routing";
 import { applyOpenAIResponsesCacheBreakpoint } from "../policy/cache";
+import { preserveWirePayload } from "../policy/fields";
 
 export function normalizeResponsesRequest(body: unknown, input: NormalizeInput): NormalizeResult {
   const aborted = abortedError(input.signal);
@@ -494,8 +495,7 @@ function buildReasoningWire(flag: "enabled" | "disabled" | "default", config: Re
 }
 
 function toResponsesTool(tool: NormalizedTool): Record<string, unknown> {
-  const normalizedName = tool.name.toLowerCase().replace(/[^a-z]/g, "");
-  if (tool.nativeType?.startsWith("web_search_") === true || normalizedName === "websearch") return { type: "web_search" };
+  if (isWebSearchTool(tool)) return { type: "web_search" };
   if (tool.nativeType?.startsWith("web_fetch_") === true) {
     throw new ProtocolCodecError({
       kind: "capability_unsupported",

@@ -6,7 +6,7 @@
  * durable ports, and lifecycle singletons remain in `config.ts`.
  */
 
-import type { CredentialKind, RouteHealth, RoutingPreset } from "../../application/contracts";
+import type { CredentialKind, RouteHealth, RoutingPreset, WebSearchPreference } from "../../application/contracts";
 import type { PersistenceEnv } from "./env";
 
 // ────────────────────────────── Domain records ──────────────────────────────
@@ -212,6 +212,8 @@ export interface ProxySettingsRecord {
   readonly routingPreset: RoutingPreset;
   /** Per-proxy in-flight cap override; 0 means use each proxy's configured cap. */
   readonly targetConcurrent: number;
+  /** Best-effort web-search provider preference. */
+  readonly webSearchPreference: WebSearchPreference;
   readonly updatedAt: string;
 }
 

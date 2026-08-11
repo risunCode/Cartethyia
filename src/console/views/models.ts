@@ -1,4 +1,5 @@
 import type { ModelMetadata, ProviderModel, Surface } from "../../application/contracts";
+import { hasWebSearchCapability } from "../../application/web-search-routing";
 // ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
@@ -23,7 +24,7 @@ export function modelCapabilityView(model: ProviderModel): ModelCapabilityView {
     media: imageGeneration || videoGeneration,
     imageGeneration,
     videoGeneration,
-    websearch: model.capabilities.search === true || surfaces.includes("web-search"),
+    websearch: hasWebSearchCapability(model.capabilities),
   };
 }
 

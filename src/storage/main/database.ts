@@ -38,6 +38,10 @@ export function createConfigDatabase(env: PersistenceEnv) {
           opened.query("UPDATE proxies SET created_at = ? WHERE created_at = ''").run(nowIso());
         }
       } catch {}
+      try {
+        const columns = opened.prepare("PRAGMA table_info(proxy_settings)").all() as { name: string }[];
+        if (columns.length > 0 && !columns.some((column) => column.name === "web_search_preference")) opened.exec("ALTER TABLE proxy_settings ADD COLUMN web_search_preference TEXT NOT NULL DEFAULT 'auto'");
+      } catch {}
       opened.exec(CONFIG_SCHEMA_SQL);
       try {
         const providers = opened.query("SELECT id, slug FROM custom_providers WHERE id <> slug").all() as Array<{ id: string; slug: string }>;

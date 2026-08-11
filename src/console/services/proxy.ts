@@ -1,4 +1,6 @@
+import { mapWithConcurrency } from "../../application/concurrency";
 import { sanitizeMessage } from "../../application/contracts";
+import { normalizeWebSearchPreference } from "../../application/web-search-routing";
 import { buildProxyFetcher } from "../../traffic";
 import type {
   ConsoleErrorCode,
@@ -13,7 +15,7 @@ import type {
 } from "../views";
 import { loadRouteTransition } from "../views";
 import { booleanOrUndefined, boundedNumber, defaultProxyPort, isProxyRelayHost, nullableString, numberOrUndefined, proxyProtocol, stringListOrUndefined, stringOrUndefined } from "../input-sanitizers";
-import { mapWithConcurrency, scrapeProxies, type ScrapedProxy, type ScrapeOptions, type ScrapeProtocol, type ScrapeSource } from "./proxy-scraper";
+import { canonicalProxyKey, normalizeScrapeSource, scrapeProxiesDetailed, type ScrapedProxy, type ScrapeOptions, type ScrapeProtocol, type ScrapeSource, type ScrapeSourceResult } from "./proxy-scraper";
 
 const DEFAULT_PROXY_CANARY_URL = "https://www.google.com/generate_204";
 
@@ -33,6 +35,12 @@ export interface ProxyScrapeResult {
   readonly added: number;
   readonly skipped: number;
 }
+
+export interface ProxyImportResult {
+  readonly added: number;
+  readonly skipped: number;
+  readonly keys: readonly string[];
+}
 export type ProxySearchStatus = "healthy" | "error" | "unverified";
 
 export interface ProxySearchItem extends ScrapedProxy {
@@ -46,15 +54,11 @@ export interface ProxySearchResult {
   readonly items: readonly ProxySearchItem[];
   readonly scraped: number;
   readonly verified: number;
+  readonly sources: readonly ScrapeSourceResult[];
 }
-
-function proxyKey(protocol: string, host: string, port: number): string {
-  return `${protocol}://${host.toLowerCase()}:${port}`;
-}
-
 function normalizeScrapeInput(input: unknown): ScrapeOptions & { readonly verify: boolean } {
   const value = typeof input === "object" && input !== null ? input as Record<string, unknown> : {};
-  const source: ScrapeSource = value.source === "proxyscrape" || value.source === "geonode" || value.source === "proxifly" ? value.source : "all";
+  const source = normalizeScrapeSource(value.source);
   const protocol: ScrapeProtocol = value.protocol === "http" || value.protocol === "socks5" ? value.protocol : "all";
   const rawCountry = typeof value.country === "string" ? value.country.trim() : "all";
   const country = rawCountry.toLowerCase() === "all" ? "all" : /^[a-z]{2}$/i.test(rawCountry) ? rawCountry.toUpperCase() : "all";
@@ -81,6 +85,25 @@ async function probeProxy(input: ProxyTestInput, signal?: AbortSignal): Promise<
     if (signal?.aborted) throw error;
     return { ok: false, latencyMs: Math.round(performance.now() - started), error: error instanceof Error ? sanitizeMessage(error) : "Connection failed — network unreachable or DNS resolution failed" };
   }
+}
+
+interface ScrapedProxyCheck {
+  readonly proxy: ScrapedProxy;
+  readonly result: ProxyTestResult | null;
+}
+
+interface ScrapeExecution {
+  readonly proxies: readonly ScrapedProxy[];
+  readonly checked: readonly ScrapedProxyCheck[];
+  readonly sources: readonly ScrapeSourceResult[];
+}
+
+async function scrapeAndVerify(options: ScrapeOptions & { readonly verify: boolean }, signal?: AbortSignal): Promise<ScrapeExecution> {
+  const scrapeResult = await scrapeProxiesDetailed(options, fetch, signal);
+  const checked = options.verify
+    ? await mapWithConcurrency(scrapeResult.proxies, SCRAPE_VERIFY_CONCURRENCY, async (proxy) => ({ proxy, result: await probeProxy({ protocol: proxy.protocol, host: proxy.host, port: proxy.port, isRelay: false }, signal) }))
+    : scrapeResult.proxies.map((proxy) => ({ proxy, result: null }));
+  return { proxies: scrapeResult.proxies, checked, sources: scrapeResult.sources };
 }
 
 export class ProxyService {
@@ -204,40 +227,35 @@ export class ProxyService {
   /** Searches free proxy sources without persisting candidates to the routing pool. */
   async search(input: unknown, signal?: AbortSignal): Promise<ProxySearchResult> {
     const options = normalizeScrapeInput(input);
-    const scraped = await scrapeProxies(options, fetch, signal);
-    const existingKeys = new Set((await this.repo.list()).map((proxy) => proxyKey(proxy.protocol, proxy.host, proxy.port)));
-    const checked = options.verify
-      ? await mapWithConcurrency(scraped, SCRAPE_VERIFY_CONCURRENCY, async (proxy) => ({ proxy, result: await probeProxy({ protocol: proxy.protocol, host: proxy.host, port: proxy.port, isRelay: false }, signal) }))
-      : scraped.map((proxy) => ({ proxy, result: null }));
+    const { proxies: scraped, checked, sources } = await scrapeAndVerify(options, signal);
+    const existingKeys = new Set((await this.repo.list()).map((proxy) => canonicalProxyKey(proxy)));
     const items = checked.map(({ proxy, result }): ProxySearchItem => ({
       ...proxy,
       status: result === null ? "unverified" : result.ok ? "healthy" : "error",
       latencyMs: result?.latencyMs ?? null,
       error: result?.error ?? null,
-      saved: existingKeys.has(proxyKey(proxy.protocol, proxy.host, proxy.port)),
+      saved: existingKeys.has(canonicalProxyKey(proxy)),
     }));
     return {
       items,
       scraped: items.length,
       verified: items.filter((item) => item.status === "healthy").length,
+      sources,
     };
   }
 
   /** Scrapes free proxy sources, verifies candidates in bounded parallel batches, and adds survivors to the pool. */
   async scrape(input: unknown): Promise<ProxyScrapeResult> {
     const options = normalizeScrapeInput(input);
-    const scraped = await scrapeProxies(options);
+    const { proxies: scraped, checked } = await scrapeAndVerify(options);
     if (scraped.length === 0) return { scraped: 0, verified: 0, added: 0, skipped: 0 };
 
-    const checked = options.verify
-      ? await mapWithConcurrency(scraped, SCRAPE_VERIFY_CONCURRENCY, async (proxy) => ({ proxy, result: await probeProxy({ protocol: proxy.protocol, host: proxy.host, port: proxy.port }) }))
-      : scraped.map((proxy) => ({ proxy, result: null }));
     const verified = checked.filter((item) => item.result === null || item.result.ok);
-    const existingKeys = new Set((await this.repo.list()).map((proxy) => proxyKey(proxy.protocol, proxy.host, proxy.port)));
+    const existingKeys = new Set((await this.repo.list()).map((proxy) => canonicalProxyKey(proxy)));
     let added = 0;
 
     for (const item of verified) {
-      const key = proxyKey(item.proxy.protocol, item.proxy.host, item.proxy.port);
+      const key = canonicalProxyKey(item.proxy);
       if (existingKeys.has(key)) continue;
       const created = await this.repo.create({
         name: `${item.proxy.host}:${item.proxy.port}`,
@@ -266,6 +284,43 @@ export class ProxyService {
     return { scraped: scraped.length, verified: verified.length, added, skipped: verified.length - added };
   }
 
+  /** Adds scraper candidates idempotently without changing manual proxy creation semantics. */
+  async importCandidates(input: unknown): Promise<ProxyImportResult> {
+    const value = typeof input === "object" && input !== null ? input as Record<string, unknown> : {};
+    const candidates = Array.isArray(value.items) ? value.items : [];
+    const existingKeys = new Set((await this.repo.list()).map((proxy) => canonicalProxyKey(proxy)));
+    const keys: string[] = [];
+    let added = 0;
+    let skipped = 0;
+
+    for (const candidate of candidates) {
+      if (typeof candidate !== "object" || candidate === null) {
+        skipped += 1;
+        continue;
+      }
+      const item = candidate as Record<string, unknown>;
+      const protocol = proxyProtocol(item.protocol);
+      const host = stringOrUndefined(item.host)?.trim();
+      const port = numberOrUndefined(item.port);
+      if (protocol === null || host === undefined || host.length === 0 || port === undefined || !Number.isInteger(port) || port < 1 || port > 65_535) {
+        skipped += 1;
+        continue;
+      }
+      const key = canonicalProxyKey({ protocol, host, port });
+      keys.push(key);
+      if (existingKeys.has(key)) {
+        skipped += 1;
+        continue;
+      }
+      await this.repo.create({ name: `${host}:${port}`, protocol, isRelay: false, host, port, maxConcurrency: 8, weight: 100, active: true });
+      existingKeys.add(key);
+      added += 1;
+    }
+
+    return { added, skipped, keys };
+  }
+
+
   async getSettings(): Promise<ProxySettingsView> {
     return this.settings.get();
   }
@@ -280,6 +335,7 @@ export class ProxyService {
       stickyProxyCount: numberOrUndefined(value.stickyProxyCount),
       routingPreset: value.routingPreset === "target-user" || value.routingPreset === "target-concurrent" || value.routingPreset === "auto" ? value.routingPreset : undefined,
       targetConcurrent: numberOrUndefined(value.targetConcurrent),
+      webSearchPreference: normalizeWebSearchPreference(value.webSearchPreference),
     });
   }
 }

@@ -1,4 +1,4 @@
-import type { RoutingPreset } from "../../application/contracts";
+import type { RoutingPreset, WebSearchPreference } from "../../application/contracts";
 import type { RouteHealth } from "../../application/contracts";
 
 // ---------------------------------------------------------------------------
@@ -96,6 +96,7 @@ export interface ProxySettingsView {
   readonly stickyProxyCount: number;
   readonly routingPreset: RoutingPreset;
   readonly targetConcurrent: number;
+  readonly webSearchPreference: WebSearchPreference;
 }
 
 export interface ProxySettingsRepository {

@@ -62,6 +62,8 @@ export { BackupService };
 export { SettingsService, TelemetryService };
 import { ProxyService, type ProxyView } from "./proxy";
 export { ProxyService, type ProxyView };
+import { WebSearchRoutingService, type WebSearchRoutingStatus } from "./web-search-routing";
+export { WebSearchRoutingService, type WebSearchRoutingStatus };
 export { ProviderService };
 
 
@@ -98,6 +100,7 @@ export interface ConsoleServices {
   readonly accounts: AccountService;
   readonly oauth: OAuthService;
   readonly proxies: ProxyService;
+  readonly webSearchRouting: WebSearchRoutingService;
   readonly quota: QuotaService;
   readonly settings: SettingsService;
   readonly routing: RoutingConfigService;
@@ -122,12 +125,16 @@ export interface CreateConsoleServicesOptions {
 export function createConsoleServices(options: CreateConsoleServicesOptions): ConsoleServices {
   const { repositories, registry, loginLimiter, modelMetadata, oauthCoordinator } = options;
   const authDrivers = options.authDrivers ?? createAuthDriverRegistry();
+  const providerService = new ProviderService(registry, repositories.providerConfig, repositories.customProviders, repositories.accounts, authDrivers);
+  const modelService = new ModelService(repositories.models, registry, modelMetadata);
+  const accountService = new AccountService(repositories.accounts, repositories.transitions);
+  const proxyService = new ProxyService(repositories.proxies, repositories.proxySettings, repositories.transitions);
   return {
     auth: new AuthService(repositories.settings, loginLimiter),
     keys: new ApiKeyService(repositories.keys),
-    providers: new ProviderService(registry, repositories.providerConfig, repositories.customProviders, repositories.accounts, authDrivers),
-    models: new ModelService(repositories.models, registry, modelMetadata),
-    accounts: new AccountService(repositories.accounts, repositories.transitions),
+    providers: providerService,
+    models: modelService,
+    accounts: accountService,
     oauth: new OAuthService({
       sessions: new OAuthLoginSessionManager({ drivers: authDrivers }),
       tokenRefresh: oauthCoordinator,
@@ -135,7 +142,8 @@ export function createConsoleServices(options: CreateConsoleServicesOptions): Co
       accounts: repositories.accounts,
       tokens: repositories.oauthTokens,
     }),
-    proxies: new ProxyService(repositories.proxies, repositories.proxySettings, repositories.transitions),
+    proxies: proxyService,
+    webSearchRouting: new WebSearchRoutingService(proxyService, providerService, modelService, accountService),
     quota: new QuotaService(repositories.accounts, repositories.quotaState, repositories.oauthTokens, oauthCoordinator),
     settings: new SettingsService(repositories.settings),
     routing: new RoutingConfigService(repositories.routing, modelMetadata),

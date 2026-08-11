@@ -81,6 +81,35 @@ describe("config schema initialization and idempotency", () => {
     }
   });
 
+  test("upgrades legacy proxy settings with automatic web-search preference", () => {
+    const env = makeEnv(uniqueTempDir("legacy-proxy-settings"));
+    mkdirSync(env.dataDir, { recursive: true });
+    const legacy = new Database(env.dbPath, { create: true });
+    legacy.exec(`CREATE TABLE proxy_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      enabled INTEGER NOT NULL DEFAULT 0,
+      excluded_providers_json TEXT NOT NULL DEFAULT '[]',
+      smart_dynamic_routing INTEGER NOT NULL DEFAULT 0,
+      smart_dynamic_proxy_count INTEGER NOT NULL DEFAULT 2,
+      routing_preset TEXT NOT NULL DEFAULT 'auto',
+      target_concurrent INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    )`);
+    legacy.query("INSERT INTO proxy_settings (id, updated_at) VALUES (1, 'legacy')").run();
+    legacy.close();
+
+    resetConfigPersistenceForTests();
+    const upgraded = createConfigPersistence(env);
+    try {
+      const columns = (upgraded.db().prepare("PRAGMA table_info(proxy_settings)").all() as { name: string }[]).map((column) => column.name);
+      expect(columns).toContain("web_search_preference");
+      expect(upgraded.proxies.getSettings()?.webSearchPreference).toBe("auto");
+    } finally {
+      upgraded.close();
+      resetConfigPersistenceForTests();
+    }
+  });
+
   test("durable OAuth store enforces lease ownership and token generation CAS", async () => {
     persist.accounts.create({ id: "oauth-cas", provider: "codex", name: "oauth-cas", credentialKind: "oauth", credential: JSON.stringify({ accessToken: "access-old", refreshToken: "refresh-old", accessExpiresAt: 1 }), credentialHint: "…-old" });
     const token = await persist.stores.oauthToken.get("oauth-cas");
@@ -521,7 +550,17 @@ describe("proxy repository", () => {
 
   test("proxy settings normalizes invalid routing_preset to 'auto'", () => {
     persist.settings.ensure();
-    expect(persist.proxies.patchSettings({ routingPreset: "bogus" as any }).routingPreset).toBe("auto");
+    const invalidRouting = { routingPreset: "bogus" } as unknown as Parameters<typeof persist.proxies.patchSettings>[0];
+    expect(persist.proxies.patchSettings(invalidRouting).routingPreset).toBe("auto");
+  });
+  test("proxy settings normalizes web-search preference and persists valid values", () => {
+    persist.settings.ensure();
+    const created = persist.proxies.patchSettings({ webSearchPreference: "prefer-codex" });
+    expect(created.webSearchPreference).toBe("prefer-codex");
+    expect(created.smartDynamicProxyCount).toBe(2);
+    expect(persist.proxies.patchSettings({ webSearchPreference: "prefer-exa" }).webSearchPreference).toBe("prefer-exa");
+    const invalidPreference = { webSearchPreference: "invalid" } as unknown as Parameters<typeof persist.proxies.patchSettings>[0];
+    expect(persist.proxies.patchSettings(invalidPreference).webSearchPreference).toBe("auto");
   });
 
   test("proxy settings excludedProviders parsed from JSON", () => {
@@ -1368,7 +1407,7 @@ describe("runtime telemetry writer", () => {
       usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150, cacheReadTokens: 10, cacheWriteTokens: 5, source: "provider" },
       providerId: "openai", model: "gpt-4", mode: "stream",
       messageCount: 1, toolCount: 0, imageCount: 0,
-      routing: { requestedModel: "claude-mythos-5", mappedModel: "codex/gpt-5.6-luna", upstreamModel: "gpt-5.6-luna", wireSurface: "openai-responses", errorMessage: null },
+      routing: { requestedModel: "claude-mythos-5", mappedModel: "codex/gpt-5.6-luna", upstreamModel: "gpt-5.6-luna", wireSurface: "openai-responses", errorMessage: null, webSearchRoute: "passthrough", webSearchPassthrough: true },
     });
     rt.flush();
     const page = rt.metadata.queryRequests({ limit: 10 });
@@ -1377,7 +1416,7 @@ describe("runtime telemetry writer", () => {
     expect(page.items[0]!.status).toBe(200);
     expect(page.items[0]!.inputTokens).toBe(100);
     expect(page.items[0]!.mode).toBe("stream");
-    expect(page.items[0]!.routing).toEqual({ requestedModel: "claude-mythos-5", mappedModel: "codex/gpt-5.6-luna", upstreamModel: "gpt-5.6-luna", wireSurface: "openai-responses", errorMessage: null });
+    expect(page.items[0]!.routing).toEqual({ requestedModel: "claude-mythos-5", mappedModel: "codex/gpt-5.6-luna", upstreamModel: "gpt-5.6-luna", wireSurface: "openai-responses", errorMessage: null, webSearchRoute: "passthrough", webSearchPassthrough: true });
   });
 
   test("mapClientName narrows to allowlist", () => {

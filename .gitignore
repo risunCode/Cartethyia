@@ -12,3 +12,5 @@ __pycache__/
 # MultiWarp
 bin/
 
+
+*.bun-build

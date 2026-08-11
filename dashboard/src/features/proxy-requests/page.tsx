@@ -6,8 +6,8 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Clipboard, Download, FlaskConical, Gauge, Loader2, Network, Pencil, Plus, PowerOff, Route, Search, Square, ShieldCheck, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Activity, ArrowDown, Clipboard, Download, FlaskConical, Gauge, Loader2, Network, Pencil, Plus, PowerOff, Route, Search, Square, ShieldCheck, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "../../lib/toast";
 import { getErrorMessage as errorMessage } from "../../lib/errors";
 import { api, apiDelete, apiGet, apiPatch, apiPost } from "../../lib/api";
@@ -36,6 +36,9 @@ interface ProviderRoutingSummary {
   credentialKind?: string;
   /** Derived from `credentialKind` for display logic. */
   authKind?: "none" | "session" | "api-key";
+  accountCount?: number;
+  configured?: boolean;
+  capabilityCounts?: { chat: number; media: number; websearch: number };
   routing?: { strategy: "priority" | "round-robin"; stickyLimit: number; useStickyLimit?: boolean };
 }
 
@@ -45,6 +48,7 @@ interface ProxySettings {
   smartDynamicRouting: boolean;
   smartDynamicProxyCount: number;
   targetConcurrent: number;
+  webSearchPreference: "auto" | "prefer-codex" | "prefer-exa";
 }
 
 interface ProxyRecord {
@@ -103,12 +107,30 @@ interface ScrapeCountry {
   name: string;
 }
 
+type ScrapeSourceOption = Omit<ScrapeSourceCatalogItem, "id"> & { readonly value: string };
+
+interface ScrapeSourceCatalogItem {
+  id: string;
+  label: string;
+  protocols: readonly ("http" | "socks5")[];
+  countryAware: boolean;
+}
+
+interface ScrapeSourceResult {
+  id: string;
+  label: string;
+  status: "fulfilled" | "empty" | "failed";
+  count: number;
+  error?: string;
+}
+
 interface ProxySearchItem {
   url: string;
   protocol: "http" | "socks5";
   host: string;
   port: number;
   country: string | null;
+  source: string;
   status: "healthy" | "error" | "unverified";
   latencyMs: number | null;
   error: string | null;
@@ -119,14 +141,15 @@ interface ProxySearchResult {
   items: ProxySearchItem[];
   scraped: number;
   verified: number;
+  sources: ScrapeSourceResult[];
 }
 
-const SCRAPE_SOURCES = [
-  { value: "all", label: "All sources" },
-  { value: "proxyscrape", label: "ProxyScrape" },
-  { value: "geonode", label: "Geonode" },
-  { value: "proxifly", label: "Proxifly" },
-] as const;
+interface WebSearchRoutingStatus {
+  preference: ProxySettings["webSearchPreference"];
+  order: string[];
+  routes: Array<{ kind: string; label: string; available: boolean; reason: string | null }>;
+  preferences: ReadonlyArray<{ value: ProxySettings["webSearchPreference"]; label: string }>;
+}
 
 const SCRAPE_PROTOCOLS = [
   { value: "all", label: "HTTP + SOCKS5" },
@@ -134,112 +157,166 @@ const SCRAPE_PROTOCOLS = [
   { value: "socks5", label: "SOCKS5" },
 ] as const;
 
-function ProxySearchResults({ result }: { result: ProxySearchResult | null }) {
-  const queryClient = useQueryClient();
-  const [addingHealthy, setAddingHealthy] = useState(false);
-  if (result === null || result.items.length === 0) return null;
 
-  const healthyItems = result.items.filter((item) => item.status === "healthy" && !item.saved);
+function ProxySearchResults({ result, isSearching, searchStartedAt, source, sourceOptions, onResult }: { result: ProxySearchResult | null; isSearching: boolean; searchStartedAt: number | null; source: string; sourceOptions: readonly ScrapeSourceOption[]; onResult: (result: ProxySearchResult) => void }) {
+  const queryClient = useQueryClient();
+  const outputRef = useRef<HTMLDivElement>(null);
+  const [addingHealthy, setAddingHealthy] = useState(false);
+  const [followLatest, setFollowLatest] = useState(true);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const healthyItems = result?.items.filter((item) => item.status === "healthy" && !item.saved) ?? [];
+  const sourceLabel = source === "all" ? "All sources (parallel)" : sourceOptions.find((option) => option.value === source)?.label ?? source;
+  const searchScope = source === "all" ? "parallel sources" : `${sourceLabel} source`;
+
+  useEffect(() => {
+    if (!isSearching || searchStartedAt === null) return;
+    const updateElapsed = () => setElapsedMs(Date.now() - searchStartedAt);
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 250);
+    return () => window.clearInterval(timer);
+  }, [isSearching, searchStartedAt]);
+
+  useEffect(() => {
+    if (!followLatest) return;
+    outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight, behavior: "auto" });
+  }, [followLatest, isSearching, result?.items.length]);
+
   const addHealthyToPool = async (): Promise<void> => {
     if (healthyItems.length === 0) return;
     setAddingHealthy(true);
-    const addedUrls: string[] = [];
-    let failed = 0;
     try {
-      for (let index = 0; index < healthyItems.length; index += 16) {
-        const batch = healthyItems.slice(index, index + 16);
-        const settled = await Promise.allSettled(batch.map((item) => apiPost<{ id: string }>("/proxies", {
-          name: `${item.host}:${item.port}`,
-          protocol: item.protocol,
-          isRelay: false,
-          host: item.host,
-          port: item.port,
-          maxConcurrency: 8,
-          weight: 100,
-        })));
-        settled.forEach((outcome, batchIndex) => {
-          if (outcome.status === "fulfilled") addedUrls.push(batch[batchIndex]!.url);
-          else failed += 1;
+      const imported = await apiPost<{ added: number; skipped: number }>("/proxies/import", {
+        items: healthyItems.map((item) => ({ protocol: item.protocol, host: item.host, port: item.port })),
+      });
+      if (result !== null) {
+        onResult({
+          ...result,
+          items: result.items.map((candidate) => healthyItems.includes(candidate) ? { ...candidate, saved: true } : candidate),
         });
       }
-      queryClient.setQueryData<ProxySearchResult>(qk.proxies.search, (current) => current === undefined ? current : {
-        ...current,
-        items: current.items.map((candidate) => addedUrls.includes(candidate.url) ? { ...candidate, saved: true } : candidate),
-      });
       await queryClient.invalidateQueries({ queryKey: qk.proxies.all });
-      if (failed === 0) toast.success(`Added ${addedUrls.length} healthy proxies to the pool`);
-      else toast.error(`Added ${addedUrls.length}; ${failed} healthy proxies failed`);
+      if (imported.skipped === 0) toast.success(`Added ${imported.added} healthy proxies to the pool`);
+      else toast.success(`Added ${imported.added}; ${imported.skipped} already existed or were skipped`);
+    } catch (error) {
+      toast.error(errorMessage(error));
     } finally {
       setAddingHealthy(false);
     }
   };
 
-  const lines = result.items.flatMap((item, index) => {
-    const state = item.saved ? "IN POOL" : item.status.toUpperCase();
-    const details = [
-      `${String(index + 1).padStart(3, " ")}  ${state.padEnd(10, " ")} ${item.protocol}://${item.host}:${item.port}`,
-      `     ${item.country ?? "Unknown"}${item.latencyMs === null ? "" : ` · ${item.latencyMs}ms`}${item.error === null ? "" : ` · ${item.error}`}`,
-    ];
-    return details;
-  });
+  let statusText = "IDLE · ready for a proxy search";
+  if (isSearching) statusText = `SEARCHING · ${(Math.max(elapsedMs, 0) / 1000).toFixed(1)}s · waiting for ${searchScope}`;
+  else if (result !== null && result.items.length === 0) statusText = "DONE · no candidates returned";
+  else if (result !== null) statusText = `DONE · ${result.items.length} candidates ready`;
 
   return (
     <section aria-label="Proxy search results" className="border border-[var(--inner-border)] bg-black/20 p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="font-mono text-xs font-bold">Search results</p>
-          <p className="font-mono text-[10.5px] text-[var(--text-3)]">{result.scraped} found · {result.verified} healthy</p>
+          <div className="flex items-center gap-2">
+            <p className="font-mono text-xs font-bold">Search console</p>
+            {isSearching && <Badge tone="info"><Loader2 size={10} className="mr-1 animate-spin" /> live</Badge>}
+          </div>
+          <p className="font-mono text-[10.5px] text-[var(--text-3)]">
+            {result === null ? "No search has run yet" : `${result.scraped} found · ${result.verified} healthy`}
+          </p>
         </div>
-        <Button size="sm" disabled={addingHealthy || healthyItems.length === 0} onClick={() => void addHealthyToPool()}>
-          {addingHealthy ? <Loader2 size={12} className="animate-spin" /> : <Network size={12} />}
-          {addingHealthy ? "Adding…" : `Add healthy to pool (${healthyItems.length})`}
-        </Button>
+          {result !== null && <div className="mt-1 max-w-full truncate font-mono text-[10px] text-[var(--text-3)]">{result.sources.map((entry) => `${entry.label}: ${entry.status}${entry.count > 0 ? ` (${entry.count})` : ""}`).join(" · ")}</div>}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {!followLatest && <Button variant="ghost" size="sm" onClick={() => setFollowLatest(true)}><ArrowDown size={12} /> Follow latest</Button>}
+          <Button size="sm" disabled={addingHealthy || healthyItems.length === 0} onClick={() => void addHealthyToPool()}>
+            {addingHealthy ? <Loader2 size={12} className="animate-spin" /> : <Network size={12} />}
+            {addingHealthy ? "Adding…" : `Add healthy to pool (${healthyItems.length})`}
+          </Button>
+        </div>
       </div>
-      <pre aria-live="polite" className="max-h-[30rem] overflow-y-auto whitespace-pre-wrap break-all border border-[var(--inner-border)] bg-black/30 p-2 font-mono text-[10px] leading-5 text-[var(--text-2)]">
-        {lines.join("\n")}
-      </pre>
+      <div
+        ref={outputRef}
+        role="log"
+        aria-live="polite"
+        aria-busy={isSearching}
+        onScroll={() => {
+          const element = outputRef.current;
+          if (element === null) return;
+          setFollowLatest(element.scrollHeight - element.scrollTop - element.clientHeight < 24);
+        }}
+        className="h-36 overflow-y-auto overscroll-contain border border-[var(--inner-border)] bg-black/30 p-2 font-mono text-[10px] leading-6 text-[var(--text-2)]"
+      >
+        <div className="text-[var(--accent)]">{`> ${statusText}`}</div>
+        {result?.items.map((item, index) => {
+          let statusClass = "text-[var(--text-3)]";
+          if (item.saved) statusClass = "text-[var(--teal)]";
+          else if (item.status === "healthy") statusClass = "text-[var(--green)]";
+          else if (item.status === "error") statusClass = "text-[var(--red)]";
+          const details = `${item.country ?? "Unknown"}${item.latencyMs === null ? "" : ` · ${item.latencyMs}ms`}${item.error === null ? "" : ` · ${item.error}`}`;
+          const itemSource = sourceOptions.find((option) => option.value === item.source)?.label ?? item.source;
+          return (
+            <div key={item.url} title={`${details} · ${item.url}`} className="flex min-w-0 items-center gap-2 whitespace-nowrap">
+              <span className="w-5 shrink-0 text-right text-[var(--text-3)]">{index + 1}</span>
+              <span className={`w-16 shrink-0 ${statusClass}`}>{item.saved ? "IN POOL" : item.status.toUpperCase()}</span>
+              <span className="w-16 shrink-0 truncate text-[var(--text-3)]" title={itemSource}>{itemSource}</span>
+              <span className="min-w-0 flex-1 truncate">{item.protocol}://{item.host}:{item.port}</span>
+              <span className="shrink-0 text-[var(--text-3)]">{item.latencyMs === null ? "—" : `${item.latencyMs}ms`}</span>
+            </div>
+          );
+        })}
+        {result !== null && result.items.length === 0 && <div className="text-[var(--text-3)]">No candidates returned from the selected source.</div>}
+      </div>
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-2 font-mono text-[10px] text-[var(--text-3)]" aria-live="polite">
+        <span>{result === null ? "0 candidates" : `Showing ${result.items.length} of ${result.scraped} candidates`}</span>
+        <span>{followLatest ? "Following latest · 5-row viewport" : "Scroll paused · 5-row viewport"}</span>
+      </div>
     </section>
   );
 }
 
 function ProxyScraperSection() {
-  const queryClient = useQueryClient();
-  const { data: countryData } = useQuery({ queryKey: ["console", "proxy-scrape-countries"], queryFn: () => apiGet<{ countries: ScrapeCountry[] }>("/proxies/scrape/countries") });
-  const { data: searchResult = null, isFetching } = useQuery<ProxySearchResult | null>({
-    queryKey: qk.proxies.search,
-    queryFn: async () => null,
-    enabled: false,
-    initialData: null,
-  });
-  const [source, setSource] = useState<(typeof SCRAPE_SOURCES)[number]["value"]>("all");
+  const { data: countryData } = useQuery({ queryKey: qk.proxies.scrapeCountries, queryFn: () => apiGet<{ countries: ScrapeCountry[] }>("/proxies/scrape/countries") });
+  const { data: sourceData } = useQuery({ queryKey: qk.proxies.scrapeCatalog, queryFn: () => apiGet<{ sources: ScrapeSourceCatalogItem[] }>("/proxies/scrape/catalog") });
+  const sourceOptions: readonly ScrapeSourceOption[] = [{ value: "all", label: "All sources (parallel)", protocols: ["http", "socks5"], countryAware: true }, ...(sourceData?.sources ?? []).map((source) => ({ value: source.id, label: source.label, protocols: source.protocols, countryAware: source.countryAware }))];
+  const [searchResult, setSearchResult] = useState<ProxySearchResult | null>(null);
+  const [isFetching, setIsFetching] = useState(false);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const [searchStartedAt, setSearchStartedAt] = useState<number | null>(null);
+  const [source, setSource] = useState("all");
   const [country, setCountry] = useState("all");
   const [protocol, setProtocol] = useState<(typeof SCRAPE_PROTOCOLS)[number]["value"]>("all");
   const [limit, setLimit] = useState("50");
   const [verify, setVerify] = useState(true);
   const countries = countryData?.countries ?? [{ code: "all", name: "Any region" }];
 
+  useEffect(() => () => {
+    searchAbortRef.current?.abort();
+  }, []);
+
   const search = async (): Promise<void> => {
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    setIsFetching(true);
+    setSearchStartedAt(Date.now());
+    setSearchResult(null);
     try {
-      const result = await queryClient.fetchQuery({
-        queryKey: qk.proxies.search,
-        queryFn: ({ signal }: { signal: AbortSignal }) => api<ProxySearchResult>("/proxies/search", {
-          method: "POST",
-          body: JSON.stringify({ source, country, protocol, limit: Math.max(1, Math.min(500, Number(limit) || 50)), verify }),
-          signal,
-        }),
-        staleTime: 0,
+      const result = await api<ProxySearchResult>("/proxies/search", {
+        method: "POST",
+        body: JSON.stringify({ source, country, protocol, limit: Math.max(1, Math.min(500, Number(limit) || 50)), verify }),
+        signal: controller.signal,
       });
+      setSearchResult(result);
       if (result.scraped === 0) toast.error("No proxies found from the selected source");
       else toast.success(`Found ${result.scraped} proxies · ${result.verified} healthy`);
     } catch (error) {
       if (error instanceof Error && (error.name === "AbortError" || error.name === "CancelledError")) toast.success("Proxy search stopped");
       else toast.error(errorMessage(error));
+    } finally {
+      if (searchAbortRef.current === controller) searchAbortRef.current = null;
+      setIsFetching(false);
+      setSearchStartedAt(null);
     }
   };
 
   const toggleSearch = async (): Promise<void> => {
     if (isFetching) {
-      await queryClient.cancelQueries({ queryKey: qk.proxies.search });
+      searchAbortRef.current?.abort();
       return;
     }
     void search();
@@ -247,7 +324,7 @@ function ProxyScraperSection() {
 
   return (
     <Card surface="frame" className="space-y-3">
-      <CardHeader title="Proxy Scraper" icon={Search} sub="Search candidates first, review their status, then add only the proxies you want">
+      <CardHeader title="Proxy Scraper" icon={Search} sub="Search candidates in parallel, review their status, then add only the proxies you want">
         <Button size="sm" className="w-full sm:w-auto" onClick={() => void toggleSearch()}>
           {isFetching ? <Square size={12} /> : <Search size={13} />} {isFetching ? "Stop search" : "Search proxies"}
         </Button>
@@ -255,7 +332,7 @@ function ProxyScraperSection() {
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <label className="text-[10.5px] text-[var(--text-3)]">
           Source
-          <Select ariaLabel="Scrape source" className="mt-1 w-full" value={source} onChange={(value) => setSource(value as typeof source)} options={SCRAPE_SOURCES} />
+          <Select ariaLabel="Scrape source" className="mt-1 w-full" value={source} onChange={setSource} options={sourceOptions} />
         </label>
         <label className="text-[10.5px] text-[var(--text-3)]">
           Region
@@ -274,7 +351,7 @@ function ProxyScraperSection() {
         <input className="mt-0.5 size-3.5" type="checkbox" checked={verify} onChange={(event) => setVerify(event.target.checked)} />
         <span><span className="block font-semibold">Verify before listing</span><span className="mt-0.5 block text-[10px] text-[var(--text-3)]">Healthy, failed, and unverified candidates are shown here; nothing is saved automatically.</span></span>
       </label>
-      <ProxySearchResults result={searchResult} />
+      <ProxySearchResults result={searchResult} isSearching={isFetching} searchStartedAt={searchStartedAt} source={source} sourceOptions={sourceOptions} onResult={setSearchResult} />
     </Card>
   );
 }
@@ -597,6 +674,59 @@ function ProxyPoolSection() {
           onConfirm={() => void deleteProxy()}
         />
       )}
+    </Card>
+  );
+}
+
+function WebSearchRoutingSection() {
+  const qc = useQueryClient();
+  const { data: routingStatus } = useQuery({ queryKey: qk.webSearchRouting.all, queryFn: () => apiGet<WebSearchRoutingStatus>("/web-search-routing") });
+  const preference = routingStatus?.preference ?? "auto";
+  const preferenceMutation = useMutation({
+    mutationFn: (webSearchPreference: ProxySettings["webSearchPreference"]) => apiPost<ProxySettings>("/proxy-settings", { webSearchPreference }),
+    onSuccess: (next) => {
+      qc.setQueryData(qk.proxySettings.all, next);
+      void qc.invalidateQueries({ queryKey: qk.webSearchRouting.all });
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  const order = routingStatus?.order ?? [];
+  const routeByKind = new Map((routingStatus?.routes ?? []).map((route) => [route.kind, route]));
+
+  return (
+    <Card surface="frame" className="space-y-3">
+      <CardHeader title="Web Search Routing" icon={Search} sub="Best-effort search routing with silent provider failover and passthrough degradation">
+        <Badge tone="info">Non-blocking</Badge>
+      </CardHeader>
+      <div className="flex flex-col gap-2 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-xs font-semibold">Routing preference</div>
+          <div className="mt-0.5 text-[11px] text-[var(--text-3)]">Intermediate provider failures stay internal. If no search route is available, the original model request continues.</div>
+        </div>
+        <Select
+          ariaLabel="Web search routing preference"
+          className="w-full sm:w-44"
+          value={preference}
+          onChange={(value) => preferenceMutation.mutate(value as ProxySettings["webSearchPreference"])}
+          options={routingStatus?.preferences ?? []}
+        />
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {order.map((routeKind, index) => {
+          const route = routeByKind.get(routeKind);
+          if (route === undefined) return null;
+          return (
+            <div key={route.kind} className="rounded-xl border border-[var(--inner-border)] bg-[var(--surface-1)] px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold">{index + 1}. {route.label}</span>
+                <Badge tone={route.available ? "ok" : "default"}>{route.available ? "Ready" : "Unavailable"}</Badge>
+              </div>
+              <div className="mt-1 text-[10px] text-[var(--text-3)]">{route.reason ?? "Ready for web-search routing."}</div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[10.5px] text-[var(--text-3)]">Fallback only switches before meaningful stream output. A valid original route is never rejected solely because search providers are unavailable.</p>
     </Card>
   );
 }
@@ -1048,6 +1178,7 @@ export function ProxyRequestsPage() {
     <div className="dashboard-page space-y-4">
       <ProxyScraperSection />
       <ProxyPoolSection />
+      <WebSearchRoutingSection />
       <RoutingAndExceptionsSection />
     </div>
   );

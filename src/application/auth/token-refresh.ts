@@ -1,3 +1,4 @@
+import { mapWithConcurrency } from "../concurrency";
 import type { ProviderCallError } from "../contracts";
 import { createProviderError } from "../../traffic";
 import { fingerprintOAuthToken, type AccountConfig, type CredentialConfigStore, type OAuthRefresher, type OAuthRefreshResult, type OAuthTokenRecord, type OAuthTokenStore } from "./credentials";
@@ -168,7 +169,7 @@ export class TokenRefreshPool {
       for (const account of candidates) {
         if (await this.isDue(account)) due.push(account);
       }
-      await this.mapWithConcurrency(due, async (account) => {
+      await mapWithConcurrency(due, this.concurrency, async (account) => {
         try {
           await this.forceRefresh(account.id);
         } catch (error) {
@@ -397,19 +398,6 @@ export class TokenRefreshPool {
     return token.expiresAtMs === null || token.expiresAtMs - this.nowMs() > this.safetySkewMs;
   }
 
-  private async mapWithConcurrency<T>(items: readonly T[], task: (item: T) => Promise<void>): Promise<void> {
-    let cursor = 0;
-    const worker = async (): Promise<void> => {
-      for (;;) {
-        const index = cursor;
-        cursor += 1;
-        const item = items[index];
-        if (item === undefined) return;
-        await task(item);
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(this.concurrency, items.length) }, () => worker()));
-  }
 
   private reportFailure(accountId: string, error: unknown): void {
     if (error !== null && typeof error === "object" && "kind" in error) {

@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { nowIso } from "../schema";
 import { toProxy, type ProxyRow, type ProxySettingsRow } from "../mappers";
 import type { ProxyCreateInput, ProxyPatchInput, ProxyRecord, ProxyRepository, ProxySettingsRecord, ProxyTestRecordInput } from "../records";
+import { normalizeWebSearchPreference } from "../../../application/web-search-routing";
 
 
 export function createConsoleProxyRepository(db: () => Database): ProxyRepository {
@@ -22,6 +23,7 @@ export function createConsoleProxyRepository(db: () => Database): ProxyRepositor
       smartDynamicProxyCount: Math.max(1, Math.min(32, Math.round(row.smart_dynamic_proxy_count || 2))),
       routingPreset: row.routing_preset === "target-user" || row.routing_preset === "target-concurrent" ? row.routing_preset : "auto",
       targetConcurrent: Math.max(0, Math.min(10_000, Math.round(row.target_concurrent || 0))),
+      webSearchPreference: normalizeWebSearchPreference(row.web_search_preference),
       updatedAt: row.updated_at,
     };
   };
@@ -133,13 +135,14 @@ export function createConsoleProxyRepository(db: () => Database): ProxyRepositor
       const existing = getSettingsRow();
       const now = nowIso();
       if (!existing) {
-        db().query("INSERT INTO proxy_settings (id, enabled, excluded_providers_json, smart_dynamic_routing, smart_dynamic_proxy_count, routing_preset, target_concurrent, updated_at) VALUES (1, ?, ?, ?, ?, ?, ?, ?)").run(
+        db().query("INSERT INTO proxy_settings (id, enabled, excluded_providers_json, smart_dynamic_routing, smart_dynamic_proxy_count, routing_preset, target_concurrent, web_search_preference, updated_at) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)").run(
           patch.enabled === undefined ? 0 : patch.enabled ? 1 : 0,
           JSON.stringify(patch.excludedProviders ?? []),
           patch.smartDynamicRouting === undefined ? 0 : patch.smartDynamicRouting ? 1 : 0,
           Math.max(1, Math.min(32, Math.round(patch.smartDynamicProxyCount ?? 2))),
           patch.routingPreset === "target-user" || patch.routingPreset === "target-concurrent" ? patch.routingPreset : "auto",
           Math.max(0, Math.min(10_000, Math.round(patch.targetConcurrent ?? 0))),
+          normalizeWebSearchPreference(patch.webSearchPreference),
           now,
         );
       } else {
@@ -161,13 +164,13 @@ export function createConsoleProxyRepository(db: () => Database): ProxyRepositor
           fields.push("smart_dynamic_proxy_count = ?");
           values.push(Math.max(1, Math.min(32, Math.round(patch.smartDynamicProxyCount))));
         }
-        if (patch.routingPreset !== undefined) {
-          fields.push("routing_preset = ?");
-          values.push(patch.routingPreset === "target-user" || patch.routingPreset === "target-concurrent" ? patch.routingPreset : "auto");
-        }
         if (patch.targetConcurrent !== undefined) {
           fields.push("target_concurrent = ?");
           values.push(Math.max(0, Math.min(10_000, Math.round(patch.targetConcurrent))));
+        }
+        if (patch.webSearchPreference !== undefined) {
+          fields.push("web_search_preference = ?");
+          values.push(normalizeWebSearchPreference(patch.webSearchPreference));
         }
         fields.push("updated_at = ?");
         values.push(now);

@@ -7,6 +7,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "../../lib/toast";
 import { apiGet, apiPatch, apiDelete, apiPost } from "../../lib/api";
 import { formatTokens, formatDuration } from "../../lib/format";
+import { createAccountsInBatches, type AccountBatchItem } from "../../lib/account-batch";
 import { qk } from "../../lib/query-keys";
 import { useWindowedList } from "../../hooks/use-windowed-list";
 import { Badge } from "../../components/ui/badge";
@@ -194,17 +195,19 @@ export function CustomProviderDetailPage() {
   });
 
   const accountMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<{ readonly created: number; readonly skipped: number }> => {
+      if (!id) throw new Error("custom provider id is required");
       const values = accountCredentials.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
       if (!accountName.trim() || values.length === 0) throw new Error("Enter an account name and at least one API key.");
-      await Promise.all(values.map((credential, index) => apiPost(`/providers/${id}/accounts`, {
+      const items: AccountBatchItem[] = values.map((credential, index) => ({
         name: values.length === 1 ? accountName.trim() : `${accountName.trim()}-${index + 1}`,
         credentialKind: "api_key",
         credential,
-      })));
+      }));
+      return createAccountsInBatches(id, items);
     },
-    onSuccess: () => {
-      toast.success("API key account(s) added");
+    onSuccess: ({ created, skipped }) => {
+      toast.success(`API key account${created === 1 ? "" : "s"} added${skipped > 0 ? `, ${skipped} skipped` : ""}`);
       setAccountOpen(false);
       setAccountName("");
       setAccountCredentials("");

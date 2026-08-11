@@ -6,6 +6,12 @@ import { normalizeApiKeyCredential } from "./providers";
 /** Account row plus failed/replacement route switch metadata. */
 export interface AccountView extends AccountRowView, RouteTransitionView {}
 
+export interface AccountBatchCreateResult {
+  readonly created: number;
+  readonly skipped: number;
+}
+
+const MAX_ACCOUNT_BATCH_SIZE = 2_000;
 
 export class AccountService {
   constructor(
@@ -55,6 +61,30 @@ export class AccountService {
       active: booleanOrUndefined(value.active),
     });
   }
+  async createBatch(providerId: string, input: unknown): Promise<AccountBatchCreateResult | { readonly ok: false; readonly status: number; readonly code: ConsoleErrorCode; readonly message: string }> {
+    if (typeof input !== "object" || input === null || !("items" in input) || !Array.isArray(input.items)) {
+      return { ok: false, status: 400, code: "invalid_request", message: "items array is required" };
+    }
+    const items = input.items;
+    if (items.length === 0) return { created: 0, skipped: 0 };
+    if (items.length > MAX_ACCOUNT_BATCH_SIZE) {
+      return { ok: false, status: 413, code: "invalid_request", message: `maximum ${MAX_ACCOUNT_BATCH_SIZE} accounts per batch` };
+    }
+    let created = 0;
+    let skipped = 0;
+    for (const item of items) {
+      const value = typeof item === "object" && item !== null && !Array.isArray(item) ? item as Record<string, unknown> : {};
+      try {
+        const result = await this.create({ ...value, providerId });
+        if ("id" in result) created += 1;
+        else skipped += 1;
+      } catch {
+        skipped += 1;
+      }
+    }
+    return { created, skipped };
+  }
+
 
   async update(id: string, patch: unknown): Promise<AccountRowView | null> {
     if (typeof patch !== "object" || patch === null) return null;

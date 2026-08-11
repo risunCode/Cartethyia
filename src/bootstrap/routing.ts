@@ -1,6 +1,7 @@
-import type { AccountCandidate, AffinityKey, ClientIdentity, CredentialKind, ModelLockRecord, RouteCandidate } from "../application/contracts";
+import type { AccountCandidate, AffinityKey, ClientIdentity, CredentialKind, ModelLockRecord, RouteCandidate, WebSearchPreference, WebSearchRouteKind } from "../application/contracts";
 import type { ApplicationErrorKind } from "../application/contracts";
 import type { ProxyRequest } from "../application/contracts";
+import type { Adapter } from "../application/contracts";
 import type { ProxyRequestLogEvent, ProxyRoutePlan } from "../application/request";
 import { AccountHealthManager, QuotaCoordinator } from "../application/auth";
 import { resolveCliModelMapping } from "../application/cli-model-mapping";
@@ -8,6 +9,7 @@ import { resolveModelChain } from "../application/routing";
 import type { RouteSnapshotCache } from "../application/routing-snapshot";
 import { createRouteSnapshotCache } from "../application/routing-snapshot";
 import { resolveModelWireSurface } from "../open-sse/translate";
+import { hasWebSearchCapability, isWebSearchTool, webSearchPreferenceOrder } from "../application/web-search-routing";
 import { syncCustomAdapters } from "../providers/custom";
 import { ProviderRegistry } from "../providers/registry";
 import type { AccountRepository, AliasRepository, CliModelMappingRepository, ComboRepository, ConfigPersistence, CustomProviderRepository, ProxyRepository } from "../storage";
@@ -89,28 +91,64 @@ async function listAccountCandidates(cache: RouteSnapshotCache, health: AccountH
   }));
 }
 
-function requestsNativeWebSearch(request: ProxyRequest): boolean {
-  return request.tools.some((tool) => {
-    const normalizedName = tool.name.toLowerCase().replace(/[^a-z]/g, "");
-    return normalizedName === "websearch"
-      || normalizedName === "websearchpreview"
-      || tool.nativeType?.startsWith("web_search_") === true;
-  });
-}
 
 function supportsNativeWebSearch(registry: ProviderRegistry, target: { readonly providerId: string; readonly modelId: string }): boolean {
   const adapter = registry.get(target.providerId);
   if (adapter === null) return false;
-  return (adapter.models.get(target.modelId)?.capabilities ?? adapter.capabilities).search === true;
+  return hasWebSearchCapability(adapter.models.get(target.modelId)?.capabilities ?? adapter.capabilities);
 }
 
-function hasConfiguredExa(snapshot: Awaited<ReturnType<RouteSnapshotCache["get"]>>): boolean {
-  return (snapshot.accountsByProvider.get("exa") ?? []).some((account) => account.active)
-    || (Bun.env.EXA_API_KEY?.trim().length ?? 0) > 0;
+function hasConfiguredProvider(snapshot: Awaited<ReturnType<RouteSnapshotCache["get"]>>, registry: ProviderRegistry, providerId: string): boolean {
+  const adapter = registry.get(providerId);
+  if (adapter === null) return false;
+  if (providerId === "exa" && (Bun.env.EXA_API_KEY?.trim().length ?? 0) > 0) return true;
+  if (adapter.metadata.credentialKind === "none") return true;
+  return (snapshot.accountsByProvider.get(providerId) ?? []).some((account) => account.active);
+}
+
+function searchCandidateForProvider(
+  snapshot: Awaited<ReturnType<RouteSnapshotCache["get"]>>,
+  registry: ProviderRegistry,
+  providerId: "codex" | "antigravity" | "exa",
+  sourceSurface: ProxyRequest["sourceSurface"],
+  routeKind: Exclude<WebSearchRouteKind, "native" | "passthrough">,
+): RouteCandidate | null {
+  const adapter = registry.get(providerId);
+  if (adapter === null || !hasConfiguredProvider(snapshot, registry, providerId)) return null;
+  const models = adapter.models.list
+    .filter((model) => hasWebSearchCapability(model.capabilities) && resolveModelWireSurface(adapter.metadata, adapter.capabilities, model.capabilities, sourceSurface) !== null)
+    .sort((left, right) => {
+      if (providerId !== "exa") return 0;
+      if (left.id === "exa-search") return -1;
+      if (right.id === "exa-search") return 1;
+      return left.id.localeCompare(right.id);
+    });
+  const model = models[0];
+  if (model === undefined) return null;
+  return {
+    id: `${providerId}/${model.id}`,
+    providerId,
+    modelId: model.id,
+    surface: sourceSurface,
+    health: null,
+    enabled: true,
+    authorized: true,
+    compatible: true,
+    searchRoute: routeKind,
+  };
+}
+
+
+function appendUniqueCandidate(target: RouteCandidate[], candidate: RouteCandidate): void {
+  if (!target.some((item) => item.id === candidate.id)) target.push(candidate);
+}
+
+function passthroughCandidate(candidate: RouteCandidate): RouteCandidate {
+  return { ...candidate, searchRoute: "passthrough" };
 }
 
 function webSearchUnsupportedReason(): string {
-  return "The selected upstream does not support native web search. Configure Exa or select an upstream with native web search support.";
+  return "The selected upstream does not support web search and no valid passthrough route exists.";
 }
 
 function createRouteResolver(
@@ -118,6 +156,7 @@ function createRouteResolver(
   cache: RouteSnapshotCache,
   _health: AccountHealthManager,
   _quota: QuotaCoordinator,
+  readWebSearchPreference: () => WebSearchPreference = () => "auto",
 ): (request: ProxyRequest, affinity: AffinityKey, client: ClientIdentity) => Promise<ProxyRoutePlan> {
   return async (request, affinity, client) => {
     const snapshot = await cache.get();
@@ -151,7 +190,7 @@ function createRouteResolver(
     }
     // Bare model ID fallback: when the chain couldn't resolve the model
     // (no prefix, no alias, no combo), search every adapter's catalog and
-    // DB-known models for an exact match.  This lets clients send just the
+    // DB-known models for an exact match. This lets clients send just the
     // model id (e.g. "blackbox-pro") without a provider prefix.
     if (candidates.length === 0 && chain.kind === "unresolved") {
       for (const adapter of registry.list()) {
@@ -172,30 +211,45 @@ function createRouteResolver(
         });
       }
     }
+
     let unsupportedReason: string | undefined;
-    if (requestsNativeWebSearch(routedRequest)) {
-      const nativeCandidates = candidates.filter((candidate) => supportsNativeWebSearch(registry, candidate));
-      candidates.splice(0, candidates.length, ...nativeCandidates);
-      if (candidates.length === 0) {
-        const exa = registry.get("exa");
-        const exaModel = exa?.models.get("exa-search");
-        if (exa !== null && exaModel !== null && exaModel !== undefined && hasConfiguredExa(snapshot) && resolveModelWireSurface(exa.metadata, exa.capabilities, exaModel.capabilities, request.sourceSurface) !== null) {
-          candidates.push({
-            id: "exa/exa-search",
-            providerId: "exa",
-            modelId: "exa-search",
-            surface: request.sourceSurface,
-            health: null,
-            enabled: true,
-            authorized: true,
-            compatible: true,
-          });
-        } else {
-          unsupportedReason = webSearchUnsupportedReason();
-        }
+    let webSearch = false;
+    let webSearchPassthrough = false;
+    let maxAttempts: number | undefined;
+    if (routedRequest.tools.some(isWebSearchTool)) {
+      webSearch = true;
+      const originalCandidates = [...candidates];
+      const nativeCandidates = originalCandidates
+        .filter((candidate) => supportsNativeWebSearch(registry, candidate))
+        .map((candidate) => ({ ...candidate, searchRoute: "native" as const }));
+      const passthroughCandidates = originalCandidates
+        .filter((candidate) => !supportsNativeWebSearch(registry, candidate))
+        .map(passthroughCandidate);
+      const groups: Record<WebSearchRouteKind, readonly RouteCandidate[]> = {
+        native: nativeCandidates,
+        codex: [searchCandidateForProvider(snapshot, registry, "codex", routedRequest.sourceSurface, "codex")].filter((candidate): candidate is RouteCandidate => candidate !== null),
+        antigravity: [searchCandidateForProvider(snapshot, registry, "antigravity", routedRequest.sourceSurface, "antigravity")].filter((candidate): candidate is RouteCandidate => candidate !== null),
+        exa: [searchCandidateForProvider(snapshot, registry, "exa", routedRequest.sourceSurface, "exa")].filter((candidate): candidate is RouteCandidate => candidate !== null),
+        passthrough: passthroughCandidates,
+      };
+      const ordered: RouteCandidate[] = [];
+      for (const kind of webSearchPreferenceOrder(readWebSearchPreference())) {
+        for (const candidate of groups[kind]) appendUniqueCandidate(ordered, candidate);
       }
+      for (const candidate of passthroughCandidates) appendUniqueCandidate(ordered, candidate);
+      candidates.splice(0, candidates.length, ...ordered);
+      const hasSearchCandidate = ordered.some((candidate) => candidate.searchRoute !== "passthrough");
+      webSearchPassthrough = !hasSearchCandidate && passthroughCandidates.length > 0;
+      maxAttempts = Math.min(6, Math.max(2, candidates.length));
+      if (candidates.length === 0) unsupportedReason = webSearchUnsupportedReason();
     }
-    return { affinity, candidates, requestedModel: routedRequest.model, ...(unsupportedReason === undefined ? {} : { unsupportedReason }) };
+    return {
+      affinity,
+      candidates,
+      requestedModel: routedRequest.model,
+      ...(unsupportedReason === undefined ? {} : { unsupportedReason }),
+      ...(webSearch ? { webSearch, webSearchPassthrough, maxAttempts } : {}),
+    };
   };
 }
 
