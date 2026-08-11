@@ -70,9 +70,8 @@ export function normalizeChatRequest(body: unknown, input: NormalizeInput): Norm
   if (isProtocolError(reasoning)) return normalizeFail(reasoning);
   const finalFlag = reasoningState.seen && reasoning.flag === "default" ? "enabled" : reasoning.flag;
 
-  const maxOutputTokens = normalizeMaxOutputTokens(root);
-  if (isProtocolError(maxOutputTokens)) return normalizeFail(maxOutputTokens);
-
+  const rawCacheKey = root["prompt_cache_key"];
+  const cacheKey = typeof rawCacheKey === "string" && rawCacheKey.length <= 256 ? rawCacheKey : undefined;
   return normalizeOk({
     model,
     messages,
@@ -81,12 +80,12 @@ export function normalizeChatRequest(body: unknown, input: NormalizeInput): Norm
     responseFormat,
     reasoning: finalFlag,
     reasoningConfig: reasoning.config,
-    maxOutputTokens,
     images,
     sourceSurface: "openai-chat",
     signal: input.signal,
     limits: input.limits,
     wirePayload: root,
+    ...(cacheKey === undefined ? {} : { cacheKey }),
   });
 }
 

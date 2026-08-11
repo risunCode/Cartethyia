@@ -242,7 +242,8 @@ function normalizeBlock(raw: unknown, field: string, images: ImageReference[]): 
     case "text": {
       const text = narrowString(obj["text"], `${field}.text`, MAX_TEXT_BLOCK_LENGTH);
       if (isProtocolError(text)) return text;
-      return { type: "text", text };
+      const cacheControl = isRecord(obj["cache_control"]) && obj["cache_control"]["type"] === "ephemeral" ? "ephemeral" as const : undefined;
+      return { type: "text", text, ...(cacheControl === undefined ? {} : { cacheControl }) };
     }
     case "image": {
       const image = normalizeImage(obj["source"], `${field}.source`, images);
@@ -431,7 +432,27 @@ export function buildMessagesPayload(request: ProxyRequest, capabilities: Provid
     if (field === "context_management" && options.includeContextManagement === false) continue;
     preserveWireField(payload, request, "anthropic-messages", field);
   }
+  if (cacheEnabled) {
+    applySystemCacheControl(payload);
+    applyLastUserCacheControl(payload);
+  }
   return payload;
+}
+
+function applySystemCacheControl(payload: Record<string, unknown>): void {
+  const system = payload.system;
+  if (typeof system === "string" && system.length > 0) {
+    payload.system = [{ type: "text", text: system, cache_control: { type: "ephemeral" } }];
+    return;
+  }
+  if (!Array.isArray(system)) return;
+  let marked = false;
+  const blocks = system.map((block) => {
+    if (!isRecord(block) || block.type !== "text" || marked) return block;
+    marked = true;
+    return { ...block, cache_control: { type: "ephemeral" } };
+  });
+  if (marked) payload.system = blocks;
 }
 
 function applyLastUserCacheControl(payload: Record<string, unknown>): void {
@@ -441,16 +462,24 @@ function applyLastUserCacheControl(payload: Record<string, unknown>): void {
     const message = messages[i];
     if (!isRecord(message) || message.role !== "user") continue;
     const content = message.content;
+    if (typeof content === "string" && content.length > 0) {
+      payload.messages = messages.map((item, index) => index === i ? { ...message, content: [{ type: "text", text: content, cache_control: { type: "ephemeral" } }] } : item);
+      return;
+    }
     if (!Array.isArray(content)) continue;
-    for (let j = content.length - 1; j >= 0; j--) {
-      const block = content[j];
-      if (isRecord(block) && block.type === "text") {
-        block.cache_control = { type: "ephemeral" };
-        return;
-      }
+    let marked = false;
+    const updatedContent = content.map((block) => {
+      if (!isRecord(block) || block.type !== "text" || marked) return block;
+      marked = true;
+      return { ...block, cache_control: { type: "ephemeral" } };
+    });
+    if (marked) {
+      payload.messages = messages.map((item, index) => index === i ? { ...message, content: updatedContent } : item);
+      return;
     }
   }
 }
+
 
 function toAnthropicMessage(message: NormalizedMessage): Record<string, unknown> {
   switch (message.role) {
@@ -509,7 +538,7 @@ function toAnthropicToolUse(block: ContentBlock): Record<string, unknown> {
 function toAnthropicUserBlock(block: ContentBlock): readonly Record<string, unknown>[] {
   switch (block.type) {
     case "text":
-      return [{ type: "text", text: block.text ?? "" }];
+      return [{ type: "text", text: block.text ?? "", ...(block.cacheControl === "ephemeral" ? { cache_control: { type: "ephemeral" } } : {}) }];
     case "image":
       return [{ type: "image", source: toAnthropicImageSource(block.image) }];
     case "tool_result":

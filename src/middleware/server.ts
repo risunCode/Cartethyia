@@ -1,3 +1,4 @@
+import { sanitizeMessage } from "../application/contracts";
 import { createCartethyiaRuntime, runProxyRequest, type CartethyiaRuntime } from "../bootstrap/composition";
 import { lookupProxyEndpoint } from "../open-sse/translate";
 import { isRouteAllowed } from "../security/access";
@@ -6,7 +7,7 @@ import { resolveConsoleStatic, resolveLandingStatic, applyStaticAssetHeaders, ap
 import { applySecurityHeaders as applyCommonSecurityHeaders, secureResponse } from "../security/headers";
 import { runtimeSettings } from "../console/runtime-settings";
 import { runtimeMemoryLimits } from "../traffic/limits";
-import { encodeSurfaceStream } from "../providers/surfaces";
+import { createSurfaceStream } from "../providers/surfaces";
 import { clientIp } from "../console/services/composition";
 import { activePerIpFlights } from "../traffic/per-ip";
 import { SlidingWindowRateLimiter } from "../traffic/rate-limiter";
@@ -133,7 +134,7 @@ export async function startServer(): Promise<void> {
         if (hasConflictingCredentials(request)) return errorResponse(400, "invalid_request", "Use exactly one API credential header.");
         const token = requestToken(request);
         const key = token === null ? null : runtime.config.apiKeys.getBySecret(token);
-        if (key === null) return errorResponse(401, "authentication_failed", "A valid x-api-key header (or Authorization: Bearer token) is required to use this proxy.");
+        if (key === null || !key.active || key.revokedAt !== null) return errorResponse(401, "authentication_failed", "A valid x-api-key header (or Authorization: Bearer token) is required to use this proxy.");
         const acl = aclFor(key);
         const revision = catalogRevision(runtime);
         if (catalogCache === null || catalogCache.revision !== revision) {
@@ -205,27 +206,37 @@ export async function startServer(): Promise<void> {
       const settings = proxyRuntimeSettings(runtime);
       const ip = clientIp(request, settings.trustProxy);
       if (hasConflictingCredentials(request)) {
-        void recordSecurityEvent(runtime, requestId, ip, "ambiguous_credentials");
+        void recordSecurityEvent(runtime, requestId, ip, "ambiguous_credentials").catch((error: unknown) => {
+          runtime.logger.web("error", JSON.stringify({ event: "detached_task_failed", task: "record_security_event", error: sanitizeMessage(error) }));
+        });
         const response = errorResponse(400, "invalid_request", "Use exactly one API credential header.", requestId);
         recordAccessLog(runtime, url.pathname, request, requestId, response.status, startedAt);
         return response;
       }
       const token = requestToken(request);
       const key = token === null ? null : runtime.config.apiKeys.getBySecret(token);
-      if (key === null) {
-        void recordSecurityEvent(runtime, requestId, ip, "invalid_api_key");
+      if (key === null || !key.active || key.revokedAt !== null) {
+        void recordSecurityEvent(runtime, requestId, ip, "invalid_api_key").catch((error: unknown) => {
+          runtime.logger.web("error", JSON.stringify({ event: "detached_task_failed", task: "record_security_event", error: sanitizeMessage(error) }));
+        });
         const response = errorResponse(401, "authentication_failed", "A valid x-api-key header (or Authorization: Bearer token) is required to use this proxy.", requestId);
         recordAccessLog(runtime, url.pathname, request, requestId, response.status, startedAt);
         return response;
       }
-      if (Date.now() - bannedIpsCacheAt > BANNED_IPS_TTL_MS) void refreshBannedIps(runtime);
+      if (Date.now() - bannedIpsCacheAt > BANNED_IPS_TTL_MS) {
+        void refreshBannedIps(runtime).catch((error: unknown) => {
+          runtime.logger.web("error", JSON.stringify({ event: "detached_task_failed", task: "refresh_banned_ips", error: sanitizeMessage(error) }));
+        });
+      }
       if (isIpBanned(ip)) {
         const response = errorResponse(403, "authorization_denied", "Your IP address has been banned.", requestId);
         recordAccessLog(runtime, url.pathname, request, requestId, response.status, startedAt);
         return response;
       }
       if (globalInFlight >= MAX_GLOBAL_IN_FLIGHT) {
-        void recordSecurityEvent(runtime, requestId, ip, "rate_limit");
+        void recordSecurityEvent(runtime, requestId, ip, "rate_limit").catch((error: unknown) => {
+          runtime.logger.web("error", JSON.stringify({ event: "detached_task_failed", task: "record_security_event", error: sanitizeMessage(error) }));
+        });
         const response = errorResponse(429, "rate_limit_error", "Server is at capacity. Try again shortly.", requestId);
         response.headers.set("retry-after", "5");
         recordAccessLog(runtime, url.pathname, request, requestId, response.status, startedAt);
@@ -235,16 +246,23 @@ export async function startServer(): Promise<void> {
       const parsedBody = await readProxyBody(request, route.endpoint);
       if (parsedBody instanceof Response) {
         globalInFlight--;
-        if (parsedBody.status === 413) void recordSecurityEvent(runtime, requestId, ip, "request_too_large");
+        if (parsedBody.status === 413) {
+          void recordSecurityEvent(runtime, requestId, ip, "request_too_large").catch((error: unknown) => {
+            runtime.logger.web("error", JSON.stringify({ event: "detached_task_failed", task: "record_security_event", error: sanitizeMessage(error) }));
+          });
+        }
         recordAccessLog(runtime, url.pathname, request, requestId, parsedBody.status, startedAt);
         return parsedBody;
       }
       const body = parsedBody;
       const bodyRecord = typeof body === "object" && body !== null && !Array.isArray(body) ? body as Record<string, unknown> : {};
+      const requestedModel = typeof bodyRecord.model === "string" ? bodyRecord.model : "";
       const rateLimit = rateLimiter.tryAcquire(ip);
       if (!rateLimit.allowed) {
         globalInFlight--;
-        void recordSecurityEvent(runtime, requestId, ip, "rate_limit");
+        void recordSecurityEvent(runtime, requestId, ip, "rate_limit").catch((error: unknown) => {
+          runtime.logger.web("error", JSON.stringify({ event: "detached_task_failed", task: "record_security_event", error: sanitizeMessage(error) }));
+        });
         const response = errorResponse(429, "rate_limit_error", "Rate limit exceeded. Try again shortly.", requestId);
         response.headers.set("retry-after", String(Math.ceil(rateLimit.retryAfterMs / 1000)));
         recordAccessLog(runtime, url.pathname, request, requestId, response.status, startedAt);
@@ -253,7 +271,9 @@ export async function startServer(): Promise<void> {
       const flight = perIpFlights.tryAcquire(ip, settings.maxFlightsPerIp);
       if (flight === null) {
         globalInFlight--;
-        void recordSecurityEvent(runtime, requestId, ip, "rate_limit");
+        void recordSecurityEvent(runtime, requestId, ip, "rate_limit").catch((error: unknown) => {
+          runtime.logger.web("error", JSON.stringify({ event: "detached_task_failed", task: "record_security_event", error: sanitizeMessage(error) }));
+        });
         const response = errorResponse(429, "rate_limit_error", "Too many concurrent requests from this IP. Try again shortly.", requestId);
         recordAccessLog(runtime, url.pathname, request, requestId, response.status, startedAt);
         return response;
@@ -281,20 +301,29 @@ export async function startServer(): Promise<void> {
           release(response.status);
           return response;
         }
-        const requestedModel = typeof bodyRecord.model === "string" ? bodyRecord.model : "unknown";
+        const encoded = createSurfaceStream(route.surface, appendTerminalError(bodyResponse.events), requestedModel);
+        const reader = encoded.getReader();
         const stream = new ReadableStream<Uint8Array>({
-          async start(controller) {
+          async pull(controller) {
             try {
-              for await (const chunk of encodeSurfaceStream(route.surface, appendTerminalError(bodyResponse.events), requestedModel)) controller.enqueue(chunk);
-              controller.close();
+              const next = await reader.read();
+              if (next.done) {
+                controller.close();
+                release(presented.status);
+              } else {
+                controller.enqueue(next.value);
+              }
             } catch {
               controller.close();
-            } finally {
               release(presented.status);
             }
           },
-          cancel() {
-            release(presented.status);
+          async cancel(reason) {
+            try {
+              await reader.cancel(reason);
+            } finally {
+              release(499);
+            }
           },
         });
         const headers = new Headers(presented.headers);
@@ -308,7 +337,9 @@ export async function startServer(): Promise<void> {
     },
   });
   const configuredProviders = new Set(runtime.config.accounts.list().map((account) => account.provider));
-  void runtime.registry.prewarm([...configuredProviders]);
+  void runtime.registry.prewarm([...configuredProviders]).catch((error: unknown) => {
+    runtime.logger.system("warn", "provider-registry", `Provider prewarm failed: ${sanitizeMessage(error)}`);
+  });
   console.log(`[cartethyia] listening on ${server.url}`);
   const close = (): void => { runtime.close(); server.stop(); };
   process.on("SIGTERM", close);

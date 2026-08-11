@@ -91,15 +91,16 @@ export function markCacheSections(request: ProxyRequest): readonly CacheSection[
 
 export function applyCachePlan(request: ProxyRequest, plan: CachePlan): ProxyRequest {
   if (!plan.hasStablePrefix || plan.prefixFingerprint === null) return request;
+  const cacheKey = request.cacheKey ?? plan.prefixFingerprint;
   if (plan.prefixEndMessageIndex === null || plan.prefixEndBlockIndex === null) {
-    return { ...request, cacheKey: plan.prefixFingerprint };
+    return { ...request, cacheKey };
   }
   const targetMsgIdx = plan.prefixEndMessageIndex;
   const targetBlkIdx = plan.prefixEndBlockIndex;
   const targetMsg = request.messages[targetMsgIdx];
-  if (targetMsg === undefined) return { ...request, cacheKey: plan.prefixFingerprint };
+  if (targetMsg === undefined) return { ...request, cacheKey };
   const targetBlk = targetMsg.content[targetBlkIdx];
-  if (targetBlk === undefined) return { ...request, cacheKey: plan.prefixFingerprint };
+  if (targetBlk === undefined) return { ...request, cacheKey };
 
   // Structural sharing: only copy the one message + one block that gets the cacheControl flag.
   const messages = request.messages.map((message, messageIndex) => {
@@ -109,7 +110,7 @@ export function applyCachePlan(request: ProxyRequest, plan: CachePlan): ProxyReq
     );
     return { ...message, content };
   });
-  return { ...request, messages, cacheKey: plan.prefixFingerprint };
+  return { ...request, messages, cacheKey };
 }
 
 export function buildCachePlan(request: ProxyRequest): CachePlan {
@@ -121,6 +122,15 @@ export function buildCachePlan(request: ProxyRequest): CachePlan {
   for (const section of sections) {
     if (section.kind === "tools") continue;
     if (!inPrefix) continue;
+    const message = section.messageIndex !== null ? request.messages[section.messageIndex] : undefined;
+    const block = section.blockIndex !== null && message !== undefined ? message.content[section.blockIndex] : undefined;
+    if (block?.cacheControl === "ephemeral") {
+      prefixEndMessageIndex = section.messageIndex;
+      prefixEndBlockIndex = section.blockIndex;
+      prefixText.push(block.text ?? "");
+      inPrefix = false;
+      continue;
+    }
     const cacheable =
       section.kind === "system" ||
       section.kind === "developer" ||
@@ -129,8 +139,6 @@ export function buildCachePlan(request: ProxyRequest): CachePlan {
     if (cacheable && section.stable) {
       prefixEndMessageIndex = section.messageIndex;
       prefixEndBlockIndex = section.blockIndex;
-      const message = section.messageIndex !== null ? request.messages[section.messageIndex] : undefined;
-      const block = section.blockIndex !== null && message !== undefined ? message.content[section.blockIndex] : undefined;
       prefixText.push(block?.text ?? "");
     } else {
       inPrefix = false;

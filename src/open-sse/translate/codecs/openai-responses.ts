@@ -76,6 +76,8 @@ export function normalizeResponsesRequest(body: unknown, input: NormalizeInput):
   const include = normalizeInclude(root["include"]);
   if (isProtocolError(include)) return normalizeFail(include);
 
+  const rawCacheKey = root["prompt_cache_key"];
+  const cacheKey = typeof rawCacheKey === "string" && rawCacheKey.length <= 256 ? rawCacheKey : undefined;
   const finalReasoning = reasoningState.seen || reasoningConfig?.effort !== undefined || reasoningConfig?.enabled === true || reasoningConfig?.maxTokens !== undefined ? "enabled" : reasoning.flag;
 
   return normalizeOk({
@@ -95,6 +97,7 @@ export function normalizeResponsesRequest(body: unknown, input: NormalizeInput):
     signal: input.signal,
     limits: input.limits,
     wirePayload: root,
+    ...(cacheKey === undefined ? {} : { cacheKey }),
   });
 }
 

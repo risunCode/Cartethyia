@@ -18,6 +18,7 @@ import { createAnthropicMessagesStreamMapper } from "../../src/open-sse/transpor
 import { ensureToolCallIds, fixMissingToolResponses } from "../../src/open-sse/concerns/tool-calls";
 import type { NormalizeInput } from "../../src/application/protocols";
 import { isProtocolError } from "../../src/application/protocols";
+import { buildCachePlan, applyCachePlan } from "../../src/application/cache";
 import { OpenAIAdapter } from "../../src/providers/openai";
 import { CodexAdapter } from "../../src/providers/codex";
 import { buildGeminiPayload } from "../../src/open-sse/translate/codecs/gemini-generate-content";
@@ -360,6 +361,33 @@ describe("Anthropic Messages normalization and payload", () => {
     const p = buildMessagesPayload(chatReq({ sourceSurface: "anthropic-messages", cacheKey: "ck", messages: [{ role: "system", content: [{ type: "text", text: "s" }] }, { role: "user", content: [{ type: "text", text: "u" }] }] }), caps);
     expect(Array.isArray(p.system)).toBe(true);
   });
+  test("preserves explicit OpenAI cache keys and maps them to Anthropic markers", () => {
+    const normalized = normalizeChatRequest({ model: "m", prompt_cache_key: "external-key", messages: [{ role: "user", content: "hi" }] }, ni());
+    expect(normalized.ok).toBe(true);
+    if (!normalized.ok) return;
+    expect(normalized.request.cacheKey).toBe("external-key");
+    const payload = buildMessagesPayload(chatReq({
+      sourceSurface: "anthropic-messages",
+      cacheKey: "external-key",
+      wirePayload: { model: "m", max_tokens: 10, messages: [{ role: "user", content: "hi" }], stream: false },
+    }), capabilitiesOf({ surfaces: ["anthropic-messages"], reasoning: true, explicitCache: true, promptCacheKey: true }));
+    const content = payload.messages?.[0]?.content;
+    expect(Array.isArray(content)).toBe(true);
+    expect((content as Array<Record<string, unknown>>)[0]?.cache_control).toEqual({ type: "ephemeral" });
+  });
+});
+
+test("maps explicit Anthropic cache markers to an OpenAI prompt cache key", () => {
+  const normalized = normalizeMessagesRequest({
+    model: "m",
+    max_tokens: 10,
+    messages: [{ role: "user", content: [{ type: "text", text: "stable", cache_control: { type: "ephemeral" } }] }],
+  }, ni());
+  expect(normalized.ok).toBe(true);
+  if (!normalized.ok) return;
+  const request = applyCachePlan(normalized.request, buildCachePlan(normalized.request));
+  expect(request.cacheKey).toMatch(/^[0-9a-f]{16}$/);
+  expect(buildChatPayload(request)["prompt_cache_key"]).toBe(request.cacheKey);
 });
   test("round-trips context management and compaction blocks", () => {
     const r = normalizeMessagesRequest({

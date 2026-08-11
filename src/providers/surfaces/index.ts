@@ -286,3 +286,22 @@ export async function* encodeSurfaceStream(surface: Surface, events: AsyncIterab
   }
   for await (const event of events) yield frame({ data: event });
 }
+
+/** Bridges the async encoder to a backpressure-aware web stream. */
+export function createSurfaceStream(surface: Surface, events: AsyncIterable<StreamEvent>, model: string): ReadableStream<Uint8Array> {
+  const iterator = encodeSurfaceStream(surface, events, model);
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await iterator.next();
+        if (next.done) controller.close();
+        else controller.enqueue(next.value);
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      await iterator.return?.(reason);
+    },
+  });
+}
