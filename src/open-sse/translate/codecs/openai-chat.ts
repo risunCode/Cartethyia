@@ -30,6 +30,7 @@ type NormalizeInput,
 type NormalizeResult,
 type ProtocolError, } from "../../../application/protocols";
 import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, ReasoningConfig, ReasoningEffort, ReasoningSummary } from "../../../application/contracts";
+import { preserveWireField, preserveWireFields } from "../policy";
 
 /**
  * Strict validation and normalization for OpenAI Chat Completions
@@ -85,6 +86,7 @@ export function normalizeChatRequest(body: unknown, input: NormalizeInput): Norm
     sourceSurface: "openai-chat",
     signal: input.signal,
     limits: input.limits,
+    wirePayload: root,
   });
 }
 
@@ -313,6 +315,10 @@ export function buildChatPayload(request: ProxyRequest): Record<string, unknown>
     }
   }
   if (request.stream) payload.stream_options = { include_usage: true };
+  preserveWireFields(payload, request, "openai-chat", ["model", "stream", "messages", "tools", "max_tokens", "max_completion_tokens", "prompt_cache_key", "response_format", "reasoning_effort", "reasoning", "stream_options"]);
+  for (const field of ["model", "stream", "messages", "tools", "max_tokens", "max_completion_tokens", "prompt_cache_key", "response_format", "reasoning_effort", "reasoning", "stream_options"] as const) {
+    preserveWireField(payload, request, "openai-chat", field);
+  }
   return payload;
 }
 

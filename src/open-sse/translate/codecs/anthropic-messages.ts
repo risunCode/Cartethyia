@@ -35,6 +35,7 @@ type NormalizeInput,
 type NormalizeResult,
 type ProtocolError, } from "../../../application/protocols";
 import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool } from "../../../application/contracts";
+import { preserveWireField, preserveWireFields } from "../policy";
 
 export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): NormalizeResult {
   const aborted = abortedError(input.signal);
@@ -86,6 +87,7 @@ export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): 
     sourceSurface: "anthropic-messages",
     signal: input.signal,
     limits: input.limits,
+    wirePayload: root,
     ...(contextManagement === undefined ? {} : { contextManagement }),
     ...(mcpServers === undefined ? {} : { mcpServers }),
     ...(metadataUserId === undefined ? {} : { metadataUserId }),
@@ -424,7 +426,11 @@ export function buildMessagesPayload(request: ProxyRequest, capabilities: Provid
   if (request.reasoning === "enabled" && capabilities.reasoning) {
     payload.thinking = { type: "enabled", budget_tokens: Math.min(request.maxOutputTokens ?? DEFAULT_MAX_TOKENS, MAX_THINKING_BUDGET) };
   }
-  if (cacheEnabled) applyLastUserCacheControl(payload);
+  preserveWireFields(payload, request, "anthropic-messages", ["model", "max_tokens", "stream", "messages", "system", "metadata", "mcp_servers", "tools", "context_management", "thinking"]);
+  for (const field of ["model", "max_tokens", "stream", "messages", "system", "metadata", "mcp_servers", "tools", "context_management", "thinking"] as const) {
+    if (field === "context_management" && options.includeContextManagement === false) continue;
+    preserveWireField(payload, request, "anthropic-messages", field);
+  }
   return payload;
 }
 

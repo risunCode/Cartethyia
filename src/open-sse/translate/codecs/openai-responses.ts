@@ -29,6 +29,7 @@ type NormalizeInput,
 type NormalizeResult,
 type ProtocolError, } from "../../../application/protocols";
 import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, ReasoningConfig, ReasoningContext, ReasoningEffort, ReasoningMode, ReasoningSummary } from "../../../application/contracts";
+import { preserveWireField, preserveWireFields } from "../policy";
 
 export function normalizeResponsesRequest(body: unknown, input: NormalizeInput): NormalizeResult {
   const aborted = abortedError(input.signal);
@@ -93,6 +94,7 @@ export function normalizeResponsesRequest(body: unknown, input: NormalizeInput):
     sourceSurface: "openai-responses",
     signal: input.signal,
     limits: input.limits,
+    wirePayload: root,
   });
 }
 
@@ -456,6 +458,11 @@ export function buildResponsesPayload(request: ProxyRequest, options: { readonly
     const contextManagement = request.contextManagement;
     if (Array.isArray(contextManagement)) payload.context_management = [...contextManagement];
     else if (isRecord(contextManagement) && Array.isArray(contextManagement.edits)) payload.context_management = contextManagement.edits;
+  }
+  preserveWireFields(payload, request, "openai-responses", ["model", "stream", "input", "tools", "max_output_tokens", "prompt_cache_key", "text", "reasoning", "include", "context_management"]);
+  for (const field of ["model", "stream", "input", "tools", "max_output_tokens", "prompt_cache_key", "text", "reasoning", "include", "context_management"] as const) {
+    if (field === "context_management" && options.includeContextManagement === false) continue;
+    preserveWireField(payload, request, "openai-responses", field);
   }
   return payload;
 }

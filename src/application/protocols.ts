@@ -1,5 +1,5 @@
 import { sanitizeMessage, type ApplicationErrorKind } from "./contracts";
-import type { ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, RequestLimits } from "./contracts";
+import type { ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, RequestLimits, Surface } from "./contracts";
 
 /**
  * Typed, sanitized failure returned by protocol validation and normalization.
@@ -213,7 +213,7 @@ const ANTHROPIC_WEB_SEARCH_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
-const ANTHROPIC_NATIVE_TOOL_TYPES: Record<string, NonNullable<NormalizedTool["nativeType"]>> = {
+const ANTHROPIC_NATIVE_TOOL_TYPES: Record<string, string> = {
   web_search_20250305: "web_search_20250305",
   code_execution_20250825: "code_execution_20250825",
   code_execution_20260120: "code_execution_20260120",
@@ -225,7 +225,7 @@ const ANTHROPIC_NATIVE_TOOL_TYPES: Record<string, NonNullable<NormalizedTool["na
   mcp_toolset: "mcp_toolset",
 };
 
-const ANTHROPIC_NATIVE_TOOL_NAMES: Record<NonNullable<NormalizedTool["nativeType"]>, string> = {
+const ANTHROPIC_NATIVE_TOOL_NAMES: Record<string, string> = {
   web_search_20250305: "web_search",
   code_execution_20250825: "code_execution",
   code_execution_20260120: "code_execution",
@@ -249,17 +249,18 @@ export function normalizeToolList(raw: unknown, options: NormalizeToolListOption
     const obj = narrowObject(item, field);
     if (isProtocolError(obj)) return obj;
     const type = typeof obj["type"] === "string" ? obj["type"] : undefined;
-    const nativeType = type === undefined ? undefined : ANTHROPIC_NATIVE_TOOL_TYPES[type];
+    // Native tool types are intentionally open-ended. Known types receive
+    // semantic defaults; unknown types remain opaque for same-surface
+    // passthrough and are still available to cross-protocol adapters.
+    const nativeType = type !== undefined && type !== "function" ? type : undefined;
+    const isKnownNative = nativeType !== undefined && ANTHROPIC_NATIVE_TOOL_TYPES[nativeType] !== undefined;
     const isNativeWebSearch = nativeType === "web_search_20250305";
-    if (type !== undefined && type !== "function" && nativeType === undefined) {
-      return protocolError(`${field}.type`, `unsupported tool type "${String(type)}"`);
-    }
     const source = options.unwrapFunction && nativeType === undefined
       ? narrowObject(obj["function"], `${field}.function`)
       : obj;
     if (isProtocolError(source)) return source;
     const nameField = options.unwrapFunction ? `${field}.function.name` : `${field}.name`;
-    const rawName = source["name"] ?? (nativeType === undefined ? undefined : ANTHROPIC_NATIVE_TOOL_NAMES[nativeType]);
+    const rawName = source["name"] ?? (nativeType === undefined ? undefined : ANTHROPIC_NATIVE_TOOL_NAMES[nativeType] ?? nativeType);
     const name = narrowString(rawName, nameField, MAX_TOOL_NAME_LENGTH);
     if (isProtocolError(name)) return name;
     if (name.trim() === "") return protocolError(nameField, "tool name must not be empty");
@@ -274,10 +275,10 @@ export function normalizeToolList(raw: unknown, options: NormalizeToolListOption
     let inputSchema: Record<string, unknown>;
     let nativeOptions: Readonly<Record<string, unknown>> | undefined;
     if (nativeType !== undefined) {
-      if (name !== ANTHROPIC_NATIVE_TOOL_NAMES[nativeType] && nativeType !== "mcp_toolset") {
+      if (isKnownNative && name !== ANTHROPIC_NATIVE_TOOL_NAMES[nativeType] && nativeType !== "mcp_toolset") {
         return protocolError(nameField, `unsupported Anthropic server tool name "${name}"`);
       }
-      inputSchema = ANTHROPIC_WEB_SEARCH_SCHEMA;
+      inputSchema = isNativeWebSearch ? ANTHROPIC_WEB_SEARCH_SCHEMA : {};
       if (isNativeWebSearch) {
         const maxUses = obj["max_uses"];
         if (maxUses !== undefined) {
@@ -352,6 +353,7 @@ export function normalizeToolList(raw: unknown, options: NormalizeToolListOption
       description,
       inputSchema,
       ...(nativeType !== undefined ? { nativeType, nativeOptions } : {}),
+      raw: obj,
       schemaJsonLength,
       ...(deferLoading !== undefined ? { deferLoading } : {}),
       ...(allowedCallers !== undefined ? { allowedCallers } : {}),
@@ -360,6 +362,7 @@ export function normalizeToolList(raw: unknown, options: NormalizeToolListOption
   }
   return tools;
 }
+
 
 /**
  * SSRF-safe image reference classification.

@@ -322,6 +322,37 @@ describe("Anthropic Messages normalization and payload", () => {
     expect(r.request.messages[0]?.content[0]?.text).toContain("web_search");
     expect(r.request.messages[0]?.content[1]?.text).toContain("Risun");
   });
+  test("accepts future native tool types and preserves them on the Anthropic surface", () => {
+    const futureTool = { type: "future_tool_20270101", name: "future_tool", configuration: { mode: "opaque" } };
+    const r = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      tools: [futureTool],
+      messages: [{ role: "user", content: [{ type: "future_block", payload: { keep: true } }] }],
+    }, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.request.tools[0]?.nativeType).toBe("future_tool_20270101");
+    const payload = buildMessagesPayload(r.request, capabilitiesOf({ surfaces: ["anthropic-messages"] }));
+    expect(payload.tools).toEqual([futureTool]);
+    expect(payload.messages).toEqual([{ role: "user", content: [{ type: "future_block", payload: { keep: true } }] }]);
+  });
+  test("adapts future native tools when the target is Responses", () => {
+    const r = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      tools: [{ type: "future_tool_20270101", name: "future_tool" }],
+      messages: [{ role: "user", content: "adapt" }],
+    }, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(buildResponsesPayload(r.request).tools).toEqual([{
+      type: "function",
+      name: "future_tool",
+      description: undefined,
+      parameters: {},
+    }]);
+  });
   test("payload: thinking capped at 32000; invalid JSON tool args throws; cache control applied", () => {
     const caps = capabilitiesOf({ surfaces: ["anthropic-messages"], reasoning: true, explicitCache: true, promptCacheKey: true });
     expect(buildMessagesPayload(chatReq({ sourceSurface: "anthropic-messages", reasoning: "enabled", maxOutputTokens: 100000 }), caps).thinking).toEqual({ type: "enabled", budget_tokens: 32000 });
@@ -357,7 +388,7 @@ test("round-trips Responses compaction configuration and opaque items", () => {
   expect(r.request.contextManagement).toEqual([{ type: "compaction", compact_threshold: 200000 }]);
   const input = buildResponsesPayload(r.request).input as readonly Record<string, unknown>[];
   expect(input[0]).toEqual({ type: "compaction", encrypted_content: "opaque" });
-  expect(input[1]).toEqual({ role: "user", content: "continue" });
+  expect(input[1]).toEqual({ type: "message", role: "user", content: [{ type: "input_text", text: "continue" }] });
 });
 test("converts Messages context-management edits for Responses providers", () => {
   const payload = buildResponsesPayload(chatReq({ contextManagement: { edits: [{ type: "clear_thinking_20251015", keep: "all" }] } }));

@@ -69,9 +69,6 @@ export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: st
       case "content_block_start": {
         const index = nullableNumber(parsed.index) ?? -1;
         const block = parsed.content_block;
-        if (isRecord(block) && block.type === "tool_search_tool_result") {
-          return { type: "server_tool_result", block };
-        }
         if (isRecord(block) && block.type === "compaction") {
           compactionBlocks.add(index);
           return { type: "compaction_start" };
@@ -81,6 +78,9 @@ export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: st
           toolIds.set(index, block.id);
           return { type: "tool_call_start", callId: block.id, name };
         }
+        // Preserve every future/server Anthropic block through the unified
+        // event model; same-surface encoders can emit it unchanged.
+        if (isRecord(block) && typeof block.type === "string") return { type: "server_tool_result", block };
         return null;
       }
       case "content_block_delta": {

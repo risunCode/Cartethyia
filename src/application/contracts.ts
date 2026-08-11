@@ -322,19 +322,12 @@ export interface NormalizedTool {
   readonly name: string;
   readonly description: string | null;
   readonly inputSchema: Record<string, unknown>;
-  /** Original Anthropic server-tool type, when the client supplied one. */
-  readonly nativeType?:
-    | "web_search_20250305"
-    | "code_execution_20250825"
-    | "code_execution_20260120"
-    | "code_execution_20260521"
-    | "tool_search_tool_regex_20251119"
-    | "tool_search_tool_bm25_20251119"
-    | "tool_search_tool_regex"
-    | "tool_search_tool_bm25"
-    | "mcp_toolset";
+  /** Original protocol-native tool type, when the client supplied one. */
+  readonly nativeType?: string;
   /** Bounded options preserved for Anthropic server tools. */
   readonly nativeOptions?: Readonly<Record<string, unknown>>;
+  /** Complete original tool definition for same-surface preservation. */
+  readonly raw?: Readonly<Record<string, unknown>>;
   /**
    * Precomputed `JSON.stringify(inputSchema).length`, set during normalization
    * so the cache planner reuses it instead of re-serializing the schema per
@@ -382,6 +375,11 @@ export interface ProxyRequest {
   readonly cacheKey?: string;
   /** Client-supplied Claude Code metadata.user_id, when present. */
   readonly metadataUserId?: string;
+  /**
+   * Parsed source payload retained for same-surface wire preservation.
+   * Cross-protocol adapters continue to use the canonical fields above.
+   */
+  readonly wirePayload?: Readonly<Record<string, unknown>>;
 }
 
 /** Effort levels supported by OpenAI reasoning models (o/o-series, GPT-5 series) and Grok. */
