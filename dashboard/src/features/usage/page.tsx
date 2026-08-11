@@ -111,6 +111,13 @@ interface RequestRow {
   usageSource: string;
   clientName: string;
   clientSource: string;
+  routing: {
+    requestedModel: string | null;
+    mappedModel: string | null;
+    upstreamModel: string | null;
+    wireSurface: string | null;
+    errorMessage: string | null;
+  };
   messageCount: number;
   toolCount: number;
   imageCount: number;
@@ -221,6 +228,18 @@ function RequestDetailDrawer({ id, onClose }: { id: string | null; onClose: () =
             <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Request ID</div>
             <div className="mt-1 break-all font-mono text-xs">{data.requestId}</div>
           </div>
+
+          {data.routing && (
+            <div>
+              <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Route resolution</div>
+              <div className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3 text-xs">
+                <div><div className="text-[10px] text-[var(--text-3)]">Client model</div><div className="mt-0.5 break-all font-mono">{data.routing.requestedModel ?? "—"}</div></div>
+                <div><div className="text-[10px] text-[var(--text-3)]">Mapped route</div><div className="mt-0.5 break-all font-mono">{data.routing.mappedModel ?? "—"}</div></div>
+                <div><div className="text-[10px] text-[var(--text-3)]">Upstream model</div><div className="mt-0.5 break-all font-mono">{data.routing.upstreamModel ?? "—"}</div></div>
+                <div><div className="text-[10px] text-[var(--text-3)]">Wire surface</div><div className="mt-0.5 font-mono">{data.routing.wireSurface ?? "—"}</div></div>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Endpoint</div>
@@ -316,6 +335,7 @@ function RequestDetailDrawer({ id, onClose }: { id: string | null; onClose: () =
             <div>
               <div className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Error</div>
               <Badge tone="err">{data.errorKind}</Badge>
+              {data.routing?.errorMessage && <p className="mt-1.5 break-words text-xs text-[var(--text-2)]">{data.routing.errorMessage}</p>}
             </div>
           )}
         </div>

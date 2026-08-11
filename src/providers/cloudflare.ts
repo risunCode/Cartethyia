@@ -68,7 +68,6 @@ export class CloudflareAdapter implements Adapter {
       "content-type": "application/json",
       accept: input.request.stream ? "text/event-stream" : "application/json",
       authorization: `Bearer ${credential.apiKey}`,
-      ...(input.headers?.get("user-agent") ? { "user-agent": input.headers.get("user-agent")! } : {}),
     };
     return callChatCompletionsWire(input, `${CLOUDFLARE_BASE_URL}/${credential.accountId}/ai/v1`, headers);
   }

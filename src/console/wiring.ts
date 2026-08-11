@@ -446,6 +446,7 @@ function createConsoleRuntimeMetadataRepository(runtime: RuntimePersistence, reg
     usageSource: row.usageSource,
     clientName: row.clientName,
     clientSource: row.clientSource,
+    routing: row.routing,
     messageCount: row.messageCount,
     toolCount: row.toolCount,
     imageCount: row.imageCount,

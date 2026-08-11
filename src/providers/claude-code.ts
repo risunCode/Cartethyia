@@ -193,10 +193,7 @@ export class AnthropicOAuthAdapter implements Adapter {
       "x-client-request-id": crypto.randomUUID(),
       "anthropic-client-version": claudeClientVersion,
       authorization: `Bearer ${input.credential}`,
-      // Forward the client's claude-cli UA when supplied; otherwise emit the
-      // canonical claude-code fingerprint so the upstream sees a legitimate
-      // Claude Code client identity (this adapter proxies as claude-code).
-      ...(input.headers?.get("user-agent")?.toLowerCase().startsWith("claude-cli") ? { "user-agent": input.headers.get("user-agent")! } : { "user-agent": `claude-cli/${claudeCodeVersion} (external, local-agent, agent-sdk/${claudeAgentSdkVersion})` }),
+      "user-agent": `claude-cli/${claudeCodeVersion} (external, local-agent, agent-sdk/${claudeAgentSdkVersion})`,
     };
     const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
     let streamHandedOff = false;

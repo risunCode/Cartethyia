@@ -1368,6 +1368,7 @@ describe("runtime telemetry writer", () => {
       usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150, cacheReadTokens: 10, cacheWriteTokens: 5, source: "provider" },
       providerId: "openai", model: "gpt-4", mode: "stream",
       messageCount: 1, toolCount: 0, imageCount: 0,
+      routing: { requestedModel: "claude-mythos-5", mappedModel: "codex/gpt-5.6-luna", upstreamModel: "gpt-5.6-luna", wireSurface: "openai-responses", errorMessage: null },
     });
     rt.flush();
     const page = rt.metadata.queryRequests({ limit: 10 });
@@ -1376,6 +1377,7 @@ describe("runtime telemetry writer", () => {
     expect(page.items[0]!.status).toBe(200);
     expect(page.items[0]!.inputTokens).toBe(100);
     expect(page.items[0]!.mode).toBe("stream");
+    expect(page.items[0]!.routing).toEqual({ requestedModel: "claude-mythos-5", mappedModel: "codex/gpt-5.6-luna", upstreamModel: "gpt-5.6-luna", wireSurface: "openai-responses", errorMessage: null });
   });
 
   test("mapClientName narrows to allowlist", () => {

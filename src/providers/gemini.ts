@@ -65,7 +65,7 @@ export class GeminiAdapter implements Adapter {
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {
     this.assertSupported(input);
-    return callGeminiWire(input, this.baseUrl, input.credential, input.headers?.get("user-agent") ?? null);
+    return callGeminiWire(input, this.baseUrl, input.credential);
   }
 
 

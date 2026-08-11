@@ -102,7 +102,6 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): Adapter {
       const headers: Record<string, string> = {
         "content-type": "application/json",
         accept: request.stream ? "text/event-stream" : "application/json",
-        ...(input.headers?.get("user-agent") ? { "user-agent": input.headers.get("user-agent")! } : {}),
       };
       if (auth === "bearer" && credential.length > 0) headers.authorization = `Bearer ${credential}`;
       else if (auth === "x-api-key" && credential.length > 0) headers["x-api-key"] = credential;

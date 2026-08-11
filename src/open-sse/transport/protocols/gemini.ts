@@ -63,14 +63,14 @@ function translateGeminiImageResponse(body: Record<string, unknown>): Record<str
 }
 
 /** Executes a Gemini generateContent request after the provider supplies credentials. */
-export async function callGeminiWire(input: ProviderRequest, baseUrl: string, credential: string, userAgent: string | null): Promise<ProviderOutput> {
+export async function callGeminiWire(input: ProviderRequest, baseUrl: string, credential: string): Promise<ProviderOutput> {
   const { request, signal, network } = input;
   const action = request.stream ? "streamGenerateContent?alt=sse" : "generateContent";
   const url = `${baseUrl}/models/${encodeURIComponent(input.target.upstreamModelId)}:${action}`;
   const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
   let streamHandedOff = false;
   try {
-    const response = await executeFetch(url, { method: "POST", headers: { "content-type": "application/json", accept: request.stream ? "text/event-stream" : "application/json", "x-goog-api-key": credential, ...(userAgent ? { "user-agent": userAgent } : {}) }, body: JSON.stringify(buildGeminiPayload(request)) }, coordinator, network, input.capture);
+    const response = await executeFetch(url, { method: "POST", headers: { "content-type": "application/json", accept: request.stream ? "text/event-stream" : "application/json", "x-goog-api-key": credential }, body: JSON.stringify(buildGeminiPayload(request)) }, coordinator, network, input.capture);
     if (!response.ok) throw await readUpstreamError(response);
     if (!request.stream) {
       const body = await readJsonObject(response, coordinator);

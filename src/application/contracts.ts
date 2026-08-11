@@ -502,6 +502,15 @@ export interface RequestTelemetry {
   readonly switches: readonly RouteSwitch[];
 }
 
+/** Compact route metadata persisted for console diagnostics. */
+export interface RequestRoutingMetadata {
+  readonly requestedModel: string | null;
+  readonly mappedModel: string | null;
+  readonly upstreamModel: string | null;
+  readonly wireSurface: string | null;
+  readonly errorMessage: string | null;
+}
+
 export interface RequestTelemetryHandle {
   readonly requestId: string;
   readonly recordSwitch: (event: RouteSwitch) => void;
@@ -519,6 +528,7 @@ export interface TelemetryFinish {
   readonly messageCount: number;
   readonly toolCount: number;
   readonly imageCount: number;
+  readonly routing?: RequestRoutingMetadata;
 }
 
 export interface TelemetryWriter {

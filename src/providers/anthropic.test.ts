@@ -32,7 +32,7 @@ describe("Anthropic model surface routing", () => {
   });
 });
 describe("Anthropic gateway headers", () => {
-  test("forwards gateway identity headers without forwarding client credentials", async () => {
+  test("owns upstream headers without forwarding client credentials or client identity", async () => {
     const originalFetch = globalThis.fetch;
     let sentHeaders: Headers | undefined;
     globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
@@ -50,19 +50,25 @@ describe("Anthropic gateway headers", () => {
         headers: new Headers({
           "x-app": "claude-code",
           "x-client-request-id": "request-123",
-          "anthropic-version": "2023-06-01",
+          "anthropic-version": "client-version",
+          "anthropic-beta": "client-beta",
+          "x-claude-code-session": "client-session",
+          "user-agent": "claude-cli/client",
           authorization: "Bearer client-secret",
           "x-api-key": "client-secret",
           "x-unrelated-header": "discard-me",
         }),
       });
       expect(result.mode).toBe("non_stream");
-      expect(sentHeaders?.get("x-app")).toBe("claude-code");
-      expect(sentHeaders?.get("x-client-request-id")).toBe("request-123");
+      expect(sentHeaders?.get("x-app")).toBe(null);
+      expect(sentHeaders?.get("x-client-request-id")).toBe(null);
       expect(sentHeaders?.get("authorization")).toBe(null);
       expect(sentHeaders?.get("x-api-key")).toBe("upstream-secret");
       expect(sentHeaders?.get("x-unrelated-header")).toBe(null);
       expect(sentHeaders?.get("anthropic-version")).toBe("2023-06-01");
+      expect(sentHeaders?.get("anthropic-beta")).toBe("prompt-caching-2024-07-31");
+      expect(sentHeaders?.get("x-claude-code-session")).toBe(null);
+      expect(sentHeaders?.get("user-agent")).toBe(null);
     } finally {
       globalThis.fetch = originalFetch;
     }

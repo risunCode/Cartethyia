@@ -1,6 +1,6 @@
 import { createCleanupStack, sanitizeMessage, deriveErrorSource, type ApplicationErrorKind, type ProviderCallError } from "../contracts";
 import type { PresentedProxyResponse } from "../contracts";
-import type { Adapter, ProviderOutput, Surface, ProviderUsage, RouteTarget, StreamEvent } from "../contracts";
+import type { Adapter, ProviderOutput, Surface, ProviderUsage, RequestRoutingMetadata, RouteTarget, StreamEvent } from "../contracts";
 import type { AccountCandidate, AffinityKey, RouteCandidate, RouteSwitch } from "../contracts";
 import type { ProxyRequest, RunProxyRequestInput } from "../contracts";
 import { detectClient } from "../contracts";
@@ -146,7 +146,36 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
   let admissionEstimate = 0;
   let normalizedRequest: ProxyRequest | undefined;
   let resolvedPlan: ProxyRoutePlan | undefined;
+  const routeAttemptState = createRouteAttemptState();
   let streamHandedOff = false;
+  const routeMetadata = (errorMessage: string | null = null): RequestRoutingMetadata => {
+    const request = normalizedRequest;
+    const plan = resolvedPlan;
+    const successfulCandidateId = getSuccessfulCandidateId(routeAttemptState);
+    const candidate = successfulCandidateId === null
+      ? plan?.candidates[0] ?? null
+      : plan?.candidates.find((item) => item.id === successfulCandidateId) ?? plan?.candidates[0] ?? null;
+    const adapter = candidate === null ? undefined : dependencies.providers.get(candidate.providerId);
+    let wireSurface: string | null = null;
+    let upstreamModel: string | null = candidate?.modelId ?? null;
+    if (adapter !== undefined && candidate !== null && request !== undefined) {
+      wireSurface = selectWireSurface(adapter, candidate, request);
+      if (wireSurface !== null) {
+        try {
+          upstreamModel = adapter.resolveTarget(candidate.modelId, wireSurface).upstreamModelId;
+        } catch {
+          // Route metadata must never change the request outcome.
+        }
+      }
+    }
+    return {
+      requestedModel: request?.model ?? null,
+      mappedModel: plan?.requestedModel ?? request?.model ?? null,
+      upstreamModel,
+      wireSurface,
+      errorMessage,
+    };
+  };
   const settleAdmission = (usage: AdmissionUsage | null): void => {
     if (admissionSettled || admissionLease === null) return;
     admissionSettled = true;
@@ -201,7 +230,6 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
       clientIp: input.request.clientIp ?? null,
     });
 
-    const routeAttemptState = createRouteAttemptState();
     const attempt = createRouteAttempt({
       input,
       dependencies,
@@ -286,6 +314,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
           let observedUsage: ProviderUsage | null = null;
           let terminalReason: string | null = null;
           let streamErrorKind: ApplicationErrorKind | null = null;
+          let streamErrorMessage: string | null = null;
           let firstTokenRecorded = false;
           try {
             for await (const event of output.events) {
@@ -295,6 +324,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
               if (event.type === "message_stop") {
                 terminalReason = event.reason;
                 streamErrorKind = event.error?.kind ?? null;
+                streamErrorMessage = event.error?.message ?? null;
               }
               yield event;
             }
@@ -339,6 +369,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
               messageCount: normalizedRequest?.messages.length ?? 0,
               toolCount: normalizedRequest?.tools.length ?? 0,
               imageCount: normalizedRequest?.images.length,
+              routing: routeMetadata(streamErrorMessage),
             });
           }
         })(),
@@ -380,6 +411,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
         messageCount: normalizedRequest.messages.length,
         toolCount: normalizedRequest.tools.length,
         imageCount: normalizedRequest.images.length,
+        routing: routeMetadata(),
       });
       await reportRouteSuccess();
     }
@@ -425,6 +457,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
       messageCount: normalizedRequest?.messages.length ?? 0,
       toolCount: normalizedRequest?.tools.length ?? 0,
       imageCount: normalizedRequest?.images.length ?? 0,
+      routing: routeMetadata(failure.sanitizedMessage),
     });
     await cleanup.run();
     return response;

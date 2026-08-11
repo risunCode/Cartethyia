@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import type { UsageDimension, UsagePeriod } from "../../application/contracts";
+import type { RequestRoutingMetadata, UsageDimension, UsagePeriod } from "../../application/contracts";
 import { mapClientName, mapClientSource, orZero, periodStartUtc, utcDayBounds, utcMonthBounds, type ChartBucket, type IpSummaryRow, type ModelTokenTotalsRow, type ProviderModelTotalsRow, type ProviderTodayRow, type RuntimeMetadataRepository, type RuntimeRequestFilters, type RuntimeRequestPage, type RuntimeRequestRow, type UsageByRow, type UsageCacheRow, type UsageCacheSummary, type UsageSummary } from "./runtime";
 
 interface RequestHistoryRow {
@@ -24,6 +24,7 @@ interface RequestHistoryRow {
   reasoning_tokens: number | null;
   total_tokens: number | null;
   usage_source: string | null;
+  meta_json: string | null;
   client_name: string | null;
   client_source: string | null;
   message_count: number | null;
@@ -35,7 +36,25 @@ interface RequestHistoryRow {
 
 const REQUEST_COLUMNS = `id, trace_id, endpoint, surface, api_key_id, api_key_prefix, provider, model, status, error_kind,
   stream, started_at, finished_at, duration_ms, input_tokens, output_tokens, cached_tokens, cache_write_tokens,
-  reasoning_tokens, total_tokens, usage_source, client_name, client_source, message_count, tool_count, image_count, tfft_ms, client_ip`;
+  reasoning_tokens, total_tokens, usage_source, meta_json, client_name, client_source, message_count, tool_count, image_count, tfft_ms, client_ip`;
+
+function parseRoutingMetadata(value: string | null): RequestRoutingMetadata {
+  if (value === null) return { requestedModel: null, mappedModel: null, upstreamModel: null, wireSurface: null, errorMessage: null };
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (typeof parsed !== "object" || parsed === null) throw new Error("metadata is not an object");
+    const record = parsed as Record<string, unknown>;
+    return {
+      requestedModel: typeof record.requestedModel === "string" ? record.requestedModel : null,
+      mappedModel: typeof record.mappedModel === "string" ? record.mappedModel : null,
+      upstreamModel: typeof record.upstreamModel === "string" ? record.upstreamModel : null,
+      wireSurface: typeof record.wireSurface === "string" ? record.wireSurface : null,
+      errorMessage: typeof record.errorMessage === "string" ? record.errorMessage : null,
+    };
+  } catch {
+    return { requestedModel: null, mappedModel: null, upstreamModel: null, wireSurface: null, errorMessage: null };
+  }
+}
 
 function toRuntimeRow(row: RequestHistoryRow): RuntimeRequestRow {
   return {
@@ -67,6 +86,7 @@ function toRuntimeRow(row: RequestHistoryRow): RuntimeRequestRow {
     imageCount: orZero(row.image_count),
     tfftMs: row.tfft_ms,
     clientIp: row.client_ip,
+    routing: parseRoutingMetadata(row.meta_json),
   };
 }
 

@@ -69,7 +69,14 @@ describe("surface routing", () => {
     }) as typeof fetch;
     try {
       const adapter = new CodexAdapter();
-      const result = await adapter.call({ target: adapter.resolveTarget("gpt-5.4", "openai-responses"), request: chatReq({ model: "codex/gpt-5.4" }), credential, network: { proxyId: null, url: null, release: async () => {} }, signal: new AbortController().signal });
+      const result = await adapter.call({
+        target: adapter.resolveTarget("gpt-5.4", "openai-responses"),
+        request: chatReq({ model: "codex/gpt-5.4" }),
+        credential,
+        network: { proxyId: null, url: null, release: async () => {} },
+        signal: new AbortController().signal,
+        headers: new Headers({ authorization: "Bearer client-secret", "x-api-key": "client-secret", "user-agent": "claude-cli/client", "x-client-request-id": "client-request" }),
+      });
       expect(result.mode).toBe("non_stream");
       if (result.mode === "non_stream") {
         expect(result.body.output_text).toBe("hello");
@@ -80,6 +87,10 @@ describe("surface routing", () => {
       const sent = JSON.parse(String(request?.init?.body)) as Record<string, unknown>;
       expect(sent.model).toBe("gpt-5.4");
       expect(new Headers(request?.init?.headers).get("chatgpt-account-id")).toBe("account-123");
+      expect(new Headers(request?.init?.headers).get("authorization")).toBe(`Bearer ${accessToken}`);
+      expect(new Headers(request?.init?.headers).get("x-api-key")).toBe(null);
+      expect(new Headers(request?.init?.headers).get("user-agent")).toBe("codex-cli/0.144.1");
+      expect(new Headers(request?.init?.headers).get("x-client-request-id")).toBe(null);
     } finally {
       globalThis.fetch = originalFetch;
     }

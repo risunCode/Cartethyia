@@ -79,8 +79,6 @@ export class OpenCodeFreeAdapter implements Adapter {
       accept: request.stream ? "text/event-stream" : "application/json",
       authorization: "Bearer public",
     };
-    const userAgent = input.headers?.get("user-agent");
-    if (userAgent) headers["user-agent"] = userAgent;
     return callChatCompletionsWire({ ...input, request }, OPENCODE_BASE_URL, headers);
   }
 
@@ -160,8 +158,6 @@ export class OpenCodeZenAdapter implements Adapter {
       accept: request.stream ? "text/event-stream" : "application/json",
       authorization: `Bearer ${input.credential}`,
     };
-    const userAgent = input.headers?.get("user-agent");
-    if (userAgent) headers["user-agent"] = userAgent;
     return callChatCompletionsWire({ ...input, request }, OPENCODE_BASE_URL, headers);
   }
 

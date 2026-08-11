@@ -140,7 +140,7 @@ export class CustomProviderAdapter implements Adapter {
     try {
       const { request } = input;
       const anthropic = record.type === "anthropic-compatible";
-      const headers = customHeaders(record, input.credential, request.stream, input.headers);
+      const headers = customHeaders(record, input.credential, request.stream);
       const payload = anthropic ? buildMessagesPayload(request, this.capabilities, { includeContextManagement: false }) : buildChatPayload(request);
       const response = await executeFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, input.network, input.capture);
       if (!response.ok) throw await readUpstreamError(response);
@@ -195,8 +195,17 @@ export class CustomProviderAdapter implements Adapter {
 const BLOCKED_CUSTOM_HEADERS = new Set([
   "host",
   "authorization",
+  "proxy-authorization",
+  "proxy-authenticate",
+  "x-api-key",
   "cookie",
   "set-cookie",
+  "keep-alive",
+  "te",
+  "trailer",
+  "upgrade",
+  "forwarded",
+  "via",
   "x-forwarded-for",
   "x-forwarded-host",
   "x-forwarded-proto",
@@ -208,7 +217,7 @@ const BLOCKED_CUSTOM_HEADERS = new Set([
   "connection",
 ]);
 
-function customHeaders(record: CustomProviderRecord, credential: string, stream: boolean, incoming: Headers | undefined): Record<string, string> {
+function customHeaders(record: CustomProviderRecord, credential: string, stream: boolean): Record<string, string> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
     accept: stream ? "text/event-stream" : "application/json",
@@ -219,8 +228,6 @@ function customHeaders(record: CustomProviderRecord, credential: string, stream:
   } else {
     headers.authorization = `Bearer ${credential}`;
   }
-  const userAgent = incoming?.get("user-agent");
-  if (userAgent) headers["user-agent"] = userAgent;
   for (const [name, value] of Object.entries(record.customHeaders)) {
     const lower = name.toLowerCase();
     if (name.length === 0 || BLOCKED_CUSTOM_HEADERS.has(lower)) continue;

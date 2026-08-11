@@ -1,5 +1,5 @@
 import type { LogCategory, LogLevel } from "../../application/logging";
-import type { UsageDimension, UsagePeriod } from "../../application/contracts";
+import type { RequestRoutingMetadata, UsageDimension, UsagePeriod } from "../../application/contracts";
 import type { ChartBucket, ModelTokenTotalsRow, UsageByRow, UsageCacheSummary } from "../../storage";
 
 
@@ -42,6 +42,7 @@ export interface RequestHistoryRow {
   readonly usageSource: string;
   readonly clientName: string;
   readonly clientSource: string;
+  readonly routing: RequestRoutingMetadata;
   readonly messageCount: number;
   readonly toolCount: number;
   readonly imageCount: number;

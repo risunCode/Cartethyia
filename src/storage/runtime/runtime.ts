@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { sanitizeMessage, type ClientDetectionSource, type ClientName, type UsageDimension, type UsagePeriod } from "../../application/contracts";
 import type { LogCategory, LogCategoryFilter } from "../../application/logging";
 import type { LogLevel } from "../../application/logging";
-import type { TelemetryWriter } from "../../application/contracts";
+import type { RequestRoutingMetadata, TelemetryWriter } from "../../application/contracts";
 import type { PersistenceEnv } from "../main/env";
 import type { RuntimeTelemetryStats } from "./write-buffer";
 import type { WarpMetricsRepository } from "./warp-metrics";
@@ -48,6 +48,7 @@ export interface RuntimeRequestRow {
   readonly imageCount: number;
   readonly tfftMs: number | null;
   readonly clientIp: string | null;
+  readonly routing: RequestRoutingMetadata;
 }
 
 export interface RuntimeRequestFilters {

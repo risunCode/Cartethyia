@@ -94,9 +94,9 @@ export class OpenAIAdapter implements Adapter {
     this.assertSupported(input);
     const { credential } = input;
     if (input.target.surface === "images") {
-      return callHostedImageWire(input, `${this.baseUrl}/responses`, this.authHeaders(credential, false, input.headers));
+      return callHostedImageWire(input, `${this.baseUrl}/responses`, this.authHeaders(credential, false));
     }
-    return callResponsesWire(input, this.baseUrl, this.authHeaders(credential, input.request.stream, input.headers));
+    return callResponsesWire(input, this.baseUrl, this.authHeaders(credential, input.request.stream));
   }
 
 
@@ -135,18 +135,12 @@ export class OpenAIAdapter implements Adapter {
     }
   }
 
-  private authHeaders(credential: string, stream: boolean, incoming?: Headers): Record<string, string> {
+  private authHeaders(credential: string, stream: boolean): Record<string, string> {
     const headers: Record<string, string> = {
       "content-type": "application/json",
       accept: stream ? "text/event-stream" : "application/json",
       authorization: `Bearer ${credential}`,
     };
-    const userAgent = incoming?.get("user-agent");
-    if (userAgent) headers["user-agent"] = userAgent;
-    for (const name of ["openai-beta", "openai-organization", "openai-project"]) {
-      const value = incoming?.get(name);
-      if (value) headers[name] = value;
-    }
     return headers;
   }
 }
