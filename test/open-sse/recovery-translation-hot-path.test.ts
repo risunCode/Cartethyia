@@ -233,7 +233,7 @@ describe("recovery lifecycle and reliability hot paths", () => {
     expect(counter.count()).toBe(1);
   });
 
-  test("handles terminal error stops without retrying and cleans up once", async () => {
+  test("does not retry a non-retryable terminal error and cleans up once", async () => {
     const counter = cleanupCounter();
     const lifecycle = createStreamLifecycle();
     let attempts = 0;
@@ -242,22 +242,55 @@ describe("recovery lifecycle and reliability hot paths", () => {
         attempts += 1;
         return streamOutput(stream(
           { type: "message_start", id: "terminal" },
-          { type: "message_stop", reason: "error", error: { statusCode: 502, kind: "provider_unavailable", message: "upstream failed", retryAt: null } },
+          { type: "message_stop", reason: "error", error: { statusCode: 400, kind: "invalid_request", message: "bad input", retryAt: null } },
         ));
       },
       maxAttempts: 3,
       signal: new AbortController().signal,
       cleanup: counter.cleanup,
       lifecycle,
-      waitBeforeRetry: async () => { throw new Error("terminal stream must not retry"); },
+      waitBeforeRetry: async () => { throw new Error("non-retryable terminal stream must not retry"); },
     });
 
     expect(await consume(output)).toEqual([
       { type: "message_start", id: "terminal" },
-      { type: "message_stop", reason: "error", error: { statusCode: 502, kind: "provider_unavailable", message: "upstream failed", retryAt: null } },
+      { type: "message_stop", reason: "error", error: { statusCode: 400, kind: "invalid_request", message: "bad input", retryAt: null } },
     ]);
     expect(attempts).toBe(1);
     expect(lifecycle.terminalSeen).toBe(true);
+    expect(counter.count()).toBe(1);
+  });
+
+  test("retries a provider overload terminal before semantic output", async () => {
+    const counter = cleanupCounter();
+    let attempts = 0;
+    const output = await recoverCall({
+      attempt: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return streamOutput(stream(
+            { type: "message_start", id: "overloaded" },
+            { type: "message_stop", reason: "error", error: { statusCode: null, kind: "provider_unavailable", message: "Our servers are currently overloaded. Please try again later.", retryAt: null } },
+          ));
+        }
+        return streamOutput(stream(
+          { type: "message_start", id: "recovered" },
+          { type: "text_delta", text: "ok" },
+          { type: "message_stop", reason: "completed" },
+        ));
+      },
+      maxAttempts: 2,
+      signal: new AbortController().signal,
+      cleanup: counter.cleanup,
+      waitBeforeRetry: async () => {},
+    });
+
+    expect(await consume(output)).toEqual([
+      { type: "message_start", id: "recovered" },
+      { type: "text_delta", text: "ok" },
+      { type: "message_stop", reason: "completed" },
+    ]);
+    expect(attempts).toBe(2);
     expect(counter.count()).toBe(1);
   });
 
@@ -314,12 +347,36 @@ describe("recovery lifecycle and reliability hot paths", () => {
     expect(counter.count()).toBe(1);
   });
 
+  test("accepts provider usage after semantic output before terminal", async () => {
+    const counter = cleanupCounter();
+    const usage = { inputTokens: 1, outputTokens: 1, totalTokens: 2, cacheReadTokens: null, cacheWriteTokens: null, source: "provider" as const };
+    const output = await recoverCall({
+      attempt: async () => streamOutput(stream(
+        { type: "message_start", id: "usage-after-text" },
+        { type: "text_delta", text: "visible" },
+        { type: "usage", usage },
+        { type: "message_stop", reason: "completed" },
+      )),
+      maxAttempts: 2,
+      signal: new AbortController().signal,
+      cleanup: counter.cleanup,
+      waitBeforeRetry: async () => { throw new Error("valid trailing usage must not retry"); },
+    });
+    expect(await consume(output)).toEqual([
+      { type: "message_start", id: "usage-after-text" },
+      { type: "text_delta", text: "visible" },
+      { type: "usage", usage },
+      { type: "message_stop", reason: "completed" },
+    ]);
+    expect(counter.count()).toBe(1);
+  });
+
   test("rejects out-of-order and duplicate opening metadata as protocol failures", async () => {
     const cases: AsyncIterable<StreamEvent>[] = [
       stream(
         { type: "message_start", id: "order" },
         { type: "text_delta", text: "visible" },
-        { type: "usage", usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, cacheReadTokens: null, cacheWriteTokens: null, source: "provider" } },
+        { type: "message_start", id: "late" },
       ),
       stream(
         { type: "message_start", id: "first" },

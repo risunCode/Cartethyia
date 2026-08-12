@@ -69,6 +69,8 @@ describe("stable provider failure classification", () => {
   test("sanitizeMessage redacts credentials while bounded diagnostics redact structured request fields", () => {
     expect(sanitizeMessage("Authorization: Bearer top-secret")).toBe("Authorization: Bearer [redacted]");
     expect(sanitizeMessage("api_key=secret-value")).toBe("credential=[redacted]");
+    expect(sanitizeMessage({ error: { message: "upstream connection reset" } })).toBe("upstream connection reset");
+    expect(sanitizeMessage({ detail: "api_key=secret-value" })).toBe("credential=[redacted]");
     const normalized = normalizeProviderFailure(baseError, {
       message: '{"prompt":"private instructions","tool_arguments":{"secret":"value"},"body":"raw provider body"}',
     });

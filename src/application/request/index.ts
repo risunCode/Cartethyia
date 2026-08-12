@@ -18,7 +18,7 @@ import { findCacheBreakpoint } from "../cache";
 import { ProtocolCodecError } from "../../open-sse/translate/errors";
 import { writeErrorResponse, writeResponse } from "../../open-sse/handlers";
 import type { TokenSaverConfig } from "../../open-sse/rtk";
-import { createRouteAttempt, createRouteAttemptState, getRouteAttemptSelection, getTranslationDiagnostics, getSelectedAttempt, getSelectedCandidateId, getSelectedCredentialKind, getSuccessfulCandidateId, getNextCandidateId, hasNextCandidate, clearAccountCandidates, markAccountRetry, markReactiveRefresh } from "./route-attempt";
+import { createRouteAttempt, createRouteAttemptState, getRouteAttemptSelection, getTranslationDiagnostics, getSelectedAttempt, getSelectedCandidateId, getSelectedCredentialKind, getSuccessfulCandidateId, getNextCandidateId, hasNextCandidate, clearAccountCandidates, markAccountRetry, markCandidateRetry, markReactiveRefresh } from "./route-attempt";
 import type { HeadroomOutcome } from "../../open-sse/rtk/headroom";
 import type { FilterRuleConfig } from "../filter-rules";
 import { prepareProxyRequest } from "./prepare";
@@ -308,6 +308,9 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
         }
         const replacementId = resolvedPlan === undefined ? null : getNextCandidateId(routeAttemptState, resolvedPlan);
         const replacement = replacementId === null ? null : candidates.find((item) => item.id === replacementId) ?? null;
+        if (candidate !== null && error.kind === "provider_unavailable" && error.retryable && replacement === null) {
+          markCandidateRetry(routeAttemptState, candidate.id);
+        }
         if (candidate !== null && resolvedPlan?.webSearch === true && replacement?.id !== candidate.id) {
           webSearchFallbacks.push({ previousRouteId: candidate.id, replacementRouteId: replacement?.id ?? null, reason: error.kind });
         }

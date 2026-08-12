@@ -953,8 +953,20 @@ export interface CleanupStack {
 
 const MAX_ERROR_MESSAGE_LENGTH = 240;
 
+function errorMessageOf(value: unknown, depth = 0): string | null {
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string") return value;
+  if (depth >= 2 || typeof value !== "object" || value === null) return null;
+  const record = value as { readonly message?: unknown; readonly detail?: unknown; readonly error?: unknown };
+  for (const candidate of [record.message, record.detail, record.error]) {
+    const message = errorMessageOf(candidate, depth + 1);
+    if (message !== null && message.trim().length > 0) return message;
+  }
+  return null;
+}
+
 export function sanitizeMessage(value: unknown): string {
-  const source = value instanceof Error ? value.message : typeof value === "string" ? value : "Provider request failed (no error detail available)";
+  const source = errorMessageOf(value) ?? "Provider request failed (no error detail available)";
   const redacted = source
     .replace(/\bauthorization\s*:\s*bearer\s+[^\s"']+/gi, "Authorization: Bearer [redacted]")
     .replace(/Bearer\s+[^\n"']*/gi, "Bearer [redacted]")

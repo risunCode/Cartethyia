@@ -129,6 +129,8 @@ export interface ApplyInput {
   readonly subagentModel?: string;
   /** Harness-specific mappings persisted separately from native CLI config. */
   readonly mapping?: CliMappingInput;
+  /** Enables Claude Code's bypass-permissions (YOLO) mode when explicitly selected. */
+  readonly bypassPermissions?: boolean;
 }
 
 /** Result of an apply or reset operation. */

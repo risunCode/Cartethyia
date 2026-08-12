@@ -678,10 +678,13 @@ function toResponsesItem(message: NormalizedMessage): readonly Record<string, un
       }
       return items;
     }
-    case "tool": {
-      const block = message.content[0];
-      return [...prefix, { type: "function_call_output", call_id: block?.toolCallId ?? "", output: message.content.map((item) => item.text ?? "").join("\n") }];
-    }
+    case "tool":
+      return [
+        ...prefix,
+        ...message.content
+          .filter((block) => block.type === "tool_result")
+          .map((block) => ({ type: "function_call_output", call_id: block.toolCallId ?? "", output: block.text ?? "" })),
+      ];
   }
 }
 

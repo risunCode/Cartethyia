@@ -49,6 +49,7 @@ function parseApplyInput(body: unknown): ApplyInput {
     activeModel: typeof value.activeModel === "string" ? value.activeModel : undefined,
     subagentModel: typeof value.subagentModel === "string" ? value.subagentModel : undefined,
     mapping: parseMapping(value.mapping),
+    bypassPermissions: value.bypassPermissions === true,
   };
 }
 

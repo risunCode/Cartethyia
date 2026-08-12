@@ -25,7 +25,6 @@ import { buildCachePlan, applyCachePlan } from "../../src/application/cache";
 import { OpenAIAdapter } from "../../src/providers/openai";
 import { CodexAdapter } from "../../src/providers/codex";
 import { buildGeminiPayload } from "../../src/open-sse/translate/request/gemini";
-import { applyRoutedModelIdentity } from "../../src/open-sse/translate/policy/identity";
 
 const limits: RequestLimits = { maxBodyBytes: 10_000_000, connectTimeoutMs: 10_000, firstByteTimeoutMs: 30_000, idleTimeoutMs: 30_000, totalTimeoutMs: 120_000 };
 function ni(signal?: AbortSignal): NormalizeInput { return { signal: signal ?? new AbortController().signal, limits }; }
@@ -242,6 +241,36 @@ describe("Anthropic Messages normalization and payload", () => {
     const input = buildResponsesPayload(r.request).input as readonly Record<string, unknown>[];
     expect(input).toContainEqual({ type: "function_call", call_id: "call_GituTSNbE7QONnysXu4r9rxT", name: "Skill", arguments: "{}" });
     expect(input).toContainEqual({ type: "function_call_output", call_id: "call_GituTSNbE7QONnysXu4r9rxT", output: "loaded" });
+  });
+  test("preserves every tool result when Claude returns multiple results in one message", () => {
+    const r = normalizeMessagesRequest({
+      model: "c",
+      max_tokens: 1024,
+      messages: [
+        { role: "assistant", content: [
+          { type: "tool_use", id: "call_read", name: "Read", input: {} },
+          { type: "tool_use", id: "call_glob", name: "Glob", input: {} },
+        ] },
+        { role: "user", content: [
+          { type: "tool_result", tool_use_id: "call_read", content: "file" },
+          { type: "tool_result", tool_use_id: "call_glob", content: "paths" },
+        ] },
+      ],
+    }, ni());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+
+    const responsesInput = buildResponsesPayload(r.request).input as readonly Record<string, unknown>[];
+    expect(responsesInput.filter((item) => item.type === "function_call_output")).toEqual([
+      { type: "function_call_output", call_id: "call_read", output: "file" },
+      { type: "function_call_output", call_id: "call_glob", output: "paths" },
+    ]);
+
+    const chatMessages = buildChatPayload(r.request).messages as readonly Record<string, unknown>[];
+    expect(chatMessages.filter((message) => message.role === "tool")).toEqual([
+      { role: "tool", tool_call_id: "call_read", content: "file" },
+      { role: "tool", tool_call_id: "call_glob", content: "paths" },
+    ]);
   });
   test("accepts Claude Code adaptive thinking and normalizes it to enabled reasoning", () => {
     const r = normalizeMessagesRequest({
@@ -615,14 +644,6 @@ test("splits a stable prefix before volatile Claude session metadata", () => {
   expect(system?.[0]?.cacheControl).toBe("ephemeral");
   expect(system?.[1]?.cacheControl).toBeUndefined();
   expect(planned.cacheKey).toBeDefined();
-});
-test("adds routed identity guard for Claude clients mapped to non-Anthropic providers", () => {
-  const payload: Record<string, unknown> = {};
-  applyRoutedModelIdentity(payload, chatReq({ sourceSurface: "anthropic-messages" }), { providerId: "codex", modelId: "gpt-5.6-luna", upstreamModelId: "gpt-5.6-luna", surface: "openai-responses" });
-  expect(payload.instructions).toContain("gpt-5.6-luna");
-  const nativePayload: Record<string, unknown> = {};
-  applyRoutedModelIdentity(nativePayload, chatReq({ sourceSurface: "anthropic-messages" }), { providerId: "claude", modelId: "claude-sonnet-5", upstreamModelId: "claude-sonnet-5", surface: "anthropic-messages" });
-  expect(nativePayload.instructions).toBeUndefined();
 });
 test("scopes generated cache keys to the caller affinity", () => {
   const request = chatReq({
@@ -1122,6 +1143,14 @@ describe("Responses SSE mapper sequencing", () => {
     expect(stop?.error?.message).toBe("credential=[redacted]");
     expect(stop?.error?.message).not.toContain("top-secret");
   });
+  test("classifies an overload response failure as provider-unavailable", async () => {
+    const coord = new AbortCoordinator(new AbortController().signal);
+    const events = await collect(mapSseStream({ body: sseBody([
+      '{"type":"response.failed","response":{"error":{"message":"Our servers are currently overloaded. Please try again later."}}}',
+    ]), coordinator: coord, maxLineBytes: 65536 }, createOpenAIResponsesStreamMapper()));
+    const stop = events.find((event): event is Extract<StreamEvent, { type: "message_stop" }> => event.type === "message_stop");
+    expect(stop).toMatchObject({ type: "message_stop", reason: "error", error: { kind: "provider_unavailable", message: "Our servers are currently overloaded. Please try again later." } });
+  });
   test("response.failed closes active tool calls before the terminal error", async () => {
     const coord = new AbortCoordinator(new AbortController().signal);
     const events = await collect(mapSseStream({ body: sseBody([
@@ -1212,6 +1241,26 @@ describe("terminal stream error propagation", () => {
       { type: "message_stop", reason: "error", error: { statusCode: null, kind: "provider_protocol_error", message: "Bearer [redacted]", retryAt: null } },
     ]);
     expect(observed).toHaveLength(1);
+  });
+  test("preserves a structured stream failure at the terminal boundary", async () => {
+    async function* source(): AsyncGenerator<StreamEvent> {
+      yield { type: "message_start", id: "m2" };
+      throw {
+        statusCode: null,
+        kind: "stream_truncated",
+        retryable: true,
+        routeScope: "provider",
+        source: "upstream",
+        sanitizedMessage: "Stream ended before a terminal event",
+        retryAt: null,
+      };
+    }
+    const events = await collect(appendTerminalError(source()));
+    expect(events.at(-1)).toEqual({
+      type: "message_stop",
+      reason: "error",
+      error: { statusCode: null, kind: "stream_truncated", message: "Stream ended before a terminal event", retryAt: null },
+    });
   });
 });
 

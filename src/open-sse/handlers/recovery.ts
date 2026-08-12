@@ -1,4 +1,4 @@
-import type { ProviderCallError } from "../../application/contracts";
+import type { ApplicationErrorKind, ProviderCallError } from "../../application/contracts";
 import { sanitizeMessage, type CleanupStack, deriveErrorSource } from "../../application/contracts";
 import type { ProviderOutput } from "../../application/contracts";
 import { isTerminalEvent, type StreamLifecycle, type StreamEvent } from "../../application/contracts";
@@ -381,14 +381,57 @@ interface RecoverableEventsOptions {
  * cancellation, abort). The caller's `attempt` must be re-entrant (it
  * re-selects credential/network resources for each retry).
  */
+function terminalErrorRouteScope(kind: ApplicationErrorKind): ProviderCallError["routeScope"] {
+  switch (kind) {
+    case "authentication_failed":
+    case "authorization_denied":
+    case "quota_exceeded":
+    case "provider_rate_limited":
+      return "account";
+    case "network_unavailable":
+      return "proxy";
+    case "client_aborted":
+      return null;
+    default:
+      return "provider";
+  }
+}
+
+function terminalErrorRetryable(kind: ApplicationErrorKind): boolean {
+  return kind === "concurrency_exceeded"
+    || kind === "quota_exceeded"
+    || kind === "network_unavailable"
+    || kind === "provider_rate_limited"
+    || kind === "provider_unavailable"
+    || kind === "stream_timeout"
+    || kind === "stream_truncated";
+}
+
+function terminalFailureOf(event: StreamEvent): ProviderCallError | null {
+  if (event.type !== "message_stop" || event.reason !== "error" || event.error === undefined) return null;
+  const routeScope = terminalErrorRouteScope(event.error.kind);
+  return {
+    statusCode: event.error.statusCode,
+    kind: event.error.kind,
+    retryable: terminalErrorRetryable(event.error.kind),
+    routeScope,
+    source: deriveErrorSource(event.error.kind, routeScope),
+    sanitizedMessage: sanitizeMessage(event.error.message),
+    retryAt: event.error.retryAt,
+  };
+}
+
 async function* recoverableEvents(initial: AsyncIterable<StreamEvent>, options: RecoverableEventsOptions): AsyncGenerator<StreamEvent> {
   const { attempt, maxAttempts, signal, cleanup, lifecycle } = options;
   let events: AsyncIterable<StreamEvent> | null = initial;
   let index = options.startIndex;
+  let processingInitialStream = true;
   try {
     while (true) {
       if (signal.aborted) throw clientAbortedCallError();
       if (events !== null) {
+        const failureIndex = processingInitialStream ? Math.max(0, index - 1) : index;
+        processingInitialStream = false;
         const subscription = events;
         events = null;
         const openingBuffer: StreamEvent[] = [];
@@ -396,6 +439,7 @@ async function* recoverableEvents(initial: AsyncIterable<StreamEvent>, options: 
         let semanticSeen = lifecycle.meaningfulOutput;
         let terminalSeen = lifecycle.terminalSeen;
         let failure: ProviderCallError | null = null;
+        let pendingTerminal: Extract<StreamEvent, { readonly type: "message_stop" }> | null = null;
         try {
           for await (const rawEvent of subscription as AsyncIterable<unknown>) {
             if (signal.aborted) {
@@ -408,11 +452,15 @@ async function* recoverableEvents(initial: AsyncIterable<StreamEvent>, options: 
               break;
             }
             const { event, kind } = classified;
-            if (terminalSeen || (semanticSeen && kind === "pre_content")) {
+            if (terminalSeen || (semanticSeen && kind === "pre_content" && event.type !== "usage")) {
               failure = new StreamDecodeError("provider_protocol_error", "Provider stream lifecycle event was out of order").toProviderCallError();
               break;
             }
             if (kind === "pre_content") {
+              if (semanticSeen && event.type === "usage") {
+                yield event;
+                continue;
+              }
               const nextBytes = bufferPreContentEvent(openingBuffer, event, openingBytes);
               if (nextBytes === null) {
                 failure = new StreamDecodeError("provider_protocol_error", "Provider stream opening metadata exceeds the bounded buffer").toProviderCallError();
@@ -431,6 +479,14 @@ async function* recoverableEvents(initial: AsyncIterable<StreamEvent>, options: 
               yield event;
               continue;
             }
+            if (event.type === "message_stop" && event.reason === "error" && !semanticSeen && !terminalSeen) {
+              const terminalFailure = terminalFailureOf(event);
+              if (terminalFailure !== null) {
+                pendingTerminal = event;
+                failure = terminalFailure;
+                break;
+              }
+            }
             for (const buffered of openingBuffer) yield buffered;
             openingBuffer.length = 0;
             terminalSeen = true;
@@ -444,7 +500,24 @@ async function* recoverableEvents(initial: AsyncIterable<StreamEvent>, options: 
         }
         if (failure === null) throw internalCallError("Stream recovery ended without a captured failure");
         if (signal.aborted) throw clientAbortedCallError();
-        await options.onFailure?.(failure, index);
+        if (pendingTerminal !== null) {
+          await options.onFailure?.(failure, failureIndex);
+          if (signal.aborted) throw clientAbortedCallError();
+          const retryable = index < maxAttempts && !lifecycle.meaningfulOutput && !lifecycle.terminalSeen && options.shouldRetry(failure);
+          if (retryable) {
+            index++;
+            await options.waitBeforeRetry(failure, index, signal);
+            if (signal.aborted) throw clientAbortedCallError();
+            continue;
+          }
+          for (const buffered of openingBuffer) yield buffered;
+          openingBuffer.length = 0;
+          terminalSeen = true;
+          lifecycle.markTerminalSeen();
+          yield pendingTerminal;
+          return;
+        }
+        await options.onFailure?.(failure, failureIndex);
         if (signal.aborted) throw clientAbortedCallError();
         const retryable = index < maxAttempts && !lifecycle.meaningfulOutput && !lifecycle.terminalSeen && options.shouldRetry(failure);
         if (!retryable) throw failure;

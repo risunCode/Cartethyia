@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { encodeSurfaceStream } from "../../src/open-sse/transport/surface-encoder";
+import { appendTerminalError } from "../../src/open-sse/handlers";
 import type { StreamEvent } from "../../src/application/contracts";
 
 async function collect(events: readonly StreamEvent[]): Promise<string[]> {
@@ -55,5 +56,19 @@ describe("Anthropic Messages response lifecycle", () => {
     expect(frames.filter((frame) => frame.startsWith("event: message_stop"))).toHaveLength(0);
     expect(errorFrames[0]).not.toContain("authorization");
     expect(errorFrames[0]).not.toContain("raw");
+  });
+  test("surfaces structured terminal errors from a broken upstream stream", async () => {
+    const events = appendTerminalError((async function* (): AsyncGenerator<StreamEvent> {
+      yield { type: "message_start", id: "msg_structured_error" };
+      yield { type: "text_delta", text: "partial" };
+      throw { error: { message: "upstream connection reset" } };
+    })());
+    const frames: string[] = [];
+    for await (const chunk of encodeSurfaceStream("anthropic-messages", events, "claude-opus-5")) {
+      frames.push(new TextDecoder().decode(chunk));
+    }
+    const errorFrame = frames.find((frame) => frame.startsWith("event: error"));
+    expect(errorFrame).toContain("upstream connection reset");
+    expect(errorFrame).not.toContain("no error detail");
   });
 });

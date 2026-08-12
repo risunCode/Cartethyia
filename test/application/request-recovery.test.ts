@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { runProxyRequest, type ProxyRequestDependencies } from "../../src/application/request";
-import type { AccountCandidate, Adapter, ProviderCallError, ProviderOutput, ProviderModelCatalog, ProviderMeta, ProviderCaps, RouteCandidate, TelemetryFinish, TelemetryWriter } from "../../src/application/contracts";
+import type { AccountCandidate, Adapter, ProviderCallError, ProviderOutput, ProviderModelCatalog, ProviderMeta, ProviderCaps, RouteCandidate, StreamEvent, TelemetryFinish, TelemetryWriter } from "../../src/application/contracts";
 import type { CredentialSelector } from "../../src/application/auth/credentials";
 
 const account: AccountCandidate = {
@@ -52,6 +52,11 @@ const models: ProviderModelCatalog = { list: [], get: () => null };
 function routeCandidate(id: string, modelId: string): RouteCandidate {
   return { id, providerId: "codex", modelId, surface: "openai-chat", health: null, enabled: true, authorized: true, compatible: true };
 }
+function stream(...events: StreamEvent[]): AsyncIterable<StreamEvent> {
+  return (async function* () {
+    for (const event of events) yield event;
+  })();
+}
 
 function makeDependencies(options: {
   readonly failures: number;
@@ -62,6 +67,7 @@ function makeDependencies(options: {
   readonly failure?: ProviderCallError;
   readonly accounts?: readonly AccountCandidate[];
   readonly webSearch?: boolean;
+  readonly streamOverloadOnce?: boolean;
   readonly finishes?: TelemetryFinish[];
 }): ProxyRequestDependencies {
   let calls = 0;
@@ -73,6 +79,15 @@ function makeDependencies(options: {
     call: async (input): Promise<ProviderOutput> => {
       calls += 1;
       options.seenTargets.push(input.target.modelId);
+      if (options.streamOverloadOnce) {
+        if (calls === 1) {
+          return { mode: "stream", events: stream(
+            { type: "message_start", id: "overloaded" },
+            { type: "message_stop", reason: "error", error: { statusCode: null, kind: "provider_unavailable", message: "Our servers are currently overloaded. Please try again later.", retryAt: null } },
+          ) };
+        }
+        return { mode: "stream", events: stream({ type: "message_start", id: "recovered" }, { type: "text_delta", text: "ok" }, { type: "message_stop", reason: "completed" }) };
+      }
       if (calls <= options.failures) throw options.failure ?? authFailure;
       return { mode: "non_stream", body: { ok: true, model: input.target.modelId } };
     },
@@ -109,7 +124,7 @@ function makeDependencies(options: {
 
 type RouteSwitchLog = { readonly previousRouteId: string | null; readonly replacementRouteId: string | null; readonly scope: "account" | "proxy" };
 
-function input(webSearch = false): Parameters<typeof runProxyRequest>[0] {
+function input(webSearch = false, streaming = false): Parameters<typeof runProxyRequest>[0] {
   return {
     request: {
       requestId: "request-1",
@@ -120,6 +135,7 @@ function input(webSearch = false): Parameters<typeof runProxyRequest>[0] {
         model: "client-model",
         messages: [{ role: "user", content: "hello" }],
         ...(webSearch ? { tools: [{ type: "function", function: { name: "web_search", parameters: {} } }] } : {}),
+        ...(streaming ? { stream: true } : {}),
       },
       signal: new AbortController().signal,
     },
@@ -175,6 +191,35 @@ describe("request OAuth recovery", () => {
     const response = await runProxyRequest(input(), dependencies);
 
     expect(response.status).toBe(200);
+    expect(seenTargets).toEqual(["model-0", "model-0"]);
+    expect(switches).toHaveLength(0);
+  });
+  test("retries provider overload on the same route before returning an error", async () => {
+    const seenTargets: string[] = [];
+    const forceRefreshCalls = { value: 0 };
+    const switches: RouteSwitchLog[] = [];
+    const dependencies = makeDependencies({
+      failures: 0,
+      streamOverloadOnce: true,
+      candidates: [routeCandidate("route-0", "model-0")],
+      seenTargets,
+      forceRefreshCalls,
+      switches,
+    });
+
+    const response = await runProxyRequest(input(false, true), dependencies);
+
+    expect(response.status).toBe(200);
+    expect(response.body.mode).toBe("stream");
+    if (response.body.mode === "stream") {
+      const events: StreamEvent[] = [];
+      for await (const event of response.body.events) events.push(event);
+      expect(events).toEqual([
+        { type: "message_start", id: "recovered" },
+        { type: "text_delta", text: "ok" },
+        { type: "message_stop", reason: "completed" },
+      ]);
+    }
     expect(seenTargets).toEqual(["model-0", "model-0"]);
     expect(switches).toHaveLength(0);
   });

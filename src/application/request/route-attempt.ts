@@ -18,6 +18,7 @@ interface RouteAttemptState {
   readonly accountCandidatesByProvider: Map<string, Promise<readonly AccountCandidate[]>>;
   reactiveRetryCandidateId: string | null;
   accountRetryCandidateId: string | null;
+  candidateRetryId: string | null;
   nextCandidateIndex: number;
   successfulSelection: RouteAttemptSelection | null;
   successfulCandidateId: string | null;
@@ -25,11 +26,15 @@ interface RouteAttemptState {
 export function markAccountRetry(state: RouteAttemptState, candidateId: string): void {
   state.accountRetryCandidateId = candidateId;
 }
+export function markCandidateRetry(state: RouteAttemptState, candidateId: string): void {
+  state.candidateRetryId = candidateId;
+}
 
 function consumeRetryCandidate(state: RouteAttemptState): string | null {
-  const candidateId = state.reactiveRetryCandidateId ?? state.accountRetryCandidateId;
+  const candidateId = state.reactiveRetryCandidateId ?? state.accountRetryCandidateId ?? state.candidateRetryId;
   state.reactiveRetryCandidateId = null;
   state.accountRetryCandidateId = null;
+  state.candidateRetryId = null;
   return candidateId;
 }
 
@@ -48,7 +53,7 @@ export interface RouteAttemptContext {
 }
 
 export function createRouteAttemptState(): RouteAttemptState {
-  return { selectedAttempts: new Map(), selectedCredentialKinds: new Map(), selectedCandidateIds: new Map(), translationDiagnostics: [], reactiveRefreshes: new Set(), accountCandidatesByProvider: new Map(), reactiveRetryCandidateId: null, accountRetryCandidateId: null, nextCandidateIndex: 0, successfulSelection: null, successfulCandidateId: null };
+  return { selectedAttempts: new Map(), selectedCredentialKinds: new Map(), selectedCandidateIds: new Map(), translationDiagnostics: [], reactiveRefreshes: new Set(), accountCandidatesByProvider: new Map(), reactiveRetryCandidateId: null, accountRetryCandidateId: null, candidateRetryId: null, nextCandidateIndex: 0, successfulSelection: null, successfulCandidateId: null };
 }
 
 export function getRouteAttemptSelection(state: RouteAttemptState): RouteAttemptSelection | null {

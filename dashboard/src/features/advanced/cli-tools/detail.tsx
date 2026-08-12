@@ -57,6 +57,7 @@ function ToolDetailContent({
   const [roleTargets, setRoleTargets] = useState<Record<string, string>>({});
   const [mappingTargets, setMappingTargets] = useState<Record<string, string>>({});
   const [mappingEnabled, setMappingEnabled] = useState(true);
+  const [bypassPermissions, setBypassPermissions] = useState(true);
   const isNativeClaude = def.id === "claude";
   const mappingMode = def.mappingSupported ? def.mappingMode ?? (isNativeClaude ? "remote" : "custom") : null;
   const isRemoteMapping = mappingMode === "remote";
@@ -154,8 +155,9 @@ function ToolDetailContent({
       activeModel: isNativeClaude ? undefined : models[0],
       subagentModel: isNativeClaude || !subagent ? undefined : roleTargets[subagent.roleKey] ?? subagent.defaultModel,
       mapping: def.mappingSupported ? { enabled: mappingEnabled, mappings } : undefined,
+      ...(isNativeClaude ? { bypassPermissions } : {}),
     };
-  }, [activeKeys, selectedKeyId, endpoint, isNativeClaude, isCustomMapping, roleMappings, roleTargets, mappingTargets, mappingEnabled, def.defaultMappingTarget, def.mappingSupported]);
+  }, [activeKeys, selectedKeyId, endpoint, isNativeClaude, isCustomMapping, roleMappings, roleTargets, mappingTargets, mappingEnabled, bypassPermissions, def.defaultMappingTarget, def.mappingSupported]);
 
   const handleApply = useCallback(async () => {
     const input = await buildInput();
@@ -237,23 +239,25 @@ function ToolDetailContent({
                 />
                 <p className="mt-1 text-[10.5px] text-[var(--text-3)]">Automatically points this tool at the local Cartethyia proxy.</p>
               </div>
-
+              {isNativeClaude && (
+                <div className="flex items-start justify-between gap-3 rounded-xl border border-[var(--inner-border)] bg-[var(--surface-muted)]/30 p-3 md:col-span-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-[var(--text-1)]">Add Bypass Permission (YOLO)</p>
+                    <p className="mt-0.5 text-[11px] text-[var(--text-3)]">
+                      Add <code translate="no">permissions.defaultMode=bypassPermissions</code> and <code translate="no">skipDangerousModePermissionPrompt=true</code> to Claude settings.
+                    </p>
+                  </div>
+                  <Switch checked={bypassPermissions} onChange={setBypassPermissions} label="Add Bypass Permission (YOLO)" />
+                </div>
+              )}
             </div>
             <div className="border-t border-[var(--inner-border)] pt-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-[var(--text-1)]">3. Models</h3>
-                  <p className="mt-0.5 text-[11px] text-[var(--text-3)]">
-                    {isNativeClaude
-                      ? "Claude Code keeps its native model IDs; Cartethyia maps model families on the server."
-                      : `Native model values stay in ${def.name}'s own config format.`}
-                  </p>
-                </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 {def.mappingSupported && (
-                  <div className="flex items-center gap-2">
-                    <div className="text-right">
-                      <p className="text-[11px] font-semibold text-[var(--text-2)]">{isRemoteMapping ? "Enable Remote Mapping" : "Enable Custom Mapping"}</p>
-                      <p className="mt-0.5 max-w-[360px] text-[11px] text-[var(--text-3)]">
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-[var(--inner-border)] bg-[var(--surface-muted)]/30 p-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-[var(--text-1)]">{isRemoteMapping ? "Enable Remote Mapping" : "Enable Custom Mapping"}</p>
+                      <p className="mt-0.5 text-[11px] text-[var(--text-3)]">
                         {isRemoteMapping
                           ? "Route requests through Cartethyia without changing the native model ID."
                           : "Expose the selected custom model ID in /models and write that ID to the CLI config."}

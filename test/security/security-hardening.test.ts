@@ -53,4 +53,35 @@ describe("security hardening contracts", () => {
       expect(artifact.text).toContain("[REDACTED]");
     }
   });
+  test("does not truncate the live provider stream at the capture limit", async () => {
+    const saved: Array<{ text: string; truncated: boolean }> = [];
+    const chunks = Array.from({ length: 12 }, () => new TextEncoder().encode("x".repeat(2048)));
+    let index = 0;
+    let cancelled = false;
+    const source = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const chunk = chunks[index];
+        if (chunk === undefined) {
+          controller.close();
+          return;
+        }
+        index += 1;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const capture = createPayloadCapture("request-stream", {
+      save: (_requestId, _kind, artifact) => saved.push({ text: artifact.text, truncated: artifact.truncated }),
+    });
+    const observed = capture.observeResponse(new Response(source));
+    const body = await observed.text();
+    await capture.settle();
+
+    expect(body).toHaveLength(12 * 2048);
+    expect(cancelled).toBe(false);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]?.truncated).toBe(true);
+  });
 });

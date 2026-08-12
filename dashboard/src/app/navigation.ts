@@ -72,7 +72,7 @@ export const ADVANCED_NAV_GROUPS: { label: string; items: NavEntry[]; soon?: boo
   {
     label: "Tools",
     items: [
-      { to: "/advanced/warp", label: "MultiWarp", icon: Globe },
+      { to: "/advanced/warp", label: "Multi Warp", icon: Globe },
       { to: "/advanced/cli-tools", label: "CLI Tools", icon: TerminalSquare },
       { to: "/advanced/automation", label: "Automation", icon: Workflow, badge: "Soon" },
     ],

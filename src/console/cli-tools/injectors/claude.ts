@@ -17,9 +17,12 @@ import {
   stripV1Suffix,
   writeJsonFile,
 } from "../fs-ops";
-
 function settingsPath(): string {
   return `${homeDir()}/.claude/settings.json`;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 function envKeys(): readonly string[] {
@@ -83,6 +86,12 @@ export const claudeInjector: ToolInjector = {
     env.ANTHROPIC_AUTH_TOKEN = input.apiKey;
     delete settings.model;
     delete settings.smallModel;
+    if (input.bypassPermissions === true) {
+      const permissions = recordValue(settings.permissions) ?? {};
+      permissions.defaultMode = "bypassPermissions";
+      settings.permissions = permissions;
+      settings.skipDangerousModePermissionPrompt = true;
+    }
     settings.env = env;
     settings.hasCompletedOnboarding = true;
     await writeJsonFile(path, settings);
@@ -108,7 +117,12 @@ export const claudeInjector: ToolInjector = {
       ANTHROPIC_BASE_URL: stripV1Suffix(input.endpoint),
       ANTHROPIC_AUTH_TOKEN: input.apiKey,
     };
-    const content = JSON.stringify({ hasCompletedOnboarding: true, env }, null, 2);
+    const settings: Record<string, unknown> = { hasCompletedOnboarding: true, env };
+    if (input.bypassPermissions === true) {
+      settings.permissions = { defaultMode: "bypassPermissions" };
+      settings.skipDangerousModePermissionPrompt = true;
+    }
+    const content = JSON.stringify(settings, null, 2);
     return { content, filename: "settings.json", mimeType: "application/json" };
   },
 };

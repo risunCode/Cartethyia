@@ -405,7 +405,7 @@ export function buildChatPayload(request: ProxyRequest, options: { readonly allo
   const payload: Record<string, unknown> = {
     model: upstreamModel,
     stream: request.stream,
-    messages: request.messages.map((message) => toChatMessage(message)),
+    messages: request.messages.flatMap(toChatMessages),
   };
   if (request.tools.length > 0) {
     payload.tools = request.tools.map((tool) => ({
@@ -464,6 +464,13 @@ export function buildChatPayload(request: ProxyRequest, options: { readonly allo
   return payload;
 }
 
+
+function toChatMessages(message: NormalizedMessage): readonly Record<string, unknown>[] {
+  if (message.role !== "tool") return [toChatMessage(message)];
+  return message.content
+    .filter((block) => block.type === "tool_result")
+    .map((block) => ({ role: "tool", tool_call_id: block.toolCallId ?? "", content: block.text ?? "" }));
+}
 
 function toChatMessage(message: NormalizedMessage): Record<string, unknown> {
   switch (message.role) {

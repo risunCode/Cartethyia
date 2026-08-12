@@ -8,7 +8,6 @@ import { isRecord } from "../application/protocols";
 import { createOpenAIResponsesStreamMapper } from "../open-sse/transport/protocols/openai";
 import { buildResponsesPayload } from "../open-sse/translate/request/openai-responses";
 import { resolveModelCapabilities } from "../open-sse/translate/capabilities";
-import { applyRoutedModelIdentity } from "../open-sse/translate/policy/identity";
 import { mapResponsesUsage } from "../open-sse/translate/response/openai";
 import type {
   Adapter,

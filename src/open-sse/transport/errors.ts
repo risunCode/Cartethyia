@@ -6,6 +6,17 @@ import { readBoundedText } from "./body-reader";
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
+function isStructuralProviderCallError(value: unknown): value is ProviderCallError {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.kind === "string"
+    && typeof candidate.retryable === "boolean"
+    && typeof candidate.sanitizedMessage === "string"
+    && (candidate.statusCode === null || typeof candidate.statusCode === "number")
+    && (candidate.routeScope === null || candidate.routeScope === "account" || candidate.routeScope === "proxy" || candidate.routeScope === "provider")
+    && (candidate.source === "internal" || candidate.source === "upstream" || candidate.source === "client")
+    && (candidate.retryAt === null || typeof candidate.retryAt === "string");
+}
 // ---------------------------------------------------------------- typed errors
 
 export interface ProviderAdapterErrorOptions {
@@ -111,6 +122,9 @@ function mapUpstreamError(statusCode: number, message: string, retryAfterSeconds
 export function toProviderCallError(error: unknown): ProviderCallError {
   if (error instanceof ProviderAdapterError) return error.toProviderCallError();
   if (error instanceof ProtocolCodecError) return error.toProviderCallError(sanitizeMessage(error));
+  if (isStructuralProviderCallError(error)) {
+    return { ...error, sanitizedMessage: sanitizeMessage(error.sanitizedMessage) };
+  }
   if (isAbortError(error)) {
     return { statusCode: null, kind: "client_aborted", retryable: false, routeScope: null, source: "client", sanitizedMessage: "Request aborted", retryAt: null };
   }

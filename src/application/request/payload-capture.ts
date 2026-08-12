@@ -41,35 +41,68 @@ export function createPayloadCapture(requestId: string, sink: { save(requestId: 
     response(value): void { save("client_response", value); },
     observeResponse(response): Response {
       if (response.body === null) return response;
-      const [captureBranch, consumerBranch] = response.body.tee();
-      const task = (async () => {
-        const reader = captureBranch.getReader();
-        const chunks: Uint8Array[] = [];
-        let total = 0;
-        let truncated = false;
-        try {
-          while (total < MAX_CAPTURE_BYTES) {
-            const next = await reader.read();
-            if (next.done) break;
-            const remaining = MAX_CAPTURE_BYTES - total;
-            const chunk = next.value.slice(0, remaining);
-            chunks.push(chunk);
-            total += chunk.byteLength;
-            if (next.value.byteLength > remaining) { truncated = true; break; }
-          }
-          if (truncated) await reader.cancel();
-        } finally { reader.releaseLock(); }
-        const merged = new Uint8Array(total);
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let capturedBytes = 0;
+      let originalBytes = 0;
+      let truncated = false;
+      let finalized = false;
+      let settleCapture: (() => void) | null = null;
+      const captureDone = new Promise<void>((resolve) => { settleCapture = resolve; });
+      const finalize = (): void => {
+        if (finalized) return;
+        finalized = true;
+        const merged = new Uint8Array(capturedBytes);
         let offset = 0;
-        for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.byteLength; }
-        save("provider_response", decoder.decode(merged), truncated, truncated ? MAX_CAPTURE_BYTES + 1 : total);
-      })();
-      pending.add(task);
-      void task.then(
-        () => pending.delete(task),
-        () => pending.delete(task),
-      );
-      return new Response(consumerBranch, { status: response.status, statusText: response.statusText, headers: response.headers });
+        for (const chunk of chunks) {
+          merged.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        try {
+          save("provider_response", decoder.decode(merged), truncated, originalBytes);
+        } catch {
+          // Capture telemetry is best-effort and must never affect the live stream.
+        } finally {
+          settleCapture?.();
+        }
+      };
+      const stream = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          try {
+            const next = await reader.read();
+            if (next.done) {
+              finalize();
+              controller.close();
+              return;
+            }
+            const chunk = next.value;
+            originalBytes += chunk.byteLength;
+            if (capturedBytes < MAX_CAPTURE_BYTES) {
+              const remaining = MAX_CAPTURE_BYTES - capturedBytes;
+              const captured = chunk.slice(0, remaining);
+              chunks.push(captured);
+              capturedBytes += captured.byteLength;
+              if (captured.byteLength < chunk.byteLength) truncated = true;
+            } else {
+              truncated = true;
+            }
+            controller.enqueue(chunk);
+          } catch (error) {
+            finalize();
+            controller.error(error);
+          }
+        },
+        async cancel(reason) {
+          try {
+            await reader.cancel(reason);
+          } finally {
+            finalize();
+          }
+        },
+      });
+      pending.add(captureDone);
+      void captureDone.then(() => pending.delete(captureDone));
+      return new Response(stream, { status: response.status, statusText: response.statusText, headers: response.headers });
     },
     async settle(): Promise<void> { await Promise.all(pending); },
   };

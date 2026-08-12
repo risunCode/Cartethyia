@@ -126,5 +126,6 @@ describe("Codex provider", () => {
     const reasoning = wireBody?.reasoning;
     expect(reasoning && typeof reasoning === "object" ? (reasoning as Record<string, unknown>).max_tokens : undefined).toBeUndefined();
     expect(reasoning && typeof reasoning === "object" ? (reasoning as Record<string, unknown>).effort : undefined).toBe("xhigh");
+    expect(wireBody?.instructions).toBeUndefined();
   });
 });

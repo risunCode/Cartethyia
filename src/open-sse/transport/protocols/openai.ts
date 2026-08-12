@@ -4,10 +4,11 @@ import { lineLimit, parseSseData } from "../sse-decoder";
 import { mapSseStream } from "../stream-mapper";
 import { readJsonObject } from "../body-reader";
 import type { SseEvent, StreamMapper } from "../contracts";
-import type { ProviderOutput, ProviderRequest, SafeErrorSummary, StopReason, StreamEvent } from "../../../application/contracts";
+import type { ApplicationErrorKind, ProviderOutput, ProviderRequest, SafeErrorSummary, StopReason, StreamEvent } from "../../../application/contracts";
 import type { ModelCapabilities } from "../../translate/capabilities";
 import { isRecord } from "../../../application/protocols";
 import { sanitizeMessage } from "../../../application/contracts";
+import { parseRateLimitReason } from "../../../application/rate-limit";
 import { classifyCompatibilityRejection, recordCompatibilityFallback, removeCompatibilityProjection } from "../../translate/fallback";
 import { executeFetch } from "../fetch";
 import { buildChatPayload } from "../../translate/request/openai-chat";
@@ -165,21 +166,52 @@ function deltaString(delta: Record<string, unknown>, keys: readonly string[]): s
   }
   return null;
 }
-function responsesFailureSummary(response: Record<string, unknown> | null): SafeErrorSummary {
-  const error = response !== null && isRecord(response.error) ? response.error : null;
-  const code = error !== null && typeof error.code === "string" ? error.code : "";
-  const message = error !== null && typeof error.message === "string" ? error.message : "Upstream Responses request failed";
+function responsesErrorDetail(payload: Record<string, unknown> | null): { readonly code: string; readonly message: string } {
+  const error = payload !== null && isRecord(payload.error) ? payload.error : null;
+  const code = error !== null && typeof error.code === "string"
+    ? error.code
+    : error !== null && typeof error.type === "string"
+      ? error.type
+      : payload !== null && typeof payload.code === "string"
+        ? payload.code
+        : "";
+  const message = error !== null && typeof error.message === "string"
+    ? error.message
+    : error !== null && typeof error.detail === "string"
+      ? error.detail
+      : payload !== null && typeof payload.message === "string"
+        ? payload.message
+        : payload !== null && typeof payload.detail === "string"
+          ? payload.detail
+          : "Upstream Responses request failed";
+  return { code, message };
+}
+
+function classifyResponsesFailure(code: string, message: string): { readonly kind: ApplicationErrorKind; readonly retryable: boolean } {
   const normalized = code.toLowerCase();
-  const kind =
-    normalized.includes("rate_limit") ? "provider_rate_limited" :
-    normalized.includes("quota") ? "quota_exceeded" :
-    normalized.includes("server") || normalized.includes("overload") ? "provider_unavailable" :
-    normalized === "authentication_error" ? "authentication_failed" :
-    normalized === "permission_error" ? "authorization_denied" :
-    normalized === "invalid_request" || normalized === "invalid_prompt" ? "invalid_request" :
-    normalized === "max_output_tokens" ? "stream_truncated" :
+  const rateLimitReason = parseRateLimitReason(message);
+  const kind: ApplicationErrorKind =
+    normalized.includes("rate_limit") || normalized.includes("too_many_requests") ? "provider_rate_limited" :
+    normalized.includes("quota") || normalized.includes("insufficient_balance") ? "quota_exceeded" :
+    normalized.includes("server") || normalized.includes("overload") || normalized.includes("capacity") || rateLimitReason === "MODEL_CAPACITY_EXHAUSTED" || rateLimitReason === "SERVER_ERROR" ? "provider_unavailable" :
+    normalized.includes("authentication") || normalized.includes("invalid_api_key") ? "authentication_failed" :
+    normalized.includes("permission") || normalized.includes("forbidden") ? "authorization_denied" :
+    normalized.includes("invalid_request") || normalized.includes("invalid_prompt") ? "invalid_request" :
+    normalized.includes("max_output_tokens") ? "stream_truncated" :
     "provider_protocol_error";
-  return { statusCode: null, kind, message: sanitizeMessage(message), retryAt: null };
+  return {
+    kind,
+    retryable: kind === "provider_rate_limited"
+      || kind === "quota_exceeded"
+      || kind === "provider_unavailable"
+      || kind === "stream_truncated",
+  };
+}
+
+function responsesFailureSummary(response: Record<string, unknown> | null): SafeErrorSummary {
+  const detail = responsesErrorDetail(response);
+  const failure = classifyResponsesFailure(detail.code, detail.message);
+  return { statusCode: null, kind: failure.kind, message: sanitizeMessage(detail.message), retryAt: null };
 }
 
 function mapChatFinishReason(finishReason: string | null): StopReason {
@@ -554,12 +586,12 @@ export function createOpenAIResponsesStreamMapper(): StreamMapper {
         return startIfNeeded(events);
       }
       case "response.error": {
-        const message = typeof parsed.message === "string" ? parsed.message : "Upstream responses stream errored";
-        const code = typeof parsed.code === "string" ? parsed.code : null;
+        const detail = responsesErrorDetail(parsed);
+        const failure = classifyResponsesFailure(detail.code, detail.message);
         throw new ProviderAdapterError({
-          kind: code === "max_output_tokens" ? "stream_truncated" : "provider_protocol_error",
-          message,
-          retryable: false,
+          kind: failure.kind,
+          message: detail.message,
+          retryable: failure.retryable,
           routeScope: "provider",
         });
       }
