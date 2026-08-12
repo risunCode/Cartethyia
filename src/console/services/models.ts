@@ -41,14 +41,15 @@ export class ModelService {
     return this.repo.setAllEnabled(providerId, enabled);
   }
 
+  /**
+   * Persists an operator-supplied model ID as an enabled provider model.
+   * The adapter catalog remains a discovery source; it must not gate manual
+   * model persistence.
+   */
   async addCustom(providerId: string, modelId: string): Promise<ModelView | null> {
     const normalized = modelId.trim();
     if (normalized.length === 0 || normalized.length > 200) return null;
-    const adapter = this.registry.get(providerId);
-    if (adapter === null) return null;
-    // Persist every operator-added ID, including IDs that also exist in the
-    // built-in catalog. The row is the enabled-state override and keeps a
-    // fetched/manual model durable across catalog refreshes and restarts.
+    if (this.registry.get(providerId) === null) return null;
     return this.repo.setEnabled(providerId, normalized, true);
   }
 
