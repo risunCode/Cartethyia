@@ -74,11 +74,21 @@ export async function buildCatalog(runtime: CartethyiaRuntime): Promise<readonly
   ];
   const unseen = namedRefs.filter((name) => !seen.has(name));
   const resolved = await Promise.all(unseen.map((name) => runtime.models.resolve(name)));
+  const aliasesByName = new Map(runtime.config.aliases.list().map((alias) => [alias.alias, alias.model]));
   for (let i = 0; i < unseen.length; i += 1) {
     const name = unseen[i];
     if (name === undefined) continue;
     const result = resolved[i];
-    if (result === undefined || result === null) continue;
+    const target = aliasesByName.get(name);
+    if (result === undefined || result === null) {
+      if (target === undefined) continue;
+      const separator = target.indexOf("/");
+      const owner = separator > 0 ? target.slice(0, separator) : "alias";
+      if (seen.has(name)) continue;
+      seen.add(name);
+      entries.push({ id: name, owned_by: owner, metadata: null });
+      continue;
+    }
     const owner = result.targets[0]?.providerId ?? "alias";
     if (seen.has(name)) continue;
     seen.add(name);
