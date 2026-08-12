@@ -4,32 +4,49 @@ import { buildAntigravityImagePayload, AntigravityAdapter, antigravityWireModelI
 
 const originalFetch = globalThis.fetch;
 
-function imageRequest(target: ProviderRequest["target"], credential: string): ProviderRequest {
+function requestFor(target: ProviderRequest["target"], credential: string, sourceSurface: "images" | "openai-chat", headers = new Headers()): ProviderRequest {
   return {
     target,
     request: {
       model: target.modelId,
-      messages: [{ role: "user", content: [{ type: "text", text: "a blue circle" }] }],
+      messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
       tools: [],
       stream: false,
       responseFormat: "text",
       reasoning: "default",
       maxOutputTokens: null,
       images: [],
-      imageOperation: "generate",
-      sourceSurface: "images",
+      ...(sourceSurface === "images" ? { imageOperation: "generate" as const } : {}),
+      sourceSurface,
       signal: new AbortController().signal,
       limits: { maxBodyBytes: 1_000_000, connectTimeoutMs: 5_000, firstByteTimeoutMs: 10_000, idleTimeoutMs: 30_000, totalTimeoutMs: 60_000 },
     },
     credential,
     network: { proxyId: null, url: null, release: async () => {} },
     signal: new AbortController().signal,
-    headers: new Headers(),
+    headers,
   };
+}
+
+function imageRequest(target: ProviderRequest["target"], credential: string): ProviderRequest {
+  return requestFor(target, credential, "images");
+}
+
+function chatRequest(target: ProviderRequest["target"], credential: string, conversationId: string): ProviderRequest {
+  return requestFor(target, credential, "openai-chat", new Headers({ "x-conversation-id": conversationId }));
 }
 
 function antigravityCredential(): string {
   return JSON.stringify({ accessToken: "access-token", projectId: "project-1" });
+}
+
+function antigravityTextResponse(responseId: string): Response {
+  return new Response(`data: ${JSON.stringify({
+    response: {
+      responseId,
+      candidates: [{ content: { parts: [{ text: "ok" }] }, finishReason: "STOP" }],
+    },
+  })}\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } });
 }
 
 afterEach(() => {
@@ -98,4 +115,59 @@ describe("Antigravity model catalog", () => {
     expect(output).toMatchObject({ mode: "non_stream", body: { data: [{ b64_json: "AAAA", mime_type: "image/png" }] } });
   });
 
+  test("keeps bounded route state affinity while isolating model switches", async () => {
+    const adapter = new AntigravityAdapter({ sessionStateMaxEntries: 2, sessionStateIdleTtlMs: 60_000 });
+    const captured: Record<string, unknown>[] = [];
+    globalThis.fetch = (async (_inputUrl, init) => {
+      captured.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return antigravityTextResponse(`execution-${captured.length}`);
+    }) as typeof fetch;
+
+    const target = adapter.resolveTarget("gemini-3-flash", "openai-chat");
+    await adapter.call(chatRequest(target, antigravityCredential(), "conversation-1"));
+    await adapter.call(chatRequest(target, antigravityCredential(), "conversation-1"));
+
+    const firstRequest = captured[0]?.request as Record<string, unknown>;
+    const secondRequest = captured[1]?.request as Record<string, unknown>;
+    const firstLabels = firstRequest.labels as Record<string, unknown>;
+    const secondLabels = secondRequest.labels as Record<string, unknown>;
+    expect(secondLabels.last_execution_id).toBe("execution-1");
+    expect(secondLabels.trajectory_id).toBe(firstLabels.trajectory_id);
+    expect(secondLabels.last_step_index).toBe("2");
+    expect(secondRequest.sessionId).toBe(firstRequest.sessionId);
+    expect(adapter.sessionStateSize()).toBe(1);
+    expect(adapter.inspectSessionStates().every((entry) => !entry.key.includes("access-token") && !entry.key.includes("hello"))).toBe(true);
+
+    const switchedTarget = adapter.resolveTarget("gpt-oss-120b", "openai-chat");
+    await adapter.call(chatRequest(switchedTarget, antigravityCredential(), "conversation-1"));
+    const switchedRequest = captured[2]?.request as Record<string, unknown>;
+    const switchedLabels = switchedRequest.labels as Record<string, unknown>;
+    expect(switchedLabels.last_execution_id).toBeUndefined();
+    expect(adapter.sessionStateSize()).toBe(1);
+    expect(adapter.resetSession("conversation-1")).toBe(1);
+    expect(adapter.sessionStateSize()).toBe(0);
+  });
+  test("applies capacity and idle TTL limits to provider state", async () => {
+    let now = 0;
+    const adapter = new AntigravityAdapter({ sessionStateMaxEntries: 1, sessionStateIdleTtlMs: 100, now: () => now });
+    const captured: Record<string, unknown>[] = [];
+    globalThis.fetch = (async (_inputUrl, init) => {
+      captured.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return antigravityTextResponse(`execution-${captured.length}`);
+    }) as typeof fetch;
+
+    const target = adapter.resolveTarget("gemini-3-flash", "openai-chat");
+    await adapter.call(chatRequest(target, antigravityCredential(), "conversation-a"));
+    now = 1;
+    await adapter.call(chatRequest(target, antigravityCredential(), "conversation-b"));
+    expect(adapter.sessionStateSize()).toBe(1);
+
+    const secondRequest = captured[1]?.request as Record<string, unknown>;
+    expect((secondRequest.labels as Record<string, unknown>).last_execution_id).toBeUndefined();
+    now = 102;
+    await adapter.call(chatRequest(target, antigravityCredential(), "conversation-b"));
+    const expiredRequest = captured[2]?.request as Record<string, unknown>;
+    expect((expiredRequest.labels as Record<string, unknown>).last_execution_id).toBeUndefined();
+    expect(adapter.sessionStateSize()).toBe(1);
+  });
 });

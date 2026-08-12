@@ -9,6 +9,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
 import {
   Area,
@@ -24,7 +25,6 @@ import { useUsageResource } from "./hooks/use-usage-resource";
 import { useProviders } from "../../components/model-picker";
 import { Badge } from "../../components/ui/badge";
 import { Card, CardHeader } from "../../components/ui/card";
-import { DataTable } from "../../components/ui/layout";
 import { Drawer } from "../../components/ui/drawer";
 import { Select, Tabs } from "../../components/ui/tabs";
 import { formatDuration, formatNumber, formatTime, formatTokens, formatUsd } from "../../lib/format";
@@ -33,6 +33,7 @@ import { qk } from "../../lib/query-keys";
 type Period = "1h" | "24h" | "7d" | "30d" | "all";
 type Metric = "requests" | "tokens" | "cached";
 type Dimension = "model" | "provider" | "key";
+type BreakdownLimit = "5" | "10" | "all";
 type BreakdownMetric = "tokens" | "costs";
 
 interface Summary {
@@ -396,9 +397,135 @@ function BreakdownSnapshot({ period, dimension, onDimensionChange }: { period: P
   );
 }
 
+function formatUsageScale(value: number, maxValue: number, mode: BreakdownMetric): string {
+  if (mode === "costs") {
+    if (value === 0) return "$0";
+    if (value < 0.01) return "<$0.01";
+    return `$${value.toFixed(value >= 10 ? 0 : 2)}`;
+  }
+  if (value === 0) return "0";
+  const unit = maxValue >= 1_000_000_000 ? 1_000_000_000 : maxValue >= 1_000_000 ? 1_000_000 : maxValue >= 1_000 ? 1_000 : 1;
+  const suffix = unit === 1_000_000_000 ? "B" : unit === 1_000_000 ? "M" : unit === 1_000 ? "K" : "";
+  const scaled = value / unit;
+  return `${scaled >= 10 || unit === 1 ? scaled.toFixed(0) : scaled.toFixed(1)}${suffix}`;
+}
+
+function BreakdownBarChart({ rows, dimension, mode, limit, providerNames }: { rows: ByRow[]; dimension: Dimension; mode: BreakdownMetric; limit: BreakdownLimit; providerNames: ReadonlyMap<string, string> }) {
+  const [hoveredRow, setHoveredRow] = useState<{ name: string; x: number; y: number } | null>(null);
+  const sortedRows = rows
+    .filter((row) => mode === "costs" ? row.costUsd !== null && row.costUsd > 0 : true)
+    .sort((a, b) => (mode === "costs" ? (b.costUsd ?? 0) - (a.costUsd ?? 0) : b.total - a.total));
+  const chartRows = limit === "all" ? sortedRows : sortedRows.slice(0, Number(limit));
+  const maxValue = chartRows.length > 0
+    ? Math.max(...chartRows.map((row) => mode === "costs" ? row.costUsd ?? 0 : row.total), 1)
+    : 1;
+  const hoveredDetails = chartRows.find((row) => row.name === hoveredRow?.name) ?? null;
+  const axisTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => ({ ratio, value: maxValue * ratio }));
+  const positionTooltip = (name: string, x: number, y: number) => {
+    const tooltipWidth = Math.min(290, Math.max(0, window.innerWidth - 32));
+    const tooltipHeight = 128;
+    const maxX = Math.max(8, window.innerWidth - tooltipWidth - 8);
+    const maxY = Math.max(8, window.innerHeight - tooltipHeight - 8);
+    const left = Math.min(x + 14, maxX);
+    const top = y + 14 <= maxY ? y + 14 : Math.max(8, y - tooltipHeight - 14);
+    setHoveredRow({ name, x: Math.max(8, left), y: Math.max(8, top) });
+  };
+
+  return (
+    <div className="relative mb-3 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-2)]">{mode === "costs" ? "Estimated cost share" : `Usage by ${dimension}`}</div>
+          <div className="mt-0.5 text-[10px] text-[var(--text-3)]">
+            Showing {chartRows.length === sortedRows.length ? "all" : chartRows.length} of {sortedRows.length} · scale uses {mode === "costs" ? "USD" : "K / M / B"} · hover a bar for details
+          </div>
+        </div>
+        <Badge tone={mode === "costs" ? "warn" : "info"}>{mode === "costs" ? "USD" : "tokens"}</Badge>
+      </div>
+      {chartRows.length === 0 ? (
+        <div className="grid min-h-[180px] place-items-center text-center text-xs text-[var(--text-3)]">{mode === "costs" ? "No priced usage for this period." : "No usage for this period."}</div>
+      ) : (
+        <>
+          <div className="space-y-2.5">
+            {chartRows.map((row) => {
+              const displayName = dimension === "provider" ? providerDisplayName(row.name, providerNames) : row.name;
+              const value = mode === "costs" ? row.costUsd ?? 0 : row.total;
+              const width = value > 0 ? `${Math.max(2, (value / maxValue) * 100)}%` : "0%";
+              const cachedWidth = row.cached > 0 ? `${Math.max(1, (row.cached / maxValue) * 100)}%` : "0%";
+              const tooltip = `${displayName} · ${mode === "costs" ? `estimated cost ${formatUsd(row.costUsd)}` : `total ${formatTokens(row.total)}`}`;
+              return (
+                <div
+                  key={row.name}
+                  className="group relative"
+                  onMouseEnter={(event) => positionTooltip(row.name, event.clientX, event.clientY)}
+                  onMouseMove={(event) => positionTooltip(row.name, event.clientX, event.clientY)}
+                  onMouseLeave={() => setHoveredRow(null)}
+                  onFocus={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    positionTooltip(row.name, rect.right, rect.top);
+                  }}
+                  onBlur={() => setHoveredRow(null)}
+                >
+                  <div className="mb-1 flex items-center justify-between gap-2 text-[10px]">
+                    <span className="min-w-0 truncate font-mono font-semibold text-[var(--text-2)]" title={displayName}>{displayName}</span>
+                    <span className="shrink-0 font-semibold tabular-nums text-[var(--text-1)]">{mode === "costs" ? formatUsd(row.costUsd) : formatTokens(row.total)}</span>
+                  </div>
+                  <div
+                    className="relative h-4 overflow-hidden rounded-full bg-[var(--surface-muted)] ring-1 ring-inset ring-[var(--inner-border)]"
+                    title={tooltip}
+                    role="img"
+                    aria-label={tooltip}
+                  >
+                    <div className={`absolute inset-y-0 left-0 rounded-full ${mode === "costs" ? "bg-[#ffd60a]" : "bg-[var(--accent)]"}`} style={{ width, backgroundColor: mode === "costs" ? "#ffd60a" : "var(--accent)" }} />
+                    {mode === "tokens" && row.cached > 0 && <div className="absolute inset-y-0 left-0 rounded-full bg-[#bf5af2]" style={{ width: cachedWidth, backgroundColor: "#bf5af2" }} />}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex items-center gap-3 text-[10px] text-[var(--text-3)]">
+            <span className="inline-flex items-center gap-1"><i className="size-2 rounded-full bg-[var(--accent)]" />Total usage</span>
+            {mode === "tokens" && <span className="inline-flex items-center gap-1"><i className="size-2 rounded-full bg-[#bf5af2]" />Cached</span>}
+          </div>
+          <div className="relative mt-3 h-6 border-t border-[var(--inner-border)]">
+            {axisTicks.map(({ ratio, value }) => (
+              <span
+                key={ratio}
+                className={`absolute top-1 text-[9px] tabular-nums text-[var(--text-3)] ${ratio === 0 ? "" : ratio === 1 ? "-translate-x-full" : "-translate-x-1/2"}`}
+                style={{ left: `${ratio * 100}%` }}
+              >
+                {formatUsageScale(value, maxValue, mode)}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+      {hoveredDetails && hoveredRow && createPortal(
+        <div
+          role="tooltip"
+          className="pointer-events-none fixed z-50 max-w-[min(290px,calc(100vw-2rem))] rounded-lg border border-[var(--glass-border-2)] bg-[var(--popover-bg)] px-3 py-2 text-[10px] shadow-xl"
+          style={{ left: hoveredRow.x, top: hoveredRow.y }}
+        >
+          <div className="truncate font-mono font-semibold text-[var(--text-1)]">{dimension === "provider" ? providerDisplayName(hoveredDetails.name, providerNames) : hoveredDetails.name}</div>
+          <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[var(--text-2)]">
+            <span>Requests <strong className="text-[var(--text-1)]">{formatNumber(hoveredDetails.requests)}</strong></span>
+            <span>Errors <strong className="text-[var(--text-1)]">{formatNumber(hoveredDetails.errors)}</strong></span>
+            <span>Input <strong className="text-[var(--text-1)]">{formatTokens(hoveredDetails.input)}</strong></span>
+            <span>Cached <strong className="text-[#bf5af2]">{formatTokens(hoveredDetails.cached)}</strong></span>
+            <span>Output <strong className="text-[var(--text-1)]">{formatTokens(hoveredDetails.output)}</strong></span>
+            <span>{mode === "costs" ? "Cost" : "Total"} <strong className="text-[var(--text-1)]">{mode === "costs" ? formatUsd(hoveredDetails.costUsd) : formatTokens(hoveredDetails.total)}</strong></span>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
 function BreakdownCard({ period, dimension, onDimensionChange }: { period: Period; dimension: Dimension; onDimensionChange: (value: string) => void }) {
   const providerNames = useProviderNames();
   const [mode, setMode] = useState<BreakdownMetric>("tokens");
+  const [limit, setLimit] = useState<BreakdownLimit>("5");
   const byQuery = useUsageResource<{ rows: ByRow[] }>(qk.usage.by(period, dimension), `/usage/by-${dimension}?period=${period}`);
   const cacheQuery = useUsageResource<CacheSummary & { period: Period }>(qk.usage.cache(period), `/usage/cache?period=${period}`, { refetchInterval: 10_000 });
   const rows = byQuery.data?.rows ?? [];
@@ -408,9 +535,10 @@ function BreakdownCard({ period, dimension, onDimensionChange }: { period: Perio
   return (
     <Card className="min-w-0" density="compact">
       <CardHeader title="Usage breakdown" icon={Database} iconColor="#bf5af2" sub="Cache usage, tokens, and cost share one analytics surface.">
-        <div className="flex w-full items-center justify-between gap-1.5 sm:w-auto">
+        <div className="flex w-full flex-wrap items-center justify-between gap-1.5 sm:w-auto">
           <Tabs tabs={[{ id: "tokens", label: "Tokens" }, { id: "costs", label: "Costs" }]} value={mode} onChange={(value) => setMode(value as BreakdownMetric)} />
           <Select ariaLabel="Breakdown dimension" value={dimension} onChange={onDimensionChange} options={[{ value: "model", label: "Usage by model" }, { value: "provider", label: "Usage by provider" }, { value: "key", label: "Usage by API key" }]} />
+          <Select ariaLabel="Breakdown limit" value={limit} onChange={(value) => setLimit(value as BreakdownLimit)} options={[{ value: "5", label: "Top 5" }, { value: "10", label: "Top 10" }, { value: "all", label: "All" }]} />
         </div>
       </CardHeader>
       <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -425,18 +553,7 @@ function BreakdownCard({ period, dimension, onDimensionChange }: { period: Perio
       {modeIsCosts && !rows.every((r) => r.costUsd === null) && (
         <div className="mb-3 rounded-lg border border-[#ffd60a]/20 bg-[#ffd60a]/[0.06] px-3 py-2 text-[11px] text-[var(--text-2)]">Estimated from published token pricing. Rows with unknown pricing are marked — and excluded from the total.</div>
       )}
-      <div className="overflow-x-auto rounded-xl border border-[var(--inner-border)]">
-        <DataTable minWidth={modeIsCosts ? 780 : 680} label="Usage breakdown">
-          <thead><tr className="border-b border-[var(--inner-border)] text-left text-[10px] uppercase tracking-wider text-[var(--text-3)]"><th className="px-3 py-2 font-semibold">{dimension === "model" ? "Model" : dimension === "provider" ? "Provider" : "API key"}</th><th className="px-3 py-2 text-right font-semibold">Requests</th><th className="px-3 py-2 text-right font-semibold">Errors</th><th className="px-3 py-2 text-right font-semibold">Input</th><th className="px-3 py-2 text-right font-semibold">Cached</th><th className="px-3 py-2 text-right font-semibold">Output</th><th className="px-3 py-2 text-right font-semibold">Total</th>{modeIsCosts && <th className="px-3 py-2 text-right font-semibold">Cost</th>}</tr></thead>
-          <tbody>
-            {byQuery.isLoading && <tr><td colSpan={modeIsCosts ? 8 : 7} className="px-3 py-8 text-center text-xs text-[var(--text-3)]">Loading breakdown…</td></tr>}
-            {!byQuery.isLoading && rows.length === 0 && <tr><td colSpan={modeIsCosts ? 8 : 7} className="px-3 py-8 text-center text-xs text-[var(--text-3)]">No usage for this period.</td></tr>}
-            {rows.slice(0, 25).map((row) => (
-              <tr key={row.name} className="border-b border-[var(--inner-border)] last:border-0 hover:bg-[var(--hover)]"><td className="max-w-[260px] truncate px-3 py-2.5 font-mono text-xs font-semibold">{dimension === "provider" ? providerDisplayName(row.name, providerNames) : row.name}</td><td className="px-3 py-2.5 text-right tabular-nums">{formatNumber(row.requests)}</td><td className="px-3 py-2.5 text-right tabular-nums text-[var(--red)]">{row.errors > 0 ? formatNumber(row.errors) : "—"}</td><td className="px-3 py-2.5 text-right tabular-nums">{modeIsCosts ? "—" : formatTokens(row.input)}</td><td className="px-3 py-2.5 text-right tabular-nums text-[#bf5af2]">{modeIsCosts ? "—" : formatTokens(row.cached)}</td><td className="px-3 py-2.5 text-right tabular-nums">{modeIsCosts ? "—" : formatTokens(row.output)}</td><td className="px-3 py-2.5 text-right font-semibold tabular-nums">{modeIsCosts ? "—" : formatTokens(row.total)}</td>{modeIsCosts && <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-[#ffd60a]">{row.costUsd != null ? formatUsd(row.costUsd) : "—"}</td>}</tr>
-            ))}
-          </tbody>
-        </DataTable>
-      </div>
+      {!byQuery.isLoading && <BreakdownBarChart rows={rows} dimension={dimension} mode={mode} limit={limit} providerNames={providerNames} />}
     </Card>
   );
 }
@@ -489,14 +606,14 @@ export function UsagePage() {
       </section>
 
       <Card density="compact">
-        <CardHeader title="Requests" icon={Activity} sub="Newest first · scroll to browse request history">
+        <CardHeader title="Requests" icon={Activity} sub="Newest first · 10 visible · scroll to browse request history">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(48,209,88,0.14)] px-2.5 py-1 text-[11px] font-semibold text-[#1fa84a] dark:text-[var(--green)]">
             <Radio size={11} className="animate-pulse" />
             Live
           </span>
         </CardHeader>
 
-        <div className="max-h-[560px] overflow-x-auto overflow-y-auto rounded-xl border border-[var(--inner-border)]">
+        <div className="max-h-[445px] overflow-auto overscroll-contain rounded-xl border border-[var(--inner-border)]">
           <table className="w-full border-collapse text-xs">
             <thead>
               <tr className="border-b border-[var(--inner-border)] text-left text-[10.5px] uppercase tracking-wider text-[var(--text-3)]">

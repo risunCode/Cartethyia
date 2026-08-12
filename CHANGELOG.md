@@ -6,6 +6,38 @@ All notable changes to Cartethyia are documented here.
 
 **2.0.0 Beta is here.** This release consolidates the OAuth and quota lifecycle around the account/provider runtime boundary, adds provider-aware background workers, and hardens the failure path for revoked refresh tokens.
 
+### 2.0.0 Beta merge — 2026-08-12
+
+This merge consolidates the OpenSSE translation, routing, provider-concurrency, and dashboard hot-path work for the current 2.0 beta line.
+
+### Added
+
+- **Unified translation policy**: capability-aware OpenAI, Anthropic, and Gemini surface resolution, fallback diagnostics, recovery translation, and protocol-specific request/response adapter behavior.
+- **Runtime hot paths**: session-state reuse, credential metadata caching, provider in-flight accounting, route-attempt lifecycle handling, and bounded transport timeout/abort coordination.
+- **Dashboard controls**: chart-only Usage breakdown with Top 5, Top 10, and All limits, token/cost modes, pointer-following detail cards, and refreshed responsive combo/alias controls.
+- **Regression coverage**: credential and session hot paths, request/routing lifecycle, recovery translation, transport timeouts, provider concurrency, network behavior, and persistence contracts.
+
+### Changed
+
+- **Routing and provider selection**: capability resolution and fallback decisions now share the canonical translation contracts across provider adapters and CLI-compatible surfaces.
+- **Transport and recovery**: abort propagation, timeout handling, upstream failure classification, and recovery responses use the same bounded lifecycle across OpenAI, Anthropic, and Gemini paths.
+- **Console and dashboard composition**: diagnostic wiring is reduced to the active API surface, overview/API-key presentation is consolidated, and combo strategy selection is inline while modal forms stay focused on model membership.
+
+### Fixed
+
+- Usage breakdown hover details now follow the pointer for Top 5, Top 10, and All instead of being pinned to the chart/card edge.
+- Usage token mode keeps zero-total rows when All is selected while cost mode continues to exclude unpriced or zero-cost rows.
+- Requests history remains a separate scrollable table with ten visible rows, preserving responsive desktop and mobile layouts.
+
+### Verification
+
+- `bun run test` — 670 passing across 72 backend test files.
+- `bunx tsc --noEmit --pretty false` — clean.
+- `dashboard`: `bun run test:ci` — 195 passing across 31 test files; typecheck and production build clean.
+- `bun run build` — native backend executable compiled successfully.
+- Browser smoke verification against the rebuilt service on port 12800 — Usage Top 5/Top 10/All rendered 5/10/11 bars with pointer-offset tooltips; desktop and mobile combo pages had no horizontal overflow.
+
+
 ### 2.0.0 Beta update — 2026-08-09
 
 This follow-up hardens the provider boundary for Claude Code, Codex, Exa, and Blackbox while consolidating the dashboard around the Overview workspace.

@@ -35,8 +35,7 @@ export function createConsoleAssembly({ config, baseConfig, runtime, registry, a
   const repositories = createConsoleRepositories(config, runtime, registry);
   const services = createConsoleServices({ repositories, registry, authDrivers, modelMetadata, oauthCoordinator: oauth, accountHealth });
   const recordRouteSwitch = (event: Parameters<typeof repositories.transitions.record>[2]) => repositories.transitions.record(event.scope, event.previousRouteId ?? event.replacementRouteId ?? "unknown", event);
-  const prefixes = new Map(registry.list().map((adapter) => [adapter.metadata.id, adapter.metadata.id]));
-  const diagnostics = new ConsoleDiagnostics({ services, repositories, registry, prefixes, runtimeCounters: { inFlight: () => getInFlightCount() } });
+  const diagnostics = new ConsoleDiagnostics({ services, repositories, registry, runtimeCounters: { inFlight: () => getInFlightCount() } });
   const logStream = createConsoleLogStreamHub({
     latest: (limit, filters) => runtime.consoleLogs.list({ ...filters, limit }).items,
     after: (afterId, limit, filters) => runtime.consoleLogs.after(afterId, limit, filters),

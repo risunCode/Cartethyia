@@ -22,6 +22,8 @@ export interface ApiKeyView {
   readonly lastUsedAt: string | null;
   readonly createdAt: string;
   readonly revokedAt: string | null;
+  readonly totalUsage: number;
+  readonly totalRequests: number;
 }
 
 export interface ApiKeyCreateInput {

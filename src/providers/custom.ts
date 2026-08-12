@@ -134,6 +134,8 @@ export class CustomProviderAdapter implements Adapter {
     await assertPublicUrlAtDispatch(url, { label: `Custom provider "${record.name}" base URL` });
     const coordinator = new AbortCoordinator(input.signal, {
       connectTimeoutMs: input.request.limits.connectTimeoutMs,
+      firstByteTimeoutMs: input.request.limits.firstByteTimeoutMs,
+      idleTimeoutMs: input.request.limits.idleTimeoutMs,
       totalTimeoutMs: Math.min(input.request.limits.totalTimeoutMs, Math.max(1, record.timeoutSeconds) * 1000),
     });
     let streamHandedOff = false;

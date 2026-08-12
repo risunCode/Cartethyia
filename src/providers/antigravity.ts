@@ -11,6 +11,7 @@ import { createGeminiGenerateContentStreamMapper } from "../open-sse/transport/p
 import { buildGeminiPayload } from "../open-sse/translate/request/gemini";
 import { mapGeminiUsage, translateGeminiImageResponse, translateGeminiResponse } from "../open-sse/translate/response/gemini";
 import { runtimeMemoryLimits } from "../traffic/limits";
+import { RouteSessionStateStore, type RouteSessionStateInspection } from "../application/session-state";
 import type {
   ProxyRequest,
   Adapter,
@@ -346,14 +347,48 @@ export async function foldAntigravityStream(events: AsyncIterable<StreamEvent>, 
   return { body, usage: usage ?? mapGeminiUsage(body) };
 }
 
-/** Maximum in-memory conversation sessions before the oldest is evicted.
- * Matches the per-IP flight tracker's bounded-map pattern: V8 Map preserves
- * insertion order, so eviction drops the oldest-inserted entry in O(1). */
+/** Maximum in-memory conversation sessions retained by the adapter. */
 const MAX_SESSION_STATES = 256;
+const DEFAULT_SESSION_STATE_IDLE_TTL_MS = 30 * 60_000;
+
+function sessionIdentityDigest(value: string): string {
+  let hash = 1469598103934665603n;
+  for (const character of value) {
+    hash ^= BigInt(character.codePointAt(0) ?? 0);
+    hash = BigInt.asUintN(64, hash * 1099511628211n);
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
+function sessionStateKey(routeIdentity: string, providerId: string, upstreamModelId: string): string {
+  return `${sessionIdentityDigest(routeIdentity)}:${providerId}:${upstreamModelId}`;
+}
+
+function sessionStateRoutePrefix(routeIdentity: string): string {
+  return `${sessionIdentityDigest(routeIdentity)}:`;
+}
+
+function sessionRouteIdentity(input: ProviderRequest, projectId: string): string {
+  const conversationId = input.headers?.get("x-conversation-id");
+  if (typeof conversationId === "string" && conversationId.length > 0) return conversationId;
+  return `project:${projectId}`;
+}
+
+/** Options for bounded Antigravity conversation state. */
+export interface AntigravityAdapterOptions {
+  /** Inject a store when the host needs explicit limits or test inspection. */
+  readonly sessionStateStore?: RouteSessionStateStore<AntigravitySessionState>;
+  /** Maximum state entries when a store is not injected. */
+  readonly sessionStateMaxEntries?: number;
+  /** Idle state lifetime in milliseconds when a store is not injected. */
+  readonly sessionStateIdleTtlMs?: number;
+  /** Injectable clock used when a store is not injected. */
+  readonly now?: () => number;
+}
 
 /** Google Antigravity (Cloud Code Assist) adapter. */
 export class AntigravityAdapter implements Adapter {
-  private readonly sessionStates = new Map<string, AntigravitySessionState>();
+  private readonly sessionStates: RouteSessionStateStore<AntigravitySessionState>;
   readonly metadata: ProviderMeta = {
     id: "antigravity",
     displayName: "Antigravity",
@@ -362,6 +397,30 @@ export class AntigravityAdapter implements Adapter {
   };
   readonly models: ProviderModelCatalog = createModelCatalog(ANTIGRAVITY_MODELS);
   readonly capabilities: ProviderCaps = { ...ANTIGRAVITY_FALLBACK_CAPABILITIES, streaming: true };
+
+  constructor(options: AntigravityAdapterOptions = {}) {
+    this.sessionStates = options.sessionStateStore ?? new RouteSessionStateStore({
+      maxEntries: options.sessionStateMaxEntries ?? MAX_SESSION_STATES,
+      idleTtlMs: options.sessionStateIdleTtlMs ?? DEFAULT_SESSION_STATE_IDLE_TTL_MS,
+      now: options.now,
+    });
+  }
+
+  /** Returns the number of non-expired Antigravity route states. */
+  sessionStateSize(): number {
+    return this.sessionStates.size;
+  }
+
+  /** Returns bounded state metadata for focused integration tests. */
+  inspectSessionStates(): readonly RouteSessionStateInspection<AntigravitySessionState>[] {
+    return this.sessionStates.inspect();
+  }
+
+  /** Resets one conversation/model state, or all model states for a conversation. */
+  resetSession(conversationId: string, upstreamModelId?: string): number {
+    if (upstreamModelId !== undefined) return this.sessionStates.reset(sessionStateKey(conversationId, this.metadata.id, upstreamModelId));
+    return this.sessionStates.reset((entry) => entry.key.startsWith(sessionStateRoutePrefix(conversationId)));
+  }
 
   resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) {
@@ -387,24 +446,26 @@ export class AntigravityAdapter implements Adapter {
       throw new ProviderAdapterError({ kind: "authentication_failed", message: "Antigravity requires an OAuth credential with its Cloud Code project id.", statusCode: 401, routeScope: "account" });
     }
     const conversationId = input.headers?.get("x-conversation-id") ?? `${credential.projectId}:${input.target.modelId}`;
-    let state = this.sessionStates.get(conversationId);
-    if (!state) {
-      state = {};
-      if (this.sessionStates.size >= MAX_SESSION_STATES) {
-        const oldest = this.sessionStates.keys().next();
-        if (!oldest.done) this.sessionStates.delete(oldest.value as string);
-      }
-      this.sessionStates.set(conversationId, state);
-    }
+    const routeIdentity = sessionRouteIdentity(input, credential.projectId);
+    const routePrefix = sessionStateRoutePrefix(routeIdentity);
+    const stateKey = sessionStateKey(routeIdentity, this.metadata.id, input.target.upstreamModelId);
+    this.sessionStates.reset((entry) => entry.key.startsWith(routePrefix) && entry.key !== stateKey);
+    const state = this.sessionStates.create(stateKey, () => ({}));
     const payload = buildAntigravityRequest(input.request, credential, input.target.upstreamModelId, conversationId, state);
-    if (input.target.surface === "images") return this.imageRoundTrip(input, payload, credential.accessToken);
+    if (input.target.surface === "images") {
+      try {
+        return await this.imageRoundTrip(input, payload, credential.accessToken);
+      } finally {
+        this.sessionStates.touch(stateKey);
+      }
+    }
     const headers: Record<string, string> = {
       "content-type": "application/json",
       accept: "text/event-stream",
       authorization: `Bearer ${credential.accessToken}`,
       "user-agent": ANTIGRAVITY_USER_AGENT,
     };
-    const attempt = (endpoint: string) => this.roundTrip(input, endpoint, payload, headers, state);
+    const attempt = (endpoint: string) => this.roundTrip(input, endpoint, payload, headers, state, stateKey);
     try {
       return await attempt(ANTIGRAVITY_DAILY_ENDPOINT);
     } catch (error) {
@@ -412,11 +473,13 @@ export class AntigravityAdapter implements Adapter {
         return attempt(ANTIGRAVITY_SANDBOX_ENDPOINT);
       }
       throw error;
+    } finally {
+      this.sessionStates.touch(stateKey);
     }
   }
   private async imageRoundTrip(input: ProviderRequest, payload: Record<string, unknown>, accessToken: string): Promise<ProviderOutput> {
     const { request, signal, network } = input;
-    const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
+    const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, firstByteTimeoutMs: request.limits.firstByteTimeoutMs, idleTimeoutMs: request.limits.idleTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
     try {
       const response = await executeFetch(`${ANTIGRAVITY_IMAGE_ENDPOINT}/v1internal:generateContent`, {
         method: "POST",
@@ -436,9 +499,9 @@ export class AntigravityAdapter implements Adapter {
     }
   }
 
-  private async roundTrip(input: ProviderRequest, endpoint: string, payload: Record<string, unknown>, headers: Record<string, string>, state: AntigravitySessionState): Promise<ProviderOutput> {
+  private async roundTrip(input: ProviderRequest, endpoint: string, payload: Record<string, unknown>, headers: Record<string, string>, state: AntigravitySessionState, stateKey: string): Promise<ProviderOutput> {
     const { request, signal, network } = input;
-    const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
+    const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, firstByteTimeoutMs: request.limits.firstByteTimeoutMs, idleTimeoutMs: request.limits.idleTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
     let streamHandedOff = false;
     try {
       const response = await executeFetch(`${endpoint}/${ANTIGRAVITY_ACTION}`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
@@ -456,10 +519,15 @@ export class AntigravityAdapter implements Adapter {
         return { mode: "non_stream", body, usage: folded.usage ?? undefined };
       }
       streamHandedOff = true;
+      const sessionStates = this.sessionStates;
       const statefulEvents = (async function* (): AsyncIterable<StreamEvent> {
-        for await (const event of events) {
-          if (event.type === "message_start" && event.id) state.lastExecutionId = event.id;
-          yield event;
+        try {
+          for await (const event of events) {
+            if (event.type === "message_start" && event.id) state.lastExecutionId = event.id;
+            yield event;
+          }
+        } finally {
+          sessionStates.touch(stateKey);
         }
       })();
       return { mode: "stream", events: statefulEvents };

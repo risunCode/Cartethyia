@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import type { RequestRoutingMetadata, UsageDimension, UsagePeriod } from "../../application/contracts";
 import { isWebSearchRouteKind } from "../../application/web-search-routing";
-import { mapClientName, mapClientSource, orZero, periodStartUtc, utcDayBounds, utcMonthBounds, type ChartBucket, type IpSummaryRow, type ModelTokenTotalsRow, type ProviderModelTotalsRow, type ProviderTodayRow, type RuntimeMetadataRepository, type RuntimeRequestFilters, type RuntimeRequestPage, type RuntimeRequestRow, type UsageByRow, type UsageCacheRow, type UsageCacheSummary, type UsageSummary } from "./runtime";
+import { mapClientName, mapClientSource, orZero, periodStartUtc, utcDayBounds, utcMonthBounds, type ApiKeyUsageRow, type ChartBucket, type IpSummaryRow, type ModelTokenTotalsRow, type ProviderModelTotalsRow, type ProviderTodayRow, type RuntimeMetadataRepository, type RuntimeRequestFilters, type RuntimeRequestPage, type RuntimeRequestRow, type UsageByRow, type UsageCacheRow, type UsageCacheSummary, type UsageSummary } from "./runtime";
 
 interface RequestHistoryRow {
   id: number;
@@ -412,6 +412,18 @@ export function createRuntimeMetadataRepository(getDb: () => Database): RuntimeM
       const month = utcMonthBounds();
       const row = getDb().query("SELECT COALESCE(SUM(total_tokens), 0) AS allTimeUsed, COALESCE(SUM(CASE WHEN started_at >= ? AND started_at < ? THEN total_tokens ELSE 0 END), 0) AS dailyUsed, COALESCE(SUM(CASE WHEN started_at >= ? AND started_at < ? THEN total_tokens ELSE 0 END), 0) AS monthlyUsed FROM request_history WHERE api_key_id = ?").get(day.start, day.end, month.start, month.end, keyId) as { dailyUsed: number; monthlyUsed: number; allTimeUsed: number };
       return { dailyUsed: row.dailyUsed, monthlyUsed: row.monthlyUsed, allTimeUsed: row.allTimeUsed };
+    },
+    queryApiKeyUsage(): ApiKeyUsageRow[] {
+      return getDb()
+        .query(
+          `SELECT api_key_id AS apiKeyId,
+            COALESCE(SUM(total_tokens), 0) AS totalUsage,
+            COUNT(*) AS totalRequests
+           FROM request_history
+           WHERE api_key_id IS NOT NULL AND api_key_id != ''
+           GROUP BY api_key_id`,
+        )
+        .all() as ApiKeyUsageRow[];
     },
     invalidate,
   };

@@ -1,5 +1,5 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 
 import {
   Activity,
@@ -7,21 +7,17 @@ import {
   Database,
   Gauge,
   Globe,
-  MapPin,
   MemoryStick,
   Network,
-  ShieldAlert,
   TriangleAlert,
 } from "lucide-react";
-import { apiGet, apiPost } from "../../lib/api";
+import { apiGet } from "../../lib/api";
 import { formatBandwidthKb, formatDuration, formatMemoryMb } from "../../lib/format";
-import { toast } from "../../lib/toast";
 import { qk } from "../../lib/query-keys";
 import { ClipboardButton } from "../../components/patterns/clipboard-button";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
-import { Dialog } from "../../components/ui/dialog";
 import { StatCard, StatePanel } from "../../components/ui/state";
 import { ApiKeysPanel } from "./api-keys-panel";
 
@@ -111,10 +107,6 @@ interface HealthMetrics {
   netTotalKb: number | null;
   netRateKbps: number | null;
 }
-interface GcResponse {
-  status: "scheduled" | "deferred" | "already_pending";
-  inFlight: number;
-}
 
 interface WarpMetricsSummary {
   totalRssMb: number;
@@ -131,11 +123,6 @@ interface WarpMetricsSummary {
 
 export function OverviewPage() {
   const baseUrl = useMemo(() => `${window.location.origin}/v1`, []);
-  const currentHost = window.location.hostname || "local";
-  const isLocalHost = currentHost === "localhost" || currentHost === "127.0.0.1" || currentHost === "::1";
-
-  const ipQuery = useQuery({ queryKey: qk.ip.all, queryFn: () => apiGet<{ ips: string[] }>("/ip"), staleTime: 60_000 });
-  const localIps = ipQuery.data?.ips ?? [];
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: qk.overview.all,
@@ -159,17 +146,6 @@ export function OverviewPage() {
     queryFn: () => apiGet<WarpMetricsSummary>("/warp/metrics/summary"),
     refetchInterval: 5_000,
   });
-  const [cleanRamOpen, setCleanRamOpen] = useState(false);
-  const cleanRamMutation = useMutation({
-    mutationFn: () => apiPost<GcResponse>("/health/gc"),
-    onSuccess: (result) => {
-      setCleanRamOpen(false);
-      void healthQuery.refetch();
-      const message = result.status === "deferred" ? "GC queued until active proxy traffic is idle." : result.status === "already_pending" ? "A runtime GC request is already pending." : "Bun runtime GC requested.";
-      toast.success("Runtime memory cleanup requested", { description: message });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Unable to request runtime GC"),
-  });
 
 
 
@@ -181,36 +157,24 @@ export function OverviewPage() {
   const cacheRate = totals.inputTokens > 0 ? Math.round((totals.cachedTokens / totals.inputTokens) * 100) : 0;
   const health = healthQuery.data;
   const cpuPercent = health ? Math.min(100, Math.max(0, health.cpuPercent)) : 0;
-  const cpuTone = cpuPercent >= 80 ? "err" : cpuPercent >= 50 ? "warn" : "ok";
   const ramSystemPercent = health && health.memoryTotalMb > 0 ? Math.min(100, Math.max(0, (health.memorySystemUsedMb / health.memoryTotalMb) * 100)) : 0;
 
 
   return (
     <div className="dashboard-page space-y-4">
-      <Card>
+      <Card surface="base" className="health-card endpoint-card">
         <CardHeader title="API Endpoint" icon={Globe} sub="Base URL for OpenAI- and Anthropic-compatible clients" />
-        <div className="grid gap-2.5 sm:grid-cols-2">
-          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[rgba(10,132,255,0.13)] text-[#0a84ff]"><Globe size={14} /></span>
-                <span className="text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Local</span>
-              </div>
-                <ClipboardButton value={baseUrl} variant="ghost" size="sm" className="h-7 shrink-0 px-2 text-[10px]" />
-            </div>
-            <code className="block truncate rounded-md bg-[var(--kbd-bg)] px-2 py-1.5 font-mono text-[11.5px] text-[var(--text-1)]" title={baseUrl}>{baseUrl}</code>
-            <div className="mt-1.5 text-[10px] text-[var(--text-2)]">OpenAI and Anthropic compatible API</div>
+        <div className="health-card-resource min-w-0 rounded-[14px] p-4 lg:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-3)]">Primary endpoint</span>
+            <Badge tone="default">Local</Badge>
           </div>
-          <div className="rounded-[14px] border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-[rgba(48,209,88,0.13)] text-[#30d158]"><MapPin size={14} /></span>
-                <span className="truncate text-[10.5px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Current Public IP</span>
-              </div>
-              <Badge tone={isLocalHost ? "default" : "info"}>{isLocalHost ? "local" : "public"}</Badge>
-            </div>
-            <code className="block truncate rounded-md bg-[var(--kbd-bg)] px-2 py-1.5 font-mono text-[11.5px] text-[var(--text-1)]">{currentHost}</code>
-            {localIps.length > 0 && <div className="mt-1.5 truncate text-[10px] text-[var(--text-3)]" title={localIps.join(", ")}>LAN: {localIps.join(" · ")}</div>}
+          <code className="mt-3 block overflow-x-auto rounded-[var(--radius-control)] bg-[var(--kbd-bg)] px-3 py-2.5 font-mono text-[13px] font-semibold text-[var(--text-1)]" title={baseUrl}>{baseUrl}</code>
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-[var(--text-2)]">
+            <span>OpenAI &amp; Anthropic compatible</span>
+            <span className="text-[var(--text-3)]">·</span>
+            <span>Copy-ready for clients</span>
+            <ClipboardButton value={baseUrl} variant="ghost" size="sm" className="ml-auto h-7 px-2 text-[10px]" />
           </div>
         </div>
       </Card>
@@ -235,16 +199,12 @@ export function OverviewPage() {
                     <p className="mt-0.5 line-clamp-2 text-[9.5px] leading-[1.25] text-[var(--text-3)]">Bun Runtime · Cartethyia process</p>
                 </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <Badge tone="accent">Live</Badge>
-                  <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[10px]" onClick={() => setCleanRamOpen(true)} aria-label="Open runtime GC cleaner">Run GC</Button>
-                </div>
               </div>
-              <div className="mt-3 flex items-baseline gap-2">
-                <span className="shrink-0 whitespace-nowrap text-[22px] font-bold leading-none tracking-tight tabular-nums">{health ? formatMemoryMb(health.memoryUsedMb) : "—"}</span>
-                <span className="text-[9.5px] text-[var(--text-3)]">RSS</span>
-                <Badge tone="accent" className="ml-auto whitespace-nowrap">{health ? `${formatMemoryMb(health.memorySystemUsedMb)} system` : "—"}</Badge>
+              <div className="mt-3 flex min-w-0 items-baseline gap-2">
+                <span className="min-w-0 truncate text-[22px] font-bold leading-none tracking-tight tabular-nums">{health ? formatMemoryMb(health.memoryUsedMb) : "—"}</span>
+                <span className="shrink-0 text-[9.5px] text-[var(--text-3)]">RSS</span>
               </div>
+              <Badge tone="accent" className="mt-2 max-w-full whitespace-normal break-words">{health ? `${formatMemoryMb(health.memorySystemUsedMb)} system` : "—"}</Badge>
               <p className="mt-2 text-[9.5px] leading-[1.35] text-[var(--text-3)]">RSS is the whole Cartethyia process — Bun runtime, native/JIT overhead, JS heap, and buffers combined.</p>
               <div className="mt-3 h-1 overflow-hidden rounded-full bg-[var(--track)]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={health ? ramSystemPercent : 0}>
                 <div className="h-full origin-left rounded-full bg-[#bf5af2] transition-transform duration-500" style={{ transform: `scaleX(${ramSystemPercent / 100})` }} />
@@ -284,13 +244,12 @@ export function OverviewPage() {
                     <p className="mt-0.5 line-clamp-2 text-[9.5px] leading-[1.25] text-[var(--text-3)]">MultiWarp pool · wireproxy instances</p>
                   </div>
                 </div>
-                <Badge tone={warpMetricsQuery.data?.runningCount ? "ok" : "default"}>{warpMetricsQuery.data ? "Live" : "Waiting"}</Badge>
               </div>
-              <div className="mt-3 flex items-baseline gap-2">
-                <span className="shrink-0 whitespace-nowrap text-[22px] font-bold leading-none tracking-tight tabular-nums">{warpMetricsQuery.data ? formatMemoryMb(warpMetricsQuery.data.totalRssMb) : "—"}</span>
-                <span className="text-[9.5px] text-[var(--text-3)]">RSS</span>
-                <Badge tone="accent" className="ml-auto whitespace-nowrap">{warpMetricsQuery.data ? `${warpMetricsQuery.data.runningCount} running` : "—"}</Badge>
+              <div className="mt-3 flex min-w-0 items-baseline gap-2">
+                <span className="min-w-0 truncate text-[22px] font-bold leading-none tracking-tight tabular-nums">{warpMetricsQuery.data ? formatMemoryMb(warpMetricsQuery.data.totalRssMb) : "—"}</span>
+                <span className="shrink-0 text-[9.5px] text-[var(--text-3)]">RSS</span>
               </div>
+              <Badge tone="accent" className="mt-2 max-w-full whitespace-normal break-words">{warpMetricsQuery.data ? `${warpMetricsQuery.data.runningCount} running` : "—"}</Badge>
               <p className="mt-2 text-[9.5px] leading-[1.35] text-[var(--text-3)]">Per-instance RSS summed across all running wireproxy processes. ~20–40 MB per instance.</p>
               <div className="mt-auto grid grid-cols-2 gap-2.5 pt-3">
                 <div>
@@ -323,7 +282,6 @@ export function OverviewPage() {
                     <p className="mt-0.5 line-clamp-2 text-[9.5px] leading-[1.25] text-[var(--text-3)]">VPS bandwidth · all interfaces</p>
                   </div>
                 </div>
-                <Badge tone={health?.netTotalKb !== null ? "info" : "default"}>{health?.netTotalKb !== null ? "Live" : "N/A"}</Badge>
               </div>
               <div className="mt-3 flex items-end justify-between gap-2.5">
                 <div className="flex items-baseline gap-2">
@@ -364,7 +322,6 @@ export function OverviewPage() {
                     <p className="mt-0.5 line-clamp-2 text-[9.5px] leading-[1.25] text-[var(--text-3)]">Current process load</p>
                   </div>
                 </div>
-                <Badge tone={cpuTone}>{health ? "Live" : "Waiting"}</Badge>
               </div>
               <div className="mt-3 flex items-center gap-3">
                 <div className="relative grid size-[72px] shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(#ff9f0a ${cpuPercent}%, var(--track) 0)` }} role="img" aria-label={health ? `CPU usage ${cpuPercent.toFixed(1)} percent` : "CPU usage unavailable"}>
@@ -388,28 +345,6 @@ export function OverviewPage() {
           </div>
         </div>
       </Card>
-      <Dialog
-        open={cleanRamOpen}
-        onClose={() => { if (!cleanRamMutation.isPending) setCleanRamOpen(false); }}
-        title="Release runtime memory"
-        footer={<>
-          <Button type="button" variant="ghost" onClick={() => setCleanRamOpen(false)} disabled={cleanRamMutation.isPending}>Cancel</Button>
-          <Button type="button" variant="danger" onClick={() => cleanRamMutation.mutate()} disabled={cleanRamMutation.isPending}>{cleanRamMutation.isPending ? "Running…" : "Run runtime GC"}</Button>
-        </>}
-      >
-        <div className="space-y-4 text-sm">
-          <div className="flex gap-3 rounded-xl border border-[rgba(10,132,255,0.35)] bg-[rgba(10,132,255,0.08)] p-3">
-            <ShieldAlert className="mt-0.5 shrink-0 text-[#0a84ff]" size={18} aria-hidden="true" />
-            <p className="text-[var(--text-2)]">This asks Bun to reclaim unused JavaScript and native allocator memory from the Cartethyia process.</p>
-          </div>
-          <ul className="list-disc space-y-2 pl-5 text-[var(--text-2)]">
-            <li>Cross-platform: works wherever Cartethyia runs under Bun.</li>
-            <li>Waits for active proxy traffic to become idle, so live requests are not synchronously paused.</li>
-            <li>It does not clear the operating system file cache, kill processes, or guarantee a lower RSS value.</li>
-          </ul>
-          <p className="text-xs text-[var(--text-3)]">This is the safe runtime cleanup path; no root privilege or external cleaner is required.</p>
-        </div>
-      </Dialog>
       <ApiKeysPanel />
 
     </div>

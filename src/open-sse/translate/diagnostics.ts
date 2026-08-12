@@ -72,7 +72,7 @@ function sanitizeReason(value: string): string {
   if (/[{}\[\]]/.test(normalized)) return "redacted structured detail";
   return clamp(normalized
     .replace(/\bbearer\s+\S+/gi, "bearer [redacted]")
-    .replace(/\b(?:authorization|api[-_]?key|secret|password|token)\b\s*[:=]\s*\S+/gi, "$1 [redacted]"), MAX_VALUE_LENGTH);
+    .replace(/\b(authorization|api[-_]?key|secret|password|token)\b\s*[:=]\s*\S+/gi, "$1 [redacted]"), MAX_VALUE_LENGTH);
 }
 
 function clamp(value: string, limit: number): string {

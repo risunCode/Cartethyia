@@ -129,6 +129,47 @@ export interface QuotaStateRecord {
   readonly lastQuotaSuccessAtMs?: number | null;
   readonly quota?: QuotaSnapshotState | null;
 }
+/**
+ * Bounded account usage view used only to rank otherwise eligible credentials.
+ * A stale snapshot is retained as diagnostic state but never changes ordering.
+ */
+export interface AccountUsageSnapshot {
+  readonly accountId: string;
+  readonly providerId: string;
+  readonly modelId?: string;
+  readonly remainingFraction: number | null;
+  readonly resetAtMs: number | null;
+  readonly fetchedAtMs: number;
+  readonly stale: boolean;
+}
+
+/**
+ * Context supplied to an account usage provider. Providers should return only
+ * bounded scalar usage metadata and must not include credentials or payloads.
+ */
+export interface AccountUsageSnapshotContext {
+  readonly providerId: string;
+  readonly modelId?: string;
+  readonly nowMs: number;
+}
+
+export type AccountUsageSnapshotInput = AccountUsageSnapshot | QuotaStateRecord | QuotaSnapshotState;
+export type AccountUsageSnapshotCollection = readonly AccountUsageSnapshotInput[] | ReadonlyMap<string, AccountUsageSnapshotInput>;
+export type AccountUsageSnapshotProviderFunction = (
+  accountIds: readonly string[],
+  context: AccountUsageSnapshotContext,
+) => Promise<AccountUsageSnapshotCollection>;
+
+/**
+ * Optional usage source for credential ranking. A provider failure is treated
+ * as missing usage data and never makes an eligible pool unavailable.
+ */
+export interface AccountUsageProvider {
+  getSnapshots(accountIds: readonly string[], context: AccountUsageSnapshotContext): Promise<AccountUsageSnapshotCollection>;
+}
+
+export type AccountUsageSnapshotProvider = AccountUsageProvider | AccountUsageSnapshotProviderFunction;
+
 
 export interface QuotaStateStore {
   get(accountId: string): Promise<QuotaStateRecord | undefined>;
@@ -687,7 +728,7 @@ export class QuotaCoordinator {
   }
 }
 
-export type CredentialSelectionReason = "preferred" | "healthy" | "sole" | "fallback";
+export type CredentialSelectionReason = "preferred" | "healthy" | "sole" | "fallback" | "usage_headroom";
 
 export interface CredentialSelectionResult {
   readonly selection: CredentialSelection;
@@ -707,6 +748,14 @@ export interface SelectCredentialInput {
   readonly nowMs?: number;
   /** When provided, candidates with an active per-model lock for this model are excluded. */
   readonly modelId?: string;
+  /** Optional usage snapshots keyed by account id; quota records are accepted directly. */
+  readonly usageSnapshots?: AccountUsageSnapshotCollection;
+  /** Optional bounded usage source. Provider errors fall back to deterministic ranking. */
+  readonly usageSnapshotProvider?: AccountUsageSnapshotProvider;
+  /** Maximum age for a snapshot to participate in ranking. */
+  readonly usageSnapshotTtlMs?: number;
+  /** Provider deadline, bounded to a small in-process timeout. */
+  readonly usageSnapshotTimeoutMs?: number;
 }
 
 /**
@@ -783,15 +832,215 @@ function stableCredentialHash(value: string): number {
   return hash >>> 0;
 }
 
+const DEFAULT_USAGE_SNAPSHOT_TTL_MS = 5 * 60_000;
+const DEFAULT_USAGE_SNAPSHOT_TIMEOUT_MS = 250;
+const MAX_USAGE_SNAPSHOT_ACCOUNTS = 100;
+
+interface UsageProviderCacheState {
+  readonly snapshots: Map<string, AccountUsageSnapshot>;
+  readonly inflight: Map<string, Promise<readonly AccountUsageSnapshot[]>>;
+}
+
+function parseFiniteDate(value: string | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function boundedFraction(value: number | null): number | null {
+  return value === null || !Number.isFinite(value) ? null : Math.min(1, Math.max(0, value));
+}
+
+function normalizeQuotaSnapshot(
+  accountId: string,
+  providerId: string,
+  modelId: string | undefined,
+  quota: QuotaSnapshotState,
+  fallbackFetchedAtMs: number | null = null,
+): AccountUsageSnapshot {
+  const remaining = quota.windows
+    .map((window) => window.remainingPercent)
+    .filter((value): value is number => value !== null && Number.isFinite(value))
+    .map((value) => boundedFraction(value / 100))
+    .filter((value): value is number => value !== null);
+  const resets = quota.windows
+    .map((window) => parseFiniteDate(window.resetsAt))
+    .filter((value): value is number => value !== null);
+  const fetchedAtMs = parseFiniteDate(quota.fetchedAt) ?? parseFiniteDate(quota.lastSuccessAt) ?? fallbackFetchedAtMs ?? Number.NaN;
+  return {
+    accountId,
+    providerId,
+    ...(modelId === undefined ? {} : { modelId }),
+    remainingFraction: remaining.length === 0 ? null : Math.min(...remaining),
+    resetAtMs: resets.length === 0 ? null : Math.min(...resets),
+    fetchedAtMs,
+    stale: quota.status !== "ready" || quota.error !== null,
+  };
+}
+
+function normalizeUsageValue(
+  accountId: string,
+  providerId: string,
+  modelId: string | undefined,
+  value: AccountUsageSnapshotInput,
+): AccountUsageSnapshot | undefined {
+  if ("remainingFraction" in value && "fetchedAtMs" in value) {
+    if (value.accountId !== accountId || value.providerId !== providerId) return undefined;
+    if (value.modelId !== undefined && value.modelId !== modelId) return undefined;
+    return { ...value, remainingFraction: boundedFraction(value.remainingFraction) };
+  }
+  if ("quotaAvailable" in value) {
+    if (value.quota === null || value.quota === undefined) return undefined;
+    return normalizeQuotaSnapshot(accountId, providerId, modelId, value.quota, value.lastQuotaSuccessAtMs ?? null);
+  }
+  return normalizeQuotaSnapshot(accountId, providerId, modelId, value);
+}
+
+function normalizeUsageCollection(
+  collection: AccountUsageSnapshotCollection,
+  providerId: string,
+  modelId: string | undefined,
+): Map<string, AccountUsageSnapshot> {
+  const snapshots = new Map<string, AccountUsageSnapshot>();
+  if (!("get" in collection)) {
+    for (const value of collection) {
+      if (!("accountId" in value)) continue;
+      const normalized = normalizeUsageValue(value.accountId, providerId, modelId, value);
+      if (normalized !== undefined) snapshots.set(normalized.accountId, normalized);
+    }
+    return snapshots;
+  }
+  for (const [accountId, value] of collection) {
+    const normalized = normalizeUsageValue(accountId, providerId, modelId, value);
+    if (normalized !== undefined) snapshots.set(accountId, normalized);
+  }
+  return snapshots;
+}
+
+function isFreshUsageSnapshot(snapshot: AccountUsageSnapshot, nowMs: number, ttlMs: number): boolean {
+  if (snapshot.stale || !Number.isFinite(snapshot.fetchedAtMs)) return false;
+  const ageMs = nowMs - snapshot.fetchedAtMs;
+  return ageMs >= 0 && ageMs <= ttlMs && (snapshot.remainingFraction !== null || snapshot.resetAtMs !== null);
+}
+
+function compareUsageSnapshots(left: AccountUsageSnapshot, right: AccountUsageSnapshot): number {
+  if (left.remainingFraction !== null || right.remainingFraction !== null) {
+    if (left.remainingFraction === null) return 1;
+    if (right.remainingFraction === null) return -1;
+    if (left.remainingFraction !== right.remainingFraction) return right.remainingFraction - left.remainingFraction;
+  }
+  if (left.resetAtMs !== null || right.resetAtMs !== null) {
+    if (left.resetAtMs === null) return 1;
+    if (right.resetAtMs === null) return -1;
+    if (left.resetAtMs !== right.resetAtMs) return left.resetAtMs - right.resetAtMs;
+  }
+  return 0;
+}
+
+function rankWithUsage(
+  candidates: readonly AccountCandidate[],
+  preferredAccountId: string | null,
+  snapshots: ReadonlyMap<string, AccountUsageSnapshot>,
+  nowMs: number,
+  ttlMs: number,
+): { readonly candidates: readonly AccountCandidate[]; readonly applied: boolean } {
+  const fresh = new Map<string, AccountUsageSnapshot>();
+  for (const candidate of candidates) {
+    const snapshot = snapshots.get(candidate.id);
+    if (snapshot !== undefined && isFreshUsageSnapshot(snapshot, nowMs, ttlMs)) fresh.set(candidate.id, snapshot);
+  }
+  if (fresh.size === 0) return { candidates, applied: false };
+  const preferred = candidates.find((candidate) => candidate.id === preferredAccountId);
+  const usageCandidates = preferred === undefined ? candidates : candidates.filter((candidate) => candidate.id !== preferred.id);
+  const ranked = [...usageCandidates].sort((left, right) => {
+    const leftSnapshot = fresh.get(left.id);
+    const rightSnapshot = fresh.get(right.id);
+    if (leftSnapshot === undefined || rightSnapshot === undefined) return leftSnapshot === rightSnapshot ? 0 : leftSnapshot === undefined ? 1 : -1;
+    return compareUsageSnapshots(leftSnapshot, rightSnapshot);
+  });
+  return { candidates: preferred === undefined ? ranked : [preferred, ...ranked], applied: true };
+}
+
+
+async function callUsageProvider(
+  provider: AccountUsageSnapshotProvider,
+  accountIds: readonly string[],
+  context: AccountUsageSnapshotContext,
+): Promise<AccountUsageSnapshotCollection> {
+  return typeof provider === "function"
+    ? provider(accountIds, context)
+    : provider.getSnapshots(accountIds, context);
+}
+
+async function withUsageTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let rejectTimeout: (reason: Error) => void = () => undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    rejectTimeout = reject;
+  });
+  const timer = setTimeout(() => rejectTimeout(new Error("usage snapshot timeout")), timeoutMs);
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export class CredentialSelector {
   private readonly leases = new Map<string, { readonly accountId: string; readonly release: () => boolean }>();
   private readonly roundRobinCursor = new Map<string, number>();
   private readonly inFlightByAccount = new Map<string, number>();
 
+  private readonly usageProviderStates = new WeakMap<object, UsageProviderCacheState>();
   constructor(
     private readonly config: CredentialConfigStore,
     private readonly oauth: TokenRefreshPool,
   ) {}
+  private getUsageProviderState(provider: AccountUsageSnapshotProvider): UsageProviderCacheState {
+    let state = this.usageProviderStates.get(provider);
+    if (state === undefined) {
+      state = { snapshots: new Map(), inflight: new Map() };
+      this.usageProviderStates.set(provider, state);
+    }
+    return state;
+  }
+
+  private async resolveUsageSnapshots(
+    input: SelectCredentialInput,
+    accountIds: readonly string[],
+    nowMs: number,
+  ): Promise<Map<string, AccountUsageSnapshot>> {
+    if (input.usageSnapshots !== undefined) {
+      return normalizeUsageCollection(input.usageSnapshots, input.providerId, input.modelId);
+    }
+    const provider = input.usageSnapshotProvider;
+    if (provider === undefined || accountIds.length === 0) return new Map();
+    const boundedIds = [...new Set(accountIds)].slice(0, MAX_USAGE_SNAPSHOT_ACCOUNTS);
+    const context: AccountUsageSnapshotContext = { providerId: input.providerId, ...(input.modelId === undefined ? {} : { modelId: input.modelId }), nowMs };
+    const state = this.getUsageProviderState(provider);
+    const providerKey = `${input.providerId}:${input.modelId ?? ""}`;
+    let pending = state.inflight.get(providerKey);
+    if (pending === undefined) {
+      const timeoutMs = Math.max(1, Math.min(5_000, Math.round(input.usageSnapshotTimeoutMs ?? DEFAULT_USAGE_SNAPSHOT_TIMEOUT_MS)));
+      pending = withUsageTimeout(callUsageProvider(provider, boundedIds, context), timeoutMs)
+        .then((collection) => [...normalizeUsageCollection(collection, input.providerId, input.modelId).values()])
+        .catch(() => [])
+        .then((snapshots) => {
+          for (const snapshot of snapshots) state.snapshots.set(`${providerKey}:${snapshot.accountId}`, snapshot);
+          return snapshots;
+        })
+        .finally(() => state.inflight.delete(providerKey));
+      state.inflight.set(providerKey, pending);
+    }
+    const fetched = await pending;
+    const result = new Map(fetched.map((snapshot) => [snapshot.accountId, snapshot]));
+    for (const accountId of boundedIds) {
+      if (result.has(accountId)) continue;
+      const cached = state.snapshots.get(`${providerKey}:${accountId}`);
+      if (cached !== undefined) result.set(accountId, cached);
+    }
+    return result;
+  }
+
 
   private getInFlight(accountId: string): number {
     return this.inFlightByAccount.get(accountId) ?? 0;
@@ -813,12 +1062,22 @@ export class CredentialSelector {
     const eligible = ranked.filter((candidate) => isAccountEligible(candidate, now, input.modelId));
     const stickyLimit = input.stickyLimit === undefined ? 0 : Math.max(1, Math.min(100, Math.round(input.stickyLimit)));
     const hasStickyAffinity = stickyLimit > 0 && input.affinityKey !== undefined && input.affinityKey !== null && eligible.length >= stickyLimit;
+    const usageRanking = hasStickyAffinity
+      ? { candidates: eligible, applied: false }
+      : rankWithUsage(
+        eligible,
+        input.preferredAccountId ?? null,
+        await this.resolveUsageSnapshots(input, eligible.map((candidate) => candidate.id), now),
+        now,
+        Math.max(0, Math.min(24 * 60 * 60_000, Math.round(input.usageSnapshotTtlMs ?? DEFAULT_USAGE_SNAPSHOT_TTL_MS))),
+      );
+    const selectionCandidates = usageRanking.candidates;
     // A cache-affine request must stay on one deterministic credential. Round-robin
     // still balances different affinity keys, but rotating one key per request
     // destroys the provider-side prompt cache it is trying to reuse.
     const stickyPool = hasStickyAffinity
       ? Array.from({ length: stickyLimit }, (_, offset) => eligible[(stableCredentialHash(`${input.affinityKey}:${input.providerId}`) + offset) % eligible.length]).filter((candidate): candidate is AccountCandidate => candidate !== undefined)
-      : eligible;
+      : selectionCandidates;
 
     let chosen: AccountCandidate | undefined;
     if (hasStickyAffinity) {
@@ -835,8 +1094,8 @@ export class CredentialSelector {
     } else {
       // Priority strategy: pick the first eligible (lowest priority number).
       // Still prefer idle accounts among the eligible set.
-      const idle = eligible.filter((c) => this.getInFlight(c.id) === 0);
-      chosen = idle.length > 0 ? idle[0] : eligible[0];
+      const idle = selectionCandidates.filter((c) => this.getInFlight(c.id) === 0);
+      chosen = idle.length > 0 ? idle[0] : selectionCandidates[0];
     }
     if (chosen === undefined) return null;
 
@@ -868,9 +1127,7 @@ export class CredentialSelector {
     }
 
     const leaseId = crypto.randomUUID();
-    if (releaseLease !== null) {
-      this.leases.set(leaseId, { accountId: chosen.id, release: releaseLease });
-    }
+    this.leases.set(leaseId, { accountId: chosen.id, release: releaseLease ?? (() => true) });
     // Track in-flight for load-aware round-robin (etteum-pool pattern).
     // Incremented on select, decremented on release.
     this.trackSelection(chosen.id);
@@ -882,7 +1139,9 @@ export class CredentialSelector {
           ? "sole"
           : input.preferredAccountId !== undefined && input.preferredAccountId !== null
             ? "fallback"
-            : "healthy";
+            : usageRanking.applied
+              ? "usage_headroom"
+              : "healthy";
 
     return {
       selection: { accountId: chosen.id, kind: accountConfig.kind, leaseId, secret },

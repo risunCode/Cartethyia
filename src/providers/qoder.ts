@@ -670,6 +670,8 @@ export class QoderAdapter implements Adapter {
 
     const coordinator = new AbortCoordinator(signal, {
       connectTimeoutMs: request.limits.connectTimeoutMs,
+      firstByteTimeoutMs: request.limits.firstByteTimeoutMs,
+      idleTimeoutMs: request.limits.idleTimeoutMs,
       totalTimeoutMs: request.limits.totalTimeoutMs,
     });
     // Route every upstream call (PAT exchange + inference) through the same

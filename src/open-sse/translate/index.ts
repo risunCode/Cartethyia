@@ -49,7 +49,7 @@ export { applyProviderQuirkPolicy, applyRequiredProviderHeaders } from "./policy
 export { boundedTranslationDiagnostics, diagnosticsForDetection, type TranslationDiagnosticInput } from "./diagnostics";
 export { resolveModelCapabilities, fromCaps, type ModelCapabilities, type ReasoningCapabilities, type CacheCapabilities, type ToolCapabilities, type ResponseCapabilities, type MediaCapabilities, type SupportLevel, type CanonicalEffort } from "./capabilities";
 export { createTranslationContext, type TranslationContext, type TranslationPolicy, type TranslationDiagnosticSink, type FeatureTranslation, type CompatibilityRejection, type CompatibilityRule } from "./context";
-export { classifyCompatibilityRejection, recordCompatibilityFallback, removeCompatibilityProjection } from "./fallback";
+export { classifyCompatibilityRejection, decideProviderRetry, recordCompatibilityFallback, removeCompatibilityProjection, type ProviderRetryDecision, type ProviderRetryOutputState, type ProviderRetryPhase, type ProviderRetryReason, type ProviderRetryState } from "./fallback";
 export { preserveWireExtensions } from "./policy/extensions";
 export { normalizeClientEffort, projectEffort } from "./request/effort";
 export { getCacheIntent, hasCacheBreakpoint } from "./features/cache";

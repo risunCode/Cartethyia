@@ -212,7 +212,7 @@ async function readCodexImageStream(response: Response, coordinator: AbortCoordi
 
 async function callCodexImageWire(input: ProviderRequest, url: string, headers: Record<string, string>): Promise<ProviderOutput> {
   const { request, signal, network } = input;
-  const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
+  const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, firstByteTimeoutMs: request.limits.firstByteTimeoutMs, idleTimeoutMs: request.limits.idleTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
   try {
     const response = await executeFetch(url, { method: "POST", headers: { ...headers, accept: "text/event-stream, application/json" }, body: JSON.stringify(buildCodexImagePayload(request, input.target.upstreamModelId)) }, coordinator, network, input.capture);
     if (!response.ok) throw await readUpstreamError(response);
@@ -291,7 +291,7 @@ export class CodexAdapter implements Adapter {
       version: CODEX_VERSION,
       "user-agent": `codex-cli/${CODEX_VERSION}`,
     };
-    const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
+    const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, firstByteTimeoutMs: request.limits.firstByteTimeoutMs, idleTimeoutMs: request.limits.idleTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
     let streamHandedOff = false;
     try {
       const response = await executeFetch(`${CODEX_BASE_URL}/codex/responses`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);

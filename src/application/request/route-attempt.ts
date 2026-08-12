@@ -1,7 +1,8 @@
 import type { Adapter, ProviderOutput, ProxyRequest, RouteCandidate, RouteTarget, StreamEvent, Surface, TranslationDiagnostic } from "../contracts";
+import { providerConcurrencyRegistry, type ProviderConcurrencyLease } from "../../traffic/provider-concurrency";
 import type { AccountCandidate } from "../contracts";
 import type { CredentialKind } from "../contracts";
-import { createCleanupStack, deriveErrorSource } from "../contracts";
+import { deriveErrorSource, sanitizeMessage } from "../contracts";
 import type { ProxyAuthorization, ProxyRequestDependencies, RouteAttemptSelection, ProxyRoutePlan } from "./index";
 import { beginProviderInFlight, endProviderInFlight } from "../../traffic/in-flight";
 import { translateNonStreamResponse, resolveModelWireSurface } from "../../open-sse/translate";
@@ -91,6 +92,78 @@ export function getNextCandidateId(state: RouteAttemptState, plan: ProxyRoutePla
 export function clearAccountCandidates(state: RouteAttemptState, providerId: string): void {
   state.accountCandidatesByProvider.delete(providerId);
 }
+function createOwnedStream(
+  events: AsyncIterable<StreamEvent>,
+  release: () => Promise<void>,
+  reportCleanupFailure: (error: unknown) => void,
+): AsyncIterable<StreamEvent> {
+  let source: AsyncIterator<StreamEvent> | null = null;
+  let finished = false;
+  const finish = async (hasPrimaryError: boolean): Promise<void> => {
+    if (finished) return;
+    finished = true;
+    try { await release(); } catch (error) {
+      if (hasPrimaryError) reportCleanupFailure(error);
+      else throw error;
+    }
+  };
+  const getSource = (): AsyncIterator<StreamEvent> => {
+    source ??= events[Symbol.asyncIterator]();
+    return source;
+  };
+  const iterator: AsyncIterator<StreamEvent> & AsyncIterable<StreamEvent> = {
+    [Symbol.asyncIterator](): AsyncIterator<StreamEvent> {
+      return iterator;
+    },
+    async next(): Promise<IteratorResult<StreamEvent>> {
+      if (finished) return { done: true, value: undefined };
+      let failed = false;
+      try {
+        const result = await getSource().next();
+        if (result.done) await finish(false);
+        return result;
+      } catch (error) {
+        failed = true;
+        throw error;
+      } finally {
+        if (failed) await finish(true);
+      }
+    },
+    async return(value?: unknown): Promise<IteratorResult<StreamEvent>> {
+      let failed = false;
+      try {
+        const result: IteratorResult<StreamEvent> = source?.return === undefined
+          ? { done: true, value }
+          : await source.return(value);
+        await finish(false);
+        return result;
+      } catch (error) {
+        failed = true;
+        throw error;
+      } finally {
+        if (failed) await finish(true);
+      }
+    },
+    async throw(error?: unknown): Promise<IteratorResult<StreamEvent>> {
+      let failed = false;
+      try {
+        if (source?.throw === undefined) {
+          await finish(false);
+          throw error;
+        }
+        const result = await source.throw(error);
+        if (result.done) await finish(false);
+        return result;
+      } catch (primary) {
+        failed = true;
+        throw primary;
+      } finally {
+        if (failed) await finish(true);
+      }
+    },
+  };
+  return { [Symbol.asyncIterator]: () => iterator };
+}
 
 export function createRouteAttempt(context: RouteAttemptContext): (index: number) => Promise<ProviderOutput> {
   const { input, dependencies, request, plan, capture, state } = context;
@@ -108,8 +181,64 @@ export function createRouteAttempt(context: RouteAttemptContext): (index: number
     state.selectedCandidateIds.set(index, candidate.id);
     const adapter = dependencies.providers.get(candidate.providerId);
     if (!adapter) throw { statusCode: 503, kind: "credential_unavailable", retryable: false, routeScope: "provider", source: deriveErrorSource("credential_unavailable", "provider"), sanitizedMessage: "Provider is not configured", retryAt: null };
-    const attemptCleanup = createCleanupStack();
-    let handedOff = false;
+
+    let credentialLeaseId: string | null = null;
+    let networkRelease: (() => Promise<void>) | null = null;
+    let providerInFlight = false;
+    let providerConcurrencyLease: ProviderConcurrencyLease | null = null;
+    let releasePromise: Promise<void> | null = null;
+    let cleanupFailureReported = false;
+    let abortListener: (() => void) | null = null;
+    const reportCleanupFailure = (error: unknown): void => {
+      if (cleanupFailureReported) return;
+      cleanupFailureReported = true;
+      console.warn(`[RouteAttempt] cleanup failed: ${sanitizeMessage(error)}`);
+    };
+    const release = (): Promise<void> => {
+      if (releasePromise !== null) return releasePromise;
+      releasePromise = (async () => {
+        const failures: unknown[] = [];
+        const pendingReleases: Promise<void>[] = [];
+        const captureRelease = (operation: () => Promise<void>): void => {
+          try {
+            pendingReleases.push(Promise.resolve(operation()).catch((error: unknown) => {
+              failures.push(error);
+            }));
+          } catch (error) {
+            failures.push(error);
+          }
+        };
+        const concurrencyLease = providerConcurrencyLease;
+        providerConcurrencyLease = null;
+        if (concurrencyLease !== null) captureRelease(() => concurrencyLease.release());
+        if (providerInFlight) {
+          providerInFlight = false;
+          try { endProviderInFlight(candidate.providerId); } catch (error) { failures.push(error); }
+        }
+        const releaseNetwork = networkRelease;
+        networkRelease = null;
+        if (releaseNetwork !== null) captureRelease(releaseNetwork);
+        const leaseId = credentialLeaseId;
+        credentialLeaseId = null;
+        if (leaseId !== null) captureRelease(() => dependencies.accounts.release(leaseId));
+        if (abortListener !== null) {
+          input.request.signal.removeEventListener("abort", abortListener);
+          abortListener = null;
+        }
+        await Promise.all(pendingReleases);
+        if (failures.length > 0) throw failures[0];
+      })();
+      return releasePromise;
+    };
+    const releaseAfterPrimary = async (): Promise<void> => {
+      try { await release(); } catch (error) { reportCleanupFailure(error); }
+    };
+    const attachAbortCleanup = (): void => {
+      if (abortListener !== null) return;
+      abortListener = () => { void release().catch(reportCleanupFailure); };
+      input.request.signal.addEventListener("abort", abortListener, { once: true });
+      if (input.request.signal.aborted) void release().catch(reportCleanupFailure);
+    };
     try {
       const adapterNeedsCredential = adapter.metadata.credentialKind !== "none";
       const providerRouting = dependencies.getProviderRouting?.(candidate.providerId);
@@ -127,10 +256,10 @@ export function createRouteAttempt(context: RouteAttemptContext): (index: number
       }
       const credential = adapterNeedsCredential ? await dependencies.accounts.select({ providerId: candidate.providerId, candidates: await accountCandidatesPromise, strategy: providerRouting?.strategy ?? "priority", affinityKey, stickyLimit, modelId: candidate.modelId }) : null;
       if (adapterNeedsCredential && credential === null) throw { statusCode: 503, kind: "credential_unavailable", retryable: true, routeScope: "account", source: deriveErrorSource("credential_unavailable", "account"), sanitizedMessage: "No eligible account available", retryAt: null };
-      if (credential !== null) attemptCleanup.add({ release: async () => dependencies.accounts.release(credential.selection.leaseId) });
+      credentialLeaseId = credential?.selection.leaseId ?? null;
       const network = await dependencies.network.select({ providerId: candidate.providerId, affinityKey, sticky: request.cacheKey !== undefined || providerRouting?.useStickyLimit === true, preferDirect: candidate.providerId === "codex" && !CODEX_PROXY_ENABLED });
       if (network === null) throw { statusCode: 503, kind: "network_unavailable", retryable: true, routeScope: "proxy", source: deriveErrorSource("network_unavailable", "proxy"), sanitizedMessage: "No outbound network path available", retryAt: null };
-      attemptCleanup.add({ release: network.selection.release });
+      networkRelease = network.selection.release;
       const selected = { accountId: credential?.selection.accountId ?? null, proxyId: network.proxyId } satisfies RouteAttemptSelection;
       state.selectedAttempts.set(index, selected);
       state.selectedCredentialKinds.set(index, credential?.account.credentialKind ?? "none");
@@ -138,31 +267,44 @@ export function createRouteAttempt(context: RouteAttemptContext): (index: number
       const wireSurface = selectWireSurface(adapter, candidate, request);
       if (wireSurface === null) throw { statusCode: 400, kind: "capability_unsupported", retryable: false, routeScope: "provider", source: deriveErrorSource("capability_unsupported", "provider"), sanitizedMessage: `Provider "${candidate.providerId}" cannot translate this protocol surface`, retryAt: null };
       const target: RouteTarget = adapter.resolveTarget(candidate.modelId || request.model, wireSurface);
-      let providerStreamHandedOff = false;
+      try {
+        providerConcurrencyLease = await providerConcurrencyRegistry.acquire(candidate.providerId, target.upstreamModelId, input.request.signal);
+      } catch (error) {
+        if (input.request.signal.aborted) {
+          throw {
+            statusCode: null,
+            kind: "client_aborted",
+            retryable: false,
+            routeScope: null,
+            source: deriveErrorSource("client_aborted", null),
+            sanitizedMessage: "Request aborted by client",
+            retryAt: null,
+          };
+        }
+        throw error;
+      }
       beginProviderInFlight(candidate.providerId);
+      providerInFlight = true;
+      attachAbortCleanup();
       let output: ProviderOutput;
       try {
         output = await adapter.call({ target, request, credential: credential?.selection.secret ?? "", network: network.selection, signal: input.request.signal, headers: input.request.headers, capture: capture ?? undefined, recordDiagnostic: (diagnostic) => { if (state.translationDiagnostics.length < 32) state.translationDiagnostics.push(diagnostic); } });
       } catch (error) {
-        endProviderInFlight(candidate.providerId);
-        throw adapter.mapError(error);
+        const mapped = adapter.mapError(error);
+        await releaseAfterPrimary();
+        throw mapped;
       }
       state.successfulSelection = selected;
       state.successfulCandidateId = candidate.id;
       if (output.mode === "stream") {
-        handedOff = true;
-        providerStreamHandedOff = true;
-        return { ...output, events: (async function*(): AsyncGenerator<StreamEvent> {
-          try { for await (const event of output.events) yield event; }
-          finally { endProviderInFlight(candidate.providerId); await attemptCleanup.run(); }
-        })() };
+        return { ...output, events: createOwnedStream(output.events, release, reportCleanupFailure) };
       }
-      if (!providerStreamHandedOff) endProviderInFlight(candidate.providerId);
-      await attemptCleanup.run();
-      if (output.mode === "non_stream" && target.surface !== request.sourceSurface) return { ...output, body: translateNonStreamResponse(output.body, target.surface, request.sourceSurface, request.model) };
+      await release();
+      if (target.surface !== request.sourceSurface) return { ...output, body: translateNonStreamResponse(output.body, target.surface, request.sourceSurface, request.model) };
       return output;
-    } finally {
-      if (!handedOff) await attemptCleanup.run();
+    } catch (error) {
+      await releaseAfterPrimary();
+      throw error;
     }
   };
 }

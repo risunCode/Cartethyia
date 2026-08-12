@@ -11,14 +11,12 @@
  * never available through the console.
  */
 
-import { cpus, freemem, networkInterfaces, totalmem } from "node:os";
+import { cpus, freemem, totalmem } from "node:os";
 import { platform } from "node:os";
 import { readFileSync } from "node:fs";
 import { execFileSync, execSync } from "node:child_process";
 import packageJson from "../../package.json";
 import type { ProviderRegistry } from "../providers/registry";
-import { scheduleGlobalGc, type GcScheduleResult } from "../traffic/memory";
-import { resolveModelChain, type ChainResult, type ModelReferenceConfig } from "../application/routing";
 import type {
   ConsoleLogLine,
   ConsoleRepositories,
@@ -236,11 +234,6 @@ export interface MetricsView {
   readonly netRateKbps: number | null;
 }
 
-export interface ResolvePreviewView {
-  readonly ok: boolean;
-  readonly trace: readonly string[];
-  readonly resolved: ChainResult;
-}
 
 export interface OverviewView {
   readonly totals: UsageSummaryView;
@@ -254,8 +247,6 @@ export interface ConsoleDiagnosticsOptions {
   readonly services: ConsoleServices;
   readonly repositories: ConsoleRepositories;
   readonly registry: ProviderRegistry;
-  /** Provider prefix â†’ provider id map used for model reference parsing (lead-wired). */
-  readonly prefixes?: ReadonlyMap<string, string>;
   /** Optional live counters supplied by the composition layer. */
   readonly runtimeCounters?: { readonly inFlight: () => number };
 }
@@ -275,7 +266,6 @@ export class ConsoleDiagnostics {
   private readonly services: ConsoleServices;
   private readonly repositories: ConsoleRepositories;
   private readonly registry: ProviderRegistry;
-  private readonly prefixes: ReadonlyMap<string, string>;
   private readonly runtimeCounters: { readonly inFlight: () => number } | null;
   private overviewCache: { value: OverviewView; expiresAt: number } | null = null;
   private overviewPending: Promise<OverviewView> | null = null;
@@ -284,7 +274,6 @@ export class ConsoleDiagnostics {
     this.services = options.services;
     this.repositories = options.repositories;
     this.registry = options.registry;
-    this.prefixes = options.prefixes ?? new Map<string, string>();
     this.runtimeCounters = options.runtimeCounters ?? null;
   }
 
@@ -304,24 +293,6 @@ export class ConsoleDiagnostics {
 
   metrics(): MetricsView {
     return memorySnapshot();
-  }
-
-  gc(): { before: MetricsView; after: MetricsView; gc: GcScheduleResult } {
-    const before = memorySnapshot();
-    const gc = scheduleGlobalGc();
-    const after = memorySnapshot();
-    return { before, after, gc };
-  }
-
-  localIps(): readonly string[] {
-    const nets = networkInterfaces();
-    const ips: string[] = [];
-    for (const name of Object.keys(nets)) {
-      for (const net of nets[name] ?? []) {
-        if (!net.internal && net.family === "IPv4") ips.push(net.address);
-      }
-    }
-    return ips;
   }
 
   // -------------------------------------------------------------------------
@@ -419,52 +390,4 @@ export class ConsoleDiagnostics {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Route simulation and provider health (read-only)
-  // -------------------------------------------------------------------------
-
-  /**
-   * Resolves a model reference through the same pure chain used by the data
-   * plane. Read-only: no credentials are read and no state is written.
-   */
-  async resolvePreview(model: unknown): Promise<ResolvePreviewView> {
-    if (typeof model !== "string" || model.trim().length === 0) {
-      return { ok: false, trace: ["model name is required"], resolved: { kind: "unresolved" } };
-    }
-    const [aliases, combos] = await Promise.all([
-      this.repositories.routing.listAliases(),
-      this.repositories.routing.listCombos(),
-    ]);
-    const config: ModelReferenceConfig = {
-      prefixes: this.prefixes,
-      aliases: new Map(aliases.map((alias) => [alias.alias, alias.model])),
-      combos: new Map(
-        combos.map((combo) => [
-          combo.name,
-          { id: combo.id, models: [...combo.models], strategy: combo.strategy, stickyLimit: combo.stickyLimit },
-        ]),
-      ),
-    };
-    const resolved = resolveModelChain(model.trim(), config);
-    const trace = buildResolveTrace(model.trim(), resolved);
-    return { ok: resolved.kind !== "unresolved", trace, resolved };
-  }
-
-}
-
-/** Bounded human-readable trace of a model chain resolution. */
-function buildResolveTrace(rawModel: string, resolved: ChainResult): readonly string[] {
-  if (resolved.kind === "qualified") {
-    return [
-      `parsed "${rawModel}" as provider-qualified`,
-      `resolved to ${resolved.model.providerId}/${resolved.model.modelId}`,
-    ];
-  }
-  if (resolved.kind === "combo") {
-    return [
-      `"${rawModel}" is a combo with ${resolved.candidates.length} candidate(s)`,
-      ...resolved.candidates.map((candidate) => `- ${candidate.providerId}/${candidate.modelId}`),
-    ];
-  }
-  return [`"${rawModel}" did not resolve to a configured provider, alias, or combo`];
 }

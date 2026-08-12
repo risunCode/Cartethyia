@@ -147,7 +147,7 @@ export class GrokBuildAdapter implements Adapter {
       "x-grok-model-override": resolvedModel,
     };
 
-    const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
+    const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, firstByteTimeoutMs: request.limits.firstByteTimeoutMs, idleTimeoutMs: request.limits.idleTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
     let streamHandedOff = false;
     try {
       const response = await executeFetch(`${GROK_BUILD_BASE_URL}/responses`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);

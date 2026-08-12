@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AccountCandidate } from "../contracts";
-import { createCachedCredentialConfigStore, CredentialSelector, type CredentialConfigStore } from "./credentials";
+import { createCachedCredentialConfigStore, CredentialSelector, type AccountUsageSnapshot, type CredentialConfigStore } from "./credentials";
 import type { TokenRefreshPool } from "./token-refresh";
 
 const candidates: readonly AccountCandidate[] = [
@@ -66,5 +66,162 @@ describe("credential configuration cache", () => {
     revision += 1;
     await cached.getAccount(account.id);
     expect(reads).toBe(2);
+  });
+});
+
+function usageSnapshot(
+  accountId: string,
+  remainingFraction: number | null,
+  resetAtMs: number | null,
+  options: { readonly fetchedAtMs?: number; readonly stale?: boolean } = {},
+): AccountUsageSnapshot {
+  return {
+    accountId,
+    providerId: "openai",
+    remainingFraction,
+    resetAtMs,
+    fetchedAtMs: options.fetchedAtMs ?? 1_000,
+    stale: options.stale ?? false,
+  };
+}
+
+function selectorForAccounts(): CredentialSelector {
+  const config: CredentialConfigStore = {
+    getAccount: async (id) => ({ id, providerId: "openai", kind: "api_key", secret: `${id}-secret`, enabled: true, priority: 0 }),
+    listAccounts: async () => [],
+  };
+  return new CredentialSelector(config, {} as TokenRefreshPool);
+}
+
+describe("usage-aware credential ranking", () => {
+  test("selects the freshest account with the most usable headroom", async () => {
+    const selector = selectorForAccounts();
+    const result = await selector.select({
+      providerId: "openai",
+      candidates: candidates.slice(0, 2),
+      nowMs: 1_000,
+      usageSnapshots: new Map([
+        ["account-a", usageSnapshot("account-a", 0.2, 5_000)],
+        ["account-b", usageSnapshot("account-b", 0.8, 5_000)],
+      ]),
+    });
+    expect(result?.account.id).toBe("account-b");
+    expect(result?.reason).toBe("usage_headroom");
+    if (result !== null && result !== undefined) await selector.release(result.selection.leaseId);
+  });
+
+  test("uses the earlier reset when headroom is tied", async () => {
+    const selector = selectorForAccounts();
+    const result = await selector.select({
+      providerId: "openai",
+      candidates: candidates.slice(0, 2),
+      nowMs: 1_000,
+      usageSnapshots: new Map([
+        ["account-a", usageSnapshot("account-a", 0.5, 5_000)],
+        ["account-b", usageSnapshot("account-b", 0.5, 2_000)],
+      ]),
+    });
+    expect(result?.account.id).toBe("account-b");
+    if (result !== null && result !== undefined) await selector.release(result.selection.leaseId);
+  });
+
+  test("falls back to deterministic ranking for stale usage", async () => {
+    const selector = selectorForAccounts();
+    const result = await selector.select({
+      providerId: "openai",
+      candidates: candidates.slice(0, 2),
+      nowMs: 1_000,
+      usageSnapshots: new Map([
+        ["account-a", usageSnapshot("account-a", 0.1, 5_000, { stale: true })],
+        ["account-b", usageSnapshot("account-b", 0.9, 2_000, { stale: true })],
+      ]),
+    });
+    expect(result?.account.id).toBe("account-a");
+    expect(result?.reason).toBe("healthy");
+    if (result !== null && result !== undefined) await selector.release(result.selection.leaseId);
+  });
+
+  test("keeps preferred and sticky precedence over usage ranking", async () => {
+    const selector = selectorForAccounts();
+    const preferred = await selector.select({
+      providerId: "openai",
+      candidates: candidates.slice(0, 2),
+      preferredAccountId: "account-a",
+      nowMs: 1_000,
+      usageSnapshots: new Map([
+        ["account-a", usageSnapshot("account-a", 0.1, 5_000)],
+        ["account-b", usageSnapshot("account-b", 0.9, 2_000)],
+      ]),
+    });
+    expect(preferred?.account.id).toBe("account-a");
+    expect(preferred?.reason).toBe("preferred");
+    if (preferred !== null && preferred !== undefined) await selector.release(preferred.selection.leaseId);
+
+    const withoutUsage = await selector.select({
+      providerId: "openai",
+      candidates,
+      strategy: "round-robin",
+      affinityKey: "sticky-usage",
+      stickyLimit: 2,
+    });
+    expect(withoutUsage).not.toBeNull();
+    if (withoutUsage === null) return;
+    await selector.release(withoutUsage.selection.leaseId);
+    const withUsage = await selector.select({
+      providerId: "openai",
+      candidates,
+      strategy: "round-robin",
+      affinityKey: "sticky-usage",
+      stickyLimit: 2,
+      nowMs: 1_000,
+      usageSnapshots: new Map([
+        ["account-a", usageSnapshot("account-a", 0.1, 5_000)],
+        ["account-b", usageSnapshot("account-b", 0.9, 2_000)],
+        ["account-c", usageSnapshot("account-c", 0.9, 2_000)],
+      ]),
+    });
+    expect(withUsage?.account.id).toBe(withoutUsage.account.id);
+    if (withUsage !== null && withUsage !== undefined) await selector.release(withUsage.selection.leaseId);
+  });
+
+  test("excludes quota-exhausted accounts before usage ranking", async () => {
+    const selector = selectorForAccounts();
+    const exhausted: AccountCandidate = {
+      id: "account-a",
+      providerId: "openai",
+      credentialKind: "api_key",
+      health: null,
+      enabled: true,
+      quotaAvailable: false,
+      modelLocks: null,
+    };
+    const available = candidates.find((candidate) => candidate.id === "account-b");
+    if (available === undefined) return;
+    const result = await selector.select({
+      providerId: "openai",
+      candidates: [exhausted, available],
+      nowMs: 1_000,
+      usageSnapshots: new Map([
+        ["account-a", usageSnapshot("account-a", 1, 1_000)],
+        ["account-b", usageSnapshot("account-b", 0.1, 2_000)],
+      ]),
+    });
+    expect(result?.account.id).toBe("account-b");
+    if (result !== null && result !== undefined) await selector.release(result.selection.leaseId);
+  });
+
+  test("falls back when the usage provider fails", async () => {
+    const selector = selectorForAccounts();
+    const result = await selector.select({
+      providerId: "openai",
+      candidates: candidates.slice(0, 2),
+      nowMs: 1_000,
+      usageSnapshotProvider: async () => {
+        throw new Error("usage source unavailable");
+      },
+    });
+    expect(result?.account.id).toBe("account-a");
+    expect(result?.reason).toBe("healthy");
+    if (result !== null && result !== undefined) await selector.release(result.selection.leaseId);
   });
 });

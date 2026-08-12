@@ -49,6 +49,7 @@ export class DevinAdapter implements Adapter {
     };
     const coordinator = new AbortCoordinator(input.signal, {
       connectTimeoutMs: input.request.limits.connectTimeoutMs,
+      firstByteTimeoutMs: input.request.limits.firstByteTimeoutMs,
       totalTimeoutMs: input.request.limits.totalTimeoutMs,
       idleTimeoutMs: input.request.limits.idleTimeoutMs,
     });

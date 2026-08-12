@@ -32,6 +32,8 @@ export async function callChatCompletionsWire(
   const payload: Record<string, unknown> = { ...buildChatPayload(request, { upstreamModel: input.target.upstreamModelId, explicitCache: options.explicitCache, capabilities: options.capabilities }), ...payloadOverrides, model: input.target.upstreamModelId };
   const coordinator = new AbortCoordinator(signal, {
     connectTimeoutMs: request.limits.connectTimeoutMs,
+    firstByteTimeoutMs: request.limits.firstByteTimeoutMs,
+    idleTimeoutMs: request.limits.idleTimeoutMs,
     totalTimeoutMs: request.limits.totalTimeoutMs,
   });
   let streamHandedOff = false;
@@ -81,6 +83,8 @@ export async function callResponsesWire(
   const payload = buildResponsesPayload(request, { upstreamModel: input.target.upstreamModelId, explicitCache: options.explicitCache, capabilities: options.capabilities });
   const coordinator = new AbortCoordinator(signal, {
     connectTimeoutMs: request.limits.connectTimeoutMs,
+    firstByteTimeoutMs: request.limits.firstByteTimeoutMs,
+    idleTimeoutMs: request.limits.idleTimeoutMs,
     totalTimeoutMs: request.limits.totalTimeoutMs,
   });
   let streamHandedOff = false;
@@ -129,7 +133,7 @@ export async function callHostedImageWire(
   payload.tool_choice = { type: "image_generation" };
   payload.store = false;
   payload.stream = false;
-  const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
+  const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, firstByteTimeoutMs: request.limits.firstByteTimeoutMs, idleTimeoutMs: request.limits.idleTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
   try {
     const response = await executeFetch(url, { method: "POST", headers: { ...headers, accept: "application/json" }, body: JSON.stringify(payload) }, coordinator, network, input.capture);
     if (!response.ok) throw await readUpstreamError(response);

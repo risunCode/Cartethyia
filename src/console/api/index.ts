@@ -109,15 +109,6 @@ export function createConsoleApi(deps: ConsoleRouterDependencies) {
         if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") query[key] = String(value);
       }
     })
-    // ---- authenticated read-only helpers ----
-    .route("QUERY", "/ip", async ({ request, set }: RouteContext) => {
-      const verdict = await guardConsoleRequest(request, await services.auth.guardOptions());
-      if (!verdict.ok) {
-        set.status = verdict.status;
-        return consoleError(verdict.code, verdict.message);
-      }
-      return { ips: diagnostics.localIps() };
-    })
     // ---- public ----
     .post("/login", async ({ body, request, set }: { body: unknown; request: Request; set: { status?: number | string; headers: HTTPHeaders } }) => {
       const snapshot = await services.settings.get();

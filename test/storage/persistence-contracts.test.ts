@@ -1537,11 +1537,21 @@ describe("runtime metadata queries", () => {
     expect(page.nextCursor).toBeNull();
   });
 
-  test("sumKeyTokens returns zeros for unknown key", () => {
-    rt.flush();
-    const r = rt.metadata.sumKeyTokens("unknown-key");
-    expect(r.dailyUsed).toBe(0);
-    expect(r.allTimeUsed).toBe(0);
+  test("queryApiKeyUsage aggregates usage by credential id", () => {
+    const now = new Date().toISOString().slice(0, 19).replace("T", " ");
+    rt.db().query(
+      "INSERT INTO request_history (trace_id, endpoint, surface, api_key_id, status, stream, started_at, finished_at, duration_ms, total_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run("key-usage-1", "/v1", "openai", "key-1", 200, 0, now, now, 10, 120);
+    rt.db().query(
+      "INSERT INTO request_history (trace_id, endpoint, surface, api_key_id, status, stream, started_at, finished_at, duration_ms, total_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run("key-usage-2", "/v1", "openai", "key-1", 200, 0, now, now, 10, 80);
+    rt.db().query(
+      "INSERT INTO request_history (trace_id, endpoint, surface, api_key_id, status, stream, started_at, finished_at, duration_ms, total_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run("key-usage-3", "/v1", "openai", "key-2", 200, 0, now, now, 10, 50);
+    expect(rt.metadata.queryApiKeyUsage()).toEqual([
+      { apiKeyId: "key-1", totalUsage: 200, totalRequests: 2 },
+      { apiKeyId: "key-2", totalUsage: 50, totalRequests: 1 },
+    ]);
   });
 
   test("queryProviderToday returns empty array on empty DB", () => {

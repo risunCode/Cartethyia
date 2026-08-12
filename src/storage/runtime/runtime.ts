@@ -145,6 +145,11 @@ export interface IpSummaryRow {
   readonly outputTokens: number;
 }
 
+export interface ApiKeyUsageRow {
+  readonly apiKeyId: string;
+  readonly totalUsage: number;
+  readonly totalRequests: number;
+}
 export interface ConsoleLogRow {
   readonly id: number;
   readonly ts: string;
@@ -204,6 +209,7 @@ export interface RuntimeMetadataRepository {
   queryLastProviderError(provider: string): string | null;
   queryIpSummary(limit: number): IpSummaryRow[];
   sumKeyTokens(keyId: string): { readonly dailyUsed: number; readonly monthlyUsed: number; readonly allTimeUsed: number };
+  queryApiKeyUsage(): ApiKeyUsageRow[];
   invalidate(): void;
 }
 export interface ConsoleLogRepository {

@@ -15,7 +15,7 @@ export interface GcScheduleResult {
  * proxy request. If proxy traffic is active, the request waits for an idle
  * point and retries; the Bun GC itself remains asynchronous.
  *
- * Started periodically by the runtime and on demand from `POST /health/gc`.
+ * Started periodically by the runtime to reclaim idle process memory.
  * `Bun.gc(false)` is a non-blocking hint — unlike `Bun.gc(true)` it does not
  * stop the world, so calling it at an idle point keeps live streams moving
  * while still reclaiming the process heap between traffic spikes.

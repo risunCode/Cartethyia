@@ -49,9 +49,9 @@ function providerCapabilityFromSearch(search: string): ProviderCapability {
   return requested === "media" || requested === "websearch" ? requested : "chat";
 }
 
-/** Display order for built-in providers: free tier, OAuth, then API key/PAT. */
+/** Display order for built-in providers: free limited, OAuth, then API key/PAT. */
 const SECTIONS: { authKinds: ProviderInfo["authKind"][]; title: string }[] = [
-  { authKinds: ["none"], title: "Free Tier Providers" },
+  { authKinds: ["none"], title: "Free Limited Providers" },
   { authKinds: ["session", "oauth"], title: "OAuth Providers" },
   { authKinds: ["api-key"], title: "API Key Providers" },
 ];

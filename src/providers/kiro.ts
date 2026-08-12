@@ -366,7 +366,7 @@ export class KiroAdapter implements Adapter {
     const payload = buildKiroPayload(request, input.target.modelId);
     const profileArn = bundle?.profileArn ?? defaultProfileArn(bundle?.authMethod);
     if (profileArn) payload.profileArn = profileArn;
-    const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
+    const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, firstByteTimeoutMs: request.limits.firstByteTimeoutMs, idleTimeoutMs: request.limits.idleTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
     let streamHandedOff = false;
     try {
       let response: Response | undefined;

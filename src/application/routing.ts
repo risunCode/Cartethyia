@@ -13,6 +13,47 @@ import type { AffinityKey } from "./contracts";
 export function affinityKeyString(key: AffinityKey): string {
   return `${key.namespace}:${key.value}`;
 }
+/** Selection reasons shared by route, credential, and network observability. */
+export type SelectionReason = "preferred" | "sticky" | "round_robin" | "least_loaded" | "usage_headroom" | "fallback";
+
+/** Bounded metadata describing one already-selected route candidate. */
+export interface SelectionDecision {
+  readonly candidateId: string;
+  readonly reason: SelectionReason;
+  readonly affinityKey?: string;
+  readonly excludedCandidateIds: readonly string[];
+}
+
+/** Input for creating a selection decision without changing selector behavior. */
+export interface SelectionDecisionInput {
+  readonly candidateId: string;
+  readonly reason: SelectionReason;
+  readonly affinityKey?: AffinityKey | string | null;
+  readonly excludedCandidateIds?: readonly string[];
+}
+
+/**
+ * Records selection metadata around an existing selector result.
+ *
+ * This helper deliberately does not rank or filter candidates: the credential,
+ * network, and route selectors remain the owners of selection policy.
+ */
+export function createSelectionDecision(input: SelectionDecisionInput): SelectionDecision {
+  let affinity: string | undefined;
+  if (typeof input.affinityKey === "string") {
+    affinity = input.affinityKey;
+  } else if (input.affinityKey !== null && input.affinityKey !== undefined) {
+    affinity = affinityKeyString(input.affinityKey);
+  }
+  const excluded = [...new Set(input.excludedCandidateIds ?? [])].filter((candidateId) => candidateId !== input.candidateId);
+  return {
+    candidateId: input.candidateId,
+    reason: input.reason,
+    ...(affinity === undefined ? {} : { affinityKey: affinity }),
+    excludedCandidateIds: excluded,
+  };
+}
+
 
 /**
  * FNV-1a 32-bit over `key \0 candidateId` — pure integer arithmetic, stable
@@ -93,13 +134,31 @@ export type ModelReferenceParseResult =
   | { readonly kind: "unqualified" }
   | { readonly kind: "invalid"; readonly reason: string };
 
+export type ModelResolutionDiagnosticCode = "cycle" | "max_depth" | "empty_combo" | "unresolved_member" | "unknown_reference";
+
+/** Secret-free explanation for an unresolved model reference or combo member. */
+export interface ModelResolutionDiagnostic {
+  readonly code: ModelResolutionDiagnosticCode;
+  readonly path: readonly string[];
+  readonly comboId?: string;
+  readonly member?: string;
+}
+
 export type ChainResult =
   | { readonly kind: "qualified"; readonly model: ResolvedModel }
-  | { readonly kind: "combo"; readonly candidates: readonly ResolvedModel[] }
+  | { readonly kind: "combo"; readonly candidates: readonly ResolvedModel[]; readonly diagnostics?: readonly ModelResolutionDiagnostic[] }
   | { readonly kind: "unresolved" };
+
+/** Detailed result that keeps unresolved combo diagnostics without changing the legacy result kind. */
+export interface ModelChainResolution {
+  readonly result: ChainResult;
+  readonly diagnostics: readonly ModelResolutionDiagnostic[];
+}
 
 /** Recursion cap for alias→alias and alias→combo chains (loops terminate). */
 export const MAX_MODEL_CHAIN_DEPTH = 8;
+
+const MAX_MODEL_DIAGNOSTICS = 32;
 
 /**
  * Parses a provider-qualified model name (`prefix/modelId`).
@@ -146,29 +205,32 @@ export function resolveAlias(name: string, aliases: ReadonlyMap<string, string>)
 }
 
 /**
- * Expands a combo into its ordered qualified candidates.
- *
- * `resolveMember` resolves one member name (qualified, alias, or nested
- * combo); nested combos are collapsed to their qualified entries. Duplicate
- * targets are dropped (first occurrence wins). "fallback" keeps definition
- * order; "round-robin" applies deterministic rendezvous ordering keyed by
- * the affinity key when `stickyLimit > 0`, otherwise by the combo id.
+ * Expands a combo into ordered qualified candidates and records members that
+ * could not be resolved. Duplicate targets are dropped (first occurrence
+ * wins); strategy and rendezvous ordering remain unchanged.
  */
-export function expandCombo(
+export function expandComboWithDiagnostics(
   combo: ComboDefinition,
-  resolveMember: (modelName: string) => ChainResult,
+  resolveMember: (modelName: string) => ChainResult | ModelChainResolution,
   affinityKey: AffinityKey | null,
-): readonly ResolvedModel[] {
+): { readonly candidates: readonly ResolvedModel[]; readonly diagnostics: readonly ModelResolutionDiagnostic[] } {
   const members: ResolvedModel[] = [];
+  const diagnostics: ModelResolutionDiagnostic[] = [];
   for (const member of combo.models) {
-    const result = resolveMember(member);
-    if (result.kind === "qualified") members.push(result.model);
-    else if (result.kind === "combo") members.push(...result.candidates);
-    // Members that resolve to "unresolved"/"invalid" (e.g. a typo'd member
-    // name or a dangling alias) are intentionally dropped here. The domain
-    // layer stays side-effect-free, so there is no operator log; the silent
-    // drop keeps a single bad member from failing the whole combo. Callers
-    // see the shrink only as a shorter candidate list at dispatch time.
+    const resolved = resolveMember(member);
+    const result = "result" in resolved ? resolved.result : resolved;
+    const memberDiagnostics = "result" in resolved ? resolved.diagnostics : result.kind === "combo" ? result.diagnostics ?? [] : [];
+    if (result.kind === "qualified") {
+      members.push(result.model);
+    } else if (result.kind === "combo") {
+      members.push(...result.candidates);
+      diagnostics.push(...memberDiagnostics);
+    } else {
+      diagnostics.push(...memberDiagnostics);
+      if (memberDiagnostics.length === 0) {
+        diagnostics.push({ code: "unresolved_member", comboId: combo.id, member, path: [member] });
+      }
+    }
   }
 
   const seen = new Set<string>();
@@ -178,48 +240,161 @@ export function expandCombo(
     seen.add(key);
     return true;
   });
-
-  if (combo.strategy === "fallback") return unique;
-
-  const sticky = combo.stickyLimit > 0 && affinityKey !== null;
-  const orderKey = sticky ? affinityKeyString(affinityKey) : `combo:${combo.id}`;
-  return orderByRendezvous(orderKey, unique, (model) => `${model.providerId}/${model.modelId}`);
+  const ordered =
+    combo.strategy === "fallback"
+      ? unique
+      : orderByRendezvous(
+          combo.stickyLimit > 0 && affinityKey !== null ? affinityKeyString(affinityKey) : `combo:${combo.id}`,
+          unique,
+          (model) => `${model.providerId}/${model.modelId}`,
+        );
+  return { candidates: ordered, diagnostics: deduplicateDiagnostics(diagnostics) };
 }
 
 /**
- * Resolves a raw model name through the chain: qualified prefix → alias →
- * combo (members resolved recursively). Returns a single qualified model, an
- * ordered candidate list for combo failover, or "unresolved" when the name
- * is genuinely unqualified and unmatched (callers treat that as passthrough).
+ * Backward-compatible candidate-only combo expansion.
+ *
+ * Callers that need to observe unresolved members should use
+ * {@link expandComboWithDiagnostics}; valid member ordering is identical.
  */
+export function expandCombo(
+  combo: ComboDefinition,
+  resolveMember: (modelName: string) => ChainResult,
+  affinityKey: AffinityKey | null,
+): readonly ResolvedModel[] {
+  return expandComboWithDiagnostics(combo, resolveMember, affinityKey).candidates;
+}
+
+function deduplicateDiagnostics(diagnostics: readonly ModelResolutionDiagnostic[]): readonly ModelResolutionDiagnostic[] {
+  const seen = new Set<string>();
+  const deduplicated: ModelResolutionDiagnostic[] = [];
+  for (const diagnostic of diagnostics) {
+    const key = [
+      diagnostic.code,
+      diagnostic.comboId ?? "",
+      diagnostic.member ?? "",
+      diagnostic.path.join("\u0000"),
+    ].join("\u0001");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduplicated.push(diagnostic);
+    if (deduplicated.length >= MAX_MODEL_DIAGNOSTICS) break;
+  }
+  return deduplicated;
+}
+
+/**
+ * Resolves a model reference while retaining bounded, secret-free diagnostics
+ * for cycles, empty combos, and unresolved nested members.
+ */
+export function resolveModelChainWithDiagnostics(
+  rawModel: string,
+  config: ModelReferenceConfig,
+  affinityKey: AffinityKey | null = null,
+): ModelChainResolution {
+  type InternalResult =
+    | { readonly kind: "qualified"; readonly model: ResolvedModel; readonly diagnostics: readonly ModelResolutionDiagnostic[] }
+    | { readonly kind: "combo"; readonly candidates: readonly ResolvedModel[]; readonly diagnostics: readonly ModelResolutionDiagnostic[] }
+    | { readonly kind: "unresolved"; readonly diagnostics: readonly ModelResolutionDiagnostic[] };
+
+  const resolveInner = (name: string, depth: number, path: readonly string[]): InternalResult => {
+    if (depth > MAX_MODEL_CHAIN_DEPTH) {
+      return { kind: "unresolved", diagnostics: [{ code: "max_depth", path: [...path, name] }] };
+    }
+
+    const parsed = parseModelReference(name, config.prefixes);
+    if (parsed.kind === "qualified") {
+      return {
+        kind: "qualified",
+        model: { providerId: parsed.providerId, modelId: parsed.modelId },
+        diagnostics: [],
+      };
+    }
+    if (path.includes(name)) {
+      return { kind: "unresolved", diagnostics: [{ code: "cycle", path: [...path, name] }] };
+    }
+
+    const aliasTarget = resolveAlias(name, config.aliases);
+    if (aliasTarget !== null) {
+      const resolved = resolveInner(aliasTarget, depth + 1, [...path, name]);
+      if (resolved.kind !== "unresolved") return resolved;
+    }
+
+    const combo = config.combos.get(name);
+    if (combo === undefined) {
+      return { kind: "unresolved", diagnostics: [{ code: "unknown_reference", path: [...path, name] }] };
+    }
+    if (depth >= MAX_MODEL_CHAIN_DEPTH - 1) {
+      return { kind: "unresolved", diagnostics: [{ code: "max_depth", comboId: combo.id, path: [...path, name] }] };
+    }
+
+    const members: ResolvedModel[] = [];
+    const diagnostics: ModelResolutionDiagnostic[] = [];
+    const comboPath = [...path, name];
+    for (const member of combo.models) {
+      const resolved = resolveInner(member, depth + 1, comboPath);
+      if (resolved.kind === "qualified") {
+        members.push(resolved.model);
+      } else if (resolved.kind === "combo") {
+        members.push(...resolved.candidates);
+        diagnostics.push(...resolved.diagnostics);
+      } else {
+        diagnostics.push(...resolved.diagnostics);
+        if (resolved.diagnostics.length === 0) {
+          diagnostics.push({ code: "unresolved_member", comboId: combo.id, member, path: [...comboPath, member] });
+        }
+      }
+    }
+
+    const seen = new Set<string>();
+    const unique = members.filter((model) => {
+      const key = `${model.providerId}/${model.modelId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const ordered =
+      combo.strategy === "fallback"
+        ? unique
+        : orderByRendezvous(
+            combo.stickyLimit > 0 && affinityKey !== null ? affinityKeyString(affinityKey) : `combo:${combo.id}`,
+            unique,
+            (model) => `${model.providerId}/${model.modelId}`,
+          );
+    const deduplicated = deduplicateDiagnostics(diagnostics);
+    if (ordered.length === 0) {
+      return {
+        kind: "unresolved",
+        diagnostics: deduplicateDiagnostics([
+          ...deduplicated,
+          { code: "empty_combo", comboId: combo.id, path: comboPath },
+        ]),
+      };
+    }
+    return { kind: "combo", candidates: ordered, diagnostics: deduplicated };
+  };
+
+  const internal = resolveInner(rawModel, 0, []);
+  let result: ChainResult;
+  if (internal.kind === "qualified") {
+    result = { kind: "qualified", model: internal.model };
+  } else if (internal.kind === "combo") {
+    if (internal.diagnostics.length === 0) {
+      result = { kind: "combo", candidates: internal.candidates };
+    } else {
+      result = { kind: "combo", candidates: internal.candidates, diagnostics: internal.diagnostics };
+    }
+  } else {
+    result = { kind: "unresolved" };
+  }
+  return { result, diagnostics: internal.diagnostics };
+}
+
+/** Resolves a model reference while preserving the legacy ChainResult shape. */
 export function resolveModelChain(
   rawModel: string,
   config: ModelReferenceConfig,
   affinityKey: AffinityKey | null = null,
 ): ChainResult {
-  const resolveInner = (name: string, depth: number): ChainResult => {
-    if (depth > MAX_MODEL_CHAIN_DEPTH) return { kind: "unresolved" };
-
-    const parsed = parseModelReference(name, config.prefixes);
-    if (parsed.kind === "qualified") {
-      return { kind: "qualified", model: { providerId: parsed.providerId, modelId: parsed.modelId } };
-    }
-
-    const aliasTarget = resolveAlias(name, config.aliases);
-    if (aliasTarget !== null) {
-      const resolved = resolveInner(aliasTarget, depth + 1);
-      if (resolved.kind !== "unresolved") return resolved;
-    }
-
-    const combo = config.combos.get(name);
-    if (combo !== undefined) {
-      if (depth >= MAX_MODEL_CHAIN_DEPTH - 1) return { kind: "unresolved" };
-      const candidates = expandCombo(combo, (member) => resolveInner(member, depth + 1), affinityKey);
-      if (candidates.length === 0) return { kind: "unresolved" };
-      return { kind: "combo", candidates };
-    }
-    return { kind: "unresolved" };
-  };
-
-  return resolveInner(rawModel, 0);
+  return resolveModelChainWithDiagnostics(rawModel, config, affinityKey).result;
 }

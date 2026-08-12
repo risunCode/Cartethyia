@@ -63,6 +63,19 @@ describe("adapter transport integration", () => {
     expect(calls[1]?.prompt_cache_key).toBe("fixture-cache");
   });
 
+  test("does not retry or remove semantic input on an unsafe parameter rejection", async () => {
+    let calls = 0;
+    globalThis.fetch = (async (_url, init) => {
+      calls += 1;
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body.model).toBe("gpt-5");
+      expect(body.input).toEqual([{ role: "user", content: "hello" }]);
+      return new Response(JSON.stringify({ error: { message: "Unsupported parameter: input" } }), { status: 400, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    await expect(new OpenAIAdapter({ baseUrl: "https://upstream.test/v1" }).call(request(false))).rejects.toBeDefined();
+    expect(calls).toBe(1);
+  });
+
   test("maps upstream SSE and preserves abort ownership", async () => {
     globalThis.fetch = (async (_url: string | URL | Request, _init: RequestInit | undefined) => new Response(
       "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_2\"}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_2\",\"status\":\"completed\"}}\n\n",

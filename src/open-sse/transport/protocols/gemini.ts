@@ -62,7 +62,7 @@ export async function callGeminiWire(input: ProviderRequest, baseUrl: string, cr
   const { request, signal, network } = input;
   const action = request.stream ? "streamGenerateContent?alt=sse" : "generateContent";
   const url = `${baseUrl}/models/${encodeURIComponent(input.target.upstreamModelId)}:${action}`;
-  const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
+  const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, firstByteTimeoutMs: request.limits.firstByteTimeoutMs, idleTimeoutMs: request.limits.idleTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
   let streamHandedOff = false;
   try {
     const response = await executeFetch(url, { method: "POST", headers: { "content-type": "application/json", accept: request.stream ? "text/event-stream" : "application/json", "x-goog-api-key": credential }, body: JSON.stringify(buildGeminiPayload(request)) }, coordinator, network, input.capture);

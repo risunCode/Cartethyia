@@ -59,6 +59,74 @@ export interface ProviderCaps {
   readonly search?: boolean;
 }
 
+/** Cache modes that can be declared by a model compatibility descriptor. */
+export type ModelCacheMode = "none" | "explicit" | "implicit" | "native";
+
+/** Canonical sampling controls that may be restricted per model. */
+export type ModelSamplingField = "temperature" | "top_p" | "stop";
+
+/** Per-model reasoning wire compatibility metadata. */
+export interface ModelReasoningCompatibility {
+  readonly efforts?: readonly ReasoningEffort[];
+  readonly effortMap?: Readonly<Record<string, string>>;
+  readonly budget?: boolean;
+  readonly summary?: boolean;
+  readonly disable?: boolean;
+}
+
+/** Per-model sampling-control compatibility metadata. */
+export interface ModelSamplingCompatibility {
+  readonly temperature?: boolean;
+  readonly topP?: boolean;
+  readonly stop?: boolean;
+  /** Explicit allow-list for clients that describe controls by wire name. */
+  readonly supported?: readonly ModelSamplingField[];
+}
+
+/** Per-model tool-result and native-tool compatibility metadata. */
+export interface ModelToolCompatibility {
+  readonly parallel?: boolean;
+  readonly resultIdRequired?: boolean;
+  readonly nativeTypes?: readonly string[];
+}
+
+/** Per-model prompt-cache compatibility metadata. */
+export interface ModelCacheCompatibility {
+  readonly mode?: ModelCacheMode;
+  readonly ttl?: boolean;
+  readonly breakpoints?: number;
+  readonly minimumPrefixTokens?: number;
+}
+
+/** Per-model response-state compatibility metadata. */
+export interface ModelResponseStateCompatibility {
+  readonly previousResponseId?: boolean;
+  readonly staleRepair?: boolean;
+}
+
+/** Per-model provider timeout hints. */
+export interface ModelTimeoutProfile {
+  readonly firstByteMs?: number;
+  readonly idleMs?: number;
+}
+
+/**
+ * Optional model-local compatibility metadata.
+ *
+ * A present nested object is authoritative for that capability family. Missing
+ * optional members are therefore treated conservatively rather than inferred
+ * from unrelated provider-level flags.
+ */
+export interface ModelCompatibility {
+  readonly reasoning?: ModelReasoningCompatibility;
+  readonly sampling?: ModelSamplingCompatibility;
+  readonly tools?: ModelToolCompatibility;
+  readonly cache?: ModelCacheCompatibility;
+  readonly responseState?: ModelResponseStateCompatibility;
+  readonly streamUsage?: boolean;
+  readonly timeoutProfile?: ModelTimeoutProfile;
+}
+
 /** Normalized capability categories projected from a model's capability booleans. */
 export type ModelCapabilityCategory = "vision" | "text" | "reasoning";
 
@@ -78,6 +146,8 @@ export interface ProviderModel {
   readonly id: string;
   readonly displayName: string;
   readonly capabilities: ProviderCaps;
+  /** Optional per-model overrides for otherwise conservative capability projection. */
+  readonly compatibility?: ModelCompatibility;
   /**
    * Optional model id sent to the upstream API when it differs from the
    * client-facing {@link id}. When unset, the upstream receives {@link id}
@@ -533,6 +603,13 @@ export type StreamEvent =
   | { readonly type: "message_stop"; readonly reason: StopReason; readonly error?: SafeErrorSummary };
 
 
+export interface SafeErrorSummary {
+  readonly statusCode: number | null;
+  readonly kind: ApplicationErrorKind;
+  readonly message: string;
+  readonly retryAt: string | null;
+}
+
 export interface StreamLifecycle {
   readonly headersCommitted: boolean;
   readonly meaningfulOutput: boolean;
@@ -649,6 +726,39 @@ export type ApplicationErrorKind =
 
 export type ErrorSource = "internal" | "upstream" | "client";
 
+/** Stable provider failure categories used by retry, health, and telemetry policy. */
+export type ProviderFailureCode =
+  | "auth_invalidated"
+  | "usage_limit"
+  | "rate_limit_transient"
+  | "context_overflow"
+  | "stale_response_state"
+  | "empty_provider_body"
+  | "provider_finish_error"
+  | "content_blocked"
+  | "tool_schema_rejected"
+  | "optional_parameter_rejected"
+  | "stream_pre_response_timeout"
+  | "stream_idle_timeout"
+  | "stream_total_timeout"
+  | "caller_aborted"
+  | "unknown_provider_failure";
+
+/** Transport phase supplied to the stable provider failure classifier. */
+export type ProviderFailurePhase = "pre_response" | "idle" | "total" | "caller_abort";
+
+/** Bounded, secret-free inputs accepted by {@link classifyProviderFailure}. */
+export interface ProviderFailureClassificationInput {
+  readonly statusCode?: number | null;
+  readonly structuredCode?: unknown;
+  readonly message?: unknown;
+  readonly phase?: ProviderFailurePhase | null;
+  readonly bodyState?: "present" | "empty" | "truncated";
+  readonly callerAborted?: boolean;
+  readonly kind?: ApplicationErrorKind;
+  readonly failureCode?: ProviderFailureCode;
+}
+
 export interface ProviderCallError {
   readonly statusCode: number | null;
   readonly kind: ApplicationErrorKind;
@@ -657,6 +767,8 @@ export interface ProviderCallError {
   readonly source: ErrorSource;
   readonly sanitizedMessage: string;
   readonly retryAt: string | null;
+  /** Optional for source compatibility; normalized failures always populate it. */
+  readonly failureCode?: ProviderFailureCode;
 }
 
 /**
@@ -676,13 +788,160 @@ export function deriveErrorSource(kind: ApplicationErrorKind, _routeScope: "acco
   return "upstream";
 }
 
-export interface SafeErrorSummary {
-  readonly statusCode: number | null;
-  readonly kind: ApplicationErrorKind;
-  readonly message: string;
-  readonly retryAt: string | null;
+const PROVIDER_FAILURE_CODES: readonly ProviderFailureCode[] = [
+  "auth_invalidated",
+  "usage_limit",
+  "rate_limit_transient",
+  "context_overflow",
+  "stale_response_state",
+  "empty_provider_body",
+  "provider_finish_error",
+  "content_blocked",
+  "tool_schema_rejected",
+  "optional_parameter_rejected",
+  "stream_pre_response_timeout",
+  "stream_idle_timeout",
+  "stream_total_timeout",
+  "caller_aborted",
+  "unknown_provider_failure",
+];
+
+function isProviderFailureCode(value: unknown): value is ProviderFailureCode {
+  return typeof value === "string" && PROVIDER_FAILURE_CODES.includes(value as ProviderFailureCode);
 }
 
+function boundedFailureText(value: unknown, maxLength = MAX_ERROR_MESSAGE_LENGTH): string {
+  const source = value instanceof Error ? value.message : typeof value === "string" ? value : "";
+  return source.slice(0, maxLength).toLowerCase();
+}
+
+function structuredFailureCode(value: unknown): string {
+  if (typeof value === "string") return value.slice(0, 96).trim().toLowerCase();
+  if (value === null || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  for (const key of ["code", "error_code", "type"]) {
+    const candidate = record[key];
+    if (typeof candidate === "string") return candidate.slice(0, 96).trim().toLowerCase();
+  }
+  const nested = record.error;
+  return nested === undefined ? "" : structuredFailureCode(nested);
+}
+
+function normalizeFailureToken(value: string): string {
+  return value.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function classifyStructuredFailure(value: unknown): ProviderFailureCode | null {
+  const token = normalizeFailureToken(structuredFailureCode(value));
+  if (token === "") return null;
+  if (/^(?:auth|authentication|authorization|unauthorized|invalid_api_key|invalid_credential|invalid_grant|token_expired|token_revoked|oauth_expired)/.test(token)) return "auth_invalidated";
+  if (/^(?:usage_limit|quota_exceeded|insufficient_quota|billing_hard_limit|insufficient_balance|spend_limit|payment_required|resource_exhausted)$/.test(token)) return "usage_limit";
+  if (/^(?:rate_limit|rate_limit_exceeded|too_many_requests|model_capacity|capacity_exhausted|overloaded|temporarily_unavailable)$/.test(token)) return "rate_limit_transient";
+  if (/^(?:context_overflow|context_length_exceeded|maximum_context|prompt_too_long|input_too_large|request_too_large)$/.test(token)) return "context_overflow";
+  if (/^(?:stale_response_state|invalid_previous_response|previous_response_not_found|response_not_found|invalid_response_id|unknown_response_id|conversation_not_found)$/.test(token)) return "stale_response_state";
+  if (/^(?:empty_response|empty_body|no_content|no_output|response_empty)$/.test(token)) return "empty_provider_body";
+  if (/^(?:truncated|stream_truncated|incomplete_response|response_incomplete)$/.test(token)) return "provider_finish_error";
+  if (/^(?:provider_finish_error|finish_error|finish_reason_error)$/.test(token)) return "provider_finish_error";
+  if (/^(?:content_blocked|content_filter|safety_violation|policy_violation|blocked_content)$/.test(token)) return "content_blocked";
+  if (/^(?:tool_schema|tool_schema_rejected|invalid_tool|invalid_function|tool_validation|schema_validation)$/.test(token)) return "tool_schema_rejected";
+  if (/^(?:optional_parameter|optional_parameter_rejected|unsupported_parameter|unknown_parameter|unsupported_field|unsupported_option)$/.test(token)) return "optional_parameter_rejected";
+  return null;
+}
+
+function classifyFailureMessage(value: unknown): ProviderFailureCode | null {
+  const message = boundedFailureText(value);
+  if (message === "") return null;
+  if (/\b(?:invalid|expired|revoked)\b.{0,32}\b(?:api.?key|credential|token|grant)\b|\b(?:authentication|authorization)\b.{0,24}\b(?:failed|invalid|denied|expired)\b/.test(message)) return "auth_invalidated";
+  if (/\b(?:usage|quota|billing|credit|balance|spend(?:ing)?|payment)\b.{0,36}\b(?:limit|exceed(?:ed)?|reach(?:ed)?|insufficient|exhaust(?:ed)?|rejected)\b|\b(?:limit|exceed(?:ed)?|insufficient|exhaust(?:ed)?)\b.{0,36}\b(?:usage|quota|credit|balance)\b/.test(message)) return "usage_limit";
+  if (/\b(?:context(?: length| window| limit| overflow)?|maximum context|prompt|input)\b.{0,24}\b(?:too long|too large|exceed(?:ed)?|overflow|limit)\b|\btoo many tokens\b/.test(message)) return "context_overflow";
+  if (/\b(?:previous_response_id|response.?id|conversation)\b.{0,40}\b(?:stale|invalid|unknown|not found|expired)\b|\bstale\b.{0,24}\bresponse\b/.test(message)) return "stale_response_state";
+  if (/\b(?:empty|blank|no content|no output|no response)\b.{0,24}\b(?:body|response|output)?\b|\b(?:response|body)\b.{0,24}\b(?:empty|blank)\b/.test(message)) return "empty_provider_body";
+  if (/\b(?:truncated|incomplete|unexpected end|ended before)\b/.test(message)) return "provider_finish_error";
+  if (/\b(?:finish.?reason|provider.{0,24}(?:finish|terminal).{0,24}error)\b/.test(message)) return "provider_finish_error";
+  if (/\b(?:content.?filter|content blocked|safety|policy violation|blocked by policy)\b/.test(message)) return "content_blocked";
+  if (/\b(?:tool|function).{0,36}\bschema\b|\bschema\b.{0,36}\b(?:tool|function)\b|\binvalid\b.{0,24}\b(?:tool|function)\b/.test(message)) return "tool_schema_rejected";
+  if (/\b(?:unsupported|unknown|unrecognized)\b.{0,24}\b(?:parameter|field|option)\b|\bnot supported\b.{0,24}\b(?:parameter|field|option)\b|\boptional parameter\b/.test(message)) return "optional_parameter_rejected";
+  if (/\b(?:rate.?limit|too many requests|per minute|overloaded|model capacity|temporarily unavailable)\b/.test(message)) return "rate_limit_transient";
+  return null;
+}
+
+function classifyFailureKind(kind: ApplicationErrorKind | undefined): ProviderFailureCode | null {
+  switch (kind) {
+    case "client_aborted": return "caller_aborted";
+    case "authentication_failed":
+    case "authorization_denied": return "auth_invalidated";
+    case "quota_exceeded": return "usage_limit";
+    case "provider_rate_limited": return "rate_limit_transient";
+    case "stream_timeout": return "stream_total_timeout";
+    case "stream_truncated": return "provider_finish_error";
+    default: return null;
+  }
+}
+
+/**
+ * Classifies a provider failure without retaining or returning provider
+ * payloads. Transport phase and caller abort take precedence, followed by
+ * HTTP status, structured code, bounded body state, and bounded message text.
+ */
+export function classifyProviderFailure(input: ProviderFailureClassificationInput): ProviderFailureCode {
+  if (isProviderFailureCode(input.failureCode)) return input.failureCode;
+  if (input.callerAborted === true || input.phase === "caller_abort" || input.kind === "client_aborted") return "caller_aborted";
+  if (input.phase === "pre_response") return "stream_pre_response_timeout";
+  if (input.phase === "idle") return "stream_idle_timeout";
+  if (input.phase === "total") return "stream_total_timeout";
+
+  const statusCode = input.statusCode;
+  const structured = classifyStructuredFailure(input.structuredCode);
+  const message = classifyFailureMessage(input.message);
+  if (statusCode === 401 || statusCode === 403) return "auth_invalidated";
+  if (statusCode === 402) return "usage_limit";
+  if (statusCode === 413) return "context_overflow";
+  if (statusCode === 429) return structured === "usage_limit" || message === "usage_limit" || /\b(?:quota|usage|billing|credit|balance)\b/.test(boundedFailureText(input.message)) ? "usage_limit" : "rate_limit_transient";
+  if (structured !== null) return structured;
+  if (input.bodyState === "empty") return "empty_provider_body";
+  if (input.bodyState === "truncated") return "provider_finish_error";
+  const kind = classifyFailureKind(input.kind);
+  if (kind !== null) return kind;
+  if (message !== null) return message;
+  return "unknown_provider_failure";
+}
+
+export type ProviderFailureNormalizationContext = Omit<ProviderFailureClassificationInput, "kind" | "failureCode">;
+
+/**
+ * Adds a stable failure code while preserving the legacy error shape and
+ * re-sanitizing the diagnostic message at the normalization boundary.
+ */
+function failureDiagnostic(code: ProviderFailureCode, statusCode: number | null): string {
+  switch (code) {
+    case "auth_invalidated": return "Provider authentication was rejected";
+    case "usage_limit": return "Provider usage limit reached";
+    case "rate_limit_transient": return "Provider rate limit exceeded";
+    case "context_overflow": return "Provider context limit exceeded";
+    case "stale_response_state": return "Provider response state was stale";
+    case "empty_provider_body": return "Provider returned an empty response";
+    case "provider_finish_error": return "Provider response ended before completion";
+    case "content_blocked": return "Provider blocked the requested content";
+    case "tool_schema_rejected": return "Provider rejected the tool schema";
+    case "optional_parameter_rejected": return "Provider rejected an optional parameter";
+    case "stream_pre_response_timeout": return "Provider response headers timed out";
+    case "stream_idle_timeout": return "Provider stream went idle";
+    case "stream_total_timeout": return "Provider request exceeded its total timeout";
+    case "caller_aborted": return "Request aborted by client";
+    case "unknown_provider_failure": return statusCode === null ? "Provider request failed" : `Provider request failed with HTTP ${statusCode}`;
+  }
+}
+
+export function normalizeProviderFailure(error: ProviderCallError, context: ProviderFailureNormalizationContext = {}): ProviderCallError {
+  const failureCode = classifyProviderFailure({
+    ...context,
+    statusCode: context.statusCode ?? error.statusCode,
+    kind: error.kind,
+    failureCode: error.failureCode,
+    message: context.message ?? error.sanitizedMessage,
+  });
+  return { ...error, sanitizedMessage: failureDiagnostic(failureCode, context.statusCode ?? error.statusCode), failureCode };
+}
 export interface CleanupHandle {
   readonly release: () => Promise<void>;
 }
@@ -697,8 +956,9 @@ const MAX_ERROR_MESSAGE_LENGTH = 240;
 export function sanitizeMessage(value: unknown): string {
   const source = value instanceof Error ? value.message : typeof value === "string" ? value : "Provider request failed (no error detail available)";
   const redacted = source
+    .replace(/\bauthorization\s*:\s*bearer\s+[^\s"']+/gi, "Authorization: Bearer [redacted]")
     .replace(/Bearer\s+[^\n"']*/gi, "Bearer [redacted]")
-    .replace(/(?:api[-_ ]?key|token|secret|password)\s*[:=]\s*[^\n"']*/gi, "credential=[redacted]")
+    .replace(/(?:api[-_ ]?key|token|secret|password)\s*[:=]\s*(?:Bearer\s+)?[^\n"']*/gi, "credential=[redacted]")
     .replace(/\s+/g, " ")
     .trim();
   return redacted.length > 0 ? redacted.slice(0, MAX_ERROR_MESSAGE_LENGTH) : "Provider request failed (empty error message)";

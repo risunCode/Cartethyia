@@ -1,4 +1,4 @@
-import { createCleanupStack, sanitizeMessage, deriveErrorSource, type ApplicationErrorKind, type ProviderCallError } from "../contracts";
+import { createCleanupStack, sanitizeMessage, deriveErrorSource, normalizeProviderFailure, type ApplicationErrorKind, type ProviderCallError } from "../contracts";
 import type { PresentedProxyResponse } from "../contracts";
 import type { Adapter, ProviderOutput, Surface, ProviderUsage, RequestRoutingMetadata, TranslationDiagnostic, RouteTarget, StreamEvent, WebSearchFallback } from "../contracts";
 import type { AccountCandidate, AffinityKey, RouteCandidate, RouteSwitch } from "../contracts";
@@ -105,9 +105,9 @@ function selectWireSurface(adapter: Adapter, candidate: RouteCandidate, request:
 }
 
 function normalizeError(error: unknown): ProviderCallError {
-  if (isProviderCallError(error)) return error;
-  if (error instanceof ProtocolCodecError) return error.toProviderCallError(sanitizeMessage(error.message));
-  return {
+  if (isProviderCallError(error)) return normalizeProviderFailure(error);
+  if (error instanceof ProtocolCodecError) return normalizeProviderFailure(error.toProviderCallError(sanitizeMessage(error.message)));
+  return normalizeProviderFailure({
     statusCode: null,
     kind: "internal_error",
     retryable: false,
@@ -115,7 +115,7 @@ function normalizeError(error: unknown): ProviderCallError {
     source: deriveErrorSource("internal_error", null),
     sanitizedMessage: sanitizeMessage(error),
     retryAt: null,
-  };
+  });
 }
 
 function telemetryStart(input: RunProxyRequestInput, requestId: string, client: ClientIdentity, authorization: ProxyAuthorization, telemetry: TelemetryWriter): RequestTelemetryHandle {

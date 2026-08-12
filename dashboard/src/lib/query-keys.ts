@@ -29,10 +29,6 @@ export const qk = {
     all: ["overview"] as const,
   },
 
-  /** `/console/api/ip` — local egress IPs. */
-  ip: {
-    all: ["ip"] as const,
-  },
 
   /** `/console/api/health/*` — proxy/runtime health probes. */
   health: {

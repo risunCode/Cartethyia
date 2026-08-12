@@ -33,7 +33,12 @@ function listOrNull(value: string | null): readonly string[] | null {
   return value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
 }
 
-function toApiKeyView(row: ReturnType<ConfigPersistence["apiKeys"]["list"]>[number]): ApiKeyView {
+type ApiKeyUsageRow = ReturnType<RuntimePersistence["metadata"]["queryApiKeyUsage"]>[number];
+
+function toApiKeyView(
+  row: ReturnType<ConfigPersistence["apiKeys"]["list"]>[number],
+  usage?: ApiKeyUsageRow,
+): ApiKeyView {
   return {
     ...row,
     quoteBigText: row.quoteBigText ?? null,
@@ -42,6 +47,8 @@ function toApiKeyView(row: ReturnType<ConfigPersistence["apiKeys"]["list"]>[numb
     providerAllowlist: listOrNull(row.providerAllowlist),
     modelAllowlist: listOrNull(row.modelAllowlist),
     modelDenylist: listOrNull(row.modelDenylist),
+    totalUsage: usage?.totalUsage ?? 0,
+    totalRequests: usage?.totalRequests ?? 0,
   };
 }
 
@@ -171,11 +178,18 @@ function createConsoleSettingsRepository(config: ConfigPersistence): ConsoleSett
   };
 }
 
-function createConsoleApiKeyRepository(config: ConfigPersistence): ConsoleApiKeyRepository {
+function createConsoleApiKeyRepository(config: ConfigPersistence, runtime: RuntimePersistence): ConsoleApiKeyRepository {
   const createSecret = (): string => `ck-${crypto.randomUUID().replaceAll("-", "")}`;
+  const usageMap = () => new Map(runtime.metadata.queryApiKeyUsage().map((row) => [row.apiKeyId, row] as const));
   return {
-    async list() { return config.apiKeys.list().map(toApiKeyView); },
-    async get(id) { const row = config.apiKeys.getById(id); return row === null ? null : toApiKeyView(row); },
+    async list() {
+      const usage = usageMap();
+      return config.apiKeys.list().map((row) => toApiKeyView(row, usage.get(row.id)));
+    },
+    async get(id) {
+      const row = config.apiKeys.getById(id);
+      return row === null ? null : toApiKeyView(row, usageMap().get(row.id));
+    },
     async create(input) {
       const key = input.key ?? createSecret();
       const row = config.apiKeys.create({
@@ -196,7 +210,7 @@ function createConsoleApiKeyRepository(config: ConfigPersistence): ConsoleApiKey
     },
     async update(id, patch) {
       const row = config.apiKeys.update(id, { ...patch, providerAllowlist: patch.providerAllowlist?.join(",") ?? null, modelAllowlist: patch.modelAllowlist?.join(",") ?? null, modelDenylist: patch.modelDenylist?.join(",") ?? null });
-      return row === null ? null : toApiKeyView(row);
+      return row === null ? null : toApiKeyView(row, usageMap().get(row.id));
     },
     async regenerate(id) {
       const existing = config.apiKeys.getById(id);
@@ -229,7 +243,6 @@ function createConsoleApiKeyRepository(config: ConfigPersistence): ConsoleApiKey
     },
   };
 }
-
 function createConsoleProviderConfigRepository(config: ConfigPersistence, registry: ProviderRegistry): ProviderConfigRepository {
   const enabled = new Map<string, boolean>();
   const defaults = { strategy: "priority" as const, stickyLimit: 1, useStickyLimit: false };
@@ -592,7 +605,7 @@ export function createConsoleRepositories(config: ConfigPersistence, runtime: Ru
   ensureBootstrapProxyKey(config);
   void seedDefaultFilterRules(config);
   const settings = createConsoleSettingsRepository(config);
-  return { settings, keys: createConsoleApiKeyRepository(config), providerConfig: createConsoleProviderConfigRepository(config, registry), customProviders: createConsoleCustomProviderRepository(config), models: createConsoleModelRepository(config, registry), accounts: createConsoleAccountRepository(config), oauthTokens: config.stores.oauthToken, quotaState: config.stores.quotaState, proxies: createConsoleProxyRepository(config), proxySettings: createConsoleProxySettingsRepository(config), routing: createConsoleRoutingRepository(config), filterRules: config.filterRules, backup: createConsoleBackupRepository(config), runtimeMetadata: createConsoleRuntimeMetadataRepository(runtime, registry, config), transitions: new MemoryRouteTransitionStore() };
+  return { settings, keys: createConsoleApiKeyRepository(config, runtime), providerConfig: createConsoleProviderConfigRepository(config, registry), customProviders: createConsoleCustomProviderRepository(config), models: createConsoleModelRepository(config, registry), accounts: createConsoleAccountRepository(config), oauthTokens: config.stores.oauthToken, quotaState: config.stores.quotaState, proxies: createConsoleProxyRepository(config), proxySettings: createConsoleProxySettingsRepository(config), routing: createConsoleRoutingRepository(config), filterRules: config.filterRules, backup: createConsoleBackupRepository(config), runtimeMetadata: createConsoleRuntimeMetadataRepository(runtime, registry, config), transitions: new MemoryRouteTransitionStore() };
 }
 
 function createConsoleBackupRepository(config: ConfigPersistence): ConsoleBackupRepository {

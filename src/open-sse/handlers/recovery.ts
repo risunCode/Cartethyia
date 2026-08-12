@@ -2,6 +2,7 @@ import type { ProviderCallError } from "../../application/contracts";
 import { sanitizeMessage, type CleanupStack, deriveErrorSource } from "../../application/contracts";
 import type { ProviderOutput } from "../../application/contracts";
 import { isTerminalEvent, type StreamLifecycle, type StreamEvent } from "../../application/contracts";
+import { isRecord } from "../../application/protocols";
 import { StreamDecodeError } from "../translate/errors";
 
 /**
@@ -65,9 +66,110 @@ export function createStreamLifecycle(onClose?: () => void | Promise<void>): Str
   };
 }
 
-/** Deltas that count as meaningful output for the retry gate. */
+const MAX_PRE_CONTENT_EVENTS = 8;
+const MAX_PRE_CONTENT_BYTES = 16 * 1024;
+const MAX_MESSAGE_START_ID_LENGTH = 4_096;
+
+type StreamEventClass = "pre_content" | "semantic" | "terminal";
+
+interface ClassifiedStreamEvent {
+  readonly event: StreamEvent;
+  readonly kind: StreamEventClass;
+}
+
+function isFiniteNumberOrNull(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isProviderUsage(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (!isFiniteNumberOrNull(value.inputTokens) || !isFiniteNumberOrNull(value.outputTokens) || !isFiniteNumberOrNull(value.totalTokens)) return false;
+  if (!isFiniteNumberOrNull(value.cacheReadTokens) || !isFiniteNumberOrNull(value.cacheWriteTokens)) return false;
+  if (value.reasoningTokens !== undefined && !isFiniteNumberOrNull(value.reasoningTokens)) return false;
+  return value.source === "provider" || value.source === "tokenizer" || value.source === "unknown";
+}
+
+function isValidStreamEvent(value: unknown): value is StreamEvent {
+  if (!isRecord(value) || typeof value.type !== "string") return false;
+  switch (value.type) {
+    case "message_start":
+      return typeof value.id === "string" && value.id.length <= MAX_MESSAGE_START_ID_LENGTH;
+    case "thinking_delta":
+    case "text_delta":
+    case "compaction_delta":
+      return typeof value.text === "string";
+    case "tool_call_start":
+      return typeof value.callId === "string" && typeof value.name === "string";
+    case "tool_call_delta":
+      return typeof value.callId === "string" && typeof value.delta === "string";
+    case "tool_call_end":
+      return typeof value.callId === "string";
+    case "server_tool_result":
+      return isRecord(value.block);
+    case "native_block_start":
+      return typeof value.index === "number" && Number.isFinite(value.index) && isRecord(value.block);
+    case "native_block_delta":
+      return typeof value.index === "number" && Number.isFinite(value.index) && isRecord(value.delta);
+    case "native_block_stop":
+      return typeof value.index === "number" && Number.isFinite(value.index);
+    case "context_item":
+      return (value.phase === "added" || value.phase === "done")
+        && typeof value.outputIndex === "number"
+        && Number.isFinite(value.outputIndex)
+        && isRecord(value.item);
+    case "compaction_start":
+    case "compaction_stop":
+      return true;
+    case "usage":
+      return isProviderUsage(value.usage);
+    case "message_stop":
+      return (value.reason === "completed"
+        || value.reason === "length"
+        || value.reason === "tool_call"
+        || value.reason === "content_filter"
+        || value.reason === "compaction"
+        || value.reason === "pause_turn"
+        || value.reason === "error")
+        && (value.error === undefined || isRecord(value.error));
+    default:
+      return false;
+  }
+}
+
+function classifyStreamEvent(value: unknown): ClassifiedStreamEvent | null {
+  if (!isValidStreamEvent(value)) return null;
+  if (value.type === "message_start" || value.type === "usage") return { event: value, kind: "pre_content" };
+  if (isTerminalEvent(value)) return { event: value, kind: "terminal" };
+  return { event: value, kind: "semantic" };
+}
+
 function isMeaningfulEvent(event: StreamEvent): boolean {
-  return event.type === "text_delta" || event.type === "thinking_delta" || event.type === "tool_call_start" || event.type === "tool_call_delta";
+  return event.type === "text_delta"
+    || event.type === "thinking_delta"
+    || event.type === "tool_call_start"
+    || event.type === "tool_call_delta"
+    || event.type === "tool_call_end"
+    || event.type === "server_tool_result"
+    || event.type === "native_block_start"
+    || event.type === "native_block_delta"
+    || event.type === "native_block_stop"
+    || event.type === "context_item"
+    || event.type === "compaction_start"
+    || event.type === "compaction_delta"
+    || event.type === "compaction_stop";
+}
+
+function preContentEventSize(event: StreamEvent): number {
+  return event.type === "message_start" ? event.id.length + 32 : 128;
+}
+
+function bufferPreContentEvent(buffer: StreamEvent[], event: StreamEvent, currentBytes: number): number | null {
+  if (buffer.length >= MAX_PRE_CONTENT_EVENTS) return null;
+  const nextBytes = currentBytes + preContentEventSize(event);
+  if (nextBytes > MAX_PRE_CONTENT_BYTES) return null;
+  if (event.type === "message_start" && buffer.some((item) => item.type === "message_start")) return null;
+  buffer.push(event);
+  return nextBytes;
 }
 
 /** Yields events while tracking meaningful output and terminal state. */
@@ -289,29 +391,76 @@ async function* recoverableEvents(initial: AsyncIterable<StreamEvent>, options: 
       if (events !== null) {
         const subscription = events;
         events = null;
-        let failure: ProviderCallError;
+        const openingBuffer: StreamEvent[] = [];
+        let openingBytes = 0;
+        let semanticSeen = lifecycle.meaningfulOutput;
+        let terminalSeen = lifecycle.terminalSeen;
+        let failure: ProviderCallError | null = null;
         try {
-          for await (const event of trackStream(subscription, lifecycle)) {
+          for await (const rawEvent of subscription as AsyncIterable<unknown>) {
+            if (signal.aborted) {
+              failure = clientAbortedCallError();
+              break;
+            }
+            const classified = classifyStreamEvent(rawEvent);
+            if (classified === null) {
+              failure = new StreamDecodeError("provider_protocol_error", "Malformed provider stream event").toProviderCallError();
+              break;
+            }
+            const { event, kind } = classified;
+            if (terminalSeen || (semanticSeen && kind === "pre_content")) {
+              failure = new StreamDecodeError("provider_protocol_error", "Provider stream lifecycle event was out of order").toProviderCallError();
+              break;
+            }
+            if (kind === "pre_content") {
+              const nextBytes = bufferPreContentEvent(openingBuffer, event, openingBytes);
+              if (nextBytes === null) {
+                failure = new StreamDecodeError("provider_protocol_error", "Provider stream opening metadata exceeds the bounded buffer").toProviderCallError();
+                break;
+              }
+              openingBytes = nextBytes;
+              continue;
+            }
+            if (kind === "semantic") {
+              if (!semanticSeen) {
+                semanticSeen = true;
+                lifecycle.markMeaningfulOutput();
+                for (const buffered of openingBuffer) yield buffered;
+                openingBuffer.length = 0;
+              }
+              yield event;
+              continue;
+            }
+            for (const buffered of openingBuffer) yield buffered;
+            openingBuffer.length = 0;
+            terminalSeen = true;
+            lifecycle.markTerminalSeen();
             yield event;
-            if (isTerminalEvent(event)) return;
+            return;
           }
-          failure = truncatedCallError();
+          if (failure === null) failure = truncatedCallError();
         } catch (error) {
           failure = toProviderCallError(error, options.mapError);
         }
+        if (failure === null) throw internalCallError("Stream recovery ended without a captured failure");
+        if (signal.aborted) throw clientAbortedCallError();
         await options.onFailure?.(failure, index);
-        const retryable = index < maxAttempts && !lifecycle.meaningfulOutput && !lifecycle.terminalSeen && options.shouldRetry(failure) && !signal.aborted;
+        if (signal.aborted) throw clientAbortedCallError();
+        const retryable = index < maxAttempts && !lifecycle.meaningfulOutput && !lifecycle.terminalSeen && options.shouldRetry(failure);
         if (!retryable) throw failure;
         index++;
         await options.waitBeforeRetry(failure, index, signal);
+        if (signal.aborted) throw clientAbortedCallError();
       }
       let output: ProviderOutput;
       try {
         output = await attempt(index);
       } catch (error) {
         const failure = toProviderCallError(error, options.mapError);
+        if (signal.aborted) throw clientAbortedCallError();
         await options.onFailure?.(failure, index);
-        const retryable = index < maxAttempts && !lifecycle.meaningfulOutput && !lifecycle.terminalSeen && options.shouldRetry(failure) && !signal.aborted;
+        if (signal.aborted) throw clientAbortedCallError();
+        const retryable = index < maxAttempts && !lifecycle.meaningfulOutput && !lifecycle.terminalSeen && options.shouldRetry(failure);
         if (!retryable) throw failure;
         index++;
         await options.waitBeforeRetry(failure, index, signal);

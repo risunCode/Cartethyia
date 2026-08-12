@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { KeyRound, Pencil, Plus, Share2, Trash2 } from "lucide-react";
+import { Activity, Clock3, Gauge, KeyRound, ListChecks, Pencil, Plus, Share2, Trash2 } from "lucide-react";
 import { toast } from "../../lib/toast";
 import { apiDelete, apiGet, apiPatch, apiPost } from "../../lib/api";
 import { getErrorMessage } from "../../lib/errors";
@@ -14,7 +14,7 @@ import { Button } from "../../components/ui/button";
 import { Dialog } from "../../components/ui/dialog";
 import { Input, Label } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
-import { StatePanel } from "../../components/ui/state";
+import { StatePanel, StatCard } from "../../components/ui/state";
 
 export interface ApiKeyRecord {
   id: string;
@@ -31,6 +31,8 @@ export interface ApiKeyRecord {
   modelAllowlist: string[] | null;
   quoteSubText: string | null;
   quoteBody: string | null;
+  totalUsage: number;
+  totalRequests: number;
   createdAt: string;
   lastUsedAt: string | null;
 }
@@ -134,11 +136,18 @@ export function buildKeyLimitsInput(
     ...(selected.length > 0 ? { modelAllowlist: selected } : {}),
   };
 }
-
 function formatDate(value: string | null): string {
   if (!value) return "Never";
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : "Unknown";
+}
+
+function formatTokenUsage(value: number): string {
+  return compactTokenLimit(Math.max(0, value));
+}
+
+function formatRequestCount(value: number): string {
+  return Math.max(0, value).toLocaleString();
 }
 
 function limitLabel(value: number | null): string {
@@ -381,10 +390,55 @@ export function ApiKeysPanel() {
   if (keysQuery.isLoading) return <StatePanel kind="loading" title="Loading API keys" />;
   if (keysQuery.isError) return <StatePanel kind="error" title="Failed to load API keys" description={getErrorMessage(keysQuery.error)} action={<Button variant="secondary" onClick={() => void keysQuery.refetch()}>Retry</Button>} />;
   const keys = keysQuery.data?.items ?? [];
+  const totalKeys = keys.length;
+  const activeKeys = keys.filter((key) => key.active).length;
+  const expiredKeys = totalKeys - activeKeys;
+  const totalUsage = keys.reduce((sum, key) => sum + Math.max(0, key.totalUsage), 0);
+  const totalRequests = keys.reduce((sum, key) => sum + Math.max(0, key.totalRequests), 0);
 
   return <>
-    <Card><CardHeader title="API Keys" sub="Credentials, budgets, access rules, and share links" icon={KeyRound}><Button className="w-full justify-center sm:w-auto" size="sm" onClick={() => setCreateOpen(true)}><Plus size={14} /> New key</Button></CardHeader>
-      <div className="space-y-2">{keys.length === 0 ? <StatePanel kind="empty" title="No API keys" description="Create a key for a client or automation job." action={<Button size="sm" onClick={() => setCreateOpen(true)}>Create API key</Button>} /> : keys.map((key) => <div key={key.id} className="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2"><span className="truncate text-sm font-semibold text-[var(--text-1)]">{key.name}</span><Badge tone={key.active ? "ok" : "err"}>{key.active ? "active" : "revoked"}</Badge></div><code className="mt-1 block font-mono text-xs text-[var(--text-2)]">{key.keyPrefix}…</code><div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--text-3)]"><span>RPM {limitLabel(key.rateLimitRpm)}</span><span>Daily {limitLabel(key.dailyTokenLimit)}</span><span>Concurrent {limitLabel(key.maxConcurrentRequests)}</span><span>Last used {formatDate(key.lastUsedAt)}</span></div></div><div className="flex flex-wrap gap-1.5"><Button variant="ghost" size="sm" onClick={() => setEditTarget(key)}><Pencil size={13} /> Edit</Button><Button variant="ghost" size="sm" onClick={() => shareMutation.mutate(key.id)} disabled={shareMutation.isPending}><Share2 size={13} /> Share</Button><Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(key.id)} disabled={deleteMutation.isPending}><Trash2 size={13} /> Revoke</Button></div></div></div>)}</div>
+    <Card className="api-keys-card">
+      <CardHeader title="API Keys" sub="Access, budgets, and usage at a glance." icon={KeyRound}>
+        <Button className="w-full justify-center sm:w-auto" size="sm" onClick={() => setCreateOpen(true)}><Plus size={14} /> New key</Button>
+      </CardHeader>
+      <div className="api-key-stats grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+        <StatCard className="api-key-stat" label="Limit" icon={Gauge} tone="neutral" value={<><span>{activeKeys}</span><span className="mx-1 text-[var(--text-3)]">/</span><span className="text-[var(--text-2)]">{totalKeys}</span></>} description="Active keys" />
+        <StatCard className="api-key-stat" label="Total usage" icon={Activity} tone="info" value={formatTokenUsage(totalUsage)} description="All-time tokens" />
+        <StatCard className="api-key-stat" label="Total requests" icon={ListChecks} tone="accent" value={formatRequestCount(totalRequests)} description="All-time requests" />
+        <StatCard className="api-key-stat" label="Expired" icon={Clock3} tone={expiredKeys > 0 ? "warning" : "neutral"} value={expiredKeys} description="Revoked keys" />
+      </div>
+      <div className="space-y-2.5">
+        {keys.length === 0 ? (
+          <StatePanel kind="empty" title="No API keys" description="Create a key for a client or automation job." action={<Button size="sm" onClick={() => setCreateOpen(true)}>Create API key</Button>} />
+        ) : keys.map((key) => (
+          <article key={key.id} className="api-key-row">
+            <div className="flex min-w-0 flex-1 items-start gap-2.5">
+              <span className="api-key-icon" aria-hidden="true"><KeyRound size={14} /></span>
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="min-w-0 truncate text-sm font-semibold text-[var(--text-1)]">{key.name}</span>
+                  <Badge tone={key.active ? "ok" : "err"}>{key.active ? "active" : "revoked"}</Badge>
+                </div>
+                <code className="mt-1 block max-w-full truncate font-mono text-xs text-[var(--text-2)]">{key.keyPrefix}…</code>
+                <div className="api-key-meta">
+                  <span>Usage {formatTokenUsage(key.totalUsage ?? 0)}</span>
+                  <span>Requests {formatRequestCount(key.totalRequests ?? 0)}</span>
+                  <span>RPM {limitLabel(key.rateLimitRpm)}</span>
+                  <span>Daily {limitLabel(key.dailyTokenLimit)}</span>
+                  <span>Concurrent {limitLabel(key.maxConcurrentRequests)}</span>
+                  <span>Models {key.modelAllowlist?.length ?? "All"}</span>
+                  <span>Last used {formatDate(key.lastUsedAt)}</span>
+                </div>
+              </div>
+            </div>
+            <div className="api-key-actions">
+              <Button variant="ghost" size="sm" onClick={() => setEditTarget(key)}><Pencil size={13} /> Edit</Button>
+              <Button variant="ghost" size="sm" onClick={() => shareMutation.mutate(key.id)} disabled={shareMutation.isPending}><Share2 size={13} /> Share</Button>
+              <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(key.id)} disabled={deleteMutation.isPending}><Trash2 size={13} /> Revoke</Button>
+            </div>
+          </article>
+        ))}
+      </div>
     </Card>
     <Dialog open={createOpen} onClose={() => setCreateOpen(false)} title="Create API key" wide><KeyForm mode="create" record={null} busy={createMutation.isPending} onClose={() => setCreateOpen(false)} onDone={(input) => createMutation.mutate({ name: input.name, prefix: input.prefix, key: input.customKey, ...input.limits })} /></Dialog>
     <Dialog open={editTarget !== null} onClose={() => setEditTarget(null)} title="Edit API key" wide><KeyForm mode="edit" record={editTarget} busy={editMutation.isPending} onClose={() => setEditTarget(null)} onDone={(input) => editTarget && editMutation.mutate({ id: editTarget.id, patch: { ...(input.customKey ? { key: input.customKey } : {}), ...input.limits, rateLimitRpm: input.limits.rateLimitRpm ?? null, dailyTokenLimit: input.limits.dailyTokenLimit ?? null, monthlyTokenLimit: input.limits.monthlyTokenLimit ?? null, oneTimeTokenLimit: input.limits.oneTimeTokenLimit ?? null, maxConcurrentRequests: input.limits.maxConcurrentRequests ?? null, modelAllowlist: input.limits.modelAllowlist ?? null, providerAllowlist: null, modelDenylist: null, quoteBigText: input.quoteBigText ?? null, quoteSubText: input.quoteSubText ?? null, quoteBody: input.quoteBody ?? null } })} /></Dialog>

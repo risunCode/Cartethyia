@@ -216,7 +216,7 @@ export class AnthropicOAuthAdapter implements Adapter {
       authorization: `Bearer ${input.credential}`,
       "user-agent": `claude-cli/${claudeCodeVersion} (external, local-agent, agent-sdk/${claudeAgentSdkVersion})`,
     };
-    const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
+    const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, firstByteTimeoutMs: request.limits.firstByteTimeoutMs, idleTimeoutMs: request.limits.idleTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
     let streamHandedOff = false;
     try {
       let response = await executeFetch(`${ANTHROPIC_BASE_URL}/messages`, { method: "POST", headers, body: attestClaudePayload(JSON.stringify(payload)) }, coordinator, network, input.capture);
