@@ -48,6 +48,20 @@ export function createConfigDatabase(env: PersistenceEnv) {
       } catch {}
       opened.exec(CONFIG_SCHEMA_SQL);
       try {
+        const settingsRow = opened.query("SELECT settings_json FROM settings WHERE id = 1").get() as { settings_json: string } | null;
+        if (settingsRow !== null) {
+          const parsed = JSON.parse(settingsRow.settings_json) as Record<string, unknown>;
+          const runtime = parsed.runtime;
+          const runtimeRecord = runtime && typeof runtime === "object" && !Array.isArray(runtime)
+            ? { ...(runtime as Record<string, unknown>) }
+            : {};
+          if (runtimeRecord.retentionDefaultsDisabledV1 !== true) {
+            opened.query("UPDATE settings SET settings_json = ?, updated_at = ? WHERE id = 1")
+              .run(JSON.stringify({ ...parsed, runtime: { ...runtimeRecord, trackPayloads: "none", trackAssets: "none", retentionDefaultsDisabledV1: true } }), nowIso());
+          }
+        }
+      } catch {}
+      try {
         const providers = opened.query("SELECT id, slug FROM custom_providers WHERE id <> slug").all() as Array<{ id: string; slug: string }>;
         for (const provider of providers) {
           opened.query("UPDATE provider_accounts SET provider = ? WHERE provider = ?").run(provider.slug, provider.id);

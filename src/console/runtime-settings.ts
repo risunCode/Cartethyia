@@ -53,8 +53,8 @@ export function runtimeSettings(config: ConfigPersistence, env: PersistenceEnv =
   return {
     proxyAuthMode: value.proxyAuthMode === "open" ? "open" : "api_key",
     privacyMode: value.privacyMode === "full" ? "full" : "masked",
-    trackPayloads: value.trackPayloads === "none" ? "none" : "bounded",
-    trackAssets: value.trackAssets === "none" ? "none" : "meta",
+    trackPayloads: value.trackPayloads === "bounded" ? "bounded" : "none",
+    trackAssets: value.trackAssets === "meta" || value.trackAssets === "store" ? value.trackAssets : "none",
     logRetentionDays: persisted.logRetentionDays,
     assetRetentionDays: persisted.assetRetentionDays,
     maxFlightsPerIp: typeof value.maxFlightsPerIp === "number" ? Math.min(10_000, Math.max(1, Math.floor(value.maxFlightsPerIp))) : env.maxFlightsPerIp,
