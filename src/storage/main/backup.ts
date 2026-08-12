@@ -68,7 +68,7 @@ const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
   cli_tool_mapping_settings: ["tool_id", "enabled", "updated_at"],
   cli_model_mappings: ["tool_id", "slot_key", "source_model", "target_model", "enabled", "created_at", "updated_at"],
   combos: ["id", "name", "models_json", "strategy", "sticky_limit", "created_at", "updated_at"],
-  access_rules: ["scope", "mode", "entries_json", "created_at", "updated_at"],
+  access_rules: ["scope", "mode", "entries_json", "updated_at"],
   provider_accounts: [
     "id", "provider", "name", "credential_kind", "credential", "credential_hint",
     "priority", "active", "cooldown_until", "cooldown_level",
@@ -89,7 +89,7 @@ const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
     "created_at", "updated_at",
     "last_test_at", "last_test_success_at", "last_test_success_latency_ms", "last_test_error_at", "last_test_error", "last_test_status_code",
   ],
-  proxy_settings: ["id", "enabled", "excluded_providers_json", "smart_dynamic_routing", "smart_dynamic_proxy_count", "routing_preset", "target_concurrent", "updated_at"],
+  proxy_settings: ["id", "enabled", "excluded_providers_json", "smart_dynamic_routing", "smart_dynamic_proxy_count", "routing_preset", "target_concurrent", "web_search_preference", "updated_at"],
   ip_bans: ["ip", "reason", "created_at"],
 };
 
