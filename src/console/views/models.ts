@@ -1,4 +1,4 @@
-import type { ModelMetadata, ProviderModel, Surface } from "../../application/contracts";
+import type { ModelMetadata, ProviderCaps, ProviderModel, Surface } from "../../application/contracts";
 import { hasWebSearchCapability } from "../../application/web-search-routing";
 // ---------------------------------------------------------------------------
 // Models
@@ -13,19 +13,24 @@ export interface ModelCapabilityView {
   readonly websearch: boolean;
 }
 
-/** Derives UI capability groups from one canonical provider model. */
-export function modelCapabilityView(model: ProviderModel): ModelCapabilityView {
-  const surfaces = model.capabilities.surfaces;
+/** Derives UI capability groups from normalized provider capabilities. */
+export function modelCapabilityViewFromCapabilities(capabilities: ProviderCaps): ModelCapabilityView {
+  const surfaces = capabilities.surfaces;
   const chatSurfaces: readonly Surface[] = ["openai-chat", "openai-responses", "anthropic-messages"];
-  const imageGeneration = model.capabilities.mediaGeneration.includes("image") || surfaces.includes("images");
-  const videoGeneration = model.capabilities.mediaGeneration.includes("video");
+  const imageGeneration = capabilities.mediaGeneration.includes("image") || surfaces.includes("images");
+  const videoGeneration = capabilities.mediaGeneration.includes("video");
   return {
     chat: surfaces.some((surface) => chatSurfaces.includes(surface)),
     media: imageGeneration || videoGeneration,
     imageGeneration,
     videoGeneration,
-    websearch: hasWebSearchCapability(model.capabilities),
+    websearch: hasWebSearchCapability(capabilities),
   };
+}
+
+/** Derives UI capability groups from one canonical provider model. */
+export function modelCapabilityView(model: ProviderModel): ModelCapabilityView {
+  return modelCapabilityViewFromCapabilities(model.capabilities);
 }
 
 /** A provider model with its persisted enabled state. */

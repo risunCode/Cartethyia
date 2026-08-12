@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { capabilitiesOf, modelOf } from "../../src/open-sse/transport/catalog";
-import { modelCapabilityView } from "../../src/console/views/models";
+import { modelCapabilityView, modelCapabilityViewFromCapabilities } from "../../src/console/views/models";
 
 describe("Providers catalog capability view", () => {
   test("does not classify vision input support as media generation", () => {
@@ -31,5 +31,11 @@ describe("Providers catalog capability view", () => {
     );
 
     expect(modelCapabilityView(model)).toEqual({ chat: true, media: true, imageGeneration: false, videoGeneration: true, websearch: false });
+  });
+
+  test("preserves chat and additional generation capabilities from provider fallbacks", () => {
+    const capabilities = capabilitiesOf({ surfaces: ["openai-chat", "images"], images: true });
+
+    expect(modelCapabilityViewFromCapabilities(capabilities)).toEqual({ chat: true, media: true, imageGeneration: true, videoGeneration: false, websearch: false });
   });
 });

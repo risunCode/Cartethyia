@@ -1,4 +1,8 @@
-import { hashConsolePassword, MemoryRouteTransitionStore, quotaViewFromState } from "./services/composition";
+import type { ModelMetadata, ProviderModel, RouteHealth } from "../application/contracts";
+import type { OAuthTokenRecord } from "../application/auth/credentials";
+import { modelCapabilityViewFromCapabilities } from "./views/models";
+import { quotaViewFromState } from "./views/accounts";
+import { MemoryRouteTransitionStore } from "./route-transitions";
 import type {
   AccountRepository as ConsoleAccountRepository,
   AccountListResult,
@@ -21,13 +25,17 @@ import type {
   RuntimeMetadataRepository as ConsoleRuntimeMetadataRepository,
 } from "./services/composition";
 import type { ProviderRegistry } from "../providers/registry";
-import type { ModelMetadata, ProviderModel, RouteHealth } from "../application/contracts";
-import type { OAuthTokenRecord } from "../application/auth/credentials";
-import type { BackupPayload, ConfigPersistence, ProviderAccountRecord, RestoreResult, RestoreValidation, RuntimePersistence } from "../storage";
+import type {
+  BackupPayload,
+  ConfigPersistence,
+  ProviderAccountRecord,
+  RestoreResult,
+  RestoreValidation,
+  RuntimePersistence,
+} from "../storage";
 import { assertProductionBootstrapEnvironment, generateConsoleJwtSecret, isValidBootstrapPassword } from "../security/secrets";
+import { hashConsolePassword } from "./session";
 import { normalizeSidebarIconDataUrl, runtimeRecord, runtimeSettings } from "./runtime-settings";
-import { modelCapabilityView } from "./views/models";
-
 function listOrNull(value: string | null): readonly string[] | null {
   if (value === null || value.trim() === "") return null;
   return value.split(",").map((item) => item.trim()).filter((item) => item.length > 0);
@@ -116,15 +124,17 @@ function modelMetadataFor(providerId: string, model: ProviderModel, config: Conf
 }
 function modelView(row: ReturnType<ConfigPersistence["providerModels"]["list"]>[number], registry: ProviderRegistry, config: ConfigPersistence): ModelView {
   const catalog = registry.get(row.provider)?.models.list.find((model) => model.id === row.modelId);
+  const adapter = registry.get(row.provider);
   const model = catalog ?? null;
+  const capabilities = model?.capabilities ?? adapter?.capabilities;
   return {
     providerId: row.provider,
     modelId: row.modelId,
     displayName: model?.displayName ?? row.modelId,
     enabled: row.enabled,
     source: model === null ? (row.source === "imported" ? "imported" : "manual") : "built-in",
-    images: model?.capabilities.images,
-    capabilities: model === null ? undefined : modelCapabilityView(model),
+    images: capabilities?.images,
+    capabilities: capabilities === undefined ? undefined : modelCapabilityViewFromCapabilities(capabilities),
     metadata: model === null ? undefined : modelMetadataFor(row.provider, model, config),
   };
 }
