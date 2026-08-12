@@ -22,11 +22,11 @@ import type {
 import type { ProviderCallError } from "../application/contracts";
 
 /**
- * Cline — an OpenAI-compatible Chat Completions gateway
  * (https://api.cline.bot/api/v1) gated on a WorkOS-wrapped OAuth bearer token.
  * Same wire format as the OpenAI adapter; the Cline-specific bits are the
- * `workos:` credential prefix, the fixed Cline CLI client-identity headers, and
- * its curated model catalog. Retries once on the legacy "empty response content"
+ * `workos:` credential prefix, the fixed Cline CLI client-identity headers,
+ * and its curated discovery catalog. Manually added model IDs are accepted
+ * and forwarded verbatim. Retries once on the legacy "empty response content"
  * 500 that the Cline gateway intermittently returns.
  */
 
@@ -176,10 +176,11 @@ export class ClineAdapter implements Adapter {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${surface}"`, statusCode: 400, routeScope: null });
     }
-    if (this.models.get(modelId) === null) {
-      throw new ProviderAdapterError({ kind: "model_not_found", message: `Model "${modelId}" is not in the "${this.metadata.id}" catalog`, statusCode: 404, routeScope: "provider" });
-    }
-    const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };
+    // The built-in catalog is a discovery list. Console-added model IDs are
+    // validated by routing's persisted known-model gate and must pass through
+    // here so they can be tested before they are persisted.
+    const entry = this.models.get(modelId);
+    return { providerId: this.metadata.id, modelId, upstreamModelId: entry?.upstreamId ?? modelId, surface };
   }
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {

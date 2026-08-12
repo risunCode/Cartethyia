@@ -1033,7 +1033,7 @@ function AddModelModal({
               {testState === "testing" ? <Loader2 size={13} className="animate-spin" /> : <FlaskConical size={13} />} Test
             </Button>
           </div>
-          {qualified.length > 0 && <div className="mt-1 text-[10px] text-[var(--text-3)]">Sent to provider as: <span className="font-mono">{qualified}</span></div>}
+          {qualified.length > 0 && <div className="mt-1 text-[10px] text-[var(--text-3)]">Route target: <span className="font-mono">{qualified}</span> <span className="opacity-70">(provider receives {trimmed})</span></div>}
         </div>
         {testState === "passed" && <div className="rounded-xl border border-[var(--green)]/40 bg-[var(--green)]/5 px-3 py-2 text-xs text-[var(--green)]">Model test passed — ready to add.</div>}
         {testState === "failed" && <div className="rounded-xl border border-[var(--red)]/40 bg-[var(--red)]/5 px-3 py-2 text-xs text-[var(--red)]">{testError || "Model test failed."}</div>}
