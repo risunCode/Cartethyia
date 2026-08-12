@@ -111,10 +111,11 @@ function ensureSystemMessage(messages: readonly Record<string, unknown>[]): read
 
 async function callClineOnce(input: ProviderRequest, bearer: string): Promise<ProviderOutput> {
   const { request, signal, network } = input;
-  const encoded = buildChatPayload({ ...request, model: input.target.upstreamModelId });
+  const encoded = buildChatPayload({ ...request, model: input.target.upstreamModelId }, { upstreamModel: input.target.upstreamModelId });
   const wireMessages = Array.isArray(encoded.messages) ? encoded.messages.filter(isRecord) : [];
   const payload: Record<string, unknown> = {
     ...encoded,
+    model: input.target.upstreamModelId,
     messages: ensureSystemMessage(wireMessages),
   };
   const coordinator = new AbortCoordinator(signal, {

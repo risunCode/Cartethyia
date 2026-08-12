@@ -26,7 +26,10 @@ function usageWindows(value: unknown): ProviderQuotaWindow[] {
     return used === null && resetsAt === null ? [] : [percentWindow(kind, label, used, resetsAt)];
   });
 }
-
+function isMissingPlanHistory(reason: unknown): boolean {
+  const message = reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "";
+  return /\b404\b|\bno plan history\b/i.test(message);
+}
 export async function fetchClineQuota(credential: string, fetcher: FetchLike): Promise<ProviderQuotaResult> {
   const fields = authCredential(credential);
   const access = text(fields.accessToken);
@@ -40,7 +43,13 @@ export async function fetchClineQuota(credential: string, fetcher: FetchLike): P
     getJson("https://api.cline.bot/api/v1/users/me/plan/usage-limits", headers, fetcher),
   ]);
   const plan = record(planRaw.status === "fulfilled" ? planRaw.value : null);
+  const limitsFailed = limitsRaw.status === "rejected";
   const windows = usageWindows(limitsRaw.status === "fulfilled" ? limitsRaw.value : null);
-  const error = limitsRaw.status === "rejected" ? "Failed to fetch quota limits." : windows.length === 0 ? "Cline quota response contained no usage limits." : null;
+  // Cline's current API returns 404/no plan history for accounts that can
+  // still use the completion gateway. Quota failure must remain fail-open;
+  // otherwise request routing incorrectly marks the credential unavailable.
+  const error = limitsFailed && !isMissingPlanHistory(limitsRaw.reason)
+    ? "Failed to fetch quota limits."
+    : null;
   return { source: "cline", plan: text(record(plan?.plan)?.displayName) ?? text(plan?.displayName) ?? "Cline", windows, error };
 }
