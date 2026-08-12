@@ -41,7 +41,6 @@ abstract class CodeBuddyBaseAdapter implements Adapter {
   constructor(models: readonly ProviderModel[]) { this.capabilities = aggregateCapabilities(models, capabilitiesOf({ surfaces: SURFACES, streaming: true, reasoning: true, images: true, toolCalls: true })); }
   resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!this.capabilities.surfaces.includes(surface)) throw new ProviderAdapterError({ kind: "capability_unsupported", message: `${this.metadata.displayName} supports OpenAI Chat only.`, statusCode: 400, routeScope: null });
-    if (this.models.get(modelId) === null) throw new ProviderAdapterError({ kind: "model_not_found", message: `Model "${modelId}" is not in the ${this.metadata.displayName} catalog.`, statusCode: 404, routeScope: "provider" });
     const entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: entry?.upstreamId ?? modelId, surface };
   }
   async call(input: ProviderRequest): Promise<ProviderOutput> {

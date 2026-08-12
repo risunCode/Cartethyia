@@ -178,6 +178,11 @@ export interface ModelMetadata {
   readonly updatedAt: string | null;
 }
 
+/**
+ * Built-in model metadata and upstream aliases. The catalog is informational;
+ * manually persisted model IDs are validated by routing and may resolve even
+ * when {@link get} returns `null`.
+ */
 export interface ProviderModelCatalog {
   readonly list: readonly ProviderModel[];
   readonly get: (modelId: string) => ProviderModel | null;
@@ -243,6 +248,7 @@ export interface Adapter {
   readonly metadata: ProviderMeta;
   readonly capabilities: ProviderCaps;
   readonly models: ProviderModelCatalog;
+  /** Resolves built-in or manually configured model IDs for the requested surface. */
   resolveTarget(modelId: string, surface: Surface): RouteTarget;
   call(input: ProviderRequest): Promise<ProviderOutput>;
   mapError(error: unknown): ProviderCallError;

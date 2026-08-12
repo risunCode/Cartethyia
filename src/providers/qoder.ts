@@ -649,9 +649,6 @@ export class QoderAdapter implements Adapter {
     if (!this.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${surface}"`, statusCode: 400, routeScope: null });
     }
-    if (this.models.get(modelId) === null) {
-      throw new ProviderAdapterError({ kind: "model_not_found", message: `Model "${modelId}" is not in the "${this.metadata.id}" catalog`, statusCode: 404, routeScope: "provider" });
-    }
     const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };
   }
 
@@ -663,10 +660,13 @@ export class QoderAdapter implements Adapter {
       throw new ProviderAdapterError({ kind: "authentication_failed", message: "A Qoder personal access token is required.", statusCode: 401, routeScope: "account" });
     }
     const { request, signal, network } = input;
-    const modelConfig = QODER_MODEL_CONFIGS[input.target.modelId];
-    if (!modelConfig) {
-      throw new ProviderAdapterError({ kind: "model_not_found", message: `Qoder model "${input.target.modelId}" is not supported.`, statusCode: 400, routeScope: "provider" });
-    }
+    const modelConfig = QODER_MODEL_CONFIGS[input.target.modelId] ?? {
+      id: input.target.modelId,
+      display_name: input.target.modelId,
+      max_input_tokens: 180_000,
+      is_vl: true,
+      is_reasoning: false,
+    };
 
     const coordinator = new AbortCoordinator(signal, {
       connectTimeoutMs: request.limits.connectTimeoutMs,

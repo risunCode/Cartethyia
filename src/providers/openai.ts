@@ -84,14 +84,6 @@ export class OpenAIAdapter implements Adapter {
         routeScope: null,
       });
     }
-    if (!this.modelKnown(modelId)) {
-      throw new ProviderAdapterError({
-        kind: "model_not_found",
-        message: `Model "${modelId}" is not in the "${this.metadata.id}" catalog`,
-        statusCode: 404,
-        routeScope: "provider",
-      });
-    }
     const __entry = this.models.get(modelId); return { providerId: this.metadata.id, modelId, upstreamModelId: __entry?.upstreamId ?? modelId, surface };
   }
 
@@ -109,9 +101,6 @@ export class OpenAIAdapter implements Adapter {
     return toProviderCallError(error);
   }
 
-  private modelKnown(modelId: string): boolean {
-    return this.models.list.length === 0 || this.models.get(modelId) !== null;
-  }
 
   private assertSupported(input: ProviderRequest): void {
     if (input.target.providerId !== this.metadata.id) {

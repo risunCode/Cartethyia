@@ -427,18 +427,16 @@ export class AntigravityAdapter implements Adapter {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support surface "${surface}"`, statusCode: 400, routeScope: null });
     }
     const entry = this.models.get(modelId);
-    if (entry === null) {
-      throw new ProviderAdapterError({ kind: "model_not_found", message: `Model "${modelId}" is not in the "${this.metadata.id}" catalog`, statusCode: 404, routeScope: "provider" });
-    }
-    if (!entry.capabilities.surfaces.includes(surface)) {
+    if (entry !== null && !entry.capabilities.surfaces.includes(surface)) {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Model "${modelId}" does not support surface "${surface}"`, statusCode: 400, routeScope: "provider" });
     }
-    return { providerId: this.metadata.id, modelId, upstreamModelId: entry.upstreamId ?? modelId, surface };
+    return { providerId: this.metadata.id, modelId, upstreamModelId: entry?.upstreamId ?? modelId, surface };
   }
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {
     const entry = this.models.get(input.target.modelId);
-    if (input.target.providerId !== this.metadata.id || entry === null || !entry.capabilities.surfaces.includes(input.target.surface)) {
+    const surfaces = entry?.capabilities.surfaces ?? this.capabilities.surfaces;
+    if (input.target.providerId !== this.metadata.id || !surfaces.includes(input.target.surface)) {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" does not support the requested model surface`, statusCode: 400, routeScope: null });
     }
     const credential = parseAntigravityCredential(input.credential);

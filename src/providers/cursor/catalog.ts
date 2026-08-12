@@ -39,8 +39,8 @@ export function describeCursor(): ProviderCatalogAdapter {
     models: createModelCatalog(models),
     resolveTarget(modelId: string, surface: Surface): RouteTarget {
       if (!CURSOR_SURFACES.includes(surface as (typeof CURSOR_SURFACES)[number])) throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Cursor does not support surface "${surface}"`, statusCode: 400, routeScope: null });
-      const model = models.find(entry => entry.id === modelId) ?? models.find(entry => entry.id === "default");
-      return { providerId: "cursor", modelId: model?.id ?? modelId, upstreamModelId: model?.id ?? modelId, surface };
+      const model = models.find(entry => entry.id === modelId);
+      return { providerId: "cursor", modelId, upstreamModelId: model?.id ?? modelId, surface };
     },
   };
 }

@@ -44,8 +44,11 @@ export class ModelService {
   async addCustom(providerId: string, modelId: string): Promise<ModelView | null> {
     const normalized = modelId.trim();
     if (normalized.length === 0 || normalized.length > 200) return null;
-    if (this.registry.get(providerId) === null) return null;
-    if (this.registry.get(providerId)?.models.get(normalized) !== null) return (await this.list(providerId)).find((model) => model.modelId === normalized) ?? null;
+    const adapter = this.registry.get(providerId);
+    if (adapter === null) return null;
+    // Persist every operator-added ID, including IDs that also exist in the
+    // built-in catalog. The row is the enabled-state override and keeps a
+    // fetched/manual model durable across catalog refreshes and restarts.
     return this.repo.setEnabled(providerId, normalized, true);
   }
 

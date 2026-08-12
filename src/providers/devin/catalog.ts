@@ -35,7 +35,6 @@ export const DEVIN_CATALOG: ProviderCatalogAdapter = {
   models: createModelCatalog([DEVIN_MODEL]),
   resolveTarget(modelId: string, surface: Surface): RouteTarget {
     if (!DEVIN_SURFACES.includes(surface)) throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Devin does not support surface "${surface}"`, statusCode: 400, routeScope: null });
-    if (modelId !== DEVIN_MODEL_ID) throw new ProviderAdapterError({ kind: "model_not_found", message: `Model "${modelId}" is not in the Devin catalog`, statusCode: 404, routeScope: "provider" });
-    return { providerId: "devin", modelId: DEVIN_MODEL_ID, upstreamModelId: DEVIN_MODEL_ID, surface };
+    return { providerId: "devin", modelId, upstreamModelId: modelId, surface };
   },
 };

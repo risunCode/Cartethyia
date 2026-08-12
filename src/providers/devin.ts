@@ -24,10 +24,7 @@ export class DevinAdapter implements Adapter {
   resolveTarget(modelId: string, surface: Surface): RouteTarget {
     this.assertSurface(surface);
     const model = this.models.get(modelId);
-    if (model === null) {
-      throw new ProviderAdapterError({ kind: "model_not_found", message: `Model "${modelId}" is not in the Devin catalog`, statusCode: 404, routeScope: "provider" });
-    }
-    return { providerId: this.metadata.id, modelId, upstreamModelId: model.upstreamId ?? model.id, surface };
+    return { providerId: this.metadata.id, modelId, upstreamModelId: model?.upstreamId ?? modelId, surface };
   }
 
   async call(input: ProviderRequest): Promise<ProviderOutput> {
