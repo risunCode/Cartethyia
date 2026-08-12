@@ -1,6 +1,7 @@
 import { findCacheBreakpoint } from "../../../application/cache";
 import { ProtocolCodecError } from "../errors";
 import type { ProviderCaps, ProviderUsage } from "../../../application/contracts";
+import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, ReasoningEffort } from "../../../application/contracts";
 
 const DEFAULT_MAX_TOKENS = 4_096;
 const MAX_THINKING_BUDGET = 32_000;
@@ -35,8 +36,9 @@ MAX_TOOL_NAME_LENGTH,
 type NormalizeInput,
 type NormalizeResult,
 type ProtocolError, } from "../../../application/protocols";
-import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool } from "../../../application/contracts";
-import { preserveWirePayload } from "../policy/fields";
+import type { ModelCapabilities } from "../capabilities";
+import { preserveWireExtensions } from "../policy/extensions";
+import { projectEffort } from "./effort";
 
 export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): NormalizeResult {
   const aborted = abortedError(input.signal);
@@ -56,6 +58,8 @@ export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): 
 
   const thinking = normalizeThinking(root["thinking"]);
   if (isProtocolError(thinking)) return normalizeFail(thinking);
+  const outputConfig = normalizeOutputConfig(root["output_config"]);
+  if (isProtocolError(outputConfig)) return normalizeFail(outputConfig);
 
   const contextManagement = normalizeContextManagement(root["context_management"]);
   if (isProtocolError(contextManagement)) return normalizeFail(contextManagement);
@@ -73,9 +77,14 @@ export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): 
   const mcpServers = normalizeMcpServers(root["mcp_servers"]);
   if (isProtocolError(mcpServers)) return normalizeFail(mcpServers);
 
-  const metadata = root["metadata"];
+  const metadata = normalizeMetadata(root["metadata"]);
+  if (isProtocolError(metadata)) return normalizeFail(metadata);
   const metadataUserId = isRecord(metadata) && typeof metadata.user_id === "string" && metadata.user_id.length <= 4096 ? metadata.user_id : undefined;
-  const reasoning = reasoningState.seen ? "enabled" : thinking;
+  const reasoning = reasoningState.seen ? "enabled" : thinking.flag;
+  const reasoningConfig = {
+    ...(thinking.budgetTokens === undefined ? {} : { maxTokens: thinking.budgetTokens }),
+    ...(outputConfig.effort === undefined ? {} : { effort: outputConfig.effort }),
+  };
   return normalizeOk({
     model,
     stream,
@@ -83,6 +92,7 @@ export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): 
     tools,
     responseFormat: "text",
     reasoning,
+    ...(Object.keys(reasoningConfig).length === 0 ? {} : { reasoningConfig }),
     maxOutputTokens: maxTokens,
     images,
     sourceSurface: "anthropic-messages",
@@ -91,6 +101,7 @@ export function normalizeMessagesRequest(body: unknown, input: NormalizeInput): 
     wirePayload: root,
     ...(contextManagement === undefined ? {} : { contextManagement }),
     ...(mcpServers === undefined ? {} : { mcpServers }),
+    ...(metadata === undefined ? {} : { metadata }),
     ...(metadataUserId === undefined ? {} : { metadataUserId }),
   });
 }
@@ -103,15 +114,43 @@ function normalizeMaxTokens(root: Record<string, unknown>): number | ProtocolErr
   return value;
 }
 
-function normalizeThinking(raw: unknown): "enabled" | "disabled" | "default" | ProtocolError {
-  if (raw === undefined || raw === null) return "default";
+interface NormalizedThinking {
+  readonly flag: "enabled" | "disabled" | "default";
+  readonly budgetTokens?: number;
+}
+
+function normalizeThinking(raw: unknown): NormalizedThinking | ProtocolError {
+  if (raw === undefined || raw === null) return { flag: "default" };
   const obj = narrowObject(raw, "thinking");
   if (isProtocolError(obj)) return obj;
   const type = obj["type"];
-  if (type === "enabled" || type === "adaptive") return "enabled";
-  if (type === "disabled") return "disabled";
-  if (typeof type === "string") return protocolError("thinking.type", `thinking.type: unsupported mode "${type}"`);
-  return protocolError("thinking.type", 'thinking.type: expected "enabled", "adaptive", or "disabled"');
+  if (type === "disabled") return { flag: "disabled" };
+  if (type !== "enabled" && type !== "adaptive") {
+    if (typeof type === "string") return protocolError("thinking.type", `thinking.type: unsupported mode "${type}"`);
+    return protocolError("thinking.type", 'thinking.type: expected "enabled", "adaptive", or "disabled"');
+  }
+  const budgetRaw = obj["budget_tokens"];
+  if (budgetRaw === undefined || budgetRaw === null) return { flag: "enabled" };
+  const budgetTokens = narrowNumber(budgetRaw, "thinking.budget_tokens", { integer: true, min: 1, max: MAX_THINKING_BUDGET });
+  if (isProtocolError(budgetTokens)) return budgetTokens;
+  return { flag: "enabled", budgetTokens };
+}
+
+function normalizeOutputConfig(raw: unknown): { readonly effort?: ReasoningEffort } | ProtocolError {
+  if (raw === undefined || raw === null) return {};
+  const obj = narrowObject(raw, "output_config");
+  if (isProtocolError(obj)) return { effort: "medium" };
+  const effort = projectEffort(obj["effort"], "anthropic-messages");
+  return effort === undefined ? {} : { effort };
+}
+
+
+function normalizeMetadata(raw: unknown): Readonly<Record<string, unknown>> | undefined | ProtocolError {
+  if (raw === undefined || raw === null) return undefined;
+  const metadata = narrowObject(raw, "metadata");
+  if (isProtocolError(metadata)) return metadata;
+  const bound = boundJsonLength(metadata, "metadata", MAX_TEXT_BLOCK_LENGTH);
+  return bound === null ? { ...metadata } : bound;
 }
 function normalizeContextManagement(raw: unknown): Readonly<Record<string, unknown>> | ProtocolError | undefined {
   if (raw === undefined || raw === null) return undefined;
@@ -180,20 +219,29 @@ function expandToolResultMessages(message: NormalizedMessage): NormalizedMessage
   if (!message.content.some((block) => block.type === "tool_result")) return [message];
   const expanded: NormalizedMessage[] = [];
   let visibleBlocks: ContentBlock[] = [];
+  let toolBlocks: ContentBlock[] = [];
   const flushVisible = () => {
     if (visibleBlocks.length > 0) {
       expanded.push({ ...message, role: "user", content: visibleBlocks });
       visibleBlocks = [];
     }
   };
+  const flushTools = () => {
+    if (toolBlocks.length > 0) {
+      expanded.push({ ...message, role: "tool", content: toolBlocks });
+      toolBlocks = [];
+    }
+  };
   for (const block of message.content) {
     if (block.type === "tool_result") {
       flushVisible();
-      expanded.push({ ...message, role: "tool", content: [block] });
+      toolBlocks.push(block);
     } else {
+      flushTools();
       visibleBlocks.push(block);
     }
   }
+  flushTools();
   flushVisible();
   return expanded;
 }
@@ -227,8 +275,12 @@ function normalizeContent(raw: unknown, field: string, images: ImageReference[],
     if (isRecord(item) && item["type"] === "thinking") {
       const thinking = normalizeTextBlock(item["thinking"], `${blockField}.thinking`);
       if (isProtocolError(thinking)) return thinking;
+      const signature = item["signature"];
+      if (signature !== undefined && (typeof signature !== "string" || signature.length > MAX_TEXT_BLOCK_LENGTH)) {
+        return protocolError(`${blockField}.signature`, `${blockField}.signature: expected a bounded string`);
+      }
       reasoningState.seen = true;
-      blocks.push({ type: "reasoning", nativeType: "thinking", reasoningText: thinking, nativePayload: { ...item }, raw: item });
+      blocks.push({ type: "reasoning", nativeType: "thinking", reasoningText: thinking, ...(typeof signature === "string" ? { reasoningSignature: signature } : {}), nativePayload: { ...item }, raw: item });
       continue;
     }
     if (isRecord(item) && item["type"] === "tool_result") {
@@ -275,7 +327,9 @@ function normalizeBlock(raw: unknown, field: string, images: ImageReference[]): 
       if (isProtocolError(input)) return input;
       const bound = boundJsonLength(input, `${field}.input`, MAX_TOOL_ARGUMENT_LENGTH);
       if (bound !== null) return bound;
-      return { type: "tool_use", toolName: name, toolCallId: id, toolArguments: JSON.stringify(input) };
+      const signature = obj["signature"];
+      if (signature !== undefined && (typeof signature !== "string" || signature.length > MAX_TEXT_BLOCK_LENGTH)) return protocolError(`${field}.signature`, `${field}.signature: expected a bounded string`);
+      return { type: "tool_use", toolName: name, toolCallId: id, toolArguments: JSON.stringify(input), ...(typeof signature === "string" ? { reasoningSignature: signature } : {}) };
     }
     case "compaction": {
       const content = obj["content"];
@@ -394,7 +448,7 @@ function normalizeMcpServers(raw: unknown): readonly Readonly<Record<string, unk
  * plus the beta header in `call`) is emitted only when the adapter declares
  * explicitCache and promptCacheKey.
  */
-export function buildMessagesPayload(request: ProxyRequest, capabilities: ProviderCaps, options: { readonly includeContextManagement?: boolean } = {}): Record<string, unknown> {
+export function buildMessagesPayload(request: ProxyRequest, capabilities: ProviderCaps, options: { readonly includeContextManagement?: boolean; readonly modelCapabilities?: ModelCapabilities } = {}): Record<string, unknown> {
   const systemText = request.messages
     .filter((message) => message.role === "system" || message.role === "developer")
     .map((message) => messageText(message))
@@ -409,10 +463,7 @@ export function buildMessagesPayload(request: ProxyRequest, capabilities: Provid
       .filter((message) => message.role !== "system" && message.role !== "developer")
       .map((message) => toAnthropicMessage(message, capabilities)),
   };
-  if (systemText.length > 0) {
-    payload.system = systemText;
-  }
-  if (request.metadataUserId !== undefined) payload.metadata = { user_id: request.metadataUserId };
+  if (systemText.length > 0) payload.system = systemText;
   if (request.mcpServers !== undefined) payload.mcp_servers = request.mcpServers;
   if (request.tools.length > 0) {
     payload.tools = request.tools.map((tool) => {
@@ -433,10 +484,27 @@ export function buildMessagesPayload(request: ProxyRequest, capabilities: Provid
     });
   }
   if (options.includeContextManagement !== false && request.contextManagement !== undefined) payload.context_management = request.contextManagement;
-  if (request.reasoning === "enabled" && capabilities.reasoning) {
-    payload.thinking = { type: "enabled", budget_tokens: Math.min(request.maxOutputTokens ?? DEFAULT_MAX_TOKENS, MAX_THINKING_BUDGET) };
+  const reasoningSupported = options.modelCapabilities?.reasoning.supported ?? capabilities.reasoning;
+  if (request.reasoning === "enabled" && reasoningSupported) {
+    const config = request.reasoningConfig;
+    const safeEffort = config?.effort === undefined ? undefined : projectEffort(config.effort, "anthropic-messages", options.modelCapabilities?.reasoning.efforts);
+    if (safeEffort !== undefined) {
+      payload.thinking = { type: "adaptive" };
+      payload.output_config = { effort: safeEffort };
+    } else if (options.modelCapabilities?.reasoning.maxTokens !== "unsupported") {
+      payload.thinking = { type: "enabled", budget_tokens: Math.min(config?.maxTokens ?? request.maxOutputTokens ?? DEFAULT_MAX_TOKENS, MAX_THINKING_BUDGET) };
+    }
   }
-  preserveWirePayload(payload, request, "anthropic-messages", options.includeContextManagement === false ? ["model", "max_tokens", "stream", "messages", "system", "metadata", "mcp_servers", "tools", "thinking"] : ["model", "max_tokens", "stream", "messages", "system", "metadata", "mcp_servers", "tools", "context_management", "thinking"]);
+  preserveWireExtensions(payload, request, "anthropic-messages", options.includeContextManagement === false ? ["model", "max_tokens", "stream", "messages", "system", "mcp_servers", "tools", "thinking", "output_config"] : ["model", "max_tokens", "stream", "messages", "system", "mcp_servers", "tools", "context_management", "thinking", "output_config"]);
+  const preservedOutputConfig = payload.output_config;
+  if (isRecord(preservedOutputConfig)) {
+    const safeEffort = projectEffort(preservedOutputConfig.effort, "anthropic-messages");
+    if (safeEffort === undefined) delete payload.output_config;
+    else payload.output_config = { ...preservedOutputConfig, effort: safeEffort };
+  } else if (preservedOutputConfig !== undefined) {
+    delete payload.output_config;
+  }
+  delete payload.metadata;
   if (cacheEnabled) applyAnthropicCacheControl(payload, request);
   return payload;
 }
@@ -531,7 +599,7 @@ function toAnthropicMessage(message: NormalizedMessage, capabilities: ProviderCa
       const content: Record<string, unknown>[] = [];
       for (const block of message.content) {
         if (block.type === "text") content.push({ type: "text", text: block.text ?? "" });
-        else if (block.type === "reasoning" && capabilities.reasoning && block.reasoningText !== undefined) content.push({ type: "thinking", thinking: block.reasoningText });
+        else if (block.type === "reasoning" && capabilities.reasoning && block.reasoningText !== undefined) content.push({ type: "thinking", thinking: block.reasoningText, ...(block.reasoningSignature === undefined ? {} : { signature: block.reasoningSignature }) });
         else if (block.type === "compaction") content.push(block.raw ?? { type: "compaction", content: block.text ?? null });
         else if (block.type === "tool_use") content.push(toAnthropicToolUse(block));
         else if (block.type === "native" && capabilities.toolCalls && isRecord(block.nativePayload)) content.push({ ...block.nativePayload });
@@ -539,22 +607,16 @@ function toAnthropicMessage(message: NormalizedMessage, capabilities: ProviderCa
       return { role: "assistant", content };
     }
     case "tool": {
-      const first = message.content[0];
-      const content: Array<string | Readonly<Record<string, unknown>>> = [];
+      const content: Array<Readonly<Record<string, unknown>>> = [];
       for (const block of message.content) {
-        if (block.raw !== undefined) content.push(block.raw);
-        else if (block.image !== undefined) content.push({ type: "image", source: toAnthropicImageSource(block.image) });
-        else content.push(block.text ?? "");
-      }
-      return {
-        role: "user",
-        content: [{
+        content.push({
           type: "tool_result",
-          tool_use_id: first?.toolCallId ?? "",
-          content: content.length === 1 && first?.raw === undefined ? content[0] : content,
-          ...(first?.toolResultIsError ? { is_error: true } : {}),
-        }],
-      };
+          tool_use_id: block.toolCallId ?? "",
+          content: block.raw !== undefined ? block.raw : block.image !== undefined ? [{ type: "image", source: toAnthropicImageSource(block.image) }] : block.text ?? "",
+          ...(block.toolResultIsError ? { is_error: true } : {}),
+        });
+      }
+      return { role: "user", content };
     }
     case "system":
     case "developer":
@@ -580,6 +642,7 @@ function toAnthropicToolUse(block: ContentBlock): Record<string, unknown> {
     id: block.toolCallId ?? `toolu_${block.toolName ?? ""}`,
     name: block.toolName ?? "",
     input: isRecord(input) ? input : {},
+    ...(block.reasoningSignature === undefined ? {} : { signature: block.reasoningSignature }),
   };
 }
 

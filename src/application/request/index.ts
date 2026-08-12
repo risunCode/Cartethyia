@@ -1,10 +1,10 @@
 import { createCleanupStack, sanitizeMessage, deriveErrorSource, type ApplicationErrorKind, type ProviderCallError } from "../contracts";
 import type { PresentedProxyResponse } from "../contracts";
-import type { Adapter, ProviderOutput, Surface, ProviderUsage, RequestRoutingMetadata, RouteTarget, StreamEvent, WebSearchFallback } from "../contracts";
+import type { Adapter, ProviderOutput, Surface, ProviderUsage, RequestRoutingMetadata, TranslationDiagnostic, RouteTarget, StreamEvent, WebSearchFallback } from "../contracts";
 import type { AccountCandidate, AffinityKey, RouteCandidate, RouteSwitch } from "../contracts";
 import type { ProxyRequest, RunProxyRequestInput } from "../contracts";
-import { detectClient } from "../contracts";
 import type { ClientIdentity } from "../contracts";
+import { detectClientFormat, clientIdentityForProfile } from "../../open-sse/translate/detection";
 import type { RequestTelemetryHandle, TelemetryWriter } from "../contracts";
 import { isRouteAllowed } from "../../security/access";
 import { CredentialSelector } from "../auth";
@@ -14,15 +14,21 @@ import type { ApiKeyAdmission, AdmissionLease, AdmissionUsage } from "../../traf
 import type { ApiKeyPublic } from "../../storage";
 import { isProviderCallError, recoverCall } from "../../open-sse/handlers/recovery";
 import { resolveModelWireSurface } from "../../open-sse/translate";
+import { findCacheBreakpoint } from "../cache";
 import { ProtocolCodecError } from "../../open-sse/translate/errors";
 import { writeErrorResponse, writeResponse } from "../../open-sse/handlers";
 import type { TokenSaverConfig } from "../../open-sse/rtk";
-import { createRouteAttempt, createRouteAttemptState, getRouteAttemptSelection, getSelectedAttempt, getSelectedCandidateId, getSelectedCredentialKind, getSuccessfulCandidateId, getNextCandidateId, hasNextCandidate, clearAccountCandidates, markAccountRetry, markReactiveRefresh } from "./route-attempt";
+import { createRouteAttempt, createRouteAttemptState, getRouteAttemptSelection, getTranslationDiagnostics, getSelectedAttempt, getSelectedCandidateId, getSelectedCredentialKind, getSuccessfulCandidateId, getNextCandidateId, hasNextCandidate, clearAccountCandidates, markAccountRetry, markReactiveRefresh } from "./route-attempt";
 import type { HeadroomOutcome } from "../../open-sse/rtk/headroom";
 import type { FilterRuleConfig } from "../filter-rules";
 import { prepareProxyRequest } from "./prepare";
 import { createPayloadCapture } from "./payload-capture";
 
+
+function admissionInputTokens(usage: ProviderUsage, fallback: number): number {
+  if (usage.inputTokens === null) return fallback;
+  return Math.max(0, Math.floor(usage.inputTokens) + Math.floor(usage.cacheReadTokens ?? 0) + Math.floor(usage.cacheWriteTokens ?? 0));
+}
 export interface ProxyRoutePlan {
   readonly affinity: AffinityKey;
   readonly candidates: readonly RouteCandidate[];
@@ -133,7 +139,7 @@ function telemetryStart(input: RunProxyRequestInput, requestId: string, client: 
 export async function runProxyRequest(input: AuthorizedProxyRequestInput, dependencies: ProxyRequestDependencies): Promise<PresentedProxyResponse> {
   const requestId = input.request.requestId ?? crypto.randomUUID();
   const startedAt = performance.now();
-  const client = detectClient(input.request.headers);
+  const client = clientIdentityForProfile(detectClientFormat(input.request.endpoint, input.request.surface, input.request.headers, input.request.body).profile);
   const telemetry = telemetryStart(input.request, requestId, client, input.authorization, dependencies.telemetry);
   const captureSink = dependencies.createPayloadCapture?.(requestId) ?? null;
   const capture = captureSink === null ? null : createPayloadCapture(requestId, captureSink);
@@ -151,6 +157,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
   let admissionSettled = false;
   let admissionEstimate = 0;
   let normalizedRequest: ProxyRequest | undefined;
+  let translationDiagnostics: readonly TranslationDiagnostic[] = [];
   let resolvedPlan: ProxyRoutePlan | undefined;
   const routeAttemptState = createRouteAttemptState();
 
@@ -182,10 +189,13 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
       upstreamModel,
       wireSurface,
       errorMessage,
+      cacheKeyPresent: request?.cacheKey !== undefined,
+      cacheBreakpointPresent: request === undefined ? false : findCacheBreakpoint(request) !== null,
       ...(candidate?.searchRoute === undefined
         ? {}
         : { webSearchRoute: candidate.searchRoute, webSearchPassthrough: candidate.searchRoute === "passthrough" }),
       ...(webSearchFallbacks.length === 0 ? {} : { webSearchFallbacks: [...webSearchFallbacks] }),
+      ...((translationDiagnostics.length === 0 && getTranslationDiagnostics(routeAttemptState).length === 0) ? {} : { translationDiagnostics: [...translationDiagnostics, ...getTranslationDiagnostics(routeAttemptState)].slice(0, 32) }),
     };
   };
   const settleAdmission = (usage: AdmissionUsage | null): void => {
@@ -200,6 +210,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
     const prepared = await prepareProxyRequest(input, dependencies);
     const currentRequest = prepared.request;
     normalizedRequest = currentRequest;
+    translationDiagnostics = prepared.translationDiagnostics;
     admissionEstimate = prepared.admissionEstimate;
     if (dependencies.admission !== undefined && input.authorization.apiKey !== undefined) {
       admissionLease = dependencies.admission.acquire(input.authorization.apiKey, admissionEstimate);
@@ -332,7 +343,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
       const usage = output.usage;
       settleAdmission(usage === undefined || usage === null
         ? { inputTokens: admissionEstimate, outputTokens: 0 }
-        : { inputTokens: usage.inputTokens ?? admissionEstimate, outputTokens: usage.outputTokens ?? 0 });
+        : { inputTokens: admissionInputTokens(usage, admissionEstimate), outputTokens: usage.outputTokens ?? 0 });
     } else {
       presentedOutput = {
         ...output,
@@ -361,7 +372,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
             const finalUsage = observedUsage;
             settleAdmission(finalUsage === null
               ? { inputTokens: admissionEstimate, outputTokens: 0 }
-              : { inputTokens: finalUsage.inputTokens ?? admissionEstimate, outputTokens: finalUsage.outputTokens ?? 0 });
+              : { inputTokens: admissionInputTokens(finalUsage, admissionEstimate), outputTokens: finalUsage.outputTokens ?? 0 });
             decrementInFlight();
             emitRequestLog({
               event: "complete",

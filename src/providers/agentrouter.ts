@@ -2,6 +2,8 @@ import { AbortCoordinator } from "../open-sse/transport/abort-coordinator";
 import { ProviderAdapterError, readUpstreamError, toProviderCallError } from "../open-sse/transport/errors";
 import { capabilitiesOf, createModelCatalog, modelOf } from "../open-sse/transport/catalog";
 import { executeFetch } from "../open-sse/transport/fetch";
+import { resolveModelCapabilities } from "../open-sse/translate/capabilities";
+import { classifyCompatibilityRejection, recordCompatibilityFallback, removeCompatibilityProjection } from "../open-sse/translate/fallback";
 import { lineLimit } from "../open-sse/transport/sse-decoder";
 import { mapSseStream } from "../open-sse/transport/stream-mapper";
 import { readJsonObject } from "../open-sse/transport/body-reader";
@@ -148,7 +150,8 @@ export class AgentRouterAdapter implements Adapter {
       });
     }
     const request = { ...input.request, model: input.target.upstreamModelId };
-    const payload = reorderBody(buildMessagesPayload(request, this.capabilities, { includeContextManagement: false }));
+    const modelCapabilities = resolveModelCapabilities(this.capabilities, this.models.get(input.target.modelId), input.target.surface);
+    const payload = reorderBody(buildMessagesPayload(request, this.capabilities, { includeContextManagement: false, modelCapabilities }));
     const headers = buildHeaders(input.credential, request.stream);
     const { signal, network } = input;
     const coordinator = new AbortCoordinator(signal, {
@@ -157,7 +160,17 @@ export class AgentRouterAdapter implements Adapter {
     });
     let streamHandedOff = false;
     try {
-      const response = await executeFetch(AGENTROUTER_URL, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
+      let response = await executeFetch(AGENTROUTER_URL, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
+      if (!response.ok) {
+        try {
+          await readUpstreamError(response);
+        } catch (error) {
+          const rejection = error instanceof ProviderAdapterError ? classifyCompatibilityRejection(error.toProviderCallError()) : null;
+          if (rejection === null || !rejection.retryable || !removeCompatibilityProjection(payload, rejection)) throw error;
+          recordCompatibilityFallback(input, rejection);
+          response = await executeFetch(AGENTROUTER_URL, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
+        }
+      }
       if (!response.ok) throw await readUpstreamError(response);
       if (!request.stream) {
         const body = await readJsonObject(response, coordinator);

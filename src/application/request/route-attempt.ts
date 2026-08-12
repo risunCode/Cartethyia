@@ -1,4 +1,4 @@
-import type { Adapter, ProviderOutput, ProxyRequest, RouteCandidate, RouteTarget, StreamEvent, Surface } from "../contracts";
+import type { Adapter, ProviderOutput, ProxyRequest, RouteCandidate, RouteTarget, StreamEvent, Surface, TranslationDiagnostic } from "../contracts";
 import type { AccountCandidate } from "../contracts";
 import type { CredentialKind } from "../contracts";
 import { createCleanupStack, deriveErrorSource } from "../contracts";
@@ -12,10 +12,10 @@ interface RouteAttemptState {
   readonly selectedAttempts: Map<number, RouteAttemptSelection>;
   readonly selectedCredentialKinds: Map<number, CredentialKind>;
   readonly selectedCandidateIds: Map<number, string>;
+  readonly translationDiagnostics: TranslationDiagnostic[];
   readonly reactiveRefreshes: Set<string>;
   readonly accountCandidatesByProvider: Map<string, Promise<readonly AccountCandidate[]>>;
   reactiveRetryCandidateId: string | null;
-  /** Re-run the same provider/model after an account-scoped failure so credential selection can fail over. */
   accountRetryCandidateId: string | null;
   nextCandidateIndex: number;
   successfulSelection: RouteAttemptSelection | null;
@@ -47,11 +47,14 @@ export interface RouteAttemptContext {
 }
 
 export function createRouteAttemptState(): RouteAttemptState {
-  return { selectedAttempts: new Map(), selectedCredentialKinds: new Map(), selectedCandidateIds: new Map(), reactiveRefreshes: new Set(), accountCandidatesByProvider: new Map(), reactiveRetryCandidateId: null, accountRetryCandidateId: null, nextCandidateIndex: 0, successfulSelection: null, successfulCandidateId: null };
+  return { selectedAttempts: new Map(), selectedCredentialKinds: new Map(), selectedCandidateIds: new Map(), translationDiagnostics: [], reactiveRefreshes: new Set(), accountCandidatesByProvider: new Map(), reactiveRetryCandidateId: null, accountRetryCandidateId: null, nextCandidateIndex: 0, successfulSelection: null, successfulCandidateId: null };
 }
 
 export function getRouteAttemptSelection(state: RouteAttemptState): RouteAttemptSelection | null {
   return state.successfulSelection;
+}
+export function getTranslationDiagnostics(state: RouteAttemptState): readonly TranslationDiagnostic[] {
+  return state.translationDiagnostics;
 }
 
 export function getSuccessfulCandidateId(state: RouteAttemptState): string | null {
@@ -139,7 +142,7 @@ export function createRouteAttempt(context: RouteAttemptContext): (index: number
       beginProviderInFlight(candidate.providerId);
       let output: ProviderOutput;
       try {
-        output = await adapter.call({ target, request, credential: credential?.selection.secret ?? "", network: network.selection, signal: input.request.signal, headers: input.request.headers, capture: capture ?? undefined });
+        output = await adapter.call({ target, request, credential: credential?.selection.secret ?? "", network: network.selection, signal: input.request.signal, headers: input.request.headers, capture: capture ?? undefined, recordDiagnostic: (diagnostic) => { if (state.translationDiagnostics.length < 32) state.translationDiagnostics.push(diagnostic); } });
       } catch (error) {
         endProviderInFlight(candidate.providerId);
         throw adapter.mapError(error);

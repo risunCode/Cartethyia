@@ -25,10 +25,28 @@ export interface ProviderMeta {
   readonly credentialKinds?: readonly CredentialKind[];
 }
 
+export type ReasoningWireFormat = "openai" | "anthropic-budget" | "anthropic-adaptive" | "gemini-budget" | "gemini-level" | "provider-native";
+
+export interface ReasoningCapability {
+  readonly enabled: boolean;
+  readonly format: ReasoningWireFormat;
+  readonly canDisable: boolean;
+  readonly minBudget?: number;
+  readonly maxBudget?: number;
+}
+
+export interface ProviderQuirkPolicy {
+  readonly droppedFields?: readonly string[];
+  readonly clampedFields?: Readonly<Record<string, { readonly min?: number; readonly max?: number }>>;
+  readonly requiredHeaders?: Readonly<Record<string, string>>;
+  readonly supportedResponseControls?: readonly string[];
+}
+
 export interface ProviderCaps {
   readonly surfaces: readonly Surface[];
   readonly streaming: boolean;
   readonly reasoning: boolean;
+  readonly reasoningCapability?: ReasoningCapability;
   readonly toolCalls: boolean;
   /** Whether the model can accept image input for vision. */
   readonly images: boolean;
@@ -36,6 +54,7 @@ export interface ProviderCaps {
   readonly mediaGeneration: readonly MediaGenerationKind[];
   readonly explicitCache: boolean;
   readonly promptCacheKey: boolean;
+  readonly quirks?: ProviderQuirkPolicy;
   /** Whether the model/provider can execute a native web search tool. */
   readonly search?: boolean;
 }
@@ -127,13 +146,18 @@ export interface ProviderRequest {
   /** Original client headers for provider-specific allowlisted passthrough only. */
   readonly headers?: Headers;
   readonly capture?: PayloadCapture;
+  /** Records bounded translation decisions without exposing payload contents. */
+  readonly recordDiagnostic?: (diagnostic: TranslationDiagnostic) => void;
 }
 
 export interface ProviderUsage {
+  /** Uncached input tokens; cache reads and writes are tracked separately below. */
   readonly inputTokens: number | null;
   readonly outputTokens: number | null;
   readonly totalTokens: number | null;
+  /** Input tokens served from the provider's prompt cache. */
   readonly cacheReadTokens: number | null;
+  /** Input tokens written to the provider's prompt cache. */
   readonly cacheWriteTokens: number | null;
   /** Provider-reported reasoning tokens when the wire exposes them. */
   readonly reasoningTokens?: number | null;
@@ -280,6 +304,8 @@ export type ClientDetectionSource =
   | "explicit_header"
   | "user_agent"
   | "protocol_header"
+  | "body_shape"
+  | "endpoint"
   | "prompt_marker"
   | "unknown";
 
@@ -318,7 +344,8 @@ export interface ContentBlock {
   readonly nativePayload?: Readonly<Record<string, unknown>>;
   /** Visible reasoning summary text, kept separate from ordinary text blocks. */
   readonly reasoningText?: string;
-  /** Encrypted provider reasoning content, never exposed as visible text. */
+  /** Provider reasoning signature retained only for a compatible target surface. */
+  readonly reasoningSignature?: string;
   readonly reasoningEncryptedContent?: string;
   /** Structured reasoning summary entries preserved across compatible projections. */
   readonly reasoningSummary?: readonly Readonly<Record<string, unknown>>[];
@@ -355,10 +382,16 @@ export interface NormalizedTool {
   readonly schemaJsonLength?: number;
   /** Anthropic Advanced Tool Use: omit the definition until tool search discovers it. */
   readonly deferLoading?: boolean;
-  /** Anthropic Programmatic Tool Calling: callers allowed to invoke this tool. */
   readonly allowedCallers?: readonly string[];
-  /** Anthropic tool-use examples (`input_examples` on the wire). */
-  readonly inputExamples?: readonly Record<string, unknown>[];
+  readonly inputExamples?: readonly Readonly<Record<string, unknown>>[];
+}
+
+export interface CacheIntent {
+  readonly key: string | null;
+  readonly stablePrefixFingerprint: string | null;
+  readonly affinityKey: string | null;
+  readonly policy: "automatic" | "explicit" | "ephemeral";
+  readonly ttl: string | null;
 }
 
 export interface ProxyRequest {
@@ -367,6 +400,13 @@ export interface ProxyRequest {
   readonly tools: readonly NormalizedTool[];
   readonly stream: boolean;
   readonly responseFormat: "text" | "json_object" | "json_schema";
+  readonly responseFormatSchema?: Readonly<Record<string, unknown>>;
+  readonly temperature?: number;
+  readonly topP?: number;
+  readonly stop?: readonly string[];
+  readonly parallelToolCalls?: boolean;
+  readonly toolChoice?: "none" | "auto" | "required" | Readonly<Record<string, unknown>>;
+  readonly metadata?: Readonly<Record<string, unknown>>;
   readonly reasoning: "enabled" | "disabled" | "default";
   /**
    * Structured reasoning controls forwarded to OpenAI Responses-style upstreams.
@@ -392,7 +432,7 @@ export interface ProxyRequest {
   readonly signal: AbortSignal;
   readonly limits: RequestLimits;
   readonly cacheKey?: string;
-  /** Client-supplied Claude Code metadata.user_id, when present. */
+  readonly cacheIntent?: CacheIntent;
   readonly metadataUserId?: string;
   /**
    * Parsed source payload retained for same-surface wire preservation.
@@ -476,9 +516,9 @@ export type StopReason = "completed" | "length" | "tool_call" | "content_filter"
 
 export type StreamEvent =
   | { readonly type: "message_start"; readonly id: string }
-  | { readonly type: "thinking_delta"; readonly text: string }
+  | { readonly type: "thinking_delta"; readonly text: string; readonly reasoningSignature?: string }
   | { readonly type: "text_delta"; readonly text: string }
-  | { readonly type: "tool_call_start"; readonly callId: string; readonly name: string }
+  | { readonly type: "tool_call_start"; readonly callId: string; readonly name: string; readonly reasoningSignature?: string }
   | { readonly type: "tool_call_delta"; readonly callId: string; readonly delta: string }
   | { readonly type: "tool_call_end"; readonly callId: string }
   | { readonly type: "server_tool_result"; readonly block: Readonly<Record<string, unknown>> }
@@ -534,19 +574,35 @@ export interface WebSearchFallback {
   readonly reason: string;
 }
 
-/** Compact route metadata persisted for console diagnostics. */
+export type TranslationDiagnosticStage = "detection" | "normalization" | "request" | "response" | "policy";
+export type TranslationDiagnosticAction = "preserved" | "adapted" | "dropped" | "rejected" | "fallback";
+
+export interface TranslationDiagnostic {
+  readonly stage: TranslationDiagnosticStage;
+  readonly sourceFormat: string;
+  readonly targetSurface: Surface;
+  readonly fieldCategory: string;
+  readonly action: TranslationDiagnosticAction;
+  readonly reason: string;
+}
+
+/** Compact, secret-free translation adaptation metadata persisted with request routing. */
 export interface RequestRoutingMetadata {
   readonly requestedModel: string | null;
   readonly mappedModel: string | null;
   readonly upstreamModel: string | null;
   readonly wireSurface: string | null;
   readonly errorMessage: string | null;
+  readonly cacheKeyPresent?: boolean;
+  /** True when a stable prefix received an ephemeral/native cache boundary. */
+  readonly cacheBreakpointPresent?: boolean;
   /** Search route selected for the request, when web-search routing was active. */
   readonly webSearchRoute?: WebSearchRouteKind;
   /** True when the original route handled a web-search request without a search provider. */
   readonly webSearchPassthrough?: boolean;
   /** Provider fallback attempts kept internal to the client response. */
   readonly webSearchFallbacks?: readonly WebSearchFallback[];
+  readonly translationDiagnostics?: readonly TranslationDiagnostic[];
 }
 
 export interface RequestTelemetryHandle {

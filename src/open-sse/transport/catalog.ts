@@ -17,11 +17,13 @@ export function capabilitiesOf(seed: CapabilitySeed): ProviderCaps {
     surfaces: [...seed.surfaces],
     streaming: seed.streaming ?? true,
     reasoning: seed.reasoning ?? false,
+    ...(seed.reasoningCapability === undefined ? {} : { reasoningCapability: seed.reasoningCapability }),
     toolCalls: seed.toolCalls ?? true,
     images: seed.images ?? false,
     mediaGeneration: [...(seed.mediaGeneration ?? (seed.surfaces.includes("images") ? ["image"] : []))],
     explicitCache: seed.explicitCache ?? false,
     promptCacheKey: seed.promptCacheKey ?? false,
+    ...(seed.quirks === undefined ? {} : { quirks: seed.quirks }),
     search: seed.search ?? false,
   };
 }

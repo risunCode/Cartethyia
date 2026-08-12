@@ -1,10 +1,11 @@
 import type { ProxyRequest } from "../contracts";
 import { applyCachePlan, buildCachePlan } from "../cache";
-import { isProtocolError } from "../protocols";
-import { normalizeRequest, parseRequestBody } from "../../open-sse/translate";
 import { estimateRequestTokens } from "../../traffic/admission";
+import { isProtocolError } from "../protocols";
+import { detectClientFormat, diagnosticsForDetection, normalizationEndpoint, type FormatDetectionResult } from "../../open-sse/translate";
+import { normalizeRequest, parseRequestBody } from "../../open-sse/translate";
 import { applyTokenSaver, RTK_EMERGENCY_MESSAGE_THRESHOLD } from "../../open-sse/rtk";
-import { ensureToolCallIds } from "../../open-sse/translate/concerns/tools";
+import { repairToolCallRequest } from "../../open-sse/translate/concerns/tools";
 import { applyFilterRules } from "../filter-rules";
 import type { AuthorizedProxyRequestInput, ProxyRequestDependencies } from "./index";
 
@@ -19,15 +20,19 @@ const DEFAULT_LIMITS = {
 export interface PreparedProxyRequest {
   readonly request: ProxyRequest;
   readonly admissionEstimate: number;
+  readonly formatDetection: FormatDetectionResult;
+  readonly translationDiagnostics: ReturnType<typeof diagnosticsForDetection>;
 }
-
 export async function prepareProxyRequest(input: AuthorizedProxyRequestInput, dependencies: ProxyRequestDependencies): Promise<PreparedProxyRequest> {
   const parsed = typeof input.request.body === "string" ? parseRequestBody(input.request.body, DEFAULT_LIMITS) : input.request.body;
   if (isProtocolError(parsed)) throw parsed;
-  const normalized = normalizeRequest(input.request.endpoint, parsed, { signal: input.request.signal, limits: DEFAULT_LIMITS });
+  const formatDetection = detectClientFormat(input.request.endpoint, input.request.surface, input.request.headers, parsed);
+  const normalizedEndpoint = normalizationEndpoint(input.request.endpoint, formatDetection);
+  const translationDiagnostics = diagnosticsForDetection(input.request.endpoint, input.request.surface, formatDetection, normalizedEndpoint);
+  const normalized = normalizeRequest(normalizedEndpoint, parsed, { signal: input.request.signal, limits: DEFAULT_LIMITS });
   if (!normalized.ok) throw normalized.error;
 
-  const toolSafeRequest = ensureToolCallIds(normalized.request);
+  const toolSafeRequest = repairToolCallRequest(normalized.request).request;
   let preparedRequest = toolSafeRequest;
   if (dependencies.filterRules !== undefined) preparedRequest = applyFilterRules(preparedRequest, dependencies.filterRules());
   const tokenSaverConfig = dependencies.tokenSaver?.();
@@ -39,5 +44,5 @@ export async function prepareProxyRequest(input: AuthorizedProxyRequestInput, de
   const affinityKey = input.authorization.apiKeyId !== undefined
     ? `api_key:${input.authorization.apiKeyId}`
     : `trusted_identity:${input.authorization.trustedIdentity ?? "anonymous"}`;
-  return { request: applyCachePlan(preparedRequest, buildCachePlan(preparedRequest), affinityKey), admissionEstimate };
+  return { request: applyCachePlan(preparedRequest, buildCachePlan(preparedRequest), affinityKey), admissionEstimate, formatDetection, translationDiagnostics };
 }

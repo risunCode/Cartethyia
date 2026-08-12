@@ -90,4 +90,41 @@ describe("Codex provider", () => {
     expect(captured.headers?.get("session_id")).not.toBeNull();
     expect(output).toMatchObject({ mode: "non_stream", body: { data: [{ b64_json: "AAAA" }] } });
   });
+  test("does not forward unsupported reasoning.max_tokens to Codex", async () => {
+    const adapter = new CodexAdapter();
+    const target = adapter.resolveTarget("gpt-5.6-luna", "openai-responses");
+    const signal = new AbortController().signal;
+    const input: ProviderRequest = {
+      target,
+      request: {
+        model: target.modelId,
+        messages: [{ role: "user", content: [{ type: "text", text: "write a file" }] }],
+        tools: [],
+        stream: true,
+        responseFormat: "text",
+        reasoning: "enabled",
+        reasoningConfig: { effort: "xhigh", maxTokens: 24_000 },
+        maxOutputTokens: null,
+        images: [],
+        sourceSurface: "anthropic-messages",
+        signal,
+        limits: { maxBodyBytes: 1_000_000, connectTimeoutMs: 5_000, firstByteTimeoutMs: 10_000, idleTimeoutMs: 30_000, totalTimeoutMs: 60_000 },
+      },
+      credential: codexCredential(),
+      network: { proxyId: null, url: null, release: async () => {} },
+      signal,
+      headers: new Headers(),
+    };
+    let body: Record<string, unknown> | null = null;
+    globalThis.fetch = (async (_inputUrl, init) => {
+      body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r1\",\"output\":[]}}\n\n", { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch;
+    const output = await adapter.call(input);
+    expect(output.mode).toBe("stream");
+    const wireBody = body as Record<string, unknown> | null;
+    const reasoning = wireBody?.reasoning;
+    expect(reasoning && typeof reasoning === "object" ? (reasoning as Record<string, unknown>).max_tokens : undefined).toBeUndefined();
+    expect(reasoning && typeof reasoning === "object" ? (reasoning as Record<string, unknown>).effort : undefined).toBe("xhigh");
+  });
 });

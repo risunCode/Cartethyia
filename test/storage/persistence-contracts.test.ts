@@ -1510,6 +1510,21 @@ describe("runtime metadata queries", () => {
     expect(s.errors).toBe(0);
   });
 
+  test("cache aggregates use full prompt tokens and separate cache writes", () => {
+    const now = new Date().toISOString().slice(0, 19).replace("T", " ");
+    rt.db().query(
+      "INSERT INTO request_history (trace_id, endpoint, surface, provider, model, status, stream, started_at, finished_at, duration_ms, input_tokens, cached_tokens, cache_write_tokens, output_tokens, total_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run("cache-trace", "/v1/chat/completions", "openai-chat", "openai", "gpt-5.6", 200, 0, now, now, 20, 100, 40, 10, 20, 170);
+    const summary = rt.metadata.querySummary("24h");
+    expect(summary.inputTokens).toBe(150);
+    expect(summary.cachedTokens).toBe(40);
+    const cache = rt.metadata.queryCache("24h");
+    expect(cache.inputTokens).toBe(150);
+    expect(cache.cachedTokens).toBe(40);
+    expect(cache.cacheWriteTokens).toBe(10);
+    expect(cache.hitRate).toBeCloseTo((40 / 150) * 100);
+  });
+
   test("getRequestById returns null for missing", () => {
     rt.flush();
     expect(rt.metadata.getRequestById(99999)).toBeNull();

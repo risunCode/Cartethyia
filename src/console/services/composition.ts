@@ -41,9 +41,8 @@ export * from "../input-sanitizers";
 
 import type { ModelMetadataResolver } from "../../application/model-metadata";
 import type { ProviderRegistry } from "../../providers/registry";
-import { TokenRefreshPool, createAuthDriverRegistry, type AuthDriverRegistry } from "../../application/auth";
+import { TokenRefreshPool, createAuthDriverRegistry, type AccountHealthManager, type AuthDriverRegistry } from "../../application/auth";
 import { OAuthLoginSessionManager } from "../../application/auth";
- 
 
 // Re-import symbols used by service classes from the extracted modules.
 import type { ConsoleRepositories } from "../views";
@@ -119,11 +118,12 @@ export interface CreateConsoleServicesOptions {
   readonly modelMetadata?: ModelMetadataResolver;
   /** Central account-level OAuth refresh pool shared by every caller. */
   readonly oauthCoordinator: TokenRefreshPool;
+  /** Durable account health manager used for permanent OAuth invalidation. */
+  readonly accountHealth?: AccountHealthManager;
 }
 
-/** Composes the console application services over injected repository ports. */
 export function createConsoleServices(options: CreateConsoleServicesOptions): ConsoleServices {
-  const { repositories, registry, loginLimiter, modelMetadata, oauthCoordinator } = options;
+  const { repositories, registry, loginLimiter, modelMetadata, oauthCoordinator, accountHealth } = options;
   const authDrivers = options.authDrivers ?? createAuthDriverRegistry();
   const providerService = new ProviderService(registry, repositories.providerConfig, repositories.customProviders, repositories.accounts, authDrivers);
   const modelService = new ModelService(repositories.models, registry, modelMetadata);
@@ -142,9 +142,9 @@ export function createConsoleServices(options: CreateConsoleServicesOptions): Co
       accounts: repositories.accounts,
       tokens: repositories.oauthTokens,
     }),
-    proxies: proxyService,
     webSearchRouting: new WebSearchRoutingService(proxyService, providerService, modelService, accountService),
-    quota: new QuotaService(repositories.accounts, repositories.quotaState, repositories.oauthTokens, oauthCoordinator),
+    proxies: proxyService,
+    quota: new QuotaService(repositories.accounts, repositories.quotaState, repositories.oauthTokens, oauthCoordinator, accountHealth),
     settings: new SettingsService(repositories.settings),
     routing: new RoutingConfigService(repositories.routing, modelMetadata),
     filterRules: new FilterRuleService(repositories.filterRules),

@@ -1,4 +1,6 @@
+import { isRecord } from "../../application/protocols";
 import type { Surface, ProviderUsage, StopReason, StreamEvent } from "../../application/contracts";
+import { fullPromptTokens } from "../translate/response/usage";
 
 const encoder = new TextEncoder();
 
@@ -42,13 +44,18 @@ function responseIncompleteReason(reason: StopReason): string | undefined {
 }
 
 function responseUsage(usage: ProviderUsage): Record<string, unknown> {
-  const input = usageNumber(usage.inputTokens);
   const output = usageNumber(usage.outputTokens);
+  const cached = usageNumber(usage.cacheReadTokens);
+  const written = usageNumber(usage.cacheWriteTokens);
+  const prompt = fullPromptTokens(usage);
   return {
-    input_tokens: input,
+    input_tokens: prompt,
     output_tokens: output,
-    total_tokens: usageNumber(usage.totalTokens) || input + output,
-    input_tokens_details: { cached_tokens: usageNumber(usage.cacheReadTokens) },
+    total_tokens: usageNumber(usage.totalTokens) || prompt + output,
+    input_tokens_details: {
+      cached_tokens: cached,
+      ...(written > 0 ? { cache_write_tokens: written } : {}),
+    },
     output_tokens_details: { reasoning_tokens: usageNumber(usage.reasoningTokens ?? null) },
   };
 }
@@ -105,11 +112,16 @@ async function* encodeOpenAIChat(events: AsyncIterable<StreamEvent>, model: stri
       const index = toolIndexById.get(event.callId);
       if (index !== undefined && !toolArgsById.has(event.callId)) yield chunk({ tool_calls: [{ index, function: { arguments: "{}" } }] });
     } else if (event.type === "usage") {
+      const cached = usageNumber(event.usage.cacheReadTokens);
+      const written = usageNumber(event.usage.cacheWriteTokens);
       yield chunk({}, null, {
-        prompt_tokens: usageNumber(event.usage.inputTokens) + usageNumber(event.usage.cacheReadTokens),
+        prompt_tokens: fullPromptTokens(event.usage),
         completion_tokens: usageNumber(event.usage.outputTokens),
-        total_tokens: usageNumber(event.usage.inputTokens) + usageNumber(event.usage.cacheReadTokens) + usageNumber(event.usage.outputTokens),
-        prompt_tokens_details: { cached_tokens: usageNumber(event.usage.cacheReadTokens) },
+        total_tokens: usageNumber(event.usage.totalTokens) || fullPromptTokens(event.usage) + usageNumber(event.usage.outputTokens),
+        prompt_tokens_details: {
+          cached_tokens: cached,
+          ...(written > 0 ? { cache_write_tokens: written } : {}),
+        },
       });
     } else if (event.type === "message_stop" && !finished) {
       finished = true;
@@ -183,7 +195,14 @@ async function* encodeAnthropic(events: AsyncIterable<StreamEvent>, model: strin
       if (thinkingBlock === null) {
         yield* closeTextBlocks();
         thinkingBlock = ++blockIndex;
-        yield frame({ event: "content_block_start", data: { type: "content_block_start", index: thinkingBlock, content_block: { type: "thinking", thinking: "" } } });
+        yield frame({
+          event: "content_block_start",
+          data: {
+            type: "content_block_start",
+            index: thinkingBlock,
+            content_block: { type: "thinking", thinking: "", ...(event.reasoningSignature === undefined ? {} : { signature: event.reasoningSignature }) },
+          },
+        });
       }
       yield frame({ event: "content_block_delta", data: { type: "content_block_delta", index: thinkingBlock, delta: { type: "thinking_delta", thinking: event.text } } });
     } else if (event.type === "text_delta") {
@@ -197,7 +216,7 @@ async function* encodeAnthropic(events: AsyncIterable<StreamEvent>, model: strin
       yield* closeTextBlocks();
       const index = ++blockIndex;
       toolBlockById.set(event.callId, index);
-      yield frame({ event: "content_block_start", data: { type: "content_block_start", index, content_block: { type: "tool_use", id: event.callId, name: event.name, input: {} } } });
+      yield frame({ event: "content_block_start", data: { type: "content_block_start", index, content_block: { type: "tool_use", id: event.callId, name: event.name, input: {}, ...(event.reasoningSignature === undefined ? {} : { signature: event.reasoningSignature }) } } });
     } else if (event.type === "tool_call_delta") {
       const index = toolBlockById.get(event.callId);
       if (index !== undefined) yield frame({ event: "content_block_delta", data: { type: "content_block_delta", index, delta: { type: "input_json_delta", partial_json: event.delta } } });
@@ -229,60 +248,150 @@ async function* encodeResponses(events: AsyncIterable<StreamEvent>, model: strin
   let started = false;
   let finished = false;
   let sequence = 0;
-  let text = "";
+  let textItemId: string | null = null;
+  let textIndex: number | null = null;
+  let textValue = "";
+  let reasoningItemId: string | null = null;
+  let reasoningIndex: number | null = null;
+  let reasoningValue = "";
   let finalReason: StopReason = "completed";
   let usage: ProviderUsage | null = null;
-  const activeCalls = new Set<string>();
+  const outputItems: Array<Record<string, unknown>> = [];
+  const activeCalls = new Map<string, { readonly index: number; readonly item: Record<string, unknown> }>();
+
   const next = (): number => sequence++;
-  const created = (): Uint8Array => frame({ data: { type: "response.created", sequence_number: next(), response: { id, object: "response", created_at: Math.floor(Date.now() / 1000), model, status: "in_progress" } } });
+  const eventFrame = (data: Record<string, unknown>): Uint8Array => frame({ data: { sequence_number: next(), ...data } });
+  const setOutputItem = (index: number, item: Record<string, unknown>): void => {
+    outputItems[index] = item;
+  };
+  const responseCreated = (): Uint8Array => eventFrame({
+    type: "response.created",
+    response: { id, object: "response", created_at: Math.floor(Date.now() / 1000), model, status: "in_progress", output: [] },
+  });
+  const outputItemAdded = (index: number, item: Record<string, unknown>): Uint8Array => eventFrame({ type: "response.output_item.added", output_index: index, item });
+  const contentPartAdded = (index: number, itemId: string, content: Record<string, unknown>): Uint8Array => eventFrame({ type: "response.content_part.added", item_id: itemId, output_index: index, content_index: 0, part: content });
+
+  function* closeText(): Generator<Uint8Array> {
+    if (textItemId === null || textIndex === null) return;
+    const item = outputItems[textIndex] ?? { type: "message", id: textItemId, role: "assistant", content: [] };
+    const content = { type: "output_text", text: textValue, annotations: [] };
+    item.content = [content];
+    setOutputItem(textIndex, item);
+    yield eventFrame({ type: "response.output_text.done", item_id: textItemId, output_index: textIndex, content_index: 0, text: textValue });
+    yield eventFrame({ type: "response.content_part.done", item_id: textItemId, output_index: textIndex, content_index: 0, part: content });
+    yield eventFrame({ type: "response.output_item.done", output_index: textIndex, item });
+    textItemId = null;
+    textIndex = null;
+    textValue = "";
+  }
+
+  function* closeReasoning(): Generator<Uint8Array> {
+    if (reasoningItemId === null || reasoningIndex === null) return;
+    const item = outputItems[reasoningIndex] ?? { type: "reasoning", id: reasoningItemId, summary: [] };
+    const summary = { type: "summary_text", text: reasoningValue };
+    item.summary = [summary];
+    setOutputItem(reasoningIndex, item);
+    yield eventFrame({ type: "response.reasoning_summary_text.done", item_id: reasoningItemId, output_index: reasoningIndex, summary_index: 0, text: reasoningValue });
+    yield eventFrame({ type: "response.content_part.done", item_id: reasoningItemId, output_index: reasoningIndex, content_index: 0, part: summary });
+    yield eventFrame({ type: "response.output_item.done", output_index: reasoningIndex, item });
+    reasoningItemId = null;
+    reasoningIndex = null;
+    reasoningValue = "";
+  }
+
+  function* closeActive(): Generator<Uint8Array> {
+    yield* closeReasoning();
+    yield* closeText();
+  }
 
   for await (const event of events) {
     if (event.type === "message_start") {
       id = event.id || id;
-      if (!started) { started = true; yield created(); }
+      if (!started) {
+        started = true;
+        yield responseCreated();
+      }
       continue;
     }
-    if (!started) { started = true; yield created(); }
+    if (!started) {
+      started = true;
+      yield responseCreated();
+    }
     if (event.type === "context_item") {
-      const wireType = event.phase === "added" ? "response.output_item.added" : "response.output_item.done";
-      yield frame({ data: { type: wireType, sequence_number: next(), output_index: event.outputIndex, item: event.item } });
-    } else if (event.type === "text_delta") {
-      text += event.text;
-      yield frame({ data: { type: "response.output_text.delta", sequence_number: next(), item_id: id, delta: event.text } });
+      const item = { ...event.item };
+      setOutputItem(event.outputIndex, item);
+      yield event.phase === "added" ? outputItemAdded(event.outputIndex, item) : eventFrame({ type: "response.output_item.done", output_index: event.outputIndex, item });
     } else if (event.type === "thinking_delta") {
-      yield frame({ data: { type: "response.reasoning_summary_text.delta", sequence_number: next(), item_id: id, delta: event.text } });
+      if (reasoningItemId === null || reasoningIndex === null) {
+        yield* closeText();
+        reasoningItemId = `rs_${crypto.randomUUID()}`;
+        reasoningIndex = outputItems.length;
+        const item = { type: "reasoning", id: reasoningItemId, summary: [] };
+        setOutputItem(reasoningIndex, item);
+        yield outputItemAdded(reasoningIndex, item);
+        yield contentPartAdded(reasoningIndex, reasoningItemId, { type: "summary_text", text: "" });
+      }
+      reasoningValue += event.text;
+      yield eventFrame({ type: "response.reasoning_summary_text.delta", item_id: reasoningItemId, output_index: reasoningIndex, summary_index: 0, delta: event.text });
+    } else if (event.type === "text_delta") {
+      if (textItemId === null || textIndex === null) {
+        yield* closeReasoning();
+        textItemId = `msg_${crypto.randomUUID()}`;
+        textIndex = outputItems.length;
+        const item = { type: "message", id: textItemId, role: "assistant", status: "in_progress", content: [] };
+        setOutputItem(textIndex, item);
+        yield outputItemAdded(textIndex, item);
+        yield contentPartAdded(textIndex, textItemId, { type: "output_text", text: "", annotations: [] });
+      }
+      textValue += event.text;
+      yield eventFrame({ type: "response.output_text.delta", item_id: textItemId, output_index: textIndex, content_index: 0, delta: event.text });
     } else if (event.type === "tool_call_start") {
-      activeCalls.add(event.callId);
-      yield frame({ data: { type: "response.output_item.added", sequence_number: next(), item: { type: "function_call", call_id: event.callId, name: event.name, arguments: "" } } });
+      yield* closeActive();
+      const index = outputItems.length;
+      const item = { type: "function_call", id: event.callId, call_id: event.callId, name: event.name, arguments: "" };
+      setOutputItem(index, item);
+      activeCalls.set(event.callId, { index, item });
+      yield outputItemAdded(index, item);
     } else if (event.type === "tool_call_delta") {
-      activeCalls.add(event.callId);
-      yield frame({ data: { type: "response.function_call_arguments.delta", sequence_number: next(), item_id: event.callId, delta: event.delta } });
+      const active = activeCalls.get(event.callId);
+      if (active !== undefined) {
+        active.item.arguments = `${String(active.item.arguments ?? "")}${event.delta}`;
+        yield eventFrame({ type: "response.function_call_arguments.delta", item_id: event.callId, output_index: active.index, delta: event.delta });
+      }
     } else if (event.type === "tool_call_end") {
-      activeCalls.delete(event.callId);
-      yield frame({ data: { type: "response.function_call_arguments.done", sequence_number: next(), item_id: event.callId } });
+      const active = activeCalls.get(event.callId);
+      if (active !== undefined) {
+        yield eventFrame({ type: "response.function_call_arguments.done", item_id: event.callId, output_index: active.index, arguments: active.item.arguments ?? "{}" });
+        yield eventFrame({ type: "response.output_item.done", output_index: active.index, item: active.item });
+        activeCalls.delete(event.callId);
+      }
     } else if (event.type === "usage") {
       usage = event.usage;
     } else if (event.type === "message_stop" && !finished) {
       finished = true;
       finalReason = event.reason;
-      for (const callId of activeCalls) yield frame({ data: { type: "response.function_call_arguments.done", sequence_number: next(), item_id: callId } });
+      yield* closeActive();
+      for (const [callId, active] of activeCalls) {
+        yield eventFrame({ type: "response.function_call_arguments.done", item_id: callId, output_index: active.index, arguments: active.item.arguments ?? "{}" });
+        yield eventFrame({ type: "response.output_item.done", output_index: active.index, item: active.item });
+      }
       activeCalls.clear();
       const status = responseStatus(event.reason);
       if (status === "failed") {
-        yield frame({ data: { type: "response.failed", sequence_number: next(), response: { id, object: "response", status: "failed", error: { code: event.error?.kind ?? "stream_error", message: event.error?.message ?? "Stream interrupted" } } } });
+        yield eventFrame({ type: "response.failed", response: { id, object: "response", status: "failed", output: outputItems, error: { code: event.error?.kind ?? "stream_error", message: event.error?.message ?? "Stream interrupted" } } });
       } else {
-        const response: Record<string, unknown> = { id, object: "response", created_at: Math.floor(Date.now() / 1000), model, status, output_text: text };
+        const response: Record<string, unknown> = { id, object: "response", created_at: Math.floor(Date.now() / 1000), model, status, output: outputItems.filter((item): item is Record<string, unknown> => item !== undefined), output_text: outputItems.filter((item) => item?.type === "message").map((item) => Array.isArray(item.content) ? item.content.filter(isRecord).map((part) => typeof part.text === "string" ? part.text : "").join("") : "").join("") };
         if (usage !== null) response.usage = responseUsage(usage);
         const incompleteReason = responseIncompleteReason(event.reason);
         if (incompleteReason !== undefined) response.incomplete_details = { reason: incompleteReason };
-        yield frame({ data: { type: status === "completed" ? "response.completed" : "response.incomplete", sequence_number: next(), response } });
+        yield eventFrame({ type: status === "completed" ? "response.completed" : "response.incomplete", response });
       }
       yield encoder.encode("data: [DONE]\n\n");
     }
   }
   if (!finished) {
-    const status = responseStatus(finalReason);
-    yield frame({ data: { type: status === "failed" ? "response.failed" : "response.incomplete", sequence_number: next(), response: { id, object: "response", model, status } } });
+    yield* closeActive();
+    yield eventFrame({ type: "response.incomplete", response: { id, object: "response", model, status: "incomplete", output: outputItems } });
     yield encoder.encode("data: [DONE]\n\n");
   }
 }

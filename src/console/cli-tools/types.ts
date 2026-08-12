@@ -43,6 +43,9 @@ export interface CliMappingInput {
   readonly mappings: readonly CliModelMapping[];
 }
 
+/** The user-facing routing mode supported by a CLI tool. */
+export type CliMappingMode = "remote" | "custom";
+
 /** Persisted mapping settings for one CLI tool. */
 export interface CliMappingSettings {
   readonly toolId: string;
@@ -89,6 +92,10 @@ export interface ToolDef {
   readonly notes?: readonly ToolNote[];
   readonly guideSteps?: readonly GuideStep[];
   readonly codeBlock?: GuideCodeBlock;
+  /** Default mapping behavior shown by the CLI detail page. */
+  readonly mappingMode?: CliMappingMode;
+  /** Default harness target for semantic mappings when no saved mapping exists. */
+  readonly defaultMappingTarget?: string;
   readonly mappingSupported?: boolean;
 }
 

@@ -9,6 +9,7 @@ import {
   createEnvOAuthRefresher,
   createCachedCredentialConfigStore,
   CredentialSelector,
+  isOAuthReauthenticationError,
   type CredentialConfigStore,
   GrokBuildOAuthDriver,
   type AccountHealthManager,
@@ -22,15 +23,15 @@ import type { ApplicationLogger } from "../console/logger";
 import type { ConfigPersistence } from "../storage";
 import { AccountRecoverySweep } from "../application/recovery-sweep";
 import type { ProviderRegistry } from "../providers/registry";
-
 export interface OAuthRuntimeDependencies {
   readonly config: ConfigPersistence;
   readonly logger: ApplicationLogger;
   readonly routingRevision?: () => number;
+  readonly accountHealth?: AccountHealthManager;
 }
 
 /** Builds the provider OAuth registry and the shared token refresh coordinator. */
-export function createOAuthRuntime({ config, logger, routingRevision }: OAuthRuntimeDependencies) {
+export function createOAuthRuntime({ config, logger, routingRevision, accountHealth }: OAuthRuntimeDependencies) {
   const authDrivers = createAuthDriverRegistry([
     { providerId: "kiro", driver: new KiroOAuthDriver() },
     { providerId: "antigravity", driver: new AntigravityOAuthDriver() },
@@ -73,8 +74,20 @@ export function createOAuthRuntime({ config, logger, routingRevision }: OAuthRun
       };
       return { refreshLeadMs: 5 * 60_000, maxRefreshAgeMs: maxRefreshAgeMs[account.providerId], minRefreshIntervalMs: minRefreshIntervalMs[account.providerId] ?? 60_000, jitterMs: 30_000 };
     },
-    onRefreshed: (accountId) => logger.system("info", "oauth-refresh", `OAuth token refreshed for account ${accountId}`),
-    onFailed: (accountId, error) => logger.system("warn", "oauth-refresh", `OAuth refresh failed for account ${accountId}: ${error.kind}`),
+    onRefreshed: (accountId) => {
+      const providerId = config.accounts.get(accountId)?.provider ?? "unknown";
+      void (accountHealth === undefined ? Promise.resolve() : accountHealth.recordSuccess(accountId, providerId))
+        .catch((error: unknown) => logger.system("warn", "oauth-refresh", `OAuth health recovery failed for ${accountId}: ${sanitizeMessage(error)}`));
+      logger.system("info", "oauth-refresh", `OAuth token refreshed for account ${accountId}`);
+    },
+    onFailed: (accountId, error) => {
+      if (accountHealth !== undefined && isOAuthReauthenticationError(error)) {
+        const providerId = config.accounts.get(accountId)?.provider ?? "unknown";
+        void accountHealth.recordPermanentFailure(accountId, providerId, error)
+          .catch((healthError: unknown) => logger.system("warn", "oauth-refresh", `OAuth invalidation health update failed for ${accountId}: ${sanitizeMessage(healthError)}`));
+      }
+      logger.system("warn", "oauth-refresh", `OAuth refresh failed for account ${accountId}: ${error.kind}`);
+    },
   });
   return { authDrivers, credentialStore, oauth, accounts: new CredentialSelector(requestCredentialStore, oauth) };
 }

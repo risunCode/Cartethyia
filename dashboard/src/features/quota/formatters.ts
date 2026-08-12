@@ -52,6 +52,7 @@ export function formatQuotaRefresh(value: string | null): string {
 export function friendlyQuotaError(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const lower = raw.toLowerCase();
+  if (lower.includes("invalidated") || lower.includes("reauthorization") || lower.includes("refresh token revoked")) return "OAuth account invalidated — re-login required";
   if (lower.includes("not available") || lower.includes("endpoint is not available")) return "Quota tracking is not supported for this provider";
   if (lower.includes("usage limit") || lower.includes("quota") || lower.includes("rate limit")) return "Quota exhausted — wait for reset or upgrade plan";
   if (lower.includes("http 500") || lower.includes("internal server error")) return "Provider temporarily unavailable — retry in a moment";

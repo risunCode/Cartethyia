@@ -3,7 +3,7 @@ import { isRecord, narrowList, narrowRecord, narrowText, nullableNumber } from "
 import { ProtocolCodecError } from "../errors";
 import type { ResponseDocument } from "../contracts";
 import { createReasoningBlock, boundedReasoningSummary } from "../concerns/reasoning";
-
+import { usageFromTotalInput } from "./usage";
 function chatStopReason(value: string | null): StopReason {
   if (value === "length") return "length";
   if (value === "tool_calls" || value === "function_call") return "tool_call";
@@ -58,36 +58,30 @@ function responsesWebSearchResultBlock(toolUseId: string, content: readonly Read
 
 /** Maps an OpenAI Chat usage record into the shared provider usage contract. */
 export function mapChatUsage(usage: Record<string, unknown>): ProviderUsage {
-  const inputTokens = nullableNumber(usage.prompt_tokens);
-  const outputTokens = nullableNumber(usage.completion_tokens);
   const inputDetails = narrowRecord(usage.prompt_tokens_details);
   const outputDetails = narrowRecord(usage.completion_tokens_details);
-  return {
-    inputTokens,
-    outputTokens,
-    totalTokens: nullableNumber(usage.total_tokens) ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null),
-    cacheReadTokens: nullableNumber(inputDetails?.cached_tokens),
-    cacheWriteTokens: nullableNumber(inputDetails?.cache_write_tokens),
-    reasoningTokens: nullableNumber(outputDetails?.reasoning_tokens),
-    source: "provider",
-  };
+  return usageFromTotalInput(
+    nullableNumber(usage.prompt_tokens),
+    nullableNumber(usage.completion_tokens),
+    nullableNumber(inputDetails?.cached_tokens),
+    nullableNumber(inputDetails?.cache_write_tokens),
+    nullableNumber(usage.total_tokens),
+    nullableNumber(outputDetails?.reasoning_tokens),
+  );
 }
 
 /** Maps an OpenAI Responses usage record into the shared provider usage contract. */
 export function mapResponsesUsage(usage: Record<string, unknown>): ProviderUsage {
-  const inputTokens = nullableNumber(usage.input_tokens);
-  const outputTokens = nullableNumber(usage.output_tokens);
   const inputDetails = narrowRecord(usage.input_tokens_details);
   const outputDetails = narrowRecord(usage.output_tokens_details);
-  return {
-    inputTokens,
-    outputTokens,
-    totalTokens: nullableNumber(usage.total_tokens) ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null),
-    cacheReadTokens: nullableNumber(inputDetails?.cached_tokens),
-    cacheWriteTokens: nullableNumber(inputDetails?.cache_write_tokens),
-    reasoningTokens: nullableNumber(outputDetails?.reasoning_tokens),
-    source: "provider",
-  };
+  return usageFromTotalInput(
+    nullableNumber(usage.input_tokens),
+    nullableNumber(usage.output_tokens),
+    nullableNumber(inputDetails?.cached_tokens),
+    nullableNumber(inputDetails?.cache_write_tokens),
+    nullableNumber(usage.total_tokens),
+    nullableNumber(outputDetails?.reasoning_tokens),
+  );
 }
 
 /** Decodes an OpenAI Chat Completions body into canonical response events. */

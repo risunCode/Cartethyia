@@ -91,7 +91,7 @@ export async function createCartethyiaRuntime(): Promise<CartethyiaRuntime> {
     return webSearchPreference;
   };
   const network = new NetworkSelector(pool, proxyHealth, readNetworkPolicy);
-  const { accounts, authDrivers, credentialStore, oauth } = createOAuthRuntime({ config, logger, routingRevision: () => revision.value });
+  const { accounts, authDrivers, credentialStore, oauth } = createOAuthRuntime({ config, logger, routingRevision: () => revision.value, accountHealth });
   const admission = new ApiKeyAdmission(config.apiKeys);
   let recordRouteSwitch: ((event: RouteSwitch) => Promise<void>) | undefined;
   let cachedSettingsJson: Record<string, unknown> | undefined;

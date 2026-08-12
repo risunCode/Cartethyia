@@ -23,8 +23,8 @@ export const TOOL_REGISTRY = {
       auth: "ANTHROPIC_AUTH_TOKEN",
     },
     modelAliases: ["default", "sonnet", "opus", "haiku", "fable", "mythos"],
+    mappingMode: "remote" as const,
     mappingSupported: true,
-    // These are routing families, not model values injected into Claude Code.
     defaultModels: [
       { id: "opus", name: "Claude Opus", alias: "opus", roleLabel: "Opus family", roleKind: "secondary" },
       { id: "sonnet", name: "Claude Sonnet", alias: "sonnet", roleLabel: "Sonnet family", roleKind: "primary" },
@@ -38,15 +38,15 @@ export const TOOL_REGISTRY = {
     id: "codex",
     name: "OpenAI Codex CLI",
     color: "#10A37F",
-    description: "OpenAI Codex CLI (responses API)",
+    description: "OpenAI Codex CLI with Responses API, subagents, and review roles",
     configType: "custom" as const,
     surface: "openai-responses" as const,
     settingsFile: "~/.codex/config.toml",
-    mappingSupported: true,
+    docsUrl: "https://developers.openai.com/codex/config-reference",
     defaultModels: [
-      { id: "gpt-5.1", name: "GPT-5.1", alias: "session", roleLabel: "Session model", roleKind: "primary", defaultValue: "gpt-5.1" },
-      { id: "o4-mini", name: "o4-mini", alias: "subagent", roleLabel: "Subagent model", roleKind: "subagent", defaultValue: "o4-mini" },
-      { id: "gpt-5.1-review", name: "GPT-5.1", alias: "review", roleLabel: "Review model", roleKind: "review", defaultValue: "gpt-5.1" },
+      { id: "gpt-5.6-sol", name: "GPT-5.6 Sol", alias: "session", roleLabel: "Primary session", roleKind: "primary", defaultValue: "gpt-5.6-sol" },
+      { id: "gpt-5.3-codex-spark", name: "GPT-5.3 Codex Spark", alias: "subagent", roleLabel: "Spawned subagents", roleKind: "subagent", defaultValue: "gpt-5.3-codex-spark" },
+      { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", alias: "review", roleLabel: "Review model", roleKind: "review", defaultValue: "gpt-5.6-terra" },
     ],
   },
 

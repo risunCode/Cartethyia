@@ -22,6 +22,7 @@ import type {
 } from "./services/composition";
 import type { ProviderRegistry } from "../providers/registry";
 import type { ModelMetadata, ProviderModel, RouteHealth } from "../application/contracts";
+import type { OAuthTokenRecord } from "../application/auth/credentials";
 import type { BackupPayload, ConfigPersistence, ProviderAccountRecord, RestoreResult, RestoreValidation, RuntimePersistence } from "../storage";
 import { assertProductionBootstrapEnvironment, generateConsoleJwtSecret, isValidBootstrapPassword } from "../security/secrets";
 import { normalizeSidebarIconDataUrl, runtimeRecord, runtimeSettings } from "./runtime-settings";
@@ -62,6 +63,9 @@ function toAccountView(
     health,
     quota,
   };
+}
+function isOAuthInvalidated(row: ProviderAccountRecord, token: OAuthTokenRecord | undefined): boolean {
+  return row.credentialKind === "oauth" && token?.refreshState === "reauth_required";
 }
 
 function toProxyView(
@@ -310,31 +314,36 @@ function deriveCredentialHint(credential: string, credentialKind: string, name?:
 
 function createConsoleAccountRepository(config: ConfigPersistence): ConsoleAccountRepository {
   const view = async (row: ProviderAccountRecord): Promise<AccountRowView> => {
-    const [health, quota, stored] = await Promise.all([
+    const [health, quota, stored, token] = await Promise.all([
       config.accountHealth.get(row.id),
       config.stores.quotaState.get(row.id),
       config.stores.credentialConfig.getAccount(row.id),
+      config.stores.oauthToken.get(row.id),
     ]);
     const hydrated = stored?.secret ? { ...row, credentialHint: deriveCredentialHint(stored.secret, row.credentialKind, row.name) } : row;
-    return toAccountView(hydrated, health, quotaViewFromState(quota?.quota));
+    const quotaView = isOAuthInvalidated(row, token) ? null : quotaViewFromState(quota?.quota);
+    return toAccountView(hydrated, health, quotaView);
   };
   const views = async (rows: readonly ProviderAccountRecord[]): Promise<readonly AccountRowView[]> => {
     if (rows.length === 0) return [];
     const ids = rows.map((row) => row.id);
-    const [healthWithIds, quotaRows, credentials] = await Promise.all([
+    const [healthWithIds, quotaRows, credentials, tokens] = await Promise.all([
       config.accountHealth.listWithIds
         ? config.accountHealth.listWithIds(ids)
         : Promise.all(rows.map(async (row) => ({ id: row.id, health: await config.accountHealth.get(row.id) }))),
       config.stores.quotaState.listForAccountIds(ids),
       Promise.all(rows.map(async (row) => ({ id: row.id, secret: (await config.stores.credentialConfig.getAccount(row.id))?.secret ?? null }))),
+      Promise.all(rows.map(async (row) => ({ id: row.id, token: await config.stores.oauthToken.get(row.id) }))),
     ]);
     const healthById = new Map(healthWithIds.map((item) => [item.id, item.health] as const));
     const quotaById = new Map(quotaRows.map((item) => [item.accountId, item] as const));
     const credentialById = new Map(credentials.map((item) => [item.id, item.secret] as const));
+    const tokenById = new Map(tokens.map((item) => [item.id, item.token] as const));
     return rows.map((row) => {
       const secret = credentialById.get(row.id);
       const hydrated = secret ? { ...row, credentialHint: deriveCredentialHint(secret, row.credentialKind, row.name) } : row;
-      return toAccountView(hydrated, healthById.get(row.id) ?? null, quotaViewFromState(quotaById.get(row.id)?.quota));
+      const quotaView = isOAuthInvalidated(row, tokenById.get(row.id)) ? null : quotaViewFromState(quotaById.get(row.id)?.quota);
+      return toAccountView(hydrated, healthById.get(row.id) ?? null, quotaView);
     });
   };
   return {
@@ -347,7 +356,11 @@ function createConsoleAccountRepository(config: ConfigPersistence): ConsoleAccou
     async create(input) { const id = crypto.randomUUID(); const row = config.accounts.create({ id, provider: input.providerId, name: input.name, credentialKind: input.credentialKind, credential: input.credential, credentialHint: deriveCredentialHint(input.credential, input.credentialKind, input.name), priority: input.priority, active: input.active }); return { id: row.id, credentialHint: row.credentialHint }; },
     async update(id, patch) { const existing = config.accounts.get(id); const row = config.accounts.patch(id, { name: patch.name, credentialKind: patch.credentialKind, credential: patch.credential, credentialHint: patch.credential !== undefined ? deriveCredentialHint(patch.credential, patch.credentialKind ?? "", patch.name ?? existing?.name) : undefined, priority: patch.priority, active: patch.active }); return row === null ? null : view(row); },
     async remove(id) { return config.accounts.delete(id); },
-    async quota(id) { return quotaViewFromState((await config.stores.quotaState.get(id))?.quota); },
+    async quota(id) {
+      const row = config.accounts.get(id);
+      const token = await config.stores.oauthToken.get(id);
+      return row !== null && isOAuthInvalidated(row, token) ? null : quotaViewFromState((await config.stores.quotaState.get(id))?.quota);
+    },
     async removeBatch(ids) { return config.accounts.deleteBatch(ids); },
     async setActiveBatch(ids, active) { return config.accounts.setActiveBatch(ids, active); },
     async credential(id) { const account = await config.stores.credentialConfig.getAccount(id); return account?.secret === undefined || account.secret === null ? null : { credential: account.secret }; },

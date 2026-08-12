@@ -154,6 +154,8 @@ export function createDurableModelLockStore(db: () => Database): ModelLockStore 
 export function createDurableQuotaStateStore(db: () => Database): QuotaStateStore {
   const exists = (accountId: string): boolean => db().query("SELECT 1 FROM provider_accounts WHERE id = ?").get(accountId) !== null;
   type StoredQuota = { available?: boolean; quota?: QuotaStateRecord["quota"]; lastAttemptAtMs?: number | null; lastSuccessAtMs?: number | null };
+  const unsupportedQuotaError = "Quota endpoint is not available for this provider.";
+  const availableFromStored = (stored: StoredQuota): boolean => stored.quota?.error === unsupportedQuotaError || stored.available !== false;
   const parse = (value: string): StoredQuota | null => {
     try {
       const parsed: unknown = JSON.parse(value);
@@ -169,7 +171,7 @@ export function createDurableQuotaStateStore(db: () => Database): QuotaStateStor
       if (!row || row.quota_json === null) return undefined;
       const stored = parse(row.quota_json);
       if (stored === null) return undefined;
-      return { accountId, quotaAvailable: stored.available !== false, lastQuotaRefreshAtMs: row.quota_fetched_at ? Date.parse(row.quota_fetched_at) : null, lastQuotaAttemptAtMs: stored.lastAttemptAtMs ?? null, lastQuotaSuccessAtMs: stored.lastSuccessAtMs ?? null, quota: stored.quota ?? null };
+      return { accountId, quotaAvailable: availableFromStored(stored), lastQuotaRefreshAtMs: row.quota_fetched_at ? Date.parse(row.quota_fetched_at) : null, lastQuotaAttemptAtMs: stored.lastAttemptAtMs ?? null, lastQuotaSuccessAtMs: stored.lastSuccessAtMs ?? null, quota: stored.quota ?? null };
     },
     async set(record: QuotaStateRecord): Promise<void> {
       if (!exists(record.accountId)) return;
@@ -186,7 +188,7 @@ export function createDurableQuotaStateStore(db: () => Database): QuotaStateStor
       const out: QuotaStateRecord[] = [];
       for (const row of rows) {
         const stored = parse(row.quota_json);
-        if (stored !== null) out.push({ accountId: row.account_id, quotaAvailable: stored.available !== false, lastQuotaRefreshAtMs: row.quota_fetched_at ? Date.parse(row.quota_fetched_at) : null, lastQuotaAttemptAtMs: stored.lastAttemptAtMs ?? null, lastQuotaSuccessAtMs: stored.lastSuccessAtMs ?? null, quota: stored.quota ?? null });
+        if (stored !== null) out.push({ accountId: row.account_id, quotaAvailable: availableFromStored(stored), lastQuotaRefreshAtMs: row.quota_fetched_at ? Date.parse(row.quota_fetched_at) : null, lastQuotaAttemptAtMs: stored.lastAttemptAtMs ?? null, lastQuotaSuccessAtMs: stored.lastSuccessAtMs ?? null, quota: stored.quota ?? null });
       }
       return out;
     },
@@ -201,7 +203,7 @@ export function createDurableQuotaStateStore(db: () => Database): QuotaStateStor
         if (row.quota_json === null) continue;
         const stored = parse(row.quota_json);
         if (stored === null) continue;
-        results.push({ accountId: row.account_id, quotaAvailable: stored.available !== false, lastQuotaRefreshAtMs: row.quota_fetched_at ? Date.parse(row.quota_fetched_at) : null, lastQuotaAttemptAtMs: stored.lastAttemptAtMs ?? null, lastQuotaSuccessAtMs: stored.lastSuccessAtMs ?? null, quota: stored.quota ?? null });
+        results.push({ accountId: row.account_id, quotaAvailable: availableFromStored(stored), lastQuotaRefreshAtMs: row.quota_fetched_at ? Date.parse(row.quota_fetched_at) : null, lastQuotaAttemptAtMs: stored.lastAttemptAtMs ?? null, lastQuotaSuccessAtMs: stored.lastSuccessAtMs ?? null, quota: stored.quota ?? null });
       }
       return results;
     },

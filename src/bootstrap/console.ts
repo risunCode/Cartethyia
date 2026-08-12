@@ -33,7 +33,7 @@ export interface ConsoleAssemblyDependencies {
 /** Builds the console's repositories, services, diagnostics, stream hub, and mounted application once. */
 export function createConsoleAssembly({ config, baseConfig, runtime, registry, authDrivers, modelMetadata, oauth, proxy, credentialStore, accounts, accountHealth, network }: ConsoleAssemblyDependencies) {
   const repositories = createConsoleRepositories(config, runtime, registry);
-  const services = createConsoleServices({ repositories, registry, authDrivers, modelMetadata, oauthCoordinator: oauth });
+  const services = createConsoleServices({ repositories, registry, authDrivers, modelMetadata, oauthCoordinator: oauth, accountHealth });
   const recordRouteSwitch = (event: Parameters<typeof repositories.transitions.record>[2]) => repositories.transitions.record(event.scope, event.previousRouteId ?? event.replacementRouteId ?? "unknown", event);
   const prefixes = new Map(registry.list().map((adapter) => [adapter.metadata.id, adapter.metadata.id]));
   const diagnostics = new ConsoleDiagnostics({ services, repositories, registry, prefixes, runtimeCounters: { inFlight: () => getInFlightCount() } });
@@ -50,7 +50,7 @@ export function createConsoleAssembly({ config, baseConfig, runtime, registry, a
     recordRouteSwitch,
     refreshQuota: async (accountId: string) => {
       const view = await services.quota.refresh(accountId);
-      return view !== null && view.status !== "error";
+      return view !== null && (view.status !== "error" || view.error === "Quota endpoint is not available for this provider.");
     },
   };
 }

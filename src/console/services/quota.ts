@@ -1,7 +1,15 @@
+import { createProviderError } from "../../traffic";
 import { fetchProviderQuota } from "../../providers/quota/fetcher";
-import type { OAuthTokenRecord, OAuthTokenStore, QuotaSnapshotState, QuotaStateStore } from "../../application/auth";
+import type { AccountHealthManager, OAuthTokenRecord, OAuthTokenStore, QuotaSnapshotState, QuotaStateStore } from "../../application/auth";
 import type { AccountRepository, AccountQuotaView } from "../views";
 
+const OAUTH_INVALIDATED_MESSAGE = "OAuth account invalidated; reauthorization required";
+
+function isOAuthInvalidationMessage(message: string | null): boolean {
+  if (message === null) return false;
+  const lower = message.toLowerCase();
+  return ["invalid_grant", "refresh_token_expired", "refresh_token_reused", "refresh_token_invalidated", "revoked", "reauthorization", "invalidated", "unauthorized", "http 401", "status 401"].some((marker) => lower.includes(marker));
+}
 
 export interface QuotaRefreshQueueStatus {
   readonly queued: number;
@@ -20,6 +28,7 @@ export class QuotaService {
     private readonly states: QuotaStateStore,
     private readonly tokens: OAuthTokenStore,
     private readonly oauth?: { ensureFresh(accountId: string): Promise<OAuthTokenRecord> } | null,
+    private readonly accountHealth?: AccountHealthManager,
   ) {}
 
   async get(accountId: string): Promise<AccountQuotaView | null> {
@@ -77,32 +86,77 @@ export class QuotaService {
     // an expired access token makes the quota API return 401 silently.
     let token = account.credentialKind === "oauth" ? await this.tokens.get(accountId) : undefined;
     let oauthFailure: string | null = null;
+    let oauthInvalidated = account.credentialKind === "oauth" && token?.refreshState === "reauth_required";
     if (account.credentialKind === "oauth" && this.oauth !== undefined && this.oauth !== null) {
       try {
         token = await this.oauth.ensureFresh(accountId);
       } catch (error) {
         token = undefined;
         if (typeof error === "object" && error !== null && "sanitizedMessage" in error && typeof error.sanitizedMessage === "string") oauthFailure = error.sanitizedMessage;
-        else oauthFailure = "OAuth refresh failed; reauthorization may be required";
+        else oauthFailure = OAUTH_INVALIDATED_MESSAGE;
+        const persisted = await this.tokens.get(accountId);
+        oauthInvalidated = persisted?.refreshState === "reauth_required" || isOAuthInvalidationMessage(oauthFailure);
       }
     }
     const result = oauthFailure === null
       ? await fetchProviderQuota(account.providerId, credential?.credential ?? "", token)
       : { source: account.providerId, plan: null, windows: [], error: oauthFailure };
-    const successful = result.error === null;
+    oauthInvalidated = account.credentialKind === "oauth" && (oauthInvalidated || isOAuthInvalidationMessage(result.error));
+    if (oauthInvalidated) {
+      const currentToken = await this.tokens.get(accountId);
+      if (currentToken !== undefined && currentToken.refreshState !== "reauth_required") {
+        await this.tokens.set(accountId, { ...currentToken, refreshState: "reauth_required", refreshRetryAtMs: null });
+      }
+      const invalidationError = createProviderError("authentication_failed", OAUTH_INVALIDATED_MESSAGE, { statusCode: 401, retryable: false, routeScope: "account" });
+      await this.accountHealth?.recordPermanentFailure(accountId, account.providerId, invalidationError);
+    }
+    const successful = result.error === null && !oauthInvalidated;
     const previousQuota = previous?.quota ?? null;
-    const snapshot: QuotaSnapshotState = {
-      source: result.source,
-      status: successful ? "ready" : "error",
-      plan: successful ? result.plan : previousQuota?.plan ?? null,
-      windows: successful ? result.windows : previousQuota?.windows ?? [],
-      fetchedAt: successful ? new Date(attemptAtMs).toISOString() : previousQuota?.fetchedAt ?? null,
-      lastAttemptAt: new Date(attemptAtMs).toISOString(),
-      lastSuccessAt: successful ? new Date(attemptAtMs).toISOString() : previousQuota?.lastSuccessAt ?? null,
-      error: successful ? null : result.error,
-    };
-    const quotaAvailable = successful && (snapshot.windows.length === 0 || snapshot.windows.some((window) => window.remainingPercent === null || window.remainingPercent > 0));
-    await this.states.set({ accountId, quotaAvailable, lastQuotaRefreshAtMs: successful ? attemptAtMs : previous?.lastQuotaRefreshAtMs ?? null, lastQuotaAttemptAtMs: attemptAtMs, lastQuotaSuccessAtMs: successful ? attemptAtMs : previous?.lastQuotaSuccessAtMs ?? null, quota: snapshot });
+    const snapshot: QuotaSnapshotState = oauthInvalidated
+      ? {
+        source: account.providerId,
+        status: "error",
+        plan: null,
+        windows: [],
+        fetchedAt: null,
+        lastAttemptAt: new Date(attemptAtMs).toISOString(),
+        lastSuccessAt: null,
+        error: OAUTH_INVALIDATED_MESSAGE,
+      }
+      : {
+        source: result.source,
+        status: successful ? "ready" : "error",
+        plan: successful ? result.plan : previousQuota?.plan ?? null,
+        windows: successful ? result.windows : previousQuota?.windows ?? [],
+        fetchedAt: successful ? new Date(attemptAtMs).toISOString() : previousQuota?.fetchedAt ?? null,
+        lastAttemptAt: new Date(attemptAtMs).toISOString(),
+        lastSuccessAt: successful ? new Date(attemptAtMs).toISOString() : previousQuota?.lastSuccessAt ?? null,
+        error: successful ? null : result.error,
+      };
+    let quotaAvailable: boolean;
+    let lastQuotaRefreshAtMs = previous?.lastQuotaRefreshAtMs ?? null;
+    let lastQuotaSuccessAtMs = previous?.lastQuotaSuccessAtMs ?? null;
+    if (oauthInvalidated) {
+      quotaAvailable = false;
+      lastQuotaRefreshAtMs = null;
+      lastQuotaSuccessAtMs = null;
+    } else if (result.error === "Quota endpoint is not available for this provider.") {
+      quotaAvailable = previous?.quotaAvailable ?? true;
+    } else {
+      quotaAvailable = successful && (snapshot.windows.length === 0 || snapshot.windows.some((window) => window.remainingPercent === null || window.remainingPercent > 0));
+      if (successful) {
+        lastQuotaRefreshAtMs = attemptAtMs;
+        lastQuotaSuccessAtMs = attemptAtMs;
+      }
+    }
+    await this.states.set({
+      accountId,
+      quotaAvailable,
+      lastQuotaRefreshAtMs,
+      lastQuotaAttemptAtMs: attemptAtMs,
+      lastQuotaSuccessAtMs,
+      quota: snapshot,
+    });
     return snapshot;
   }
 }

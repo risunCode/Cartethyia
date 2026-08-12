@@ -65,10 +65,11 @@ export function buildGeminiPayload(request: ProxyRequest): Record<string, unknow
 
 function toGeminiPart(block: ContentBlock, toolNames: ReadonlyMap<string, string>): Record<string, unknown>[] {
   if (block.type === "text") return [{ text: block.text ?? "" }];
-  if (block.type === "reasoning" && block.reasoningText !== undefined) return [{ text: block.reasoningText, thought: true }];
+  if (block.type === "reasoning" && block.reasoningText !== undefined) return [{ text: block.reasoningText, thought: true, ...(block.reasoningSignature === undefined ? {} : { thoughtSignature: block.reasoningSignature }) }];
   if (block.type === "image" && block.image) return [toGeminiImage(block.image)];
-  if (block.type === "tool_use") return [{ functionCall: { name: block.toolName ?? "", args: parseJsonObject(block.toolArguments ?? block.text ?? "{}"), ...(block.toolCallId ? { id: block.toolCallId } : {}) } }];
+  if (block.type === "tool_use") return [{ functionCall: { name: block.toolName ?? "", args: parseJsonObject(block.toolArguments ?? block.text ?? "{}"), ...(block.toolCallId ? { id: block.toolCallId } : {}) }, ...(block.reasoningSignature === undefined ? {} : { thoughtSignature: block.reasoningSignature }) }];
   if (block.type === "tool_result") return [{ functionResponse: { name: block.toolName ?? (block.toolCallId ? toolNames.get(block.toolCallId) : undefined) ?? block.toolCallId ?? "tool", response: parseJsonObject(block.text ?? ""), ...(block.toolCallId ? { id: block.toolCallId } : {}) } }];
+  if (block.type === "native" && block.nativePayload !== undefined) return [{ text: JSON.stringify(block.nativePayload) }];
   return [];
 }
 

@@ -148,6 +148,9 @@ const MAX_CHART_BUCKETS = 400;
 /** Cap for per provider × model aggregate rows (distinct combos only). */
 const MAX_PROVIDER_MODEL_TOTALS = 500;
 
+/** Full prompt size after normalized telemetry separates uncached/cache tokens. */
+const FULL_PROMPT_INPUT_SQL = "COALESCE(input_tokens, 0) + COALESCE(cached_tokens, 0) + COALESCE(cache_write_tokens, 0)";
+
 /**
  * SQLite expression producing the chart bucket label for each period, keeping
  * the previous `YYYY-MM-DD HH:MM` label semantics used by the dashboard:
@@ -235,7 +238,7 @@ export function createRuntimeMetadataRepository(getDb: () => Database): RuntimeM
           .query(
             `SELECT
               COUNT(*) AS requests,
-              COALESCE(SUM(input_tokens), 0) AS inputTokens,
+              COALESCE(SUM(${FULL_PROMPT_INPUT_SQL}), 0) AS inputTokens,
               COALESCE(SUM(cached_tokens), 0) AS cachedTokens,
               COALESCE(SUM(output_tokens), 0) AS outputTokens,
               COALESCE(SUM(CASE WHEN status >= 400 AND status NOT IN (499, 500, 502) THEN 1 ELSE 0 END), 0) AS errors,
@@ -262,7 +265,7 @@ export function createRuntimeMetadataRepository(getDb: () => Database): RuntimeM
               ELSE COALESCE(provider || '/' || model, COALESCE(model, provider, 'unknown'))
             END AS name,
             COUNT(*) AS requests,
-            COALESCE(SUM(input_tokens), 0) AS input_tokens,
+            COALESCE(SUM(${FULL_PROMPT_INPUT_SQL}), 0) AS input_tokens,
             COALESCE(SUM(cached_tokens), 0) AS cached_tokens,
             COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens
             FROM request_history WHERE started_at >= ? GROUP BY name ORDER BY cached_tokens DESC, input_tokens DESC`,
@@ -300,7 +303,7 @@ export function createRuntimeMetadataRepository(getDb: () => Database): RuntimeM
           .query(
             `SELECT ${chartBucketExpr(period)} AS t,
               COUNT(*) AS requests,
-              COALESCE(SUM(input_tokens), 0) AS input,
+              COALESCE(SUM(${FULL_PROMPT_INPUT_SQL}), 0) AS input,
               COALESCE(SUM(cached_tokens), 0) AS cached,
               COALESCE(SUM(output_tokens), 0) AS output
              FROM request_history
@@ -323,7 +326,7 @@ export function createRuntimeMetadataRepository(getDb: () => Database): RuntimeM
             `SELECT
               COALESCE(${column}, ?) AS name,
               COUNT(*) AS requests,
-              COALESCE(SUM(input_tokens), 0) AS input,
+              COALESCE(SUM(${FULL_PROMPT_INPUT_SQL}), 0) AS input,
               COALESCE(SUM(output_tokens), 0) AS output,
               COALESCE(SUM(cached_tokens), 0) AS cached,
               COALESCE(SUM(total_tokens), 0) AS total,
@@ -340,11 +343,10 @@ export function createRuntimeMetadataRepository(getDb: () => Database): RuntimeM
     },
     queryProviderModelTotals(period: UsagePeriod): ProviderModelTotalsRow[] {
       // Aggregated entirely in SQLite; the cap bounds the response to the
-      // top distinct provider × model combos by input tokens. No in-tree
-      // consumer relies on the full combo list.
+      // top distinct provider × model combos by full prompt tokens.
       return getDb()
         .query(
-          `SELECT provider, model, COALESCE(SUM(input_tokens), 0) AS inputTokens, COALESCE(SUM(output_tokens), 0) AS outputTokens
+          `SELECT provider, model, COALESCE(SUM(${FULL_PROMPT_INPUT_SQL}), 0) AS inputTokens, COALESCE(SUM(output_tokens), 0) AS outputTokens
            FROM request_history
            WHERE started_at >= ?
            GROUP BY provider, model
@@ -356,7 +358,7 @@ export function createRuntimeMetadataRepository(getDb: () => Database): RuntimeM
     queryModelTokenTotals(period: UsagePeriod): ModelTokenTotalsRow[] {
       return getDb()
         .query(
-          `SELECT model, provider, COALESCE(SUM(input_tokens), 0) AS inputTokens, COALESCE(SUM(output_tokens), 0) AS outputTokens
+          `SELECT model, provider, COALESCE(SUM(${FULL_PROMPT_INPUT_SQL}), 0) AS inputTokens, COALESCE(SUM(output_tokens), 0) AS outputTokens
            FROM request_history
            WHERE started_at >= ? AND model IS NOT NULL
            GROUP BY model, provider
@@ -372,7 +374,7 @@ export function createRuntimeMetadataRepository(getDb: () => Database): RuntimeM
           `SELECT
             provider,
             COUNT(*) AS requests,
-            COALESCE(SUM(input_tokens), 0) AS input,
+            COALESCE(SUM(${FULL_PROMPT_INPUT_SQL}), 0) AS input,
             COALESCE(SUM(cached_tokens), 0) AS cached,
             COALESCE(SUM(output_tokens), 0) AS output,
             COALESCE(SUM(CASE WHEN status >= 400 AND status NOT IN (499, 500, 502) THEN 1 ELSE 0 END), 0) AS errors
@@ -395,7 +397,7 @@ export function createRuntimeMetadataRepository(getDb: () => Database): RuntimeM
             COUNT(*) AS requests,
             COALESCE(SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END), 0) AS errors,
             MAX(started_at) AS lastRequestAt,
-            COALESCE(SUM(input_tokens), 0) AS inputTokens,
+            COALESCE(SUM(${FULL_PROMPT_INPUT_SQL}), 0) AS inputTokens,
             COALESCE(SUM(output_tokens), 0) AS outputTokens
           FROM request_history
           WHERE client_ip IS NOT NULL AND client_ip != ''

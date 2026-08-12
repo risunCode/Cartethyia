@@ -29,6 +29,21 @@ describe("CLI model mapping", () => {
     expect(resolveCliModelMapping(claude, "claude-opus-4-8", mappings("claude", true))).toBe("openai/gpt-5.5");
     expect(resolveCliModelMapping(codex, "claude-opus-4-8", mappings("claude", true))).toBe("claude-opus-4-8");
   });
+  test("rejects mapping rows for Codex because it is config-only", () => {
+    const service = new CliToolService({
+      cliModelMappings: {
+        getSettings: () => null,
+        list: () => [],
+        setEnabled: () => ({ toolId: "codex", enabled: true }),
+        upsert: () => { throw new Error("must not persist invalid mapping"); },
+      },
+    } as unknown as ConfigPersistence);
+
+    expect(() => service.saveMappings("codex", {
+      enabled: true,
+      mappings: [{ slotKey: "session", sourceModel: "gpt-5.6-sol", targetModel: "gpt-5.6-sol", enabled: true }],
+    })).toThrow("does not support model mapping");
+  });
 
   test("does not map disabled settings, disabled entries, or unknown clients", () => {
     expect(resolveCliModelMapping(claude, "claude-opus-4-8", mappings("claude", false))).toBe("claude-opus-4-8");
@@ -127,7 +142,7 @@ describe("CLI native slot injectors", () => {
     const result = await codexInjector.download(input);
     expect(result.content).toContain(`model = \"gpt-5.5\"`);
     expect(result.content).toContain(`review_model = \"gpt-5.5-review\"`);
-    expect(result.content).toContain(`[agents.subagent]`);
-    expect(result.content).toContain(`model = \"o4-mini\"`);
+    expect(result.content).toContain(`[agents]`);
+    expect(result.content).toContain(`default_subagent_model = \"o4-mini\"`);
   });
 });

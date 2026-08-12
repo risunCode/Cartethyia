@@ -5,8 +5,8 @@ import { isRecord } from "../../../application/protocols";
 const EXPLICIT_CACHE_BREAKPOINT = { mode: "explicit" } as const;
 
 /** Applies OpenAI Chat explicit prompt-cache metadata at the selected text block. */
-export function applyOpenAIChatCacheBreakpoint(payload: Record<string, unknown>, request: ProxyRequest): void {
-  if (!supportsOpenAIPromptBreakpoints(request.model) || request.cacheKey === undefined) return;
+export function applyOpenAIChatCacheBreakpoint(payload: Record<string, unknown>, request: ProxyRequest, model = request.model, explicitCache = true): void {
+  if (!explicitCache || !supportsOpenAIPromptBreakpoints(model) || request.cacheKey === undefined) return;
   const position = findCacheBreakpoint(request);
   if (position === null) return;
   if (payload.prompt_cache_options === undefined) payload.prompt_cache_options = { ...EXPLICIT_CACHE_BREAKPOINT, ttl: "30m" };
@@ -33,8 +33,10 @@ export function applyOpenAIResponsesCacheBreakpoint(
   payload: Record<string, unknown>,
   request: ProxyRequest,
   itemsForMessage: (message: NormalizedMessage) => readonly Record<string, unknown>[],
+  model = request.model,
+  explicitCache = true,
 ): void {
-  if (!supportsOpenAIPromptBreakpoints(request.model) || request.cacheKey === undefined) return;
+  if (!explicitCache || !supportsOpenAIPromptBreakpoints(model) || request.cacheKey === undefined) return;
   const position = findCacheBreakpoint(request);
   if (position === null) return;
   if (payload.prompt_cache_options === undefined) payload.prompt_cache_options = { ...EXPLICIT_CACHE_BREAKPOINT, ttl: "30m" };
@@ -66,4 +68,21 @@ export function applyOpenAIResponsesCacheBreakpoint(
     }
     wireIndex += items.length;
   }
+}
+
+
+/** Removes optional explicit cache fields while preserving prompt_cache_key. */
+export function stripOpenAIPromptCacheMetadata(payload: Record<string, unknown>): void {
+  delete payload.prompt_cache_options;
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    if (!isRecord(value)) return;
+    delete value.prompt_cache_breakpoint;
+    for (const child of Object.values(value)) visit(child);
+  };
+  visit(payload.input);
+  visit(payload.messages);
 }

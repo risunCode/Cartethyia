@@ -351,7 +351,7 @@ function ProxyScraperSection() {
         <input className="mt-0.5 size-3.5" type="checkbox" checked={verify} onChange={(event) => setVerify(event.target.checked)} />
         <span><span className="block font-semibold">Verify before listing</span><span className="mt-0.5 block text-[10px] text-[var(--text-3)]">Healthy, failed, and unverified candidates are shown here; nothing is saved automatically.</span></span>
       </label>
-      <ProxySearchResults result={searchResult} isSearching={isFetching} searchStartedAt={searchStartedAt} source={source} sourceOptions={sourceOptions} onResult={setSearchResult} />
+      {(isFetching || searchResult !== null) && <ProxySearchResults result={searchResult} isSearching={isFetching} searchStartedAt={searchStartedAt} source={source} sourceOptions={sourceOptions} onResult={setSearchResult} />}
     </Card>
   );
 }

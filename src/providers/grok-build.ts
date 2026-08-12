@@ -7,6 +7,8 @@ import { mapSseStream } from "../open-sse/transport/stream-mapper";
 import { isRecord } from "../application/protocols";
 import { createOpenAIResponsesStreamMapper } from "../open-sse/transport/protocols/openai";
 import { buildResponsesPayload } from "../open-sse/translate/request/openai-responses";
+import { resolveModelCapabilities } from "../open-sse/translate/capabilities";
+import { applyRoutedModelIdentity } from "../open-sse/translate/policy/identity";
 import { mapResponsesUsage } from "../open-sse/translate/response/openai";
 import type {
   Adapter,
@@ -80,7 +82,8 @@ export class GrokBuildAdapter implements Adapter {
       throw new ProviderAdapterError({ kind: "authentication_failed", message: "A Grok Build OAuth access token is required.", statusCode: 401, routeScope: "account" });
     }
     const { request, signal, network } = input;
-    const payload = buildResponsesPayload(request);
+    const capabilities = resolveModelCapabilities(this.capabilities, this.models.get(input.target.modelId), input.target.surface);
+    const payload = buildResponsesPayload(request, { upstreamModel: input.target.upstreamModelId, explicitCache: capabilities.cache.breakpoints, capabilities });
     // Grok Build backend forces store=false and stream=true (like Codex).
     payload.store = false;
     payload.stream = true;

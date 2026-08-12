@@ -7,6 +7,8 @@ import { mapSseStream } from "../open-sse/transport/stream-mapper";
 import { isRecord } from "../application/protocols";
 import { createOpenAIResponsesStreamMapper } from "../open-sse/transport/protocols/openai";
 import { buildResponsesPayload } from "../open-sse/translate/request/openai-responses";
+import { resolveModelCapabilities } from "../open-sse/translate/capabilities";
+import { applyRoutedModelIdentity } from "../open-sse/translate/policy/identity";
 import { mapResponsesUsage } from "../open-sse/translate/response/openai";
 import { runtimeMemoryLimits } from "../traffic/limits";
 import type {
@@ -167,7 +169,7 @@ function codexImageModelId(modelId: string): string {
 
 /** Builds the Codex image-generation Responses payload expected by ChatGPT accounts. */
 export function buildCodexImagePayload(request: ProviderRequest["request"], modelId: string): Record<string, unknown> {
-  const payload = buildResponsesPayload(request, { includeContextManagement: false });
+  const payload = buildResponsesPayload(request, { includeContextManagement: false, upstreamModel: codexImageModelId(modelId) });
   payload.model = codexImageModelId(modelId);
   payload.instructions = "";
   payload.tools = [{ type: "image_generation", output_format: "png" }];
@@ -270,8 +272,9 @@ export class CodexAdapter implements Adapter {
     const { request, signal, network } = input;
     // Codex rejects sampling controls and output-token caps with 400; the
     // native client lets the Codex backend choose these values.
-    const payload = buildResponsesPayload(request, { includeContextManagement: false });
-    payload.model = input.target.upstreamModelId;
+    const capabilities = resolveModelCapabilities(this.capabilities, this.models.get(input.target.modelId), input.target.surface);
+    const payload = buildResponsesPayload(request, { includeContextManagement: false, upstreamModel: input.target.upstreamModelId, explicitCache: capabilities.cache.breakpoints, capabilities });
+    applyRoutedModelIdentity(payload, request, input.target);
     delete payload.temperature;
     delete payload.top_p;
     delete payload.max_output_tokens;

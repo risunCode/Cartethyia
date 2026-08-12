@@ -1,4 +1,4 @@
-import type { NormalizedMessage, ProxyRequest, NormalizedTool } from "./contracts";
+import type { CacheIntent, NormalizedMessage, ProxyRequest, NormalizedTool } from "./contracts";
 
 /**
  * Automatic, always-on section cache marking.
@@ -43,6 +43,15 @@ export interface CachePlan {
 const ISO_TIMESTAMP = /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?/;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const PEM_BLOCK = /-----BEGIN [A-Z][A-Z ]*-----/;
+
+function stablePrefixText(text: string): string | null {
+  const matches = [ISO_TIMESTAMP.exec(text), UUID.exec(text), PEM_BLOCK.exec(text)]
+    .filter((match): match is RegExpExecArray => match !== null)
+    .sort((left, right) => left.index - right.index);
+  const firstVolatileIndex = matches[0]?.index ?? text.length;
+  const prefix = text.slice(0, firstVolatileIndex).trimEnd();
+  return prefix.length >= 128 ? prefix : null;
+}
 
 /**
  * Stability heuristic for cacheable text: rejects per-request timestamps,
@@ -92,25 +101,37 @@ export function markCacheSections(request: ProxyRequest): readonly CacheSection[
 export function applyCachePlan(request: ProxyRequest, plan: CachePlan, affinityKey?: string | null): ProxyRequest {
   if (!plan.hasStablePrefix || plan.prefixFingerprint === null) return request;
   const cacheKey = request.cacheKey ?? fnv1a64([plan.prefixFingerprint, request.model, request.sourceSurface, affinityKey ?? "anonymous"]);
+  const cacheIntent: CacheIntent = {
+    key: cacheKey,
+    stablePrefixFingerprint: plan.prefixFingerprint,
+    affinityKey: affinityKey ?? null,
+    policy: "automatic",
+    ttl: null,
+  };
   if (plan.prefixEndMessageIndex === null || plan.prefixEndBlockIndex === null) {
-    return { ...request, cacheKey };
+    return { ...request, cacheKey, cacheIntent };
   }
   const targetMsgIdx = plan.prefixEndMessageIndex;
   const targetBlkIdx = plan.prefixEndBlockIndex;
   const targetMsg = request.messages[targetMsgIdx];
-  if (targetMsg === undefined) return { ...request, cacheKey };
+  if (targetMsg === undefined) return { ...request, cacheKey, cacheIntent };
   const targetBlk = targetMsg.content[targetBlkIdx];
-  if (targetBlk === undefined) return { ...request, cacheKey };
-
-  // Structural sharing: only copy the one message + one block that gets the cacheControl flag.
+  if (targetBlk === undefined) return { ...request, cacheKey, cacheIntent };
   const messages = request.messages.map((message, messageIndex) => {
     if (messageIndex !== targetMsgIdx) return message;
-    const content = targetMsg.content.map((block, blockIndex) =>
-      blockIndex === targetBlkIdx ? { ...block, cacheControl: "ephemeral" as const } : block,
-    );
+    const content = message.content.flatMap((block, blockIndex) => {
+      if (blockIndex !== targetBlkIdx || block.type !== "text" || block.text === undefined) return [block];
+      const stablePrefix = stablePrefixText(block.text);
+      if (stablePrefix === null || stablePrefix.length === block.text.length) return [{ ...block, cacheControl: "ephemeral" as const }];
+      const suffix = block.text.slice(stablePrefix.length).trimStart();
+      return [
+        { ...block, text: stablePrefix, cacheControl: "ephemeral" as const },
+        ...(suffix.length === 0 ? [] : [{ ...block, text: suffix, cacheControl: undefined }]),
+      ];
+    });
     return { ...message, content };
   });
-  return { ...request, messages, cacheKey };
+  return { ...request, messages, cacheKey, cacheIntent };
 }
 
 export interface CacheBreakpointPosition {
@@ -180,10 +201,14 @@ export function buildCachePlan(request: ProxyRequest): CachePlan {
       section.kind === "developer" ||
       section.kind === "static_context" ||
       section.kind === "stable_history";
-    if (cacheable && section.stable) {
+    const stableText = block?.type === "text" && block.text !== undefined
+      ? section.stable ? block.text : stablePrefixText(block.text)
+      : null;
+    if (cacheable && stableText !== null && stableText.length > 0) {
       prefixEndMessageIndex = section.messageIndex;
       prefixEndBlockIndex = section.blockIndex;
-      prefixText.push(block?.text ?? "");
+      prefixText.push(stableText);
+      if (!section.stable) inPrefix = false;
     } else {
       inPrefix = false;
     }

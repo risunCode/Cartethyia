@@ -30,6 +30,21 @@ export interface TokenRefreshPoolOptions {
   readonly onFailed?: (accountId: string, error: ProviderCallError) => void;
 }
 
+/** Identifies OAuth failures that permanently invalidate the stored grant. */
+export function isOAuthReauthenticationError(error: ProviderCallError): boolean {
+  const message = error.sanitizedMessage.toLowerCase();
+  const permanentMarker = ["invalid_grant", "refresh_token_expired", "refresh_token_reused", "refresh_token_invalidated", "revoked"].some((marker) => message.includes(marker));
+  return permanentMarker || ((error.kind === "authentication_failed" || error.kind === "authorization_denied") && !error.retryable);
+}
+
+function createOAuthReauthenticationError(statusCode: number | null = null): ProviderCallError {
+  return createProviderError("authentication_failed", "OAuth account invalidated; reauthorization required", {
+    retryable: false,
+    routeScope: "account",
+    statusCode,
+  });
+}
+
 export interface TokenLease {
   readonly leaseId: string;
   readonly token: OAuthTokenRecord;
@@ -86,7 +101,7 @@ export class TokenRefreshPool {
 
   async ensureFresh(accountId: string): Promise<OAuthTokenRecord> {
     const cached = await this.store.get(accountId);
-    this.throwIfReauthenticationRequired(cached);
+    this.throwIfReauthenticationRequired(accountId, cached);
     if (cached !== undefined && (this.isFresh(cached) || cached.refreshToken === null)) return cached;
     this.throwIfRefreshDeferred(cached);
     return this.refreshSingleFlight(accountId, cached ?? null);
@@ -95,11 +110,12 @@ export class TokenRefreshPool {
   /** Forces one refresh while still sharing the same account-level flight. */
   async forceRefresh(accountId: string): Promise<OAuthTokenRecord> {
     const cached = await this.store.get(accountId);
-    this.throwIfReauthenticationRequired(cached);
+    this.throwIfReauthenticationRequired(accountId, cached);
     if (cached?.refreshToken === null && cached.accessToken.length > 0) return cached;
     this.throwIfRefreshDeferred(cached);
     return this.refreshSingleFlight(accountId, cached ?? null);
   }
+
   /**
    * Retries an explicit refresh after a previous permanent failure. This is
    * intentionally separate from request-time refreshes so invalid credentials
@@ -167,6 +183,11 @@ export class TokenRefreshPool {
       const candidates = accountList.filter((account) => account.enabled && account.kind === "oauth");
       const due: AccountConfig[] = [];
       for (const account of candidates) {
+        const token = await this.store.get(account.id);
+        if (token?.refreshState === "reauth_required") {
+          this.reportFailure(account.id, createOAuthReauthenticationError(token.lastRefreshStatusCode ?? null));
+          continue;
+        }
         if (await this.isDue(account)) due.push(account);
       }
       await mapWithConcurrency(due, this.concurrency, async (account) => {
@@ -366,18 +387,14 @@ export class TokenRefreshPool {
   }
 
   private requiresReauthentication(error: ProviderCallError): boolean {
-    const message = error.sanitizedMessage.toLowerCase();
-    const permanentMarker = ["invalid_grant", "refresh_token_expired", "refresh_token_reused", "refresh_token_invalidated", "revoked"].some((marker) => message.includes(marker));
-    return permanentMarker || ((error.kind === "authentication_failed" || error.kind === "authorization_denied") && !error.retryable);
+    return isOAuthReauthenticationError(error);
   }
 
-  private throwIfReauthenticationRequired(token: OAuthTokenRecord | undefined): void {
+  private throwIfReauthenticationRequired(accountId: string, token: OAuthTokenRecord | undefined): void {
     if (token?.refreshState !== "reauth_required") return;
-    throw createProviderError("authentication_failed", "OAuth reauthorization is required", {
-      retryable: false,
-      routeScope: "account",
-      statusCode: token.lastRefreshStatusCode ?? 401,
-    });
+    const error = createOAuthReauthenticationError(token.lastRefreshStatusCode ?? 401);
+    this.reportFailure(accountId, error);
+    throw error;
   }
 
   private throwIfRefreshDeferred(token: OAuthTokenRecord | undefined): void {

@@ -50,7 +50,8 @@ export function resolveCliModelMapping(
   if (toolId === null) return sourceModel;
   const settings = mappings.get(toolId);
   if (settings === undefined || !settings.enabled) return sourceModel;
-  const entry = settings.entries.find((candidate) =>
+  const entries = toolId === "claude" ? settings.entries : [];
+  const entry = entries.find((candidate) =>
     candidate.enabled
     && (toolId === "claude"
       ? matchesClaudeModel(candidate.sourceModel, sourceModel)

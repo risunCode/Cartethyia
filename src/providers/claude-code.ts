@@ -8,6 +8,8 @@ import { readJsonObject } from "../open-sse/transport/body-reader";
 import { isRecord } from "../application/protocols";
 import { createAnthropicMessagesStreamMapper } from "../open-sse/transport/protocols/anthropic";
 import { buildMessagesPayload } from "../open-sse/translate/request/anthropic";
+import { resolveModelCapabilities } from "../open-sse/translate/capabilities";
+import { classifyCompatibilityRejection, recordCompatibilityFallback, removeCompatibilityProjection } from "../open-sse/translate/fallback";
 import { mapAnthropicUsage } from "../open-sse/translate/response/anthropic";
 import type {
   Adapter,
@@ -141,19 +143,27 @@ function stripClaudeToolNames(body: Record<string, unknown>): void {
 
 function applyClaudeCodeCompatibility(payload: Record<string, unknown>, input: ProviderRequest): void {
   payload.max_tokens = Math.min(typeof payload.max_tokens === "number" ? payload.max_tokens : CLAUDE_CODE_MAX_OUTPUT_TOKENS, CLAUDE_CODE_MAX_OUTPUT_TOKENS);
-  const metadata = payload.metadata;
-  if (isRecord(metadata) && typeof metadata.user_id === "string" && !isClaudeMetadataUserId(metadata.user_id)) delete payload.metadata;
+  delete payload.metadata;
   const system = payload.system;
   const billing = { type: "text", text: createClaudeBillingHeader(input) };
   const instruction = { type: "text", text: claudeCodeSystemInstruction };
   if (Array.isArray(system)) {
     const hasInstruction = system.some((block) => isRecord(block) && block.text === claudeCodeSystemInstruction);
     const hasBilling = system.some((block) => isRecord(block) && typeof block.text === "string" && block.text.startsWith(claudeBillingHeaderPrefix));
-    payload.system = hasBilling ? system : [billing, ...(hasInstruction ? system : [instruction, ...system])];
+    const hasCacheBoundary = system.some((block) => isRecord(block) && isRecord(block.cache_control));
+    if (hasCacheBoundary) {
+      payload.system = [
+        ...(hasInstruction ? [] : [instruction]),
+        ...system,
+        ...(hasBilling ? [] : [billing]),
+      ];
+    } else {
+      payload.system = hasBilling ? system : [billing, ...(hasInstruction ? system : [instruction, ...system])];
+    }
   } else if (typeof system === "string" && system.length > 0) {
-    payload.system = [billing, instruction, { type: "text", text: system }];
+    payload.system = [instruction, { type: "text", text: system }, billing];
   } else {
-    payload.system = [billing, instruction];
+    payload.system = [instruction, billing];
   }
   if (Array.isArray(payload.tools)) {
     payload.tools = payload.tools.map((tool) => {
@@ -189,7 +199,8 @@ export class AnthropicOAuthAdapter implements Adapter {
       throw new ProviderAdapterError({ kind: "capability_unsupported", message: `Provider "${this.metadata.id}" only serves the Anthropic Messages surface`, statusCode: 400, routeScope: null });
     }
     const { request, signal, network } = input;
-    const payload = buildMessagesPayload(request, this.capabilities, { includeContextManagement: false });
+    const modelCapabilities = resolveModelCapabilities(this.capabilities, this.models.get(input.target.modelId), input.target.surface);
+    const payload = buildMessagesPayload(request, this.capabilities, { includeContextManagement: false, modelCapabilities });
     applyClaudeCodeCompatibility(payload, input);
     const headers: Record<string, string> = {
       "content-type": "application/json",
@@ -208,7 +219,17 @@ export class AnthropicOAuthAdapter implements Adapter {
     const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
     let streamHandedOff = false;
     try {
-      const response = await executeFetch(`${ANTHROPIC_BASE_URL}/messages`, { method: "POST", headers, body: attestClaudePayload(JSON.stringify(payload)) }, coordinator, network, input.capture);
+      let response = await executeFetch(`${ANTHROPIC_BASE_URL}/messages`, { method: "POST", headers, body: attestClaudePayload(JSON.stringify(payload)) }, coordinator, network, input.capture);
+      if (!response.ok) {
+        try {
+          await readUpstreamError(response);
+        } catch (error) {
+          const rejection = error instanceof ProviderAdapterError ? classifyCompatibilityRejection(error.toProviderCallError()) : null;
+          if (rejection === null || !rejection.retryable || !removeCompatibilityProjection(payload, rejection)) throw error;
+          recordCompatibilityFallback(input, rejection);
+          response = await executeFetch(`${ANTHROPIC_BASE_URL}/messages`, { method: "POST", headers, body: attestClaudePayload(JSON.stringify(payload)) }, coordinator, network, input.capture);
+        }
+      }
       if (!response.ok) throw await readUpstreamError(response);
       if (!request.stream) {
         const body = await readJsonObject(response, coordinator);

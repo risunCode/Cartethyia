@@ -7,9 +7,10 @@ import { readJsonObject } from "../body-reader";
 import type { SseEvent, StreamMapper } from "../contracts";
 import type { ApplicationErrorKind, ProviderCaps, ProviderOutput, ProviderRequest, ProviderUsage, StopReason, StreamEvent } from "../../../application/contracts";
 import { isRecord, nullableNumber } from "../../../application/protocols";
+import type { ModelCapabilities } from "../../translate/capabilities";
 import { buildMessagesPayload } from "../../translate/request/anthropic";
+import { classifyCompatibilityRejection, recordCompatibilityFallback, removeCompatibilityProjection } from "../../translate/fallback";
 import { mapAnthropicUsage } from "../../translate/response/anthropic";
-
 // ---------------------------------------------------------------- SSE mapping
 
 function mapAnthropicStopReason(stopReason: string): StopReason {
@@ -157,14 +158,12 @@ export function createAnthropicMessagesStreamMapper(toolNameTransform: (name: st
         if (isRecord(delta) && typeof delta.stop_reason === "string") stopReason = mapAnthropicStopReason(delta.stop_reason);
         const usage = parsed.usage;
         if (isRecord(usage)) outputTokens = nullableNumber(usage.output_tokens);
-        const usageEvent: ProviderUsage = {
-          inputTokens,
-          outputTokens,
-          totalTokens: inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null,
-          cacheReadTokens,
-          cacheWriteTokens,
-          source: "provider",
-        };
+        const usageEvent = mapAnthropicUsage({
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          cache_read_input_tokens: cacheReadTokens,
+          cache_creation_input_tokens: cacheWriteTokens,
+        });
         return { type: "usage", usage: usageEvent };
       }
       case "message_stop":
@@ -194,14 +193,25 @@ export async function callAnthropicWire(
   baseUrl: string,
   headers: Record<string, string>,
   capabilities: ProviderCaps,
+  modelCapabilities?: ModelCapabilities,
 ): Promise<ProviderOutput> {
   const { request, signal, network } = input;
-  const payload = buildMessagesPayload(request, capabilities);
+  const payload = buildMessagesPayload(request, capabilities, { modelCapabilities });
   payload.model = input.target.upstreamModelId;
   const coordinator = new AbortCoordinator(signal, { connectTimeoutMs: request.limits.connectTimeoutMs, totalTimeoutMs: request.limits.totalTimeoutMs });
   let streamHandedOff = false;
   try {
-    const response = await executeFetch(`${baseUrl}/messages`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
+    let response = await executeFetch(`${baseUrl}/messages`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
+    if (!response.ok) {
+      try {
+        await readUpstreamError(response);
+      } catch (error) {
+        const rejection = error instanceof ProviderAdapterError ? classifyCompatibilityRejection(error.toProviderCallError()) : null;
+        if (rejection === null || !rejection.retryable || !removeCompatibilityProjection(payload, rejection)) throw error;
+        recordCompatibilityFallback(input, rejection);
+        response = await executeFetch(`${baseUrl}/messages`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
+      }
+    }
     if (!response.ok) throw await readUpstreamError(response);
     if (!request.stream) {
       const body = await readJsonObject(response, coordinator);

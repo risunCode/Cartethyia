@@ -25,12 +25,12 @@ export function createGeminiGenerateContentStreamMapper(): StreamMapper {
     const output = responseParts(parts);
     const events: StreamEvent[] = [];
     if (!started) { started = true; events.push({ type: "message_start", id: typeof response.responseId === "string" ? response.responseId : `gemini-${crypto.randomUUID()}` }); }
-    if (output.thought) events.push({ type: "thinking_delta", text: output.thought });
+    if (output.thought) events.push({ type: "thinking_delta", text: output.thought, ...(output.reasoningSignature === undefined ? {} : { reasoningSignature: output.reasoningSignature }) });
     if (output.text) events.push({ type: "text_delta", text: output.text });
     for (const call of output.calls) {
       if (!activeCalls.has(call.id)) {
         activeCalls.add(call.id);
-        events.push({ type: "tool_call_start", callId: call.id, name: call.name });
+        events.push({ type: "tool_call_start", callId: call.id, name: call.name, ...(call.reasoningSignature === undefined ? {} : { reasoningSignature: call.reasoningSignature }) });
       }
       const argumentsText = JSON.stringify(call.args);
       if (argumentsText.length > 0 && argumentsText !== "{}") events.push({ type: "tool_call_delta", callId: call.id, delta: argumentsText });

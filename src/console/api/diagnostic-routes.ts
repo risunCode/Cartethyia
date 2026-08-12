@@ -174,6 +174,7 @@ export function registerDiagnosticRoutes<T extends Elysia<any, any, any, any, an
       const reason = typeof value.reason === "string" ? value.reason.trim() : "";
       return deps.config.ipBans.add(ip, reason);
     })
+    .delete("/ip-bans/:ip", async ({ params }) => ({ removed: await deps.config.ipBans.remove(params.ip) }))
     .route("QUERY", "/health/status", async () => deps.diagnostics.status())
     .route("QUERY", "/updates/repository", async () => ({ repository: "risunCode/Cartethyia", branches: await fetchRepositoryUpdates() }))
     .route("QUERY", "/updates/release", async () => fetchLatestRelease())

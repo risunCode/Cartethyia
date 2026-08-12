@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Download, RotateCcw, Settings2, CheckCircle2, XCircle, Copy, Save } from "lucide-react";
+import { ArrowLeft, Download, RotateCcw, Settings2, CheckCircle2, XCircle, Copy } from "lucide-react";
 import { cn } from "../../../lib/cn";
 import { toast } from "../../../lib/toast";
 import { Button } from "../../../components/ui/button";
@@ -12,7 +12,7 @@ import { Label } from "../../../components/ui/input";
 import { Switch } from "../../../components/ui/switch";
 import { ConfiguredModelPicker } from "../../../components/model-picker";
 import { ToolIcon } from "./tool-icon";
-import { useToolRegistry, useToolStatuses, useToolMappings, useSaveToolMappings, useApplyTool, useResetTool, useDownloadTool, useApiKeys, fetchApiKeyCredential } from "./api";
+import { useToolRegistry, useToolStatuses, useToolMappings, useApplyTool, useResetTool, useDownloadTool, useApiKeys, fetchApiKeyCredential } from "./api";
 import type { ApplyInput, ToolRegistryEntry, ToolStatus } from "./types";
 export function CliToolDetailPage() {
   const { toolId } = useParams<{ toolId: string }>();
@@ -58,10 +58,12 @@ function ToolDetailContent({
   const [mappingTargets, setMappingTargets] = useState<Record<string, string>>({});
   const [mappingEnabled, setMappingEnabled] = useState(true);
   const isNativeClaude = def.id === "claude";
+  const mappingMode = def.mappingSupported ? def.mappingMode ?? (isNativeClaude ? "remote" : "custom") : null;
+  const isRemoteMapping = mappingMode === "remote";
+  const isCustomMapping = mappingMode === "custom";
 
   const apiKeysQuery = useApiKeys();
   const mappingsQuery = useToolMappings(def.id);
-  const saveMappingMutation = useSaveToolMappings();
   const applyMutation = useApplyTool();
   const resetMutation = useResetTool();
   const downloadMutation = useDownloadTool();
@@ -79,12 +81,13 @@ function ToolDetailContent({
 
   useEffect(() => {
     setRoleTargets(Object.fromEntries(roleMappings.map((mapping) => [mapping.roleKey, mapping.defaultModel])));
-    setMappingTargets(Object.fromEntries(roleMappings.map((mapping) => [mapping.roleKey, isNativeClaude ? "" : mapping.defaultModel])));
-  }, [isNativeClaude, roleMappings]);
+    setMappingTargets(Object.fromEntries(roleMappings.map((mapping) => [mapping.roleKey, isRemoteMapping ? def.defaultMappingTarget ?? mapping.defaultModel : ""])));
+  }, [def.defaultMappingTarget, isRemoteMapping, roleMappings]);
 
   useEffect(() => {
     const settings = mappingsQuery.data;
     if (!settings) return;
+    setMappingEnabled(settings.enabled);
     const persistedMappings = Object.fromEntries(settings.mappings.map((mapping) => [mapping.slotKey, mapping]));
     setRoleTargets((current) => ({
       ...current,
@@ -128,24 +131,21 @@ function ToolDetailContent({
       toast.error("Failed to fetch API key credential.");
       return null;
     }
-    const models = isNativeClaude
-      ? []
-      : roleMappings.map((mapping) => roleTargets[mapping.roleKey] ?? mapping.defaultModel);
+    const models = isNativeClaude ? [] : roleMappings.map((mapping) => roleTargets[mapping.roleKey] ?? mapping.defaultModel);
     const modelSlots = isNativeClaude
       ? undefined
       : Object.fromEntries(roleMappings.map((mapping) => [mapping.roleKey, roleTargets[mapping.roleKey] ?? mapping.defaultModel]));
     const subagent = roleMappings.find((mapping) => mapping.roleKind === "subagent");
-    const mappings = roleMappings
-      .map((mapping) => {
-        const targetModel = mappingTargets[mapping.roleKey] ?? (isNativeClaude ? "" : roleTargets[mapping.roleKey] ?? mapping.defaultModel);
-        return {
-          slotKey: mapping.roleKey,
-          sourceModel: isNativeClaude ? mapping.roleKey : roleTargets[mapping.roleKey] ?? mapping.defaultModel,
-          targetModel,
-          enabled: mappingEnabled,
-        };
-      })
-      .filter((mapping) => mapping.targetModel.length > 0);
+    const mappings = mappingEnabled
+      ? roleMappings.map((mapping) => {
+        if (isCustomMapping) {
+          const customModel = roleTargets[mapping.roleKey] ?? mapping.defaultModel;
+          return { slotKey: mapping.roleKey, sourceModel: customModel, targetModel: customModel, enabled: true };
+        }
+        const targetModel = mappingTargets[mapping.roleKey] ?? def.defaultMappingTarget ?? roleTargets[mapping.roleKey] ?? mapping.defaultModel;
+        return { slotKey: mapping.roleKey, sourceModel: mapping.roleKey, targetModel, enabled: true };
+      }).filter((mapping) => mapping.targetModel.length > 0)
+      : [];
     return {
       endpoint,
       apiKey,
@@ -153,41 +153,15 @@ function ToolDetailContent({
       ...(modelSlots === undefined ? {} : { modelSlots }),
       activeModel: isNativeClaude ? undefined : models[0],
       subagentModel: isNativeClaude || !subagent ? undefined : roleTargets[subagent.roleKey] ?? subagent.defaultModel,
-      mapping: def.mappingSupported
-        ? {
-            enabled: mappingEnabled,
-            mappings,
-          }
-        : undefined,
+      mapping: def.mappingSupported ? { enabled: mappingEnabled, mappings } : undefined,
     };
-  }, [activeKeys, selectedKeyId, endpoint, isNativeClaude, roleMappings, roleTargets, mappingTargets, mappingEnabled, def.mappingSupported]);
+  }, [activeKeys, selectedKeyId, endpoint, isNativeClaude, isCustomMapping, roleMappings, roleTargets, mappingTargets, mappingEnabled, def.defaultMappingTarget, def.mappingSupported]);
 
   const handleApply = useCallback(async () => {
     const input = await buildInput();
     if (input) applyMutation.mutate({ toolId: def.id, input });
   }, [buildInput, applyMutation, def.id]);
 
-  const handleSaveMapping = useCallback(() => {
-    if (!def.mappingSupported) return;
-    const mappings = roleMappings
-      .map((mapping) => {
-        const targetModel = mappingTargets[mapping.roleKey] ?? (isNativeClaude ? "" : roleTargets[mapping.roleKey] ?? mapping.defaultModel);
-        return {
-          slotKey: mapping.roleKey,
-          sourceModel: isNativeClaude ? mapping.roleKey : roleTargets[mapping.roleKey] ?? mapping.defaultModel,
-          targetModel,
-          enabled: mappingEnabled,
-        };
-      })
-      .filter((mapping) => mapping.targetModel.length > 0);
-    saveMappingMutation.mutate({
-      toolId: def.id,
-      input: {
-        enabled: mappingEnabled,
-        mappings,
-      },
-    });
-  }, [def.id, def.mappingSupported, isNativeClaude, mappingEnabled, mappingTargets, roleMappings, roleTargets, saveMappingMutation]);
 
   const handleReset = useCallback(() => {
     if (!confirm(`Reset ${def.name} config? This removes only Cartethyia-injected fields.`)) return;
@@ -278,10 +252,15 @@ function ToolDetailContent({
                 {def.mappingSupported && (
                   <div className="flex items-center gap-2">
                     <div className="text-right">
-                      <p className="text-[11px] font-semibold text-[var(--text-2)]">Enable Mapping</p>
-                      <p className="text-[10px] text-[var(--text-3)]">Route through Cartethyia without changing native IDs.</p>
+                      <p className="text-[11px] font-semibold text-[var(--text-2)]">{isRemoteMapping ? "Enable Remote Mapping" : "Enable Custom Mapping"}</p>
+                      <p className="mt-0.5 max-w-[360px] text-[11px] text-[var(--text-3)]">
+                        {isRemoteMapping
+                          ? "Route requests through Cartethyia without changing the native model ID."
+                          : "Expose the selected custom model ID in /models and write that ID to the CLI config."}
+                      </p>
+                      {isRemoteMapping && def.defaultMappingTarget && <p className="mt-1 text-[10px] text-[var(--accent)]">Recommended route target: <code translate="no">{def.defaultMappingTarget}</code></p>}
                     </div>
-                    <Switch checked={mappingEnabled} onChange={setMappingEnabled} label={`Enable model mapping for ${def.name}`} />
+                    <Switch checked={mappingEnabled} onChange={setMappingEnabled} label={isRemoteMapping ? "Enable Remote Mapping" : "Enable Custom Mapping"} />
                   </div>
                 )}
               </div>
@@ -299,13 +278,17 @@ function ToolDetailContent({
                         value={roleTargets[mapping.roleKey] ?? mapping.defaultModel}
                         onChange={(value: string) => setRoleTargets((current) => ({ ...current, [mapping.roleKey]: value }))}
                         placeholder={mapping.defaultModel}
+                        includeCombos={isCustomMapping}
+                        includeAliases={isCustomMapping}
                       />
                     )}
-                    <p className="mt-1 truncate text-[10px] text-[var(--text-3)]">{isNativeClaude ? "Native Claude family" : mapping.envKey ?? mapping.modelName}</p>
-                    {def.mappingSupported && (
+                    <p className="mt-1 truncate text-[10px] text-[var(--text-3)]">
+                      {isNativeClaude ? "Native Claude family" : isCustomMapping ? "Custom model ID written to the CLI config and exposed by /models" : mapping.envKey ?? mapping.modelName}
+                    </p>
+                    {isRemoteMapping && (
                       <div className="mt-3 border-t border-[var(--inner-border)] pt-2.5">
                         <div className="mb-1.5 flex items-center justify-between gap-2">
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Harness route target</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-3)]">Remote route target</p>
                           {mappingTargets[mapping.roleKey] && (
                             <button
                               type="button"
@@ -317,13 +300,13 @@ function ToolDetailContent({
                           )}
                         </div>
                         <ConfiguredModelPicker
-                          value={mappingTargets[mapping.roleKey] ?? (isNativeClaude ? "" : mapping.defaultModel)}
+                          value={mappingTargets[mapping.roleKey] ?? def.defaultMappingTarget ?? roleTargets[mapping.roleKey] ?? mapping.defaultModel}
                           onChange={(value: string) => setMappingTargets((current) => ({ ...current, [mapping.roleKey]: value }))}
                           placeholder="Select provider target…"
                           includeCombos
                           includeAliases
                         />
-                        <p className="mt-1 text-[10px] text-[var(--text-3)]">Save Mapping persists this harness route without changing the native CLI config.</p>
+                        <p className="mt-1 text-[10px] text-[var(--text-3)]">Quick Setup saves this remote route without changing the native CLI config.</p>
                       </div>
                     )}
                   </div>
@@ -332,16 +315,6 @@ function ToolDetailContent({
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[var(--inner-border)] pt-4">
-              {def.mappingSupported && (
-                <Button
-                  variant="outline"
-                  onClick={handleSaveMapping}
-                  disabled={saveMappingMutation.isPending}
-                >
-                  <Save size={14} className="mr-1.5" />
-                  {saveMappingMutation.isPending ? "Saving…" : "Save Mapping"}
-                </Button>
-              )}
               <Button onClick={handleApply} disabled={applyMutation.isPending || activeKeys.length === 0}>
                 <Settings2 size={14} className="mr-1.5" />
                 {applyMutation.isPending ? "Applying..." : "Quick Setup"}

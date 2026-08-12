@@ -2,6 +2,7 @@ import type { Adapter, ProviderCallError, ProviderMeta, ProviderOutput, Provider
 import { callChatCompletionsWire, callResponsesWire } from "./protocols/openai";
 import { callAnthropicWire } from "./protocols/anthropic";
 import { aggregateCapabilities, capabilitiesOf, createModelCatalog } from "./catalog";
+import { resolveModelCapabilities } from "../translate/capabilities";
 import type { OpenAIAdapterConfig, ProviderCatalogAdapter } from "./contracts";
 import { ProviderAdapterError, toProviderCallError } from "./errors";
 
@@ -105,10 +106,14 @@ export function createOpenAIAdapter(config: OpenAIAdapterConfig): Adapter {
       };
       if (auth === "bearer" && credential.length > 0) headers.authorization = `Bearer ${credential}`;
       else if (auth === "x-api-key" && credential.length > 0) headers["x-api-key"] = credential;
-      if (input.target.surface === "anthropic-messages") headers["anthropic-version"] = "2023-06-01";
-      if (input.target.surface === "anthropic-messages") return callAnthropicWire(input, baseUrl, headers, catalog.capabilities);
-      if (input.target.surface === "openai-responses") return callResponsesWire(input, baseUrl, headers);
-      return callChatCompletionsWire(input, baseUrl, headers);
+      if (input.target.surface === "anthropic-messages") {
+        const modelCapabilities = resolveModelCapabilities(catalog.capabilities, catalog.models.get(input.target.modelId), input.target.surface);
+        headers["anthropic-version"] = "2023-06-01";
+        return callAnthropicWire(input, baseUrl, headers, catalog.capabilities, modelCapabilities);
+      }
+      const modelCapabilities = resolveModelCapabilities(catalog.capabilities, catalog.models.get(input.target.modelId), input.target.surface);
+      if (input.target.surface === "openai-responses") return callResponsesWire(input, baseUrl, headers, { explicitCache: modelCapabilities.cache.breakpoints, capabilities: modelCapabilities });
+      return callChatCompletionsWire(input, baseUrl, headers, {}, { explicitCache: modelCapabilities.cache.breakpoints, capabilities: modelCapabilities });
     },
     mapError(error: unknown): ProviderCallError {
       return toProviderCallError(error);

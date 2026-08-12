@@ -87,7 +87,7 @@ export async function buildCatalog(runtime: CartethyiaRuntime): Promise<readonly
 
   const mappedRefs = ["claude", "codex", "opencode", "cline", "cursor", "copilot"].flatMap((toolId) => {
     const settings = runtime.config.cliModelMappings.getSettings(toolId);
-    if (settings?.enabled === false) return [];
+    if (settings?.enabled === false || toolId !== "claude") return [];
     return runtime.config.cliModelMappings.list(toolId).filter((mapping) => mapping.enabled);
   });
   const mappedTargets = await Promise.all(mappedRefs.map((mapping) => runtime.models.resolve(mapping.targetModel)));

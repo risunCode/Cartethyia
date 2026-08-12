@@ -300,7 +300,7 @@ export function ensureRuntimeSchema(db: Database): { traceIdUnique: boolean } {
 // ────────────────────────────── Utilities ───────────────────────────────────
 
 const KNOWN_CLIENT_NAMES: ReadonlySet<string> = new Set(["github_copilot", "claude_code", "codex", "cursor", "cline", "opencode", "pi", "unknown"]);
-const KNOWN_CLIENT_SOURCES: ReadonlySet<string> = new Set(["explicit_header", "user_agent", "protocol_header", "prompt_marker", "unknown"]);
+const KNOWN_CLIENT_SOURCES: ReadonlySet<string> = new Set(["explicit_header", "user_agent", "protocol_header", "body_shape", "endpoint", "prompt_marker", "unknown"]);
 
 /** Allowlist narrowing for persisted client labels — never raw detection input. */
 export function mapClientName(value: string | null | undefined): ClientName {

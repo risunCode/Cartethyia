@@ -101,7 +101,7 @@ export class OpenAIAdapter implements Adapter {
     if (input.target.surface === "images") {
       return callHostedImageWire(input, `${this.baseUrl}/responses`, this.authHeaders(credential, false));
     }
-    return callResponsesWire(input, this.baseUrl, this.authHeaders(credential, input.request.stream));
+    return callResponsesWire(input, this.baseUrl, this.authHeaders(credential, input.request.stream), { explicitCache: this.capabilities.explicitCache });
   }
 
 

@@ -8,6 +8,8 @@ import type {
   ProviderMeta,
   ProviderModel,
   ProviderModelCatalog,
+  ProviderQuirkPolicy,
+  ReasoningCapability,
   RouteTarget,
   StreamEvent,
   Surface,
@@ -42,6 +44,8 @@ export interface CapabilitySeed {
   readonly mediaGeneration?: readonly MediaGenerationKind[];
   readonly explicitCache?: boolean;
   readonly promptCacheKey?: boolean;
+  readonly reasoningCapability?: ReasoningCapability;
+  readonly quirks?: ProviderQuirkPolicy;
   readonly search?: boolean;
 }
 

@@ -7,20 +7,23 @@ import { lookupResponseTranslation, registerResponseTranslation, type ResponseTr
 import { decodeAnthropicResponse } from "./anthropic";
 import { decodeChatResponse, decodeResponsesResponse } from "./openai";
 import { decodeGeminiResponse } from "./gemini";
-
-function usageNumber(value: number | null | undefined): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : 0;
-}
+import { fullPromptTokens, usageNumber } from "./usage";
 
 function responseUsage(usage: ProviderUsage | null): Record<string, unknown> | undefined {
   if (usage === null) return undefined;
   const input = usageNumber(usage.inputTokens);
   const output = usageNumber(usage.outputTokens);
+  const cached = usageNumber(usage.cacheReadTokens);
+  const written = usageNumber(usage.cacheWriteTokens);
+  const prompt = fullPromptTokens(usage);
   return {
-    input_tokens: input,
+    input_tokens: prompt,
     output_tokens: output,
-    total_tokens: usageNumber(usage.totalTokens) || input + output,
-    input_tokens_details: { cached_tokens: usageNumber(usage.cacheReadTokens) },
+    total_tokens: usageNumber(usage.totalTokens) || prompt + output,
+    input_tokens_details: {
+      cached_tokens: cached,
+      ...(written > 0 ? { cache_write_tokens: written } : {}),
+    },
     output_tokens_details: { reasoning_tokens: usageNumber(usage.reasoningTokens ?? null) },
   };
 }
@@ -99,8 +102,28 @@ export function encodeNonStreamResponse(targetSurface: Surface, document: Respon
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
       model: document.model,
-      choices: [{ index: 0, message: { role: "assistant", content: folded.text.length > 0 ? folded.text : toolCalls.length > 0 ? null : "", ...(folded.thinking.length > 0 ? { reasoning_content: folded.thinking } : {}), ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}) }, finish_reason: openAIStop(folded.reason, toolCalls.length > 0) }],
-      ...(folded.usage === null ? {} : { usage: { prompt_tokens: usageNumber(folded.usage.inputTokens) + usageNumber(folded.usage.cacheReadTokens), completion_tokens: usageNumber(folded.usage.outputTokens), total_tokens: usageNumber(folded.usage.totalTokens) || usageNumber(folded.usage.inputTokens) + usageNumber(folded.usage.cacheReadTokens) + usageNumber(folded.usage.outputTokens), prompt_tokens_details: { cached_tokens: usageNumber(folded.usage.cacheReadTokens) }, completion_tokens_details: { reasoning_tokens: usageNumber(folded.usage.reasoningTokens ?? null) } } }),
+      choices: [{
+        index: 0,
+        message: {
+          role: "assistant",
+          content: folded.text || null,
+          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+          ...(folded.thinking.length > 0 ? { reasoning_content: folded.thinking } : {}),
+        },
+        finish_reason: openAIStop(folded.reason, toolCalls.length > 0),
+      }],
+      ...(folded.usage === null ? {} : {
+        usage: {
+          prompt_tokens: fullPromptTokens(folded.usage),
+          completion_tokens: usageNumber(folded.usage.outputTokens),
+          total_tokens: usageNumber(folded.usage.totalTokens) || fullPromptTokens(folded.usage) + usageNumber(folded.usage.outputTokens),
+          prompt_tokens_details: {
+            cached_tokens: usageNumber(folded.usage.cacheReadTokens),
+            ...(usageNumber(folded.usage.cacheWriteTokens) > 0 ? { cache_write_tokens: usageNumber(folded.usage.cacheWriteTokens) } : {}),
+          },
+          completion_tokens_details: { reasoning_tokens: usageNumber(folded.usage.reasoningTokens ?? null) },
+        },
+      }),
     };
   }
   if (targetSurface === "anthropic-messages") {

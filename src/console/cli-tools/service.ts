@@ -19,6 +19,7 @@ interface ToolRegistryEntry {
   readonly description: string;
   readonly configType: string;
   readonly surface: string;
+  readonly mappingMode?: "remote" | "custom";
   readonly mappingSupported: boolean;
   readonly defaultModels: readonly {
     readonly id: string;
@@ -34,6 +35,7 @@ interface ToolRegistryEntry {
   readonly notes?: readonly { readonly type: string; readonly text: string }[];
   readonly guideSteps?: readonly { readonly step: number; readonly title: string; readonly desc?: string; readonly value?: string; readonly copyable?: boolean; readonly type?: string }[];
   readonly codeBlock?: { readonly language: string; readonly code: string };
+  readonly defaultMappingTarget?: string;
 }
 
 /** Get the injector for a tool ID, or null if the tool is not in the registry. */
@@ -138,6 +140,7 @@ export class CliToolService {
     for (const mapping of input.mappings) {
       if (!knownSlots.has(mapping.slotKey)) throw new Error(`Unknown mapping slot: ${mapping.slotKey}`);
       if (!mapping.sourceModel.trim() || !mapping.targetModel.trim()) throw new Error("Mapping source and target are required");
+      if (def.mappingMode === "custom" && mapping.sourceModel.trim() !== mapping.targetModel.trim()) throw new Error(`${def.name} custom mapping cannot define a remote source-to-target route`);
       incomingSlots.add(mapping.slotKey);
     }
     this.config.cliModelMappings.setEnabled(toolId, input.enabled);
@@ -178,6 +181,7 @@ export class CliToolService {
         description: def.description,
         configType: def.configType,
         surface: def.surface,
+        mappingMode: def.mappingMode,
         mappingSupported: def.mappingSupported === true,
         defaultModels: def.defaultModels.map((m) => ({
           id: m.id,
@@ -192,7 +196,7 @@ export class CliToolService {
         docsUrl: def.docsUrl,
         notes: def.notes,
         guideSteps: def.guideSteps,
-        codeBlock: def.codeBlock,
+        defaultMappingTarget: def.defaultMappingTarget,
       } satisfies ToolRegistryEntry;
     });
   }

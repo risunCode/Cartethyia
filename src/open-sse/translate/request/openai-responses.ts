@@ -30,9 +30,12 @@ type NormalizeInput,
 type NormalizeResult,
 type ProtocolError, } from "../../../application/protocols";
 import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, ReasoningConfig, ReasoningContext, ReasoningEffort, ReasoningMode, ReasoningSummary } from "../../../application/contracts";
-import { isWebSearchTool } from "../../../application/web-search-routing";
+import type { ModelCapabilities } from "../capabilities";
+import { normalizeClientEffort, projectEffort } from "./effort";
+import { preserveWireExtensions } from "../policy/extensions";
 import { applyOpenAIResponsesCacheBreakpoint } from "../policy/cache";
-import { preserveWirePayload } from "../policy/fields";
+import { stringifyToolArguments } from "../concerns/tools";
+import { isWebSearchTool } from "../../../application/web-search-routing";
 
 export function normalizeResponsesRequest(body: unknown, input: NormalizeInput): NormalizeResult {
   const aborted = abortedError(input.signal);
@@ -46,16 +49,15 @@ export function normalizeResponsesRequest(body: unknown, input: NormalizeInput):
 
   const stream = normalizeStream(root["stream"]);
   if (isProtocolError(stream)) return normalizeFail(stream);
-
   const responseFormat = normalizeResponseFormat(root["text"]);
   if (isProtocolError(responseFormat)) return normalizeFail(responseFormat);
   const reasoning = normalizeReasoning(root["reasoning"]);
   if (isProtocolError(reasoning)) return normalizeFail(reasoning);
   let reasoningConfig = reasoning.config;
   const topEffort = root["reasoning_effort"];
-  if (typeof topEffort === "string" && topEffort !== "" && reasoningConfig?.effort === undefined) {
-    if (!REASONING_EFFORTS.includes(topEffort)) return normalizeFail(protocolError("reasoning_effort", `reasoning_effort: unsupported value "${topEffort}"`));
-    reasoningConfig = { ...reasoningConfig, effort: topEffort as ReasoningEffort };
+  if (topEffort !== undefined && reasoningConfig?.effort === undefined) {
+    const effort = normalizeClientEffort(topEffort);
+    if (effort !== undefined) reasoningConfig = { ...reasoningConfig, effort };
   }
 
 
@@ -64,6 +66,8 @@ export function normalizeResponsesRequest(body: unknown, input: NormalizeInput):
 
   const maxOutputTokens = normalizeMaxOutputTokens(root["max_output_tokens"]);
   if (isProtocolError(maxOutputTokens)) return normalizeFail(maxOutputTokens);
+  const controls = normalizeResponsesControls(root);
+  if (isProtocolError(controls)) return normalizeFail(controls);
 
   const reasoningState = { seen: false };
   const images: ImageReference[] = [];
@@ -88,7 +92,9 @@ export function normalizeResponsesRequest(body: unknown, input: NormalizeInput):
     messages: [...instructions, ...inputMessages.messages],
     tools,
     stream,
-    responseFormat,
+    ...controls,
+    responseFormat: responseFormat.format,
+    ...(responseFormat.schema === undefined ? {} : { responseFormatSchema: responseFormat.schema }),
     reasoning: finalReasoning,
     reasoningConfig,
     include,
@@ -111,16 +117,28 @@ function normalizeInstructions(raw: unknown): NormalizedMessage[] | ProtocolErro
   return [{ role: "system", content: [{ type: "text", text: raw }] }];
 }
 
-function normalizeResponseFormat(raw: unknown): ProxyRequest["responseFormat"] | ProtocolError {
-  if (raw === undefined || raw === null) return "text";
+interface NormalizedResponseFormat {
+  readonly format: ProxyRequest["responseFormat"];
+  readonly schema?: Readonly<Record<string, unknown>>;
+}
+
+function normalizeResponseFormat(raw: unknown): NormalizedResponseFormat | ProtocolError {
+  if (raw === undefined || raw === null) return { format: "text" };
   const text = narrowObject(raw, "text");
   if (isProtocolError(text)) return text;
   const format = text["format"];
-  if (format === undefined || format === null) return "text";
+  if (format === undefined || format === null) return { format: "text" };
   const formatObj = narrowObject(format, "text.format");
   if (isProtocolError(formatObj)) return formatObj;
   const type = formatObj["type"];
-  if (type === "text" || type === "json_object" || type === "json_schema") return type;
+  if (type === "text" || type === "json_object") return { format: type };
+  if (type === "json_schema") {
+    const schema = narrowObject(formatObj["json_schema"], "text.format.json_schema");
+    if (isProtocolError(schema)) return schema;
+    const bound = boundJsonLength(schema, "text.format.json_schema", MAX_TEXT_BLOCK_LENGTH);
+    if (bound !== null) return bound;
+    return { format: type, schema: { ...schema } };
+  }
   if (typeof type === "string") return protocolError("text.format.type", `text.format.type: unsupported format "${type}"`);
   return protocolError("text.format.type", 'text.format.type: expected "text", "json_object", or "json_schema"');
 }
@@ -152,10 +170,9 @@ export function parseReasoningConfig(
   if (enabledValue === false) return { flag: "disabled", config: { enabled: false } };
   const config: { effort?: ReasoningEffort; maxTokens?: number; exclude?: boolean; enabled?: boolean; summary?: ReasoningSummary; mode?: ReasoningMode; context?: ReasoningContext } = {};
   const effortRaw = obj["effort"];
-  if (typeof effortRaw === "string" && effortRaw !== "") {
-    const effort = REASONING_EFFORTS.includes(effortRaw as ReasoningEffort) ? (effortRaw as ReasoningEffort) : null;
-    if (effort === null) return protocolError(`${fieldPrefix}.effort`, `${fieldPrefix}.effort: unsupported value "${effortRaw}"`);
-    config.effort = effort;
+  if (effortRaw !== undefined && effortRaw !== null && effortRaw !== "") {
+    const effort = normalizeClientEffort(effortRaw);
+    if (effort !== undefined) config.effort = effort;
   }
   const summaryRaw = obj["summary"];
   if (summaryRaw !== undefined && summaryRaw !== null) {
@@ -232,6 +249,12 @@ function normalizeInput(raw: unknown, images: ImageReference[], reasoningState: 
       const bound = boundJsonLength(obj, field, MAX_TEXT_BLOCK_LENGTH);
       if (bound !== null) return bound;
       pendingReasoningItems.push(obj);
+    } else if (type === "additional_tools") {
+      // Codex code-mode sends this Responses-only opaque item. Same-surface
+      // payload preservation restores it byte-for-byte; cross-surface
+      // translations intentionally omit it rather than inventing a tool shape.
+      const bound = boundJsonLength(obj, field, MAX_TEXT_BLOCK_LENGTH);
+      if (bound !== null) return bound;
     } else if (typeof type === "string") {
       return protocolError(`${field}.type`, `unsupported input item type "${type}"`);
     } else {
@@ -281,6 +304,53 @@ function normalizeMaxOutputTokens(raw: unknown): number | null | ProtocolError {
   const value = narrowNumber(raw, "max_output_tokens", { integer: true, min: 0, max: MAX_OUTPUT_TOKENS });
   if (isProtocolError(value)) return value;
   return value;
+}
+interface NormalizedResponsesControls {
+  readonly temperature?: number;
+  readonly topP?: number;
+  readonly parallelToolCalls?: boolean;
+  readonly toolChoice?: ProxyRequest["toolChoice"];
+  readonly metadata?: Readonly<Record<string, unknown>>;
+}
+
+function normalizeResponsesControls(root: Record<string, unknown>): NormalizedResponsesControls | ProtocolError {
+  const temperature = optionalResponsesNumber(root["temperature"], "temperature", 0, 2);
+  if (isProtocolError(temperature)) return temperature;
+  const topP = optionalResponsesNumber(root["top_p"], "top_p", 0, 1);
+  if (isProtocolError(topP)) return topP;
+  const parallelToolCalls = optionalResponsesBoolean(root["parallel_tool_calls"], "parallel_tool_calls");
+  if (isProtocolError(parallelToolCalls)) return parallelToolCalls;
+  const toolChoice = root["tool_choice"];
+  if (toolChoice !== undefined && toolChoice !== null && toolChoice !== "none" && toolChoice !== "auto" && toolChoice !== "required" && !isRecord(toolChoice)) {
+    return protocolError("tool_choice", "tool_choice: expected none, auto, required, or an object");
+  }
+  const metadataRaw = root["metadata"];
+  let metadata: Readonly<Record<string, unknown>> | undefined;
+  if (metadataRaw !== undefined && metadataRaw !== null) {
+    const value = narrowObject(metadataRaw, "metadata");
+    if (isProtocolError(value)) return value;
+    const bound = boundJsonLength(value, "metadata", MAX_TEXT_BLOCK_LENGTH);
+    if (bound !== null) return bound;
+    metadata = { ...value };
+  }
+  return {
+    ...(temperature === undefined ? {} : { temperature }),
+    ...(topP === undefined ? {} : { topP }),
+    ...(parallelToolCalls === undefined ? {} : { parallelToolCalls }),
+    ...(toolChoice === undefined || toolChoice === null ? {} : { toolChoice: typeof toolChoice === "string" ? toolChoice : { ...toolChoice } }),
+    ...(metadata === undefined ? {} : { metadata }),
+  };
+}
+
+function optionalResponsesNumber(raw: unknown, field: string, min: number, max: number): number | undefined | ProtocolError {
+  if (raw === undefined || raw === null) return undefined;
+  return narrowNumber(raw, field, { min, max });
+}
+
+function optionalResponsesBoolean(raw: unknown, field: string): boolean | undefined | ProtocolError {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "boolean") return protocolError(field, `${field}: expected a boolean`);
+  return raw;
 }
 
 
@@ -384,7 +454,7 @@ function normalizeResponseBlock(raw: unknown, field: string, images: ImageRefere
       const name = narrowString(obj["name"], `${field}.name`, MAX_TOOL_NAME_LENGTH);
       if (isProtocolError(name)) return name;
       if (name.trim() === "") return protocolError(`${field}.name`, "function call name must not be empty");
-      const argumentsValue = narrowString(obj["arguments"] ?? "{}", `${field}.arguments`, MAX_TOOL_ARGUMENT_LENGTH);
+      const argumentsValue = normalizeToolArguments(obj["arguments"], `${field}.arguments`);
       if (isProtocolError(argumentsValue)) return argumentsValue;
       return { type: "tool_use", toolName: name, toolCallId: callId, toolArguments: argumentsValue };
     }
@@ -392,17 +462,14 @@ function normalizeResponseBlock(raw: unknown, field: string, images: ImageRefere
       const callId = narrowString(obj["call_id"], `${field}.call_id`, 128);
       if (isProtocolError(callId)) return callId;
       if (callId === "") return protocolError(`${field}.call_id`, "call_id must not be empty");
-      const output = narrowString(obj["output"], `${field}.output`, MAX_TEXT_BLOCK_LENGTH);
+      const output = normalizeToolOutput(obj["output"], `${field}.output`);
       if (isProtocolError(output)) return output;
       return { type: "tool_result", text: output, toolCallId: callId };
     }
     case "refusal":
-      // Refusal content is never visible text.
       return { type: "unknown" };
     default:
-      if (typeof type === "string") {
-        return { type: "unknown", text: typeof obj["text"] === "string" ? obj["text"] : undefined };
-      }
+      if (typeof type === "string") return { type: "unknown", text: typeof obj["text"] === "string" ? obj["text"] : undefined };
       return protocolError(`${field}.type`, "content block type must be a string");
   }
 }
@@ -414,7 +481,7 @@ function normalizeFunctionCallItem(obj: Record<string, unknown>, field: string):
   const name = narrowString(obj["name"], `${field}.name`, MAX_TOOL_NAME_LENGTH);
   if (isProtocolError(name)) return name;
   if (name.trim() === "") return protocolError(`${field}.name`, "function call name must not be empty");
-  const argumentsValue = narrowString(obj["arguments"] ?? "{}", `${field}.arguments`, MAX_TOOL_ARGUMENT_LENGTH);
+  const argumentsValue = normalizeToolArguments(obj["arguments"], `${field}.arguments`);
   if (isProtocolError(argumentsValue)) return argumentsValue;
   return { type: "tool_use", toolName: name, toolCallId: callId, toolArguments: argumentsValue };
 }
@@ -423,9 +490,31 @@ function normalizeFunctionCallOutputItem(obj: Record<string, unknown>, field: st
   const callId = narrowString(obj["call_id"], `${field}.call_id`, 128);
   if (isProtocolError(callId)) return callId;
   if (callId === "") return protocolError(`${field}.call_id`, "call_id must not be empty");
-  const output = narrowString(obj["output"], `${field}.output`, MAX_TEXT_BLOCK_LENGTH);
+  const output = normalizeToolOutput(obj["output"], `${field}.output`);
   if (isProtocolError(output)) return output;
   return { type: "tool_result", text: output, toolCallId: callId };
+}
+
+function normalizeToolArguments(raw: unknown, field: string): string | ProtocolError {
+  try {
+    return stringifyToolArguments(raw ?? "{}");
+  } catch {
+    return protocolError(field, `${field}: exceeds ${MAX_TOOL_ARGUMENT_LENGTH} characters`);
+  }
+}
+
+function normalizeToolOutput(raw: unknown, field: string): string | ProtocolError {
+  if (typeof raw === "string") {
+    if (raw.length > MAX_TEXT_BLOCK_LENGTH) return protocolError(field, `${field}: text exceeds ${MAX_TEXT_BLOCK_LENGTH} characters`);
+    return raw;
+  }
+  try {
+    const output = stringifyToolArguments(raw ?? "{}");
+    if (output.length > MAX_TEXT_BLOCK_LENGTH) return protocolError(field, `${field}: text exceeds ${MAX_TEXT_BLOCK_LENGTH} characters`);
+    return output;
+  } catch {
+    return protocolError(field, `${field}: exceeds ${MAX_TEXT_BLOCK_LENGTH} characters`);
+  }
 }
 
 function normalizeInputImage(raw: unknown, field: string, images: ImageReference[]): ImageReference | ProtocolError {
@@ -448,18 +537,28 @@ function normalizeTools(raw: unknown): NormalizedTool[] | ProtocolError {
  * json_schema response formats are approximated as json_object because the
  * normalized request carries no schema body.
  */
-export function buildResponsesPayload(request: ProxyRequest, options: { readonly includeContextManagement?: boolean } = {}): Record<string, unknown> {
+export function buildResponsesPayload(request: ProxyRequest, options: { readonly includeContextManagement?: boolean; readonly upstreamModel?: string; readonly explicitCache?: boolean; readonly capabilities?: ModelCapabilities } = {}): Record<string, unknown> {
+  const upstreamModel = options.upstreamModel ?? request.model;
   const payload: Record<string, unknown> = {
-    model: request.model,
+    model: upstreamModel,
     stream: request.stream,
     input: [...request.messages.flatMap(toResponsesItem), ...(request.trailingReasoningItems ?? [])],
   };
   if (request.tools.length > 0) payload.tools = request.tools.map(toResponsesTool);
   if (request.maxOutputTokens !== null) payload.max_output_tokens = request.maxOutputTokens;
   if (request.cacheKey !== undefined) payload.prompt_cache_key = request.cacheKey;
-  if (request.responseFormat !== "text") payload.text = { format: { type: "json_object" } };
+  if (request.responseFormat !== "text") {
+    payload.text = request.responseFormat === "json_schema" && request.responseFormatSchema !== undefined
+      ? { format: { type: "json_schema", ...request.responseFormatSchema } }
+      : { format: { type: "json_object" } };
+  }
+  if (request.temperature !== undefined) payload.temperature = request.temperature;
+  if (request.topP !== undefined) payload.top_p = request.topP;
+  if (request.parallelToolCalls !== undefined) payload.parallel_tool_calls = request.parallelToolCalls;
+  if (request.toolChoice !== undefined) payload.tool_choice = request.toolChoice;
+  if (request.metadata !== undefined && request.sourceSurface === "openai-responses") payload.metadata = request.metadata;
   if (request.reasoning === "enabled" || request.reasoningConfig !== undefined) {
-    payload.reasoning = buildReasoningWire(request.reasoning, request.reasoningConfig);
+    payload.reasoning = buildReasoningWire(request.reasoning, request.reasoningConfig, options.capabilities);
   }
   if (request.include !== undefined && request.include.length > 0) payload.include = [...request.include];
   if (options.includeContextManagement !== false && request.contextManagement !== undefined) {
@@ -467,8 +566,21 @@ export function buildResponsesPayload(request: ProxyRequest, options: { readonly
     if (Array.isArray(contextManagement)) payload.context_management = [...contextManagement];
     else if (isRecord(contextManagement) && Array.isArray(contextManagement.edits)) payload.context_management = contextManagement.edits;
   }
-  preserveWirePayload(payload, request, "openai-responses", options.includeContextManagement === false ? ["model", "stream", "input", "tools", "max_output_tokens", "prompt_cache_key", "prompt_cache_options", "text", "reasoning", "include"] : ["model", "stream", "input", "tools", "max_output_tokens", "prompt_cache_key", "prompt_cache_options", "text", "reasoning", "include", "context_management"]);
-  applyOpenAIResponsesCacheBreakpoint(payload, request, toResponsesItem);
+  preserveWireExtensions(payload, request, "openai-responses", options.includeContextManagement === false
+    ? ["model", "stream", "input", "tools", "max_output_tokens", "prompt_cache_key", "prompt_cache_options", "text", "reasoning", "include", "temperature", "top_p", "parallel_tool_calls", "tool_choice", "metadata"]
+    : ["model", "stream", "input", "tools", "max_output_tokens", "prompt_cache_key", "prompt_cache_options", "text", "reasoning", "include", "context_management", "temperature", "top_p", "parallel_tool_calls", "tool_choice", "metadata"]);
+  const preservedReasoning = payload.reasoning;
+  if (isRecord(preservedReasoning)) {
+    if (Object.prototype.hasOwnProperty.call(preservedReasoning, "effort")) {
+      const safeEffort = projectEffort(preservedReasoning.effort, "openai-responses", options.capabilities?.reasoning.efforts);
+      if (safeEffort === undefined) delete preservedReasoning.effort;
+      else preservedReasoning.effort = safeEffort;
+    }
+    if (options.capabilities !== undefined && options.capabilities.reasoning.maxTokens !== "supported") delete preservedReasoning.max_tokens;
+  } else if (preservedReasoning !== undefined && preservedReasoning !== null) {
+    delete payload.reasoning;
+  }
+  applyOpenAIResponsesCacheBreakpoint(payload, request, toResponsesItem, upstreamModel, options.explicitCache !== false);
   return payload;
 }
 
@@ -478,22 +590,22 @@ export function buildResponsesPayload(request: ProxyRequest, options: { readonly
  * mode, context, maxTokens, exclude, or enabled controls. Concise summaries
  * are the default so terminal clients do not receive verbose reasoning.
  */
-function buildReasoningWire(flag: "enabled" | "disabled" | "default", config: ReasoningConfig | undefined): Record<string, unknown> {
+function buildReasoningWire(flag: "enabled" | "disabled" | "default", config: ReasoningConfig | undefined, capabilities?: ModelCapabilities): Record<string, unknown> {
   if (config !== undefined) {
     const wire: Record<string, unknown> = {};
-    if (config.effort !== undefined) wire.effort = config.effort;
-    if (config.summary !== undefined) wire.summary = config.summary;
-    else if (config.enabled !== false) wire.summary = "concise";
-    if (config.maxTokens !== undefined) wire.max_tokens = config.maxTokens;
+    const effort = config.effort === undefined ? undefined : projectEffort(config.effort, "openai-responses", capabilities?.reasoning.efforts);
+    if (effort !== undefined && capabilities?.reasoning.supported !== false) wire.effort = effort;
+    if (config.summary !== undefined && capabilities?.reasoning.summary !== false) wire.summary = config.summary;
+    else if (config.enabled !== false && capabilities?.reasoning.summary !== false) wire.summary = "concise";
+    if (config.maxTokens !== undefined && capabilities?.reasoning.maxTokens === "supported") wire.max_tokens = config.maxTokens;
     if (config.exclude !== undefined) wire.exclude = config.exclude;
     if (config.enabled !== undefined) wire.enabled = config.enabled;
-    if (config.mode !== undefined) wire.mode = config.mode;
+    if (config.mode !== undefined && (capabilities === undefined || capabilities.reasoning.modes.includes(config.mode))) wire.mode = config.mode;
     if (config.context !== undefined) wire.context = config.context;
-    return Object.keys(wire).length > 0 ? wire : { effort: "medium", summary: "concise" };
+    return Object.keys(wire).length > 0 ? wire : { enabled: false };
   }
-  return flag === "enabled" ? { effort: "medium", summary: "concise" } : { enabled: false };
+  return flag === "enabled" && capabilities?.reasoning.supported !== false ? { effort: "medium", summary: "concise" } : { enabled: false };
 }
-
 function toResponsesTool(tool: NormalizedTool): Record<string, unknown> {
   if (isWebSearchTool(tool)) return { type: "web_search" };
   if (tool.nativeType?.startsWith("web_fetch_") === true) {

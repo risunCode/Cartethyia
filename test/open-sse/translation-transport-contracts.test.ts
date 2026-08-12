@@ -25,6 +25,7 @@ import { buildCachePlan, applyCachePlan } from "../../src/application/cache";
 import { OpenAIAdapter } from "../../src/providers/openai";
 import { CodexAdapter } from "../../src/providers/codex";
 import { buildGeminiPayload } from "../../src/open-sse/translate/request/gemini";
+import { applyRoutedModelIdentity } from "../../src/open-sse/translate/policy/identity";
 
 const limits: RequestLimits = { maxBodyBytes: 10_000_000, connectTimeoutMs: 10_000, firstByteTimeoutMs: 30_000, idleTimeoutMs: 30_000, totalTimeoutMs: 120_000 };
 function ni(signal?: AbortSignal): NormalizeInput { return { signal: signal ?? new AbortController().signal, limits }; }
@@ -253,6 +254,48 @@ describe("Anthropic Messages normalization and payload", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.request.reasoning).toBe("enabled");
+  });
+  test("maps extended client effort names to valid Anthropic output_config values", () => {
+    const cases = [
+      ["xhigh", "high"],
+      ["max", "high"],
+      ["ultracode", "high"],
+      ["minimal", "low"],
+      ["client-specific", "medium"],
+    ] as const;
+    for (const [inputEffort, expectedEffort] of cases) {
+      const normalized = normalizeMessagesRequest({
+        model: "c",
+        max_tokens: 1024,
+        thinking: { type: "adaptive" },
+        output_config: { effort: inputEffort },
+        messages: [{ role: "user", content: "hi" }],
+      }, ni());
+      expect(normalized.ok).toBe(true);
+      if (!normalized.ok) continue;
+      const payload = buildMessagesPayload(normalized.request, capabilitiesOf({ surfaces: ["anthropic-messages"], reasoning: true }));
+      expect(payload.output_config).toEqual({ effort: expectedEffort });
+    }
+  });
+  test("accepts Claude Code effort aliases on Responses and Chat surfaces", () => {
+    const responses = normalizeResponsesRequest({
+      model: "gpt-5.6",
+      reasoning: { effort: "max" },
+      input: "hi",
+    }, ni());
+    expect(responses.ok).toBe(true);
+    if (responses.ok) {
+      expect(responses.request.reasoningConfig?.effort).toBe("xhigh");
+      expect(buildResponsesPayload(responses.request).reasoning).toMatchObject({ effort: "xhigh" });
+    }
+
+    const chat = normalizeChatRequest({
+      model: "gpt-5.6",
+      reasoning_effort: "ultracode",
+      messages: [{ role: "user", content: "hi" }],
+    }, ni());
+    expect(chat.ok).toBe(true);
+    if (chat.ok) expect(buildChatPayload(chat.request).reasoning_effort).toBe("xhigh");
   });
   test("passes oversized Claude Code text blocks without mutating the raw request", () => {
     const oversized = "x".repeat(512_001);
@@ -532,7 +575,55 @@ test("emits explicit OpenAI cache breakpoints only for GPT-5.6", () => {
   });
   expect(buildChatPayload({ ...request, model: "gpt-5" }).prompt_cache_options).toBeUndefined();
 });
+test("uses routed upstream model for OpenAI explicit cache breakpoints", () => {
+  const request = chatReq({
+    model: "claude-mythos-5",
+    cacheKey: "mapped-codex-session",
+    messages: [
+      { role: "system", content: [{ type: "text", text: "stable instructions", cacheControl: "ephemeral" }] },
+      { role: "user", content: [{ type: "text", text: "changing question" }] },
+    ],
+  });
+  const chatPayload = buildChatPayload(request, { upstreamModel: "gpt-5.6-luna" });
+  expect(chatPayload.prompt_cache_options).toEqual({ mode: "explicit", ttl: "30m" });
+  const responsesPayload = buildResponsesPayload({ ...request, sourceSurface: "openai-responses" }, { upstreamModel: "gpt-5.6-luna" });
+  expect(responsesPayload.prompt_cache_options).toEqual({ mode: "explicit", ttl: "30m" });
+});
+test("keeps cache keys but omits unsupported explicit cache options", () => {
+  const request = chatReq({
+    model: "claude-mythos-5",
+    cacheKey: "mapped-codex-session",
+    messages: [{ role: "system", content: [{ type: "text", text: "stable instructions", cacheControl: "ephemeral" }] }],
+  });
+  const payload = buildResponsesPayload(request, { upstreamModel: "gpt-5.6-luna", explicitCache: false });
+  expect(payload.prompt_cache_key).toBe("mapped-codex-session");
+  expect(payload.prompt_cache_options).toBeUndefined();
+  expect(payload.input).not.toContainEqual(expect.objectContaining({ prompt_cache_breakpoint: expect.anything() }));
+});
 
+test("splits a stable prefix before volatile Claude session metadata", () => {
+  const stable = "stable Claude Code instructions ".repeat(12);
+  const request = chatReq({
+    messages: [
+      { role: "system", content: [{ type: "text", text: `${stable}session=e2f755a3-7a41-4d92-bbd1-6a37658cf2bf` }] },
+      { role: "user", content: [{ type: "text", text: "hello" }] },
+    ],
+  });
+  const planned = applyCachePlan(request, buildCachePlan(request), "api_key:local");
+  const system = planned.messages[0]?.content;
+  expect(system).toHaveLength(2);
+  expect(system?.[0]?.cacheControl).toBe("ephemeral");
+  expect(system?.[1]?.cacheControl).toBeUndefined();
+  expect(planned.cacheKey).toBeDefined();
+});
+test("adds routed identity guard for Claude clients mapped to non-Anthropic providers", () => {
+  const payload: Record<string, unknown> = {};
+  applyRoutedModelIdentity(payload, chatReq({ sourceSurface: "anthropic-messages" }), { providerId: "codex", modelId: "gpt-5.6-luna", upstreamModelId: "gpt-5.6-luna", surface: "openai-responses" });
+  expect(payload.instructions).toContain("gpt-5.6-luna");
+  const nativePayload: Record<string, unknown> = {};
+  applyRoutedModelIdentity(nativePayload, chatReq({ sourceSurface: "anthropic-messages" }), { providerId: "claude", modelId: "claude-sonnet-5", upstreamModelId: "claude-sonnet-5", surface: "anthropic-messages" });
+  expect(nativePayload.instructions).toBeUndefined();
+});
 test("scopes generated cache keys to the caller affinity", () => {
   const request = chatReq({
     model: "gpt-5.6",
@@ -669,10 +760,11 @@ describe("usage mapping", () => {
     expect(mapChatUsage({ prompt_tokens: 10, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 8, cache_write_tokens: 2 }, completion_tokens_details: { reasoning_tokens: 3 } }).cacheReadTokens).toBe(8);
     expect(mapChatUsage({ prompt_tokens: 10, completion_tokens: 5, prompt_tokens_details: { cache_write_tokens: 2 } }).cacheWriteTokens).toBe(2);
     expect(mapChatUsage({ prompt_tokens: 10, completion_tokens: 5, completion_tokens_details: { reasoning_tokens: 3 } }).reasoningTokens).toBe(3);
+    expect(mapChatUsage({ prompt_tokens: 10, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 8, cache_write_tokens: 2 } })).toMatchObject({ inputTokens: 0, cacheReadTokens: 8, cacheWriteTokens: 2, totalTokens: 15 });
   });
   test("anthropic: maps tokens, surfaces cache read/write", () => {
     const u = mapAnthropicUsage({ input_tokens: 5, output_tokens: 3, cache_read_input_tokens: 100, cache_creation_input_tokens: 50 });
-    expect(u.totalTokens).toBe(8); expect(u.cacheReadTokens).toBe(100); expect(u.cacheWriteTokens).toBe(50);
+    expect(u.totalTokens).toBe(158); expect(u.cacheReadTokens).toBe(100); expect(u.cacheWriteTokens).toBe(50);
   });
   test("responses: maps tokens, surfaces cache read/write and reasoning", () => {
     expect(mapResponsesUsage({ input_tokens: 5, output_tokens: 7 }).totalTokens).toBe(12);
@@ -704,7 +796,7 @@ describe("semantic non-stream response translation", () => {
       { type: "tool_use", id: "call_1", name: "lookup", input: { q: "x" } },
     ]);
     expect(translated.stop_reason).toBe("tool_use");
-    expect(translated.usage).toMatchObject({ input_tokens: 5, output_tokens: 3 });
+    expect(translated.usage).toMatchObject({ input_tokens: 3, output_tokens: 3, cache_read_input_tokens: 2 });
   });
 
   test("Anthropic to Chat keeps reasoning separate from visible text and restores tool calls", () => {
@@ -717,7 +809,7 @@ describe("semantic non-stream response translation", () => {
         { type: "tool_use", id: "toolu_1", name: "lookup", input: { q: "x" } },
       ],
       stop_reason: "tool_use",
-      usage: { input_tokens: 5, output_tokens: 3 },
+      usage: { input_tokens: 5, output_tokens: 3, cache_read_input_tokens: 40, cache_creation_input_tokens: 10 },
     };
     const translated = translateNonStreamResponse(body, "anthropic-messages", "openai-chat", "claude");
     const choice = (translated.choices as readonly Record<string, unknown>[])[0] as Record<string, unknown>;
@@ -726,6 +818,12 @@ describe("semantic non-stream response translation", () => {
     expect(message.reasoning_content).toBe("private");
     expect(message.tool_calls).toEqual([{ id: "toolu_1", type: "function", function: { name: "lookup", arguments: "{\"q\":\"x\"}" } }]);
     expect(choice.finish_reason).toBe("tool_calls");
+    expect(translated.usage).toMatchObject({
+      prompt_tokens: 55,
+      completion_tokens: 3,
+      total_tokens: 58,
+      prompt_tokens_details: { cached_tokens: 40, cache_write_tokens: 10 },
+    });
   });
   test("decodes native Anthropic blocks and preserves pause_turn in non-stream responses", () => {
     const resultBlock = { type: "web_search_tool_result", tool_use_id: "srv_1", content: [{ type: "web_search_result", title: "Example", url: "https://example.com" }] };

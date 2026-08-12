@@ -59,6 +59,22 @@ describe("central OAuth refresh pool", () => {
     expect((await store.get(account.id))?.refreshState).toBe("reauth_required");
     expect((await store.get(account.id))?.lastRefreshStatusCode).toBe(400);
   });
+  test("reports persisted invalidation during sweeps", async () => {
+    const store = new MemoryOAuthTokenStore();
+    await store.set(account.id, { ...expiredToken(), refreshState: "reauth_required", lastRefreshStatusCode: 401 });
+    const failures: string[] = [];
+    const pool = new TokenRefreshPool(accounts, store, {
+      refresh: async () => {
+        throw new Error("must not refresh an invalidated grant");
+      },
+    }, {
+      onFailed: (_accountId, error) => failures.push(error.sanitizedMessage),
+    });
+
+    await pool.sweep();
+
+    expect(failures).toEqual(["OAuth account invalidated; reauthorization required"]);
+  });
   test("explicit retry clears stale reauthentication state after a driver fix", async () => {
     const store = new MemoryOAuthTokenStore();
     await store.set(account.id, { ...expiredToken(), refreshState: "reauth_required", lastRefreshStatusCode: 401 });

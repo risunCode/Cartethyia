@@ -1,13 +1,15 @@
 import { AbortCoordinator } from "../abort-coordinator";
-import { ProviderAdapterError, readUpstreamError } from "../errors";
-import { executeFetch } from "../fetch";
+import { ProviderAdapterError, readUpstreamError, toProviderCallError } from "../errors";
 import { lineLimit, parseSseData } from "../sse-decoder";
 import { mapSseStream } from "../stream-mapper";
 import { readJsonObject } from "../body-reader";
 import type { SseEvent, StreamMapper } from "../contracts";
 import type { ProviderOutput, ProviderRequest, SafeErrorSummary, StopReason, StreamEvent } from "../../../application/contracts";
+import type { ModelCapabilities } from "../../translate/capabilities";
 import { isRecord } from "../../../application/protocols";
 import { sanitizeMessage } from "../../../application/contracts";
+import { classifyCompatibilityRejection, recordCompatibilityFallback, removeCompatibilityProjection } from "../../translate/fallback";
+import { executeFetch } from "../fetch";
 import { buildChatPayload } from "../../translate/request/openai-chat";
 import { buildResponsesPayload } from "../../translate/request/openai-responses";
 import { mapChatUsage, mapResponsesUsage } from "../../translate/response/openai";
@@ -24,16 +26,27 @@ export async function callChatCompletionsWire(
   baseUrl: string,
   headers: Record<string, string>,
   payloadOverrides: Readonly<Record<string, unknown>> = {},
+  options: { readonly explicitCache?: boolean; readonly capabilities?: ModelCapabilities } = { explicitCache: false },
 ): Promise<ProviderOutput> {
   const { request, signal, network } = input;
-  const payload = { ...buildChatPayload(request), ...payloadOverrides, model: input.target.upstreamModelId };
+  const payload: Record<string, unknown> = { ...buildChatPayload(request, { upstreamModel: input.target.upstreamModelId, explicitCache: options.explicitCache, capabilities: options.capabilities }), ...payloadOverrides, model: input.target.upstreamModelId };
   const coordinator = new AbortCoordinator(signal, {
     connectTimeoutMs: request.limits.connectTimeoutMs,
     totalTimeoutMs: request.limits.totalTimeoutMs,
   });
   let streamHandedOff = false;
   try {
-    const response = await executeFetch(`${baseUrl}/chat/completions`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
+    let response = await executeFetch(`${baseUrl}/chat/completions`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
+    if (!response.ok) {
+      try {
+        await readUpstreamError(response);
+      } catch (error) {
+        const rejection = error instanceof ProviderAdapterError ? classifyCompatibilityRejection(toProviderCallError(error)) : null;
+        if (rejection === null || !rejection.retryable || !removeCompatibilityProjection(payload, rejection)) throw error;
+        recordCompatibilityFallback(input, rejection);
+        response = await executeFetch(`${baseUrl}/chat/completions`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
+      }
+    }
     if (!response.ok) throw await readUpstreamError(response);
     if (!request.stream) {
       const body = await readJsonObject(response, coordinator);
@@ -62,17 +75,27 @@ export async function callResponsesWire(
   input: ProviderRequest,
   baseUrl: string,
   headers: Record<string, string>,
+  options: { readonly explicitCache?: boolean; readonly capabilities?: ModelCapabilities } = { explicitCache: false },
 ): Promise<ProviderOutput> {
   const { request, signal, network } = input;
-  const payload = buildResponsesPayload(request);
-  payload.model = input.target.upstreamModelId;
+  const payload = buildResponsesPayload(request, { upstreamModel: input.target.upstreamModelId, explicitCache: options.explicitCache, capabilities: options.capabilities });
   const coordinator = new AbortCoordinator(signal, {
     connectTimeoutMs: request.limits.connectTimeoutMs,
     totalTimeoutMs: request.limits.totalTimeoutMs,
   });
   let streamHandedOff = false;
   try {
-    const response = await executeFetch(`${baseUrl}/responses`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
+    let response = await executeFetch(`${baseUrl}/responses`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
+    if (!response.ok) {
+      try {
+        await readUpstreamError(response);
+      } catch (error) {
+        const rejection = error instanceof ProviderAdapterError ? classifyCompatibilityRejection(toProviderCallError(error)) : null;
+        if (rejection === null || !rejection.retryable || !removeCompatibilityProjection(payload, rejection)) throw error;
+        recordCompatibilityFallback(input, rejection);
+        response = await executeFetch(`${baseUrl}/responses`, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, network, input.capture);
+      }
+    }
     if (!response.ok) throw await readUpstreamError(response);
     if (!request.stream) {
       const body = await readJsonObject(response, coordinator);

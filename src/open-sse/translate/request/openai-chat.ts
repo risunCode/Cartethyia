@@ -1,37 +1,44 @@
 import { ProtocolCodecError } from "../errors";
 import type { ProviderUsage } from "../../../application/contracts";
-import { REASONING_EFFORTS, parseReasoningConfig } from "./openai-responses";
-import { abortedError,
-boundJsonLength,
-classifyImageReference,
-isProtocolError,
-isRecord,
-messageText,
-narrowArray,
-narrowMessageArray,
-narrowNumber,
-narrowObject,
-narrowString,
-normalizeFail,
-normalizeOk,
-normalizeStream,
-normalizeToolList,
-nullableNumber,
-protocolError,
-pushImageReference,
-MAX_BLOCKS_PER_MESSAGE,
-MAX_MESSAGE_COUNT,
-MAX_MODEL_LENGTH,
-MAX_OUTPUT_TOKENS,
-MAX_TEXT_BLOCK_LENGTH,
-MAX_TOOL_ARGUMENT_LENGTH,
-MAX_TOOL_CALLS_PER_MESSAGE,
-MAX_TOOL_NAME_LENGTH,
-type NormalizeInput,
-type NormalizeResult,
-type ProtocolError, } from "../../../application/protocols";
 import type { ContentBlock, ImageReference, NormalizedMessage, ProxyRequest, NormalizedTool, ReasoningConfig, ReasoningEffort, ReasoningSummary } from "../../../application/contracts";
-import { preserveWirePayload } from "../policy/fields";
+import { stringifyToolArguments } from "../concerns/tools";
+import { parseReasoningConfig } from "./openai-responses";
+import { normalizeClientEffort } from "./effort";
+import {
+  abortedError,
+  boundJsonLength,
+  classifyImageReference,
+  isProtocolError,
+  isRecord,
+  messageText,
+  narrowArray,
+  narrowBoolean,
+  narrowMessageArray,
+  narrowNumber,
+  narrowObject,
+  narrowString,
+  normalizeFail,
+  normalizeOk,
+  normalizeStream,
+  normalizeToolList,
+  nullableNumber,
+  protocolError,
+  pushImageReference,
+  MAX_BLOCKS_PER_MESSAGE,
+  MAX_MESSAGE_COUNT,
+  MAX_MODEL_LENGTH,
+  MAX_OUTPUT_TOKENS,
+  MAX_TEXT_BLOCK_LENGTH,
+  MAX_TOOL_ARGUMENT_LENGTH,
+  MAX_TOOL_CALLS_PER_MESSAGE,
+  MAX_TOOL_NAME_LENGTH,
+  type NormalizeInput,
+  type NormalizeResult,
+  type ProtocolError,
+} from "../../../application/protocols";
+import type { ModelCapabilities } from "../capabilities";
+import { projectEffort } from "./effort";
+import { preserveWireExtensions } from "../policy/extensions";
 import { applyOpenAIChatCacheBreakpoint } from "../policy/cache";
 
 /**
@@ -59,6 +66,8 @@ export function normalizeChatRequest(body: unknown, input: NormalizeInput): Norm
 
   const responseFormat = normalizeResponseFormat(root["response_format"]);
   if (isProtocolError(responseFormat)) return normalizeFail(responseFormat);
+  const controls = normalizeChatControls(root);
+  if (isProtocolError(controls)) return normalizeFail(controls);
 
   const reasoningState = { seen: false };
   const images: ImageReference[] = [];
@@ -82,7 +91,9 @@ export function normalizeChatRequest(body: unknown, input: NormalizeInput): Norm
     messages,
     tools,
     stream,
-    responseFormat,
+    responseFormat: responseFormat.format,
+    ...(responseFormat.schema === undefined ? {} : { responseFormatSchema: responseFormat.schema }),
+    ...controls,
     maxOutputTokens,
     reasoning: finalFlag,
     reasoningConfig: reasoning.config,
@@ -95,14 +106,104 @@ export function normalizeChatRequest(body: unknown, input: NormalizeInput): Norm
   });
 }
 
-function normalizeResponseFormat(raw: unknown): ProxyRequest["responseFormat"] | ProtocolError {
-  if (raw === undefined || raw === null) return "text";
+interface NormalizedResponseFormat {
+  readonly format: ProxyRequest["responseFormat"];
+  readonly schema?: Readonly<Record<string, unknown>>;
+}
+
+function normalizeResponseFormat(raw: unknown): NormalizedResponseFormat | ProtocolError {
+  if (raw === undefined || raw === null) return { format: "text" };
   const format = narrowObject(raw, "response_format");
   if (isProtocolError(format)) return format;
   const type = format["type"];
-  if (type === "text" || type === "json_object" || type === "json_schema") return type;
+  if (type === "text" || type === "json_object") return { format: type };
+  if (type === "json_schema") {
+    const schema = narrowObject(format["json_schema"], "response_format.json_schema");
+    if (isProtocolError(schema)) return schema;
+    const bound = boundJsonLength(schema, "response_format.json_schema", MAX_TEXT_BLOCK_LENGTH);
+    if (bound !== null) return bound;
+    return { format: type, schema: { ...schema } };
+  }
   if (typeof type === "string") return protocolError("response_format.type", `response_format.type: unsupported format "${type}"`);
   return protocolError("response_format.type", 'response_format.type: expected "text", "json_object", or "json_schema"');
+}
+
+interface NormalizedChatControls {
+  readonly temperature?: number;
+  readonly topP?: number;
+  readonly stop?: readonly string[];
+  readonly parallelToolCalls?: boolean;
+  readonly toolChoice?: ProxyRequest["toolChoice"];
+  readonly metadata?: Readonly<Record<string, unknown>>;
+}
+
+function normalizeChatControls(root: Record<string, unknown>): NormalizedChatControls | ProtocolError {
+  const temperature = optionalNumber(root["temperature"], "temperature", { min: 0, max: 2 });
+  if (isProtocolError(temperature)) return temperature;
+  const topP = optionalNumber(root["top_p"], "top_p", { min: 0, max: 1 });
+  if (isProtocolError(topP)) return topP;
+  const stop = normalizeStop(root["stop"]);
+  if (isProtocolError(stop)) return stop;
+  const parallelToolCalls = optionalBoolean(root["parallel_tool_calls"], "parallel_tool_calls");
+  if (isProtocolError(parallelToolCalls)) return parallelToolCalls;
+  const toolChoice = normalizeToolChoice(root["tool_choice"]);
+  if (isProtocolError(toolChoice)) return toolChoice;
+  const metadata = normalizeMetadata(root["metadata"]);
+  if (isProtocolError(metadata)) return metadata;
+  return {
+    ...(temperature === undefined ? {} : { temperature }),
+    ...(topP === undefined ? {} : { topP }),
+    ...(stop === undefined ? {} : { stop }),
+    ...(parallelToolCalls === undefined ? {} : { parallelToolCalls }),
+    ...(toolChoice === undefined ? {} : { toolChoice }),
+    ...(metadata === undefined ? {} : { metadata }),
+  };
+}
+
+function optionalNumber(raw: unknown, field: string, options: { readonly min: number; readonly max: number }): number | undefined | ProtocolError {
+  if (raw === undefined || raw === null) return undefined;
+  return narrowNumber(raw, field, options);
+}
+
+function optionalBoolean(raw: unknown, field: string): boolean | undefined | ProtocolError {
+  if (raw === undefined || raw === null) return undefined;
+  return narrowBoolean(raw, field);
+}
+
+function normalizeStop(raw: unknown): readonly string[] | undefined | ProtocolError {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === "string") {
+    const value = narrowString(raw, "stop", 256);
+    return isProtocolError(value) ? value : [value];
+  }
+  const list = narrowArray(raw, "stop", 16);
+  if (isProtocolError(list)) return list;
+  const values: string[] = [];
+  for (let index = 0; index < list.length; index += 1) {
+    const value = narrowString(list[index], `stop[${index}]`, 256);
+    if (isProtocolError(value)) return value;
+    values.push(value);
+  }
+  return values;
+}
+
+function normalizeToolChoice(raw: unknown): ProxyRequest["toolChoice"] | undefined | ProtocolError {
+  if (raw === undefined || raw === null) return undefined;
+  if (raw === "none" || raw === "auto" || raw === "required") return raw;
+  const value = narrowObject(raw, "tool_choice");
+  if (isProtocolError(value)) return value;
+  const bound = boundJsonLength(value, "tool_choice", MAX_TEXT_BLOCK_LENGTH);
+  if (bound !== null) return bound;
+  return { ...value };
+}
+
+function normalizeMetadata(raw: unknown): Readonly<Record<string, unknown>> | undefined | ProtocolError {
+  if (raw === undefined || raw === null) return undefined;
+  const value = narrowObject(raw, "metadata");
+  if (isProtocolError(value)) return value;
+  const bound = boundJsonLength(value, "metadata", MAX_TEXT_BLOCK_LENGTH);
+  if (bound !== null) return bound;
+  return { ...value };
 }
 
 function normalizeMaxOutputTokens(root: Record<string, unknown>): number | null | ProtocolError {
@@ -134,10 +235,9 @@ function finalizeReasoning(root: Record<string, unknown>, state: { readonly seen
 
   const config: { effort?: ReasoningEffort; maxTokens?: number; exclude?: boolean; enabled?: boolean; summary?: ReasoningSummary } = {};
   if (parsed !== null && parsed.config !== undefined) Object.assign(config, parsed.config);
-  if (typeof topEffort === "string" && topEffort !== "" && config.effort === undefined) {
-    const effort = REASONING_EFFORTS.includes(topEffort as ReasoningEffort) ? (topEffort as ReasoningEffort) : null;
-    if (effort === null) return protocolError("reasoning_effort", `reasoning_effort: unsupported value "${topEffort}"`);
-    config.effort = effort;
+  if (topEffort !== undefined && config.effort === undefined) {
+    const effort = normalizeClientEffort(topEffort);
+    if (effort !== undefined) config.effort = effort;
   }
   const flag = state.seen || config.effort !== undefined || config.enabled === true || config.maxTokens !== undefined
     ? "enabled"
@@ -260,9 +360,12 @@ function normalizeToolCalls(raw: unknown, field: string): ContentBlock[] | Proto
     if (name.trim() === "") return protocolError(`${itemField}.function.name`, "tool call name must not be empty");
     const id = narrowString(obj["id"], `${itemField}.id`, 128);
     if (isProtocolError(id)) return id;
-    if (id === "") return protocolError(`${itemField}.id`, "tool call id must not be empty");
-    const argumentsValue = narrowString(fn["arguments"] ?? "{}", `${itemField}.function.arguments`, MAX_TOOL_ARGUMENT_LENGTH);
-    if (isProtocolError(argumentsValue)) return argumentsValue;
+    let argumentsValue: string;
+    try {
+      argumentsValue = stringifyToolArguments(fn["arguments"] ?? "{}");
+    } catch {
+      return protocolError(`${itemField}.function.arguments`, `function arguments exceed ${MAX_TOOL_ARGUMENT_LENGTH} characters`);
+    }
     blocks.push({ type: "tool_use", toolName: name, toolCallId: id, toolArguments: argumentsValue });
   }
   return blocks;
@@ -286,10 +389,11 @@ function normalizeTools(raw: unknown): NormalizedTool[] | ProtocolError {
 // OpenAI Chat wire codec
 /**
  * Translates the normalized request into the OpenAI Chat Completions wire
- * payload. json_schema response formats are approximated as json_object
- * because the normalized request carries no schema body.
+ * payload while preserving supported response, sampling, tool, and metadata
+ * controls through the canonical request contract.
  */
-export function buildChatPayload(request: ProxyRequest, options: { readonly allowNativeTools?: boolean } = {}): Record<string, unknown> {
+export function buildChatPayload(request: ProxyRequest, options: { readonly allowNativeTools?: boolean; readonly upstreamModel?: string; readonly explicitCache?: boolean; readonly capabilities?: ModelCapabilities } = {}): Record<string, unknown> {
+  const upstreamModel = options.upstreamModel ?? request.model;
   if (!options.allowNativeTools && request.tools.some((tool) => tool.nativeType !== undefined)) {
     throw new ProtocolCodecError({
       kind: "capability_unsupported",
@@ -299,7 +403,7 @@ export function buildChatPayload(request: ProxyRequest, options: { readonly allo
     });
   }
   const payload: Record<string, unknown> = {
-    model: request.model,
+    model: upstreamModel,
     stream: request.stream,
     messages: request.messages.map((message) => toChatMessage(message)),
   };
@@ -311,25 +415,52 @@ export function buildChatPayload(request: ProxyRequest, options: { readonly allo
   }
   if (request.maxOutputTokens !== null) payload.max_tokens = request.maxOutputTokens;
   if (request.cacheKey !== undefined) payload.prompt_cache_key = request.cacheKey;
-  if (request.responseFormat !== "text") payload.response_format = { type: "json_object" };
+  if (request.responseFormat !== "text") {
+    payload.response_format = request.responseFormat === "json_schema" && request.responseFormatSchema !== undefined
+      ? { type: "json_schema", json_schema: request.responseFormatSchema }
+      : { type: "json_object" };
+  }
+  if (request.temperature !== undefined) payload.temperature = request.temperature;
+  if (request.topP !== undefined) payload.top_p = request.topP;
+  if (request.stop !== undefined) payload.stop = request.stop;
+  if (request.parallelToolCalls !== undefined) payload.parallel_tool_calls = request.parallelToolCalls;
+  if (request.toolChoice !== undefined && request.tools.length > 0) payload.tool_choice = request.toolChoice;
+  if (request.metadata !== undefined && request.sourceSurface === "openai-chat") payload.metadata = request.metadata;
   if (request.reasoning === "enabled" || request.reasoningConfig !== undefined) {
     const cfg = request.reasoningConfig;
-    if (cfg?.effort !== undefined) payload.reasoning_effort = cfg.effort;
-    else if (request.reasoning === "enabled") payload.reasoning_effort = "medium";
+    if (cfg?.effort !== undefined) {
+      const effort = projectEffort(cfg.effort, "openai-chat", options.capabilities?.reasoning.efforts);
+      if (effort !== undefined && options.capabilities?.reasoning.supported !== false) payload.reasoning_effort = effort;
+    }
+    else if (request.reasoning === "enabled" && options.capabilities?.reasoning.supported !== false) payload.reasoning_effort = "medium";
     if (cfg !== undefined && (cfg.summary !== undefined || cfg.maxTokens !== undefined || cfg.exclude !== undefined || cfg.enabled !== undefined)) {
       const reasoningWire: Record<string, unknown> = {};
-      if (cfg.summary !== undefined) reasoningWire.summary = cfg.summary;
-      if (cfg.maxTokens !== undefined) reasoningWire.max_tokens = cfg.maxTokens;
+      if (cfg.summary !== undefined && options.capabilities?.reasoning.summary !== false) reasoningWire.summary = cfg.summary;
+      if (cfg.maxTokens !== undefined && options.capabilities?.reasoning.maxTokens === "supported") reasoningWire.max_tokens = cfg.maxTokens;
       if (cfg.exclude !== undefined) reasoningWire.exclude = cfg.exclude;
       if (cfg.enabled !== undefined) reasoningWire.enabled = cfg.enabled;
-      // `include` is intentionally omitted: the Chat surface rejects
-      // `reasoning.include` (Blackbox returns `unknown_parameter`).
       payload.reasoning = reasoningWire;
     }
   }
   if (request.stream) payload.stream_options = { include_usage: true };
-  preserveWirePayload(payload, request, "openai-chat", ["model", "stream", "messages", "tools", "max_tokens", "max_completion_tokens", "prompt_cache_key", "prompt_cache_options", "response_format", "reasoning_effort", "reasoning", "stream_options"]);
-  applyOpenAIChatCacheBreakpoint(payload, request);
+  preserveWireExtensions(payload, request, "openai-chat", ["model", "stream", "messages", "tools", "max_tokens", "max_completion_tokens", "prompt_cache_key", "prompt_cache_options", "response_format", "temperature", "top_p", "stop", "parallel_tool_calls", "tool_choice", "metadata", "reasoning_effort", "reasoning", "stream_options"]);
+  if (Object.prototype.hasOwnProperty.call(payload, "reasoning_effort")) {
+    const safeEffort = normalizeClientEffort(payload.reasoning_effort);
+    if (safeEffort === undefined) delete payload.reasoning_effort;
+    else payload.reasoning_effort = safeEffort;
+  }
+  const preservedReasoning = payload.reasoning;
+  if (isRecord(preservedReasoning)) {
+    if (Object.prototype.hasOwnProperty.call(preservedReasoning, "effort")) {
+      const safeEffort = projectEffort(preservedReasoning.effort, "openai-chat", options.capabilities?.reasoning.efforts);
+      if (safeEffort === undefined) delete preservedReasoning.effort;
+      else preservedReasoning.effort = safeEffort;
+    }
+    if (options.capabilities !== undefined && options.capabilities.reasoning.maxTokens !== "supported") delete preservedReasoning.max_tokens;
+  } else if (preservedReasoning !== undefined && preservedReasoning !== null) {
+    delete payload.reasoning;
+  }
+  applyOpenAIChatCacheBreakpoint(payload, request, upstreamModel, options.explicitCache !== false);
   return payload;
 }
 
@@ -337,8 +468,9 @@ export function buildChatPayload(request: ProxyRequest, options: { readonly allo
 function toChatMessage(message: NormalizedMessage): Record<string, unknown> {
   switch (message.role) {
     case "system":
-    case "developer":
       return { role: "system", content: messageText(message) };
+    case "developer":
+      return { role: "developer", content: messageText(message) };
     case "user": {
       const hasImage = message.content.some((block) => block.type === "image");
       const content = [

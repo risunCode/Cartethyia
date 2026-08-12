@@ -62,13 +62,15 @@ export interface ToolRegistryEntry {
   readonly description: string;
   readonly configType: string;
   readonly surface: string;
+  readonly mappingMode?: "remote" | "custom";
   readonly mappingSupported: boolean;
   readonly defaultModels: readonly ToolModelDef[];
   readonly settingsFile?: string;
   readonly docsUrl?: string;
   readonly notes?: readonly ToolNote[];
-  readonly guideSteps?: readonly GuideStep[];
+  readonly defaultMappingTarget?: string;
   readonly codeBlock?: GuideCodeBlock;
+  readonly guideSteps?: readonly GuideStep[];
 }
 export interface ApplyInput {
   readonly endpoint: string;

@@ -4,6 +4,8 @@ import type { CustomProviderRecord, CustomProviderRepository } from "../storage"
 import { AbortCoordinator } from "../open-sse/transport/abort-coordinator";
 import { ProviderAdapterError, readUpstreamError, toProviderCallError } from "../open-sse/transport/errors";
 import { aggregateCapabilities, capabilitiesOf, categoriesOf, modelOf, createModelCatalog } from "../open-sse/transport/catalog";
+import { resolveModelCapabilities } from "../open-sse/translate/capabilities";
+import { classifyCompatibilityRejection, recordCompatibilityFallback, removeCompatibilityProjection } from "../open-sse/translate/fallback";
 import { executeFetch } from "../open-sse/transport/fetch";
 import { lineLimit } from "../open-sse/transport/sse-decoder";
 import { mapSseStream } from "../open-sse/transport/stream-mapper";
@@ -129,13 +131,9 @@ export class CustomProviderAdapter implements Adapter {
     }
     const baseUrl = record.baseUrl.replace(/\/+$/, "");
     const url = `${baseUrl}/${record.type === "anthropic-compatible" ? "messages" : "chat/completions"}`;
-    // SSRF validation always runs first, per dispatch, before any bytes
-    // leave the process (the base URL is operator-supplied).
     await assertPublicUrlAtDispatch(url, { label: `Custom provider "${record.name}" base URL` });
     const coordinator = new AbortCoordinator(input.signal, {
       connectTimeoutMs: input.request.limits.connectTimeoutMs,
-      // The operator-configured timeout caps the request; it can only ever
-      // shorten the pipeline default, never extend it.
       totalTimeoutMs: Math.min(input.request.limits.totalTimeoutMs, Math.max(1, record.timeoutSeconds) * 1000),
     });
     let streamHandedOff = false;
@@ -143,8 +141,22 @@ export class CustomProviderAdapter implements Adapter {
       const { request } = input;
       const anthropic = record.type === "anthropic-compatible";
       const headers = customHeaders(record, input.credential, request.stream, input.headers);
-      const payload = anthropic ? buildMessagesPayload(request, this.capabilities, { includeContextManagement: false }) : buildChatPayload(request);
-      const response = await executeFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, input.network, input.capture);
+      const modelCapabilities = resolveModelCapabilities(this.capabilities, this.models.get(input.target.modelId), input.target.surface);
+      const payload = anthropic
+        ? buildMessagesPayload(request, this.capabilities, { includeContextManagement: false, modelCapabilities })
+        : buildChatPayload(request, { upstreamModel: input.target.upstreamModelId, explicitCache: modelCapabilities.cache.breakpoints, capabilities: modelCapabilities });
+      payload.model = input.target.upstreamModelId;
+      let response = await executeFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, input.network, input.capture);
+      if (!response.ok) {
+        try {
+          await readUpstreamError(response);
+        } catch (error) {
+          const rejection = error instanceof ProviderAdapterError ? classifyCompatibilityRejection(error.toProviderCallError()) : null;
+          if (rejection === null || !rejection.retryable || !removeCompatibilityProjection(payload, rejection)) throw error;
+          recordCompatibilityFallback(input, rejection);
+          response = await executeFetch(url, { method: "POST", headers, body: JSON.stringify(payload) }, coordinator, input.network, input.capture);
+        }
+      }
       if (!response.ok) throw await readUpstreamError(response);
       if (!request.stream) {
         const body = await readJsonObject(response, coordinator);
@@ -152,9 +164,7 @@ export class CustomProviderAdapter implements Adapter {
         return {
           mode: "non_stream",
           body,
-          usage: usageRecord !== null
-            ? anthropic ? mapAnthropicUsage(usageRecord) : mapChatUsage(usageRecord)
-            : undefined,
+          usage: usageRecord !== null ? (anthropic ? mapAnthropicUsage(usageRecord) : mapChatUsage(usageRecord)) : undefined,
         };
       }
       if (!response.body) {

@@ -3,6 +3,7 @@ import { isRecord, narrowList, narrowRecord, narrowText, nullableNumber } from "
 import { ProtocolCodecError } from "../errors";
 import type { ResponseDocument } from "../contracts";
 import { createReasoningBlock } from "../concerns/reasoning";
+import { usageFromUncachedInput } from "./usage";
 
 function stopReason(value: string | null): StopReason {
   if (value === "max_tokens") return "length";
@@ -15,16 +16,7 @@ function stopReason(value: string | null): StopReason {
 
 function usageRecord(value: unknown): ProviderUsage | null {
   if (!isRecord(value)) return null;
-  const inputTokens = nullableNumber(value.input_tokens);
-  const outputTokens = nullableNumber(value.output_tokens);
-  return {
-    inputTokens,
-    outputTokens,
-    totalTokens: inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null,
-    cacheReadTokens: nullableNumber(value.cache_read_input_tokens),
-    cacheWriteTokens: nullableNumber(value.cache_creation_input_tokens),
-    source: "provider",
-  };
+  return mapAnthropicUsage(value);
 }
 
 /** Decodes an Anthropic Messages body into canonical response events. */
@@ -68,14 +60,11 @@ export function decodeAnthropicResponse(body: Record<string, unknown>, model: st
 
 /** Maps provider usage for Anthropic transport and response translation. */
 export function mapAnthropicUsage(usage: Record<string, unknown>): ProviderUsage {
-  const inputTokens = nullableNumber(usage.input_tokens);
-  const outputTokens = nullableNumber(usage.output_tokens);
-  return {
-    inputTokens,
-    outputTokens,
-    totalTokens: inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null,
-    cacheReadTokens: nullableNumber(usage.cache_read_input_tokens),
-    cacheWriteTokens: nullableNumber(usage.cache_creation_input_tokens),
-    source: "provider",
-  };
+  return usageFromUncachedInput(
+    nullableNumber(usage.input_tokens),
+    nullableNumber(usage.output_tokens),
+    nullableNumber(usage.cache_read_input_tokens),
+    nullableNumber(usage.cache_creation_input_tokens),
+    nullableNumber(usage.total_tokens),
+  );
 }

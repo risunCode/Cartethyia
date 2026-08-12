@@ -419,6 +419,27 @@ export class AccountHealthManager {
     this.healthCache.set(accountId, { record, expiresAtMs: now + this.cacheTtlMs });
     return record;
   }
+  /** Marks a credential permanently unusable until an explicit OAuth reauthentication succeeds. */
+  async recordPermanentFailure(accountId: string, providerId: string, error: ProviderCallError): Promise<AccountHealthRecord | null> {
+    const now = this.nowMs();
+    const previous = await this.readHealthRecord(accountId, now);
+    const record: AccountHealthRecord = {
+      accountId,
+      providerId,
+      status: "disabled",
+      statusCode: error.statusCode,
+      failureKind: error.kind,
+      sanitizedMessage: sanitizeMessage(error.sanitizedMessage),
+      occurredAt: new Date(now).toISOString(),
+      retryAt: null,
+      disabledUntilMs: null,
+      failureCount: Math.min(255, (previous?.failureCount ?? 0) + 1),
+      generation: (previous?.generation ?? 0) + 1,
+    };
+    await this.store.set(record);
+    this.healthCache.set(accountId, { record, expiresAtMs: now + this.cacheTtlMs });
+    return record;
+  }
 
   async recordSuccess(accountId: string, providerId: string): Promise<AccountHealthRecord> {
     const now = this.nowMs();

@@ -40,3 +40,18 @@ export { mapGeminiUsage, translateGeminiResponse, geminiCandidate, responseParts
 export { ProtocolCodecError, StreamDecodeError, type StreamDecodeKind } from "./errors";
 export { detectSurface, lookupProxyEndpoint, normalizeRequest, parseRequestBody } from "./surface";
 export { boundedRequest, readBoundedBytes, readBoundedJson, BoundedBodyTooLargeError, type BoundedBytesResult, type JsonBodyResult } from "./body";
+
+export { toRequestDocument, withFieldDisposition, type RequestDocument, type RequestDocumentOptions, type FieldDisposition, type FieldDispositionAction, type ResponseControls, type ConversationState, type ReasoningIntent, type RequestMetadata, type SourceWireMetadata } from "./request/document";
+export { detectClientFormat, normalizationEndpoint, clientIdentityForProfile, type ClientFormat, type ClientProfile, type ClientProfileName, type FormatDetectionResult, type DetectionSource, type DetectionConfidence } from "./detection";
+export { RequestCodecRegistry, requestCodecRegistry, registerRequestCodec, registerRequestNormalizer, registerRequestEncoder, resolveRequestRoute, type RequestCodecContext, type RequestNormalizer, type RequestEncoder, type RequestCodec, type RequestRoute } from "./request/registry";
+export { isNativePassthroughEligible, type NativePassthroughContext } from "./policy/passthrough";
+export { applyProviderQuirkPolicy, applyRequiredProviderHeaders } from "./policy/quirks";
+export { boundedTranslationDiagnostics, diagnosticsForDetection, type TranslationDiagnosticInput } from "./diagnostics";
+export { resolveModelCapabilities, fromCaps, type ModelCapabilities, type ReasoningCapabilities, type CacheCapabilities, type ToolCapabilities, type ResponseCapabilities, type MediaCapabilities, type SupportLevel, type CanonicalEffort } from "./capabilities";
+export { createTranslationContext, type TranslationContext, type TranslationPolicy, type TranslationDiagnosticSink, type FeatureTranslation, type CompatibilityRejection, type CompatibilityRule } from "./context";
+export { classifyCompatibilityRejection, recordCompatibilityFallback, removeCompatibilityProjection } from "./fallback";
+export { preserveWireExtensions } from "./policy/extensions";
+export { normalizeClientEffort, projectEffort } from "./request/effort";
+export { getCacheIntent, hasCacheBreakpoint } from "./features/cache";
+export { DIRECT_ADAPTER_EXCEPTIONS, type DirectAdapterException } from "../transport/direct-adapter-policy";
+export type { TranslationDiagnostic, TranslationDiagnosticAction, TranslationDiagnosticStage } from "../../application/contracts";

@@ -6,10 +6,9 @@
  * unparseable files as "no config" rather than throwing.
  */
 
-import { mkdir } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
-
+import { mkdir, rm } from "node:fs/promises";
 /** Home directory — shared contract used by all injectors. */
 export { homedir as homeDir };
 export { join };
@@ -50,6 +49,10 @@ export async function readTextFile(path: string): Promise<string | null> {
 /** Write text to a file. */
 export async function writeTextFile(path: string, content: string): Promise<void> {
   await Bun.write(path, content);
+}
+/** Remove a file if it exists. */
+export async function removeFile(path: string): Promise<void> {
+  await rm(path, { force: true });
 }
 
 /** Create a directory recursively (like mkdir -p). */
@@ -131,10 +134,21 @@ export function tomlUpsertFlat(text: string, key: string, value: string): string
   const withNewline = text.endsWith("\n") ? text : `${text}\n`;
   return `${withNewline}${line}\n`;
 }
+/** Upsert a quoted root-level TOML key before the first table header. */
+export function tomlUpsertRootFlat(text: string, key: string, value: string): string {
+  const line = `${key} = "${value}"`;
+  const rootEnd = text.search(/^\[/m);
+  const boundary = rootEnd < 0 ? text.length : rootEnd;
+  const root = text.slice(0, boundary);
+  const keyPattern = new RegExp(`^${escapeRegex(key)}\\s*=\\s*"[^"]*"\\s*$`, "im");
+  if (keyPattern.test(root)) return `${root.replace(keyPattern, line)}${text.slice(boundary)}`;
+  const prefix = root.endsWith("\n") || root.length === 0 ? root : `${root}\n`;
+  return `${prefix}${line}\n${text.slice(boundary)}`;
+}
 
-/** Remove a flat key=value line from TOML text. */
-export function tomlRemoveFlat(text: string, key: string): string {
-  const re = new RegExp(`^${escapeRegex(key)}\\s*=\\s*"[^"]*"\\n?`, "im");
+/** Remove every flat key=value occurrence from TOML text. */
+export function tomlRemoveFlatAll(text: string, key: string): string {
+  const re = new RegExp(`^${escapeRegex(key)}\\s*=\\s*"[^"]*"\\s*\\n?`, "gim");
   return text.replace(re, "");
 }
 
@@ -146,10 +160,46 @@ export function tomlUpsertSection(text: string, section: string, body: string): 
   const withNewline = text.endsWith("\n") ? text : `${text}\n`;
   return `${withNewline}${block}\n`;
 }
+/** Upsert one quoted key inside an existing TOML table without replacing sibling keys. */
+export function tomlUpsertSectionFlat(text: string, section: string, key: string, value: string): string {
+  const line = `  ${key} = "${value}"`;
+  const malformed = new RegExp(`\\[${escapeRegex(section)}\\][ \\t]+${escapeRegex(key)}\\s*=\\s*"[^"]*"`, "im");
+  if (malformed.test(text)) return text.replace(malformed, `[${section}]\n${line}\n`);
+  const header = new RegExp(`^\\[${escapeRegex(section)}\\][ \\t]*$`, "im");
+  const match = header.exec(text);
+  if (match === null || match.index === undefined) {
+    const prefix = text.endsWith("\n") ? text : `${text}\n`;
+    return `${prefix}[${section}]\n${line}\n`;
+  }
+  const bodyStart = match.index + match[0].length;
+  const remainder = text.slice(bodyStart);
+  const nextSectionOffset = remainder.search(/^\[/m);
+  const bodyEnd = nextSectionOffset < 0 ? text.length : bodyStart + nextSectionOffset;
+  const body = text.slice(bodyStart, bodyEnd);
+  const keyPattern = new RegExp(`^\\s*${escapeRegex(key)}\\s*=\\s*"[^"]*"\\s*$`, "im");
+  const nextBody = keyPattern.test(body)
+    ? body.replace(keyPattern, line)
+    : `${body.replace(/\s*$/, "")}\n${line}\n`;
+  return `${text.slice(0, bodyStart)}${nextBody}${text.slice(bodyEnd)}`;
+}
+
+/** Remove one quoted key from a TOML table while preserving sibling keys. */
+export function tomlRemoveSectionFlat(text: string, section: string, key: string): string {
+  const header = new RegExp(`^\\[${escapeRegex(section)}\\]\\s*$`, "im");
+  const match = header.exec(text);
+  if (match === null || match.index === undefined) return text;
+  const bodyStart = match.index + match[0].length;
+  const remainder = text.slice(bodyStart);
+  const nextSectionOffset = remainder.search(/^\[/m);
+  const bodyEnd = nextSectionOffset < 0 ? text.length : bodyStart + nextSectionOffset;
+  const body = text.slice(bodyStart, bodyEnd);
+  const nextBody = body.replace(new RegExp(`^\\s*${escapeRegex(key)}\\s*=\\s*"[^"]*"\\s*\\n?`, "im"), "");
+  return `${text.slice(0, bodyStart)}${nextBody}${text.slice(bodyEnd)}`;
+}
 
 /** Remove a [section] block and all its key=value lines from TOML text. */
 export function tomlRemoveSection(text: string, section: string): string {
-  const re = new RegExp(`^\\[${escapeRegex(section)}\\]\\s*\\n(?:(?!^\\[)[^\\n]*\\n?)*`, "im");
+  const re = new RegExp(`^\\[${escapeRegex(section)}\\]\\s*\\n(?:(?!^\\[)[^\\n]*\\n?)*`, "gim");
   return text.replace(re, "").replace(/^\n+/, "");
 }
 
