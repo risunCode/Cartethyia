@@ -42,6 +42,10 @@ export function createConfigDatabase(env: PersistenceEnv) {
         const columns = opened.prepare("PRAGMA table_info(proxy_settings)").all() as { name: string }[];
         if (columns.length > 0 && !columns.some((column) => column.name === "web_search_preference")) opened.exec("ALTER TABLE proxy_settings ADD COLUMN web_search_preference TEXT NOT NULL DEFAULT 'auto'");
       } catch {}
+      try {
+        const columns = opened.prepare("PRAGMA table_info(api_keys)").all() as { name: string }[];
+        if (columns.length > 0 && !columns.some((column) => column.name === "disable_remote_mapping")) opened.exec("ALTER TABLE api_keys ADD COLUMN disable_remote_mapping INTEGER NOT NULL DEFAULT 0");
+      } catch {}
       opened.exec(CONFIG_SCHEMA_SQL);
       try {
         const providers = opened.query("SELECT id, slug FROM custom_providers WHERE id <> slug").all() as Array<{ id: string; slug: string }>;

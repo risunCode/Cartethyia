@@ -157,10 +157,10 @@ function createRouteResolver(
   _health: AccountHealthManager,
   _quota: QuotaCoordinator,
   readWebSearchPreference: () => WebSearchPreference = () => "auto",
-): (request: ProxyRequest, affinity: AffinityKey, client: ClientIdentity) => Promise<ProxyRoutePlan> {
-  return async (request, affinity, client) => {
+): (request: ProxyRequest, affinity: AffinityKey, client: ClientIdentity, disableRemoteMapping?: boolean) => Promise<ProxyRoutePlan> {
+  return async (request, affinity, client, disableRemoteMapping = false) => {
     const snapshot = await cache.get();
-    const mappedModel = resolveCliModelMapping(client, request.model, snapshot.cliModelMappings);
+    const mappedModel = disableRemoteMapping ? request.model : resolveCliModelMapping(client, request.model, snapshot.cliModelMappings);
     const routedRequest = mappedModel === request.model ? request : { ...request, model: mappedModel };
     const chain = resolveModelChain(routedRequest.model, { prefixes: snapshot.prefixes, aliases: snapshot.aliases, combos: snapshot.combos }, affinity);
     const resolved = chain.kind === "qualified" ? [chain.model] : chain.kind === "combo" ? chain.candidates : [];
@@ -233,10 +233,14 @@ function createRouteResolver(
         passthrough: passthroughCandidates,
       };
       const ordered: RouteCandidate[] = [];
+      // An explicitly selected model remains authoritative. Search-provider
+      // candidates are fallback routes, not replacements for the model the
+      // client mapped or selected. Unsupported native search degrades to the
+      // original route's passthrough behavior.
+      for (const candidate of passthroughCandidates) appendUniqueCandidate(ordered, candidate);
       for (const kind of webSearchPreferenceOrder(readWebSearchPreference())) {
         for (const candidate of groups[kind]) appendUniqueCandidate(ordered, candidate);
       }
-      for (const candidate of passthroughCandidates) appendUniqueCandidate(ordered, candidate);
       candidates.splice(0, candidates.length, ...ordered);
       const hasSearchCandidate = ordered.some((candidate) => candidate.searchRoute !== "passthrough");
       webSearchPassthrough = !hasSearchCandidate && passthroughCandidates.length > 0;

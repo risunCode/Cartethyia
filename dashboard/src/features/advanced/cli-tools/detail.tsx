@@ -12,7 +12,7 @@ import { Label } from "../../../components/ui/input";
 import { Switch } from "../../../components/ui/switch";
 import { ConfiguredModelPicker } from "../../../components/model-picker";
 import { ToolIcon } from "./tool-icon";
-import { useToolRegistry, useToolStatuses, useToolMappings, useApplyTool, useResetTool, useDownloadTool, useApiKeys, fetchApiKeyCredential } from "./api";
+import { useToolRegistry, useToolStatuses, useToolMappings, useSaveToolMappings, useApplyTool, useResetTool, useDownloadTool, useApiKeys, fetchApiKeyCredential } from "./api";
 import type { ApplyInput, ToolRegistryEntry, ToolStatus } from "./types";
 export function CliToolDetailPage() {
   const { toolId } = useParams<{ toolId: string }>();
@@ -65,6 +65,7 @@ function ToolDetailContent({
 
   const apiKeysQuery = useApiKeys();
   const mappingsQuery = useToolMappings(def.id);
+  const saveMappingsMutation = useSaveToolMappings();
   const applyMutation = useApplyTool();
   const resetMutation = useResetTool();
   const downloadMutation = useDownloadTool();
@@ -99,6 +100,24 @@ function ToolDetailContent({
       ...Object.fromEntries(Object.entries(persistedMappings).map(([slotKey, mapping]) => [slotKey, mapping.targetModel])),
     }));
   }, [mappingsQuery.data]);
+  const buildMappingInput = useCallback((enabled: boolean) => ({
+    enabled,
+    mappings: enabled
+      ? roleMappings.map((mapping) => {
+        if (isCustomMapping) {
+          const customModel = roleTargets[mapping.roleKey] ?? mapping.defaultModel;
+          return { slotKey: mapping.roleKey, sourceModel: customModel, targetModel: customModel, enabled: true };
+        }
+        const targetModel = mappingTargets[mapping.roleKey] ?? def.defaultMappingTarget ?? roleTargets[mapping.roleKey] ?? mapping.defaultModel;
+        return { slotKey: mapping.roleKey, sourceModel: mapping.roleKey, targetModel, enabled: true };
+      }).filter((mapping) => mapping.targetModel.length > 0)
+      : [],
+  }), [def.defaultMappingTarget, isCustomMapping, mappingTargets, roleMappings, roleTargets]);
+
+  const handleMappingEnabledChange = useCallback((enabled: boolean) => {
+    setMappingEnabled(enabled);
+    saveMappingsMutation.mutate({ toolId: def.id, input: buildMappingInput(enabled) });
+  }, [buildMappingInput, def.id, saveMappingsMutation]);
 
   const isGuide = def.configType === "guide";
   const installed = status?.installed ?? false;
@@ -254,7 +273,7 @@ function ToolDetailContent({
             <div className="border-t border-[var(--inner-border)] pt-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 {def.mappingSupported && (
-                  <div className="flex items-start justify-between gap-3 rounded-xl border border-[var(--inner-border)] bg-[var(--surface-muted)]/30 p-3">
+                  <div className="flex w-full flex-1 items-start justify-between gap-3 rounded-xl border border-[var(--inner-border)] bg-[var(--surface-muted)]/30 p-3">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold text-[var(--text-1)]">{isRemoteMapping ? "Enable Remote Mapping" : "Enable Custom Mapping"}</p>
                       <p className="mt-0.5 text-[11px] text-[var(--text-3)]">
@@ -264,7 +283,12 @@ function ToolDetailContent({
                       </p>
                       {isRemoteMapping && def.defaultMappingTarget && <p className="mt-1 text-[10px] text-[var(--accent)]">Recommended route target: <code translate="no">{def.defaultMappingTarget}</code></p>}
                     </div>
-                    <Switch checked={mappingEnabled} onChange={setMappingEnabled} label={isRemoteMapping ? "Enable Remote Mapping" : "Enable Custom Mapping"} />
+                    <Switch
+                      checked={mappingEnabled}
+                      onChange={handleMappingEnabledChange}
+                      disabled={mappingsQuery.isLoading || saveMappingsMutation.isPending}
+                      label={isRemoteMapping ? "Enable Remote Mapping" : "Enable Custom Mapping"}
+                    />
                   </div>
                 )}
               </div>

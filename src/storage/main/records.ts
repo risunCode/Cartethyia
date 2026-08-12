@@ -42,6 +42,7 @@ export interface ApiKeyPublic {
   readonly providerAllowlist: string | null;
   readonly modelAllowlist: string | null;
   readonly modelDenylist: string | null;
+  readonly disableRemoteMapping?: boolean;
   readonly lastUsedAt: string | null;
   readonly createdAt: string;
   readonly revokedAt: string | null;
@@ -60,6 +61,7 @@ export interface ApiKeyCreateInput {
   readonly providerAllowlist?: string | null;
   readonly modelAllowlist?: string | null;
   readonly modelDenylist?: string | null;
+  readonly disableRemoteMapping?: boolean;
 }
 
 export interface ApiKeyUpdateInput {
@@ -76,6 +78,7 @@ export interface ApiKeyUpdateInput {
   readonly providerAllowlist?: string | null;
   readonly modelAllowlist?: string | null;
   readonly modelDenylist?: string | null;
+  readonly disableRemoteMapping?: boolean;
   readonly active?: boolean;
 }
 

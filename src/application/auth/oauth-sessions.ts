@@ -258,6 +258,7 @@ export class OAuthLoginSessionManager {
       return this.view(session);
     }
     if (session.status !== "waiting-for-user") return this.view(session);
+    if (!session.deviceFlow) return this.view(session);
     const driver = this.drivers.get(session.providerId);
     if (driver?.poll === undefined) return this.view(session);
     try {

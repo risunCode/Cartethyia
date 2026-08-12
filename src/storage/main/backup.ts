@@ -60,7 +60,7 @@ const TABLE_COLUMNS: Record<BackupTable, readonly string[]> = {
   api_keys: [
     "id", "name", "key", "key_prefix", "active", "rate_limit_rpm", "daily_token_limit",
     "monthly_token_limit", "one_time_token_limit", "one_time_tokens_used", "quote_big_text", "quote_sub_text", "quote_body",
-    "max_concurrent_requests", "provider_allowlist", "model_allowlist", "model_denylist",
+    "max_concurrent_requests", "provider_allowlist", "model_allowlist", "model_denylist", "disable_remote_mapping",
     "last_used_at", "created_at", "revoked_at",
   ],
   share_links: ["id", "api_key_id", "token_hash", "kind", "active", "created_at", "expires_at", "used_at", "last_viewed_at"],

@@ -205,6 +205,7 @@ function createConsoleApiKeyRepository(config: ConfigPersistence, runtime: Runti
         providerAllowlist: input.providerAllowlist?.join(",") ?? null,
         modelAllowlist: input.modelAllowlist?.join(",") ?? null,
         modelDenylist: input.modelDenylist?.join(",") ?? null,
+        disableRemoteMapping: input.disableRemoteMapping ?? false,
       });
       return { key, record: toApiKeyView(row) };
     },
@@ -232,6 +233,7 @@ function createConsoleApiKeyRepository(config: ConfigPersistence, runtime: Runti
         providerAllowlist: existing.providerAllowlist,
         modelAllowlist: existing.modelAllowlist,
         modelDenylist: existing.modelDenylist,
+        disableRemoteMapping: existing.disableRemoteMapping,
       });
       return { key, record: toApiKeyView(row) };
     },

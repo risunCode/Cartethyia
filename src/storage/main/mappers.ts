@@ -37,6 +37,7 @@ max_concurrent_requests: number | null;
 provider_allowlist: string | null;
 model_allowlist: string | null;
 model_denylist: string | null;
+disable_remote_mapping: number;
 last_used_at: string | null;
 created_at: string;
 revoked_at: string | null; }
@@ -187,6 +188,7 @@ export function toApiKeyPublic(row: ApiKeyRow): ApiKeyPublic { return {
   providerAllowlist: row.provider_allowlist,
   modelAllowlist: row.model_allowlist,
   modelDenylist: row.model_denylist,
+  disableRemoteMapping: row.disable_remote_mapping === 1,
   lastUsedAt: row.last_used_at,
   createdAt: row.created_at,
   revokedAt: row.revoked_at,

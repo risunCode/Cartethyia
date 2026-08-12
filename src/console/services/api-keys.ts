@@ -31,6 +31,7 @@ export class ApiKeyService {
       providerAllowlist: stringListOrUndefined(value.providerAllowlist),
       modelAllowlist: stringListOrUndefined(value.modelAllowlist),
       modelDenylist: stringListOrUndefined(value.modelDenylist),
+      disableRemoteMapping: value.disableRemoteMapping !== false,
     });
     if ("error" in result) {
       return { ok: false, status: 409, code: "conflict", message: "a key with this name already exists" };

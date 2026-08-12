@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
   provider_allowlist TEXT,
   model_allowlist TEXT,
   model_denylist TEXT,
+  disable_remote_mapping INTEGER NOT NULL DEFAULT 0,
   last_used_at TEXT,
   created_at TEXT NOT NULL,
   revoked_at TEXT

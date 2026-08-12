@@ -72,8 +72,8 @@ export function createConsoleApiKeyRepository(db: () => Database): ApiKeyReposit
     create(input: ApiKeyCreateInput): ApiKeyPublic {
       const now = nowIso();
       db().query(
-        "INSERT INTO api_keys (id, name, key, key_prefix, active, rate_limit_rpm, daily_token_limit, monthly_token_limit, one_time_token_limit, max_concurrent_requests, provider_allowlist, model_allowlist, model_denylist, created_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run(input.id, input.name, input.key, input.keyPrefix, input.rateLimitRpm ?? null, input.dailyTokenLimit ?? null, input.monthlyTokenLimit ?? null, input.oneTimeTokenLimit ?? null, input.maxConcurrentRequests ?? null, input.providerAllowlist ?? null, input.modelAllowlist ?? null, input.modelDenylist ?? null, now);
+        "INSERT INTO api_keys (id, name, key, key_prefix, active, rate_limit_rpm, daily_token_limit, monthly_token_limit, one_time_token_limit, max_concurrent_requests, provider_allowlist, model_allowlist, model_denylist, disable_remote_mapping, created_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(input.id, input.name, input.key, input.keyPrefix, input.rateLimitRpm ?? null, input.dailyTokenLimit ?? null, input.monthlyTokenLimit ?? null, input.oneTimeTokenLimit ?? null, input.maxConcurrentRequests ?? null, input.providerAllowlist ?? null, input.modelAllowlist ?? null, input.modelDenylist ?? null, input.disableRemoteMapping ? 1 : 0, now);
       const row = db().query("SELECT * FROM api_keys WHERE id = ?").get(input.id) as ApiKeyRow;
       invalidateKeyCache();
       return toApiKeyPublic(row);
@@ -134,6 +134,10 @@ export function createConsoleApiKeyRepository(db: () => Database): ApiKeyReposit
       if (patch.modelDenylist !== undefined) {
         fields.push("model_denylist = ?");
         values.push(patch.modelDenylist);
+      }
+      if (patch.disableRemoteMapping !== undefined) {
+        fields.push("disable_remote_mapping = ?");
+        values.push(patch.disableRemoteMapping ? 1 : 0);
       }
       if (patch.active !== undefined) {
         fields.push("active = ?");

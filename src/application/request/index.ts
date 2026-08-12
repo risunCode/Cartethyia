@@ -69,7 +69,7 @@ export interface ProxyRequestDependencies {
   readonly accounts: CredentialSelector;
   readonly network: NetworkSelector;
   readonly telemetry: TelemetryWriter;
-  readonly resolveRoutes: (request: ProxyRequest, affinity: AffinityKey, client: ClientIdentity) => Promise<ProxyRoutePlan>;
+  readonly resolveRoutes: (request: ProxyRequest, affinity: AffinityKey, client: ClientIdentity, disableRemoteMapping?: boolean) => Promise<ProxyRoutePlan>;
   readonly accountCandidates: (providerId: string) => Promise<readonly AccountCandidate[]>;
   readonly getProviderRouting?: (providerId: string) => { readonly strategy: "priority" | "round-robin"; readonly stickyLimit: number; readonly useStickyLimit: boolean };
   readonly onRouteFailure?: (candidate: RouteCandidate, error: ProviderCallError, selected: RouteAttemptSelection | null) => Promise<void>;
@@ -219,7 +219,7 @@ export async function runProxyRequest(input: AuthorizedProxyRequestInput, depend
     const affinity: AffinityKey = input.authorization.apiKeyId
       ? { namespace: "api_key", value: input.authorization.apiKeyId }
       : { namespace: "trusted_identity", value: input.authorization.trustedIdentity ?? "anonymous" };
-    const routePlan = await dependencies.resolveRoutes(currentRequest, affinity, client);
+    const routePlan = await dependencies.resolveRoutes(currentRequest, affinity, client, input.authorization.apiKey?.disableRemoteMapping === true);
     const candidates = routePlan.candidates.filter((candidate) => isRouteAllowed(candidate.providerId, candidate.modelId, input.authorization, routePlan.requestedModel));
     resolvedPlan = { ...routePlan, candidates };
     if (resolvedPlan.candidates.length === 0) {

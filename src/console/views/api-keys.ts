@@ -39,6 +39,7 @@ export interface ApiKeyCreateInput {
   readonly providerAllowlist?: readonly string[];
   readonly modelAllowlist?: readonly string[];
   readonly modelDenylist?: readonly string[];
+  readonly disableRemoteMapping?: boolean;
 }
 
 export interface ApiKeyUpdateInput {
@@ -52,6 +53,7 @@ export interface ApiKeyUpdateInput {
   readonly providerAllowlist?: readonly string[] | null;
   readonly modelAllowlist?: readonly string[] | null;
   readonly modelDenylist?: readonly string[] | null;
+  readonly disableRemoteMapping?: boolean;
   readonly quoteBigText?: string | null;
   readonly quoteSubText?: string | null;
   readonly quoteBody?: string | null;

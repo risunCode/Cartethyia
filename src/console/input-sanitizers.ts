@@ -151,6 +151,7 @@ export function sanitizeKeyUpdate(value: Record<string, unknown>): WriteablePart
   if (modelAllowlist !== undefined) patch.modelAllowlist = modelAllowlist;
   const modelDenylist = nullableStringList(value.modelDenylist);
   if (modelDenylist !== undefined) patch.modelDenylist = modelDenylist;
+  if (typeof value.disableRemoteMapping === "boolean") patch.disableRemoteMapping = value.disableRemoteMapping;
   const quoteBigText = nullableText(value.quoteBigText);
   if (quoteBigText !== undefined) patch.quoteBigText = quoteBigText;
   const quoteSubText = nullableText(value.quoteSubText);

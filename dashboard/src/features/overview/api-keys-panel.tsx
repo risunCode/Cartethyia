@@ -15,6 +15,7 @@ import { Dialog } from "../../components/ui/dialog";
 import { Input, Label } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
 import { StatePanel, StatCard } from "../../components/ui/state";
+import { Switch } from "../../components/ui/switch";
 
 export interface ApiKeyRecord {
   id: string;
@@ -34,6 +35,7 @@ export interface ApiKeyRecord {
   totalUsage: number;
   totalRequests: number;
   createdAt: string;
+  disableRemoteMapping: boolean;
   lastUsedAt: string | null;
 }
 
@@ -64,6 +66,7 @@ interface KeyLimitsInput {
   monthlyTokenLimit?: number;
   oneTimeTokenLimit?: number;
   maxConcurrentRequests?: number;
+  disableRemoteMapping?: boolean;
   modelAllowlist?: string[];
 }
 
@@ -225,8 +228,9 @@ function KeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps) {
   const [rpm, setRpm] = useState(record?.rateLimitRpm?.toString() ?? "");
   const [daily, setDaily] = useState(tokenInputValue(record?.dailyTokenLimit ?? null));
   const [monthly, setMonthly] = useState(tokenInputValue(record?.monthlyTokenLimit ?? null));
-  const [oneTime, setOneTime] = useState(tokenInputValue(record?.oneTimeTokenLimit ?? null));
   const [budgetMode, setBudgetMode] = useState<TokenBudgetMode>(record?.oneTimeTokenLimit != null ? "one-time" : "recurring");
+  const [oneTime, setOneTime] = useState(tokenInputValue(record?.oneTimeTokenLimit ?? null));
+  const [disableRemoteMapping, setDisableRemoteMapping] = useState(mode === "create" ? true : record?.disableRemoteMapping ?? false);
   const [concurrent, setConcurrent] = useState(record?.maxConcurrentRequests?.toString() ?? "");
   const [models, setModels] = useState<string[]>(record?.modelAllowlist ? [...record.modelAllowlist] : []);
   const [quoteBigText, setQuoteBigText] = useState(record?.quoteBigText ?? "");
@@ -238,15 +242,18 @@ function KeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps) {
     name: name.trim(),
     customKey: customKey.trim() || undefined,
     prefix: prefix.trim() || undefined,
-    limits: buildKeyLimitsInput(
-      rpm,
-      isOneTimeBudget ? "" : daily,
-      isOneTimeBudget ? "" : monthly,
-      concurrent,
-      models,
-      oneTime,
-      budgetMode,
-    ),
+    limits: {
+      ...buildKeyLimitsInput(
+        rpm,
+        isOneTimeBudget ? "" : daily,
+        isOneTimeBudget ? "" : monthly,
+        concurrent,
+        models,
+        oneTime,
+        budgetMode,
+      ),
+      disableRemoteMapping,
+    },
     quoteBigText: quoteBigText.trim() || undefined,
     quoteSubText: quoteSubText.trim() || undefined,
     quoteBody: quoteBody.trim() || undefined,
@@ -354,6 +361,15 @@ function KeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps) {
           includeCustomProviders={false}
           disabled={busy}
         />
+        <div className="flex items-start justify-between gap-4 rounded-xl border border-[var(--inner-border)] bg-[var(--surface-muted)]/30 p-3">
+          <div className="min-w-0">
+            <div className="text-xs font-bold text-[var(--text-1)]">Disable Remote Mapping</div>
+            <p className="mt-0.5 text-[10.5px] text-[var(--text-3)]">
+              When enabled, this API key never applies shared CLI remote mappings. The client model stays on its configured route.
+            </p>
+          </div>
+          <Switch checked={disableRemoteMapping} onChange={setDisableRemoteMapping} disabled={busy} label="Disable Remote Mapping" />
+        </div>
       </section>
 
       {mode === "edit" && (
