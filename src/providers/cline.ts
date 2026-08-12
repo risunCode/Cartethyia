@@ -109,9 +109,25 @@ function ensureSystemMessage(messages: readonly Record<string, unknown>[]): read
   return [{ role: "system", content: "" }, ...messages];
 }
 
-async function callClineOnce(input: ProviderRequest, bearer: string): Promise<ProviderOutput> {
+const CLINE_EMPTY_RESPONSE_RETRY_MAX_TOKENS = 128;
+
+async function callClineOnce(input: ProviderRequest, bearer: string, disableReasoning = false): Promise<ProviderOutput> {
   const { request, signal, network } = input;
-  const encoded = buildChatPayload({ ...request, model: input.target.upstreamModelId }, { upstreamModel: input.target.upstreamModelId });
+  const effectiveMaxTokens = request.maxOutputTokens;
+  const effectiveDisableReasoning = disableReasoning || (!request.stream && effectiveMaxTokens !== null && effectiveMaxTokens < CLINE_EMPTY_RESPONSE_RETRY_MAX_TOKENS);
+  const encoded = buildChatPayload(
+    { ...request, model: input.target.upstreamModelId, ...(effectiveDisableReasoning ? { reasoning: "disabled" as const, reasoningConfig: { enabled: false } } : {}) },
+    { upstreamModel: input.target.upstreamModelId },
+  );
+  if (effectiveDisableReasoning) {
+    encoded.reasoning_effort = "none";
+    encoded.reasoning = { enabled: false };
+  }
+  delete encoded.max_completion_tokens;
+  if (effectiveDisableReasoning && request.maxOutputTokens !== null && request.maxOutputTokens < CLINE_EMPTY_RESPONSE_RETRY_MAX_TOKENS) {
+    delete encoded.max_tokens;
+    encoded.max_completion_tokens = request.maxOutputTokens;
+  }
   const wireMessages = Array.isArray(encoded.messages) ? encoded.messages.filter(isRecord) : [];
   const payload: Record<string, unknown> = {
     ...encoded,
@@ -175,14 +191,9 @@ export class ClineAdapter implements Adapter {
       throw new ProviderAdapterError({ kind: "authentication_failed", message: "A Cline OAuth credential is required.", statusCode: 401, routeScope: "account" });
     }
     const bearer = clineBearer(token);
-    try {
-      return await callClineOnce(input, bearer);
-    } catch (error) {
-      if (error instanceof ProviderAdapterError && error.statusCode === 500 && /empty response content/i.test(error.message)) {
-        return callClineOnce(input, bearer);
-      }
-      throw error;
-    }
+    const requested = input.request.maxOutputTokens;
+    const lowBudget = !input.request.stream && requested !== null && requested < CLINE_EMPTY_RESPONSE_RETRY_MAX_TOKENS;
+    return callClineOnce(input, bearer, lowBudget);
   }
 
 
