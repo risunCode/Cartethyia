@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# One repository Dockerfile with two independently selectable targets:
+# One repository Dockerfile with independently selectable targets:
 #   --target runtime    Go daemon API (default)
 #   --target dashboard  existing React/Vite dashboard static image
 #
@@ -23,20 +23,26 @@ COPY daemon/go.mod ./
 RUN go mod download
 COPY daemon/ ./
 
-ENV CGO_ENABLED=0
+ENV CGO_ENABLED=0 \
+    GOFLAGS=-buildvcs=false
 RUN go build -trimpath -ldflags="-s -w" -o /out/cartethyia ./cmd/cartethyia
 
-FROM gcr.io/distroless/static-debian12:nonroot AS daemon
+FROM alpine:3.22 AS daemon
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S -g 10001 cartethyia \
+    && adduser -S -D -H -u 10001 -G cartethyia cartethyia
 WORKDIR /app
 
 ENV CARTETHYIA_LISTEN_ADDRESS=:12800 \
-    CARTETHYIA_ENV=production \
-    DATABASE_URL=""
+    CARTETHYIA_ENV=production
 
 EXPOSE 12800
 
-COPY --from=daemon-build --chown=nonroot:nonroot /out/cartethyia /app/cartethyia
+COPY --from=daemon-build /out/cartethyia /app/cartethyia
 
+USER cartethyia
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q -O /dev/null http://127.0.0.1:12800/health || exit 1
 ENTRYPOINT ["/app/cartethyia"]
 
 FROM nginx:1.27-alpine AS dashboard

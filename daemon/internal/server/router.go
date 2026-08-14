@@ -26,7 +26,7 @@ func NewRouterWith(opts Options) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler(opts.HealthArtwork))
 	mux.HandleFunc("/metrics", handleMetrics(opts.Registry))
-	registerV1(mux, opts.V1)
+	registerV1(mux, opts.V1, opts.V1Auth)
 	registerV2Admin(mux, opts.V2Admin)
 	mux.HandleFunc("/", handleNotFound)
 	return middleware.RequestID(observeRequests(opts.Registry, mux)), nil
@@ -72,7 +72,6 @@ func healthPage(r *http.Request, artwork string) string {
 
 Anthropic
   POST /v1/messages
-  POST /v1/messages/count_tokens
 
 Media Generation
   POST /v1/images/generations
@@ -124,12 +123,18 @@ func handleMetrics(registry *observability.Registry) http.HandlerFunc {
 // registerV1 wires the /v1/ route group. A nil registrar leaves the prefix
 // on the shared "not implemented" placeholder; a non-nil registrar owns
 // the subtree exclusively.
-func registerV1(mux *http.ServeMux, v1 V1Registrar) {
+func registerV1(mux *http.ServeMux, v1 V1Registrar, auth func(http.Handler) http.Handler) {
 	if v1 == nil {
 		mux.HandleFunc("/v1/", notReady("v1 API"))
 		return
 	}
-	v1.Register(mux)
+	if auth == nil {
+		v1.Register(mux)
+		return
+	}
+	submux := http.NewServeMux()
+	v1.Register(submux)
+	mux.Handle("/v1/", auth(submux))
 }
 
 // registerV2Admin wires the /v2/admin/ route group. A nil registrar leaves

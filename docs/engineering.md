@@ -1,63 +1,37 @@
-# Engineering: Contracts, Conventions, Operations, and Testing
+# Engineering Conventions, Contracts, Security, and Testing
 
-## Coding conventions
-
-### Go
+## 1. Go request convention
 
 ```text
-handler -> closed input -> service -> bounded output
+HTTP handler
+    -> bounded input contract
+    -> validation
+    -> service
+    -> bounded output or typed error
 ```
 
 Handlers must:
 
-- enforce registered methods;
-- bound JSON/body size;
+- register only the supported standard methods;
+- bound headers, body, JSON depth/size, and output size;
 - validate before side effects;
-- use `context.Context`;
-- write stable envelopes;
-- preserve cancellation;
-- avoid package-global providers/storage;
-- never serialize `err.Error()` directly.
+- pass `context.Context` through all I/O;
+- preserve cancellation and deadlines;
+- use injected services instead of package-global storage/provider state;
+- write stable public envelopes;
+- avoid serializing `err.Error()` directly into public responses.
 
-Use typed contracts for surfaces, errors, rate source/scope/phase, lifecycle stages, and opaque credential references. Keep wrapped causes internal.
+The active package ownership is documented in [Architecture](architecture.md).
+The root `internal/proxy` package is a compatibility facade; new code should
+import the owning package when it needs a concrete subsystem.
 
-### TypeScript
+## 2. Closed contracts and unknown values
 
-```text
-lib/api.ts          low-level HTTP boundary
-lib/daemon-api.ts   V2 helper + closed parsers
-lib/daemon-routes.ts route/method matrix
-lib/query-keys.ts   invalidation namespaces
-features/*/api.ts   resource builders/parsers
-features/*/queries  hooks/mutation state
-features/*/page.tsx UI states
-```
+Public admin resources use closed, bounded DTOs. Unknown fields are discarded
+at the boundary. Missing facts remain `null`, `unknown`, `unavailable`, or
+`stale` as appropriate; they are not converted into empty success lists.
 
-Use `daemonGet`, `daemonPost`, `daemonPatch`, and `daemonDelete` for browser resources. Never use `/v1/*` from dashboard code. Never spread unknown daemon objects into React state.
-
-## Browser V2 contract
-
-```text
-+---------------------------+
-| Dashboard resource       |
-+-------------+-------------+
-              | GET/POST/PATCH/DELETE
-              v
-+---------------------------+
-| /v2/admin/*              |
-+-------------+-------------+
-              v
-+---------------------------+
-| { data: closed DTO }     |
-| or { error: bounded }    |
-+---------------------------+
-```
-
-`QUERY` is unsupported. GET has no request body. Absolute URLs and `/v1/*` are rejected by the transport boundary.
-
-Success data is closed and bounded. Unknown fields are discarded. Missing facts remain `null`/`Unknown`; errors are not converted into empty success lists.
-
-## Error contract
+The external error shape is namespaced and bounded:
 
 ```json
 {
@@ -71,139 +45,203 @@ Success data is closed and bounded. Unknown fields are discarded. Missing facts 
 }
 ```
 
-Stable fields:
+Internal failures carry typed dimensions:
 
 ```text
 source: admission | account | provider | network | translation | admin
 scope:  client | route | provider | model | account | proxy | global
 phase:  pre_dispatch | provider | partial_work
 kind:   invalid_request | authentication | rate_limit | quota | transient | fatal
-code:   namespaced stable string
 ```
 
-Never include prompts, bodies, credentials, cookies, authorization, tool arguments/results, raw upstream messages, or wrapped causes.
+Wrapped causes stay internal. Public responses expose stable codes and safe
+messages only.
 
-## Secret boundary
+## 3. Secret boundary
 
 ```text
-credentialRef
-      |
-      v
-late CredentialResolver
-      |
-      v
+opaque credentialRef
+        |
+        v
+late credential resolver
+        |
+        v
 short-lived transport credential
-      |
-      v
+        |
+        v
 provider call
+        |
+        v
+zero/short lifetime after use
 ```
 
-Only the opaque reference may cross dashboard/resource boundaries. Clear sensitive form state after success, error, and cancellation. Probe URLs reject embedded credentials and credential-like query keys.
+Rules:
 
-## Observability
+- account and routing structs carry only opaque references;
+- PostgreSQL stores encrypted access/refresh secret material;
+- dashboard/API DTOs never return token values;
+- authenticated proxy URLs are never rendered;
+- credentials are not accepted through custom-provider metadata routes;
+- clear sensitive browser form state after success, error, and cancellation;
+- URLs with embedded credentials or credential-like query keys are rejected;
+- request bodies, prompts, cookies, tool arguments/results, and raw upstream
+  messages never enter telemetry evidence.
 
-Console Log contains lifecycle evidence:
+## 4. Admin and dashboard contract
+
+The dashboard uses the admin plane only:
 
 ```text
-incoming -> admission -> route -> attempt -> retry/fallback
-         -> completion | failure | cancellation
+GET/POST/PATCH/DELETE /v2/admin/*
 ```
 
-Request Log is narrower: it contains only canonical external `POST /v1/action` evidence. Dashboard Web Request is a V2 admin operation and belongs to Console Log/admin evidence, not Request Log.
+It must not call `/v1/*` for operator resources. `QUERY` is unsupported. GET
+requests have no JSON body. Resource responses use closed `{data: ...}` or
+bounded `{error: ...}` envelopes.
 
-Safe evidence dimensions:
+The daemon and dashboard are separate processes. Dashboard HTML is not served
+by the Go daemon; the root Dockerfile can build the dashboard as a separate
+image target.
+
+## 5. Observability
+
+Lifecycle evidence follows the request state machine:
 
 ```text
-request_id, trace_id, method, path, surface, client_family,
-provider, model, account/proxy display, attempt, latency,
-stage, outcome, error/rate metadata, cache status
+incoming
+  -> admission
+  -> provider/account/network route
+  -> attempt
+  -> retry/refresh/fallback
+  -> completion | failure | cancellation
 ```
 
-No raw payloads.
-
-## Operations
+Safe fields include:
 
 ```text
-operator action
-      |
-      v
-scope check + validation
-      |
-      v
-confirmation when destructive
-      |
-      v
-pending lock
-      |
-      v
-V2 action
-      |
-      v
-success | forbidden | unavailable | stale | failed
+request_id
+trace_id
+method
+path
+surface
+client_family
+provider
+model
+account display
+proxy display/source
+attempt
+latency
+stage
+outcome
+error/rate metadata
+cache status
 ```
 
-This applies to settings, backups, restore/delete, cache/reindex/probe/restart, and proxy mutations. Binary backup downloads use a bounded raw path and safe filenames.
+There are different evidence purposes:
 
-If a service is not composed, show unavailable. Do not fabricate healthy, zero, empty, or successful data.
+- **Console Log**: lifecycle and operator-visible events.
+- **Request Log**: canonical external client action evidence only.
+- **Admin Web Request**: dashboard/admin operation evidence, not client request
+  evidence.
+- **Telemetry**: bounded aggregate usage, error, upstream, client, and request
+  dimensions.
 
-## Trusted ingress
+No log category may store raw prompts, full bodies, tokens, cookies, tool
+payloads, authenticated proxy URLs, or raw provider error bodies.
 
-Forwarded headers are untrusted by default. Enable trusted forwarded identity only behind an ingress that strips/replaces the headers. Client-family detection is advisory and never authorization.
+## 6. Runtime and operations conventions
 
-## Testing
+- Configuration enters through `daemon.LoadConfig()` and validated internal
+  config before dependency construction.
+- PostgreSQL is the durable authority when production or a database URL is
+  configured.
+- Redis is an optional cache dependency; the runtime composes memory fallback.
+- Missing required production dependencies fail startup rather than producing a
+  fake healthy runtime.
+- Shutdown propagates context cancellation, closes listeners, stops workers,
+  closes cache/database dependencies, and reports bounded shutdown errors.
+- Dependency health is explicit. Offline/unhealthy Redis is not equivalent to a
+  durable-store success.
+- Docker runtime is non-root and must receive secrets at runtime, never in an
+  image layer.
 
-Focused daemon tests:
+See [Operations](operations.md) for environment, Docker, Compose, health, and
+troubleshooting procedures.
+
+## 7. Testing strategy
+
+Test observable behavior and boundary invariants, not implementation text.
+
+### Focused Go tests
 
 ```bash
 cd daemon
 go test ./internal/server/...
 go test ./internal/proxy/...
 go test ./internal/observability/...
+go test ./internal/database/...
 ```
 
-Focused dashboard tests:
-
-```bash
-cd dashboard
-bun x vitest run test/lib/api.test.ts
-bun x vitest run test/lib/daemon-api.test.ts
-bun x vitest run test/lib/legacy-surface.test.ts
-```
-
-Full gates:
+### Full Go gates
 
 ```bash
 cd daemon
 go test ./...
 go vet ./...
 go build ./cmd/cartethyia
+```
 
-cd ../dashboard
+### Live PostgreSQL integration
+
+The durable authority integration is opt-in:
+
+```bash
+cd daemon
+CARTETHYIA_POSTGRES_URL='postgres://postgres@127.0.0.1:5432/cartethyia?sslmode=disable' \
+  go test ./internal/database -run TestPostgreSQLAccountAuthorityIntegration -count=1
+```
+
+It covers migrations, account configuration, encrypted secrets, joined
+account directory, refresh leases, fence tokens, and atomic refresh commit.
+
+### Dashboard gates
+
+```bash
+cd dashboard
 bun run test:ci
+bun run build
 ```
 
-Test behavior, not source text. Cover malformed input, unavailable services, stale responses, cancellation, retry/fallback, redaction, unknown values, and destructive mutation state.
+### Required behavior cases
 
-## Browser smoke
+Add or preserve coverage for:
 
-Dashboard and daemon are separate processes. Use the project-configured ports:
+- malformed JSON and oversized bodies;
+- unsupported methods and surfaces;
+- unavailable services and truthful error envelopes;
+- account cooldown, quota, reauth, and retry/fallback;
+- provider translation and unsupported features;
+- stream ordering, cancellation, malformed events, and terminal state;
+- cache hit/miss/unknown and generation invalidation;
+- secret redaction and SSRF/redirect policy;
+- destructive admin confirmation and stale state;
+- PostgreSQL/Redis failure and memory fallback.
 
-```text
-GET /                 -> landing
-GET /console/         -> console entry
-session guard         -> login or overview
-GET /v2/admin/...     -> valid envelope or truthful unavailable
-```
+Race-enabled verification requires a platform with a working C compiler. The
+Windows workstation may compile and run normal tests while still being unable
+to run `go test -race` when GCC/CGO is unavailable.
 
-Do not send dashboard browser requests to the daemon port and expect SPA HTML.
+## 8. Change checklist
 
-## Durable decisions
+Before a runtime change:
 
-- `/v1/*` is external client ingress; `/v2/admin/*` is browser/admin.
-- Standard HTTP methods only.
-- Opaque credentials and closed DTOs.
-- Truthful unknown/degraded/unavailable states.
-- Provider/account/network selection stays separate.
-- Normalize at ingress and translate at protocol edges.
-- Cache marking is provider capability-gated and must protect stable prefixes.
-- Destructive operations require explicit confirmation and observable failure state.
+1. Identify the owning package.
+2. Check all exported callers and contracts.
+3. Preserve standard method and error behavior.
+4. Keep secret/raw-payload boundaries intact.
+5. Add focused behavior tests for new branches.
+6. Run focused package tests, then full Go tests and vet.
+7. Smoke the actual daemon path when the change affects startup, routing,
+   storage, or HTTP behavior.
+8. Update the relevant consolidated document; do not create a one-file doc for
+   every small concern.

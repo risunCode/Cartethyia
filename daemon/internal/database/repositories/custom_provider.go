@@ -149,7 +149,7 @@ func (r *BunCustomProviderRepository) ListCustomProviders(ctx context.Context) (
 		return nil, ErrRepositoryClosed
 	}
 	rows := []customProviderRow{}
-	if err := r.db.NewSelect().Model(&rows).Table("custom_providers").Order("slug ASC").Scan(ctx); err != nil {
+	if err := r.db.NewSelect().TableExpr("custom_providers").Order("slug ASC").Scan(ctx, &rows); err != nil {
 		return nil, err
 	}
 	out := make([]models.CustomProvider, len(rows))
@@ -165,7 +165,7 @@ func (r *BunCustomProviderRepository) GetCustomProvider(ctx context.Context, id 
 		return models.CustomProvider{}, ErrRepositoryClosed
 	}
 	var row customProviderRow
-	if err := r.db.NewSelect().Model(&row).Table("custom_providers").Where("id = ?", strings.TrimSpace(id)).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().TableExpr("custom_providers").Where("id = ?", strings.TrimSpace(id)).Scan(ctx, &row); err != nil {
 		return models.CustomProvider{}, err
 	}
 	return row.model(), nil
@@ -177,7 +177,7 @@ func (r *BunCustomProviderRepository) GetCustomProviderBySlug(ctx context.Contex
 		return models.CustomProvider{}, ErrRepositoryClosed
 	}
 	var row customProviderRow
-	if err := r.db.NewSelect().Model(&row).Table("custom_providers").Where("slug = ?", strings.TrimSpace(slug)).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().TableExpr("custom_providers").Where("slug = ?", strings.TrimSpace(slug)).Scan(ctx, &row); err != nil {
 		return models.CustomProvider{}, err
 	}
 	return row.model(), nil

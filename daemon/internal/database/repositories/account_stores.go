@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cartethyia/daemon/internal/accounts"
+	"github.com/cartethyia/daemon/internal/database/models"
 	"github.com/uptrace/bun"
 )
 
@@ -128,6 +129,76 @@ ORDER BY c.id`, providerID).Scan(ctx, &rows); err != nil {
 		out = append(out, entry)
 	}
 	return out, nil
+}
+
+// GetHealth reads the non-secret provider_account_health sidecar. Missing
+// rows are represented by a healthy zero state so newly-created accounts do
+// not require an eager health write.
+func (s *BunAccountStores) GetHealth(ctx context.Context, accountID string) (models.AccountHealth, error) {
+	var row models.AccountHealth
+	err := s.db.NewRaw(`SELECT account_id, status, error_kind, status_code, sanitized_message, occurred_at, retry_at, last_refresh_at, quota_json, quota_error, quota_fetched_at, provider_id, disabled_until_ms, failure_count, generation, updated_at FROM provider_account_health WHERE account_id = ?`, accountID).Scan(ctx, &row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.AccountHealth{AccountID: accountID, Status: "healthy", UpdatedAt: time.Now().UTC()}, nil
+	}
+	return row, err
+}
+
+func (s *BunAccountStores) UpsertHealth(ctx context.Context, health models.AccountHealth) error {
+	if health.AccountID == "" {
+		return errors.New("accounts: health account id is required")
+	}
+	if health.Status == "" {
+		health.Status = "healthy"
+	}
+	if health.UpdatedAt.IsZero() {
+		health.UpdatedAt = time.Now().UTC()
+	}
+	_, err := s.db.NewRaw(`
+INSERT INTO provider_account_health (account_id, status, error_kind, status_code, sanitized_message, occurred_at, retry_at, last_refresh_at, quota_json, quota_error, quota_fetched_at, provider_id, disabled_until_ms, failure_count, generation, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (account_id) DO UPDATE SET status=EXCLUDED.status, error_kind=EXCLUDED.error_kind, status_code=EXCLUDED.status_code, sanitized_message=EXCLUDED.sanitized_message, occurred_at=EXCLUDED.occurred_at, retry_at=EXCLUDED.retry_at, last_refresh_at=EXCLUDED.last_refresh_at, quota_json=EXCLUDED.quota_json, quota_error=EXCLUDED.quota_error, quota_fetched_at=EXCLUDED.quota_fetched_at, provider_id=EXCLUDED.provider_id, disabled_until_ms=EXCLUDED.disabled_until_ms, failure_count=EXCLUDED.failure_count, generation=EXCLUDED.generation, updated_at=EXCLUDED.updated_at`,
+		health.AccountID, health.Status, health.ErrorKind, health.StatusCode, health.SanitizedMessage, health.OccurredAt, health.RetryAt, health.LastRefreshAt, blobOrNil(health.QuotaJSON), health.QuotaError, health.QuotaFetchedAt, health.ProviderID, health.DisabledUntilMs, health.FailureCount, health.Generation, health.UpdatedAt).Exec(ctx)
+	return err
+}
+
+func (s *BunAccountStores) GetModelLock(ctx context.Context, accountID, modelID string) (models.AccountModelLock, error) {
+	var row models.AccountModelLock
+	err := s.db.NewRaw(`SELECT account_id, model_id, retry_at, error_kind, status_code, sanitized_message, failure_count, created_at, updated_at FROM account_model_locks WHERE account_id = ? AND model_id = ?`, accountID, modelID).Scan(ctx, &row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.AccountModelLock{AccountID: accountID, ModelID: modelID}, nil
+	}
+	return row, err
+}
+
+func (s *BunAccountStores) UpsertModelLock(ctx context.Context, lock models.AccountModelLock) error {
+	if lock.AccountID == "" || lock.ModelID == "" {
+		return errors.New("accounts: model lock account and model are required")
+	}
+	if lock.CreatedAt.IsZero() {
+		lock.CreatedAt = time.Now().UTC()
+	}
+	if lock.UpdatedAt.IsZero() {
+		lock.UpdatedAt = lock.CreatedAt
+	}
+	if lock.FailureCount <= 0 {
+		lock.FailureCount = 1
+	}
+	_, err := s.db.NewRaw(`
+INSERT INTO account_model_locks (account_id, model_id, retry_at, error_kind, status_code, sanitized_message, failure_count, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (account_id, model_id) DO UPDATE SET retry_at=EXCLUDED.retry_at, error_kind=EXCLUDED.error_kind, status_code=EXCLUDED.status_code, sanitized_message=EXCLUDED.sanitized_message, failure_count=EXCLUDED.failure_count, updated_at=EXCLUDED.updated_at`,
+		lock.AccountID, lock.ModelID, lock.RetryAt, lock.ErrorKind, lock.StatusCode, lock.SanitizedMessage, lock.FailureCount, lock.CreatedAt, lock.UpdatedAt).Exec(ctx)
+	return err
+}
+
+func (s *BunAccountStores) ClearModelLock(ctx context.Context, accountID, modelID string) error {
+	_, err := s.db.NewRaw(`DELETE FROM account_model_locks WHERE account_id = ? AND model_id = ?`, accountID, modelID).Exec(ctx)
+	return err
+}
+
+func (s *BunAccountStores) ClearModelLocks(ctx context.Context, accountID string) error {
+	_, err := s.db.NewRaw(`DELETE FROM account_model_locks WHERE account_id = ?`, accountID).Exec(ctx)
+	return err
 }
 
 func (s *BunAccountStores) DeleteAccount(ctx context.Context, id string) error {

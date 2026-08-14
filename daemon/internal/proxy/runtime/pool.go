@@ -69,6 +69,34 @@ type AccountStore interface {
 	ListAccounts(ctx context.Context, providerID string) ([]Account, error)
 }
 
+// AccountStatePersistence is the optional durable sidecar for account health
+// and per-model locks. Implementations must store only the supplied
+// non-secret state; credential material never crosses this boundary.
+type AccountStatePersistence interface {
+	LoadAccount(ctx context.Context, accountID string) (AccountHealthState, error)
+	SaveAccount(ctx context.Context, accountID string, state AccountHealthState) error
+	LoadModelLock(ctx context.Context, accountID, modelID string) (ModelLockState, error)
+	SaveModelLock(ctx context.Context, accountID, modelID string, state ModelLockState) error
+	ClearModelLock(ctx context.Context, accountID, modelID string) error
+}
+
+type accountModelLockResetter interface {
+	ClearModelLocks(ctx context.Context, accountID string) error
+}
+
+type AccountHealthState struct {
+	State         AccountState
+	CooldownUntil time.Time
+	QuotaResetAt  time.Time
+	FailureCount  int
+	LastFailure   time.Time
+}
+
+type ModelLockState struct {
+	RetryAt      time.Time
+	FailureCount int
+}
+
 // PoolConfig configures the AccountPool.
 type PoolConfig struct {
 	// Store supplies accounts. Required.
@@ -80,6 +108,10 @@ type PoolConfig struct {
 	// Now is the clock used for TTL and quota calculations. When nil,
 	// time.Now is used.
 	Now func() time.Time
+	// StatePersistence is optional outside production. When configured, health
+	// and model-lock transitions are written synchronously with bounded
+	// contexts and reloaded before selection.
+	StatePersistence AccountStatePersistence
 }
 
 // AccountPool is the in-memory account pool (AD-1).
@@ -88,12 +120,14 @@ type AccountPool struct {
 	ttl   time.Duration
 	now   func() time.Time
 
-	mu        sync.Mutex
-	refreshMu sync.Mutex
-	cache     map[string]providerSnapshot // providerID → snapshot
-	lastIndex map[string]int              // round-robin cursor per provider
-	inFlight  map[string]int              // accountID → active count
-	states    map[string]*accountRuntime  // accountID → runtime state
+	mu         sync.Mutex
+	refreshMu  sync.Mutex
+	cache      map[string]providerSnapshot // providerID → snapshot
+	lastIndex  map[string]int              // round-robin cursor per provider
+	inFlight   map[string]int              // accountID → active count
+	states     map[string]*accountRuntime  // accountID → runtime state
+	modelLocks map[string]map[string]ModelLockState
+	stateStore AccountStatePersistence
 }
 
 type providerSnapshot struct {
@@ -120,13 +154,15 @@ func NewAccountPool(cfg PoolConfig) (*AccountPool, error) {
 		now = time.Now
 	}
 	return &AccountPool{
-		store:     cfg.Store,
-		ttl:       cfg.TTL,
-		now:       now,
-		cache:     make(map[string]providerSnapshot),
-		lastIndex: make(map[string]int),
-		inFlight:  make(map[string]int),
-		states:    make(map[string]*accountRuntime),
+		store:      cfg.Store,
+		ttl:        cfg.TTL,
+		now:        now,
+		cache:      make(map[string]providerSnapshot),
+		lastIndex:  make(map[string]int),
+		inFlight:   make(map[string]int),
+		states:     make(map[string]*accountRuntime),
+		modelLocks: make(map[string]map[string]ModelLockState),
+		stateStore: cfg.StatePersistence,
 	}, nil
 }
 
@@ -162,6 +198,11 @@ func (p *AccountPool) GetNext(ctx context.Context, providerID string) (*Account,
 // round-robin cursor semantics and only advances the cursor when an account
 // is selected.
 func (p *AccountPool) GetNextExcluding(ctx context.Context, providerID string, excluded map[string]struct{}) (*Account, error) {
+	return p.GetNextExcludingModel(ctx, providerID, "", excluded)
+}
+
+// GetNextExcludingModel also observes a durable per-account model lock.
+func (p *AccountPool) GetNextExcludingModel(ctx context.Context, providerID, modelID string, excluded map[string]struct{}) (*Account, error) {
 	all, err := p.candidateSet(ctx, providerID)
 	if err != nil {
 		return nil, err
@@ -169,6 +210,7 @@ func (p *AccountPool) GetNextExcluding(ctx context.Context, providerID string, e
 	if len(all) == 0 {
 		return nil, ErrNoAccount
 	}
+	p.hydrateModelLocks(ctx, modelID, all)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -180,12 +222,41 @@ func (p *AccountPool) GetNextExcluding(ctx context.Context, providerID string, e
 		if _, skip := excluded[acct.ID]; skip {
 			continue
 		}
-		if p.isSelectableLocked(acct.ID) {
+		if p.isSelectableForModelLocked(acct.ID, modelID) {
 			p.lastIndex[providerID] = (idx + 1) % len(all)
 			return &acct, nil
 		}
 	}
 	return nil, ErrNoAccount
+}
+
+func (p *AccountPool) hydrateModelLocks(ctx context.Context, modelID string, accounts []Account) {
+	if p.stateStore == nil || modelID == "" {
+		return
+	}
+	for _, account := range accounts {
+		lock, err := p.stateStore.LoadModelLock(ctx, account.ID, modelID)
+		if err != nil {
+			continue
+		}
+		p.mu.Lock()
+		locks := p.modelLocks[account.ID]
+		if lock.RetryAt.IsZero() {
+			if locks != nil {
+				delete(locks, modelID)
+			}
+			p.mu.Unlock()
+			continue
+		}
+		if locks == nil {
+			locks = make(map[string]ModelLockState)
+			p.modelLocks[account.ID] = locks
+		}
+		if current, exists := locks[modelID]; !exists || !current.RetryAt.After(lock.RetryAt) {
+			locks[modelID] = lock
+		}
+		p.mu.Unlock()
+	}
 }
 
 // GetByLeastLoad returns the account with the lowest in-flight count among
@@ -256,26 +327,28 @@ func (p *AccountPool) MarkError(accountID string) {
 	p.markFailure(accountID, FailureFatal, accountCooldownOnError)
 }
 
+func (p *AccountPool) MarkErrorForModel(accountID, modelID string) {
+	p.markFailureForModel(accountID, modelID, FailureFatal, accountCooldownOnError)
+}
+
 // MarkTransient applies a transient failure (network blip, 5xx). The
 // account is briefly cooled down but never disabled.
 func (p *AccountPool) MarkTransient(accountID string) {
 	p.markFailure(accountID, FailureTransient, transientCooldown)
 }
 
+func (p *AccountPool) MarkTransientForModel(accountID, modelID string) {
+	p.markFailureForModel(accountID, modelID, FailureTransient, transientCooldown)
+}
+
 // MarkExhausted applies a quota exhaustion. The account is parked until
 // QuotaResetAt (or AccountQuotaResetFallback when unset).
 func (p *AccountPool) MarkExhausted(accountID string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	state, ok := p.states[accountID]
-	if !ok {
-		return
-	}
-	reset := p.now().Add(AccountQuotaResetFallback)
-	state.state = StateExhausted
-	state.cooldownUntil = reset
-	state.failureCount = 0
-	state.lastFailure = p.now()
+	p.markFailure(accountID, FailureQuota, AccountQuotaResetFallback)
+}
+
+func (p *AccountPool) MarkExhaustedForModel(accountID, modelID string) {
+	p.markFailureForModel(accountID, modelID, FailureQuota, AccountQuotaResetFallback)
 }
 
 // MarkAuthentication applies a credential rejection. The account is parked
@@ -284,13 +357,23 @@ func (p *AccountPool) MarkAuthentication(accountID string) {
 	p.markFailure(accountID, FailureAuthentication, accountAuthCooldown)
 }
 
+func (p *AccountPool) MarkAuthenticationForModel(accountID, modelID string) {
+	p.markFailureForModel(accountID, modelID, FailureAuthentication, accountAuthCooldown)
+}
+
 // Reset clears the runtime state for an account (typically called after a
 // successful credential refresh). Safe on unknown accounts.
 func (p *AccountPool) Reset(accountID string) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	delete(p.states, accountID)
 	delete(p.inFlight, accountID)
+	delete(p.modelLocks, accountID)
+	p.mu.Unlock()
+	if resetter, ok := p.stateStore.(accountModelLockResetter); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		_ = resetter.ClearModelLocks(ctx, accountID)
+		cancel()
+	}
 }
 
 // Refresh forces a reload of the provider snapshot, bypassing TTL.
@@ -383,9 +466,33 @@ func (p *AccountPool) candidateSet(ctx context.Context, providerID string) ([]Ac
 			}
 		}
 		p.mu.Unlock()
+		p.hydrateAccountStates(ctx, fetched)
 		return p.selectable(fetched), nil
 	}
 	return p.selectable(snap.accounts), nil
+}
+
+func (p *AccountPool) hydrateAccountStates(ctx context.Context, accounts []Account) {
+	if p.stateStore == nil {
+		return
+	}
+	for _, account := range accounts {
+		state, err := p.stateStore.LoadAccount(ctx, account.ID)
+		if err != nil || state.State == "" {
+			continue
+		}
+		p.mu.Lock()
+		runtimeState := p.states[account.ID]
+		if runtimeState == nil {
+			runtimeState = &accountRuntime{}
+			p.states[account.ID] = runtimeState
+		}
+		runtimeState.state = state.State
+		runtimeState.cooldownUntil = state.CooldownUntil
+		runtimeState.failureCount = state.FailureCount
+		runtimeState.lastFailure = state.LastFailure
+		p.mu.Unlock()
+	}
 }
 
 func (p *AccountPool) selectable(in []Account) []Account {
@@ -431,11 +538,22 @@ func (p *AccountPool) isSelectableLocked(accountID string) bool {
 	return true
 }
 
+func (p *AccountPool) isSelectableForModelLocked(accountID, modelID string) bool {
+	if !p.isSelectableLocked(accountID) {
+		return false
+	}
+	if modelID == "" {
+		return true
+	}
+	lock, ok := p.modelLocks[accountID][modelID]
+	return !ok || lock.RetryAt.IsZero() || !lock.RetryAt.After(p.now())
+}
+
 func (p *AccountPool) markFailure(accountID string, kind FailureKind, base time.Duration) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	state, ok := p.states[accountID]
 	if !ok {
+		p.mu.Unlock()
 		return
 	}
 	now := p.now()
@@ -459,6 +577,59 @@ func (p *AccountPool) markFailure(accountID string, kind FailureKind, base time.
 		state.state = StateCoolingDown
 		state.cooldownUntil = now.Add(backoff(base, state.failureCount))
 	}
+	snapshot := accountHealthStateLocked(state)
+	p.mu.Unlock()
+	p.persistAccountState(accountID, snapshot)
+}
+
+func (p *AccountPool) markFailureForModel(accountID, modelID string, kind FailureKind, base time.Duration) {
+	if modelID == "" {
+		p.markFailure(accountID, kind, base)
+		return
+	}
+	if p.stateStore == nil {
+		// Development fixtures have no durable lock sidecar; retain the
+		// historical process-local account cooldown semantics.
+		p.markFailure(accountID, kind, base)
+		return
+	}
+	if kind == FailureAuthentication || kind == FailureFatal || kind == FailureTransient {
+		p.markFailure(accountID, kind, base)
+		return
+	}
+	p.mu.Lock()
+	if p.modelLocks[accountID] == nil {
+		p.modelLocks[accountID] = make(map[string]ModelLockState)
+	}
+	previous := p.modelLocks[accountID][modelID]
+	failures := previous.FailureCount + 1
+	lock := ModelLockState{RetryAt: p.now().Add(backoff(base, failures)), FailureCount: failures}
+	p.modelLocks[accountID][modelID] = lock
+	p.mu.Unlock()
+	p.persistModelLock(accountID, modelID, lock)
+	_ = kind
+}
+
+func accountHealthStateLocked(state *accountRuntime) AccountHealthState {
+	return AccountHealthState{State: state.state, CooldownUntil: state.cooldownUntil, FailureCount: state.failureCount, LastFailure: state.lastFailure}
+}
+
+func (p *AccountPool) persistAccountState(accountID string, state AccountHealthState) {
+	if p.stateStore == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	_ = p.stateStore.SaveAccount(ctx, accountID, state)
+}
+
+func (p *AccountPool) persistModelLock(accountID, modelID string, state ModelLockState) {
+	if p.stateStore == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	_ = p.stateStore.SaveModelLock(ctx, accountID, modelID, state)
 }
 
 func backoff(base time.Duration, attempt int) time.Duration {

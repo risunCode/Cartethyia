@@ -94,7 +94,7 @@ func newRuntimeWithOptions(cfg Config, artwork string, options RuntimeOptions, b
 	)
 	if bootstrap == nil {
 		var defaults BootstrapDependencies
-		defaults, err = defaultBootstrapDependencies()
+		defaults, err = defaultBootstrapDependencies(cfg)
 		if err != nil {
 			return nil, runtimeError(CodeDependencyRequired, "bootstrap", err)
 		}

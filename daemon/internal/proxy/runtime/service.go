@@ -17,10 +17,12 @@ import (
 
 	"github.com/cartethyia/daemon/internal/observability"
 	"github.com/cartethyia/daemon/internal/observability/usage"
+	"github.com/cartethyia/daemon/internal/proxy/compression"
 	"github.com/cartethyia/daemon/internal/proxy/control/admission"
-	"github.com/cartethyia/daemon/internal/proxy/runtime/catalog"
 	"github.com/cartethyia/daemon/internal/proxy/control/continuation"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/transforms"
+	"github.com/cartethyia/daemon/internal/proxy/runtime/catalog"
 	apicontracts "github.com/cartethyia/daemon/internal/server/api/contracts"
 )
 
@@ -38,6 +40,12 @@ type DispatchService struct {
 	Usage           *usage.Ledger
 	Now             func() time.Time
 }
+
+// defaultTokenSaver is local and deterministic. It is deliberately fail-open
+// and does not depend on a durable cache, so development startup remains
+// independent of PostgreSQL while supported requests still exercise the RTK
+// implementation.
+var defaultTokenSaver = compression.NewOrchestrator()
 
 // MetadataWriter is the non-blocking request-history enqueue boundary. A
 // writer failure must never become a request-path failure.
@@ -112,7 +120,7 @@ func (s *DispatchService) DispatchContext(ctx context.Context, req *contracts.Re
 	if s == nil || s.Router == nil || s.Transport == nil {
 		return nil, dispatchError(codeDispatchInternal, contracts.ErrorFatal, http.StatusInternalServerError, "dispatch service is not configured", nil)
 	}
-	normalized, err := s.validateRequest(req)
+	normalized, err := s.validateRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +224,7 @@ func (s *DispatchService) DispatchContext(ctx context.Context, req *contracts.Re
 	return &bufferResponse{status: response.StatusCode, contentType: response.Headers.Get("Content-Type"), headers: response.Headers, body: response.Body}, nil
 }
 
-func (s *DispatchService) validateRequest(req *contracts.Request) (*contracts.Request, error) {
+func (s *DispatchService) validateRequest(ctx context.Context, req *contracts.Request) (*contracts.Request, error) {
 	if req == nil {
 		return nil, dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "request is required", nil)
 	}
@@ -234,8 +242,25 @@ func (s *DispatchService) validateRequest(req *contracts.Request) (*contracts.Re
 		return nil, dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "request body is invalid", nil)
 	}
 	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(copyReq.Body, &payload); err != nil {
+	if err := json.Unmarshal(copyReq.Body, &payload); err != nil || payload == nil {
 		return nil, dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "request body is malformed", err)
+	}
+	if copyReq.Protocol == contracts.ProtocolOpenAIChat || copyReq.Protocol == contracts.ProtocolOpenAIResponse || copyReq.Protocol == contracts.ProtocolAnthropic {
+		prepared, transformErr := transforms.NormalizeRequest(ctx, copyReq.Protocol, copyReq.Body, copyReq.Stream)
+		if transformErr != nil {
+			return nil, dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "request normalization failed", transformErr)
+		}
+		copyReq.Body = prepared.Body
+		if copyReq.Model == "" {
+			copyReq.Model = prepared.Request.Model
+		}
+		if saverReq, changed := applyTokenSaver(ctx, prepared.Request); changed {
+			body, encodeErr := transforms.EncodeNormalizedRequest(ctx, copyReq.Protocol, saverReq, copyReq.Body)
+			if encodeErr != nil {
+				return nil, dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "request token preparation failed", encodeErr)
+			}
+			copyReq.Body = body
+		}
 	}
 	if copyReq.Model == "" {
 		copyReq.Model = modelFromBody(copyReq.Body)
@@ -244,6 +269,54 @@ func (s *DispatchService) validateRequest(req *contracts.Request) (*contracts.Re
 		return nil, dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "model is required", nil)
 	}
 	return &copyReq, nil
+}
+
+// applyTokenSaver adapts the canonical request to the compression package's
+// deliberately small view. Only tool-result text can change; every other
+// canonical field remains untouched.
+func applyTokenSaver(ctx context.Context, req *transforms.NormalizedRequest) (*transforms.NormalizedRequest, bool) {
+	if req == nil {
+		return nil, false
+	}
+	view := compression.Request{Model: req.Model, Messages: make([]compression.Message, len(req.Messages))}
+	for mi, message := range req.Messages {
+		view.Messages[mi] = compression.Message{Role: string(message.Role), Content: make([]compression.Block, len(message.Content))}
+		for bi, block := range message.Content {
+			kind := compression.BlockOther
+			if block.Type == transforms.BlockToolResult {
+				kind = compression.BlockToolResult
+			}
+			view.Messages[mi].Content[bi] = compression.Block{
+				Kind: kind, Text: block.Text, ToolResultIsErr: block.ToolResultIsError,
+				ToolName: block.ToolName, ToolCallID: block.ToolCallID, IsUserAuthored: message.Role == transforms.RoleUser,
+			}
+		}
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	outcome := defaultTokenSaver.Run(ctx, view)
+	if !outcome.TokenSummary.HasShrunk() {
+		return req, false
+	}
+	out := cloneNormalizedRequestForRuntime(req)
+	for mi := range out.Messages {
+		for bi := range out.Messages[mi].Content {
+			if out.Messages[mi].Content[bi].Type == transforms.BlockToolResult {
+				out.Messages[mi].Content[bi].Text = outcome.Request.Messages[mi].Content[bi].Text
+			}
+		}
+	}
+	return out, true
+}
+
+func cloneNormalizedRequestForRuntime(req *transforms.NormalizedRequest) *transforms.NormalizedRequest {
+	out := *req
+	out.Messages = append([]transforms.NormalizedMessage(nil), req.Messages...)
+	for i := range out.Messages {
+		out.Messages[i].Content = append([]transforms.ContentBlock(nil), req.Messages[i].Content...)
+	}
+	return &out
 }
 
 func (s *DispatchService) resolveCatalog(req *contracts.Request) error {

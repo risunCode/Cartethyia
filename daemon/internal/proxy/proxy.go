@@ -13,6 +13,9 @@ type (
 	AccountSelectionInput        = proxyruntime.AccountSelectionInput
 	AccountState                 = proxyruntime.AccountState
 	AccountStore                 = proxyruntime.AccountStore
+	AccountStatePersistence      = proxyruntime.AccountStatePersistence
+	AccountHealthState           = proxyruntime.AccountHealthState
+	ModelLockState               = proxyruntime.ModelLockState
 	AffinityKey                  = proxyruntime.AffinityKey
 	AttemptDecision              = proxyruntime.AttemptDecision
 	AttemptOutcome               = proxyruntime.AttemptOutcome

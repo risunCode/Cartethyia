@@ -38,7 +38,6 @@ func TestHealthRendersServingHeaderAndArtwork(t *testing.T) {
 		"POST /v1/chat/completions",
 		"POST /v1/responses",
 		"POST /v1/messages",
-		"POST /v1/messages/count_tokens",
 		"Media Generation",
 		"ASCII-CARTE",
 	} {

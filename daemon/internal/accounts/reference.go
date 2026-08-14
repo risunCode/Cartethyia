@@ -329,6 +329,23 @@ func (r *StoreCredentialResolver) Invalidate(ref Reference) {
 	r.cacheMu.Unlock()
 }
 
+// InvalidateAccount removes every cached access credential belonging to the
+// account. Router refresh retries identify accounts by local id rather than
+// by opaque credential reference, so this is the safe invalidation boundary.
+func (r *StoreCredentialResolver) InvalidateAccount(accountID string) {
+	if r == nil || accountID == "" {
+		return
+	}
+	r.cacheMu.Lock()
+	for key, entry := range r.cache {
+		if entry.metadata.AccountID == accountID {
+			entry.access.Close()
+			delete(r.cache, key)
+		}
+	}
+	r.cacheMu.Unlock()
+}
+
 // Close zeroes all retained access material and disables future cache use.
 // It is safe to call repeatedly and on a nil resolver.
 func (r *StoreCredentialResolver) Close() error {

@@ -150,7 +150,7 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 			acct = retrySame
 			retrySame = nil
 		} else {
-			acct, err = r.pool.GetNextExcluding(ctx, provider, attempted)
+			acct, err = r.pool.GetNextExcludingModel(ctx, provider, req.Model, attempted)
 			if err != nil {
 				if errors.Is(err, ErrNoAccount) {
 					break
@@ -170,7 +170,7 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 		attempted[acct.ID] = struct{}{}
 		failure := r.classifyFailure(callErr, acct)
 		lastFailure = failure
-		r.applyFailure(failure, acct)
+		r.applyFailureForModel(failure, acct, req.Model)
 		decision := r.decision(failure, refreshBudget < r.maxRefresh && refreshes[acct.ID] == 0, attempts)
 		if decision.Action == RetryStop {
 			break
@@ -187,7 +187,7 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 				// A failed refresh is classified as a credential failure and
 				// may still use a different account when policy allows it.
 				lastFailure = r.classifyFailure(err, acct)
-				r.applyFailure(lastFailure, acct)
+				r.applyFailureForModel(lastFailure, acct, req.Model)
 			}
 		}
 		if !decision.AlternateAccount && !lastFailure.AlternateAccountEligible {
@@ -227,7 +227,7 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 		if retrySame != nil {
 			acct, retrySame = retrySame, nil
 		} else {
-			acct, err = r.pool.GetNextExcluding(ctx, provider, attempted)
+			acct, err = r.pool.GetNextExcludingModel(ctx, provider, currentReq.Model, attempted)
 			if err != nil {
 				if errors.Is(err, ErrNoAccount) {
 					break
@@ -270,7 +270,7 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 		attempted[acct.ID] = struct{}{}
 		failure := r.classifyFailure(callErr, acct)
 		lastFailure = failure
-		r.applyFailure(failure, acct)
+		r.applyFailureForModel(failure, acct, currentReq.Model)
 		decision := r.decision(failure, refreshBudget < r.maxRefresh && refreshes[acct.ID] == 0, attempts)
 		if decision.Action == RetryStop {
 			break
@@ -324,20 +324,24 @@ func (r *Router) handleFailure(callErr error, acct *Account, _ int) *Failure {
 }
 
 func (r *Router) applyFailure(f *Failure, acct *Account) {
+	r.applyFailureForModel(f, acct, "")
+}
+
+func (r *Router) applyFailureForModel(f *Failure, acct *Account, modelID string) {
 	if f == nil || acct == nil {
 		return
 	}
 	switch f.Kind {
 	case FailureAuthentication, FailureReauthenticationRequired:
-		r.pool.MarkAuthentication(acct.ID)
+		r.pool.MarkAuthenticationForModel(acct.ID, modelID)
 	case FailureQuota:
-		r.pool.MarkExhausted(acct.ID)
+		r.pool.MarkExhaustedForModel(acct.ID, modelID)
 	case FailureCapacity:
-		r.pool.MarkTransient(acct.ID)
+		r.pool.MarkTransientForModel(acct.ID, modelID)
 	case FailureFatal, FailureUnknown:
-		r.pool.MarkError(acct.ID)
+		r.pool.MarkErrorForModel(acct.ID, modelID)
 	case FailureTransient, FailureRateLimit:
-		r.pool.MarkTransient(acct.ID)
+		r.pool.MarkTransientForModel(acct.ID, modelID)
 	}
 }
 

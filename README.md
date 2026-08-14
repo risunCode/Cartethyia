@@ -147,7 +147,9 @@ curl http://localhost:12800/v1/chat/completions \
 ```text
 CARTETHYIA_LISTEN_ADDRESS  # Go API listen address (default :12800)
 CARTETHYIA_ENV             # development or production
-DATABASE_URL               # PostgreSQL DSN; required in production
+CARTETHYIA_DATABASE_URL    # PostgreSQL DSN; required in production
+CARTETHYIA_REDIS_URL       # Redis DSN; optional for development, used by production runtime
+CARTETHYIA_ACCOUNT_ENCRYPTION_KEY # account secret encryption key; required with PostgreSQL
 CARTETHYIA_ALLOW_INMEMORY  # explicit development-only escape hatch
 PUBLIC_ORIGIN              # dashboard/API origin used for browser checks
 TRUST_PROXY                # enable only behind a trusted reverse proxy
@@ -173,9 +175,20 @@ docker build --target dashboard -t cartethyia-dashboard .
 docker run --rm -p 12800:12800 \
   -e CARTETHYIA_LISTEN_ADDRESS=:12800 \
   -e CARTETHYIA_ENV=production \
-  -e DATABASE_URL="$DATABASE_URL" \
+  -e CARTETHYIA_DATABASE_URL="$CARTETHYIA_DATABASE_URL" \
+  -e CARTETHYIA_REDIS_URL="$CARTETHYIA_REDIS_URL" \
+  -e CARTETHYIA_ACCOUNT_ENCRYPTION_KEY="$CARTETHYIA_ACCOUNT_ENCRYPTION_KEY" \
   cartethyia
 ```
+
+For the complete local stack, use `docker compose up -d`. Compose starts
+PostgreSQL and Redis first, waits for both healthchecks, and then starts the
+daemon. It reads the runtime secret from `.env`; copy `.env.example` and set
+`CARTETHYIA_ACCOUNT_ENCRYPTION_KEY` when that file is absent. The compose
+defaults use the service DNS names; override them with
+`CARTETHYIA_COMPOSE_DATABASE_URL` or `CARTETHYIA_COMPOSE_REDIS_URL` only when
+the dependencies run outside the Compose network. Set `CARTETHYIA_ENV_FILE`
+to use a different runtime env file.
 
 ## Development
 
@@ -201,10 +214,8 @@ cd dashboard && bun run build && bun run test
 
 ## Documentation and source map
 
-The [active documentation index](./docs/README.md) links to the canonical
-product requirements and design documents under [`docs/prd/`](./docs/prd/).
-Historical implementation notes and the previous Kiro specification were
-retired after their requirements were carried into [`docs/prd/`](./docs/prd/).
+The [active documentation index](./docs/README.md) links to the consolidated
+architecture, routing, protocol, operations, and engineering documents.
 Release history remains in [`CHANGELOG.md`](./CHANGELOG.md). The main source
 areas are:
 
@@ -214,7 +225,7 @@ areas are:
 | Legacy TypeScript | [`src.old/`](./src.old/) | Read-only migration reference |
 | Dashboard | [`dashboard/src/`](./dashboard/src/) | The single React/Vite frontend |
 
-Read [`.tester/TEST-PLAN.md`](./.tester/TEST-PLAN.md) for the repository's verification scope.
+See [Engineering](./docs/engineering.md) for the current verification commands and behavior-focused test scope.
 
 ## Credits
 

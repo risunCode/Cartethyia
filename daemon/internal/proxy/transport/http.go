@@ -11,6 +11,7 @@ import (
 	"github.com/cartethyia/daemon/internal/proxy"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
 	"github.com/cartethyia/daemon/internal/security/outbound"
+	xproxy "golang.org/x/net/proxy"
 	"io"
 	"net"
 	"net/http"
@@ -24,9 +25,23 @@ const DefaultMaxResponseBytes = 16 << 20
 
 type CredentialResolver func(context.Context, string) (string, error)
 
+// ProxySelector chooses an outbound proxy for one provider/account request.
+// The release callback owns the selector's concurrency reservation and is
+// called when the request or stream lifecycle ends.
+type ProxySelection struct {
+	URL     *url.URL
+	ID      string
+	Release func()
+}
+
+type ProxySelector func(context.Context, string, string) (ProxySelection, error)
+type ProxyFailureRecorder func(context.Context, string, string, string)
+
 type HTTPTransport struct {
 	Registry          *providers.Registry
 	Client            *http.Client
+	ProxySelector     ProxySelector
+	ProxyFailure      ProxyFailureRecorder
 	BaseURLs          map[string]string
 	ResolveCredential CredentialResolver
 	OutboundPolicy    *outbound.Policy
@@ -66,6 +81,18 @@ func (t *HTTPTransport) Call(ctx context.Context, acct proxy.Account, req contra
 	if err != nil {
 		return nil, &contracts.RouteError{Kind: contracts.ErrorInvalidRequest, Provider: providerID, Message: "provider request invalid", Err: err}
 	}
+	selection, err := t.selectProxy(requestCtx, providerID, acct.ID)
+	if err != nil {
+		return nil, &contracts.RouteError{Kind: contracts.ErrorTransient, Provider: providerID, Message: "proxy selection failed", Err: err}
+	}
+	if selection.Release == nil {
+		selection.Release = func() {}
+	}
+	defer selection.Release()
+	client, err := t.clientForProxy(selection.URL)
+	if err != nil {
+		return nil, &contracts.RouteError{Kind: contracts.ErrorTransient, Provider: providerID, Message: "proxy transport unavailable", Err: err}
+	}
 	for attempt := 0; attempt < 2; attempt++ {
 		endpoint, err := t.endpoint(providerID, built.Endpoint)
 		if err != nil {
@@ -75,8 +102,9 @@ func (t *HTTPTransport) Call(ctx context.Context, acct proxy.Account, req contra
 		if err != nil {
 			return nil, err
 		}
-		resp, err := t.client().Do(httpReq)
+		resp, err := client.Do(httpReq)
 		if err != nil {
+			t.recordProxyFailure(requestCtx, selection.ID, "transport", err.Error())
 			return nil, &contracts.RouteError{Kind: contracts.ErrorTransient, Provider: providerID, Message: "provider transport failed", Err: err}
 		}
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, t.maxBytes()+1))
@@ -134,12 +162,26 @@ func (t *HTTPTransport) CallStream(ctx context.Context, acct proxy.Account, req 
 	if err != nil {
 		return nil, err
 	}
+	selection, err := t.selectProxy(requestCtx, providerID, acct.ID)
+	if err != nil {
+		return nil, &contracts.RouteError{Kind: contracts.ErrorTransient, Provider: providerID, Message: "proxy selection failed", Err: err}
+	}
+	if selection.Release == nil {
+		selection.Release = func() {}
+	}
+	client, err := t.clientForProxy(selection.URL)
+	if err != nil {
+		selection.Release()
+		return nil, &contracts.RouteError{Kind: contracts.ErrorTransient, Provider: providerID, Message: "proxy transport unavailable", Err: err}
+	}
 	endpoint, err := t.endpoint(providerID, built.Endpoint)
 	if err != nil {
+		selection.Release()
 		return nil, err
 	}
 	streamCtx, cancel := context.WithCancel(requestCtx)
 	cancelAll := func() {
+		selection.Release()
 		cancel()
 		totalCancel()
 	}
@@ -148,8 +190,9 @@ func (t *HTTPTransport) CallStream(ctx context.Context, acct proxy.Account, req 
 		cancelAll()
 		return nil, err
 	}
-	resp, err := t.client().Do(httpReq)
+	resp, err := client.Do(httpReq)
 	if err != nil {
+		t.recordProxyFailure(requestCtx, selection.ID, "transport", err.Error())
 		cancelAll()
 		return nil, err
 	}
@@ -208,6 +251,81 @@ func (t *HTTPTransport) resolve(ctx context.Context, ref string) (string, error)
 		return ref, nil
 	}
 	return t.ResolveCredential(ctx, ref)
+}
+
+func (t *HTTPTransport) selectProxy(ctx context.Context, providerID, accountID string) (ProxySelection, error) {
+	if t.ProxySelector == nil {
+		return ProxySelection{Release: func() {}}, nil
+	}
+	return t.ProxySelector(ctx, providerID, accountID)
+}
+
+func (t *HTTPTransport) recordProxyFailure(ctx context.Context, proxyID, kind, message string) {
+	if t.ProxyFailure != nil && proxyID != "" {
+		t.ProxyFailure(ctx, proxyID, kind, message)
+	}
+}
+
+func (t *HTTPTransport) clientForProxy(proxyURL *url.URL) (*http.Client, error) {
+	if proxyURL == nil {
+		return t.client(), nil
+	}
+	base := t.Client
+	var transport *http.Transport
+	if base != nil {
+		var ok bool
+		transport, ok = base.Transport.(*http.Transport)
+		if !ok {
+			return nil, errors.New("transport: configured client does not expose an HTTP transport")
+		}
+		transport = transport.Clone()
+	} else {
+		transport = http.DefaultTransport.(*http.Transport).Clone()
+		if t.ConnectTimeout > 0 {
+			transport.DialContext = (&net.Dialer{Timeout: t.ConnectTimeout}).DialContext
+			transport.TLSHandshakeTimeout = t.ConnectTimeout
+		}
+		if t.FirstByteTimeout > 0 {
+			transport.ResponseHeaderTimeout = t.FirstByteTimeout
+		}
+		if t.IdleTimeout > 0 {
+			transport.IdleConnTimeout = t.IdleTimeout
+		}
+	}
+	if strings.EqualFold(proxyURL.Scheme, "socks5") || strings.EqualFold(proxyURL.Scheme, "socks5h") {
+		var auth *xproxy.Auth
+		if proxyURL.User != nil {
+			password, _ := proxyURL.User.Password()
+			auth = &xproxy.Auth{User: proxyURL.User.Username(), Password: password}
+		}
+		dialer, err := xproxy.SOCKS5("tcp", proxyURL.Host, auth, &net.Dialer{Timeout: t.ConnectTimeout})
+		if err != nil {
+			return nil, err
+		}
+		transport.Proxy = nil
+		transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+			if contextDialer, ok := dialer.(interface {
+				DialContext(context.Context, string, string) (net.Conn, error)
+			}); ok {
+				return contextDialer.DialContext(ctx, network, address)
+			}
+			return dialer.Dial(network, address)
+		}
+	} else if strings.EqualFold(proxyURL.Scheme, "http") || strings.EqualFold(proxyURL.Scheme, "https") {
+		transport.Proxy = http.ProxyURL(proxyURL)
+	} else {
+		return nil, errors.New("transport: unsupported proxy protocol")
+	}
+	if base == nil {
+		base = &http.Client{Timeout: t.TotalTimeout}
+	} else {
+		base = &http.Client{CheckRedirect: base.CheckRedirect, Jar: base.Jar, Timeout: base.Timeout}
+	}
+	base.Transport = transport
+	if t.OutboundPolicy != nil {
+		base = t.OutboundPolicy.Client(base.Transport)
+	}
+	return base, nil
 }
 func (t *HTTPTransport) client() *http.Client {
 	t.clientOnce.Do(func() {

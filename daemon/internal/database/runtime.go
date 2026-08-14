@@ -16,10 +16,16 @@ type RuntimeStore struct {
 	Database        *BunDatabase
 	Migrator        *migrations.SQLMigrator
 	CustomProviders *repositories.BunCustomProviderRepository
+	Proxies         *repositories.BunProxyRepository
+	APIKeys         *repositories.BunPublicAPIKeyResolver
+	AdminAPIKeys    *repositories.BunAPIKeyRepository
 	// RefreshLeases, Telemetry, and account authority stores share the same
 	// PostgreSQL pool. Secret blobs are encrypted before persistence.
 	RefreshLeases *repositories.BunRefreshLeaseStore
 	Telemetry     *repositories.BunTelemetryRepository
+	Settings      *repositories.BunSettingsRepository
+	Backups       *repositories.BunBackupRepository
+	Bans          *repositories.BunBanRepository
 	AccountCore   *repositories.BunAccountStores
 	Accounts      *repositories.BunAccountConfigStore
 	Records       *repositories.BunRecordStore
@@ -50,8 +56,14 @@ func OpenRuntime(ctx context.Context, rawURL string, encryptionKeys ...[]byte) (
 		Database:        database,
 		Migrator:        migrator,
 		CustomProviders: repositories.NewBunCustomProviderRepository(database.Bun()),
+		Proxies:         repositories.NewBunProxyRepository(database.Bun()),
+		APIKeys:         repositories.NewBunPublicAPIKeyResolver(database.Bun()),
+		AdminAPIKeys:    repositories.NewBunAPIKeyRepository(database.Bun()),
 		RefreshLeases:   repositories.NewBunRefreshLeaseStore(database.Bun()),
 		Telemetry:       repositories.NewBunTelemetryRepository(database.Bun()),
+		Settings:        repositories.NewBunSettingsRepository(database.Bun()),
+		Backups:         repositories.NewBunBackupRepository(database.Bun()),
+		Bans:            repositories.NewBunBanRepository(database.Bun()),
 	}
 	if len(encryptionKeys) > 0 && len(encryptionKeys[0]) > 0 {
 		core, storeErr := repositories.NewBunAccountStores(database.Bun(), encryptionKeys[0])

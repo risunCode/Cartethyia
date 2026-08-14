@@ -21,6 +21,9 @@ type Deps struct {
 
 // Register mounts POST /v1/messages on mux.
 func Register(mux *http.ServeMux, deps Deps) {
+	mux.HandleFunc(Path+"/count_tokens", func(w http.ResponseWriter, r *http.Request) {
+		handleCountTokens(w, r)
+	})
 	mux.HandleFunc(Path, func(w http.ResponseWriter, r *http.Request) {
 		handle(w, r, deps.Proxy)
 	})

@@ -8,6 +8,7 @@ import (
 	accountdrivers "github.com/cartethyia/daemon/internal/accounts/drivers"
 	"github.com/cartethyia/daemon/internal/accounts/flow"
 	db "github.com/cartethyia/daemon/internal/database"
+	dbmodels "github.com/cartethyia/daemon/internal/database/models"
 	dbrepositories "github.com/cartethyia/daemon/internal/database/repositories"
 	"github.com/cartethyia/daemon/internal/observability"
 	"github.com/cartethyia/daemon/internal/providers"
@@ -23,6 +24,7 @@ import (
 	adminserver "github.com/cartethyia/daemon/internal/server/admin"
 	apicontracts "github.com/cartethyia/daemon/internal/server/api/contracts"
 	"github.com/cartethyia/daemon/internal/server/api/v1"
+	servermiddleware "github.com/cartethyia/daemon/internal/server/middleware"
 	"net/http"
 	"strings"
 	"time"
@@ -30,11 +32,85 @@ import (
 
 type registrarFunc func(*http.ServeMux)
 
+type publicAPIKeyResolver struct {
+	store *dbrepositories.BunPublicAPIKeyResolver
+}
+
+func (r publicAPIKeyResolver) ResolveAPIKey(ctx context.Context, key string) (servermiddleware.PublicAPIKey, error) {
+	value, err := r.store.ResolveAPIKey(ctx, key)
+	if err != nil {
+		return servermiddleware.PublicAPIKey{}, err
+	}
+	return servermiddleware.PublicAPIKey{
+		ID: value.ID, Active: value.Active, RevokedAt: value.RevokedAt,
+		RateLimitRpm: value.RateLimitRpm, MaxConcurrent: value.MaxConcurrentRequests,
+		DailyTokenLimit: value.DailyTokenLimit, MonthlyTokenLimit: value.MonthlyTokenLimit,
+		OneTimeTokenLimit: value.OneTimeTokenLimit, OneTimeTokensUsed: value.OneTimeTokensUsed,
+		ProviderAllowlist: value.ProviderAllowlist, ModelAllowlist: value.ModelAllowlist, ModelDenylist: value.ModelDenylist,
+	}, nil
+}
+
+func (r publicAPIKeyResolver) ConsumeOneTimeTokens(ctx context.Context, id string, tokens int) error {
+	return r.store.ConsumeOneTimeTokens(ctx, id, tokens)
+}
+
+func (r publicAPIKeyResolver) TouchAPIKey(ctx context.Context, id string) error {
+	return r.store.TouchAPIKey(ctx, id)
+}
+
 func (f registrarFunc) Register(mux *http.ServeMux) {
 	if mux == nil {
 		return
 	}
 	f(mux)
+}
+
+// accountRefresherAdapter bridges the account lifecycle refresher to the
+// proxy retry seam. Refresh always forces a single-flight refresh and closes
+// the caller-owned token set; the account refresher remains the authority for
+// leases, encrypted secret persistence, and CAS reconciliation.
+type accountRefresherAdapter struct {
+	refresher  accounts.Refresher
+	invalidate func(accountID string)
+}
+
+func (a accountRefresherAdapter) Refresh(ctx context.Context, accountID string) error {
+	if a.refresher == nil {
+		return errors.New("runtime: OAuth refresher is unavailable")
+	}
+	token, err := a.refresher.ForceRefresh(ctx, accountID)
+	if token != nil {
+		token.Close()
+	}
+	if a.invalidate != nil {
+		a.invalidate(accountID)
+	}
+	return err
+}
+
+func composeAccountRefresher(deps BootstrapDependencies) (accounts.Refresher, error) {
+	if deps.Refresher != nil {
+		return deps.Refresher, nil
+	}
+	// Development fixtures intentionally fail closed when durable account
+	// boundaries or the provider driver registry are absent. No process-local
+	// token store is synthesized for the request path.
+	if deps.DriverRegistry == nil || deps.Accounts == nil || deps.Secrets == nil || deps.Records == nil {
+		return nil, nil
+	}
+	refresher, err := accounts.NewInMemoryRefresher(accounts.RefresherOptions{
+		DriverResolver: func(providerID string) (accounts.AuthDriver, bool) {
+			return deps.DriverRegistry.Get(providerID)
+		},
+		Secrets:  deps.Secrets,
+		Records:  deps.Records,
+		Accounts: deps.Accounts,
+		Lease:    deps.RefreshLeases,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("runtime: OAuth refresher: %w", err)
+	}
+	return refresher, nil
 }
 
 // BootstrapDependencies are mandatory runtime seams. Provider endpoints and
@@ -48,6 +124,9 @@ type BootstrapDependencies struct {
 	Secrets       accounts.SecretStore
 	Refresher     accounts.Refresher
 	RefreshLeases accounts.RefreshLeaseStore
+	AccountState  proxy.AccountStatePersistence
+	ProxySelector transport.ProxySelector
+	ProxyFailure  transport.ProxyFailureRecorder
 	// Database is the mandatory PostgreSQL authority when configured by the
 	// runtime. It is retained as a lifecycle dependency so readiness and close
 	// semantics cover the same pool used by durable repositories.
@@ -66,6 +145,9 @@ type BootstrapDependencies struct {
 	// this seam optional preserves truthful route omission when persistence or
 	// authentication services are not configured.
 	Admin server.AdminRegistrar
+	// PublicAPIKeys is the injectable public V1 credential authority. It must
+	// be durable in production; nil is only an anonymous development seam.
+	PublicAPIKeys servermiddleware.PublicAPIKeyResolver
 }
 
 func defaultBootstrapDependencies(configs ...Config) (BootstrapDependencies, error) {
@@ -103,6 +185,7 @@ func defaultBootstrapDependencies(configs ...Config) (BootstrapDependencies, err
 		}
 		deps.Database = database
 		deps.CustomProviders = database.CustomProviders
+		deps.PublicAPIKeys = publicAPIKeyResolver{store: database.APIKeys}
 		// Lease coordination is safe to compose independently of account
 		// metadata/secret stores; production still fails closed below until the
 		// complete account authority is available.
@@ -110,6 +193,19 @@ func defaultBootstrapDependencies(configs ...Config) (BootstrapDependencies, err
 		deps.Accounts = database.Accounts
 		deps.Records = database.Records
 		deps.Secrets = database.Secrets
+		deps.AccountState = durableAccountStateStore{store: database.AccountCore}
+		deps.ProxySelector = newDurableNetworkSelector(database.Proxies)
+		deps.ProxyFailure = newDurableProxyFailureRecorder(database.Proxies)
+		refresher, refreshErr := composeAccountRefresher(deps)
+		if refreshErr != nil {
+			_ = database.Close(context.Background())
+			_ = fallback.Close()
+			return BootstrapDependencies{}, refreshErr
+		}
+		deps.Refresher = refresher
+		// Let composeCredentialResolver use the durable encrypted stores. The
+		// rejecting fallback is only valid for development without PostgreSQL.
+		deps.Credentials = nil
 		deps.MetadataWriter = observability.NewAsyncMetadataWriter(
 			context.Background(),
 			dbrepositories.NewBunMetadataSink(database.Telemetry),
@@ -194,6 +290,78 @@ func (s providerFixtureAccountStore) ListAccounts(_ context.Context, providerID 
 type durableAccountStore struct {
 	store   accounts.AccountConfigStore
 	records accounts.RecordStore
+}
+
+type durableAccountStateStore struct {
+	store interface {
+		GetHealth(context.Context, string) (dbmodels.AccountHealth, error)
+		UpsertHealth(context.Context, dbmodels.AccountHealth) error
+		GetModelLock(context.Context, string, string) (dbmodels.AccountModelLock, error)
+		UpsertModelLock(context.Context, dbmodels.AccountModelLock) error
+		ClearModelLock(context.Context, string, string) error
+		ClearModelLocks(context.Context, string) error
+	}
+}
+
+func (s durableAccountStateStore) LoadAccount(ctx context.Context, accountID string) (proxy.AccountHealthState, error) {
+	health, err := s.store.GetHealth(ctx, accountID)
+	if err != nil {
+		return proxy.AccountHealthState{}, err
+	}
+	state := proxy.AccountHealthState{CooldownUntil: time.Time{}, FailureCount: health.FailureCount}
+	if health.RetryAt != nil {
+		state.CooldownUntil = *health.RetryAt
+	}
+	if health.Status == "exhausted" {
+		state.State = proxy.StateExhausted
+	} else if health.Status == "disabled" {
+		state.State = proxy.StateDisabled
+	} else if health.Status == "cooling_down" {
+		state.State = proxy.StateCoolingDown
+	} else if health.Status == "error" {
+		state.State = proxy.StateError
+	} else {
+		state.State = proxy.StateHealthy
+	}
+	if health.OccurredAt != nil {
+		state.LastFailure = *health.OccurredAt
+	}
+	return state, nil
+}
+
+func (s durableAccountStateStore) SaveAccount(ctx context.Context, accountID string, state proxy.AccountHealthState) error {
+	status := string(state.State)
+	if status == "" {
+		status = string(proxy.StateHealthy)
+	}
+	var retry, occurred *time.Time
+	if !state.CooldownUntil.IsZero() {
+		retry = &state.CooldownUntil
+	}
+	if !state.LastFailure.IsZero() {
+		occurred = &state.LastFailure
+	}
+	return s.store.UpsertHealth(ctx, dbmodels.AccountHealth{AccountID: accountID, Status: status, RetryAt: retry, OccurredAt: occurred, FailureCount: state.FailureCount})
+}
+
+func (s durableAccountStateStore) LoadModelLock(ctx context.Context, accountID, modelID string) (proxy.ModelLockState, error) {
+	lock, err := s.store.GetModelLock(ctx, accountID, modelID)
+	if err != nil {
+		return proxy.ModelLockState{}, err
+	}
+	return proxy.ModelLockState{RetryAt: lock.RetryAt, FailureCount: lock.FailureCount}, nil
+}
+
+func (s durableAccountStateStore) SaveModelLock(ctx context.Context, accountID, modelID string, state proxy.ModelLockState) error {
+	return s.store.UpsertModelLock(ctx, dbmodels.AccountModelLock{AccountID: accountID, ModelID: modelID, RetryAt: state.RetryAt, FailureCount: state.FailureCount})
+}
+
+func (s durableAccountStateStore) ClearModelLock(ctx context.Context, accountID, modelID string) error {
+	return s.store.ClearModelLock(ctx, accountID, modelID)
+}
+
+func (s durableAccountStateStore) ClearModelLocks(ctx context.Context, accountID string) error {
+	return s.store.ClearModelLocks(ctx, accountID)
 }
 
 func (s durableAccountStore) ListAccounts(ctx context.Context, providerID string) ([]proxy.Account, error) {
@@ -355,7 +523,15 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 	if deps.Accounts == nil && (strings.EqualFold(cfg.Environment, "production") || deps.Database != nil) {
 		return nil, errors.New("runtime: durable account configuration store is required; PostgreSQL account adapter is not composed")
 	}
-	credentialResolver, err := composeCredentialResolver(deps)
+	refresher, err := composeAccountRefresher(deps)
+	if err != nil {
+		return nil, err
+	}
+	// Keep the composed refresher on the dependency projection so the
+	// credential resolver and admin OAuth service use the same single-flight,
+	// durable refresh path as router retries.
+	deps.Refresher = refresher
+	credentialResolver, invalidateCredential, err := composeCredentialResolverWithInvalidator(deps)
 	if err != nil {
 		return nil, err
 	}
@@ -371,17 +547,21 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 		// provider fixture. Production is rejected above.
 		accountStore = compositeAccountStore{primary: providerFixtureAccountStore{registry: deps.Registry}, custom: customAccountSource, customRepository: deps.CustomProviders}
 	}
-	pool, err := proxy.NewAccountPool(proxy.PoolConfig{Store: accountStore, TTL: proxy.DefaultAccountSnapshotTTL})
+	pool, err := proxy.NewAccountPool(proxy.PoolConfig{Store: accountStore, TTL: proxy.DefaultAccountSnapshotTTL, StatePersistence: deps.AccountState})
 	if err != nil {
 		return nil, fmt.Errorf("runtime: account pool: %w", err)
 	}
-	router, err := proxy.NewRouter(proxy.RouterConfig{Pool: pool, MaxAttempts: 3})
+	var routerRefresher proxy.CredentialRefresher
+	if refresher != nil {
+		routerRefresher = accountRefresherAdapter{refresher: refresher, invalidate: invalidateCredential}
+	}
+	router, err := proxy.NewRouter(proxy.RouterConfig{Pool: pool, MaxAttempts: 3, Refresher: routerRefresher})
 	if err != nil {
 		return nil, fmt.Errorf("runtime: router: %w", err)
 	}
 	outboundPolicy := &outbound.Policy{
-		AllowLoopback:  cfg.Environment != "production",
-		AllowPrivate:   cfg.Environment != "production",
+		AllowLoopback:  !strings.EqualFold(cfg.Environment, "production"),
+		AllowPrivate:   !strings.EqualFold(cfg.Environment, "production"),
 		MaxRedirects:   3,
 		RequestTimeout: cfg.RequestTimeout,
 	}
@@ -389,6 +569,8 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 		Registry:          deps.Registry,
 		BaseURLs:          baseURLs,
 		ResolveCredential: credentialResolver,
+		ProxySelector:     deps.ProxySelector,
+		ProxyFailure:      deps.ProxyFailure,
 		OutboundPolicy:    outboundPolicy,
 		MaxResponseBytes:  int64(cfg.MaxBodyBytes),
 		ConnectTimeout:    cfg.ConnectTimeout,
@@ -416,12 +598,16 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 	metrics := observability.NewRegistry()
 	if deps.Admin == nil && deps.DriverRegistry != nil && deps.Accounts != nil && deps.Secrets != nil && deps.Records != nil {
 		sessions := flow.NewManager(flow.ManagerOptions{})
-		oauthService, oauthErr := adminserver.NewOAuthService(deps.DriverRegistry, sessions, deps.Accounts, deps.Secrets, deps.Records, deps.Refresher)
+		oauthService, oauthErr := adminserver.NewOAuthService(deps.DriverRegistry, sessions, deps.Accounts, deps.Secrets, deps.Records, refresher)
 		if oauthErr != nil {
 			return nil, fmt.Errorf("runtime: OAuth admin composition: %w", oauthErr)
 		}
 		deps.Admin = registrarFunc(func(mux *http.ServeMux) {
-			services := adminserver.Services{OAuth: oauthService}
+			services := postgresAdminServices(deps)
+			services.OAuth = oauthService
+			if deps.Database != nil && deps.Database.Settings != nil {
+				services.Settings = newPostgresSettingsAdminService(deps.Database.Settings, cfg.Environment, cfg.ListenAddress)
+			}
 			if deps.CustomProviders != nil {
 				services.CustomProviders = &customProviderAdminService{repository: deps.CustomProviders, registry: deps.Registry}
 			}
@@ -430,7 +616,19 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 	} else if deps.Admin == nil && deps.CustomProviders != nil {
 		customService := &customProviderAdminService{repository: deps.CustomProviders, registry: deps.Registry}
 		deps.Admin = registrarFunc(func(mux *http.ServeMux) {
-			adminserver.Register(mux, adminserver.Services{CustomProviders: customService})
+			services := postgresAdminServices(deps)
+			services.CustomProviders = customService
+			if deps.Database != nil && deps.Database.Settings != nil {
+				services.Settings = newPostgresSettingsAdminService(deps.Database.Settings, cfg.Environment, cfg.ListenAddress)
+			}
+			adminserver.Register(mux, services)
+		})
+	} else if deps.Admin == nil && deps.Database != nil && deps.Database.Settings != nil {
+		settingsService := newPostgresSettingsAdminService(deps.Database.Settings, cfg.Environment, cfg.ListenAddress)
+		deps.Admin = registrarFunc(func(mux *http.ServeMux) {
+			services := postgresAdminServices(deps)
+			services.Settings = settingsService
+			adminserver.Register(mux, services)
 		})
 	}
 	base, err := server.NewRouterWith(server.Options{
@@ -439,12 +637,31 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 		V1: registrarFunc(func(mux *http.ServeMux) {
 			v1.RegisterV1(mux, v1.Deps{Proxy: dispatch, Catalog: catalog, Evidence: metrics})
 		}),
+		V1Auth:  servermiddleware.PublicV1Auth(deps.PublicAPIKeys, strings.EqualFold(cfg.Environment, "production")),
 		V2Admin: deps.Admin,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("runtime: server router: %w", err)
 	}
 	return base, nil
+}
+
+func postgresAdminServices(deps BootstrapDependencies) adminserver.Services {
+	services := adminserver.Services{}
+	if deps.Database == nil {
+		return services
+	}
+	if deps.Database.AdminAPIKeys != nil {
+		services.APIKeys = &postgresAPIKeyAdminService{repository: deps.Database.AdminAPIKeys}
+	}
+	if deps.Database.Proxies != nil {
+		services.Proxies = &postgresProxyAdminService{repository: deps.Database.Proxies}
+	}
+	if deps.Database.Accounts != nil {
+		services.Dashboard = &postgresDashboardAdminService{accounts: deps.Database.Accounts, proxies: deps.Database.Proxies, keys: deps.Database.AdminAPIKeys}
+		services.Accounts = &postgresAccountAdminService{accounts: deps.Accounts, records: deps.Records, secrets: deps.Secrets, refresher: deps.Refresher}
+	}
+	return services
 }
 
 func providerBaseURLs(registry *providers.Registry, overrides map[string]string) (map[string]string, error) {
@@ -473,11 +690,16 @@ func providerBaseURLs(registry *providers.Registry, overrides map[string]string)
 }
 
 func composeCredentialResolver(deps BootstrapDependencies) (transport.CredentialResolver, error) {
+	resolver, _, err := composeCredentialResolverWithInvalidator(deps)
+	return resolver, err
+}
+
+func composeCredentialResolverWithInvalidator(deps BootstrapDependencies) (transport.CredentialResolver, func(string), error) {
 	if deps.Credentials != nil {
-		return deps.Credentials, nil
+		return deps.Credentials, nil, nil
 	}
 	if deps.Accounts == nil || deps.Secrets == nil {
-		return nil, errors.New("runtime: bootstrap credential resolver or account/secret stores are required")
+		return nil, nil, errors.New("runtime: bootstrap credential resolver or account/secret stores are required")
 	}
 	resolver, err := accounts.NewStoreCredentialResolver(accounts.StoreResolverOptions{
 		Accounts:  deps.Accounts,
@@ -490,9 +712,9 @@ func composeCredentialResolver(deps BootstrapDependencies) (transport.Credential
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("runtime: credential resolver: %w", err)
+		return nil, nil, fmt.Errorf("runtime: credential resolver: %w", err)
 	}
-	return func(ctx context.Context, ref string) (string, error) {
+	resolve := func(ctx context.Context, ref string) (string, error) {
 		accountRef, err := accounts.NewReference(ref)
 		if err != nil {
 			return "", err
@@ -513,7 +735,8 @@ func composeCredentialResolver(deps BootstrapDependencies) (transport.Credential
 			return "", errors.New("runtime: credential material is unavailable")
 		}
 		return value, nil
-	}, nil
+	}
+	return resolve, resolver.InvalidateAccount, nil
 }
 
 func rejectCredential(_ context.Context, ref string) (string, error) {

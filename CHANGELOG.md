@@ -2,6 +2,212 @@
 
 All notable changes to Cartethyia are documented here.
 
+## [2.1.0] - 2026-08-14
+
+**Rewrite Core to Golang.** This release establishes the Go daemon as the new
+runtime foundation for Cartethyia. It is the first phase of the rewrite: the
+core boundaries are now explicit, durable account authority is PostgreSQL, the
+optional resolution cache is Redis-backed with an in-memory fallback, and the
+dashboard is a separate client of the daemon API. The goal is a more mature,
+solid, and operationally predictable runtime than the 2.0 beta and the 1.0.8
+alpha line; hardening and broader provider E2E coverage continue after this
+checkpoint.
+
+### What changed from 2.0.0 Beta
+
+- **Runtime language and process boundary**: the daemon hot path, account
+  lifecycle, provider routing, protocol translation, streaming, observability,
+  and admin API are implemented in Go 1.26.5. The React/Vite dashboard remains
+  a separate process and is not embedded in the daemon binary.
+- **Durable authority**: PostgreSQL replaces the legacy SQLite runtime authority
+  for account configuration, encrypted credential material, OAuth metadata,
+  refresh leases, provider/account directory state, and runtime persistence.
+- **Cache composition**: the daemon always has a bounded L0 memory cache and can
+  compose an optional L1 Redis backend through one cache contract. PostgreSQL
+  remains the authority; Redis is never treated as the source of truth.
+- **Routing ownership**: provider selection, account selection, and outbound
+  network-proxy selection are separate decisions with explicit retry, refresh,
+  cooldown, quota, and fallback state.
+- **Protocol boundary**: OpenAI Chat, OpenAI Responses, Anthropic Messages,
+  image routes, tool calls, reasoning, usage, and streaming are normalized
+  through provider-neutral Go contracts and translated at protocol edges.
+- **Operations boundary**: configuration uses `CARTETHYIA_*` variables, the
+  daemon has a native `/health` endpoint, and the Docker runtime is multi-stage,
+  non-root, read-only compatible, and dependency-aware through Compose health
+  checks.
+- **Proxy ownership layout**: execution, request control, protocol contracts,
+  transport, and compression now have explicit package owners instead of a
+  flat proxy tree.
+- **Headroom removal**: the external Headroom compression service is no longer
+  part of the active Go runtime. Existing local RTK token-saver code remains
+  isolated and available without adding another network dependency.
+
+### What changed from 1.0.8-alpha
+
+- The old Bun/TypeScript runtime is now historical source under `src.old/`; it
+  is not the active daemon implementation.
+- Account and OAuth behavior moved from process-local/legacy storage paths into
+  provider-neutral Go contracts, encrypted durable secrets, provider drivers,
+  refresh coordination, and fenced refresh commits.
+- The former mixed request/console runtime is separated into external client
+  ingress under `/v1/*` and authenticated browser/admin control under
+  `/v2/admin/*`.
+- Provider/account/network routing now has independent selection stages,
+  bounded account concurrency, health/cooldown state, retry classification,
+  and explicit fallback decisions.
+- Protocol translation and streaming no longer depend on the historical
+  OpenSSE TypeScript layout; the active Go packages own normalization,
+  provider encoding, provider decoding, and client projection.
+- Runtime configuration is explicit and container-friendly. PostgreSQL and the
+  account encryption key are required when durable production authority is
+  enabled; Redis is optional and degrades to the in-memory cache path.
+
+### Added
+
+- Go daemon module and runtime composition under `daemon/`.
+- Provider account drivers for API-key and OAuth-backed providers already
+  present in the rewrite scope.
+- Encrypted account secret storage with defensive-copy boundaries.
+- PostgreSQL migrations and Bun repositories for account authority, refresh
+  leases, metadata, catalogs, settings, backups, bans, and telemetry.
+- Redis-compatible cache backend with generation-aware entries, health state,
+  advisory fallback, and bounded miss behavior.
+- `/v1` client handlers for chat, Responses, Anthropic Messages, token counting,
+  model catalog, image generation, image edits, and canonical action ingress.
+- `/v2/admin` service boundaries for authentication, OAuth lifecycle, accounts,
+  keys, providers, proxies, settings, catalogs, telemetry, tools, and backups.
+- Environment loader that reads `.env` from the working directory or its parent
+  without overriding explicitly supplied process variables.
+- Docker and Compose targets for the Go daemon, PostgreSQL, Redis, and the
+  separately built dashboard.
+
+### Fixed and hardened
+
+- PostgreSQL JSONB account metadata is encoded as JSON text with explicit JSONB
+  casts instead of driver-dependent byte-array encoding.
+- Joined account-directory fields use explicit database column tags, including
+  acronym-bearing OAuth identifiers.
+- Production bootstrap fails closed when PostgreSQL or the account encryption
+  key is required but unavailable.
+- Credential references remain opaque until late transport resolution; raw
+  credentials, prompts, cookies, tool payloads, and provider bodies are not
+  lifecycle evidence.
+
+### Verification
+
+- `go test ./...` — 38 Go packages passed; 18 packages currently have no test
+  files.
+- `go vet ./...` — clean.
+- Live PostgreSQL account-authority integration against Laragon passed,
+  including encrypted secrets, joined directory, refresh lease fencing, and
+  atomic refresh commit.
+- Local daemon startup with PostgreSQL/Redis configuration passed and
+  `GET /health` returned HTTP 200.
+
+### Advanced hardening update — 2026-08-14
+
+This update promotes the Go daemon from a structural rewrite foundation to an
+actively hardened production request path. No legacy providers were added;
+Devin, CursorCLI, Gemini, Cloudflare, CommandCode, Qoder, and Exa remain outside
+the selected provider scope.
+
+#### Public API security
+
+- Added production-scoped public V1 authentication for both Bearer and
+  `X-API-Key` credentials.
+- Conflicting credentials are rejected instead of choosing one implicitly.
+- Production requests fail closed when the durable API-key resolver is absent.
+- Provider allowlists, model allowlists, model denylists, revoked-key checks,
+  image-model ACLs, rate limits, and max-concurrency limits are enforced before
+  dispatch.
+- One-time API-key token consumption is atomic and bounded in PostgreSQL.
+- API-key projections redact raw credentials and secret material.
+- Fixed nullable ACL column handling so ordinary keys without ACL lists resolve
+  successfully.
+
+#### Protocol and request lifecycle
+
+- Canonical request preparation is now active before routing for OpenAI Chat,
+  OpenAI Responses, and Anthropic Messages.
+- Tool invariant processing and the local RTK token saver are active in the
+  dispatch pipeline.
+- Added `POST /v1/messages/count_tokens` with bounded JSON parsing,
+  deterministic conservative token estimation, and production authentication.
+- Removed stale documentation for the previously advertised but unregistered
+  count-token route before implementing the real endpoint.
+- Reworked unknown-field preservation so transformed arrays are never merged by
+  positional index and consumed canonical fields such as Responses
+  `instructions` are not duplicated.
+- Streaming proxy setup failures are classified as transient and can enter the
+  existing bounded retry path.
+
+#### OAuth and account state
+
+- OAuth refresh now resolves the driver from the persisted provider identity.
+- Refresh continues to use encrypted secrets, refresh leases, CAS/version
+  commits, single-flight behavior, and credential-cache invalidation.
+- Account authentication/fatal/transient failures update account health while
+  model-specific quota locks remain model-scoped.
+- Durable account health and model locks hydrate across restart.
+- Successful OAuth reset clears persisted model locks instead of only clearing
+  process-local state.
+- Lock hydration no longer overwrites newer local state or preserves stale
+  local locks after a durable lock disappears.
+
+#### PostgreSQL and admin runtime
+
+- Added complete PostgreSQL API-key CRUD, touch flushing, share-link lifecycle,
+  bounded token accounting, and proxy CRUD/health/settings repositories.
+- Added durable settings, backup metadata, ban, filter-rule, account, API-key,
+  proxy, and dashboard admin adapters where repository contracts are complete.
+- Unsupported backup archive/restore, proxy probe/scrape/country, and provider
+  quota operations return explicit unavailable errors rather than fake success.
+- Fixed runtime construction to pass the loaded daemon configuration into
+  PostgreSQL/Redis bootstrap. Production no longer silently bootstraps with an
+  empty configuration.
+- Fixed Bun custom-provider queries to target `custom_providers` explicitly;
+  fresh PostgreSQL containers no longer look for the generated
+  `custom_provider_rows` table.
+
+#### Network and container hardening
+
+- Added durable proxy snapshot selection with bounded refresh concurrency,
+  provider exclusions, deterministic routing, and proxy-failure cooldown
+  persistence.
+- Added per-request HTTP, HTTPS, SOCKS5, and SOCKS5H transport selection while
+  preserving direct mode for development and fresh databases.
+- Fresh proxy settings default to direct/auto mode without requiring a seed row.
+- Verified the runtime image through WSL Docker Engine 29.7.2.
+- Verified Compose configuration, runtime image build, PostgreSQL/Redis startup,
+  production container startup, `/health` readiness, and unauthenticated V1
+  rejection.
+
+### Verification after advanced hardening
+
+- `go test ./... -count=1` — 38 packages passed; 18 packages have no test files.
+- `go vet ./...` — clean.
+- `go mod tidy` — clean module graph including the direct SOCKS5 dependency.
+- PostgreSQL account-authority integration passed with encrypted secrets,
+  joined directory data, refresh lease fencing, and atomic refresh commit.
+- WSL Docker `docker compose config` — passed.
+- WSL Docker `docker compose build --pull cartethyia` — passed.
+- WSL Docker explicit no-cache runtime build — passed.
+- Production container smoke test — `GET /health` returned HTTP 200 and
+  unauthenticated `POST /v1/messages/count_tokens` returned HTTP 401 as
+  required by production auth.
+
+### Remaining verification limits
+
+- Provider-by-provider live E2E coverage, race-enabled verification on Linux,
+  and upstream API compatibility checks remain environment-dependent.
+- Daily/monthly API-key token accounting still requires durable request-history
+  attribution for the authenticated API-key identity.
+- The count-token endpoint uses a conservative estimator because an exact
+  provider-native Anthropic tokenizer is not part of the current dependency
+  graph.
+- The race detector requires a Linux/CGO compiler toolchain; the Windows host
+  does not currently provide that toolchain.
+
 ## [2.0.0-beta] - 2026-08-08
 
 **2.0.0 Beta is here.** This release consolidates the OAuth and quota lifecycle around the account/provider runtime boundary, adds provider-aware background workers, and hardens the failure path for revoked refresh tokens.
@@ -444,7 +650,7 @@ The next development pass focuses on:
 
 - **DB migrations**: the upgrade-migration chain has been dropped; `schema.ts`'s `INIT_SQL` is the sole source of truth. During alpha, upgrading between versions may require a database reset (delete `DATA_DIR/cartethyia.db*` and re-add provider connections).
 - **Proxy Pools**: the SOCKS5/HTTP/relay proxy-per-provider-account rotation feature has been removed entirely (was broken/unused).
-- **Filter Rules**: the outbound-text sanitizer console page and its runtime pipeline have been removed (archived to [`docs/filter-rules-archive.md`](./docs/filter-rules-archive.md)).
+- **Filter Rules**: the outbound-text sanitizer console page and its runtime pipeline have been removed (historical implementation retained under [`src.old/console/input-sanitizers.ts`](./src.old/console/input-sanitizers.ts)).
 - **RTK (Response Token Killer)**: the request-token-compression feature and its `RTK_ENABLED`/`RTK_MIN_CHARS`/`RTK_MAX_REDUCTION_PERCENT` environment variables have been removed.
 
 ### Added

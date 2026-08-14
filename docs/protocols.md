@@ -1,225 +1,253 @@
-# Protocols, Translation, Tools, and Upstream Caching
+# Protocols, Translation, Tools, Streaming, and Prompt Caching
 
-## Protocol roles
+Cartethyia keeps client protocol shape separate from provider destination.
+Translation is performed at the edges around one normalized Go request model.
+
+## 1. Protocol roles
 
 ```text
-+---------------------------+
-| Client protocol shape     |
-| OpenAI Chat / Responses   |
-| Anthropic Messages        |
-+-------------+-------------+
-              v
-+---------------------------+
-| Normalized Cartethyia     |
-| request/content/tools     |
-+-------------+-------------+
-              v
-+---------------------------+
-| Provider wire format      |
-| OpenAI / Anthropic /      |
-| configured adapter        |
-+---------------------------+
+client wire format
+    - OpenAI Chat Completions
+    - OpenAI Responses
+    - Anthropic Messages
+    - image request surface
+          |
+          v
+normalized Cartethyia request
+    - messages/content
+    - tools/tool choice
+    - reasoning
+    - response format
+    - stream intent
+    - cache identity
+          |
+          v
+provider wire format
+    - OpenAI-compatible JSON
+    - Anthropic JSON
+    - provider-specific adapter format
 ```
 
-Client protocol and provider destination are separate concepts. An OpenAI-shaped client request may route to any compatible configured provider adapter.
-
-## Supported surface concepts
-
-The normalized surface identifies the client contract:
+The active contracts live under:
 
 ```text
-openai-chat
-openai-responses
-anthropic-messages
-images
-web-search (when configured)
+daemon/internal/proxy/protocol/contracts/
+daemon/internal/proxy/protocol/transforms/
 ```
 
-The surface does not expose credentials or decide the upstream provider by itself.
+A client protocol does not expose credentials and does not choose the provider
+by itself.
 
-## Translation stages
+## 2. Active external surfaces
 
 ```text
-+---------------------------+
-| Ingress adapter           |
-| client JSON/events        |
-+-------------+-------------+
-              v
-+---------------------------+
-| Normalize                 |
-| messages, content, tools, |
-| stream intent, model      |
-+-------------+-------------+
-              v
-+---------------------------+
-| Provider encoder         |
-| provider-specific JSON   |
-| and cache markers        |
-+-------------+-------------+
-              v
-+---------------------------+
-| Provider decoder         |
-| response/events/usage    |
-+-------------+-------------+
-              v
-+---------------------------+
-| Egress adapter            |
-| client JSON/events        |
-+---------------------------+
+POST /v1/chat/completions       OpenAI Chat Completions
+POST /v1/responses              OpenAI Responses
+POST /v1/messages               Anthropic Messages
+POST /v1/images/generations     OpenAI image generation
+POST /v1/images/edits           OpenAI image edits
 ```
 
-Unsupported content or provider-native features must produce a stable `translation.unsupported_feature` style error. Do not silently drop semantics.
+The normalized source surface is retained so the response encoder can preserve
+surface-specific behavior. Responses and Chat are not interchangeable wire
+formats even when they share model/provider routing.
 
-## Tool calling
+## 3. Translation stages
 
 ```text
-+---------------------------+
-| Client tool definition    |
-+-------------+-------------+
-              v
-+---------------------------+
-| Validate name/schema      |
-+-------------+-------------+
-              v
-+---------------------------+
-| Normalized Tool           |
-+-------------+-------------+
-              v
-+---------------------------+
-| Provider tool encoding    |
-+-------------+-------------+
-              v
-+---------------------------+
-| Model tool call           |
-+-------------+-------------+
-              v
-+---------------------------+
-| Application policy        |
-| allow/deny tool execution |
-+-------------+-------------+
-              v
-+---------------------------+
-| Bounded tool result       |
-+---------------------------+
++-------------------------+
+| ingress decoder         |
+| bounded client JSON     |
++------------+------------+
+             v
++-------------------------+
+| normalization            |
+| roles, blocks, tools,    |
+| reasoning, usage intent  |
++------------+------------+
+             v
++-------------------------+
+| route target             |
+| provider + model +      |
+| upstream surface        |
++------------+------------+
+             v
++-------------------------+
+| provider encoder        |
+| exact upstream payload  |
++------------+------------+
+             v
++-------------------------+
+| provider decoder        |
+| body/events/usage       |
++------------+------------+
+             v
++-------------------------+
+| client encoder           |
+| JSON or stream events    |
++-------------------------+
 ```
 
-Cartethyia normalizes and routes tool calls. It must not execute an arbitrary model-requested tool without an explicit application policy boundary.
+Unsupported content or provider-native features produce a stable unsupported
+feature/translation error. Semantics must not be silently dropped to make a
+request appear successful.
 
-Tool schemas, arguments, and results are bounded. Full tool arguments/results do not enter dashboard state or lifecycle evidence.
+The provider encoder owns wire-only fields. Cache markers, provider-specific
+headers, reasoning controls, and provider-native tool fields must be added only
+where the selected adapter declares the capability.
 
-## Streaming
+## 4. Canonical content and reasoning
 
-Streaming preserves order and call IDs:
+The normalized model represents:
 
-```text
-provider chunk
-     |
-     v
-normalized delta/event
-     |
-     +--> OpenAI Chat chunk
-     +--> OpenAI Responses event
-     +--> Anthropic content event
-```
+- system, developer, user, assistant, and tool roles;
+- text, image, tool-use, tool-result, reasoning, compaction, native, and unknown
+  content blocks;
+- opaque reasoning signatures/encrypted reasoning content;
+- reasoning effort, summary, mode, context, max tokens, enabled, and exclude
+  controls;
+- response format and JSON schema;
+- image references by URL, data, or file kind;
+- provider-native payloads only where an adapter explicitly preserves them.
 
-Cancellation closes the upstream stream and emits a terminal cancellation outcome. A partial stream must not become a successful empty response.
+Unknown values remain distinguishable from empty values. A provider decoder may
+retain bounded raw metadata for round-trip behavior, but raw bodies do not enter
+observability or dashboard state.
 
-## Always request upstream caching
-
-**Policy:** every provider adapter must request upstream prompt caching whenever that provider/model supports it. Do not add a local cache layer as a substitute for this request marker.
-
-```text
-+---------------------------+
-| Normalized request        |
-+-------------+-------------+
-              v
-+---------------------------+
-| Stable prefix             |
-| system, tools, shared     |
-| context, stable history  |
-+-------------+-------------+
-              v
-+---------------------------+
-| Provider cache marker     |
-| OpenAI: prompt_cache_key  |
-| + explicit breakpoint     |
-| Anthropic: cache_control  |
-| type = ephemeral          |
-+-------------+-------------+
-              v
-+---------------------------+
-| Upstream request          |
-+---------------------------+
-```
-
-The marker is an optimization. The request remains valid when the provider does not support caching or the cache misses.
-
-### Provider fields
-
-| Provider | What Cartethyia sends |
-| --- | --- |
-| OpenAI, GPT-5.6 family | `prompt_cache_key` on every eligible request; Responses gets an explicit breakpoint after stable developer/input content; Chat Completions gets the equivalent stable system/developer breakpoint; use explicit mode only when a safe breakpoint exists |
-| OpenAI, earlier supported models | `prompt_cache_key` when supported; automatic caching otherwise; do not send GPT-5.6-only breakpoint fields |
-| Anthropic Messages | top-level `cache_control: { "type": "ephemeral" }`; provider moves the automatic breakpoint to the last cacheable block |
-| Unsupported provider/model | No invented cache field; send the normal request |
-
-`ephemeral` is the Anthropic name. It is not the OpenAI field name. OpenAI uses prompt-cache fields such as `prompt_cache_key` and `prompt_cache_breakpoint`.
-### OpenAI GPT-5.6 family
-
-GPT-5.6 is stricter than older OpenAI models:
+## 5. Tool calling
 
 ```text
-Responses / Chat Completions
+client tool definition
         |
         v
-exact stable prefix
-        |
-        +--> prompt_cache_key required for reliable matching
-        +--> explicit breakpoint at stable boundary
-        +--> prompt_cache_options.mode = explicit
+bounded name/schema validation
         |
         v
-changing user/request suffix
+normalized Tool
+        |
+        v
+provider tool encoder
+        |
+        v
+model tool call
+        |
+        v
+application policy boundary
+        |
+        v
+bounded tool result
 ```
 
 Rules:
 
-- the rendered prefix through the breakpoint must reach the provider's 1,024-token minimum;
-- the key and prefix must match exactly;
-- Responses marks `input_text` inside a stable developer/system input item;
-- Chat Completions marks `text` inside a stable system/developer message;
-- `instructions` at the top level cannot carry an explicit breakpoint; use a developer input item when an explicit Responses breakpoint is needed;
-- if the stable prefix is too short, send `prompt_cache_key` but omit the explicit marker instead of risking an invalid request;
-- use explicit-only mode when the changing suffix should not create a second cache write;
-- monitor `cached_tokens` and `cache_write_tokens`.
+- tool names and schemas are bounded before translation;
+- arguments are treated as JSON text at the canonical boundary;
+- provider-native tools are marked with their native type and rejected by
+  incompatible encoders instead of being corrupted;
+- tool execution is an application policy decision, not an automatic action
+  granted by a model response;
+- tool arguments/results are not lifecycle evidence or dashboard state;
+- unsupported tool combinations return a stable translation error.
 
-The implementation uses a conservative byte estimate before adding the explicit marker. That avoids emitting a GPT-5.6 breakpoint for a prefix that is obviously below the upstream minimum.
-
-### OpenAI Chat Completions and Responses
-
-Both surfaces use the same cache policy, but the marker location differs:
+## 6. Streaming
 
 ```text
-Chat Completions:
-messages[
-  { role: system/developer,
-    content: [{ type: text, prompt_cache_breakpoint: ... }]
-  }
-]
-
-Responses:
-input[
-  { role: developer/system,
-    content: [{ type: input_text, prompt_cache_breakpoint: ... }]
-  }
-]
+provider chunk/event
+        |
+        v
+normalized event
+        |
+        +--> OpenAI Chat chunk
+        +--> OpenAI Responses event
+        +--> Anthropic content event
 ```
 
-Responses is preferred for new integrations. Chat Completions remains supported with the equivalent stable-prefix marker.
+The stream contract preserves:
 
-### Anthropic Messages
+- event order;
+- tool-call IDs and fragments;
+- reasoning deltas and opaque signatures;
+- usage on terminal/final events;
+- stop reason and terminal state;
+- cancellation and upstream close behavior.
 
-Anthropic uses automatic prompt caching:
+A client disconnect cancels upstream work. A malformed upstream event or stream
+stall becomes a typed stream failure. A partial response is not promoted to a
+successful empty response.
+
+## 7. Provider capability resolution
+
+Provider metadata declares capabilities such as:
+
+```text
+surface support
+streaming
+reasoning
+tool calls
+prompt-cache key
+explicit cache marker
+web search
+media generation
+```
+
+The router filters candidates with these capabilities before provider
+translation. An adapter must not emit a provider field just because another
+provider supports it.
+
+## 8. Upstream prompt caching
+
+Prompt caching is provider-side optimization, not the Redis resolution cache.
+The exact provider payload must exist before adding the cache marker.
+
+```text
+normalized request
+        |
+        v
+translated provider payload
+        |
+        v
+stable prefix calculation
+        |
+        +--> provider cache key when supported
+        +--> explicit breakpoint when supported and eligible
+        +--> normal payload when unsupported/ineligible
+```
+
+Stable prefix content generally includes:
+
+- system/developer instructions;
+- tool definitions and schemas;
+- shared context;
+- unchanged history;
+- deterministic serialization.
+
+Changing content belongs after the boundary:
+
+- current user message;
+- timestamps;
+- request/trace IDs;
+- random IDs/nonces;
+- dynamic tool results;
+- temporary account/session suffixes.
+
+### OpenAI-compatible adapters
+
+When capability and model policy allow it, adapters can emit:
+
+```json
+{
+  "prompt_cache_key": "stable-provider-scoped-key"
+}
+```
+
+For eligible models with a sufficiently large stable prefix, the adapter may
+also emit the provider's explicit breakpoint and explicit mode. If the stable
+prefix is below the provider minimum, keep the key when supported but omit the
+breakpoint rather than generating an invalid request.
+
+### Anthropic adapters
+
+When explicit cache capability is enabled, the adapter may add:
 
 ```json
 {
@@ -229,103 +257,46 @@ Anthropic uses automatic prompt caching:
 }
 ```
 
-Anthropic caches `tools`, then `system`, then `messages` up to the automatic breakpoint. The provider silently skips caching when the prompt is below the model/platform minimum. Usage fields distinguish:
+The marker belongs to a cacheable translated block. Native server tools must
+not receive a marker unless their provider contract explicitly supports it.
+
+### Cache status
+
+Only bounded metadata may be recorded:
 
 ```text
-cache_read_input_tokens
-cache_creation_input_tokens
+cache_supported: true | false | unknown
+cache_marked: true | false
+cache_status: hit | miss | unknown
+cache_read_tokens: number | null
+cache_write_tokens: number | null
 ```
 
-Anthropic cache isolation is workspace/organization dependent. A different account is reusable only when it resolves to the same upstream workspace/cache scope.
+Never log the key, stable prefix, prompt, tool arguments, credentials, or full
+provider payload. Cache marking failures fail open to the normal provider
+request and report `unknown` rather than a fabricated hit.
 
-### What stays stable
+## 9. Local RTK token saver
 
-Put reusable content before the cache breakpoint:
-
-- system/developer instructions;
-- tool definitions and schemas;
-- shared context;
-- unchanged conversation history;
-- deterministic serialization.
-
-Put changing content after the breakpoint:
-
-
-- current user message;
-- timestamps;
-- request/trace IDs;
-- random UUIDs/nonces;
-- dynamic tool results;
-- temporary session/credential suffixes.
-
-The marker must be added **after translation has built the exact provider payload**. That prevents the adapter from marking a boundary that does not exist on the wire.
-
-### Cache key and routing
-
-The cache key must be stable for requests that should reuse the same upstream prefix:
+The local RTK implementation is isolated under:
 
 ```text
-cache key = provider cache scope + model + stable prompt profile
+daemon/internal/proxy/compression/
 ```
 
-The network proxy is not part of the cache key. Changing Cartethyia's network proxy does not change the upstream prompt prefix.
+It contains bounded smart filters and a fail-open token-saving pipeline. It is
+not an upstream prompt-cache marker, not Redis, and not Headroom. In the current
+2.1.0 checkpoint it is a reusable package, not an automatically inserted stage
+of the active dispatch path. Do not assume every `/v1/*` request is compressed.
 
-Changing the Cartethyia account is safe only when both accounts resolve to the same upstream cache scope. “Same upstream URL” alone is not enough: providers may isolate caches by organization, project, workspace, or account. If the cache scope changes, use a different key and expect a miss.
+## 10. Adding a protocol or provider
 
-For OpenAI, the official behavior is exact prefix matching plus `prompt_cache_key`; caches are not shared between organizations. Therefore:
-
-```text
-same provider + same cache scope + same model + same key + same prefix
-    -> eligible for cache reuse
-
-same provider URL but different organization/project scope
-    -> do not assume cache reuse
-```
-
-### Anti-miss rules
-
-1. Always add the marker when capability says it is supported.
-2. Keep the stable prefix byte-for-byte deterministic.
-3. Keep the same `prompt_cache_key` for the same stable prompt profile.
-4. Never put timestamps, UUIDs, request IDs, or changing tool results before the breakpoint.
-5. Keep tool order, schemas, model, and relevant settings identical.
-6. Do not include Cartethyia proxy identity in the key.
-7. Do not assume an account switch preserves cache scope.
-8. Parse `cached_tokens` and `cache_write_tokens` when upstream returns them.
-9. Record `hit`, `miss`, or `unknown`; never manufacture a hit.
-
-### Cost and latency
-
-On a cache hit, the provider can avoid reprocessing the cached prefix, reducing latency and input-token cost. Cache writes and retention may have provider-specific pricing. Cache marking does not make output generation free and does not guarantee a hit.
-
-### Evidence
-
-Record only bounded cache metadata:
-
-```text
-cache_supported: true/false/unknown
-cache_marked: true/false
-cache_status: hit/miss/unknown
-cache_read_tokens: number/null
-cache_write_tokens: number/null
-```
-
-Never log the key, stable prefix, prompt, tool arguments, credentials, or provider payload.
-
-### If marking fails
-
-If marker construction fails but the request is otherwise valid, send the normal provider request and record `cache_status=unknown`. A cache failure must not become a request failure and must not be reported as a successful cache hit.
-
-## Adding a new protocol/provider
-
-1. Define client surface and provider capability separately.
-2. Normalize content, tools, streaming, usage, and errors.
-3. Add always-on capability-gated cache marking.
-4. Add stable-prefix, account-scope, proxy-change, and cache-miss tests.
-5. Add unsupported-feature tests.
-6. Add bounded cache evidence without raw payloads.
-
-## Official provider references
-
-- [OpenAI Prompt Caching](https://developers.openai.com/api/docs/guides/prompt-caching)
-- [Anthropic Prompt Caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+1. Define the client surface and upstream provider separately.
+2. Add/extend normalized contracts before adding wire fields.
+3. Add capability declarations and reject unsupported combinations explicitly.
+4. Implement request and response translation at protocol edges.
+5. Preserve stream order, IDs, usage, stop reason, and cancellation.
+6. Add provider cache marking only after the exact wire payload is available.
+7. Add malformed input, unsupported feature, cache miss, account scope, stream,
+   and redaction tests.
+8. Keep provider secrets and raw payloads out of evidence.

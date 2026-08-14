@@ -53,8 +53,13 @@ const (
 )
 
 type RefresherOptions struct {
-	SafetySkew     time.Duration
-	Driver         AuthDriver
+	SafetySkew time.Duration
+	Driver     AuthDriver
+	// DriverResolver selects the provider-specific driver at refresh time.
+	// It is preferred over Driver when configured; a missing provider returns
+	// an explicit refresh-fatal error rather than falling back to another
+	// provider's token endpoint.
+	DriverResolver func(providerID string) (AuthDriver, bool)
 	Secrets        SecretStore
 	Records        RecordStore
 	Accounts       AccountConfigStore
@@ -85,12 +90,13 @@ type RefreshEvidence struct {
 // same account share a single upstream refresh call. It does not own
 // the driver or stores: those are injected.
 type InMemoryRefresher struct {
-	driver   AuthDriver
-	secrets  SecretStore
-	records  RecordStore
-	accounts AccountConfigStore
-	lease    RefreshLeaseStore
-	leaseTTL time.Duration
+	driver         AuthDriver
+	driverResolver func(providerID string) (AuthDriver, bool)
+	secrets        SecretStore
+	records        RecordStore
+	accounts       AccountConfigStore
+	lease          RefreshLeaseStore
+	leaseTTL       time.Duration
 
 	safetySkew     time.Duration
 	now            func() time.Time
@@ -121,8 +127,8 @@ type singleFlight struct {
 // not silent in-memory fallbacks.
 func NewInMemoryRefresher(opts RefresherOptions) (*InMemoryRefresher, error) {
 	switch {
-	case opts.Driver == nil:
-		return nil, NewError(ErrKindInvalidRequest, "", "", errors.New("RefresherOptions.Driver is required"))
+	case opts.Driver == nil && opts.DriverResolver == nil:
+		return nil, NewError(ErrKindInvalidRequest, "", "", errors.New("RefresherOptions.Driver or DriverResolver is required"))
 	case opts.Secrets == nil:
 		return nil, NewError(ErrKindInvalidRequest, "", "", errors.New("RefresherOptions.Secrets is required"))
 	case opts.Records == nil:
@@ -156,7 +162,7 @@ func NewInMemoryRefresher(opts RefresherOptions) (*InMemoryRefresher, error) {
 	}
 	evidence := opts.Evidence
 	return &InMemoryRefresher{
-		driver: opts.Driver, secrets: opts.Secrets, records: opts.Records,
+		driver: opts.Driver, driverResolver: opts.DriverResolver, secrets: opts.Secrets, records: opts.Records,
 		accounts: opts.Accounts, lease: opts.Lease, leaseTTL: leaseTTL,
 		safetySkew: skew, now: now, refreshTimeout: timeout, maxAttempts: attempts,
 		retryBackoff: backoff, evidence: evidence,
@@ -366,12 +372,25 @@ func (r *InMemoryRefresher) runRefresh(ctx context.Context, accountID string, fo
 	// Bounded retry loop. Fatal / non-transient errors short circuit;
 	// transient errors retry with a fixed backoff.
 	var fresh *TokenSet
+	driver := r.driver
+	if r.driverResolver != nil {
+		var ok bool
+		driver, ok = r.driverResolver(cfg.ProviderID)
+		if !ok || driver == nil {
+			err := NewError(ErrKindRefreshFatal, cfg.ProviderID, accountID, errors.New("OAuth provider driver is unavailable"))
+			r.emitEvidence(RefreshEvidence{ProviderID: cfg.ProviderID, AccountID: accountID, Stage: "refresh", Outcome: "provider_unavailable", Code: string(ErrKindRefreshFatal), StartedAt: started, EndedAt: r.now()})
+			return nil, err
+		}
+	}
+	if driver == nil {
+		return nil, NewError(ErrKindRefreshFatal, cfg.ProviderID, accountID, errors.New("OAuth provider driver is unavailable"))
+	}
 	for attempt := 1; attempt <= r.maxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			r.emitEvidence(RefreshEvidence{ProviderID: cfg.ProviderID, AccountID: accountID, Stage: "refresh", Outcome: "transient", Code: string(ErrKindRefreshTransient), StartedAt: started, EndedAt: r.now()})
 			return nil, NewError(ErrKindRefreshTransient, cfg.ProviderID, accountID, err)
 		}
-		fresh, err = r.driver.Refresh(ctx, RefreshTokenInput{ProviderID: cfg.ProviderID, AccountID: accountID, RefreshToken: refresh})
+		fresh, err = driver.Refresh(ctx, RefreshTokenInput{ProviderID: cfg.ProviderID, AccountID: accountID, RefreshToken: refresh})
 		if err == nil {
 			break
 		}

@@ -34,5 +34,7 @@ type Options struct {
 	Registry      *observability.Registry
 	HealthArtwork string
 	V1            V1Registrar
-	V2Admin       AdminRegistrar
+	// V1Auth wraps the complete /v1 subtree without affecting health or admin.
+	V1Auth  func(http.Handler) http.Handler
+	V2Admin AdminRegistrar
 }
