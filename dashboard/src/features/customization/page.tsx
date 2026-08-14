@@ -10,7 +10,7 @@ import { Card, CardHeader } from "../../components/ui/card";
 import { Input, Label } from "../../components/ui/input";
 import { Switch } from "../../components/ui/switch";
 import { toast } from "../../lib/toast";
-import { apiGet, apiPost } from "../../lib/api";
+import { daemonGet, daemonPatch } from "../../lib/daemon-api";
 import { qk } from "../../lib/query-keys";
 import { BackgroundUpload, useCustomizationSettings } from "./background";
 
@@ -49,10 +49,10 @@ export function CustomizationPage() {
   const asset = settings.backgroundAsset;
   const appearanceQuery = useQuery({
     queryKey: qk.settings.all,
-    queryFn: () => apiGet<AppearanceSettingsResponse>("/settings"),
+    queryFn: () => daemonGet<AppearanceSettingsResponse>("/settings"),
   });
   const appearanceMutation = useMutation({
-    mutationFn: (patch: Partial<AppearanceSettings>) => apiPost<{ ok: boolean }>("/settings", patch),
+    mutationFn: (patch: Partial<AppearanceSettings>) => daemonPatch<{ ok: boolean }>("/settings", patch),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: qk.settings.all }),
     onError: (error) => toast.error(error instanceof Error ? error.message : "Unable to update appearance settings"),
   });

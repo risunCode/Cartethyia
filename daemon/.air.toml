@@ -1,0 +1,18 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./tmp/cartethyia.exe ./cmd/cartethyia"
+entrypoint = ["./tmp/cartethyia.exe"]
+include_ext = ["go"]
+exclude_dir = ["tmp", "vendor"]
+delay = 500
+stop_on_error = true
+send_interrupt = true
+kill_delay = 500
+
+[log]
+time = true
+
+[misc]
+clean_on_exit = true

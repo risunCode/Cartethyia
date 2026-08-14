@@ -1,0 +1,283 @@
+package transforms
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+)
+
+// ProtocolValidationStage performs the first fail-closed canonical validation.
+type ProtocolValidationStage struct{}
+
+func (ProtocolValidationStage) Name() string { return "protocol-validation" }
+func (s ProtocolValidationStage) Metadata() StageMetadata {
+	return StageMetadata{Owner: "transforms", ID: s.Name(), Lossless: true, SemanticContract: "validated canonical request", ActivationPolicy: "always", CachePrefixEffect: "preserve", Order: orderProtocolValidation}
+}
+func (s ProtocolValidationStage) Apply(_ context.Context, req *NormalizedRequest, _ LossPolicy) (*NormalizedRequest, contracts.TransformDiagnostic, error) {
+	if req == nil {
+		return nil, contracts.TransformDiagnostic{}, pipelineError(CodeInvalidRequest, "", "request", "request is required", nil)
+	}
+	if err := req.Validate(); err != nil {
+		return nil, contracts.TransformDiagnostic{}, pipelineError(CodeInvalidRequest, surfaceOf(req), "request", "request validation failed", err)
+	}
+	return req, contracts.TransformDiagnostic{Stage: s.Name(), Action: "validate", Reason: "canonical request accepted"}, nil
+}
+
+// LosslessNormalizationStage clones caller-owned data and compacts valid JSON
+// tool arguments without changing their semantic value.
+type LosslessNormalizationStage struct{}
+
+func (LosslessNormalizationStage) Name() string { return "lossless-normalization" }
+func (s LosslessNormalizationStage) Metadata() StageMetadata {
+	return StageMetadata{Owner: "transforms", ID: s.Name(), Lossless: true, SemanticContract: "preserve content and ordering", ActivationPolicy: "always", CachePrefixEffect: "preserve", Order: orderLosslessNormalize}
+}
+func (s LosslessNormalizationStage) Apply(_ context.Context, req *NormalizedRequest, _ LossPolicy) (*NormalizedRequest, contracts.TransformDiagnostic, error) {
+	if req == nil {
+		return nil, contracts.TransformDiagnostic{}, pipelineError(CodeInvalidRequest, "", "request", "request is required", nil)
+	}
+	out := cloneNormalizedRequest(req)
+	for mi := range out.Messages {
+		for bi := range out.Messages[mi].Content {
+			block := &out.Messages[mi].Content[bi]
+			if block.ToolArguments != "" {
+				block.ToolArguments = RepairToolCallArguments(block.ToolArguments)
+			}
+		}
+	}
+	return out, contracts.TransformDiagnostic{Stage: s.Name(), Action: "preserve", Reason: "lossless ownership and JSON normalization"}, nil
+}
+
+// SchemaToolNormalizationStage normalizes tool argument JSON and clones schema
+// values. It never drops a tool or changes its declaration.
+type SchemaToolNormalizationStage struct{}
+
+func (SchemaToolNormalizationStage) Name() string { return "schema-tool-normalization" }
+func (s SchemaToolNormalizationStage) Metadata() StageMetadata {
+	return StageMetadata{Owner: "transforms", ID: s.Name(), Lossless: true, SemanticContract: "preserve tool signatures", ActivationPolicy: "always", CachePrefixEffect: "preserve", Order: orderSchemaTools}
+}
+func (s SchemaToolNormalizationStage) Apply(_ context.Context, req *NormalizedRequest, _ LossPolicy) (*NormalizedRequest, contracts.TransformDiagnostic, error) {
+	if req == nil {
+		return nil, contracts.TransformDiagnostic{}, pipelineError(CodeInvalidRequest, "", "request", "request is required", nil)
+	}
+	out := cloneNormalizedRequest(req)
+	for i := range out.Tools {
+		if out.Tools[i].InputSchema == nil {
+			continue
+		}
+		out.Tools[i].InputSchema = cloneMap(out.Tools[i].InputSchema)
+	}
+	for mi := range out.Messages {
+		for bi := range out.Messages[mi].Content {
+			block := &out.Messages[mi].Content[bi]
+			if block.Type == BlockToolUse && block.ToolArguments != "" {
+				if !json.Valid([]byte(block.ToolArguments)) {
+					return nil, contracts.TransformDiagnostic{}, pipelineError(CodeUnsupportedFeature, surfaceOf(req), fmt.Sprintf("messages[%d].content[%d].tool_arguments", mi, bi), "tool arguments are not valid JSON", nil)
+				}
+				block.ToolArguments = RepairToolCallArguments(block.ToolArguments)
+			}
+		}
+	}
+	return out, contracts.TransformDiagnostic{Stage: s.Name(), Action: "preserve", Reason: "tool schemas and arguments normalized losslessly"}, nil
+}
+
+// LossyTransform is an optional callback used by LossyTransformStage. The
+// callback must return a non-nil request and must not fabricate provider data.
+type LossyTransform func(context.Context, *NormalizedRequest) (*NormalizedRequest, error)
+
+// LossyTransformStage is policy-gated by Pipeline.Apply. A nil callback is a
+// deliberate no-op, useful when composing a pipeline with optional compression.
+type LossyTransformStage struct {
+	ID        string
+	Transform LossyTransform
+}
+
+func (s LossyTransformStage) Name() string {
+	if s.ID == "" {
+		return "lossy-transforms"
+	}
+	return s.ID
+}
+func (s LossyTransformStage) Metadata() StageMetadata {
+	return StageMetadata{Owner: "transforms", ID: s.Name(), Lossless: false, SemanticContract: "loss allowed only by explicit policy", ActivationPolicy: "allow_lossy", CachePrefixEffect: "invalidate", Order: orderLossy}
+}
+func (s LossyTransformStage) Lossy() bool { return true }
+func (s LossyTransformStage) Apply(ctx context.Context, req *NormalizedRequest, policy LossPolicy) (*NormalizedRequest, contracts.TransformDiagnostic, error) {
+	if req == nil {
+		return nil, contracts.TransformDiagnostic{}, pipelineError(CodeInvalidRequest, "", "request", "request is required", nil)
+	}
+	if policy != AllowLossy {
+		return req, contracts.TransformDiagnostic{Stage: s.Name(), Action: "bypass", Reason: "policy=" + policy.String() + "; lossy transform disabled"}, nil
+	}
+	if s.Transform == nil {
+		return req, contracts.TransformDiagnostic{Stage: s.Name(), Action: "preserve", Reason: "no lossy transform configured"}, nil
+	}
+	out, err := s.Transform(ctx, req)
+	if err != nil {
+		return nil, contracts.TransformDiagnostic{}, pipelineError(CodeLossyPolicy, surfaceOf(req), s.Name(), "lossy transform rejected", err)
+	}
+	if out == nil {
+		return nil, contracts.TransformDiagnostic{}, pipelineError(CodeStageFailure, surfaceOf(req), s.Name(), "lossy transform returned nil request", nil)
+	}
+	return out, contracts.TransformDiagnostic{Stage: s.Name(), Action: "lossy", Reason: "policy=allow_lossy; semantic loss explicitly allowed"}, nil
+}
+
+// MediaNormalizationStage handles equivalent media references in the
+// side-channel image list while retaining every content-block occurrence.
+type MediaNormalizationStage struct{}
+
+func (MediaNormalizationStage) Name() string { return "media-normalization" }
+func (s MediaNormalizationStage) Metadata() StageMetadata {
+	return StageMetadata{Owner: "transforms", ID: s.Name(), Lossless: true, SemanticContract: "equivalent media references share identity", ActivationPolicy: "always", CachePrefixEffect: "preserve", Order: orderMedia}
+}
+func (s MediaNormalizationStage) Apply(_ context.Context, req *NormalizedRequest, _ LossPolicy) (*NormalizedRequest, contracts.TransformDiagnostic, error) {
+	if req == nil {
+		return nil, contracts.TransformDiagnostic{}, pipelineError(CodeInvalidRequest, "", "request", "request is required", nil)
+	}
+	out := cloneNormalizedRequest(req)
+	for mi := range out.Messages {
+		for bi := range out.Messages[mi].Content {
+			if out.Messages[mi].Content[bi].Image != nil {
+				out.Messages[mi].Content[bi].Image.MediaType = strings.ToLower(out.Messages[mi].Content[bi].Image.MediaType)
+			}
+		}
+	}
+	seen := make(map[string]struct{}, len(out.Images))
+	images := make([]ImageReference, 0, len(out.Images))
+	for _, image := range out.Images {
+		image.MediaType = strings.ToLower(image.MediaType)
+		key := string(image.Kind) + "\x00" + image.MediaType + "\x00" + image.Value
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		images = append(images, image)
+	}
+	out.Images = images
+	return out, contracts.TransformDiagnostic{Stage: s.Name(), Action: "normalize", Reason: "equivalent media references deduplicated"}, nil
+}
+
+// StablePrefixStage is intentionally provider-neutral. It records that no
+// cache-prefix-affecting mutation occurred; cacheplan computes the actual
+// provider intent from the resulting canonical request.
+type StablePrefixStage struct{}
+
+func (StablePrefixStage) Name() string { return "stable-prefix" }
+func (s StablePrefixStage) Metadata() StageMetadata {
+	return StageMetadata{Owner: "transforms", ID: s.Name(), Lossless: true, SemanticContract: "stable cache prefix", ActivationPolicy: "always", CachePrefixEffect: "preserve", Order: orderStablePrefix}
+}
+func (s StablePrefixStage) Apply(_ context.Context, req *NormalizedRequest, _ LossPolicy) (*NormalizedRequest, contracts.TransformDiagnostic, error) {
+	if req == nil {
+		return nil, contracts.TransformDiagnostic{}, pipelineError(CodeInvalidRequest, "", "request", "request is required", nil)
+	}
+	return req, contracts.TransformDiagnostic{Stage: s.Name(), Action: "preserve", Reason: "cache prefix remains stable until provider planning"}, nil
+}
+
+// CacheMarkerStage validates existing canonical markers and is intentionally a
+// final transform. Provider-specific marker rendering remains in cacheplan and
+// the surface encoders; this stage cannot be followed by another transform.
+type CacheMarkerStage struct{}
+
+func (CacheMarkerStage) Name() string { return "cache-markers" }
+func (s CacheMarkerStage) Metadata() StageMetadata {
+	return StageMetadata{Owner: "transforms", ID: s.Name(), Lossless: true, SemanticContract: "validate marker placement", ActivationPolicy: "cache-supported", CachePrefixEffect: "preserve", Order: orderCacheMarkers, MarkerPlacement: true}
+}
+func (s CacheMarkerStage) Marker() bool { return true }
+func (s CacheMarkerStage) Apply(_ context.Context, req *NormalizedRequest, _ LossPolicy) (*NormalizedRequest, contracts.TransformDiagnostic, error) {
+	if req == nil {
+		return nil, contracts.TransformDiagnostic{}, pipelineError(CodeInvalidRequest, "", "request", "request is required", nil)
+	}
+	for mi, message := range req.Messages {
+		for bi, block := range message.Content {
+			if block.CacheControl != "" && block.CacheControl != "ephemeral" {
+				return nil, contracts.TransformDiagnostic{}, pipelineError(CodeUnsupportedFeature, surfaceOf(req), fmt.Sprintf("messages[%d].content[%d].cache_control", mi, bi), "unsupported cache marker", nil)
+			}
+		}
+	}
+	return req, contracts.TransformDiagnostic{Stage: s.Name(), Action: "validate", Reason: "cache markers validated as final transform"}, nil
+}
+
+func cloneNormalizedRequest(in *NormalizedRequest) *NormalizedRequest {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Messages = append([]NormalizedMessage(nil), in.Messages...)
+	for i := range out.Messages {
+		out.Messages[i].Content = append([]ContentBlock(nil), in.Messages[i].Content...)
+		for j := range out.Messages[i].Content {
+			block := &out.Messages[i].Content[j]
+			block.Image = cloneImage(block.Image)
+			block.ReasoningSummary = cloneMapList(block.ReasoningSummary)
+			block.NativePayload = cloneMap(block.NativePayload)
+			block.Raw = cloneMap(block.Raw)
+		}
+		out.Messages[i].ReasoningItemsBefore = cloneMapList(in.Messages[i].ReasoningItemsBefore)
+	}
+	out.Tools = append([]Tool(nil), in.Tools...)
+	for i := range out.Tools {
+		out.Tools[i].InputSchema = cloneMap(in.Tools[i].InputSchema)
+		out.Tools[i].NativeOptions = cloneMap(in.Tools[i].NativeOptions)
+		out.Tools[i].AllowedCallers = append([]string(nil), in.Tools[i].AllowedCallers...)
+		out.Tools[i].InputExamples = cloneMapList(in.Tools[i].InputExamples)
+	}
+	if in.ToolChoice != nil {
+		tc := *in.ToolChoice
+		tc.Object = cloneMap(in.ToolChoice.Object)
+		out.ToolChoice = &tc
+	}
+	out.ResponseFormatSchema = cloneMap(in.ResponseFormatSchema)
+	out.Stop = append([]string(nil), in.Stop...)
+	out.Metadata = cloneMap(in.Metadata)
+	out.Include = append([]string(nil), in.Include...)
+	out.ContextManagement = cloneValue(in.ContextManagement)
+	out.MCPServers = cloneMapList(in.MCPServers)
+	out.Images = append([]ImageReference(nil), in.Images...)
+	out.TrailingReasoningItems = cloneMapList(in.TrailingReasoningItems)
+	if in.ReasoningConfig != nil {
+		rc := *in.ReasoningConfig
+		out.ReasoningConfig = &rc
+	}
+	return &out
+}
+
+func cloneImage(in *ImageReference) *ImageReference {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
+}
+
+func cloneValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		return cloneMap(v)
+	case []map[string]any:
+		return cloneMapList(v)
+	case []any:
+		out := make([]any, len(v))
+		for i := range v {
+			out[i] = cloneValue(v[i])
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func requestSizeEstimate(req *NormalizedRequest) int {
+	if req == nil {
+		return 0
+	}
+	raw, err := json.Marshal(req)
+	if err != nil {
+		return 0
+	}
+	if len(raw) > contracts.MaxNativePayloadBytes {
+		return contracts.MaxNativePayloadBytes
+	}
+	return len(raw)
+}

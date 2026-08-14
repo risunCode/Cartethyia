@@ -1,8 +1,32 @@
+# Cartethyia Go daemon + PostgreSQL.
+#
+# The existing `dashboard/` is built/deployed separately with the same root
+# Dockerfile's `dashboard` target. It calls this daemon's public API on port
+# 12800. The Go daemon does not embed or serve dashboard assets.
+
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cartethyia
+      POSTGRES_PASSWORD: cartethyia
+      POSTGRES_DB: cartethyia
+    ports:
+      - "5432:5432"
+    volumes:
+      - cartethyia-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cartethyia -d cartethyia"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   cartethyia:
     build:
       context: .
       dockerfile: Dockerfile
+      target: runtime
     image: cartethyia
     restart: unless-stopped
     init: true
@@ -13,27 +37,14 @@ services:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
     pids_limit: 512
     ports:
-      - "12800:8080"
+      - "12800:12800"
     environment:
-      - PORT=8080
-      - DATA_DIR=/app/data
-      # Required: Compose fails closed when production credentials are absent.
-      - CONSOLE_PASSWORD=${CONSOLE_PASSWORD:?CONSOLE_PASSWORD must be set}
-      - CONSOLE_JWT_SECRET=${CONSOLE_JWT_SECRET:?CONSOLE_JWT_SECRET must be set}
-      - PUBLIC_ORIGIN=${PUBLIC_ORIGIN:?PUBLIC_ORIGIN must be set}
-      - TRUST_PROXY=${TRUST_PROXY:-false}
-      - CARTETHYIA_HEADROOM_ENABLED=${CARTETHYIA_HEADROOM_ENABLED:-false}
-      - CARTETHYIA_HEADROOM_URL=${CARTETHYIA_HEADROOM_URL:-}
-      - CARTETHYIA_HEADROOM_TIMEOUT_MS=${CARTETHYIA_HEADROOM_TIMEOUT_MS:-3000}
-      - CARTETHYIA_HEADROOM_COMPRESS_USER_MESSAGES=${CARTETHYIA_HEADROOM_COMPRESS_USER_MESSAGES:-false}
-    volumes:
-      - cartethyia-data:/app/data
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
-      interval: 30s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
+      CARTETHYIA_LISTEN_ADDRESS: ":12800"
+      CARTETHYIA_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-postgres://cartethyia:cartethyia@postgres:5432/cartethyia?sslmode=disable}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
-  cartethyia-data:
+  cartethyia-pg:

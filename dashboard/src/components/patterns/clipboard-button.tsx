@@ -1,6 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import { Button, type ButtonProps } from "../ui/button";
-import { useClipboard } from "../../hooks/use-clipboard";
+import { useClipboard } from "../../composables/browser/use-clipboard";
 import { toast } from "../../lib/toast";
 
 export interface ClipboardButtonProps extends Omit<ButtonProps, "onClick" | "children"> {

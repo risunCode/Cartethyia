@@ -36,7 +36,7 @@ export function StatCard({ label, value, description, icon: Icon, tone = "accent
   );
 }
 
-export type StatePanelKind = "loading" | "empty" | "error";
+export type StatePanelKind = "loading" | "empty" | "error" | "degraded";
 
 export interface StatePanelProps {
   kind: StatePanelKind;
@@ -52,6 +52,7 @@ const defaultCopy: Record<StatePanelKind, { title: string; description: string; 
   loading: { title: "Loading", description: "Please wait…", tone: "neutral" },
   empty: { title: "Nothing here yet", description: "There is no data to show.", tone: "neutral" },
   error: { title: "Unable to load", description: "Try again or check the connection.", tone: "danger" },
+  degraded: { title: "Data unavailable", description: "The daemon is running but this capability is currently degraded.", tone: "warning" },
 };
 
 export function StatePanel({ kind, title, description, action, icon: Icon, density = "default", className }: StatePanelProps) {

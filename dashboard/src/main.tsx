@@ -1,23 +1,21 @@
-import { StrictMode } from "react";
+import { StrictMode, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { RouterProvider } from "react-router-dom";
-import { Providers, queryClient } from "./app/providers";
-import { router } from "./app/router";
-import { setUnauthorizedHandler } from "./lib/api";
+
+import { LandingPage } from "./landing/page";
+import { ConsoleApp } from "./console/app";
+import { isConsolePath } from "./routes";
 import "./index.css";
 
+const root = document.getElementById("root");
 
-// Both the router and the handler slot are module singletons, so this needs no
-// React context — which is what made the previous in-tree bridge crash.
-setUnauthorizedHandler(() => {
-  queryClient.clear();
-  void router.navigate("/login", { replace: true });
-});
+if (root === null) {
+  throw new Error("Dashboard root element is missing");
+}
 
-createRoot(document.getElementById("root")!).render(
+const App = isConsolePath(window.location.pathname) ? ConsoleApp : LandingPage;
+
+createRoot(root).render(
   <StrictMode>
-    <Providers>
-      <RouterProvider router={router} />
-    </Providers>
-  </StrictMode>
+    {createElement(App)}
+  </StrictMode>,
 );

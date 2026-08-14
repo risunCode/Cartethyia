@@ -4,7 +4,6 @@ import { createRoot } from "react-dom/client";
 import { LandingPage } from "./page";
 import "../index.css";
 
-
 const root = document.getElementById("root");
 
 if (root === null) {

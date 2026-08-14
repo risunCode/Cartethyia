@@ -5,19 +5,38 @@
 > Cartethyia is still beta software. Expect provider API changes and validate your credentials, proxy settings, and persistent data before production use.
 > This project is maintained as a self-hosted deployment, and pull requests are welcome as of the 2.0 beta.
 
-A self-hosted Bun + Elysia AI proxy with an authenticated web console. Cartethyia accepts OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages requests; routes them across 30+ provider adapters; translates protocols; manages OAuth/API-key accounts; and exposes routing, quota, usage, and health controls from one dashboard.
+A self-hosted Go daemon with the existing React/Vite dashboard. Cartethyia
+accepts OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages
+requests; Go replaces the legacy server core under `daemon/`, while
+`dashboard/` remains the only frontend.
+
+> **Migration status:** the Go core and route contracts are in place.
+> Provider/storage wiring and production parity are still being migrated; do
+> not treat this foundation build as a production-parity release.
 
 **Current release:** `2.0.0-beta` (2026-08-10)
 
 ## Features
 
-### Proxy core
+### Go daemon foundation
 
-- **OpenAI Chat Completions** (`POST /v1/chat/completions`), **OpenAI Responses** (`POST /v1/responses`), and **Anthropic Messages** (`POST /v1/messages`) — all three client surfaces served from one process.
-- **Cross-protocol translation** — a request on any surface can route to any compatible upstream provider through shared codecs. A Chat request can hit an Anthropic upstream, a Messages request can hit an OpenAI Responses upstream, etc.
-- **Image generation** at `POST /v1/images/generations` (OpenAI-compatible).
-- **Provider prompt caching** — stable prefixes receive provider-native cache breakpoints; OpenAI GPT-5.6+ uses explicit 30-minute breakpoints and affinity-scoped `prompt_cache_key`, while Anthropic uses exact `cache_control` markers. Cache reads/writes are surfaced in usage telemetry.
-- **Model catalog** at `QUERY /v1/models` — lists direct models, router aliases, and combos permitted by the authenticated API key. `GET /v1/models` remains an external compatibility alias and is translated at the unified HTTP boundary.
+- Runtime lifecycle and composition live under `daemon/internal/runtime/`.
+- HTTP server, API, admin, and middleware live under `daemon/internal/server/`.
+- Hot-path pool, routing, failure classification, stream handling, request
+  sanitization, transforms, and normalized contracts live under
+  `daemon/internal/proxy/`.
+- Provider registry and adapters live under `daemon/internal/providers/`.
+- Credential lifecycle and OAuth/device flows live under `daemon/internal/auth/`.
+- PostgreSQL models, migrations, repositories, and backup live under
+  `daemon/internal/database/`.
+- Process configuration and observability live under
+  `daemon/internal/config/` and `daemon/internal/observability/`.
+- Legacy TypeScript source remains available as read-only reference under
+  `src.old/`.
+
+The daemon is currently a foundation build: storage connections, concrete
+runtime dependency wiring, and full production parity are not complete.
+
 
 ### Routing and failover
 
@@ -28,20 +47,6 @@ A self-hosted Bun + Elysia AI proxy with an authenticated web console. Cartethyi
   - **T1 known** (rate-limit, quota, capacity) → cooldown with fine-grained per-reason backoff.
   - **T2 transient** (5xx, network, stream, protocol) → no cooldown; account stays eligible.
   - **T3 permanent** (invalid request, client abort) → no cooldown, skipped entirely.
-- **Graduated backoff** — opaque/unknown 429s start at a 30s base that grows exponentially with failure count, escalating to the full 5-minute default only after repeated failures. A single transient blip no longer takes an account offline.
-- **Scheduled recovery sweep** — an unref'd 1-minute interval transitions expired cooldowns to healthy and clears expired per-model locks, so accounts recover proactively without waiting for a request to happen to select them.
-- **Cache-affine routing** — requests with reusable prefixes lock to deterministic account/proxy selections; non-affine round-robin traffic remains load-aware and rotates across idle capacity.
-- **Proxy pool** — route provider traffic through HTTP/HTTPS/SOCKS5 proxies with priority, weight, concurrency caps, and per-proxy health.
-
-### OAuth and quota lifecycle
-
-- **Central OAuth refresh pool** — request-time refresh, manual refresh, quota refresh, and scheduled refresh share one account-level single-flight lock, preventing refresh-token rotation races.
-- **Proactive token refresh coordinator** — provider-specific refresh lead times and stale-token windows run in a bounded, unref'd coordinator.
-- **Revocation-aware state** — permanent `invalid_grant`, revoked, expired, and HTTP 400 token responses persist as `reauth_required` instead of causing blind retry loops.
-- **General quota transport** — provider quota fetchers live under `src/providers/quota/` and are shared by account/API workers.
-- **Quota refresh worker** — bounded polling, per-account coalescing, failure cooldowns, and persisted success/error state.
-- **Provider quota coverage** — Codex, Claude, Antigravity, Kiro, Cline, Qoder, and Grok Build quota paths with provider-specific headers and endpoint contracts.
-
 ### Providers
 
 30+ built-in adapters across four categories:
@@ -84,21 +89,25 @@ Provider adapters that proxy as a specific upstream client identity (Claude Code
 
 ## Quick start
 
-Requirements: Bun 1.4 canary and a writable data directory.
+Requirements: Go 1.26.5, Bun 1.4, PostgreSQL, and a writable data directory.
+
+Start the Go API:
 
 ```bash
-bun install
-cd dashboard && bun install && bun run build && cd ..
-cp .env.example .env
 bun run dev
 ```
 
-Open:
+In a second terminal, run the dashboard:
 
-- Console: <http://localhost:12800/console/login>
-- Health: <http://localhost:12800/health>
+```bash
+cd dashboard
+bun install
+bun run dev
+```
 
-Set `CONSOLE_PASSWORD` and `BOOTSTRAP_PROXY_API_KEY` in `.env` for local use.
+The dashboard dev server proxies `/console/api` and `/v1` to the Go daemon on
+port `12800`. Open <http://localhost:5173/> for the landing page; the
+landing-page Console links continue to <http://localhost:5173/console/>.
 
 ## API
 
@@ -109,13 +118,14 @@ Set `CONSOLE_PASSWORD` and `BOOTSTRAP_PROXY_API_KEY` in `.env` for local use.
 | `POST` | `/v1/messages` | Anthropic Messages |
 | `POST` | `/v1/images/generations` | OpenAI-compatible image generation |
 | `POST` | `/v1/images/edits` | OpenAI-compatible image editing (multipart or JSON) |
-| `QUERY` | `/v1/models` | Routeable models, router aliases, and combos for the authenticated API key; legacy `GET` is translated |
+| `GET` | `/v1/models` | Routeable models for the authenticated API key |
 | `GET` | `/health` | Public process liveness |
 | `GET` | `/share/<token>` | Credential-free API-key usage monitor |
 | `GET` | `/share/setup/<token>` | One-time setup page; expires after 15 minutes |
 
-The console API creates these links with `POST /console/api/keys/:id/share` and `POST /console/api/keys/:id/setup-link`. Monitor links never return the API key. Setup links return the key once over the setup data request, then atomically become unusable; use HTTPS when sharing either URL.
-Read-only console API calls use `QUERY` with `Content-Type: application/json`; legacy `GET /console/api/*` callers are translated to the same internal route. SSE streams, health probes, static pages, and share links remain `GET`.
+Dashboard browser APIs use `/v2/*` routes under `/console/api`; `/v1/*` is
+reserved for external client protocol ingress. Dashboard reads and actions use
+standard `GET`, `POST`, `PATCH`, and `DELETE` methods.
 
 Authenticate proxy requests with either header:
 
@@ -134,59 +144,56 @@ curl http://localhost:12800/v1/chat/completions \
 ```
 
 ## Configuration
-
-Use [`.env.example`](./.env.example) as the configuration reference. Common settings:
-
 ```text
-PORT                         # server port (default 12800)
-DATA_DIR                     # persistent data directory (default ./data)
-PUBLIC_ORIGIN                # exact public console origin used for same-origin checks
-TRUST_PROXY                  # set true only when requests come through a trusted reverse proxy (default false)
-CONSOLE_PASSWORD             # console login password (required on first production startup)
-CONSOLE_JWT_SECRET           # JWT signing secret (generated only when no persisted secret exists)
-RUNTIME_DB_PATH              # runtime telemetry SQLite path (default inside DATA_DIR)
-MAX_FLIGHTS_PER_IP           # global concurrent requests per IP
-CARTETHYIA_PROXY_SCRAPE_CONCURRENCY # bounded scraper health checks (default 20, cap 64)
-LOG_RETENTION_DAYS           # console log retention
-ASSET_RETENTION_DAYS         # asset retention
-CARTETHYIA_HEADROOM_ENABLED       # enable optional fail-open Headroom /v1/compress
-CARTETHYIA_HEADROOM_URL           # Headroom base URL (for example http://127.0.0.1:8787)
-CARTETHYIA_HEADROOM_TIMEOUT_MS    # Headroom request timeout (default 3000)
-CARTETHYIA_HEADROOM_COMPRESS_USER_MESSAGES # opt in to Headroom user-message compression
+CARTETHYIA_LISTEN_ADDRESS  # Go API listen address (default :12800)
+CARTETHYIA_ENV             # development or production
+DATABASE_URL               # PostgreSQL DSN; required in production
+CARTETHYIA_ALLOW_INMEMORY  # explicit development-only escape hatch
+PUBLIC_ORIGIN              # dashboard/API origin used for browser checks
+TRUST_PROXY                # enable only behind a trusted reverse proxy
 ```
-Bun.serve() handles asynchronous HTTP and provider I/O concurrency natively. The server runs as one process; scale-out belongs to the deployment platform rather than the application runtime.
-Requests accept up to 2048 history items. Histories above 512 trigger an emergency RTK pass over older tool results; user and assistant turns are not silently removed. When Headroom is enabled, it runs as an additional fail-open tool-result compaction step.
 
-Adaptive scaling is enabled by default — per-IP flight tracking, API-key admission, login rate limiting, and GC interval auto-derive from available process memory. Override via `CARTETHYIA_MAX_TRACKED_IPS`, `CARTETHYIA_MAX_TRACKED_KEYS`, `CARTETHYIA_LOGIN_MAX_TRACKED_IPS`, and `CARTETHYIA_GC_INTERVAL_MS` (all default `0` = adaptive).
-
-For deployment, persist `DATA_DIR` and configure the console password, proxy API key, and JWT secret through the platform's secret manager.
-
-Warp instances are manual-only. A server restart clears stale `running`/PID state but never starts an account automatically; start instances explicitly from the MultiWarp console or API.
-
-`bun run build` produces the compiled server at `bin/cartethyia` (`bin/cartethyia.exe` on Windows). Use `bun run build:dashboard` to generate `dashboard/dist`, or `bun run build:all` to build the dashboard first and then the server. The dashboard must be built before serving a production-like backend because the server serves those browser assets at runtime.
+The Go daemon owns API, proxy, provider, storage, and authentication
+execution. The dashboard is a separate React/Vite client and is not embedded
+in the Go binary or served by it.
+The Go daemon owns the hot-path request lifecycle and runs as one process.
+Scale-out belongs to the deployment platform. Build the existing dashboard
+separately with `bun run build:dashboard`; it is never copied into or served
+by the Go binary.
 
 ## Docker
 
+The root Dockerfile is the only deployment definition. Its default `runtime`
+target contains the Go API only; the `dashboard` target builds the existing
+React/Vite frontend as a separate image when needed.
+
 ```bash
-docker build -t cartethyia .
-: "${CONSOLE_PASSWORD:?Set a non-empty CONSOLE_PASSWORD first}"
-: "${CONSOLE_JWT_SECRET:?Set a random CONSOLE_JWT_SECRET first}"
-: "${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN to the exact public console origin first}"
-docker run --rm -p 12800:8080 \
-  -e PORT=8080 \
-  -e DATA_DIR=/app/data \
-  -e PUBLIC_ORIGIN="$PUBLIC_ORIGIN" \
-  -e TRUST_PROXY="${TRUST_PROXY:-false}" \
-  -e CONSOLE_PASSWORD="$CONSOLE_PASSWORD" \
-  -e CONSOLE_JWT_SECRET="$CONSOLE_JWT_SECRET" \
-  -e BOOTSTRAP_PROXY_API_KEY="${BOOTSTRAP_PROXY_API_KEY:-}" \
-  -v cartethyia-data:/app/data \
+docker build --target runtime -t cartethyia .
+docker build --target dashboard -t cartethyia-dashboard .
+docker run --rm -p 12800:12800 \
+  -e CARTETHYIA_LISTEN_ADDRESS=:12800 \
+  -e CARTETHYIA_ENV=production \
+  -e DATABASE_URL="$DATABASE_URL" \
   cartethyia
 ```
 
 ## Development
 
+Go hot reload uses Air from the repository root:
+
 ```bash
+go install github.com/air-verse/air@latest
+bun run dev
+```
+
+The Air config is `daemon/.air.toml`; it rebuilds the single Go binary into
+`daemon/tmp/` and restarts it on Go source changes. The API remains on port
+`12800`.
+
+Run verification:
+
+```bash
+bun run test
 bunx tsc --noEmit -p .
 bun test --timeout 60000 test/
 cd dashboard && bun run build && bun run test
@@ -194,31 +201,32 @@ cd dashboard && bun run build && bun run test
 
 ## Documentation and source map
 
-The [documentation index](./docs/README.md) covers installation, API contracts, translation, provider behavior, operations, and development. The repository keeps release history in [`CHANGELOG.md`](./CHANGELOG.md). The main source areas are:
+The [active documentation index](./docs/README.md) links to the canonical
+product requirements and design documents under [`docs/prd/`](./docs/prd/).
+Historical implementation notes and the previous Kiro specification were
+retired after their requirements were carried into [`docs/prd/`](./docs/prd/).
+Release history remains in [`CHANGELOG.md`](./CHANGELOG.md). The main source
+areas are:
 
 | Area | Location | Purpose |
 | --- | --- | --- |
-| Application contracts | [`src/application/`](./src/application/) | Validation, routing, orchestration, and shared contracts |
-| Authentication and accounts | [`src/auth/`](./src/auth/) | Credentials, OAuth, token refresh, account health, and quota lifecycle |
-| OpenSSE core | [`src/open-sse/`](./src/open-sse/) | Translation, transport, canonical stream events, and codecs |
-| Provider adapters | [`src/providers/`](./src/providers/) | Provider identities, models, upstream request handling, and quota transport |
-| Console/API | [`src/console/`](./src/console/) | Authenticated control-plane services and API routes |
-| Dashboard | [`dashboard/src/`](./dashboard/src/) | React authenticated web console |
+| Go daemon | [`daemon/`](./daemon/) | API server, proxy, providers, database, and runtime |
+| Legacy TypeScript | [`src.old/`](./src.old/) | Read-only migration reference |
+| Dashboard | [`dashboard/src/`](./dashboard/src/) | The single React/Vite frontend |
 
 Read [`.tester/TEST-PLAN.md`](./.tester/TEST-PLAN.md) for the repository's verification scope.
 
 ## Credits
 
-Built with:
+Daemon:
 
-- [Bun](https://bun.sh) — JavaScript runtime & bundler
-- [Elysia](https://elysiajs.com) — web framework
-- [SQLite](https://www.sqlite.org) — config & telemetry storage (via Bun's built-in `bun:sqlite`)
-- [socks-proxy-agent](https://github.com/TooTallNate/proxy-agents) — SOCKS5 proxy agent for Node/Bun
+- [Go](https://go.dev) — Cartethyia runtime and API
 
-Dashboard built with:
+Dashboard:
 
+- [Bun](https://bun.sh) — dashboard runtime and bundler
 - [React](https://react.dev) 19 + [Vite](https://vitejs.dev) 6
+
 - [TanStack Query](https://tanstack.com/query) — server state & cache
 - [Tailwind CSS](https://tailwindcss.com) 4 — styling
 - [Framer Motion](https://www.framer.com/motion) — animations

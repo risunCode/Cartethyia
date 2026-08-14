@@ -4,14 +4,14 @@
  */
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUpDown, Bot, Brain, Cable, CheckCircle2, Copy, Download, ExternalLink, Eye, FileJson, FileUp, FlaskConical, Globe, Info, Loader2, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2, Users, AlertTriangle } from "lucide-react";
+import { ArrowLeft, ArrowUpDown, Bot, Brain, Cable, CheckCircle2, Copy, Download, ExternalLink, Eye, FileJson, FileUp, FlaskConical, Gauge, Globe, Info, Loader2, LockOpen, Pencil, Plus, PowerOff, RefreshCw, Trash2, Users, AlertTriangle } from "lucide-react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "../../lib/toast";
-import { apiGet, apiPost, apiPatch, apiDelete } from "../../lib/api";
+import { daemonDelete, daemonGet, daemonPatch, daemonPost } from "../../lib/daemon-api";
+import { sanitizeErrorMessage } from "../../lib/api";
 import { qk } from "../../lib/query-keys";
 import { cn } from "../../lib/cn";
-import { extractCredentialFromPaste } from "../../lib/credentialExtract";
 import { createAccountsInBatches, type AccountBatchItem } from "../../lib/account-batch";
 import { formatDuration, formatTokens } from "../../lib/format";
 import {
@@ -23,10 +23,10 @@ import {
   type AccountHealthSnapshot,
   type RouteHealthSnapshot,
 } from "../../lib/account-health";
-import { accountIdentity, formatModelPricing, type ModelPricing } from "./formatters";
+import { formatModelPricing, type ModelPricing } from "./formatters";
 import { errorMessage, selectAccountTestModel } from "./detail-helpers";
 import { OAuthConnectActions, type OAuthFlowCapabilities } from "./oauth-connect-actions";
-import { useWindowedList } from "../../hooks/use-windowed-list";
+import { useWindowedList } from "../../composables/browser/use-windowed-list";
 import { Skeleton } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
@@ -73,6 +73,15 @@ interface AccountEntry {
   credentialHint: string;
   active: boolean;
   health: (AccountHealthSnapshot & { occurredAt?: string | null; lastRefreshAt?: string | null }) | null;
+  quota?: QuotaSnapshot | null;
+}
+
+interface QuotaSnapshot {
+  readonly status: "unknown" | "refreshing" | "ready" | "error";
+  readonly remaining: number | null;
+  readonly limit: number | null;
+  readonly resetsAt: string | null;
+  readonly error: string | null;
 }
 
 interface RouteState {
@@ -110,33 +119,32 @@ interface ProviderDetail {
   accountCredentialKind: string;
   prefix: string;
   models: ModelEntry[];
+  accounts: AccountEntry[];
+  routing: {
+    strategy: "priority" | "round-robin";
+    stickyLimit: number;
+    useStickyLimit: boolean;
+    proxyRouteId: string | null;
+  };
   modelManagement: {
     canAddModels: boolean;
     canFetchModels: boolean;
   };
   status: "ok" | "warn";
-  usageToday: { requestsToday: number; input: number; cached: number; output: number; errors: number; lastError: string | null } | null;
-  accounts: AccountEntry[];
-  routing: { strategy: "priority" | "round-robin"; stickyLimit: number; useStickyLimit: boolean; proxyRouteId: string | null };
-  health?: RouteHealthSnapshot | null;
-  proxyHealth?: RouteHealthSnapshot | null;
-  failedRoute?: RouteState | null;
-  replacementRoute?: RouteState | null;
-  switchEvent?: RouteSwitchEvent | null;
+  usageToday: number | null;
+  health: RouteHealthSnapshot | null;
+  proxyHealth: RouteHealthSnapshot | null;
+  failedRoute: RouteState | null;
+  replacementRoute: RouteState | null;
+  switchEvent: RouteSwitchEvent | null;
 }
 
 interface TestResult {
   resolveOk: boolean;
   latencyMs: number;
-  /** Stream mode: time to first visible text (TFFT). */
   firstVisibleTextMs?: number;
   ok: boolean;
-  sample?: string;
   error?: string;
-  /** The model name returned by the provider (from response body `model` field). */
-  returnedModel?: string;
-  /** Whether the returned model name matches the requested model (true = real model, false = likely aliased). */
-  aliased?: boolean;
 }
 
 interface ProviderDetailResponse {
@@ -150,8 +158,71 @@ interface ProviderDetailResponse {
   enabled: boolean;
   models: Array<{ modelId: string; displayName?: string; enabled: boolean; source?: "built-in" | "manual" | "imported"; capabilities?: { chat?: boolean; media?: boolean; websearch?: boolean }; metadata?: ModelMetadataResponse }>;
   modelManagement?: { canAddModels: boolean; canFetchModels: boolean };
-  accounts: Array<AccountEntry & { providerId?: string }>;
+  accounts: Array<{
+    id: string;
+    provider?: string;
+    providerId?: string;
+    name?: string;
+    label?: string;
+    credentialKind?: string;
+    credentialHint?: string | null;
+    enabled?: boolean;
+    active?: boolean;
+    health?: unknown;
+    quota?: unknown;
+  }>;
   routing?: { strategy?: "priority" | "round-robin"; stickyLimit?: number; useStickyLimit?: boolean; proxyRouteId?: string | null };
+}
+
+function normalizeHealth(value: unknown): AccountEntry["health"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const status = raw.status;
+  if (status !== "healthy" && status !== "refreshing" && status !== "error" && status !== "disabled" && status !== "reauthentication-required" && status !== "cooling_down") return null;
+  const stringValue = (candidate: unknown): string | null => typeof candidate === "string" && candidate.length <= 240 ? candidate : null;
+  const statusCode = typeof raw.statusCode === "number" && Number.isInteger(raw.statusCode) ? raw.statusCode : null;
+  return {
+    status,
+    errorKind: stringValue(raw.errorKind),
+    failureKind: stringValue(raw.failureKind),
+    statusCode,
+    sanitizedMessage: stringValue(raw.sanitizedMessage),
+    retryAt: stringValue(raw.retryAt),
+    ...(stringValue(raw.occurredAt) ? { occurredAt: stringValue(raw.occurredAt) } : {}),
+    ...(stringValue(raw.lastRefreshAt) ? { lastRefreshAt: stringValue(raw.lastRefreshAt) } : {}),
+  };
+}
+
+function normalizeQuota(value: unknown): QuotaSnapshot | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const status = raw.status;
+  const normalizedStatus = status === "refreshing" || status === "ready" || status === "error" ? status : "unknown";
+  const numberValue = (candidate: unknown): number | null => typeof candidate === "number" && Number.isFinite(candidate) ? candidate : null;
+  const stringValue = (candidate: unknown): string | null => typeof candidate === "string" && candidate.length <= 240 ? candidate : null;
+  return {
+    status: normalizedStatus,
+    remaining: numberValue(raw.remaining ?? raw.remainingPercent),
+    limit: numberValue(raw.limit),
+    resetsAt: stringValue(raw.resetsAt),
+    error: stringValue(raw.error ?? raw.sanitizedError),
+  };
+}
+
+function normalizeAccount(value: ProviderDetailResponse["accounts"][number], providerId: string): AccountEntry | null {
+  if (!value.id || typeof value.id !== "string") return null;
+  const name = typeof value.name === "string" && value.name.trim() ? value.name.trim() : typeof value.label === "string" && value.label.trim() ? value.label.trim() : value.id;
+  const credentialHint = typeof value.credentialHint === "string" && value.credentialHint.length <= 128 ? value.credentialHint : "";
+  return {
+    id: value.id,
+    provider: value.providerId ?? value.provider ?? providerId,
+    name,
+    credentialKind: typeof value.credentialKind === "string" ? value.credentialKind : "unknown",
+    credentialHint,
+    active: value.active ?? value.enabled === true,
+    health: normalizeHealth(value.health),
+    quota: normalizeQuota(value.quota),
+  };
 }
 
 export function normalizeProviderDetail(response: ProviderDetailResponse): ProviderDetail {
@@ -200,9 +271,12 @@ export function normalizeProviderDetail(response: ProviderDetailResponse): Provi
       };
     }),
     modelManagement: response.modelManagement ?? { canAddModels: true, canFetchModels: true },
-    status: response.enabled && (authKind === "none" || response.accounts.some((account) => account.active)) ? "ok" : "warn",
+    status: response.enabled && (authKind === "none" || response.accounts.some((account) => account.active ?? account.enabled === true)) ? "ok" : "warn",
     usageToday: null,
-    accounts: response.accounts.map((account) => ({ ...account, provider: account.providerId ?? response.id })),
+    accounts: response.accounts.flatMap((account) => {
+      const normalized = normalizeAccount(account, response.id);
+      return normalized ? [normalized] : [];
+    }),
     routing: {
       strategy: response.routing?.strategy === "round-robin" ? "round-robin" : "priority",
       stickyLimit: response.routing?.stickyLimit ?? 1,
@@ -225,13 +299,6 @@ type AccountTestStatus =
 type AccountSortKey = "name" | "status";
 
 
-function renderInlineMarkdown(text: string): ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean).map((part, index) => {
-    if (part.startsWith("**") && part.endsWith("**")) return <strong key={index}>{part.slice(2, -2)}</strong>;
-    if (part.startsWith("`") && part.endsWith("`")) return <code key={index} className="rounded bg-[var(--kbd-bg)] px-1 py-0.5 font-mono text-[11px]">{part.slice(1, -1)}</code>;
-    return part;
-  });
-}
 
 /**
  * Copies the qualified routing name. `navigator.clipboard` is absent on
@@ -259,28 +326,18 @@ async function copyToClipboard(text: string): Promise<void> {
  */
 
 async function probeModel(provider: string, model: string, credentialMode: "auto" | "account", accountId?: string): Promise<TestResult> {
-  const result = await apiPost<{ ok: boolean; latencyMs: number; firstVisibleTextMs?: number; sample?: string; error?: { message?: string }; returnedModel?: string }>("/model-studio/probe", {
+  const result = await daemonPost<{ ok: boolean; latencyMs: number; firstVisibleTextMs?: number; error?: { message?: string } }>("/tools/probe", {
     provider,
     model,
     credentialMode,
     ...(accountId ? { accountId } : {}),
   });
-  const returned = result.returnedModel?.trim();
-  let aliased: boolean | undefined;
-  if (returned) {
-    const returnedLast = returned.split("/").pop()?.toLowerCase();
-    const requestedLast = model.split("/").pop()?.toLowerCase();
-    aliased = returnedLast !== requestedLast;
-  }
   return {
     resolveOk: true,
     ok: result.ok,
-    latencyMs: result.latencyMs,
-    firstVisibleTextMs: result.firstVisibleTextMs,
-    sample: result.sample,
-    error: result.error?.message,
-    returnedModel: returned,
-    aliased,
+    latencyMs: Number.isFinite(result.latencyMs) ? result.latencyMs : 0,
+    firstVisibleTextMs: Number.isFinite(result.firstVisibleTextMs) ? result.firstVisibleTextMs : undefined,
+    error: result.ok ? undefined : sanitizeErrorMessage(result.error?.message, "request failed"),
   };
 }
 
@@ -306,7 +363,7 @@ function useAccountConnectionTest(providerId: string, models: ModelEntry[], onSt
               ? { state: "passed", latencyMs: result.latencyMs }
               : { state: "failed", error: result.error ?? "No response" });
           } catch (error) {
-            const result: TestResult = { resolveOk: false, latencyMs: 0, ok: false, error: errorMessage(error) };
+            const result: TestResult = { resolveOk: false, latencyMs: 0, ok: false, error: sanitizeErrorMessage(errorMessage(error), "request failed") };
             results[index] = { account, result };
             onStatus(account.id, { state: "failed", error: result.error ?? "request failed" });
           }
@@ -327,7 +384,7 @@ function useAccountConnectionTest(providerId: string, models: ModelEntry[], onSt
       }
       toast.error(`${failed.length} connection${failed.length === 1 ? "" : "s"} failed`, { description: failed.map(({ account, result }) => `${account.name} · ${result.error ?? "No response"}`).join("\n") });
     },
-    onError: (err) => toast.error(errorMessage(err)),
+    onError: (err) => toast.error(sanitizeErrorMessage(errorMessage(err), "request failed")),
     onSettled: () => {
       // Always refresh health after test completes — even on error, backend
       // may have recorded failures that should surface in the account table.
@@ -361,7 +418,7 @@ function useModelTest(
           resolveOk: false,
           ok: false,
           latencyMs: 0,
-          error: errorMessage(err),
+          error: sanitizeErrorMessage(errorMessage(err), "request failed"),
         }) as TestResult)),
       );
       return modelIds.map((modelId, i) => ({ modelId, result: results[i]! }));
@@ -374,23 +431,7 @@ function useModelTest(
           toast.error(`${modelId} failed`, { description: result.error ?? "Unknown error." });
           continue;
         }
-        const returned = result.returnedModel?.trim();
-        const modelLine = returned
-          ? result.aliased
-            ? `Likely aliased \`${returned}\``
-            : `Real model \`${returned}\``
-          : null;
-        toast.success(`${modelId} · END ${formatDuration(result.latencyMs)}`, {
-          description: (
-            <div className="max-w-sm space-y-0.5">
-              {modelLine && <p className="text-[10px] text-[var(--text-3)]">{renderInlineMarkdown(modelLine)}</p>}
-              {result.sample && (
-                <p className="whitespace-pre-wrap text-[11px] leading-5 text-[var(--text-2)]">{renderInlineMarkdown(result.sample)}</p>
-              )}
-              {!result.sample && <p className="text-[10px] text-[var(--text-3)]">No sample text in the response.</p>}
-            </div>
-          ),
-        });
+        toast.success(`${modelId} · END ${formatDuration(result.latencyMs)}`);
       }
       setModelResults((prev) => ({ ...prev, ...updates }));
     },
@@ -427,68 +468,32 @@ function useModelTest(
   return { run, runMultiple, isTesting, pendingModelIds, isPending: testMutation.isPending, getResult: (modelId: string) => modelResults[modelId] ?? null };
 }
 
-// Extra guidance shown under the credential field for providers whose raw
-// export format isn't just a bare token — tells the operator what a paste
-// can look like and that JSON is auto-parsed.
-const CREDENTIAL_PASTE_HINTS: Record<string, string> = {
-  cursor:
-    "Paste the OAuth access token, or paste the whole exported account JSON " +
-    '(e.g. { "id", "provider", "credential_type", "data": "{\\"access\\":...}" }) — ' +
-    "the access token is auto-extracted from data.access.",
-  devin: "Paste the session token, or a full exported JSON containing an access/session field — it's auto-extracted.",
-  qoder: "Paste the PAT (personal access token) directly.",
-  "codex": "Paste the full OMP OAuth JSON export containing access, refresh, expires, accountId, and email — it is converted automatically.",
-  "claude": "Paste the full OMP OAuth JSON export containing access, refresh, expires, accountId, and email — it is converted automatically.",
-  "grok-cli": "Paste a Grok CLI OAuth export containing access, refresh, expires, userId, and email — it is converted automatically.",
-  "antigravity": "Paste an Antigravity OAuth export containing access, refresh, expires, projectId, and email — it is converted automatically.",
-  cline: "Paste a Cline OAuth export containing accessToken, refreshToken, and expiresAt — it is converted automatically.",
-  cloudflare: "Cloudflare requires JSON credentials: { \"apiKey\": \"…\", \"accountId\": \"32-character account ID\" }.",
-};
-
 // ── Account create/edit modal ────────────────────────────────────────────
-function isJsonRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function parseBulkOAuthJson(text: string): Record<string, unknown>[] {
+function parseCredentialRefs(text: string): Array<{ readonly credentialRef: string; readonly label?: string }> {
   const trimmed = text.trim();
-  if (!trimmed) throw new Error("Paste at least one OAuth JSON object.");
-
-  const parseValue = (value: unknown): Record<string, unknown>[] => {
-    if (Array.isArray(value)) return value.filter(isJsonRecord);
-    if (!isJsonRecord(value)) return [];
-    for (const key of ["accounts", "credentials", "items"]) {
-      if (Array.isArray(value[key])) return value[key].filter(isJsonRecord);
-    }
-    return [value];
-  };
-
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    const records = parseValue(parsed);
-    if (records.length > 0) return records;
-  } catch {
-    const records = trimmed.split(/\r?\n/).flatMap((line) => {
+  if (!trimmed) throw new Error("Enter at least one opaque credential reference.");
+  const refs: Array<{ readonly credentialRef: string; readonly label?: string }> = [];
+  for (const line of trimmed.split(/\r?\n/)) {
+    const value = line.trim();
+    if (!value) continue;
+    if (value.startsWith("{")) {
       try {
-        const parsed: unknown = JSON.parse(line);
-        return parseValue(parsed);
+        const parsed: unknown = JSON.parse(value);
+        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+          const record = parsed as Record<string, unknown>;
+          const credentialRef = typeof record.credentialRef === "string" ? record.credentialRef.trim() : "";
+          const label = typeof record.label === "string" ? record.label.trim() : undefined;
+          if (credentialRef) refs.push({ credentialRef, ...(label ? { label } : {}) });
+        }
       } catch {
-        return [];
+        // Invalid JSON lines are reported as a bounded validation failure below.
       }
-    });
-    if (records.length > 0) return records;
+      continue;
+    }
+    refs.push({ credentialRef: value });
   }
-  throw new Error("OAuth import expects a JSON object, array, or newline-delimited JSON objects.");
-}
-
-function bulkOAuthAccountName(record: Record<string, unknown>, index: number, used: Set<string>): string {
-  const preferred = [record.name, record.email, record.accountId, record.id].find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim();
-  const base = preferred ?? `codex-${index + 1}`;
-  let name = base;
-  let suffix = 2;
-  while (used.has(name)) name = `${base} (${suffix++})`;
-  used.add(name);
-  return name;
+  if (refs.length === 0) throw new Error("Only opaque credentialRef values are accepted.");
+  return refs;
 }
 
 function BulkOAuthModal({
@@ -504,18 +509,18 @@ function BulkOAuthModal({
   const [text, setText] = useState("");
   const mutation = useMutation({
     mutationFn: async () => {
-      const records = parseBulkOAuthJson(text);
+      const records = parseCredentialRefs(text);
       const used = new Set(accounts.map((account) => account.name));
       let imported = 0;
       const failed: string[] = [];
       for (const [index, record] of records.entries()) {
-        const name = bulkOAuthAccountName(record, index, used);
+        const base = record.label || `${providerId}-${index + 1}`;
+        let name = base;
+        let suffix = 2;
+        while (used.has(name)) name = `${base} (${suffix++})`;
+        used.add(name);
         try {
-          await apiPost(`/providers/${providerId}/accounts`, {
-            name,
-            credentialKind: "oauth",
-            credential: JSON.stringify(record),
-          });
+          await daemonPost(`/providers/${encodeURIComponent(providerId)}/accounts`, { label: name, credentialRef: record.credentialRef, enabled: true });
           imported++;
         } catch (error) {
           failed.push(`${name}: ${errorMessage(error)}`);
@@ -525,7 +530,7 @@ function BulkOAuthModal({
     },
     onSuccess: ({ imported, failed }) => {
       if (imported > 0) {
-        toast.success(`${imported} Codex connection${imported === 1 ? "" : "s"} imported`);
+        toast.success(`${imported} connection${imported === 1 ? "" : "s"} imported`);
         void queryClient.invalidateQueries({ queryKey: qk.provider.detail(providerId) });
         void queryClient.invalidateQueries({ queryKey: qk.provider.accounts(providerId) });
         void queryClient.invalidateQueries({ queryKey: qk.catalog.providers });
@@ -539,17 +544,14 @@ function BulkOAuthModal({
   });
 
   return (
-    <Dialog open onClose={onClose} title="Add Codex connections" wide>
+    <Dialog open onClose={onClose} title="Add connections" wide>
       <div className="space-y-3">
-        <div>
-          <p className="text-sm text-[var(--text-2)]">Paste a JSON object, a JSON array, or newline-delimited OAuth exports. Each valid entry becomes a separate OpenAI Codex account.</p>
-          <p className="mt-1 text-[11px] text-[var(--text-3)]">Supported fields: access/accessToken, refresh/refreshToken, expires/expiresAt, accountId, and email.</p>
-        </div>
+        <p className="text-sm text-[var(--text-2)]">Enter one opaque credentialRef per line. JSON lines may contain only credentialRef and an optional label.</p>
         <textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
-          placeholder={'[{"access":"…","refresh":"…","expires":1735689600000,"accountId":"…","email":"…"}]'}
-          aria-label="Codex OAuth JSON exports"
+          placeholder="credentialRef:provider/account/…"
+          aria-label="Opaque credential references"
           className="min-h-48 w-full resize-y rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2.5 font-mono text-[11px] text-[var(--text-1)] outline-none placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
           spellCheck={false}
         />
@@ -595,48 +597,36 @@ function AccountModal({
       })();
   const [name, setName] = useState(defaultName);
   const [selectedKind, setSelectedKind] = useState(existing?.credentialKind ?? initialKind ?? expectedKind);
-  const [credential, setCredential] = useState("");
-  const [cloudflareAccountId, setCloudflareAccountId] = useState("");
-  const pasteHint = CREDENTIAL_PASTE_HINTS[providerId];
-  // A whole-textarea JSON blob (Cursor/Devin export rows, etc.) is one
-  // credential, not newline-separated batch entries — extract it as a
-  // single value instead of splitting on "\n". Plain multi-line paste (one
-  // token per line) is unaffected since each line individually won't parse
-  // as a JSON object.
-  const trimmedCredential = credential.trim();
-  const detectedCredential = extractCredentialFromPaste(trimmedCredential);
-  const credentials = selectedKind === "oauth"
-    ? (trimmedCredential ? [trimmedCredential] : [])
-    : providerId === "cloudflare"
-      ? (trimmedCredential && cloudflareAccountId.trim() ? [JSON.stringify({ apiKey: detectedCredential.extracted ? detectedCredential.value : trimmedCredential, accountId: cloudflareAccountId.trim() })] : [])
-      : detectedCredential.extracted
-        ? [detectedCredential.value]
-        : credential.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  const [credentialRefInput, setCredentialRefInput] = useState("");
+  const credentials = credentialRefInput.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  const credentialRef = credentials[0] ?? "";
 
   const mutation = useMutation({
-    mutationFn: async (): Promise<{ readonly created: number; readonly skipped: number }> => {
+    mutationFn: async (): Promise<{ readonly created: number; readonly skipped: number; readonly errors?: readonly string[] }> => {
       if (existing) {
-        const patch: Record<string, unknown> = { name: name.trim(), credentialKind: selectedKind };
-        if (credential) patch.credential = selectedKind === "oauth" ? credential.trim() : extractCredentialFromPaste(credential).value;
-        await apiPost<{ ok?: boolean }>(`/providers/${providerId}/accounts/${existing.id}`, patch);
+        const patch: Record<string, unknown> = { label: name.trim(), enabled: true };
+        if (credentialRef) patch.credentialRef = credentialRef;
+        await daemonPost<{ ok?: boolean }>(`/providers/${encodeURIComponent(providerId)}/accounts/${encodeURIComponent(existing.id)}`, patch);
         return { created: 1, skipped: 0 };
       }
 
       const existingNames = new Set(accounts.map((account) => account.name));
       const items: AccountBatchItem[] = credentials.map((value, index) => {
-        if (credentials.length === 1) return { name: name.trim(), credentialKind: selectedKind, credential: value };
+        if (credentials.length === 1) return { label: name.trim(), credentialRef: value, enabled: true };
         let number = index + 1;
         let candidate = `${providerId}-${number}`;
         while (existingNames.has(candidate)) candidate = `${providerId}-${++number}`;
         existingNames.add(candidate);
-        return { name: candidate, credentialKind: selectedKind, credential: value };
+        return { label: candidate, credentialRef: value, enabled: true };
       });
       return createAccountsInBatches(providerId, items);
     },
-    onSuccess: ({ created, skipped }) => {
+    onSuccess: ({ created, skipped, errors }) => {
       const suffix = skipped > 0 ? `, ${skipped} skipped` : "";
       toast.success(existing ? "Account updated" : `${created} connection${created === 1 ? "" : "s"} added${suffix}`);
+      if (errors?.length) toast.error("Some account operations failed", { description: errors.slice(0, 3).join("\n") });
       void queryClient.invalidateQueries({ queryKey: qk.provider.detail(providerId) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.accounts(providerId) });
       void queryClient.invalidateQueries({ queryKey: qk.catalog.providers });
       onClose();
     },
@@ -662,23 +652,23 @@ function AccountModal({
           </div>
         )}
         <div>
-          <Label>Credential ({selectedKind}){existing ? " — leave empty to keep current" : " — one per line for batch add, or paste a JSON export"}</Label>
-          {pasteHint && <p className="mb-1.5 text-xs text-[var(--text-3)]">{pasteHint}</p>}
+          <Label>Opaque credentialRef ({selectedKind}){existing ? " — leave empty to keep current" : " — one per line for batch add"}</Label>
           <div className="flex gap-2">
             {existing ? (
               <Input
                 className="flex-1"
-                value={credential}
-                onChange={(e) => setCredential(e.target.value)}
-                type="password"
-                placeholder="••••••"
+                value={credentialRefInput}
+                onChange={(e) => setCredentialRefInput(e.target.value)}
+                type="text"
+                autoComplete="off"
+                placeholder="credentialRef"
               />
             ) : (
               <textarea
                 className="min-h-24 flex-1 rounded-xl border border-[var(--inner-border)] bg-[var(--input-bg)] px-3 py-2 font-mono text-xs outline-none placeholder:text-[var(--text-3)] focus:border-[var(--accent)]"
-                value={credential}
-                onChange={(e) => setCredential(e.target.value)}
-                placeholder={`Paste ${selectedKind} values, one per line…`}
+                value={credentialRefInput}
+                onChange={(e) => setCredentialRefInput(e.target.value)}
+                placeholder="Enter opaque credentialRef values, one per line…"
                 spellCheck={false}
               />
             )}
@@ -689,13 +679,8 @@ function AccountModal({
               onClick={async () => {
                 try {
                   const text = await navigator.clipboard.readText();
-                  setCredential(text);
-                  const extracted = selectedKind === "oauth" ? null : extractCredentialFromPaste(text);
-                  if (extracted?.extracted) {
-                    toast.success(`Detected credential from JSON (${extracted.source ?? "data"})`);
-                  } else {
-                    toast.success(selectedKind === "oauth" ? "Pasted OAuth account JSON" : "Pasted from clipboard");
-                  }
+                  setCredentialRefInput(text);
+                  toast.success("Pasted credential reference");
                 } catch {
                   toast.error("Clipboard access denied");
                 }
@@ -705,12 +690,6 @@ function AccountModal({
             </Button>
           </div>
         </div>
-        {providerId === "cloudflare" && selectedKind === "api_key" && !existing && (
-          <div>
-            <Label>Cloudflare Account ID</Label>
-            <Input value={cloudflareAccountId} onChange={(event) => setCloudflareAccountId(event.target.value)} placeholder="32-character account ID" maxLength={32} />
-          </div>
-        )}
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button disabled={!valid || mutation.isPending} onClick={() => mutation.mutate()}>{existing ? "Save" : credentials.length > 1 ? `Add ${credentials.length}` : "Add connection"}</Button>
@@ -745,23 +724,31 @@ interface OAuthLoginStatus {
 }
 
 function KiroOAuthDialog({ onClose, onConnected, accountName }: { onClose: () => void; onConnected: () => void; accountName: string }) {
-  const [method, setMethod] = useState<"builder-id" | "idc" | "import">("builder-id");
+  type Mode = "aws" | "manual-json" | "social";
+  const [mode, setMode] = useState<Mode>("aws");
+  const [awsType, setAwsType] = useState<"builder-id" | "idc">("builder-id");
+  const [socialProvider, setSocialProvider] = useState<"google" | "github">("google");
   const [name, setName] = useState(accountName);
-  const [refreshToken, setRefreshToken] = useState("");
-  const [session, setSession] = useState<{ sessionId: string; verificationUri: string; userCode: string; intervalSeconds: number } | null>(null);
+  const [credentialJson, setCredentialJson] = useState("");
+  const [session, setSession] = useState<{ sessionId: string; verificationUri: string; userCode: string; intervalSeconds: number; expiresAt: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [polling, setPolling] = useState(false);
 
-  // Auto-poll device flow session status
   useEffect(() => {
     if (!session) return;
     let stopped = false;
+    let timer: number | undefined;
     const poll = async () => {
+      if (session.expiresAt > 0 && Date.now() >= session.expiresAt) {
+        setMessage("Authorization session expired.");
+        setSession(null);
+        return;
+      }
       if (stopped) return;
       try {
         setPolling(true);
-        const status = await apiGet<OAuthLoginStatus>(`/oauth/sessions/${session.sessionId}`);
+        const status = await daemonGet<OAuthLoginStatus>(`/auth/oauth/sessions/${encodeURIComponent(session.sessionId)}`);
         if (stopped) return;
         if (status.status === "completed") {
           toast.success("Kiro account connected");
@@ -769,12 +756,11 @@ function KiroOAuthDialog({ onClose, onConnected, accountName }: { onClose: () =>
           return;
         }
         if (status.status === "failed" || status.status === "expired" || status.status === "cancelled") {
-          setMessage(status.errorMessage ?? status.errorKind ?? "Authorization failed");
+          setMessage(status.status === "cancelled" ? "Authorization cancelled." : status.errorMessage ?? status.errorKind ?? "Authorization failed");
           setSession(null);
           return;
         }
-        // Still waiting — schedule next poll
-        timer = window.setTimeout(() => void poll(), (session.intervalSeconds ?? 5) * 1000);
+        timer = window.setTimeout(() => void poll(), Math.max(2, session.intervalSeconds) * 1000);
       } catch (error) {
         if (!stopped) {
           setMessage(errorMessage(error));
@@ -784,49 +770,68 @@ function KiroOAuthDialog({ onClose, onConnected, accountName }: { onClose: () =>
         if (!stopped) setPolling(false);
       }
     };
-    // Start first poll after the interval
-    let timer: number | undefined = window.setTimeout(() => void poll(), session.intervalSeconds * 1000);
-    return () => { stopped = true; if (timer !== undefined) window.clearTimeout(timer); };
+    timer = window.setTimeout(() => void poll(), Math.max(2, session.intervalSeconds) * 1000);
+    return () => {
+      stopped = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, [session, onConnected]);
 
   const start = async () => {
-    setBusy(true); setMessage("");
+    setBusy(true);
+    setMessage("");
     try {
-      if (method === "import") {
-        if (!refreshToken.trim()) { setMessage("Refresh token is required."); setBusy(false); return; }
-        const result = await apiPost<OAuthLoginStart>("/providers/kiro/oauth/start", { name: name.trim() || accountName });
-        // Complete immediately with the imported refresh token as the callback value
-        const completed = await apiPost<OAuthLoginStatus>(`/oauth/sessions/${result.sessionId}/complete`, { value: refreshToken.trim() });
-        if (completed.status === "completed") {
-          toast.success("Kiro account imported");
-          onConnected();
-        } else {
-          setMessage(completed.errorMessage ?? "Import failed");
-        }
+      if (mode === "manual-json") {
+        if (!credentialJson.trim()) throw new Error("Paste the Kiro credential JSON.");
+        await daemonPost("/auth/oauth/start?providerId=kiro", { mode, credentialJson: credentialJson.trim() });
+        toast.success("Kiro credential imported");
+        onConnected();
         return;
       }
-      const result = await apiPost<OAuthLoginStart>("/providers/kiro/oauth/start", { name: name.trim() || accountName });
+      const result = await daemonPost<OAuthLoginStart>("/auth/oauth/start?providerId=kiro", {
+        flow: mode === "aws" ? "device" : "browser",
+        mode,
+        socialProvider: mode === "social" ? socialProvider : undefined,
+        awsMode: mode === "aws" ? awsType : undefined,
+        scopes: [],
+      });
       setSession({
         sessionId: result.sessionId,
         verificationUri: result.verificationUri ?? result.authorizationUrl,
         userCode: result.userCode ?? "",
         intervalSeconds: result.intervalSeconds ?? 5,
+        expiresAt: result.expiresAt,
       });
-    } catch (error) { setMessage(errorMessage(error)); } finally { setBusy(false); }
+    } catch (error) {
+      setMessage(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const cancelSession = async () => {
-    if (session) {
-      try { await apiPost(`/oauth/sessions/${session.sessionId}/cancel`, {}); } catch { /* best-effort */ }
+    const current = session;
+    setSession(null);
+    if (current) {
+      try {
+        await daemonPost(`/auth/oauth/sessions/${encodeURIComponent(current.sessionId)}/cancel`, {});
+      } catch {
+        // Cancellation is best effort; local state is cleared regardless.
+      }
     }
     onClose();
   };
 
-  return <Dialog open onClose={cancelSession} title="Connect Kiro OAuth" footer={<div className="flex w-full justify-between gap-2"><Button variant="ghost" onClick={cancelSession}>Cancel</Button><Button disabled={busy || !name.trim() || (method === "import" && !refreshToken.trim()) || Boolean(session)} onClick={() => void start()}>{busy ? "Starting…" : method === "import" ? "Import token" : "Start authorization"}</Button></div>}>
+  return <Dialog open onClose={cancelSession} title="Connect Kiro OAuth" footer={<div className="flex w-full justify-between gap-2"><Button variant="ghost" onClick={cancelSession}>Cancel</Button><Button disabled={busy || !name.trim() || Boolean(session) || (mode === "manual-json" && !credentialJson.trim())} onClick={() => void start()}>{busy ? "Starting…" : mode === "manual-json" ? "Import credential" : "Start authorization"}</Button></div>}>
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-1 rounded-xl bg-[var(--hover)] p-1 text-xs"><button className={cn("rounded-lg px-2 py-2", method === "builder-id" && "bg-[var(--card)] font-semibold")} onClick={() => setMethod("builder-id")}>Builder ID</button><button className={cn("rounded-lg px-2 py-2", method === "idc" && "bg-[var(--card)] font-semibold")} onClick={() => setMethod("idc")}>IAM Identity</button><button className={cn("rounded-lg px-2 py-2", method === "import" && "bg-[var(--card)] font-semibold")} onClick={() => setMethod("import")}>Import</button></div>
+      <div className="grid grid-cols-3 gap-1 rounded-xl bg-[var(--hover)] p-1 text-xs">
+        {(["aws", "manual-json", "social"] as const).map((value) => <button key={value} type="button" className={cn("rounded-lg px-2 py-2", mode === value && "bg-[var(--card)] font-semibold")} onClick={() => { setMode(value); setSession(null); setMessage(""); }}>{value === "aws" ? "AWS OIDC" : value === "manual-json" ? "JSON manual" : "Google / GitHub"}</button>)}
+      </div>
       <Label>Account name<Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Kiro account" /></Label>
-      {method === "import" ? <Label>Refresh token<textarea value={refreshToken} onChange={(event) => setRefreshToken(event.target.value)} className="min-h-24 w-full rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3 font-mono text-xs" placeholder="Paste Kiro refresh token" /></Label> : session ? <div className="space-y-3 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3"><div className="flex items-center gap-2 text-sm font-semibold"><Loader2 size={14} className={cn("shrink-0", polling ? "animate-spin text-[var(--accent)]" : "text-[var(--text-3)]")} aria-hidden="true" />{polling ? "Polling for authorization…" : "Waiting for authorization…"}</div><a className="break-all text-xs text-[var(--accent)] hover:underline" href={session.verificationUri} target="_blank" rel="noreferrer">{session.verificationUri}</a><div className="font-mono text-xl tracking-widest">{session.userCode}</div><p className="text-xs text-[var(--text-3)]">Open the verification URL above and enter the device code, then wait — this dialog auto-checks for authorization.</p></div> : null}
+      {mode === "aws" && <div className="grid grid-cols-2 gap-1 rounded-xl bg-[var(--hover)] p-1 text-xs"><button type="button" className={cn("rounded-lg px-2 py-2", awsType === "builder-id" && "bg-[var(--card)] font-semibold")} onClick={() => setAwsType("builder-id")}>Builder ID</button><button type="button" className={cn("rounded-lg px-2 py-2", awsType === "idc" && "bg-[var(--card)] font-semibold")} onClick={() => setAwsType("idc")}>IAM Identity</button></div>}
+      {mode === "social" && <div className="grid grid-cols-2 gap-1 rounded-xl bg-[var(--hover)] p-1 text-xs"><button type="button" className={cn("rounded-lg px-2 py-2", socialProvider === "google" && "bg-[var(--card)] font-semibold")} onClick={() => setSocialProvider("google")}>Google</button><button type="button" className={cn("rounded-lg px-2 py-2", socialProvider === "github" && "bg-[var(--card)] font-semibold")} onClick={() => setSocialProvider("github")}>GitHub</button></div>}
+      {mode === "manual-json" && <Label>Kiro credential JSON<textarea value={credentialJson} onChange={(event) => setCredentialJson(event.target.value)} placeholder='{"access_token":"…","refresh_token":"…"}' className="min-h-40 w-full resize-y rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2 font-mono text-[11px] outline-none" spellCheck={false} /></Label>}
+      {session ? <div className="space-y-3 rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3"><div className="flex items-center gap-2 text-sm font-semibold"><Loader2 size={14} className={cn("shrink-0", polling ? "animate-spin text-[var(--accent)]" : "text-[var(--text-3)]")} aria-hidden="true" />{polling ? "Polling for authorization…" : "Waiting for authorization…"}</div>{session.verificationUri && <a className="break-all text-xs text-[var(--accent)] hover:underline" href={session.verificationUri} target="_blank" rel="noreferrer">{session.verificationUri}</a>}{session.userCode && <div className="font-mono text-xl tracking-[0.2em] text-[var(--text-1)]">{session.userCode}</div>}</div> : null}
       {message && <div className="rounded-xl border border-[var(--red)]/40 px-3 py-2 text-xs text-[var(--red)]">{message}</div>}
     </div>
   </Dialog>;
@@ -987,7 +992,7 @@ function AddModelModal({
   const [testState, setTestState] = useState<"idle" | "testing" | "passed" | "failed">("idle");
   const [testError, setTestError] = useState("");
   const testMutation = useMutation({
-    mutationFn: (id: string) => apiPost<{ ok: boolean; error?: { message?: string } }>("/model-studio/probe", { provider: providerId, model: id, credentialMode: "auto" }),
+    mutationFn: (id: string) => daemonPost<{ ok: boolean; error?: { message?: string } }>("/tools/probe", { provider: providerId, model: id, credentialMode: "auto" }),
     onMutate: () => { setTestState("testing"); setTestError(""); },
     onSuccess: (result) => {
       if (result.ok) {
@@ -1000,7 +1005,7 @@ function AddModelModal({
     onError: (err) => { setTestState("failed"); setTestError(errorMessage(err)); },
   });
   const addMutation = useMutation({
-    mutationFn: (id: string) => apiPost(`/providers/${providerId}/models`, { modelId: id }),
+    mutationFn: (id: string) => daemonPost(`/providers/${providerId}/models`, { modelId: id }),
     onSuccess: () => { toast.success("Custom model added"); onAdded(); onClose(); },
     onError: (err) => toast.error(errorMessage(err)),
   });
@@ -1123,10 +1128,7 @@ export function ProviderDetailPage() {
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
   const oauthStartMutation = useMutation({
-    mutationFn: (flow: "browser" | "device") => apiPost<OAuthLoginStart>(`/providers/${id}/oauth/start`, {
-      name: `${data?.name ?? id} ${(data?.accounts.length ?? 0) + 1}`,
-      flow,
-    }),
+    mutationFn: (flow: "browser" | "device") => daemonPost<OAuthLoginStart>(`/auth/oauth/start?providerId=${encodeURIComponent(id ?? "")}`, { flow, scopes: [] }),
     onSuccess: (session) => {
       setOauthSession(session);
       const popup = oauthPopupRef.current;
@@ -1146,14 +1148,21 @@ export function ProviderDetailPage() {
     }
     oauthStartMutation.mutate(flow);
   };
-  const startPreferredOAuth = () => startOAuth(data?.oauthFlows.browser ? "browser" : "device");
-
-
+  const startPreferredOAuth = () => {
+    const preferred = data?.oauthFlows.browser ? "browser" : data?.oauthFlows.device ? "device" : null;
+    if (preferred) startOAuth(preferred);
+  };
   const oauthStatusQuery = useQuery({
     queryKey: qk.oauthLogin.session(oauthSession?.sessionId),
-    queryFn: () => apiGet<OAuthLoginStatus>(`/oauth/sessions/${oauthSession?.sessionId}`),
-    enabled: Boolean(oauthSession),
-    refetchInterval: pageVisible ? 2_000 : false,
+    queryFn: () => daemonGet<OAuthLoginStatus>(`/auth/oauth/sessions/${encodeURIComponent(oauthSession?.sessionId ?? "")}`),
+    enabled: Boolean(oauthSession?.sessionId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      const expiresAt = query.state.data?.expiresAt;
+      if (expiresAt && Date.now() >= expiresAt) return false;
+      if (status === "completed" || status === "failed" || status === "expired" || status === "cancelled") return false;
+      return pageVisible ? 2_000 : false;
+    },
     refetchIntervalInBackground: false,
   });
 
@@ -1173,15 +1182,31 @@ export function ProviderDetailPage() {
     }
     if (status === "failed" || status === "expired" || status === "cancelled") {
       if (status === "expired") toast.error("OAuth session expired — please try again.");
-      else if (status === "failed") toast.error(oauthStatusQuery.data?.errorMessage ?? "OAuth authorization failed.");
+      else if (status === "cancelled") toast.error("OAuth authorization cancelled.");
+      else toast.error(oauthStatusQuery.data?.errorMessage ?? "OAuth authorization failed.");
       oauthPopupRef.current?.close();
       oauthPopupRef.current = null;
       setOauthSession(null);
       setOauthCallbackValue("");
     }
   }, [id, oauthStatusQuery.data?.status, oauthStatusQuery.data?.accountId, oauthStatusQuery.data?.errorMessage, queryClient]);
+
   const oauthCompleteMutation = useMutation({
-    mutationFn: () => apiPost<OAuthLoginStatus>(`/oauth/sessions/${oauthSession?.sessionId}/complete`, { value: oauthCallbackValue }),
+    mutationFn: () => {
+      const sessionId = oauthSession?.sessionId;
+      const callback = oauthCallbackValue.trim();
+      if (!sessionId || !callback) throw new Error("OAuth callback is required");
+      let code = callback;
+      let state: string | undefined;
+      try {
+        const url = new URL(callback);
+        code = url.searchParams.get("code") ?? callback;
+        state = url.searchParams.get("state") ?? undefined;
+      } catch {
+        // The daemon also accepts a raw authorization code.
+      }
+      return daemonPost<OAuthLoginStatus>(`/auth/oauth/sessions/${encodeURIComponent(sessionId)}/complete`, { code, ...(state ? { state } : {}) });
+    },
     onSuccess: (status) => {
       if (status.status === "completed") {
         toast.success("OAuth account connected");
@@ -1197,14 +1222,22 @@ export function ProviderDetailPage() {
     onError: (error) => toast.error(errorMessage(error)),
   });
   const oauthCancelMutation = useMutation({
-    mutationFn: () => apiPost(`/oauth/sessions/${oauthSession?.sessionId}/cancel`, {}),
+    mutationFn: () => {
+      const sessionId = oauthSession?.sessionId;
+      if (!sessionId) throw new Error("OAuth session is no longer active");
+      return daemonPost(`/auth/oauth/sessions/${encodeURIComponent(sessionId)}/cancel`, {});
+    },
     onSuccess: () => {
       oauthPopupRef.current?.close();
       oauthPopupRef.current = null;
       setOauthSession(null);
       setOauthCallbackValue("");
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => {
+      setOauthSession(null);
+      setOauthCallbackValue("");
+      toast.error(errorMessage(error));
+    },
   });
 
   // Clean up the OAuth popup if the user navigates away mid-authorization.
@@ -1212,7 +1245,7 @@ export function ProviderDetailPage() {
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: qk.provider.detail(id),
-    queryFn: async () => normalizeProviderDetail(await apiGet<ProviderDetailResponse>(`/providers/${id}`)),
+    queryFn: async () => normalizeProviderDetail(await daemonGet<ProviderDetailResponse>(`/providers/${id}`)),
     enabled: Boolean(id),
     refetchOnWindowFocus: true,
   });
@@ -1240,9 +1273,12 @@ export function ProviderDetailPage() {
   const accountsQuery = useInfiniteQuery({
     queryKey: qk.provider.accounts(id),
     queryFn: async ({ pageParam }) => {
-      const response = await apiGet<{ items: Array<AccountEntry & { providerId?: string }>; nextCursor?: string | null }>(`/providers/${id}/accounts?limit=50${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""}`);
+      const response = await daemonGet<{ items: ProviderDetailResponse["accounts"]; nextCursor?: string | null }>(`/providers/${encodeURIComponent(id ?? "")}/accounts${pageParam ? `?cursor=${encodeURIComponent(pageParam)}` : ""}`);
       return {
-        items: response.items.map((account) => ({ ...account, provider: account.providerId ?? id ?? "" })),
+        items: response.items.flatMap((account) => {
+          const normalized = normalizeAccount(account, id ?? "");
+          return normalized ? [normalized] : [];
+        }),
         nextCursor: response.nextCursor ?? null,
       };
     },
@@ -1299,7 +1335,7 @@ export function ProviderDetailPage() {
   // Use the server-side batch contract so one UI action maps to one mutation.
   const bulkActiveMutation = useMutation({
     mutationFn: ({ ids, active }: { ids: string[]; active: boolean }) =>
-      apiPatch(`/providers/${id}/accounts/batch`, { ids, active }),
+      daemonPatch(`/providers/${encodeURIComponent(id ?? "")}/accounts/batch`, { items: ids.map((accountId) => ({ accountId, enabled: active })) }),
     onSuccess: (_res, { ids, active }) => {
       toast.success(`${ids.length} account${ids.length === 1 ? "" : "s"} ${active ? "enabled" : "disabled"}`);
       setSelectedAccounts(new Set());
@@ -1310,18 +1346,27 @@ export function ProviderDetailPage() {
     onError: (err) => toast.error(errorMessage(err)),
   });
   const oauthRefreshMutation = useMutation({
-    mutationFn: (accountId: string) => apiPost<{ ok: boolean }>("/oauth/refresh", { accountId }),
+    mutationFn: (accountId: string) => daemonPost(`/auth/oauth/refresh`, { accountId }),
     onSuccess: () => {
-      toast.success("OAuth token refreshed");
+      toast.success("OAuth account refreshed");
       void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
       void queryClient.invalidateQueries({ queryKey: qk.provider.accounts(id) });
       void queryClient.invalidateQueries({ queryKey: qk.catalog.providers });
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
+  const quotaRefreshMutation = useMutation({
+    mutationFn: (accountId: string) => daemonPost(`/accounts/${encodeURIComponent(accountId)}/quota`, {}),
+    onSuccess: () => {
+      toast.success("Quota refreshed");
+      void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: qk.provider.accounts(id) });
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
 
   const bulkDeleteMutation = useMutation({
-    mutationFn: (ids: string[]) => Promise.all(ids.map((accountId) => apiDelete<{ ok: boolean }>(`/providers/${id}/accounts/${accountId}`))),
+    mutationFn: (ids: string[]) => daemonPost(`/providers/${encodeURIComponent(id ?? "")}/accounts/batch-delete`, { items: ids }),
     onSuccess: (_result, ids) => {
       toast.success(`Deleted ${ids.length} account${ids.length === 1 ? "" : "s"}`);
       setSelectedAccounts(new Set());
@@ -1341,8 +1386,8 @@ export function ProviderDetailPage() {
   const modelMutation = useMutation({
     mutationFn: ({ path, body, method = "POST" }: { path: string; body?: Record<string, unknown>; method?: "POST" | "PATCH" }) =>
       method === "PATCH"
-        ? apiPatch(`/providers/${id}/models${path}`, body ?? {})
-        : apiPost(`/providers/${id}/models${path}`, body ?? {}),
+        ? daemonPatch(`/providers/${id}/models${path}`, body ?? {})
+        : daemonPost(`/providers/${id}/models${path}`, body ?? {}),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
       void queryClient.invalidateQueries({ queryKey: qk.catalog.provider(id) });
@@ -1350,17 +1395,17 @@ export function ProviderDetailPage() {
     onError: (err) => toast.error(errorMessage(err)),
   });
   const fetchCatalogMutation = useMutation({
-    mutationFn: () => apiPost(`/providers/${id}/models/fetch`, {}),
+    mutationFn: () => daemonPost(`/providers/${id}/models/fetch`, {}),
     onSuccess: () => { toast.success("Provider registry catalog synced"); void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) }); void queryClient.invalidateQueries({ queryKey: qk.catalog.provider(id) }); },
     onError: (err) => toast.error(errorMessage(err)),
   });
   const deleteModelMutation = useMutation({
-    mutationFn: (modelId: string) => apiDelete(`/providers/${id}/models/${encodeURIComponent(modelId)}`),
+    mutationFn: (modelId: string) => daemonDelete(`/providers/${id}/models/${encodeURIComponent(modelId)}`),
     onSuccess: () => { toast.success("Custom model removed"); void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) }); void queryClient.invalidateQueries({ queryKey: qk.catalog.provider(id) }); },
     onError: (err) => toast.error(errorMessage(err)),
   });
   const deleteFetchedModelsMutation = useMutation({
-    mutationFn: (modelIds: string[]) => Promise.all(modelIds.map((modelId) => apiDelete<{ ok: boolean }>(`/providers/${id}/models/${encodeURIComponent(modelId)}`))),
+    mutationFn: (modelIds: string[]) => Promise.all(modelIds.map((modelId) => daemonDelete<{ ok: boolean }>(`/providers/${id}/models/${encodeURIComponent(modelId)}`))),
     onSuccess: (_result, modelIds) => {
       toast.success(`Deleted ${modelIds.length} fetched model${modelIds.length === 1 ? "" : "s"}`);
       void queryClient.invalidateQueries({ queryKey: qk.provider.detail(id) });
@@ -1784,7 +1829,6 @@ export function ProviderDetailPage() {
                   <tbody>
                     {accountWindow.topPadding > 0 && <tr aria-hidden="true" style={{ height: accountWindow.topPadding }}><td colSpan={5} /></tr>}
                     {accountWindow.visibleItems.map((account) => {
-                      const identity = accountIdentity(account.credentialHint, account.name);
                       const accountStatus = renderAccountStatus(account);
                       const accessibleAccountStatus = formatAccountHealthAccessibleStatus(account) ?? accountStatus;
                       const hasHealthError = Boolean(formatAccountHealthStatus(account));
@@ -1807,15 +1851,16 @@ export function ProviderDetailPage() {
                             }}
                           />
                         </td>
-                        <td className="min-w-0 px-2 py-2.5 align-top">
-                          <div className="max-w-48 truncate text-xs font-semibold sm:max-w-none">{identity.primary}</div>
-                          {identity.secondary !== null ? <div className="mt-0.5 max-w-48 truncate text-[10px] text-[var(--text-3)] sm:max-w-none">{identity.secondary}</div> : null}
+                        <td className="px-2 py-2.5 align-top">
                           <div className={cn("mt-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9.5px] font-medium", hasHealthError || accountTestStatus[account.id]?.state === "failed" ? "bg-[var(--red-soft)] text-[var(--red)]" : accountTestStatus[account.id]?.state === "passed" ? "bg-[var(--green-soft)] text-[var(--green)]" : "bg-[var(--hover)] text-[var(--text-3)]")} title={accessibleAccountStatus} aria-label={`Account status: ${accessibleAccountStatus}`}>
                             {accountTestStatus[account.id]?.state === "passed" ? "passed" : accountTestStatus[account.id]?.state === "failed" ? "error" : accountStatus}
                           </div>
                         </td>
                         <td className="w-[104px] px-1.5 py-2.5 align-top sm:w-auto sm:px-2">
                           <div className="flex items-center justify-end gap-0.5 whitespace-nowrap sm:gap-1">
+                            <Button variant="ghost" size="icon" className="size-6 sm:size-7" title="Refresh quota" aria-label={`Refresh quota for ${account.name}`} disabled={quotaRefreshMutation.isPending} onClick={() => quotaRefreshMutation.mutate(account.id)}>
+                              <Gauge size={13} className={quotaRefreshMutation.isPending ? "animate-spin" : ""} />
+                            </Button>
                             {account.credentialKind === "oauth" && <Button variant="ghost" size="icon" className="size-6 sm:size-7" title="Refresh OAuth token" aria-label={`Refresh OAuth token for ${account.name}`} disabled={oauthRefreshMutation.isPending} onClick={() => oauthRefreshMutation.mutate(account.id)}>
                               <RefreshCw size={13} className={oauthRefreshMutation.isPending ? "animate-spin" : ""} />
                             </Button>}

@@ -19,10 +19,27 @@ export const qk = {
     all: ["settings"] as const,
   },
 
-  /** `/console/api/keys` — proxy API keys. */
-  apiKeys: {
-    all: ["keys"] as const,
+  /** `/v2/admin/backups/*`. */
+  backups: {
+    all: ["backups"] as const,
   },
+
+  /** `/v2/admin/tools/*`. */
+  tools: {
+    all: ["tools"] as const,
+  },
+
+  /** `/v2/admin/proxies/*` and `/v2/admin/proxy-settings`. */
+  proxies: {
+    all: ["proxies"] as const,
+    list: (limit = 100) => ["proxies", "list", limit] as const,
+    detail: (proxyId: string | undefined) => ["proxies", "detail", proxyId] as const,
+    search: (query: string, country: readonly string[], limit: number) => ["proxies", "search", query, country, limit] as const,
+    countries: ["proxies", "scrape", "countries"] as const,
+    catalog: ["proxies", "scrape", "catalog"] as const,
+    settings: ["proxies", "settings"] as const,
+  },
+
 
   /** `/console/api/overview` — dashboard overview aggregate. */
   overview: {
@@ -36,11 +53,6 @@ export const qk = {
     metrics: ["health-metrics"] as const,
   },
 
-  /** GitHub repository branch heads (main/dev). */
-  releases: {
-    githubLatest: ["github-latest-release"] as const,
-    githubBranches: ["github-repository-branches"] as const,
-  },
 
   /** `/console/api/providers` catalog surface. */
   catalog: {
@@ -54,45 +66,7 @@ export const qk = {
     accounts: (providerId: string | undefined) => ["provider-accounts", providerId] as const,
   },
 
-  /** `/console/api/custom-providers` (catalog of custom providers). */
-  customProviders: {
-    all: ["console", "custom-providers"] as const,
-    detail: (providerId: string | undefined) => ["custom-provider", providerId] as const,
-  },
 
-  /** `/console/api/aliases` + `/console/api/combos`. */
-  aliases: {
-    all: ["console", "aliases"] as const,
-  },
-  combos: {
-    all: ["console", "combos"] as const,
-  },
-
-  /** `/console/api/proxies` pool and transient search results. */
-  proxies: {
-    all: ["console", "proxies"] as const,
-    search: ["console", "proxies", "search"] as const,
-    scrapeCatalog: ["console", "proxies", "scrape-catalog"] as const,
-    scrapeCountries: ["console", "proxies", "scrape-countries"] as const,
-  },
-  proxySettings: {
-    all: ["console", "proxy-settings"] as const,
-  },
-
-  /** `/console/api/web-search-routing` computed policy and availability. */
-  webSearchRouting: {
-    all: ["console", "web-search-routing"] as const,
-  },
-
-  /** `/console/api/providers` routing view (summary list for routing UI). */
-  routing: {
-    all: ["console", "providers-routing"] as const,
-  },
-
-  /** `/console/api/filters` — request filter/sanitize rules. */
-  filterRules: {
-    all: ["filter-rules"] as const,
-  },
 
   /** `/console/api/quota` management. */
   quota: {
@@ -108,37 +82,12 @@ export const qk = {
     cache: (period: string) => ["usage-cache", period] as const,
     summary: (period: string) => ["usage-summary", period] as const,
     recentRequests: ["usage-requests", "recent"] as const,
-  },
-  /** `/console/api/cli-tools/*`. */
-  cliTools: {
-    registry: ["cli-tools", "registry"] as const,
-    statuses: ["cli-tools", "statuses"] as const,
-    apiKeys: ["cli-tools", "api-keys"] as const,
-    mappings: (toolId: string | undefined) => ["cli-tools", "mappings", toolId] as const,
-  },
-  dbMap: {
-    schema: (db: string) => ["db-map", "schema", db] as const,
-    rows: (db: string, table: string | null, limit: number, offset: number) =>
-      ["db-map", "rows", db, table, limit, offset] as const,
-    /** Prefix matching all rows queries for a db (any table/limit/offset). */
-    rowsPrefix: (db: string) => ["db-map", "rows", db] as const,
-  },
-
-  /** `/console/api/model-studio/*`. */
-  modelStudio: {
-    sessions: ["model-studio", "sessions"] as const,
-    session: (sessionId: string | null) => ["model-studio", "session", sessionId] as const,
+    clients: (period: string) => ["usage-clients", period] as const,
   },
 
   /** `/console/api/oauth/sessions/:id` — OAuth popup polling. */
   oauthLogin: {
     session: (sessionId: string | null | undefined) => ["oauth-login", sessionId] as const,
-  },
-  /** `/console/api/warp/*` — MultiWarp account and instance state. */
-  warp: {
-    accounts: ["warp", "accounts"] as const,
-    statuses: ["warp", "statuses"] as const,
-    metricsSummary: ["warp", "metrics", "summary"] as const,
   },
 } as const;
 

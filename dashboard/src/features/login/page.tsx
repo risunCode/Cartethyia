@@ -1,13 +1,14 @@
 import { Eye, EyeOff, Lock } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { toast } from "../../lib/toast";
-import { ApiError, apiPost } from "../../lib/api";
+import { ApiError } from "../../lib/api";
+import { DaemonContractError, daemonPost } from "../../lib/daemon-api";
 import { Button } from "../../components/ui/button";
 import { Input, Label } from "../../components/ui/input";
+import { ROUTES, safeConsoleNextPath } from "../../routes";
 
 const LOGIN_BACKDROP_URL = `${import.meta.env.BASE_URL}default-backgrounds.webp`;
-const LOGIN_LOGO_URL = `${import.meta.env.BASE_URL}favicon_love.webp`;
+const LOGIN_LOGO_URL = `${import.meta.env.BASE_URL}favicon.webp`;
 
 export function LoginPage() {
   const [password, setPassword] = useState("");
@@ -24,13 +25,13 @@ export function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await apiPost("/login", { password });
-      toast.success("Signed in");
-      const next = params.get("next") || "/overview";
-      navigate(next.startsWith("/") ? next : "/overview", { replace: true });
+      await daemonPost("/auth/login", { username: "admin", password, remember: true });
+      const next = safeConsoleNextPath(params.get("next"));
+      navigate(next.startsWith("/") ? next : ROUTES.consoleOverview.replace("/console", ""), { replace: true });
     } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.status === 429) {
+      if (err instanceof ApiError || err instanceof DaemonContractError) {
+        const status = err.status;
+        if (status === 429) {
           const body = err.message;
           setRetryAfter(30);
           setError(body || "Too many attempts. Try again later.");

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ComponentType, type MouseEvent, type 
 import { Activity, ArrowDown, ArrowUpRight, Check, GithubIcon, Home, MessageCircle, Network, ShieldCheck, Sparkles, Terminal } from "lucide-react";
 
 import { Button } from "../components/ui/button";
-
+import { ROUTES } from "../routes";
 interface Signal {
   readonly label: string;
   readonly value: string;
@@ -29,6 +29,7 @@ interface Chapter {
 
 const GITHUB_URL = "https://github.com/risunCode/Cartethyia";
 const LANDING_ASSET_BASE_URL = `${import.meta.env.BASE_URL}when_yah/`;
+const CONSOLE_LOGIN_PATH = ROUTES.consoleLogin;
 
 const landingImage = (fileName: string): string => `${LANDING_ASSET_BASE_URL}${fileName}`;
 
@@ -301,7 +302,7 @@ export function LandingPage(): ReactElement {
 
   function handlePrimaryAction(): void {
     if (activeIndex === 0 || activeIndex === 2 || activeIndex === 4 || activeIndex === 5) {
-      window.location.assign("/console/login");
+      window.location.assign(CONSOLE_LOGIN_PATH);
       return;
     }
     scrollToChapter(activeIndex === CHAPTERS.length - 1 ? 0 : activeIndex + 1);
@@ -346,11 +347,11 @@ export function LandingPage(): ReactElement {
           </a>
           <nav className="hidden items-center gap-1 md:flex" aria-label="Primary navigation">
             <a className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-white/65 transition hover:bg-white/10 hover:text-white" href="#top" onClick={(event) => handleAnchorClick(event, "#top")}><Home size={14} aria-hidden="true" />Home</a>
-            <a className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-white/65 transition hover:bg-white/10 hover:text-white" href="/console/login"><Terminal size={14} aria-hidden="true" />Console</a>
+            <a className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-white/65 transition hover:bg-white/10 hover:text-white" href={CONSOLE_LOGIN_PATH}><Terminal size={14} aria-hidden="true" />Console</a>
             <a className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-white/65 transition hover:bg-white/10 hover:text-white" href={GITHUB_URL} target="_blank" rel="noreferrer"><GithubIcon size={14} aria-hidden="true" />GitHub</a>
             <a className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold text-white/65 transition hover:bg-white/10 hover:text-white" href={DISCORD_ANCHOR} onClick={(event) => handleAnchorClick(event, DISCORD_ANCHOR)}><MessageCircle size={14} aria-hidden="true" />Discord</a>
           </nav>
-          <a className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/25 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white hover:text-[#070b13]" href="/console/login">Enter console<ArrowUpRight size={14} aria-hidden="true" /></a>
+          <a className="inline-flex h-9 items-center gap-2 rounded-lg border border-white/25 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white hover:text-[#070b13]" href={CONSOLE_LOGIN_PATH}>Enter console<ArrowUpRight size={14} aria-hidden="true" /></a>
         </div>
       </header>
 

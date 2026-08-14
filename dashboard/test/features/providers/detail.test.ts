@@ -81,4 +81,28 @@ describe("normalizeProviderDetail", () => {
       models: [{ id: "local-model", source: "manual", reasoning: false, vision: false }],
     });
   });
+
+  test("keeps quota unknown and drops secret-shaped account metadata", () => {
+    const result = normalizeProviderDetail(providerInput({
+      accounts: [{
+        id: "account-2",
+        label: "Secondary",
+        enabled: true,
+        credentialKind: "oauth",
+        credentialHint: "secondary@example.com",
+        quota: { status: "not-a-state", token: "must-not-enter-ui", remaining: 12 },
+        health: { status: "healthy", statusCode: 200, sanitizedMessage: null },
+        token: "must-not-enter-ui",
+      } as ProviderDetailInput["accounts"][number]],
+    }));
+
+    expect(result.accounts).toEqual([expect.objectContaining({
+      id: "account-2",
+      name: "Secondary",
+      active: true,
+      quota: expect.objectContaining({ status: "unknown", remaining: 12 }),
+    })]);
+    expect(result.accounts[0]).not.toHaveProperty("token");
+    expect(result.accounts[0]?.quota).not.toHaveProperty("token");
+  });
 });

@@ -1,0 +1,526 @@
+package runtime
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"github.com/cartethyia/daemon/internal/accounts"
+	accountdrivers "github.com/cartethyia/daemon/internal/accounts/drivers"
+	"github.com/cartethyia/daemon/internal/accounts/flow"
+	db "github.com/cartethyia/daemon/internal/database"
+	dbrepositories "github.com/cartethyia/daemon/internal/database/repositories"
+	"github.com/cartethyia/daemon/internal/observability"
+	"github.com/cartethyia/daemon/internal/providers"
+	providerbuiltin "github.com/cartethyia/daemon/internal/providers/builtin"
+	"github.com/cartethyia/daemon/internal/proxy"
+	"github.com/cartethyia/daemon/internal/proxy/control/admission"
+	"github.com/cartethyia/daemon/internal/proxy/control/continuation"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/transport"
+	"github.com/cartethyia/daemon/internal/runtime/cache"
+	"github.com/cartethyia/daemon/internal/security/outbound"
+	"github.com/cartethyia/daemon/internal/server"
+	adminserver "github.com/cartethyia/daemon/internal/server/admin"
+	apicontracts "github.com/cartethyia/daemon/internal/server/api/contracts"
+	"github.com/cartethyia/daemon/internal/server/api/v1"
+	"net/http"
+	"strings"
+	"time"
+)
+
+type registrarFunc func(*http.ServeMux)
+
+func (f registrarFunc) Register(mux *http.ServeMux) {
+	if mux == nil {
+		return
+	}
+	f(mux)
+}
+
+// BootstrapDependencies are mandatory runtime seams. Provider endpoints and
+// credential references come from providers/; secret values come from the
+// injected credential resolver, never from process environment variables.
+type BootstrapDependencies struct {
+	Registry      *providers.Registry
+	Credentials   transport.CredentialResolver
+	Accounts      accounts.AccountConfigStore
+	Records       accounts.RecordStore
+	Secrets       accounts.SecretStore
+	Refresher     accounts.Refresher
+	RefreshLeases accounts.RefreshLeaseStore
+	// Database is the mandatory PostgreSQL authority when configured by the
+	// runtime. It is retained as a lifecycle dependency so readiness and close
+	// semantics cover the same pool used by durable repositories.
+	Database *db.RuntimeStore
+	// Cache is optional and cache-only. PostgreSQL remains the authority for
+	// accounts, credentials, leases, and telemetry.
+	Cache cache.Cache
+	// MetadataWriter is the bounded, payload-free request-history enqueue path.
+	MetadataWriter *observability.AsyncMetadataWriter
+	// DriverRegistry is the OAuth lifecycle registry. It is distinct from the
+	// wire provider registry because OAuth drivers own token endpoints.
+	DriverRegistry   *accountdrivers.Registry
+	BaseURLOverrides map[string]string
+	CustomProviders  dbrepositories.CustomProviderRepository
+	// Admin optionally supplies the composed V2 dashboard registrar. Keeping
+	// this seam optional preserves truthful route omission when persistence or
+	// authentication services are not configured.
+	Admin server.AdminRegistrar
+}
+
+func defaultBootstrapDependencies(configs ...Config) (BootstrapDependencies, error) {
+	cfg := Config{}.WithDefaults()
+	if len(configs) > 0 {
+		cfg = configs[0].WithDefaults()
+	}
+	registry, err := providerbuiltin.DefaultRegistry()
+	if err != nil {
+		return BootstrapDependencies{}, fmt.Errorf("runtime: default providers: %w", err)
+	}
+	driverRegistry, err := accountdrivers.NewRegistry(nil)
+	if err != nil {
+		return BootstrapDependencies{}, fmt.Errorf("runtime: default OAuth drivers: %w", err)
+	}
+	deps := BootstrapDependencies{
+		Registry:       registry,
+		DriverRegistry: driverRegistry,
+		Credentials:    rejectCredential,
+	}
+	fallback := cache.NewMemory(cache.MemoryConfig{MaxEntries: 1024, MaxInFlight: cache.DefaultMaxInFlight})
+	deps.Cache = fallback
+	if strings.EqualFold(cfg.Environment, "production") || strings.TrimSpace(cfg.DatabaseURL) != "" {
+		if strings.TrimSpace(cfg.DatabaseURL) == "" {
+			return BootstrapDependencies{}, errors.New("runtime: PostgreSQL DatabaseURL is required in production")
+		}
+		if strings.TrimSpace(cfg.AccountEncryptionKey) == "" {
+			return BootstrapDependencies{}, errors.New("runtime: account encryption key is required with PostgreSQL")
+		}
+		openCtx, cancel := context.WithTimeout(context.Background(), cfg.ConnectTimeout)
+		database, dbErr := db.OpenRuntime(openCtx, cfg.DatabaseURL, []byte(cfg.AccountEncryptionKey))
+		cancel()
+		if dbErr != nil {
+			return BootstrapDependencies{}, fmt.Errorf("runtime: PostgreSQL bootstrap: %w", dbErr)
+		}
+		deps.Database = database
+		deps.CustomProviders = database.CustomProviders
+		// Lease coordination is safe to compose independently of account
+		// metadata/secret stores; production still fails closed below until the
+		// complete account authority is available.
+		deps.RefreshLeases = database.RefreshLeases
+		deps.Accounts = database.Accounts
+		deps.Records = database.Records
+		deps.Secrets = database.Secrets
+		deps.MetadataWriter = observability.NewAsyncMetadataWriter(
+			context.Background(),
+			dbrepositories.NewBunMetadataSink(database.Telemetry),
+			1024,
+		)
+	}
+	if strings.TrimSpace(cfg.RedisURL) != "" {
+		client, clientErr := cache.NewRedisClient(cfg.RedisURL, cfg.ConnectTimeout)
+		if clientErr != nil {
+			if deps.MetadataWriter != nil {
+				_ = deps.MetadataWriter.Close(context.Background())
+			}
+			if deps.Database != nil {
+				_ = deps.Database.Close(context.Background())
+			}
+			_ = fallback.Close()
+			return BootstrapDependencies{}, fmt.Errorf("runtime: RedisURL: %w", clientErr)
+		}
+		remote, remoteErr := cache.NewRedisBackend(client, cache.RedisConfig{CommandTimeout: cfg.ConnectTimeout})
+		if remoteErr != nil {
+			_ = client.Close()
+			if deps.MetadataWriter != nil {
+				_ = deps.MetadataWriter.Close(context.Background())
+			}
+			if deps.Database != nil {
+				_ = deps.Database.Close(context.Background())
+			}
+			_ = fallback.Close()
+			return BootstrapDependencies{}, fmt.Errorf("runtime: Redis cache: %w", remoteErr)
+		}
+		composed, routerErr := cache.NewRouter(remote, fallback)
+		if routerErr != nil {
+			_ = remote.Close()
+			if deps.MetadataWriter != nil {
+				_ = deps.MetadataWriter.Close(context.Background())
+			}
+			if deps.Database != nil {
+				_ = deps.Database.Close(context.Background())
+			}
+			_ = fallback.Close()
+			return BootstrapDependencies{}, fmt.Errorf("runtime: Redis cache router: %w", routerErr)
+		}
+		deps.Cache = composed
+	}
+	return deps, nil
+}
+
+// providerFixtureAccountStore is retained only for non-production bootstrap
+// fixtures. It deliberately must not be used as a production account source.
+type providerFixtureAccountStore struct {
+	registry *providers.Registry
+}
+
+func (s providerFixtureAccountStore) ListAccounts(_ context.Context, providerID string) ([]proxy.Account, error) {
+	if s.registry == nil {
+		return nil, errors.New("runtime: provider fixture account store has no registry")
+	}
+	provider, err := s.registry.Get(providerID)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: load provider fixture %q: %w", providerID, err)
+	}
+	if provider == nil {
+		return nil, fmt.Errorf("runtime: provider fixture %q resolved to nil", providerID)
+	}
+	meta := provider.Metadata()
+	if meta.ID == "" || meta.CredentialRef == "" {
+		return nil, fmt.Errorf("runtime: provider fixture %q has incomplete credential ownership", providerID)
+	}
+	ref, err := contracts.NewCredentialRef(meta.CredentialRef)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: provider fixture %q credential reference: %w", providerID, err)
+	}
+	return []proxy.Account{{
+		ID:            meta.ID,
+		Provider:      meta.ID,
+		CredentialRef: ref,
+		Enabled:       true,
+	}}, nil
+}
+
+// durableAccountStore adapts the account package's persisted, provider-neutral
+type durableAccountStore struct {
+	store   accounts.AccountConfigStore
+	records accounts.RecordStore
+}
+
+func (s durableAccountStore) ListAccounts(ctx context.Context, providerID string) ([]proxy.Account, error) {
+	if s.store == nil {
+		return nil, errors.New("runtime: account configuration store is unavailable")
+	}
+	if directory, ok := s.store.(accounts.AccountDirectoryStore); ok {
+		entries, err := directory.ListAccountDirectory(ctx, providerID)
+		if err != nil {
+			return nil, fmt.Errorf("runtime: list account directory: %w", err)
+		}
+		out := make([]proxy.Account, 0, len(entries))
+		for _, entry := range entries {
+			if entry.Config == nil || entry.Config.ProviderID != providerID || !entry.Config.Enabled {
+				continue
+			}
+			account, projectErr := projectDurableAccount(entry.Config, entry.Record)
+			if projectErr != nil {
+				return nil, projectErr
+			}
+			if account != nil {
+				out = append(out, *account)
+			}
+		}
+		return out, nil
+	}
+	configs, err := s.store.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: list account configurations: %w", err)
+	}
+	out := make([]proxy.Account, 0, len(configs))
+	for _, cfg := range configs {
+		if cfg == nil || cfg.ProviderID != providerID || !cfg.Enabled {
+			continue
+		}
+		var record *accounts.OAuthTokenRecord
+		if s.records != nil {
+			if loaded, recordErr := s.records.Get(ctx, cfg.ID); recordErr == nil && loaded != nil {
+				record = loaded
+			}
+		}
+		account, projectErr := projectDurableAccount(cfg, record)
+		if projectErr != nil {
+			return nil, projectErr
+		}
+		if account != nil {
+			out = append(out, *account)
+		}
+	}
+	return out, nil
+}
+
+func projectDurableAccount(cfg *accounts.AccountConfig, record *accounts.OAuthTokenRecord) (*proxy.Account, error) {
+	if cfg == nil || !cfg.Enabled {
+		return nil, nil
+	}
+	ref := cfg.CredentialRef
+	if ref.IsZero() {
+		var err error
+		ref, err = accounts.NewReference(cfg.ID)
+		if err != nil {
+			return nil, fmt.Errorf("runtime: account %q credential reference: %w", cfg.ID, err)
+		}
+	}
+	credentialRef, err := contracts.NewCredentialRef(ref.String())
+	if err != nil {
+		return nil, fmt.Errorf("runtime: account %q credential reference: %w", cfg.ID, err)
+	}
+	account := &proxy.Account{ID: cfg.ID, Provider: cfg.ProviderID, CredentialRef: credentialRef, Enabled: cfg.Enabled}
+	if record != nil {
+		account.Email = record.Email
+		account.ProviderAccountID = record.ProviderAccountID
+		account.OrgID = record.OrgID
+		account.OrgName = record.OrgName
+		account.ReauthRequired = record.ReauthenticationRequired
+	}
+	return account, nil
+}
+
+type registryCatalog struct {
+	registry *providers.Registry
+}
+
+func (c registryCatalog) List() ([]contracts.Account, error) {
+	if c.registry == nil {
+		return nil, errors.New("runtime: provider catalog has no registry")
+	}
+	out := make([]contracts.Account, 0)
+	for _, id := range c.registry.IDs() {
+		provider, err := c.registry.Get(id)
+		if err != nil {
+			return nil, fmt.Errorf("runtime: load catalog provider %q: %w", id, err)
+		}
+		if provider == nil {
+			return nil, fmt.Errorf("runtime: catalog provider %q resolved to nil", id)
+		}
+		meta := provider.Metadata()
+		ref, err := contracts.NewCredentialRef(meta.CredentialRef)
+		if err != nil {
+			return nil, fmt.Errorf("runtime: catalog provider %q credential reference: %w", id, err)
+		}
+		models := provider.Models()
+		if models == nil {
+			return nil, fmt.Errorf("runtime: catalog provider %q has no model catalog", id)
+		}
+		for _, model := range models.List() {
+			out = append(out, contracts.Account{
+				ID:            id + ":" + model.ID,
+				Provider:      id,
+				Model:         model.ID,
+				CredentialRef: ref,
+				Enabled:       true,
+			})
+		}
+	}
+	return out, nil
+}
+
+func buildHandler(cfg Config) (http.Handler, error) {
+	return buildHandlerWithArtwork(cfg, "")
+}
+
+func buildHandlerWithArtwork(cfg Config, artwork string) (http.Handler, error) {
+	deps, err := defaultBootstrapDependencies(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return buildHandlerWithArtworkAndDependencies(cfg, deps, artwork)
+}
+
+func buildHandlerWith(cfg Config, deps BootstrapDependencies) (http.Handler, error) {
+	return buildHandlerWithArtworkAndDependencies(cfg, deps, "")
+}
+func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependencies, artwork string) (http.Handler, error) {
+	if deps.Registry == nil {
+		return nil, errors.New("runtime: bootstrap registry is required")
+	}
+	var customAccountSource map[string][]proxy.Account
+	if deps.CustomProviders != nil {
+		customProviders, customErr := deps.CustomProviders.ListCustomProviders(context.Background())
+		if customErr != nil {
+			return nil, fmt.Errorf("runtime: list custom providers: %w", customErr)
+		}
+		customAccountSource, customErr = buildCustomProviderAccounts(customProviders)
+		if customErr != nil {
+			return nil, fmt.Errorf("runtime: custom provider accounts: %w", customErr)
+		}
+		for _, custom := range customProviders {
+			if err := providerbuiltin.RegisterCustomProvider(deps.Registry, providerbuiltin.CustomProviderInput{
+				ID: custom.ID, Slug: custom.Slug, Name: custom.Name, Type: custom.Type, Protocol: custom.Protocol, Surface: custom.Surface,
+				BaseURL: custom.BaseURL, CredentialRef: custom.CredentialRef,
+				CredentialRefs: custom.CredentialRefs,
+				TimeoutSeconds: custom.TimeoutSeconds, ModelsJSON: custom.Models, HeadersJSON: custom.CustomHeaders,
+			}); err != nil {
+				return nil, fmt.Errorf("runtime: register custom provider %q: %w", custom.Slug, err)
+			}
+		}
+	}
+	if deps.Accounts == nil && (strings.EqualFold(cfg.Environment, "production") || deps.Database != nil) {
+		return nil, errors.New("runtime: durable account configuration store is required; PostgreSQL account adapter is not composed")
+	}
+	credentialResolver, err := composeCredentialResolver(deps)
+	if err != nil {
+		return nil, err
+	}
+	baseURLs, err := providerBaseURLs(deps.Registry, deps.BaseURLOverrides)
+	if err != nil {
+		return nil, err
+	}
+	var accountStore proxy.AccountStore
+	if deps.Accounts != nil {
+		accountStore = compositeAccountStore{primary: durableAccountStore{store: deps.Accounts, records: deps.Records}, custom: customAccountSource, customRepository: deps.CustomProviders}
+	} else {
+		// Development/test composition may still provide a narrow explicit
+		// provider fixture. Production is rejected above.
+		accountStore = compositeAccountStore{primary: providerFixtureAccountStore{registry: deps.Registry}, custom: customAccountSource, customRepository: deps.CustomProviders}
+	}
+	pool, err := proxy.NewAccountPool(proxy.PoolConfig{Store: accountStore, TTL: proxy.DefaultAccountSnapshotTTL})
+	if err != nil {
+		return nil, fmt.Errorf("runtime: account pool: %w", err)
+	}
+	router, err := proxy.NewRouter(proxy.RouterConfig{Pool: pool, MaxAttempts: 3})
+	if err != nil {
+		return nil, fmt.Errorf("runtime: router: %w", err)
+	}
+	outboundPolicy := &outbound.Policy{
+		AllowLoopback:  cfg.Environment != "production",
+		AllowPrivate:   cfg.Environment != "production",
+		MaxRedirects:   3,
+		RequestTimeout: cfg.RequestTimeout,
+	}
+	httpTransport := &transport.HTTPTransport{
+		Registry:          deps.Registry,
+		BaseURLs:          baseURLs,
+		ResolveCredential: credentialResolver,
+		OutboundPolicy:    outboundPolicy,
+		MaxResponseBytes:  int64(cfg.MaxBodyBytes),
+		ConnectTimeout:    cfg.ConnectTimeout,
+		FirstByteTimeout:  cfg.FirstByteTimeout,
+		TotalTimeout:      cfg.RequestTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
+	}
+	dispatch := &proxy.DispatchService{
+		Router:          router,
+		Transport:       httpTransport,
+		StreamTransport: httpTransport,
+		Continuations:   continuation.New(cfg.UsageRetention),
+		Metadata:        deps.MetadataWriter,
+	}
+	limiter, err := admission.New(
+		admission.Layer{Name: "global", Limit: cfg.MaxConcurrent},
+		admission.Layer{Name: "stream", Limit: cfg.MaxConcurrentStream},
+		admission.Layer{Name: "api_key", Limit: cfg.MaxConcurrent},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: admission setup: %w", err)
+	}
+	dispatch.Admission = limiter
+	catalog := registryCatalog{registry: deps.Registry}
+	metrics := observability.NewRegistry()
+	if deps.Admin == nil && deps.DriverRegistry != nil && deps.Accounts != nil && deps.Secrets != nil && deps.Records != nil {
+		sessions := flow.NewManager(flow.ManagerOptions{})
+		oauthService, oauthErr := adminserver.NewOAuthService(deps.DriverRegistry, sessions, deps.Accounts, deps.Secrets, deps.Records, deps.Refresher)
+		if oauthErr != nil {
+			return nil, fmt.Errorf("runtime: OAuth admin composition: %w", oauthErr)
+		}
+		deps.Admin = registrarFunc(func(mux *http.ServeMux) {
+			services := adminserver.Services{OAuth: oauthService}
+			if deps.CustomProviders != nil {
+				services.CustomProviders = &customProviderAdminService{repository: deps.CustomProviders, registry: deps.Registry}
+			}
+			adminserver.Register(mux, services)
+		})
+	} else if deps.Admin == nil && deps.CustomProviders != nil {
+		customService := &customProviderAdminService{repository: deps.CustomProviders, registry: deps.Registry}
+		deps.Admin = registrarFunc(func(mux *http.ServeMux) {
+			adminserver.Register(mux, adminserver.Services{CustomProviders: customService})
+		})
+	}
+	base, err := server.NewRouterWith(server.Options{
+		Registry:      metrics,
+		HealthArtwork: artwork,
+		V1: registrarFunc(func(mux *http.ServeMux) {
+			v1.RegisterV1(mux, v1.Deps{Proxy: dispatch, Catalog: catalog, Evidence: metrics})
+		}),
+		V2Admin: deps.Admin,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("runtime: server router: %w", err)
+	}
+	return base, nil
+}
+
+func providerBaseURLs(registry *providers.Registry, overrides map[string]string) (map[string]string, error) {
+	if registry == nil {
+		return nil, errors.New("runtime: provider URL registry is required")
+	}
+	urls := make(map[string]string)
+	for _, id := range registry.IDs() {
+		provider, err := registry.Get(id)
+		if err != nil {
+			return nil, fmt.Errorf("runtime: load provider URL %q: %w", id, err)
+		}
+		if provider == nil {
+			return nil, fmt.Errorf("runtime: provider URL %q resolved to nil", id)
+		}
+		base := strings.TrimRight(provider.Metadata().BaseURL, "/")
+		if override := strings.TrimRight(overrides[id], "/"); override != "" {
+			base = override
+		}
+		if base == "" {
+			return nil, fmt.Errorf("runtime: provider %q has no base URL", id)
+		}
+		urls[id] = base
+	}
+	return urls, nil
+}
+
+func composeCredentialResolver(deps BootstrapDependencies) (transport.CredentialResolver, error) {
+	if deps.Credentials != nil {
+		return deps.Credentials, nil
+	}
+	if deps.Accounts == nil || deps.Secrets == nil {
+		return nil, errors.New("runtime: bootstrap credential resolver or account/secret stores are required")
+	}
+	resolver, err := accounts.NewStoreCredentialResolver(accounts.StoreResolverOptions{
+		Accounts:  deps.Accounts,
+		Secrets:   deps.Secrets,
+		Records:   deps.Records,
+		Refresher: deps.Refresher,
+		AccessCache: accounts.CredentialCacheOptions{
+			TTL:        30 * time.Second,
+			MaxEntries: 1024,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("runtime: credential resolver: %w", err)
+	}
+	return func(ctx context.Context, ref string) (string, error) {
+		accountRef, err := accounts.NewReference(ref)
+		if err != nil {
+			return "", err
+		}
+		resolved, err := resolver.Resolve(ctx, accountRef)
+		if err != nil {
+			return "", err
+		}
+		if resolved == nil || resolved.Access == nil || resolved.Access.IsZero() {
+			if resolved != nil {
+				resolved.Close()
+			}
+			return "", errors.New("runtime: credential material is unavailable")
+		}
+		value := resolved.Access.RevealString()
+		resolved.Close()
+		if value == "" {
+			return "", errors.New("runtime: credential material is unavailable")
+		}
+		return value, nil
+	}, nil
+}
+
+func rejectCredential(_ context.Context, ref string) (string, error) {
+	if ref == "" {
+		return "", errors.New("runtime: empty provider credential reference")
+	}
+	return "", fmt.Errorf("runtime: provider credential %q has no configured secret store", ref)
+}
+
+var _ apicontracts.ModelCatalog = registryCatalog{}

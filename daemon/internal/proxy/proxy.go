@@ -1,0 +1,181 @@
+// Package proxy preserves the historical import path while the implementation
+// is organized under runtime, control, protocol, transport, and compression.
+package proxy
+
+import proxyruntime "github.com/cartethyia/daemon/internal/proxy/runtime"
+
+// Runtime ownership aliases preserve existing callers of internal/proxy.
+type (
+	Account                      = proxyruntime.Account
+	AccountOutcomeSink           = proxyruntime.AccountOutcomeSink
+	AccountPool                  = proxyruntime.AccountPool
+	AccountSelectionCandidate    = proxyruntime.AccountSelectionCandidate
+	AccountSelectionInput        = proxyruntime.AccountSelectionInput
+	AccountState                 = proxyruntime.AccountState
+	AccountStore                 = proxyruntime.AccountStore
+	AffinityKey                  = proxyruntime.AffinityKey
+	AttemptDecision              = proxyruntime.AttemptDecision
+	AttemptOutcome               = proxyruntime.AttemptOutcome
+	ClassifyInput                = proxyruntime.ClassifyInput
+	CredentialRefresher          = proxyruntime.CredentialRefresher
+	CredentialSelector           = proxyruntime.CredentialSelector
+	DefaultNetworkSelector       = proxyruntime.DefaultNetworkSelector
+	DispatchError                = proxyruntime.DispatchError
+	DispatchService              = proxyruntime.DispatchService
+	Failure                      = proxyruntime.Failure
+	FailureKind                  = proxyruntime.FailureKind
+	FailurePhase                 = proxyruntime.FailurePhase
+	FailureScope                 = proxyruntime.FailureScope
+	MetadataWriter               = proxyruntime.MetadataWriter
+	NetworkMode                  = proxyruntime.NetworkMode
+	NetworkRoutingPolicy         = proxyruntime.NetworkRoutingPolicy
+	NetworkSelection             = proxyruntime.NetworkSelection
+	NetworkSelector              = proxyruntime.NetworkSelector
+	PoolBackedCredentialSelector = proxyruntime.PoolBackedCredentialSelector
+	PoolConfig                   = proxyruntime.PoolConfig
+	ProviderCandidate            = proxyruntime.ProviderCandidate
+	ProviderSelector             = proxyruntime.ProviderSelector
+	ProviderStreamEvent          = proxyruntime.ProviderStreamEvent
+	ProxyEndpoint                = proxyruntime.ProxyEndpoint
+	ProxyHealthLookup            = proxyruntime.ProxyHealthLookup
+	RendezvousSelector           = proxyruntime.RendezvousSelector
+	RetryAction                  = proxyruntime.RetryAction
+	RetryPolicy                  = proxyruntime.RetryPolicy
+	Router                       = proxyruntime.Router
+	RouterConfig                 = proxyruntime.RouterConfig
+	SanitizeError                = proxyruntime.SanitizeError
+	SanitizeLimits               = proxyruntime.SanitizeLimits
+	SanitizeResult               = proxyruntime.SanitizeResult
+	SelectNetworkInput           = proxyruntime.SelectNetworkInput
+	SelectionDecision            = proxyruntime.SelectionDecision
+	SelectionReason              = proxyruntime.SelectionReason
+	Stream                       = proxyruntime.Stream
+	StreamBridge                 = proxyruntime.StreamBridge
+	StreamError                  = proxyruntime.StreamError
+	StreamEvent                  = proxyruntime.StreamEvent
+	StreamEventKind              = proxyruntime.StreamEventKind
+	StreamTransport              = proxyruntime.StreamTransport
+	StreamUsage                  = proxyruntime.StreamUsage
+	SurfaceStream                = proxyruntime.SurfaceStream
+	Transport                    = proxyruntime.Transport
+)
+
+const (
+	FailureInvalidRequest           = proxyruntime.FailureInvalidRequest
+	FailureUnsupported              = proxyruntime.FailureUnsupported
+	FailureTranslation              = proxyruntime.FailureTranslation
+	FailureContentPolicy            = proxyruntime.FailureContentPolicy
+	FailureReauthenticationRequired = proxyruntime.FailureReauthenticationRequired
+	FailureCapacity                 = proxyruntime.FailureCapacity
+	FailureAuthentication           = proxyruntime.FailureAuthentication
+	FailureRateLimit                = proxyruntime.FailureRateLimit
+	FailureQuota                    = proxyruntime.FailureQuota
+	FailureTransient                = proxyruntime.FailureTransient
+	FailureFatal                    = proxyruntime.FailureFatal
+	FailureAborted                  = proxyruntime.FailureAborted
+	FailureUnknown                  = proxyruntime.FailureUnknown
+	FailureCanceled                 = proxyruntime.FailureCanceled
+	FailureValidation               = proxyruntime.FailureValidation
+	FailurePhasePreDispatch         = proxyruntime.FailurePhasePreDispatch
+	FailurePhaseProvider            = proxyruntime.FailurePhaseProvider
+	FailurePhasePartialWork         = proxyruntime.FailurePhasePartialWork
+	RetryNever                      = proxyruntime.RetryNever
+	RetryImmediate                  = proxyruntime.RetryImmediate
+	RetryBackoff                    = proxyruntime.RetryBackoff
+	StateHealthy                    = proxyruntime.StateHealthy
+	StateCoolingDown                = proxyruntime.StateCoolingDown
+	StateExhausted                  = proxyruntime.StateExhausted
+	StateDisabled                   = proxyruntime.StateDisabled
+	StateError                      = proxyruntime.StateError
+	AccountQuotaResetFallback       = proxyruntime.AccountQuotaResetFallback
+	AccountCooldownCap              = proxyruntime.AccountCooldownCap
+	RetryStop                       = proxyruntime.RetryStop
+	RetryRefreshSameAccount         = proxyruntime.RetryRefreshSameAccount
+	RetryNextAccount                = proxyruntime.RetryNextAccount
+	RetryBackoffNextAccount         = proxyruntime.RetryBackoffNextAccount
+	DefaultMaxAttempts              = proxyruntime.DefaultMaxAttempts
+	DefaultMaxRefreshAttempts       = proxyruntime.DefaultMaxRefreshAttempts
+	ReasonPreferred                 = proxyruntime.ReasonPreferred
+	ReasonSticky                    = proxyruntime.ReasonSticky
+	ReasonRoundRobin                = proxyruntime.ReasonRoundRobin
+	ReasonLeastLoaded               = proxyruntime.ReasonLeastLoaded
+	ReasonHeadroom                  = proxyruntime.ReasonHeadroom
+	ReasonFallback                  = proxyruntime.ReasonFallback
+	ReasonDirect                    = proxyruntime.ReasonDirect
+	ReasonProxy                     = proxyruntime.ReasonProxy
+	ReasonProxyBusy                 = proxyruntime.ReasonProxyBusy
+	ReasonProxyUnhealthy            = proxyruntime.ReasonProxyUnhealthy
+	ReasonProxyDisabled             = proxyruntime.ReasonProxyDisabled
+	NetworkModeAuto                 = proxyruntime.NetworkModeAuto
+	NetworkModeDirect               = proxyruntime.NetworkModeDirect
+	NetworkModeProxy                = proxyruntime.NetworkModeProxy
+	RoutingPresetAuto               = proxyruntime.RoutingPresetAuto
+	RoutingPresetUser               = proxyruntime.RoutingPresetUser
+	RoutingPresetConcurr            = proxyruntime.RoutingPresetConcurr
+	EventMessageStart               = proxyruntime.EventMessageStart
+	EventThinkingDelta              = proxyruntime.EventThinkingDelta
+	EventTextDelta                  = proxyruntime.EventTextDelta
+	EventToolCallStart              = proxyruntime.EventToolCallStart
+	EventToolCallDelta              = proxyruntime.EventToolCallDelta
+	EventToolCallEnd                = proxyruntime.EventToolCallEnd
+	EventServerToolResult           = proxyruntime.EventServerToolResult
+	EventUsage                      = proxyruntime.EventUsage
+	EventMessageStop                = proxyruntime.EventMessageStop
+	StreamCodeClientDisconnect      = proxyruntime.StreamCodeClientDisconnect
+	StreamCodeIdleTimeout           = proxyruntime.StreamCodeIdleTimeout
+	StreamCodeTotalTimeout          = proxyruntime.StreamCodeTotalTimeout
+	StreamCodeUpstreamTruncated     = proxyruntime.StreamCodeUpstreamTruncated
+	StreamCodeMalformedEvent        = proxyruntime.StreamCodeMalformedEvent
+	StreamCodeUpstreamFailure       = proxyruntime.StreamCodeUpstreamFailure
+	StreamCodeWriteFailure          = proxyruntime.StreamCodeWriteFailure
+	StreamCodeInvalidEncrypted      = proxyruntime.StreamCodeInvalidEncrypted
+	DefaultAccountSnapshotTTL       = proxyruntime.DefaultAccountSnapshotTTL
+)
+
+var (
+	ErrAbort                   = proxyruntime.ErrAbort
+	ErrBodyTooLarge            = proxyruntime.ErrBodyTooLarge
+	ErrClientDisconnect        = proxyruntime.ErrClientDisconnect
+	ErrHeaderTooLarge          = proxyruntime.ErrHeaderTooLarge
+	ErrInvalidCandidate        = proxyruntime.ErrInvalidCandidate
+	ErrInvalidEncryptedContent = proxyruntime.ErrInvalidEncryptedContent
+	ErrInvalidUTF8             = proxyruntime.ErrInvalidUTF8
+	ErrNoAccount               = proxyruntime.ErrNoAccount
+	ErrNoCandidate             = proxyruntime.ErrNoCandidate
+	ErrSelectionCanceled       = proxyruntime.ErrSelectionCanceled
+	ErrStreamMalformed         = proxyruntime.ErrStreamMalformed
+	ErrStreamStall             = proxyruntime.ErrStreamStall
+	ErrStreamTotal             = proxyruntime.ErrStreamTotal
+	ErrStreamTruncated         = proxyruntime.ErrStreamTruncated
+	ErrStreamUpstream          = proxyruntime.ErrStreamUpstream
+	ErrTooManyHeaders          = proxyruntime.ErrTooManyHeaders
+	ErrUnknownAccount          = proxyruntime.ErrUnknownAccount
+)
+
+var (
+	Classify                        = proxyruntime.Classify
+	DefaultLimits                   = proxyruntime.DefaultLimits
+	DispatchCodeOf                  = proxyruntime.DispatchCodeOf
+	NewAccountOutcomeSink           = proxyruntime.NewAccountOutcomeSink
+	NewAccountPool                  = proxyruntime.NewAccountPool
+	NewDefaultNetworkSelector       = proxyruntime.NewDefaultNetworkSelector
+	NewPoolBackedCredentialSelector = proxyruntime.NewPoolBackedCredentialSelector
+	NewRendezvousSelector           = proxyruntime.NewRendezvousSelector
+	NewRouter                       = proxyruntime.NewRouter
+	NewSanitizeError                = proxyruntime.NewSanitizeError
+	NewStream                       = proxyruntime.NewStream
+	NewStreamBridge                 = proxyruntime.NewStreamBridge
+	MapProviderEvent                = proxyruntime.MapProviderEvent
+	MapProviderStreamEvent          = proxyruntime.MapProviderStreamEvent
+	PipeWithDisconnect              = proxyruntime.PipeWithDisconnect
+	PoisonAccount                   = proxyruntime.PoisonAccount
+	RankAccountCandidates           = proxyruntime.RankAccountCandidates
+	RetryPolicyFor                  = proxyruntime.RetryPolicyFor
+	SafeHostname                    = proxyruntime.SafeHostname
+	SanitizeMessage                 = proxyruntime.SanitizeMessage
+	SanitizeMultipart               = proxyruntime.SanitizeMultipart
+	SanitizeRequest                 = proxyruntime.SanitizeRequest
+	SanitizeURL                     = proxyruntime.SanitizeURL
+	SelectAccountCandidate          = proxyruntime.SelectAccountCandidate
+	StreamCodeOf                    = proxyruntime.StreamCodeOf
+)

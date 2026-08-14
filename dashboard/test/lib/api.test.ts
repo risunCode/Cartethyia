@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { ApiError, api, apiDelete, apiDownload, apiGet, apiPostForm, setUnauthorizedHandler } from "../../src/lib/api";
+import { ApiError, api, apiDownload, setUnauthorizedHandler } from "../../src/lib/api";
 
-describe("dashboard API client", () => {
+describe("dashboard V2 API client", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     setUnauthorizedHandler(() => undefined);
@@ -12,68 +12,53 @@ describe("dashboard API client", () => {
     setUnauthorizedHandler(unauthorized);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 401 })));
 
-    await expect(api("/overview")).rejects.toMatchObject({ status: 401, code: "unauthorized" });
+    await expect(api("/v2/admin/settings")).rejects.toMatchObject({ status: 401, code: "unauthorized" });
     expect(unauthorized).toHaveBeenCalledOnce();
   });
 
-  test("preserves structured API errors and handles non-JSON bodies", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: "bad_request", message: "invalid" } }), { status: 400 })));
-    await expect(api("/settings")).rejects.toEqual(new ApiError(400, "bad_request", "invalid"));
-
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("upstream unavailable", { status: 502 })));
-    await expect(api("/settings")).rejects.toEqual(new ApiError(502, "error", "request failed (502)"));
-  });
-
-  test("sends safe reads as JSON QUERY requests", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+  test("rejects V1 and absolute dashboard routes before fetch", async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    await apiGet("/usage/requests?limit=25&cursor=next");
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(fetchMock).toHaveBeenCalledWith("/console/api/usage/requests?limit=25&cursor=next", expect.objectContaining({
-      method: "QUERY",
-      body: JSON.stringify({ limit: "25", cursor: "next" }),
-      credentials: "same-origin",
-    }));
-    expect(new Headers(init.headers).get("content-type")).toBe("application/json");
+
+    await expect(api("/v1/models")).rejects.toEqual(new ApiError(400, "invalid_route", "dashboard routes must use the V2 daemon API"));
+    await expect(api("https://daemon.invalid/v2/admin/settings")).rejects.toEqual(new ApiError(400, "invalid_route", "dashboard routes must use the V2 daemon API"));
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("sends JSON content type without a CSRF bootstrap for destructive mutations", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+  test("rejects unsupported methods while preserving contract methods", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response("{}", { status: 200 })));
     vi.stubGlobal("fetch", fetchMock);
-    await apiDelete("/console-logs");
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock).toHaveBeenCalledWith("/console/api/console-logs", expect.objectContaining({ method: "DELETE", body: "{}", credentials: "same-origin" }));
-    const headers = new Headers(init.headers);
-    expect(headers.get("content-type")).toBe("application/json");
-    expect(headers.has("x-cartethyia-csrf")).toBe(false);
+
+    await expect(api("/v2/admin/telemetry/usage", { method: "PUT" })).rejects.toMatchObject({ status: 405, code: "method_not_allowed" });
+    await api("/v2/admin/telemetry/usage");
+    await api("/v2/admin/settings", { method: "PATCH", body: JSON.stringify({ logLevel: "info" }) });
+    await api("/v2/admin/settings", { method: "DELETE" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect((fetchMock.mock.calls[0] as [string, RequestInit])[1].method).toBe("GET");
+    expect((fetchMock.mock.calls[1] as [string, RequestInit])[1].method).toBe("PATCH");
+    expect((fetchMock.mock.calls[2] as [string, RequestInit])[1].method).toBe("DELETE");
   });
 
-  test("preserves multipart bodies without overriding the browser boundary", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-    const form = new FormData();
-    form.append("file", new Blob(["sqlite"]));
+  test("preserves structured errors and sanitizes non-JSON failures", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: "settings.validation_failed", message: "invalid" } }), { status: 400 })));
+    await expect(api("/v2/admin/settings")).rejects.toEqual(new ApiError(400, "settings.validation_failed", "invalid"));
 
-    await apiPostForm("/db-map/import?db=config", form);
-
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(init.method).toBe("POST");
-    expect(init.body).toBe(form);
-    expect(new Headers(init.headers).has("content-type")).toBe(false);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("provider token leaked", { status: 502 })));
+    await expect(api("/v2/admin/settings")).rejects.toEqual(new ApiError(502, "error", "request failed (502)"));
   });
 
-  test("downloads blobs and preserves the server filename", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("sqlite", {
+  test("downloads V2 blobs and preserves the server filename", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("backup", {
       status: 200,
-      headers: { "content-disposition": 'attachment; filename="config.sqlite"' },
+      headers: { "content-disposition": 'attachment; filename="config.backup"' },
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await apiDownload("/db-map/export?db=config");
+    const result = await apiDownload("/v2/admin/backups/backup-1/download");
 
-    expect(result.filename).toBe("config.sqlite");
-    expect(await result.blob.text()).toBe("sqlite");
-    expect(fetchMock).toHaveBeenCalledWith("/console/api/db-map/export?db=config", expect.objectContaining({ method: "GET", credentials: "same-origin" }));
+    expect(result.filename).toBe("config.backup");
+    expect(await result.blob.text()).toBe("backup");
+    expect(fetchMock).toHaveBeenCalledWith("/console/api/v2/admin/backups/backup-1/download", expect.objectContaining({ method: "GET", credentials: "same-origin" }));
   });
 });

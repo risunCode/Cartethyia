@@ -9,6 +9,9 @@ data/
 .codegraph/
 __pycache__/
 
+# Go hot-reload output
+daemon/tmp/
+
 # MultiWarp
 bin/
 

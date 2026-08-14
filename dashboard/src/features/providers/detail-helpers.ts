@@ -1,7 +1,7 @@
-import { ApiError } from "../../lib/api";
+import { ApiError, sanitizeErrorMessage } from "../../lib/api";
 
 export function errorMessage(error: unknown): string {
-  if (error instanceof ApiError || error instanceof Error) return error.message;
+  if (error instanceof ApiError || error instanceof Error) return sanitizeErrorMessage(error.message, "request failed");
   return "request failed";
 }
 

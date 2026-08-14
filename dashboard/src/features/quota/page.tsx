@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/button";
 import { StatePanel } from "../../components/ui/state";
 import { ProviderIcon } from "../../components/provider-icon";
 import { ConfirmDialog } from "../../components/shared";
-import { apiDelete, apiGet, apiPatch, apiPost } from "../../lib/api";
+import { daemonDelete, daemonGet, daemonPatch, daemonPost } from "../../lib/daemon-api";
 import { getErrorMessage } from "../../lib/errors";
 import { cn } from "../../lib/cn";
 import { toast } from "../../lib/toast";
@@ -78,7 +78,7 @@ async function setAccountsActiveBatch(accounts: readonly QuotaEntry[], active: b
     if (ids === undefined) idsByProvider.set(account.provider, [account.id]);
     else ids.push(account.id);
   }
-  await Promise.all([...idsByProvider].map(([provider, ids]) => apiPatch(`/providers/${provider}/accounts/batch`, { ids, active })));
+  await Promise.all([...idsByProvider].map(([provider, ids]) => daemonPatch(`/providers/${encodeURIComponent(provider)}/accounts/batch`, { items: ids.map((accountId) => ({ accountId, enabled: active })) })));
 }
 
 function firstResetAt(account: QuotaEntry): number {
@@ -92,7 +92,7 @@ const QUOTA_REFRESH_INTERVAL_MS = 5 * 60_000;
 
 async function fetchQuotaAccounts(providers: ProviderSummary[]): Promise<QuotaEntry[]> {
   const accountPages = await Promise.all(providers.map(async (provider) => {
-    const { items } = await apiGet<{ items: AccountResponse[] }>(`/providers/${encodeURIComponent(provider.id)}/accounts?limit=100`);
+    const { items } = await daemonGet<{ items: AccountResponse[] }>(`/providers/${encodeURIComponent(provider.id)}/accounts?limit=100`);
     return items.flatMap((account) => {
       const normalized = normalizeAccount(account, provider);
       return normalized ? [normalized] : [];
@@ -102,7 +102,7 @@ async function fetchQuotaAccounts(providers: ProviderSummary[]): Promise<QuotaEn
 }
 
 async function fetchQuotaPageData(): Promise<QuotaQueryData> {
-  const { items: allProviders } = await apiGet<{ items: ProviderSummary[] }>("/providers");
+  const { items: allProviders } = await daemonGet<{ items: ProviderSummary[] }>("/providers");
   const providers = allProviders.filter((provider) => QUOTA_SUPPORTED_PROVIDERS.has(provider.id));
   return { providers, accounts: await fetchQuotaAccounts(providers) };
 }
@@ -112,13 +112,13 @@ function QuotaCard({ account, onToggle, onDelete }: { account: QuotaEntry; onTog
   const queryKey = qk.quota.account(account.id);
   const quotaQuery = useQuery({
     queryKey,
-    queryFn: async () => normalizeQuotaResponse(await apiGet<unknown>(`/accounts/${encodeURIComponent(account.id)}/quota`)),
+    queryFn: async () => normalizeQuotaResponse(await daemonGet<unknown>(`/accounts/${encodeURIComponent(account.id)}/quota`)),
     initialData: account.quota,
     staleTime: 2 * 60_000,
   });
   const refresh = useMutation({
     mutationFn: async () => {
-      await apiPost(`/accounts/${encodeURIComponent(account.id)}/quota/refresh`);
+      await daemonPost(`/accounts/${encodeURIComponent(account.id)}/quota/refresh`);
       await queryClient.invalidateQueries({ queryKey, exact: true });
       await quotaQuery.refetch();
     },
@@ -216,7 +216,7 @@ export function QuotaPage() {
   const providers = data?.providers ?? [];
   const accounts = useMemo(() => data?.accounts ?? [], [data?.accounts]);
   const refreshMutation = useMutation({
-    mutationFn: () => apiPost<{ ok: boolean; queued: number; active: number }>("/quota/refresh", { accountIds: accounts.map((account) => account.id) }),
+    mutationFn: () => daemonPost<{ ok: boolean; queued: number; active: number }>("/quota/refresh", { accountIds: accounts.map((account) => account.id) }),
     onSuccess: (result) => {
       toast.success(result.queued > 0 ? `Queued ${result.queued} quota refreshes` : "Quota refreshes are already in progress");
       setTimeout(() => {
@@ -242,7 +242,7 @@ export function QuotaPage() {
   }, [accountFilter, accounts, expiringFirst, providerFilter]);
   const updateAccount = async (account: QuotaEntry, active: boolean) => {
     try {
-      await apiPost<{ ok: boolean }>(`/providers/${account.provider}/accounts/${account.id}`, { active });
+      await daemonPatch<{ ok: boolean }>(`/providers/${encodeURIComponent(account.provider)}/accounts/${encodeURIComponent(account.id)}`, { enabled: active });
       toast.success(`${account.name} ${active ? "enabled" : "disabled"}`);
       await refetch();
     } catch (error) {
@@ -263,7 +263,7 @@ export function QuotaPage() {
   };
   const deleteAccount = async (account: QuotaEntry) => {
     try {
-      await apiDelete(`/providers/${account.provider}/accounts/${account.id}`);
+      await daemonDelete(`/providers/${encodeURIComponent(account.provider)}/accounts/${encodeURIComponent(account.id)}`);
       toast.success(`${account.name} deleted`);
       await refetch();
     } catch (error) {

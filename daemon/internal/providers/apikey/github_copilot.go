@@ -1,0 +1,43 @@
+package apikey
+
+func GitHubCopilot() ProviderDefinition {
+	return ProviderDefinition{
+		ID: "github-copilot", DisplayName: "GitHub Copilot", Protocol: ProtocolOpenAI,
+		Adapter: AdapterOpenAI, CredentialKind: CredentialAPIKey,
+		BaseURL: "https://api.githubcopilot.com", Surfaces: []Surface{SurfaceOpenAIChat},
+		ModelsDevID: "github-copilot",
+		Models: []ProviderModel{
+			{ID: "kimi-k2.7-code", DisplayName: "Kimi K2.7 Code", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "claude-opus-4.8", DisplayName: "Claude Opus 4.8", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "kimi-k3", DisplayName: "Kimi K3", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "mai-code-1-flash-picker", DisplayName: "MAI-Code-1-Flash", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: false}},
+			{ID: "gpt-5.6-sol", DisplayName: "GPT-5.6 Sol", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "claude-sonnet-4.6", DisplayName: "Claude Sonnet 4.6", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "gemini-3.1-pro-preview", DisplayName: "Gemini 3.1 Pro Preview", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "grok-4.5", DisplayName: "Grok 4.5", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "claude-sonnet-5", DisplayName: "Claude Sonnet 5", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "claude-haiku-4.5", DisplayName: "Claude Haiku 4.5 (latest)", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "gpt-5-mini", DisplayName: "GPT-5 Mini", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "gpt-5.6-luna", DisplayName: "GPT-5.6 Luna", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "claude-opus-4.7", DisplayName: "Claude Opus 4.7", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "claude-opus-4.5", DisplayName: "Claude Opus 4.5 (latest)", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "gpt-5.3-codex", DisplayName: "GPT-5.3 Codex", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "claude-sonnet-4", DisplayName: "Claude Sonnet 4 (latest)", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "gpt-5.2", DisplayName: "GPT-5.2", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "gemini-3.5-flash", DisplayName: "Gemini 3.5 Flash", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "gpt-5.4-mini", DisplayName: "GPT-5.4 mini", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "gpt-5.5", DisplayName: "GPT-5.5", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "claude-opus-4.6", DisplayName: "Claude Opus 4.6", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "gpt-5.2-codex", DisplayName: "GPT-5.2 Codex", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "gpt-4.1", DisplayName: "GPT-4.1", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: false, ToolCalls: true, Images: true}},
+			{ID: "gemini-3.6-flash", DisplayName: "Gemini 3.6 Flash", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "gpt-5.6-terra", DisplayName: "GPT-5.6 Terra", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "gpt-5.4", DisplayName: "GPT-5.4", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "claude-sonnet-4.5", DisplayName: "Claude Sonnet 4.5 (latest)", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "claude-fable-5", DisplayName: "Claude Fable 5", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "claude-opus-5", DisplayName: "Claude Opus 5", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "mai-code-1.1-flash", DisplayName: "MAI-Code-1.1-Flash", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+			{ID: "gpt-5.4-nano", DisplayName: "GPT-5.4 nano", Capabilities: &ProviderCaps{Surfaces: []Surface{SurfaceOpenAIChat}, Streaming: true, Reasoning: true, ToolCalls: true, Images: true}},
+		},
+	}
+}

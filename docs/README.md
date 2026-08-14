@@ -1,34 +1,41 @@
-# Cartethyia Documentation
+# Cartethyia Engineering Documentation
 
-Cartethyia is a self-hosted Bun + Elysia AI proxy. It accepts OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages traffic, routes requests across provider adapters, translates protocols, and exposes account, quota, usage, and health controls.
+Dokumen ini sengaja dibuat sedikit, tetapi setiap file membahas satu area besar secara lengkap.
 
-## Start here
+## Urutan baca
 
-1. [Getting Started](./GETTING_STARTED.md)
-2. [API](./API.md)
-3. [Concepts](./CONCEPTS.md)
-4. [Translation](./TRANSLATION.md)
-5. [Providers](./PROVIDERS.md)
-6. [Operations](./OPERATIONS.md)
-7. [Development](./DEVELOPMENT.md)
+1. [Architecture](architecture.md) — siapa client, siapa provider, dua API plane, package boundary, dan gambaran request.
+2. [Routing](routing.md) — provider selection, account routing, quota/health, proxy/network, retry, dan fallback.
+3. [Protocols](protocols.md) — OpenAI/Anthropic protocol translation, streaming, tool calling, dan upstream prompt-cache marking.
+4. [Engineering](engineering.md) — coding conventions, V2 contracts, errors, redaction, observability, operations, security, dan testing.
 
-## Section guide
+## Istilah singkat
 
-| Document | Audience | Covers |
-| --- | --- | --- |
-| [GETTING_STARTED.md](./GETTING_STARTED.md) | New users/operators | Install, configure, first request, Docker, Railway |
-| [API.md](./API.md) | API clients | Routes, authentication, streaming, tools, errors, health |
-| [CONCEPTS.md](./CONCEPTS.md) | Operators/developers | Architecture, routing, accounts, OAuth, quota, persistence |
-| [TRANSLATION.md](./TRANSLATION.md) | Integrators/developers | Canonical requests, responses, streams, reasoning, tools, images |
-| [PROVIDERS.md](./PROVIDERS.md) | Operators/developers | Capabilities, auth, headers, quota, custom providers, adapters |
-| [OPERATIONS.md](./OPERATIONS.md) | Operators | Docker, Railway, health, security, backups, troubleshooting, performance |
-| [DEVELOPMENT.md](./DEVELOPMENT.md) | Contributors | Source ownership, translators, providers, tests, releases |
+```text
+Client   = aplikasi yang memanggil Cartethyia
+Provider = upstream service yang dipanggil Cartethyia
+```
 
-## Source of truth
+Contoh client:
 
-- Unified middleware boundary and public routes: `src/middleware/`
-- Protocol translation: `src/open-sse/`
-- Provider adapters: `src/providers/`
-- Authentication and account lifecycle: `src/auth/`
-- Console and control plane: `src/console/`
-- Persistence: `src/storage/`
+```text
+OpenAI-compatible SDK | Anthropic-compatible SDK | CLI | IDE agent | custom HTTP app
+```
+
+Contoh provider:
+
+```text
+OpenAI API | Anthropic API | provider adapter lain yang kompatibel
+```
+
+OpenAI/Anthropic dapat menjadi nama **protocol shape** di sisi client dan nama **upstream provider** di sisi server. Jangan memakai istilah “native client” karena ambigu.
+
+## Kontrak global
+
+- External client ingress: `/v1/*`.
+- Dashboard browser/admin: `/v2/admin/*`.
+- Browser methods: `GET`, `POST`, `PATCH`, `DELETE`.
+- `QUERY`: tidak didukung.
+- Credential: opaque `credentialRef`, bukan plaintext secret.
+- Evidence: bounded lifecycle fields, bukan prompt/raw body/provider response.
+- `src.old/`: historical source, bukan active implementation.

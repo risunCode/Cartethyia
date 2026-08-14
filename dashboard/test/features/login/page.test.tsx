@@ -1,19 +1,18 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
-import type * as ApiModule from "../../../src/lib/api";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { LoginPage } from "../../../src/features/login/page";
-import { ApiError, apiPost } from "../../../src/lib/api";
+import { DaemonContractError, daemonPost } from "../../../src/lib/daemon-api";
 
-vi.mock("../../../src/lib/api", async () => {
-  const actual = await vi.importActual<typeof ApiModule>("../../../src/lib/api");
-  return { ...actual, apiPost: vi.fn() };
+vi.mock("../../../src/lib/daemon-api", async () => {
+  const actual = await vi.importActual("../../../src/lib/daemon-api");
+  return { ...actual, daemonPost: vi.fn() };
 });
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async () => {
-  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  const actual = await vi.importActual("react-router-dom");
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
@@ -27,7 +26,7 @@ function renderLogin() {
 
 describe("LoginPage", () => {
   beforeEach(() => {
-    vi.mocked(apiPost).mockReset();
+    vi.mocked(daemonPost).mockReset();
     mockNavigate.mockReset();
   });
 
@@ -35,7 +34,7 @@ describe("LoginPage", () => {
     renderLogin();
 
     expect(document.querySelector("[data-login-backdrop]")?.getAttribute("style")).toContain("default-backgrounds.webp");
-    expect(document.querySelector("img[src*='favicon_love.webp']")).toBeInTheDocument();
+    expect(document.querySelector("img[src*='favicon.webp']")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /back to public page/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/single admin/i)).not.toBeInTheDocument();
   });
@@ -61,7 +60,7 @@ describe("LoginPage", () => {
   });
 
   test("a rejected login (wrong password) surfaces the server's error message instead of failing silently", async () => {
-    vi.mocked(apiPost).mockRejectedValueOnce(new ApiError(401, "invalid_credentials", "Incorrect password"));
+    vi.mocked(daemonPost).mockRejectedValueOnce(new DaemonContractError("admin.authentication", "Incorrect password", 401));
     renderLogin();
 
     await userEvent.type(screen.getByLabelText(/password/i), "wrong-password");
@@ -72,7 +71,7 @@ describe("LoginPage", () => {
   });
 
   test("a 429 rate-limit response shows a retry-after hint, not just the raw error", async () => {
-    vi.mocked(apiPost).mockRejectedValueOnce(new ApiError(429, "rate_limited", "Too many attempts"));
+    vi.mocked(daemonPost).mockRejectedValueOnce(new DaemonContractError("admin.rate_limited", "Too many attempts", 429));
     renderLogin();
 
     await userEvent.type(screen.getByLabelText(/password/i), "some-password");
@@ -82,7 +81,7 @@ describe("LoginPage", () => {
   });
 
   test("a successful login navigates to the ?next= destination when it's a same-origin path", async () => {
-    vi.mocked(apiPost).mockResolvedValueOnce({});
+    vi.mocked(daemonPost).mockResolvedValueOnce({});
     render(
       <MemoryRouter initialEntries={["/login?next=/providers"]}>
         <LoginPage />
@@ -96,7 +95,7 @@ describe("LoginPage", () => {
   });
 
   test("an unrecognized ?next= value (not starting with /) falls back to /overview instead of following it", async () => {
-    vi.mocked(apiPost).mockResolvedValueOnce({});
+    vi.mocked(daemonPost).mockResolvedValueOnce({});
     render(
       <MemoryRouter initialEntries={[`/login?next=${encodeURIComponent("https://evil.example.com")}`]}>
         <LoginPage />

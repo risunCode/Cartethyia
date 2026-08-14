@@ -4,7 +4,7 @@ import { Activity, BookOpen, Check, Clipboard, Gauge, Github as GithubIcon, Home
 import { Card } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 import { copyToClipboard } from "./lib/clipboard";
-import { useShareData, type ShareMonitorData, type ShareSetupData } from "./hooks/use-share-data";
+import { useShareData, type ShareMonitorData, type ShareSetupData } from "./composables/browser/use-share-data";
 
 interface ShareFieldProps {
   readonly label: string;

@@ -18,7 +18,7 @@ export function mockJsonFetch(responses: Readonly<Record<string, unknown>>) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = typeof input === "string" ? input : input instanceof Request ? input.url : input.toString();
     const path = url.replace(/^https?:\/\/[^/]+/, "");
-    const body = responses[path] ?? { items: [] };
-    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    const rawBody = responses[path] ?? { data: { items: [] } };
+    return new Response(JSON.stringify(rawBody), { status: 200, headers: { "content-type": "application/json" } });
   });
 }

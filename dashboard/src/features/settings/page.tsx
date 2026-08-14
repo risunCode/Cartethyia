@@ -1,354 +1,239 @@
-/**
- * Settings page — security, runtime toggles, backup/restore and danger zone (REQ-5).
- * Sensitive actions re-confirm the active password via PasswordModal.
- */
+/** Runtime settings, backup, and operational controls backed by daemon V2 admin routes. */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { AlertTriangle, Download, FileJson, KeyRound, ShieldCheck, Trash2, Upload } from "lucide-react";
-import { toast } from "../../lib/toast";
-import { apiGet, apiPost, apiDownload } from "../../lib/api";
-import { getErrorMessage } from "../../lib/errors";
-import { downloadBlob, readJsonFile } from "../../lib/files";
-import { qk } from "../../lib/query-keys";
-import { Badge } from "../../components/ui/badge";
+import { AlertTriangle, DatabaseBackup, Download, RefreshCw, RotateCcw, Save, Settings2, ShieldCheck, Trash2, Wrench } from "lucide-react";
+import { useRef, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Input, Label } from "../../components/ui/input";
-import { Switch } from "../../components/ui/switch";
-import { PasswordModal } from "../../components/shared";
+import { StatePanel } from "../../components/ui/state";
+import { daemonDelete, daemonGet, daemonPatch, daemonPost } from "../../lib/daemon-api";
+import { getErrorMessage } from "../../lib/errors";
+import { qk } from "../../lib/query-keys";
+import { toast } from "../../lib/toast";
+import {
+  downloadBackup,
+  hasAdminScope,
+  parseAdminScopes,
+  parseBackupList,
+  parseRestoreResult,
+  parseRuntimeSettings,
+  parseToolResult,
+  validateProbeUrl,
+  type BackupRecord,
+  type RuntimeSettings,
+} from "./operations";
 
-interface RuntimeSettings {
-  proxyAuthMode: "open" | "api_key";
-  privacyMode: "masked" | "full";
-  trackPayloads: "none" | "bounded";
-  trackAssets: "none" | "meta";
-  maxFlightsPerIp: number;
-  trustProxy: boolean;
-  sessionTtlHours: number;
+const backupKey = qk.backups.all;
+const toolsKey = qk.tools.all;
+const sessionKey = ["admin-session"] as const;
+const DESTRUCTIVE_CONFIRMATION = "This operation changes daemon state. Continue?";
+
+function formatBytes(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
-interface SettingsResponse {
-  settings: {
-    hasPassword: boolean;
-    passwordVersion: number;
-    updatedAt: string;
-    runtime: RuntimeSettings;
-  };
-}
-
-type SensitiveAction = "backup" | "restore" | null;
-type DetectedBackupKind = "restore";
-
-export function detectBackupKind(value: unknown): DetectedBackupKind | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  const candidate = Object.fromEntries(Object.entries(value));
-  return candidate.app === "cartethyia" && typeof candidate.tables === "object" && candidate.tables !== null ? "restore" : null;
-}
-
-function errorMessage(err: unknown): string {
-  return getErrorMessage(err, "Request failed");
+function operationError(error: unknown, fallback: string): string {
+  return getErrorMessage(error, fallback);
 }
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
-  const [action, setAction] = useState<SensitiveAction>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [backupIncludeUsage, setBackupIncludeUsage] = useState(false);
-  const [restoreFile, setRestoreFile] = useState<File | null>(null);
-  const [restoreKind, setRestoreKind] = useState<DetectedBackupKind | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const reloadTimerRef = useRef<number | null>(null);
-  useEffect(() => () => {
-    if (reloadTimerRef.current !== null) window.clearTimeout(reloadTimerRef.current);
-  }, []);
-  const [maxFlightsDraft, setMaxFlightsDraft] = useState<string | null>(null);
-  const [sessionTtlDraft, setSessionTtlDraft] = useState<string | null>(null);
+  const [restoreFailure, setRestoreFailure] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const probeInputRef = useRef<HTMLInputElement>(null);
+  const [cacheName, setCacheName] = useState("catalog");
+  const [reindexTarget, setReindexTarget] = useState("catalog");
 
-  // Password change form
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [resetPassword, setResetPassword] = useState("");
-  const [resetConfirmation, setResetConfirmation] = useState("");
-
-  const { data } = useQuery({
+  const settingsQuery = useQuery({
     queryKey: qk.settings.all,
-    queryFn: () => apiGet<SettingsResponse>("/settings"),
+    queryFn: async () => parseRuntimeSettings(await daemonGet<unknown>("/settings")),
   });
+  const backupsQuery = useQuery({
+    queryKey: backupKey,
+    queryFn: async () => parseBackupList(await daemonGet<unknown>("/backups")),
+  });
+  const sessionQuery = useQuery({
+    queryKey: sessionKey,
+    queryFn: () => daemonGet<unknown>("/auth/session"),
+    staleTime: 30_000,
+  });
+  const scopes = parseAdminScopes(sessionQuery.data);
+  const canConfig = hasAdminScope(scopes, "admin:config");
+  const canBackups = hasAdminScope(scopes, "admin:backups");
+  const canCache = hasAdminScope(scopes, "admin:cache");
+  const canHealth = hasAdminScope(scopes, "admin:health");
+  const canLifecycle = hasAdminScope(scopes, "admin:lifecycle");
+  const scopeKnown = !sessionQuery.isPending && !sessionQuery.isError;
 
   const patchMutation = useMutation({
-    mutationFn: (patch: Partial<RuntimeSettings>) => apiPost<{ ok: boolean }>("/settings", patch),
+    mutationFn: (patch: Partial<RuntimeSettings>) => daemonPatch<unknown>("/settings", patch),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: qk.settings.all }),
-    onError: (err) => toast.error(errorMessage(err)),
+    onError: (error) => toast.error(operationError(error, "Unable to update settings")),
   });
-
-  const passwordMutation = useMutation({
-    mutationFn: () =>
-      apiPost<{ ok: boolean }>("/settings/password", { currentPassword, newPassword, confirmPassword }),
-    onSuccess: () => {
-      toast.success("Password changed — you have been signed out");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-      // pv bump invalidates this session; the 401 bridge redirects to login.
-      reloadTimerRef.current = window.setTimeout(() => { reloadTimerRef.current = null; window.location.reload(); }, 800);
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-
   const resetMutation = useMutation({
-    mutationFn: () => apiPost<{ ok: boolean }>("/settings/reset-all", { password: resetPassword, confirmation: resetConfirmation }),
+    mutationFn: () => daemonPost<unknown>("/settings"),
     onSuccess: () => {
-      toast.success("All configuration and runtime data reset");
-      setResetPassword("");
-      setResetConfirmation("");
-      reloadTimerRef.current = window.setTimeout(() => { reloadTimerRef.current = null; window.location.reload(); }, 800);
+      void queryClient.invalidateQueries({ queryKey: qk.settings.all });
+      toast.success("Runtime settings reset");
     },
-    onError: (err) => toast.error(errorMessage(err)),
+    onError: (error) => toast.error(operationError(error, "Unable to reset settings")),
+  });
+  const createBackupMutation = useMutation({
+    mutationFn: (includesDatabase: boolean) => daemonPost<unknown>("/backups", { includesDatabase }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: backupKey });
+      toast.success("Backup created");
+    },
+    onError: (error) => toast.error(operationError(error, "Unable to create backup")),
+  });
+  const deleteBackupMutation = useMutation({
+    mutationFn: (id: string) => daemonDelete<unknown>(`/backups/${encodeURIComponent(id)}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: backupKey });
+      toast.success("Backup deleted");
+    },
+    onError: (error) => toast.error(operationError(error, "Unable to delete backup")),
+  });
+  const restoreMutation = useMutation({
+    mutationFn: async ({ id, dryRun, includeDatabase }: { id: string; dryRun: boolean; includeDatabase: boolean }) =>
+      parseRestoreResult(await daemonPost<unknown>(`/backups/${encodeURIComponent(id)}/restore`, { dryRun, includeDatabase })),
+    onSuccess: (result) => {
+      setRestoreFailure(null);
+      void queryClient.invalidateQueries({ queryKey: backupKey });
+      if (result.applied) void queryClient.invalidateQueries({ queryKey: qk.settings.all });
+      toast.success(result.applied ? "Backup restored" : "Dry run completed");
+    },
+    onError: (error) => {
+      const message = operationError(error, "Backup restore failed");
+      setRestoreFailure(message);
+      toast.error(message);
+    },
+  });
+  const toolMutation = useMutation({
+    mutationFn: async (input: { route: string; body?: unknown }) => parseToolResult(await daemonPost<unknown>(input.route, input.body)),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: toolsKey });
+      void queryClient.invalidateQueries({ queryKey: qk.settings.all });
+      toast.success(result.detail ?? "Operation completed");
+    },
+    onError: (error) => toast.error(operationError(error, "Operation unavailable")),
   });
 
-  const patch = (p: Partial<RuntimeSettings>) => patchMutation.mutate(p);
-  const settings = data?.settings.runtime;
+  const settings = settingsQuery.data;
+  const settingsUnavailable = settingsQuery.isError && !settings;
+  const scopeUnavailable = !scopeKnown;
+  const settingsPending = patchMutation.isPending || resetMutation.isPending;
+  const backupPending = createBackupMutation.isPending || deleteBackupMutation.isPending || restoreMutation.isPending || downloadingId !== null;
+  const toolsPending = toolMutation.isPending;
 
-  const handleRestoreFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null;
-    setRestoreFile(file);
-    setRestoreKind(null);
-    if (!file) return;
+  const patch = (value: Partial<RuntimeSettings>) => patchMutation.mutate(value);
+  const reset = () => {
+    if (window.confirm(DESTRUCTIVE_CONFIRMATION)) resetMutation.mutate();
+  };
+  const download = async (backup: BackupRecord) => {
+    setDownloadingId(backup.id);
     try {
-      const parsed = await readJsonFile(file);
-      const kind = detectBackupKind(parsed);
-      if (!kind) throw new Error("Unsupported backup format");
-      setRestoreKind(kind);
-      toast.success("Cartethyia backup detected");
+      const artifact = await downloadBackup(backup.id);
+      const url = URL.createObjectURL(artifact.blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = artifact.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to read backup file");
+      toast.error(operationError(error, "Backup download failed"));
+    } finally {
+      setDownloadingId(null);
     }
   };
-
-  // Sensitive action runner (password-gated)
-  const runSensitive = async (password: string) => {
-    setActionError(null);
-    try {
-      if (action === "backup") {
-        const { blob } = await apiDownload(`/settings/backup${backupIncludeUsage ? "?includeHistory=true" : ""}`, {
-          headers: { "x-console-password": password },
-        });
-        downloadBlob(`cartethyia-backup-${new Date().toISOString().slice(0, 10)}.json`, blob, "application/json");
-        toast.success("Backup downloaded");
-        setAction(null);
-      } else if (action === "restore") {
-        if (!restoreFile) throw new Error("choose a backup file first");
-        const backup = await readJsonFile(restoreFile);
-        await apiPost<{ ok: boolean }>("/settings/restore", { password, backup });
-        toast.success("Backup restored");
-        setAction(null);
-        setRestoreFile(null);
-        setRestoreKind(null);
-        void queryClient.invalidateQueries();
-      }
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "action failed");
-    }
+  const restore = (backup: BackupRecord, dryRun: boolean) => {
+    if (!dryRun && !window.confirm(DESTRUCTIVE_CONFIRMATION)) return;
+    setRestoreFailure(null);
+    restoreMutation.mutate({ id: backup.id, dryRun, includeDatabase: backup.includesDatabase });
   };
-
-  const actionMeta: Record<Exclude<SensitiveAction, null>, { title: string; description: string }> = {
-    backup: {
-      title: "Download Backup",
-      description: "Export settings, keys, combos, pools, access rules and accounts. Usage history is excluded by default (large).",
-    },
-    restore: {
-      title: "Restore Backup",
-      description: `Replace the current configuration with "${restoreFile?.name ?? "the selected file"}". This overwrites settings, keys and accounts.`,
-    },
+  const remove = (backup: BackupRecord) => {
+    if (window.confirm("Delete this backup permanently?")) deleteBackupMutation.mutate(backup.id);
   };
+  const disabledByScope = (allowed: boolean) => scopeUnavailable || !allowed;
 
   return (
     <div className="dashboard-page space-y-4">
-      {/* Security — spans full width: most sensitive section, wants room to breathe */}
       <Card>
-        <CardHeader
-          title="Security"
-          sub={data ? `Password version ${data.settings.passwordVersion} · updated ${new Date(data.settings.updatedAt).toLocaleString()}` : undefined}
-        >
-          <Badge tone="ok">
-            <ShieldCheck size={11} className="mr-1" /> argon2id
-          </Badge>
-        </CardHeader>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div>
-            <Label>Current password</Label>
-            <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+        <CardHeader title="Runtime settings" icon={ShieldCheck} sub="Daemon V2 admin runtime configuration." />
+        {settingsUnavailable ? (
+          <StatePanel kind="error" title="Runtime settings unavailable" description={operationError(settingsQuery.error, "The daemon did not provide runtime settings.")} />
+        ) : settings ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Label>Environment<Input value={settings.environment} readOnly /></Label>
+            <Label>
+              Log level
+              <select aria-label="Log level" disabled={disabledByScope(canConfig) || settingsPending} className="mt-1 h-10 w-full rounded-lg border border-[var(--inner-border)] bg-[var(--surface-muted)] px-3 text-sm text-[var(--text-1)]" value={settings.logLevel} onChange={(event) => patch({ logLevel: event.target.value })}>
+                <option value="trace">Trace</option><option value="debug">Debug</option><option value="info">Info</option><option value="warn">Warn</option><option value="error">Error</option>
+              </select>
+            </Label>
+            <Label>Listen address<Input value={settings.listenAddr} disabled={disabledByScope(canConfig) || settingsPending} onChange={(event) => patch({ listenAddr: event.target.value })} /></Label>
+            <div className="flex items-end gap-2 sm:col-span-2">
+              <Button type="button" variant="outline" onClick={reset} disabled={disabledByScope(canConfig) || settingsPending}><RotateCcw size={14} aria-hidden="true" />{resetMutation.isPending ? "Resetting…" : "Reset runtime settings"}</Button>
+              {scopeUnavailable && <span className="text-xs text-[var(--text-3)]">Permission state unavailable.</span>}
+            </div>
           </div>
-          <div>
-            <Label>New password</Label>
-            <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-          </div>
-          <div>
-            <Label>Confirm new password</Label>
-            <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
-          </div>
-        </div>
-        <div className="mt-3 flex flex-wrap justify-end gap-2">
-          <Button
-            size="sm"
-            disabled={
-              !currentPassword || newPassword.length < 5 || newPassword !== confirmPassword || passwordMutation.isPending
-            }
-            onClick={() => passwordMutation.mutate()}
-          >
-            <KeyRound size={13} /> {passwordMutation.isPending ? "Changing…" : "Change password"}
-          </Button>
-        </div>
-        {newPassword.length > 0 && newPassword.length < 5 && (
-          <p className="mt-2 text-[11px] text-[var(--orange)]">New password must be at least 5 characters.</p>
-        )}
+        ) : <p className="text-sm text-[var(--text-3)]">Loading runtime settings…</p>}
       </Card>
 
-      {settings && (
-        <Card>
-          <CardHeader title="Privacy" icon={ShieldCheck} sub="Payload capture is bounded, redacted, and disabled by default only when explicitly selected." />
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Label>
-              Privacy mode
-              <select aria-label="Privacy mode" className="mt-1 h-10 w-full rounded-lg border border-[var(--inner-border)] bg-[var(--surface-muted)] px-3 text-sm text-[var(--text-1)]" value={settings.privacyMode} onChange={(event) => patch({ privacyMode: event.target.value as RuntimeSettings["privacyMode"] })}>
-                <option value="masked">Masked IP (recommended)</option>
-                <option value="full">Show full IP</option>
-              </select>
-            </Label>
-            <Label>
-              Request payload capture
-              <select aria-label="Request payload capture" className="mt-1 h-10 w-full rounded-lg border border-[var(--inner-border)] bg-[var(--surface-muted)] px-3 text-sm text-[var(--text-1)]" value={settings.trackPayloads} onChange={(event) => patch({ trackPayloads: event.target.value as RuntimeSettings["trackPayloads"] })}>
-                <option value="bounded">Bounded debug capture (16 KiB/artifact)</option>
-                <option value="none">Disabled</option>
-              </select>
-            </Label>
-            <Label>
-              Request assets
-              <select aria-label="Request assets" className="mt-1 h-10 w-full rounded-lg border border-[var(--inner-border)] bg-[var(--surface-muted)] px-3 text-sm text-[var(--text-1)]" value={settings.trackAssets} onChange={(event) => patch({ trackAssets: event.target.value as RuntimeSettings["trackAssets"] })}>
-                <option value="meta">Metadata only</option>
-                <option value="none">Do not retain asset metadata</option>
-              </select>
-            </Label>
-          </div>
-          <p className="mt-3 text-[11px] text-[var(--text-3)]">Bounded capture stores at most 16 KiB per artifact (client request, translated provider request, provider response, and final client response). Credential-like fields are redacted before persistence.</p>
-        </Card>
-      )}
-
-      {/* Access and runtime limits */}
-      {settings && (
-        <>
-          <div className="grid items-stretch gap-4 lg:grid-cols-2">
-            <Card className="flex h-full flex-col">
-              <CardHeader title="Request Limits" icon={ShieldCheck} />
-              <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label>Max in-flight per IP <span className="font-normal text-[var(--text-3)]">(default 15)</span></Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={maxFlightsDraft ?? String(settings.maxFlightsPerIp)}
-                  onFocus={() => setMaxFlightsDraft(String(settings.maxFlightsPerIp))}
-                  onChange={(e) => setMaxFlightsDraft(e.target.value)}
-                  onBlur={() => {
-                    const next = Math.max(1, Math.floor(Number(maxFlightsDraft) || 15));
-                    setMaxFlightsDraft(String(next));
-                    patch({ maxFlightsPerIp: next });
-                  }}
-                />
-              </div>
-              <div>
-                <Label>Session TTL (hours) <span className="font-normal text-[var(--text-3)]">(default 24)</span></Label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={720}
-                  value={sessionTtlDraft ?? String(settings.sessionTtlHours)}
-                  onFocus={() => setSessionTtlDraft(String(settings.sessionTtlHours))}
-                  onChange={(e) => setSessionTtlDraft(e.target.value)}
-                  onBlur={() => {
-                    const next = Math.min(720, Math.max(1, Math.floor(Number(sessionTtlDraft) || 1)));
-                    setSessionTtlDraft(String(next));
-                    patch({ sessionTtlHours: next });
-                  }}
-                />
-              </div>
-              <label className="flex flex-wrap items-center justify-between gap-3 sm:col-span-2">
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold">Trust proxy headers</div>
-                  <div className="text-[11px] text-[var(--text-3)]">Use X-Forwarded-For for client IPs.</div>
+      <Card>
+        <CardHeader title="Backups" icon={DatabaseBackup} sub="Opaque daemon artifacts; contents are never parsed in the browser." />
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Button type="button" onClick={() => createBackupMutation.mutate(false)} disabled={disabledByScope(canBackups) || backupPending}><Save size={14} aria-hidden="true" />{createBackupMutation.isPending ? "Creating…" : "Create backup"}</Button>
+          <Button type="button" variant="secondary" onClick={() => createBackupMutation.mutate(true)} disabled={disabledByScope(canBackups) || backupPending}>Create with database</Button>
+        </div>
+        {backupsQuery.isError ? <StatePanel kind="error" title="Backups unavailable" description={operationError(backupsQuery.error, "The daemon did not provide backups.")} /> : backupsQuery.data?.length === 0 ? <StatePanel kind="empty" title="No backups" description="Create a backup to make a restore point." /> : (
+          <div className="space-y-2" aria-live="polite">
+            {backupsQuery.data?.map((backup) => (
+              <div key={backup.id} className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2">
+                <div><div className="text-xs font-semibold">{backup.createdAt}</div><div className="text-[11px] text-[var(--text-3)]">{formatBytes(backup.sizeBytes)}{backup.includesDatabase ? " · includes database" : ""}</div></div>
+                <div className="flex flex-wrap gap-1.5">
+                  <Button type="button" size="sm" variant="ghost" onClick={() => void download(backup)} disabled={disabledByScope(canBackups) || backupPending}><Download size={13} aria-hidden="true" />{downloadingId === backup.id ? "Downloading…" : "Download"}</Button>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => restore(backup, true)} disabled={disabledByScope(canBackups) || backupPending}>Dry run</Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => restore(backup, false)} disabled={disabledByScope(canBackups) || backupPending}>{restoreMutation.isPending ? "Restoring…" : "Restore"}</Button>
+                  <Button type="button" size="sm" variant="danger" onClick={() => remove(backup)} disabled={disabledByScope(canBackups) || backupPending}><Trash2 size={13} aria-hidden="true" />Delete</Button>
                 </div>
-                <Switch checked={settings.trustProxy} onChange={(v) => patch({ trustProxy: v })} label="Trust proxy" />
-              </label>
               </div>
-            </Card>
-
-          {/* Backup & restore */}
-          <Card className="flex h-full flex-col">
-            <CardHeader title="Backup & Restore" icon={Download} sub="DB-only JSON snapshot; disk assets are not included." />
-            <div className="flex flex-wrap items-center gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setAction("backup")}>
-                <Download size={13} /> Download backup
-              </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="application/json,.json"
-                className="hidden"
-                onChange={(e) => void handleRestoreFileChange(e)}
-              />
-              <Button variant="secondary" size="sm" className="min-w-0" onClick={() => fileInputRef.current?.click()}>
-                <Upload size={13} className="shrink-0" /> <span className="truncate">{restoreFile ? restoreFile.name : "Choose backup file…"}</span>
-              </Button>
-              <Button variant="secondary" size="sm" disabled={!restoreKind} onClick={() => setAction("restore")}>
-                <FileJson size={13} /> Import selected
-              </Button>
-            </div>
-            <p className="mt-2 text-[11px] text-[var(--text-3)]">
-              Contains settings (keeps login state), API keys, aliases, combos, access rules, routing and
-              accounts. History only with ?includeHistory=true.
-            </p>
-          </Card>
+            ))}
           </div>
-
-          <Card className="w-full border border-[color-mix(in_srgb,var(--red)_35%,var(--inner-border))] bg-[color-mix(in_srgb,var(--red)_6%,var(--card-bg))]">
-            <CardHeader title="Danger Zone" icon={AlertTriangle} iconColor="var(--red)" sub="Permanently remove all configuration and runtime data. This cannot be undone." />
-            <div className="grid gap-3 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
-              <Label>Password<Input type="password" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} placeholder="Current console password" autoComplete="current-password" /></Label>
-              <Label>Type <code className="font-mono text-[10px] text-[var(--red)]">RESET ALL DATABASE AND RUNTIME</code><Input value={resetConfirmation} onChange={(event) => setResetConfirmation(event.target.value)} placeholder="Type the confirmation text" spellCheck={false} /></Label>
-              <Button variant="danger" disabled={resetMutation.isPending || resetPassword.length === 0 || resetConfirmation !== "RESET ALL DATABASE AND RUNTIME"} onClick={() => resetMutation.mutate()}>
-                <Trash2 size={13} /> {resetMutation.isPending ? "Resetting…" : "Reset all data"}
-              </Button>
-            </div>
-            <p className="mt-3 text-[11px] text-[var(--red)]">This resets provider accounts, API keys, routing, aliases, combos, custom providers, request history, and console logs. The application returns to initial setup.</p>
-          </Card>
-        </>
-      )}
-
-      <PasswordModal
-        open={action !== null}
-        onClose={() => {
-          setAction(null);
-          setActionError(null);
-        }}
-        onSubmit={(password) => void runSensitive(password)}
-        title={action ? actionMeta[action].title : ""}
-        description={action ? actionMeta[action].description : ""}
-        error={actionError}
-      >
-        {action === "backup" && (
-          <label className="mb-3 flex items-center gap-2 text-xs text-[var(--text-2)]">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 accent-[var(--accent)]"
-              checked={backupIncludeUsage}
-              onChange={(e) => setBackupIncludeUsage(e.target.checked)}
-            />
-            Include usage history (large)
-          </label>
         )}
-      </PasswordModal>
+        {restoreFailure && <p role="alert" className="mt-3 text-xs text-[var(--red)]">Restore failed: {restoreFailure}</p>}
+      </Card>
+
+      <Card>
+        <CardHeader title="Operational tools" icon={Wrench} sub="Dangerous actions are scoped, confirmed, and serialized." />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-2 rounded-[var(--radius-control)] border border-[var(--inner-border)] p-3">
+            <div className="text-xs font-semibold">Cache and reindex</div>
+            <div className="flex flex-wrap gap-2"><select aria-label="Cache name" className="h-9 rounded-lg border border-[var(--inner-border)] bg-[var(--surface-muted)] px-2 text-xs" value={cacheName} onChange={(event) => setCacheName(event.target.value)} disabled={toolsPending || disabledByScope(canCache)}><option value="catalog">Catalog</option><option value="accounts">Accounts</option><option value="proxies">Proxies</option><option value="telemetry">Telemetry</option></select><Button type="button" size="sm" onClick={() => toolMutation.mutate({ route: `/tools/cache/${cacheName}` })} disabled={toolsPending || disabledByScope(canCache)}><RefreshCw size={13} aria-hidden="true" />Flush cache</Button></div>
+            <div className="flex flex-wrap gap-2"><select aria-label="Reindex target" className="h-9 rounded-lg border border-[var(--inner-border)] bg-[var(--surface-muted)] px-2 text-xs" value={reindexTarget} onChange={(event) => setReindexTarget(event.target.value)} disabled={toolsPending || disabledByScope(canHealth)}><option value="catalog">Catalog</option><option value="accounts">Accounts</option></select><Button type="button" size="sm" variant="secondary" onClick={() => toolMutation.mutate({ route: "/tools/reindex", body: { target: reindexTarget } })} disabled={toolsPending || disabledByScope(canHealth)}>Reindex</Button></div>
+          </div>
+          <div className="space-y-2 rounded-[var(--radius-control)] border border-[var(--inner-border)] p-3">
+            <div className="text-xs font-semibold">Connectivity probe</div>
+            <Label>HTTP URL<Input ref={probeInputRef} disabled={toolsPending || disabledByScope(canHealth)} placeholder="https://service.example/health" /></Label>
+            <Button type="button" size="sm" variant="secondary" disabled={toolsPending || disabledByScope(canHealth)} onClick={() => {
+              try {
+                const url = validateProbeUrl(probeInputRef.current?.value ?? "");
+                toolMutation.mutate({ route: "/tools/probe", body: { url, method: "GET" } }, { onSettled: () => { if (probeInputRef.current) probeInputRef.current.value = ""; } });
+              } catch (error) {
+                toast.error(operationError(error, "Probe URL is invalid"));
+                if (probeInputRef.current) probeInputRef.current.value = "";
+              }
+            }}><RefreshCw size={13} aria-hidden="true" />{toolsPending ? "Probing…" : "Probe"}</Button>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-control)] border border-[var(--inner-border)] p-3 lg:col-span-2"><div><div className="text-xs font-semibold">Restart daemon</div><p className="text-[11px] text-[var(--text-3)]">Active requests may be interrupted.</p></div><Button type="button" variant="danger" onClick={() => { if (window.confirm(DESTRUCTIVE_CONFIRMATION)) toolMutation.mutate({ route: "/tools/restart" }); }} disabled={toolsPending || disabledByScope(canLifecycle)}><RotateCcw size={13} aria-hidden="true" />{toolsPending ? "Restarting…" : "Restart"}</Button></div>
+        </div>
+        {scopeUnavailable && <p className="mt-3 text-xs text-[var(--text-3)]">Operational controls are unavailable until the daemon session scope is known.</p>}
+      </Card>
+
+      <Card className="flex items-start gap-2"><AlertTriangle size={15} className="mt-0.5 text-[var(--orange)]" aria-hidden="true" /><p className="text-xs text-[var(--text-2)]">Credentials, cookies, prompts, provider responses, and raw backup contents are never submitted to or retained by these controls.</p><Settings2 size={15} className="ml-auto text-[var(--text-3)]" aria-hidden="true" /></Card>
     </div>
   );
 }

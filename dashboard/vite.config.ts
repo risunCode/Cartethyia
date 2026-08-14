@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
-  base: "/console/",
+  base: "/",
   plugins: [react(), tailwindcss()],
   test: {
     environment: "jsdom",
@@ -17,6 +17,7 @@ export default defineConfig({
       "/console/api": {
         target: "http://127.0.0.1:12800",
         changeOrigin: false,
+        rewrite: (path) => path.replace(/^\/console\/api/, ""),
       },
       "/v1": {
         target: "http://127.0.0.1:12800",
@@ -30,8 +31,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 900,
     rollupOptions: {
       input: {
-        console: "index.html",
-        landing: "landing.html",
+        dashboard: "index.html",
         share: "share.html",
       },
     },
