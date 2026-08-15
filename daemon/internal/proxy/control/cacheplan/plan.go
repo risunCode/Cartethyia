@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cartethyia/daemon/internal/providers"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/transforms"
@@ -33,14 +34,17 @@ const (
 
 // Stable error codes are package-prefixed machine-readable classifications.
 const (
-	CodeRequestRequired       = "cacheplan:request_required"
-	CodeUnsupportedProtocol   = "cacheplan:unsupported_protocol"
-	CodeInvalidTTL            = "cacheplan:invalid_ttl"
-	CodeInvalidBoundary       = "cacheplan:invalid_boundary"
-	CodeInvalidUsage          = "cacheplan:invalid_usage"
-	CodeInvalidRequest        = "cacheplan:invalid_request"
-	CodeTooManyBreakpoints    = "cacheplan:too_many_breakpoints"
-	CodeUnsupportedCapability = "cacheplan:unsupported_capability"
+	CodeRequestRequired       = "cacheplan.request_required"
+	CodeUnsupportedProtocol   = "cacheplan.unsupported_protocol"
+	CodeInvalidTTL            = "cacheplan.invalid_ttl"
+	CodeInvalidBoundary       = "cacheplan.invalid_boundary"
+	CodeInvalidUsage          = "cacheplan.invalid_usage"
+	CodeInvalidRequest        = "cacheplan.invalid_request"
+	CodeTooManyBreakpoints    = "cacheplan.too_many_breakpoints"
+	CodeUnsupportedCapability = "cacheplan.unsupported_capability"
+	CodePolicyRequired        = "cacheplan.policy_required"
+	CodeTooShortPrefix        = "cacheplan.too_short_prefix"
+	CodeVolatileBoundary      = "cacheplan.volatile_boundary"
 )
 
 var (
@@ -52,6 +56,9 @@ var (
 	ErrInvalidRequest        = errors.New(CodeInvalidRequest)
 	ErrTooManyBreakpoints    = errors.New(CodeTooManyBreakpoints)
 	ErrUnsupportedCapability = errors.New(CodeUnsupportedCapability)
+	ErrPolicyRequired        = errors.New(CodePolicyRequired)
+	ErrTooShortPrefix        = errors.New(CodeTooShortPrefix)
+	ErrVolatileBoundary      = errors.New(CodeVolatileBoundary)
 )
 
 // Error is a typed cache planning error. Code remains stable while Reason is
@@ -128,6 +135,457 @@ type Intent struct {
 
 	DisabledCode   string
 	DisabledReason string
+}
+
+// FinalWireRequest is the last provider target-wire tree before marshaling.
+// Payload is intentionally a JSON tree, not provider-specific request types;
+// this keeps cache planning after every lossy/lossless transform. TenantID is
+// an opaque scope supplied by the runtime and is never included in diagnostics.
+type FinalWireRequest struct {
+	Protocol         Protocol
+	Surface          string
+	ProviderID       string
+	ModelID          string
+	TenantID         string
+	PolicyGeneration uint64
+	Payload          map[string]any
+}
+
+// TargetWireRequest and WireRequest are descriptive aliases for integrations
+// that use those names for the final target tree.
+type TargetWireRequest = FinalWireRequest
+type WireRequest = FinalWireRequest
+
+// PlanFinalWire computes prompt-cache identity and, when explicitly allowed
+// by policy, renders the provider marker on the final stable boundary. Safe
+// bypasses are returned as an Intent with DisabledCode and no error; malformed
+// request trees still return a typed error. The payload is mutated only for
+// provider marker/key fields and must be marshaled by the caller afterwards.
+func PlanFinalWire(req *FinalWireRequest, policy providers.CompatibilityPolicy) (Intent, error) {
+	if req == nil || req.Payload == nil {
+		return Intent{}, cacheError(CodeRequestRequired, ErrRequestRequired, "final target-wire request is required")
+	}
+	if req.Protocol != ProtocolOpenAI && req.Protocol != ProtocolAnthropic {
+		return Intent{}, cacheError(CodeUnsupportedProtocol, ErrUnsupportedProtocol, "protocol is not cache-plan capable")
+	}
+	prompt := policy.Cache.Prompt
+	intent := Intent{Protocol: req.Protocol, Supported: prompt.Supported, MarkerLast: true}
+	if policy.Generation == 0 && promptPolicyAbsent(prompt) {
+		intent.DisabledCode = CodePolicyRequired
+		intent.DisabledReason = "provider/model cache policy is absent"
+		return intent, nil
+	}
+	if !prompt.Supported || (!prompt.Key && !prompt.ExplicitBreakpoint) {
+		intent.DisabledCode = CodeUnsupportedCapability
+		intent.DisabledReason = "provider/model policy does not support prompt caching"
+		return intent, nil
+	}
+	ttl, ttlName, ok := promptTTL(req.Protocol, prompt)
+	if !ok {
+		intent.DisabledCode = CodeInvalidTTL
+		intent.DisabledReason = "provider/model prompt-cache TTL is invalid"
+		return intent, nil
+	}
+	intent.TTLSeconds, intent.TTL = ttl, ttlName
+	stable, boundary, volatile := wireStablePrefix(req.Protocol, req.Surface, req.Payload)
+	if len(stable) == 0 {
+		intent.DisabledCode = CodeInvalidBoundary
+		intent.DisabledReason = "final target-wire request has no stable cache boundary"
+		return intent, nil
+	}
+	intent.StablePrefix = string(stable)
+	identity := make([]byte, 0, len(stable)+128)
+	writePartBytes(&identity, "cacheplan-v2")
+	writePartBytes(&identity, req.ProviderID)
+	writePartBytes(&identity, req.ModelID)
+	writePartBytes(&identity, req.TenantID)
+	writePartBytes(&identity, strconv.FormatUint(req.PolicyGeneration, 10))
+	if supplied, ok := req.Payload["prompt_cache_key"].(string); ok {
+		supplied = strings.TrimSpace(supplied)
+		if supplied != "" && !strings.HasPrefix(supplied, "cartethyia:") {
+			writePartBytes(&identity, supplied)
+		}
+	}
+	identity = append(identity, stable...)
+	sum := sha256.Sum256(identity)
+	intent.Fingerprint = hex.EncodeToString(sum[:])
+	intent.CacheKey = "cartethyia:" + intent.Fingerprint
+	minBytes := prompt.MinPrefixBytes
+	if minBytes < 0 {
+		minBytes = 0
+	}
+	if len(stable) < minBytes {
+		intent.DisabledCode = CodeTooShortPrefix
+		intent.DisabledReason = "stable cache prefix is shorter than provider minimum"
+		return intent, nil
+	}
+	if volatile && boundary == nil {
+		intent.DisabledCode = CodeVolatileBoundary
+		intent.DisabledReason = "volatile content occurs before a cacheable boundary"
+		return intent, nil
+	}
+	intent.Eligible = true
+	if prompt.Key && req.Protocol == ProtocolOpenAI {
+		req.Payload["prompt_cache_key"] = intent.CacheKey
+	}
+	if prompt.ExplicitBreakpoint {
+		if boundary == nil || !markerLocationAllowed(prompt.MarkerLocations, boundary.kind) || !renderFinalMarker(req.Protocol, req.Surface, req.Payload, boundary, ttl) {
+			intent.Eligible = false
+			intent.DisabledCode = CodeInvalidBoundary
+			intent.DisabledReason = "provider marker has no valid final stable boundary"
+			return intent, nil
+		}
+		intent.Breakpoints = []Breakpoint{{Kind: boundary.kind, MessageIndex: boundary.messageIndex, BlockIndex: boundary.blockIndex, ToolIndex: boundary.toolIndex, TTLSeconds: ttl}}
+	}
+	return intent, nil
+}
+
+func markerLocationAllowed(locations []string, kind BoundaryKind) bool {
+	if len(locations) == 0 {
+		return true
+	}
+	for _, location := range locations {
+		if strings.EqualFold(strings.TrimSpace(location), string(kind)) {
+			return true
+		}
+	}
+	return false
+}
+
+func promptPolicyAbsent(policy providers.PromptCachePolicy) bool {
+	return !policy.Supported && !policy.Key && !policy.ExplicitBreakpoint && policy.MinPrefixBytes == 0 && len(policy.MarkerLocations) == 0 && len(policy.TTLs) == 0 && len(policy.Rules) == 0
+}
+
+// PlanWire is the short name used by adapter integrations.
+func PlanWire(req *FinalWireRequest, policy providers.CompatibilityPolicy) (Intent, error) {
+	return PlanFinalWire(req, policy)
+}
+
+// PlanFinalWireWithPromptPolicy adapts the provider/model prompt policy while
+// keeping generation explicit for callers that do not retain the full policy.
+func PlanFinalWireWithPromptPolicy(req *FinalWireRequest, policy providers.PromptCachePolicy, generation uint64) (Intent, error) {
+	return PlanFinalWire(req, providers.CompatibilityPolicy{Generation: generation, Cache: providers.CachePolicy{Prompt: policy}})
+}
+
+func PlanTargetWire(req *FinalWireRequest, policy providers.CompatibilityPolicy) (Intent, error) {
+	return PlanFinalWire(req, policy)
+}
+
+func promptTTL(protocol Protocol, policy providers.PromptCachePolicy) (int, string, bool) {
+	if protocol == ProtocolOpenAI {
+		if len(policy.TTLs) > 0 {
+			return 0, "", false
+		}
+		return 0, "", true
+	}
+	if len(policy.TTLs) == 0 {
+		return DefaultTTLSeconds, ttlName(DefaultTTLSeconds), true
+	}
+	selected := 0
+	for _, ttl := range policy.TTLs {
+		seconds := int(ttl / time.Second)
+		if ttl <= 0 || ttl != time.Duration(seconds)*time.Second || (seconds != AnthropicTTL5Minutes && seconds != AnthropicTTL1Hour) {
+			return 0, "", false
+		}
+		if selected == 0 || seconds == AnthropicTTL5Minutes {
+			selected = seconds
+		}
+	}
+	if selected == 0 {
+		return 0, "", false
+	}
+	return selected, ttlName(selected), true
+}
+
+func writePartBytes(dst *[]byte, value string) {
+	*dst = append(*dst, strconv.Itoa(len(value))...)
+	*dst = append(*dst, ':')
+	*dst = append(*dst, value...)
+	*dst = append(*dst, '|')
+}
+
+type wireBoundary struct {
+	kind         BoundaryKind
+	messageIndex int
+	blockIndex   int
+	toolIndex    int
+	container    any
+}
+
+func wireStablePrefix(protocol Protocol, surface string, payload map[string]any) ([]byte, *wireBoundary, bool) {
+	stable := map[string]any{}
+	var boundary *wireBoundary
+	volatile := false
+	if protocol == ProtocolAnthropic {
+		if system, ok := wireSlice(payload["system"]); ok {
+			prefix := make([]any, 0, len(system))
+			for i, raw := range system {
+				block, ok := raw.(map[string]any)
+				if !ok {
+					volatile = true
+					break
+				}
+				text, _ := block["text"].(string)
+				if text == "" || containsVolatile(text) {
+					volatile = true
+					break
+				}
+				prefix = append(prefix, block)
+				boundary = &wireBoundary{kind: BoundarySystem, messageIndex: -1, blockIndex: i, toolIndex: -1, container: system}
+			}
+			if len(prefix) > 0 {
+				stable["system"] = prefix
+			}
+		}
+		if !volatile {
+			if tools, ok := wireSlice(payload["tools"]); ok && len(tools) > 0 {
+				stable["tools"] = payload["tools"]
+				for i := len(tools) - 1; i >= 0; i-- {
+					if tool, ok := tools[i].(map[string]any); ok && tool["name"] != nil {
+						boundary = &wireBoundary{kind: BoundaryTools, messageIndex: -1, blockIndex: -1, toolIndex: i, container: tools}
+						break
+					}
+				}
+			}
+		}
+		if !volatile {
+			if messages, ok := wireSlice(payload["messages"]); ok {
+				prefix := make([]any, 0, len(messages))
+				for i, raw := range messages {
+					message, ok := raw.(map[string]any)
+					if !ok {
+						volatile = true
+						break
+					}
+					role, _ := message["role"].(string)
+					if role != "user" {
+						break
+					}
+					blocks, ok := wireSlice(message["content"])
+					if !ok {
+						volatile = true
+						break
+					}
+					stableBlocks := make([]any, 0, len(blocks))
+					for j, blockRaw := range blocks {
+						block, ok := blockRaw.(map[string]any)
+						if !ok {
+							volatile = true
+							break
+						}
+						text, _ := block["text"].(string)
+						if text == "" || containsVolatile(text) {
+							volatile = true
+							break
+						}
+						stableBlocks = append(stableBlocks, block)
+						boundary = &wireBoundary{kind: BoundaryMessage, messageIndex: i, blockIndex: j, toolIndex: -1, container: blocks}
+					}
+					if len(stableBlocks) > 0 {
+						prefix = append(prefix, map[string]any{"role": role, "content": stableBlocks})
+					}
+					if volatile {
+						break
+					}
+				}
+				if len(prefix) > 0 {
+					stable["messages"] = prefix
+				}
+			}
+		}
+	} else {
+		if tools, ok := payload["tools"]; ok {
+			stable["tools"] = tools
+		}
+		field := "messages"
+		if strings.Contains(strings.ToLower(surface), "response") {
+			field = "input"
+			if instructions, ok := payload["instructions"]; ok {
+				stable["instructions"] = instructions
+			}
+		}
+		if items, ok := wireSlice(payload[field]); ok {
+			prefix := make([]any, 0, len(items))
+			for i, raw := range items {
+				record, ok := raw.(map[string]any)
+				if !ok {
+					if wireValueVolatile(raw) {
+						volatile = true
+						break
+					}
+					prefix = append(prefix, raw)
+					continue
+				}
+				role, _ := record["role"].(string)
+				if role != "system" && role != "developer" {
+					break
+				}
+				if wireValueVolatile(record) {
+					volatile = true
+					break
+				}
+				prefix = append(prefix, record)
+				boundary = &wireBoundary{kind: BoundarySystem, messageIndex: i, blockIndex: -1, toolIndex: -1, container: items}
+			}
+			if len(prefix) > 0 {
+				stable[field] = prefix
+			}
+		}
+	}
+	encoded, _ := json.Marshal(stable)
+	return encoded, boundary, volatile
+}
+
+func wireSlice(value any) ([]any, bool) {
+	switch values := value.(type) {
+	case []any:
+		return values, true
+	case []map[string]any:
+		out := make([]any, len(values))
+		for i := range values {
+			out[i] = values[i]
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func wireValueVolatile(value any) bool {
+	switch current := value.(type) {
+	case string:
+		return containsVolatile(current)
+	case map[string]any:
+		for _, child := range current {
+			if wireValueVolatile(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range current {
+			if wireValueVolatile(child) {
+				return true
+			}
+		}
+	case []map[string]any:
+		for _, child := range current {
+			if wireValueVolatile(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func renderFinalMarker(protocol Protocol, surface string, payload map[string]any, boundary *wireBoundary, ttl int) bool {
+	marker := map[string]any{"type": "ephemeral"}
+	if protocol == ProtocolAnthropic && ttl == AnthropicTTL1Hour {
+		marker["ttl"] = "1h"
+	}
+	if protocol == ProtocolAnthropic {
+		if boundary.kind == BoundaryTools {
+			tools, ok := wireSlice(boundary.container)
+			if !ok || boundary.toolIndex < 0 || boundary.toolIndex >= len(tools) {
+				return false
+			}
+			tool, ok := tools[boundary.toolIndex].(map[string]any)
+			if !ok {
+				return false
+			}
+			tool["cache_control"] = marker
+			return true
+		}
+		if boundary.kind == BoundarySystem {
+			blocks, ok := wireSlice(boundary.container)
+			if !ok || boundary.blockIndex < 0 || boundary.blockIndex >= len(blocks) {
+				return false
+			}
+			block, ok := blocks[boundary.blockIndex].(map[string]any)
+			if !ok {
+				return false
+			}
+			block["cache_control"] = marker
+			return true
+		}
+		messages, ok := wireSlice(payload["messages"])
+		if !ok || boundary.messageIndex < 0 || boundary.messageIndex >= len(messages) {
+			return false
+		}
+		message, ok := messages[boundary.messageIndex].(map[string]any)
+		if !ok {
+			return false
+		}
+		blocks, ok := wireSlice(message["content"])
+		if !ok || boundary.blockIndex < 0 || boundary.blockIndex >= len(blocks) {
+			return false
+		}
+		block, ok := blocks[boundary.blockIndex].(map[string]any)
+		if !ok {
+			return false
+		}
+		block["cache_control"] = marker
+		return true
+	}
+	if strings.Contains(strings.ToLower(surface), "response") {
+		items, ok := wireSlice(payload["input"])
+		if !ok || boundary.messageIndex < 0 || boundary.messageIndex >= len(items) {
+			return false
+		}
+		record, ok := items[boundary.messageIndex].(map[string]any)
+		if !ok {
+			return false
+		}
+		content, ok := wireSlice(record["content"])
+		if !ok {
+			text, ok := record["content"].(string)
+			if !ok || text == "" {
+				return false
+			}
+			record["content"] = []any{map[string]any{"type": "input_text", "text": text, "prompt_cache_breakpoint": map[string]any{"mode": "explicit"}}}
+			payload["prompt_cache_options"] = map[string]any{"mode": "explicit"}
+			return true
+		}
+		for i := len(content) - 1; i >= 0; i-- {
+			block, ok := content[i].(map[string]any)
+			if ok {
+				if _, exists := block["text"]; exists {
+					block["prompt_cache_breakpoint"] = map[string]any{"mode": "explicit"}
+					payload["prompt_cache_options"] = map[string]any{"mode": "explicit"}
+					return true
+				}
+			}
+		}
+		return false
+	}
+	items, ok := wireSlice(payload["messages"])
+	if !ok || boundary.messageIndex < 0 || boundary.messageIndex >= len(items) {
+		return false
+	}
+	record, ok := items[boundary.messageIndex].(map[string]any)
+	if !ok {
+		return false
+	}
+	content, ok := wireSlice(record["content"])
+	if !ok {
+		text, ok := record["content"].(string)
+		if !ok || text == "" {
+			return false
+		}
+		record["content"] = []any{map[string]any{"type": "text", "text": text, "prompt_cache_breakpoint": map[string]any{"mode": "explicit"}}}
+		payload["prompt_cache_options"] = map[string]any{"mode": "explicit"}
+		return true
+	}
+	for i := len(content) - 1; i >= 0; i-- {
+		block, ok := content[i].(map[string]any)
+		if ok {
+			if _, exists := block["text"]; exists {
+				block["prompt_cache_breakpoint"] = map[string]any{"mode": "explicit"}
+				payload["prompt_cache_options"] = map[string]any{"mode": "explicit"}
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Usage preserves provider evidence. A nil field means the provider omitted
@@ -702,10 +1160,10 @@ func stableTextPrefix(text string) (string, bool) {
 	return prefix, true
 }
 
-// stablePrefix is retained for package-local compatibility with older
+// legacyStablePrefix is retained for package-local compatibility with older
 // callers; planning uses openAIStablePrefix so serialization failures cannot
 // silently turn into a colliding empty schema.
-func stablePrefix(req *transforms.NormalizedRequest) string {
+func legacyStablePrefix(req *transforms.NormalizedRequest) string {
 	prefix, _, _, _ := openAIStablePrefix(req)
 	return prefix
 }

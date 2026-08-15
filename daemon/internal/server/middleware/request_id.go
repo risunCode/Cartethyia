@@ -30,6 +30,8 @@ func RequestID(next http.Handler) http.Handler {
 			traceID = newRequestID()
 		}
 
+		r.Header.Set(HeaderRequestID, id)
+		r.Header.Set(HeaderTraceID, traceID)
 		w.Header().Set(HeaderRequestID, id)
 		w.Header().Set(HeaderTraceID, traceID)
 		ctx := withTraceID(withRequestID(r.Context(), id), traceID)

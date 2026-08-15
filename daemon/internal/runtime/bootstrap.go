@@ -16,7 +16,10 @@ import (
 	"github.com/cartethyia/daemon/internal/proxy"
 	"github.com/cartethyia/daemon/internal/proxy/control/admission"
 	"github.com/cartethyia/daemon/internal/proxy/control/continuation"
+	"github.com/cartethyia/daemon/internal/proxy/control/tokenbudget"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/transforms"
+	runtimecatalog "github.com/cartethyia/daemon/internal/proxy/runtime/catalog"
 	"github.com/cartethyia/daemon/internal/proxy/transport"
 	"github.com/cartethyia/daemon/internal/runtime/cache"
 	"github.com/cartethyia/daemon/internal/security/outbound"
@@ -31,6 +34,19 @@ import (
 )
 
 type registrarFunc func(*http.ServeMux)
+
+type shareInFlightSource struct{ limiter *admission.Limiter }
+
+func (s shareInFlightSource) InFlight() int {
+	if s.limiter == nil {
+		return 0
+	}
+	active := s.limiter.Stats().Active
+	if active < 0 {
+		return 0
+	}
+	return int(active)
+}
 
 type publicAPIKeyResolver struct {
 	store *dbrepositories.BunPublicAPIKeyResolver
@@ -48,10 +64,6 @@ func (r publicAPIKeyResolver) ResolveAPIKey(ctx context.Context, key string) (se
 		OneTimeTokenLimit: value.OneTimeTokenLimit, OneTimeTokensUsed: value.OneTimeTokensUsed,
 		ProviderAllowlist: value.ProviderAllowlist, ModelAllowlist: value.ModelAllowlist, ModelDenylist: value.ModelDenylist,
 	}, nil
-}
-
-func (r publicAPIKeyResolver) ConsumeOneTimeTokens(ctx context.Context, id string, tokens int) error {
-	return r.store.ConsumeOneTimeTokens(ctx, id, tokens)
 }
 
 func (r publicAPIKeyResolver) TouchAPIKey(ctx context.Context, id string) error {
@@ -125,8 +137,12 @@ type BootstrapDependencies struct {
 	Refresher     accounts.Refresher
 	RefreshLeases accounts.RefreshLeaseStore
 	AccountState  proxy.AccountStatePersistence
-	ProxySelector transport.ProxySelector
-	ProxyFailure  transport.ProxyFailureRecorder
+	// ObserveAccountPool is an optional diagnostic/test observer invoked once
+	// after the private runtime pool is constructed. It must not mutate the pool.
+	ObserveAccountPool func(*proxy.AccountPool)
+	ProxySelector      transport.ProxySelector
+	ProxyFailure       transport.ProxyFailureRecorder
+	ProxySuccess       transport.ProxySuccessRecorder
 	// Database is the mandatory PostgreSQL authority when configured by the
 	// runtime. It is retained as a lifecycle dependency so readiness and close
 	// semantics cover the same pool used by durable repositories.
@@ -134,13 +150,20 @@ type BootstrapDependencies struct {
 	// Cache is optional and cache-only. PostgreSQL remains the authority for
 	// accounts, credentials, leases, and telemetry.
 	Cache cache.Cache
+	// ResponseCache is an explicit opt-in complete-response cache. It is kept
+	// separate from resolution cache policy so callers cannot enable replay by
+	// merely configuring Redis.
+	ResponseCache *cache.ResponseCache
 	// MetadataWriter is the bounded, payload-free request-history enqueue path.
 	MetadataWriter *observability.AsyncMetadataWriter
+	// Observability is the single metrics and bounded lifecycle evidence registry.
+	Observability *observability.Registry
 	// DriverRegistry is the OAuth lifecycle registry. It is distinct from the
 	// wire provider registry because OAuth drivers own token endpoints.
 	DriverRegistry   *accountdrivers.Registry
 	BaseURLOverrides map[string]string
 	CustomProviders  dbrepositories.CustomProviderRepository
+	Catalog          RuntimeCatalogRepository
 	// Admin optionally supplies the composed V2 dashboard registrar. Keeping
 	// this seam optional preserves truthful route omission when persistence or
 	// authentication services are not configured.
@@ -148,6 +171,9 @@ type BootstrapDependencies struct {
 	// PublicAPIKeys is the injectable public V1 credential authority. It must
 	// be durable in production; nil is only an anonymous development seam.
 	PublicAPIKeys servermiddleware.PublicAPIKeyResolver
+	// TokenBudget is the durable hard-limit authority. Production must never
+	// replace it with a process-local counter.
+	TokenBudget tokenbudget.TokenBudgetAuthority
 }
 
 func defaultBootstrapDependencies(configs ...Config) (BootstrapDependencies, error) {
@@ -167,8 +193,9 @@ func defaultBootstrapDependencies(configs ...Config) (BootstrapDependencies, err
 		Registry:       registry,
 		DriverRegistry: driverRegistry,
 		Credentials:    rejectCredential,
+		Observability:  observability.NewRegistry().WithLogger(observability.NewLogger(nil, observability.LevelInfo)),
 	}
-	fallback := cache.NewMemory(cache.MemoryConfig{MaxEntries: 1024, MaxInFlight: cache.DefaultMaxInFlight})
+	fallback := cache.NewMemory(cache.MemoryConfig{MaxEntries: 1024, MaxInFlight: cache.DefaultMaxInFlight, MaxBytes: 16 * 1024 * 1024})
 	deps.Cache = fallback
 	if strings.EqualFold(cfg.Environment, "production") || strings.TrimSpace(cfg.DatabaseURL) != "" {
 		if strings.TrimSpace(cfg.DatabaseURL) == "" {
@@ -185,7 +212,9 @@ func defaultBootstrapDependencies(configs ...Config) (BootstrapDependencies, err
 		}
 		deps.Database = database
 		deps.CustomProviders = database.CustomProviders
+		deps.Catalog = database.Catalog
 		deps.PublicAPIKeys = publicAPIKeyResolver{store: database.APIKeys}
+		deps.TokenBudget = database.TokenBudget
 		// Lease coordination is safe to compose independently of account
 		// metadata/secret stores; production still fails closed below until the
 		// complete account authority is available.
@@ -194,8 +223,12 @@ func defaultBootstrapDependencies(configs ...Config) (BootstrapDependencies, err
 		deps.Records = database.Records
 		deps.Secrets = database.Secrets
 		deps.AccountState = durableAccountStateStore{store: database.AccountCore}
-		deps.ProxySelector = newDurableNetworkSelector(database.Proxies)
-		deps.ProxyFailure = newDurableProxyFailureRecorder(database.Proxies)
+		proxyCoordinator := newDurableProxyCoordinator(database.Proxies, deps.Observability)
+		if proxyCoordinator != nil {
+			deps.ProxySelector = proxyCoordinator.selectProxy
+			deps.ProxyFailure = proxyCoordinator.recordFailure
+			deps.ProxySuccess = proxyCoordinator.recordSuccess
+		}
 		refresher, refreshErr := composeAccountRefresher(deps)
 		if refreshErr != nil {
 			_ = database.Close(context.Background())
@@ -445,6 +478,37 @@ type registryCatalog struct {
 	registry *providers.Registry
 }
 
+type RuntimeCatalogRepository interface {
+	ListAliases(context.Context) ([]dbmodels.ModelAlias, error)
+	ListCombos(context.Context) ([]dbmodels.Combo, error)
+}
+
+type repositoryCatalogSource struct {
+	repository RuntimeCatalogRepository
+	generation uint64
+}
+
+func (s *repositoryCatalogSource) Load(ctx context.Context) ([]runtimecatalog.Alias, []runtimecatalog.Combination, uint64, error) {
+	aliases, err := s.repository.ListAliases(ctx)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	combinations, err := s.repository.ListCombos(ctx)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	aliasValues := make([]runtimecatalog.Alias, len(aliases))
+	for i, alias := range aliases {
+		aliasValues[i] = runtimecatalog.Alias{Alias: alias.Alias, Target: alias.Model}
+	}
+	combinationValues := make([]runtimecatalog.Combination, len(combinations))
+	for i, combination := range combinations {
+		combinationValues[i] = runtimecatalog.Combination{ID: combination.ID, Members: append([]string(nil), combination.Models...), Strategy: combination.Strategy}
+	}
+	s.generation++
+	return aliasValues, combinationValues, s.generation, nil
+}
+
 func (c registryCatalog) List() ([]contracts.Account, error) {
 	if c.registry == nil {
 		return nil, errors.New("runtime: provider catalog has no registry")
@@ -499,6 +563,14 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 	if deps.Registry == nil {
 		return nil, errors.New("runtime: bootstrap registry is required")
 	}
+	metrics := deps.Observability
+	if metrics == nil {
+		metrics = observability.NewRegistry()
+	}
+	metrics.WithMetadataWriter(deps.MetadataWriter)
+	if metrics.Recorder() == nil {
+		metrics.WithRecorder(observability.NewRecorder(context.Background(), observability.LogSink{Logger: metrics.Logger()}, observability.WithCapacity(observability.MaxConcurrentEvents)))
+	}
 	var customAccountSource map[string][]proxy.Account
 	if deps.CustomProviders != nil {
 		customProviders, customErr := deps.CustomProviders.ListCustomProviders(context.Background())
@@ -551,13 +623,28 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 	if err != nil {
 		return nil, fmt.Errorf("runtime: account pool: %w", err)
 	}
+	if deps.ObserveAccountPool != nil {
+		deps.ObserveAccountPool(pool)
+	}
 	var routerRefresher proxy.CredentialRefresher
 	if refresher != nil {
 		routerRefresher = accountRefresherAdapter{refresher: refresher, invalidate: invalidateCredential}
 	}
-	router, err := proxy.NewRouter(proxy.RouterConfig{Pool: pool, MaxAttempts: 3, Refresher: routerRefresher})
+	router, err := proxy.NewRouter(proxy.RouterConfig{Pool: pool, MaxAttempts: 3, Observer: metrics, Refresher: routerRefresher, DefaultOutputCap: int64(cfg.MaxOutputTokens)})
 	if err != nil {
 		return nil, fmt.Errorf("runtime: router: %w", err)
+	}
+	catalogBuilder, err := runtimecatalog.NewBuilder(deps.Registry)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: catalog builder: %w", err)
+	}
+	var catalogSource runtimecatalog.Source = runtimecatalog.StaticSource{Gen: 1}
+	if deps.Catalog != nil {
+		catalogSource = &repositoryCatalogSource{repository: deps.Catalog}
+	}
+	catalogStore, err := runtimecatalog.NewStore(context.Background(), catalogBuilder, catalogSource, runtimecatalog.StoreConfig{})
+	if err != nil {
+		return nil, fmt.Errorf("runtime: catalog snapshot: %w", err)
 	}
 	outboundPolicy := &outbound.Policy{
 		AllowLoopback:  !strings.EqualFold(cfg.Environment, "production"),
@@ -571,6 +658,7 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 		ResolveCredential: credentialResolver,
 		ProxySelector:     deps.ProxySelector,
 		ProxyFailure:      deps.ProxyFailure,
+		ProxySuccess:      deps.ProxySuccess,
 		OutboundPolicy:    outboundPolicy,
 		MaxResponseBytes:  int64(cfg.MaxBodyBytes),
 		ConnectTimeout:    cfg.ConnectTimeout,
@@ -578,24 +666,42 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 		TotalTimeout:      cfg.RequestTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
 	}
+	streamOutboundPolicy := *outboundPolicy
+	streamOutboundPolicy.RequestTimeout = cfg.StreamTotalTimeout
+	streamHTTPTransport := &transport.HTTPTransport{
+		Registry:          deps.Registry,
+		BaseURLs:          baseURLs,
+		ResolveCredential: credentialResolver,
+		ProxySelector:     deps.ProxySelector,
+		ProxyFailure:      deps.ProxyFailure,
+		ProxySuccess:      deps.ProxySuccess,
+		OutboundPolicy:    &streamOutboundPolicy,
+		MaxResponseBytes:  int64(cfg.MaxBodyBytes),
+		ConnectTimeout:    cfg.ConnectTimeout,
+		FirstByteTimeout:  cfg.FirstByteTimeout,
+		TotalTimeout:      cfg.StreamTotalTimeout,
+		IdleTimeout:       cfg.StreamIdleTimeout,
+	}
 	dispatch := &proxy.DispatchService{
 		Router:          router,
 		Transport:       httpTransport,
-		StreamTransport: httpTransport,
+		StreamTransport: streamHTTPTransport,
 		Continuations:   continuation.New(cfg.UsageRetention),
 		Metadata:        deps.MetadataWriter,
+		Evidence:        metrics,
+		Catalog:         catalogStore,
+		Codecs:          transforms.NewDefaultRegistry(),
+		ResponseCache:   deps.ResponseCache,
 	}
 	limiter, err := admission.New(
 		admission.Layer{Name: "global", Limit: cfg.MaxConcurrent},
 		admission.Layer{Name: "stream", Limit: cfg.MaxConcurrentStream},
-		admission.Layer{Name: "api_key", Limit: cfg.MaxConcurrent},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("runtime: admission setup: %w", err)
 	}
 	dispatch.Admission = limiter
-	catalog := registryCatalog{registry: deps.Registry}
-	metrics := observability.NewRegistry()
+	publicCatalog := registryCatalog{registry: deps.Registry}
 	if deps.Admin == nil && deps.DriverRegistry != nil && deps.Accounts != nil && deps.Secrets != nil && deps.Records != nil {
 		sessions := flow.NewManager(flow.ManagerOptions{})
 		oauthService, oauthErr := adminserver.NewOAuthService(deps.DriverRegistry, sessions, deps.Accounts, deps.Secrets, deps.Records, refresher)
@@ -635,10 +741,16 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 		Registry:      metrics,
 		HealthArtwork: artwork,
 		V1: registrarFunc(func(mux *http.ServeMux) {
-			v1.RegisterV1(mux, v1.Deps{Proxy: dispatch, Catalog: catalog, Evidence: metrics})
+			v1.RegisterV1(mux, v1.Deps{Proxy: dispatch, Catalog: publicCatalog, Evidence: metrics})
 		}),
-		V1Auth:  servermiddleware.PublicV1Auth(deps.PublicAPIKeys, strings.EqualFold(cfg.Environment, "production")),
+		V1Auth:  servermiddleware.PublicV1Auth(deps.PublicAPIKeys, deps.TokenBudget, strings.EqualFold(cfg.Environment, "production")),
 		V2Admin: deps.Admin,
+		Share: func() *server.ShareOptions {
+			if deps.Database == nil || deps.Database.AdminAPIKeys == nil {
+				return nil
+			}
+			return &server.ShareOptions{APIKeys: deps.Database.AdminAPIKeys, Usage: deps.Database.Telemetry, InFlight: shareInFlightSource{limiter: limiter}}
+		}(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("runtime: server router: %w", err)

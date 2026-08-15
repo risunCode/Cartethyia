@@ -252,6 +252,8 @@ func (r *RedisBackend) decode(key Key, payload []byte) (Entry, error) {
 		ExpiresAt:  record.ExpiresAt,
 		Generation: record.Generation,
 		Remaining:  record.ExpiresAt.Sub(now),
+		Hit:        true,
+		HitReason:  HitReasonRedis,
 	}, nil
 }
 

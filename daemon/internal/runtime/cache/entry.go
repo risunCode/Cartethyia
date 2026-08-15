@@ -2,6 +2,18 @@ package cache
 
 import "time"
 
+// HitReason is bounded evidence for a successful cache lookup. It deliberately
+// has no key, tenant, digest, or payload fields.
+type HitReason string
+
+const (
+	HitReasonNone          HitReason = ""
+	HitReasonMemory        HitReason = "memory"
+	HitReasonRedis         HitReason = "redis"
+	HitReasonSharedContent HitReason = "shared_content"
+	HitReasonResponse      HitReason = "response"
+)
+
 // Entry is the value returned by Get. The stored Value is owned by the cache
 // backend; callers MUST treat it as read-only. The Generation stored alongside
 // the payload is what the cache layer uses to reject mismatched lookups.
@@ -22,6 +34,8 @@ type Entry struct {
 	// entry. Negative when the entry is already past ExpiresAt (callers
 	// should treat that as a miss, but the value is exposed for diagnostics).
 	Remaining time.Duration
+	Hit       bool
+	HitReason HitReason
 }
 
 // storedEntry is the internal form kept by the memory backend.

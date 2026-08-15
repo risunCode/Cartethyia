@@ -28,8 +28,6 @@ type APIKeyRepository interface {
 	Delete(ctx context.Context, id string) (bool, error)
 	Touch(ctx context.Context, id string) error
 	FlushTouches(ctx context.Context) error
-	SumOneTimeTokensUsed(ctx context.Context, id string) (int, error)
-	ConsumeOneTimeTokens(ctx context.Context, id string, tokens int) error
 
 	CreateShareLink(ctx context.Context, link models.ShareLink) (models.ShareLink, error)
 	GetShareLinkByTokenHash(ctx context.Context, tokenHash string) (models.ShareLink, error)
@@ -91,26 +89,6 @@ func (r *BunPublicAPIKeyResolver) TouchAPIKey(ctx context.Context, id string) er
 	_, err := r.db.NewRaw(`UPDATE api_keys SET last_used_at = NOW() WHERE id = ? AND active = TRUE AND revoked_at IS NULL`, id).Exec(ctx)
 	return err
 }
-
-func (r *BunPublicAPIKeyResolver) ConsumeOneTimeTokens(ctx context.Context, id string, tokens int) error {
-	if r == nil || r.db == nil {
-		return errors.New("database: API key authority is unavailable")
-	}
-	if tokens <= 0 || tokens > maxOneTimeTokenCharge {
-		return errors.New("database: one-time token charge is out of bounds")
-	}
-	result, err := r.db.NewRaw(`UPDATE api_keys SET one_time_tokens_used = one_time_tokens_used + ? WHERE id = ? AND active = TRUE AND revoked_at IS NULL AND one_time_token_limit IS NOT NULL AND one_time_tokens_used + ? <= one_time_token_limit`, tokens, id, tokens).Exec(ctx)
-	if err != nil {
-		return err
-	}
-	rows, err := result.RowsAffected()
-	if err != nil || rows != 1 {
-		return errors.New("database: one-time token limit exceeded")
-	}
-	return nil
-}
-
-const maxOneTimeTokenCharge = 1 << 20
 
 const (
 	maxAPIKeyID     = 256
@@ -473,40 +451,6 @@ func (r *BunAPIKeyRepository) FlushTouches(ctx context.Context) error {
 		}
 		r.mu.Unlock()
 	}
-	return e
-}
-func (r *BunAPIKeyRepository) SumOneTimeTokensUsed(ctx context.Context, id string) (int, error) {
-	if err := r.open(); err != nil {
-		return 0, err
-	}
-	var e error
-	id, e = keyID(id)
-	if e != nil {
-		return 0, e
-	}
-	var used int
-	e = r.db.NewRaw(`SELECT one_time_tokens_used FROM api_keys WHERE id=?`, id).Scan(ctx, &used)
-	if errors.Is(e, sql.ErrNoRows) {
-		return 0, nil
-	}
-	return used, e
-}
-func (r *BunAPIKeyRepository) ConsumeOneTimeTokens(ctx context.Context, id string, tokens int) error {
-	if err := r.open(); err != nil {
-		return err
-	}
-	var e error
-	id, e = keyID(id)
-	if e != nil {
-		return e
-	}
-	if tokens <= 0 {
-		return nil
-	}
-	if tokens > maxTokenDelta {
-		return errors.New("api key: token consumption is bounded")
-	}
-	_, e = r.db.NewRaw(`UPDATE api_keys SET one_time_tokens_used=LEAST(one_time_token_limit::bigint,GREATEST(0,one_time_tokens_used)::bigint+?)::integer WHERE id=? AND one_time_token_limit IS NOT NULL`, tokens, id).Exec(ctx)
 	return e
 }
 

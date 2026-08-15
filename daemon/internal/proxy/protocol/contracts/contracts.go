@@ -9,6 +9,7 @@ const (
 	SurfaceOpenAIChat      Surface = "openai-chat"
 	SurfaceOpenAIResponses Surface = "openai-responses"
 	SurfaceAnthropic       Surface = "anthropic-messages"
+	SurfaceGemini          Surface = "gemini-generate-content"
 	SurfaceImages          Surface = "images"
 	SurfaceWebSearch       Surface = "web-search"
 )
@@ -21,6 +22,7 @@ const (
 	ProtocolOpenAIChat     Protocol = SurfaceOpenAIChat
 	ProtocolOpenAIResponse Protocol = SurfaceOpenAIResponses
 	ProtocolAnthropic      Protocol = SurfaceAnthropic
+	ProtocolGemini         Protocol = SurfaceGemini
 )
 
 // AllSurfaces returns every supported client-facing surface in stable order.
@@ -29,6 +31,7 @@ func AllSurfaces() []Surface {
 		SurfaceOpenAIChat,
 		SurfaceOpenAIResponses,
 		SurfaceAnthropic,
+		SurfaceGemini,
 		SurfaceImages,
 		SurfaceWebSearch,
 	}
@@ -37,7 +40,7 @@ func AllSurfaces() []Surface {
 // IsValid reports whether the surface is supported by the canonical contract.
 func (s Surface) IsValid() bool {
 	switch s {
-	case SurfaceOpenAIChat, SurfaceOpenAIResponses, SurfaceAnthropic,
+	case SurfaceOpenAIChat, SurfaceOpenAIResponses, SurfaceAnthropic, SurfaceGemini,
 		SurfaceImages, SurfaceWebSearch:
 		return true
 	default:
@@ -47,11 +50,16 @@ func (s Surface) IsValid() bool {
 
 // Request is the normalized request envelope passed through the proxy path.
 type Request struct {
-	Protocol Protocol
-	Model    string
-	Headers  http.Header
-	Body     []byte
-	Stream   bool
+	Protocol          Protocol
+	// Operation is the endpoint/body-authoritative compatibility operation:
+	// generate, compact V1, or compact V2. It is kept numeric here to avoid a
+	// protocol-contract import cycle; transforms owns the typed alias.
+	Operation          uint8
+	Model             string
+	Headers           http.Header
+	Body              []byte
+	Stream            bool
+	ContinuationScope string
 }
 
 // Response is the normalized non-streaming proxy result.
@@ -86,13 +94,16 @@ const (
 	ErrorInvalidRequest           ErrorKind = "invalid_request"
 	ErrorUnsupported              ErrorKind = "unsupported"
 	ErrorTranslation              ErrorKind = "translation"
+	ErrorEntitlement              ErrorKind = "entitlement"
 	ErrorContentPolicy            ErrorKind = "content_policy"
 	ErrorReauthenticationRequired ErrorKind = "reauthentication_required"
 	ErrorCapacity                 ErrorKind = "capacity"
+	ErrorEmptyOutput              ErrorKind = "empty_output"
 	ErrorAuthentication           ErrorKind = "authentication"
 	ErrorRateLimit                ErrorKind = "rate_limit"
 	ErrorQuota                    ErrorKind = "quota"
 	ErrorTransient                ErrorKind = "transient"
+	ErrorServerError              ErrorKind = "server_error"
 	ErrorFatal                    ErrorKind = "fatal"
 )
 
@@ -119,6 +130,7 @@ const (
 	RateScopeIP           RateScope = "ip_security_identity"
 	RateScopeRoute        RateScope = "route"
 	RateScopeProvider     RateScope = "provider"
+	RateScopeProxy        RateScope = "proxy"
 	RateScopeModel        RateScope = "model"
 	RateScopeAccount      RateScope = "account"
 	RateScopeAPIKey       RateScope = "api_key"
@@ -149,7 +161,7 @@ func (s RateSource) IsValid() bool {
 
 func (s RateScope) IsValid() bool {
 	switch s {
-	case RateScopeClient, RateScopeIP, RateScopeRoute, RateScopeProvider,
+	case RateScopeClient, RateScopeIP, RateScopeRoute, RateScopeProvider, RateScopeProxy,
 		RateScopeModel, RateScopeAccount, RateScopeAPIKey, RateScopeOrganization,
 		RateScopeGlobal:
 		return true

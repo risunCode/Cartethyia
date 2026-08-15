@@ -1,0 +1,58 @@
+{
+  "id": "input-file-pdf-reference",
+  "content_generation": 1,
+  "request": {
+    "model": "claude-sonnet-5",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": [
+          {
+            "type": "input_file",
+            "file_id": "file-fixture-pdf",
+            "filename": "manual.pdf",
+            "mime_type": "application/pdf"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_semantic": {
+    "operation": { "kind": "generate" },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "kind": "pdf",
+            "media": {
+              "modality": "pdf",
+              "reference_kind": "provider-file-id",
+              "mime_type": "application/pdf",
+              "filename": "manual.pdf",
+              "reference": "file-fixture-pdf",
+              "size_bytes": 4096
+            }
+          }
+        ]
+      }
+    ],
+    "media": [
+      {
+        "modality": "pdf",
+        "reference_kind": "provider-file-id",
+        "mime_type": "application/pdf",
+        "filename": "manual.pdf",
+        "reference": "file-fixture-pdf",
+        "size_bytes": 4096
+      }
+    ],
+    "terminal": {
+      "status": "success",
+      "event": "completed",
+      "stop_reason": "stop",
+      "sequence": ["completed"]
+    }
+  }
+}

@@ -22,10 +22,12 @@ type refreshRetryTransport struct {
 func (t *refreshRetryTransport) Call(_ context.Context, _ Account, _ contracts.Request) (*contracts.Response, error) {
 	if t.calls.Add(1) == 1 {
 		return nil, &contracts.RouteError{
-			Kind:       contracts.ErrorAuthentication,
-			StatusCode: 401,
-			Code:       "provider.authentication_failed",
-			Message:    "authentication failed",
+			Kind:                     contracts.ErrorAuthentication,
+			StatusCode:               401,
+			Code:                     "provider.authentication_failed",
+			Message:                  "authentication failed",
+			Retryable:                true,
+			AlternateAccountEligible: true,
 		}
 	}
 	return &contracts.Response{StatusCode: 200, Body: []byte(`{"ok":true}`)}, nil
@@ -53,7 +55,7 @@ func TestRouterRefreshRetryReusesAccountBeforeFailover(t *testing.T) {
 		Protocol: contracts.SurfaceOpenAIChat,
 		Model:    "model",
 		Body:     []byte(`{"messages":[]}`),
-	})
+	}, fixtureRoutePlan("openai", "model", contracts.SurfaceOpenAIChat))
 	if err != nil || failure != nil || response == nil || response.StatusCode != 200 {
 		t.Fatalf("response=%#v failure=%#v err=%v", response, failure, err)
 	}
@@ -91,7 +93,7 @@ func TestRouterContentPolicyDoesNotFailOverOrPoisonAccount(t *testing.T) {
 		}
 		return &contracts.Response{StatusCode: 200}, nil
 	})
-	_, failure, err := router.Route(context.Background(), transport, contracts.Request{Protocol: contracts.SurfaceOpenAIChat, Model: "model"})
+	_, failure, err := router.Route(context.Background(), transport, contracts.Request{Protocol: contracts.SurfaceOpenAIChat, Model: "model"}, fixtureRoutePlan("openai", "model", contracts.SurfaceOpenAIChat))
 	if err != nil || failure == nil || failure.CodeString() != "provider.content_policy" {
 		t.Fatalf("failure=%#v err=%v", failure, err)
 	}

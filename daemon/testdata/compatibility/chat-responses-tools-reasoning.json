@@ -1,0 +1,104 @@
+{
+  "id": "chat-responses-tools-reasoning",
+  "content_generation": 1,
+  "request": {
+    "model": "gpt-5.6",
+    "messages": [
+      { "role": "system", "content": "first instruction" },
+      { "role": "system", "content": "second instruction" },
+      {
+        "role": "developer",
+        "name": "planner",
+        "content": "named instruction"
+      },
+      {
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "id": "call-a",
+            "type": "function",
+            "function": { "name": "lookup", "arguments": "{\"city\":\"Oslo\"}" }
+          }
+        ]
+      },
+      { "role": "tool", "tool_call_id": "call-a", "content": "result" }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": { "name": "lookup", "parameters": { "type": "object" } }
+      }
+    ]
+  },
+  "expected_semantic": {
+    "operation": { "kind": "generate" },
+    "messages": [
+      {
+        "role": "system",
+        "content": [{ "kind": "text", "text": "first instruction" }]
+      },
+      {
+        "role": "system",
+        "content": [{ "kind": "text", "text": "second instruction" }]
+      },
+      {
+        "role": "developer",
+        "name": "planner",
+        "content": [{ "kind": "text", "text": "named instruction" }]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "kind": "tool-call",
+            "tool": {
+              "occurrence": "occ-a",
+              "kind": "function",
+              "name": "lookup",
+              "association": "occ-a",
+              "state": "call",
+              "source_id": "call-a",
+              "target_id": "call-a",
+              "arguments": { "city": "Oslo" }
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": [
+          {
+            "kind": "tool-result",
+            "tool": {
+              "occurrence": "occ-a",
+              "kind": "function",
+              "name": "lookup",
+              "association": "occ-a",
+              "state": "result",
+              "source_id": "call-a",
+              "target_id": "call-a",
+              "result": { "value": "result" }
+            }
+          }
+        ]
+      }
+    ],
+    "tools": [
+      { "kind": "function", "name": "lookup", "schema": { "type": "object" } }
+    ],
+    "reasoning": [
+      {
+        "kind": "summary",
+        "summary": "bounded summary",
+        "mode": "medium",
+        "budget": 128
+      }
+    ],
+    "terminal": {
+      "status": "success",
+      "event": "completed",
+      "stop_reason": "stop",
+      "sequence": ["completed"]
+    }
+  }
+}

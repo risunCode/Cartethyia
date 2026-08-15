@@ -66,7 +66,9 @@ func FromRouteError(routeErr *contracts.RouteError) (int, Response) {
 	switch routeErr.Kind {
 	case contracts.ErrorInvalidRequest:
 		code = CodeInvalidRequest
-		if status < 400 || status > 499 {
+		if status == http.StatusRequestEntityTooLarge {
+			code = CodePayloadTooLarge
+		} else if status < 400 || status > 499 {
 			status = http.StatusBadRequest
 		}
 	case contracts.ErrorAuthentication:
@@ -74,12 +76,20 @@ func FromRouteError(routeErr *contracts.RouteError) (int, Response) {
 		if status != http.StatusUnauthorized && status != http.StatusForbidden {
 			status = http.StatusBadGateway
 		}
+	case contracts.ErrorEntitlement:
+		code = CodeUpstream
+		if status != http.StatusForbidden {
+			status = http.StatusBadGateway
+		}
 	case contracts.ErrorRateLimit, contracts.ErrorQuota:
 		code = CodeUpstream
 		if status != http.StatusTooManyRequests && status != http.StatusForbidden {
 			status = http.StatusBadGateway
 		}
-	case contracts.ErrorTransient, contracts.ErrorFatal:
+	case contracts.ErrorUnsupported, contracts.ErrorTranslation,
+		contracts.ErrorContentPolicy, contracts.ErrorReauthenticationRequired,
+		contracts.ErrorCapacity, contracts.ErrorEmptyOutput,
+		contracts.ErrorTransient, contracts.ErrorServerError, contracts.ErrorFatal:
 		code = CodeUpstream
 	}
 	if validNamespacedCode(routeErr.Code) {

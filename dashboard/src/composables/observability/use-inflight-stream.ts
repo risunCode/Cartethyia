@@ -8,6 +8,107 @@ import { createSignal, onCleanup, type Accessor } from "solid-js";
 
 const STREAM_URL = "/console/api/live/in-flight/stream";
 
+const SHARE_STREAM_MAX_DELAY = 30_000;
+
+/** Lifecycle state for a public share in-flight stream. */
+export type ShareInFlightStreamStatus = "disabled" | "connected" | "connecting" | "error";
+
+/** Public stream state containing only the aggregate count and connection state. */
+export interface ShareInFlightSnapshot {
+  readonly inFlight: number | null;
+  readonly connectionStatus: ShareInFlightStreamStatus;
+}
+
+const EMPTY_SHARE_SNAPSHOT: ShareInFlightSnapshot = { inFlight: null, connectionStatus: "connecting" };
+
+/** Uses the live count only after a valid stream event; otherwise keeps polling data visible. */
+export function resolveShareInFlight(snapshot: ShareInFlightSnapshot, fallback: number): number {
+  return snapshot.connectionStatus === "connected" && snapshot.inFlight !== null ? snapshot.inFlight : fallback;
+}
+
+/** Parses the public share stream payload without accepting private tracker fields. */
+export function parseShareInFlightPayload(payload: unknown): number | null {
+  let value: unknown = payload;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !("inFlight" in value)) return null;
+  const inFlight = value.inFlight;
+  return typeof inFlight === "number" && Number.isSafeInteger(inFlight) && inFlight >= 0 ? inFlight : null;
+}
+
+/** Subscribes to a public share token's in-flight count stream without console credentials. */
+export function useShareInFlightStream(token: string | null, enabled = true): Accessor<ShareInFlightSnapshot> {
+  const [snapshot, setSnapshot] = createSignal<ShareInFlightSnapshot>(
+    enabled && token !== null && token.length > 0 ? EMPTY_SHARE_SNAPSHOT : { inFlight: null, connectionStatus: "disabled" },
+  );
+  let attempts = 0;
+  let pendingInFlight: number | null = null;
+  let rafId: number | null = null;
+  let disposed = false;
+  let retryTimer: number | undefined;
+  let source: EventSource | null = null;
+
+  const flush = (): void => {
+    rafId = null;
+    if (pendingInFlight === null || disposed) return;
+    const inFlight = pendingInFlight;
+    pendingInFlight = null;
+    setSnapshot({ inFlight, connectionStatus: "connected" });
+    attempts = 0;
+  };
+
+  const scheduleFlush = (): void => {
+    if (rafId !== null) return;
+    rafId = requestAnimationFrame(flush);
+  };
+
+  const connect = (): void => {
+    if (disposed || !enabled || token === null || token.length === 0) return;
+    retryTimer = undefined;
+    setSnapshot((current) => ({ ...current, inFlight: null, connectionStatus: "connecting" }));
+    const eventSource = new EventSource(`/share/${encodeURIComponent(token)}/stream`, { withCredentials: false });
+    source = eventSource;
+    eventSource.onopen = () => {
+      if (!disposed) setSnapshot((current) => ({ ...current, connectionStatus: "connected" }));
+    };
+    eventSource.addEventListener("count", (event) => {
+      const inFlight = parseShareInFlightPayload((event as MessageEvent<string>).data);
+      if (inFlight === null) return;
+      pendingInFlight = inFlight;
+      scheduleFlush();
+    });
+    eventSource.onerror = () => {
+      eventSource.close();
+      if (disposed) return;
+      pendingInFlight = null;
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      setSnapshot({ inFlight: null, connectionStatus: "error" });
+      if (retryTimer !== undefined) return;
+      const delay = Math.min(1000 * 2 ** attempts, SHARE_STREAM_MAX_DELAY);
+      attempts += 1;
+      retryTimer = window.setTimeout(connect, delay);
+    };
+  };
+
+  connect();
+  onCleanup(() => {
+    disposed = true;
+    if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    source?.close();
+    if (rafId !== null) cancelAnimationFrame(rafId);
+  });
+
+  return snapshot;
+}
+
 export type InFlightStreamStatus = "connected" | "connecting" | "error";
 
 export interface InFlightSnapshot {

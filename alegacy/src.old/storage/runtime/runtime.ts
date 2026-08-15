@@ -209,6 +209,7 @@ export interface RuntimeMetadataRepository {
   queryLastProviderError(provider: string): string | null;
   queryIpSummary(limit: number): IpSummaryRow[];
   sumKeyTokens(keyId: string): { readonly dailyUsed: number; readonly monthlyUsed: number; readonly allTimeUsed: number };
+  countKeyRequests(keyId: string): number;
   queryApiKeyUsage(): ApiKeyUsageRow[];
   invalidate(): void;
 }

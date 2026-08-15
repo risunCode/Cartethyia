@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/transforms"
 )
 
 // StreamBridge converts canonical provider events into the SSE framing and
@@ -29,7 +30,10 @@ type StreamBridge struct {
 	closed   bool
 	readErr  error
 	state    bridgeState
+	codecs   *transforms.Registry
 }
+
+const maxBridgePendingBytes = 8 << 20
 
 // NewStreamBridge constructs a surface-aware stream reader. A nil source is
 // represented as a coded stream failure rather than a panic or silent EOF.
@@ -39,6 +43,14 @@ func NewStreamBridge(source *Stream, surface contracts.Surface, model string) *S
 		b.finished = true
 		b.readErr = streamError(StreamCodeUpstreamFailure, "stream source is nil", ErrStreamUpstream)
 	}
+	return b
+}
+
+// NewCodecStreamBridge uses canonical response encoders for downstream
+// framing while retaining StreamBridge's bounded read/commit lifecycle.
+func NewCodecStreamBridge(source *Stream, surface contracts.Surface, model string, codecs *transforms.Registry) *StreamBridge {
+	b := NewStreamBridge(source, surface, model)
+	b.codecs = codecs
 	return b
 }
 
@@ -72,28 +84,32 @@ func (b *StreamBridge) ReadContext(ctx context.Context, p []byte) (int, error) {
 			b.queueFailure(err)
 			break
 		}
-		mapped, mapErr := mapProviderEvent(ev)
-		if mapErr != nil {
+		var frames []byte
+		var encodeErr error
+		if b.codecs != nil {
+			frames, encodeErr = b.encodeCanonicalEvent(ctx, ev)
+		} else {
+			frames, encodeErr = b.state.encode(b.surface, ev, b.model)
+		}
+		if encodeErr != nil {
 			b.finished = true
-			b.queueFailure(mapErr)
+			b.source.Abort(encodeErr)
+			b.queueFailure(encodeErr)
 			break
 		}
-		for _, canonical := range mapped {
-			frames, encodeErr := b.state.encode(b.surface, canonical, b.model)
-			if encodeErr != nil {
-				b.finished = true
-				b.queueFailure(encodeErr)
-				break
-			}
-			b.pending = append(b.pending, frames...)
-			if canonical.IsTerminal() {
-				b.finished = true
-				if canonical.Reason == "error" || canonical.Err != nil {
-					if sourceErr := b.source.Err(); sourceErr != nil {
-						b.readErr = sourceErr
-					} else {
-						b.readErr = streamError(StreamCodeUpstreamFailure, "upstream stream failure", ErrStreamUpstream)
-					}
+		b.pending = append(b.pending, frames...)
+		if len(b.pending) > maxBridgePendingBytes {
+			b.finished = true
+			b.queueFailure(streamError(StreamCodeEventTooLarge, "downstream stream buffer exceeds limit", ErrStreamMalformed))
+			break
+		}
+		if ev.IsTerminal() {
+			b.finished = true
+			if ev.Reason == "error" || ev.Err != nil {
+				if sourceErr := b.source.Err(); sourceErr != nil {
+					b.readErr = sourceErr
+				} else {
+					b.readErr = streamError(StreamCodeUpstreamFailure, "upstream stream failure", ErrStreamUpstream)
 				}
 			}
 		}
@@ -107,10 +123,73 @@ func (b *StreamBridge) ReadContext(ctx context.Context, p []byte) (int, error) {
 		err := b.readErr
 		b.readErr = nil
 		b.closed = true
+		if b.source != nil {
+			b.source.Abort(err)
+		}
 		return 0, err
 	}
 	b.closed = true
+	if b.source != nil {
+		_ = b.source.Close()
+	}
 	return 0, io.EOF
+}
+
+func (b *StreamBridge) encodeCanonicalEvent(ctx context.Context, ev StreamEvent) ([]byte, error) {
+	if ev.Kind == EventMessageStart {
+		return b.state.encode(b.surface, ev, b.model)
+	}
+	encoder, ok := b.codecs.LookupResponse(contracts.Protocol(b.surface))
+	if !ok || encoder == nil {
+		return b.state.encode(b.surface, ev, b.model)
+	}
+	event := NormalizedStreamEvent(ev)
+	payload, terr := encoder.EncodeEvent(ctx, &event)
+	if terr != nil {
+		return nil, terr
+	}
+	if payload == nil {
+		return nil, nil
+	}
+	frames := frameJSON(payload)
+	if ev.IsTerminal() {
+		if b.surface == contracts.SurfaceOpenAIChat || b.surface == contracts.SurfaceAnthropic {
+			frames = append(frames, frameEvent("message_stop", map[string]any{"type": "message_stop"})...)
+		}
+		frames = append(frames, frameString("[DONE]")...)
+	}
+	return frames, nil
+}
+
+// NormalizedStreamEvent converts the runtime's compact stream event into the
+// canonical response codec event without copying large payloads.
+func NormalizedStreamEvent(ev StreamEvent) transforms.NormalizedEvent {
+	out := transforms.NormalizedEvent{Type: string(ev.Kind), CallID: ev.CallID, ToolCallID: ev.CallID, ToolName: ev.CallName, Text: ev.Text, ToolArguments: ev.Text}
+	if ev.Kind == EventCompactionItem {
+		out.Type = transforms.EventItemDone
+		out.Text = ev.Text
+	}
+	if ev.Usage != nil {
+		out.Usage = &transforms.Usage{InputTokens: ev.Usage.InputTokens, OutputTokens: ev.Usage.OutputTokens, TotalTokens: ev.Usage.TotalTokens, CacheReadTokens: ev.Usage.CacheReadTokens, CacheWriteTokens: ev.Usage.CacheWriteTokens, ReasoningTokens: ev.Usage.ReasoningTokens}
+	}
+	if ev.IsTerminal() {
+		status := transforms.ItemStatusCompleted
+		if ev.Reason == "error" || ev.Err != nil {
+			status = transforms.ItemStatusFailed
+		}
+		out.Type = transforms.EventResponseCompleted
+		out.Status = status
+		reason := transforms.StopCompleted
+		if ev.Reason == "length" {
+			reason = transforms.StopLength
+		} else if ev.Reason == "tool_call" {
+			reason = transforms.StopToolCall
+		} else if ev.Reason == "error" || ev.Err != nil {
+			reason = transforms.StopError
+		}
+		out.StopReason = &reason
+	}
+	return out
 }
 
 func (b *StreamBridge) queueFailure(err error) {
@@ -160,50 +239,38 @@ func (b *StreamBridge) Abort(err error) {
 	source := b.source
 	b.mu.Unlock()
 	if source != nil {
+		if StreamCodeOf(err) == "" {
+			var downstream interface{ DownstreamFailure() }
+			if errors.As(err, &downstream) {
+				err = streamError(StreamCodeWriteFailure, "downstream stream write failed", err)
+			} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				err = streamError(StreamCodeClientDisconnect, "client disconnected", errors.Join(ErrClientDisconnect, err))
+			} else {
+				err = streamError(StreamCodeWriteFailure, "downstream stream write failed", err)
+			}
+		}
 		source.Abort(err)
 	}
 }
 
-// ProviderStreamEvent is a provider wire event before canonical mapping. Data
-// is the decoded provider JSON object; Type is the provider event type when
-// one is present. It is useful for adapters and deterministic bridge tests.
-type ProviderStreamEvent struct {
-	Type string
-	Data map[string]any
+// ProviderStreamPayload is one complete bounded SSE event decoded by the
+// transport. It exists only at the transport-to-canonical mapping boundary.
+type ProviderStreamPayload struct {
+	Data  []byte
+	Event string
+	ID    string
 }
 
-// MapProviderStreamEvent maps one provider event to one or more canonical
-// events. Unknown or structurally malformed events return a coded failure.
-func MapProviderStreamEvent(event ProviderStreamEvent) ([]StreamEvent, error) {
-	typ := event.Type
-	if typ == "" {
-		if _, ok := event.Data["choices"]; ok {
-			typ = "openai.chunk"
-		} else if _, ok := event.Data["usage"]; ok {
-			typ = "usage"
+// MapProviderPayload converts a complete provider SSE event to canonical
+// events before the router's pre-commit gate or downstream encoder sees it.
+func MapProviderPayload(payload ProviderStreamPayload) ([]StreamEvent, error) {
+	data := make(map[string]any)
+	if len(payload.Data) > 0 {
+		if err := json.Unmarshal(payload.Data, &data); err != nil {
+			return nil, streamError(StreamCodeMalformedEvent, "stream payload is not valid JSON", errors.Join(ErrStreamMalformed, err))
 		}
 	}
-	return mapProviderData(typ, event.Data)
-}
-
-// MapProviderEvent is the short-form alias used by transports that already
-// expose decoded provider event objects.
-func MapProviderEvent(event ProviderStreamEvent) ([]StreamEvent, error) {
-	return MapProviderStreamEvent(event)
-}
-
-func mapProviderEvent(ev StreamEvent) ([]StreamEvent, error) {
-	if len(ev.Payload) == 0 {
-		return []StreamEvent{ev}, nil
-	}
-	var data map[string]any
-	if err := json.Unmarshal(ev.Payload, &data); err != nil {
-		if ev.Text != "" {
-			return []StreamEvent{ev}, nil
-		}
-		return nil, streamError(StreamCodeMalformedEvent, "stream payload is not valid JSON", errors.Join(ErrStreamMalformed, err))
-	}
-	if len(data) == 0 {
+	if len(data) == 0 && payload.Event == "" {
 		return nil, streamError(StreamCodeMalformedEvent, "stream payload is empty", ErrStreamMalformed)
 	}
 	typ, _ := data["type"].(string)
@@ -214,10 +281,25 @@ func mapProviderEvent(ev StreamEvent) ([]StreamEvent, error) {
 		} else if _, ok := data["usage"]; ok {
 			typ = "usage"
 		} else {
-			return nil, streamError(StreamCodeMalformedEvent, "stream event type is missing", ErrStreamMalformed)
+			typ = payload.Event
 		}
 	}
-	return mapProviderData(typ, data)
+	if typ == "" {
+		return nil, streamError(StreamCodeMalformedEvent, "stream event type is missing", ErrStreamMalformed)
+	}
+	mapped, err := mapProviderData(typ, data)
+	if err != nil {
+		return nil, err
+	}
+	if payload.ID != "" {
+		for index := range mapped {
+			if mapped[index].Kind == EventMessageStart && mapped[index].CallID == "" {
+				mapped[index].CallID = payload.ID
+				break
+			}
+		}
+	}
+	return mapped, nil
 }
 
 func mapProviderData(typ string, data map[string]any) ([]StreamEvent, error) {
@@ -227,7 +309,13 @@ func mapProviderData(typ string, data map[string]any) ([]StreamEvent, error) {
 		if id == "" {
 			id, _ = data["id"].(string)
 		}
-		return []StreamEvent{{Kind: EventMessageStart, CallID: id}}, nil
+		out := []StreamEvent{{Kind: EventMessageStart, CallID: id}}
+		if message, ok := data["message"].(map[string]any); ok {
+			if streamUsage, ok := usageFrom(message["usage"]); ok {
+				out = append(out, StreamEvent{Kind: EventUsage, Usage: &streamUsage})
+			}
+		}
+		return out, nil
 	case "response.created":
 		id, _ := nestedString(data, "response", "id")
 		return []StreamEvent{{Kind: EventMessageStart, CallID: id}}, nil
@@ -266,9 +354,21 @@ func mapProviderData(typ string, data map[string]any) ([]StreamEvent, error) {
 		if typ == "response.incomplete" {
 			reason = "length"
 		}
-		return []StreamEvent{{Kind: EventMessageStop, Reason: reason}}, nil
+		out := make([]StreamEvent, 0, 2)
+		responseID := ""
+		if response, ok := data["response"].(map[string]any); ok {
+			responseID, _ = response["id"].(string)
+			if streamUsage, ok := usageFrom(response["usage"]); ok {
+				out = append(out, StreamEvent{Kind: EventUsage, Usage: &streamUsage})
+			}
+		}
+		return append(out, StreamEvent{Kind: EventMessageStop, CallID: responseID, Reason: reason}), nil
 	case "response.failed":
 		return []StreamEvent{{Kind: EventMessageStop, Reason: "error", Err: ErrStreamUpstream}}, nil
+	case "response.compaction", "compaction":
+		payload, _ := json.Marshal(data)
+		text, _ := data["summary"].(string)
+		return []StreamEvent{{Kind: EventCompactionItem, Payload: payload, Text: text}}, nil
 	case "message_stop", "[DONE]":
 		return []StreamEvent{{Kind: EventMessageStop, Reason: "completed"}}, nil
 	case "error":
@@ -350,7 +450,8 @@ func mapProviderData(typ string, data map[string]any) ([]StreamEvent, error) {
 			return []StreamEvent{{Kind: EventThinkingDelta, Text: text}}, nil
 		case string(EventMessageStop):
 			reason, _ := data["reason"].(string)
-			return []StreamEvent{{Kind: EventMessageStop, Reason: reason}}, nil
+			id, _ := data["id"].(string)
+			return []StreamEvent{{Kind: EventMessageStop, CallID: id, Reason: reason}}, nil
 		default:
 			return nil, streamError(StreamCodeMalformedEvent, "unsupported provider stream event", ErrStreamMalformed)
 		}
@@ -359,6 +460,7 @@ func mapProviderData(typ string, data map[string]any) ([]StreamEvent, error) {
 
 func mapOpenAIChunk(data map[string]any) ([]StreamEvent, error) {
 	out := make([]StreamEvent, 0, 5)
+	terminals := make([]StreamEvent, 0, 1)
 	if id, _ := data["id"].(string); id != "" {
 		out = append(out, StreamEvent{Kind: EventMessageStart, CallID: id})
 	}
@@ -393,12 +495,15 @@ func mapOpenAIChunk(data map[string]any) ([]StreamEvent, error) {
 			}
 		}
 		if reason, _ := choice["finish_reason"].(string); reason != "" {
-			out = append(out, StreamEvent{Kind: EventMessageStop, Reason: canonicalReason(reason)})
+			if len(terminals) == 0 {
+				terminals = append(terminals, StreamEvent{Kind: EventMessageStop, Reason: canonicalReason(reason)})
+			}
 		}
 	}
 	if usage, ok := usageFrom(data["usage"]); ok {
 		out = append(out, StreamEvent{Kind: EventUsage, Usage: &usage})
 	}
+	out = append(out, terminals...)
 	if len(out) == 0 {
 		return nil, streamError(StreamCodeMalformedEvent, "OpenAI stream chunk has no supported fields", ErrStreamMalformed)
 	}

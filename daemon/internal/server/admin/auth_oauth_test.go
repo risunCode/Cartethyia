@@ -17,7 +17,7 @@ type oauthRouteAuth struct {
 func (a *oauthRouteAuth) Login(context.Context, LoginInput, AuthRequest) (LoginResult, error) {
 	return LoginResult{}, nil
 }
-func (a *oauthRouteAuth) Logout(context.Context, string) error { return nil }
+func (a *oauthRouteAuth) Logout(context.Context, string) error             { return nil }
 func (a *oauthRouteAuth) Current(context.Context, string) (Session, error) { return Session{}, nil }
 func (a *oauthRouteAuth) Refresh(context.Context, string) (Session, error) { return Session{}, nil }
 func (a *oauthRouteAuth) OAuthStart(context.Context, string, OAuthStartInput) (OAuthState, error) {

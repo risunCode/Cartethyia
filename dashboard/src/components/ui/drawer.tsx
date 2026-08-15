@@ -4,6 +4,7 @@ import { createEffect, onCleanup, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { X } from "lucide-solid";
 import { createOverlayLifecycle } from "./overlay-lifecycle";
+import { focusRingClasses } from "./styles";
 
 const FOCUSABLE_SELECTOR = "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])";
 
@@ -75,7 +76,7 @@ export function Drawer(props: DrawerProps): JSX.Element {
     <>{lifecycle.present() && (
       <Portal>
         <div ref={(element) => { rootRef = element; lifecycle.setElements(rootRef, drawerRef); }} class="motion-drawer-overlay fixed inset-0 z-90" data-state={lifecycle.phase()} style={hasReducedMotion() ? { animation: "none" } : undefined}>
-          <button type="button" aria-label="Close drawer" class="absolute inset-0 h-full w-full cursor-default bg-black/40 backdrop-blur-[6px]" onClick={() => lifecycle.requestClose()} />
+          <button type="button" aria-label="Close drawer" class={"absolute inset-0 h-full w-full cursor-default bg-black/40 backdrop-blur-[6px] " + focusRingClasses} onClick={() => lifecycle.requestClose()} />
           <aside
             ref={(element) => { drawerRef = element; lifecycle.setElements(rootRef, drawerRef); }}
             role="dialog"
@@ -88,7 +89,7 @@ export function Drawer(props: DrawerProps): JSX.Element {
           >
             <div class="mb-3 flex min-w-0 items-center justify-between gap-3">
               <h2 id="dashboard-drawer-title" class="min-w-0 truncate text-base font-bold">{props.title}</h2>
-              <button type="button" onClick={() => lifecycle.requestClose()} aria-label="Close drawer" class="rounded-lg p-1.5 text-[var(--text-3)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text-1)]"><X size={16} /></button>
+              <button type="button" onClick={() => lifecycle.requestClose()} aria-label="Close drawer" class={"rounded-lg p-1.5 text-[var(--text-3)] transition-colors hover:bg-[var(--hover)] hover:text-[var(--text-1)] " + focusRingClasses}><X size={16} aria-hidden="true" /></button>
             </div>
             <div class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">{props.children}</div>
           </aside>

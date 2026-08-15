@@ -96,13 +96,18 @@ function SignalRow(props: { readonly signal: Signal }): JSX.Element {
 export function LandingPage(): JSX.Element {
   const [activeIndex, setActiveIndex] = createSignal(0);
   const [menuOpen, setMenuOpen] = createSignal(false);
+  const [revealedChapters, setRevealedChapters] = createSignal<ReadonlySet<number>>(new Set([0]));
   const sectionRefs: Array<HTMLElement | undefined> = [];
 
   onMount(() => {
     document.title = "Cartethyia — The One-Stop AI Proxy Router";
     const observer = new IntersectionObserver((entries) => {
       const visible = entries.filter((entry) => entry.isIntersecting).sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
-      if (visible !== undefined) setActiveIndex(Number((visible.target as HTMLElement).dataset.chapterIndex));
+      if (visible !== undefined) {
+        const index = Number((visible.target as HTMLElement).dataset.chapterIndex);
+        setActiveIndex(index);
+        setRevealedChapters((current) => current.has(index) ? current : new Set([...current, index]));
+      }
     }, { threshold: [0.35, 0.6, 0.85] });
     sectionRefs.forEach((section) => { if (section !== undefined) observer.observe(section); });
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -153,7 +158,7 @@ export function LandingPage(): JSX.Element {
       <main class="story-simple-main">
         <For each={CHAPTERS}>
           {(entry, index) => (
-            <article id={`chapter-${index()}`} data-chapter-index={index()} ref={(node) => { sectionRefs[index()] = node; }} class={`story-page-section story-theme-${entry.theme}`} aria-labelledby={`chapter-title-${index()}`}>
+            <article id={`chapter-${index()}`} data-chapter-index={index()} ref={(node) => { sectionRefs[index()] = node; }} class={`story-page-section story-theme-${entry.theme} ${revealedChapters().has(index()) ? "is-revealed" : ""}`} aria-labelledby={`chapter-title-${index()}`}>
               <div class="story-page-ambient" style={{ "background-image": `url(${entry.image})` }} aria-hidden={true} />
               <div class="story-page-shell story-shell">
                 <div class="story-page-copy">

@@ -1,0 +1,37 @@
+{
+  "id": "specific-capability-error-reference",
+  "content_generation": 1,
+  "request": {
+    "model": "gemini-2.5-flash",
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {
+            "fileData": {
+              "mimeType": "application/pdf",
+              "fileUri": "https://fixture.invalid/manual.pdf"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_semantic": {
+    "operation": { "kind": "generate" },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "kind": "text", "text": "specific-capability-error-reference" }
+        ]
+      }
+    ],
+    "terminal": {
+      "status": "error",
+      "event": "error",
+      "error_code": "capability.media_reference_unsupported",
+      "sequence": ["error"]
+    }
+  }
+}

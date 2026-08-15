@@ -65,6 +65,7 @@ async function monitorData(config: ConfigPersistence, runtime: RuntimePersistenc
   if (key === null) return json({ error: "link_not_found" }, request, 404);
   if (link.lastViewedAt === null || Date.parse(link.lastViewedAt) < Date.now() - 60_000) config.shareLinks.touch(link.id);
   const usage = runtime.metadata.sumKeyTokens(link.apiKeyId);
+  const totalRequests = runtime.metadata.countKeyRequests(link.apiKeyId);
   const dailyRemaining = limitRemaining(key.dailyTokenLimit, usage.dailyUsed);
   const monthlyRemaining = limitRemaining(key.monthlyTokenLimit, usage.monthlyUsed);
   const oneTimeRemaining = limitRemaining(key.oneTimeTokenLimit, key.oneTimeTokensUsed);
@@ -75,6 +76,8 @@ async function monitorData(config: ConfigPersistence, runtime: RuntimePersistenc
     apiKey: { id: key.id, prefix: key.keyPrefix, active: key.active },
     quotaAvailable,
     inFlight: getInFlightCount(),
+    totalTokens: usage.allTimeUsed,
+    totalRequests,
     dailyUsed: usage.dailyUsed,
     dailyLimit: key.dailyTokenLimit,
     dailyRemaining,

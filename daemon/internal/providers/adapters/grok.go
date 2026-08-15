@@ -1,14 +1,20 @@
 package adapters
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+
+	providerpkg "github.com/cartethyia/daemon/internal/providers"
+	"github.com/cartethyia/daemon/internal/proxy/control/cacheplan"
 )
+
+// GrokRepairInvalidEncryptedReasoning is the stable compatibility rule used
+// when Grok rejects replayed encrypted reasoning state.
+const GrokRepairInvalidEncryptedReasoning = "grok.invalid_encrypted_reasoning"
 
 // GrokBuildConfig configures the OAuth-backed Grok Build Responses adapter.
 // Grok is kept separate from OpenAI-compatible Chat Completions providers even
@@ -96,6 +102,9 @@ func (p *GrokBuildAdapter) modelCapabilities(entry *ProviderModel) ProviderCaps 
 	if entry != nil && len(entry.Surfaces) > 0 {
 		caps.Surfaces = append([]Surface(nil), entry.Surfaces...)
 	}
+	if !caps.PromptCacheKey {
+		caps.PromptCacheKey = true
+	}
 	return caps
 }
 
@@ -141,8 +150,29 @@ func (p *GrokBuildAdapter) BuildRequest(envelope RequestEnvelope, credential str
 	if err := validateGrokResponsesPayload(payload); err != nil {
 		return BuiltRequest{}, err
 	}
-	applyGrokPromptCacheIdentity(payload, envelope.Headers, target.UpstreamModelID)
 	normalizeGrokResponsesPayload(payload, envelope.Stream, target.UpstreamModelID)
+	entry := p.catalog.Get(target.ModelID)
+	policy := providerpkg.EffectiveCompatibilityPolicy(p.modelCapabilities(entry), entry)
+	if p.modelCapabilities(entry).PromptCacheKey {
+		policy.Cache.Prompt.Supported = true
+		policy.Cache.Prompt.Key = true
+		policy.Cache.Prompt.MinPrefixBytes = 0
+	}
+	tenantID := envelope.Headers.Get("X-Tenant-ID")
+	if tenantID == "" {
+		tenantID = envelope.Headers.Get("X-Cartethyia-Tenant")
+	}
+	if _, err := cacheplan.PlanFinalWire(&cacheplan.FinalWireRequest{
+		Protocol:         cacheplan.ProtocolOpenAI,
+		Surface:          string(target.Surface),
+		ProviderID:       p.meta.ID,
+		ModelID:          target.UpstreamModelID,
+		TenantID:         tenantID,
+		PolicyGeneration: policy.Generation,
+		Payload:          payload,
+	}, policy); err != nil {
+		return BuiltRequest{}, err
+	}
 	if envelope.Stream {
 		auth.Headers.Set("Accept", "text/event-stream")
 	} else {
@@ -158,6 +188,63 @@ func (p *GrokBuildAdapter) BuildRequest(envelope RequestEnvelope, credential str
 		Auth:     auth,
 		Stream:   envelope.Stream,
 	}, nil
+}
+
+// RepairRule identifies the one fixture-backed Grok compatibility rejection.
+// ResponseEvidence is bounded by the transport before it reaches the adapter.
+func (p *GrokBuildAdapter) RepairRule(evidence ResponseEvidence) string {
+	lower := strings.ToLower(string(evidence.BodyPrefix))
+	if strings.Contains(lower, "invalid_encrypted_content") ||
+		(strings.Contains(lower, "encrypted_content") &&
+			(strings.Contains(lower, "decrypt") || strings.Contains(lower, "unmodified") || strings.Contains(lower, "invalid"))) {
+		return GrokRepairInvalidEncryptedReasoning
+	}
+	return ""
+}
+
+// ProposeRepair removes only the rejected encrypted_content value from Grok
+// reasoning/compaction input items. All other request values remain intact.
+func (p *GrokBuildAdapter) ProposeRepair(ruleID string, request RequestEnvelope) (RepairProposal, bool) {
+	if ruleID != GrokRepairInvalidEncryptedReasoning {
+		return RepairProposal{}, false
+	}
+	if request.Target.ProviderID != "" && request.Target.ProviderID != p.meta.ID {
+		return RepairProposal{}, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(request.Body))
+	decoder.UseNumber()
+	var payload map[string]any
+	if err := decoder.Decode(&payload); err != nil || payload == nil {
+		return RepairProposal{}, false
+	}
+	items, ok := payload["input"].([]any)
+	if !ok {
+		return RepairProposal{RuleID: GrokRepairInvalidEncryptedReasoning, Body: append([]byte(nil), request.Body...)}, true
+	}
+	changed := false
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		kind, _ := item["type"].(string)
+		if kind != "reasoning" && kind != "compaction" && kind != "compaction_summary" {
+			continue
+		}
+		if _, exists := item["encrypted_content"]; exists {
+			delete(item, "encrypted_content")
+			changed = true
+		}
+	}
+	if !changed {
+		return RepairProposal{RuleID: GrokRepairInvalidEncryptedReasoning, Body: append([]byte(nil), request.Body...)}, true
+	}
+	payload["input"] = items
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return RepairProposal{}, false
+	}
+	return RepairProposal{RuleID: GrokRepairInvalidEncryptedReasoning, Body: body}, true
 }
 
 func (p *GrokBuildAdapter) requestParts(envelope RequestEnvelope, credential string) (AuthMaterial, map[string]any, RouteTarget, error) {
@@ -251,33 +338,6 @@ func validateGrokResponsesPayload(payload map[string]any) error {
 	return nil
 }
 
-func applyGrokPromptCacheIdentity(payload map[string]any, headers http.Header, upstream string) {
-	if payload == nil {
-		return
-	}
-	tenant := "anonymous"
-	if headers != nil {
-		for _, key := range []string{"X-Cartethyia-Tenant", "X-Tenant-ID", "X-Organization-ID"} {
-			if value := strings.TrimSpace(headers.Get(key)); value != "" {
-				tenant = value
-				break
-			}
-		}
-	}
-	stable := map[string]any{
-		"tenant": tenant,
-		"model":  upstream,
-		"input":  payload["input"],
-		"tools":  payload["tools"],
-	}
-	encoded, err := json.Marshal(stable)
-	if err != nil {
-		return
-	}
-	sum := sha256.Sum256(encoded)
-	payload["prompt_cache_key"] = "cartethyia:grok:" + hex.EncodeToString(sum[:16])
-}
-
 const grokCompactPrompt = "Summarize the conversation so far faithfully and concisely. Preserve the user's request, decisions, technical details, file paths, commands, and unresolved work so another assistant can continue."
 
 func normalizeGrokResponsesPayload(payload map[string]any, stream bool, upstream string) {
@@ -340,13 +400,12 @@ func normalizeGrokResponsesPayload(payload map[string]any, stream bool, upstream
 }
 
 // ClassifyResponse starts with the shared classifier and only adds Grok
-// categories that the unified status/body contract cannot infer safely.
-func (p *GrokBuildAdapter) ClassifyResponse(statusCode int, body []byte) ClassifiedResponse {
-	classified := classifyByStatus(statusCode, body)
-	const maxScan = 16 * 1024
-	raw := body
-	if len(raw) > maxScan {
-		raw = raw[:maxScan]
+// categories that the bounded evidence contract cannot infer safely.
+func (p *GrokBuildAdapter) ClassifyResponse(evidence ResponseEvidence) ClassifiedResponse {
+	classified := classifyByStatus(evidence)
+	raw := evidence.BodyPrefix
+	if len(raw) > MaxResponseEvidenceBodyBytes {
+		raw = raw[:MaxResponseEvidenceBodyBytes]
 	}
 	lower := strings.ToLower(string(raw))
 	if classified.Category == CategoryContentPolicy {
@@ -356,26 +415,44 @@ func (p *GrokBuildAdapter) ClassifyResponse(statusCode int, body []byte) Classif
 	case strings.Contains(lower, "entitlement"), strings.Contains(lower, "access denied"), strings.Contains(lower, "access_required"):
 		classified.Category = CategoryEntitlement
 		classified.Retryable = false
+		classified.AlternateAccountEligible = false
+		classified.Code = "provider.entitlement_denied"
+		classified.Scope = FailureScopeAccount
 		classified.Message = "Grok entitlement denied"
 	case strings.Contains(lower, "empty output"), strings.Contains(lower, "empty_response"), strings.Contains(lower, "no output"), strings.Contains(lower, "response_empty"), strings.Contains(lower, `"output":[]`), strings.Contains(lower, `"choices":[]`), strings.Contains(lower, `"content":[]`):
 		classified.Category = CategoryEmptyOutput
 		classified.Retryable = true
+		classified.AlternateAccountEligible = true
+		classified.Code = "provider.empty_output"
+		classified.Scope = FailureScopeModel
 		classified.Message = "Grok returned empty output"
 	case strings.Contains(lower, "model capacity"), strings.Contains(lower, "model_capacity"), strings.Contains(lower, "capacity exhausted"), strings.Contains(lower, "model_overloaded"), strings.Contains(lower, "model_unavailable"), strings.Contains(lower, "capacity_exceeded"):
 		classified.Category = CategoryCapacity
 		classified.Retryable = true
+		classified.AlternateAccountEligible = true
+		classified.Code = "provider.capacity"
+		classified.Scope = FailureScopeModel
 		classified.Message = "Grok model capacity unavailable"
+	case evidence.StatusCode == http.StatusPaymentRequired:
+		classified.Category = CategoryQuota
+		classified.Retryable = false
+		classified.AlternateAccountEligible = false
+		classified.Code = "provider.quota_exhausted"
+		classified.Scope = FailureScopeAccount
+		classified.Message = "Grok billing quota exhausted"
 	case strings.Contains(lower, "free usage"), strings.Contains(lower, "free_usage"), strings.Contains(lower, "insufficient balance"), strings.Contains(lower, "spend limit"), strings.Contains(lower, "billing"), strings.Contains(lower, "credit exhausted"), strings.Contains(lower, "resource_exhausted"):
 		classified.Category = CategoryQuota
 		classified.Retryable = true
+		classified.AlternateAccountEligible = true
+		classified.Code = "provider.quota_exhausted"
+		classified.Scope = FailureScopeAccount
 		classified.Message = "Grok quota exhausted"
-	case statusCode == http.StatusPaymentRequired:
-		classified.Category = CategoryQuota
-		classified.Retryable = true
-		classified.Message = "Grok billing quota exhausted"
-	case statusCode >= 500:
+	case evidence.StatusCode >= 500:
 		classified.Category = CategoryServerError
 		classified.Retryable = true
+		classified.AlternateAccountEligible = true
+		classified.Code = "provider.server_error"
+		classified.Scope = FailureScopeProvider
 		classified.Message = "Grok upstream server error"
 	}
 	return classified

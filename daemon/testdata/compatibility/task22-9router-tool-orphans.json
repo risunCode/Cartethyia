@@ -1,0 +1,14 @@
+{
+  "fixture_id": "task22-9router-tool-orphans",
+  "source": "openai-chat",
+  "target": "openai-responses",
+  "operation": "generate",
+  "stream": false,
+  "messages": [
+    {"role":"user","content":"call lookup"},
+    {"role":"assistant","tool_calls":[{"id":"wire-tool-1","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"sanitized\"}"}},{"id":"wire-tool-1","type":"custom","function":{"name":"format","arguments":"{\"value\":1}"}}]},
+    {"role":"tool","tool_call_id":"wire-tool-1","content":"ok"},
+    {"role":"tool","tool_call_id":"orphan-result","content":"interrupted"}
+  ],
+  "expectation": {"tool_kinds":["function","custom"],"orphan":"typed-rejection","empty_success":false}
+}

@@ -143,6 +143,7 @@ func (t *TokenSet) Clone() *TokenSet {
 	}
 	return out
 }
+
 // Close releases both secret fields owned by the token set. It is safe to
 // call repeatedly and on a nil receiver.
 func (t *TokenSet) Close() {
@@ -154,7 +155,6 @@ func (t *TokenSet) Close() {
 	t.Access = nil
 	t.Refresh = nil
 }
-
 
 // OAuthTokenRecord is the non-secret, durable view of a token stored in
 // the local database. Token material is referenced by Secret (a

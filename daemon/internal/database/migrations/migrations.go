@@ -47,6 +47,8 @@ func All() []Migration {
 		customProviderCredentialRefs(),
 		customProviderWireFields(),
 		accountAuthority(),
+		apiKeyTokenReservations(),
+		proxyHealthConvergence(),
 	}
 	for i, m := range migs {
 		if m.Version != i+1 {
@@ -54,6 +56,56 @@ func All() []Migration {
 		}
 	}
 	return migs
+}
+
+func proxyHealthConvergence() Migration {
+	return Migration{Version: 30, Name: "proxy_health_convergence", Statements: []string{
+		`ALTER TABLE proxy_health ADD COLUMN IF NOT EXISTS last_failure_at TIMESTAMPTZ;`,
+		`ALTER TABLE proxy_health ADD COLUMN IF NOT EXISTS probe_until TIMESTAMPTZ;`,
+		`ALTER TABLE proxy_health ADD COLUMN IF NOT EXISTS failure_count INTEGER NOT NULL DEFAULT 0 CHECK (failure_count >= 0);`,
+		`ALTER TABLE proxy_health ADD COLUMN IF NOT EXISTS backoff_level INTEGER NOT NULL DEFAULT 0 CHECK (backoff_level BETWEEN 0 AND 30);`,
+		`CREATE INDEX IF NOT EXISTS idx_proxy_health_probe ON proxy_health (probe_until) WHERE probe_until IS NOT NULL;`,
+	}}
+}
+
+func apiKeyTokenReservations() Migration {
+	return Migration{Version: 29, Name: "api_key_token_reservations", Statements: []string{
+		`ALTER TABLE api_keys ALTER COLUMN one_time_tokens_used TYPE BIGINT;`,
+		`ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS one_time_tokens_reserved BIGINT NOT NULL DEFAULT 0 CHECK (one_time_tokens_reserved >= 0);`,
+		`CREATE TABLE IF NOT EXISTS api_key_token_windows (
+  key_id TEXT NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+  window_kind TEXT NOT NULL CHECK (window_kind IN ('daily', 'monthly')),
+  window_start DATE NOT NULL,
+  committed_tokens BIGINT NOT NULL DEFAULT 0 CHECK (committed_tokens >= 0),
+  reserved_tokens BIGINT NOT NULL DEFAULT 0 CHECK (reserved_tokens >= 0),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (key_id, window_kind, window_start)
+);`,
+		`CREATE TABLE IF NOT EXISTS api_key_token_reservations (
+  key_id TEXT NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+  request_id TEXT NOT NULL CHECK (char_length(request_id) BETWEEN 1 AND 96),
+  attempt INTEGER NOT NULL CHECK (attempt BETWEEN 1 AND 8),
+  window_at TIMESTAMPTZ NOT NULL,
+  daily_window_start DATE NOT NULL,
+  monthly_window_start DATE NOT NULL,
+  estimate_tokens BIGINT NOT NULL CHECK (estimate_tokens BETWEEN 1 AND 1000000000),
+  committed_tokens BIGINT NOT NULL DEFAULT 0 CHECK (committed_tokens BETWEEN 0 AND 1000000000),
+  input_tokens BIGINT CHECK (input_tokens BETWEEN 0 AND 1000000000),
+  output_tokens BIGINT CHECK (output_tokens BETWEEN 0 AND 1000000000),
+  cached_read_tokens BIGINT CHECK (cached_read_tokens BETWEEN 0 AND 1000000000),
+  cached_write_tokens BIGINT CHECK (cached_write_tokens BETWEEN 0 AND 1000000000),
+  reasoning_tokens BIGINT CHECK (reasoning_tokens BETWEEN 0 AND 1000000000),
+  total_tokens BIGINT CHECK (total_tokens BETWEEN 0 AND 1000000000),
+  status TEXT NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved', 'committed', 'released')),
+  release_reason TEXT CHECK (release_reason IS NULL OR release_reason = 'unaccepted'),
+  CHECK ((status = 'released') = (release_reason IS NOT NULL)),
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (key_id, request_id, attempt)
+);`,
+		`CREATE INDEX IF NOT EXISTS idx_api_key_token_reservations_expired ON api_key_token_reservations (expires_at, key_id, request_id, attempt) WHERE status = 'reserved';`,
+	}}
 }
 
 func accountAuthority() Migration {

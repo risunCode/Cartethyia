@@ -1,0 +1,27 @@
+{
+  "id": "specific-capability-error-compaction",
+  "content_generation": 1,
+  "request": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": "specific-capability-error-compaction" }
+    ]
+  },
+  "expected_semantic": {
+    "operation": { "kind": "remote-compaction", "compaction_version": "v2" },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "kind": "text", "text": "specific-capability-error-compaction" }
+        ]
+      }
+    ],
+    "terminal": {
+      "status": "error",
+      "event": "error",
+      "error_code": "capability.remote_compaction_v2_unsupported",
+      "sequence": ["error"]
+    }
+  }
+}

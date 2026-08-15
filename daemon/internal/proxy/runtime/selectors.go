@@ -7,7 +7,6 @@ package proxy
 import (
 	"context"
 	"errors"
-	"fmt"
 	"hash/fnv"
 	"net"
 	"sort"
@@ -18,8 +17,6 @@ import (
 	"github.com/cartethyia/daemon/internal/security/outbound"
 )
 
-const maxSelectionFallback = 64
-
 // SelectionReason identifies why a selector chose a particular candidate.
 // Reasons are stable strings used by the observability layer.
 type SelectionReason string
@@ -28,9 +25,6 @@ const (
 	ReasonPreferred      SelectionReason = "preferred"
 	ReasonSticky         SelectionReason = "sticky"
 	ReasonRoundRobin     SelectionReason = "round_robin"
-	ReasonLeastLoaded    SelectionReason = "least_loaded"
-	ReasonHeadroom       SelectionReason = "usage_headroom"
-	ReasonFallback       SelectionReason = "fallback"
 	ReasonDirect         SelectionReason = "direct_forced"
 	ReasonProxy          SelectionReason = "proxy"
 	ReasonProxyBusy      SelectionReason = "proxy_busy_direct"
@@ -66,219 +60,6 @@ type ProviderCandidate struct {
 	StickyAffinity bool
 }
 
-// AccountSelectionCandidate is the bounded, secret-free input to account
-// selection. Negative flags are intentionally explicit so an omitted health
-// or quota observation does not accidentally make an account unavailable.
-type AccountSelectionCandidate struct {
-	ID       string
-	Provider string
-	Model    string
-
-	// Enabled, Authorized, Compatible and QuotaAvailable are admission
-	// predicates. Callers must set them from the immutable catalog snapshot.
-	Enabled        bool
-	Authorized     bool
-	Compatible     bool
-	QuotaAvailable bool
-
-	// Quarantined and Disabled are operator overrides. They are never cleared
-	// by automatic recovery.
-	Quarantined bool
-	Disabled    bool
-
-	// Health/cooldown is evaluated before ranking. StateHealthy and an empty
-	// state both mean that no negative health observation is present.
-	Health        AccountState
-	CooldownUntil time.Time
-	ModelLocks    map[string]time.Time
-
-	Priority       int
-	UsageHeadroom  float64
-	Load           int
-	StickyAffinity bool
-}
-
-// AccountSelectionInput controls deterministic account ranking.
-type AccountSelectionInput struct {
-	Provider           string
-	Model              string
-	PreferredAccountID string
-	Affinity           AffinityKey
-	MaxFallback        int
-	Now                time.Time
-}
-
-// ErrInvalidCandidate is returned when candidate metadata cannot be selected.
-var ErrInvalidCandidate = errors.New("proxy: invalid selector candidate")
-
-// SelectAccountCandidate chooses one eligible account using explicit
-// preference, sticky rendezvous affinity, priority, quota headroom, load and
-// stable ID tie-breaking. The input is never mutated.
-func SelectAccountCandidate(ctx context.Context, in AccountSelectionInput, candidates []AccountSelectionCandidate) (AccountSelectionCandidate, SelectionDecision, error) {
-	ordered, decision, err := RankAccountCandidates(ctx, in, candidates)
-	if err != nil {
-		return AccountSelectionCandidate{}, SelectionDecision{}, err
-	}
-	if len(ordered) == 0 {
-		return AccountSelectionCandidate{}, SelectionDecision{}, ErrNoCandidate
-	}
-	decision.CandidateID = ordered[0].ID
-	return ordered[0], decision, nil
-}
-
-// RankAccountCandidates returns at most MaxFallback eligible candidates in
-// deterministic attempt order. This is the bounded fallback list consumed by
-// the router; it is deliberately separate from failure classification.
-func RankAccountCandidates(ctx context.Context, in AccountSelectionInput, candidates []AccountSelectionCandidate) ([]AccountSelectionCandidate, SelectionDecision, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, SelectionDecision{}, fmt.Errorf("%w: %v", ErrSelectionCanceled, err)
-	}
-	key := in.Affinity.String()
-	now := in.Now
-	if now.IsZero() {
-		now = time.Now()
-	}
-	limit := in.MaxFallback
-	if limit <= 0 || limit > maxSelectionFallback {
-		limit = maxSelectionFallback
-	}
-
-	eligible := make([]AccountSelectionCandidate, 0, len(candidates))
-	seen := make(map[string]struct{}, len(candidates))
-	excluded := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		if candidate.ID == "" {
-			return nil, SelectionDecision{}, fmt.Errorf("%w: empty candidate id", ErrInvalidCandidate)
-		}
-		if _, ok := seen[candidate.ID]; ok {
-			return nil, SelectionDecision{}, fmt.Errorf("%w: duplicate candidate id %q", ErrInvalidCandidate, candidate.ID)
-		}
-		seen[candidate.ID] = struct{}{}
-		if in.Provider != "" && candidate.Provider != in.Provider {
-			excluded = append(excluded, candidate.ID)
-			continue
-		}
-		if in.Model != "" && candidate.Model != "" && candidate.Model != in.Model {
-			excluded = append(excluded, candidate.ID)
-			continue
-		}
-		if !accountCandidateEligible(candidate, in.Model, now) {
-			excluded = append(excluded, candidate.ID)
-			continue
-		}
-		eligible = append(eligible, candidate)
-	}
-	if len(eligible) == 0 {
-		return nil, SelectionDecision{AffinityKey: key, ExcludedCandidateIDs: excluded}, ErrNoCandidate
-	}
-
-	sticky := key != ":" && hasStickyCandidate(eligible)
-	headroom := hasHeadroom(eligible)
-	sort.SliceStable(eligible, func(i, j int) bool {
-		left, right := eligible[i], eligible[j]
-		if left.ID == in.PreferredAccountID || right.ID == in.PreferredAccountID {
-			return left.ID == in.PreferredAccountID
-		}
-		if sticky && left.StickyAffinity != right.StickyAffinity {
-			return left.StickyAffinity
-		}
-		if sticky && left.StickyAffinity && right.StickyAffinity {
-			ls, rs := rendezvousScore(key, left.ID), rendezvousScore(key, right.ID)
-			if ls != rs {
-				return ls > rs
-			}
-		}
-		if left.Priority != right.Priority {
-			return left.Priority < right.Priority
-		}
-		if headroom && left.UsageHeadroom != right.UsageHeadroom {
-			return left.UsageHeadroom > right.UsageHeadroom
-		}
-		if left.Load != right.Load {
-			return left.Load < right.Load
-		}
-		return left.ID < right.ID
-	})
-	if len(eligible) > limit {
-		excluded = append(excluded, idsOf(eligible[limit:])...)
-		eligible = eligible[:limit]
-	}
-
-	reason := ReasonFallback
-	switch {
-	case eligible[0].ID == in.PreferredAccountID:
-		reason = ReasonPreferred
-	case sticky && eligible[0].StickyAffinity:
-		reason = ReasonSticky
-	case headroom:
-		reason = ReasonHeadroom
-	case eligible[0].Load > 0:
-		reason = ReasonLeastLoaded
-	case len(eligible) == 1:
-		reason = ReasonPreferred
-	}
-	return eligible, SelectionDecision{
-		CandidateID:          eligible[0].ID,
-		Reason:               reason,
-		AffinityKey:          key,
-		ChosenAt:             time.Now(),
-		ExcludedCandidateIDs: excluded,
-	}, nil
-}
-
-func accountCandidateEligible(candidate AccountSelectionCandidate, model string, now time.Time) bool {
-	if !candidate.Enabled || !candidate.Authorized || !candidate.Compatible ||
-		!candidate.QuotaAvailable || candidate.Disabled || candidate.Quarantined {
-		return false
-	}
-	switch candidate.Health {
-	case StateCoolingDown, StateError, StateDisabled, StateExhausted:
-		return false
-	}
-	if !candidate.CooldownUntil.IsZero() && candidate.CooldownUntil.After(now) {
-		return false
-	}
-	if model != "" {
-		if retryAt, ok := candidate.ModelLocks[model]; ok && retryAt.After(now) {
-			return false
-		}
-	}
-	return true
-}
-
-func hasStickyCandidate(candidates []AccountSelectionCandidate) bool {
-	for _, candidate := range candidates {
-		if candidate.StickyAffinity {
-			return true
-		}
-	}
-	return false
-}
-
-func hasHeadroom(candidates []AccountSelectionCandidate) bool {
-	for _, candidate := range candidates {
-		if candidate.UsageHeadroom > 0 {
-			return true
-		}
-	}
-	return false
-}
-
-func idsOf(candidates []AccountSelectionCandidate) []string {
-	ids := make([]string, len(candidates))
-	for i, candidate := range candidates {
-		ids[i] = candidate.ID
-	}
-	return ids
-}
-
-// CredentialSelector picks one credential from an account candidate set. The
-// default implementation defers to the pool but the interface exists so the
-// runtime can plug in OAuth, API-key, or service-account resolvers.
-type CredentialSelector interface {
-	Select(ctx context.Context, candidates []Account, affinity AffinityKey) (*Account, SelectionDecision, error)
-}
-
 // NetworkSelector decides whether to send traffic direct or via an outbound
 // proxy, given the current health of the candidate proxies.
 type NetworkSelector interface {
@@ -298,8 +79,6 @@ func (a AffinityKey) String() string {
 }
 
 // ErrNoCandidate is returned when a selector has nothing to choose from.
-// ErrSelectionCanceled identifies a canceled selection operation.
-var ErrSelectionCanceled = errors.New("proxy: selection canceled")
 var ErrNoCandidate = errors.New("proxy: no selector candidate")
 
 // RendezvousSelector orders candidates by FNV-1a 32-bit rendezvous score.
@@ -367,59 +146,6 @@ func orderByRendezvous[T any](key string, items []T, idOf func(T) string) []T {
 		out[i] = s.item
 	}
 	return out
-}
-
-// PoolBackedCredentialSelector defers credential selection to the AccountPool.
-// It is the default implementation injected by the central wiring layer.
-type PoolBackedCredentialSelector struct {
-	Pool *AccountPool
-	// Mode selects the pool strategy. "round_robin" or "least_loaded".
-	Mode string
-}
-
-// NewPoolBackedCredentialSelector wires a credential selector to the pool.
-func NewPoolBackedCredentialSelector(pool *AccountPool, mode string) *PoolBackedCredentialSelector {
-	if mode == "" {
-		mode = "round_robin"
-	}
-	return &PoolBackedCredentialSelector{Pool: pool, Mode: mode}
-}
-
-// Select defers to the pool. The returned SelectionDecision is enriched with
-// the affinity key so the observability layer can correlate.
-func (s *PoolBackedCredentialSelector) Select(ctx context.Context, candidates []Account, affinity AffinityKey) (*Account, SelectionDecision, error) {
-	if s.Pool == nil {
-		return nil, SelectionDecision{}, errors.New("proxy: nil account pool")
-	}
-	if len(candidates) == 0 {
-		return nil, SelectionDecision{}, ErrNoCandidate
-	}
-	provider := candidates[0].Provider
-	_ = candidates // Pool fetches its own snapshot via the store.
-
-	var (
-		acct *Account
-		err  error
-	)
-	switch s.Mode {
-	case "least_loaded":
-		acct, err = s.Pool.GetByLeastLoad(ctx, provider)
-	default:
-		acct, err = s.Pool.GetNext(ctx, provider)
-	}
-	if err != nil {
-		return nil, SelectionDecision{}, err
-	}
-	reason := ReasonRoundRobin
-	if s.Mode == "least_loaded" {
-		reason = ReasonLeastLoaded
-	}
-	return acct, SelectionDecision{
-		CandidateID: acct.ID,
-		Reason:      reason,
-		AffinityKey: affinity.String(),
-		ChosenAt:    time.Now(),
-	}, nil
 }
 
 // SelectNetworkInput is the input to NetworkSelector.Select.

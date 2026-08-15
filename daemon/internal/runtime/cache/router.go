@@ -252,6 +252,117 @@ func (r *Router) Delete(ctx context.Context, key Key) error {
 	return nil
 }
 
+// InvalidateGeneration forwards invalidation to every available generation
+// aware backend. Remote invalidation is advisory; the local fallback is always
+// attempted so a catalog refresh cannot leave stale L0 plans behind.
+func (r *Router) InvalidateGeneration(ctx context.Context, gen Generation) (int, error) {
+	if ctx == nil {
+		return 0, cacheError(ErrRouterConfig, "invalidate context", errors.New("nil context"))
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	r.mu.RLock()
+	if r.closed {
+		r.mu.RUnlock()
+		return 0, ErrClosed
+	}
+	primary, fallback, online := r.primary, r.fallback, r.state == HealthOnline
+	r.mu.RUnlock()
+	removed := 0
+	var firstErr error
+	if online {
+		if inv, ok := primary.(GenerationInvalidator); ok {
+			n, err := inv.InvalidateGeneration(ctx, gen)
+			removed += n
+			if err != nil {
+				firstErr = err
+				r.markFailure(normalizeRemoteError("invalidate", err))
+			}
+		}
+	}
+	if inv, ok := fallback.(GenerationInvalidator); ok {
+		n, err := inv.InvalidateGeneration(ctx, gen)
+		removed += n
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return removed, firstErr
+}
+
+func (r *Router) InvalidateAccount(ctx context.Context, provider, accountID string) (int, error) {
+	if ctx == nil {
+		return 0, cacheError(ErrRouterConfig, "invalidate context", errors.New("nil context"))
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	r.mu.RLock()
+	if r.closed {
+		r.mu.RUnlock()
+		return 0, ErrClosed
+	}
+	primary, fallback, online := r.primary, r.fallback, r.state == HealthOnline
+	r.mu.RUnlock()
+	removed := 0
+	var firstErr error
+	if online {
+		if inv, ok := primary.(GenerationInvalidator); ok {
+			n, err := inv.InvalidateAccount(ctx, provider, accountID)
+			removed += n
+			if err != nil {
+				firstErr = err
+				r.markFailure(normalizeRemoteError("invalidate", err))
+			}
+		}
+	}
+	if inv, ok := fallback.(GenerationInvalidator); ok {
+		n, err := inv.InvalidateAccount(ctx, provider, accountID)
+		removed += n
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return removed, firstErr
+}
+
+func (r *Router) InvalidateAll(ctx context.Context) (int, error) {
+	if ctx == nil {
+		return 0, cacheError(ErrRouterConfig, "invalidate context", errors.New("nil context"))
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	r.mu.RLock()
+	if r.closed {
+		r.mu.RUnlock()
+		return 0, ErrClosed
+	}
+	primary, fallback, online := r.primary, r.fallback, r.state == HealthOnline
+	r.mu.RUnlock()
+	removed := 0
+	var firstErr error
+	if online {
+		if inv, ok := primary.(GenerationInvalidator); ok {
+			n, err := inv.InvalidateAll(ctx)
+			removed += n
+			if err != nil {
+				firstErr = err
+				r.markFailure(normalizeRemoteError("invalidate", err))
+			}
+		}
+	}
+	if inv, ok := fallback.(GenerationInvalidator); ok {
+		n, err := inv.InvalidateAll(ctx)
+		removed += n
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return removed, firstErr
+}
+
 func (r *Router) Health(_ context.Context) Health {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -330,3 +441,4 @@ func wrapFallbackError(err error) error {
 }
 
 var _ Cache = (*Router)(nil)
+var _ GenerationInvalidator = (*Router)(nil)

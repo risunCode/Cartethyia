@@ -376,18 +376,22 @@ func (r *BunProxyRepository) PatchSettings(ctx context.Context, p models.ProxySe
 }
 
 type proxyHealthRow struct {
-	ProxyID    string     `bun:"proxy_id"`
-	Status     string     `bun:"status"`
-	ErrorKind  *string    `bun:"error_kind"`
-	StatusCode *int       `bun:"status_code"`
-	Message    *string    `bun:"sanitized_message"`
-	OccurredAt *time.Time `bun:"occurred_at"`
-	RetryAt    *time.Time `bun:"retry_at"`
-	UpdatedAt  time.Time  `bun:"updated_at"`
+	ProxyID       string     `bun:"proxy_id"`
+	Status        string     `bun:"status"`
+	ErrorKind     *string    `bun:"error_kind"`
+	StatusCode    *int       `bun:"status_code"`
+	Message       *string    `bun:"sanitized_message"`
+	OccurredAt    *time.Time `bun:"occurred_at"`
+	RetryAt       *time.Time `bun:"retry_at"`
+	LastFailureAt *time.Time `bun:"last_failure_at"`
+	ProbeUntil    *time.Time `bun:"probe_until"`
+	FailureCount  int        `bun:"failure_count"`
+	BackoffLevel  int        `bun:"backoff_level"`
+	UpdatedAt     time.Time  `bun:"updated_at"`
 }
 
 func (r proxyHealthRow) model() models.ProxyHealth {
-	return models.ProxyHealth{ProxyID: r.ProxyID, Status: r.Status, ErrorKind: valueString(r.ErrorKind), StatusCode: r.StatusCode, SanitizedMessage: valueString(r.Message), OccurredAt: r.OccurredAt, RetryAt: r.RetryAt, UpdatedAt: r.UpdatedAt}
+	return models.ProxyHealth{ProxyID: r.ProxyID, Status: r.Status, ErrorKind: valueString(r.ErrorKind), StatusCode: r.StatusCode, SanitizedMessage: valueString(r.Message), OccurredAt: r.OccurredAt, RetryAt: r.RetryAt, LastFailureAt: r.LastFailureAt, ProbeUntil: r.ProbeUntil, FailureCount: r.FailureCount, BackoffLevel: r.BackoffLevel, UpdatedAt: r.UpdatedAt}
 }
 func (r *BunProxyRepository) GetHealth(ctx context.Context, id string) (models.ProxyHealth, error) {
 	if err := r.ready(); err != nil {
@@ -417,8 +421,103 @@ func (r *BunProxyRepository) UpsertHealth(ctx context.Context, h models.ProxyHea
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	_, err := r.db.NewRaw(`INSERT INTO proxy_health (proxy_id,status,error_kind,status_code,sanitized_message,occurred_at,retry_at,updated_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (proxy_id) DO UPDATE SET status=EXCLUDED.status,error_kind=EXCLUDED.error_kind,status_code=EXCLUDED.status_code,sanitized_message=EXCLUDED.sanitized_message,occurred_at=EXCLUDED.occurred_at,retry_at=EXCLUDED.retry_at,updated_at=EXCLUDED.updated_at`, h.ProxyID, nullString(h.Status), nullString(h.ErrorKind), h.StatusCode, nullString(h.SanitizedMessage), h.OccurredAt, h.RetryAt, now).Exec(ctx)
+	_, err := r.db.NewRaw(`INSERT INTO proxy_health (proxy_id,status,error_kind,status_code,sanitized_message,occurred_at,retry_at,last_failure_at,probe_until,failure_count,backoff_level,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (proxy_id) DO UPDATE SET status=EXCLUDED.status,error_kind=EXCLUDED.error_kind,status_code=EXCLUDED.status_code,sanitized_message=EXCLUDED.sanitized_message,occurred_at=EXCLUDED.occurred_at,retry_at=EXCLUDED.retry_at,last_failure_at=EXCLUDED.last_failure_at,probe_until=EXCLUDED.probe_until,failure_count=EXCLUDED.failure_count,backoff_level=EXCLUDED.backoff_level,updated_at=EXCLUDED.updated_at`, h.ProxyID, nullString(h.Status), nullString(h.ErrorKind), h.StatusCode, nullString(h.SanitizedMessage), h.OccurredAt, h.RetryAt, h.LastFailureAt, h.ProbeUntil, h.FailureCount, h.BackoffLevel, now).Exec(ctx)
 	return err
+}
+
+func (r *BunProxyRepository) RecordHealthFailure(ctx context.Context, proxyID, kind, message string, occurredAt time.Time, collapseWindow time.Duration, threshold int, baseBackoff, maxBackoff time.Duration) (models.ProxyHealth, error) {
+	if err := r.ready(); err != nil {
+		return models.ProxyHealth{}, err
+	}
+	proxyID = boundProxy(proxyID)
+	kind = boundProxy(kind)
+	message = boundProxy(message)
+	if len(kind) > maxProxyText {
+		kind = kind[:maxProxyText]
+	}
+	if len(message) > maxProxyError {
+		message = message[:maxProxyError]
+	}
+	if proxyID == "" {
+		return models.ProxyHealth{}, errors.New("proxy health: proxy_id is required")
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	} else {
+		occurredAt = occurredAt.UTC()
+	}
+	if collapseWindow < 0 {
+		collapseWindow = 0
+	}
+	if threshold < 1 {
+		threshold = 1
+	}
+	if baseBackoff <= 0 {
+		baseBackoff = time.Second
+	}
+	if maxBackoff < baseBackoff {
+		maxBackoff = baseBackoff
+	}
+	status := "healthy"
+	backoffLevel := 0
+	var retryAt *time.Time
+	if threshold == 1 {
+		value := occurredAt.Add(baseBackoff)
+		if baseBackoff > maxBackoff {
+			value = occurredAt.Add(maxBackoff)
+		}
+		status = "cooling_down"
+		backoffLevel = 1
+		retryAt = &value
+	}
+	cutoff := occurredAt.Add(-collapseWindow)
+	baseMillis := baseBackoff.Milliseconds()
+	maxMillis := maxBackoff.Milliseconds()
+	var row proxyHealthRow
+	err := r.db.NewRaw(`
+INSERT INTO proxy_health (proxy_id,status,error_kind,sanitized_message,occurred_at,retry_at,last_failure_at,probe_until,failure_count,backoff_level,updated_at)
+VALUES (?,?,?,?,?,?,?,?,1,?,?)
+ON CONFLICT (proxy_id) DO UPDATE SET
+  status = CASE WHEN (proxy_health.last_failure_at IS NULL OR proxy_health.last_failure_at <= ?) AND proxy_health.failure_count + 1 >= ? THEN 'cooling_down' ELSE proxy_health.status END,
+  error_kind = CASE WHEN proxy_health.last_failure_at IS NULL OR proxy_health.last_failure_at <= ? THEN EXCLUDED.error_kind ELSE proxy_health.error_kind END,
+  sanitized_message = CASE WHEN proxy_health.last_failure_at IS NULL OR proxy_health.last_failure_at <= ? THEN EXCLUDED.sanitized_message ELSE proxy_health.sanitized_message END,
+  occurred_at = CASE WHEN proxy_health.last_failure_at IS NULL OR proxy_health.last_failure_at <= ? THEN EXCLUDED.occurred_at ELSE proxy_health.occurred_at END,
+  retry_at = CASE WHEN (proxy_health.last_failure_at IS NULL OR proxy_health.last_failure_at <= ?) AND proxy_health.failure_count + 1 >= ? THEN ? + (LEAST(?, (? * power(2, LEAST(proxy_health.backoff_level, 30)))::bigint) * INTERVAL '1 millisecond') ELSE proxy_health.retry_at END,
+  last_failure_at = CASE WHEN proxy_health.last_failure_at IS NULL OR proxy_health.last_failure_at <= ? THEN EXCLUDED.last_failure_at ELSE proxy_health.last_failure_at END,
+  probe_until = CASE WHEN proxy_health.last_failure_at IS NULL OR proxy_health.last_failure_at <= ? THEN NULL ELSE proxy_health.probe_until END,
+  failure_count = CASE WHEN proxy_health.last_failure_at IS NULL OR proxy_health.last_failure_at <= ? THEN proxy_health.failure_count + 1 ELSE proxy_health.failure_count END,
+  backoff_level = CASE WHEN (proxy_health.last_failure_at IS NULL OR proxy_health.last_failure_at <= ?) AND proxy_health.failure_count + 1 >= ? THEN LEAST(proxy_health.backoff_level + 1, 30) ELSE proxy_health.backoff_level END,
+  updated_at = CASE WHEN proxy_health.last_failure_at IS NULL OR proxy_health.last_failure_at <= ? THEN EXCLUDED.updated_at ELSE proxy_health.updated_at END
+RETURNING proxy_id,status,error_kind,status_code,sanitized_message,occurred_at,retry_at,last_failure_at,probe_until,failure_count,backoff_level,updated_at`,
+		proxyID, status, nullString(kind), nullString(message), occurredAt, retryAt, occurredAt, nil, backoffLevel, occurredAt,
+		cutoff, threshold, cutoff, cutoff, cutoff, cutoff, threshold, occurredAt, maxMillis, baseMillis, cutoff, cutoff, cutoff, cutoff, threshold, cutoff).Scan(ctx, &row)
+	if err != nil {
+		return models.ProxyHealth{}, err
+	}
+	return row.model(), nil
+}
+
+func (r *BunProxyRepository) RecordHealthSuccess(ctx context.Context, proxyID string, occurredAt time.Time) error {
+	if err := r.ready(); err != nil {
+		return err
+	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	_, err := r.db.NewRaw(`UPDATE proxy_health SET status='healthy',error_kind=NULL,status_code=NULL,sanitized_message=NULL,occurred_at=?,retry_at=NULL,last_failure_at=NULL,probe_until=NULL,failure_count=0,backoff_level=0,updated_at=? WHERE proxy_id=?`, occurredAt.UTC(), occurredAt.UTC(), boundProxy(proxyID)).Exec(ctx)
+	return err
+}
+
+func (r *BunProxyRepository) ClaimHealthProbe(ctx context.Context, proxyID string, now, leaseUntil time.Time) (bool, error) {
+	if err := r.ready(); err != nil {
+		return false, err
+	}
+	result, err := r.db.NewRaw(`UPDATE proxy_health SET status='probing',probe_until=?,updated_at=? WHERE proxy_id=? AND status IN ('cooling_down','probing') AND retry_at IS NOT NULL AND retry_at <= ? AND (probe_until IS NULL OR probe_until <= ?)`, leaseUntil.UTC(), now.UTC(), boundProxy(proxyID), now.UTC(), now.UTC()).Exec(ctx)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	return count == 1, err
 }
 
 func (r *BunProxyRepository) ListCustomProviders(ctx context.Context) ([]models.CustomProvider, error) {

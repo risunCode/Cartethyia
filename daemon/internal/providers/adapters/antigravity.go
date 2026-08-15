@@ -259,6 +259,6 @@ func antigravityTools(input map[string]any) []map[string]any {
 	return tools
 }
 
-func (p *AntigravityAdapter) ClassifyResponse(statusCode int, body []byte) ClassifiedResponse {
-	return classifyByStatus(statusCode, body)
+func (p *AntigravityAdapter) ClassifyResponse(evidence ResponseEvidence) ClassifiedResponse {
+	return classifyByStatus(evidence)
 }

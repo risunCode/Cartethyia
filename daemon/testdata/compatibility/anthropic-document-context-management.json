@@ -1,0 +1,60 @@
+{
+  "id": "anthropic-document-context-management",
+  "content_generation": 1,
+  "request": {
+    "model": "claude-sonnet-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "document",
+            "source": {
+              "type": "base64",
+              "media_type": "application/pdf",
+              "data": "cGRmLWZpeHR1cmU="
+            }
+          }
+        ]
+      }
+    ],
+    "context_management": { "edits": [{ "type": "clear_tool_uses_2026" }] }
+  },
+  "expected_semantic": {
+    "operation": { "kind": "generate" },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "kind": "pdf",
+            "media": {
+              "modality": "pdf",
+              "reference_kind": "inline-data",
+              "mime_type": "application/pdf",
+              "filename": "manual.pdf",
+              "reference_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "size_bytes": 12
+            }
+          }
+        ]
+      }
+    ],
+    "media": [
+      {
+        "modality": "pdf",
+        "reference_kind": "inline-data",
+        "mime_type": "application/pdf",
+        "filename": "manual.pdf",
+        "reference_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "size_bytes": 12
+      }
+    ],
+    "terminal": {
+      "status": "success",
+      "event": "completed",
+      "stop_reason": "stop",
+      "sequence": ["completed"]
+    }
+  }
+}

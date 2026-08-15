@@ -217,6 +217,6 @@ func codexAccountID(accessToken string) string {
 	return strings.TrimSpace(payload.Auth.ChatGPTAccountID)
 }
 
-func (p *CodexAdapter) ClassifyResponse(statusCode int, body []byte) ClassifiedResponse {
-	return p.base.ClassifyResponse(statusCode, body)
+func (p *CodexAdapter) ClassifyResponse(evidence ResponseEvidence) ClassifiedResponse {
+	return p.base.ClassifyResponse(evidence)
 }

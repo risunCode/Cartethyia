@@ -1,0 +1,44 @@
+{
+  "id": "gemini-native-stream-terminal",
+  "content_generation": 1,
+  "request": {
+    "model": "gemini-2.5-pro",
+    "contents": [
+      { "role": "user", "parts": [{ "text": "native turn" }] },
+      {
+        "role": "model",
+        "parts": [
+          { "functionCall": { "name": "search", "args": { "q": "weather" } } },
+          { "functionCall": { "name": "lookup", "args": { "q": "calendar" } } }
+        ]
+      },
+      {
+        "role": "user",
+        "parts": [
+          {
+            "functionResponse": { "name": "search", "response": { "ok": true } }
+          },
+          {
+            "functionResponse": { "name": "lookup", "response": { "ok": true } }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_semantic": {
+    "operation": { "kind": "generate" },
+    "messages": [
+      { "role": "user", "content": [{ "kind": "text", "text": "native turn" }] }
+    ],
+    "tools": [
+      { "kind": "function", "name": "search", "schema": { "type": "object" } },
+      { "kind": "function", "name": "lookup", "schema": { "type": "object" } }
+    ],
+    "terminal": {
+      "status": "success",
+      "event": "done",
+      "stop_reason": "stop",
+      "sequence": ["content", "done"]
+    }
+  }
+}

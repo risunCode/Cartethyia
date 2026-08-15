@@ -3,6 +3,8 @@ package transforms
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"strings"
 )
 
 // ToolArgumentLimit mirrors the legacy MAX_TOOL_ARGUMENT_LENGTH bound (64 KiB).
@@ -49,8 +51,14 @@ func RepairToolCallArguments(raw string) string {
 	if len(raw) == 0 {
 		return "{}"
 	}
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
 	var probe any
-	if err := json.Unmarshal([]byte(raw), &probe); err == nil {
+	if err := decoder.Decode(&probe); err == nil {
+		var extra any
+		if trailingErr := decoder.Decode(&extra); trailingErr != io.EOF {
+			return raw
+		}
 		// Normalize through Marshal to drop insignificant whitespace.
 		buf, err := json.Marshal(probe)
 		if err == nil {

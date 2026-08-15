@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	appconfig "github.com/cartethyia/daemon/internal/config"
 	"github.com/cartethyia/daemon/internal/providers"
+	serverwire "github.com/cartethyia/daemon/internal/server/api/wire"
 )
 
 // Config contains the values required to assemble the daemon runtime.
@@ -43,6 +45,7 @@ type dependencyState struct {
 type Runtime struct {
 	server          *http.Server
 	lifecycle       *Lifecycle
+	serveCancel     context.CancelFunc
 	shutdownTimeout time.Duration
 	startupTimeout  time.Duration
 
@@ -114,6 +117,7 @@ func newRuntimeWithOptions(cfg Config, artwork string, options RuntimeOptions, b
 		}
 		return nil, runtimeError(CodeDependencyRequired, "bootstrap", err)
 	}
+	handler = serverwire.WithStreamDeadlines(handler, cfg.StreamIdleTimeout, cfg.StreamTotalTimeout)
 	if options.StartupTimeout <= 0 {
 		options.StartupTimeout = cfg.ConnectTimeout
 		if options.StartupTimeout <= 0 {
@@ -152,6 +156,19 @@ func newRuntimeWithOptions(cfg Config, artwork string, options RuntimeOptions, b
 			Name: "redis", Required: false, Probe: remote.Probe, Close: func(_ context.Context) error { return bootstrap.Cache.Close() },
 		})
 	}
+	if bootstrap.Database != nil && bootstrap.Database.TokenBudget != nil {
+		cleaner := bootstrap.Database.TokenBudget
+		options.Workers = append(options.Workers, RecoveryWorker{
+			Name:         "expired_token_reservations",
+			Interval:     time.Minute,
+			MaxBackoff:   15 * time.Minute,
+			ProbeTimeout: cfg.ConnectTimeout,
+			Probe: func(ctx context.Context) error {
+				_, err := cleaner.RecoverExpired(ctx, time.Now().UTC(), 0)
+				return err
+			},
+		})
+	}
 	states := make(map[string]*dependencyState, len(allDeps))
 	order := make([]string, 0, len(allDeps))
 	for _, dep := range allDeps {
@@ -164,15 +181,22 @@ func newRuntimeWithOptions(cfg Config, artwork string, options RuntimeOptions, b
 		states[dep.Name] = &dependencyState{dependency: dep, healthy: true}
 		order = append(order, dep.Name)
 	}
+	serveCtx, serveCancel := context.WithCancel(context.Background())
 	return &Runtime{
 		server: &http.Server{
-			Addr:         cfg.ListenAddress,
-			Handler:      handler,
-			ReadTimeout:  cfg.RequestTimeout,
-			WriteTimeout: cfg.RequestTimeout,
-			IdleTimeout:  cfg.IdleTimeout,
+			Addr:              cfg.ListenAddress,
+			Handler:           handler,
+			ReadTimeout:       cfg.RequestTimeout,
+			ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+			WriteTimeout:      cfg.RequestTimeout,
+			IdleTimeout:       cfg.IdleTimeout,
+			MaxHeaderBytes:    cfg.MaxHeaderBytes,
+			BaseContext: func(net.Listener) context.Context {
+				return serveCtx
+			},
 		},
 		lifecycle:         NewLifecycle(),
+		serveCancel:       serveCancel,
 		shutdownTimeout:   cfg.ShutdownTimeout,
 		startupTimeout:    options.StartupTimeout,
 		dependencies:      states,
@@ -387,6 +411,9 @@ func (r *Runtime) Close(ctx context.Context) error {
 			r.closeErr = err
 			r.closeMu.Unlock()
 			return
+		}
+		if r.serveCancel != nil {
+			r.serveCancel()
 		}
 		shutdownCtx, cancel := context.WithTimeout(ctx, r.shutdownTimeout)
 		defer cancel()

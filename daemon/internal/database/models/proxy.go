@@ -94,6 +94,10 @@ type ProxyHealth struct {
 	SanitizedMessage string
 	OccurredAt       *time.Time
 	RetryAt          *time.Time
+	LastFailureAt    *time.Time
+	ProbeUntil       *time.Time
+	FailureCount     int
+	BackoffLevel     int
 	UpdatedAt        time.Time
 }
 

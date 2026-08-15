@@ -150,24 +150,15 @@ type StreamReader interface {
 	Close() error
 }
 
-// ProxyService is the narrow interface consumed by /v1 handlers.
+// ProxyService is the cancellable dispatch interface consumed by /v1 handlers.
 type ProxyService interface {
-	Dispatch(req *domaincontracts.Request) (Stream, error)
-}
-
-// ContextProxyService is implemented by dispatchers that preserve the
-// inbound request context through normalization, routing, and transport.
-type ContextProxyService interface {
 	DispatchContext(context.Context, *domaincontracts.Request) (Stream, error)
 }
 
-// DispatchContext calls the cancellable dispatch API when the proxy provides
-// it, while retaining compatibility with lightweight legacy test doubles.
+// DispatchContext preserves the inbound request context through normalization,
+// routing, and transport.
 func DispatchContext(ctx context.Context, proxy ProxyService, req *domaincontracts.Request) (Stream, error) {
-	if contextual, ok := proxy.(ContextProxyService); ok {
-		return contextual.DispatchContext(ctx, req)
-	}
-	return proxy.Dispatch(req)
+	return proxy.DispatchContext(ctx, req)
 }
 
 // ModelCatalog is the model listing contract used by /v1/models.

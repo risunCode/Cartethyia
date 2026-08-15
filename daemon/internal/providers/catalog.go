@@ -43,6 +43,7 @@ type CatalogOverrides struct {
 	DisableToolCalls bool
 	AllowedModelIDs  []string
 	HiddenModelIDs   []string
+	Compatibility    *CompatibilityPolicy
 }
 
 func resolveDefinitionModels(def ProviderDefinition) []ProviderModel {
@@ -93,6 +94,10 @@ func applyCatalogOverrides(models []ProviderModel, overrides CatalogOverrides) [
 			}
 		}
 		model.Metadata = applyMetadataOverrides(model.Metadata, overrides)
+		if overrides.Compatibility != nil {
+			policy := overrides.Compatibility.Clone()
+			model.Compatibility = &policy
+		}
 		if model.Capabilities != nil {
 			caps := *model.Capabilities
 			if overrides.DisableVision {
@@ -104,7 +109,24 @@ func applyCatalogOverrides(models []ProviderModel, overrides CatalogOverrides) [
 			if overrides.DisableToolCalls {
 				caps.ToolCalls = false
 			}
+			if overrides.DisableVision {
+				caps.Compatibility.Media.Kinds = withoutMediaKind(caps.Compatibility.Media.Kinds, MediaImage)
+			}
+			if overrides.DisableReasoning {
+				caps.Compatibility.Reasoning.Enabled = false
+				caps.Compatibility.Reasoning.Formats = nil
+			}
+			if overrides.DisableToolCalls {
+				caps.Compatibility.Tools.SupportedKinds = nil
+			}
 			model.Capabilities = &caps
+		}
+		if model.Compatibility != nil {
+			policy := model.Compatibility.Clone()
+			if overrides.DisableVision { policy.Media.Kinds = withoutMediaKind(policy.Media.Kinds, MediaImage) }
+			if overrides.DisableReasoning { policy.Reasoning.Enabled = false; policy.Reasoning.Formats = nil }
+			if overrides.DisableToolCalls { policy.Tools.SupportedKinds = nil }
+			model.Compatibility = &policy
 		}
 		result = append(result, model)
 	}
@@ -138,6 +160,14 @@ func withoutModality(values []string, unwanted string) []string {
 	return result
 }
 
+func withoutMediaKind(values []MediaKind, unwanted MediaKind) []MediaKind {
+	result := make([]MediaKind, 0, len(values))
+	for _, value := range values {
+		if value != unwanted { result = append(result, value) }
+	}
+	return result
+}
+
 func sortedModelIDs(models []ProviderModel) []string {
 	ids := make([]string, 0, len(models))
 	for _, model := range models {
@@ -162,6 +192,8 @@ type HandwrittenModel struct {
 	Pricing           *ModelPricing
 	ModelsDevProvider string
 	ModelsDevModel    string
+	Compatibility     *CompatibilityPolicy
+	Policy            *CompatibilityPolicy
 }
 
 func HandwrittenModels(models ...HandwrittenModel) []ProviderModel {
@@ -173,6 +205,7 @@ func HandwrittenModels(models ...HandwrittenModel) []ProviderModel {
 			Reasoning: model.Reasoning, ToolCalls: model.ToolCalls,
 			ModelsDevProvider: model.ModelsDevProvider, ModelsDevModel: model.ModelsDevModel,
 			ContextWindow: model.ContextWindow, MaxOutput: model.MaxOutput, Pricing: model.Pricing,
+			Compatibility: clonePolicyPtr(model.Compatibility), Policy: clonePolicyPtr(model.Policy),
 			Metadata: ModelMetadata{
 				ContextWindow: model.ContextWindow, MaxOutput: model.MaxOutput,
 				Pricing: derefPricing(model.Pricing), Source: "provider",

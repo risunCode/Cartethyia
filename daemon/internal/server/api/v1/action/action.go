@@ -85,7 +85,7 @@ func handle(w http.ResponseWriter, r *http.Request, proxy apicontracts.ProxyServ
 	emitLifecycle(r, evidence, withLifecycle(baseEvent, observability.EventRouteSelected, observability.StageRouteAttempt, "", observability.CodeRouteSelected))
 	emitLifecycle(r, evidence, withLifecycle(baseEvent, observability.EventProviderAttempt, observability.StageProviderCall, "", observability.CodeProviderAttempt))
 
-	stream, err := proxy.Dispatch(&contracts.Request{Protocol: protocol, Model: envelope.Model, Headers: r.Header.Clone(), Body: body, Stream: envelope.Stream})
+	stream, err := apicontracts.DispatchContext(r.Context(), proxy, &contracts.Request{Protocol: protocol, Model: envelope.Model, Headers: r.Header.Clone(), Body: body, Stream: envelope.Stream})
 	if err != nil {
 		outcome := observability.OutcomeError
 		if errors.Is(err, context.Canceled) {

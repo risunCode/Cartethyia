@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,9 +13,10 @@ import (
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
 	apicontracts "github.com/cartethyia/daemon/internal/server/api/contracts"
 	apierrors "github.com/cartethyia/daemon/internal/server/api/errors"
+	"github.com/cartethyia/daemon/internal/server/api/wire"
 )
 
-// fakeProxy records every Dispatch call so tests can assert the handler
+// fakeProxy records every dispatch call so tests can assert the handler
 // exits before touching the proxy pipeline on validation failures.
 type fakeProxy struct {
 	calls      int
@@ -24,15 +26,11 @@ type fakeProxy struct {
 	ctx        context.Context
 }
 
-func (f *fakeProxy) Dispatch(req *contracts.Request) (apicontracts.Stream, error) {
+func (f *fakeProxy) DispatchContext(ctx context.Context, req *contracts.Request) (apicontracts.Stream, error) {
+	f.ctx = ctx
 	f.calls++
 	f.dispatched = req
 	return f.stream, f.err
-}
-
-func (f *fakeProxy) DispatchContext(ctx context.Context, req *contracts.Request) (apicontracts.Stream, error) {
-	f.ctx = ctx
-	return f.Dispatch(req)
 }
 
 // fakeStream implements apicontracts.Stream with a fixed body and headers so
@@ -181,15 +179,15 @@ func TestChatRejectsOversizedBody(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code < 400 || rec.Code > 499 {
-		t.Fatalf("status = %d, want a 4xx", rec.Code)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
 	}
 	var body apierrors.Response
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("response is not the envelope: %v", err)
 	}
-	if body.Error.Code != apierrors.CodeInvalidRequest {
-		t.Fatalf("code = %q, want %q", body.Error.Code, apierrors.CodeInvalidRequest)
+	if body.Error.Code != apierrors.CodePayloadTooLarge {
+		t.Fatalf("code = %q, want %q", body.Error.Code, apierrors.CodePayloadTooLarge)
 	}
 	if proxy.calls != 0 {
 		t.Fatalf("proxy.Dispatch was called %d times, want 0", proxy.calls)
@@ -200,7 +198,7 @@ func TestChatDispatchesValidRequest(t *testing.T) {
 	stream := &fakeStream{
 		status:      http.StatusOK,
 		contentType: "application/json",
-		headers:     http.Header{"X-Provider": {"openai"}},
+		headers:     http.Header{"OpenAI-Request-Id": {"req_upstream_1"}},
 		body:        `{"ok":true}`,
 	}
 	proxy := &fakeProxy{stream: stream}
@@ -219,8 +217,8 @@ func TestChatDispatchesValidRequest(t *testing.T) {
 	if got := rec.Body.String(); got != `{"ok":true}` {
 		t.Fatalf("body = %q, want %q", got, `{"ok":true}`)
 	}
-	if got := rec.Header().Get("X-Provider"); got != "openai" {
-		t.Fatalf("X-Provider = %q, want %q", got, "openai")
+	if got := rec.Header().Get(wire.HeaderUpstreamRequestID); got != "req_upstream_1" {
+		t.Fatalf("%s = %q, want %q", wire.HeaderUpstreamRequestID, got, "req_upstream_1")
 	}
 	if !stream.closed {
 		t.Fatal("stream body was not closed after response write")
@@ -250,16 +248,27 @@ func TestChatDispatchesValidRequest(t *testing.T) {
 	}
 }
 
-func TestChatDispatchUsesInboundContext(t *testing.T) {
-	proxy := &fakeProxy{stream: &fakeStream{status: http.StatusOK, body: "ok"}}
+func TestChatCancellationReachesProxyOnce(t *testing.T) {
+	const secret = "secret=chat-cancellation-sentinel"
+	proxy := &fakeProxy{err: fmt.Errorf("%s: %w", secret, context.Canceled)}
 	mux := newRouter(proxy)
 	reqCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	cancel()
 	req := httptest.NewRequest(http.MethodPost, Path, strings.NewReader(`{"model":"gpt-4"}`)).WithContext(reqCtx)
 	req.Header.Set("Content-Type", "application/json")
-	mux.ServeHTTP(httptest.NewRecorder(), req)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if proxy.calls != 1 {
+		t.Fatalf("dispatch calls=%d want=1", proxy.calls)
+	}
 	if proxy.ctx != reqCtx {
 		t.Fatal("handler did not pass the inbound request context to dispatch")
+	}
+	if proxy.ctx.Err() != context.Canceled {
+		t.Fatalf("dispatch context error=%v want=%v", proxy.ctx.Err(), context.Canceled)
+	}
+	if strings.Contains(rec.Body.String(), secret) {
+		t.Fatalf("response leaked cancellation detail: %s", rec.Body.String())
 	}
 }
 

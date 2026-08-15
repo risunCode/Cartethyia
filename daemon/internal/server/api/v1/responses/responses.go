@@ -5,10 +5,12 @@ package responses
 import (
 	"net/http"
 
+	"github.com/cartethyia/daemon/internal/proxy/protocol/compatibility"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
 	"github.com/cartethyia/daemon/internal/server/api/contracts"
 	"github.com/cartethyia/daemon/internal/server/api/errors"
 	"github.com/cartethyia/daemon/internal/server/api/wire"
+	"github.com/cartethyia/daemon/internal/server/middleware"
 )
 
 // Path is the canonical /v1 path for OpenAI Responses.
@@ -47,13 +49,24 @@ func handle(w http.ResponseWriter, r *http.Request, proxy apicontracts.ProxyServ
 	}
 
 	req := &contracts.Request{
-		Protocol: contracts.ProtocolOpenAIResponse,
-		Headers:  r.Header.Clone(),
-		Body:     body,
-		Stream:   wire.StreamRequested(body),
+		Protocol:          contracts.ProtocolOpenAIResponse,
+		Headers:           r.Header.Clone(),
+		Body:              body,
+		Stream:            wire.StreamRequested(body),
+		ContinuationScope: middleware.PublicAPIKeyIDFrom(r.Context()),
 	}
 
-	stream, err := apicontracts.DispatchContext(r.Context(), proxy, req)
+	dispatchCtx, profileErr := compatibility.AttachProfile(r.Context(), compatibility.ClassificationInput{
+		Endpoint: Path,
+		Surface:  contracts.SurfaceOpenAIResponses,
+		Headers:  r.Header,
+		Body:     body,
+	})
+	if profileErr != nil {
+		apierrors.Write(w, http.StatusInternalServerError, apierrors.CodeInternal, "request profile classification failed")
+		return
+	}
+	stream, err := apicontracts.DispatchContext(dispatchCtx, proxy, req)
 	if err != nil {
 		apierrors.WriteError(w, err)
 		return

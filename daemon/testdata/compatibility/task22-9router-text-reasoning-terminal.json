@@ -1,0 +1,14 @@
+{
+  "fixture_id": "task22-9router-text-reasoning-terminal",
+  "source": "openai-chat",
+  "target": "gemini",
+  "operation": "generate",
+  "stream": true,
+  "messages": [
+    {"role":"system","content":"be concise"},
+    {"role":"developer","content":[{"type":"text","text":"use the fixture policy"}]},
+    {"role":"assistant","reasoning_content":"short sanitized reasoning","content":"answer"},
+    {"role":"user","content":[{"type":"text","text":"continue"},{"type":"text","text":"with ordered array"}]}
+  ],
+  "expectation": {"text_array_order":true,"reasoning_preserved":true,"forced_stream":true,"terminal":"exactly-one-success"}
+}

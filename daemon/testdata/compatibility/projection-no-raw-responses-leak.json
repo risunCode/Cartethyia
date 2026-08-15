@@ -1,0 +1,20 @@
+{
+  "id": "projection-no-raw-responses-leak",
+  "content_generation": 1,
+  "request": {
+    "model": "gpt-5.6",
+    "messages": [{ "role": "user", "content": "projection" }]
+  },
+  "expected_semantic": {
+    "operation": { "kind": "generate" },
+    "messages": [
+      { "role": "user", "content": [{ "kind": "text", "text": "projection" }] }
+    ],
+    "terminal": {
+      "status": "error",
+      "event": "error",
+      "error_code": "compat_encode",
+      "sequence": ["error"]
+    }
+  }
+}

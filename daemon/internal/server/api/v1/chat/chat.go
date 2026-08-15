@@ -5,6 +5,7 @@ package chat
 import (
 	"net/http"
 
+	"github.com/cartethyia/daemon/internal/proxy/protocol/compatibility"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
 	"github.com/cartethyia/daemon/internal/server/api/contracts"
 	"github.com/cartethyia/daemon/internal/server/api/errors"
@@ -53,7 +54,17 @@ func handle(w http.ResponseWriter, r *http.Request, proxy apicontracts.ProxyServ
 		Stream:   wire.StreamRequested(body),
 	}
 
-	stream, err := apicontracts.DispatchContext(r.Context(), proxy, req)
+	dispatchCtx, profileErr := compatibility.AttachProfile(r.Context(), compatibility.ClassificationInput{
+		Endpoint: Path,
+		Surface:  contracts.SurfaceOpenAIChat,
+		Headers:  r.Header,
+		Body:     body,
+	})
+	if profileErr != nil {
+		apierrors.Write(w, http.StatusInternalServerError, apierrors.CodeInternal, "request profile classification failed")
+		return
+	}
+	stream, err := apicontracts.DispatchContext(dispatchCtx, proxy, req)
 	if err != nil {
 		apierrors.WriteError(w, err)
 		return

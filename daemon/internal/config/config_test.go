@@ -11,8 +11,10 @@ func TestFromEnvironmentDefaults(t *testing.T) {
 		"CARTETHYIA_LISTEN_ADDRESS", "LISTEN_ADDRESS", "CARTETHYIA_ENV",
 		"NODE_ENV", "DATABASE_URL", "CARTETHYIA_DATABASE_URL",
 		"CARTETHYIA_REDIS_URL", "REDIS_URL", "CARTETHYIA_REQUEST_TIMEOUT",
+		"CARTETHYIA_READ_HEADER_TIMEOUT", "CARTETHYIA_MAX_HEADER_BYTES",
 		"CARTETHYIA_CONNECT_TIMEOUT", "CARTETHYIA_FIRST_BYTE_TIMEOUT",
 		"CARTETHYIA_IDLE_TIMEOUT", "CARTETHYIA_SHUTDOWN_TIMEOUT",
+		"CARTETHYIA_STREAM_IDLE_TIMEOUT", "CARTETHYIA_STREAM_TOTAL_TIMEOUT",
 		"CARTETHYIA_USAGE_RETENTION", "CARTETHYIA_MAX_BODY_BYTES",
 		"CARTETHYIA_MAX_OUTPUT_TOKENS", "CARTETHYIA_MAX_CONCURRENT",
 		"CARTETHYIA_MAX_CONCURRENT_STREAMS",
@@ -33,6 +35,12 @@ func TestFromEnvironmentDefaults(t *testing.T) {
 	if got.RequestTimeout != 2*time.Minute || got.MaxConcurrent != 256 {
 		t.Fatalf("unexpected safe defaults: %#v", got)
 	}
+	if got.ReadHeaderTimeout != 10*time.Second || got.MaxHeaderBytes != 1<<20 {
+		t.Fatalf("unexpected header defaults: timeout=%s bytes=%d", got.ReadHeaderTimeout, got.MaxHeaderBytes)
+	}
+	if got.StreamIdleTimeout != got.IdleTimeout || got.StreamTotalTimeout != got.RequestTimeout {
+		t.Fatalf("stream defaults are not derived from request budgets: %#v", got)
+	}
 }
 
 func TestFromEnvironmentUsesCartethyiaOverrides(t *testing.T) {
@@ -43,6 +51,10 @@ func TestFromEnvironmentUsesCartethyiaOverrides(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://example")
 	t.Setenv("CARTETHYIA_REDIS_URL", "redis://localhost:6379")
 	t.Setenv("CARTETHYIA_REQUEST_TIMEOUT", "45s")
+	t.Setenv("CARTETHYIA_READ_HEADER_TIMEOUT", "7s")
+	t.Setenv("CARTETHYIA_MAX_HEADER_BYTES", "131072")
+	t.Setenv("CARTETHYIA_STREAM_IDLE_TIMEOUT", "12s")
+	t.Setenv("CARTETHYIA_STREAM_TOTAL_TIMEOUT", "3m")
 	t.Setenv("CARTETHYIA_MAX_BODY_BYTES", "4096")
 
 	got, err := FromEnvironment()
@@ -51,7 +63,9 @@ func TestFromEnvironmentUsesCartethyiaOverrides(t *testing.T) {
 	}
 	if got.ListenAddress != ":9090" || got.DatabaseURL != "postgres://example" ||
 		got.RedisURL != "redis://localhost:6379" || got.Environment != "test" ||
-		got.RequestTimeout != 45*time.Second || got.MaxBodyBytes != 4096 {
+		got.RequestTimeout != 45*time.Second || got.ReadHeaderTimeout != 7*time.Second ||
+		got.MaxHeaderBytes != 131072 || got.StreamIdleTimeout != 12*time.Second ||
+		got.StreamTotalTimeout != 3*time.Minute || got.MaxBodyBytes != 4096 {
 		t.Fatalf("unexpected config = %#v", got)
 	}
 }
@@ -83,5 +97,37 @@ func TestConfigValidateRejectsUnsafeBounds(t *testing.T) {
 	cfg.Environment = strings.Repeat("x", 65)
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("expected environment bound error")
+	}
+}
+
+func TestConfigValidateRejectsUnsafeHeaderAndStreamTimeouts(t *testing.T) {
+	cfg := Config{}.WithDefaults()
+	cfg.ReadHeaderTimeout = cfg.RequestTimeout + time.Nanosecond
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "read header timeout") {
+		t.Fatalf("Validate error=%v, want read-header bound", err)
+	}
+
+	cfg = Config{}.WithDefaults()
+	cfg.MaxHeaderBytes = minHeaderBytes - 1
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "max header bytes") {
+		t.Fatalf("Validate error=%v, want max-header lower bound", err)
+	}
+
+	cfg = Config{}.WithDefaults()
+	cfg.MaxHeaderBytes = maxHeaderBytes + 1
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "max header bytes") {
+		t.Fatalf("Validate error=%v, want max-header upper bound", err)
+	}
+
+	cfg = Config{}.WithDefaults()
+	cfg.StreamIdleTimeout = -time.Nanosecond
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "stream idle timeout") {
+		t.Fatalf("Validate error=%v, want stream-idle bound", err)
+	}
+
+	cfg = Config{}.WithDefaults()
+	cfg.StreamTotalTimeout = maxDuration + time.Nanosecond
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "stream total timeout") {
+		t.Fatalf("Validate error=%v, want stream-total bound", err)
 	}
 }

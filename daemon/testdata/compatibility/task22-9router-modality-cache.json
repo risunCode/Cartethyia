@@ -1,0 +1,12 @@
+{
+  "fixture_id": "task22-9router-modality-cache",
+  "source": "openai-responses",
+  "target": "anthropic",
+  "operation": "generate",
+  "stream": false,
+  "messages": [
+    {"role":"user","content":[{"type":"input_text","text":"inspect the attachment"},{"type":"input_image","image_url":"https://example.invalid/image.png","detail":"high"},{"type":"input_file","file_id":"file_fixture_pdf"}]}
+  ],
+  "cache_usage": {"input_tokens":12,"cache_read_tokens":8,"cache_write_tokens":4},
+  "expectation": {"media_reference_order":["url","provider-file-id"],"mime_required":true,"cache_hit_evidence":true}
+}

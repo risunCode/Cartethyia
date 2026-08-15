@@ -29,12 +29,17 @@ func (c *OpenAIChatCodec) Protocol() contracts.Protocol { return contracts.Proto
 // than discarded. Encoders cannot drop a wire field without an explicit
 // DispositionUnsupported entry.
 func (c *OpenAIChatCodec) Encode(ctx context.Context, req *NormalizedRequest) (*EncoderResult, *TransformError) {
-	_ = ctx
+	if err := ctx.Err(); err != nil {
+		return nil, newTransformError(CodeContextCanceled, "encode-request", string(contracts.ProtocolOpenAIChat), "context", "transform canceled", err)
+	}
 	if req == nil {
 		return nil, errEncode(contracts.ProtocolOpenAIChat, "request", "request must not be nil")
 	}
 	if err := req.Validate(); err != nil {
 		return nil, errEncode(contracts.ProtocolOpenAIChat, "request", err.Error())
+	}
+	if field := firstUnsupportedChatMedia(req.Messages); field != "" {
+		return nil, newTransformError(CodeUnsupportedFeature, "encode-request", string(contracts.ProtocolOpenAIChat), field, "Chat target does not represent this media reference", nil)
 	}
 
 	payload := map[string]any{
@@ -76,16 +81,26 @@ func (c *OpenAIChatCodec) Encode(ctx context.Context, req *NormalizedRequest) (*
 		disp = append(disp, FieldDisposition{Path: "cache_key", Action: DispositionPreserved, TargetPath: "prompt_cache_key"})
 	}
 
-	if req.ResponseFormat != FormatText {
-		switch req.ResponseFormat {
+	responseFormat, responseSchema, formatErr := effectiveResponseFormat(contracts.ProtocolOpenAIChat, req)
+	if formatErr != nil {
+		return nil, formatErr
+	}
+	if responseFormat != FormatText {
+		switch responseFormat {
 		case FormatJSONObject:
 			payload["response_format"] = map[string]any{"type": "json_object"}
 		case FormatJSONSchema:
-			schema := req.ResponseFormatSchema
+			schema := responseSchema
 			if schema == nil {
 				schema = map[string]any{}
 			}
-			payload["response_format"] = map[string]any{"type": "json_schema", "json_schema": schema}
+			jsonSchema := map[string]any{"name": "response", "schema": schema}
+			if req.StructuredOutput != nil {
+				if req.StructuredOutput.Name != "" { jsonSchema["name"] = req.StructuredOutput.Name }
+				if req.StructuredOutput.Description != "" { jsonSchema["description"] = req.StructuredOutput.Description }
+				if strict, ok := req.StructuredOutput.Strict.Get(); ok { jsonSchema["strict"] = strict }
+			}
+			payload["response_format"] = map[string]any{"type": "json_schema", "json_schema": jsonSchema}
 		}
 		disp = append(disp, FieldDisposition{Path: "response_format", Action: DispositionAdapted})
 	}
@@ -147,8 +162,23 @@ func (c *OpenAIChatCodec) Encode(ctx context.Context, req *NormalizedRequest) (*
 	// the request that the encoder did not explicitly handle as a
 	// passthrough bucket so the wire payload is never lossy.
 	applyPassthroughBucket(payload, req, "openai-chat")
+	if err := validateWirePayload(contracts.ProtocolOpenAIChat, payload); err != nil {
+		return nil, err
+	}
 
 	return &EncoderResult{Wire: payload, Dispositions: disp}, nil
+}
+
+func firstUnsupportedChatMedia(messages []NormalizedMessage) string {
+	for mi, message := range messages {
+		for bi, block := range message.Content {
+			switch block.Type {
+			case BlockAudio, BlockFile, BlockDocument, BlockPDF:
+				return fmt.Sprintf("messages[%d].content[%d]", mi, bi)
+			}
+		}
+	}
+	return ""
 }
 
 // encodeChatMessages flattens normalized messages into OpenAI chat shape.
@@ -201,7 +231,7 @@ func encodeChatMessages(msgs []NormalizedMessage) []map[string]any {
 					case BlockText:
 						parts = append(parts, map[string]any{"type": "text", "text": b.Text})
 					case BlockImage:
-						parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]any{"url": openAIImageURL(b.Image)}})
+						parts = append(parts, map[string]any{"type": "image_url", "image_url": openAIImageContent(b.Image)})
 					case BlockToolResult:
 						parts = append(parts, map[string]any{"type": "text", "text": b.Text})
 					}
@@ -270,7 +300,9 @@ func (d *OpenAIChatRequestDecoder) Protocol() contracts.Protocol { return contra
 
 // Decode parses a /v1/chat/completions body into a canonical request.
 func (d *OpenAIChatRequestDecoder) Decode(ctx context.Context, body []byte, stream bool) (*NormalizedRequest, *TransformError) {
-	_ = ctx
+	if err := ctx.Err(); err != nil {
+		return nil, newTransformError(CodeContextCanceled, "decode-request", string(contracts.ProtocolOpenAIChat), "context", "transform canceled", err)
+	}
 	root, err := decodeBody(body)
 	if err != nil {
 		return nil, errDecode(contracts.ProtocolOpenAIChat, "body", err.Error())

@@ -18,6 +18,8 @@ export interface ShareMonitorData {
   readonly apiKey: ShareApiKey;
   readonly quotaAvailable: boolean;
   readonly inFlight: number;
+  readonly totalTokens: number;
+  readonly totalRequests: number;
   readonly dailyUsed: number;
   readonly dailyLimit: number | null;
   readonly dailyRemaining: number | null;
@@ -63,12 +65,16 @@ function errorMessage(code: string | undefined, fallback: string): string {
 }
 
 /** Loads a public share payload and optionally refreshes it on a fixed interval. */
-export function useShareData<TData>(path: string, refreshMs?: number): ShareDataState<TData> {
+export function useShareData<TData>(path: string, refreshMs?: number, enabled = true): ShareDataState<TData> {
   const [data, setData] = createSignal<TData | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(true);
 
   createEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     const controller = new AbortController();
     let active = true;
 

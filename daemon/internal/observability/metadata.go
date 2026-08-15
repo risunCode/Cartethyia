@@ -11,8 +11,11 @@ import (
 
 var ErrMetadataClosed = errors.New("observability: metadata writer is closed")
 
+const MaxMetadataQueue = 4096
+
 // Metadata is the bounded, payload-free request metadata persisted by a
-// MetadataSink. Tool names are bounded and are redacted before enqueue.
+// MetadataSink. Only aggregate counts are retained; tool names and content
+// have no representation in this contract.
 type Metadata struct {
 	RequestID        string
 	Provider         string
@@ -24,7 +27,6 @@ type Metadata struct {
 	LatencyMS        int64
 	MessageCount     int
 	ToolCount        int
-	ToolNames        []string
 	ImageCount       int
 	InputTokens      *int64
 	OutputTokens     *int64
@@ -47,17 +49,6 @@ func (m Metadata) Redacted() Metadata {
 	if m.ImageCount < 0 {
 		m.ImageCount = 0
 	}
-	if len(m.ToolNames) > 16 {
-		m.ToolNames = m.ToolNames[:16]
-	}
-	tools := make([]string, 0, len(m.ToolNames))
-	for _, name := range m.ToolNames {
-		name = boundedIdentifier(name, 64)
-		if name != "" {
-			tools = append(tools, name)
-		}
-	}
-	m.ToolNames = tools
 	return m
 }
 
@@ -66,7 +57,7 @@ func boundedIdentifier(value string, max int) string {
 	if len(value) > max {
 		value = value[:max]
 	}
-	for _, marker := range []string{"authorization", "access_token", "refresh_token", "api_key", "secret", "password", "bearer "} {
+	for _, marker := range []string{"authorization", "access_token", "refresh_token", "api_key", "secret", "password", "credential", "cookie", "bearer ", "token="} {
 		if strings.Contains(strings.ToLower(value), marker) {
 			return "[redacted]"
 		}
@@ -88,15 +79,21 @@ type MetadataSink interface {
 // AsyncMetadataWriter enqueues metadata without waiting on the sink. A full
 // queue drops metadata and increments Drops; requests are never throttled.
 type AsyncMetadataWriter struct {
-	queue     chan Metadata
+	queue     chan metadataWork
 	sink      MetadataSink
 	ctx       context.Context
 	cancel    context.CancelFunc
 	closeOnce sync.Once
 	closed    atomic.Bool
 	drops     atomic.Uint64
+	failures  atomic.Uint64
 	wg        sync.WaitGroup
 	done      chan struct{}
+}
+
+type metadataWork struct {
+	metadata Metadata
+	retried  bool
 }
 
 func NewAsyncMetadataWriter(ctx context.Context, sink MetadataSink, capacity int) *AsyncMetadataWriter {
@@ -105,9 +102,11 @@ func NewAsyncMetadataWriter(ctx context.Context, sink MetadataSink, capacity int
 	}
 	if capacity <= 0 {
 		capacity = 256
+	} else if capacity > MaxMetadataQueue {
+		capacity = MaxMetadataQueue
 	}
 	workerCtx, cancel := context.WithCancel(ctx)
-	w := &AsyncMetadataWriter{queue: make(chan Metadata, capacity), sink: sink, ctx: workerCtx, cancel: cancel, done: make(chan struct{})}
+	w := &AsyncMetadataWriter{queue: make(chan metadataWork, capacity), sink: sink, ctx: workerCtx, cancel: cancel, done: make(chan struct{})}
 	w.wg.Add(1)
 	go w.run()
 	return w
@@ -119,7 +118,7 @@ func (w *AsyncMetadataWriter) Enqueue(m Metadata) error {
 	}
 	m = m.Redacted()
 	select {
-	case w.queue <- m:
+	case w.queue <- metadataWork{metadata: m}:
 		return nil
 	default:
 		w.drops.Add(1)
@@ -133,6 +132,15 @@ func (w *AsyncMetadataWriter) Drops() uint64 {
 	}
 	return w.drops.Load()
 }
+
+// Failures returns bounded sink persistence failures. One retry is enqueued
+// non-blockingly; a saturated retry queue increments Drops instead.
+func (w *AsyncMetadataWriter) Failures() uint64 {
+	if w == nil {
+		return 0
+	}
+	return w.failures.Load()
+}
 func (w *AsyncMetadataWriter) run() {
 	defer w.wg.Done()
 	defer close(w.done)
@@ -140,9 +148,19 @@ func (w *AsyncMetadataWriter) run() {
 		select {
 		case <-w.ctx.Done():
 			return
-		case m := <-w.queue:
+		case work := <-w.queue:
 			if w.sink != nil {
-				_ = w.sink.WriteMetadata(w.ctx, m)
+				if err := w.sink.WriteMetadata(w.ctx, work.metadata); err != nil {
+					w.failures.Add(1)
+					if !work.retried {
+						work.retried = true
+						select {
+						case w.queue <- work:
+						default:
+							w.drops.Add(1)
+						}
+					}
+				}
 			}
 		}
 	}

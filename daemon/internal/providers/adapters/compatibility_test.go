@@ -117,11 +117,11 @@ func TestGrokBuildBoundaryAndBodyClassification(t *testing.T) {
 		t.Fatalf("encrypted reasoning include missing: %#v", payload["include"])
 	}
 
-	policy := adapter.ClassifyResponse(http.StatusForbidden, []byte(`{"error":{"type":"content_policy","token":"oauth-secret"}}`))
+	policy := adapter.ClassifyResponse(NewResponseEvidence(http.StatusForbidden, nil, []byte(`{"error":{"type":"content_policy","token":"oauth-secret"}}`)))
 	if policy.Category != CategoryContentPolicy || policy.Retryable || strings.Contains(policy.Message, "oauth-secret") {
 		t.Fatalf("policy classification = %#v", policy)
 	}
-	quota := adapter.ClassifyResponse(http.StatusTooManyRequests, []byte(`{"error":{"code":"billing_quota","token":"oauth-secret"}}`))
+	quota := adapter.ClassifyResponse(NewResponseEvidence(http.StatusTooManyRequests, nil, []byte(`{"error":{"code":"insufficient_quota","token":"oauth-secret"}}`)))
 	if quota.Category != CategoryQuota || !quota.Retryable || strings.Contains(quota.Message, "oauth-secret") {
 		t.Fatalf("quota classification = %#v", quota)
 	}
@@ -129,8 +129,8 @@ func TestGrokBuildBoundaryAndBodyClassification(t *testing.T) {
 
 func TestProviderClassificationSummaryDoesNotEchoBody(t *testing.T) {
 	adapter := NewOpenAIAdapter(OpenAIAdapterConfig{Models: []ProviderModel{Model("model", "Model", nil)}})
-	classified := adapter.ClassifyResponse(http.StatusBadRequest, []byte(`{"error":{"code":"invalid_request","message":"prompt oauth-secret"}}`))
-	if classified.Message != "invalid_request" || strings.Contains(classified.Message, "oauth-secret") {
+	classified := adapter.ClassifyResponse(NewResponseEvidence(http.StatusBadRequest, nil, []byte(`{"error":{"code":"invalid_request","message":"prompt oauth-secret"}}`)))
+	if classified.Message != "provider rejected the request" || strings.Contains(classified.Message, "oauth-secret") {
 		t.Fatalf("classification summary = %#v", classified)
 	}
 }

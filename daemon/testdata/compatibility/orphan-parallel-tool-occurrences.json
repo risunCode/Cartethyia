@@ -1,0 +1,123 @@
+{
+  "id": "orphan-parallel-tool-occurrences",
+  "content_generation": 1,
+  "request": {
+    "model": "claude-sonnet-5",
+    "input": [
+      {
+        "type": "function_call",
+        "call_id": "dup",
+        "name": "one",
+        "arguments": "{}"
+      },
+      {
+        "type": "custom_tool_call",
+        "call_id": "dup",
+        "name": "freeform",
+        "input": "raw"
+      },
+      { "type": "computer_call", "call_id": "computer" },
+      {
+        "type": "function_call_output",
+        "call_id": "dup",
+        "output": "one result"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "orphan",
+        "output": "orphan"
+      }
+    ]
+  },
+  "expected_semantic": {
+    "operation": { "kind": "generate" },
+    "messages": [
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "kind": "tool-call",
+            "tool": {
+              "occurrence": "occ-one",
+              "kind": "function",
+              "name": "one",
+              "association": "occ-one",
+              "state": "call",
+              "source_id": "dup",
+              "arguments": {}
+            }
+          },
+          {
+            "kind": "tool-call",
+            "tool": {
+              "occurrence": "occ-custom",
+              "kind": "custom",
+              "name": "freeform",
+              "association": "occ-custom",
+              "state": "call",
+              "source_id": "dup",
+              "arguments": "raw"
+            }
+          },
+          {
+            "kind": "tool-call",
+            "tool": {
+              "occurrence": "occ-computer",
+              "kind": "computer",
+              "name": "computer",
+              "association": "occ-computer",
+              "state": "call",
+              "source_id": "computer"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": [
+          {
+            "kind": "tool-result",
+            "tool": {
+              "occurrence": "occ-one",
+              "kind": "function",
+              "name": "one",
+              "association": "occ-one",
+              "state": "result",
+              "source_id": "dup",
+              "result": "one result"
+            }
+          },
+          {
+            "kind": "tool-result",
+            "tool": {
+              "occurrence": "occ-orphan",
+              "kind": "function",
+              "name": "orphan",
+              "association": "occ-orphan",
+              "state": "interrupted",
+              "source_id": "orphan",
+              "result": "orphan",
+              "error": true
+            }
+          }
+        ]
+      }
+    ],
+    "tools": [
+      { "kind": "function", "name": "one", "schema": { "type": "object" } },
+      {
+        "kind": "custom",
+        "name": "freeform",
+        "options": { "format": "freeform" }
+      },
+      { "kind": "computer", "name": "computer" },
+      { "kind": "hosted", "name": "web_search" }
+    ],
+    "terminal": {
+      "status": "error",
+      "event": "error",
+      "error_code": "capability.orphan_tool_result",
+      "sequence": ["error"]
+    }
+  }
+}

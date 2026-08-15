@@ -1,6 +1,7 @@
 package messages
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -49,5 +50,23 @@ func TestCountTokensRejectsInvalidMethodAndBody(t *testing.T) {
 	mux.ServeHTTP(invalid, r)
 	if invalid.Code != http.StatusBadRequest {
 		t.Fatalf("invalid status = %d, want 400", invalid.Code)
+	}
+}
+
+func TestCountTokensStopsOnCanceledRequest(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, Deps{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, Path+"/count_tokens", strings.NewReader(`{"model":"claude-sonnet-4","messages":[{"role":"user","content":"hello"}]}`)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusOK {
+		t.Fatalf("canceled request returned success: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "input_tokens") {
+		t.Fatalf("canceled request continued to token estimation: %s", rec.Body.String())
 	}
 }

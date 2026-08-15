@@ -139,6 +139,6 @@ func (p *AgentRouterAdapter) BuildRequest(envelope RequestEnvelope, credential s
 }
 
 // ClassifyResponse implements Provider.
-func (p *AgentRouterAdapter) ClassifyResponse(statusCode int, body []byte) ClassifiedResponse {
-	return classifyByStatus(statusCode, body)
+func (p *AgentRouterAdapter) ClassifyResponse(evidence ResponseEvidence) ClassifiedResponse {
+	return classifyByStatus(evidence)
 }

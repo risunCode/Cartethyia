@@ -19,11 +19,13 @@ type RuntimeStore struct {
 	Proxies         *repositories.BunProxyRepository
 	APIKeys         *repositories.BunPublicAPIKeyResolver
 	AdminAPIKeys    *repositories.BunAPIKeyRepository
+	TokenBudget     *repositories.BunTokenBudgetRepository
 	// RefreshLeases, Telemetry, and account authority stores share the same
 	// PostgreSQL pool. Secret blobs are encrypted before persistence.
 	RefreshLeases *repositories.BunRefreshLeaseStore
 	Telemetry     *repositories.BunTelemetryRepository
 	Settings      *repositories.BunSettingsRepository
+	Catalog       *repositories.BunCatalogRepository
 	Backups       *repositories.BunBackupRepository
 	Bans          *repositories.BunBanRepository
 	AccountCore   *repositories.BunAccountStores
@@ -39,6 +41,28 @@ func OpenRuntime(ctx context.Context, rawURL string, encryptionKeys ...[]byte) (
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	store, err := openRuntimeStore(ctx, rawURL, encryptionKeys...)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := store.Migrator.Apply(ctx); err != nil {
+		_ = store.Database.Close()
+		return nil, fmt.Errorf("database runtime: migrate PostgreSQL: %w", err)
+	}
+	return store, nil
+}
+
+// OpenRuntimeReadOnly opens the durable repositories without applying
+// migrations. Diagnostic commands use it to inspect the same authorities as
+// serving without changing schema or application state.
+func OpenRuntimeReadOnly(ctx context.Context, rawURL string, encryptionKeys ...[]byte) (*RuntimeStore, error) {
+	return openRuntimeStore(ctx, rawURL, encryptionKeys...)
+}
+
+func openRuntimeStore(ctx context.Context, rawURL string, encryptionKeys ...[]byte) (*RuntimeStore, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	cfg, err := ParseConfig(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("database runtime: %w", err)
@@ -48,10 +72,6 @@ func OpenRuntime(ctx context.Context, rawURL string, encryptionKeys ...[]byte) (
 		return nil, err
 	}
 	migrator := migrations.NewSQLMigrator(database)
-	if _, err := migrator.Apply(ctx); err != nil {
-		_ = database.Close()
-		return nil, fmt.Errorf("database runtime: migrate PostgreSQL: %w", err)
-	}
 	store := &RuntimeStore{
 		Database:        database,
 		Migrator:        migrator,
@@ -59,9 +79,11 @@ func OpenRuntime(ctx context.Context, rawURL string, encryptionKeys ...[]byte) (
 		Proxies:         repositories.NewBunProxyRepository(database.Bun()),
 		APIKeys:         repositories.NewBunPublicAPIKeyResolver(database.Bun()),
 		AdminAPIKeys:    repositories.NewBunAPIKeyRepository(database.Bun()),
+		TokenBudget:     repositories.NewBunTokenBudgetRepository(database.Bun()),
 		RefreshLeases:   repositories.NewBunRefreshLeaseStore(database.Bun()),
 		Telemetry:       repositories.NewBunTelemetryRepository(database.Bun()),
 		Settings:        repositories.NewBunSettingsRepository(database.Bun()),
+		Catalog:         repositories.NewBunCatalogRepository(database.Bun()),
 		Backups:         repositories.NewBunBackupRepository(database.Bun()),
 		Bans:            repositories.NewBunBanRepository(database.Bun()),
 	}

@@ -1,11 +1,15 @@
 package catalog
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/cartethyia/daemon/internal/providers"
 	"github.com/cartethyia/daemon/internal/providers/adapters"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/transforms"
 )
 
 func testRegistry(t *testing.T) *providers.Registry {
@@ -24,7 +28,7 @@ func TestBuilderResolvesAliasesAndCombos(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := b.Build(StaticSource{Gen: 4, AliasList: []Alias{{Alias: "friendly", Target: "native-model"}}, CombinationList: []Combination{{ID: "fallback", Members: []string{"friendly"}, Strategy: "fallback"}}})
+	s, err := b.Build(context.Background(), StaticSource{Gen: 4, AliasList: []Alias{{Alias: "friendly", Target: "native-model"}}, CombinationList: []Combination{{ID: "fallback", Members: []string{"friendly"}, Strategy: "fallback"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,26 +39,151 @@ func TestBuilderResolvesAliasesAndCombos(t *testing.T) {
 	if model.ID != "native-model" || model.ProviderID != "fixture" {
 		t.Fatalf("model = %#v", model)
 	}
-	combo, err := s.Resolve("fallback")
+	plan, err := s.Plan("fallback", contracts.SurfaceOpenAIChat)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !combo.Combination {
-		t.Fatal("combo did not resolve as combination")
+	if plan.Strategy != RouteStrategyFallback || len(plan.Members) != 1 || plan.Members[0].ProviderID != "fixture" || plan.Members[0].UpstreamModelID != "native-model" {
+		t.Fatalf("plan = %#v", plan)
 	}
 	if s.Generation != 4 {
 		t.Fatalf("generation = %d", s.Generation)
 	}
 }
 
+func TestPlanForSelectsIndependentProviderTargetSurface(t *testing.T) {
+	registry := providers.NewRegistry()
+	responses := providers.ProviderCaps{Surfaces: []providers.Surface{providers.SurfaceOpenAIResponses}, Streaming: true, ToolCalls: true, Images: true}
+	if err := registry.Register(adapters.NewOpenAIAdapter(adapters.OpenAIAdapterConfig{
+		ID: "responses-only", DisplayName: "Responses", BaseURL: "http://127.0.0.1",
+		Surfaces: []providers.Surface{providers.SurfaceOpenAIResponses},
+		Models: []providers.ProviderModel{providers.Model("native", "Native", &responses)},
+	})); err != nil {
+		t.Fatal(err)
+	}
+	b, err := NewBuilder(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := b.Build(context.Background(), StaticSource{Gen: 9})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := snapshot.PlanFor("native", RoutePlanningInput{
+		SourceSurface: contracts.SurfaceOpenAIChat,
+		Operation:     transforms.OperationGenerate,
+		Requirements:  FeatureRequirements{Hard: []FeatureRequirement{FeatureVision}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Members) != 1 || plan.Members[0].SourceSurface != contracts.SurfaceOpenAIChat || plan.Members[0].TargetSurface != providers.SurfaceOpenAIResponses || plan.Members[0].Surface != contracts.SurfaceOpenAIChat {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestPlanForRejectsHardFeatureBeforeAccountPlanning(t *testing.T) {
+	registry := providers.NewRegistry()
+	caps := providers.ProviderCaps{Surfaces: []providers.Surface{providers.SurfaceOpenAIResponses}, Streaming: true, ToolCalls: false, Images: false}
+	if err := registry.Register(adapters.NewOpenAIAdapter(adapters.OpenAIAdapterConfig{
+		ID: "limited", DisplayName: "Limited", BaseURL: "http://127.0.0.1",
+		Surfaces: []providers.Surface{providers.SurfaceOpenAIResponses},
+		Models: []providers.ProviderModel{providers.Model("limited", "Limited", &caps)},
+	})); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := NewBuilder(registry)
+	snapshot, err := b.Build(context.Background(), StaticSource{Gen: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = snapshot.PlanFor("limited", RoutePlanningInput{SourceSurface: contracts.SurfaceOpenAIChat, Operation: transforms.OperationGenerate, Requirements: FeatureRequirements{Hard: []FeatureRequirement{FeatureNativeTool}}})
+	var capabilityErr *CapabilityError
+	if !errors.As(err, &capabilityErr) || capabilityErr.Code != "capability.tool_unsupported" || capabilityErr.Feature != FeatureNativeTool {
+		t.Fatalf("error = %v, want bounded tool capability error", err)
+	}
+}
+
 func TestBuilderRejectsAliasCycleAndUnknownCombo(t *testing.T) {
 	b, _ := NewBuilder(testRegistry(t))
-	_, err := b.Build(StaticSource{AliasList: []Alias{{Alias: "a", Target: "b"}, {Alias: "b", Target: "a"}}})
+	_, err := b.Build(context.Background(), StaticSource{AliasList: []Alias{{Alias: "a", Target: "b"}, {Alias: "b", Target: "a"}}})
 	if !errors.Is(err, ErrAliasCycle) {
 		t.Fatalf("cycle error = %v", err)
 	}
-	_, err = b.Build(StaticSource{CombinationList: []Combination{{ID: "bad", Members: []string{"missing"}}}})
+	_, err = b.Build(context.Background(), StaticSource{CombinationList: []Combination{{ID: "bad", Members: []string{"missing"}, Strategy: "fallback"}}})
 	if !errors.Is(err, ErrUnknownModel) {
 		t.Fatalf("unknown error = %v", err)
+	}
+}
+
+func TestBuilderRejectsInvalidCombinationContracts(t *testing.T) {
+	b, _ := NewBuilder(testRegistry(t))
+	tests := []struct {
+		name        string
+		combination Combination
+		want        error
+	}{
+		{name: "empty", combination: Combination{ID: "empty", Strategy: "fallback"}, want: ErrEmptyCombo},
+		{name: "unknown strategy", combination: Combination{ID: "unknown", Members: []string{"native-model"}, Strategy: "weighted"}},
+		{name: "duplicate member", combination: Combination{ID: "duplicate", Members: []string{"native-model", "fixture:native-model"}, Strategy: "fallback"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := b.Build(context.Background(), StaticSource{CombinationList: []Combination{tc.combination}})
+			if err == nil || (tc.want != nil && !errors.Is(err, tc.want)) {
+				t.Fatalf("error = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuilderRequiresQualifiedAmbiguousMembersAndCommonSurface(t *testing.T) {
+	registry := testRegistry(t)
+	registry.Register(adapters.NewOpenAIAdapter(adapters.OpenAIAdapterConfig{
+		ID: "other", DisplayName: "Other", BaseURL: "http://127.0.0.1",
+		Surfaces: []providers.Surface{providers.SurfaceAnthropicMessages},
+		Models:   []providers.ProviderModel{providers.Model("native-model", "Other", nil), providers.Model("other-model", "Other Model", nil)},
+	}))
+	b, _ := NewBuilder(registry)
+	_, err := b.Build(context.Background(), StaticSource{CombinationList: []Combination{{ID: "ambiguous", Members: []string{"native-model"}, Strategy: "fallback"}}})
+	if !errors.Is(err, ErrAmbiguousModel) {
+		t.Fatalf("ambiguous error = %v", err)
+	}
+	_, err = b.Build(context.Background(), StaticSource{CombinationList: []Combination{{ID: "surface", Members: []string{"fixture:native-model", "other:other-model"}, Strategy: "fallback"}}})
+	if !errors.Is(err, ErrSurfaceMismatch) {
+		t.Fatalf("surface error = %v", err)
+	}
+}
+
+type mutableSource struct {
+	source StaticSource
+	err    error
+}
+
+func (s *mutableSource) Load(ctx context.Context) ([]Alias, []Combination, uint64, error) {
+	if s.err != nil {
+		return nil, nil, 0, s.err
+	}
+	return s.source.Load(ctx)
+}
+
+func TestStoreRetainsBoundedStaleSnapshotAndExposesDegradedState(t *testing.T) {
+	now := time.Unix(100, 0)
+	builder, _ := NewBuilder(testRegistry(t))
+	source := &mutableSource{source: StaticSource{Gen: 7}}
+	store, err := NewStore(context.Background(), builder, source, StoreConfig{RefreshTTL: time.Second, MaxStale: 5 * time.Second, Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.err = errors.New("refresh unavailable")
+	now = now.Add(2 * time.Second)
+	snapshot, status, err := store.Current(context.Background())
+	if err != nil || snapshot.Generation != 7 || !status.Degraded || status.Diagnostic == "" {
+		t.Fatalf("snapshot=%#v status=%#v err=%v", snapshot, status, err)
+	}
+	now = now.Add(5 * time.Second)
+	_, status, err = store.Current(context.Background())
+	if !errors.Is(err, ErrStaleSnapshot) || !status.Degraded {
+		t.Fatalf("status=%#v err=%v", status, err)
 	}
 }

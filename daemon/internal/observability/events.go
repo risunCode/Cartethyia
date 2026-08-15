@@ -36,11 +36,19 @@ var (
 type Stage string
 
 const (
-	StageRequestStart Stage = "request_start"
-	StageRouteAttempt Stage = "route_attempt"
-	StageProviderCall Stage = "provider_call"
-	StageCacheLookup  Stage = "cache_lookup"
-	StageTerminal     Stage = "terminal"
+	StageRequestStart       Stage = "request_start"
+	StageRouteAttempt       Stage = "route_attempt"
+	StageProviderCall       Stage = "provider_call"
+	StageCandidateExclusion Stage = "candidate_exclusion"
+	StageRepair             Stage = "repair"
+	StageStreamFinalization Stage = "stream_finalization"
+	StageCacheLookup        Stage = "cache_lookup"
+	StageTerminal           Stage = "terminal"
+	StageCompatibilityPlan  Stage = "compatibility_plan"
+	StageOperation          Stage = "operation"
+	StageCapability         Stage = "capability"
+	StageRecovery           Stage = "recovery"
+	StageExhaustion         Stage = "exhaustion"
 )
 
 // Outcome is the bounded terminal classification of a request. Only a small
@@ -82,6 +90,18 @@ func (c CacheKind) String() string {
 		return "resolution_redis"
 	case CacheKindProviderPrompt:
 		return "provider_prompt"
+	case CacheKindPlanL0:
+		return "plan_l0"
+	case CacheKindPlanL1:
+		return "plan_l1"
+	case CacheKindTokenSaverL0:
+		return "token_saver_l0"
+	case CacheKindTokenSaverRedis:
+		return "token_saver_redis"
+	case CacheKindResponseL0:
+		return "response_l0"
+	case CacheKindResponseRedis:
+		return "response_redis"
 	default:
 		return "unspecified"
 	}
@@ -90,7 +110,7 @@ func (c CacheKind) String() string {
 // IsResolutionCache reports whether c describes a local resolution-cache
 // hit/miss (memory or Redis).
 func (c CacheKind) IsResolutionCache() bool {
-	return c == CacheKindResolutionMemory || c == CacheKindResolutionRedis
+	return c == CacheKindResolutionMemory || c == CacheKindResolutionRedis || c == CacheKindPlanL0 || c == CacheKindPlanL1 || c == CacheKindTokenSaverL0 || c == CacheKindTokenSaverRedis || c == CacheKindResponseL0 || c == CacheKindResponseRedis
 }
 
 // IsProviderCache reports whether c describes provider-side prompt-cache
@@ -173,8 +193,41 @@ type RequestEvent struct {
 	// AlternateAccountEligible reports whether the lifecycle considers an
 	// alternate account a valid failover target for this failure.
 	AlternateAccountEligible bool
+	CatalogGeneration        uint64
+	RouteMember              int
+	NetworkMode              string
+	FailureScope             string
+	FailurePhase             string
+	RetryAction              string
+	RepairRule               string
+	ExclusionReason          string
+	AttemptResult            AttemptResult
+	RepairChanged            bool
+	RepairApplied            bool
+	StreamOutcome            StreamOutcome
+	Committed                bool
+	Usage                    TokenUsage
 	StartedAt                time.Time
 	EndedAt                  time.Time
+	// Compatibility and cache dimensions are fixed-code labels. They are
+	// omitted from metric output when empty and never carry request content.
+	SourceSurface     string
+	TargetSurface     string
+	Profile           string
+	DispositionAction string
+	PlanOutcome       string
+	CacheOperation    string
+	CacheOutcome      string
+	CacheLayer        string
+	Operation         string
+	CompactionVersion string
+	Bridge            string
+	RepairDisposition string
+	RecoveryKind      string
+	ExhaustionReason  string
+	CapabilityCode    string
+	Modality          string
+	ReferenceKind     string
 }
 
 // Bounds enforced on RequestEvent fields.
@@ -185,6 +238,7 @@ const (
 	MaxErrorCodeLen     = 96
 	MaxLatencyMS        = int64(24 * 60 * 60 * 1000) // 24h sanity ceiling
 	MaxConcurrentEvents = 1024
+	MaxTerminalKeys     = 4096
 	// MaxEventKeyLen caps the lifecycle EventKey. The lifecycle package owns
 	// the canonical set; this bound only prevents accidental free-form text.
 	MaxEventKeyLen = 96
@@ -214,12 +268,19 @@ func containsSensitiveMaterial(value string) bool {
 // Validate returns nil if the event is bounded and well-formed.
 func (e RequestEvent) Validate() error {
 	switch e.Stage {
-	case StageRequestStart, StageRouteAttempt, StageProviderCall, StageCacheLookup, StageTerminal:
+	case StageRequestStart, StageRouteAttempt, StageProviderCall, StageCandidateExclusion,
+		StageRepair, StageStreamFinalization, StageCacheLookup, StageTerminal,
+		StageCompatibilityPlan, StageOperation, StageCapability, StageRecovery, StageExhaustion:
 	default:
 		return fmt.Errorf("%w: stage=%q", ErrInvalidEvent, e.Stage)
 	}
 	if e.Surface == "" {
 		return fmt.Errorf("%w: empty surface", ErrInvalidEvent)
+	}
+	switch e.Surface {
+	case SurfaceHTTP, SurfaceStream, SurfaceAdmin, SurfaceWorker, SurfaceUnknown:
+	default:
+		return fmt.Errorf("%w: surface=%q", ErrInvalidEvent, e.Surface)
 	}
 	for _, field := range []struct {
 		name  string
@@ -245,6 +306,12 @@ func (e RequestEvent) Validate() error {
 		{"rate_source", e.RateSource, MaxRateTagLen},
 		{"rate_scope", e.RateScope, MaxRateTagLen},
 		{"rate_phase", e.RatePhase, MaxRateTagLen},
+		{"network_mode", e.NetworkMode, MaxRateTagLen},
+		{"failure_scope", e.FailureScope, MaxRateTagLen},
+		{"failure_phase", e.FailurePhase, MaxRateTagLen},
+		{"retry_action", e.RetryAction, MaxErrorClassLen},
+		{"repair_rule", e.RepairRule, MaxErrorCodeLen},
+		{"exclusion_reason", e.ExclusionReason, MaxRateTagLen},
 	} {
 		if len(field.value) > field.max || strings.IndexFunc(field.value, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
 			return fmt.Errorf("%w: %s exceeds bounds", ErrTooLarge, field.name)
@@ -281,8 +348,32 @@ func (e RequestEvent) Validate() error {
 	if e.RetryAfterMS < 0 || e.RetryAfterMS > MaxLatencyMS {
 		return fmt.Errorf("%w: retry_after_ms=%d", ErrInvalidEvent, e.RetryAfterMS)
 	}
+	if e.RouteMember < 0 || e.RouteMember > MaxAttempts {
+		return fmt.Errorf("%w: route_member=%d", ErrInvalidEvent, e.RouteMember)
+	}
+	if e.AttemptResult != "" && e.AttemptResult != AttemptSucceeded && e.AttemptResult != AttemptFailed {
+		return fmt.Errorf("%w: attempt_result=%q", ErrInvalidEvent, e.AttemptResult)
+	}
+	if e.StreamOutcome != "" {
+		switch e.StreamOutcome {
+		case StreamClean, StreamFailed, StreamCanceled, StreamStalled, StreamTruncated, StreamDownstreamWrite:
+		default:
+			return fmt.Errorf("%w: stream_outcome=%q", ErrInvalidEvent, e.StreamOutcome)
+		}
+	}
+	if e.Usage.Known & ^UsageMask(UsageInput|UsageOutput|UsageCachedRead|UsageCachedWrite|UsageReasoning|UsageTotal) != 0 {
+		return fmt.Errorf("%w: usage mask", ErrInvalidEvent)
+	}
+	for _, count := range []int64{e.Usage.Input, e.Usage.Output, e.Usage.CachedRead, e.Usage.CachedWrite, e.Usage.Reasoning, e.Usage.Total} {
+		if count < 0 || count > 1<<50 {
+			return fmt.Errorf("%w: usage count", ErrInvalidEvent)
+		}
+	}
 	if e.Stage == StageCacheLookup && e.CacheKind.IsZero() {
 		return fmt.Errorf("%w: cache_lookup without cache_kind", ErrInvalidEvent)
+	}
+	if !e.CacheKind.IsZero() && !validCacheKind(e.CacheKind) {
+		return fmt.Errorf("%w: invalid cache_kind", ErrInvalidEvent)
 	}
 	if e.Stage != StageCacheLookup && !e.CacheKind.IsZero() {
 		return fmt.Errorf("%w: cache_kind only valid with StageCacheLookup", ErrInvalidEvent)
@@ -292,6 +383,82 @@ func (e RequestEvent) Validate() error {
 	}
 	if e.Stage == StageTerminal && e.Outcome == "" {
 		return fmt.Errorf("%w: terminal stage requires outcome", ErrInvalidEvent)
+	}
+
+	if e.Outcome != "" {
+		switch e.Outcome {
+		case OutcomeSuccess, OutcomeError, OutcomeCancelled, OutcomeQuota, OutcomeAuthFailed,
+			OutcomeUpstreamFail, OutcomeInvalidReq, OutcomeUnavailable:
+		default:
+			return fmt.Errorf("%w: outcome=%q", ErrInvalidEvent, e.Outcome)
+		}
+	}
+	if e.Stage == StageCandidateExclusion && e.ExclusionReason == "" {
+		return fmt.Errorf("%w: candidate exclusion requires reason", ErrInvalidEvent)
+	}
+	if e.ExclusionReason != "" {
+		switch e.ExclusionReason {
+		case "disabled", "exhausted", "cooling", "model_locked", "already_attempted", "unavailable", "proxy_unavailable", "quota_exhausted", "candidate", "deadline", "cost", "hard_attempt", "translation", "credential", "quota", "network":
+		default:
+			return fmt.Errorf("%w: exclusion_reason=%q", ErrInvalidEvent, e.ExclusionReason)
+		}
+	}
+	if e.Stage == StageRepair && e.RepairRule == "" {
+		return fmt.Errorf("%w: repair requires rule", ErrInvalidEvent)
+	}
+	if e.RepairDisposition != "" {
+		if _, ok := toolRepairDispositions[e.RepairDisposition]; !ok {
+			return fmt.Errorf("%w: repair disposition", ErrInvalidEvent)
+		}
+	}
+	if e.Stage == StageStreamFinalization && e.StreamOutcome == "" {
+		return fmt.Errorf("%w: stream finalization requires outcome", ErrInvalidEvent)
+	}
+	for _, field := range []struct {
+		name, value string
+		max         int
+	}{
+		{"source_surface", e.SourceSurface, MaxRateTagLen}, {"target_surface", e.TargetSurface, MaxRateTagLen},
+		{"profile", e.Profile, MaxRateTagLen}, {"disposition_action", e.DispositionAction, MaxRateTagLen},
+		{"plan_outcome", e.PlanOutcome, MaxRateTagLen}, {"cache_operation", e.CacheOperation, MaxRateTagLen},
+		{"cache_outcome", e.CacheOutcome, MaxRateTagLen}, {"cache_layer", e.CacheLayer, MaxRateTagLen},
+		{"operation", e.Operation, MaxRateTagLen}, {"compaction_version", e.CompactionVersion, MaxRateTagLen},
+		{"bridge", e.Bridge, MaxRateTagLen}, {"repair_disposition", e.RepairDisposition, MaxRateTagLen},
+		{"recovery_kind", e.RecoveryKind, MaxRateTagLen}, {"exhaustion_reason", e.ExhaustionReason, MaxRateTagLen},
+		{"capability_code", e.CapabilityCode, MaxErrorCodeLen}, {"modality", e.Modality, MaxRateTagLen},
+		{"reference_kind", e.ReferenceKind, MaxRateTagLen},
+	} {
+		if len(field.value) > field.max || strings.IndexFunc(field.value, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+			return fmt.Errorf("%w: %s exceeds bounds", ErrTooLarge, field.name)
+		}
+		if containsSensitiveMaterial(field.value) {
+			return fmt.Errorf("%w: sensitive %s", ErrInvalidEvent, field.name)
+		}
+	}
+	if !dimensionAllowed(e.SourceSurface, compatibilitySurfaces) || !dimensionAllowed(e.TargetSurface, compatibilitySurfaces) ||
+		!dimensionAllowed(e.Profile, compatibilityProfiles) || !dimensionAllowed(e.DispositionAction, planActions) ||
+		!dimensionAllowed(e.CompactionVersion, compactionVersions) || !dimensionAllowed(e.Bridge, bridgeOutcomes) ||
+		!dimensionAllowed(e.Operation, operations) || !dimensionAllowed(e.RecoveryKind, recoveryKinds) ||
+		!dimensionAllowed(e.ExhaustionReason, exclusionReasons) || !dimensionAllowed(e.RepairDisposition, toolRepairDispositions) ||
+		!dimensionAllowed(e.PlanOutcome, evidenceOutcomes) || !dimensionAllowed(e.CacheOperation, map[string]struct{}{string(CacheLookup): {}, string(CacheHit): {}, string(CacheWrite): {}, string(CacheReject): {}, string(CacheFallback): {}}) ||
+		!dimensionAllowed(e.CacheOutcome, cacheOutcomes) || !dimensionAllowed(e.CacheLayer, map[string]struct{}{"l0": {}, "l1": {}, "memory": {}, "redis": {}, "provider": {}, "none": {}}) ||
+		!dimensionAllowed(e.CapabilityCode, capabilityCodes) || !dimensionAllowed(e.Modality, modalities) || !dimensionAllowed(e.ReferenceKind, referenceKinds) {
+		return fmt.Errorf("%w: unrecognized evidence dimension", ErrInvalidEvent)
+	}
+	if e.Stage == StageCompatibilityPlan && (e.SourceSurface == "" || e.TargetSurface == "" || e.Profile == "" || e.DispositionAction == "" || e.PlanOutcome == "") {
+		return fmt.Errorf("%w: compatibility plan dimensions required", ErrInvalidEvent)
+	}
+	if e.Stage == StageOperation && e.Operation == "" {
+		return fmt.Errorf("%w: operation required", ErrInvalidEvent)
+	}
+	if e.Stage == StageCapability && e.CapabilityCode == "" {
+		return fmt.Errorf("%w: capability code required", ErrInvalidEvent)
+	}
+	if e.Stage == StageRecovery && e.RecoveryKind == "" {
+		return fmt.Errorf("%w: recovery kind required", ErrInvalidEvent)
+	}
+	if e.Stage == StageExhaustion && e.ExhaustionReason == "" {
+		return fmt.Errorf("%w: exhaustion reason required", ErrInvalidEvent)
 	}
 	return nil
 }
@@ -315,30 +482,87 @@ func (e RequestEvent) MetricLabels() []Label {
 		if e.CacheHit {
 			hit = "true"
 		}
-		return []Label{
+		labels := []Label{
 			{Key: "surface", Value: string(e.Surface)},
 			{Key: "cache_kind", Value: e.CacheKind.String()},
 			{Key: "cache_layer", Value: cacheLayerLabel(e.CacheKind)},
 			{Key: "hit", Value: hit},
 		}
-	case StageRouteAttempt, StageProviderCall, StageTerminal:
+		if e.CacheOperation != "" {
+			labels = append(labels, Label{Key: "cache_operation", Value: e.CacheOperation})
+		}
+		if e.CacheOutcome != "" {
+			labels = append(labels, Label{Key: "cache_result", Value: e.CacheOutcome})
+		}
+		if e.CacheLayer != "" {
+			labels = append(labels, Label{Key: "cache_layer", Value: e.CacheLayer})
+		}
+		return labels
+	case StageRouteAttempt, StageTerminal:
 		labels := []Label{
 			{Key: "surface", Value: string(e.Surface)},
 			{Key: "stage", Value: string(e.Stage)},
 		}
-		if e.Provider != "" {
-			labels = append(labels, Label{Key: "provider", Value: e.Provider})
-		}
-		if e.Model != "" {
-			labels = append(labels, Label{Key: "model", Value: e.Model})
-		}
 		if e.Stage == StageTerminal && e.Outcome != "" {
 			labels = append(labels, Label{Key: "outcome", Value: string(e.Outcome)})
 		}
-		if e.ErrorClass != "" {
-			labels = append(labels, Label{Key: "error_class", Value: e.ErrorClass})
+		return labels
+	case StageProviderCall:
+		return []Label{
+			{Key: "surface", Value: string(e.Surface)},
+			{Key: "stage", Value: string(e.Stage)},
+			{Key: "outcome", Value: string(e.AttemptResult)},
+		}
+	case StageCandidateExclusion:
+		return []Label{
+			{Key: "stage", Value: string(e.Stage)},
+			{Key: "error_class", Value: e.ExclusionReason},
+		}
+	case StageRepair:
+		outcome := "rejected"
+		if e.RepairApplied {
+			outcome = "applied"
+		}
+		if e.RepairDisposition != "" {
+			outcome = e.RepairDisposition
+		}
+		return []Label{{Key: "stage", Value: string(e.Stage)}, {Key: "outcome", Value: outcome}}
+	case StageStreamFinalization:
+		return []Label{
+			{Key: "surface", Value: string(e.Surface)},
+			{Key: "stage", Value: string(e.Stage)},
+			{Key: "outcome", Value: string(e.StreamOutcome)},
+		}
+	case StageCompatibilityPlan:
+		return []Label{{Key: "source_surface", Value: e.SourceSurface}, {Key: "target_surface", Value: e.TargetSurface}, {Key: "profile", Value: e.Profile}, {Key: "action", Value: e.DispositionAction}, {Key: "outcome", Value: e.PlanOutcome}}
+	case StageOperation:
+		labels := []Label{{Key: "operation", Value: e.Operation}}
+		if e.CompactionVersion != "" {
+			labels = append(labels, Label{Key: "compaction_version", Value: e.CompactionVersion})
+		}
+		if e.Bridge != "" {
+			labels = append(labels, Label{Key: "bridge", Value: e.Bridge})
+		}
+		if e.PlanOutcome != "" {
+			labels = append(labels, Label{Key: "outcome", Value: e.PlanOutcome})
 		}
 		return labels
+	case StageCapability:
+		labels := []Label{{Key: "capability_code", Value: e.CapabilityCode}}
+		if e.Operation != "" {
+			labels = append(labels, Label{Key: "operation", Value: e.Operation})
+		}
+		if e.Modality != "" {
+			labels = append(labels, Label{Key: "modality", Value: e.Modality})
+		}
+		if e.ReferenceKind != "" {
+			labels = append(labels, Label{Key: "reference_kind", Value: e.ReferenceKind})
+		}
+		return labels
+	case StageRecovery:
+		return []Label{{Key: "recovery", Value: e.RecoveryKind}}
+	case StageExhaustion:
+		return []Label{{Key: "exhaustion_reason", Value: e.ExhaustionReason}}
 	default:
 		return nil
 	}
@@ -355,6 +579,10 @@ func cacheLayerLabel(k CacheKind) string {
 		return "redis"
 	case CacheKindProviderPrompt:
 		return "provider"
+	case CacheKindPlanL0, CacheKindTokenSaverL0, CacheKindResponseL0:
+		return "l0"
+	case CacheKindPlanL1, CacheKindTokenSaverRedis, CacheKindResponseRedis:
+		return "redis"
 	default:
 		return "none"
 	}
@@ -419,6 +647,38 @@ func (e RequestEvent) LogFields() []Field {
 	if e.AlternateAccountEligible {
 		fields = append(fields, Bool("alternate_account_eligible", true))
 	}
+	if e.CatalogGeneration > 0 {
+		fields = append(fields, Int64("catalog_generation", int64(e.CatalogGeneration)))
+	}
+	fields = append(fields, Int("route_member", e.RouteMember))
+	if e.NetworkMode != "" {
+		fields = append(fields, String("network_mode", e.NetworkMode))
+	}
+	if e.FailureScope != "" {
+		fields = append(fields, String("failure_scope", e.FailureScope))
+	}
+	if e.FailurePhase != "" {
+		fields = append(fields, String("failure_phase", e.FailurePhase))
+	}
+	if e.RetryAction != "" {
+		fields = append(fields, String("retry_action", e.RetryAction))
+	}
+	if e.RepairRule != "" {
+		fields = append(fields, String("repair_rule", e.RepairRule))
+	}
+	if e.ExclusionReason != "" {
+		fields = append(fields, String("exclusion_reason", e.ExclusionReason))
+	}
+	if e.AttemptResult != "" {
+		fields = append(fields, String("attempt_result", string(e.AttemptResult)))
+	}
+	if e.Stage == StageRepair {
+		fields = append(fields, Bool("repair_changed", e.RepairChanged), Bool("repair_applied", e.RepairApplied))
+	}
+	if e.StreamOutcome != "" {
+		fields = append(fields, String("stream_outcome", string(e.StreamOutcome)), Bool("committed", e.Committed))
+	}
+	fields = appendUsageFields(fields, e.Usage)
 	if e.Origin != "" {
 		fields = append(fields, String("origin", e.Origin))
 	}
@@ -428,8 +688,14 @@ func (e RequestEvent) LogFields() []Field {
 	if e.AccountDisplay != "" {
 		fields = append(fields, String("account_display", e.AccountDisplay))
 	}
+	if e.AccountID != "" {
+		fields = append(fields, String("account_id", e.AccountID))
+	}
 	if e.ProxyDisplay != "" {
 		fields = append(fields, String("proxy_display", e.ProxyDisplay))
+	}
+	if e.ProxyID != "" {
+		fields = append(fields, String("proxy_id", e.ProxyID))
 	}
 	if e.ProxySource != "" {
 		fields = append(fields, String("proxy_source", e.ProxySource))
@@ -439,6 +705,18 @@ func (e RequestEvent) LogFields() []Field {
 	}
 	if !e.EndedAt.IsZero() {
 		fields = append(fields, Time("ended_at", e.EndedAt))
+	}
+	for _, field := range []struct{ key, value string }{
+		{"source_surface", e.SourceSurface}, {"target_surface", e.TargetSurface}, {"profile", e.Profile},
+		{"action", e.DispositionAction}, {"plan_outcome", e.PlanOutcome}, {"cache_operation", e.CacheOperation},
+		{"cache_result", e.CacheOutcome}, {"cache_layer", e.CacheLayer}, {"operation", e.Operation},
+		{"compaction_version", e.CompactionVersion}, {"bridge", e.Bridge}, {"repair_disposition", e.RepairDisposition},
+		{"recovery", e.RecoveryKind}, {"exhaustion_reason", e.ExhaustionReason}, {"capability_code", e.CapabilityCode},
+		{"modality", e.Modality}, {"reference_kind", e.ReferenceKind},
+	} {
+		if field.value != "" {
+			fields = append(fields, String(field.key, field.value))
+		}
 	}
 	return fields
 }
@@ -478,16 +756,18 @@ func (s LogSink) Emit(ctx context.Context, e RequestEvent) error {
 // A nil sink is treated as a black hole: events are validated, terminal
 // idempotence is enforced, and drops are still tracked.
 type Recorder struct {
-	sink        EventSink
-	capacity    int
-	ch          chan RequestEvent
-	closeOnce   sync.Once
-	closed      atomic.Bool
-	wg          sync.WaitGroup
-	drops       atomic.Uint64
-	validator   *labelValidator
-	terminalsMu sync.Mutex
-	terminals   map[string]struct{}
+	sink          EventSink
+	capacity      int
+	ch            chan RequestEvent
+	closeOnce     sync.Once
+	sendMu        sync.RWMutex
+	closed        atomic.Bool
+	wg            sync.WaitGroup
+	drops         atomic.Uint64
+	validator     *labelValidator
+	terminalsMu   sync.Mutex
+	terminals     map[string]struct{}
+	terminalOrder []string
 }
 
 // RecorderOption configures a Recorder.
@@ -567,6 +847,8 @@ func (r *Recorder) emit(ctx context.Context, ev RequestEvent) {
 //
 // The method is safe for concurrent use.
 func (r *Recorder) Record(ctx context.Context, event RequestEvent) error {
+	r.sendMu.RLock()
+	defer r.sendMu.RUnlock()
 	if r.closed.Load() {
 		return ErrRecorderClosed
 	}
@@ -580,27 +862,27 @@ func (r *Recorder) Record(ctx context.Context, event RequestEvent) error {
 			return ErrDuplicateTerminal
 		}
 		if event.RequestID != "" {
+			if len(r.terminals) >= MaxTerminalKeys && len(r.terminalOrder) > 0 {
+				oldest := r.terminalOrder[0]
+				r.terminalOrder = r.terminalOrder[1:]
+				delete(r.terminals, oldest)
+			}
 			r.terminals[event.RequestID] = struct{}{}
+			r.terminalOrder = append(r.terminalOrder, event.RequestID)
 		}
 		r.terminalsMu.Unlock()
 	}
-	// Non-blocking send with cancellation fallback. If the buffer is full we
-	// either wait for room (ctx-bounded) or drop and count.
+	// Dispatch is strictly non-blocking. A saturated buffer drops evidence and
+	// increments the monotonic drop counter rather than delaying the request.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	select {
-	case <-ctx.Done():
-		return ctx.Err()
 	case r.ch <- event:
 		return nil
 	default:
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case r.ch <- event:
-			return nil
-		case <-time.After(time.Millisecond):
-			r.drops.Add(1)
-			return nil
-		}
+		r.drops.Add(1)
+		return nil
 	}
 }
 
@@ -609,6 +891,12 @@ func (r *Recorder) Record(ctx context.Context, event RequestEvent) error {
 func (r *Recorder) ForgetTerminal(requestID string) {
 	r.terminalsMu.Lock()
 	delete(r.terminals, requestID)
+	for i, id := range r.terminalOrder {
+		if id == requestID {
+			r.terminalOrder = append(r.terminalOrder[:i], r.terminalOrder[i+1:]...)
+			break
+		}
+	}
 	r.terminalsMu.Unlock()
 }
 
@@ -623,8 +911,10 @@ func (r *Recorder) Drops() uint64 {
 // ErrRecorderClosed.
 func (r *Recorder) Close(_ context.Context) error {
 	r.closeOnce.Do(func() {
+		r.sendMu.Lock()
 		r.closed.Store(true)
 		close(r.ch)
+		r.sendMu.Unlock()
 	})
 	r.wg.Wait()
 	return nil

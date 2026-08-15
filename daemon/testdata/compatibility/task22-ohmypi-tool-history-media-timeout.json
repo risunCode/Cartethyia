@@ -1,0 +1,12 @@
+{
+  "fixture_id": "task22-ohmypi-tool-history-media-timeout",
+  "source": "openai-chat",
+  "target": "openai-responses",
+  "operation": "generate",
+  "stream": true,
+  "messages": [
+    {"role":"assistant","tool_calls":[{"id":"call-fixture","type":"function","function":{"name":"read_fixture","arguments":"{\"path\":\"/fixture/input.txt\"}"}}]},
+    {"role":"tool","tool_call_id":"call-fixture","content":[{"type":"text","text":"fixture output"},{"type":"image_url","image_url":{"url":"data:image/png;base64,ZmFrZQ=="}}]}
+  ],
+  "expectation": {"tool_history":"adjacent-and-paired","image_tokens":"bounded-reference","timeout_ms":1500,"cancel":"typed-timeout","malformed_stream":"typed-truncation"}
+}

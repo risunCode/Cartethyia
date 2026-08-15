@@ -1,0 +1,37 @@
+{
+  "id": "remote-compaction-v1-native",
+  "content_generation": 1,
+  "request": {
+    "model": "gpt-5.6",
+    "input": [
+      { "type": "message", "role": "user", "content": "compact history" },
+      {
+        "type": "function_call",
+        "call_id": "call-c",
+        "name": "read",
+        "arguments": "{}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call-c",
+        "output": "result"
+      }
+    ]
+  },
+  "expected_semantic": {
+    "operation": { "kind": "remote-compaction", "compaction_version": "v1" },
+    "messages": [
+      {
+        "role": "user",
+        "content": [{ "kind": "text", "text": "compact history" }]
+      }
+    ],
+    "reasoning": [],
+    "terminal": {
+      "status": "success",
+      "event": "completed",
+      "stop_reason": "stop",
+      "sequence": ["completed"]
+    }
+  }
+}

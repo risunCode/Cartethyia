@@ -44,13 +44,32 @@ by itself.
 POST /v1/chat/completions       OpenAI Chat Completions
 POST /v1/responses              OpenAI Responses
 POST /v1/messages               Anthropic Messages
+POST /v1/messages/count_tokens  Anthropic token-count estimate
 POST /v1/images/generations     OpenAI image generation
 POST /v1/images/edits           OpenAI image edits
+GET  /v1/models                 OpenAI model-list shape
+POST /v1/action                 Explicit Cartethyia surface envelope
 ```
 
 The normalized source surface is retained so the response encoder can preserve
 surface-specific behavior. Responses and Chat are not interchangeable wire
 formats even when they share model/provider routing.
+
+Successful public shapes remain owned by their surface encoders:
+
+| Endpoint | Request discriminator | Successful response |
+| --- | --- | --- |
+| Chat Completions | `model`, `messages`, optional `stream` | OpenAI chat completion JSON or `chat.completion.chunk` SSE ending with `[DONE]` |
+| Responses | `model`, `input`, optional `stream` | OpenAI Responses JSON or typed Responses SSE with an explicit completed terminal |
+| Messages | `model`, `messages`, `max_tokens`, optional `stream` | Anthropic Message JSON or Anthropic event SSE ending with `message_stop` |
+| Images generations/edits | JSON generation body or multipart edit body | OpenAI image object with `created` and `data` |
+| Models | no body; `GET` only | `{"object":"list","data":[{"id", "object":"model", "owned_by"}]}` |
+| Action | JSON containing `protocol`, `model`, optional `stream`, plus that surface's fields | the selected Chat, Responses, Messages, or Images response shape; no extra Action wrapper |
+
+`/v1/action` rejects `web-search` and unknown protocol values. `/v1/models`
+returns enabled catalog entries only. The hardening work changes routing,
+ownership, headers, and failure behavior; it does not wrap or rename fields in
+these successful endpoint schemas.
 
 ## 3. Translation stages
 
@@ -173,7 +192,11 @@ The stream contract preserves:
 
 A client disconnect cancels upstream work. A malformed upstream event or stream
 stall becomes a typed stream failure. A partial response is not promoted to a
-successful empty response.
+successful empty response. Before the first semantic text, reasoning, tool, or
+image event, bounded start/metadata/usage events are buffered and a classified
+failure may return to the router. The first semantic event commits the stream;
+after that point no retry is allowed. EOF without an accepted terminal is
+truncation, and every completed downstream SSE frame is flushed.
 
 ## 7. Provider capability resolution
 
@@ -285,9 +308,14 @@ daemon/internal/proxy/compression/
 ```
 
 It contains bounded smart filters and a fail-open token-saving pipeline. It is
-not an upstream prompt-cache marker, not Redis, and not Headroom. In the current
-2.1.0 checkpoint it is a reusable package, not an automatically inserted stage
-of the active dispatch path. Do not assume every `/v1/*` request is compressed.
+not an upstream prompt-cache marker, not Redis, and not Headroom. The active
+normalization path runs its default balanced policy for OpenAI Chat, OpenAI
+Responses, and Anthropic Messages. Only eligible older `tool_result` text is
+shortened, and only when the transformed request is smaller. User/system text,
+tool schemas, IDs, images, reasoning, non-tool blocks, and the recent-turn
+window remain unchanged. A skip or compression/cache failure sends the original
+normalized request. Images, Models, and Action do not add a second independent
+RTK pass.
 
 ## 10. Adding a protocol or provider
 

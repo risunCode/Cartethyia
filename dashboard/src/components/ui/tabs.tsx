@@ -1,6 +1,7 @@
 /* @jsxImportSource solid-js */
 
 import { cn } from "../../lib/cn";
+import { focusRingClasses } from "./styles";
 
 export interface TabItem {
   id: string;
@@ -50,7 +51,8 @@ export function Tabs(props: TabsProps) {
             }
           }}
           class={cn(
-            "rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-[color,background-color,border-color,transform] duration-150 active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring)]",
+            "rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-[color,background-color,border-color,transform] duration-150 active:scale-95",
+            focusRingClasses,
             props.value === tab.id
               ? "border-transparent bg-[var(--accent-soft)] text-[var(--accent)]"
               : "border-[var(--inner-border)] bg-[var(--hover)] text-[var(--text-2)] hover:bg-[var(--active-pill)] hover:text-[var(--text-1)]",
@@ -84,7 +86,8 @@ export function Select(props: SelectProps) {
       value={props.value}
       onChange={(event) => props.onChange(event.currentTarget.value)}
       class={cn(
-        "h-8 rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] px-2 text-xs font-medium text-[var(--text-1)] outline-none transition-colors focus:border-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]",
+        "h-8 rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] px-2 text-xs font-medium text-[var(--text-1)] outline-none transition-colors focus:border-[var(--accent)]",
+        focusRingClasses,
         props.className,
       )}
     >

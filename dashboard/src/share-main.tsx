@@ -3,7 +3,8 @@
 import { render } from "solid-js/web";
 
 import { SharePage } from "./share-page";
-import "./index.css";
+import "./styles/base.css";
+import "./styles/share.css";
 
 
 const root = document.getElementById("root");

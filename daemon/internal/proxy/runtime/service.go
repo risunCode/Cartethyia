@@ -4,25 +4,26 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cartethyia/daemon/internal/observability"
 	"github.com/cartethyia/daemon/internal/observability/usage"
+	"github.com/cartethyia/daemon/internal/providers"
 	"github.com/cartethyia/daemon/internal/proxy/compression"
 	"github.com/cartethyia/daemon/internal/proxy/control/admission"
 	"github.com/cartethyia/daemon/internal/proxy/control/continuation"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/transforms"
 	"github.com/cartethyia/daemon/internal/proxy/runtime/catalog"
+	runtimecache "github.com/cartethyia/daemon/internal/runtime/cache"
 	apicontracts "github.com/cartethyia/daemon/internal/server/api/contracts"
 )
 
@@ -36,9 +37,19 @@ type DispatchService struct {
 	Continuations   *continuation.Store
 	Admission       *admission.Limiter
 	Metadata        MetadataWriter
-	Catalog         *catalog.Snapshot
+	Evidence        *observability.Registry
+	Catalog         catalog.Resolver
 	Usage           *usage.Ledger
-	Now             func() time.Time
+	// Codecs is the canonical request/response registry. Cross-surface
+	// responses require the registered target decoder and source encoder;
+	// same-surface responses remain native passthrough.
+	Codecs *transforms.Registry
+	// ResponseCache is an opt-in complete non-stream cache. It is consulted
+	// after request/catalog validation but before admission/account acquisition.
+	ResponseCache       *runtimecache.ResponseCache
+	ResponseCacheTenant func(context.Context, contracts.Request) string
+	Now                 func() time.Time
+	sideEffectFails     atomic.Uint64
 }
 
 // defaultTokenSaver is local and deterministic. It is deliberately fail-open
@@ -51,6 +62,25 @@ var defaultTokenSaver = compression.NewOrchestrator()
 // writer failure must never become a request-path failure.
 type MetadataWriter interface {
 	Enqueue(observability.Metadata) error
+}
+
+// SideEffectFailureCount returns the number of fail-open metadata, usage, or
+// continuation operations that could not be recorded. The count is bounded
+// evidence only; side-effect errors never replace a provider success.
+func (s *DispatchService) SideEffectFailureCount() uint64 {
+	if s == nil {
+		return 0
+	}
+	return s.sideEffectFails.Load()
+}
+
+func (s *DispatchService) recordSideEffectFailure() {
+	if s != nil {
+		s.sideEffectFails.Add(1)
+		if s.Evidence != nil {
+			s.Evidence.ObserveSideEffectFailure()
+		}
+	}
 }
 
 // DispatchError carries a stable proxy-owned code while retaining the public
@@ -101,18 +131,15 @@ const (
 	codeDispatchCanceled       = "proxy.canceled"
 	codeDispatchDeadline       = "proxy.deadline"
 	codeDispatchProvider       = "proxy.provider_failure"
+	codeDispatchTranslation    = "proxy.response_translation"
 	codeDispatchMalformed      = "proxy.malformed_provider_response"
 	codeDispatchNoRoute        = "proxy.no_usable_account"
 	codeDispatchUsage          = "proxy.usage"
 	codeDispatchInternal       = "proxy.internal"
 )
 
-func (s *DispatchService) Dispatch(req *contracts.Request) (apicontracts.Stream, error) {
-	return s.DispatchContext(context.Background(), req)
-}
-
-// DispatchContext is the cancellable form used by lifecycle callers and
-// tests; Dispatch is retained for the historical server interface.
+// DispatchContext owns one cancellable request lifecycle from admission
+// through the final response or stream terminal boundary.
 func (s *DispatchService) DispatchContext(ctx context.Context, req *contracts.Request) (result apicontracts.Stream, retErr error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -128,30 +155,58 @@ func (s *DispatchService) DispatchContext(ctx context.Context, req *contracts.Re
 	meta := requestMetadata(*req)
 	deferMetadata := true
 	defer func() {
+		panicValue := recover()
 		if !deferMetadata {
+			if panicValue != nil {
+				panic(panicValue)
+			}
 			return
 		}
-		if retErr != nil {
+		if panicValue != nil {
+			meta.Outcome = observability.OutcomeError
+		} else if retErr != nil {
 			meta.Outcome = metadataOutcome(retErr)
 			meta.Cancelled = errors.Is(retErr, context.Canceled)
 		}
 		meta.EndedAt = time.Now().UTC()
 		meta.LatencyMS = meta.EndedAt.Sub(meta.StartedAt).Milliseconds()
-		if s.Metadata != nil {
-			_ = s.Metadata.Enqueue(meta)
+		s.enqueueMetadata(meta)
+		if panicValue != nil {
+			panic(panicValue)
 		}
 	}()
-	if err := s.resolveCatalog(req); err != nil {
+	plan, err := s.resolveCatalog(ctx, req)
+	if err != nil {
+		if s.Evidence != nil {
+			var capabilityErr *catalog.CapabilityError
+			if errors.As(err, &capabilityErr) && capabilityErr != nil {
+				s.Evidence.ObserveCapability(observability.CapabilityEvidence{Code: capabilityErr.Code, Operation: operationLabel(capabilityErr.Operation), Feature: string(capabilityErr.Feature)})
+			}
+		}
 		return nil, err
 	}
+	s.observeRoutePlan(*req, plan)
 	if err := s.validateContinuation(ctx, *req); err != nil {
 		return nil, err
 	}
+	if cached, ok := s.responseCacheGet(ctx, *req, plan); ok {
+		applyResponseMetadata(&meta, cached.Body)
+		return &bufferResponse{status: cached.StatusCode, contentType: cached.Headers.Get("Content-Type"), headers: cached.Headers, body: cached.Body}, nil
+	}
 
 	var lease *admission.Lease
+	defer func() {
+		if lease != nil {
+			lease.Release()
+		}
+	}()
 	if s.Admission != nil {
 		var acquireErr error
+		admissionStarted := time.Now()
 		lease, acquireErr = s.Admission.Acquire(ctx, admissionKeys(*req))
+		if s.Evidence != nil {
+			s.Evidence.ObserveAdmissionWait(time.Since(admissionStarted))
+		}
 		if acquireErr != nil {
 			code := codeDispatchAdmission
 			status := http.StatusTooManyRequests
@@ -163,44 +218,41 @@ func (s *DispatchService) DispatchContext(ctx context.Context, req *contracts.Re
 			}
 			return nil, dispatchError(code, kind, status, "request admission failed", acquireErr)
 		}
-		defer lease.Release()
 	}
 
 	if req.Stream {
 		if s.StreamTransport == nil {
 			return nil, dispatchError(codeDispatchProvider, contracts.ErrorFatal, http.StatusNotImplemented, "streaming transport is not configured", nil)
 		}
-		stream, _, failure, routeErr := s.Router.RouteStream(ctx, s.StreamTransport, *req)
+		stream, _, failure, routeErr := s.Router.RouteStream(ctx, s.StreamTransport, *req, plan)
 		if routeErr != nil {
 			return nil, dispatchRouterError(routeErr)
 		}
 		if failure != nil {
+			s.observeFailureExhaustion(failure)
 			return nil, dispatchFailureError(failure)
 		}
 		if stream == nil {
 			return nil, dispatchError(codeDispatchMalformed, contracts.ErrorFatal, http.StatusBadGateway, "provider returned no stream", nil)
 		}
-		deferMetadata = false
 		streamMeta := meta
+		stream.AttachAdmissionLease(lease)
+		stream.AttachFinalizer(func(streamErr, sideEffectErr error) {
+			if sideEffectErr != nil {
+				s.recordSideEffectFailure()
+			}
+			s.finalizeStream(ctx, *req, stream, &streamMeta, streamErr)
+		})
+		lease = nil
+		deferMetadata = false
 		return &streamResponse{
 			status: http.StatusOK, contentType: "text/event-stream",
 			headers: http.Header{"Cache-Control": []string{"no-cache"}},
-			stream:  stream, surface: req.Protocol, model: req.Model,
-			finalize: func(streamErr error) {
-				if streamErr != nil {
-					streamMeta.Outcome = metadataOutcome(streamErr)
-					streamMeta.Cancelled = errors.Is(streamErr, context.Canceled)
-				}
-				streamMeta.EndedAt = time.Now().UTC()
-				streamMeta.LatencyMS = streamMeta.EndedAt.Sub(streamMeta.StartedAt).Milliseconds()
-				if s.Metadata != nil {
-					_ = s.Metadata.Enqueue(streamMeta)
-				}
-			},
+			stream:  stream, surface: req.Protocol, model: req.Model, codecs: s.Codecs,
 		}, nil
 	}
 
-	response, failure, routeErr := s.Router.Route(ctx, validatingTransport{next: s.Transport}, *req)
+	response, failure, routeErr := s.Router.Route(ctx, validatingTransport{next: s.Transport}, *req, plan)
 	if routeErr != nil {
 		return nil, dispatchRouterError(routeErr)
 	}
@@ -208,20 +260,122 @@ func (s *DispatchService) DispatchContext(ctx context.Context, req *contracts.Re
 		return nil, dispatchContextError(err)
 	}
 	if failure != nil {
+		s.observeFailureExhaustion(failure)
 		return nil, dispatchFailureError(failure)
 	}
 	if err := validateProviderResponse(response); err != nil {
 		return nil, dispatchError(codeDispatchMalformed, contracts.ErrorFatal, http.StatusBadGateway, "provider returned malformed response", err)
 	}
-	response = projectNativeResponsesToChat(*req, response)
+	s.responseCacheSet(ctx, *req, plan, response)
+	response, projectionErr := canonicalResponseProjection(*req, responseTargetSurface(*req, plan), response, s.Codecs)
+	if projectionErr != nil {
+		return nil, dispatchError(codeDispatchTranslation, contracts.ErrorTranslation, http.StatusBadGateway, "provider response could not be translated", projectionErr)
+	}
 	applyResponseMetadata(&meta, response.Body)
 	if err := s.recordUsage(*req, response); err != nil {
-		return nil, err
+		s.recordSideEffectFailure()
 	}
 	if err := s.recordContinuation(ctx, *req, response.Body); err != nil {
-		return nil, err
+		s.recordSideEffectFailure()
 	}
 	return &bufferResponse{status: response.StatusCode, contentType: response.Headers.Get("Content-Type"), headers: response.Headers, body: response.Body}, nil
+}
+
+func (s *DispatchService) responseCacheSpec(ctx context.Context, req contracts.Request, plan catalog.RoutePlan) (runtimecache.ResponseSpec, bool) {
+	if s == nil || s.ResponseCache == nil || req.Stream || plan.Operation == transforms.OperationCompactV1 || plan.Operation == transforms.OperationCompactV2 || len(plan.Members) == 0 || req.ContinuationScope != "" {
+		return runtimecache.ResponseSpec{}, false
+	}
+	tenant := req.ContinuationScope
+	if s.ResponseCacheTenant != nil {
+		tenant = s.ResponseCacheTenant(ctx, req)
+	}
+	if tenant == "" {
+		return runtimecache.ResponseSpec{}, false
+	}
+	target := req.Protocol
+	provider := ""
+	model := req.Model
+	if member := plan.Members[0]; member.TargetSurface != "" {
+		target, provider, model = contracts.Surface(member.TargetSurface), member.ProviderID, member.ClientModelID
+	}
+	if provider == "" || model == "" {
+		return runtimecache.ResponseSpec{}, false
+	}
+	digest := sha256.Sum256(req.Body)
+	return runtimecache.ResponseSpec{TenantID: tenant, SourceSurface: string(req.Protocol), TargetSurface: string(target), Provider: provider, Model: model, RequestBodyDigest: fmt.Sprintf("%x", digest[:]), Generation: runtimecache.Generation{Catalog: plan.Generation, Health: 1, Network: 1}, Complete: true}, true
+}
+
+func (s *DispatchService) responseCacheGet(ctx context.Context, req contracts.Request, plan catalog.RoutePlan) (*contracts.Response, bool) {
+	spec, ok := s.responseCacheSpec(ctx, req, plan)
+	if !ok {
+		return nil, false
+	}
+	entry, err := s.ResponseCache.Get(ctx, spec)
+	if err != nil || len(entry.Value) == 0 {
+		if s.Evidence != nil {
+			s.Evidence.ObserveCache(observability.CacheEvidence{Kind: observability.CacheKindResponseL0, Layer: "l0", Operation: observability.CacheLookup, Outcome: "miss"})
+		}
+		return nil, false
+	}
+	response := &contracts.Response{StatusCode: http.StatusOK, Headers: http.Header{"Content-Type": []string{"application/json"}}, Body: entry.Value}
+	if err := validateProviderResponse(response); err != nil {
+		if s.Evidence != nil {
+			s.Evidence.ObserveCache(observability.CacheEvidence{Kind: observability.CacheKindResponseL0, Layer: "l0", Operation: observability.CacheReject, Outcome: "rejected"})
+		}
+		return nil, false
+	}
+	projected, projectionErr := canonicalResponseProjection(req, responseTargetSurface(req, plan), response, s.Codecs)
+	if projectionErr != nil {
+		if s.Evidence != nil {
+			s.Evidence.ObserveCache(observability.CacheEvidence{Kind: observability.CacheKindResponseL0, Layer: "l0", Operation: observability.CacheReject, Outcome: "rejected"})
+		}
+		return nil, false
+	}
+	response = projected
+	if err := validateProviderResponse(response); err != nil {
+		if s.Evidence != nil {
+			s.Evidence.ObserveCache(observability.CacheEvidence{Kind: observability.CacheKindResponseL0, Layer: "l0", Operation: observability.CacheReject, Outcome: "rejected"})
+		}
+		return nil, false
+	}
+	if s.Evidence != nil {
+		s.Evidence.ObserveCache(observability.CacheEvidence{Kind: observability.CacheKindResponseL0, Layer: "l0", Operation: observability.CacheHit, Outcome: "hit"})
+	}
+	return response, true
+}
+
+func responseTargetSurface(req contracts.Request, plan catalog.RoutePlan) contracts.Surface {
+	if len(plan.Members) == 0 || plan.Members[0].TargetSurface == "" {
+		switch req.Protocol {
+		case contracts.SurfaceOpenAIChat:
+			return contracts.SurfaceOpenAIResponses
+		default:
+			return req.Protocol
+		}
+	}
+	return contracts.Surface(plan.Members[0].TargetSurface)
+}
+
+func (s *DispatchService) responseCacheSet(ctx context.Context, req contracts.Request, plan catalog.RoutePlan, response *contracts.Response) {
+	if response == nil || response.StatusCode < 200 || response.StatusCode > 299 || len(response.Body) == 0 {
+		return
+	}
+	spec, ok := s.responseCacheSpec(ctx, req, plan)
+	if !ok {
+		return
+	}
+	err := s.ResponseCache.SetValidated(ctx, spec, response.Body, func(body []byte) error {
+		candidate := &contracts.Response{StatusCode: response.StatusCode, Body: body}
+		return validateProviderResponse(candidate)
+	})
+	if s.Evidence != nil {
+		op := observability.CacheWrite
+		outcome := "stored"
+		if err != nil {
+			op, outcome = observability.CacheReject, "rejected"
+		}
+		s.Evidence.ObserveCache(observability.CacheEvidence{Kind: observability.CacheKindResponseL0, Layer: "l0", Operation: op, Outcome: outcome})
+	}
 }
 
 func (s *DispatchService) validateRequest(ctx context.Context, req *contracts.Request) (*contracts.Request, error) {
@@ -234,6 +388,9 @@ func (s *DispatchService) validateRequest(ctx context.Context, req *contracts.Re
 	} else {
 		copyReq.Headers = req.Headers.Clone()
 	}
+	copyReq.Headers.Del("X-Cartethyia-Provider")
+	copyReq.Headers.Del("X-Cartethyia-Continuation-Scope")
+	copyReq.Headers.Del("X-Cartethyia-Catalog-Generation")
 	copyReq.Body = bytes.Clone(req.Body)
 	if !copyReq.Protocol.IsValid() {
 		return nil, dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "unsupported request surface", nil)
@@ -254,7 +411,13 @@ func (s *DispatchService) validateRequest(ctx context.Context, req *contracts.Re
 		if copyReq.Model == "" {
 			copyReq.Model = prepared.Request.Model
 		}
+		if s.Evidence != nil {
+			s.Evidence.ObserveCache(observability.CacheEvidence{Kind: observability.CacheKindTokenSaverL0, Layer: "l0", Operation: observability.CacheLookup, Outcome: "miss"})
+		}
 		if saverReq, changed := applyTokenSaver(ctx, prepared.Request); changed {
+			if s.Evidence != nil {
+				s.Evidence.ObserveCache(observability.CacheEvidence{Kind: observability.CacheKindTokenSaverL0, Layer: "l0", Operation: observability.CacheWrite, Outcome: "stored"})
+			}
 			body, encodeErr := transforms.EncodeNormalizedRequest(ctx, copyReq.Protocol, saverReq, copyReq.Body)
 			if encodeErr != nil {
 				return nil, dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "request token preparation failed", encodeErr)
@@ -319,44 +482,124 @@ func cloneNormalizedRequestForRuntime(req *transforms.NormalizedRequest) *transf
 	return &out
 }
 
-func (s *DispatchService) resolveCatalog(req *contracts.Request) error {
+func (s *DispatchService) resolveCatalog(ctx context.Context, req *contracts.Request) (catalog.RoutePlan, error) {
 	if s.Catalog == nil {
-		return nil
+		return catalog.RoutePlan{
+			RequestedModel: req.Model,
+			Strategy:       catalog.RouteStrategySingle,
+			Members: []catalog.RouteMember{{
+				ProviderID: defaultProviderForSurface(req.Protocol), ClientModelID: req.Model,
+				UpstreamModelID: req.Model, Surface: req.Protocol,
+			}},
+		}, nil
 	}
-	model, err := s.Catalog.Resolve(req.Model)
+	snapshot, _, err := s.Catalog.Current(ctx)
 	if err != nil {
-		return dispatchError(codeDispatchCatalog, contracts.ErrorInvalidRequest, http.StatusBadRequest, "requested model is unavailable", err)
+		return catalog.RoutePlan{}, dispatchError(codeDispatchCatalog, contracts.ErrorTransient, http.StatusServiceUnavailable, "model catalog is temporarily unavailable", err)
 	}
-	if len(model.Surfaces) > 0 {
-		supported := false
-		for _, surface := range model.Surfaces {
-			if string(surface) == string(req.Protocol) {
-				supported = true
-				break
-			}
-		}
-		if !supported {
-			return dispatchError(codeDispatchCatalog, contracts.ErrorInvalidRequest, http.StatusBadRequest, "requested surface is unsupported for model", nil)
+	plan, err := snapshot.Plan(req.Model, req.Protocol)
+	if errors.Is(err, catalog.ErrAmbiguousModel) {
+		qualified := defaultProviderForSurface(req.Protocol) + ":" + req.Model
+		if fallbackPlan, fallbackErr := snapshot.Plan(qualified, req.Protocol); fallbackErr == nil {
+			fallbackPlan.RequestedModel = req.Model
+			return fallbackPlan, nil
 		}
 	}
-	req.Model = model.ID
-	if model.ProviderID != "" && req.Headers.Get("X-Cartethyia-Provider") == "" {
-		req.Headers.Set("X-Cartethyia-Provider", model.ProviderID)
+	if err != nil {
+		return catalog.RoutePlan{}, dispatchError(codeDispatchCatalog, contracts.ErrorInvalidRequest, http.StatusBadRequest, "requested model or surface is unavailable", err)
 	}
-	return nil
+	return plan, nil
+}
+
+func operationLabel(operation transforms.OperationKind) string {
+	switch operation {
+	case transforms.OperationCompactV1, transforms.OperationCompactV2:
+		return "compact"
+	case transforms.OperationGenerate:
+		return "generate"
+	default:
+		return "unknown"
+	}
+}
+
+func (s *DispatchService) observeFailureExhaustion(failure *Failure) {
+	if s == nil || s.Evidence == nil || failure == nil {
+		return
+	}
+	reason := observability.ExhaustionCandidate
+	switch failure.Kind {
+	case FailureRateLimit, FailureTransient, FailureServerError, FailureCapacity:
+		reason = observability.ExhaustionNetwork
+	case FailureAuthentication, FailureReauthenticationRequired:
+		reason = observability.ExhaustionCredential
+	case FailureQuota:
+		reason = observability.ExhaustionQuota
+	case FailureTranslation, FailureUnsupported:
+		reason = observability.ExhaustionTranslation
+	}
+	s.Evidence.ObserveTypedExhaustion(reason, failure.CodeString())
+}
+
+func (s *DispatchService) observeRoutePlan(req contracts.Request, plan catalog.RoutePlan) {
+	if s == nil || s.Evidence == nil {
+		return
+	}
+	source := string(plan.SourceSurface)
+	if source == "" {
+		source = string(req.Protocol)
+	}
+	version := "none"
+	if plan.Operation == transforms.OperationCompactV1 {
+		version = "v1"
+	}
+	if plan.Operation == transforms.OperationCompactV2 {
+		version = "v2"
+	}
+	s.Evidence.ObserveOperation(observability.OperationEvidence{Operation: operationLabel(plan.Operation), CompactionVersion: version, Bridge: "none", Outcome: observability.PlanOutcomePlanned})
+	for _, member := range plan.Members {
+		target := string(member.TargetSurface)
+		if target == "" {
+			target = string(member.Surface)
+		}
+		action := observability.PlanActionTranslate
+		if source == target {
+			action = observability.PlanActionPreserve
+		}
+		s.Evidence.ObserveCompatibilityPlan(observability.CompatibilityPlanEvidence{
+			SourceSurface: source, TargetSurface: target, Profile: "unknown-standard",
+			Action: action, Outcome: observability.PlanOutcomePlanned, Operation: operationLabel(plan.Operation),
+		})
+	}
+	for _, exclusion := range plan.Exclusions {
+		s.Evidence.ObserveCapability(observability.CapabilityEvidence{Code: exclusion.Code, Operation: operationLabel(plan.Operation), Feature: string(exclusion.Feature)})
+	}
+}
+
+func defaultProviderForSurface(surface contracts.Surface) string {
+	switch surface {
+	case contracts.SurfaceAnthropic:
+		return "anthropic"
+	case contracts.SurfaceOpenAIChat, contracts.SurfaceOpenAIResponses, contracts.SurfaceImages:
+		return "openai"
+	default:
+		return "default"
+	}
+}
+
+func (s *DispatchService) CatalogStatus() catalog.RefreshStatus {
+	if s == nil || s.Catalog == nil {
+		return catalog.RefreshStatus{}
+	}
+	if store, ok := s.Catalog.(interface{ Status() catalog.RefreshStatus }); ok {
+		return store.Status()
+	}
+	return catalog.RefreshStatus{}
 }
 
 func admissionKeys(req contracts.Request) map[string]string {
 	keys := map[string]string{"global": "global"}
 	if req.Stream {
 		keys["stream"] = "stream"
-	}
-	if req.Headers != nil {
-		identity := headerValue(req.Headers, "Authorization") + "\x00" + headerValue(req.Headers, "X-API-Key")
-		if identity != "\x00" {
-			sum := sha256.Sum256([]byte(identity))
-			keys["api_key"] = hex.EncodeToString(sum[:])
-		}
 	}
 	return keys
 }
@@ -480,10 +723,32 @@ func (t validatingTransport) Call(ctx context.Context, acct Account, req contrac
 	return response, nil
 }
 
+func (t validatingTransport) ProposeRepair(acct Account, req contracts.Request, ruleID string) (providers.RepairProposal, bool) {
+	proposer, ok := t.next.(CompatibilityRepairTransport)
+	if !ok {
+		return providers.RepairProposal{}, false
+	}
+	return proposer.ProposeRepair(acct, req, ruleID)
+}
+
 func contractKind(kind FailureKind) contracts.ErrorKind {
 	switch kind {
 	case FailureInvalidRequest:
 		return contracts.ErrorInvalidRequest
+	case FailureUnsupported:
+		return contracts.ErrorUnsupported
+	case FailureTranslation:
+		return contracts.ErrorTranslation
+	case FailureEntitlement:
+		return contracts.ErrorEntitlement
+	case FailureContentPolicy:
+		return contracts.ErrorContentPolicy
+	case FailureReauthenticationRequired:
+		return contracts.ErrorReauthenticationRequired
+	case FailureCapacity:
+		return contracts.ErrorCapacity
+	case FailureEmptyOutput:
+		return contracts.ErrorEmptyOutput
 	case FailureAuthentication:
 		return contracts.ErrorAuthentication
 	case FailureRateLimit:
@@ -492,28 +757,67 @@ func contractKind(kind FailureKind) contracts.ErrorKind {
 		return contracts.ErrorQuota
 	case FailureTransient:
 		return contracts.ErrorTransient
+	case FailureServerError:
+		return contracts.ErrorServerError
+	case FailureFatal, FailureAborted, FailureUnknown:
+		return contracts.ErrorFatal
 	default:
 		return contracts.ErrorFatal
 	}
 }
+
+func (s *DispatchService) enqueueMetadata(meta observability.Metadata) {
+	if s.Metadata != nil {
+		if err := s.Metadata.Enqueue(meta); err != nil {
+			s.recordSideEffectFailure()
+		}
+	}
+}
+
+func (s *DispatchService) finalizeStream(ctx context.Context, req contracts.Request, stream *Stream, meta *observability.Metadata, streamErr error) {
+	if stream == nil || meta == nil {
+		return
+	}
+	tokens := stream.UsageTokens()
+	meta.InputTokens = tokens.Input
+	meta.OutputTokens = tokens.Output
+	meta.CachedTokens = tokens.CachedRead
+	meta.CacheWriteTokens = tokens.CachedWrite
+	if err := s.recordUsageTokens(req, tokens); err != nil {
+		s.recordSideEffectFailure()
+	}
+	if responseID := stream.ResponseID(); streamErr == nil && responseID != "" {
+		if err := s.recordContinuationID(ctx, req, responseID); err != nil {
+			s.recordSideEffectFailure()
+		}
+	}
+	if streamErr != nil {
+		meta.Outcome = metadataOutcome(streamErr)
+		meta.Cancelled = errors.Is(streamErr, context.Canceled) || errors.Is(streamErr, ErrClientDisconnect)
+	}
+	meta.EndedAt = time.Now().UTC()
+	meta.LatencyMS = meta.EndedAt.Sub(meta.StartedAt).Milliseconds()
+	s.enqueueMetadata(*meta)
+}
+
 func (s *DispatchService) recordUsage(req contracts.Request, response *contracts.Response) error {
+	return s.recordUsageTokens(req, parseUsage(response.Body))
+}
+
+func (s *DispatchService) recordUsageTokens(req contracts.Request, tokens usage.Tokens) error {
 	if s.Usage == nil {
 		return nil
 	}
 	requestID := headerValue(req.Headers, "X-Request-ID")
-	if requestID == "" {
-		sum := sha256.Sum256(append([]byte(req.Model+":"), req.Body...))
-		requestID = hex.EncodeToString(sum[:])
-	}
 	now := time.Now
 	if s.Now != nil {
 		now = s.Now
 	}
 	event := usage.Event{
-		RequestID: requestID, Attempt: 1, Provider: headerValue(req.Headers, "X-Cartethyia-Provider"),
+		RequestID: requestID, Attempt: 1,
 		Model: req.Model, StartedAt: now(), EndedAt: now(),
 	}
-	event.Tokens = parseUsage(response.Body)
+	event.Tokens = tokens
 	if err := s.Usage.Register(event); err != nil && !errors.Is(err, usage.ErrDuplicate) {
 		return dispatchError(codeDispatchUsage, contracts.ErrorFatal, http.StatusInternalServerError, "usage event could not be recorded", err)
 	}
@@ -598,7 +902,14 @@ func (s *DispatchService) recordContinuation(ctx context.Context, req contracts.
 	if json.Unmarshal(body, &payload) != nil || payload.ID == "" {
 		return nil
 	}
-	if req.Headers == nil || req.Headers.Get("X-Cartethyia-Continuation-Scope") == "" {
+	return s.recordContinuationID(ctx, req, payload.ID)
+}
+
+func (s *DispatchService) recordContinuationID(ctx context.Context, req contracts.Request, responseID string) error {
+	if req.Protocol != contracts.ProtocolOpenAIResponse || s.Continuations == nil || responseID == "" {
+		return nil
+	}
+	if req.ContinuationScope == "" {
 		return nil
 	}
 	binding, err := continuationBinding(req)
@@ -606,7 +917,7 @@ func (s *DispatchService) recordContinuation(ctx context.Context, req contracts.
 		return dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "continuation is unavailable", err)
 	}
 	if err := s.Continuations.Put(ctx, continuation.State{
-		ID: payload.ID, ResponseID: payload.ID, Scope: binding.Scope,
+		ID: responseID, ResponseID: responseID, Scope: binding.Scope,
 		Provider: binding.Provider, Model: binding.Model, Generation: binding.Generation,
 	}); err != nil {
 		return dispatchError(codeDispatchProvider, contracts.ErrorFatal, http.StatusInternalServerError, "continuation could not be recorded", err)
@@ -615,50 +926,16 @@ func (s *DispatchService) recordContinuation(ctx context.Context, req contracts.
 }
 
 func continuationBinding(req contracts.Request) (continuation.Binding, error) {
-	scope := ""
-	provider := ""
-	generation := uint64(0)
-	if req.Headers != nil {
-		scope = req.Headers.Get("X-Cartethyia-Continuation-Scope")
-		provider = req.Headers.Get("X-Cartethyia-Provider")
-		rawGeneration := req.Headers.Get("X-Cartethyia-Catalog-Generation")
-		if rawGeneration != "" {
-			parsed, err := strconv.ParseUint(rawGeneration, 10, 64)
-			if err != nil {
-				return continuation.Binding{}, &continuation.Error{
-					Code: continuation.CodeInvalid, Op: "binding",
-					Message: "continuation catalog generation is invalid", Err: err,
-				}
-			}
-			generation = parsed
-		}
-	}
-	if scope == "" {
+	if req.ContinuationScope == "" {
 		return continuation.Binding{}, continuation.ErrUnauthorized
 	}
-	if provider == "" {
-		switch req.Protocol {
-		case contracts.SurfaceAnthropic:
-			provider = "anthropic"
-		case contracts.SurfaceOpenAIChat, contracts.SurfaceOpenAIResponses, contracts.SurfaceImages:
-			provider = "openai"
-		default:
-			provider = string(req.Protocol)
-		}
-	}
+	provider := defaultProviderForSurface(req.Protocol)
 	if req.Model == "" {
 		return continuation.Binding{}, &continuation.Error{
 			Code: continuation.CodeInvalid, Op: "binding", Message: "continuation model is required",
 		}
 	}
-	return continuation.Binding{Scope: scope, Provider: provider, Model: req.Model, Generation: generation}, nil
-}
-
-func continuationRouteError(err error) error {
-	return &contracts.RouteError{
-		Kind: contracts.ErrorInvalidRequest, StatusCode: http.StatusBadRequest,
-		Message: "continuation is unavailable", Err: err,
-	}
+	return continuation.Binding{Scope: req.ContinuationScope, Provider: provider, Model: req.Model}, nil
 }
 
 type bufferResponse struct {
@@ -682,10 +959,9 @@ type streamResponse struct {
 	stream      *Stream
 	surface     contracts.Surface
 	model       string
+	codecs      *transforms.Registry
 	mu          sync.Mutex
-	reader      *StreamBridge
-	bodyReader  apicontracts.StreamReader
-	finalize    func(error)
+	reader      apicontracts.StreamReader
 }
 
 func (r *streamResponse) StatusCode() int      { return r.status }
@@ -695,37 +971,9 @@ func (r *streamResponse) Body() apicontracts.StreamReader {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.reader == nil {
-		bridge := NewStreamBridge(r.stream, r.surface, r.model)
-		r.reader = bridge
-		if r.finalize != nil {
-			r.bodyReader = &finalizingReader{reader: bridge, finalize: r.finalize}
-			return r.bodyReader
-		}
-	}
-	if r.bodyReader != nil {
-		return r.bodyReader
+		r.reader = NewCodecStreamBridge(r.stream, r.surface, r.model, r.codecs)
 	}
 	return r.reader
-}
-
-type finalizingReader struct {
-	reader   *StreamBridge
-	finalize func(error)
-	once     sync.Once
-}
-
-func (r *finalizingReader) Read(p []byte) (int, error) { return r.reader.Read(p) }
-func (r *finalizingReader) ReadContext(ctx context.Context, p []byte) (int, error) {
-	return r.reader.ReadContext(ctx, p)
-}
-func (r *finalizingReader) Close() error {
-	err := r.reader.Close()
-	r.once.Do(func() { r.finalize(err) })
-	return err
-}
-func (r *finalizingReader) Abort(err error) {
-	r.reader.Abort(err)
-	r.once.Do(func() { r.finalize(err) })
 }
 
 var _ apicontracts.ProxyService = (*DispatchService)(nil)

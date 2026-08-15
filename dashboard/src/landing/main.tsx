@@ -3,7 +3,8 @@
 import { render } from "solid-js/web";
 
 import { LandingPage } from "./page";
-import "../index.css";
+import "../styles/base.css";
+import "../styles/landing.css";
 
 const root = document.getElementById("root");
 

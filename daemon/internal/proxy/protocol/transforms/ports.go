@@ -20,10 +20,9 @@ type RequestDecoder interface {
 type RequestEncoder interface {
 	Protocol() contracts.Protocol
 	// Encode returns the wire payload plus a disposition report describing
-	// how every known field was routed. Unknown / native fields not
-	// understood by the target surface are passed through to
-	// wire.<surface-specific-extension-bucket> so they are never silently
-	// dropped.
+	// how every known field was routed. Opaque source-native fields are not
+	// merged by global key name; same-surface callers apply NativeSidecar at
+	// exact JSON pointers, while cross-surface callers require explicit maps.
 	Encode(ctx context.Context, req *NormalizedRequest) (*EncoderResult, *TransformError)
 }
 
@@ -58,16 +57,40 @@ type Combined struct {
 // Registry aggregates the codecs the runtime wants to expose. It does not
 // own any state beyond the registered implementations.
 type Registry struct {
-	requests  map[contracts.Protocol]RequestEncoder
-	responses map[contracts.Protocol]ResponseEncoder
+	requests          map[contracts.Protocol]RequestEncoder
+	decoders          map[contracts.Protocol]RequestDecoder
+	responseDecoders  map[contracts.Protocol]ResponseDecoder
+	responses         map[contracts.Protocol]ResponseEncoder
 }
 
 // NewRegistry constructs an empty registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		requests:  make(map[contracts.Protocol]RequestEncoder),
-		responses: make(map[contracts.Protocol]ResponseEncoder),
+		requests:         make(map[contracts.Protocol]RequestEncoder),
+		decoders:         make(map[contracts.Protocol]RequestDecoder),
+		responseDecoders: make(map[contracts.Protocol]ResponseDecoder),
+		responses:        make(map[contracts.Protocol]ResponseEncoder),
 	}
+}
+
+// NewDefaultRegistry returns the canonical request codec set used by ingress
+// and target projection. Response codecs remain independently registered by
+// the provider/stream layer.
+func NewDefaultRegistry() *Registry {
+	r := NewRegistry()
+	for _, codec := range []RequestEncoder{NewOpenAIChatCodec(), NewOpenAIResponsesCodec(), NewAnthropicMessagesCodec(), NewGeminiCodec()} {
+		r.RegisterRequest(codec)
+	}
+	for _, decoder := range []RequestDecoder{NewOpenAIChatRequestDecoder(), NewOpenAIResponsesRequestDecoder(), NewAnthropicMessagesRequestDecoder(), NewGeminiRequestDecoder()} {
+		r.RegisterDecoder(decoder)
+}
+for _, decoder := range []ResponseDecoder{NewOpenAIChatResponseDecoder(), NewOpenAIResponsesResponseDecoder(), NewAnthropicMessagesResponseDecoder(), NewGeminiResponseDecoder()} {
+	r.RegisterResponseDecoder(decoder)
+}
+for _, encoder := range []ResponseEncoder{NewOpenAIChatResponseEncoder(), NewOpenAIResponsesResponseEncoder(), NewAnthropicMessagesResponseEncoder(), NewGeminiResponseEncoder()} {
+	r.RegisterResponse(encoder)
+}
+	return r
 }
 
 // RegisterRequest installs a request encoder. Registering a second
@@ -80,6 +103,36 @@ func (r *Registry) RegisterRequest(e RequestEncoder) {
 		return
 	}
 	r.requests[e.Protocol()] = e
+}
+
+// RegisterDecoder installs an inbound request decoder for a surface.
+func (r *Registry) RegisterDecoder(d RequestDecoder) {
+	if d == nil {
+		return
+	}
+	if _, exists := r.decoders[d.Protocol()]; exists {
+		return
+	}
+	r.decoders[d.Protocol()] = d
+}
+
+// RegisterResponseDecoder installs a provider response decoder for a surface.
+func (r *Registry) RegisterResponseDecoder(d ResponseDecoder) {
+	if d == nil { return }
+	if _, exists := r.responseDecoders[d.Protocol()]; exists { return }
+	r.responseDecoders[d.Protocol()] = d
+}
+
+// LookupResponseDecoder returns the registered provider response decoder.
+func (r *Registry) LookupResponseDecoder(p contracts.Protocol) (ResponseDecoder, bool) {
+	d, ok := r.responseDecoders[p]
+	return d, ok
+}
+
+// LookupDecoder returns the registered inbound request decoder.
+func (r *Registry) LookupDecoder(p contracts.Protocol) (RequestDecoder, bool) {
+	d, ok := r.decoders[p]
+	return d, ok
 }
 
 // RegisterResponse installs a response encoder.

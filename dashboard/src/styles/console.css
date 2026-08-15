@@ -1,0 +1,324 @@
+/* Mesh background layer — the "material" that blur works on. */
+.app-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(55rem 38rem at 8% -12%, rgba(250, 212, 178, 0.42), transparent 60%),
+    radial-gradient(48rem 34rem at 108% 6%, rgba(246, 222, 182, 0.4), transparent 60%),
+    radial-gradient(42rem 42rem at 50% 118%, rgba(240, 192, 169, 0.27), transparent 60%),
+    var(--page-bg);
+}
+.dark .app-bg {
+  background:
+    radial-gradient(55rem 38rem at 8% -12%, rgba(14, 165, 233, 0.2), transparent 60%),
+    radial-gradient(48rem 34rem at 108% 6%, rgba(139, 92, 246, 0.18), transparent 60%),
+    radial-gradient(42rem 42rem at 50% 118%, rgba(190, 24, 93, 0.14), transparent 60%),
+    var(--page-bg);
+}
+
+.custom-background-layer {
+  contain: strict;
+  display: block;
+  position: fixed;
+  inset: -2%;
+  z-index: 0;
+  width: 104%;
+  height: 104%;
+  pointer-events: none;
+  object-fit: cover;
+  object-position: center;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  filter: blur(min(var(--custom-bg-blur, 0px), 10px));
+  transform: scale(1.02);
+}
+
+@media (max-width: 767px) {
+  .custom-background-layer {
+    filter: blur(min(var(--custom-bg-blur, 0px), 4px));
+  }
+}
+
+.glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+  backdrop-filter: blur(10px) saturate(1.15);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-card), inset 0 1px 0 var(--glass-border-2);
+}
+.glass-2 {
+  background: var(--glass-bg-2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid var(--glass-border-2);
+  box-shadow: var(--shadow-card);
+}
+.login-enter.glass-2 {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.api-keys-card {
+  background: var(--surface-1);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.api-key-stats {
+  margin-bottom: 0.75rem;
+}
+
+.api-key-stat {
+  min-height: 6rem;
+  border-color: var(--inner-border);
+  background: var(--surface-2);
+  box-shadow: inset 0 1px 0 var(--glass-border-2);
+}
+
+.api-key-row {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--inner-border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  box-shadow: inset 0 1px 0 var(--glass-border-2);
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.api-key-row:hover {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--inner-border));
+  background: var(--surface-hover);
+}
+
+.api-key-icon {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--inner-border));
+  border-radius: 0.625rem;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.api-key-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.625rem;
+  color: var(--text-3);
+  font-size: 0.625rem;
+  line-height: 1.35;
+}
+
+.api-key-meta span:first-child,
+.api-key-meta span:nth-child(2) {
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.api-key-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.api-key-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.375rem;
+}
+
+@media (max-width: 640px) {
+  .api-key-stats {
+    gap: 0.5rem;
+  }
+
+  .api-key-stat {
+    min-height: 5.5rem;
+    padding: 0.75rem;
+  }
+
+  .api-key-row {
+    flex-direction: column;
+  }
+
+  .api-key-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .api-key-actions > button {
+    flex: 1 1 0;
+  }
+}
+
+.health-card {
+  background: var(--surface-1);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.health-card-resource {
+  border: 1px solid var(--inner-border);
+  background: var(--surface-2);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--page-bg) 18%, transparent);
+}
+
+.health-resource-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+}
+
+@media (min-width: 700px) {
+  .health-resource-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.health-card-resource {
+  min-height: 0;
+}
+
+.health-card.endpoint-card {
+  width: 100%;
+}
+.health-card .health-stat-card {
+  min-height: 0;
+  padding: 0.65rem 0.75rem;
+}
+
+.health-card .health-stat-card > div:nth-child(2) {
+  margin-top: 0.35rem;
+  font-size: 1rem;
+}
+
+.health-card-resource:hover {
+  background: var(--surface-hover);
+}
+
+.health-card .health-stat-card {
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
+
+
+.health-card-inset {
+  background: var(--surface-muted);
+}
+
+
+/* ── Performance mode (solid surfaces, no backdrop-filter) ──────────────
+   Toggle: data-glass="off" on <html> — set by CustomAtmosphere when
+   settings.solidMode is true. Eliminates GPU blur compositing on every card.
+   One line to flip the entire dashboard from frosted-glass to solid. */
+html[data-glass="off"] .glass,
+html[data-glass="off"] .glass-2 {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-glass="off"] {
+  --surface-1: #fffefb;
+  --surface-2: #fffefb;
+  --glass-bg: #fffefb;
+  --glass-bg-2: #fffefb;
+  --glass-border: var(--border-subtle);
+  --glass-border-2: var(--border-subtle);
+}
+html[data-glass="off"].dark {
+  --surface-1: #161618;
+  --surface-2: #1a1a1e;
+  --glass-bg: #161618;
+  --glass-bg-2: #1a1a1e;
+  --glass-border: var(--border-subtle);
+  --glass-border-2: var(--border-subtle);
+}
+/* Solid mode also skips the custom-background-layer blur for perf. */
+html[data-glass="off"] .custom-background-layer {
+  filter: none;
+}
+
+
+
+/* A custom image is already a costly full-screen backdrop. Keep the frosted
+   look, but avoid stacking the maximum blur on every card. */
+.custom-background-layer ~ .relative.z-10 .glass {
+  -webkit-backdrop-filter: blur(6px) saturate(1.1);
+  backdrop-filter: blur(6px) saturate(1.1);
+}
+.custom-background-layer ~ .relative.z-10 .glass-2 {
+  -webkit-backdrop-filter: blur(8px) saturate(1.1);
+  backdrop-filter: blur(8px) saturate(1.1);
+}
+
+/* Keeps a container scrollable without a visible scrollbar track — used by
+   the sidebar, which is tight enough that a scrollbar reads as clutter. */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Thin scrollbar that fades in on hover/focus and out when idle — used by
+   the sidebar nav area so it stays scrollable without permanent clutter. */
+.scrollbar-fade {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s;
+}
+.scrollbar-fade:hover,
+.scrollbar-fade:focus-within {
+  scrollbar-color: var(--border-strong) transparent;
+}
+.scrollbar-fade::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-fade::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-fade::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+.scrollbar-fade:hover::-webkit-scrollbar-thumb,
+.scrollbar-fade:focus-within::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--hover), var(--track));
+  border-radius: 8px;
+}
+
+@keyframes overview-reveal-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.overview-page > * {
+  animation: overview-reveal-up 320ms cubic-bezier(.22, .61, .36, 1) both;
+}
+.overview-page > :nth-child(2) { animation-delay: 50ms; }
+.overview-page > :nth-child(3) { animation-delay: 100ms; }
+.overview-page .health-card > * {
+  animation: overview-reveal-up 280ms cubic-bezier(.22, .61, .36, 1) both;
+}
+.overview-page .health-card > :nth-child(2) { animation-delay: 70ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .overview-page > *,
+  .overview-page .health-card > * {
+    animation: none;
+  }
+}

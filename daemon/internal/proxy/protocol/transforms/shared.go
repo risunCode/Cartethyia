@@ -1,6 +1,10 @@
 package transforms
 
-import "github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+import (
+	"encoding/json"
+
+	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+)
 
 // errEncode wraps a validation failure during encoding.
 func errEncode(surface contracts.Protocol, field, reason string) *TransformError {
@@ -20,6 +24,56 @@ func errDecodeResponse(surface contracts.Protocol, field, reason string) *Transf
 // errEncodeResponse wraps a validation failure during response encoding.
 func errEncodeResponse(surface contracts.Protocol, field, reason string) *TransformError {
 	return newTransformError(CodeInvalidRequest, "encode-response", string(surface), field, reason, nil)
+}
+
+// validateWirePayload is the final target-schema seam. It intentionally runs
+// after all provider policy projection and before the body is marshaled by the
+// caller: values must be a finite JSON object and the required top-level
+// surface shape must be present. It does not recursively reinterpret provider
+// schemas or silently repair malformed values.
+func validateWirePayload(surface contracts.Protocol, payload map[string]any) *TransformError {
+	if payload == nil {
+		return errEncode(surface, "body", "target payload must not be nil")
+	}
+	if _, err := json.Marshal(payload); err != nil {
+		return errEncode(surface, "body", "target schema validation failed")
+	}
+	if stringOf(payload["model"]) == "" {
+		return errEncode(surface, "model", "target model is required")
+	}
+	switch surface {
+	case contracts.ProtocolOpenAIChat, contracts.ProtocolAnthropic:
+		if _, ok := payload["messages"].([]map[string]any); !ok {
+			return errEncode(surface, "messages", "target messages must be an array")
+		}
+	case contracts.ProtocolOpenAIResponse:
+		if _, ok := payload["input"].([]map[string]any); !ok {
+			return errEncode(surface, "input", "target input must be an array")
+		}
+	}
+	return nil
+}
+
+func effectiveResponseFormat(surface contracts.Protocol, req *NormalizedRequest) (ResponseFormat, map[string]any, *TransformError) {
+	if req == nil {
+		return "", nil, errEncode(surface, "request", "request must not be nil")
+	}
+	format, schema := req.ResponseFormat, req.ResponseFormatSchema
+	if format == "" {
+		format = FormatText
+	}
+	if req.StructuredOutput == nil {
+		return format, schema, nil
+	}
+	format = req.StructuredOutput.Format
+	if len(req.StructuredOutput.Schema) == 0 {
+		return format, schema, nil
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(req.StructuredOutput.Schema, &decoded); err != nil || decoded == nil {
+		return "", nil, errEncode(surface, "structured_output.schema", "schema must be a JSON object")
+	}
+	return format, decoded, nil
 }
 
 // nilIfEmpty returns nil when the string is empty so json.Marshal omits
@@ -199,6 +253,9 @@ func decodeResponseFormat(raw any) (ResponseFormat, map[string]any, error) {
 		if err := boundJSON("response_format.json_schema", schema, MaxTextBlockLength); err != nil {
 			return "", nil, err
 		}
+		if nested, ok := schema["schema"].(map[string]any); ok {
+			schema = nested
+		}
 		return FormatJSONSchema, schema, nil
 	default:
 		return "", nil, &protoErr{field: "response_format.type", reason: "unsupported format"}
@@ -208,14 +265,24 @@ func decodeResponseFormat(raw any) (ResponseFormat, map[string]any, error) {
 // decodeImageURL handles either {url: ...} objects or bare URL strings.
 func decodeImageURL(raw any, field string, images *[]ImageReference) (ImageReference, error) {
 	url := raw
+	detail := ImageDetail("")
 	if obj, ok := raw.(map[string]any); ok {
 		url = obj["url"]
+		if value, ok := obj["detail"].(string); ok {
+			switch value {
+			case string(ImageDetailAuto), string(ImageDetailLow), string(ImageDetailHigh), string(ImageDetailOriginal):
+				detail = ImageDetail(value)
+			default:
+				return ImageReference{}, &protoErr{field: field + ".detail", reason: "unsupported image detail"}
+			}
+		}
 	}
 	s, err := asString(field+".url", url)
 	if err != nil {
 		return ImageReference{}, err
 	}
 	ref := classifyImageReference(s)
+	ref.Detail = detail
 	*images = append(*images, ref)
 	return ref, nil
 }
@@ -283,6 +350,22 @@ func openAIImageURL(img *ImageReference) string {
 	}
 }
 
+func openAIImageContent(img *ImageReference) map[string]any {
+	content := map[string]any{"url": openAIImageURL(img)}
+	if img != nil && img.Detail != "" {
+		content["detail"] = string(img.Detail)
+	}
+	return content
+}
+
+func openAIInputImage(img *ImageReference) map[string]any {
+	part := map[string]any{"type": "input_image", "image_url": openAIImageURL(img)}
+	if img != nil && img.Detail != "" {
+		part["detail"] = string(img.Detail)
+	}
+	return part
+}
+
 // applyPassthroughBucket carries unrecognised request metadata into the
 // wire payload under a `passthrough` extension bucket so the upstream can
 // still observe the client's intent. The function is intentionally
@@ -301,7 +384,10 @@ func applyPassthroughBucket(payload map[string]any, req *NormalizedRequest, _ st
 		if _, ok := payload["passthrough"]; !ok {
 			payload["passthrough"] = map[string]any{}
 		}
-		payload["passthrough"].(map[string]any)["context_management"] = req.ContextManagement
+		value, err := req.ContextManagement.WireValue()
+		if err == nil {
+			payload["passthrough"].(map[string]any)["context_management"] = value
+		}
 	}
 	if req.Include != nil {
 		if _, ok := payload["passthrough"]; !ok {

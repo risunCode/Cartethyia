@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"time"
 
 	"github.com/cartethyia/daemon/internal/database/models"
 )
@@ -26,6 +27,9 @@ type ProxyRepository interface {
 
 	GetHealth(ctx context.Context, proxyID string) (models.ProxyHealth, error)
 	UpsertHealth(ctx context.Context, health models.ProxyHealth) error
+	RecordHealthFailure(ctx context.Context, proxyID, kind, message string, occurredAt time.Time, collapseWindow time.Duration, threshold int, baseBackoff, maxBackoff time.Duration) (models.ProxyHealth, error)
+	RecordHealthSuccess(ctx context.Context, proxyID string, occurredAt time.Time) error
+	ClaimHealthProbe(ctx context.Context, proxyID string, now, leaseUntil time.Time) (bool, error)
 
 	ListCustomProviders(ctx context.Context) ([]models.CustomProvider, error)
 	GetCustomProvider(ctx context.Context, id string) (models.CustomProvider, error)

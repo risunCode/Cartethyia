@@ -25,12 +25,16 @@ const (
 	FailureUnsupported FailureKind = "unsupported"
 	// FailureTranslation is a canonical translation or protocol mapping failure.
 	FailureTranslation FailureKind = "translation"
+	// FailureEntitlement is a valid credential without route entitlement.
+	FailureEntitlement FailureKind = "entitlement"
 	// FailureContentPolicy is a provider policy refusal and must remain request-scoped.
 	FailureContentPolicy FailureKind = "content_policy"
 	// FailureReauthenticationRequired is a definitive credential lifecycle failure.
 	FailureReauthenticationRequired FailureKind = "reauthentication_required"
 	// FailureCapacity is a provider/model capacity failure eligible for bounded failover.
 	FailureCapacity FailureKind = "capacity"
+	// FailureEmptyOutput is an accepted response with no usable semantic output.
+	FailureEmptyOutput FailureKind = "empty_output"
 	// FailureAuthentication: credential rejected by upstream; refresh-eligible.
 	FailureAuthentication FailureKind = "authentication"
 	// FailureRateLimit: 429 / provider rate-limit; transient, retry with backoff.
@@ -39,6 +43,8 @@ const (
 	FailureQuota FailureKind = "quota"
 	// FailureTransient: transport hiccup; retry without poisoning the account.
 	FailureTransient FailureKind = "transient"
+	// FailureServerError is an explicit provider-side server failure.
+	FailureServerError FailureKind = "server_error"
 	// FailureFatal: non-recoverable upstream or protocol error; poison the account.
 	FailureFatal FailureKind = "fatal"
 	// FailureAborted: caller cancelled the request before completion.
@@ -50,7 +56,7 @@ const (
 
 // Compatibility aliases used by callers that name these outcomes directly.
 const (
-	FailureCanceled FailureKind = FailureAborted
+	FailureCanceled   FailureKind = FailureAborted
 	FailureValidation FailureKind = FailureInvalidRequest
 )
 
@@ -58,9 +64,10 @@ const (
 func (k FailureKind) IsValid() bool {
 	switch k {
 	case FailureInvalidRequest, FailureUnsupported, FailureTranslation,
-		FailureContentPolicy, FailureReauthenticationRequired, FailureCapacity,
-		FailureAuthentication, FailureRateLimit, FailureQuota, FailureTransient,
-		FailureFatal, FailureAborted, FailureUnknown:
+		FailureEntitlement, FailureContentPolicy, FailureReauthenticationRequired,
+		FailureCapacity, FailureEmptyOutput, FailureAuthentication, FailureRateLimit,
+		FailureQuota, FailureTransient, FailureServerError, FailureFatal,
+		FailureAborted, FailureUnknown:
 		return true
 	}
 	return false
@@ -99,14 +106,14 @@ const (
 func RetryPolicyFor(k FailureKind) RetryPolicy {
 	switch k {
 	case FailureInvalidRequest, FailureUnsupported, FailureTranslation,
-		FailureContentPolicy, FailureQuota, FailureAborted,
+		FailureEntitlement, FailureContentPolicy, FailureQuota, FailureAborted,
 		FailureReauthenticationRequired:
 		return RetryNever
 	case FailureAuthentication:
 		return RetryRefresh
 	case FailureRateLimit:
 		return RetryBackoff
-	case FailureCapacity, FailureTransient:
+	case FailureCapacity, FailureEmptyOutput, FailureTransient, FailureServerError:
 		return RetryImmediate
 	default:
 		return RetryNever
@@ -117,14 +124,13 @@ func RetryPolicyFor(k FailureKind) RetryPolicy {
 // unhealthy after observing a failure of this kind.
 func PoisonAccount(k FailureKind) bool {
 	switch k {
-	case FailureAuthentication, FailureReauthenticationRequired, FailureQuota,
-		FailureCapacity, FailureFatal, FailureUnknown:
+	case FailureAuthentication, FailureReauthenticationRequired, FailureEntitlement,
+		FailureQuota, FailureCapacity, FailureEmptyOutput, FailureFatal, FailureUnknown:
 		return true
 	default:
 		return false
 	}
 }
-
 
 // failureSignals captures the inputs that drive Classify. It is intentionally
 // narrow: providers and transports pass only what they know without leaking
@@ -175,9 +181,9 @@ type Failure struct {
 	RatePhase                contracts.RatePhase
 	// Phase and Scope are typed coordinator metadata. RatePhase/RateScope are
 	// retained above for compatibility with existing lifecycle consumers.
-	Phase                    FailurePhase
-	Scope                    FailureScope
-	Err                      error
+	Phase FailurePhase
+	Scope FailureScope
+	Err   error
 }
 
 // CodeString returns the stable machine-readable failure code.
@@ -350,10 +356,17 @@ func decorateFailure(f *Failure, in ClassifyInput) *Failure {
 		f.RateScope = contracts.RateScopeAccount
 		f.AlternateAccountEligible = true
 		f.Code = "provider.quota_exhausted"
+	case FailureEntitlement:
+		f.RateScope = contracts.RateScopeAccount
+		f.Code = "provider.entitlement_denied"
 	case FailureCapacity:
 		f.RateScope = contracts.RateScopeModel
 		f.AlternateAccountEligible = true
 		f.Code = "provider.capacity"
+	case FailureEmptyOutput:
+		f.RateScope = contracts.RateScopeModel
+		f.AlternateAccountEligible = true
+		f.Code = "provider.empty_output"
 	case FailureAuthentication:
 		f.RateScope = contracts.RateScopeAccount
 		f.Code = "provider.authentication_failed"
@@ -381,6 +394,10 @@ func decorateFailure(f *Failure, in ClassifyInput) *Failure {
 	case FailureTransient:
 		f.RateScope = contracts.RateScopeProvider
 		f.Code = "provider.transient"
+	case FailureServerError:
+		f.RateScope = contracts.RateScopeProvider
+		f.AlternateAccountEligible = true
+		f.Code = "provider.server_error"
 	case FailureAborted:
 		f.Code = "action.cancelled"
 		f.RatePhase = contracts.RatePhasePartialWork
@@ -399,28 +416,22 @@ func FromContracts(re *contracts.RouteError) *Failure {
 		return Classify(ClassifyInput{})
 	}
 	kind := mapContractKind(re.Kind)
-	policy := RetryPolicyFor(kind)
-	alternate := re.AlternateAccountEligible
-	if !alternate {
-		switch kind {
-		case FailureAuthentication:
-			alternate = re.StatusCode != http.StatusForbidden
-		case FailureRateLimit, FailureQuota, FailureCapacity, FailureTransient:
-			alternate = true
-		}
+	policy := RetryNever
+	if re.Retryable {
+		policy = RetryPolicyFor(kind)
 	}
 	f := &Failure{
 		Kind:                     kind,
 		StatusCode:               re.StatusCode,
 		Policy:                   policy,
-		Poison:                   PoisonAccount(kind) && !(kind == FailureAuthentication && re.StatusCode == http.StatusForbidden),
+		Poison:                   PoisonAccount(kind) && (re.Scope == contracts.RateScopeAccount || re.Scope == contracts.RateScopeModel || re.RateScope == contracts.RateScopeAccount || re.RateScope == contracts.RateScopeModel),
 		Provider:                 re.Provider,
 		Model:                    re.Model,
 		Code:                     re.Code,
 		Message:                  re.Message,
-		Retryable:                re.Retryable || policy != RetryNever,
+		Retryable:                re.Retryable,
 		RetryAfterMS:             re.RetryAfterMS,
-		AlternateAccountEligible: alternate,
+		AlternateAccountEligible: re.AlternateAccountEligible,
 		RateSource:               re.RateSource,
 		RateScope:                re.RateScope,
 		RatePhase:                re.RatePhase,
@@ -428,8 +439,35 @@ func FromContracts(re *contracts.RouteError) *Failure {
 		Scope:                    re.Scope,
 		Err:                      re.Err,
 	}
-	if f.Code == "" {
-		f = decorateFailure(f, ClassifyInput{})
+	if f.Scope == "" {
+		f.Scope = f.RateScope
+	}
+	if f.RateScope == "" {
+		f.RateScope = f.Scope
+	}
+	if f.Phase == "" {
+		f.Phase = f.RatePhase
+	}
+	if f.RatePhase == "" {
+		f.RatePhase = f.Phase
+	}
+	if f.Code == "" || f.Scope == "" || f.Phase == "" {
+		defaults := decorateFailure(&Failure{Kind: kind, StatusCode: re.StatusCode, Policy: policy}, ClassifyInput{})
+		if f.Code == "" {
+			f.Code = defaults.Code
+		}
+		if f.Scope == "" {
+			f.Scope, f.RateScope = defaults.Scope, defaults.RateScope
+		}
+		if f.Phase == "" {
+			f.Phase, f.RatePhase = defaults.Phase, defaults.RatePhase
+		}
+		if f.RateSource == "" {
+			f.RateSource = defaults.RateSource
+		}
+	}
+	if f.Message == "" {
+		f.Message = messageFor(kind, re.StatusCode)
 	}
 	return f
 }
@@ -442,12 +480,16 @@ func mapContractKind(k contracts.ErrorKind) FailureKind {
 		return FailureUnsupported
 	case contracts.ErrorTranslation:
 		return FailureTranslation
+	case contracts.ErrorEntitlement:
+		return FailureEntitlement
 	case contracts.ErrorContentPolicy:
 		return FailureContentPolicy
 	case contracts.ErrorReauthenticationRequired:
 		return FailureReauthenticationRequired
 	case contracts.ErrorCapacity:
 		return FailureCapacity
+	case contracts.ErrorEmptyOutput:
+		return FailureEmptyOutput
 	case contracts.ErrorAuthentication:
 		return FailureAuthentication
 	case contracts.ErrorRateLimit:
@@ -456,6 +498,8 @@ func mapContractKind(k contracts.ErrorKind) FailureKind {
 		return FailureQuota
 	case contracts.ErrorTransient:
 		return FailureTransient
+	case contracts.ErrorServerError:
+		return FailureServerError
 	case contracts.ErrorFatal:
 		return FailureFatal
 	default:
@@ -523,12 +567,16 @@ func messageFor(k FailureKind, status int) string {
 		return "unsupported request"
 	case FailureTranslation:
 		return "translation failed"
+	case FailureEntitlement:
+		return "provider entitlement denied"
 	case FailureContentPolicy:
 		return "provider content policy refusal"
 	case FailureReauthenticationRequired:
 		return "reauthentication required"
 	case FailureCapacity:
 		return "provider at capacity"
+	case FailureEmptyOutput:
+		return "provider returned empty output"
 	case FailureAuthentication:
 		return "authentication failed"
 	case FailureRateLimit:
@@ -537,6 +585,8 @@ func messageFor(k FailureKind, status int) string {
 		return "quota exhausted"
 	case FailureTransient:
 		return "transient upstream error"
+	case FailureServerError:
+		return "provider server error"
 	case FailureFatal:
 		return "upstream rejected the request"
 	case FailureAborted:
@@ -606,7 +656,6 @@ var knownSignals = []string{
 	"context_length_exceeded",
 	"context_overflow",
 }
-
 
 // ErrAbort is a sentinel returned by upstream callers that intentionally
 // cancelled an in-flight request. It maps to FailureAborted.

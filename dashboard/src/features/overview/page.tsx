@@ -119,7 +119,7 @@ function SummaryCards(props: { data: DashboardSummaryView }) {
 export function OverviewPage() {
   const baseUrl = `${window.location.origin}/v1`;
   const health = useDashboardHealth();
-  return <div class="dashboard-page space-y-4">
+  return <div class="dashboard-page overview-page space-y-4">
     <Show when={!health.isLoading} fallback={<StatePanel title="Loading overview" description="Collecting gateway health…" />}>
       <Show when={health.data} fallback={<StatePanel title={stateTitle(health.state)} description={stateDescription(health.state, false)} action={<button type="button" onClick={() => void health.refetch()} class="rounded-[var(--radius-control)] border border-[var(--inner-border)] px-3 py-2 text-xs font-semibold">Retry</button>} />}>
         {(data) => <>

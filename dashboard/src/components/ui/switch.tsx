@@ -1,6 +1,7 @@
 /* @jsxImportSource solid-js */
 
 import { cn } from "../../lib/cn";
+import { disabledControlClasses, focusRingClasses } from "./styles";
 
 export interface SwitchProps {
   checked: boolean;
@@ -20,7 +21,9 @@ export function Switch(props: SwitchProps) {
       disabled={props.disabled}
       onClick={() => props.onChange(!props.checked)}
       class={cn(
-        "relative h-5 w-9 shrink-0 rounded-full border transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring)] disabled:opacity-40",
+        "relative h-5 w-9 shrink-0 rounded-full border transition-colors duration-200",
+        disabledControlClasses,
+        focusRingClasses,
         props.checked ? "border-transparent bg-[var(--accent)]" : "border-[var(--inner-border)] bg-[var(--track)]",
       )}
     >

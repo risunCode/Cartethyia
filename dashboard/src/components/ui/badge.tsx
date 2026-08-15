@@ -3,19 +3,27 @@
 import { splitProps, type JSX } from "solid-js";
 import { cn } from "../../lib/cn";
 
-type Tone = "default" | "ok" | "err" | "warn" | "info" | "accent";
+export type BadgeTone = "neutral" | "success" | "warning" | "danger" | "info" | "accent" | "default" | "ok" | "err" | "warn";
 
-const tones: Record<Tone, string> = {
-  default: "bg-[var(--hover)] text-[var(--text-2)] border-[var(--inner-border)]",
-  ok: "bg-[var(--green-soft)] text-[var(--green)] border-transparent",
-  err: "bg-[var(--red-soft)] text-[var(--red)] border-transparent",
-  warn: "bg-[var(--orange-soft)] text-[var(--orange)] border-transparent",
-  info: "bg-[var(--teal-soft)] text-[var(--teal)] border-transparent",
+const semanticTones: Record<Exclude<BadgeTone, "default" | "ok" | "err" | "warn">, string> = {
+  neutral: "bg-[var(--hover)] text-[var(--text-2)] border-[var(--inner-border)]",
+  success: "bg-[var(--green-soft)] text-[var(--status-success)] border-transparent",
+  warning: "bg-[var(--orange-soft)] text-[var(--status-warning)] border-transparent",
+  danger: "bg-[var(--red-soft)] text-[var(--status-danger)] border-transparent",
+  info: "bg-[var(--teal-soft)] text-[var(--status-info)] border-transparent",
   accent: "bg-[var(--accent-soft)] text-[var(--accent)] border-transparent",
 };
 
+const tones: Record<BadgeTone, string> = {
+  ...semanticTones,
+  default: semanticTones.neutral,
+  ok: semanticTones.success,
+  err: semanticTones.danger,
+  warn: semanticTones.warning,
+};
+
 export interface BadgeProps extends JSX.HTMLAttributes<HTMLSpanElement> {
-  tone?: Tone;
+  tone?: BadgeTone;
   className?: string;
 }
 

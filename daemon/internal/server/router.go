@@ -28,6 +28,7 @@ func NewRouterWith(opts Options) (http.Handler, error) {
 	mux.HandleFunc("/metrics", handleMetrics(opts.Registry))
 	registerV1(mux, opts.V1, opts.V1Auth)
 	registerV2Admin(mux, opts.V2Admin)
+	registerShare(mux, opts.Share)
 	mux.HandleFunc("/", handleNotFound)
 	return middleware.RequestID(observeRequests(opts.Registry, mux)), nil
 }
@@ -126,6 +127,7 @@ func handleMetrics(registry *observability.Registry) http.HandlerFunc {
 func registerV1(mux *http.ServeMux, v1 V1Registrar, auth func(http.Handler) http.Handler) {
 	if v1 == nil {
 		mux.HandleFunc("/v1/", notReady("v1 API"))
+		mux.HandleFunc("/v1beta/", notReady("v1beta API"))
 		return
 	}
 	if auth == nil {
@@ -135,6 +137,7 @@ func registerV1(mux *http.ServeMux, v1 V1Registrar, auth func(http.Handler) http
 	submux := http.NewServeMux()
 	v1.Register(submux)
 	mux.Handle("/v1/", auth(submux))
+	mux.Handle("/v1beta/", auth(submux))
 }
 
 // registerV2Admin wires the /v2/admin/ route group. A nil registrar leaves

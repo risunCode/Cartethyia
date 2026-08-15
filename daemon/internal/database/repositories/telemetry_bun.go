@@ -51,9 +51,8 @@ func (s *MetadataSinkAdapter) WriteMetadata(ctx context.Context, metadata observ
 	metadata = metadata.Redacted()
 	metaJSON, err := json.Marshal(struct {
 		Outcome   observability.Outcome `json:"outcome"`
-		ToolNames []string              `json:"tool_names,omitempty"`
 		Cancelled bool                  `json:"cancelled,omitempty"`
-	}{Outcome: metadata.Outcome, ToolNames: metadata.ToolNames, Cancelled: metadata.Cancelled})
+	}{Outcome: metadata.Outcome, Cancelled: metadata.Cancelled})
 	if err != nil {
 		return fmt.Errorf("telemetry metadata: %w", err)
 	}
@@ -267,6 +266,43 @@ func (r *BunTelemetryRepository) ListRequestsByAPIKey(ctx context.Context, apiKe
 		return nil, err
 	}
 	return requestModels(rows), nil
+}
+
+// ShareUsage returns only bounded totals needed by the public monitor. It
+// deliberately does not group by provider, model, or client metadata.
+func (r *BunTelemetryRepository) ShareUsage(ctx context.Context, apiKeyID string, now time.Time) (models.ShareUsage, error) {
+	if r == nil || r.db == nil {
+		return models.ShareUsage{}, ErrRepositoryClosed
+	}
+	apiKeyID = bounded(strings.TrimSpace(apiKeyID), maxTelemetryText)
+	if apiKeyID == "" {
+		return models.ShareUsage{}, errors.New("telemetry: api key id is required")
+	}
+	now = now.UTC()
+	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	var row struct {
+		TotalRequests   int64 `bun:"total_requests"`
+		TotalTokens     int64 `bun:"total_tokens"`
+		DailyRequests   int64 `bun:"daily_requests"`
+		DailyTokens     int64 `bun:"daily_tokens"`
+		MonthlyRequests int64 `bun:"monthly_requests"`
+		MonthlyTokens   int64 `bun:"monthly_tokens"`
+	}
+	const tokenExpr = `CASE WHEN total_tokens IS NOT NULL THEN total_tokens ELSE COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0) END`
+	query := `SELECT COUNT(*) AS total_requests,
+		COALESCE(SUM(` + tokenExpr + `), 0) AS total_tokens,
+		COUNT(*) FILTER (WHERE started_at >= ?) AS daily_requests,
+		COALESCE(SUM(` + tokenExpr + `) FILTER (WHERE started_at >= ?), 0) AS daily_tokens,
+		COUNT(*) FILTER (WHERE started_at >= ?) AS monthly_requests,
+		COALESCE(SUM(` + tokenExpr + `) FILTER (WHERE started_at >= ?), 0) AS monthly_tokens
+		FROM request_history WHERE api_key_id = ?`
+	if err := r.db.NewRaw(query, day, day, month, month, apiKeyID).Scan(ctx, &row); err != nil {
+		return models.ShareUsage{}, err
+	}
+	return models.ShareUsage{TotalRequests: row.TotalRequests, TotalTokens: row.TotalTokens,
+		DailyRequests: row.DailyRequests, DailyTokens: row.DailyTokens,
+		MonthlyRequests: row.MonthlyRequests, MonthlyTokens: row.MonthlyTokens}, nil
 }
 
 func (r *BunTelemetryRepository) ListRequestsOlderThan(ctx context.Context, cutoff string, limit int) ([]models.RequestHistory, error) {

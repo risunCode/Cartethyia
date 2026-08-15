@@ -413,7 +413,11 @@ export function createRuntimeMetadataRepository(getDb: () => Database): RuntimeM
       const row = getDb().query("SELECT COALESCE(SUM(total_tokens), 0) AS allTimeUsed, COALESCE(SUM(CASE WHEN started_at >= ? AND started_at < ? THEN total_tokens ELSE 0 END), 0) AS dailyUsed, COALESCE(SUM(CASE WHEN started_at >= ? AND started_at < ? THEN total_tokens ELSE 0 END), 0) AS monthlyUsed FROM request_history WHERE api_key_id = ?").get(day.start, day.end, month.start, month.end, keyId) as { dailyUsed: number; monthlyUsed: number; allTimeUsed: number };
       return { dailyUsed: row.dailyUsed, monthlyUsed: row.monthlyUsed, allTimeUsed: row.allTimeUsed };
     },
-    queryApiKeyUsage(): ApiKeyUsageRow[] {
+    countKeyRequests(keyId: string): number {
+      const row = getDb().query("SELECT COUNT(*) AS totalRequests FROM request_history WHERE api_key_id = ?").get(keyId) as { totalRequests: number };
+      return row.totalRequests;
+    },
+    queryApiKeyUsage(): ApiKeyUsageRow[] {"}]}]}]} 北京赛车冠军
       return getDb()
         .query(
           `SELECT api_key_id AS apiKeyId,

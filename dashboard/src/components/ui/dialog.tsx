@@ -4,6 +4,7 @@ import { createSignal, createEffect, onCleanup, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Maximize2, Minus, X } from "lucide-solid";
 import { createOverlayLifecycle } from "./overlay-lifecycle";
+import { focusRingClasses } from "./styles";
 
 const FOCUSABLE_SELECTOR = "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])";
 
@@ -90,7 +91,7 @@ export function Dialog(props: DialogProps): JSX.Element {
     <>{lifecycle.present() && (
       <Portal>
         <div ref={(element) => { rootRef = element; lifecycle.setElements(rootRef, dialogRef); }} class="motion-dialog-overlay fixed inset-0 z-90 flex items-center justify-center p-4" data-state={lifecycle.phase()} style={hasReducedMotion() ? { animation: "none" } : undefined}>
-          <button type="button" aria-label="Close dialog" class="absolute inset-0 h-full w-full cursor-default bg-black/40 backdrop-blur-[6px]" onClick={() => lifecycle.requestClose()} />
+          <button type="button" aria-label="Close dialog" class={"absolute inset-0 h-full w-full cursor-default bg-black/40 backdrop-blur-[6px] " + focusRingClasses} onClick={() => lifecycle.requestClose()} />
           <div
             ref={(element) => { dialogRef = element; lifecycle.setElements(rootRef, dialogRef); }}
             role="dialog"
@@ -103,9 +104,9 @@ export function Dialog(props: DialogProps): JSX.Element {
           >
             <div class="mb-3 flex shrink-0 items-center gap-3 border-b border-[var(--inner-border)] pb-3">
               <div class="flex items-center gap-2" role="group" aria-label="Window controls">
-                <button type="button" onClick={() => lifecycle.requestClose()} aria-label="Close dialog" title="Close" class="grid size-3.5 place-items-center rounded-full bg-[#ff5f57] text-[#7a1c17] transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff5f57]"><X size={9} strokeWidth={2.5} aria-hidden="true" /></button>
-                <button type="button" onClick={() => setMinimized((value) => !value)} aria-label={minimized() ? "Restore dialog" : "Minimize dialog"} title={minimized() ? "Restore" : "Minimize"} class="grid size-3.5 place-items-center rounded-full bg-[#febc2e] text-[#6d4b00] transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#febc2e]"><Minus size={9} strokeWidth={2.5} aria-hidden="true" /></button>
-                <button type="button" onClick={() => { setExpanded((value) => !value); setMinimized(false); }} aria-label={expanded() ? "Restore dialog size" : "Expand dialog"} title={expanded() ? "Restore" : "Expand"} class="grid size-3.5 place-items-center rounded-full bg-[#28c840] text-[#0b5a22] transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#28c840]"><Maximize2 size={8} strokeWidth={2.5} aria-hidden="true" /></button>
+                <button type="button" onClick={() => lifecycle.requestClose()} aria-label="Close dialog" title="Close" class={"grid size-3.5 place-items-center rounded-full bg-[#ff5f57] text-[#7a1c17] transition-transform hover:scale-110 " + focusRingClasses}><X size={9} strokeWidth={2.5} aria-hidden="true" /></button>
+                <button type="button" onClick={() => setMinimized((value) => !value)} aria-label={minimized() ? "Restore dialog" : "Minimize dialog"} title={minimized() ? "Restore" : "Minimize"} class={"grid size-3.5 place-items-center rounded-full bg-[#febc2e] text-[#6d4b00] transition-transform hover:scale-110 " + focusRingClasses}><Minus size={9} strokeWidth={2.5} aria-hidden="true" /></button>
+                <button type="button" onClick={() => { setExpanded((value) => !value); setMinimized(false); }} aria-label={expanded() ? "Restore dialog size" : "Expand dialog"} title={expanded() ? "Restore" : "Expand"} class={"grid size-3.5 place-items-center rounded-full bg-[#28c840] text-[#0b5a22] transition-transform hover:scale-110 " + focusRingClasses}><Maximize2 size={8} strokeWidth={2.5} aria-hidden="true" /></button>
               </div>
               <h2 id="dashboard-dialog-title" class="min-w-0 flex-1 truncate text-center text-base font-bold">{props.title}</h2>
               <span class="w-[3.75rem]" aria-hidden="true" />

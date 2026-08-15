@@ -2,6 +2,17 @@ package models
 
 import "time"
 
+// ShareUsage is a bounded aggregate used by the public monitor boundary.
+// It intentionally contains no client IP, provider, or model dimensions.
+type ShareUsage struct {
+	TotalRequests   int64
+	TotalTokens     int64
+	DailyRequests   int64
+	DailyTokens     int64
+	MonthlyRequests int64
+	MonthlyTokens   int64
+}
+
 // RequestHistory is one proxy invocation record (request_history).
 type RequestHistory struct {
 	ID               int64

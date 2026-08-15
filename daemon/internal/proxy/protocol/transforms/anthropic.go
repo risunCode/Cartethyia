@@ -31,12 +31,19 @@ func (c *AnthropicMessagesCodec) Protocol() contracts.Protocol { return contract
 // Anthropic rejects unknown top-level keys; the encoder emits a
 // DispositionUnsupported entry so observers can record the decision.
 func (c *AnthropicMessagesCodec) Encode(ctx context.Context, req *NormalizedRequest) (*EncoderResult, *TransformError) {
-	_ = ctx
+	if err := ctx.Err(); err != nil {
+		return nil, newTransformError(CodeContextCanceled, "encode-request", string(contracts.ProtocolAnthropic), "context", "transform canceled", err)
+	}
 	if req == nil {
 		return nil, errEncode(contracts.ProtocolAnthropic, "request", "request must not be nil")
 	}
 	if err := req.Validate(); err != nil {
 		return nil, errEncode(contracts.ProtocolAnthropic, "request", err.Error())
+	}
+	if responseFormat, _, formatErr := effectiveResponseFormat(contracts.ProtocolAnthropic, req); formatErr != nil {
+		return nil, formatErr
+	} else if responseFormat != FormatText {
+		return nil, newTransformError(CodeUnsupportedFeature, "encode-request", string(contracts.ProtocolAnthropic), "structured_output", "Anthropic target has no equivalent structured-output contract", nil)
 	}
 	maxTokens := 4096
 	if req.MaxOutputTokens != nil {
@@ -65,8 +72,13 @@ func (c *AnthropicMessagesCodec) Encode(ctx context.Context, req *NormalizedRequ
 		"model":      req.Model,
 		"max_tokens": maxTokens,
 		"stream":     req.Stream,
-		"messages":   encodeAnthropicMessages(convMsgs),
+		"messages":   nil,
 	}
+	encodedMessages, messageErr := encodeAnthropicMessages(convMsgs)
+	if messageErr != nil {
+		return nil, messageErr
+	}
+	payload["messages"] = encodedMessages
 	var disp []FieldDisposition
 
 	if systemText != "" {
@@ -108,7 +120,11 @@ func (c *AnthropicMessagesCodec) Encode(ctx context.Context, req *NormalizedRequ
 		disp = append(disp, FieldDisposition{Path: "tools", Action: DispositionAdapted})
 	}
 	if req.ContextManagement != nil {
-		payload["context_management"] = req.ContextManagement
+		value, err := req.ContextManagement.WireValue()
+		if err != nil {
+			return nil, errEncode(contracts.ProtocolAnthropic, "context_management", err.Error())
+		}
+		payload["context_management"] = value
 		disp = append(disp, FieldDisposition{Path: "context_management", Action: DispositionPreserved})
 	}
 	if req.Reasoning == ReasoningEnabled && req.ReasoningConfig != nil {
@@ -134,10 +150,13 @@ func (c *AnthropicMessagesCodec) Encode(ctx context.Context, req *NormalizedRequ
 	}
 
 	applyPassthroughBucket(payload, req, "anthropic-messages")
+	if err := validateWirePayload(contracts.ProtocolAnthropic, payload); err != nil {
+		return nil, err
+	}
 	return &EncoderResult{Wire: payload, Dispositions: disp}, nil
 }
 
-func encodeAnthropicMessages(msgs []NormalizedMessage) []map[string]any {
+func encodeAnthropicMessages(msgs []NormalizedMessage) ([]map[string]any, *TransformError) {
 	out := make([]map[string]any, 0, len(msgs))
 	for _, m := range msgs {
 		switch m.Role {
@@ -163,8 +182,16 @@ func encodeAnthropicMessages(msgs []NormalizedMessage) []map[string]any {
 					} else {
 						blocks = append(blocks, map[string]any{"type": "compaction", "content": nilIfEmpty(b.Text)})
 					}
+				case BlockFile, BlockDocument, BlockPDF:
+					if media := contentMediaReference(b); media != nil {
+						blocks = append(blocks, encodeAnthropicDocumentBlock(media))
+					}
 				case BlockToolUse:
-					blocks = append(blocks, encodeAnthropicToolUse(b))
+					toolUse, err := encodeAnthropicToolUse(b)
+					if err != nil {
+						return nil, err
+					}
+					blocks = append(blocks, toolUse)
 				case BlockNative:
 					if b.NativePayload != nil {
 						blocks = append(blocks, cloneMap(b.NativePayload))
@@ -195,7 +222,7 @@ func encodeAnthropicMessages(msgs []NormalizedMessage) []map[string]any {
 			// Already collapsed into the `system` top-level field.
 		}
 	}
-	return out
+	return out, nil
 }
 
 func encodeAnthropicUserBlocks(blocks []ContentBlock) []map[string]any {
@@ -210,6 +237,10 @@ func encodeAnthropicUserBlocks(blocks []ContentBlock) []map[string]any {
 			out = append(out, entry)
 		case BlockImage:
 			out = append(out, map[string]any{"type": "image", "source": encodeAnthropicImageSource(b.Image)})
+		case BlockFile, BlockDocument, BlockPDF:
+			if media := contentMediaReference(b); media != nil {
+				out = append(out, encodeAnthropicDocumentBlock(media))
+			}
 		case BlockToolResult:
 			entry := map[string]any{
 				"type":        "tool_result",
@@ -229,7 +260,7 @@ func encodeAnthropicUserBlocks(blocks []ContentBlock) []map[string]any {
 	return out
 }
 
-func encodeAnthropicToolUse(b ContentBlock) map[string]any {
+func encodeAnthropicToolUse(b ContentBlock) (map[string]any, *TransformError) {
 	raw := b.ToolArguments
 	if raw == "" {
 		raw = b.Text
@@ -237,16 +268,9 @@ func encodeAnthropicToolUse(b ContentBlock) map[string]any {
 	if raw == "" {
 		raw = "{}"
 	}
-	var input any
-	if err := json.Unmarshal([]byte(raw), &input); err != nil {
-		// Repair: try to wrap the value into an object so Anthropic's
-		// strict input_schema validation does not fail on a malformed
-		// tool-call argument.
-		input = map[string]any{"_repaired": raw}
-	}
-	obj, _ := input.(map[string]any)
-	if obj == nil {
-		obj = map[string]any{}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(raw), &obj); err != nil || obj == nil {
+		return nil, newTransformError(CodeInvalidRequest, "encode-request", string(contracts.ProtocolAnthropic), "tool.arguments", "Anthropic function arguments must be a JSON object", nil)
 	}
 	entry := map[string]any{
 		"type":  "tool_use",
@@ -263,7 +287,7 @@ func encodeAnthropicToolUse(b ContentBlock) map[string]any {
 	if b.ReasoningSignature != "" {
 		entry["signature"] = b.ReasoningSignature
 	}
-	return entry
+	return entry, nil
 }
 
 func encodeAnthropicImageSource(img *ImageReference) map[string]any {
@@ -294,6 +318,30 @@ func encodeAnthropicImageSource(img *ImageReference) map[string]any {
 	}
 }
 
+func encodeAnthropicDocumentBlock(media *MediaReference) map[string]any {
+	if media == nil {
+		return map[string]any{"type": "document", "source": map[string]any{"type": "url", "url": ""}}
+	}
+	source := map[string]any{}
+	switch media.Reference {
+	case ReferenceInlineData:
+		mime := media.MIMEType
+		if mime == "" {
+			mime = "application/octet-stream"
+		}
+		source = map[string]any{"type": "base64", "media_type": mime, "data": media.Value}
+	case ReferenceProviderFileID:
+		source = map[string]any{"type": "file", "file_id": media.Value}
+	default:
+		source = map[string]any{"type": "url", "url": media.Value}
+	}
+	entry := map[string]any{"type": "document", "source": source}
+	if media.Filename != "" {
+		entry["title"] = media.Filename
+	}
+	return entry
+}
+
 // AnthropicMessagesRequestDecoder implements the inbound side.
 type AnthropicMessagesRequestDecoder struct{}
 
@@ -309,7 +357,9 @@ func (d *AnthropicMessagesRequestDecoder) Protocol() contracts.Protocol {
 
 // Decode parses an Anthropic Messages body into a canonical request.
 func (d *AnthropicMessagesRequestDecoder) Decode(ctx context.Context, body []byte, stream bool) (*NormalizedRequest, *TransformError) {
-	_ = ctx
+	if err := ctx.Err(); err != nil {
+		return nil, newTransformError(CodeContextCanceled, "decode-request", string(contracts.ProtocolAnthropic), "context", "transform canceled", err)
+	}
 	root, err := decodeBody(body)
 	if err != nil {
 		return nil, errDecode(contracts.ProtocolAnthropic, "body", err.Error())
@@ -452,6 +502,9 @@ func (d *AnthropicMessagesRequestDecoder) Decode(ctx context.Context, body []byt
 		}
 	}
 	req.Images = images
+	if req.Reasoning == "" {
+		req.Reasoning = ReasoningDefault
+	}
 	if reasoningSeen && req.Reasoning == ReasoningDefault {
 		req.Reasoning = ReasoningEnabled
 	}
@@ -486,11 +539,11 @@ func (d *AnthropicMessagesRequestDecoder) Decode(ctx context.Context, body []byt
 		}
 	}
 	if raw, ok := root["context_management"]; ok {
-		obj, err := asProto("context_management", raw)
+		contextManagement, err := DecodeContextManagement(raw)
 		if err != nil {
 			return nil, errDecode(contracts.ProtocolAnthropic, "context_management", err.Error())
 		}
-		req.ContextManagement = obj
+		req.ContextManagement = contextManagement
 	}
 	if raw, ok := root["metadata"]; ok {
 		obj, err := asProto("metadata", raw)
@@ -594,6 +647,16 @@ func decodeAnthropicContent(raw any, field string, images *[]ImageReference, rea
 				return nil, err
 			}
 			out = append(out, ContentBlock{Type: BlockImage, Image: &img})
+		case "document":
+			media, err := decodeAnthropicDocument(obj["source"], blockField+".source")
+			if err != nil {
+				return nil, err
+			}
+			block := ContentBlock{Type: BlockDocument, Document: &media, Media: &media}
+			if media.Media == MediaPDF || media.MIMEType == "application/pdf" {
+				block.Type = BlockPDF
+			}
+			out = append(out, block)
 		case "tool_use":
 			id, err := asString(blockField+".id", obj["id"])
 			if err != nil {
@@ -718,7 +781,8 @@ func decodeAnthropicToolResultContent(raw any, field, callID string, images *[]I
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, ContentBlock{Type: BlockToolResult, Image: &img, ToolCallID: callID, ToolResultIsError: isErr})
+			media := mediaReferenceFromImage(img)
+			out = append(out, ContentBlock{Type: BlockToolResult, ToolCallID: callID, ToolResultIsError: isErr, ToolResultMedia: []MediaReference{media}})
 		default:
 			if t == "" {
 				return nil, &protoErr{field: itemField + ".type", reason: "missing block type"}
@@ -774,6 +838,81 @@ func decodeAnthropicImage(raw any, field string, images *[]ImageReference) (Imag
 	}
 }
 
+func mediaReferenceFromImage(image ImageReference) MediaReference {
+	reference := ReferenceURL
+	switch image.Kind {
+	case ImageData:
+		reference = ReferenceInlineData
+	case ImageFile:
+		reference = ReferenceProviderFileID
+	}
+	return MediaReference{
+		Media:     MediaImage,
+		Reference: reference,
+		MIMEType:  image.MediaType,
+		Filename:  image.Filename,
+		Detail:    image.Detail,
+		Value:     image.Value,
+		SizeBytes: image.SizeBytes,
+	}
+}
+
+func decodeAnthropicDocument(raw any, field string) (DocumentReference, error) {
+	obj, err := asProto(field, raw)
+	if err != nil {
+		return DocumentReference{}, err
+	}
+	t, _ := obj["type"].(string)
+	mime, _ := obj["media_type"].(string)
+	filename, _ := obj["filename"].(string)
+	switch t {
+	case "base64":
+		value, err := asString(field+".data", obj["data"])
+		if err != nil {
+			return DocumentReference{}, err
+		}
+		kind := MediaTextDocument
+		if mime == "application/pdf" {
+			kind = MediaPDF
+		}
+		media, terr := NewMediaReference(kind, ReferenceInlineData, value, MediaReferenceOptions{MIMEType: mime, Filename: filename})
+		if terr != nil {
+			return DocumentReference{}, terr
+		}
+		return media, nil
+	case "url":
+		value, err := asString(field+".url", obj["url"])
+		if err != nil {
+			return DocumentReference{}, err
+		}
+		kind := MediaTextDocument
+		if mime == "application/pdf" {
+			kind = MediaPDF
+		}
+		media, terr := NewMediaReference(kind, ReferenceURL, value, MediaReferenceOptions{MIMEType: mime, Filename: filename})
+		if terr != nil {
+			return DocumentReference{}, terr
+		}
+		return media, nil
+	case "file":
+		value, err := asString(field+".file_id", obj["file_id"])
+		if err != nil {
+			return DocumentReference{}, err
+		}
+		kind := MediaTextDocument
+		if mime == "application/pdf" {
+			kind = MediaPDF
+		}
+		media, terr := NewMediaReference(kind, ReferenceProviderFileID, value, MediaReferenceOptions{MIMEType: mime, Filename: filename})
+		if terr != nil {
+			return DocumentReference{}, terr
+		}
+		return media, nil
+	default:
+		return DocumentReference{}, &protoErr{field: field + ".type", reason: "unsupported document source type"}
+	}
+}
+
 func decodeAnthropicTool(raw any, field string) (Tool, error) {
 	obj, err := asProto(field, raw)
 	if err != nil {
@@ -783,6 +922,7 @@ func decodeAnthropicTool(raw any, field string) (Tool, error) {
 	if t == "mcp_toolset" {
 		return Tool{
 			Name:          "mcp_toolset",
+			Kind:          ToolKindMCP,
 			NativeType:    "mcp_toolset",
 			NativeOptions: cloneMap(obj),
 		}, nil
@@ -800,7 +940,7 @@ func decodeAnthropicTool(raw any, field string) (Tool, error) {
 	if err != nil {
 		return Tool{}, err
 	}
-	tool := Tool{Name: name, Description: desc, InputSchema: schema}
+	tool := Tool{Name: name, Description: desc, InputSchema: schema, Kind: ToolKindFunction}
 	if d, ok := obj["defer_loading"].(bool); ok {
 		tool.DeferLoading = &d
 	}

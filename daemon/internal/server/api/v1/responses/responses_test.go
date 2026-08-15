@@ -1,7 +1,9 @@
 package responses
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,7 @@ import (
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
 	apicontracts "github.com/cartethyia/daemon/internal/server/api/contracts"
 	apierrors "github.com/cartethyia/daemon/internal/server/api/errors"
+	"github.com/cartethyia/daemon/internal/server/api/wire"
 )
 
 type fakeProxy struct {
@@ -18,11 +21,13 @@ type fakeProxy struct {
 	dispatched *contracts.Request
 	stream     apicontracts.Stream
 	err        error
+	ctx        context.Context
 }
 
-func (f *fakeProxy) Dispatch(req *contracts.Request) (apicontracts.Stream, error) {
+func (f *fakeProxy) DispatchContext(ctx context.Context, req *contracts.Request) (apicontracts.Stream, error) {
 	f.calls++
 	f.dispatched = req
+	f.ctx = ctx
 	return f.stream, f.err
 }
 
@@ -168,15 +173,15 @@ func TestResponsesRejectsOversizedBody(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code < 400 || rec.Code > 499 {
-		t.Fatalf("status = %d, want a 4xx", rec.Code)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
 	}
 	var body apierrors.Response
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("response is not the envelope: %v", err)
 	}
-	if body.Error.Code != apierrors.CodeInvalidRequest {
-		t.Fatalf("code = %q, want %q", body.Error.Code, apierrors.CodeInvalidRequest)
+	if body.Error.Code != apierrors.CodePayloadTooLarge {
+		t.Fatalf("code = %q, want %q", body.Error.Code, apierrors.CodePayloadTooLarge)
 	}
 	if proxy.calls != 0 {
 		t.Fatalf("proxy.Dispatch was called %d times, want 0", proxy.calls)
@@ -187,7 +192,7 @@ func TestResponsesDispatchesValidRequest(t *testing.T) {
 	stream := &fakeStream{
 		status:      http.StatusOK,
 		contentType: "application/json",
-		headers:     http.Header{"X-Provider": {"openai"}},
+		headers:     http.Header{"OpenAI-Request-Id": {"req_upstream_1"}},
 		body:        `{"id":"resp_1","status":"completed"}`,
 	}
 	proxy := &fakeProxy{stream: stream}
@@ -205,6 +210,9 @@ func TestResponsesDispatchesValidRequest(t *testing.T) {
 	if got := rec.Body.String(); got != `{"id":"resp_1","status":"completed"}` {
 		t.Fatalf("body = %q, want %q", got, `{"id":"resp_1","status":"completed"}`)
 	}
+	if got := rec.Header().Get(wire.HeaderUpstreamRequestID); got != "req_upstream_1" {
+		t.Fatalf("%s = %q, want %q", wire.HeaderUpstreamRequestID, got, "req_upstream_1")
+	}
 	if !stream.closed {
 		t.Fatal("stream body was not closed after response write")
 	}
@@ -216,6 +224,30 @@ func TestResponsesDispatchesValidRequest(t *testing.T) {
 	}
 	if proxy.dispatched.Stream {
 		t.Fatal("Stream flag = true, want false for stream:false body")
+	}
+}
+
+func TestResponsesCancellationReachesProxyOnce(t *testing.T) {
+	const secret = "secret=responses-cancellation-sentinel"
+	proxy := &fakeProxy{err: fmt.Errorf("%s: %w", secret, context.Canceled)}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, Path, strings.NewReader(`{"model":"gpt-4o","input":"hello"}`)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	newRouter(proxy).ServeHTTP(rec, req)
+
+	if proxy.calls != 1 {
+		t.Fatalf("dispatch calls=%d want=1", proxy.calls)
+	}
+	if proxy.ctx == nil {
+		t.Fatal("dispatch context was not captured")
+	}
+	if proxy.ctx.Err() != context.Canceled {
+		t.Fatalf("dispatch context error=%v want=%v", proxy.ctx.Err(), context.Canceled)
+	}
+	if strings.Contains(rec.Body.String(), secret) {
+		t.Fatalf("response leaked cancellation detail: %s", rec.Body.String())
 	}
 }
 

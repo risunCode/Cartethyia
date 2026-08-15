@@ -1,0 +1,27 @@
+{
+  "id": "specific-capability-error-tool-kind",
+  "content_generation": 1,
+  "request": {
+    "model": "claude-sonnet-5",
+    "messages": [
+      { "role": "user", "content": "specific-capability-error-tool-kind" }
+    ]
+  },
+  "expected_semantic": {
+    "operation": { "kind": "generate" },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "kind": "text", "text": "specific-capability-error-tool-kind" }
+        ]
+      }
+    ],
+    "terminal": {
+      "status": "error",
+      "event": "error",
+      "error_code": "capability.tool_kind_unsupported",
+      "sequence": ["error"]
+    }
+  }
+}

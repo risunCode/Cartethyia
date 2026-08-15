@@ -76,7 +76,7 @@ func TestGrokBuildParityErrorPrecedenceAndRedaction(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			classified := adapter.ClassifyResponse(tc.status, []byte(tc.body))
+			classified := adapter.ClassifyResponse(NewResponseEvidence(tc.status, nil, []byte(tc.body)))
 			if classified.Category != tc.category || classified.Retryable != tc.retry || strings.Contains(classified.Message, "secret") {
 				t.Fatalf("classification = %#v", classified)
 			}

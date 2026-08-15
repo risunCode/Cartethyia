@@ -7,10 +7,11 @@ lookup.
 normalized request
         |
         v
-provider candidates
+immutable route plan
+  (single, alias, ordered fallback)
         |
         v
-account candidates
+atomic account candidate acquisition
         |
         v
 network-path candidates
@@ -27,8 +28,9 @@ and the remaining attempt budget allow it.
 
 ## 1. Provider selection
 
-Provider selection happens before credentials are resolved. Candidates are
-filtered by:
+The catalog resolves one immutable route plan before credentials are resolved.
+Each member fixes provider, client model, upstream model, and surface. Plan
+members are filtered by:
 
 - client surface (`openai-chat`, `openai-responses`, `anthropic-messages`,
   images, or another registered surface);
@@ -38,6 +40,12 @@ filtered by:
 - provider enabled/configured state;
 - policy and admission result;
 - provider health and retry state.
+
+A normal model produces one member, an alias resolves to one concrete member,
+and a `fallback` combination produces a deterministic ordered list. Other
+combination strategies are rejected. One catalog generation is captured for
+the request; a reload cannot rewrite an in-flight plan. A client-provided
+`X-Cartethyia-Provider` header is removed and never reconstructed into a plan.
 
 An OpenAI-shaped request can route to a compatible non-OpenAI adapter. Protocol
 shape and upstream provider are separate fields.
@@ -69,25 +77,24 @@ Candidates are rejected when they are:
 - already beyond concurrency policy;
 - incompatible with the provider/model request.
 
-Selection policies include preferred, sticky, deterministic rendezvous,
-round-robin, least-loaded, direct-forced, and explicit fallback decisions. The
-selected decision records provider/model/account/proxy display metadata, not
-secrets.
+`AccountPool.AcquireCandidate` filters and increments the selected account's
+in-flight count under the same lock. It chooses the lowest in-flight count,
+breaks ties with the rotating cursor and stable account ID, and returns one
+idempotent `AccountLease`. The router, not a detached selector list, owns
+ordered fallback and exclusion decisions. Evidence records bounded
+provider/model/account/proxy identifiers, not secrets.
 
 ```text
-account pool
+account pool snapshot
     |
     | remove disabled, reauth, cooldown, exhausted
     v
 eligible accounts
     |
-    | policy + bounded affinity
+    | lowest load + rotating/stable tie break
     v
 selected account
 ```
-
-`AffinityKey` is bounded routing preference. It must never contain prompts,
-authorization values, credential material, cookies, or arbitrary user text.
 
 ## 3. Network path selection
 
@@ -128,7 +135,7 @@ evidence. Evidence stores only a safe proxy ID/name/source.
 | eligible|---+------->| available |
 +----+----+            +-----------+
      |                         ^
-     | start                   |
+     | atomic acquire          |
      v                         | reset/refresh
 +----+----+  failure     +-----+------+
 | active  |-------------->| cooldown   |
@@ -160,8 +167,8 @@ result remains visible to operators but is excluded from blind retries.
 Each attempt follows the same bounded shape:
 
 ```text
-select candidate
-    -> start account slot
+select route member
+    -> atomically acquire account lease
     -> resolve credential late
     -> select network path
     -> call provider transport
@@ -185,6 +192,13 @@ select candidate
 Retry must not duplicate non-idempotent operations unless the public contract
 explicitly permits it. Error classification is typed and preserves phase,
 scope, kind, retryability, and retry-after metadata.
+
+The router has one request-wide attempt budget. The initial call, a
+same-account call after credential refresh, an allowlisted compatibility-repair
+call, an alternate-account call, and a next route-member call each consume one
+attempt. Catalog resolution, account selection, and bounded waiting do not.
+Transport executes exactly one HTTP call per attempt and has no hidden retry.
+After semantic stream output commits, no retry or upstream splice is allowed.
 
 ## 6. Resolution cache versus provider prompt cache
 

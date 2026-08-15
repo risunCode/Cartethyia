@@ -22,6 +22,9 @@ type MemoryConfig struct {
 	// running concurrently under GetOrLoad. Zero means unbounded; non-zero
 	// values prevent loader stampedes during catalog rebuilds.
 	MaxInFlight int
+	// MaxBytes bounds total payload bytes held by the cache. Zero means
+	// unbounded and is retained for isolated unit tests.
+	MaxBytes int64
 	// Clock returns the current wall-clock time. Defaults to time.Now.
 	Clock func() time.Time
 }
@@ -45,9 +48,11 @@ type Memory struct {
 	inflight map[string]*flight
 	closed   bool
 
-	maxEntries  int
-	maxInFlight int
-	clock       func() time.Time
+	maxEntries   int
+	maxInFlight  int
+	maxBytes     int64
+	currentBytes int64
+	clock        func() time.Time
 
 	hits      atomic.Uint64
 	misses    atomic.Uint64
@@ -81,6 +86,7 @@ func NewMemory(cfg MemoryConfig) *Memory {
 		inflight:    make(map[string]*flight),
 		maxEntries:  cfg.MaxEntries,
 		maxInFlight: cfg.MaxInFlight,
+		maxBytes:    cfg.MaxBytes,
 		clock:       cfg.Clock,
 	}
 }
@@ -96,6 +102,9 @@ type entryElement struct {
 // Get implements Cache.Get. Generation mismatch is a typed error so callers
 // can distinguish it from a plain miss via errors.Is(err, ErrGenerationMismatch).
 func (m *Memory) Get(ctx context.Context, key Key) (Entry, error) {
+	if ctx == nil {
+		return Entry{}, ErrInvalidContext
+	}
 	if err := ctx.Err(); err != nil {
 		return Entry{}, err
 	}
@@ -149,11 +158,16 @@ func (m *Memory) Get(ctx context.Context, key Key) (Entry, error) {
 		ExpiresAt:  stored.expiresAt,
 		Generation: stored.generation,
 		Remaining:  remaining,
+		Hit:        true,
+		HitReason:  HitReasonMemory,
 	}, nil
 }
 
 // Set implements Cache.Set.
 func (m *Memory) Set(ctx context.Context, key Key, value []byte, ttl time.Duration) error {
+	if ctx == nil {
+		return ErrInvalidContext
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -180,11 +194,15 @@ func (m *Memory) Set(ctx context.Context, key Key, value []byte, ttl time.Durati
 		generation: key.Generation,
 	}
 	if el, ok := m.entries[stored.key]; ok {
+		old := el.Value.(*entryElement).value
+		m.currentBytes -= int64(len(old.payload))
 		el.Value.(*entryElement).value = stored
+		m.currentBytes += int64(len(stored.payload))
 		m.lru.MoveToFront(el)
 	} else {
 		el := m.lru.PushFront(&entryElement{wire: stored.key, value: stored})
 		m.entries[stored.key] = el
+		m.currentBytes += int64(len(stored.payload))
 		m.evictIfNeeded()
 	}
 	m.mu.Unlock()
@@ -193,6 +211,9 @@ func (m *Memory) Set(ctx context.Context, key Key, value []byte, ttl time.Durati
 
 // Delete implements Cache.Delete.
 func (m *Memory) Delete(ctx context.Context, key Key) error {
+	if ctx == nil {
+		return ErrInvalidContext
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -213,6 +234,9 @@ func (m *Memory) Delete(ctx context.Context, key Key) error {
 
 // InvalidateGeneration drops entries whose stored generation matches gen.
 func (m *Memory) InvalidateGeneration(ctx context.Context, gen Generation) (int, error) {
+	if ctx == nil {
+		return 0, ErrInvalidContext
+	}
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
@@ -238,6 +262,9 @@ func (m *Memory) InvalidateGeneration(ctx context.Context, gen Generation) (int,
 // InvalidateAccount drops entries whose stored scope matches the supplied
 // provider/account. An empty accountID invalidates the whole provider.
 func (m *Memory) InvalidateAccount(ctx context.Context, provider, accountID string) (int, error) {
+	if ctx == nil {
+		return 0, ErrInvalidContext
+	}
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
@@ -269,6 +296,9 @@ func (m *Memory) InvalidateAccount(ctx context.Context, provider, accountID stri
 
 // InvalidateAll drops every entry.
 func (m *Memory) InvalidateAll(ctx context.Context) (int, error) {
+	if ctx == nil {
+		return 0, ErrInvalidContext
+	}
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
@@ -278,6 +308,7 @@ func (m *Memory) InvalidateAll(ctx context.Context) (int, error) {
 		return 0, ErrClosed
 	}
 	removed := len(m.entries)
+	m.currentBytes = 0
 	m.entries = make(map[string]*list.Element)
 	m.lru.Init()
 	m.mu.Unlock()
@@ -340,6 +371,9 @@ func (m *Memory) Close() error {
 // caller would otherwise become a new leader, it returns ErrBusy so the
 // caller can decide whether to retry or fall back.
 func (m *Memory) GetOrLoad(ctx context.Context, key Key, loader Loader) (Entry, error) {
+	if ctx == nil {
+		return Entry{}, ErrInvalidContext
+	}
 	if err := ctx.Err(); err != nil {
 		return Entry{}, err
 	}
@@ -394,9 +428,10 @@ func (m *Memory) GetOrLoad(ctx context.Context, key Key, loader Loader) (Entry, 
 	delete(m.inflight, wire)
 	cancelLeader()
 	if m.closed {
-		f.entry = Entry{}
-		f.err = ErrClosed
-		closeFlight(f)
+		// Close already published ErrClosed and closed this flight while
+		// holding m.mu. Do not mutate the flight after publication: waiters
+		// may already be reading its result.
+		m.mu.Unlock()
 		return Entry{}, ErrClosed
 	}
 	if loadErr == nil {
@@ -412,11 +447,14 @@ func (m *Memory) GetOrLoad(ctx context.Context, key Key, loader Loader) (Entry, 
 			m.setLocked(loaded.Key, loaded.Value, ttl)
 		}
 	}
+	loaded.Value = append([]byte(nil), loaded.Value...)
 	f.entry = loaded
 	f.err = loadErr
 	closeFlight(f)
 	m.mu.Unlock()
-	return loaded, loadErr
+	result := loaded
+	result.Value = append([]byte(nil), loaded.Value...)
+	return result, loadErr
 }
 
 const defaultLoaderTTL = 60 * time.Second
@@ -433,8 +471,12 @@ func (m *Memory) setLocked(key Key, value []byte, ttl time.Duration) {
 		generation: key.Generation,
 	}
 	if el, ok := m.entries[stored.key]; ok {
+		old := el.Value.(*entryElement).value
+		m.currentBytes -= int64(len(old.payload))
 		el.Value.(*entryElement).value = stored
+		m.currentBytes += int64(len(stored.payload))
 		m.lru.MoveToFront(el)
+		m.evictIfNeeded()
 		return
 	}
 	el := m.lru.PushFront(&entryElement{wire: stored.key, value: stored})
@@ -450,7 +492,9 @@ func waitForFlight(ctx context.Context, f *flight) (Entry, error) {
 	}
 	select {
 	case <-f.done:
-		return f.entry, f.err
+		entry := f.entry
+		entry.Value = append([]byte(nil), entry.Value...)
+		return entry, f.err
 	case <-ctx.Done():
 		return Entry{}, ctx.Err()
 	}
@@ -462,17 +506,24 @@ func closeFlight(f *flight) {
 // removeElement deletes el from both the LRU list and the entries map. The
 // caller must hold m.mu.
 func (m *Memory) removeElement(el *list.Element) {
+	if el == nil {
+		return
+	}
 	elem := el.Value.(*entryElement)
 	delete(m.entries, elem.wire)
+	m.currentBytes -= int64(len(elem.value.payload))
+	if m.currentBytes < 0 {
+		m.currentBytes = 0
+	}
 	m.lru.Remove(el)
 }
 
 // evictIfNeeded enforces MaxEntries. The caller must hold m.mu.
 func (m *Memory) evictIfNeeded() {
-	if m.maxEntries <= 0 {
+	if m.maxEntries <= 0 && m.maxBytes <= 0 {
 		return
 	}
-	for len(m.entries) > m.maxEntries {
+	for (m.maxEntries > 0 && len(m.entries) > m.maxEntries) || (m.maxBytes > 0 && m.currentBytes > m.maxBytes) {
 		back := m.lru.Back()
 		if back == nil {
 			return

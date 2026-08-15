@@ -1,0 +1,14 @@
+{
+  "fixture_id": "task22-ohmypi-compaction-v2",
+  "source": "openai-responses",
+  "target": "openai-responses",
+  "operation": "compact",
+  "compaction_version": "v2",
+  "stream": true,
+  "model": "fixture-model",
+  "input": [
+    {"type":"message","role":"user","content":[{"type":"input_text","text":"retain tool history"}]},
+    {"type":"compaction_trigger","id":"trigger-fixture"}
+  ],
+  "expectation": {"endpoint":"responses-final-trigger","items":1,"terminal":"completed","timeout_ms":2000,"bridge":"safe-v2-to-v1-only-when-enabled"}
+}

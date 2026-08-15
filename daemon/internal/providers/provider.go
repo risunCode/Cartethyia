@@ -19,6 +19,8 @@ package providers
 
 import (
 	"net/http"
+	"strings"
+	"time"
 
 	domaincontracts "github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
 )
@@ -27,6 +29,19 @@ import (
 // proxy contract package.
 type Surface = domaincontracts.Surface
 
+// FailureScope identifies the smallest health domain a provider response may
+// update. It aliases the routing contract so adapters do not define a second
+// scope taxonomy.
+type FailureScope = domaincontracts.RateScope
+
+const (
+	FailureScopeRoute    = domaincontracts.RateScopeRoute
+	FailureScopeProvider = domaincontracts.RateScopeProvider
+	FailureScopeProxy    = domaincontracts.RateScopeProxy
+	FailureScopeModel    = domaincontracts.RateScopeModel
+	FailureScopeAccount  = domaincontracts.RateScopeAccount
+)
+
 const (
 	// SurfaceOpenAIChat is the legacy OpenAI Chat Completions wire format.
 	SurfaceOpenAIChat = domaincontracts.SurfaceOpenAIChat
@@ -34,6 +49,8 @@ const (
 	SurfaceOpenAIResponses = domaincontracts.SurfaceOpenAIResponses
 	// SurfaceAnthropicMessages is the Anthropic Messages wire format.
 	SurfaceAnthropicMessages = domaincontracts.SurfaceAnthropic
+	// SurfaceGemini is the native Gemini generate-content wire format.
+	SurfaceGemini = domaincontracts.SurfaceGemini
 	// SurfaceImages is the hosted image generation wire format.
 	SurfaceImages = domaincontracts.SurfaceImages
 	// SurfaceWebSearch is the native web-search tool surface.
@@ -105,6 +122,12 @@ type ProviderCaps struct {
 	PromptCacheKey bool
 	// Search reports whether the provider can execute a native web search.
 	Search bool
+	// Compatibility is the immutable, typed provider policy. A zero policy
+	// retains the legacy boolean behavior through EffectiveCompatibilityPolicy.
+	Compatibility CompatibilityPolicy
+	// Policy is a compatibility alias for integrations that name the nested
+	// record directly. Compatibility takes precedence when both are present.
+	Policy CompatibilityPolicy
 }
 
 // ProviderModel is a single catalog entry.
@@ -137,6 +160,12 @@ type ProviderModel struct {
 	// reasoning details. Provider-specific overrides are applied by the
 	// catalog loader before the model is exposed.
 	Metadata ModelMetadata
+	// Compatibility overrides provider policy for this model. It is copied when
+	// a catalog snapshot is activated and must not be mutated afterward.
+	Compatibility *CompatibilityPolicy
+	// Policy is an alias of Compatibility for catalog sources using policy
+	// terminology; Compatibility takes precedence when both are present.
+	Policy *CompatibilityPolicy
 }
 
 // ModelMetadata is model-scoped information loaded from models.dev or a
@@ -191,6 +220,15 @@ func ModelWithUpstream(id, upstreamID, displayName string, caps *ProviderCaps) P
 	return ProviderModel{ID: id, UpstreamID: upstreamID, DisplayName: displayName, Capabilities: caps}
 }
 
+// ModelWithCompatibility constructs a model with an immutable policy override.
+func ModelWithCompatibility(id, displayName string, caps *ProviderCaps, policy CompatibilityPolicy) ProviderModel {
+	return ProviderModel{ID: id, DisplayName: displayName, Capabilities: caps, Compatibility: clonePolicyPtr(&policy)}
+}
+
+func ModelWithPolicy(id, displayName string, caps *ProviderCaps, policy CompatibilityPolicy) ProviderModel {
+	return ModelWithCompatibility(id, displayName, caps, policy)
+}
+
 // Endpoint is the network address a built request should be sent to. The
 // Provider publishes the path; the base URL is supplied by the runtime so
 // adapters can be exercised against a local fixture in tests.
@@ -237,16 +275,100 @@ type BuiltRequest struct {
 // ClassifiedResponse is the normalized outcome a Provider derives from a raw
 // upstream response. The runtime re-classifies transport errors itself; this
 // shape is for content-level decisions (status code meaning, body parsing).
+const (
+	// MaxResponseEvidenceBodyBytes bounds provider-owned marker inspection. The
+	// transport may read a larger response for successful delivery, but a
+	// classifier never receives more than this prefix.
+	MaxResponseEvidenceBodyBytes = 16 << 10
+	maxSafeResponseHeaderBytes   = 256
+)
+
+// SafeResponseHeaders contains only response timing headers that providers
+// may use for retry classification. Arbitrary upstream headers, cookies, and
+// credentials cannot enter classification evidence through this type.
+type SafeResponseHeaders struct {
+	RetryAfter                      string
+	RateLimitReset                  string
+	RateLimitResetRequests          string
+	RateLimitResetTokens            string
+	AnthropicRateLimitRequestsReset string
+	AnthropicRateLimitTokensReset   string
+}
+
+// NewSafeResponseHeaders copies the allowlisted timing headers from headers.
+// Invalid, control-bearing, or oversized values are discarded.
+func NewSafeResponseHeaders(headers http.Header) SafeResponseHeaders {
+	return SafeResponseHeaders{
+		RetryAfter:                      safeResponseHeader(headers.Get("Retry-After")),
+		RateLimitReset:                  safeResponseHeader(firstResponseHeader(headers, "RateLimit-Reset", "X-RateLimit-Reset")),
+		RateLimitResetRequests:          safeResponseHeader(headers.Get("X-RateLimit-Reset-Requests")),
+		RateLimitResetTokens:            safeResponseHeader(headers.Get("X-RateLimit-Reset-Tokens")),
+		AnthropicRateLimitRequestsReset: safeResponseHeader(headers.Get("Anthropic-Ratelimit-Requests-Reset")),
+		AnthropicRateLimitTokensReset:   safeResponseHeader(headers.Get("Anthropic-Ratelimit-Tokens-Reset")),
+	}
+}
+
+func firstResponseHeader(headers http.Header, names ...string) string {
+	for _, name := range names {
+		if value := headers.Get(name); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func safeResponseHeader(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > maxSafeResponseHeaderBytes || strings.IndexFunc(value, func(r rune) bool {
+		return r < 0x20 || r == 0x7f
+	}) >= 0 {
+		return ""
+	}
+	return value
+}
+
+// ResponseEvidence is the complete bounded input to provider classification.
+// BodyPrefix is copied and capped by NewResponseEvidence; callers must use the
+// constructor rather than retaining a raw upstream body.
+type ResponseEvidence struct {
+	StatusCode int
+	Headers    SafeResponseHeaders
+	BodyPrefix []byte
+}
+
+// NewResponseEvidence builds bounded, secret-safe classifier input.
+func NewResponseEvidence(statusCode int, headers http.Header, body []byte) ResponseEvidence {
+	if len(body) > MaxResponseEvidenceBodyBytes {
+		body = body[:MaxResponseEvidenceBodyBytes]
+	}
+	return ResponseEvidence{
+		StatusCode: statusCode,
+		Headers:    NewSafeResponseHeaders(headers),
+		BodyPrefix: append([]byte(nil), body...),
+	}
+}
+
 type ClassifiedResponse struct {
 	// StatusCode is the upstream HTTP status, when available.
 	StatusCode int
-	// Retryable reports whether a routing layer should retry the request on
-	// a different account. It is independent of the Provider's error
-	// classification: a 401 is not retryable, a 429 with retry-after is.
+	// Retryable reports whether the coordinator may perform any further action,
+	// including a bounded credential refresh or an explicitly eligible alternate.
 	Retryable bool
+	// AlternateAccountEligible is an explicit provider decision. False means
+	// stop after any category-specific same-account action; runtime code must
+	// not infer alternate eligibility from Category.
+	AlternateAccountEligible bool
 	// Category groups the upstream response into a routing bucket. The
 	// runtime uses the category to drive telemetry and health updates.
 	Category ResponseCategory
+	// Code is a stable machine-readable identifier owned by the classifier.
+	Code string
+	// RetryAfter is parsed only from allowlisted timing headers and capped.
+	RetryAfter time.Duration
+	// Phase and Scope identify where the failure occurred and the smallest
+	// health domain that may be updated.
+	Phase domaincontracts.RatePhase
+	Scope domaincontracts.RateScope
 	// Message is a bounded, secret-free summary surfaced in error bodies.
 	Message string
 }
@@ -318,6 +440,28 @@ type RequestEnvelope struct {
 	Headers http.Header
 }
 
+// RepairProposal is a provider-owned, deterministic replacement for a
+// request body rejected by one allowlisted compatibility rule. RuleID is
+// stable operational metadata; Body remains request-local and MUST NOT be
+// logged, persisted, or included in errors or evidence.
+type RepairProposal struct {
+	RuleID string
+	Body   []byte
+}
+
+// RepairProposer is the optional compatibility-repair boundary implemented
+// only by providers with fixture-backed rules. RepairRule inspects bounded
+// response evidence and returns a stable allowlisted rule identifier.
+// ProposeRepair applies only that rule to the normalized request body and is
+// side-effect free. Its bool reports that the rule and request were understood;
+// the proposal may deliberately contain an unchanged body so the runtime can
+// reject it and emit changed=false evidence. The runtime owns de-duplication,
+// budgets, and replay.
+type RepairProposer interface {
+	RepairRule(evidence ResponseEvidence) string
+	ProposeRepair(ruleID string, request RequestEnvelope) (RepairProposal, bool)
+}
+
 // Provider is the abstraction every adapter implements. The interface is
 // deliberately small and side-effect free: a Provider is a pure function
 // from a RequestEnvelope plus a credential to a BuiltRequest and a
@@ -346,10 +490,8 @@ type Provider interface {
 	// BuildRequest encodes the request envelope into a wire payload. The
 	// returned bytes are sent verbatim by the transport.
 	BuildRequest(envelope RequestEnvelope, credential string) (BuiltRequest, error)
-	// ClassifyResponse maps a raw upstream response into a routing bucket.
-	// The body is the upstream payload as read by the transport; providers
-	// may inspect a bounded prefix to distinguish 4xx sub-categories.
-	ClassifyResponse(statusCode int, body []byte) ClassifiedResponse
+	// ClassifyResponse maps bounded response evidence into a routing decision.
+	ClassifyResponse(evidence ResponseEvidence) ClassifiedResponse
 }
 
 // HasCapability reports whether the provider-level capability record enables
@@ -362,4 +504,15 @@ func HasCapability(caps ProviderCaps, surface Surface) bool {
 		}
 	}
 	return false
+}
+
+// EffectiveCompatibility returns a defensive typed policy for provider-level
+// callers that do not have a model override.
+func (caps ProviderCaps) EffectiveCompatibility() CompatibilityPolicy {
+	return EffectiveCompatibilityPolicy(caps, nil)
+}
+
+// EffectiveCompatibility returns the model policy over the provider fallback.
+func (m ProviderModel) EffectiveCompatibility(provider ProviderCaps) CompatibilityPolicy {
+	return EffectiveCompatibilityPolicy(provider, &m)
 }

@@ -16,6 +16,7 @@ type PrepareResult struct {
 	Request *NormalizedRequest
 	Body    []byte
 	Report  contracts.TransformReport
+	Sidecar NativeSidecar
 	Changed bool
 }
 
@@ -43,20 +44,35 @@ func NormalizeRequest(ctx context.Context, protocol contracts.Protocol, body []b
 		}
 		return nil, newTransformError(CodeStageFailure, "pipeline", string(protocol), "pipeline", "canonical pipeline failed", err)
 	}
-	prepared := &PrepareResult{Request: result.Request, Report: result.Report, Body: append([]byte(nil), body...)}
+	prepared := &PrepareResult{Request: result.Request, Report: result.Report, Body: append([]byte(nil), body...), Sidecar: NewNativeSidecar(protocol)}
 	prepared.Changed = !reflect.DeepEqual(request, result.Request)
 	if !prepared.Changed {
+		// Capture source-native fields even when canonical stages make no
+		// semantic change. The original bytes remain authoritative, while the
+		// exact-path sidecar is carried for a later target projection.
+		encoded, encodeErr := encoder.Encode(ctx, result.Request)
+		if encodeErr != nil {
+			return nil, encodeErr
+		}
+		captured, captureErr := CaptureNativeSidecar(protocol, body, encoded.Wire)
+		if captureErr != nil {
+			return nil, captureErr
+		}
+		prepared.Sidecar = captured
+		prepared.Request.Native = captured.Clone()
 		return prepared, nil
 	}
 	encoded, encodeErr := encoder.Encode(ctx, result.Request)
 	if encodeErr != nil {
 		return nil, encodeErr
 	}
-	merged, err := preserveUnknownJSON(body, encoded.Wire)
-	if err != nil {
-		return nil, newTransformError(CodeStageFailure, "encode-request", string(protocol), "body", "prepared request could not be encoded", err)
+	merged, sidecar, mergeErr := preserveNativeSidecarJSON(protocol, body, encoded.Wire)
+	if mergeErr != nil {
+		return nil, mergeErr
 	}
 	prepared.Body = merged
+	prepared.Sidecar = sidecar
+	prepared.Request.Native = sidecar.Clone()
 	return prepared, nil
 }
 
@@ -72,9 +88,23 @@ func EncodeNormalizedRequest(ctx context.Context, protocol contracts.Protocol, r
 	if err != nil {
 		return nil, err
 	}
-	merged, mergeErr := preserveUnknownJSON(originalBody, encoded.Wire)
+	var merged []byte
+	var mergeErr *TransformError
+	if req != nil && len(req.Native.Fields) > 0 && req.Native.Source == protocol {
+		var applied map[string]any
+		applied, mergeErr = req.Native.ApplySameSurface(protocol, encoded.Wire)
+		if mergeErr == nil {
+			var marshalErr error
+			merged, marshalErr = json.Marshal(applied)
+			if marshalErr != nil {
+				mergeErr = newTransformError(CodeStageFailure, "encode-request", string(protocol), "body", "prepared request could not be encoded", marshalErr)
+			}
+		}
+	} else {
+		merged, _, mergeErr = preserveNativeSidecarJSON(protocol, originalBody, encoded.Wire)
+	}
 	if mergeErr != nil {
-		return nil, newTransformError(CodeStageFailure, "encode-request", string(protocol), "body", "prepared request could not be encoded", mergeErr)
+		return nil, mergeErr
 	}
 	return merged, nil
 }
@@ -87,61 +117,28 @@ func codecsFor(protocol contracts.Protocol) (RequestDecoder, RequestEncoder, boo
 		return NewOpenAIResponsesRequestDecoder(), NewOpenAIResponsesCodec(), true
 	case contracts.ProtocolAnthropic:
 		return NewAnthropicMessagesRequestDecoder(), NewAnthropicMessagesCodec(), true
+	case contracts.ProtocolGemini:
+		return NewGeminiRequestDecoder(), NewGeminiCodec(), true
 	default:
 		return nil, nil, false
 	}
 }
 
-// preserveUnknownJSON overlays encoded known fields on the original JSON tree.
-// Maps and aligned arrays merge recursively; fields with no canonical target
-// therefore survive normalization without entering the canonical contract.
-func preserveUnknownJSON(original []byte, encoded map[string]any) ([]byte, error) {
-	if len(original) == 0 {
-		return json.Marshal(encoded)
+// preserveNativeSidecarJSON captures source extensions at exact paths and
+// reapplies them only on the same source surface. Cross-surface callers must
+// provide explicit pointer mappings through NativeSidecar.ApplyMapped.
+func preserveNativeSidecarJSON(protocol contracts.Protocol, original []byte, encoded map[string]any) ([]byte, NativeSidecar, *TransformError) {
+	sidecar, captureErr := CaptureNativeSidecar(protocol, original, encoded)
+	if captureErr != nil {
+		return nil, sidecar, captureErr
 	}
-	var raw any
-	if err := json.Unmarshal(original, &raw); err != nil {
-		return nil, err
+	merged, applyErr := sidecar.ApplySameSurface(protocol, encoded)
+	if applyErr != nil {
+		return nil, sidecar, applyErr
 	}
-	encodedBytes, err := json.Marshal(encoded)
+	body, err := json.Marshal(merged)
 	if err != nil {
-		return nil, err
+		return nil, sidecar, newTransformError(CodeStageFailure, "encode-request", string(protocol), "body", "prepared request could not be encoded", err)
 	}
-	var encodedTree any
-	if err := json.Unmarshal(encodedBytes, &encodedTree); err != nil {
-		return nil, err
-	}
-	merged := mergeUnknown(raw, encodedTree)
-	return json.Marshal(merged)
-}
-
-func mergeUnknown(original, encoded any) any {
-	om, ok := original.(map[string]any)
-	em, encodedMap := encoded.(map[string]any)
-	if ok && encodedMap {
-		out := make(map[string]any, len(om)+len(em))
-		for key, value := range em {
-			if old, exists := om[key]; exists {
-				out[key] = mergeUnknown(old, value)
-			} else {
-				out[key] = value
-			}
-		}
-		for key, value := range om {
-			if _, encodedExists := em[key]; !encodedExists && !knownCanonicalJSONKey(key) {
-				out[key] = value
-			}
-		}
-		return out
-	}
-	return encoded
-}
-
-func knownCanonicalJSONKey(key string) bool {
-	switch key {
-	case "model", "messages", "input", "instructions", "system", "tools", "tool_choice", "stream", "max_tokens", "max_output_tokens", "temperature", "top_p", "top_k", "stop", "stop_sequences", "response_format", "response_format_type", "reasoning", "metadata", "previous_response_id", "store", "parallel_tool_calls", "n", "user", "seed", "modalities", "audio", "prediction", "service_tier", "safety_identifier":
-		return true
-	default:
-		return false
-	}
+	return body, sidecar, nil
 }

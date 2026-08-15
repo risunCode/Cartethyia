@@ -1,9 +1,6 @@
 package cache
 
-import (
-	"errors"
-	"fmt"
-)
+import "errors"
 
 // ErrClosed is returned by Get/Set/Delete after Close has been called.
 var ErrClosed = errors.New("cache: backend is closed")
@@ -14,6 +11,10 @@ var ErrInvalidKey = errors.New("cache: invalid key")
 
 // ErrInvalidTTL is returned when Set is called with a non-positive TTL.
 var ErrInvalidTTL = errors.New("cache: ttl must be positive")
+
+// ErrInvalidContext is returned instead of panicking when a cache boundary is
+// called without a context.
+var ErrInvalidContext = errors.New("cache: context is required")
 
 // ErrCapacityExhausted is returned when the cache cannot accept a write because
 // the configured capacity is non-zero and the backend cannot evict further
@@ -107,10 +108,7 @@ type GenerationMismatchError struct {
 }
 
 func (e *GenerationMismatchError) Error() string {
-	return fmt.Sprintf(
-		"cache: generation mismatch for key %q (stored=%s requested=%s)",
-		e.Key.Wire(), e.Stored, e.Requested,
-	)
+	return "cache: generation mismatch"
 }
 
 // Is reports whether target is ErrClosed so callers can use errors.Is
@@ -135,9 +133,9 @@ type MissError struct {
 
 func (e *MissError) Error() string {
 	if e.Reason == "" {
-		return fmt.Sprintf("cache: miss for key %q", e.Key.Wire())
+		return "cache: miss"
 	}
-	return fmt.Sprintf("cache: miss for key %q: %s", e.Key.Wire(), e.Reason)
+	return "cache: miss: " + e.Reason
 }
 
 // Is reports whether target is the missing-sentinel so handlers can use

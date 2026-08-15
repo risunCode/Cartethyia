@@ -57,8 +57,8 @@ func (s *stubProvider) BuildRequest(envelope RequestEnvelope, credential string)
 	return BuiltRequest{Endpoint: Endpoint{Method: "POST", Path: "v1/chat"}}, nil
 }
 
-func (s *stubProvider) ClassifyResponse(statusCode int, body []byte) ClassifiedResponse {
-	return classifyByStatus(statusCode, body)
+func (s *stubProvider) ClassifyResponse(evidence ResponseEvidence) ClassifiedResponse {
+	return classifyByStatus(evidence)
 }
 
 // newStub is a convenience constructor for tests.

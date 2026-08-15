@@ -13,7 +13,6 @@ import (
 func requestMetadata(req contracts.Request) observability.Metadata {
 	meta := observability.Metadata{
 		RequestID: headerValue(req.Headers, "X-Request-ID"),
-		Provider:  headerValue(req.Headers, "X-Cartethyia-Provider"),
 		Model:     req.Model,
 		Surface:   string(req.Protocol),
 		Outcome:   observability.OutcomeSuccess,
@@ -56,19 +55,6 @@ func requestMetadata(req contracts.Request) observability.Metadata {
 	}
 	if tools, ok := payload["tools"].([]any); ok {
 		meta.ToolCount = len(tools)
-		for _, raw := range tools {
-			tool, _ := raw.(map[string]any)
-			if tool == nil {
-				continue
-			}
-			name, _ := tool["name"].(string)
-			if name == "" {
-				if fn, ok := tool["function"].(map[string]any); ok {
-					name, _ = fn["name"].(string)
-				}
-			}
-			meta.ToolNames = append(meta.ToolNames, name)
-		}
 	}
 	return meta
 }

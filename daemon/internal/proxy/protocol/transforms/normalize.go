@@ -91,6 +91,27 @@ func (r *NormalizedRequest) Validate() error {
 	if len(r.Stop) > MaxStopCount {
 		return &protoErr{field: "stop", reason: "too many stop sequences"}
 	}
+	if err := r.Operation.Validate(); err != nil {
+		return err
+	}
+	if r.StructuredOutput != nil {
+		if err := r.StructuredOutput.Validate(); err != nil {
+			return err
+		}
+	}
+	if r.Prediction != nil {
+		if err := boundedValue("prediction.type", r.Prediction.Type, MaxModelLength, false); err != nil {
+			return err
+		}
+		if len(r.Prediction.Content) > MaxBlocksPerMessage {
+			return &protoErr{field: "prediction.content", reason: "too many content blocks"}
+		}
+		for i, block := range r.Prediction.Content {
+			if err := validateContentBlock(block, fmt.Sprintf("prediction.content[%d]", i)); err != nil {
+				return err
+			}
+		}
+	}
 	for i, message := range r.Messages {
 		if err := validateNormalizedMessage(message, fmt.Sprintf("messages[%d]", i)); err != nil {
 			return err
@@ -142,13 +163,20 @@ func (r *NormalizedRequest) Validate() error {
 	if err := boundedValue("cache_key", r.CacheKey, MaxModelLength, false); err != nil {
 		return err
 	}
+	for _, identity := range []struct{name, value string}{{"previous_response_id", r.PreviousResponseID}, {"conversation_id", r.ConversationID}, {"continuation_id", r.ContinuationID}} {
+		if err := boundedValue(identity.name, identity.value, MaxCanonicalIDLength, false); err != nil {
+			return err
+		}
+	}
 	for i, include := range r.Include {
 		if err := boundedValue(fmt.Sprintf("include[%d]", i), include, MaxModelLength, true); err != nil {
 			return err
 		}
 	}
-	if err := boundedMapOrArray("context_management", r.ContextManagement); err != nil {
-		return err
+	if r.ContextManagement != nil {
+		if err := r.ContextManagement.Validate(); err != nil {
+			return err
+		}
 	}
 	if len(r.MCPServers) > MaxToolCount {
 		return &protoErr{field: "mcp_servers", reason: "too many servers"}
@@ -165,6 +193,19 @@ func (r *NormalizedRequest) Validate() error {
 	}
 	if err := boundedMap("metadata", r.Metadata); err != nil {
 		return err
+	}
+	if err := boundedValue("service_tier", r.ServiceTier, MaxModelLength, false); err != nil {
+		return err
+	}
+	if r.ToolLedger != nil {
+		if err := r.ToolLedger.Validate(); err != nil {
+			return err
+		}
+	}
+	if r.Native.Source != "" || len(r.Native.Fields) > 0 || r.Native.Bytes != 0 {
+		if err := r.Native.Validate(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -201,8 +242,10 @@ func validateNormalizedMessage(message NormalizedMessage, field string) error {
 
 func validateContentBlock(block ContentBlock, field string) error {
 	switch block.Type {
-	case BlockText, BlockImage, BlockToolUse, BlockToolResult, BlockReasoning,
-		BlockCompaction, BlockNative, BlockUnknown:
+	case BlockText, BlockImage, BlockAudio, BlockFile, BlockDocument, BlockPDF, BlockMediaOutput,
+		BlockRefusal, BlockCitation, BlockToolUse, BlockToolResult, BlockServerToolUse,
+		BlockServerToolResult, BlockReasoning, BlockCompaction, BlockCompactionTrigger,
+		BlockNative, BlockUnknown:
 	default:
 		return &protoErr{field: field + ".type", reason: "unsupported content block"}
 	}
@@ -218,9 +261,9 @@ func validateContentBlock(block ContentBlock, field string) error {
 	if len(block.ToolArguments) > MaxToolArgumentBytes {
 		return &protoErr{field: field + ".tool_arguments", reason: "arguments exceed bound"}
 	}
-	if block.ToolArguments != "" && !json.Valid([]byte(block.ToolArguments)) {
-		return &protoErr{field: field + ".tool_arguments", reason: "arguments must be valid JSON"}
-	}
+	// Tool arguments may be JSON or an explicitly declared freeform payload.
+	// The canonical block has no declaration context, so JSON-only validation
+	// belongs to NormalizeToolCallInvariants rather than this structural pass.
 	if err := boundedValue(field+".reasoning_text", block.ReasoningText, MaxTextBlockLength, false); err != nil {
 		return err
 	}
@@ -230,14 +273,86 @@ func validateContentBlock(block ContentBlock, field string) error {
 	if err := boundedValue(field+".reasoning_encrypted_content", block.ReasoningEncryptedContent, MaxNativePayloadBytes, false); err != nil {
 		return err
 	}
+	if err := boundedValue(field+".id", block.ID, MaxCanonicalIDLength, false); err != nil {
+		return err
+	}
+	if err := boundedValue(field+".tool_item_id", block.ToolItemID, MaxCanonicalIDLength, false); err != nil {
+		return err
+	}
+	if err := boundedValue(field+".tool_occurrence_id", block.ToolOccurrenceID, MaxCanonicalIDLength, false); err != nil {
+		return err
+	}
+	if err := boundedValue(field+".tool_result", block.ToolResult, MaxNativePayloadBytes, false); err != nil {
+		return err
+	}
+	if err := validateItemStatus(block.Status, field+".status"); err != nil {
+		return err
+	}
+	for name, index := range map[string]Optional[int]{"index": block.Index, "content_index": block.ContentIndex} {
+		if value, ok := index.Get(); ok && value < 0 {
+			return &protoErr{field: field+"."+name, reason: "index must be non-negative"}
+		}
+	}
+	if sequence, ok := block.SequenceNumber.Get(); ok && sequence < 0 {
+		return &protoErr{field: field+".sequence_number", reason: "sequence must be non-negative"}
+	}
 	if err := boundedMapArray(field+".reasoning_summary", block.ReasoningSummary); err != nil {
 		return err
+	}
+	if len(block.ReasoningDetails) > MaxReasoningDetailCount {
+		return &protoErr{field: field+".reasoning_details", reason: "too many reasoning details"}
+	}
+	for i, detail := range block.ReasoningDetails {
+		prefix := fmt.Sprintf("%s.reasoning_details[%d]", field, i)
+		if err := boundedValue(prefix+".type", detail.Type, MaxModelLength, false); err != nil {
+			return err
+		}
+		if err := boundedValue(prefix+".text", detail.Text, MaxTextBlockLength, false); err != nil {
+			return err
+		}
+		if err := boundedValue(prefix+".summary", detail.Summary, MaxTextBlockLength, false); err != nil {
+			return err
+		}
+		if err := boundedValue(prefix+".signature", detail.Signature, MaxNativePayloadBytes, false); err != nil {
+			return err
+		}
+		if err := boundedValue(prefix+".encrypted_content", detail.EncryptedContent, MaxNativePayloadBytes, false); err != nil {
+			return err
+		}
+		if err := boundedValue(prefix+".id", detail.ID, MaxCanonicalIDLength, false); err != nil {
+			return err
+		}
+		if err := validateItemStatus(detail.Status, prefix+".status"); err != nil {
+			return err
+		}
+		if index, ok := detail.Index.Get(); ok && index < 0 {
+			return &protoErr{field: prefix+".index", reason: "index must be non-negative"}
+		}
 	}
 	if err := boundedMap(field+".native_payload", block.NativePayload); err != nil {
 		return err
 	}
 	if err := boundedMap(field+".raw", block.Raw); err != nil {
 		return err
+	}
+	if err := validateAnnotations(block.Annotations, field+".annotations"); err != nil {
+		return err
+	}
+	if block.Refusal != nil {
+		if err := boundedValue(field+".refusal.text", block.Refusal.Text, MaxTextBlockLength, true); err != nil {
+			return err
+		}
+		if err := boundedValue(field+".refusal.code", block.Refusal.Code, MaxModelLength, false); err != nil {
+			return err
+		}
+	}
+	if block.Type == BlockRefusal && block.Refusal == nil {
+		return &protoErr{field: field+".refusal", reason: "refusal block is missing typed refusal"}
+	}
+	if block.Citation != nil {
+		if err := validateCitation(*block.Citation, field+".citation"); err != nil {
+			return err
+		}
 	}
 	if block.Type == BlockImage && block.Image == nil {
 		return &protoErr{field: field + ".image", reason: "image block is missing image"}
@@ -247,8 +362,83 @@ func validateContentBlock(block ContentBlock, field string) error {
 			return err
 		}
 	}
+	for name, media := range map[string]*MediaReference{"media": block.Media, "audio": block.Audio, "file": block.File, "document": block.Document, "media_output": block.MediaOutput} {
+		if media == nil {
+			continue
+		}
+		if err := media.Validate(); err != nil {
+			return err
+		}
+		if name == "audio" && media.Media != MediaAudio {
+			return &protoErr{field: field+".audio", reason: "media kind must be audio"}
+		}
+		if name == "document" && media.Media != MediaTextDocument && media.Media != MediaPDF {
+			return &protoErr{field: field+".document", reason: "media kind must be document or PDF"}
+		}
+		if name == "media" {
+			switch block.Type {
+			case BlockAudio:
+				if media.Media != MediaAudio { return &protoErr{field: field+".media", reason: "media kind must be audio"} }
+			case BlockFile:
+				if media.Media != MediaGenericFile { return &protoErr{field: field+".media", reason: "media kind must be generic file"} }
+			case BlockDocument:
+				if media.Media != MediaTextDocument && media.Media != MediaPDF { return &protoErr{field: field+".media", reason: "media kind must be document or PDF"} }
+			case BlockPDF:
+				if media.Media != MediaPDF { return &protoErr{field: field+".media", reason: "media kind must be PDF"} }
+			}
+		}
+	}
+	if block.Type == BlockAudio && block.Audio == nil && block.Media == nil {
+		return &protoErr{field: field+".audio", reason: "audio block is missing audio"}
+	}
+	if (block.Type == BlockFile || block.Type == BlockDocument || block.Type == BlockPDF) && block.File == nil && block.Document == nil && block.Media == nil {
+		return &protoErr{field: field+".file", reason: "file/document block is missing media"}
+	}
+	if block.Type == BlockMediaOutput && block.MediaOutput == nil && block.Media == nil {
+		return &protoErr{field: field+".media_output", reason: "media output block is missing media"}
+	}
+	if len(block.ToolResultContent) > MaxBlocksPerMessage {
+		return &protoErr{field: field+".tool_result_content", reason: "too many result blocks"}
+	}
+	for i, resultBlock := range block.ToolResultContent {
+		if err := validateContentBlock(resultBlock, fmt.Sprintf("%s.tool_result_content[%d]", field, i)); err != nil {
+			return err
+		}
+	}
+	if len(block.ToolResultMedia) > MaxBlocksPerMessage {
+		return &protoErr{field: field+".tool_result_media", reason: "too many result media references"}
+	}
+	for i, media := range block.ToolResultMedia {
+		if err := media.Validate(); err != nil {
+			return err
+		}
+		_ = i
+	}
+	if block.ServerTool != nil {
+		if err := block.ServerTool.Validate(field+".server_tool"); err != nil {
+			return err
+		}
+	}
+	if block.Type == BlockServerToolUse || block.Type == BlockServerToolResult {
+		if block.ServerTool == nil {
+			return &protoErr{field: field+".server_tool", reason: "server tool block is missing typed payload"}
+		}
+	}
+	if block.Compaction != nil {
+		if err := validateCompactionContent(block.Compaction, field+".compaction"); err != nil {
+			return err
+		}
+	}
+	if block.Type == BlockCompactionTrigger {
+		if block.Compaction == nil || block.Compaction.Kind != CompactionItemTrigger {
+			return &protoErr{field: field+".compaction", reason: "trigger block is missing trigger payload"}
+		}
+	}
 	if block.Type == BlockToolUse && block.ToolName == "" {
 		return &protoErr{field: field + ".tool_name", reason: "tool-use block requires a tool name"}
+	}
+	if !validToolKind(block.ToolKind, true) {
+		return &protoErr{field: field+".tool_kind", reason: "unsupported tool kind"}
 	}
 	if block.Type == BlockNative && block.NativeType == "" && len(block.NativePayload) == 0 {
 		return &protoErr{field: field + ".native", reason: "native block is missing payload"}
@@ -257,7 +447,11 @@ func validateContentBlock(block ContentBlock, field string) error {
 }
 
 func validateNormalizedTool(tool Tool, field string) error {
-	if err := boundedValue(field+".name", tool.Name, MaxToolNameLength, true); err != nil {
+	if !validToolKind(tool.Kind, true) {
+		return &protoErr{field: field+".kind", reason: "unsupported tool kind"}
+	}
+	requireName := tool.Kind == "" || tool.Kind == ToolKindFunction || tool.Kind == ToolKindCustom
+	if err := boundedValue(field+".name", tool.Name, MaxToolNameLength, requireName); err != nil {
 		return err
 	}
 	if err := boundedValue(field+".description", tool.Description, MaxTextBlockLength, false); err != nil {
@@ -265,6 +459,11 @@ func validateNormalizedTool(tool Tool, field string) error {
 	}
 	if err := boundedMap(field+".input_schema", tool.InputSchema); err != nil {
 		return err
+	}
+	if tool.Format != nil {
+		if err := tool.Format.Validate(); err != nil {
+			return err
+		}
 	}
 	if err := boundedValue(field+".native_type", tool.NativeType, MaxModelLength, false); err != nil {
 		return err
@@ -300,7 +499,19 @@ func validateImageReference(image ImageReference, field string) error {
 	if err := boundedValue(field+".value", image.Value, MaxNativePayloadBytes, true); err != nil {
 		return err
 	}
-	return boundedValue(field+".media_type", image.MediaType, MaxModelLength, false)
+	if err := boundedValue(field+".media_type", image.MediaType, MaxModelLength, false); err != nil {
+		return err
+	}
+	if err := boundedValue(field+".filename", image.Filename, MaxFilenameLength, false); err != nil {
+		return err
+	}
+	if image.Detail != "" && image.Detail != ImageDetailAuto && image.Detail != ImageDetailLow && image.Detail != ImageDetailHigh && image.Detail != ImageDetailOriginal {
+		return &protoErr{field: field+".detail", reason: "unsupported image detail"}
+	}
+	if size, ok := image.SizeBytes.Get(); ok && (size < 0 || size > MaxUsageTokens) {
+		return &protoErr{field: field+".size_bytes", reason: "value out of range"}
+	}
+	return nil
 }
 
 func validateReasoning(flag ReasoningFlag, cfg *ReasoningConfig) error {
@@ -326,6 +537,39 @@ func validateReasoning(flag ReasoningFlag, cfg *ReasoningConfig) error {
 	}
 	if cfg.MaxTokens < 0 || cfg.MaxTokens > MaxOutputTokens {
 		return &protoErr{field: "reasoning.max_tokens", reason: "value out of range"}
+	}
+	if cfg.Effort != "" && cfg.Effort != EffortXHigh && cfg.Effort != EffortHigh && cfg.Effort != EffortMedium && cfg.Effort != EffortLow && cfg.Effort != EffortMinimal && cfg.Effort != EffortNone {
+		return &protoErr{field: "reasoning.effort", reason: "unsupported effort"}
+	}
+	if cfg.Summary != "" && cfg.Summary != SummaryAuto && cfg.Summary != SummaryConcise && cfg.Summary != SummaryDetailed {
+		return &protoErr{field: "reasoning.summary", reason: "unsupported summary"}
+	}
+	if cfg.Mode != "" && cfg.Mode != ReasoningModeStandard && cfg.Mode != ReasoningModePro {
+		return &protoErr{field: "reasoning.mode", reason: "unsupported mode"}
+	}
+	if cfg.Context != "" && cfg.Context != ReasoningContextAuto && cfg.Context != ReasoningContextCurrentTurn && cfg.Context != ReasoningContextAllTurns {
+		return &protoErr{field: "reasoning.context", reason: "unsupported context"}
+	}
+	return nil
+}
+
+func validateCitation(c Citation, field string) error {
+	if err := boundedValue(field+".url", c.URL, MaxMediaURLLength, false); err != nil {
+		return err
+	}
+	if err := boundedValue(field+".title", c.Title, MaxAnnotationTextLength, false); err != nil {
+		return err
+	}
+	if err := boundedValue(field+".text", c.Text, MaxAnnotationTextLength, false); err != nil {
+		return err
+	}
+	if err := boundedValue(field+".file_id", c.FileID, MaxCanonicalIDLength, false); err != nil {
+		return err
+	}
+	start, hasStart := c.StartIndex.Get()
+	end, hasEnd := c.EndIndex.Get()
+	if (hasStart && start < 0) || (hasEnd && end < 0) || (hasStart && hasEnd && end < start) {
+		return &protoErr{field: field+".index", reason: "invalid citation range"}
 	}
 	return nil
 }

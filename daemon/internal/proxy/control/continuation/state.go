@@ -94,9 +94,6 @@ var (
 	ErrRepair       = &Error{Code: CodeRepair, Message: "continuation: repair policy exhausted"}
 )
 
-// ErrStale is retained as a semantic alias for generation staleness.
-var ErrStale = ErrGeneration
-
 const (
 	defaultTTL        = 30 * time.Minute
 	defaultSweepLimit = 256
@@ -163,10 +160,6 @@ type Persistence interface {
 	Delete(context.Context, string) error
 	Sweep(context.Context, time.Time, int) (int, error)
 }
-
-// Backend is an alias retained for callers that name the persistence boundary
-// as a backend rather than a repository.
-type Backend = Persistence
 
 // MemoryPersistence is a bounded, concurrency-safe persistence adapter useful
 // for tests and single-process operation. A caller can share one instance

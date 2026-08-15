@@ -5,13 +5,17 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/cartethyia/daemon/internal/providers"
+	"github.com/cartethyia/daemon/internal/providers/adapters"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/runtime/catalog"
 )
 
 type grokPrecontentTransport struct {
-	mu     sync.Mutex
-	calls  int
-	bodies [][]byte
+	mu       sync.Mutex
+	calls    int
+	bodies   [][]byte
+	repairer *adapters.GrokBuildAdapter
 }
 
 func (t *grokPrecontentTransport) CallStream(_ context.Context, _ Account, req contracts.Request) (*Stream, error) {
@@ -22,13 +26,19 @@ func (t *grokPrecontentTransport) CallStream(_ context.Context, _ Account, req c
 	t.mu.Unlock()
 	ch := make(chan StreamEvent, 2)
 	if call == 1 {
-		ch <- StreamEvent{Kind: EventMessageStop, Err: ErrInvalidEncryptedContent, Reason: "error"}
+		ch <- StreamEvent{Kind: EventMessageStop, Err: WithRepairRule(ErrInvalidEncryptedContent, adapters.GrokRepairInvalidEncryptedReasoning), Reason: "error"}
 	} else {
 		ch <- StreamEvent{Kind: EventTextDelta, Text: "ok"}
 		ch <- StreamEvent{Kind: EventMessageStop}
 	}
 	close(ch)
 	return NewStream(ch, nil, 0, 0), nil
+}
+
+func (t *grokPrecontentTransport) ProposeRepair(_ Account, req contracts.Request, ruleID string) (providers.RepairProposal, bool) {
+	return t.repairer.ProposeRepair(ruleID, providers.RequestEnvelope{
+		Target: providers.RouteTarget{ProviderID: "grok-build"}, Body: req.Body, Stream: true,
+	})
 }
 
 func TestRouterRetriesGrokInvalidEncryptedContentBeforeCommit(t *testing.T) {
@@ -40,14 +50,23 @@ func TestRouterRetriesGrokInvalidEncryptedContentBeforeCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport := &grokPrecontentTransport{}
+	transport := &grokPrecontentTransport{repairer: adapters.NewGrokBuildAdapter(adapters.GrokBuildConfig{ID: "grok-build"})}
 	req := contracts.Request{
 		Protocol: contracts.SurfaceOpenAIResponses,
 		Model:    "grok",
-		Headers:  map[string][]string{"X-Cartethyia-Provider": {"grok-build"}},
 		Body:     []byte(`{"input":[{"type":"reasoning","summary":[],"encrypted_content":"cipher"},{"type":"message","role":"user","content":"hi"}]}`),
 	}
-	stream, accountID, failure, err := router.RouteStream(context.Background(), transport, req)
+	plan := catalog.RoutePlan{
+		RequestedModel: req.Model,
+		Strategy:       catalog.RouteStrategySingle,
+		Members: []catalog.RouteMember{{
+			ProviderID:      "grok-build",
+			ClientModelID:   req.Model,
+			UpstreamModelID: req.Model,
+			Surface:         req.Protocol,
+		}},
+	}
+	stream, accountID, failure, err := router.RouteStream(context.Background(), transport, req, plan)
 	if err != nil || failure != nil || stream == nil || accountID != "grok" {
 		t.Fatalf("stream=%#v account=%q failure=%#v err=%v", stream, accountID, failure, err)
 	}

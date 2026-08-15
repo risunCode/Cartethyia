@@ -9,10 +9,12 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/cartethyia/daemon/internal/proxy/control/tokenbudget"
 	apierrors "github.com/cartethyia/daemon/internal/server/api/errors"
 )
 
@@ -45,26 +47,27 @@ type publicAPIKeyToucher interface {
 	TouchAPIKey(context.Context, string) error
 }
 
-type publicAPIKeyOneTimeConsumer interface {
-	ConsumeOneTimeTokens(context.Context, string, int) error
+type publicAPIKeyIDContextKey struct{}
+
+func withPublicAPIKeyID(ctx context.Context, keyID string) context.Context {
+	return context.WithValue(ctx, publicAPIKeyIDContextKey{}, keyID)
 }
 
-type publicAuthContextKey struct{}
-
-// PublicAPIKeyFromContext returns the redacted key identity attached by
-// PublicV1Auth. The returned value never contains secret material.
-func PublicAPIKeyFromContext(ctx context.Context) (PublicAPIKey, bool) {
+// PublicAPIKeyIDFrom returns the redacted key identifier established by the
+// public authentication boundary. Client headers cannot populate this value.
+func PublicAPIKeyIDFrom(ctx context.Context) string {
 	if ctx == nil {
-		return PublicAPIKey{}, false
+		return ""
 	}
-	value, ok := ctx.Value(publicAuthContextKey{}).(PublicAPIKey)
-	return value, ok && value.ID != ""
+	keyID, _ := ctx.Value(publicAPIKeyIDContextKey{}).(string)
+	return keyID
 }
 
 // PublicV1Auth enforces credentials for /v1 routes when a resolver is
 // configured. With no resolver, development callers retain the existing
-// anonymous behavior; production callers fail closed.
-func PublicV1Auth(resolver PublicAPIKeyResolver, production bool) func(http.Handler) http.Handler {
+// anonymous behavior; production callers fail closed. RequestID must wrap
+// this middleware so hard-limit reservations receive a stable identity.
+func PublicV1Auth(resolver PublicAPIKeyResolver, authority tokenbudget.TokenBudgetAuthority, production bool) func(http.Handler) http.Handler {
 	admission := newPublicAPIAdmission()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -95,36 +98,43 @@ func PublicV1Auth(resolver PublicAPIKeyResolver, production bool) func(http.Hand
 				writeAuthError(w, http.StatusUnauthorized, "invalid API credentials")
 				return
 			}
-			provider := strings.TrimSpace(r.Header.Get("X-Cartethyia-Provider"))
-			if provider == "" {
-				provider = modelProvider(model)
-			}
+			r = r.WithContext(withPublicAPIKeyID(r.Context(), key.ID))
+			provider := modelProvider(model)
 			if isDispatchPath(r.URL.Path) && !aclAllows(key, provider, model) {
 				writeAuthError(w, http.StatusForbidden, "request is not authorized")
 				return
 			}
 			if isDispatchPath(r.URL.Path) {
-				release, allowed := admission.acquire(key, time.Now())
+				now := time.Now()
+				if key.OneTimeTokenLimit != nil && key.OneTimeTokensUsed >= *key.OneTimeTokenLimit {
+					writeAuthError(w, http.StatusTooManyRequests, "one-time API key token limit exceeded")
+					return
+				}
+				if hasHardTokenLimit(key) {
+					identity := tokenbudget.Identity{KeyID: key.ID, RequestID: RequestIDFrom(r.Context()), WindowUTC: now.UTC()}
+					if authority == nil || identity.Validate() != nil {
+						writeAuthError(w, http.StatusServiceUnavailable, "API key quota authority is unavailable")
+						return
+					}
+					r = r.WithContext(tokenbudget.WithAuthority(r.Context(), authority, identity))
+				}
+				release, allowed := admission.acquire(key, now)
 				if !allowed {
 					writeAuthError(w, http.StatusTooManyRequests, "API key request limit exceeded")
 					return
 				}
 				defer release()
-				if key.OneTimeTokenLimit != nil && *key.OneTimeTokenLimit > key.OneTimeTokensUsed {
-					consumer, ok := resolver.(publicAPIKeyOneTimeConsumer)
-					if !ok || consumer.ConsumeOneTimeTokens(r.Context(), key.ID, estimateRequestTokens(body)) != nil {
-						writeAuthError(w, http.StatusTooManyRequests, "one-time API key token limit exceeded")
-						return
-					}
-				}
 			}
 			if toucher, ok := resolver.(publicAPIKeyToucher); ok {
 				_ = toucher.TouchAPIKey(r.Context(), key.ID)
 			}
-			r = r.WithContext(context.WithValue(r.Context(), publicAuthContextKey{}, key))
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func hasHardTokenLimit(key PublicAPIKey) bool {
+	return key.OneTimeTokenLimit != nil || key.DailyTokenLimit != nil || key.MonthlyTokenLimit != nil
 }
 
 func isDispatchPath(path string) bool {
@@ -132,8 +142,20 @@ func isDispatchPath(path string) bool {
 	case "/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/messages/count_tokens", "/v1/action", "/v1/images/generations", "/v1/images/edits":
 		return true
 	default:
+		return isGeminiDispatchPath(path)
+	}
+}
+
+func isGeminiDispatchPath(path string) bool {
+	const prefix = "/v1beta/models/"
+	if !strings.HasPrefix(path, prefix) {
 		return false
 	}
+	rest := strings.TrimPrefix(path, prefix)
+	if rest == "" || strings.ContainsRune(rest, '/') {
+		return false
+	}
+	return strings.HasSuffix(rest, ":generateContent") || strings.HasSuffix(rest, ":streamGenerateContent")
 }
 
 func presentedCredential(r *http.Request) (string, bool) {
@@ -170,6 +192,9 @@ func authRequestModel(r *http.Request) (string, []byte, error) {
 	if strings.HasPrefix(contentType, "multipart/form-data") {
 		return multipartModel(body, r.Header.Get("Content-Type")), body, nil
 	}
+	if model := geminiModelFromPath(r.URL.Path); model != "" {
+		return model, body, nil
+	}
 	if !strings.Contains(contentType, "application/json") {
 		return "", body, nil
 	}
@@ -180,6 +205,28 @@ func authRequestModel(r *http.Request) (string, []byte, error) {
 		return strings.TrimSpace(payload.Model), body, nil
 	}
 	return "", body, nil
+}
+
+func geminiModelFromPath(path string) string {
+	const prefix = "/v1beta/models/"
+	if !strings.HasPrefix(path, prefix) {
+		return ""
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	if strings.ContainsRune(rest, '/') {
+		return ""
+	}
+	for _, action := range []string{":streamGenerateContent", ":generateContent"} {
+		if !strings.HasSuffix(rest, action) {
+			continue
+		}
+		value, err := url.PathUnescape(strings.TrimSuffix(rest, action))
+		if err != nil || value == "" || len(value) > 256 || strings.IndexFunc(value, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+			return ""
+		}
+		return value
+	}
+	return ""
 }
 
 func multipartModel(body []byte, contentType string) string {
@@ -247,17 +294,6 @@ func splitACL(value string) []string {
 	return out
 }
 
-func estimateRequestTokens(body []byte) int {
-	if len(body) == 0 {
-		return 1
-	}
-	count := len(body) / 4
-	if count < 1 {
-		return 1
-	}
-	return count
-}
-
 type publicAPIAdmission struct {
 	mu    sync.Mutex
 	state map[string]*publicAPIAdmissionState
@@ -273,7 +309,9 @@ func newPublicAPIAdmission() *publicAPIAdmission {
 }
 
 func (a *publicAPIAdmission) acquire(key PublicAPIKey, now time.Time) (func(), bool) {
-	if a == nil || key.ID == "" {
+	rateLimited := key.RateLimitRpm != nil && *key.RateLimitRpm > 0
+	concurrencyLimited := key.MaxConcurrent != nil && *key.MaxConcurrent > 0
+	if a == nil || key.ID == "" || (!rateLimited && !concurrencyLimited) {
 		return func() {}, true
 	}
 	a.mu.Lock()
@@ -283,21 +321,28 @@ func (a *publicAPIAdmission) acquire(key PublicAPIKey, now time.Time) (func(), b
 		state = &publicAPIAdmissionState{}
 		a.state[key.ID] = state
 	}
-	cutoff := now.Add(-time.Minute)
-	kept := state.window[:0]
-	for _, timestamp := range state.window {
-		if timestamp.After(cutoff) {
-			kept = append(kept, timestamp)
+	if rateLimited {
+		cutoff := now.Add(-time.Minute)
+		kept := state.window[:0]
+		for _, timestamp := range state.window {
+			if timestamp.After(cutoff) {
+				kept = append(kept, timestamp)
+			}
+		}
+		state.window = kept
+		if len(state.window) >= *key.RateLimitRpm {
+			return func() {}, false
 		}
 	}
-	state.window = kept
-	if key.RateLimitRpm != nil && *key.RateLimitRpm > 0 && len(state.window) >= *key.RateLimitRpm {
+	if concurrencyLimited && state.active >= *key.MaxConcurrent {
 		return func() {}, false
 	}
-	if key.MaxConcurrent != nil && *key.MaxConcurrent > 0 && state.active >= *key.MaxConcurrent {
-		return func() {}, false
+	if rateLimited {
+		state.window = append(state.window, now)
 	}
-	state.window = append(state.window, now)
+	if !concurrencyLimited {
+		return func() {}, true
+	}
 	state.active++
 	var once sync.Once
 	return func() {

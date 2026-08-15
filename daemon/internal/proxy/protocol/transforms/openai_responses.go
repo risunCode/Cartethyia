@@ -25,17 +25,26 @@ func (c *OpenAIResponsesCodec) Protocol() contracts.Protocol { return contracts.
 // `concise` when no summary is set, matching the open-sse default that
 // keeps terminal clients from receiving verbose reasoning.
 func (c *OpenAIResponsesCodec) Encode(ctx context.Context, req *NormalizedRequest) (*EncoderResult, *TransformError) {
-	_ = ctx
+	if err := ctx.Err(); err != nil {
+		return nil, newTransformError(CodeContextCanceled, "encode-request", string(contracts.ProtocolOpenAIResponse), "context", "transform canceled", err)
+	}
 	if req == nil {
 		return nil, errEncode(contracts.ProtocolOpenAIResponse, "request", "request must not be nil")
 	}
 	if err := req.Validate(); err != nil {
 		return nil, errEncode(contracts.ProtocolOpenAIResponse, "request", err.Error())
 	}
+	input := encodeResponsesInput(req.Messages, req.TrailingReasoningItems)
+	if req.Operation.Kind == OperationCompactV2 && req.Operation.Compaction != nil {
+		input = encodeCompactionResponsesInput(req.Operation.Compaction)
+	}
+	if req.Operation.Kind == OperationCompactV1 {
+		return nil, errEncode(contracts.ProtocolOpenAIResponse, "operation", "V1 compaction requires a dedicated compact endpoint or approved bridge")
+	}
 	payload := map[string]any{
 		"model":  req.Model,
 		"stream": req.Stream,
-		"input":  encodeResponsesInput(req.Messages, req.TrailingReasoningItems),
+		"input":  input,
 	}
 	var disp []FieldDisposition
 
@@ -75,17 +84,39 @@ func (c *OpenAIResponsesCodec) Encode(ctx context.Context, req *NormalizedReques
 	if req.CacheKey != "" {
 		payload["prompt_cache_key"] = req.CacheKey
 	}
+	if req.PreviousResponseID != "" {
+		payload["previous_response_id"] = req.PreviousResponseID
+	}
+	if req.ConversationID != "" {
+		payload["conversation"] = req.ConversationID
+	}
 
-	if req.ResponseFormat != FormatText {
-		switch req.ResponseFormat {
+	responseFormat, responseSchema, formatErr := effectiveResponseFormat(contracts.ProtocolOpenAIResponse, req)
+	if formatErr != nil {
+		return nil, formatErr
+	}
+	if responseFormat != FormatText {
+		switch responseFormat {
 		case FormatJSONObject:
 			payload["text"] = map[string]any{"format": map[string]any{"type": "json_object"}}
 		case FormatJSONSchema:
-			schema := req.ResponseFormatSchema
+			schema := responseSchema
 			if schema == nil {
 				schema = map[string]any{}
 			}
-			payload["text"] = map[string]any{"format": mergeMap(map[string]any{"type": "json_schema"}, schema)}
+			format := map[string]any{"type": "json_schema", "schema": schema}
+			if req.StructuredOutput != nil {
+				if req.StructuredOutput.Name != "" {
+					format["name"] = req.StructuredOutput.Name
+				}
+				if req.StructuredOutput.Description != "" {
+					format["description"] = req.StructuredOutput.Description
+				}
+				if strict, ok := req.StructuredOutput.Strict.Get(); ok {
+					format["strict"] = strict
+				}
+			}
+			payload["text"] = map[string]any{"format": format}
 		}
 		disp = append(disp, FieldDisposition{Path: "response_format", Action: DispositionAdapted, TargetPath: "text.format"})
 	}
@@ -116,24 +147,18 @@ func (c *OpenAIResponsesCodec) Encode(ctx context.Context, req *NormalizedReques
 		payload["include"] = append([]string(nil), req.Include...)
 	}
 	if req.ContextManagement != nil {
-		switch v := req.ContextManagement.(type) {
-		case []map[string]any:
-			payload["context_management"] = cloneMapList(v)
-		case []any:
-			payload["context_management"] = v
-		case map[string]any:
-			if edits, ok := v["edits"]; ok {
-				payload["context_management"] = edits
-			} else {
-				payload["context_management"] = v
-			}
-		default:
-			payload["context_management"] = v
+		value, err := req.ContextManagement.WireValue()
+		if err != nil {
+			return nil, errEncode(contracts.ProtocolOpenAIResponse, "context_management", err.Error())
 		}
+		payload["context_management"] = value
 		disp = append(disp, FieldDisposition{Path: "context_management", Action: DispositionPreserved})
 	}
 
 	applyPassthroughBucket(payload, req, "openai-responses")
+	if err := validateWirePayload(contracts.ProtocolOpenAIResponse, payload); err != nil {
+		return nil, err
+	}
 	return &EncoderResult{Wire: payload, Dispositions: disp}, nil
 }
 
@@ -186,17 +211,21 @@ func encodeResponsesInput(msgs []NormalizedMessage, trailing []map[string]any) [
 		items := append([]map[string]any{}, m.ReasoningItemsBefore...)
 		switch m.Role {
 		case RoleSystem, RoleDeveloper:
-			items = append(items, map[string]any{"role": string(m.Role), "content": messageText(m)})
+			items = append(items, map[string]any{"type": "message", "role": string(m.Role), "content": messageText(m)})
 		case RoleUser:
 			hasImage := false
+			hasRichMedia := false
 			for _, b := range m.Content {
 				if b.Type == BlockImage {
 					hasImage = true
 					break
 				}
+				if b.Type == BlockAudio || b.Type == BlockFile || b.Type == BlockDocument || b.Type == BlockPDF {
+					hasRichMedia = true
+				}
 			}
-			if !hasImage {
-				items = append(items, map[string]any{"role": "user", "content": messageText(m)})
+			if !hasImage && !hasRichMedia {
+				items = append(items, map[string]any{"type": "message", "role": "user", "content": messageText(m)})
 			} else {
 				parts := make([]map[string]any, 0, len(m.Content))
 				for _, b := range m.Content {
@@ -204,15 +233,38 @@ func encodeResponsesInput(msgs []NormalizedMessage, trailing []map[string]any) [
 					case BlockText:
 						parts = append(parts, map[string]any{"type": "input_text", "text": b.Text})
 					case BlockImage:
-						parts = append(parts, map[string]any{"type": "input_image", "image_url": openAIImageURL(b.Image)})
+						parts = append(parts, openAIInputImage(b.Image))
+					case BlockAudio:
+						if b.Audio != nil {
+							parts = append(parts, map[string]any{"type": "input_audio", "audio_data": b.Audio.Value, "format": audioFormat(b.Audio.MIMEType)})
+						}
+					case BlockFile, BlockDocument, BlockPDF:
+						if media := contentMediaReference(b); media != nil {
+							parts = append(parts, encodeResponsesFileReference(media))
+						}
 					}
 				}
-				items = append(items, map[string]any{"role": "user", "content": parts})
+				items = append(items, map[string]any{"type": "message", "role": "user", "content": parts})
 			}
 		case RoleAssistant:
 			for _, b := range m.Content {
 				if b.Type == BlockCompaction && b.Raw != nil {
 					items = append(items, cloneMap(b.Raw))
+				} else if b.Type == BlockCompaction && b.Compaction != nil {
+					item := map[string]any{"type": string(b.Compaction.Kind)}
+					if b.Compaction.EncryptedContent != "" {
+						item["encrypted_content"] = b.Compaction.EncryptedContent
+					}
+					if b.Compaction.Summary != "" {
+						item["summary"] = b.Compaction.Summary
+					}
+					if b.Compaction.Signature != "" {
+						item["signature"] = b.Compaction.Signature
+					}
+					if b.ID != "" {
+						item["id"] = b.ID
+					}
+					items = append(items, item)
 				} else if b.Type == BlockReasoning {
 					items = append(items, encodeResponsesReasoningItem(b))
 				}
@@ -224,7 +276,7 @@ func encodeResponsesInput(msgs []NormalizedMessage, trailing []map[string]any) [
 					calls = append(calls, b)
 				}
 			}
-			msg := map[string]any{"role": "assistant", "content": []map[string]any{{"type": "output_text", "text": text}}}
+			msg := map[string]any{"type": "message", "role": "assistant", "content": []map[string]any{{"type": "output_text", "text": text}}}
 			if m.Phase != "" {
 				msg["phase"] = m.Phase
 			}
@@ -269,6 +321,81 @@ func encodeResponsesInput(msgs []NormalizedMessage, trailing []map[string]any) [
 	return out
 }
 
+func encodeCompactionResponsesInput(request *CompactionRequest) []map[string]any {
+	if request == nil {
+		return nil
+	}
+	input := make([]map[string]any, 0, len(request.Input)+1)
+	for _, block := range request.Input {
+		switch block.Type {
+		case BlockCompactionTrigger:
+			continue
+		case BlockText:
+			input = append(input, map[string]any{"type": "message", "role": "user", "content": []map[string]any{{"type": "input_text", "text": block.Text}}})
+		case BlockImage:
+			input = append(input, map[string]any{"type": "message", "role": "user", "content": []map[string]any{openAIInputImage(block.Image)}})
+		case BlockAudio:
+			if block.Audio != nil {
+				input = append(input, map[string]any{"type": "message", "role": "user", "content": []map[string]any{{"type": "input_audio", "audio_data": block.Audio.Value, "format": audioFormat(block.Audio.MIMEType)}}})
+			}
+		case BlockFile, BlockDocument, BlockPDF:
+			if media := contentMediaReference(block); media != nil {
+				input = append(input, map[string]any{"type": "message", "role": "user", "content": []map[string]any{encodeResponsesFileReference(media)}})
+			}
+		case BlockReasoning:
+			input = append(input, encodeResponsesReasoningItem(block))
+		case BlockToolUse:
+			input = append(input, map[string]any{"type": "function_call", "call_id": block.ToolCallID, "name": block.ToolName, "arguments": block.ToolArguments})
+		case BlockToolResult:
+			input = append(input, map[string]any{"type": "function_call_output", "call_id": block.ToolCallID, "output": block.Text})
+		default:
+			if block.Raw != nil {
+				input = append(input, cloneMap(block.Raw))
+			}
+		}
+	}
+	input = append(input, map[string]any{"type": "compaction_trigger"})
+	return input
+}
+
+func contentMediaReference(block ContentBlock) *MediaReference {
+	if block.File != nil {
+		return block.File
+	}
+	if block.Document != nil {
+		return block.Document
+	}
+	return block.Media
+}
+
+func audioFormat(mime string) string {
+	switch mime {
+	case "audio/wav":
+		return "wav"
+	case "audio/mpeg":
+		return "mp3"
+	case "audio/ogg":
+		return "ogg"
+	default:
+		return mime
+	}
+}
+
+func encodeResponsesFileReference(media *MediaReference) map[string]any {
+	payload := map[string]any{"type": "input_file", "filename": nilIfEmpty(media.Filename), "mime_type": nilIfEmpty(media.MIMEType)}
+	switch media.Reference {
+	case ReferenceProviderFileID:
+		payload["file_id"] = media.Value
+	case ReferenceProviderFileURL:
+		payload["file_url"] = media.Value
+	case ReferenceInlineData:
+		payload["file_data"] = media.Value
+	case ReferenceURL:
+		payload["file_url"] = media.Value
+	}
+	return payload
+}
+
 func encodeResponsesReasoningItem(b ContentBlock) map[string]any {
 	item := map[string]any{"type": "reasoning"}
 	if b.Raw != nil {
@@ -310,7 +437,9 @@ func (d *OpenAIResponsesRequestDecoder) Protocol() contracts.Protocol {
 
 // Decode parses a /v1/responses body into a canonical request.
 func (d *OpenAIResponsesRequestDecoder) Decode(ctx context.Context, body []byte, stream bool) (*NormalizedRequest, *TransformError) {
-	_ = ctx
+	if err := ctx.Err(); err != nil {
+		return nil, newTransformError(CodeContextCanceled, "decode-request", string(contracts.ProtocolOpenAIResponse), "context", "transform canceled", err)
+	}
 	root, err := decodeBody(body)
 	if err != nil {
 		return nil, errDecode(contracts.ProtocolOpenAIResponse, "body", err.Error())
@@ -407,7 +536,11 @@ func (d *OpenAIResponsesRequestDecoder) Decode(ctx context.Context, body []byte,
 		req.Metadata = obj
 	}
 	if raw, ok := root["context_management"]; ok {
-		req.ContextManagement = raw
+		contextManagement, err := DecodeContextManagement(raw)
+		if err != nil {
+			return nil, errDecode(contracts.ProtocolOpenAIResponse, "context_management", err.Error())
+		}
+		req.ContextManagement = contextManagement
 	}
 	if raw, ok := root["include"]; ok {
 		list, err := asArray("include", raw)
@@ -430,6 +563,20 @@ func (d *OpenAIResponsesRequestDecoder) Decode(ctx context.Context, body []byte,
 		if s != "" && len(s) <= 256 {
 			req.CacheKey = s
 		}
+	}
+	if raw, ok := root["previous_response_id"]; ok {
+		value, err := asString("previous_response_id", raw)
+		if err != nil {
+			return nil, errDecode(contracts.ProtocolOpenAIResponse, "previous_response_id", err.Error())
+		}
+		req.PreviousResponseID = value
+	}
+	if raw, ok := root["conversation"]; ok {
+		value, err := asString("conversation", raw)
+		if err != nil {
+			return nil, errDecode(contracts.ProtocolOpenAIResponse, "conversation", err.Error())
+		}
+		req.ConversationID = value
 	}
 	if raw, ok := root["instructions"]; ok {
 		if s, ok := raw.(string); ok {
@@ -459,8 +606,27 @@ func (d *OpenAIResponsesRequestDecoder) Decode(ctx context.Context, body []byte,
 		}
 		req.Messages = append(req.Messages, msgs...)
 		req.TrailingReasoningItems = trailing
+		if hasResponsesCompactionTrigger(raw) {
+			input := make([]CompactionItem, 0, len(req.Messages))
+			for _, message := range req.Messages {
+				input = append(input, message.Content...)
+			}
+			compaction, compactionErr := NewCompactionRequest(CompactionRequestInput{
+				Version:      CompactionV2,
+				Model:        req.Model,
+				Input:        input,
+				Instructions: firstSystemInstruction(req.Messages),
+			})
+			if compactionErr != nil {
+				return nil, errDecode(contracts.ProtocolOpenAIResponse, "input", compactionErr.Error())
+			}
+			req.Operation = Operation{Kind: OperationCompactV2, Compaction: compaction}
+		}
 	}
 	req.Images = images
+	if req.Reasoning == "" {
+		req.Reasoning = ReasoningDefault
+	}
 	if reasoningSeen && req.Reasoning == ReasoningDefault {
 		req.Reasoning = ReasoningEnabled
 	}
@@ -505,7 +671,10 @@ func decodeResponsesText(raw any) (ResponseFormat, map[string]any, error) {
 	case "json_object":
 		return FormatJSONObject, nil, nil
 	case "json_schema":
-		schema, _ := asProto("text.format.json_schema", format["json_schema"])
+		schema, _ := asProto("text.format.schema", format["schema"])
+		if schema == nil {
+			schema, _ = asProto("text.format.json_schema", format["json_schema"])
+		}
 		if err := boundJSON("text.format.json_schema", schema, MaxTextBlockLength); err != nil {
 			return "", nil, err
 		}
@@ -598,6 +767,9 @@ func decodeResponsesInput(raw any, field string, images *[]ImageReference, reaso
 			}
 		case "compaction":
 			pending = append(pending, cloneMap(obj))
+		case "compaction_trigger":
+			trigger := ContentBlock{Type: BlockCompactionTrigger, ID: stringOf(obj["id"]), Raw: cloneMap(obj), Compaction: &CompactionContent{Version: CompactionV2, Kind: CompactionItemTrigger}}
+			msgs = append(msgs, NormalizedMessage{Role: RoleAssistant, Content: []ContentBlock{trigger}})
 		case "additional_tools":
 			// Additional tools are declarations carried in the input item;
 			// decodeResponsesAdditionalTools projects them into req.Tools.
@@ -612,9 +784,38 @@ func decodeResponsesInput(raw any, field string, images *[]ImageReference, reaso
 	return msgs, pending, nil
 }
 
+func hasResponsesCompactionTrigger(raw any) bool {
+	list, ok := raw.([]any)
+	if !ok || len(list) == 0 {
+		return false
+	}
+	for _, item := range list {
+		obj, ok := item.(map[string]any)
+		if ok && stringOf(obj["type"]) == "compaction_trigger" {
+			return true
+		}
+	}
+	return false
+}
+
+func firstSystemInstruction(messages []NormalizedMessage) string {
+	for _, message := range messages {
+		if message.Role == RoleSystem {
+			return messageText(message)
+		}
+	}
+	return ""
+}
+
 func decodeResponsesContent(raw any, field string, images *[]ImageReference, reasoningSeen *bool) ([]ContentBlock, error) {
 	if raw == nil {
 		return nil, nil
+	}
+	if text, ok := raw.(string); ok {
+		if err := boundText(field, text); err != nil {
+			return nil, err
+		}
+		return []ContentBlock{{Type: BlockText, Text: text}}, nil
 	}
 	list, err := asArray(field, raw)
 	if err != nil {
@@ -642,11 +843,38 @@ func decodeResponsesContent(raw any, field string, images *[]ImageReference, rea
 			}
 			out = append(out, ContentBlock{Type: BlockText, Text: text})
 		case "input_image":
-			img, err := decodeImageURL(obj["image_url"], blockField+".image_url", images)
+			imageRaw := obj["image_url"]
+			if detail, ok := obj["detail"].(string); ok {
+				if imageURL, ok := imageRaw.(string); ok {
+					imageRaw = map[string]any{"url": imageURL, "detail": detail}
+				}
+			}
+			img, err := decodeImageURL(imageRaw, blockField+".image_url", images)
 			if err != nil {
 				return nil, err
 			}
 			out = append(out, ContentBlock{Type: BlockImage, Image: &img})
+		case "input_audio":
+			data, err := asString(blockField+".audio_data", obj["audio_data"])
+			if err != nil {
+				return nil, err
+			}
+			format, _ := asString(blockField+".format", obj["format"])
+			media, mediaErr := NewAudioReference(ReferenceInlineData, data, MediaReferenceOptions{MIMEType: audioMIMEType(format)})
+			if mediaErr != nil {
+				return nil, mediaErr
+			}
+			out = append(out, ContentBlock{Type: BlockAudio, Audio: &media})
+		case "input_file":
+			media, mediaErr := decodeResponsesFileReference(obj, blockField)
+			if mediaErr != nil {
+				return nil, mediaErr
+			}
+			blockType := BlockFile
+			if media.MIMEType == "application/pdf" {
+				blockType = BlockPDF
+			}
+			out = append(out, ContentBlock{Type: blockType, File: &media})
 		case "function_call":
 			b, err := decodeResponsesFunctionCallBlock(obj, blockField)
 			if err != nil {
@@ -684,7 +912,11 @@ func decodeResponsesContent(raw any, field string, images *[]ImageReference, rea
 				Raw:                       normalized,
 			})
 		case "refusal":
-			out = append(out, ContentBlock{Type: BlockUnknown})
+			refusal, err := asString(blockField+".refusal", obj["refusal"])
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, ContentBlock{Type: BlockRefusal, Refusal: &RefusalContent{Text: refusal}})
 		default:
 			if t == "" {
 				return nil, &protoErr{field: blockField + ".type", reason: "missing block type"}
@@ -694,6 +926,58 @@ func decodeResponsesContent(raw any, field string, images *[]ImageReference, rea
 		}
 	}
 	return out, nil
+}
+
+func audioMIMEType(format string) string {
+	switch format {
+	case "wav":
+		return "audio/wav"
+	case "mp3":
+		return "audio/mpeg"
+	case "ogg":
+		return "audio/ogg"
+	default:
+		return format
+	}
+}
+
+func decodeResponsesFileReference(obj map[string]any, field string) (FileReference, error) {
+	filename, _ := asString(field+".filename", obj["filename"])
+	mime, _ := asString(field+".mime_type", obj["mime_type"])
+	if value, ok := obj["file_id"]; ok {
+		id, err := asString(field+".file_id", value)
+		if err != nil {
+			return FileReference{}, err
+		}
+		file, terr := NewFileReference(ReferenceProviderFileID, id, MediaReferenceOptions{MIMEType: mime, Filename: filename})
+		if terr != nil {
+			return FileReference{}, terr
+		}
+		return file, nil
+	}
+	if value, ok := obj["file_url"]; ok {
+		url, err := asString(field+".file_url", value)
+		if err != nil {
+			return FileReference{}, err
+		}
+		file, terr := NewFileReference(ReferenceProviderFileURL, url, MediaReferenceOptions{MIMEType: mime, Filename: filename})
+		if terr != nil {
+			return FileReference{}, terr
+		}
+		return file, nil
+	}
+	if value, ok := obj["file_data"]; ok {
+		data, err := asString(field+".file_data", value)
+		if err != nil {
+			return FileReference{}, err
+		}
+		file, terr := NewFileReference(ReferenceInlineData, data, MediaReferenceOptions{MIMEType: mime, Filename: filename})
+		if terr != nil {
+			return FileReference{}, terr
+		}
+		return file, nil
+	}
+	return FileReference{}, &protoErr{field: field, reason: "one file_id, file_url, or file_data is required"}
 }
 
 func decodeResponsesFunctionCallItem(obj map[string]any, field string) (NormalizedMessage, error) {
@@ -743,6 +1027,9 @@ func decodeResponsesFunctionCallOutputBlock(obj map[string]any, field string) (C
 	callID, _ := asString(field+".call_id", obj["call_id"])
 	if callID == "" {
 		return ContentBlock{}, &protoErr{field: field + ".call_id", reason: "call_id must not be empty"}
+	}
+	if _, ok := obj["output"]; !ok {
+		return ContentBlock{}, &protoErr{field: field + ".output", reason: "tool output is required"}
 	}
 	output, err := StringifyToolArguments(obj["output"])
 	if err != nil {
@@ -854,9 +1141,9 @@ func decodeResponsesTool(raw any, field string) (Tool, error) {
 		if raw, ok := obj["parameters"]; ok {
 			schema, _ = asProto(field+".parameters", raw)
 		}
-		return Tool{Name: name, Description: desc, InputSchema: schema}, nil
+		return Tool{Name: name, Description: desc, InputSchema: schema, Kind: ToolKindFunction}, nil
 	case "web_search", "tool_search":
-		return Tool{Name: t, NativeType: t, NativeOptions: cloneMap(obj)}, nil
+		return Tool{Name: t, Kind: ToolKindWebSearch, NativeType: t, NativeOptions: cloneMap(obj)}, nil
 	case "custom", "namespace":
 		name, _ := asString(field+".name", obj["name"])
 		if name == "" {
@@ -866,7 +1153,7 @@ func decodeResponsesTool(raw any, field string) (Tool, error) {
 			name = t
 		}
 		desc, _ := asString(field+".description", obj["description"])
-		return Tool{Name: name, Description: desc, NativeType: t, NativeOptions: cloneMap(obj)}, nil
+		return Tool{Name: name, Description: desc, Kind: ToolKindCustom, NativeType: t, NativeOptions: cloneMap(obj)}, nil
 	default:
 		return Tool{}, &protoErr{field: field + ".type", reason: fmt.Sprintf("unsupported tool type %q", t)}
 	}

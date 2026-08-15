@@ -2,6 +2,7 @@ package action
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,17 +13,21 @@ import (
 	"github.com/cartethyia/daemon/internal/observability"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
 	apicontracts "github.com/cartethyia/daemon/internal/server/api/contracts"
+	"github.com/cartethyia/daemon/internal/server/middleware"
 )
 
 type actionProxy struct {
 	calls int
 	req   *contracts.Request
+	ctx   context.Context
+	err   error
 }
 
-func (p *actionProxy) Dispatch(req *contracts.Request) (apicontracts.Stream, error) {
+func (p *actionProxy) DispatchContext(ctx context.Context, req *contracts.Request) (apicontracts.Stream, error) {
 	p.calls++
 	p.req = req
-	return actionStream{}, nil
+	p.ctx = ctx
+	return actionStream{}, p.err
 }
 
 type actionStream struct{}
@@ -76,6 +81,9 @@ func TestActionDispatchesCanonicalRequest(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d want=%d body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
+	if got := rec.Body.String(); got != `{"ok":true}` {
+		t.Fatalf("body=%q want successful action schema", got)
+	}
 	if proxy.calls != 1 || proxy.req == nil {
 		t.Fatalf("dispatch calls=%d req=%v", proxy.calls, proxy.req)
 	}
@@ -86,6 +94,50 @@ func TestActionDispatchesCanonicalRequest(t *testing.T) {
 		t.Fatalf("request id header not propagated")
 	}
 }
+
+func TestActionPreservesMiddlewareRequestIDForDispatch(t *testing.T) {
+	proxy := &actionProxy{}
+	req := httptest.NewRequest(http.MethodPost, Path, strings.NewReader(`{"protocol":"openai-chat","model":"gpt-test"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	middleware.RequestID(actionMux(proxy)).ServeHTTP(rec, req)
+
+	requestID := rec.Header().Get(middleware.HeaderRequestID)
+	if requestID == "" {
+		t.Fatal("middleware did not generate a request ID")
+	}
+	if proxy.req == nil {
+		t.Fatal("dispatch request was not captured")
+	}
+	if got := proxy.req.Headers.Get(middleware.HeaderRequestID); got != requestID {
+		t.Fatalf("dispatch request ID=%q want=%q", got, requestID)
+	}
+}
+
+func TestActionCancellationReachesProxyOnce(t *testing.T) {
+	const secret = "secret=handler-cancellation-sentinel"
+	proxy := &actionProxy{err: fmt.Errorf("%s: %w", secret, context.Canceled)}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, Path, strings.NewReader(`{"protocol":"openai-chat","model":"gpt-test"}`)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	actionMux(proxy).ServeHTTP(rec, req)
+
+	if proxy.calls != 1 {
+		t.Fatalf("dispatch calls=%d want=1", proxy.calls)
+	}
+	if proxy.ctx == nil {
+		t.Fatal("dispatch context was not captured")
+	}
+	if !errors.Is(proxy.ctx.Err(), context.Canceled) {
+		t.Fatalf("dispatch context error=%v want=%v", proxy.ctx.Err(), context.Canceled)
+	}
+	if strings.Contains(rec.Body.String(), secret) {
+		t.Fatalf("response leaked cancellation detail: %s", rec.Body.String())
+	}
+}
+
 func TestActionEmitsBoundedLifecycleEvidence(t *testing.T) {
 	proxy := &actionProxy{}
 	metrics := observability.NewRegistry()
@@ -147,7 +199,7 @@ func TestActionEmitsTranslatedLifecycleKeysWithoutBody(t *testing.T) {
 
 type failingActionProxy struct{ err error }
 
-func (p failingActionProxy) Dispatch(*contracts.Request) (apicontracts.Stream, error) {
+func (p failingActionProxy) DispatchContext(context.Context, *contracts.Request) (apicontracts.Stream, error) {
 	return nil, p.err
 }
 

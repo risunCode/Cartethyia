@@ -42,7 +42,7 @@ func (s LosslessNormalizationStage) Apply(_ context.Context, req *NormalizedRequ
 	for mi := range out.Messages {
 		for bi := range out.Messages[mi].Content {
 			block := &out.Messages[mi].Content[bi]
-			if block.ToolArguments != "" {
+			if block.Type == BlockToolUse && block.ToolArguments != "" && !toolArgumentsAreFreeform(out, *block) {
 				block.ToolArguments = RepairToolCallArguments(block.ToolArguments)
 			}
 		}
@@ -72,7 +72,7 @@ func (s SchemaToolNormalizationStage) Apply(_ context.Context, req *NormalizedRe
 	for mi := range out.Messages {
 		for bi := range out.Messages[mi].Content {
 			block := &out.Messages[mi].Content[bi]
-			if block.Type == BlockToolUse && block.ToolArguments != "" {
+			if block.Type == BlockToolUse && block.ToolArguments != "" && !toolArgumentsAreFreeform(out, *block) {
 				if !json.Valid([]byte(block.ToolArguments)) {
 					return nil, contracts.TransformDiagnostic{}, pipelineError(CodeUnsupportedFeature, surfaceOf(req), fmt.Sprintf("messages[%d].content[%d].tool_arguments", mi, bi), "tool arguments are not valid JSON", nil)
 				}
@@ -204,10 +204,12 @@ func cloneNormalizedRequest(in *NormalizedRequest) *NormalizedRequest {
 		return nil
 	}
 	out := *in
+	out.Native = in.Native.Clone()
 	out.Messages = append([]NormalizedMessage(nil), in.Messages...)
 	for i := range out.Messages {
 		out.Messages[i].Content = append([]ContentBlock(nil), in.Messages[i].Content...)
 		for j := range out.Messages[i].Content {
+			out.Messages[i].Content[j] = cloneContentBlock(in.Messages[i].Content[j])
 			block := &out.Messages[i].Content[j]
 			block.Image = cloneImage(block.Image)
 			block.ReasoningSummary = cloneMapList(block.ReasoningSummary)
@@ -222,6 +224,11 @@ func cloneNormalizedRequest(in *NormalizedRequest) *NormalizedRequest {
 		out.Tools[i].NativeOptions = cloneMap(in.Tools[i].NativeOptions)
 		out.Tools[i].AllowedCallers = append([]string(nil), in.Tools[i].AllowedCallers...)
 		out.Tools[i].InputExamples = cloneMapList(in.Tools[i].InputExamples)
+		if in.Tools[i].Format != nil {
+			format := *in.Tools[i].Format
+			format.Schema = cloneRaw(in.Tools[i].Format.Schema)
+			out.Tools[i].Format = &format
+		}
 	}
 	if in.ToolChoice != nil {
 		tc := *in.ToolChoice
@@ -229,16 +236,45 @@ func cloneNormalizedRequest(in *NormalizedRequest) *NormalizedRequest {
 		out.ToolChoice = &tc
 	}
 	out.ResponseFormatSchema = cloneMap(in.ResponseFormatSchema)
+	if in.StructuredOutput != nil {
+		structured := *in.StructuredOutput
+		structured.Schema = cloneRaw(in.StructuredOutput.Schema)
+		out.StructuredOutput = &structured
+	}
 	out.Stop = append([]string(nil), in.Stop...)
 	out.Metadata = cloneMap(in.Metadata)
 	out.Include = append([]string(nil), in.Include...)
-	out.ContextManagement = cloneValue(in.ContextManagement)
+	if in.ContextManagement != nil {
+		contextManagement := *in.ContextManagement
+		contextManagement.Edits = append([]ContextManagementEdit(nil), in.ContextManagement.Edits...)
+		for i := range contextManagement.Edits {
+			contextManagement.Edits[i].Value = cloneRaw(in.ContextManagement.Edits[i].Value)
+		}
+		out.ContextManagement = &contextManagement
+	}
 	out.MCPServers = cloneMapList(in.MCPServers)
 	out.Images = append([]ImageReference(nil), in.Images...)
 	out.TrailingReasoningItems = cloneMapList(in.TrailingReasoningItems)
 	if in.ReasoningConfig != nil {
 		rc := *in.ReasoningConfig
 		out.ReasoningConfig = &rc
+	}
+	if in.Prediction != nil {
+		prediction := *in.Prediction
+		prediction.Content = cloneContentBlocks(in.Prediction.Content)
+		out.Prediction = &prediction
+	}
+	if in.Operation.Compaction != nil {
+		compaction, err := NewCompactionRequest(*in.Operation.Compaction)
+		if err == nil {
+			out.Operation.Compaction = compaction
+		}
+	}
+	if in.ToolLedger != nil {
+		ledger, err := NewToolOccurrenceLedger(in.ToolLedger.Occurrences())
+		if err == nil {
+			out.ToolLedger = ledger
+		}
 	}
 	return &out
 }

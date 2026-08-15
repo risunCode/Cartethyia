@@ -2,13 +2,16 @@ package adapters
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+
+	providerpkg "github.com/cartethyia/daemon/internal/providers"
+	"github.com/cartethyia/daemon/internal/proxy/control/cacheplan"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/transforms"
 )
 
 // openAISurfaces is the set of wire surfaces the native OpenAI adapter
@@ -36,6 +39,7 @@ func openAIDefaultCaps() ProviderCaps {
 		ToolCalls:      true,
 		ExplicitCache:  true,
 		PromptCacheKey: true,
+		Compatibility:  openAIPromptCompatibilityPolicy(),
 	}
 }
 
@@ -51,7 +55,12 @@ func openAITextCaps(reasoning, images bool) ProviderCaps {
 		Images:         images,
 		ExplicitCache:  true,
 		PromptCacheKey: true,
+		Compatibility:  openAIPromptCompatibilityPolicy(),
 	}
+}
+
+func openAIPromptCompatibilityPolicy() providerpkg.CompatibilityPolicy {
+	return providerpkg.CompatibilityPolicy{Generation: 1, Cache: providerpkg.CachePolicy{Prompt: providerpkg.PromptCachePolicy{Supported: true, Key: true, ExplicitBreakpoint: true, MinPrefixBytes: 4096, MarkerLocations: []string{"system"}}}}
 }
 
 // openAIDefaultModels mirrors OPENAI_DEFAULT_MODELS in src.old/providers/openai.ts.
@@ -114,6 +123,67 @@ type OpenAIAdapter struct {
 	catalog *staticCatalog
 	baseURL string
 	headers http.Header
+}
+
+const (
+	OpenAIErrorInvalidRequest        = "providers/openai.invalid_request"
+	OpenAIErrorTranslation           = "providers/openai.translation_failed"
+	OpenAIErrorCapabilityUnsupported = "providers/openai.capability_unsupported"
+	OpenAIErrorProviderMismatch      = "providers/openai.provider_mismatch"
+	OpenAIErrorProviderProtocol      = "providers/openai.provider_protocol"
+	OpenAIErrorCancelled             = "providers/openai.cancelled"
+)
+
+// OpenAIAdapterError is the stable, provider-owned machine-readable error.
+// Transform causes are bounded and contain field/code context only; request
+// bodies and credentials are never included.
+type OpenAIAdapterError struct {
+	Code       string
+	ProviderID string
+	Field      string
+	Message    string
+	Err        error
+}
+
+func (e *OpenAIAdapterError) Error() string {
+	if e == nil {
+		return OpenAIErrorProviderProtocol
+	}
+	detail := e.Message
+	if e.Field != "" {
+		if detail == "" {
+			detail = e.Field
+		} else {
+			detail = e.Field + ": " + detail
+		}
+	}
+	if e.Err != nil {
+		if detail == "" {
+			detail = e.Err.Error()
+		} else {
+			detail += ": " + e.Err.Error()
+		}
+	}
+	if detail == "" {
+		return e.Code
+	}
+	return e.Code + ": " + detail
+}
+
+func (e *OpenAIAdapterError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func (e *OpenAIAdapterError) Is(target error) bool {
+	other, ok := target.(*OpenAIAdapterError)
+	return ok && other != nil && e != nil && e.Code == other.Code
+}
+
+func openAIError(code, providerID, field, message string, cause error) error {
+	return &OpenAIAdapterError{Code: code, ProviderID: providerID, Field: field, Message: message, Err: cause}
 }
 
 // NewOpenAIAdapter returns an OpenAI Provider built from cfg.
@@ -248,6 +318,20 @@ func (p *OpenAIAdapter) AuthMaterial(credential string, target RouteTarget) (Aut
 // models) an explicit stable-prefix breakpoint when the prefix is large
 // enough for the upstream requirement.
 func (p *OpenAIAdapter) BuildRequest(envelope RequestEnvelope, credential string) (BuiltRequest, error) {
+	return p.BuildRequestContext(context.Background(), envelope, credential)
+}
+
+// BuildRequestContext preserves cancellation through canonical decoding and
+// encoding. Only the native openai provider projects Chat input onto the
+// Responses wire surface; OpenAI-compatible custom adapters retain their
+// declared payload behavior.
+func (p *OpenAIAdapter) BuildRequestContext(ctx context.Context, envelope RequestEnvelope, credential string) (BuiltRequest, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return BuiltRequest{}, openAIError(OpenAIErrorCancelled, p.meta.ID, "context", "operation cancelled", err)
+	}
 	auth, err := p.AuthMaterial(credential, envelope.Target)
 	if err != nil {
 		return BuiltRequest{}, err
@@ -285,227 +369,157 @@ func (p *OpenAIAdapter) BuildRequest(envelope RequestEnvelope, credential string
 		return BuiltRequest{Endpoint: ep, Body: body, Auth: auth, Stream: envelope.Stream}, nil
 	}
 	if len(bytes.TrimSpace(envelope.Body)) == 0 {
-		return BuiltRequest{}, errors.New("providers/openai: request body must be a JSON object")
+		return BuiltRequest{}, openAIError(OpenAIErrorInvalidRequest, p.meta.ID, "body", "request body must be a JSON object", nil)
 	}
-	payload := map[string]any{}
-	if err := json.Unmarshal(envelope.Body, &payload); err != nil || payload == nil {
-		if err == nil {
-			err = errors.New("body must be a JSON object")
+	if p.meta.ID != "openai" {
+		payload, err := decodeJSONObject(envelope.Body)
+		if err != nil {
+			return BuiltRequest{}, openAIError(OpenAIErrorInvalidRequest, p.meta.ID, "body", "request body must be a JSON object", err)
 		}
-		return BuiltRequest{}, fmt.Errorf("providers/openai: request body must be a JSON object: %w", err)
+		payload["model"] = upstream
+		policy := providerpkg.EffectiveCompatibilityPolicy(caps, entry)
+		if _, err := cacheplan.PlanFinalWire(&cacheplan.FinalWireRequest{
+			Protocol: cacheplan.ProtocolOpenAI, Surface: string(target.Surface), ProviderID: p.meta.ID,
+			ModelID: target.UpstreamModelID, TenantID: envelope.Headers.Get("X-Tenant-ID"),
+			PolicyGeneration: policy.Generation, Payload: payload,
+		}, policy); err != nil {
+			return BuiltRequest{}, err
+		}
+		body, err := json.Marshal(payload)
+		if err != nil {
+			return BuiltRequest{}, fmt.Errorf("providers/openai: marshal payload: %w", err)
+		}
+		return BuiltRequest{Endpoint: ep, Body: body, Auth: auth, Stream: envelope.Stream}, nil
 	}
-	payload["model"] = upstream
-	if p.meta.ID == "openai" && target.Surface != SurfaceImages {
-		translateChatMessagesToResponses(payload)
-		target.Surface = SurfaceOpenAIResponses
+
+	payload, err := openAICanonicalResponses(ctx, envelope.Body, envelope.Stream, upstream)
+	if err != nil {
+		return BuiltRequest{}, err
 	}
-	applyOpenAIPromptCache(payload, target, p.meta.ID, caps)
+	target.Surface = SurfaceOpenAIResponses
+	policy := providerpkg.EffectiveCompatibilityPolicy(caps, entry)
+	if _, err := cacheplan.PlanFinalWire(&cacheplan.FinalWireRequest{
+		Protocol: cacheplan.ProtocolOpenAI, Surface: string(target.Surface), ProviderID: p.meta.ID,
+		ModelID: target.UpstreamModelID, TenantID: envelope.Headers.Get("X-Tenant-ID"),
+		PolicyGeneration: policy.Generation, Payload: payload,
+	}, policy); err != nil {
+		return BuiltRequest{}, err
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return BuiltRequest{}, fmt.Errorf("providers/openai: marshal payload: %w", err)
 	}
-	return BuiltRequest{Endpoint: ep, Body: body, Auth: auth, Stream: envelope.Stream}, nil
+	return BuiltRequest{Endpoint: p.Endpoint(target), Body: body, Auth: auth, Stream: envelope.Stream}, nil
 }
 
-func translateChatMessagesToResponses(payload map[string]any) {
-	if _, exists := payload["input"]; exists {
-		delete(payload, "messages")
-		return
+// openAICanonicalResponses decodes either native Chat Completions or native
+// Responses input and projects both through the canonical Responses encoder.
+// Native Responses extensions are retained by the exact-pointer sidecar
+// rather than by recursively merging arbitrary JSON keys.
+func openAICanonicalResponses(ctx context.Context, body []byte, stream bool, upstream string) (map[string]any, error) {
+	root, err := decodeJSONObject(body)
+	if err != nil {
+		return nil, openAIError(OpenAIErrorInvalidRequest, "openai", "body", "request body must be a JSON object", err)
 	}
-	messages, ok := payload["messages"].([]any)
-	if !ok {
-		return
+	_, hasMessages := root["messages"]
+	_, hasInput := root["input"]
+	if hasMessages && hasInput {
+		return nil, openAIError(OpenAIErrorTranslation, "openai", "body", "request cannot contain both messages and input", nil)
 	}
-	input := make([]any, 0, len(messages))
-	for _, raw := range messages {
-		message, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		role, _ := message["role"].(string)
-		content := message["content"]
-		if role == "system" {
-			payload["instructions"] = content
-			continue
-		}
-		input = append(input, map[string]any{"role": role, "content": content})
+	source := contracts.ProtocolOpenAIResponse
+	decoder := transforms.NewOpenAIResponsesRequestDecoder()
+	if hasMessages {
+		source = contracts.ProtocolOpenAIChat
+		decoder = nil
 	}
-	delete(payload, "messages")
-	payload["input"] = input
-}
-
-const minimumExplicitCachePrefixBytes = 4096
-
-func applyOpenAIPromptCache(payload map[string]any, target RouteTarget, providerID string, caps ProviderCaps) {
-	if payload == nil || (!caps.PromptCacheKey && !caps.ExplicitCache) {
-		return
-	}
-	stable := openAIStablePrefix(payload, target.Surface)
-	sum := sha256.Sum256(stable)
-	if caps.PromptCacheKey {
-		if raw, ok := payload["prompt_cache_key"].(string); !ok || strings.TrimSpace(raw) == "" {
-			payload["prompt_cache_key"] = "cartethyia:" + providerID + ":" + target.UpstreamModelID + ":" + hex.EncodeToString(sum[:8])
+	canonicalBody := body
+	if _, hasModel := root["model"]; !hasModel {
+		root["model"] = upstream
+		canonicalBody, err = json.Marshal(root)
+		if err != nil {
+			return nil, openAIError(OpenAIErrorInvalidRequest, "openai", "body", "request body could not be prepared for canonical decoding", err)
 		}
 	}
-	if !caps.ExplicitCache || len(stable) < minimumExplicitCachePrefixBytes || !supportsOpenAIPromptBreakpoints(target.UpstreamModelID) {
-		return
+	var request *transforms.NormalizedRequest
+	var transformErr *transforms.TransformError
+	if source == contracts.ProtocolOpenAIChat {
+		request, transformErr = transforms.NewOpenAIChatRequestDecoder().Decode(ctx, canonicalBody, stream)
+	} else {
+		request, transformErr = decoder.Decode(ctx, canonicalBody, stream)
 	}
-	if target.Surface == SurfaceOpenAIResponses {
-		if markResponsesStablePrefix(payload) {
-			payload["prompt_cache_options"] = map[string]any{"mode": "explicit"}
+	if transformErr != nil {
+		return nil, openAITransformError(transformErr, "canonical decoding")
+	}
+	request.Model = upstream
+	encoded, transformErr := transforms.NewOpenAIResponsesCodec().Encode(ctx, request)
+	if transformErr != nil {
+		return nil, openAITransformError(transformErr, "Responses encoding")
+	}
+	wire := encoded.Wire
+	if source == contracts.ProtocolOpenAIChat {
+		promoteChatSystemInstructions(wire)
+	}
+	wire["model"] = upstream
+	wire["stream"] = stream
+	if source == contracts.ProtocolOpenAIResponse {
+		sidecar, sidecarErr := transforms.CaptureNativeSidecar(source, body, wire)
+		if sidecarErr != nil {
+			return nil, openAITransformError(sidecarErr, "native Responses preservation")
 		}
-		return
-	}
-	if target.Surface == SurfaceOpenAIChat {
-		if markChatStablePrefix(payload) {
-			payload["prompt_cache_options"] = map[string]any{"mode": "explicit"}
+		wire, sidecarErr = sidecar.ApplySameSurface(contracts.ProtocolOpenAIResponse, wire)
+		if sidecarErr != nil {
+			return nil, openAITransformError(sidecarErr, "native Responses preservation")
 		}
-	}
-}
-
-func supportsOpenAIPromptBreakpoints(model string) bool {
-	model = strings.ToLower(strings.TrimSpace(model))
-	if !strings.Contains(model, "gpt-5.6") {
-		return false
-	}
-	return true
-}
-
-func openAIStablePrefix(payload map[string]any, surface Surface) []byte {
-	stable := map[string]any{}
-	if tools, ok := payload["tools"]; ok {
-		stable["tools"] = tools
-	}
-	if surface == SurfaceOpenAIResponses {
-		if instructions, ok := payload["instructions"]; ok {
-			stable["instructions"] = instructions
-		}
-		if input, ok := payload["input"].([]any); ok {
-			prefix := make([]any, 0, len(input))
-			for _, item := range input {
-				record, ok := item.(map[string]any)
-				if !ok {
-					break
-				}
-				role, _ := record["role"].(string)
-				if role != "system" && role != "developer" {
-					break
-				}
-				prefix = append(prefix, record)
-			}
-			if len(prefix) > 0 {
-				stable["input"] = prefix
+		// These provider controls are valid Responses-root fields but are not
+		// represented in the shared canonical request yet. Preserve them only
+		// for same-surface native input; cross-surface Chat projection remains
+		// strictly owned by the canonical codec.
+		for _, key := range []string{"store", "service_tier"} {
+			if value, ok := root[key]; ok {
+				wire[key] = value
 			}
 		}
-	} else if messages, ok := payload["messages"].([]any); ok {
-		prefix := make([]any, 0, len(messages))
-		for _, item := range messages {
-			record, ok := item.(map[string]any)
-			if !ok {
-				break
-			}
-			role, _ := record["role"].(string)
-			if role != "system" && role != "developer" {
-				break
-			}
-			prefix = append(prefix, record)
-		}
-		if len(prefix) > 0 {
-			stable["messages"] = prefix
-		}
 	}
-	encoded, _ := json.Marshal(stable)
-	return encoded
+	return wire, nil
 }
 
-func markChatStablePrefix(payload map[string]any) bool {
-	messages, ok := payload["messages"].([]any)
+func promoteChatSystemInstructions(wire map[string]any) {
+	items, ok := wire["input"].([]map[string]any)
 	if !ok {
-		return false
+		return
 	}
-	last := -1
-	for i, raw := range messages {
-		record, ok := raw.(map[string]any)
-		if !ok {
-			break
-		}
-		role, _ := record["role"].(string)
-		if role != "system" && role != "developer" {
-			break
-		}
-		last = i
-	}
-	if last < 0 {
-		return false
-	}
-	record, ok := messages[last].(map[string]any)
-	if !ok {
-		return false
-	}
-	return markOpenAIContent(record, "text")
-}
-
-func markResponsesStablePrefix(payload map[string]any) bool {
-	input, ok := payload["input"].([]any)
-	if !ok {
-		return false
-	}
-	last := -1
-	for i, raw := range input {
-		record, ok := raw.(map[string]any)
-		if !ok {
-			break
-		}
-		role, _ := record["role"].(string)
-		if role != "system" && role != "developer" {
-			break
-		}
-		last = i
-	}
-	if last < 0 {
-		return false
-	}
-	record, ok := input[last].(map[string]any)
-	if !ok {
-		return false
-	}
-	return markOpenAIContent(record, "input_text")
-}
-
-func markOpenAIContent(record map[string]any, blockType string) bool {
-	switch content := record["content"].(type) {
-	case string:
-		record["content"] = []any{map[string]any{
-			"type":                    contentTypeForCache(blockType),
-			"text":                    content,
-			"prompt_cache_breakpoint": map[string]any{"mode": "explicit"},
-		}}
-		return content != ""
-	case []any:
-		for i := len(content) - 1; i >= 0; i-- {
-			block, ok := content[i].(map[string]any)
-			if !ok {
+	instructions := make([]string, 0, 1)
+	retained := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		if item["role"] == "system" {
+			if text, ok := item["content"].(string); ok && text != "" {
+				instructions = append(instructions, text)
 				continue
 			}
-			kind, _ := block["type"].(string)
-			if kind != blockType {
-				continue
-			}
-			block["prompt_cache_breakpoint"] = map[string]any{"mode": "explicit"}
-			return true
 		}
+		retained = append(retained, item)
 	}
-	return false
+	if len(instructions) == 0 {
+		return
+	}
+	wire["input"] = retained
+	wire["instructions"] = strings.Join(instructions, "\n")
 }
 
-func contentTypeForCache(blockType string) string {
-	if blockType == "input_text" {
-		return "input_text"
+func openAITransformError(transformErr *transforms.TransformError, operation string) error {
+	if transformErr == nil {
+		return openAIError(OpenAIErrorProviderProtocol, "openai", "body", operation+" failed", nil)
 	}
-	return "text"
+	code := OpenAIErrorInvalidRequest
+	if transformErr.Code == transforms.CodeUnsupportedFeature {
+		code = OpenAIErrorTranslation
+	} else if transformErr.Code == transforms.CodeContextCanceled {
+		code = OpenAIErrorCancelled
+	}
+	return openAIError(code, "openai", transformErr.Field, operation+" failed", transformErr)
 }
 
 // ClassifyResponse implements Provider.
-func (p *OpenAIAdapter) ClassifyResponse(statusCode int, body []byte) ClassifiedResponse {
-	return classifyByStatus(statusCode, body)
+func (p *OpenAIAdapter) ClassifyResponse(evidence ResponseEvidence) ClassifiedResponse {
+	return classifyByStatus(evidence)
 }

@@ -21,12 +21,15 @@ func TestRegistryRecordEventCountsLabels(t *testing.T) {
 	if err := reg.RecordEvent(ctx, ev); err != nil {
 		t.Fatalf("RecordEvent: %v", err)
 	}
-	labels := []Label{{Key: "provider", Value: "openai"}, {Key: "model", Value: "gpt-4o-mini"}, {Key: "surface", Value: "http"}, {Key: "stage", Value: string(StageRouteAttempt)}}
+	labels := []Label{{Key: "surface", Value: "http"}, {Key: "stage", Value: string(StageRouteAttempt)}}
 	if n := reg.EventCount(StageRouteAttempt, labels); n != 1 {
 		t.Errorf("EventCount: got %d want 1", n)
 	}
-	if n := reg.EventCount(StageRouteAttempt, []Label{{Key: "provider", Value: "anthropic"}, {Key: "model", Value: "x"}, {Key: "surface", Value: "http"}, {Key: "stage", Value: string(StageRouteAttempt)}}); n != 0 {
-		t.Errorf("EventCount for distinct series: got %d want 0", n)
+	if err := reg.RecordEvent(ctx, RequestEvent{Stage: StageRouteAttempt, Surface: SurfaceHTTP, Provider: "anthropic", Model: "other"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := reg.EventCount(StageRouteAttempt, labels); n != 2 {
+		t.Errorf("provider/model values split stable series: got %d want 2", n)
 	}
 }
 
@@ -77,7 +80,7 @@ func TestRegistryConcurrentRecordEvent(t *testing.T) {
 	ctx := context.Background()
 	var wg sync.WaitGroup
 	const n = 64
-	for i := 0; i < n; i++ {
+	for range n {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -85,7 +88,7 @@ func TestRegistryConcurrentRecordEvent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	labels := []Label{{Key: "provider", Value: "openai"}, {Key: "surface", Value: "http"}, {Key: "stage", Value: string(StageRouteAttempt)}}
+	labels := []Label{{Key: "surface", Value: "http"}, {Key: "stage", Value: string(StageRouteAttempt)}}
 	if got := reg.EventCount(StageRouteAttempt, labels); got != n {
 		t.Errorf("concurrent count: got %d want %d", got, n)
 	}

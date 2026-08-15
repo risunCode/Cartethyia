@@ -2,80 +2,8 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"testing"
-	"time"
 )
-
-func selectableCandidate(id string) AccountSelectionCandidate {
-	return AccountSelectionCandidate{
-		ID: id, Provider: "openai", Model: "gpt-5",
-		Enabled: true, Authorized: true, Compatible: true, QuotaAvailable: true,
-		Health: StateHealthy,
-	}
-}
-
-func TestSelectAccountCandidateDeterministicAcrossInputOrder(t *testing.T) {
-	in := AccountSelectionInput{Provider: "openai", Model: "gpt-5", Affinity: AffinityKey{Namespace: "api_key", Value: "k"}, Now: time.Unix(10, 0)}
-	a := selectableCandidate("a")
-	b := selectableCandidate("b")
-	first, _, err := SelectAccountCandidate(context.Background(), in, []AccountSelectionCandidate{b, a})
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, _, err := SelectAccountCandidate(context.Background(), in, []AccountSelectionCandidate{a, b})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.ID != second.ID {
-		t.Fatalf("selection changed with input order: %q vs %q", first.ID, second.ID)
-	}
-}
-
-func TestSelectAccountCandidateFiltersHealthQuotaLocksAndOperatorOverrides(t *testing.T) {
-	now := time.Unix(100, 0)
-	locked := selectableCandidate("locked")
-	locked.ModelLocks = map[string]time.Time{"gpt-5": now.Add(time.Minute)}
-	cooling := selectableCandidate("cooling")
-	cooling.CooldownUntil = now.Add(time.Minute)
-	quarantined := selectableCandidate("quarantined")
-	quarantined.Quarantined = true
-	healthy := selectableCandidate("healthy")
-	chosen, decision, err := SelectAccountCandidate(context.Background(), AccountSelectionInput{Provider: "openai", Model: "gpt-5", Now: now}, []AccountSelectionCandidate{locked, cooling, quarantined, healthy})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if chosen.ID != "healthy" || decision.CandidateID != "healthy" {
-		t.Fatalf("chosen=%q decision=%q", chosen.ID, decision.CandidateID)
-	}
-	if len(decision.ExcludedCandidateIDs) != 3 {
-		t.Fatalf("excluded=%v", decision.ExcludedCandidateIDs)
-	}
-}
-
-func TestRankAccountCandidatesBoundsFallbackAndErrors(t *testing.T) {
-	candidates := make([]AccountSelectionCandidate, 3)
-	for i := range candidates {
-		candidates[i] = selectableCandidate(string(rune('a' + i)))
-	}
-	ranked, _, err := RankAccountCandidates(context.Background(), AccountSelectionInput{Provider: "openai", MaxFallback: 2}, candidates)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ranked) != 2 {
-		t.Fatalf("ranked=%d, want 2", len(ranked))
-	}
-	_, _, err = RankAccountCandidates(context.Background(), AccountSelectionInput{Provider: "openai"}, []AccountSelectionCandidate{selectableCandidate("dup"), selectableCandidate("dup")})
-	if !errors.Is(err, ErrInvalidCandidate) {
-		t.Fatalf("duplicate error=%v", err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, _, err = RankAccountCandidates(ctx, AccountSelectionInput{}, candidates)
-	if !errors.Is(err, ErrSelectionCanceled) {
-		t.Fatalf("canceled error=%v", err)
-	}
-}
 
 func TestNetworkSelectionRetainsIdempotentProxyRelease(t *testing.T) {
 	selector := NewDefaultNetworkSelector()

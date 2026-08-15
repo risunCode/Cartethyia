@@ -34,7 +34,7 @@ func TestProviderFixtureMatrixClassifiesDeterministicFailures(t *testing.T) {
 		category ResponseCategory
 		retry    bool
 	}{
-		{name: "authentication", status: http.StatusUnauthorized, category: CategoryAuth},
+		{name: "authentication", status: http.StatusUnauthorized, category: CategoryAuth, retry: true},
 		{name: "rate-limit", status: http.StatusTooManyRequests, category: CategoryRateLimit, retry: true},
 		{name: "quota", status: http.StatusPaymentRequired, category: CategoryQuota},
 		{name: "context-overflow", status: 0, category: CategoryFatal},
@@ -51,7 +51,7 @@ func TestProviderFixtureMatrixClassifiesDeterministicFailures(t *testing.T) {
 					if tc.name == "context-overflow" {
 						body = []byte(`{"error":"context_overflow"}`)
 					}
-					classified := fixture.adapter.ClassifyResponse(tc.status, body)
+					classified := fixture.adapter.ClassifyResponse(NewResponseEvidence(tc.status, nil, body))
 					if classified.Category != tc.category || classified.Retryable != tc.retry {
 						t.Fatalf("status=%d category=%q retry=%v, want category=%q retry=%v", tc.status, classified.Category, classified.Retryable, tc.category, tc.retry)
 					}

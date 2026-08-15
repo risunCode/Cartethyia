@@ -1,0 +1,61 @@
+{
+  "id": "tool-result-image-association",
+  "content_generation": 1,
+  "request": {
+    "model": "gemini-2.5-pro",
+    "messages": [
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "inspect-1",
+            "name": "inspect",
+            "input": {}
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "inspect-1",
+            "content": [
+              {
+                "type": "image",
+                "source": {
+                  "type": "base64",
+                  "media_type": "image/png",
+                  "data": "aW1hZ2U="
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expected_semantic": {
+    "operation": { "kind": "generate" },
+    "messages": [
+      { "role": "user", "content": [{ "kind": "text", "text": "tool image" }] }
+    ],
+    "media": [
+      {
+        "modality": "image",
+        "reference_kind": "inline-data",
+        "mime_type": "image/png",
+        "reference_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "tool_occurrence": "inspect-1",
+        "size_bytes": 5
+      }
+    ],
+    "terminal": {
+      "status": "success",
+      "event": "completed",
+      "stop_reason": "stop",
+      "sequence": ["completed"]
+    }
+  }
+}

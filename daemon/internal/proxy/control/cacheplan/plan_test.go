@@ -4,12 +4,62 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	providerpkg "github.com/cartethyia/daemon/internal/providers"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/transforms"
 )
 
 func textBlock(text string) transforms.ContentBlock {
 	return transforms.ContentBlock{Type: transforms.BlockText, Text: text}
+}
+
+func finalWirePolicy(min int, ttl ...time.Duration) providerpkg.CompatibilityPolicy {
+	return providerpkg.CompatibilityPolicy{Generation: 7, Cache: providerpkg.CachePolicy{Prompt: providerpkg.PromptCachePolicy{Supported: true, Key: true, ExplicitBreakpoint: true, MinPrefixBytes: min, MarkerLocations: []string{"system", "tools", "message"}, TTLs: ttl}}}
+}
+
+func TestPlanFinalWireOpenAIIsScopedAndMarkerLast(t *testing.T) {
+	payload := map[string]any{"input": []any{
+		map[string]any{"role": "system", "content": []any{map[string]any{"type": "input_text", "text": strings.Repeat("stable ", 20)}}},
+		map[string]any{"role": "user", "content": "current"},
+	}}
+	first, err := PlanFinalWire(&FinalWireRequest{Protocol: ProtocolOpenAI, Surface: "openai-responses", ProviderID: "openai", ModelID: "gpt-test", TenantID: "tenant-a", PolicyGeneration: 7, Payload: payload}, finalWirePolicy(1))
+	if err != nil || !first.Eligible || first.CacheKey == "" {
+		t.Fatalf("intent=%#v err=%v", first, err)
+	}
+	input, _ := payload["input"].([]any)
+	system, _ := input[0].(map[string]any)
+	blocks, _ := system["content"].([]any)
+	if _, ok := blocks[0].(map[string]any)["prompt_cache_breakpoint"]; !ok {
+		t.Fatal("missing final OpenAI marker")
+	}
+	second := payload
+	secondIntent, err := PlanFinalWire(&FinalWireRequest{Protocol: ProtocolOpenAI, Surface: "openai-responses", ProviderID: "openai", ModelID: "gpt-test", TenantID: "tenant-b", PolicyGeneration: 7, Payload: second}, finalWirePolicy(1))
+	if err != nil || first.CacheKey == secondIntent.CacheKey {
+		t.Fatal("cross-tenant cache identity collision")
+	}
+}
+
+func TestPlanFinalWireAnthropicTTLAndVolatileBoundary(t *testing.T) {
+	payload := map[string]any{"system": []any{
+		map[string]any{"type": "text", "text": strings.Repeat("stable ", 20)},
+		map[string]any{"type": "text", "text": "volatile 2026-08-15T12:00:00"},
+	}, "messages": []any{map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": "turn"}}}},
+	}
+	intent, err := PlanFinalWire(&FinalWireRequest{Protocol: ProtocolAnthropic, Surface: "anthropic-messages", ProviderID: "anthropic", ModelID: "claude-test", TenantID: "tenant-a", PolicyGeneration: 7, Payload: payload}, finalWirePolicy(1, time.Hour))
+	if err != nil || !intent.Eligible || intent.TTL != "1h" {
+		t.Fatalf("intent=%#v err=%v", intent, err)
+	}
+	system, _ := payload["system"].([]any)
+	if _, ok := system[0].(map[string]any)["cache_control"]; !ok {
+		t.Fatal("marker was not placed before volatile boundary")
+	}
+	if _, ok := system[1].(map[string]any)["cache_control"]; ok {
+		t.Fatal("volatile block received cache marker")
+	}
+	if _, ok := payload["prompt_cache_key"]; ok {
+		t.Fatal("Anthropic wire received OpenAI cache key")
+	}
 }
 
 func TestPlanUsesWireProtocolAndStablePrefix(t *testing.T) {

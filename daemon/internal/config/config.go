@@ -15,10 +15,12 @@ const (
 	defaultListenAddress       = ":12800"
 	defaultEnvironment         = "development"
 	defaultRequestTimeout      = 2 * time.Minute
+	defaultReadHeaderTimeout   = 10 * time.Second
 	defaultConnectTimeout      = 10 * time.Second
 	defaultFirstByteTimeout    = 30 * time.Second
 	defaultIdleTimeout         = 60 * time.Second
 	defaultShutdownTimeout     = 10 * time.Second
+	defaultMaxHeaderBytes      = 1 << 20
 	defaultUsageRetention      = 30 * 24 * time.Hour
 	defaultMaxBodyBytes        = 16 * 1024 * 1024
 	defaultMaxOutputTokens     = 1 << 20
@@ -32,6 +34,8 @@ const (
 	maxConcurrent   = 100_000
 	maxBodyBytes    = 64 * 1024 * 1024
 	maxOutputTokens = 1 << 24
+	minHeaderBytes  = 64 * 1024
+	maxHeaderBytes  = 2 * 1024 * 1024
 )
 
 // Config is the validated process-level configuration.
@@ -43,12 +47,16 @@ type Config struct {
 	Environment          string
 
 	RequestTimeout      time.Duration
+	ReadHeaderTimeout   time.Duration
 	ConnectTimeout      time.Duration
 	FirstByteTimeout    time.Duration
 	IdleTimeout         time.Duration
+	StreamIdleTimeout   time.Duration
+	StreamTotalTimeout  time.Duration
 	ShutdownTimeout     time.Duration
 	UsageRetention      time.Duration
 	MaxBodyBytes        int
+	MaxHeaderBytes      int
 	MaxOutputTokens     int
 	MaxConcurrent       int
 	MaxConcurrentStream int
@@ -64,12 +72,16 @@ func FromEnvironment() (Config, error) {
 		AccountEncryptionKey: firstNonEmpty("CARTETHYIA_ACCOUNT_ENCRYPTION_KEY", "ACCOUNT_ENCRYPTION_KEY", ""),
 		Environment:          firstNonEmpty("CARTETHYIA_ENV", "NODE_ENV", defaultEnvironment),
 		RequestTimeout:       defaultRequestTimeout,
+		ReadHeaderTimeout:    defaultReadHeaderTimeout,
 		ConnectTimeout:       defaultConnectTimeout,
 		FirstByteTimeout:     defaultFirstByteTimeout,
 		IdleTimeout:          defaultIdleTimeout,
+		StreamIdleTimeout:    defaultIdleTimeout,
+		StreamTotalTimeout:   defaultRequestTimeout,
 		ShutdownTimeout:      defaultShutdownTimeout,
 		UsageRetention:       defaultUsageRetention,
 		MaxBodyBytes:         defaultMaxBodyBytes,
+		MaxHeaderBytes:       defaultMaxHeaderBytes,
 		MaxOutputTokens:      defaultMaxOutputTokens,
 		MaxConcurrent:        defaultMaxConcurrent,
 		MaxConcurrentStream:  defaultMaxConcurrentStream,
@@ -77,6 +89,13 @@ func FromEnvironment() (Config, error) {
 
 	var err error
 	if cfg.RequestTimeout, err = durationEnv("CARTETHYIA_REQUEST_TIMEOUT", cfg.RequestTimeout); err != nil {
+		return Config{}, err
+	}
+	readHeaderFallback := defaultReadHeaderTimeout
+	if readHeaderFallback > cfg.RequestTimeout {
+		readHeaderFallback = cfg.RequestTimeout
+	}
+	if cfg.ReadHeaderTimeout, err = durationEnv("CARTETHYIA_READ_HEADER_TIMEOUT", readHeaderFallback); err != nil {
 		return Config{}, err
 	}
 	if cfg.ConnectTimeout, err = durationEnv("CARTETHYIA_CONNECT_TIMEOUT", cfg.ConnectTimeout); err != nil {
@@ -88,6 +107,12 @@ func FromEnvironment() (Config, error) {
 	if cfg.IdleTimeout, err = durationEnv("CARTETHYIA_IDLE_TIMEOUT", cfg.IdleTimeout); err != nil {
 		return Config{}, err
 	}
+	if cfg.StreamIdleTimeout, err = durationEnv("CARTETHYIA_STREAM_IDLE_TIMEOUT", cfg.IdleTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.StreamTotalTimeout, err = durationEnv("CARTETHYIA_STREAM_TOTAL_TIMEOUT", cfg.RequestTimeout); err != nil {
+		return Config{}, err
+	}
 	if cfg.ShutdownTimeout, err = durationEnv("CARTETHYIA_SHUTDOWN_TIMEOUT", cfg.ShutdownTimeout); err != nil {
 		return Config{}, err
 	}
@@ -95,6 +120,9 @@ func FromEnvironment() (Config, error) {
 		return Config{}, err
 	}
 	if cfg.MaxBodyBytes, err = intEnv("CARTETHYIA_MAX_BODY_BYTES", cfg.MaxBodyBytes); err != nil {
+		return Config{}, err
+	}
+	if cfg.MaxHeaderBytes, err = intEnv("CARTETHYIA_MAX_HEADER_BYTES", cfg.MaxHeaderBytes); err != nil {
 		return Config{}, err
 	}
 	if cfg.MaxOutputTokens, err = intEnv("CARTETHYIA_MAX_OUTPUT_TOKENS", cfg.MaxOutputTokens); err != nil {
@@ -124,6 +152,12 @@ func (c Config) WithDefaults() Config {
 	if c.RequestTimeout == 0 {
 		c.RequestTimeout = defaultRequestTimeout
 	}
+	if c.ReadHeaderTimeout == 0 {
+		c.ReadHeaderTimeout = defaultReadHeaderTimeout
+		if c.ReadHeaderTimeout > c.RequestTimeout {
+			c.ReadHeaderTimeout = c.RequestTimeout
+		}
+	}
 	if c.ConnectTimeout == 0 {
 		c.ConnectTimeout = defaultConnectTimeout
 	}
@@ -133,6 +167,12 @@ func (c Config) WithDefaults() Config {
 	if c.IdleTimeout == 0 {
 		c.IdleTimeout = defaultIdleTimeout
 	}
+	if c.StreamIdleTimeout == 0 {
+		c.StreamIdleTimeout = c.IdleTimeout
+	}
+	if c.StreamTotalTimeout == 0 {
+		c.StreamTotalTimeout = c.RequestTimeout
+	}
 	if c.ShutdownTimeout == 0 {
 		c.ShutdownTimeout = defaultShutdownTimeout
 	}
@@ -141,6 +181,9 @@ func (c Config) WithDefaults() Config {
 	}
 	if c.MaxBodyBytes == 0 {
 		c.MaxBodyBytes = defaultMaxBodyBytes
+	}
+	if c.MaxHeaderBytes == 0 {
+		c.MaxHeaderBytes = defaultMaxHeaderBytes
 	}
 	if c.MaxOutputTokens == 0 {
 		c.MaxOutputTokens = defaultMaxOutputTokens
@@ -169,21 +212,30 @@ func (c Config) Validate() error {
 		return fmt.Errorf("redis configuration: %w", err)
 	}
 	for name, value := range map[string]time.Duration{
-		"request timeout":    c.RequestTimeout,
-		"connect timeout":    c.ConnectTimeout,
-		"first byte timeout": c.FirstByteTimeout,
-		"idle timeout":       c.IdleTimeout,
-		"shutdown timeout":   c.ShutdownTimeout,
+		"request timeout":      c.RequestTimeout,
+		"read header timeout":  c.ReadHeaderTimeout,
+		"connect timeout":      c.ConnectTimeout,
+		"first byte timeout":   c.FirstByteTimeout,
+		"idle timeout":         c.IdleTimeout,
+		"stream idle timeout":  c.StreamIdleTimeout,
+		"stream total timeout": c.StreamTotalTimeout,
+		"shutdown timeout":     c.ShutdownTimeout,
 	} {
 		if value <= 0 || value > maxDuration {
 			return fmt.Errorf("%s must be between 1ns and 24h", name)
 		}
+	}
+	if c.ReadHeaderTimeout > c.RequestTimeout {
+		return errors.New("read header timeout must not exceed request timeout")
 	}
 	if c.UsageRetention <= 0 || c.UsageRetention > maxRetention {
 		return errors.New("usage retention must be between 1ns and 365d")
 	}
 	if c.MaxBodyBytes <= 0 || c.MaxBodyBytes > maxBodyBytes {
 		return errors.New("max body bytes is outside the safe range")
+	}
+	if c.MaxHeaderBytes < minHeaderBytes || c.MaxHeaderBytes > maxHeaderBytes {
+		return errors.New("max header bytes is outside the safe range")
 	}
 	if c.MaxOutputTokens <= 0 || c.MaxOutputTokens > maxOutputTokens {
 		return errors.New("max output tokens is outside the safe range")

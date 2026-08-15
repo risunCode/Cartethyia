@@ -1,0 +1,14 @@
+{
+  "fixture_id": "task22-ohmypi-compaction-v1",
+  "source": "openai-responses",
+  "target": "openai-responses",
+  "operation": "compact",
+  "compaction_version": "v1",
+  "stream": false,
+  "model": "fixture-model",
+  "input": [
+    {"type":"message","role":"user","content":[{"type":"input_text","text":"history one"}]},
+    {"type":"message","role":"assistant","content":[{"type":"output_text","text":"history two"}]}
+  ],
+  "expectation": {"endpoint":"compact-v1","items":1,"terminal":"completed","timeout_ms":2000}
+}

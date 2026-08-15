@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
+	providerpkg "github.com/cartethyia/daemon/internal/providers"
+	"github.com/cartethyia/daemon/internal/proxy/control/cacheplan"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/transforms"
 )
 
@@ -117,6 +120,7 @@ func anthropicDefaultCaps() ProviderCaps {
 		Search:         true,
 		ExplicitCache:  true,
 		PromptCacheKey: true,
+		Compatibility:  providerpkg.CompatibilityPolicy{Generation: 1, Cache: providerpkg.CachePolicy{Prompt: providerpkg.PromptCachePolicy{Supported: true, Key: true, ExplicitBreakpoint: true, MinPrefixBytes: 1, MarkerLocations: []string{"system", "tools", "message"}, TTLs: []time.Duration{5 * time.Minute, time.Hour}}}},
 	}
 }
 
@@ -332,16 +336,21 @@ func (p *AnthropicAdapter) BuildRequestContext(ctx context.Context, envelope Req
 	wire := encoded.Wire
 	wire["model"] = target.UpstreamModelID
 	wire["stream"] = envelope.Stream
-	if p.modelCapabilities(entry).ExplicitCache {
-		// Anthropic automatic prompt caching moves the breakpoint to the
-		// last cacheable block. A short prompt remains valid and simply
-		// reports no cache read/write usage.
-		if _, exists := wire["cache_control"]; !exists {
-			wire["cache_control"] = map[string]any{"type": "ephemeral"}
-		}
-	}
 	if p.meta.ID == "claude" {
 		applyClaudeCodePolicy(wire, envelope)
+	}
+	caps := p.modelCapabilities(entry)
+	policy := providerpkg.EffectiveCompatibilityPolicy(caps, entry)
+	if _, err := cacheplan.PlanFinalWire(&cacheplan.FinalWireRequest{
+		Protocol:         cacheplan.ProtocolAnthropic,
+		Surface:          string(target.Surface),
+		ProviderID:       p.meta.ID,
+		ModelID:          target.UpstreamModelID,
+		TenantID:         envelope.Headers.Get("X-Tenant-ID"),
+		PolicyGeneration: policy.Generation,
+		Payload:          wire,
+	}, policy); err != nil {
+		return BuiltRequest{}, err
 	}
 	wireBody, err := json.Marshal(wire)
 	if err != nil {
@@ -444,20 +453,8 @@ func anthropicRequestBody(body []byte, model, providerID string) ([]byte, error)
 }
 
 // ClassifyResponse implements Provider.
-func (p *AnthropicAdapter) ClassifyResponse(statusCode int, body []byte) ClassifiedResponse {
-	classified := classifyByStatus(statusCode, nil)
-	if statusCode >= 200 && statusCode < 300 {
-		return classified
-	}
-	var root struct {
-		Error struct {
-			Type string `json:"type"`
-		} `json:"error"`
-	}
-	if json.Unmarshal(body, &root) == nil && root.Error.Type != "" {
-		classified.Message = "Anthropic " + root.Error.Type
-	}
-	return classified
+func (p *AnthropicAdapter) ClassifyResponse(evidence ResponseEvidence) ClassifiedResponse {
+	return classifyByStatus(evidence)
 }
 
 // DecodeResponse maps an Anthropic Messages response into canonical events,
