@@ -163,7 +163,7 @@ func (r *NormalizedRequest) Validate() error {
 	if err := boundedValue("cache_key", r.CacheKey, MaxModelLength, false); err != nil {
 		return err
 	}
-	for _, identity := range []struct{name, value string}{{"previous_response_id", r.PreviousResponseID}, {"conversation_id", r.ConversationID}, {"continuation_id", r.ContinuationID}} {
+	for _, identity := range []struct{ name, value string }{{"previous_response_id", r.PreviousResponseID}, {"conversation_id", r.ConversationID}, {"continuation_id", r.ContinuationID}} {
 		if err := boundedValue(identity.name, identity.value, MaxCanonicalIDLength, false); err != nil {
 			return err
 		}
@@ -290,17 +290,17 @@ func validateContentBlock(block ContentBlock, field string) error {
 	}
 	for name, index := range map[string]Optional[int]{"index": block.Index, "content_index": block.ContentIndex} {
 		if value, ok := index.Get(); ok && value < 0 {
-			return &protoErr{field: field+"."+name, reason: "index must be non-negative"}
+			return &protoErr{field: field + "." + name, reason: "index must be non-negative"}
 		}
 	}
 	if sequence, ok := block.SequenceNumber.Get(); ok && sequence < 0 {
-		return &protoErr{field: field+".sequence_number", reason: "sequence must be non-negative"}
+		return &protoErr{field: field + ".sequence_number", reason: "sequence must be non-negative"}
 	}
 	if err := boundedMapArray(field+".reasoning_summary", block.ReasoningSummary); err != nil {
 		return err
 	}
 	if len(block.ReasoningDetails) > MaxReasoningDetailCount {
-		return &protoErr{field: field+".reasoning_details", reason: "too many reasoning details"}
+		return &protoErr{field: field + ".reasoning_details", reason: "too many reasoning details"}
 	}
 	for i, detail := range block.ReasoningDetails {
 		prefix := fmt.Sprintf("%s.reasoning_details[%d]", field, i)
@@ -326,7 +326,7 @@ func validateContentBlock(block ContentBlock, field string) error {
 			return err
 		}
 		if index, ok := detail.Index.Get(); ok && index < 0 {
-			return &protoErr{field: prefix+".index", reason: "index must be non-negative"}
+			return &protoErr{field: prefix + ".index", reason: "index must be non-negative"}
 		}
 	}
 	if err := boundedMap(field+".native_payload", block.NativePayload); err != nil {
@@ -347,7 +347,7 @@ func validateContentBlock(block ContentBlock, field string) error {
 		}
 	}
 	if block.Type == BlockRefusal && block.Refusal == nil {
-		return &protoErr{field: field+".refusal", reason: "refusal block is missing typed refusal"}
+		return &protoErr{field: field + ".refusal", reason: "refusal block is missing typed refusal"}
 	}
 	if block.Citation != nil {
 		if err := validateCitation(*block.Citation, field+".citation"); err != nil {
@@ -370,35 +370,43 @@ func validateContentBlock(block ContentBlock, field string) error {
 			return err
 		}
 		if name == "audio" && media.Media != MediaAudio {
-			return &protoErr{field: field+".audio", reason: "media kind must be audio"}
+			return &protoErr{field: field + ".audio", reason: "media kind must be audio"}
 		}
 		if name == "document" && media.Media != MediaTextDocument && media.Media != MediaPDF {
-			return &protoErr{field: field+".document", reason: "media kind must be document or PDF"}
+			return &protoErr{field: field + ".document", reason: "media kind must be document or PDF"}
 		}
 		if name == "media" {
 			switch block.Type {
 			case BlockAudio:
-				if media.Media != MediaAudio { return &protoErr{field: field+".media", reason: "media kind must be audio"} }
+				if media.Media != MediaAudio {
+					return &protoErr{field: field + ".media", reason: "media kind must be audio"}
+				}
 			case BlockFile:
-				if media.Media != MediaGenericFile { return &protoErr{field: field+".media", reason: "media kind must be generic file"} }
+				if media.Media != MediaGenericFile {
+					return &protoErr{field: field + ".media", reason: "media kind must be generic file"}
+				}
 			case BlockDocument:
-				if media.Media != MediaTextDocument && media.Media != MediaPDF { return &protoErr{field: field+".media", reason: "media kind must be document or PDF"} }
+				if media.Media != MediaTextDocument && media.Media != MediaPDF {
+					return &protoErr{field: field + ".media", reason: "media kind must be document or PDF"}
+				}
 			case BlockPDF:
-				if media.Media != MediaPDF { return &protoErr{field: field+".media", reason: "media kind must be PDF"} }
+				if media.Media != MediaPDF {
+					return &protoErr{field: field + ".media", reason: "media kind must be PDF"}
+				}
 			}
 		}
 	}
 	if block.Type == BlockAudio && block.Audio == nil && block.Media == nil {
-		return &protoErr{field: field+".audio", reason: "audio block is missing audio"}
+		return &protoErr{field: field + ".audio", reason: "audio block is missing audio"}
 	}
 	if (block.Type == BlockFile || block.Type == BlockDocument || block.Type == BlockPDF) && block.File == nil && block.Document == nil && block.Media == nil {
-		return &protoErr{field: field+".file", reason: "file/document block is missing media"}
+		return &protoErr{field: field + ".file", reason: "file/document block is missing media"}
 	}
 	if block.Type == BlockMediaOutput && block.MediaOutput == nil && block.Media == nil {
-		return &protoErr{field: field+".media_output", reason: "media output block is missing media"}
+		return &protoErr{field: field + ".media_output", reason: "media output block is missing media"}
 	}
 	if len(block.ToolResultContent) > MaxBlocksPerMessage {
-		return &protoErr{field: field+".tool_result_content", reason: "too many result blocks"}
+		return &protoErr{field: field + ".tool_result_content", reason: "too many result blocks"}
 	}
 	for i, resultBlock := range block.ToolResultContent {
 		if err := validateContentBlock(resultBlock, fmt.Sprintf("%s.tool_result_content[%d]", field, i)); err != nil {
@@ -406,7 +414,7 @@ func validateContentBlock(block ContentBlock, field string) error {
 		}
 	}
 	if len(block.ToolResultMedia) > MaxBlocksPerMessage {
-		return &protoErr{field: field+".tool_result_media", reason: "too many result media references"}
+		return &protoErr{field: field + ".tool_result_media", reason: "too many result media references"}
 	}
 	for i, media := range block.ToolResultMedia {
 		if err := media.Validate(); err != nil {
@@ -415,13 +423,13 @@ func validateContentBlock(block ContentBlock, field string) error {
 		_ = i
 	}
 	if block.ServerTool != nil {
-		if err := block.ServerTool.Validate(field+".server_tool"); err != nil {
+		if err := block.ServerTool.Validate(field + ".server_tool"); err != nil {
 			return err
 		}
 	}
 	if block.Type == BlockServerToolUse || block.Type == BlockServerToolResult {
 		if block.ServerTool == nil {
-			return &protoErr{field: field+".server_tool", reason: "server tool block is missing typed payload"}
+			return &protoErr{field: field + ".server_tool", reason: "server tool block is missing typed payload"}
 		}
 	}
 	if block.Compaction != nil {
@@ -431,14 +439,14 @@ func validateContentBlock(block ContentBlock, field string) error {
 	}
 	if block.Type == BlockCompactionTrigger {
 		if block.Compaction == nil || block.Compaction.Kind != CompactionItemTrigger {
-			return &protoErr{field: field+".compaction", reason: "trigger block is missing trigger payload"}
+			return &protoErr{field: field + ".compaction", reason: "trigger block is missing trigger payload"}
 		}
 	}
 	if block.Type == BlockToolUse && block.ToolName == "" {
 		return &protoErr{field: field + ".tool_name", reason: "tool-use block requires a tool name"}
 	}
 	if !validToolKind(block.ToolKind, true) {
-		return &protoErr{field: field+".tool_kind", reason: "unsupported tool kind"}
+		return &protoErr{field: field + ".tool_kind", reason: "unsupported tool kind"}
 	}
 	if block.Type == BlockNative && block.NativeType == "" && len(block.NativePayload) == 0 {
 		return &protoErr{field: field + ".native", reason: "native block is missing payload"}
@@ -448,7 +456,7 @@ func validateContentBlock(block ContentBlock, field string) error {
 
 func validateNormalizedTool(tool Tool, field string) error {
 	if !validToolKind(tool.Kind, true) {
-		return &protoErr{field: field+".kind", reason: "unsupported tool kind"}
+		return &protoErr{field: field + ".kind", reason: "unsupported tool kind"}
 	}
 	requireName := tool.Kind == "" || tool.Kind == ToolKindFunction || tool.Kind == ToolKindCustom
 	if err := boundedValue(field+".name", tool.Name, MaxToolNameLength, requireName); err != nil {
@@ -506,10 +514,10 @@ func validateImageReference(image ImageReference, field string) error {
 		return err
 	}
 	if image.Detail != "" && image.Detail != ImageDetailAuto && image.Detail != ImageDetailLow && image.Detail != ImageDetailHigh && image.Detail != ImageDetailOriginal {
-		return &protoErr{field: field+".detail", reason: "unsupported image detail"}
+		return &protoErr{field: field + ".detail", reason: "unsupported image detail"}
 	}
 	if size, ok := image.SizeBytes.Get(); ok && (size < 0 || size > MaxUsageTokens) {
-		return &protoErr{field: field+".size_bytes", reason: "value out of range"}
+		return &protoErr{field: field + ".size_bytes", reason: "value out of range"}
 	}
 	return nil
 }
@@ -569,7 +577,7 @@ func validateCitation(c Citation, field string) error {
 	start, hasStart := c.StartIndex.Get()
 	end, hasEnd := c.EndIndex.Get()
 	if (hasStart && start < 0) || (hasEnd && end < 0) || (hasStart && hasEnd && end < start) {
-		return &protoErr{field: field+".index", reason: "invalid citation range"}
+		return &protoErr{field: field + ".index", reason: "invalid citation range"}
 	}
 	return nil
 }

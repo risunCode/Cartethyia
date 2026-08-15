@@ -214,16 +214,16 @@ func validBase64(value string) bool {
 type ToolKind string
 
 const (
-	ToolKindFunction ToolKind = "function"
-	ToolKindCustom   ToolKind = "custom"
-	ToolKindComputer ToolKind = "computer"
-	ToolKindHosted   ToolKind = "hosted"
-	ToolKindServer   ToolKind = "server"
-	ToolKindWebSearch ToolKind = "web_search"
-	ToolKindImage    ToolKind = "image"
-	ToolKindMCP      ToolKind = "mcp"
-	ToolKindNative   ToolKind = "native"
-	ToolKindWeb      ToolKind = ToolKindWebSearch
+	ToolKindFunction       ToolKind = "function"
+	ToolKindCustom         ToolKind = "custom"
+	ToolKindComputer       ToolKind = "computer"
+	ToolKindHosted         ToolKind = "hosted"
+	ToolKindServer         ToolKind = "server"
+	ToolKindWebSearch      ToolKind = "web_search"
+	ToolKindImage          ToolKind = "image"
+	ToolKindMCP            ToolKind = "mcp"
+	ToolKindNative         ToolKind = "native"
+	ToolKindWeb            ToolKind = ToolKindWebSearch
 	ToolKindProviderNative ToolKind = ToolKindNative
 )
 
@@ -249,9 +249,9 @@ func (s *ServerToolContent) Validate(field string) *TransformError {
 		return canonicalError(CodeInvalidCanonical, field+".kind", "server tool requires a hosted/server/native tool kind")
 	}
 	for _, fieldValue := range []struct {
-		name string
-		value string
-		max int
+		name     string
+		value    string
+		max      int
 		required bool
 	}{{"name", s.Name, MaxToolNameLength, false}, {"call_id", s.CallID, MaxCanonicalIDLength, false}, {"item_id", s.ItemID, MaxCanonicalIDLength, false}, {"arguments", s.Arguments, MaxToolArgumentBytes, false}, {"result", s.Result, MaxNativePayloadBytes, false}} {
 		if err := boundedValue(field+"."+fieldValue.name, fieldValue.value, fieldValue.max, fieldValue.required); err != nil {
@@ -273,9 +273,9 @@ func (s *ServerToolContent) Validate(field string) *TransformError {
 type ToolFormatKind string
 
 const (
-	ToolFormatJSON     ToolFormatKind = "json"
-	ToolFormatGrammar  ToolFormatKind = "grammar"
-	ToolFormatText     ToolFormatKind = "text"
+	ToolFormatJSON    ToolFormatKind = "json"
+	ToolFormatGrammar ToolFormatKind = "grammar"
+	ToolFormatText    ToolFormatKind = "text"
 )
 
 // ToolFormat is a bounded typed tool input/output format.
@@ -449,18 +449,18 @@ type ReasoningDetail struct {
 
 // InputUsageDetails and OutputUsageDetails retain optional provider dimensions.
 type InputUsageDetails struct {
-	CachedTokens        Optional[int64]
-	CacheWriteTokens    Optional[int64]
-	AudioTokens         Optional[int64]
-	ImageTokens         Optional[int64]
-	TextTokens          Optional[int64]
+	CachedTokens     Optional[int64]
+	CacheWriteTokens Optional[int64]
+	AudioTokens      Optional[int64]
+	ImageTokens      Optional[int64]
+	TextTokens       Optional[int64]
 }
 
 type OutputUsageDetails struct {
-	ReasoningTokens Optional[int64]
-	AudioTokens     Optional[int64]
-	ImageTokens     Optional[int64]
-	TextTokens      Optional[int64]
+	ReasoningTokens          Optional[int64]
+	AudioTokens              Optional[int64]
+	ImageTokens              Optional[int64]
+	TextTokens               Optional[int64]
 	AcceptedPredictionTokens Optional[int64]
 	RejectedPredictionTokens Optional[int64]
 }
@@ -683,17 +683,17 @@ const (
 
 // ToolOccurrence is the bounded identity mapping for one canonical tool call.
 type ToolOccurrence struct {
-	OccurrenceID uint32
-	SourceWireID string
-	TargetWireID string
-	ItemID       string
-	CallID       string
-	Kind         ToolKind
-	Name         string
-	State        ToolOccurrenceState
+	OccurrenceID  uint32
+	SourceWireID  string
+	TargetWireID  string
+	ItemID        string
+	CallID        string
+	Kind          ToolKind
+	Name          string
+	State         ToolOccurrenceState
 	ResultIsError bool
-	MessageIndex Optional[int]
-	BlockIndex   Optional[int]
+	MessageIndex  Optional[int]
+	BlockIndex    Optional[int]
 	ResponseIndex Optional[int]
 }
 
@@ -1102,7 +1102,10 @@ func (e NormalizedEvent) Validate(field string) *TransformError {
 	if sequence, ok := e.SequenceNumber.Get(); ok && sequence < 0 {
 		return canonicalError(CodeInvalidCanonical, field+".sequence_number", "sequence must be non-negative")
 	}
-	for _, fieldValue := range []struct{name, value string; max int}{
+	for _, fieldValue := range []struct {
+		name, value string
+		max         int
+	}{
 		{"text", e.Text, MaxTextBlockLength},
 		{"tool_arguments", e.ToolArguments, MaxToolArgumentBytes},
 		{"reasoning_text", e.ReasoningText, MaxTextBlockLength},
@@ -1162,7 +1165,7 @@ func (r *NormalizedResponse) Validate() *TransformError {
 		return canonicalError(CodeInvalidCanonical, "response", "response item count exceeds bound")
 	}
 	for i := range r.Events {
-		if err := r.Events[i].Validate("response.events["+itoa(i)+"]"); err != nil {
+		if err := r.Events[i].Validate("response.events[" + itoa(i) + "]"); err != nil {
 			return err
 		}
 	}

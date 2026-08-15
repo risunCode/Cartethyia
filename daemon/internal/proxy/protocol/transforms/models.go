@@ -131,24 +131,24 @@ type Tool struct {
 type ContentBlockType string
 
 const (
-	BlockText             ContentBlockType = "text"
-	BlockImage            ContentBlockType = "image"
-	BlockAudio            ContentBlockType = "audio"
-	BlockFile             ContentBlockType = "file"
-	BlockDocument         ContentBlockType = "document"
-	BlockPDF              ContentBlockType = "pdf"
-	BlockMediaOutput      ContentBlockType = "media_output"
-	BlockRefusal          ContentBlockType = "refusal"
-	BlockCitation         ContentBlockType = "citation"
-	BlockToolUse          ContentBlockType = "tool_use"
-	BlockToolResult       ContentBlockType = "tool_result"
-	BlockServerToolUse    ContentBlockType = "server_tool_use"
-	BlockServerToolResult ContentBlockType = "server_tool_result"
-	BlockReasoning        ContentBlockType = "reasoning"
-	BlockCompaction       ContentBlockType = "compaction"
+	BlockText              ContentBlockType = "text"
+	BlockImage             ContentBlockType = "image"
+	BlockAudio             ContentBlockType = "audio"
+	BlockFile              ContentBlockType = "file"
+	BlockDocument          ContentBlockType = "document"
+	BlockPDF               ContentBlockType = "pdf"
+	BlockMediaOutput       ContentBlockType = "media_output"
+	BlockRefusal           ContentBlockType = "refusal"
+	BlockCitation          ContentBlockType = "citation"
+	BlockToolUse           ContentBlockType = "tool_use"
+	BlockToolResult        ContentBlockType = "tool_result"
+	BlockServerToolUse     ContentBlockType = "server_tool_use"
+	BlockServerToolResult  ContentBlockType = "server_tool_result"
+	BlockReasoning         ContentBlockType = "reasoning"
+	BlockCompaction        ContentBlockType = "compaction"
 	BlockCompactionTrigger ContentBlockType = "compaction_trigger"
-	BlockNative           ContentBlockType = "native"
-	BlockUnknown          ContentBlockType = "unknown"
+	BlockNative            ContentBlockType = "native"
+	BlockUnknown           ContentBlockType = "unknown"
 )
 
 // ContentBlock is a single normalized piece of a message.
@@ -160,16 +160,16 @@ type ContentBlock struct {
 	CacheControl string // "", "ephemeral"
 
 	// Image blocks
-	Image *ImageReference
-	Media *MediaReference
-	Audio *AudioReference
-	File  *FileReference
-	Document *DocumentReference
+	Image       *ImageReference
+	Media       *MediaReference
+	Audio       *AudioReference
+	File        *FileReference
+	Document    *DocumentReference
 	MediaOutput *MediaReference
 
 	// Refusal and citation/annotation blocks.
-	Refusal    *RefusalContent
-	Citation   *Citation
+	Refusal     *RefusalContent
+	Citation    *Citation
 	Annotations []Annotation
 
 	// Tool-use blocks
@@ -282,14 +282,14 @@ type NormalizedRequest struct {
 type NormalizedEvent struct {
 	// Type identifies the semantic event. Encoders map it to wire-specific
 	// event names.
-	Type EventType
-	ResponseID string
-	ItemID string
-	ContentID string
-	CallID string
-	Status ItemStatus
-	Index Optional[int]
-	ContentIndex Optional[int]
+	Type           EventType
+	ResponseID     string
+	ItemID         string
+	ContentID      string
+	CallID         string
+	Status         ItemStatus
+	Index          Optional[int]
+	ContentIndex   Optional[int]
 	SequenceNumber Optional[int64]
 	// Text is the textual delta, if any.
 	Text string
@@ -302,11 +302,11 @@ type NormalizedEvent struct {
 	ReasoningText string
 	// ReasoningEncryptedContent carries an opaque reasoning artifact.
 	ReasoningEncryptedContent string
-	ReasoningSignature string
-	Refusal *RefusalContent
-	Annotations []Annotation
-	Media *MediaReference
-	Block *ContentBlock
+	ReasoningSignature        string
+	Refusal                   *RefusalContent
+	Annotations               []Annotation
+	Media                     *MediaReference
+	Block                     *ContentBlock
 	// Usage is set on the final usage event.
 	Usage *Usage
 	// StopReason is set on the final event of a non-streaming decode.
@@ -322,12 +322,12 @@ type Usage struct {
 	TotalTokens  int
 	// These aliases retain provider-reported dimensions that predate the
 	// nested details structs. A codec may populate either representation.
-	ReasoningTokens int
-	CacheReadTokens int
+	ReasoningTokens  int
+	CacheReadTokens  int
 	CacheWriteTokens int
 	// CacheRead / CacheWrite are optional Anthropic prompt-cache fields.
-	CacheRead  int
-	CacheWrite int
+	CacheRead     int
+	CacheWrite    int
 	InputDetails  InputUsageDetails
 	OutputDetails OutputUsageDetails
 }

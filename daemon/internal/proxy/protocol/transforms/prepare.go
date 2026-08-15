@@ -20,6 +20,21 @@ type PrepareResult struct {
 	Changed bool
 }
 
+// Request codecs contain no per-request state: Decode and Encode only read
+// their arguments and allocate result values. Keep one instance per surface so
+// normalization does not repeatedly allocate equivalent codec values; callers
+// that need a concrete constructor remain free to use the public constructors.
+var (
+	openAIChatRequestDecoder      RequestDecoder = NewOpenAIChatRequestDecoder()
+	openAIChatRequestEncoder      RequestEncoder = NewOpenAIChatCodec()
+	openAIResponsesRequestDecoder RequestDecoder = NewOpenAIResponsesRequestDecoder()
+	openAIResponsesRequestEncoder RequestEncoder = NewOpenAIResponsesCodec()
+	anthropicRequestDecoder       RequestDecoder = NewAnthropicMessagesRequestDecoder()
+	anthropicRequestEncoder       RequestEncoder = NewAnthropicMessagesCodec()
+	geminiRequestDecoder          RequestDecoder = NewGeminiRequestDecoder()
+	geminiRequestEncoder          RequestEncoder = NewGeminiCodec()
+)
+
 // NormalizeRequest decodes one supported client surface, runs the canonical
 // lossless pipeline, and re-encodes only when a stage changed semantics. The
 // default pipeline intentionally runs with LosslessOnly: lossy token saving is
@@ -44,12 +59,14 @@ func NormalizeRequest(ctx context.Context, protocol contracts.Protocol, body []b
 		}
 		return nil, newTransformError(CodeStageFailure, "pipeline", string(protocol), "pipeline", "canonical pipeline failed", err)
 	}
-	prepared := &PrepareResult{Request: result.Request, Report: result.Report, Body: append([]byte(nil), body...), Sidecar: NewNativeSidecar(protocol)}
+	prepared := &PrepareResult{Request: result.Request, Report: result.Report, Sidecar: NewNativeSidecar(protocol)}
 	prepared.Changed = !reflect.DeepEqual(request, result.Request)
 	if !prepared.Changed {
 		// Capture source-native fields even when canonical stages make no
 		// semantic change. The original bytes remain authoritative, while the
-		// exact-path sidecar is carried for a later target projection.
+		// exact-path sidecar is carried for a later target projection. Copy the
+		// caller's bytes because the prepared result owns Body after return.
+		prepared.Body = append([]byte(nil), body...)
 		encoded, encodeErr := encoder.Encode(ctx, result.Request)
 		if encodeErr != nil {
 			return nil, encodeErr
@@ -112,13 +129,13 @@ func EncodeNormalizedRequest(ctx context.Context, protocol contracts.Protocol, r
 func codecsFor(protocol contracts.Protocol) (RequestDecoder, RequestEncoder, bool) {
 	switch protocol {
 	case contracts.ProtocolOpenAIChat:
-		return NewOpenAIChatRequestDecoder(), NewOpenAIChatCodec(), true
+		return openAIChatRequestDecoder, openAIChatRequestEncoder, true
 	case contracts.ProtocolOpenAIResponse:
-		return NewOpenAIResponsesRequestDecoder(), NewOpenAIResponsesCodec(), true
+		return openAIResponsesRequestDecoder, openAIResponsesRequestEncoder, true
 	case contracts.ProtocolAnthropic:
-		return NewAnthropicMessagesRequestDecoder(), NewAnthropicMessagesCodec(), true
+		return anthropicRequestDecoder, anthropicRequestEncoder, true
 	case contracts.ProtocolGemini:
-		return NewGeminiRequestDecoder(), NewGeminiCodec(), true
+		return geminiRequestDecoder, geminiRequestEncoder, true
 	default:
 		return nil, nil, false
 	}

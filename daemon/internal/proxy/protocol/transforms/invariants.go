@@ -18,7 +18,7 @@ const (
 	ToolCallInvariantError    ToolCallInvariantPolicy = "error"
 	// ToolCallInvariantSalvage is opt-in and emits an explicit error result for
 	// interrupted calls. It never fabricates a successful empty result.
-	ToolCallInvariantSalvage  ToolCallInvariantPolicy = "salvage"
+	ToolCallInvariantSalvage ToolCallInvariantPolicy = "salvage"
 )
 
 // ToolCallInvariantReport is aggregate, bounded bookkeeping for one pass.
@@ -182,7 +182,9 @@ func buildToolOccurrenceLedger(messages []NormalizedMessage) *ToolOccurrenceLedg
 			if kind == "" && block.ServerTool != nil {
 				kind = block.ServerTool.Kind
 			}
-			if kind == "" { kind = ToolKindFunction }
+			if kind == "" {
+				kind = ToolKindFunction
+			}
 			callID := contentBlockCallID(block)
 			occurrenceID := uint32(len(occurrences) + 1)
 			occurrences = append(occurrences, ToolOccurrence{OccurrenceID: occurrenceID, SourceWireID: callID, TargetWireID: callID, ItemID: block.ToolItemID, CallID: callID, Kind: kind, Name: contentBlockToolName(block), State: ToolOccurrenceCalled, MessageIndex: Value(messageIndex), BlockIndex: Value(blockIndex)})
@@ -191,9 +193,13 @@ func buildToolOccurrenceLedger(messages []NormalizedMessage) *ToolOccurrenceLedg
 	}
 	for _, message := range messages {
 		for _, block := range message.Content {
-			if block.Type != BlockToolResult && block.Type != BlockServerToolResult { continue }
+			if block.Type != BlockToolResult && block.Type != BlockServerToolResult {
+				continue
+			}
 			indexes := byID[contentBlockCallID(block)]
-			if len(indexes) == 0 { continue }
+			if len(indexes) == 0 {
+				continue
+			}
 			index := indexes[0]
 			byID[contentBlockCallID(block)] = indexes[1:]
 			occurrences[index].State = ToolOccurrenceErrored
@@ -201,7 +207,9 @@ func buildToolOccurrenceLedger(messages []NormalizedMessage) *ToolOccurrenceLedg
 			if block.ServerTool != nil {
 				resultIsError = resultIsError || block.ServerTool.IsError
 			}
-			if !resultIsError { occurrences[index].State = ToolOccurrenceCompleted }
+			if !resultIsError {
+				occurrences[index].State = ToolOccurrenceCompleted
+			}
 			occurrences[index].ResultIsError = resultIsError
 		}
 	}
@@ -211,7 +219,9 @@ func buildToolOccurrenceLedger(messages []NormalizedMessage) *ToolOccurrenceLedg
 		}
 	}
 	ledger, err := NewToolOccurrenceLedger(occurrences)
-	if err != nil { return nil }
+	if err != nil {
+		return nil
+	}
 	return ledger
 }
 
@@ -417,7 +427,7 @@ func rebuildToolHistory(messages []NormalizedMessage, results map[string][]toolR
 		if message.Role == RoleAssistant {
 			kept := make([]ContentBlock, 0, len(message.Content))
 			type pairedCall struct {
-				call ContentBlock
+				call   ContentBlock
 				result toolResultRef
 			}
 			calls := make([]pairedCall, 0)

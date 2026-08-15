@@ -273,14 +273,13 @@ truthful `unavailable`; they do not fabricate empty success data.
 ## 5. Package ownership
 
 ```text
-daemon/internal/server/api/v1/       external client handlers
+daemon/internal/server/api/          external client handlers, wire helpers
+daemon/internal/server/apicontracts/ shared API contracts (cycle-breaker)
+daemon/internal/server/apierrors/    public error envelopes (cycle-breaker)
 daemon/internal/server/admin/        authenticated admin handlers
 daemon/internal/server/middleware/   IDs, identity, request boundaries
-daemon/internal/server/api/wire/     bounded JSON and stream writing
-daemon/internal/server/api/errors/   public error envelopes
 
-daemon/internal/proxy/proxy.go       narrow active import facade
- daemon/internal/proxy/runtime/      dispatch, route loop, pool, streams
+daemon/internal/proxy/runtime/       dispatch, route loop, pool, streams
  daemon/internal/proxy/runtime/catalog/  model/provider catalog projection
  daemon/internal/proxy/control/admission/ request admission
  daemon/internal/proxy/control/continuation/ continuation state
@@ -290,7 +289,7 @@ daemon/internal/proxy/proxy.go       narrow active import facade
  daemon/internal/proxy/transport/     provider network I/O
  daemon/internal/proxy/compression/   local RTK token-saver primitives
 
-daemon/internal/accounts/            account and credential lifecycle
+daemon/internal/accounts/            account/credential lifecycle, store, drivers
 daemon/internal/providers/            provider registry and capabilities
 daemon/internal/database/            PostgreSQL authority and repositories
 daemon/internal/runtime/cache/       L0 memory + optional L1 Redis cache
@@ -301,10 +300,10 @@ daemon/internal/runtime/             dependency composition and shutdown
 The dependency direction is deliberately one-way:
 
 ```text
-server handlers
+server handlers (api, admin)
     |
     v
-runtime/proxy
+proxy/runtime
     +--> control
     +--> protocol/contracts
     +--> protocol/transforms
@@ -314,6 +313,10 @@ runtime/proxy
     v
 providers / accounts / database / cache
 ```
+
+`server/middleware` and the lower-level `server/apicontracts` and
+`server/apierrors` packages sit beside `server/api`; middleware imports the
+cycle-breaker owners directly rather than through `server/api`.
 
 Protocol packages do not import runtime orchestration. Transport does not own
 routing policy. PostgreSQL owns durable authority; the cache package never

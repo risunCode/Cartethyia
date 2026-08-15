@@ -25,14 +25,6 @@ type KiroDriver struct {
 	*HTTPDriver
 }
 
-func NewKiroDriver(cfg Config) (*KiroDriver, error) {
-	base, err := New(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return &KiroDriver{HTTPDriver: base}, nil
-}
-
 func (d *KiroDriver) Start(ctx context.Context, input accounts.OAuthStartInput) (*accounts.OAuthStartResult, error) {
 	if d.cfg.KiroAWS && input.Flow == accounts.FlowDevice {
 		mode := strings.ToLower(strings.TrimSpace(input.AWSMode))

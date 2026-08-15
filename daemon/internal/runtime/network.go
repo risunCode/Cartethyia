@@ -13,7 +13,7 @@ import (
 	dbmodels "github.com/cartethyia/daemon/internal/database/models"
 	dbrepositories "github.com/cartethyia/daemon/internal/database/repositories"
 	"github.com/cartethyia/daemon/internal/observability"
-	"github.com/cartethyia/daemon/internal/proxy"
+	"github.com/cartethyia/daemon/internal/proxy/runtime"
 	"github.com/cartethyia/daemon/internal/proxy/transport"
 )
 

@@ -11,7 +11,7 @@ import (
 
 	appconfig "github.com/cartethyia/daemon/internal/config"
 	"github.com/cartethyia/daemon/internal/providers"
-	serverwire "github.com/cartethyia/daemon/internal/server/api/wire"
+	serverwire "github.com/cartethyia/daemon/internal/server/api"
 )
 
 // Config contains the values required to assemble the daemon runtime.

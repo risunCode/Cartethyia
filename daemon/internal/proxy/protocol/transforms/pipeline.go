@@ -86,6 +86,14 @@ type PipelineResult struct {
 	Report  contracts.TransformReport
 }
 
+// defaultPipeline is built once because its stages are value types with no
+// mutable state and Pipeline exposes no operation that mutates stages after
+// construction. Apply only reads the validated stage slice, so sharing this
+// instance avoids repeating constructor validation on every request.
+var (
+	defaultPipeline, defaultPipelineErr = buildDefaultPipeline()
+)
+
 // NewPipeline validates and copies an ordered stage list. Marker stages must
 // be the final stage; canonical named stages may not be reordered.
 func NewPipeline(stages ...Stage) (*Pipeline, error) {
@@ -277,8 +285,7 @@ func (s IdentityStage) Apply(_ context.Context, req *NormalizedRequest, _ LossPo
 	return req, contracts.TransformDiagnostic{Stage: s.Name(), Action: "preserve", Reason: "lossless identity"}, nil
 }
 
-// NewDefaultPipeline returns the canonical provider-neutral request pipeline.
-func NewDefaultPipeline() (*Pipeline, error) {
+func buildDefaultPipeline() (*Pipeline, error) {
 	return NewPipeline(
 		ProtocolValidationStage{},
 		LosslessNormalizationStage{},
@@ -290,6 +297,10 @@ func NewDefaultPipeline() (*Pipeline, error) {
 		CacheMarkerStage{},
 	)
 }
+
+// NewDefaultPipeline returns the canonical provider-neutral request pipeline.
+// The returned pipeline is immutable and safe for concurrent Apply calls.
+func NewDefaultPipeline() (*Pipeline, error) { return defaultPipeline, defaultPipelineErr }
 
 // NewProviderNeutralPipeline is an explicit alias for NewDefaultPipeline.
 func NewProviderNeutralPipeline() (*Pipeline, error) { return NewDefaultPipeline() }

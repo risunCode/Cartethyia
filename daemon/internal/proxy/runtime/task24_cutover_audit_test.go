@@ -81,6 +81,7 @@ func TestTask24CleanCutoverVerification(t *testing.T) {
 	}
 	daemonRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
 	forbiddenPaths := []string{
+		filepath.Join(daemonRoot, "internal", "proxy", "proxy.go"),
 		filepath.Join(daemonRoot, "internal", "proxy", "runtime", "openai_projection.go"),
 	}
 	for _, path := range forbiddenPaths {

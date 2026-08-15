@@ -57,10 +57,10 @@ type Combined struct {
 // Registry aggregates the codecs the runtime wants to expose. It does not
 // own any state beyond the registered implementations.
 type Registry struct {
-	requests          map[contracts.Protocol]RequestEncoder
-	decoders          map[contracts.Protocol]RequestDecoder
-	responseDecoders  map[contracts.Protocol]ResponseDecoder
-	responses         map[contracts.Protocol]ResponseEncoder
+	requests         map[contracts.Protocol]RequestEncoder
+	decoders         map[contracts.Protocol]RequestDecoder
+	responseDecoders map[contracts.Protocol]ResponseDecoder
+	responses        map[contracts.Protocol]ResponseEncoder
 }
 
 // NewRegistry constructs an empty registry.
@@ -83,13 +83,13 @@ func NewDefaultRegistry() *Registry {
 	}
 	for _, decoder := range []RequestDecoder{NewOpenAIChatRequestDecoder(), NewOpenAIResponsesRequestDecoder(), NewAnthropicMessagesRequestDecoder(), NewGeminiRequestDecoder()} {
 		r.RegisterDecoder(decoder)
-}
-for _, decoder := range []ResponseDecoder{NewOpenAIChatResponseDecoder(), NewOpenAIResponsesResponseDecoder(), NewAnthropicMessagesResponseDecoder(), NewGeminiResponseDecoder()} {
-	r.RegisterResponseDecoder(decoder)
-}
-for _, encoder := range []ResponseEncoder{NewOpenAIChatResponseEncoder(), NewOpenAIResponsesResponseEncoder(), NewAnthropicMessagesResponseEncoder(), NewGeminiResponseEncoder()} {
-	r.RegisterResponse(encoder)
-}
+	}
+	for _, decoder := range []ResponseDecoder{NewOpenAIChatResponseDecoder(), NewOpenAIResponsesResponseDecoder(), NewAnthropicMessagesResponseDecoder(), NewGeminiResponseDecoder()} {
+		r.RegisterResponseDecoder(decoder)
+	}
+	for _, encoder := range []ResponseEncoder{NewOpenAIChatResponseEncoder(), NewOpenAIResponsesResponseEncoder(), NewAnthropicMessagesResponseEncoder(), NewGeminiResponseEncoder()} {
+		r.RegisterResponse(encoder)
+	}
 	return r
 }
 
@@ -118,8 +118,12 @@ func (r *Registry) RegisterDecoder(d RequestDecoder) {
 
 // RegisterResponseDecoder installs a provider response decoder for a surface.
 func (r *Registry) RegisterResponseDecoder(d ResponseDecoder) {
-	if d == nil { return }
-	if _, exists := r.responseDecoders[d.Protocol()]; exists { return }
+	if d == nil {
+		return
+	}
+	if _, exists := r.responseDecoders[d.Protocol()]; exists {
+		return
+	}
 	r.responseDecoders[d.Protocol()] = d
 }
 

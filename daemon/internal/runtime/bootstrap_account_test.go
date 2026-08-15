@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/cartethyia/daemon/internal/accounts"
-	"github.com/cartethyia/daemon/internal/proxy"
+	"github.com/cartethyia/daemon/internal/proxy/runtime"
 )
 
 type joinedDirectoryStore struct {

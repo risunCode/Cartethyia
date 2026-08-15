@@ -13,10 +13,14 @@ import (
 type AnthropicMessagesResponseDecoder struct{}
 
 // NewAnthropicMessagesResponseDecoder constructs the decoder.
-func NewAnthropicMessagesResponseDecoder() *AnthropicMessagesResponseDecoder { return &AnthropicMessagesResponseDecoder{} }
+func NewAnthropicMessagesResponseDecoder() *AnthropicMessagesResponseDecoder {
+	return &AnthropicMessagesResponseDecoder{}
+}
 
 // Protocol reports the wire surface.
-func (d *AnthropicMessagesResponseDecoder) Protocol() contracts.Protocol { return contracts.ProtocolAnthropic }
+func (d *AnthropicMessagesResponseDecoder) Protocol() contracts.Protocol {
+	return contracts.ProtocolAnthropic
+}
 
 // Decode parses a non-stream Anthropic Messages body into a canonical
 // NormalizedResponse, preserving text, reasoning, tool calls, server

@@ -67,6 +67,23 @@ func TestRequestDecodersRoundTripSupportedSurfaces(t *testing.T) {
 	}
 }
 
+func TestNormalizeRequestChangedBodyOwnsMergedBytes(t *testing.T) {
+	body := []byte(`{"model":"fixture-model","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:IMAGE/PNG;base64,YQ=="}}]}]}`)
+	prepared, terr := NormalizeRequest(context.Background(), contracts.ProtocolOpenAIChat, body, false)
+	if terr != nil {
+		t.Fatal(terr)
+	}
+	if !prepared.Changed || len(prepared.Body) == 0 {
+		t.Fatalf("normalization did not exercise changed body path: changed=%v body=%d", prepared.Changed, len(prepared.Body))
+	}
+	want := append([]byte(nil), prepared.Body...)
+	body[0] = '!'
+	body[len(body)-1] = '!'
+	if string(prepared.Body) != string(want) {
+		t.Fatal("prepared body changed after caller buffer mutation")
+	}
+}
+
 func TestNormalizedRequestValidateRejectsSemanticBounds(t *testing.T) {
 	tooLong := strings.Repeat("x", MaxTextBlockLength+1)
 	req := &NormalizedRequest{

@@ -139,6 +139,85 @@ type Router struct {
 	quotaPersistenceFailures atomic.Uint64
 }
 
+// attemptState is the request-local authority for transitions that are
+// identical between Route and RouteStream. The shared contract is bounded
+// candidate exclusion/acquisition input, prepared member requests, quota
+// reservation numbering, attempt/account bookkeeping, failure preservation,
+// refresh accounting, availability hints, and retry ownership. It deliberately
+// owns bookkeeping only: stream preflight/acceptance, cancellation, terminal
+// event ownership, and finalization plus non-stream response acceptance remain
+// explicit in their respective loops.
+type attemptState struct {
+	attempted        []map[string]struct{}
+	memberRequests   []contracts.Request
+	refreshes        map[string]int
+	refreshBudget    int
+	bestFailure      *Failure
+	availability     Availability
+	memberIndex      int
+	attempts         int
+	firstAccountID   string
+	firstMemberIndex int
+	retrySame        *Account
+	repairRule       string
+}
+
+func newAttemptState(req contracts.Request, plan catalog.RoutePlan) *attemptState {
+	attempted, memberRequests := prepareMembers(req, plan)
+	return &attemptState{
+		attempted: attempted, memberRequests: memberRequests,
+		refreshes: make(map[string]int), firstMemberIndex: -1,
+	}
+}
+
+func (s *attemptState) markAttempted(memberIndex int, accountID string) {
+	if s == nil || memberIndex < 0 || memberIndex >= len(s.attempted) || accountID == "" {
+		return
+	}
+	s.attempted[memberIndex][accountID] = struct{}{}
+}
+
+func (s *attemptState) noteAvailability(availability Availability) {
+	if s == nil {
+		return
+	}
+	s.availability = earlierAvailability(s.availability, availability)
+}
+
+func (s *attemptState) startAttempt(accountID string, memberIndex int) int {
+	if s == nil {
+		return 0
+	}
+	s.attempts++
+	if s.firstAccountID == "" {
+		s.firstAccountID, s.firstMemberIndex = accountID, memberIndex
+	}
+	return s.attempts
+}
+
+func (s *attemptState) noteFailure(failure *Failure) {
+	if s == nil {
+		return
+	}
+	s.bestFailure = preserveActionableFailure(s.bestFailure, failure)
+}
+
+func (s *attemptState) refreshAllowed(accountID string, max int) bool {
+	return s != nil && s.refreshBudget < max && s.refreshes[accountID] == 0
+}
+
+func (s *attemptState) markRefresh(accountID string) {
+	if s == nil {
+		return
+	}
+	s.refreshes[accountID]++
+	s.refreshBudget++
+}
+
+func (s *attemptState) failover(accountID string, memberIndex int) bool {
+	return s != nil && s.attempts > 1 && (accountID != s.firstAccountID || memberIndex != s.firstMemberIndex)
+}
+
 func (r *Router) currentTime() time.Time {
 	if r == nil || r.now == nil {
 		return time.Now()
@@ -215,30 +294,20 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 	if err := validateRoutePlan(req, plan); err != nil {
 		return nil, nil, err
 	}
-	attempted, memberRequests := prepareMembers(req, plan)
-	refreshes := make(map[string]int)
-	refreshBudget := 0
+	state := newAttemptState(req, plan)
 	repairState := NewRepairState(req.Body, r.maxRepair, r.repairObserver)
-	var retrySame *Account
-	var bestFailure *Failure
-	var earliestAvailability Availability
-	memberIndex := 0
-	attempts := 0
 	hedges := 0
-	firstAccountID := ""
-	firstMemberIndex := -1
-	repairRule := ""
-	defer func() { r.observeRequestAttempts(attempts) }()
+	defer func() { r.observeRequestAttempts(state.attempts) }()
 
-	for attempts < r.max {
+	for state.attempts < r.max {
 		if err := ctx.Err(); err != nil {
 			return nil, Classify(ClassifyInput{Err: err}), nil
 		}
-		if memberIndex >= len(plan.Members) {
-			r.applyAvailabilityHint(bestFailure, earliestAvailability)
-			if attempts < r.max && r.waitForAvailability(ctx, earliestAvailability) {
-				memberIndex = 0
-				earliestAvailability = Availability{}
+		if state.memberIndex >= len(plan.Members) {
+			r.applyAvailabilityHint(state.bestFailure, state.availability)
+			if state.attempts < r.max && r.waitForAvailability(ctx, state.availability) {
+				state.memberIndex = 0
+				state.availability = Availability{}
 				continue
 			}
 			if ctxErr := ctx.Err(); ctxErr != nil {
@@ -246,13 +315,13 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 			}
 			break
 		}
-		member := plan.Members[memberIndex]
-		currentReq := memberRequests[memberIndex]
+		member := plan.Members[state.memberIndex]
+		currentReq := state.memberRequests[state.memberIndex]
 		var lease *AccountLease
-		if retrySame != nil {
+		if state.retrySame != nil {
 			var err error
-			lease, err = r.pool.AcquireAccount(ctx, member.ProviderID, retrySame.ID, member.UpstreamModelID)
-			retrySame = nil
+			lease, err = r.pool.AcquireAccount(ctx, member.ProviderID, state.retrySame.ID, member.UpstreamModelID)
+			state.retrySame = nil
 			if err != nil && !errors.Is(err, ErrNoAccount) {
 				if ctxErr := ctx.Err(); ctxErr != nil {
 					return nil, Classify(ClassifyInput{Err: ctxErr}), nil
@@ -263,15 +332,15 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 		if lease == nil {
 			var availability Availability
 			var err error
-			lease, availability, err = r.pool.AcquireCandidate(ctx, SelectionInput{ProviderID: member.ProviderID, ModelID: member.UpstreamModelID, Surface: member.Surface, PolicyGeneration: plan.PolicyGeneration, ExcludedAccountIDs: attempted[memberIndex]})
-			r.observeExclusions(req, plan, memberIndex, member, availability)
+			lease, availability, err = r.pool.AcquireCandidate(ctx, SelectionInput{ProviderID: member.ProviderID, ModelID: member.UpstreamModelID, Surface: member.Surface, PolicyGeneration: plan.PolicyGeneration, ExcludedAccountIDs: state.attempted[state.memberIndex]})
+			r.observeExclusions(req, plan, state.memberIndex, member, availability)
 			if err != nil {
 				if errors.Is(err, ErrNoAccount) {
-					earliestAvailability = earlierAvailability(earliestAvailability, availability)
+					state.noteAvailability(availability)
 					if ctxErr := ctx.Err(); ctxErr != nil {
 						return nil, Classify(ClassifyInput{Err: ctxErr}), nil
 					}
-					memberIndex++
+					state.memberIndex++
 					continue
 				}
 				if ctxErr := ctx.Err(); ctxErr != nil {
@@ -291,23 +360,23 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 			var prepareErr error
 			prepared, prepareErr = r.preparer.Prepare(ctx, acct, currentReq)
 			if prepareErr != nil {
-				r.observePreparationExclusion(plan, memberIndex, member)
+				r.observePreparationExclusion(plan, state.memberIndex, member)
 				lease.Release()
-				attempted[memberIndex][acct.ID] = struct{}{}
-				bestFailure = preserveActionableFailure(bestFailure, Classify(ClassifyInput{Err: errors.Join(ErrCandidatePreparation, prepareErr)}))
+				state.markAttempted(state.memberIndex, acct.ID)
+				state.noteFailure(Classify(ClassifyInput{Err: errors.Join(ErrCandidatePreparation, prepareErr)}))
 				continue
 			}
 			if prepared == nil {
-				r.observePreparationExclusion(plan, memberIndex, member)
+				r.observePreparationExclusion(plan, state.memberIndex, member)
 				lease.Release()
-				attempted[memberIndex][acct.ID] = struct{}{}
-				bestFailure = preserveActionableFailure(bestFailure, Classify(ClassifyInput{Err: ErrCandidatePreparation}))
+				state.markAttempted(state.memberIndex, acct.ID)
+				state.noteFailure(Classify(ClassifyInput{Err: ErrCandidatePreparation}))
 				continue
 			}
 			preparedReq = prepared.Request
 			r.pool.MarkReadiness(ReadinessRecord{AccountID: acct.ID, ProviderID: member.ProviderID, ModelID: member.UpstreamModelID, Surface: member.Surface, PolicyGeneration: plan.PolicyGeneration, Tier: ReadinessReady, CheckedAt: r.currentTime()})
 		}
-		nextAttempt := attempts + 1
+		nextAttempt := state.attempts + 1
 		reservation, reserveErr := r.reserveAttempt(ctx, preparedReq, nextAttempt)
 		if reserveErr != nil {
 			if prepared != nil {
@@ -316,23 +385,20 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 			lease.Release()
 			return nil, nil, reserveErr
 		}
-		attempts = nextAttempt
-		if firstAccountID == "" {
-			firstAccountID, firstMemberIndex = acct.ID, memberIndex
-		}
-		candidate := &hedgeCandidate{lease: lease, prepared: prepared, req: preparedReq, account: acct, member: member, memberIndex: memberIndex, reservation: reservation, attempt: attempts}
+		state.startAttempt(acct.ID, state.memberIndex)
+		candidate := &hedgeCandidate{lease: lease, prepared: prepared, req: preparedReq, account: acct, member: member, memberIndex: state.memberIndex, reservation: reservation, attempt: state.attempts}
 		var resp *contracts.Response
 		var callErr error
 		startedAt, endedAt := r.currentTime().UTC(), r.currentTime().UTC()
 		var network attemptNetworkSnapshot
-		if hedges < r.maxHedges && attempts == 1 && r.hedgeEligible(req, plan) {
-			outcome, hedged := r.executeHedge(ctx, transport, req, candidate, attempted, memberRequests, plan)
+		if hedges < r.maxHedges && state.attempts == 1 && r.hedgeEligible(req, plan) {
+			outcome, hedged := r.executeHedge(ctx, transport, req, candidate, state.attempted, state.memberRequests, plan)
 			if hedged {
 				hedges++
-				attempts++
+				state.attempts++
 			}
 			candidate = outcome.candidate
-			acct, member, memberIndex, preparedReq, reservation = candidate.account, candidate.member, candidate.memberIndex, candidate.req, candidate.reservation
+			acct, member, state.memberIndex, preparedReq, reservation = candidate.account, candidate.member, candidate.memberIndex, candidate.req, candidate.reservation
 			resp, callErr = outcome.resp, outcome.err
 			startedAt, endedAt, network = outcome.startedAt, outcome.endedAt, outcome.network
 		} else {
@@ -345,7 +411,7 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 			endedAt = r.currentTime().UTC()
 			network = attemptNetwork.snapshot()
 		}
-		evidence := r.attemptEvidence(req, plan, memberIndex, member, acct, network, attempts, repairRule, startedAt, endedAt)
+		evidence := r.attemptEvidence(req, plan, state.memberIndex, member, acct, network, state.attempts, state.repairRule, startedAt, endedAt)
 		if callErr == nil && resp == nil {
 			callErr = ErrNilAttemptResponse
 		}
@@ -353,7 +419,7 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 			attemptUsage := parseAttemptUsage(resp)
 			evidence.Result = observability.AttemptSucceeded
 			evidence.Usage = attemptTokenUsage(attemptUsage)
-			evidence.Failover = attempts > 1 && (acct.ID != firstAccountID || memberIndex != firstMemberIndex)
+			evidence.Failover = state.failover(acct.ID, state.memberIndex)
 			r.observeAttempt(evidence)
 			if reservation != nil {
 				if reconcileErr := reservation.Reconcile(ctx, attemptUsage); reconcileErr != nil {
@@ -362,29 +428,29 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 			}
 			return resp, nil, nil
 		}
-		attempted[memberIndex][acct.ID] = struct{}{}
+		state.markAttempted(state.memberIndex, acct.ID)
 		failure := r.classifyFailure(callErr, &acct)
 		r.releaseProvenUnaccepted(ctx, reservation, failure)
-		if attempts < r.max {
-			if repairedBody, repair, accepted := proposeCompatibilityRepair(transport, repairState, acct, currentReq, callErr, attempts); repair.RuleID != "" {
-				r.observeRepair(req, plan, memberIndex, attempts, repair, accepted)
+		if state.attempts < r.max {
+			if repairedBody, repair, accepted := proposeCompatibilityRepair(transport, repairState, acct, currentReq, callErr, state.attempts); repair.RuleID != "" {
+				r.observeRepair(req, plan, state.memberIndex, state.attempts, repair, accepted)
 				if accepted {
 					evidence.Result = observability.AttemptFailed
 					evidence.Code, evidence.Scope, evidence.Phase = failure.Code, string(failure.Scope), string(failure.Phase)
 					evidence.RetryAction = string(RetryRepairSameAccount)
 					evidence.RepairRule = repair.RuleID
 					r.observeAttempt(evidence)
-					memberRequests[memberIndex].Body = repairedBody
-					retrySame = &acct
-					repairRule = repair.RuleID
+					state.memberRequests[state.memberIndex].Body = repairedBody
+					state.retrySame = &acct
+					state.repairRule = repair.RuleID
 					continue
 				}
 			}
 		}
-		repairRule = ""
-		bestFailure = preserveActionableFailure(bestFailure, failure)
+		state.repairRule = ""
+		state.noteFailure(failure)
 		r.applyFailureForModel(failure, &acct, member.UpstreamModelID)
-		decision := r.decision(failure, refreshBudget < r.maxRefresh && refreshes[acct.ID] == 0, attempts)
+		decision := r.decision(failure, state.refreshAllowed(acct.ID, r.maxRefresh), state.attempts)
 		evidence.Result = observability.AttemptFailed
 		evidence.Code, evidence.Scope, evidence.Phase = failure.Code, string(failure.Scope), string(failure.Phase)
 		evidence.RetryAction = string(decision.Action)
@@ -394,32 +460,31 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 			return nil, failure, nil
 		}
 		if decision.Action == RetryRefreshSameAccount {
-			refreshes[acct.ID]++
-			refreshBudget++
+			state.markRefresh(acct.ID)
 			if err := r.tryRefresh(ctx, acct.ID); err == nil {
 				r.pool.Reset(acct.ID)
 				_ = r.pool.Refresh(ctx, member.ProviderID)
-				retrySame = &acct
+				state.retrySame = &acct
 				continue
 			} else {
 				refreshFailure := r.classifyFailure(err, &acct)
-				bestFailure = preserveActionableFailure(bestFailure, refreshFailure)
+				state.noteFailure(refreshFailure)
 				r.applyFailureForModel(refreshFailure, &acct, member.UpstreamModelID)
-				decision = r.decision(refreshFailure, false, attempts)
+				decision = r.decision(refreshFailure, false, state.attempts)
 			}
 		}
-		if attempts >= r.max {
+		if state.attempts >= r.max {
 			break
 		}
 		if decision.Action == RetryStop || !decision.AlternateAccount {
-			return nil, bestFailure, nil
+			return nil, state.bestFailure, nil
 		}
 	}
-	r.applyAvailabilityHint(bestFailure, earliestAvailability)
-	if bestFailure == nil {
+	r.applyAvailabilityHint(state.bestFailure, state.availability)
+	if state.bestFailure == nil {
 		return nil, nil, ErrNoAccount
 	}
-	return nil, bestFailure, nil
+	return nil, state.bestFailure, nil
 }
 
 func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req contracts.Request, plan catalog.RoutePlan) (*Stream, string, *Failure, error) {
@@ -432,28 +497,18 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 	if err := validateRoutePlan(req, plan); err != nil {
 		return nil, "", nil, err
 	}
-	attempted, memberRequests := prepareMembers(req, plan)
-	refreshes := make(map[string]int)
-	refreshBudget := 0
+	state := newAttemptState(req, plan)
 	repairState := NewRepairState(req.Body, r.maxRepair, r.repairObserver)
-	var retrySame *Account
-	var bestFailure *Failure
-	var earliestAvailability Availability
-	memberIndex := 0
-	attempts := 0
-	firstAccountID := ""
-	firstMemberIndex := -1
-	repairRule := ""
-	defer func() { r.observeRequestAttempts(attempts) }()
-	for attempts < r.max {
+	defer func() { r.observeRequestAttempts(state.attempts) }()
+	for state.attempts < r.max {
 		if err := ctx.Err(); err != nil {
 			return nil, "", Classify(ClassifyInput{Err: err}), nil
 		}
-		if memberIndex >= len(plan.Members) {
-			r.applyAvailabilityHint(bestFailure, earliestAvailability)
-			if attempts < r.max && r.waitForAvailability(ctx, earliestAvailability) {
-				memberIndex = 0
-				earliestAvailability = Availability{}
+		if state.memberIndex >= len(plan.Members) {
+			r.applyAvailabilityHint(state.bestFailure, state.availability)
+			if state.attempts < r.max && r.waitForAvailability(ctx, state.availability) {
+				state.memberIndex = 0
+				state.availability = Availability{}
 				continue
 			}
 			if ctxErr := ctx.Err(); ctxErr != nil {
@@ -461,13 +516,13 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 			}
 			break
 		}
-		member := plan.Members[memberIndex]
-		currentReq := memberRequests[memberIndex]
+		member := plan.Members[state.memberIndex]
+		currentReq := state.memberRequests[state.memberIndex]
 		var lease *AccountLease
-		if retrySame != nil {
+		if state.retrySame != nil {
 			var err error
-			lease, err = r.pool.AcquireAccount(ctx, member.ProviderID, retrySame.ID, member.UpstreamModelID)
-			retrySame = nil
+			lease, err = r.pool.AcquireAccount(ctx, member.ProviderID, state.retrySame.ID, member.UpstreamModelID)
+			state.retrySame = nil
 			if err != nil && !errors.Is(err, ErrNoAccount) {
 				if ctxErr := ctx.Err(); ctxErr != nil {
 					return nil, "", Classify(ClassifyInput{Err: ctxErr}), nil
@@ -478,15 +533,15 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 		if lease == nil {
 			var availability Availability
 			var err error
-			lease, availability, err = r.pool.AcquireCandidate(ctx, SelectionInput{ProviderID: member.ProviderID, ModelID: member.UpstreamModelID, Surface: member.Surface, PolicyGeneration: plan.PolicyGeneration, ExcludedAccountIDs: attempted[memberIndex]})
-			r.observeExclusions(req, plan, memberIndex, member, availability)
+			lease, availability, err = r.pool.AcquireCandidate(ctx, SelectionInput{ProviderID: member.ProviderID, ModelID: member.UpstreamModelID, Surface: member.Surface, PolicyGeneration: plan.PolicyGeneration, ExcludedAccountIDs: state.attempted[state.memberIndex]})
+			r.observeExclusions(req, plan, state.memberIndex, member, availability)
 			if err != nil {
 				if errors.Is(err, ErrNoAccount) {
-					earliestAvailability = earlierAvailability(earliestAvailability, availability)
+					state.noteAvailability(availability)
 					if ctxErr := ctx.Err(); ctxErr != nil {
 						return nil, "", Classify(ClassifyInput{Err: ctxErr}), nil
 					}
-					memberIndex++
+					state.memberIndex++
 					continue
 				}
 				if ctxErr := ctx.Err(); ctxErr != nil {
@@ -506,23 +561,23 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 			var prepareErr error
 			prepared, prepareErr = r.preparer.Prepare(ctx, acct, currentReq)
 			if prepareErr != nil {
-				r.observePreparationExclusion(plan, memberIndex, member)
+				r.observePreparationExclusion(plan, state.memberIndex, member)
 				lease.Release()
-				attempted[memberIndex][acct.ID] = struct{}{}
-				bestFailure = preserveActionableFailure(bestFailure, Classify(ClassifyInput{Err: errors.Join(ErrCandidatePreparation, prepareErr)}))
+				state.markAttempted(state.memberIndex, acct.ID)
+				state.noteFailure(Classify(ClassifyInput{Err: errors.Join(ErrCandidatePreparation, prepareErr)}))
 				continue
 			}
 			if prepared == nil {
-				r.observePreparationExclusion(plan, memberIndex, member)
+				r.observePreparationExclusion(plan, state.memberIndex, member)
 				lease.Release()
-				attempted[memberIndex][acct.ID] = struct{}{}
-				bestFailure = preserveActionableFailure(bestFailure, Classify(ClassifyInput{Err: ErrCandidatePreparation}))
+				state.markAttempted(state.memberIndex, acct.ID)
+				state.noteFailure(Classify(ClassifyInput{Err: ErrCandidatePreparation}))
 				continue
 			}
 			preparedReq = prepared.Request
 			r.pool.MarkReadiness(ReadinessRecord{AccountID: acct.ID, ProviderID: member.ProviderID, ModelID: member.UpstreamModelID, Surface: member.Surface, PolicyGeneration: plan.PolicyGeneration, Tier: ReadinessReady, CheckedAt: r.currentTime()})
 		}
-		nextAttempt := attempts + 1
+		nextAttempt := state.attempts + 1
 		reservation, reserveErr := r.reserveAttempt(ctx, preparedReq, nextAttempt)
 		if reserveErr != nil {
 			if prepared != nil {
@@ -531,15 +586,12 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 			lease.Release()
 			return nil, "", nil, reserveErr
 		}
-		attempts = nextAttempt
-		if firstAccountID == "" {
-			firstAccountID, firstMemberIndex = acct.ID, memberIndex
-		}
+		state.startAttempt(acct.ID, state.memberIndex)
 		startedAt := r.currentTime().UTC()
 		attemptCtx, network := withAttemptNetworkEvidence(ctx)
 		stream, callErr := callStreamAttempt(attemptCtx, transport, lease, preparedReq)
 		endedAt := r.currentTime().UTC()
-		evidence := r.attemptEvidence(req, plan, memberIndex, member, acct, network.snapshot(), attempts, repairRule, startedAt, endedAt)
+		evidence := r.attemptEvidence(req, plan, state.memberIndex, member, acct, network.snapshot(), state.attempts, state.repairRule, startedAt, endedAt)
 		if callErr == nil {
 			if prepared != nil {
 				stream.AttachPreparedAttempt(prepared)
@@ -556,10 +608,10 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 			}
 			if preflightErr != nil {
 				_ = stream.Close()
-				attempted[memberIndex][acct.ID] = struct{}{}
-				if attempts < r.max {
-					if repairedBody, repair, accepted := proposeCompatibilityRepair(transport, repairState, acct, currentReq, preflightErr, attempts); repair.RuleID != "" {
-						r.observeRepair(req, plan, memberIndex, attempts, repair, accepted)
+				state.markAttempted(state.memberIndex, acct.ID)
+				if state.attempts < r.max {
+					if repairedBody, repair, accepted := proposeCompatibilityRepair(transport, repairState, acct, currentReq, preflightErr, state.attempts); repair.RuleID != "" {
+						r.observeRepair(req, plan, state.memberIndex, state.attempts, repair, accepted)
 						if accepted {
 							failure := r.classifyFailure(preflightErr, &acct)
 							evidence.Result = observability.AttemptFailed
@@ -567,9 +619,9 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 							evidence.RetryAction = string(RetryRepairSameAccount)
 							evidence.RepairRule = repair.RuleID
 							r.observeAttempt(evidence)
-							memberRequests[memberIndex].Body = repairedBody
-							retrySame = &acct
-							repairRule = repair.RuleID
+							state.memberRequests[state.memberIndex].Body = repairedBody
+							state.retrySame = &acct
+							state.repairRule = repair.RuleID
 							continue
 						}
 					}
@@ -578,7 +630,7 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 			} else {
 				evidence.Result = observability.AttemptSucceeded
 				evidence.Usage = attemptTokenUsage(stream.UsageTokens())
-				evidence.Failover = attempts > 1 && (acct.ID != firstAccountID || memberIndex != firstMemberIndex)
+				evidence.Failover = state.failover(acct.ID, state.memberIndex)
 				r.observeAttempt(evidence)
 				stream.AttachFinalizationEvidence(r.observer, observability.StreamFinalizationEvidence{
 					RequestID: evidence.RequestID, CatalogGeneration: evidence.CatalogGeneration,
@@ -589,15 +641,15 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 				return stream, acct.ID, nil, nil
 			}
 		}
-		attempted[memberIndex][acct.ID] = struct{}{}
+		state.markAttempted(state.memberIndex, acct.ID)
 		failure := r.classifyFailure(callErr, &acct)
 		if stream == nil {
 			r.releaseProvenUnaccepted(ctx, reservation, failure)
 		}
-		bestFailure = preserveActionableFailure(bestFailure, failure)
+		state.noteFailure(failure)
 		r.applyFailureForModel(failure, &acct, member.UpstreamModelID)
-		decision := r.decision(failure, refreshBudget < r.maxRefresh && refreshes[acct.ID] == 0, attempts)
-		repairRule = ""
+		decision := r.decision(failure, state.refreshAllowed(acct.ID, r.maxRefresh), state.attempts)
+		state.repairRule = ""
 		evidence.Result = observability.AttemptFailed
 		evidence.Code, evidence.Scope, evidence.Phase = failure.Code, string(failure.Scope), string(failure.Phase)
 		evidence.RetryAction = string(decision.Action)
@@ -607,32 +659,31 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 			return nil, "", failure, nil
 		}
 		if decision.Action == RetryRefreshSameAccount {
-			refreshes[acct.ID]++
-			refreshBudget++
+			state.markRefresh(acct.ID)
 			if err := r.tryRefresh(ctx, acct.ID); err == nil {
 				r.pool.Reset(acct.ID)
 				_ = r.pool.Refresh(ctx, member.ProviderID)
-				retrySame = &acct
+				state.retrySame = &acct
 				continue
 			} else {
 				refreshFailure := r.classifyFailure(err, &acct)
-				bestFailure = preserveActionableFailure(bestFailure, refreshFailure)
+				state.noteFailure(refreshFailure)
 				r.applyFailureForModel(refreshFailure, &acct, member.UpstreamModelID)
-				decision = r.decision(refreshFailure, false, attempts)
+				decision = r.decision(refreshFailure, false, state.attempts)
 			}
 		}
-		if attempts >= r.max {
+		if state.attempts >= r.max {
 			break
 		}
 		if decision.Action == RetryStop || !decision.AlternateAccount {
-			return nil, "", bestFailure, nil
+			return nil, "", state.bestFailure, nil
 		}
 	}
-	r.applyAvailabilityHint(bestFailure, earliestAvailability)
-	if bestFailure == nil {
+	r.applyAvailabilityHint(state.bestFailure, state.availability)
+	if state.bestFailure == nil {
 		return nil, "", nil, ErrNoAccount
 	}
-	return nil, "", bestFailure, nil
+	return nil, "", state.bestFailure, nil
 }
 
 var ErrNilAttemptResponse = errors.New("proxy: transport returned nil response without error")

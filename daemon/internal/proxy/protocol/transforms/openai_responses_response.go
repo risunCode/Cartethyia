@@ -13,10 +13,14 @@ import (
 type OpenAIResponsesResponseDecoder struct{}
 
 // NewOpenAIResponsesResponseDecoder constructs the canonical decoder.
-func NewOpenAIResponsesResponseDecoder() *OpenAIResponsesResponseDecoder { return &OpenAIResponsesResponseDecoder{} }
+func NewOpenAIResponsesResponseDecoder() *OpenAIResponsesResponseDecoder {
+	return &OpenAIResponsesResponseDecoder{}
+}
 
 // Protocol reports the wire surface.
-func (d *OpenAIResponsesResponseDecoder) Protocol() contracts.Protocol { return contracts.ProtocolOpenAIResponse }
+func (d *OpenAIResponsesResponseDecoder) Protocol() contracts.Protocol {
+	return contracts.ProtocolOpenAIResponse
+}
 
 // Decode parses a non-stream Responses body into a canonical
 // NormalizedResponse. The decoder preserves IDs, indexes, output items,

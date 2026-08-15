@@ -6,7 +6,7 @@ import (
 
 	"github.com/cartethyia/daemon/internal/database/models"
 	dbrepositories "github.com/cartethyia/daemon/internal/database/repositories"
-	"github.com/cartethyia/daemon/internal/proxy"
+	"github.com/cartethyia/daemon/internal/proxy/runtime"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
 )
 

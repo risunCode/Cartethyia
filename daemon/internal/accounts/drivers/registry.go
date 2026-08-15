@@ -71,31 +71,6 @@ func (r *Registry) Has(id string) bool { _, ok := r.Get(id); return ok }
 func SupportedIDs() []string           { return append([]string(nil), supportedIDs...) }
 func NormalizeID(id string) string     { return normalizeID(id) }
 
-func NewAnthropic(cfg Config) (*HTTPDriver, error) {
-	return New(mergeConfig(defaultConfig(ProviderClaude), cfg))
-}
-func NewAntigravity(cfg Config) (*HTTPDriver, error) {
-	return New(mergeConfig(defaultConfig(ProviderAntigravity), cfg))
-}
-func NewCodex(cfg Config) (*HTTPDriver, error) {
-	return New(mergeConfig(defaultConfig(ProviderCodex), cfg))
-}
-func NewCline(cfg Config) (*HTTPDriver, error) {
-	return New(mergeConfig(defaultConfig(ProviderCline), cfg))
-}
-func NewClinePass(cfg Config) (*HTTPDriver, error) {
-	return New(mergeConfig(defaultConfig(ProviderClinePass), cfg))
-}
-func NewGrokBuild(cfg Config) (*HTTPDriver, error) {
-	return New(mergeConfig(defaultConfig(ProviderGrokBuild), cfg))
-}
-func NewKiro(cfg Config) (*KiroDriver, error) {
-	return NewKiroDriver(mergeConfig(defaultConfig(ProviderKiro), cfg))
-}
-func NewKimchi(cfg Config) (*HTTPDriver, error) {
-	return New(mergeConfig(defaultConfig(ProviderKimchi), cfg))
-}
-
 func defaultConfig(id string) Config {
 	base := Config{ProviderID: id, Kind: accounts.KindOAuth, ClientID: "cartethyia-public-client", RedirectURI: "http://127.0.0.1/callback", Scopes: []string{"openid", "profile", "email"}, Capabilities: accounts.Capabilities{Browser: true, Exchange: true, Refresh: true, Revoke: true}}
 	switch id {

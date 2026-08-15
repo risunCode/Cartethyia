@@ -55,7 +55,7 @@ func TestTask6ExplicitFreeformArgumentsRemainRaw(t *testing.T) {
 	}
 	request := &NormalizedRequest{
 		Model: "fixture", Source: contracts.ProtocolOpenAIChat,
-		Tools: []Tool{{Name: "custom", Kind: ToolKindCustom, Format: format}},
+		Tools:    []Tool{{Name: "custom", Kind: ToolKindCustom, Format: format}},
 		Messages: []NormalizedMessage{{Role: RoleAssistant, Content: []ContentBlock{{Type: BlockToolUse, ToolName: "custom", ToolKind: ToolKindCustom, ToolArguments: "not-json {raw}"}}}},
 	}
 	out, _, normalizeErr := NormalizeToolCallInvariants(request, ToolCallInvariantPreserve)

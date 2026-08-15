@@ -884,13 +884,34 @@ func (s *bridgeState) generic(ev StreamEvent) ([]byte, error) {
 
 func frameJSON(value any) []byte {
 	data, _ := json.Marshal(value)
-	return append([]byte("data: "), append(data, '\n', '\n')...)
+	frame := make([]byte, len("data: ")+len(data)+2)
+	n := copy(frame, "data: ")
+	n += copy(frame[n:], data)
+	frame[n] = '\n'
+	frame[n+1] = '\n'
+	return frame
 }
 func frameEvent(event string, value any) []byte {
-	data := frameJSON(value)
-	return append([]byte("event: "+event+"\n"), data...)
+	data, _ := json.Marshal(value)
+	frame := make([]byte, len("event: ")+len(event)+1+len("data: ")+len(data)+2)
+	n := copy(frame, "event: ")
+	n += copy(frame[n:], event)
+	frame[n] = '\n'
+	n++
+	n += copy(frame[n:], "data: ")
+	n += copy(frame[n:], data)
+	frame[n] = '\n'
+	frame[n+1] = '\n'
+	return frame
 }
-func frameString(value string) []byte { return []byte("data: " + value + "\n\n") }
+func frameString(value string) []byte {
+	frame := make([]byte, len("data: ")+len(value)+2)
+	n := copy(frame, "data: ")
+	n += copy(frame[n:], value)
+	frame[n] = '\n'
+	frame[n+1] = '\n'
+	return frame
+}
 func usageObject(usage *StreamUsage) map[string]any {
 	if usage == nil {
 		return map[string]any{"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}

@@ -26,8 +26,8 @@ func TestTask5MediaReferencesRetainTypedReferenceSemantics(t *testing.T) {
 func TestTask5CompactionOperationVersionAndResultBounds(t *testing.T) {
 	request, err := NewCompactionRequest(CompactionRequestInput{
 		Version: CompactionV2,
-		Model: "gpt-5",
-		Input: []CompactionItem{{Type: BlockCompactionTrigger, Compaction: &CompactionContent{Version: CompactionV2, Kind: CompactionItemTrigger}}},
+		Model:   "gpt-5",
+		Input:   []CompactionItem{{Type: BlockCompactionTrigger, Compaction: &CompactionContent{Version: CompactionV2, Kind: CompactionItemTrigger}}},
 	})
 	if err != nil {
 		t.Fatalf("NewCompactionRequest: %v", err)
@@ -55,7 +55,7 @@ func TestTask5ResponseValidationPreservesIDsAndUsage(t *testing.T) {
 	response := &NormalizedResponse{
 		ID: "resp_1", Model: "gpt-5", Status: ItemStatusCompleted,
 		Events: []NormalizedEvent{{Type: EventResponseCompleted, ResponseID: "resp_1", Status: ItemStatusCompleted}},
-		Usage: &Usage{InputTokens: 2, OutputTokens: 3, TotalTokens: 5, ReasoningTokens: 1, CacheReadTokens: 1},
+		Usage:  &Usage{InputTokens: 2, OutputTokens: 3, TotalTokens: 5, ReasoningTokens: 1, CacheReadTokens: 1},
 	}
 	if err := response.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)

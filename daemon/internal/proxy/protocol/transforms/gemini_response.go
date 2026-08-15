@@ -49,11 +49,11 @@ func (d *GeminiResponseDecoder) Decode(ctx context.Context, body []byte, model s
 	}
 	if usage, ok := root["usageMetadata"].(map[string]any); ok {
 		parsed := responseUsage(map[string]any{
-			"input_tokens":                usage["promptTokenCount"],
-			"output_tokens":               usage["candidatesTokenCount"],
-			"total_tokens":                usage["totalTokenCount"],
-			"cached_tokens":               usage["cachedContentTokenCount"],
-			"reasoning_tokens":            usage["thoughtsTokenCount"],
+			"input_tokens":     usage["promptTokenCount"],
+			"output_tokens":    usage["candidatesTokenCount"],
+			"total_tokens":     usage["totalTokenCount"],
+			"cached_tokens":    usage["cachedContentTokenCount"],
+			"reasoning_tokens": usage["thoughtsTokenCount"],
 		})
 		response.Usage = &parsed
 		emitUsage(response)

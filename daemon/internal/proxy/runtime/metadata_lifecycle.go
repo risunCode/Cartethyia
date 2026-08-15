@@ -70,6 +70,22 @@ func applyResponseMetadata(meta *observability.Metadata, body []byte) {
 	meta.CacheWriteTokens = tokens.CachedWrite
 }
 
+// completeMetadata applies the terminal outcome and timing fields shared by
+// buffered dispatch returns and stream finalization. It deliberately does not
+// enqueue metadata; the DispatchService lifecycle owner performs that
+// fail-open side effect after this pure state transition.
+func completeMetadata(meta *observability.Metadata, err error, clientCancelled bool, now time.Time) {
+	if meta == nil {
+		return
+	}
+	if err != nil {
+		meta.Outcome = metadataOutcome(err)
+		meta.Cancelled = clientCancelled || errors.Is(err, context.Canceled)
+	}
+	meta.EndedAt = now.UTC()
+	meta.LatencyMS = meta.EndedAt.Sub(meta.StartedAt).Milliseconds()
+}
+
 func metadataOutcome(err error) observability.Outcome {
 	if err == nil {
 		return observability.OutcomeSuccess

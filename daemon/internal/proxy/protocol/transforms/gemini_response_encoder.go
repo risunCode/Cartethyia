@@ -27,21 +27,21 @@ func (e *GeminiResponseEncoder) Encode(ctx context.Context, response *Normalized
 		return nil, terr
 	}
 	candidate := map[string]any{
-		"index":         0,
-		"content":       map[string]any{"role": "model", "parts": encodeGeminiResponseParts(response)},
-		"finishReason":  geminiFinishReason(response.StopReason, response.Status),
+		"index":        0,
+		"content":      map[string]any{"role": "model", "parts": encodeGeminiResponseParts(response)},
+		"finishReason": geminiFinishReason(response.StopReason, response.Status),
 	}
 	payload := map[string]any{
-		"candidates": []any{candidate},
+		"candidates":   []any{candidate},
 		"modelVersion": response.Model,
 	}
 	if response.Usage != nil {
 		payload["usageMetadata"] = map[string]any{
-			"promptTokenCount":     response.Usage.InputTokens,
-			"candidatesTokenCount": response.Usage.OutputTokens,
-			"totalTokenCount":      response.Usage.TotalTokens,
+			"promptTokenCount":        response.Usage.InputTokens,
+			"candidatesTokenCount":    response.Usage.OutputTokens,
+			"totalTokenCount":         response.Usage.TotalTokens,
 			"cachedContentTokenCount": response.Usage.CacheReadTokens,
-			"thoughtsTokenCount":   response.Usage.ReasoningTokens,
+			"thoughtsTokenCount":      response.Usage.ReasoningTokens,
 		}
 	}
 	return payload, nil

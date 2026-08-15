@@ -19,6 +19,42 @@ func BenchmarkTask22SourceDecode(b *testing.B) {
 	}
 }
 
+func BenchmarkTask22DecodeNormalizeEncode(b *testing.B) {
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		prepared, terr := NormalizeRequest(ctx, contracts.ProtocolOpenAIChat, task22BenchmarkRequestBody, false)
+		if terr != nil {
+			b.Fatal(terr)
+		}
+		if _, terr = EncodeNormalizedRequest(ctx, contracts.ProtocolOpenAIChat, prepared.Request, prepared.Body); terr != nil {
+			b.Fatal(terr)
+		}
+	}
+}
+
+func BenchmarkTask22ChangedRequestBodyOwnership(b *testing.B) {
+	ctx := context.Background()
+	body := []byte(`{"model":"fixture-model","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:IMAGE/PNG;base64,YQ=="}}]}]}`)
+	first, terr := NormalizeRequest(ctx, contracts.ProtocolOpenAIChat, body, false)
+	if terr != nil {
+		b.Fatal(terr)
+	}
+	if !first.Changed || len(first.Body) == 0 {
+		b.Fatalf("fixture did not exercise changed body path: changed=%v body=%d", first.Changed, len(first.Body))
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		prepared, terr := NormalizeRequest(ctx, contracts.ProtocolOpenAIChat, body, false)
+		if terr != nil {
+			b.Fatal(terr)
+		}
+		if !prepared.Changed || len(prepared.Body) == 0 {
+			b.Fatalf("changed body path lost ownership: changed=%v body=%d", prepared.Changed, len(prepared.Body))
+		}
+	}
+}
+
 func BenchmarkTask22TargetPlanAndProject(b *testing.B) {
 	request, err := NewOpenAIChatRequestDecoder().Decode(context.Background(), task22BenchmarkRequestBody, false)
 	if err != nil {

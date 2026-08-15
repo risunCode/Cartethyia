@@ -24,7 +24,7 @@ import (
 	"github.com/cartethyia/daemon/internal/proxy/protocol/transforms"
 	"github.com/cartethyia/daemon/internal/proxy/runtime/catalog"
 	runtimecache "github.com/cartethyia/daemon/internal/runtime/cache"
-	apicontracts "github.com/cartethyia/daemon/internal/server/api/contracts"
+	apicontracts "github.com/cartethyia/daemon/internal/server/apicontracts"
 )
 
 // DispatchService owns request-level validation, admission, continuation
@@ -164,12 +164,10 @@ func (s *DispatchService) DispatchContext(ctx context.Context, req *contracts.Re
 		}
 		if panicValue != nil {
 			meta.Outcome = observability.OutcomeError
-		} else if retErr != nil {
-			meta.Outcome = metadataOutcome(retErr)
-			meta.Cancelled = errors.Is(retErr, context.Canceled)
+			completeMetadata(&meta, nil, false, time.Now())
+		} else {
+			completeMetadata(&meta, retErr, false, time.Now())
 		}
-		meta.EndedAt = time.Now().UTC()
-		meta.LatencyMS = meta.EndedAt.Sub(meta.StartedAt).Milliseconds()
 		s.enqueueMetadata(meta)
 		if panicValue != nil {
 			panic(panicValue)
@@ -272,12 +270,7 @@ func (s *DispatchService) DispatchContext(ctx context.Context, req *contracts.Re
 		return nil, dispatchError(codeDispatchTranslation, contracts.ErrorTranslation, http.StatusBadGateway, "provider response could not be translated", projectionErr)
 	}
 	applyResponseMetadata(&meta, response.Body)
-	if err := s.recordUsage(*req, response); err != nil {
-		s.recordSideEffectFailure()
-	}
-	if err := s.recordContinuation(ctx, *req, response.Body); err != nil {
-		s.recordSideEffectFailure()
-	}
+	s.recordDispatchSideEffects(ctx, *req, parseUsage(response.Body), responseContinuationID(response.Body))
 	return &bufferResponse{status: response.StatusCode, contentType: response.Headers.Get("Content-Type"), headers: response.Headers, body: response.Body}, nil
 }
 
@@ -774,6 +767,24 @@ func (s *DispatchService) enqueueMetadata(meta observability.Metadata) {
 	}
 }
 
+// recordDispatchSideEffects owns the fail-open usage and continuation writes
+// shared by buffered responses and stream terminal finalization. DispatchService
+// remains the lifecycle owner; this seam only prevents the two boundaries from
+// drifting in their side-effect/error-accounting behavior.
+func (s *DispatchService) recordDispatchSideEffects(ctx context.Context, req contracts.Request, tokens usage.Tokens, responseID string) {
+	s.recordFailOpen(func() error { return s.recordUsageTokens(req, tokens) })
+	s.recordFailOpen(func() error { return s.recordContinuationID(ctx, req, responseID) })
+}
+
+func (s *DispatchService) recordFailOpen(effect func() error) {
+	if effect == nil {
+		return
+	}
+	if err := effect(); err != nil {
+		s.recordSideEffectFailure()
+	}
+}
+
 func (s *DispatchService) finalizeStream(ctx context.Context, req contracts.Request, stream *Stream, meta *observability.Metadata, streamErr error) {
 	if stream == nil || meta == nil {
 		return
@@ -783,25 +794,13 @@ func (s *DispatchService) finalizeStream(ctx context.Context, req contracts.Requ
 	meta.OutputTokens = tokens.Output
 	meta.CachedTokens = tokens.CachedRead
 	meta.CacheWriteTokens = tokens.CachedWrite
-	if err := s.recordUsageTokens(req, tokens); err != nil {
-		s.recordSideEffectFailure()
-	}
-	if responseID := stream.ResponseID(); streamErr == nil && responseID != "" {
-		if err := s.recordContinuationID(ctx, req, responseID); err != nil {
-			s.recordSideEffectFailure()
-		}
-	}
+	responseID := stream.ResponseID()
 	if streamErr != nil {
-		meta.Outcome = metadataOutcome(streamErr)
-		meta.Cancelled = errors.Is(streamErr, context.Canceled) || errors.Is(streamErr, ErrClientDisconnect)
+		responseID = ""
 	}
-	meta.EndedAt = time.Now().UTC()
-	meta.LatencyMS = meta.EndedAt.Sub(meta.StartedAt).Milliseconds()
+	s.recordDispatchSideEffects(ctx, req, tokens, responseID)
+	completeMetadata(meta, streamErr, errors.Is(streamErr, ErrClientDisconnect), time.Now())
 	s.enqueueMetadata(*meta)
-}
-
-func (s *DispatchService) recordUsage(req contracts.Request, response *contracts.Response) error {
-	return s.recordUsageTokens(req, parseUsage(response.Body))
 }
 
 func (s *DispatchService) recordUsageTokens(req contracts.Request, tokens usage.Tokens) error {
@@ -892,17 +891,14 @@ func (s *DispatchService) validateContinuation(ctx context.Context, req contract
 	return nil
 }
 
-func (s *DispatchService) recordContinuation(ctx context.Context, req contracts.Request, body []byte) error {
-	if req.Protocol != contracts.ProtocolOpenAIResponse || s.Continuations == nil {
-		return nil
-	}
+func responseContinuationID(body []byte) string {
 	var payload struct {
 		ID string `json:"id"`
 	}
-	if json.Unmarshal(body, &payload) != nil || payload.ID == "" {
-		return nil
+	if json.Unmarshal(body, &payload) != nil {
+		return ""
 	}
-	return s.recordContinuationID(ctx, req, payload.ID)
+	return payload.ID
 }
 
 func (s *DispatchService) recordContinuationID(ctx context.Context, req contracts.Request, responseID string) error {

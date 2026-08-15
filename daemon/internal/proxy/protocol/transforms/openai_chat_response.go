@@ -17,7 +17,9 @@ type OpenAIChatResponseDecoder struct{}
 func NewOpenAIChatResponseDecoder() *OpenAIChatResponseDecoder { return &OpenAIChatResponseDecoder{} }
 
 // Protocol reports the wire surface.
-func (d *OpenAIChatResponseDecoder) Protocol() contracts.Protocol { return contracts.ProtocolOpenAIChat }
+func (d *OpenAIChatResponseDecoder) Protocol() contracts.Protocol {
+	return contracts.ProtocolOpenAIChat
+}
 
 // Decode parses a non-streaming Chat Completions body into a canonical
 // NormalizedResponse.

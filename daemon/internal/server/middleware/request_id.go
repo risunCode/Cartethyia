@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 
-	apicontracts "github.com/cartethyia/daemon/internal/server/api/contracts"
+	apicontracts "github.com/cartethyia/daemon/internal/server/apicontracts"
 )
 
 // HeaderRequestID is the canonical header used to propagate a request

@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/cartethyia/daemon/internal/proxy/control/tokenbudget"
-	apierrors "github.com/cartethyia/daemon/internal/server/api/errors"
+	apierrors "github.com/cartethyia/daemon/internal/server/apierrors"
 )
 
 const maxPublicAuthBodyBytes = 10 * 1024 * 1024

@@ -11,48 +11,48 @@ import (
 type TransformErrorCode string
 
 const (
-	CodeInvalidRequest     TransformErrorCode = "transforms.invalid_request"
-	CodeUnsupportedFeature TransformErrorCode = "transforms.unsupported_feature"
-	CodeLossyPolicy        TransformErrorCode = "transforms.lossy_policy"
-	CodePipelineOrder      TransformErrorCode = "transforms.pipeline_order"
-	CodeMarkerLast         TransformErrorCode = "transforms.marker_last"
-	CodeInvalidStage       TransformErrorCode = "transforms.invalid_stage"
-	CodeInvalidDiagnostic  TransformErrorCode = "transforms.invalid_diagnostic"
-	CodeStageFailure       TransformErrorCode = "transforms.stage_failure"
-	CodeContextCanceled    TransformErrorCode = "transforms.context_canceled"
-	CodeNativeSidecar      TransformErrorCode = "transforms.native_sidecar"
-	CodeNativeSidecarLimit TransformErrorCode = "transforms.native_sidecar_limit"
-	CodeNativeSidecarPath  TransformErrorCode = "transforms.native_sidecar_path"
-	CodeNativeSidecarDuplicate TransformErrorCode = "transforms.native_sidecar_duplicate"
-	CodeNativeSidecarUnconsumed TransformErrorCode = "transforms.native_sidecar_unconsumed"
-	CodeInvalidCanonical   TransformErrorCode = "transforms.invalid_canonical"
-	CodeInvalidMediaReference TransformErrorCode = "transforms.invalid_media_reference"
-	CodeInvalidCompaction  TransformErrorCode = "transforms.invalid_compaction"
-	CodeInvalidToolLedger  TransformErrorCode = "transforms.invalid_tool_ledger"
+	CodeInvalidRequest           TransformErrorCode = "transforms.invalid_request"
+	CodeUnsupportedFeature       TransformErrorCode = "transforms.unsupported_feature"
+	CodeLossyPolicy              TransformErrorCode = "transforms.lossy_policy"
+	CodePipelineOrder            TransformErrorCode = "transforms.pipeline_order"
+	CodeMarkerLast               TransformErrorCode = "transforms.marker_last"
+	CodeInvalidStage             TransformErrorCode = "transforms.invalid_stage"
+	CodeInvalidDiagnostic        TransformErrorCode = "transforms.invalid_diagnostic"
+	CodeStageFailure             TransformErrorCode = "transforms.stage_failure"
+	CodeContextCanceled          TransformErrorCode = "transforms.context_canceled"
+	CodeNativeSidecar            TransformErrorCode = "transforms.native_sidecar"
+	CodeNativeSidecarLimit       TransformErrorCode = "transforms.native_sidecar_limit"
+	CodeNativeSidecarPath        TransformErrorCode = "transforms.native_sidecar_path"
+	CodeNativeSidecarDuplicate   TransformErrorCode = "transforms.native_sidecar_duplicate"
+	CodeNativeSidecarUnconsumed  TransformErrorCode = "transforms.native_sidecar_unconsumed"
+	CodeInvalidCanonical         TransformErrorCode = "transforms.invalid_canonical"
+	CodeInvalidMediaReference    TransformErrorCode = "transforms.invalid_media_reference"
+	CodeInvalidCompaction        TransformErrorCode = "transforms.invalid_compaction"
+	CodeInvalidToolLedger        TransformErrorCode = "transforms.invalid_tool_ledger"
 	CodeInvalidContextManagement TransformErrorCode = "transforms.invalid_context_management"
 )
 
 // Sentinel errors support errors.Is without requiring callers to compare
 // concrete error values. TransformError.Is compares the stable code.
 var (
-	ErrInvalidRequest     = &TransformError{Code: CodeInvalidRequest}
-	ErrUnsupportedFeature = &TransformError{Code: CodeUnsupportedFeature}
-	ErrLossyPolicy        = &TransformError{Code: CodeLossyPolicy}
-	ErrPipelineOrder      = &TransformError{Code: CodePipelineOrder}
-	ErrMarkerLast         = &TransformError{Code: CodeMarkerLast}
-	ErrInvalidStage       = &TransformError{Code: CodeInvalidStage}
-	ErrInvalidDiagnostic  = &TransformError{Code: CodeInvalidDiagnostic}
-	ErrStageFailure       = &TransformError{Code: CodeStageFailure}
-	ErrContextCanceled    = &TransformError{Code: CodeContextCanceled}
-	ErrNativeSidecar      = &TransformError{Code: CodeNativeSidecar}
-	ErrNativeSidecarLimit = &TransformError{Code: CodeNativeSidecarLimit}
-	ErrNativeSidecarPath  = &TransformError{Code: CodeNativeSidecarPath}
-	ErrNativeSidecarDuplicate = &TransformError{Code: CodeNativeSidecarDuplicate}
-	ErrNativeSidecarUnconsumed = &TransformError{Code: CodeNativeSidecarUnconsumed}
-	ErrInvalidCanonical   = &TransformError{Code: CodeInvalidCanonical}
-	ErrInvalidMediaReference = &TransformError{Code: CodeInvalidMediaReference}
-	ErrInvalidCompaction  = &TransformError{Code: CodeInvalidCompaction}
-	ErrInvalidToolLedger  = &TransformError{Code: CodeInvalidToolLedger}
+	ErrInvalidRequest           = &TransformError{Code: CodeInvalidRequest}
+	ErrUnsupportedFeature       = &TransformError{Code: CodeUnsupportedFeature}
+	ErrLossyPolicy              = &TransformError{Code: CodeLossyPolicy}
+	ErrPipelineOrder            = &TransformError{Code: CodePipelineOrder}
+	ErrMarkerLast               = &TransformError{Code: CodeMarkerLast}
+	ErrInvalidStage             = &TransformError{Code: CodeInvalidStage}
+	ErrInvalidDiagnostic        = &TransformError{Code: CodeInvalidDiagnostic}
+	ErrStageFailure             = &TransformError{Code: CodeStageFailure}
+	ErrContextCanceled          = &TransformError{Code: CodeContextCanceled}
+	ErrNativeSidecar            = &TransformError{Code: CodeNativeSidecar}
+	ErrNativeSidecarLimit       = &TransformError{Code: CodeNativeSidecarLimit}
+	ErrNativeSidecarPath        = &TransformError{Code: CodeNativeSidecarPath}
+	ErrNativeSidecarDuplicate   = &TransformError{Code: CodeNativeSidecarDuplicate}
+	ErrNativeSidecarUnconsumed  = &TransformError{Code: CodeNativeSidecarUnconsumed}
+	ErrInvalidCanonical         = &TransformError{Code: CodeInvalidCanonical}
+	ErrInvalidMediaReference    = &TransformError{Code: CodeInvalidMediaReference}
+	ErrInvalidCompaction        = &TransformError{Code: CodeInvalidCompaction}
+	ErrInvalidToolLedger        = &TransformError{Code: CodeInvalidToolLedger}
 	ErrInvalidContextManagement = &TransformError{Code: CodeInvalidContextManagement}
 )
 

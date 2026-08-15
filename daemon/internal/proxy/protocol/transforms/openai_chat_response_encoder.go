@@ -16,7 +16,9 @@ type OpenAIChatResponseEncoder struct{}
 func NewOpenAIChatResponseEncoder() *OpenAIChatResponseEncoder { return &OpenAIChatResponseEncoder{} }
 
 // Protocol reports the wire surface.
-func (e *OpenAIChatResponseEncoder) Protocol() contracts.Protocol { return contracts.ProtocolOpenAIChat }
+func (e *OpenAIChatResponseEncoder) Protocol() contracts.Protocol {
+	return contracts.ProtocolOpenAIChat
+}
 
 // Encode renders a non-stream Chat Completions body from a canonical
 // NormalizedResponse, preserving text, reasoning, refusal, tool calls,

@@ -13,20 +13,20 @@ import (
 	"github.com/cartethyia/daemon/internal/observability"
 	"github.com/cartethyia/daemon/internal/providers"
 	providerbuiltin "github.com/cartethyia/daemon/internal/providers/builtin"
-	"github.com/cartethyia/daemon/internal/proxy"
 	"github.com/cartethyia/daemon/internal/proxy/control/admission"
 	"github.com/cartethyia/daemon/internal/proxy/control/continuation"
 	"github.com/cartethyia/daemon/internal/proxy/control/tokenbudget"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/transforms"
+	"github.com/cartethyia/daemon/internal/proxy/runtime"
 	runtimecatalog "github.com/cartethyia/daemon/internal/proxy/runtime/catalog"
 	"github.com/cartethyia/daemon/internal/proxy/transport"
 	"github.com/cartethyia/daemon/internal/runtime/cache"
 	"github.com/cartethyia/daemon/internal/security/outbound"
 	"github.com/cartethyia/daemon/internal/server"
 	adminserver "github.com/cartethyia/daemon/internal/server/admin"
-	apicontracts "github.com/cartethyia/daemon/internal/server/api/contracts"
-	"github.com/cartethyia/daemon/internal/server/api/v1"
+	api "github.com/cartethyia/daemon/internal/server/api"
+	apicontracts "github.com/cartethyia/daemon/internal/server/apicontracts"
 	servermiddleware "github.com/cartethyia/daemon/internal/server/middleware"
 	"net/http"
 	"strings"
@@ -741,7 +741,7 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 		Registry:      metrics,
 		HealthArtwork: artwork,
 		V1: registrarFunc(func(mux *http.ServeMux) {
-			v1.RegisterV1(mux, v1.Deps{Proxy: dispatch, Catalog: publicCatalog, Evidence: metrics})
+			api.RegisterV1(mux, api.Deps{Proxy: dispatch, Catalog: publicCatalog, Evidence: metrics})
 		}),
 		V1Auth:  servermiddleware.PublicV1Auth(deps.PublicAPIKeys, deps.TokenBudget, strings.EqualFold(cfg.Environment, "production")),
 		V2Admin: deps.Admin,

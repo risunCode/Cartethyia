@@ -711,6 +711,16 @@ func decodeResponsesInput(raw any, field string, images *[]ImageReference, reaso
 			return nil, nil, err
 		}
 		t, _ := obj["type"].(string)
+		// Older Responses clients may omit the item discriminator on ordinary
+		// role/content messages. Preserve that compatible shape while keeping
+		// explicit unknown item types strict.
+		if t == "" {
+			if _, hasRole := obj["role"]; hasRole {
+				if _, hasContent := obj["content"]; hasContent {
+					t = "message"
+				}
+			}
+		}
 		switch t {
 		case "message":
 			roleStr, _ := asString(itemField+".role", obj["role"])

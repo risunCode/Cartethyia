@@ -39,6 +39,18 @@ func canonicalProviderEvent(payload string) StreamEvent {
 	return mapped[0]
 }
 
+func TestStreamFrameHelpersPreserveSSEFraming(t *testing.T) {
+	if got, want := string(frameJSON(map[string]any{"text": "fixture"})), "data: {\"text\":\"fixture\"}\n\n"; got != want {
+		t.Fatalf("frameJSON=%q, want %q", got, want)
+	}
+	if got, want := string(frameEvent("content_block_delta", map[string]any{"text": "fixture"})), "event: content_block_delta\ndata: {\"text\":\"fixture\"}\n\n"; got != want {
+		t.Fatalf("frameEvent=%q, want %q", got, want)
+	}
+	if got, want := string(frameString("[DONE]")), "data: [DONE]\n\n"; got != want {
+		t.Fatalf("frameString=%q, want %q", got, want)
+	}
+}
+
 func TestStreamBridgeOpenAITerminalOrderingAndClose(t *testing.T) {
 	events := make(chan StreamEvent, 2)
 	events <- StreamEvent{Kind: EventTextDelta, Text: "hello"}

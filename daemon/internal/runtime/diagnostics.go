@@ -12,7 +12,7 @@ import (
 	db "github.com/cartethyia/daemon/internal/database"
 	"github.com/cartethyia/daemon/internal/providers"
 	providerbuiltin "github.com/cartethyia/daemon/internal/providers/builtin"
-	"github.com/cartethyia/daemon/internal/proxy"
+	"github.com/cartethyia/daemon/internal/proxy/runtime"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
 	runtimecatalog "github.com/cartethyia/daemon/internal/proxy/runtime/catalog"
 	"github.com/cartethyia/daemon/internal/runtime/cache"

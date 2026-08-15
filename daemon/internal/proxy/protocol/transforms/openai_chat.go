@@ -96,9 +96,15 @@ func (c *OpenAIChatCodec) Encode(ctx context.Context, req *NormalizedRequest) (*
 			}
 			jsonSchema := map[string]any{"name": "response", "schema": schema}
 			if req.StructuredOutput != nil {
-				if req.StructuredOutput.Name != "" { jsonSchema["name"] = req.StructuredOutput.Name }
-				if req.StructuredOutput.Description != "" { jsonSchema["description"] = req.StructuredOutput.Description }
-				if strict, ok := req.StructuredOutput.Strict.Get(); ok { jsonSchema["strict"] = strict }
+				if req.StructuredOutput.Name != "" {
+					jsonSchema["name"] = req.StructuredOutput.Name
+				}
+				if req.StructuredOutput.Description != "" {
+					jsonSchema["description"] = req.StructuredOutput.Description
+				}
+				if strict, ok := req.StructuredOutput.Strict.Get(); ok {
+					jsonSchema["strict"] = strict
+				}
 			}
 			payload["response_format"] = map[string]any{"type": "json_schema", "json_schema": jsonSchema}
 		}

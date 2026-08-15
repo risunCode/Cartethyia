@@ -11,10 +11,14 @@ import (
 type AnthropicMessagesResponseEncoder struct{}
 
 // NewAnthropicMessagesResponseEncoder constructs the encoder.
-func NewAnthropicMessagesResponseEncoder() *AnthropicMessagesResponseEncoder { return &AnthropicMessagesResponseEncoder{} }
+func NewAnthropicMessagesResponseEncoder() *AnthropicMessagesResponseEncoder {
+	return &AnthropicMessagesResponseEncoder{}
+}
 
 // Protocol reports the wire surface.
-func (e *AnthropicMessagesResponseEncoder) Protocol() contracts.Protocol { return contracts.ProtocolAnthropic }
+func (e *AnthropicMessagesResponseEncoder) Protocol() contracts.Protocol {
+	return contracts.ProtocolAnthropic
+}
 
 // Encode renders a non-stream Anthropic Messages body from a canonical
 // NormalizedResponse.
@@ -27,19 +31,19 @@ func (e *AnthropicMessagesResponseEncoder) Encode(ctx context.Context, response 
 	}
 	content := encodeAnthropicOutputBlocks(response)
 	payload := map[string]any{
-		"id":          response.ID,
-		"type":        "message",
-		"role":        "assistant",
-		"model":       response.Model,
-		"content":     content,
-		"stop_reason": anthropicFinishReason(response.StopReason),
+		"id":            response.ID,
+		"type":          "message",
+		"role":          "assistant",
+		"model":         response.Model,
+		"content":       content,
+		"stop_reason":   anthropicFinishReason(response.StopReason),
 		"stop_sequence": nil,
 	}
 	if response.Usage != nil {
 		payload["usage"] = map[string]any{
-			"input_tokens":               response.Usage.InputTokens,
-			"output_tokens":              response.Usage.OutputTokens,
-			"cache_read_input_tokens":    response.Usage.CacheRead,
+			"input_tokens":                response.Usage.InputTokens,
+			"output_tokens":               response.Usage.OutputTokens,
+			"cache_read_input_tokens":     response.Usage.CacheRead,
 			"cache_creation_input_tokens": response.Usage.CacheWrite,
 		}
 	}

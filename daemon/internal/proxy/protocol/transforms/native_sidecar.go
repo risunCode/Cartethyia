@@ -15,9 +15,9 @@ import (
 // fields that the canonical model does not own; semantic common fields belong
 // in the typed request model instead.
 const (
-	MaxNativeSidecarBytes       = 64 * 1024
-	MaxNativeSidecarFields      = 256
-	MaxNativeSidecarFieldBytes  = 16 * 1024
+	MaxNativeSidecarBytes        = 64 * 1024
+	MaxNativeSidecarFields       = 256
+	MaxNativeSidecarFieldBytes   = 16 * 1024
 	MaxNativeSidecarPointerDepth = 32
 	MaxNativeSidecarPointerBytes = 2048
 )

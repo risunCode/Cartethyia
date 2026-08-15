@@ -12,10 +12,14 @@ import (
 type OpenAIResponsesResponseEncoder struct{}
 
 // NewOpenAIResponsesResponseEncoder constructs the encoder.
-func NewOpenAIResponsesResponseEncoder() *OpenAIResponsesResponseEncoder { return &OpenAIResponsesResponseEncoder{} }
+func NewOpenAIResponsesResponseEncoder() *OpenAIResponsesResponseEncoder {
+	return &OpenAIResponsesResponseEncoder{}
+}
 
 // Protocol reports the wire surface.
-func (e *OpenAIResponsesResponseEncoder) Protocol() contracts.Protocol { return contracts.ProtocolOpenAIResponse }
+func (e *OpenAIResponsesResponseEncoder) Protocol() contracts.Protocol {
+	return contracts.ProtocolOpenAIResponse
+}
 
 // Encode renders a non-stream Responses body from a canonical
 // NormalizedResponse, preserving ordered output items, IDs, indexes,

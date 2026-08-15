@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	proxy "github.com/cartethyia/daemon/internal/proxy"
+	proxy "github.com/cartethyia/daemon/internal/proxy/runtime"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
 )
 
