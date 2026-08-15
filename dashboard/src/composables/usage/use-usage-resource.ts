@@ -1,9 +1,10 @@
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { createQuery, type CreateQueryResult } from "@tanstack/solid-query";
+import type { Accessor } from "solid-js";
 import {
-  daemonGet,
+  consoleGet,
   normalizeTelemetryBuckets,
   type TelemetryBucket,
-} from "../../lib/daemon-api";
+} from "../../lib/console-api";
 
 interface UsageResourceOptions {
   enabled?: boolean;
@@ -241,7 +242,7 @@ async function fetchUsageResource<T>(path: string): Promise<T> {
     const query = serializeTelemetryQuery(optionsFromPath(path));
     return toSummary(
       periodFromPath(path),
-      await daemonGet<unknown>(`/telemetry/usage?${query}`),
+      await consoleGet<unknown>(`/telemetry/usage?${query}`),
     ) as T;
   }
   if (path.startsWith("/usage/chart")) {
@@ -250,7 +251,7 @@ async function fetchUsageResource<T>(path: string): Promise<T> {
     );
     return toChart(
       normalizeTelemetryBuckets(
-        await daemonGet<unknown>(`/telemetry/requests?${query}`),
+        await consoleGet<unknown>(`/telemetry/requests?${query}`),
       ),
     ) as T;
   }
@@ -259,7 +260,7 @@ async function fetchUsageResource<T>(path: string): Promise<T> {
       optionsFromPath(path, { groupBy: "client" }),
     );
     return toClientDistribution(
-      await daemonGet<unknown>(`/telemetry/clients?${query}`),
+      await consoleGet<unknown>(`/telemetry/clients?${query}`),
     ) as T;
   }
   if (path.startsWith("/usage/by-")) {
@@ -270,7 +271,7 @@ async function fetchUsageResource<T>(path: string): Promise<T> {
       throw new Error("usage breakdown is unavailable from daemon telemetry");
     const query = serializeTelemetryQuery(optionsFromPath(path, { groupBy }));
     return toRows(
-      await daemonGet<unknown>(`/telemetry/usage?${query}`),
+      await consoleGet<unknown>(`/telemetry/usage?${query}`),
       dimension,
     ) as T;
   }
@@ -285,14 +286,16 @@ async function fetchUsageResource<T>(path: string): Promise<T> {
 
 /** Centralizes authenticated usage reads while keeping each feature query typed. */
 export function useUsageResource<T>(
-  queryKey: readonly unknown[],
-  path: string,
+  queryKey: readonly unknown[] | Accessor<readonly unknown[]>,
+  path: string | Accessor<string>,
   options: UsageResourceOptions = {},
-): UseQueryResult<T> {
-  return useQuery({
-    queryKey,
-    queryFn: () => fetchUsageResource<T>(path),
-    enabled: options.enabled,
+): CreateQueryResult<T, Error> {
+  const readKey = () => typeof queryKey === "function" ? queryKey() : queryKey;
+  const readPath = () => typeof path === "function" ? path() : path;
+  return createQuery(() => ({
+    queryKey: readKey(),
+    queryFn: () => fetchUsageResource<T>(readPath()),
+    enabled: options.enabled ?? true,
     refetchInterval: options.refetchInterval,
-  });
+  }));
 }

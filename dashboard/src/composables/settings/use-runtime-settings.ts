@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient, type UseMutationResult, type UseQueryResult } from "@tanstack/react-query";
-import { daemonGet, daemonPatch, DaemonContractError } from "../../lib/daemon-api";
+import { useMutation, useQuery, useQueryClient, type UseMutationResult, type UseQueryResult } from "@tanstack/solid-query";
+import { consoleGet, consolePatch, ConsoleContractError } from "../../lib/console-api";
 import { qk } from "../../lib/query-keys";
 
 export interface RuntimeSettings {
@@ -25,7 +25,7 @@ export function normalizeRuntimeSettings(value: unknown): RuntimeSettingsRespons
   const root = recordValue(value);
   const settings = recordValue(root?.settings);
   const runtime = recordValue(settings?.runtime);
-  if (!settings || !runtime) throw new DaemonContractError("invalid_contract", "runtime settings are invalid", 502);
+  if (!settings || !runtime) throw new ConsoleContractError("invalid_contract", "runtime settings are invalid", 502);
   const flags: Record<string, boolean> = {};
   const rawFlags = recordValue(runtime.flags);
   if (rawFlags) {
@@ -51,19 +51,19 @@ export function normalizeRuntimeSettings(value: unknown): RuntimeSettingsRespons
 
 /** Reads the shared console settings bundle without duplicating query wiring. */
 export function useRuntimeSettings<TResponse extends RuntimeSettingsResponse = RuntimeSettingsResponse>(): UseQueryResult<TResponse> {
-  return useQuery({
+  return useQuery(() => ({
     queryKey: qk.settings.all,
-    queryFn: async () => normalizeRuntimeSettings(await daemonGet<unknown>("/settings")) as TResponse,
-  });
+    queryFn: async () => normalizeRuntimeSettings(await consoleGet<unknown>("/settings")) as TResponse,
+  }));
 }
 
 /** Patches runtime settings and invalidates every settings consumer. */
 export function usePatchRuntimeSettings<TPatch extends Record<string, unknown> = Record<string, unknown>>(): UseMutationResult<{ ok: boolean }, unknown, TPatch> {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (patch: TPatch) => daemonPatch<{ ok: boolean }>("/settings", patch),
+  return useMutation(() => ({
+    mutationFn: (patch: TPatch) => consolePatch<{ ok: boolean }>("/settings", patch),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: qk.settings.all });
     },
-  });
+  }));
 }

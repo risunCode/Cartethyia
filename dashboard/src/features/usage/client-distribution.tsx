@@ -1,5 +1,7 @@
-import { useId } from "react";
+/* @jsxImportSource solid-js */
+
 import { Card, CardHeader } from "../../components/ui/card";
+import { Show, For, createMemo, createUniqueId } from "solid-js";
 
 export interface ClientDistributionItem {
   readonly family: string;
@@ -24,116 +26,26 @@ function boundedPercentage(value: number): number {
 }
 
 function formatCount(value: number): string {
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(
-    Math.max(0, value),
-  );
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(Math.max(0, value));
 }
 
-/**
- * Renders the daemon-provided client-family distribution without deriving
- * identity from raw browser headers. Unknown requests remain visible in the
- * denominator instead of being silently discarded.
- */
-export function ClientDistribution({
-  items,
-  total,
-  unknownCount,
-  isLoading = false,
-}: ClientDistributionProps) {
-  const labelId = useId();
-  const visibleItems = items.filter(
-    (item) => item.count > 0 && boundedPercentage(item.percentage) > 0,
-  );
-  const safeTotal = total === null ? null : Math.max(0, total);
-  const safeUnknown = unknownCount === null ? null : Math.max(0, unknownCount);
+/** Renders daemon-provided client-family metadata while keeping unknown requests in the denominator. */
+export function ClientDistribution(props: ClientDistributionProps) {
+  const labelId = `client-distribution-${createUniqueId()}`;
+  const visibleItems = createMemo(() => props.items.filter((item) => item.count > 0 && boundedPercentage(item.percentage) > 0));
+  const safeTotal = () => props.total === null ? null : Math.max(0, props.total);
+  const safeUnknown = () => props.unknownCount === null ? null : Math.max(0, props.unknownCount);
+  const unknownDetails = () => safeUnknown() === null ? "Unknown client total unavailable" : `Unknown: ${formatCount(safeUnknown()!)}`;
 
-  const unknownDetails =
-    safeUnknown === null
-      ? "Unknown client total unavailable"
-      : `Unknown: ${formatCount(safeUnknown)}`;
-  return (
-    <Card>
-      <CardHeader
-        title="Client distribution"
-        sub="Bounded client-family metadata across canonical requests"
-      />
-      {isLoading ? (
-        <div
-          className="h-24 animate-pulse rounded-xl bg-[var(--surface-muted)]"
-          aria-label="Loading client distribution"
-        />
-      ) : (
-        <div className="space-y-4" aria-labelledby={labelId}>
-          <span id={labelId} className="sr-only">
-            Client distribution totals
-          </span>
-          {safeTotal === null ? (
-            <p
-              className="rounded-xl border border-dashed border-[var(--inner-border)] px-3 py-4 text-xs text-[var(--text-3)]"
-              role="status"
-            >
-              Client distribution is unavailable from the daemon.
-            </p>
-          ) : (
-            <>
-              <div
-                className="flex h-3 overflow-hidden rounded-full bg-[var(--surface-muted)]"
-                role="img"
-                aria-label={`${formatCount(safeTotal)} requests distributed across detected and unknown clients`}
-              >
-                {visibleItems.map((item) => (
-                  <span
-                    key={item.family}
-                    className="min-w-0 transition-[width] duration-300"
-                    style={{
-                      width: `${boundedPercentage(item.percentage)}%`,
-                      backgroundColor: item.tone,
-                    }}
-                    title={`${item.label}: ${formatCount(item.count)} (${boundedPercentage(item.percentage).toFixed(1)}%)${item.source ? ` · source ${item.source}` : ""}${item.confidence ? ` · confidence ${item.confidence}` : ""}`}
-                  />
-                ))}
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {items.map((item) => (
-                  <div
-                    key={item.family}
-                    className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-[var(--inner-border)] px-3 py-2 text-xs"
-                    title={`${item.source ? `Source: ${item.source}` : "Source unavailable"} · ${item.confidence ? `Confidence: ${item.confidence}` : "Confidence unavailable"}`}
-                  >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: item.tone }}
-                        aria-hidden="true"
-                      />
-                      <span className="truncate text-[var(--text-1)]">
-                        {item.label}
-                      </span>
-                    </span>
-                    <span className="shrink-0 tabular-nums text-[var(--text-2)]">
-                      {formatCount(item.count)} ·{" "}
-                      {boundedPercentage(item.percentage).toFixed(1)}%
-                    </span>
-                  </div>
-                ))}
-                <div
-                  className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-dashed border-[var(--inner-border)] px-3 py-2 text-xs"
-                  title={unknownDetails}
-                >
-                  <span className="text-[var(--text-2)]">Unknown</span>
-                  <span className="shrink-0 tabular-nums text-[var(--text-2)]">
-                    {safeUnknown === null ? "—" : formatCount(safeUnknown)}
-                  </span>
-                </div>
-              </div>
-              <p className="text-[11px] text-[var(--text-3)]">
-                Total requests: {formatCount(safeTotal)}. Percentages include
-                unknown client origin.
-              </p>
-            </>
-          )}
-        </div>
-      )}
-    </Card>
-  );
+  return <Card><CardHeader title="Client distribution" sub="Bounded client-family metadata across canonical requests" />
+    <Show when={!props.isLoading} fallback={<div class="h-24 animate-pulse rounded-xl bg-[var(--surface-muted)]" aria-label="Loading client distribution" />}>
+      <div class="space-y-4" aria-labelledby={labelId}><span id={labelId} class="sr-only">Client distribution totals</span>
+        <Show when={safeTotal() !== null} fallback={<p class="rounded-xl border border-dashed border-[var(--inner-border)] px-3 py-4 text-xs text-[var(--text-3)]" role="status">Client distribution is unavailable from the daemon.</p>}>
+          <div class="flex h-3 overflow-hidden rounded-full bg-[var(--surface-muted)]" role="img" aria-label={`${formatCount(safeTotal()!)} requests distributed across detected and unknown clients`}><For each={visibleItems()}>{(item) => <span class="min-w-0 transition-[width] duration-300" style={{ width: `${boundedPercentage(item.percentage)}%`, "background-color": item.tone }} title={`${item.label}: ${formatCount(item.count)} (${boundedPercentage(item.percentage).toFixed(1)}%)${item.source ? ` · source ${item.source}` : ""}${item.confidence ? ` · confidence ${item.confidence}` : ""}`} />}</For></div>
+          <div class="grid gap-2 sm:grid-cols-2"><For each={props.items}>{(item) => <div class="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-[var(--inner-border)] px-3 py-2 text-xs" title={`${item.source ? `Source: ${item.source}` : "Source unavailable"} · ${item.confidence ? `Confidence: ${item.confidence}` : "Confidence unavailable"}`}><span class="flex min-w-0 items-center gap-2"><span class="h-2 w-2 shrink-0 rounded-full" style={{ "background-color": item.tone }} aria-hidden="true" /><span class="truncate text-[var(--text-1)]">{item.label}</span></span><span class="shrink-0 tabular-nums text-[var(--text-2)]">{formatCount(item.count)} · {boundedPercentage(item.percentage).toFixed(1)}%</span></div>}</For><div class="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-dashed border-[var(--inner-border)] px-3 py-2 text-xs" title={unknownDetails()}><span class="text-[var(--text-2)]">Unknown</span><span class="shrink-0 tabular-nums text-[var(--text-2)]">{safeUnknown() === null ? "—" : formatCount(safeUnknown()!)}</span></div></div>
+          <p class="text-[11px] text-[var(--text-3)]">Total requests: {formatCount(safeTotal()!)}. Percentages include unknown client origin.</p>
+        </Show>
+      </div>
+    </Show>
+  </Card>;
 }

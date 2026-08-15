@@ -1,30 +1,31 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createSignal, onCleanup, type Accessor } from "solid-js";
 import { copyToClipboard } from "../../lib/clipboard";
 
 export interface ClipboardState {
-  copied: boolean;
+  copied: Accessor<boolean>;
   copy: (value: string) => Promise<boolean>;
 }
 
 /** Provides clipboard writes with a bounded copied indicator and safe fallback. */
 export function useClipboard(resetAfterMs = 1500): ClipboardState {
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<number | null>(null);
+  const [copied, setCopied] = createSignal(false);
+  let timer: number | undefined;
 
-  useEffect(() => () => {
-    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-  }, []);
-  const copy = useCallback(async (value: string): Promise<boolean> => {
+  onCleanup(() => {
+    if (timer !== undefined) window.clearTimeout(timer);
+  });
+
+  const copy = async (value: string): Promise<boolean> => {
     const ok = await copyToClipboard(value);
     if (!ok) return false;
     setCopied(true);
-    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-    timerRef.current = window.setTimeout(() => {
-      timerRef.current = null;
+    if (timer !== undefined) window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      timer = undefined;
       setCopied(false);
     }, resetAfterMs);
     return true;
-  }, [resetAfterMs]);
+  };
 
   return { copied, copy };
 }

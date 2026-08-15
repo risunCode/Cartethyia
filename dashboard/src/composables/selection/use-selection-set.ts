@@ -1,9 +1,9 @@
-import { useCallback, useMemo, useState } from "react";
+import { createMemo, createSignal, type Accessor } from "solid-js";
 
 export interface SelectionSet<TId extends string = string> {
-  selectedIds: ReadonlySet<TId>;
-  selectedCount: number;
-  someSelected: boolean;
+  selectedIds: Accessor<ReadonlySet<TId>>;
+  selectedCount: Accessor<number>;
+  someSelected: Accessor<boolean>;
   allSelected: (ids: readonly TId[]) => boolean;
   has: (id: TId) => boolean;
   toggle: (id: TId) => void;
@@ -14,41 +14,38 @@ export interface SelectionSet<TId extends string = string> {
 
 /** Owns selection state for list and batch-action surfaces. */
 export function useSelectionSet<TId extends string = string>(): SelectionSet<TId> {
-  const [selectedIds, setSelectedIds] = useState<ReadonlySet<TId>>(new Set());
+  const [selectedIds, setSelectedIds] = createSignal<ReadonlySet<TId>>(new Set<TId>());
 
-  const toggle = useCallback((id: TId) => {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
+  const toggle = (id: TId): void => {
+    const next = new Set(selectedIds());
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(() => next);
+  };
 
-  const toggleAll = useCallback((ids: readonly TId[]) => {
-    setSelectedIds((current) => {
-      const allSelected = ids.length > 0 && ids.every((id) => current.has(id));
-      return allSelected ? new Set<TId>() : new Set(ids);
-    });
-  }, []);
+  const toggleAll = (ids: readonly TId[]): void => {
+    const current = selectedIds();
+    const allSelected = ids.length > 0 && ids.every((id) => current.has(id));
+    setSelectedIds(() => (allSelected ? new Set<TId>() : new Set(ids)));
+  };
 
-  const clear = useCallback(() => setSelectedIds(new Set<TId>()), []);
-  const replace = useCallback((ids: Iterable<TId>) => setSelectedIds(new Set(ids)), []);
-  const has = useCallback((id: TId) => selectedIds.has(id), [selectedIds]);
-  const allSelected = useCallback((ids: readonly TId[]) => selectionCovers(selectedIds, ids), [selectedIds]);
-  const selectedCount = selectedIds.size;
-  return useMemo(() => ({
+  const clear = (): void => { setSelectedIds(() => new Set<TId>()); };
+  const replace = (ids: Iterable<TId>): void => { setSelectedIds(() => new Set(ids)); };
+  const has = (id: TId): boolean => selectedIds().has(id);
+  const allSelected = (ids: readonly TId[]): boolean => selectionCovers(selectedIds(), ids);
+  const selectedCount = createMemo(() => selectedIds().size);
+  const someSelected = createMemo(() => selectedCount() > 0);
+  return {
     selectedIds,
     selectedCount,
-    someSelected: selectedCount > 0,
+    someSelected,
     allSelected,
     has,
     toggle,
     toggleAll,
     clear,
     replace,
-  }), [allSelected, clear, has, replace, selectedCount, selectedIds, toggle, toggleAll]);
-
+  };
 }
 
 /** Computes whether the current selection covers a concrete visible item set. */

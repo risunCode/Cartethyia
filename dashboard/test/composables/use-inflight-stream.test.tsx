@@ -1,5 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import type { ReactElement } from "react";
+/* @jsxImportSource solid-js */
+
+import { render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { useInFlightSnapshot } from "../../src/composables/observability/use-inflight-stream";
 
@@ -37,9 +38,9 @@ class FakeEventSource {
   }
 }
 
-function Probe(): ReactElement {
+function Probe() {
   const snapshot = useInFlightSnapshot();
-  return <output>{`${snapshot.connectionStatus}:${snapshot.inFlight}:${snapshot.byProvider[0]?.providerId ?? "none"}`}</output>;
+  return <output role="status">{`${snapshot().connectionStatus}:${snapshot().inFlight}:${snapshot().byProvider[0]?.providerId ?? "none"}`}</output>;
 }
 
 describe("useInFlightSnapshot", () => {
@@ -52,7 +53,7 @@ describe("useInFlightSnapshot", () => {
 
   test("marks the stream as reconnecting after an error", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
-    render(<Probe />);
+    render(() => <Probe />);
     await waitFor(() => expect(FakeEventSource.instance).not.toBeNull());
     FakeEventSource.instance?.emitError();
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("error:0:none"));
@@ -62,7 +63,7 @@ describe("useInFlightSnapshot", () => {
 
   test("connects to the live endpoint and exposes provider activity", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
-    render(<Probe />);
+    render(() => <Probe />);
     await waitFor(() => expect(FakeEventSource.instance?.url).toBe("/console/api/live/in-flight/stream"));
 
     FakeEventSource.instance?.emit("count", { inFlight: 2, byIp: [{ ip: "203.0.113.10", active: 2 }], byProvider: [{ providerId: "openai", active: 2 }], maxFlightsPerIp: 15 });
@@ -71,7 +72,7 @@ describe("useInFlightSnapshot", () => {
   test("closes the EventSource when the consumer unmounts", async () => {
     FakeEventSource.closeCount = 0;
     vi.stubGlobal("EventSource", FakeEventSource);
-    const view = render(<Probe />);
+    const view = render(() => <Probe />);
     await waitFor(() => expect(FakeEventSource.instance).not.toBeNull());
 
     view.unmount();

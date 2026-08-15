@@ -1,7 +1,7 @@
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/solid-query";
 
 import { ApiError } from "../../lib/api";
-import { daemonApi, DaemonContractError } from "../../lib/daemon-api";
+import { consoleApi, ConsoleContractError } from "../../lib/console-api";
 import { qk } from "../../lib/query-keys";
 
 export type DashboardHealthState = "ready" | "degraded" | "offline" | "unknown";
@@ -37,7 +37,7 @@ export interface DashboardHealthResult {
   isRefreshing: boolean;
   isStale: boolean;
   error: unknown;
-  refetch: UseQueryResult<DashboardSummaryView, unknown>["refetch"];
+  refetch: () => Promise<unknown>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -56,10 +56,10 @@ function parseHealthState(value: unknown): DashboardHealthState {
 /** Parse only the closed dashboard summary shape, preserving missing facts as unknown. */
 export function parseDashboardSummaryView(value: unknown): DashboardSummaryView {
   if (value === null || (Array.isArray(value) && value.length === 0) || (isRecord(value) && Object.keys(value).length === 0)) {
-    throw new DaemonContractError("empty_response", "dashboard summary is empty", 204);
+    throw new ConsoleContractError("empty_response", "dashboard summary is empty", 204);
   }
   if (!isRecord(value)) {
-    throw new DaemonContractError("invalid_contract", "dashboard summary is invalid", 502);
+    throw new ConsoleContractError("invalid_contract", "dashboard summary is invalid", 502);
   }
 
   const rawHealth = isRecord(value.health) ? value.health : {};
@@ -81,7 +81,7 @@ export function parseDashboardSummaryView(value: unknown): DashboardSummaryView 
 
 /** Convert a transport or contract failure into a truthful dashboard state. */
 export function dashboardErrorState(error: unknown): Exclude<DashboardViewState, "loading" | "ready" | "unknown"> {
-  if (error instanceof DaemonContractError) return error.code === "empty_response" ? "empty" : "malformed";
+  if (error instanceof ConsoleContractError) return error.code === "empty_response" ? "empty" : "malformed";
   if (error instanceof ApiError) {
     if (error.status === 403) return "forbidden";
     if (error.status === 404) return "unavailable";
@@ -93,13 +93,13 @@ export function dashboardErrorState(error: unknown): Exclude<DashboardViewState,
 
 /** Read dashboard health while retaining the last accepted response through refresh failures. */
 export function useDashboardHealth(): DashboardHealthResult {
-  const query = useQuery({
+  const query = useQuery<DashboardSummaryView>(() => ({
     queryKey: qk.health.status,
-    queryFn: async ({ signal }) => parseDashboardSummaryView(await daemonApi<unknown>("/dashboard", { signal })),
+    queryFn: async ({ signal }): Promise<DashboardSummaryView> => parseDashboardSummaryView(await consoleApi<unknown>("/dashboard", { signal })),
     staleTime: 15_000,
     refetchInterval: 30_000,
     retry: false,
-  });
+  }));
 
   let state: DashboardViewState = "loading";
   if (query.data) state = query.error ? dashboardErrorState(query.error) : query.data.health.status;

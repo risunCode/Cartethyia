@@ -1,49 +1,51 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { api, type DaemonHttpMethod } from "../../src/lib/api";
-import { daemonFailure, daemonGet, DaemonContractError } from "../../src/lib/daemon-api";
+import { api, type ConsoleHttpMethod } from "../../src/lib/api";
+import { consoleFailure, consoleGet, ConsoleContractError } from "../../src/lib/console-api";
 import {
-  DAEMON_ROUTE_MATRIX,
-  findDaemonRouteContract,
-  isDocumentedDaemonRoute,
-  serializeDaemonQuery,
-} from "../../src/lib/daemon-routes";
+  CONSOLE_ROUTE_MATRIX,
+  findConsoleRouteContract,
+  isDocumentedConsoleRoute,
+  serializeConsoleQuery,
+} from "../../src/lib/console-routes";
 
 describe("dashboard transport route contract", () => {
   afterEach(() => vi.restoreAllMocks());
 
   test("checks every retained route against standard methods only", () => {
-    expect(DAEMON_ROUTE_MATRIX.length).toBeGreaterThan(0);
-    for (const contract of DAEMON_ROUTE_MATRIX) {
+    expect(CONSOLE_ROUTE_MATRIX.length).toBeGreaterThan(0);
+    for (const contract of CONSOLE_ROUTE_MATRIX) {
       expect(contract.route.startsWith("/v2/")).toBe(false);
-      expect(contract.methods.every((method): method is DaemonHttpMethod => ["GET", "POST", "PATCH", "DELETE"].includes(method))).toBe(true);
+      expect(contract.methods.every((method): method is ConsoleHttpMethod => ["GET", "POST", "PATCH", "DELETE"].includes(method))).toBe(true);
       expect(contract.methods).not.toContain("QUERY");
     }
-    expect(isDocumentedDaemonRoute("/settings", "GET")).toBe(true);
-    expect(isDocumentedDaemonRoute("/settings", "PATCH")).toBe(true);
-    expect(isDocumentedDaemonRoute("/settings", "POST")).toBe(true);
-    expect(isDocumentedDaemonRoute("/settings", "DELETE")).toBe(false);
-    expect(isDocumentedDaemonRoute("/settings", "QUERY" as DaemonHttpMethod)).toBe(false);
-    expect(isDocumentedDaemonRoute("/v1/models", "GET")).toBe(false);
-    expect(isDocumentedDaemonRoute("https://daemon.invalid/v2/admin/settings", "GET")).toBe(false);
-    expect(isDocumentedDaemonRoute("/v2/https://daemon.invalid", "GET")).toBe(false);
+    expect(isDocumentedConsoleRoute("/settings", "GET")).toBe(true);
+    expect(isDocumentedConsoleRoute("/settings", "PATCH")).toBe(true);
+    expect(isDocumentedConsoleRoute("/settings", "POST")).toBe(true);
+    expect(isDocumentedConsoleRoute("/settings", "DELETE")).toBe(false);
+    expect(isDocumentedConsoleRoute("/providers/openai/accounts/batch-delete", "POST")).toBe(true);
+    expect(isDocumentedConsoleRoute("/providers/openai/accounts/batch-delete", "GET")).toBe(false);
+    expect(isDocumentedConsoleRoute("/settings", "QUERY" as ConsoleHttpMethod)).toBe(false);
+    expect(isDocumentedConsoleRoute("/v1/models", "GET")).toBe(false);
+    expect(isDocumentedConsoleRoute("https://daemon.invalid/v2/admin/settings", "GET")).toBe(false);
+    expect(isDocumentedConsoleRoute("/v2/https://daemon.invalid", "GET")).toBe(false);
   });
 
   test("serializes only bounded, allow-listed query values", () => {
-    const accounts = findDaemonRouteContract("/providers/openai/accounts");
+    const accounts = findConsoleRouteContract("/providers/openai/accounts");
     expect(accounts).toBeDefined();
-    expect(serializeDaemonQuery(accounts!, { limit: 100, cursor: "next page", ignored: "not sent" })).toBe("?limit=100&cursor=next+page");
-    expect(isDocumentedDaemonRoute("/providers/openai/accounts?limit=100&cursor=next%20page", "GET")).toBe(true);
-    expect(isDocumentedDaemonRoute("/providers/openai/accounts?secret=leaked", "GET")).toBe(false);
-    expect(isDocumentedDaemonRoute(`/${"x".repeat(600)}`, "GET")).toBe(false);
-    expect(() => serializeDaemonQuery(accounts!, { cursor: "x".repeat(129) })).toThrow("daemon query value is too long");
+    expect(serializeConsoleQuery(accounts!, { limit: 100, cursor: "next page", ignored: "not sent" })).toBe("?limit=100&cursor=next+page");
+    expect(isDocumentedConsoleRoute("/providers/openai/accounts?limit=100&cursor=next%20page", "GET")).toBe(true);
+    expect(isDocumentedConsoleRoute("/providers/openai/accounts?secret=leaked", "GET")).toBe(false);
+    expect(isDocumentedConsoleRoute(`/${"x".repeat(600)}`, "GET")).toBe(false);
+    expect(() => serializeConsoleQuery(accounts!, { cursor: "x".repeat(129) })).toThrow("daemon query value is too long");
   });
 
   test("propagates cancellation and keeps network failures bounded at the state boundary", async () => {
     const abort = new DOMException("The operation was aborted", "AbortError");
     vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(abort).mockRejectedValueOnce(new TypeError("socket details must not escape")));
     await expect(api("/v2/admin/settings", { signal: new AbortController().signal })).rejects.toBe(abort);
-    const networkFailure = await daemonGet("/settings").catch((error: unknown) => error);
-    expect(daemonFailure(networkFailure)).toEqual({ code: "network_error", message: "daemon request failed", degraded: true });
+    const networkFailure = await consoleGet("/settings").catch((error: unknown) => error);
+    expect(consoleFailure(networkFailure)).toEqual({ code: "network_error", message: "daemon request failed", degraded: true });
   });
 
   test.each([403, 404, 500, 503])("maps HTTP %i to a stable bounded error", async (status) => {
@@ -53,6 +55,6 @@ describe("dashboard transport route contract", () => {
 
   test("rejects a successful response with a malformed daemon envelope", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ meta: { request_id: "req-1" } }), { status: 200 })));
-    await expect(daemonGet("/settings")).rejects.toEqual(new DaemonContractError("invalid_contract", "daemon response envelope is invalid", 502));
+    await expect(consoleGet("/settings")).rejects.toEqual(new ConsoleContractError("invalid_contract", "daemon response envelope is invalid", 502));
   });
 });

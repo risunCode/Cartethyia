@@ -5,9 +5,8 @@
  * subscribers share a single requestAnimationFrame loop that fires roughly
  * once per second and notifies everyone together.
  *
- * `useSyncExternalStore` is the idiomatic React 18 binding: each TimeAgo
- * subscribes to the shared store and reads the tick counter as its snapshot,
- * so they all re-render in lockstep when the tick advances.
+ * Solid subscribers attach to the shared store and re-render in lockstep when
+ * the tick advances.
  */
 
 let tickCount = 0;
@@ -41,7 +40,7 @@ function stop(): void {
   rafId = null;
 }
 
-/** useSyncExternalStore subscribe: starts the loop lazily, stops on last unsubscribe. */
+/** Subscribes to the shared clock, starting it lazily and stopping on last unsubscribe. */
 export function subscribeTimeTick(callback: () => void): () => void {
   subscribers.add(callback);
   if (subscribers.size === 1) start();
@@ -51,7 +50,7 @@ export function subscribeTimeTick(callback: () => void): () => void {
   };
 }
 
-/** useSyncExternalStore getSnapshot: returns the shared tick counter. */
+/** Returns the current shared tick counter. */
 export function getTimeTick(): number {
   return tickCount;
 }

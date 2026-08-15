@@ -1,7 +1,9 @@
-import type { ButtonHTMLAttributes, HTMLAttributes } from "react";
-import type { LucideIcon } from "lucide-react";
+/* @jsxImportSource solid-js */
+
+import { splitProps, type JSX } from "solid-js";
+import type { LucideIcon } from "lucide-solid";
 import { cn } from "../../lib/cn";
-import type { ButtonVariant } from "./button";
+import type { ButtonVariant, ButtonSize } from "./button";
 import { Button } from "./button";
 
 export type IconTone = "neutral" | "accent" | "success" | "warning" | "danger" | "info";
@@ -23,39 +25,48 @@ const toneClasses: Record<IconTone, string> = {
   info: "bg-[color-mix(in_srgb,var(--status-info)_14%,transparent)] text-[var(--status-info)]",
 };
 
-export interface IconBadgeProps extends HTMLAttributes<HTMLSpanElement> {
+export interface IconBadgeProps extends JSX.HTMLAttributes<HTMLSpanElement> {
   icon: LucideIcon;
   tone?: IconTone;
   size?: IconSize;
   label?: string;
+  className?: string;
 }
 
-export function IconBadge({ icon: Icon, tone = "accent", size = "md", label, className, ...props }: IconBadgeProps) {
+/** Renders an icon in a semantic, consistently sized badge. */
+export function IconBadge(props: IconBadgeProps): JSX.Element {
+  const [local, rest] = splitProps(props, ["icon", "tone", "size", "label", "className"]);
+  const Icon = local.icon;
   return (
-    <span className={cn("inline-flex shrink-0 items-center justify-center rounded-full", badgeSizes[size], toneClasses[tone], className)} aria-label={label} {...props}>
-      <Icon aria-hidden={label === undefined} />
+    <span {...rest} class={cn("inline-flex shrink-0 items-center justify-center rounded-full", badgeSizes[local.size ?? "md"], toneClasses[local.tone ?? "accent"], local.className)} aria-label={local.label}>
+      <Icon aria-hidden={local.label === undefined ? "true" : undefined} />
     </span>
   );
 }
 
-export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "children"> {
+export interface IconButtonProps extends Omit<JSX.ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "children"> {
   icon: LucideIcon;
   label: string;
-  size?: "sm" | "md" | "icon";
+  size?: ButtonSize;
   variant?: ButtonVariant;
+  className?: string;
 }
 
-export function IconButton({ icon: Icon, label, size = "icon", variant = "ghost", ...props }: IconButtonProps) {
+/** A button whose accessible name is supplied by its icon label. */
+export function IconButton(props: IconButtonProps): JSX.Element {
+  const [local, rest] = splitProps(props, ["icon", "label", "size", "variant"]);
+  const Icon = local.icon;
   return (
-    <Button type="button" aria-label={label} size={size} variant={variant} {...props}>
+    <Button {...rest} type="button" aria-label={local.label} size={local.size ?? "icon"} variant={local.variant ?? "ghost"}>
       <Icon aria-hidden="true" />
     </Button>
   );
 }
 
-export interface StatusIndicatorProps extends HTMLAttributes<HTMLSpanElement> {
+export interface StatusIndicatorProps extends JSX.HTMLAttributes<HTMLSpanElement> {
   status: "ok" | "success" | "warn" | "warning" | "error" | "danger" | "info" | "offline" | "pending";
   label?: string;
+  className?: string;
 }
 
 const statusClasses: Record<StatusIndicatorProps["status"], string> = {
@@ -70,6 +81,8 @@ const statusClasses: Record<StatusIndicatorProps["status"], string> = {
   pending: "animate-pulse bg-[var(--status-warning)]",
 };
 
-export function StatusIndicator({ status, label, className, ...props }: StatusIndicatorProps) {
-  return <span className={cn("inline-block h-2 w-2 shrink-0 rounded-full", statusClasses[status], className)} role={label ? "img" : undefined} aria-label={label} aria-hidden={label === undefined} {...props} />;
+/** A small status dot that is decorative unless a label is supplied. */
+export function StatusIndicator(props: StatusIndicatorProps): JSX.Element {
+  const [local, rest] = splitProps(props, ["status", "label", "className"]);
+  return <span {...rest} class={cn("inline-block h-2 w-2 shrink-0 rounded-full", statusClasses[local.status], local.className)} role={local.label ? "img" : undefined} aria-label={local.label} aria-hidden={local.label === undefined ? "true" : undefined} />;
 }

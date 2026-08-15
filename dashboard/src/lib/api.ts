@@ -41,9 +41,9 @@ export class ApiError extends Error {
 
 let onUnauthorized: (() => void) | null = null;
 
-export type DaemonHttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
+export type ConsoleHttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
-const SUPPORTED_METHODS: ReadonlySet<DaemonHttpMethod> = new Set(["GET", "POST", "PATCH", "DELETE"]);
+const SUPPORTED_METHODS: ReadonlySet<ConsoleHttpMethod> = new Set(["GET", "POST", "PATCH", "DELETE"]);
 const V2_ROUTE_PREFIX = "/v2/";
 const SAFE_CODE = /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,79}$/;
 
@@ -55,15 +55,15 @@ function normalizeRoute(path: string): string {
   return normalized;
 }
 
-function normalizeMethod(method: string | undefined): DaemonHttpMethod {
+function normalizeMethod(method: string | undefined): ConsoleHttpMethod {
   const normalized = (method ?? "GET").toUpperCase();
-  if (!SUPPORTED_METHODS.has(normalized as DaemonHttpMethod)) {
+  if (!SUPPORTED_METHODS.has(normalized as ConsoleHttpMethod)) {
     throw new ApiError(405, "method_not_allowed", "dashboard transport supports GET, POST, PATCH, and DELETE");
   }
-  return normalized as DaemonHttpMethod;
+  return normalized as ConsoleHttpMethod;
 }
 
-function requestParts(path: string, init: RequestInit): { path: string; method: DaemonHttpMethod; body: BodyInit | null | undefined; headers: Headers } {
+function requestParts(path: string, init: RequestInit): { path: string; method: ConsoleHttpMethod; body: BodyInit | null | undefined; headers: Headers } {
   const normalizedPath = normalizeRoute(path);
   const method = normalizeMethod(init.method);
   const body = init.body;

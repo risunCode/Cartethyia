@@ -1,5 +1,6 @@
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
+/* @jsxImportSource solid-js */
+
+import { render } from "solid-js/web";
 
 import { LandingPage } from "./page";
 import "../index.css";
@@ -10,8 +11,4 @@ if (root === null) {
   throw new Error("Landing root element is missing");
 }
 
-createRoot(root).render(
-  <StrictMode>
-    <LandingPage />
-  </StrictMode>,
-);
+render(() => <LandingPage />, root);

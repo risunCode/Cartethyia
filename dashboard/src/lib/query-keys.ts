@@ -1,5 +1,5 @@
 /**
- * Centralized React Query key factories.
+ * Centralized Solid Query key factories.
  *
  * Every query/invalidation site in the dashboard should source its key from
  * here so that:

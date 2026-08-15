@@ -1,7 +1,9 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
-import { Toaster } from "sonner";
-import { type ReactNode } from "react";
+/* @jsxImportSource solid-js */
+
+import { QueryClient, QueryClientProvider } from "@tanstack/solid-query";
+import { For, Show, type JSX } from "solid-js";
+import { ThemeProvider } from "../lib/theme";
+import { getToastRecords, toast, toastNodeToText, type ToastRecord } from "../lib/toast";
 
 
 export const queryClient = new QueryClient({
@@ -11,41 +13,23 @@ export const queryClient = new QueryClient({
 });
 
 
-export function Providers({ children }: { children: ReactNode }) {
+export function Providers(props: { children: JSX.Element }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-        {children}
-        <Toaster
-          position="top-right"
-          offset={{ top: "6rem", right: "1rem" }}
-          mobileOffset={{ top: "6rem", left: "1rem", right: "1rem" }}
-          visibleToasts={2}
-          richColors
-          duration={5_000}
-          toastOptions={{
-            className: "toast-surface select-text",
-            descriptionClassName: "select-text text-[var(--text-2)]",
-            classNames: {
-              title: "select-text text-[13px] font-semibold",
-            },
-            actionButtonStyle: {
-              background: "var(--accent)",
-              color: "var(--accent-foreground)",
-            },
-            cancelButtonStyle: {
-              background: "var(--surface-muted)",
-              color: "var(--text-1)",
-            },
-            style: {
-              background: "var(--glass-bg-2)",
-              border: "1px solid var(--glass-border-2)",
-              color: "var(--text-1)",
-              userSelect: "text",
-            },
-          }}
-        />
+      <ThemeProvider>
+        {props.children}
+        <ToastViewport />
       </ThemeProvider>
     </QueryClientProvider>
   );
+}
+
+function ToastViewport() {
+  const records = getToastRecords;
+  return <aside class="pointer-events-none fixed top-6 right-4 z-[100] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2" aria-live="polite">
+    <For each={records()}>{(record: ToastRecord) => <article class={`toast-surface pointer-events-auto rounded-[14px] border border-[var(--glass-border)] bg-[var(--surface)] p-3 shadow-xl ${record.className ?? ""}`}>
+      <div class="flex items-start gap-3"><div class="min-w-0 flex-1"><p class="text-[13px] font-semibold text-[var(--text-1)]">{toastNodeToText(record.message)}</p><Show when={record.description}><p class="mt-1 text-[12px] text-[var(--text-2)]">{toastNodeToText(record.description!)}</p></Show></div><button type="button" class="text-[var(--text-3)] hover:text-[var(--text-1)]" onClick={() => toast.dismiss(record.id)} aria-label="Dismiss notification">×</button></div>
+      <div class="mt-2 flex justify-end gap-2"><Show when={record.cancel}><button type="button" class="rounded px-2 py-1 text-[11px] text-[var(--text-2)] hover:bg-[var(--hover)]" onClick={() => { record.cancel?.onClick(); toast.dismiss(record.id); }}>{record.cancel?.label}</button></Show><Show when={record.action}><button type="button" class="rounded bg-[var(--accent)] px-2 py-1 text-[11px] font-semibold text-[var(--accent-foreground)]" onClick={() => { record.action?.onClick(); toast.dismiss(record.id); }}>{record.action?.label}</button></Show></div>
+    </article>}</For>
+  </aside>;
 }

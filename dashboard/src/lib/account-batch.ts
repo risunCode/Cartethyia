@@ -1,4 +1,4 @@
-import { daemonPost } from "./daemon-api";
+import { consolePost } from "./console-api";
 
 export const ACCOUNT_IMPORT_CHUNK_SIZE = 500;
 
@@ -50,7 +50,7 @@ export async function createAccountsInBatches(providerId: string, items: readonl
   const errors: string[] = [];
   for (let offset = 0; offset < items.length; offset += ACCOUNT_IMPORT_CHUNK_SIZE) {
     const chunk = items.slice(offset, offset + ACCOUNT_IMPORT_CHUNK_SIZE).map(toBatchItem);
-    const response = await daemonPost<AccountBatchResponse>(`/providers/${encodeURIComponent(providerId)}/accounts/batch`, { items: chunk });
+    const response = await consolePost<AccountBatchResponse>(`/providers/${encodeURIComponent(providerId)}/accounts/batch`, { items: chunk });
     const result: AccountBatchResult = "items" in response
       ? { processed: response.items.length, succeeded: response.items.length, failed: 0 }
       : response;

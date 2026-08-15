@@ -1,0 +1,721 @@
+@import "tailwindcss";
+
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes highlightFade {
+  0% { background-color: color-mix(in srgb, var(--accent) 18%, transparent); }
+  100% { background-color: transparent; }
+}
+
+.toast-item {
+  animation: toast-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes motion-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes motion-route-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sidebar-from-left {
+  from { opacity: 0; transform: translateX(-14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes sidebar-from-right {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.route-enter,
+.motion-entry-enter {
+  animation: motion-route-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.sidebar-page-main {
+  animation: sidebar-from-left 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.sidebar-page-advanced {
+  animation: sidebar-from-right 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.motion-dialog-overlay {
+  animation: dialog-overlay-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes dialog-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.motion-dialog-panel {
+  animation: dialog-panel-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes dialog-panel-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.motion-drawer-overlay {
+  animation: dialog-overlay-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.motion-drawer-panel {
+  animation: drawer-panel-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes drawer-panel-in {
+  from { transform: translateX(105%); }
+  to { transform: translateX(0); }
+}
+
+.landing-scene-image {
+  opacity: 1;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  background-color: #070b13;
+  will-change: opacity;
+  transition: opacity 140ms linear;
+}
+
+.landing-scene-image-current {
+  opacity: calc(1 - var(--scene-progress, 0));
+}
+
+.landing-scene-image-next {
+  opacity: var(--scene-progress, 0);
+}
+
+.landing-scene-image-final {
+  opacity: 1;
+}
+
+
+.landing-scene-progress-vertical {
+  height: calc(var(--scene-progress, 0) * 100%);
+}
+
+.landing-scene-progress-horizontal {
+  width: calc(var(--scene-progress, 0) * 100%);
+}
+
+
+/* Login form entrance — CSS-only, zero framer-motion overhead */
+.login-enter {
+  animation: login-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes login-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+
+/* Theme toggle icon swap — CSS-only crossfade + rotate */
+.theme-icon-enter {
+  animation: theme-icon-in 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes theme-icon-in {
+  from { opacity: 0; transform: rotate(-60deg) scale(0.7); }
+  to { opacity: 1; transform: rotate(0) scale(1); }
+}
+
+
+/* Traffic chart active line — CSS-only dash animation. */
+.traffic-line-active {
+  animation: traffic-dash 0.8s linear infinite;
+}
+.traffic-chart-container {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 200px;
+}
+
+/* iOS-style chat bubble entrance — slide + fade in from bottom */
+.chat-bubble-enter {
+  animation: chat-bubble-in 0.3s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+@keyframes chat-bubble-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+
+/* "Thinking" shimmer — glowing text that sweeps right, like iOS/ChatGPT loading */
+.thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--text-3) 0%,
+    var(--text-3) 40%,
+    var(--accent) 50%,
+    var(--text-3) 60%,
+    var(--text-3) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: thinking-sweep 1.8s linear infinite;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+@keyframes thinking-sweep {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+
+@keyframes traffic-dash {
+  to { stroke-dashoffset: -12; }
+}
+
+/* Popout/dropdown animation — CSS-driven. */
+@keyframes popout-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.popout-enter {
+  animation: popout-in 0.16s cubic-bezier(0.32, 0.72, 0, 1) both;
+  transform-origin: top center;
+}
+
+
+/* Ensure popout panels are always opaque and on top */
+.popout-enter {
+  background-color: var(--popover-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.model-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.375rem;
+}
+
+@media (min-width: 420px) {
+  .model-picker-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --radius-card: 18px;
+  --radius-sidebar: 22px;
+  --radius-control: 11px;
+}
+
+:root {
+  --page-bg: #f7f3ed;
+  --surface-1: rgba(255, 252, 247, 0.9);
+  --surface-2: rgba(255, 253, 249, 0.96);
+  --surface-muted: rgba(119, 83, 55, 0.1);
+  --surface-hover: rgba(255, 248, 240, 0.92);
+  --surface-active: rgba(255, 248, 240, 0.98);
+  --text-primary: #2d2926;
+  --text-secondary: #746b65;
+  --text-tertiary: #a49a92;
+  --border-subtle: rgba(78, 58, 42, 0.09);
+  --border-strong: rgba(119, 94, 72, 0.12);
+  --accent: #d97757;
+  --accent-soft: rgba(217, 119, 87, 0.14);
+  --status-success: #4c9368;
+  --status-danger: #c95145;
+  --status-warning: #ca7b32;
+  --status-info: #448f8d;
+  --focus-ring: #d97757;
+  --track: rgba(113, 82, 57, 0.1);
+  --code-surface: rgba(255, 252, 247, 0.82);
+  --radius-sm: 8px;
+  --radius-md: 11px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --control-height-sm: 32px;
+  --control-height-md: 36px;
+  --control-height-lg: 40px;
+  --touch-target: 40px;
+  --motion-fast: 120ms;
+  --motion-base: 160ms;
+  --motion-slow: 240ms;
+
+  --text-1: var(--text-primary);
+  --text-2: var(--text-secondary);
+  --text-3: var(--text-tertiary);
+  --green: var(--status-success);
+  --red: var(--status-danger);
+  --orange: var(--status-warning);
+  --purple: #8769a4;
+  --teal: var(--status-info);
+  --green-soft: rgba(76, 147, 104, 0.12);
+  --red-soft: rgba(201, 81, 69, 0.12);
+  --orange-soft: rgba(202, 123, 50, 0.12);
+  --teal-soft: rgba(68, 143, 141, 0.12);
+  --purple-soft: rgba(135, 105, 164, 0.12);
+  --glass-bg: var(--surface-1);
+  --glass-bg-2: var(--surface-2);
+  --popover-bg: #fffefb;
+  --glass-border: var(--border-strong);
+  --glass-border-2: rgba(255, 255, 255, 0.78);
+  --inner-border: var(--border-subtle);
+  --hover: var(--surface-muted);
+  --active-pill: var(--surface-hover);
+  --kbd-bg: rgba(113, 82, 57, 0.08);
+  --shadow-card: 0 1px 2px rgba(83, 56, 36, 0.05), 0 12px 32px rgba(83, 56, 36, 0.1);
+  color-scheme: light;
+}
+
+.dark {
+  --page-bg: #08080b;
+  --surface-1: rgba(28, 28, 32, 0.55);
+  --surface-2: rgba(34, 34, 40, 0.72);
+  --surface-muted: rgba(255, 255, 255, 0.07);
+  --surface-hover: rgba(255, 255, 255, 0.12);
+  --surface-active: rgba(255, 255, 255, 0.16);
+  --text-primary: #f5f5f7;
+  --text-secondary: #a1a1a6;
+  --text-tertiary: #6e6e73;
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.1);
+  --accent-soft: rgba(10, 132, 255, 0.18);
+  --focus-ring: #0a84ff;
+  --track: rgba(255, 255, 255, 0.12);
+  --code-surface: rgba(28, 28, 32, 0.8);
+  --text-1: var(--text-primary);
+  --text-2: var(--text-secondary);
+  --text-3: var(--text-tertiary);
+  --glass-bg: var(--surface-1);
+  --glass-bg-2: var(--surface-2);
+  --popover-bg: #1c1c20;
+  --glass-border: var(--border-strong);
+  --glass-border-2: rgba(255, 255, 255, 0.16);
+  --inner-border: var(--border-subtle);
+  --hover: var(--surface-muted);
+  --active-pill: var(--surface-hover);
+  --kbd-bg: rgba(255, 255, 255, 0.1);
+  --green-soft: rgba(76, 147, 104, 0.18);
+  --red-soft: rgba(201, 81, 69, 0.18);
+  --orange-soft: rgba(202, 123, 50, 0.18);
+  --teal-soft: rgba(68, 143, 141, 0.18);
+  --purple-soft: rgba(135, 105, 164, 0.18);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html,
+body,
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .sidebar-drawer {
+    transform: none !important;
+  }
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--text-1);
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Every authenticated page owns the same width and shrink behavior inside the shell. */
+.dashboard-page {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Native dropdown menus are rendered outside the page surface by the browser.
+   Give both the closed control and its option popup the active theme colors so
+   dark mode never falls back to a white system menu. */
+select {
+  color: var(--text-1);
+  color-scheme: light;
+}
+.dark select {
+  color-scheme: dark;
+}
+select option,
+select optgroup {
+  background-color: var(--glass-bg-2);
+  color: var(--text-1);
+}
+
+/* Mesh background layer — the "material" that blur works on. */
+.app-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(55rem 38rem at 8% -12%, rgba(250, 212, 178, 0.42), transparent 60%),
+    radial-gradient(48rem 34rem at 108% 6%, rgba(246, 222, 182, 0.4), transparent 60%),
+    radial-gradient(42rem 42rem at 50% 118%, rgba(240, 192, 169, 0.27), transparent 60%),
+    var(--page-bg);
+}
+.dark .app-bg {
+  background:
+    radial-gradient(55rem 38rem at 8% -12%, rgba(14, 165, 233, 0.2), transparent 60%),
+    radial-gradient(48rem 34rem at 108% 6%, rgba(139, 92, 246, 0.18), transparent 60%),
+    radial-gradient(42rem 42rem at 50% 118%, rgba(190, 24, 93, 0.14), transparent 60%),
+    var(--page-bg);
+}
+
+.custom-background-layer {
+  contain: strict;
+  display: block;
+  position: fixed;
+  inset: -2%;
+  z-index: 0;
+  width: 104%;
+  height: 104%;
+  pointer-events: none;
+  object-fit: cover;
+  object-position: center;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  filter: blur(min(var(--custom-bg-blur, 0px), 10px));
+  transform: scale(1.02);
+}
+
+@media (max-width: 767px) {
+  .custom-background-layer {
+    filter: blur(min(var(--custom-bg-blur, 0px), 4px));
+  }
+}
+
+.glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+  backdrop-filter: blur(10px) saturate(1.15);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-card), inset 0 1px 0 var(--glass-border-2);
+}
+.glass-2 {
+  background: var(--glass-bg-2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid var(--glass-border-2);
+  box-shadow: var(--shadow-card);
+}
+.login-enter.glass-2 {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.api-keys-card {
+  background: var(--surface-1);
+  border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.api-key-stats {
+  margin-bottom: 0.75rem;
+}
+
+.api-key-stat {
+  min-height: 6rem;
+  border-color: var(--inner-border);
+  background: var(--surface-2);
+  box-shadow: inset 0 1px 0 var(--glass-border-2);
+}
+
+.api-key-row {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--inner-border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  box-shadow: inset 0 1px 0 var(--glass-border-2);
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.api-key-row:hover {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--inner-border));
+  background: var(--surface-hover);
+}
+
+.api-key-icon {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--inner-border));
+  border-radius: 0.625rem;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.api-key-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin-top: 0.625rem;
+  color: var(--text-3);
+  font-size: 0.625rem;
+  line-height: 1.35;
+}
+
+.api-key-meta span:first-child,
+.api-key-meta span:nth-child(2) {
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.api-key-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.api-key-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.375rem;
+}
+
+@media (max-width: 640px) {
+  .api-key-stats {
+    gap: 0.5rem;
+  }
+
+  .api-key-stat {
+    min-height: 5.5rem;
+    padding: 0.75rem;
+  }
+
+  .api-key-row {
+    flex-direction: column;
+  }
+
+  .api-key-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .api-key-actions > button {
+    flex: 1 1 0;
+  }
+}
+
+.health-card {
+  background: var(--surface-1);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.health-card-resource {
+  border: 1px solid var(--inner-border);
+  background: var(--surface-2);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--page-bg) 18%, transparent);
+}
+
+.health-resource-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+}
+
+@media (min-width: 700px) {
+  .health-resource-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.health-card-resource {
+  min-height: 0;
+}
+
+.health-card.endpoint-card {
+  width: 100%;
+}
+.health-card .health-stat-card {
+  min-height: 0;
+  padding: 0.65rem 0.75rem;
+}
+
+.health-card .health-stat-card > div:nth-child(2) {
+  margin-top: 0.35rem;
+  font-size: 1rem;
+}
+
+.health-card-resource:hover {
+  background: var(--surface-hover);
+}
+
+.health-card .health-stat-card {
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
+
+
+.health-card-inset {
+  background: var(--surface-muted);
+}
+
+
+/* ── Performance mode (solid surfaces, no backdrop-filter) ──────────────
+   Toggle: data-glass="off" on <html> — set by CustomAtmosphere when
+   settings.solidMode is true. Eliminates GPU blur compositing on every card.
+   One line to flip the entire dashboard from frosted-glass to solid. */
+html[data-glass="off"] .glass,
+html[data-glass="off"] .glass-2 {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-glass="off"] {
+  --surface-1: #fffefb;
+  --surface-2: #fffefb;
+  --glass-bg: #fffefb;
+  --glass-bg-2: #fffefb;
+  --glass-border: var(--border-subtle);
+  --glass-border-2: var(--border-subtle);
+}
+html[data-glass="off"].dark {
+  --surface-1: #161618;
+  --surface-2: #1a1a1e;
+  --glass-bg: #161618;
+  --glass-bg-2: #1a1a1e;
+  --glass-border: var(--border-subtle);
+  --glass-border-2: var(--border-subtle);
+}
+/* Solid mode also skips the custom-background-layer blur for perf. */
+html[data-glass="off"] .custom-background-layer {
+  filter: none;
+}
+
+
+
+/* A custom image is already a costly full-screen backdrop. Keep the frosted
+   look, but avoid stacking the maximum blur on every card. */
+.custom-background-layer ~ .relative.z-10 .glass {
+  -webkit-backdrop-filter: blur(6px) saturate(1.1);
+  backdrop-filter: blur(6px) saturate(1.1);
+}
+.custom-background-layer ~ .relative.z-10 .glass-2 {
+  -webkit-backdrop-filter: blur(8px) saturate(1.1);
+  backdrop-filter: blur(8px) saturate(1.1);
+}
+
+/* Keeps a container scrollable without a visible scrollbar track — used by
+   the sidebar, which is tight enough that a scrollbar reads as clutter. */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Thin scrollbar that fades in on hover/focus and out when idle — used by
+   the sidebar nav area so it stays scrollable without permanent clutter. */
+.scrollbar-fade {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s;
+}
+.scrollbar-fade:hover,
+.scrollbar-fade:focus-within {
+  scrollbar-color: var(--border-strong) transparent;
+}
+.scrollbar-fade::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-fade::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-fade::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+.scrollbar-fade:hover::-webkit-scrollbar-thumb,
+.scrollbar-fade:focus-within::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--hover), var(--track));
+  border-radius: 8px;
+}
+
+
+
+
+/* ── Theme transition ───────────────────────────────────────────────────────
+   Crossfade the snapshots instead of clipping a full glass/chart surface. */
+html[data-theme-wipe]::view-transition-old(root),
+html[data-theme-wipe]::view-transition-new(root) {
+  mix-blend-mode: normal;
+  backface-visibility: hidden;
+}
+html[data-theme-wipe]::view-transition-old(root) {
+  z-index: 0;
+  animation: theme-fade-out 160ms ease-out both;
+}
+html[data-theme-wipe]::view-transition-new(root) {
+  z-index: 1;
+  animation: theme-fade-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes theme-fade-out {
+  to { opacity: 0; }
+}
+
+@keyframes theme-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+
+

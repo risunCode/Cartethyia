@@ -2,7 +2,7 @@ import * as matchers from "@testing-library/jest-dom/matchers";
 import { afterEach, expect } from "vitest";
 
 expect.extend(matchers);
-import { cleanup } from "@testing-library/react";
+import { cleanup } from "@solidjs/testing-library";
 
 // `globals: false` in vite.config.ts means Testing Library's own auto-cleanup
 // (which hooks the global `afterEach`) never registers - without this, every

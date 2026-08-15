@@ -1,7 +1,10 @@
 export const ROUTES = {
-  landing: "/",
+  landing: "/home",
   consoleLogin: "/console/login",
   consoleOverview: "/console/overview",
+  consoleUsage: "/console/usage",
+  consoleProviders: "/console/providers",
+  consoleSettings: "/console/settings",
 } as const;
 
 export function isConsolePath(pathname: string): boolean {

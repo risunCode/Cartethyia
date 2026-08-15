@@ -1,25 +1,36 @@
-import type { ReactNode } from "react";
+/* @jsxImportSource solid-js */
+
+import { Show, type JSX } from "solid-js";
 import { StatePanel, type StatePanelKind } from "../ui/state";
 
 export interface AsyncStateProps {
   loading: boolean;
   error: boolean;
   empty?: boolean;
-  loadingView?: ReactNode;
-  errorView?: ReactNode;
-  emptyView?: ReactNode;
-  children: ReactNode;
+  loadingView?: JSX.Element;
+  errorView?: JSX.Element;
+  emptyView?: JSX.Element;
+  children: JSX.Element;
 }
 
 /** Standardizes loading, error, and empty branches without hiding page semantics. */
-export function AsyncState({ loading, error, empty = false, loadingView, errorView, emptyView, children }: AsyncStateProps) {
-  if (loading) return <>{loadingView ?? <StatePanel kind="loading" />}</>;
-  if (error) return <>{errorView ?? <StatePanel kind="error" />}</>;
-  if (empty) return <>{emptyView ?? <StatePanel kind="empty" />}</>;
-  return <>{children}</>;
+export function AsyncState(props: AsyncStateProps): JSX.Element {
+  return (
+    <Show when={props.loading} fallback={
+      <Show when={props.error} fallback={
+        <Show when={props.empty} fallback={props.children}>
+          {props.emptyView ?? <StatePanel kind="empty" />}
+        </Show>
+      }>
+        {props.errorView ?? <StatePanel kind="error" />}
+      </Show>
+    }>
+      {props.loadingView ?? <StatePanel kind="loading" />}
+    </Show>
+  );
 }
 
 /** Builds a compact state panel for callers that only need copy and an optional action. */
-export function StateView({ kind, title, description, action }: { kind: StatePanelKind; title: string; description?: string; action?: ReactNode }) {
-  return <StatePanel kind={kind} title={title} description={description} action={action} />;
+export function StateView(props: { kind: StatePanelKind; title: string; description?: string; action?: JSX.Element }): JSX.Element {
+  return <StatePanel kind={props.kind} title={props.title} description={props.description} action={props.action} />;
 }

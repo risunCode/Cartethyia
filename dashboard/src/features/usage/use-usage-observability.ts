@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { daemonFailure, daemonGet } from "../../lib/daemon-api";
+import { createQuery } from "@tanstack/solid-query";
+import { consoleFailure, consoleGet } from "../../lib/console-api";
 import type { ClientDistributionItem } from "./client-distribution";
 import { serializeTelemetryQuery } from "../../composables/usage/use-usage-resource";
 
@@ -107,7 +107,7 @@ function parseClients(value: unknown): ClientDistributionData {
 function queryState<T>(query: { data?: T; isLoading: boolean; error: unknown }): UsageState<T> {
   if (query.isLoading) return { data: undefined, state: "loading", errorMessage: null };
   if (query.error !== null) {
-    const failure = daemonFailure(query.error);
+    const failure = consoleFailure(query.error);
     return {
       data: undefined,
       state: failure.code === "not_found" || failure.code === "unavailable" ? "unavailable" : "degraded",
@@ -122,11 +122,11 @@ function useUsageQuery<T>(
   route: string,
   parser: (value: unknown) => T,
 ) {
-  return useQuery({
+  return createQuery(() => ({
     queryKey: key,
-    queryFn: async () => parser(await daemonGet<unknown>(route)),
+    queryFn: async () => parser(await consoleGet<unknown>(route)),
     refetchInterval: 10_000,
-  });
+  }));
 }
 
 export function useUsageObservability(period: UsagePeriod, metric: UsageMetric) {
@@ -147,9 +147,9 @@ export function useUsageObservability(period: UsagePeriod, metric: UsageMetric) 
     parseClients,
   );
   return {
-    summary: queryState(summaryQuery),
-    buckets: queryState(bucketsQuery),
-    clients: queryState(clientsQuery),
+    summary: () => queryState(summaryQuery),
+    buckets: () => queryState(bucketsQuery),
+    clients: () => queryState(clientsQuery),
     metric,
   };
 }

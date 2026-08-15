@@ -1,5 +1,5 @@
 import { ApiError, apiRaw } from "../../lib/api";
-import { DaemonContractError } from "../../lib/daemon-api";
+import { ConsoleContractError } from "../../lib/console-api";
 
 export const MAX_BACKUP_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 
@@ -30,7 +30,7 @@ export interface ToolResult {
 
 /** Parses bounded tool operation results and discards arbitrary daemon metadata. */
 export function parseToolResult(value: unknown): ToolResult {
-  if (!isRecord(value)) throw new DaemonContractError("invalid_contract", "tool result is invalid", 502);
+  if (!isRecord(value)) throw new ConsoleContractError("invalid_contract", "tool result is invalid", 502);
   return {
     ok: value.ok === true,
     detail: boundedString(value.detail, "No operator detail supplied"),
@@ -49,7 +49,7 @@ function boundedString(value: unknown, fallback: string, max = 160): string {
 
 /** Parses the daemon runtime settings while discarding arbitrary metadata. */
 export function parseRuntimeSettings(value: unknown): RuntimeSettings {
-  if (!isRecord(value)) throw new DaemonContractError("invalid_contract", "runtime settings are invalid", 502);
+  if (!isRecord(value)) throw new ConsoleContractError("invalid_contract", "runtime settings are invalid", 502);
   const flags: Record<string, boolean> = {};
   if (isRecord(value.flags)) {
     for (const [key, flag] of Object.entries(value.flags)) {
@@ -66,7 +66,7 @@ export function parseRuntimeSettings(value: unknown): RuntimeSettings {
 
 /** Parses a bounded backup list and rejects malformed daemon contracts. */
 export function parseBackupList(value: unknown): readonly BackupRecord[] {
-  if (!isRecord(value) || !Array.isArray(value.items)) throw new DaemonContractError("invalid_contract", "backup list is invalid", 502);
+  if (!isRecord(value) || !Array.isArray(value.items)) throw new ConsoleContractError("invalid_contract", "backup list is invalid", 502);
   return value.items.flatMap((item): BackupRecord[] => {
     if (!isRecord(item) || typeof item.id !== "string" || item.id.length === 0 || typeof item.createdAt !== "string") return [];
     const sizeBytes = typeof item.sizeBytes === "number" && Number.isSafeInteger(item.sizeBytes) && item.sizeBytes >= 0 ? item.sizeBytes : null;
@@ -77,7 +77,7 @@ export function parseBackupList(value: unknown): readonly BackupRecord[] {
 
 /** Parses a restore result without retaining arbitrary daemon metadata. */
 export function parseRestoreResult(value: unknown): RestoreResult {
-  if (!isRecord(value) || typeof value.applied !== "boolean") throw new DaemonContractError("invalid_contract", "restore result is invalid", 502);
+  if (!isRecord(value) || typeof value.applied !== "boolean") throw new ConsoleContractError("invalid_contract", "restore result is invalid", 502);
   const changed = Array.isArray(value.changed)
     ? value.changed.filter((item): item is string => typeof item === "string" && /^[a-zA-Z0-9_.:/-]{1,120}$/.test(item)).slice(0, 100)
     : [];

@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { daemonFailure, daemonGet } from "../../lib/daemon-api";
+import { useQuery } from "@tanstack/solid-query";
+import { consoleFailure, consoleGet } from "../../lib/console-api";
 import { sanitizeErrorMessage } from "../../lib/api";
 export type LifecycleEvent =
   | "incoming"
@@ -115,27 +115,26 @@ function parsePayload(value: unknown): ConsoleEvidence[] {
 }
 
 function useConsoleEvidenceQuery() {
-  return useQuery({
+  return useQuery(() => ({
     queryKey: ["v2", "console", "logs"],
-    queryFn: async () => parsePayload(await daemonGet<ConsolePayload>(`/console/logs?limit=${MAX_EVENTS}`)),
+    queryFn: async () => parsePayload(await consoleGet<ConsolePayload>(`/console/logs?limit=${MAX_EVENTS}`)),
     refetchInterval: 5_000,
-  });
+  }));
 }
 
 export function useConsoleObservability() {
   const query = useConsoleEvidenceQuery();
-  const failure = query.error === null ? null : daemonFailure(query.error);
-  const state: ObservabilityState = query.isLoading
-    ? "loading"
-    : failure?.code === "not_found" || failure?.code === "unavailable"
-      ? "unavailable"
-      : failure
-        ? "degraded"
-        : "ready";
+  const failure = () => query.error == null ? null : consoleFailure(query.error);
+  const state = (): ObservabilityState => {
+    if (query.isPending) return "loading";
+    const currentFailure = failure();
+    if (currentFailure?.code === "not_found" || currentFailure?.code === "unavailable") return "unavailable";
+    return currentFailure ? "degraded" : "ready";
+  };
   return {
-    events: query.data,
-    state,
-    errorMessage: failure?.message ?? null,
+    get events() { return query.data; },
+    get state() { return state(); },
+    get errorMessage() { return failure()?.message ?? null; },
     refetch: query.refetch,
   };
 }

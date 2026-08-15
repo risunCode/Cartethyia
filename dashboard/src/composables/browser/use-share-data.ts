@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { createSignal, createEffect, onCleanup, type Accessor } from "solid-js";
 
 export interface ShareApiKey {
   readonly id: string;
@@ -45,10 +45,10 @@ export interface ShareSetupData {
   readonly expiresAt: string;
 }
 
-interface ShareDataState<TData> {
-  readonly data: TData | null;
-  readonly error: string | null;
-  readonly loading: boolean;
+export interface ShareDataState<TData> {
+  readonly data: Accessor<TData | null>;
+  readonly error: Accessor<string | null>;
+  readonly loading: Accessor<boolean>;
 }
 
 interface ShareErrorResponse {
@@ -64,9 +64,11 @@ function errorMessage(code: string | undefined, fallback: string): string {
 
 /** Loads a public share payload and optionally refreshes it on a fixed interval. */
 export function useShareData<TData>(path: string, refreshMs?: number): ShareDataState<TData> {
-  const [state, setState] = useState<ShareDataState<TData>>({ data: null, error: null, loading: true });
+  const [data, setData] = createSignal<TData | null>(null);
+  const [error, setError] = createSignal<string | null>(null);
+  const [loading, setLoading] = createSignal(true);
 
-  useEffect(() => {
+  createEffect(() => {
     const controller = new AbortController();
     let active = true;
 
@@ -76,24 +78,36 @@ export function useShareData<TData>(path: string, refreshMs?: number): ShareData
         const payload = (await response.json()) as TData | ShareErrorResponse;
         if (!response.ok) {
           const code = typeof payload === "object" && payload !== null && "error" in payload ? payload.error : undefined;
-          if (active) setState({ data: null, error: errorMessage(code, "Unable to load shared data."), loading: false });
+          if (active) {
+            setData(null);
+            setError(errorMessage(code, "Unable to load shared data."));
+            setLoading(false);
+          }
           return;
         }
-        if (active) setState({ data: payload as TData, error: null, loading: false });
+        if (active) {
+          setData(() => payload as TData);
+          setError(null);
+          setLoading(false);
+        }
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
-        if (active) setState({ data: null, error: "Unable to reach the Cartethyia gateway.", loading: false });
+        if (active) {
+          setData(null);
+          setError("Unable to reach the Cartethyia gateway.");
+          setLoading(false);
+        }
       }
     }
 
     void load();
     const interval = refreshMs === undefined ? undefined : window.setInterval(() => void load(), refreshMs);
-    return () => {
+    onCleanup(() => {
       active = false;
       controller.abort();
       if (interval !== undefined) window.clearInterval(interval);
-    };
-  }, [path, refreshMs]);
+    });
+  });
 
-  return state;
+  return { data, error, loading };
 }

@@ -1,4 +1,6 @@
-import { forwardRef, type ButtonHTMLAttributes } from "react";
+/* @jsxImportSource solid-js */
+
+import { splitProps, type JSX } from "solid-js";
 import { cn } from "../../lib/cn";
 
 export type ButtonVariant = "default" | "secondary" | "ghost" | "danger" | "outline";
@@ -18,23 +20,24 @@ const sizes: Record<ButtonSize, string> = {
   icon: "h-9 w-9",
 };
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends JSX.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
+  className?: string;
 }
 
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "default", size = "md", ...props }, ref) => (
+/** A themed button that preserves native button semantics and keyboard behavior. */
+export function Button(props: ButtonProps): JSX.Element {
+  const [local, rest] = splitProps(props, ["className", "variant", "size"]);
+  return (
     <button
-      ref={ref}
-      className={cn(
+      {...rest}
+      class={cn(
         "inline-flex items-center justify-center rounded-[var(--radius-control)] font-medium transition-[color,background-color,border-color,opacity,transform] duration-150 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring)]",
-        variants[variant],
-        sizes[size],
-        className
+        variants[local.variant ?? "default"],
+        sizes[local.size ?? "md"],
+        local.className,
       )}
-      {...props}
     />
-  )
-);
-Button.displayName = "Button";
+  );
+}

@@ -16,6 +16,23 @@ describe("dashboard V2 API client", () => {
     expect(unauthorized).toHaveBeenCalledOnce();
   });
 
+  test("keeps login failures local without invoking the protected-route handler", async () => {
+    const unauthorized = vi.fn();
+    setUnauthorizedHandler(unauthorized);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 401 })));
+
+    await expect(api("/v2/admin/auth/login", { method: "POST", body: "{}" })).rejects.toMatchObject({ status: 401, code: "error" });
+    expect(unauthorized).not.toHaveBeenCalled();
+  });
+
+  test("rejects GET bodies before issuing a network request", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api("/v2/admin/settings", { method: "GET", body: "{}" })).rejects.toMatchObject({ status: 400, code: "invalid_request" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test("rejects V1 and absolute dashboard routes before fetch", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

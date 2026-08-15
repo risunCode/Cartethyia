@@ -1,42 +1,43 @@
-import { Eye, EyeOff, Lock } from "lucide-react";
-import { useState, type FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+/* @jsxImportSource solid-js */
+
+import { Eye, EyeOff, Lock } from "lucide-solid";
+import { createSignal } from "solid-js";
+import { useNavigate, useSearchParams } from "@solidjs/router";
+
 import { ApiError } from "../../lib/api";
-import { DaemonContractError, daemonPost } from "../../lib/daemon-api";
-import { Button } from "../../components/ui/button";
-import { Input, Label } from "../../components/ui/input";
+import { ConsoleContractError, consolePost } from "../../lib/console-api";
 import { ROUTES, safeConsoleNextPath } from "../../routes";
 
 const LOGIN_BACKDROP_URL = `${import.meta.env.BASE_URL}default-backgrounds.webp`;
 const LOGIN_LOGO_URL = `${import.meta.env.BASE_URL}favicon.webp`;
 
 export function LoginPage() {
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [retryAfter, setRetryAfter] = useState<number | null>(null);
+  const [password, setPassword] = createSignal("");
+  const [showPassword, setShowPassword] = createSignal(false);
+  const [busy, setBusy] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+  const [retryAfter, setRetryAfter] = createSignal<number | null>(null);
   const navigate = useNavigate();
   const [params] = useSearchParams();
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (busy || !password) return;
+  const submit = async (event: SubmitEvent): Promise<void> => {
+    event.preventDefault();
+    if (busy() || !password()) return;
     setBusy(true);
     setError(null);
+    setRetryAfter(null);
     try {
-      await daemonPost("/auth/login", { username: "admin", password, remember: true });
-      const next = safeConsoleNextPath(params.get("next"));
+      await consolePost("/auth/login", { username: "admin", password: password(), remember: true });
+      const nextParam = params.next;
+      const next = safeConsoleNextPath(typeof nextParam === "string" ? nextParam : undefined);
       navigate(next.startsWith("/") ? next : ROUTES.consoleOverview.replace("/console", ""), { replace: true });
-    } catch (err) {
-      if (err instanceof ApiError || err instanceof DaemonContractError) {
-        const status = err.status;
-        if (status === 429) {
-          const body = err.message;
+    } catch (caught: unknown) {
+      if (caught instanceof ApiError || caught instanceof ConsoleContractError) {
+        if (caught.status === 429) {
           setRetryAfter(30);
-          setError(body || "Too many attempts. Try again later.");
+          setError(caught.message || "Too many attempts. Try again later.");
         } else {
-          setError(err.message);
+          setError(caught.message);
         }
       } else {
         setError("Unexpected error");
@@ -47,67 +48,39 @@ export function LoginPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[var(--page-bg)] p-4 text-[var(--text-primary)]">
-      <div
-        aria-hidden="true"
-        data-login-backdrop
-        className="absolute inset-0 bg-cover bg-center opacity-25 saturate-[0.85] dark:opacity-60 dark:saturate-100"
-        style={{ backgroundImage: `url(${LOGIN_BACKDROP_URL})` }}
-      />
-      <div aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(110deg,rgba(247,243,237,0.96),rgba(247,243,237,0.8)_52%,rgba(247,243,237,0.5))] dark:bg-[linear-gradient(110deg,rgba(4,13,24,0.78),rgba(4,13,24,0.3)_52%,rgba(4,13,24,0.62))]" />
-      <div aria-hidden="true" className="absolute inset-0 bg-[radial-gradient(circle_at_18%_10%,rgba(217,119,87,0.16),transparent_32%),radial-gradient(circle_at_88%_88%,rgba(68,143,141,0.12),transparent_30%)] dark:bg-[radial-gradient(circle_at_18%_10%,rgba(217,119,87,0.2),transparent_32%),radial-gradient(circle_at_88%_88%,rgba(68,143,141,0.16),transparent_30%)]" />
-      <form
-        onSubmit={submit}
-        className="login-enter glass-2 relative w-full max-w-[26rem] rounded-[var(--radius-xl)] border-[var(--glass-border)] p-6 text-[var(--text-primary)] shadow-[0_24px_80px_rgba(83,56,36,0.16)] sm:p-8 dark:border-white/15 dark:shadow-[0_24px_90px_rgba(0,0,0,0.42)]"
-      >
-        <div className="mb-7 flex flex-col items-center gap-3 text-center">
-          <div className="grid h-16 w-16 place-items-center overflow-hidden rounded-[22px] border border-black/10 bg-white/65 shadow-[0_12px_30px_rgba(83,56,36,0.14)] dark:border-white/20 dark:bg-white/10 dark:shadow-[0_10px_30px_rgba(0,0,0,0.24)]">
-            <img src={LOGIN_LOGO_URL} alt="" width="64" height="64" className="h-full w-full object-cover" />
+    <div class="relative flex min-h-screen items-center justify-center overflow-hidden bg-[var(--page-bg)] p-4 text-[var(--text-primary)]">
+      <div aria-hidden="true" data-login-backdrop class="absolute inset-0 bg-cover bg-center opacity-25 saturate-[0.85] dark:opacity-60 dark:saturate-100" style={{ "background-image": `url(${LOGIN_BACKDROP_URL})` }} />
+      <div aria-hidden="true" class="absolute inset-0 bg-[linear-gradient(110deg,rgba(247,243,237,0.96),rgba(247,243,237,0.8)_52%,rgba(247,243,237,0.5))] dark:bg-[linear-gradient(110deg,rgba(4,13,24,0.78),rgba(4,13,24,0.3)_52%,rgba(4,13,24,0.62))]" />
+      <div aria-hidden="true" class="absolute inset-0 bg-[radial-gradient(circle_at_18%_10%,rgba(217,119,87,0.16),transparent_32%),radial-gradient(circle_at_88%_88%,rgba(68,143,141,0.12),transparent_30%)] dark:bg-[radial-gradient(circle_at_18%_10%,rgba(217,119,87,0.2),transparent_32%),radial-gradient(circle_at_88%_88%,rgba(68,143,141,0.16),transparent_30%)]" />
+      <form onSubmit={submit} class="login-enter glass-2 relative w-full max-w-[26rem] rounded-[var(--radius-xl)] border-[var(--glass-border)] p-6 text-[var(--text-primary)] shadow-[0_24px_80px_rgba(83,56,36,0.16)] sm:p-8 dark:border-white/15 dark:shadow-[0_24px_90px_rgba(0,0,0,0.42)]">
+        <div class="mb-7 flex flex-col items-center gap-3 text-center">
+          <div class="grid h-16 w-16 place-items-center overflow-hidden rounded-[22px] border border-black/10 bg-white/65 shadow-[0_12px_30px_rgba(83,56,36,0.14)] dark:border-white/20 dark:bg-white/10 dark:shadow-[0_10px_30px_rgba(0,0,0,0.24)]">
+            <img src={LOGIN_LOGO_URL} alt="" width="64" height="64" class="h-full w-full object-cover" />
           </div>
           <div>
-            <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--accent)]">Private workspace</p>
-            <h1 className="text-2xl font-bold tracking-tight text-[var(--text-1)]">Cartethyia</h1>
-            <p className="mt-1 text-sm text-[var(--text-2)]">Sign in to manage your gateway</p>
+            <p class="mb-1 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--accent)]">Private workspace</p>
+            <h1 class="text-2xl font-bold tracking-tight text-[var(--text-1)]">Cartethyia</h1>
+            <p class="mt-1 text-sm text-[var(--text-2)]">Sign in to manage your gateway</p>
           </div>
         </div>
 
-        <Label htmlFor="password">Password</Label>
-        <div className="relative">
-          <Lock size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-3)]" />
-          <Input
-            id="password"
-            name="password"
-            type={showPassword ? "text" : "password"}
-            autoComplete="current-password"
-            autoFocus
-            className="h-11 bg-white/55 pr-10 pl-9 shadow-sm dark:bg-white/5"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Enter your password…"
-          />
-          <button
-            type="button"
-            aria-label={showPassword ? "Hide secret" : "Show secret"}
-            onClick={() => setShowPassword((visible) => !visible)}
-            className="absolute top-1/2 right-3 -translate-y-1/2 rounded-md p-1 text-[var(--text-3)] transition-colors hover:text-[var(--text-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
-          >
-            {showPassword ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
+        <label for="password" class="mb-1.5 block text-xs font-semibold text-[var(--text-2)]">Password</label>
+        <div class="relative">
+          <Lock size={15} aria-hidden="true" class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-3)]" />
+          <input id="password" name="password" type={showPassword() ? "text" : "password"} autocomplete="current-password" autofocus class="h-11 w-full rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-white/55 pr-10 pl-9 text-sm shadow-sm outline-none focus:border-[var(--accent)] dark:bg-white/5" value={password()} onInput={(event) => setPassword(event.currentTarget.value)} placeholder="Enter your password…" />
+          <button type="button" aria-label={showPassword() ? "Hide secret" : "Show secret"} onClick={() => setShowPassword((visible) => !visible)} class="absolute top-1/2 right-3 -translate-y-1/2 rounded-md p-1 text-[var(--text-3)] transition-colors hover:text-[var(--text-1)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]">
+            {showPassword() ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
           </button>
         </div>
 
-        {error && (
-          <p role="alert" aria-live="polite" className="mt-2.5 text-xs font-medium text-[var(--red)]">
-            {error}
-            {retryAfter !== null && ` (retry in ~${retryAfter}s)`}
-          </p>
-        )}
+        {error() && <p role="alert" aria-live="polite" class="mt-2.5 text-xs font-medium text-[var(--red)]">{error()}{retryAfter() !== null && ` (retry in ~${retryAfter()}s)`}</p>}
 
-        <Button type="submit" disabled={busy || !password} className="mt-5 w-full">
-          {busy ? "Signing in…" : "Sign in"}
-        </Button>
+        <button type="submit" disabled={busy() || !password()} class="mt-5 h-11 w-full rounded-[var(--radius-control)] bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--accent-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50">
+          {busy() ? "Signing in…" : "Sign in"}
+        </button>
 
-        <div className="mt-5 text-center text-[11px] text-[var(--text-3)]">
-          <p>Password is set via <code className="rounded bg-[var(--surface-1)] px-1 py-0.5 font-mono text-[10px] text-[var(--text-2)]">CONSOLE_PASSWORD</code> in <code className="rounded bg-[var(--surface-1)] px-1 py-0.5 font-mono text-[10px] text-[var(--text-2)]">.env</code></p>
+        <div class="mt-5 text-center text-[11px] text-[var(--text-3)]">
+          <p>Password is set via <code class="rounded bg-[var(--surface-1)] px-1 py-0.5 font-mono text-[10px] text-[var(--text-2)]">CONSOLE_PASSWORD</code> in <code class="rounded bg-[var(--surface-1)] px-1 py-0.5 font-mono text-[10px] text-[var(--text-2)]">.env</code></p>
         </div>
       </form>
     </div>

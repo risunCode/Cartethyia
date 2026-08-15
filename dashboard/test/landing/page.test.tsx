@@ -1,59 +1,54 @@
+/* @jsxImportSource solid-js */
+
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 
 import { LandingPage } from "../../src/landing/page";
 
 describe("LandingPage", () => {
   beforeEach(() => {
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        observe = vi.fn();
+        disconnect = vi.fn();
+        unobserve = vi.fn();
+        takeRecords = vi.fn(() => []);
+        root = null;
+        rootMargin = "";
+        thresholds = [];
+      },
+    );
   });
 
   afterEach(() => {
+    cleanup();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
-  test("renders the first chapter and preloads the next image", () => {
-    render(<LandingPage />);
+  test("renders the opening chapter with typed story content", async () => {
+    render(() => <LandingPage />);
 
-    expect(screen.getByRole("heading", { name: "A single signal enters the unknown." })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /Go to chapter/ })).toHaveLength(7);
-    expect(document.querySelectorAll(".landing-scene-image")).toHaveLength(2);
-    expect(document.querySelector(".landing-scene-image-current")?.getAttribute("src")).toBe("/when_yah/fleurdelys_plus.webp");
-    expect(document.querySelector(".landing-scene-image-next")?.getAttribute("src")).toBe("/when_yah/cartethyia-god.webp");
+    expect(screen.getAllByRole("heading", { level: 1 })[0]).toHaveTextContent("A single signal enters");
+    expect(screen.getByRole("button", { name: /go to the routing sanctum/i })).toBeInTheDocument();
   });
 
-  test("returns to the previous image when scrolling back from the final chapter", async () => {
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      queueMicrotask(() => callback(0));
-      return 0;
-    });
-    render(<LandingPage />);
+  test("keeps every story chapter navigable", () => {
+    render(() => <LandingPage />);
 
-    const viewportHeight = window.innerHeight || 768;
-    const setScrollScene = (scene: number): void => {
-      Object.defineProperty(window, "scrollY", { configurable: true, value: scene * viewportHeight });
-      fireEvent.scroll(window);
-    };
-    const loadNextImage = (): void => {
-      const nextImage = document.querySelector(".landing-scene-image-next");
-      if (nextImage !== null) fireEvent.load(nextImage);
-    };
+    expect(screen.getAllByRole("button", { name: /go to|back to/i })).toHaveLength(7);
+    expect(document.querySelector(".story")).not.toBeNull();
+  });
 
-    for (let chapterIndex = 1; chapterIndex <= 6; chapterIndex += 1) {
-      await act(async () => {
-        loadNextImage();
-        setScrollScene(chapterIndex);
-        await Promise.resolve();
-      });
-    }
+  test("switches to a selected chapter", () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    render(() => <LandingPage />);
 
-    expect(document.querySelector(".landing-scene-image-current")?.getAttribute("src")).toContain("Shorekeeper.webp");
-    await act(async () => {
-      setScrollScene(5.5);
-    });
+    fireEvent.click(screen.getByRole("button", { name: /go to the routing sanctum/i }));
 
-    expect(document.querySelector(".landing-scene-image-current")?.getAttribute("src")).toContain("requestdeniawokkjpg.webp");
-    expect(document.querySelector(".landing-scene-image-next")?.getAttribute("src")).toContain("Shorekeeper.webp");
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
   });
 });

@@ -1,5 +1,6 @@
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
+/* @jsxImportSource solid-js */
+
+import { render } from "solid-js/web";
 
 import { SharePage } from "./share-page";
 import "./index.css";
@@ -11,8 +12,4 @@ if (root === null) {
   throw new Error("Share root element is missing");
 }
 
-createRoot(root).render(
-  <StrictMode>
-    <SharePage />
-  </StrictMode>,
-);
+render(() => <SharePage />, root);

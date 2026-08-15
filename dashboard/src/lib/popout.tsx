@@ -1,13 +1,11 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
-import { createPortal } from "react-dom";
+/* @jsxImportSource solid-js */
+
+import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
+import { Portal } from "solid-js/web";
+
+export interface ElementRef<T extends HTMLElement> {
+  current: T | null;
+}
 
 /**
  * Popout — a fixed-position dropdown that portals its panel to `document.body`.
@@ -19,8 +17,8 @@ import { createPortal } from "react-dom";
  * How it avoids sizing/position jumps:
  * - The panel mounts visible, already `position: fixed` off the left edge
  *   (`left: -9999`) so it has a real layout height but is invisible.
- * - `useLayoutEffect` runs synchronously after the DOM is committed but
- *   before the browser paints, reads `offsetHeight`/`scrollWidth` from the
+ * - Solid's post-commit effect runs after the DOM is committed; it reads
+ *   `offsetHeight`/`scrollWidth` from the
  *   laid-out panel, and sets the exact fixed position in one state update.
  *   The user never sees the off-screen state.
  * - A `ResizeObserver` re-measures when the panel's content changes size
@@ -30,20 +28,11 @@ import { createPortal } from "react-dom";
  * `preferUp` opens above the trigger by default (for controls in a bottom
  * composer); it flips below only when there is more room there.
  */
-export function Popout({
-  open,
-  onClose,
-  trigger,
-  panel,
-  panelClassName,
-  width = 320,
-  preferUp = false,
-  matchTriggerWidth = true,
-}: {
+export function Popout(props: {
   open: boolean;
   onClose: () => void;
-  trigger: (ref: React.RefObject<HTMLButtonElement | null>) => ReactNode;
-  panel: (ref: React.RefObject<HTMLDivElement | null>) => ReactNode;
+  trigger: (ref: ElementRef<HTMLButtonElement>) => JSX.Element;
+  panel: (ref: ElementRef<HTMLDivElement>) => JSX.Element;
   panelClassName?: string;
   width?: number;
   preferUp?: boolean;
@@ -51,20 +40,20 @@ export function Popout({
   matchTriggerWidth?: boolean;
 }) {
 
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const triggerRef: ElementRef<HTMLButtonElement> = { current: null };
+  const panelRef: ElementRef<HTMLDivElement> = { current: null };
 
   // Off-screen but laid-out: real dimensions, nothing visible to paint.
-  const [style, setStyle] = useState<CSSProperties>({
+  const [style, setStyle] = createSignal<JSX.CSSProperties>({
     position: "fixed",
-    left: -9999,
-    top: 0,
-    width: `${width}px`,
-    zIndex: 9999,
+    left: "-9999px",
+    top: "0px",
+    width: `${props.width ?? 320}px`,
+    "z-index": 9999,
     visibility: "hidden",
   });
 
-  const position = useCallback(() => {
+  const position = (width = props.width ?? 320, preferUp = props.preferUp ?? false, matchTriggerWidth = props.matchTriggerWidth ?? true): void => {
     const triggerEl = triggerRef.current;
     const panelEl = panelRef.current;
     if (!triggerEl || !panelEl) return;
@@ -98,77 +87,79 @@ export function Popout({
     const maxHeight = flipUp ? Math.max(80, tr.top - margin * 2) : Math.max(80, vh - top - margin);
     setStyle({
       position: "fixed",
-      left,
-      top,
+      left: `${left}px`,
+      top: `${top}px`,
       width: `${pw}px`,
-      maxWidth: "calc(100vw - 16px)",
-      maxHeight: `${maxHeight}px`,
-      zIndex: 9999,
+      "max-width": "calc(100vw - 16px)",
+      "max-height": `${maxHeight}px`,
+      "z-index": 9999,
     });
-  }, [width, preferUp, matchTriggerWidth]);
+  };
 
-  // Position synchronously before paint whenever `open` toggles or the
-  // measured layout inputs change.
-  useLayoutEffect(() => {
-    if (!open) {
-      setStyle({ position: "fixed", left: -9999, top: 0, width: `${width}px`, zIndex: 9999, visibility: "hidden" });
+  // Solid commits refs before createEffect runs; keep the initial panel hidden
+  // and position it in the first microtask so no off-screen state is painted.
+  createEffect(() => {
+    if (!props.open) {
+      setStyle({ position: "fixed", left: "-9999px", top: "0px", width: `${props.width ?? 320}px`, "z-index": 9999, visibility: "hidden" });
       return;
     }
-    position();
-  }, [open, position, width]);
+    queueMicrotask(() => position(props.width ?? 320, props.preferUp ?? false, props.matchTriggerWidth ?? true));
+  });
 
   // Re-measure on scroll/resize while open.
-  useEffect(() => {
-    if (!open) return;
-    window.addEventListener("scroll", position, true);
-    window.addEventListener("resize", position);
-    return () => {
-      window.removeEventListener("scroll", position, true);
-      window.removeEventListener("resize", position);
-    };
-  }, [open, position]);
+  createEffect(() => {
+    if (!props.open) return;
+    const onScroll = (): void => position();
+    const onResize = (): void => position();
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    onCleanup(() => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    });
+  });
 
   // Re-measure when the panel's own size changes (async data load, search
   // filter, etc.) so the anchor stays correct without a scroll event.
-  useEffect(() => {
-    if (!open) return;
+  createEffect(() => {
+    if (!props.open) return;
     const panelEl = panelRef.current;
     if (!panelEl || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(() => position());
     ro.observe(panelEl);
-    return () => ro.disconnect();
-  }, [open, position]);
+    onCleanup(() => ro.disconnect());
+  });
 
   // Outside-click + Escape dismiss.
-  useEffect(() => {
-    if (!open) return;
+  createEffect(() => {
+    if (!props.open) return;
     const onPointerDown = (e: MouseEvent) => {
       const target = e.target as Node;
       if (triggerRef.current?.contains(target)) return;
       if (panelRef.current?.contains(target)) return;
-      onClose();
+      props.onClose();
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") props.onClose();
     };
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
-    return () => {
+    onCleanup(() => {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open, onClose]);
+    });
+  });
 
-  if (!open) return <>{trigger(triggerRef)}</>;
   return (
     <>
-      {trigger(triggerRef)}
-      {createPortal(
-        <div ref={panelRef} style={style} className={panelClassName}>
-          {panel(panelRef)}
-        </div>,
-        document.body,
-      )}
+      {props.trigger(triggerRef)}
+      <Show when={props.open}>
+        <Portal mount={document.body}>
+          <div ref={(element) => { panelRef.current = element; }} style={style()} class={props.panelClassName}>
+            {props.panel(panelRef)}
+          </div>
+        </Portal>
+      </Show>
     </>
   );
 }

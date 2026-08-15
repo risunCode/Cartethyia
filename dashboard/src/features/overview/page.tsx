@@ -1,13 +1,8 @@
-import { useMemo } from "react";
+/* @jsxImportSource solid-js */
 
-import { Activity, AlertTriangle, Clock3, Database, Globe, Server, ShieldAlert } from "lucide-react";
+import { Activity, AlertTriangle, Database, Globe, Server } from "lucide-solid";
+import { For, Show, type JSX } from "solid-js";
 
-import { ClipboardButton } from "../../components/patterns/clipboard-button";
-import { Badge } from "../../components/ui/badge";
-import { Button } from "../../components/ui/button";
-import { Card, CardHeader } from "../../components/ui/card";
-import { StatCard, StatePanel } from "../../components/ui/state";
-import type { DashboardSummary } from "../../lib/daemon-api";
 import { useDashboardHealth, type DashboardHealthState, type DashboardSummaryView, type DashboardViewState } from "./health";
 
 interface ProviderOverview {
@@ -34,7 +29,6 @@ interface OverviewData {
   };
   providers: ProviderOverview[];
   registered: string[];
-  daemon?: DashboardSummary;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -64,11 +58,7 @@ export function parseOverviewData(value: unknown): OverviewData | null {
     if (!isRecord(item) || typeof item.providerId !== "string" || !isFiniteNumber(item.requests) || !isFiniteNumber(item.inputTokens) || !isFiniteNumber(item.cachedTokens) || !isFiniteNumber(item.outputTokens) || !isFiniteNumber(item.errors)) return null;
     providers.push({ id: item.providerId, prefix: item.providerId, status: item.errors > 0 ? "warn" : "ok", requestsToday: item.requests, input: item.inputTokens, cached: item.cachedTokens, output: item.outputTokens, errors: item.errors, lastError: null });
   }
-  return {
-    totals: { requests, inputTokens, cachedTokens, outputTokens, errors, avgDurationMs, estimatedCostUsd },
-    providers,
-    registered: value.registered,
-  };
+  return { totals: { requests, inputTokens, cachedTokens, outputTokens, errors, avgDurationMs, estimatedCostUsd }, providers, registered: value.registered };
 }
 
 function countLabel(value: number | null): string {
@@ -77,7 +67,7 @@ function countLabel(value: number | null): string {
 
 function stateTitle(state: DashboardViewState): string {
   if (state === "degraded") return "Dashboard data degraded";
-  if (state === "offline") return "Daemon is offline";
+  if (state === "offline") return "Gateway is offline";
   if (state === "forbidden") return "Dashboard access forbidden";
   if (state === "unavailable") return "Dashboard health unavailable";
   if (state === "malformed") return "Invalid dashboard response";
@@ -87,16 +77,15 @@ function stateTitle(state: DashboardViewState): string {
 }
 
 function stateDescription(state: DashboardViewState, hasLastSafeResponse: boolean): string {
-  if (state === "degraded") return hasLastSafeResponse ? "Showing the last safe response while one or more daemon dependencies are degraded." : "The daemon reported degraded health; readiness is not guaranteed.";
-  if (state === "offline") return hasLastSafeResponse ? "The daemon could not be reached. Values below are stale and may no longer be current." : "The daemon could not be reached. Retry when the service is available.";
+  if (state === "degraded") return hasLastSafeResponse ? "Showing the last safe response while one or more dependencies are degraded." : "The gateway reported degraded health; readiness is not guaranteed.";
+  if (state === "offline") return hasLastSafeResponse ? "The gateway could not be reached. Values below may be stale." : "The gateway could not be reached. Retry when the service is available.";
   if (state === "forbidden") return "The current session is not authorized to read dashboard health.";
-  if (state === "unavailable") return "This dashboard capability is not available from the daemon.";
-  if (state === "malformed") return "The daemon response did not match the dashboard contract. No values from it were rendered.";
-  if (state === "empty") return "The daemon returned an empty response. No healthy defaults were substituted.";
-  if (state === "unknown") return "The daemon did not provide enough health evidence to determine readiness.";
+  if (state === "unavailable") return "This dashboard capability is not available.";
+  if (state === "malformed") return "The response did not match the dashboard contract.";
+  if (state === "empty") return "The gateway returned an empty response.";
+  if (state === "unknown") return "The gateway did not provide enough health evidence to determine readiness.";
   return "Live status from this Cartethyia instance.";
 }
-
 
 function healthLabel(state: DashboardHealthState): string {
   if (state === "ready") return "Ready";
@@ -105,83 +94,44 @@ function healthLabel(state: DashboardHealthState): string {
   return "Unknown";
 }
 
-function healthTone(state: DashboardHealthState): "ok" | "warn" | "err" | "default" {
-  if (state === "ready") return "ok";
-  if (state === "degraded") return "warn";
-  if (state === "offline") return "err";
-  return "default";
+function healthTone(state: DashboardHealthState): string {
+  if (state === "ready") return "text-[var(--green)]";
+  if (state === "degraded") return "text-[var(--yellow)]";
+  if (state === "offline") return "text-[var(--red)]";
+  return "text-[var(--text-2)]";
 }
 
+function Stat({ label, value, description }: { label: string; value: string; description: string }) {
+  return <div class="rounded-[14px] border border-[var(--inner-border)] bg-[var(--surface-muted)] p-3"><div class="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--text-3)]">{label}</div><div class="mt-1 truncate text-sm font-semibold text-[var(--text-1)]">{value}</div><div class="mt-1 text-[10px] text-[var(--text-2)]">{description}</div></div>;
+}
 
-function SummaryCards({ data }: { data: DashboardSummaryView }) {
-  const health = data.health;
-  const dependencyEntries = Object.entries(health.dependencies);
-  return (
-    <>
-      <Card surface="base" className="health-card">
-        <CardHeader title="Daemon summary" icon={Server} sub="Facts reported by /v2/admin/dashboard" />
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
-          <StatCard label="Version" icon={Activity} tone="info" value={data.version ?? "Unknown"} description="Daemon version" />
-          <StatCard label="Environment" icon={Globe} tone="neutral" value={data.environment ?? "Unknown"} description="Reported environment" />
-          <StatCard label="Uptime" icon={Clock3} tone="neutral" value={data.uptime ?? "Unknown"} description="Reported uptime" />
-          <StatCard label="Accounts" icon={Globe} tone="success" value={countLabel(data.accountCount)} description="Configured accounts" />
-          <StatCard label="Proxies" icon={Globe} tone="info" value={countLabel(data.proxyCount)} description="Configured proxies" />
-          <StatCard label="API keys" icon={ShieldAlert} tone="neutral" value={countLabel(data.apiKeyCount)} description="Configured keys" />
-        </div>
-      </Card>
-
-      <Card surface="base" className="health-card">
-        <CardHeader title="Dependency health" icon={Database} sub="Readiness is shown only when supplied by the daemon" />
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={healthTone(health.status)}>{healthLabel(health.status)} overall</Badge>
-          {dependencyEntries.length === 0 ? (
-            <span className="text-xs text-[var(--text-2)]">No dependency health reported · Unknown</span>
-          ) : (
-            dependencyEntries.map(([name, state]) => <Badge key={name} tone={healthTone(state)}>{name}: {healthLabel(state)}</Badge>)
-          )}
-        </div>
-      </Card>
-    </>
-  );
+function SummaryCards(props: { data: DashboardSummaryView }) {
+  const dependencyEntries = Object.entries(props.data.health.dependencies);
+  return <>
+    <section class="health-card rounded-[18px] border border-[var(--inner-border)] bg-[var(--surface)] p-4">
+      <div class="mb-3 flex items-center gap-2"><Server size={16} aria-hidden="true" /><div><h2 class="text-sm font-semibold">Gateway summary</h2><p class="text-[11px] text-[var(--text-2)]">Facts reported by the console API</p></div></div>
+      <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6"><Stat label="Version" value={props.data.version ?? "Unknown"} description="Gateway version" /><Stat label="Environment" value={props.data.environment ?? "Unknown"} description="Reported environment" /><Stat label="Uptime" value={props.data.uptime ?? "Unknown"} description="Reported uptime" /><Stat label="Accounts" value={countLabel(props.data.accountCount)} description="Configured accounts" /><Stat label="Proxies" value={countLabel(props.data.proxyCount)} description="Configured proxies" /><Stat label="API keys" value={countLabel(props.data.apiKeyCount)} description="Configured keys" /></div>
+    </section>
+    <section class="health-card rounded-[18px] border border-[var(--inner-border)] bg-[var(--surface)] p-4"><div class="mb-3 flex items-center gap-2"><Database size={16} aria-hidden="true" /><div><h2 class="text-sm font-semibold">Dependency health</h2><p class="text-[11px] text-[var(--text-2)]">Readiness supplied by the gateway</p></div></div><div class="flex flex-wrap gap-2"><span class={`text-xs font-semibold ${healthTone(props.data.health.status)}`}>{healthLabel(props.data.health.status)} overall</span><For each={dependencyEntries}>{([name, state]) => <span class={`text-xs ${healthTone(state)}`}>{name}: {healthLabel(state)}</span>}</For></div></section>
+  </>;
 }
 
 export function OverviewPage() {
-  const baseUrl = useMemo(() => `${window.location.origin}/v1`, []);
+  const baseUrl = `${window.location.origin}/v1`;
   const health = useDashboardHealth();
-  if (health.isLoading) return <StatePanel kind="loading" title="Loading overview" description="Collecting daemon health…" />;
-  if (!health.data && health.state !== "ready" && health.state !== "unknown") {
-    const kind = health.state === "empty" ? "empty" : health.state === "degraded" ? "degraded" : "error";
-    return <StatePanel kind={kind} title={stateTitle(health.state)} description={stateDescription(health.state, false)} action={<Button variant="secondary" onClick={() => void health.refetch()}>Retry</Button>} />;
-  }
-  if (!health.data) return <StatePanel kind="degraded" title="Dashboard health unknown" description={stateDescription("unknown", false)} action={<Button variant="secondary" onClick={() => void health.refetch()}>Retry</Button>} />;
+  return <div class="dashboard-page space-y-4">
+    <Show when={!health.isLoading} fallback={<StatePanel title="Loading overview" description="Collecting gateway health…" />}>
+      <Show when={health.data} fallback={<StatePanel title={stateTitle(health.state)} description={stateDescription(health.state, false)} action={<button type="button" onClick={() => void health.refetch()} class="rounded-[var(--radius-control)] border border-[var(--inner-border)] px-3 py-2 text-xs font-semibold">Retry</button>} />}>
+        {(data) => <>
+          <section class="health-card rounded-[18px] border border-[var(--inner-border)] bg-[var(--surface)] p-4"><div class="mb-3 flex items-center gap-2"><Globe size={16} aria-hidden="true" /><div><h2 class="text-sm font-semibold">API Endpoint</h2><p class="text-[11px] text-[var(--text-2)]">Base URL for compatible clients</p></div></div><code class="block overflow-x-auto rounded-[var(--radius-control)] bg-[var(--kbd-bg)] px-3 py-2.5 font-mono text-[13px] font-semibold">{baseUrl}</code></section>
+          <SummaryCards data={data()} />
+          <section class="health-card rounded-[18px] border border-[var(--inner-border)] bg-[var(--surface)] p-4"><div class="mb-2 flex items-center gap-2"><AlertTriangle size={16} aria-hidden="true" /><h2 class="text-sm font-semibold">Readiness note</h2></div><p class="text-xs leading-relaxed text-[var(--text-2)]">{health.isStale ? "This view contains a previously accepted response. Treat values as stale until the next refresh succeeds." : health.state === "ready" ? "The gateway reported a ready overall state." : "The gateway has not supplied enough evidence to claim readiness."}</p><Show when={health.isRefreshing}><p class="mt-2 text-xs font-semibold text-[var(--accent)]" role="status">Refreshing dashboard health…</p></Show></section>
+        </>}
+      </Show>
+    </Show>
+  </div>;
+}
 
-  return (
-    <div className="dashboard-page space-y-4">
-
-      <Card surface="base" className="health-card endpoint-card">
-        <CardHeader title="API Endpoint" icon={Globe} sub="Base URL for OpenAI- and Anthropic-compatible clients" />
-        <div className="health-card-resource min-w-0 rounded-[14px] p-4 lg:p-5">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-3)]">Primary endpoint</span>
-            <Badge tone="default">Local</Badge>
-          </div>
-          <code className="mt-3 block overflow-x-auto rounded-[var(--radius-control)] bg-[var(--kbd-bg)] px-3 py-2.5 font-mono text-[13px] font-semibold text-[var(--text-1)]" title={baseUrl}>{baseUrl}</code>
-          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-[var(--text-2)]">
-            <span>OpenAI &amp; Anthropic compatible</span>
-            <span className="text-[var(--text-3)]">·</span>
-            <span>Copy-ready for clients</span>
-            <ClipboardButton value={baseUrl} variant="ghost" size="sm" className="ml-auto h-7 px-2 text-[10px]" />
-          </div>
-        </div>
-      </Card>
-
-      <SummaryCards data={health.data} />
-
-      <Card surface="base" className="health-card">
-        <CardHeader title="Readiness note" icon={AlertTriangle} sub="The console does not infer provider or dependency readiness from counts" />
-        <p className="text-xs leading-relaxed text-[var(--text-2)]">{health.isStale ? "This view contains a previously accepted response. Treat values as stale until the next refresh succeeds." : health.state === "ready" ? "The daemon reported a ready overall state. Individual dependencies remain authoritative below." : "The daemon has not supplied enough evidence to claim readiness."}</p>
-        {health.isRefreshing && <p className="mt-2 text-xs font-semibold text-[var(--accent)]" role="status">Refreshing dashboard health…</p>}
-      </Card>
-    </div>
-  );
+function StatePanel(props: { title: string; description: string; action?: JSX.Element }) {
+  return <section class="rounded-[18px] border border-[var(--inner-border)] bg-[var(--surface)] p-6"><div class="flex items-center gap-2"><Activity size={16} aria-hidden="true" /><h2 class="text-sm font-semibold">{props.title}</h2></div><p class="mt-2 text-xs text-[var(--text-2)]">{props.description}</p>{props.action}</section>;
 }

@@ -1,10 +1,18 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import { defineConfig, loadEnv } from "vite";
+import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, ".", "");
+  const dashboardPort = Number(env.CARTETHYIA_DASHBOARD_PORT ?? "5173");
+  const daemonPort = env.CARTETHYIA_DAEMON_PORT ?? "12800";
+
+  return {
   base: "/",
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    solid({ hot: false }),
+    tailwindcss(),
+  ],
   test: {
     environment: "jsdom",
     setupFiles: ["./test/setup.ts"],
@@ -12,15 +20,15 @@ export default defineConfig({
     css: false,
   },
   server: {
-    port: 5173,
+    port: dashboardPort,
     proxy: {
       "/console/api": {
-        target: "http://127.0.0.1:12800",
+        target: `http://127.0.0.1:${daemonPort}`,
         changeOrigin: false,
         rewrite: (path) => path.replace(/^\/console\/api/, ""),
       },
       "/v1": {
-        target: "http://127.0.0.1:12800",
+        target: `http://127.0.0.1:${daemonPort}`,
         changeOrigin: false,
       },
     },
@@ -36,4 +44,5 @@ export default defineConfig({
       },
     },
   },
+  };
 });

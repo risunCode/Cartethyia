@@ -1,4 +1,4 @@
-import { daemonGet, daemonPost, DaemonContractError } from "../../lib/daemon-api";
+import { consoleGet, consolePost, ConsoleContractError } from "../../lib/console-api";
 
 const MAX_TEXT_LENGTH = 256;
 const MAX_PROVIDER_ID_LENGTH = 128;
@@ -58,7 +58,7 @@ function optionalDate(value: unknown): string | null {
 }
 
 function requiredRecord(value: unknown, message: string): Record<string, unknown> {
-  if (!isRecord(value)) throw new DaemonContractError("invalid_contract", message, 502);
+  if (!isRecord(value)) throw new ConsoleContractError("invalid_contract", message, 502);
   return value;
 }
 
@@ -66,7 +66,7 @@ function requiredRecord(value: unknown, message: string): Record<string, unknown
 export function normalizeAuthSession(value: unknown): AuthSession {
   const source = requiredRecord(value, "authentication session is invalid");
   const user = boundedText(source.user);
-  if (!user) throw new DaemonContractError("invalid_contract", "authentication session is invalid", 502);
+  if (!user) throw new ConsoleContractError("invalid_contract", "authentication session is invalid", 502);
   const scopes = Array.isArray(source.scopes)
     ? source.scopes.filter((scope): scope is string => typeof scope === "string" && scope.length <= MAX_TEXT_LENGTH).map((scope) => scope.trim()).filter(Boolean)
     : [];
@@ -106,47 +106,47 @@ export function boundedReturnPath(value: string | null | undefined): string {
 }
 
 export async function getAuthSession(): Promise<AuthSession> {
-  return normalizeAuthSession(await daemonGet<unknown>("/auth/session"));
+  return normalizeAuthSession(await consoleGet<unknown>("/auth/session"));
 }
 
 export async function loginAuth(input: LoginInput): Promise<AuthSession> {
-  return normalizeLoginResult(await daemonPost<unknown>("/auth/login", input));
+  return normalizeLoginResult(await consolePost<unknown>("/auth/login", input));
 }
 
 export async function refreshAuthSession(): Promise<AuthSession> {
-  return normalizeAuthSession(await daemonPost<unknown>("/auth/refresh"));
+  return normalizeAuthSession(await consolePost<unknown>("/auth/refresh"));
 }
 
 export async function logoutAuth(): Promise<void> {
-  await daemonPost<unknown>("/auth/logout");
+  await consolePost<unknown>("/auth/logout");
 }
 
 export async function startOAuth(input: OAuthStartInput): Promise<OAuthState> {
   const providerId = input.providerId.trim().slice(0, MAX_PROVIDER_ID_LENGTH);
-  if (!providerId) throw new DaemonContractError("invalid_request", "provider ID is required", 400);
-  return normalizeOAuthState(await daemonPost<unknown>(`/auth/oauth/start?providerId=${encodeURIComponent(providerId)}`, {
+  if (!providerId) throw new ConsoleContractError("invalid_request", "provider ID is required", 400);
+  return normalizeOAuthState(await consolePost<unknown>(`/auth/oauth/start?providerId=${encodeURIComponent(providerId)}`, {
     scopes: input.scopes?.slice(0, 16).map((scope) => scope.slice(0, MAX_TEXT_LENGTH)),
     accountId: input.accountId?.slice(0, MAX_TEXT_LENGTH),
   }));
 }
 
 export async function getOAuthState(sessionId: string): Promise<OAuthState> {
-  return normalizeOAuthState(await daemonGet<unknown>(`/auth/oauth/sessions/${encodeURIComponent(sessionId.slice(0, MAX_TEXT_LENGTH))}`));
+  return normalizeOAuthState(await consoleGet<unknown>(`/auth/oauth/sessions/${encodeURIComponent(sessionId.slice(0, MAX_TEXT_LENGTH))}`));
 }
 
 export async function completeOAuth(sessionId: string, input: OAuthCompleteInput): Promise<OAuthState> {
-  return normalizeOAuthState(await daemonPost<unknown>(`/auth/oauth/sessions/${encodeURIComponent(sessionId.slice(0, MAX_TEXT_LENGTH))}/complete`, {
+  return normalizeOAuthState(await consolePost<unknown>(`/auth/oauth/sessions/${encodeURIComponent(sessionId.slice(0, MAX_TEXT_LENGTH))}/complete`, {
     code: input.code,
     state: input.state,
   }));
 }
 
 export async function cancelOAuth(sessionId: string): Promise<void> {
-  await daemonPost<unknown>(`/auth/oauth/sessions/${encodeURIComponent(sessionId.slice(0, MAX_TEXT_LENGTH))}/cancel`);
+  await consolePost<unknown>(`/auth/oauth/sessions/${encodeURIComponent(sessionId.slice(0, MAX_TEXT_LENGTH))}/cancel`);
 }
 
 export async function refreshOAuth(input: OAuthRefreshInput): Promise<OAuthState> {
-  return normalizeOAuthState(await daemonPost<unknown>("/auth/oauth/refresh", {
+  return normalizeOAuthState(await consolePost<unknown>("/auth/oauth/refresh", {
     accountId: input.accountId.slice(0, MAX_TEXT_LENGTH),
     force: input.force,
   }));
