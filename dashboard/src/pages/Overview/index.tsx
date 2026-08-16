@@ -1,5 +1,5 @@
 
-import { Activity, AlertTriangle, Database, Server, Zap } from "lucide-solid";
+import { Activity, AlertTriangle, Clock, Database, Server, Users, Zap } from "lucide-solid";
 import { For, Show, createMemo, createResource, onCleanup, onMount, type JSX } from "solid-js";
 import { Card, CardHeader } from "@components/ui/card";
 import { Badge } from "@components/ui/badge";
@@ -307,23 +307,20 @@ export default function Overview() {
       <section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card density="compact" className="animate-fade-in lg:col-span-2">
           <CardHeader title="System health" icon={Server} iconColor="#0a84ff" sub="Uptime and API status" />
-          <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            <Show when={summary().uptime !== null} fallback={<span class="text-xs text-[var(--text-3)]">—</span>}>
-              <div class="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Uptime</div>
-                <div class="mt-1 text-lg font-bold tabular-nums">{summary().uptime}</div>
-              </div>
-            </Show>
-            <Show when={summary().activeProviders !== null}>
-              <div class="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Active providers</div>
-                <div class="mt-1 text-lg font-bold tabular-nums">{formatNumber(summary().activeProviders)}</div>
-              </div>
-            </Show>
-            <div class="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-              <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Memory</div>
-              <div class="mt-1 text-lg font-bold tabular-nums">{formatNumber(summary().memoryMb)} MB</div>
-            </div>
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <MetricCard label="Uptime" value={summary().uptime ?? "—"} icon={Clock} tone="success" />
+            <MetricCard
+              label="Active providers"
+              value={summary().activeProviders !== null ? formatNumber(summary().activeProviders) : "—"}
+              icon={Users}
+              tone="info"
+            />
+            <MetricCard
+              label="Memory"
+              value={`${formatNumber(summary().memoryMb)} MB`}
+              icon={Database}
+              tone="neutral"
+            />
           </div>
         </Card>
 

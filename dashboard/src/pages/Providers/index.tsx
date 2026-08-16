@@ -349,7 +349,7 @@ function QuotaOutcomeCell(props: { outcome: QuotaProbeOutcome | null }): JSX.Ele
 
 function FactRow(props: { label: string; value: string }): JSX.Element {
   return (
-    <div class="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
+    <div class="rounded-xl border border-[var(--inner-border)] p-3">
       <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">{props.label}</div>
       <div class="mt-1 truncate text-[12px] font-semibold text-[var(--text-1)]" title={props.value}>
         {props.value}
