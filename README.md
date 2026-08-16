@@ -105,9 +105,11 @@ bun install
 bun run dev
 ```
 
-The dashboard dev server proxies `/console/api` and `/v1` to the Go daemon on
-port `12800`. Open <http://localhost:5173/> for the landing page; the
-landing-page Console links continue to <http://localhost:5173/console/>.
+The dashboard dev server proxies `/console` and `/v1` to the Go daemon on
+port `12800` (plus `/internal` to the Bun aux server on `8787`, and the
+daemon's public `/share/*/data|stream` subpaths). Open
+<http://localhost:5173/> for the landing page; the landing-page Console
+links continue to <http://localhost:5173/console/>.
 
 ## API
 
@@ -123,9 +125,9 @@ landing-page Console links continue to <http://localhost:5173/console/>.
 | `GET` | `/share/<token>` | Credential-free API-key usage monitor |
 | `GET` | `/share/setup/<token>` | One-time setup page; expires after 15 minutes |
 
-Dashboard browser APIs use `/v2/*` routes under `/console/api`; `/v1/*` is
-reserved for external client protocol ingress. Dashboard reads and actions use
-standard `GET`, `POST`, `PATCH`, and `DELETE` methods.
+Dashboard browser APIs live under `/console/*` (cookie-authenticated);
+`/v1/*` is reserved for external client protocol ingress. Dashboard reads
+and actions use standard `GET`, `POST`, `PATCH`, and `DELETE` methods.
 
 Authenticate proxy requests with either header:
 

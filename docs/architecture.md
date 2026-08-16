@@ -32,7 +32,7 @@ provider destination, account, dan network path adalah keputusan terpisah.
               v                                              v
 +----------------------------+                 +----------------------------+
 | External client plane      |                 | Admin control plane         |
-| OpenAI / Anthropic shapes  |                 | /v2/admin/*                |
+| OpenAI / Anthropic shapes  |                 | /console/*                |
 +-------------+--------------+                 +-------------+--------------+
               |                                              |
               +----------------------+-----------------------+
@@ -44,7 +44,7 @@ provider destination, account, dan network path adalah keputusan terpisah.
                          +----------------------------+
 ```
 
-`/v1/*` adalah ingress client. `/v2/admin/*` adalah control plane dashboard.
+`/v1/*` adalah ingress client. `/console/*` adalah control plane dashboard.
 Dashboard tidak memakai `/v1/*` untuk operasi admin.
 
 ## 3. Request lifecycle
@@ -249,22 +249,22 @@ HTTP methods receive `405` with an `Allow` header.
 The admin registrar groups routes by service. Current groups include:
 
 ```text
-/v2/admin/auth/*
-/v2/admin/accounts*
-/v2/admin/providers/*/accounts*
-/v2/admin/keys*
-/v2/admin/catalog/*
-/v2/admin/custom-providers*
-/v2/admin/proxies*
-/v2/admin/proxy-settings
-/v2/admin/web-search-routing
-/v2/admin/settings
-/v2/admin/backups*
-/v2/admin/telemetry/*
-/v2/admin/console/logs
-/v2/admin/console/web-request
-/v2/admin/tools/*
-/v2/admin/dashboard
+/console/auth/*
+/console/accounts*
+/console/providers/*/accounts*
+/console/keys*
+/console/catalog/*
+/console/custom-providers*
+/console/proxies*
+/console/proxy-settings
+/console/web-search-routing
+/console/settings
+/console/backups*
+/console/telemetry/*
+/console/logs
+/console/web-request
+/console/tools/*
+/console/dashboard
 ```
 
 Login is the only unauthenticated admin route. Other routes require a valid

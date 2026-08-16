@@ -67,10 +67,10 @@ describe("useSSE", () => {
 
   test("connects on mount and parses JSON messages", () => {
     const onMessage = vi.fn();
-    const { hook } = mountSSE("/v2/admin/console/logs/stream", { onMessage });
+    const { hook } = mountSSE("/console/logs/stream", { onMessage });
 
     expect(FakeEventSource.instances).toHaveLength(1);
-    expect(FakeEventSource.instances[0].url).toBe("/v2/admin/console/logs/stream");
+    expect(FakeEventSource.instances[0].url).toBe("/console/logs/stream");
     expect(hook.state()).toEqual({ connected: false, reconnecting: false, error: null });
 
     const source = FakeEventSource.instances[0];
@@ -165,14 +165,14 @@ describe("useSSE", () => {
     expect(hook.state().connected).toBe(true);
   });
 
-  test("appends the session token to the stream URL", () => {
+  test("keeps the stream URL untouched (cookie-only auth)", () => {
     login("tok-123", { name: "Operator" });
     try {
       mountSSE("/stream", {});
       mountSSE("/stream?since=1", {});
 
-      expect(FakeEventSource.instances[0].url).toBe("/stream?token=tok-123");
-      expect(FakeEventSource.instances[1].url).toBe("/stream?since=1&token=tok-123");
+      expect(FakeEventSource.instances[0].url).toBe("/stream");
+      expect(FakeEventSource.instances[1].url).toBe("/stream?since=1");
     } finally {
       logout();
     }

@@ -116,7 +116,7 @@ function parsePayload(value: unknown): ConsoleEvidence[] {
 
 function useConsoleEvidenceQuery() {
   return useQuery(() => ({
-    queryKey: ["v2", "console", "logs"],
+    queryKey: ["console", "logs"],
     queryFn: async () => parsePayload(await consoleGet<ConsolePayload>(`/console/logs?limit=${MAX_EVENTS}`)),
     refetchInterval: 5_000,
   }));

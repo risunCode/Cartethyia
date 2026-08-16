@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1
 #
 # One repository Dockerfile with independently selectable targets:
-#   --target runtime    Go daemon API (default)
-#   --target dashboard  existing React/Vite dashboard static image
+#   --target runtime         Go daemon API (default)
+#   --target dashboard       static SPA image served by nginx
+#   --target dashboard-audit Bun aux server (browser error-report sink)
 #
 # The Go daemon never embeds or serves the dashboard. It exposes its HTTP API
 # on port 12800; the dashboard talks to that port through its configured
@@ -49,5 +50,17 @@ FROM nginx:1.27-alpine AS dashboard
 COPY --from=dashboard-build /src/dashboard/dist /usr/share/nginx/html
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
+
+# The dashboard's auxiliary backend (POST/GET /internal/logs, GET
+# /internal/health). Needs the Bun runtime, so it cannot reuse the
+# nginx-based `dashboard` image.
+FROM oven/bun:1.4.0-slim AS dashboard-audit
+WORKDIR /app
+COPY --from=dashboard-build /src/dashboard/package.json /src/dashboard/bun.lock ./
+COPY --from=dashboard-build /src/dashboard/node_modules ./node_modules
+COPY --from=dashboard-build /src/dashboard/src ./src
+ENV CARTETHYIA_DASHBOARD_SERVER_PORT=8787
+EXPOSE 8787
+CMD ["bun", "run", "server"]
 
 FROM daemon AS runtime

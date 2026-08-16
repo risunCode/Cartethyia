@@ -23,7 +23,7 @@ export interface LogHistoryProps {
   to?: string;
   /** Maximum rows fetched from the API. */
   limit?: number;
-  /** Endpoint suffix inside /v2/admin; defaults to /console/logs. */
+  /** Endpoint suffix inside /console; defaults to /logs. */
   route?: string;
   className?: string;
 }
@@ -52,12 +52,12 @@ function pickList(value: LogHistoryResponse): readonly unknown[] {
 }
 
 /**
- * Bounded historical console-log view backed by /v2/admin/console/logs.
+ * Bounded historical console-log view backed by /console/logs.
  * Mirrors LogStream's filter behaviour so a single LogFilter above both panes
  * keeps level/source selection consistent across the live tail and the past.
  */
 export function LogHistory(props: LogHistoryProps): JSX.Element {
-  const route = (): string => props.route ?? "/console/logs";
+  const route = (): string => props.route ?? "/logs";
   const [from, setFrom] = createSignal(props.from ?? new Date(Date.now() - 60 * 60 * 1000).toISOString());
   const [to, setTo] = createSignal(props.to ?? new Date().toISOString());
   const [refreshTick, setRefreshTick] = createSignal(0);

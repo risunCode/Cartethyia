@@ -30,7 +30,7 @@ describe("ConsoleLog page", () => {
 
     const stream = screen.getByTestId("log-stream-stub");
     expect(stream).toBeInTheDocument();
-    expect(stream).toHaveAttribute("data-url", "/v2/admin/console/logs/stream");
+    expect(stream).toHaveAttribute("data-url", "/console/logs/stream");
     expect(screen.queryByTestId("log-history-stub")).not.toBeInTheDocument();
   });
 

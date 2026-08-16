@@ -3,15 +3,15 @@ package admin
 import "net/http"
 import "strings"
 
-// RegisterTools wires /v2/admin/tools/* routes.
+// RegisterTools wires /console/tools/* routes.
 func RegisterTools(mux *http.ServeMux, services Services) {
 	if services.Tools == nil {
 		return
 	}
 	t := services.Tools
 
-	mux.HandleFunc("/v2/admin/tools/cache/", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
-		name := strings.TrimPrefix(r.URL.Path, "/v2/admin/tools/cache/")
+	mux.HandleFunc("/console/tools/cache/", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/console/tools/cache/")
 		name = strings.Trim(name, "/")
 		if name == "" {
 			WriteError(w, NewError(CodeInvalidRequest, "cache name is required"))
@@ -25,7 +25,7 @@ func RegisterTools(mux *http.ServeMux, services Services) {
 		WriteData(w, http.StatusOK, result)
 	}))
 
-	mux.HandleFunc("/v2/admin/tools/reindex", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/tools/reindex", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Target string `json:"target"`
 		}
@@ -41,7 +41,7 @@ func RegisterTools(mux *http.ServeMux, services Services) {
 		WriteData(w, http.StatusOK, result)
 	}))
 
-	mux.HandleFunc("/v2/admin/tools/probe", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/tools/probe", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 		var input ProbeInput
 		if err := decodeJSON(r, &input); err != nil {
 			WriteError(w, NewError(CodeInvalidRequest, "invalid JSON body").WithCause(err))
@@ -59,7 +59,7 @@ func RegisterTools(mux *http.ServeMux, services Services) {
 		WriteData(w, http.StatusOK, result)
 	}))
 
-	mux.HandleFunc("/v2/admin/tools/restart", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/tools/restart", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 		result, err := t.Restart(r.Context())
 		if err != nil {
 			WriteError(w, err)

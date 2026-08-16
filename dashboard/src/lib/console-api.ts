@@ -1,7 +1,7 @@
 import { api, ApiError, sanitizeErrorMessage, type ConsoleHttpMethod } from "./api";
 import { isDocumentedConsoleRoute } from "./console-routes";
 
-/** Envelope emitted by the console's /v2/admin routes. */
+/** Envelope emitted by the console's /console routes. */
 export interface ConsoleEnvelope<T> {
   data?: T;
   error?: {
@@ -71,7 +71,7 @@ export interface ConsoleAccount {
   health: "healthy" | "degraded" | "unhealthy" | "unknown";
 }
 
-const ADMIN_PREFIX = "/v2/admin";
+const ADMIN_PREFIX = "/console";
 const SECRET_KEY = /(?:password|passwd|secret|token|authorization|api[-_]?key|private[-_]?key|cookie|prompt|provider[_-]?response|response)/i;
 const SAFE_CREDENTIAL_REF = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
 const MAX_REDACTION_DEPTH = 8;
@@ -136,12 +136,12 @@ export function unwrapConsoleEnvelope<T>(value: unknown): T {
   return redactOperatorValue(value.data) as T;
 }
 
-/** Execute a typed console admin request through the same-origin V2 API client. */
+/** Execute a typed console request through the same-origin console API client. */
 export async function consoleApi<T>(route: string, init: RequestInit = {}): Promise<T> {
   const normalized = route.startsWith("/") ? route : `/${route}`;
   const method = (init.method ?? "GET").toUpperCase() as ConsoleHttpMethod;
-  if (normalized.startsWith("/v1/") || normalized.startsWith("/v2/") || normalized.includes("://") || !isDocumentedConsoleRoute(normalized, method)) {
-    throw new ConsoleContractError("invalid_route", "dashboard route is outside the retained V2 admin contract", 400);
+  if (normalized.startsWith("/v1/") || normalized.startsWith("/v2/") || normalized.startsWith("/console/") || normalized.includes("://") || !isDocumentedConsoleRoute(normalized, method)) {
+    throw new ConsoleContractError("invalid_route", "dashboard route is outside the console contract", 400);
   }
   const response = await api<ConsoleEnvelope<unknown>>(`${ADMIN_PREFIX}${normalized}`, init);
   return unwrapConsoleEnvelope<T>(response);
@@ -153,9 +153,9 @@ export const consolePatch = <T>(route: string, body?: unknown) => consoleApi<T>(
 export const consoleDelete = <T>(route: string) => consoleApi<T>(route, { method: "DELETE" });
 
 /**
- * Maps a clean console route to the versioned admin API path. Versioning
+ * Maps a clean console route to the daemon console API path. The mount point
  * lives here and in `api()` only — pages and components must never embed
- * versioned paths directly.
+ * prefixed paths directly.
  */
 export function adminApiPath(route: string): string {
   const normalized = route.startsWith("/") ? route : `/${route}`;

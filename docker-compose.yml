@@ -49,8 +49,6 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
     pids_limit: 512
-    ports:
-      - "12800:12800"
     env_file:
       - ${CARTETHYIA_ENV_FILE:-.env}
     environment:
@@ -69,12 +67,33 @@ services:
       context: .
       dockerfile: Dockerfile
       target: dashboard
+    # Single public edge: the dashboard (web), /console API, /v1 + /v1beta API
+    # ingress, and /share all enter here on 12800; nginx proxies API paths to
+    # the daemon container, which stays on the compose network only.
     ports:
-      - "8080:80"
+      - "12800:80"
     depends_on:
       cartethyia:
+        condition: service_healthy
+
+  # Auxiliary dashboard backend (browser error-report sink) so the nginx
+  # `/internal/` proxy in the dashboard image has a live upstream.
+  dashboard-audit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dashboard-audit
+    restart: unless-stopped
+    environment:
+      CARTETHYIA_DASHBOARD_DATABASE_URL: ${CARTETHYIA_COMPOSE_DATABASE_URL:-postgres://cartethyia:cartethyia@postgres:5432/cartethyia?sslmode=disable}
+      CARTETHYIA_DASHBOARD_SQLITE_PATH: /data/logs.db
+    volumes:
+      - cartethyia-dashboard-audit:/data
+    depends_on:
+      postgres:
         condition: service_healthy
 
 volumes:
   cartethyia-pg:
   cartethyia-redis:
+  cartethyia-dashboard-audit:

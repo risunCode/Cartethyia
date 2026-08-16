@@ -6,13 +6,13 @@ import (
 	"time"
 )
 
-// RegisterTelemetry wires /v2/admin/telemetry/* routes.
+// RegisterTelemetry wires /console/telemetry/* routes.
 func RegisterTelemetry(mux *http.ServeMux, services Services) {
 	// The in-flight stream only depends on admission counters, so it stays
 	// available even when persisted telemetry is not configured.
 	if stats := services.InFlightStats; stats != nil {
 		detail := services.InFlightDetail
-		mux.HandleFunc("/v2/admin/telemetry/in-flight/stream", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/console/telemetry/in-flight/stream", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 			stream, ok := beginAdminStream(w)
 			if !ok {
 				return
@@ -43,7 +43,7 @@ func RegisterTelemetry(mux *http.ServeMux, services Services) {
 	}
 	tel := services.Telemetry
 
-	mux.HandleFunc("/v2/admin/telemetry/overview", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/telemetry/overview", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		query := parseTelemetryQuery(r)
 		overview, err := tel.Overview(r.Context(), query)
 		if err != nil {
@@ -53,7 +53,7 @@ func RegisterTelemetry(mux *http.ServeMux, services Services) {
 		WriteDataRequest(w, r, http.StatusOK, overview)
 	}))
 
-	mux.HandleFunc("/v2/admin/telemetry/requests", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/telemetry/requests", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		query := parseTelemetryQuery(r)
 		// Request Log only exposes canonical client POST /v1/action evidence.
 		query.Surface = "client_action"
@@ -65,7 +65,7 @@ func RegisterTelemetry(mux *http.ServeMux, services Services) {
 		WriteDataRequest(w, r, http.StatusOK, map[string]any{"items": buckets, "surface": query.Surface})
 	}))
 
-	mux.HandleFunc("/v2/admin/telemetry/errors", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/telemetry/errors", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		query := parseTelemetryQuery(r)
 		buckets, err := tel.Errors(r.Context(), query)
 		if err != nil {
@@ -75,7 +75,7 @@ func RegisterTelemetry(mux *http.ServeMux, services Services) {
 		WriteDataRequest(w, r, http.StatusOK, map[string]any{"items": buckets})
 	}))
 
-	mux.HandleFunc("/v2/admin/telemetry/upstream", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/telemetry/upstream", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		query := parseTelemetryQuery(r)
 		buckets, err := tel.Upstream(r.Context(), query)
 		if err != nil {
@@ -169,7 +169,7 @@ func RegisterUsage(mux *http.ServeMux, services Services) {
 		return
 	}
 	usage := services.Usage
-	mux.HandleFunc("/v2/admin/telemetry/usage", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/telemetry/usage", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		result, err := usage.Usage(r.Context(), parseTelemetryQuery(r))
 		if err != nil {
 			WriteError(w, err)
@@ -177,7 +177,7 @@ func RegisterUsage(mux *http.ServeMux, services Services) {
 		}
 		WriteDataRequest(w, r, http.StatusOK, result)
 	}))
-	mux.HandleFunc("/v2/admin/telemetry/clients", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/telemetry/clients", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		result, err := usage.Clients(r.Context(), parseTelemetryQuery(r))
 		if err != nil {
 			WriteError(w, err)

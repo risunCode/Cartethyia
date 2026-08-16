@@ -6,24 +6,24 @@ import (
 	"strings"
 )
 
-// RegisterProxies wires /v2/admin/proxies/*, /v2/admin/proxy-settings, and
-// /v2/admin/web-search-routing routes.
+// RegisterProxies wires /console/proxies/*, /console/proxy-settings, and
+// /console/web-search-routing routes.
 func RegisterProxies(mux *http.ServeMux, services Services) {
 	if services.Proxies == nil {
 		return
 	}
 	p := services.Proxies
 
-	mux.HandleFunc("/v2/admin/proxies", requireMethods(map[string]http.HandlerFunc{
+	mux.HandleFunc("/console/proxies", requireMethods(map[string]http.HandlerFunc{
 		http.MethodGet:  listProxies(p),
 		http.MethodPost: createProxy(p),
 	}))
 
-	mux.HandleFunc("/v2/admin/proxies/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/proxies/", func(w http.ResponseWriter, r *http.Request) {
 		handleProxySubresource(w, r, p)
 	})
 
-	mux.HandleFunc("/v2/admin/proxies/scrape/countries", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/proxies/scrape/countries", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		countries, err := p.Countries(r.Context())
 		if err != nil {
 			WriteError(w, err)
@@ -32,11 +32,11 @@ func RegisterProxies(mux *http.ServeMux, services Services) {
 		WriteData(w, http.StatusOK, map[string]any{"countries": countries})
 	}))
 
-	mux.HandleFunc("/v2/admin/proxies/scrape/catalog", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/proxies/scrape/catalog", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		WriteData(w, http.StatusOK, map[string]any{"sources": p.ScrapeCatalog(r.Context())})
 	}))
 
-	mux.HandleFunc("/v2/admin/proxies/search", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/proxies/search", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 		var input ProxySearchInput
 		if err := decodeJSON(r, &input); err != nil {
 			WriteError(w, NewError(CodeInvalidRequest, "invalid JSON body").WithCause(err))
@@ -50,7 +50,7 @@ func RegisterProxies(mux *http.ServeMux, services Services) {
 		WriteData(w, http.StatusOK, map[string]any{"items": results})
 	}))
 
-	mux.HandleFunc("/v2/admin/proxies/import", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/proxies/import", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 		var input ProxyImportInput
 		if err := decodeJSON(r, &input); err != nil {
 			WriteError(w, NewError(CodeInvalidRequest, "invalid JSON body").WithCause(err))
@@ -64,7 +64,7 @@ func RegisterProxies(mux *http.ServeMux, services Services) {
 		WriteData(w, http.StatusOK, result)
 	}))
 
-	mux.HandleFunc("/v2/admin/proxies/scrape", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/proxies/scrape", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 		var input ProxyScrapeInput
 		if err := decodeJSON(r, &input); err != nil {
 			WriteError(w, NewError(CodeInvalidRequest, "invalid JSON body").WithCause(err))
@@ -78,12 +78,12 @@ func RegisterProxies(mux *http.ServeMux, services Services) {
 		WriteData(w, http.StatusOK, result)
 	}))
 
-	mux.HandleFunc("/v2/admin/proxy-settings", requireMethods(map[string]http.HandlerFunc{
+	mux.HandleFunc("/console/proxy-settings", requireMethods(map[string]http.HandlerFunc{
 		http.MethodGet:  getSettings(p),
 		http.MethodPost: patchSettings(p),
 	}))
 
-	mux.HandleFunc("/v2/admin/web-search-routing", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/web-search-routing", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		settings, err := p.Settings(r.Context())
 		if err != nil {
 			WriteError(w, err)
@@ -94,7 +94,7 @@ func RegisterProxies(mux *http.ServeMux, services Services) {
 }
 
 func handleProxySubresource(w http.ResponseWriter, r *http.Request, svc ProxyService) {
-	rest := strings.TrimPrefix(r.URL.Path, "/v2/admin/proxies/")
+	rest := strings.TrimPrefix(r.URL.Path, "/console/proxies/")
 	parts := strings.Split(rest, "/")
 	if len(parts) == 0 || parts[0] == "" {
 		WriteError(w, NewError(CodeNotFound, "proxy not found"))

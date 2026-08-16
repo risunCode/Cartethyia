@@ -92,7 +92,7 @@ Rules:
 The dashboard uses the admin plane only:
 
 ```text
-GET/POST/PATCH/DELETE /v2/admin/*
+GET/POST/PATCH/DELETE /console/*
 ```
 
 It must not call `/v1/*` for operator resources. `QUERY` is unsupported. GET

@@ -9,7 +9,7 @@ import type { LogLevel as StreamLogLevel } from "../../components/shared/log-typ
 
 type Tab = "live" | "history";
 
-const STREAM_URL = consoleStreamUrl("/console/logs/stream");
+const STREAM_URL = consoleStreamUrl("/logs/stream");
 
 const TABS: ReadonlyArray<{ value: Tab; label: string }> = [
   { value: "live", label: "Live stream" },

@@ -24,5 +24,5 @@ func Register(mux *http.ServeMux, services Services) {
 	RegisterCatalog(internal, services)
 	RegisterCustomProviders(internal, services)
 	RegisterUsage(internal, services)
-	mux.Handle("/v2/admin/", scopedAdmin(services, internal))
+	mux.Handle("/console/", scopedAdmin(services, internal))
 }

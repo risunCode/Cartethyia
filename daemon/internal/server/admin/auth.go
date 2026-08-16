@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// RegisterAuth wires /v2/admin/auth/* session and OAuth routes.
+// RegisterAuth wires /console/auth/* session and OAuth routes.
 func RegisterAuth(mux *http.ServeMux, services Services) {
 	auth := services.Auth
 	var oauth OAuthLifecycleService = services.OAuth
@@ -17,7 +17,7 @@ func RegisterAuth(mux *http.ServeMux, services Services) {
 	}
 
 	if auth != nil {
-		mux.HandleFunc("/v2/admin/auth/login", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/console/auth/login", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 				var input LoginInput
 				if err := decodeJSON(r, &input); err != nil {
 					WriteError(w, NewError(CodeInvalidRequest, "invalid JSON body").WithCause(err))
@@ -34,7 +34,7 @@ func RegisterAuth(mux *http.ServeMux, services Services) {
 			WriteData(w, http.StatusOK, result.Session)
 		}))
 
-		mux.HandleFunc("/v2/admin/auth/logout", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/console/auth/logout", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 			sessionID := readSessionID(r)
 			if err := auth.Logout(r.Context(), sessionID); err != nil {
 				WriteError(w, err)
@@ -46,7 +46,7 @@ func RegisterAuth(mux *http.ServeMux, services Services) {
 			WriteOK(w)
 		}))
 
-		mux.HandleFunc("/v2/admin/auth/session", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/console/auth/session", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 			sessionID := readSessionID(r)
 			session, err := auth.Current(r.Context(), sessionID)
 			if err != nil {
@@ -56,7 +56,7 @@ func RegisterAuth(mux *http.ServeMux, services Services) {
 			WriteData(w, http.StatusOK, session)
 		}))
 
-		mux.HandleFunc("/v2/admin/auth/refresh", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/console/auth/refresh", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 			sessionID := readSessionID(r)
 			session, err := auth.Refresh(r.Context(), sessionID)
 			if err != nil {
@@ -67,7 +67,7 @@ func RegisterAuth(mux *http.ServeMux, services Services) {
 		}))
 	}
 
-	mux.HandleFunc("/v2/admin/auth/oauth/start", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/auth/oauth/start", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 		providerID := strings.TrimSpace(r.URL.Query().Get("providerId"))
 		if providerID == "" || len(providerID) > maxAdminField || strings.IndexFunc(providerID, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
 			WriteError(w, NewError(CodeInvalidRequest, "providerId query parameter is required and bounded"))
@@ -86,11 +86,11 @@ func RegisterAuth(mux *http.ServeMux, services Services) {
 		writeOAuthState(w, state)
 	}))
 
-	mux.HandleFunc("/v2/admin/auth/oauth/sessions/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/auth/oauth/sessions/", func(w http.ResponseWriter, r *http.Request) {
 		handleOAuthSession(w, r, oauth)
 	})
 
-	mux.HandleFunc("/v2/admin/auth/oauth/refresh", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/auth/oauth/refresh", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 		var input OAuthRefreshInput
 		if err := decodeJSON(r, &input); err != nil {
 			WriteError(w, NewError(CodeInvalidRequest, "invalid JSON body").WithCause(err))
@@ -104,7 +104,7 @@ func RegisterAuth(mux *http.ServeMux, services Services) {
 		writeOAuthState(w, state)
 	}))
 
-	mux.HandleFunc("/v2/admin/auth/oauth/reauth", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/auth/oauth/reauth", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 		var input OAuthRefreshInput
 		if err := decodeJSON(r, &input); err != nil {
 			WriteError(w, NewError(CodeInvalidRequest, "invalid JSON body").WithCause(err))
@@ -129,7 +129,7 @@ func RegisterAuth(mux *http.ServeMux, services Services) {
 }
 
 func handleOAuthSession(w http.ResponseWriter, r *http.Request, svc OAuthLifecycleService) {
-	rest := strings.TrimPrefix(r.URL.Path, "/v2/admin/auth/oauth/sessions/")
+	rest := strings.TrimPrefix(r.URL.Path, "/console/auth/oauth/sessions/")
 	parts := strings.Split(rest, "/")
 
 	if len(parts) == 0 || parts[0] == "" {
@@ -218,14 +218,13 @@ func boundedOAuthValue(value string, max int) string {
 	return value
 }
 
+// readSessionID resolves the session exclusively from the cookie; header and
+// query transports were removed with the /console migration.
 func readSessionID(r *http.Request) string {
 	if cookie, err := r.Cookie("cartethyia_session"); err == nil {
 		return cookie.Value
 	}
-	if header := r.Header.Get("X-Session-Id"); header != "" {
-		return header
-	}
-	return strings.TrimSpace(r.URL.Query().Get("sessionId"))
+	return ""
 }
 
 func buildAuthRequest(r *http.Request) AuthRequest {

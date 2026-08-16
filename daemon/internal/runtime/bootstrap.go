@@ -833,7 +833,7 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 			api.RegisterV1(mux, api.Deps{Proxy: dispatch, Catalog: publicCatalog, Evidence: metrics})
 		}),
 		V1Auth:  servermiddleware.PublicV1Auth(deps.PublicAPIKeys, deps.TokenBudget, strings.EqualFold(cfg.Environment, "production")),
-		V2Admin: deps.Admin,
+		Console: deps.Admin,
 		Share: func() *server.ShareOptions {
 			if deps.Database == nil || deps.Database.AdminAPIKeys == nil {
 				return nil

@@ -3,25 +3,25 @@ package admin
 import "net/http"
 import "strings"
 
-// RegisterAPIKeys wires /v2/admin/keys/* routes.
+// RegisterAPIKeys wires /console/keys/* routes.
 func RegisterAPIKeys(mux *http.ServeMux, services Services) {
 	if services.APIKeys == nil {
 		return
 	}
 	keys := services.APIKeys
 
-	mux.HandleFunc("/v2/admin/keys", requireMethods(map[string]http.HandlerFunc{
+	mux.HandleFunc("/console/keys", requireMethods(map[string]http.HandlerFunc{
 		http.MethodGet:  listAPIKeys(keys),
 		http.MethodPost: createAPIKey(keys),
 	}))
 
-	mux.HandleFunc("/v2/admin/keys/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/keys/", func(w http.ResponseWriter, r *http.Request) {
 		handleAPIKeySubresource(w, r, keys)
 	})
 }
 
 func handleAPIKeySubresource(w http.ResponseWriter, r *http.Request, svc APIKeyService) {
-	rest := strings.TrimPrefix(r.URL.Path, "/v2/admin/keys/")
+	rest := strings.TrimPrefix(r.URL.Path, "/console/keys/")
 	parts := strings.Split(rest, "/")
 	if len(parts) == 0 || parts[0] == "" {
 		WriteError(w, NewError(CodeNotFound, "key not found"))

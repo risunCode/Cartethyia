@@ -62,7 +62,7 @@ describe("useInFlightSnapshot", () => {
   test("connects to the live endpoint and exposes provider activity", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     render(() => <Probe />);
-    await waitFor(() => expect(FakeEventSource.instance?.url).toBe("/console/api/live/in-flight/stream"));
+    await waitFor(() => expect(FakeEventSource.instance?.url).toBe("/console/telemetry/in-flight/stream"));
 
     FakeEventSource.instance?.emit("count", { inFlight: 2, byIp: [{ ip: "203.0.113.10", active: 2 }], byProvider: [{ providerId: "openai", active: 2 }], maxFlightsPerIp: 15 });
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("connected:2:openai"));

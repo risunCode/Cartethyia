@@ -2,14 +2,14 @@ package admin
 
 import "net/http"
 
-// RegisterSettings wires /v2/admin/settings routes.
+// RegisterSettings wires /console/settings routes.
 func RegisterSettings(mux *http.ServeMux, services Services) {
 	if services.Settings == nil {
 		return
 	}
 	set := services.Settings
 
-	mux.HandleFunc("/v2/admin/settings", requireMethods(map[string]http.HandlerFunc{
+	mux.HandleFunc("/console/settings", requireMethods(map[string]http.HandlerFunc{
 		http.MethodGet:    getSettingsHandler(set),
 		http.MethodPatch:  patchSettingsHandler(set),
 		http.MethodPost:   resetSettingsHandler(set),

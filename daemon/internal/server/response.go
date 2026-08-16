@@ -7,7 +7,7 @@ import (
 
 // ErrorResponse is the canonical JSON body returned for non-2xx outcomes.
 // Every error in the foundation uses this shape so clients can rely on a
-// single parser across /health, /metrics, /v1/, /v2/admin/, and the
+// single parser across /health, /metrics, /v1/, /console/, and the
 // catch-all 404.
 type ErrorResponse struct {
 	Error   string `json:"error"`

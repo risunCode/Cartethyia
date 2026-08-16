@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const customProvidersPath = "/v2/admin/custom-providers"
+const customProvidersPath = "/console/custom-providers"
 
 // RegisterCustomProviders wires CRUD for persisted custom provider metadata.
 // Secrets are never accepted; credentialRef must point to the daemon secret

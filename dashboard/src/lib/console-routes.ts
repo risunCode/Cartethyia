@@ -1,9 +1,9 @@
 /**
- * Browser-facing V2 admin route contract.
+ * Browser-facing console route contract.
  *
- * The browser calls consoleApi with an admin-resource suffix (the shared client
- * supplies `/v2/admin`). Keep this matrix deliberately small and explicit:
- * browser resources never use the legacy client-ingress namespace or
+ * The browser calls consoleApi with a console-resource suffix (the shared client
+ * supplies `/console`). Keep this matrix deliberately small and explicit:
+ * browser resources never use the client-ingress namespace or
  * non-standard HTTP methods.
  */
 import type { ConsoleHttpMethod } from "./api";
@@ -63,6 +63,8 @@ export const CONSOLE_ROUTE_MATRIX = [
   { route: "/auth/session", methods: ["GET"] },
   { route: "/auth/refresh", methods: ["POST"] },
   { route: "/auth/oauth/start", methods: ["POST"], queryKeys: ["providerId"] },
+  { route: "/auth/oauth/refresh", methods: ["POST"] },
+  { route: "/auth/oauth/reauth", methods: ["POST"] },
   { route: "/auth/oauth/sessions/:sessionId", methods: ["GET"] },
   { route: "/auth/oauth/sessions/:sessionId/complete", methods: ["POST"] },
   { route: "/auth/oauth/sessions/:sessionId/cancel", methods: ["POST"] },
@@ -74,27 +76,18 @@ export const CONSOLE_ROUTE_MATRIX = [
   { route: "/telemetry/upstream", methods: ["GET"], queryKeys: ["from", "to", "period", "bucket", "cursor", "limit", "group_by"] },
   { route: "/telemetry/usage", methods: ["GET"], queryKeys: ["from", "to", "period", "bucket", "cursor", "limit", "group_by"] },
   { route: "/telemetry/clients", methods: ["GET"], queryKeys: ["from", "to", "period", "bucket", "cursor", "limit", "group_by"] },
-  { route: "/console/logs", methods: ["GET"], queryKeys: ["from", "to", "limit"] },
-  { route: "/console/web-request", methods: ["POST"] },
+  { route: "/logs", methods: ["GET"], queryKeys: ["from", "to", "level", "scope", "origin", "limit"] },
+  { route: "/web-request", methods: ["POST"] },
   { route: "/catalog/providers", methods: ["GET"] },
-  { route: "/catalog/models", methods: ["GET"] },
-  { route: "/providers", methods: ["GET", "POST"] },
-  { route: "/providers/:providerId", methods: ["GET", "PATCH", "DELETE"] },
+  { route: "/catalog/models", methods: ["GET"], queryKeys: ["provider"] },
   { route: "/providers/:providerId/accounts", methods: ["GET", "POST"], queryKeys: ["limit", "cursor"] },
   { route: "/providers/:providerId/accounts/batch", methods: ["PATCH", "POST"] },
   { route: "/providers/:providerId/accounts/batch-delete", methods: ["POST"] },
-  { route: "/providers/:providerId/accounts/:accountId", methods: ["PATCH", "POST", "DELETE"] },
-  { route: "/providers/:providerId/models", methods: ["POST", "PATCH"] },
-  { route: "/providers/:providerId/models/:modelId", methods: ["POST", "PATCH", "DELETE"] },
-  { route: "/providers/:providerId/models/fetch", methods: ["POST"] },
-  { route: "/providers/:providerId/oauth/start", methods: ["POST"] },
-  { route: "/oauth/sessions/:sessionId", methods: ["GET"] },
-  { route: "/oauth/sessions/:sessionId/complete", methods: ["POST"] },
-  { route: "/oauth/sessions/:sessionId/cancel", methods: ["POST"] },
-  { route: "/oauth/refresh", methods: ["POST"] },
+  { route: "/providers/:providerId/accounts/:accountId", methods: ["POST", "DELETE"] },
   { route: "/accounts", methods: ["GET"] },
   { route: "/accounts/:accountId/quota", methods: ["GET", "POST"] },
-  { route: "/accounts/:accountId/quota/refresh", methods: ["POST"] },
+  { route: "/accounts/:accountId/revoke", methods: ["POST"] },
+  { route: "/accounts/:accountId/oauth-status", methods: ["GET"] },
   { route: "/quota/refresh", methods: ["POST"] },
   { route: "/proxies", methods: ["GET", "POST"], queryKeys: ["limit"] },
   { route: "/proxies/:proxyId", methods: ["PATCH", "DELETE"] },

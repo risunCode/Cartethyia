@@ -342,7 +342,7 @@ not contain secrets or raw payloads.
 | `/health` is unreachable | listen address, port mapping, process logs | HTTP process/listener issue |
 | no eligible account | admin account state, quota, reauth, cooldown | routing correctly rejected every candidate |
 | provider retries exhausted | provider error classification and attempt evidence | no safe retry/fallback remains |
-| dashboard cannot load data | dashboard origin/API proxy and `/v2/admin/*` auth | dashboard is a separate process/plane |
+| dashboard cannot load data | dashboard origin/API proxy and `/console/*` auth | dashboard is a separate process/plane |
 
 Do not “fix” unavailable dependencies by enabling synthetic production accounts,
 empty success responses, or a second unofficial storage authority.

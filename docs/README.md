@@ -49,7 +49,7 @@ karena ambigu.
 ## Kontrak global
 
 - External client ingress: `/v1/*`.
-- Dashboard browser/admin: `/v2/admin/*`.
+- Dashboard browser/admin: `/console/*`.
 - Health/metrics: `GET /health`, `GET /metrics`.
 - Browser methods: `GET`, `POST`, `PATCH`, `DELETE`.
 - `QUERY`: tidak didukung.

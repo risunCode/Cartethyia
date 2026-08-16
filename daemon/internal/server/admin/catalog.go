@@ -9,8 +9,8 @@ import (
 const (
 	// CatalogProvidersPath and CatalogModelsPath are the only browser-facing
 	// catalog routes. The external /v1/models route is not an admin resource.
-	CatalogProvidersPath = "/v2/admin/catalog/providers"
-	CatalogModelsPath    = "/v2/admin/catalog/models"
+	CatalogProvidersPath = "/console/catalog/providers"
+	CatalogModelsPath    = "/console/catalog/models"
 
 	maxCatalogProviderID = 128
 	maxCatalogItems      = 512

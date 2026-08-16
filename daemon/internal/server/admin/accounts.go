@@ -9,7 +9,7 @@ import (
 )
 
 // RegisterAccounts wires account/quota/OAuth lifecycle routes under
-// /v2/admin/accounts/* and /v2/admin/providers/*/accounts/*.
+// /console/accounts/* and /console/providers/*/accounts/*.
 func RegisterAccounts(mux *http.ServeMux, services Services) {
 	if services.Accounts == nil {
 		return
@@ -17,13 +17,13 @@ func RegisterAccounts(mux *http.ServeMux, services Services) {
 	acct := services.Accounts
 
 	// Cross-provider account endpoints.
-	mux.HandleFunc("/v2/admin/accounts", requireMethods(map[string]http.HandlerFunc{
+	mux.HandleFunc("/console/accounts", requireMethods(map[string]http.HandlerFunc{
 		http.MethodGet: listAccounts(acct),
 	}))
-	mux.HandleFunc("/v2/admin/accounts/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/accounts/", func(w http.ResponseWriter, r *http.Request) {
 		handleAccountSubresource(w, r, acct)
 	})
-	mux.HandleFunc("/v2/admin/quota/refresh", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/quota/refresh", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 		var body QuotaRefreshRequest
 		if err := decodeJSON(r, &body); err != nil {
 			WriteError(w, NewError(CodeInvalidRequest, "invalid JSON body").WithCause(err))
@@ -38,13 +38,13 @@ func RegisterAccounts(mux *http.ServeMux, services Services) {
 	}))
 
 	// Provider-scoped account endpoints.
-	mux.HandleFunc("/v2/admin/providers/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/providers/", func(w http.ResponseWriter, r *http.Request) {
 		handleProviderAccounts(w, r, acct)
 	})
 }
 
 func handleAccountSubresource(w http.ResponseWriter, r *http.Request, svc AccountService) {
-	rest := strings.TrimPrefix(r.URL.Path, "/v2/admin/accounts/")
+	rest := strings.TrimPrefix(r.URL.Path, "/console/accounts/")
 	parts := strings.Split(rest, "/")
 	if len(parts) == 0 || parts[0] == "" {
 		WriteError(w, NewError(CodeNotFound, "account not found"))
@@ -124,7 +124,7 @@ func handleAccountSubresource(w http.ResponseWriter, r *http.Request, svc Accoun
 }
 
 func handleProviderAccounts(w http.ResponseWriter, r *http.Request, svc AccountService) {
-	rest := strings.TrimPrefix(r.URL.Path, "/v2/admin/providers/")
+	rest := strings.TrimPrefix(r.URL.Path, "/console/providers/")
 	parts := strings.Split(rest, "/")
 	if len(parts) < 2 || parts[0] == "" || parts[1] != "accounts" {
 		WriteError(w, NewError(CodeNotFound, "provider route not found"))
@@ -254,7 +254,7 @@ func handleProviderAccounts(w http.ResponseWriter, r *http.Request, svc AccountS
 }
 
 func handleOAuthSubroutes(w http.ResponseWriter, r *http.Request, _ AccountService, providerID string, _ []string) {
-	rest := strings.TrimPrefix(r.URL.Path, "/v2/admin/providers/"+providerID+"/accounts/oauth")
+	rest := strings.TrimPrefix(r.URL.Path, "/console/providers/"+providerID+"/accounts/oauth")
 	switch rest {
 	case "/start":
 		if r.Method != http.MethodPost {
@@ -262,7 +262,7 @@ func handleOAuthSubroutes(w http.ResponseWriter, r *http.Request, _ AccountServi
 			return
 		}
 		// Reuse AuthService for OAuth start; surface via the auth service stub.
-		WriteError(w, NewError(CodeUnavailable, "OAuth start must be served via /v2/admin/auth/oauth"))
+		WriteError(w, NewError(CodeUnavailable, "OAuth start must be served via /console/auth/oauth"))
 	default:
 		WriteError(w, NewError(CodeNotFound, "oauth subroute not found"))
 	}

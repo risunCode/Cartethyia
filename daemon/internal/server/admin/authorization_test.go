@@ -62,14 +62,14 @@ func TestRegisterRequiresScopedAdminAuthorization(t *testing.T) {
 	Register(mux, Services{Dashboard: testDashboard{}, Authorizer: testAuthorizer{scope: ScopeHealth}})
 
 	without := httptest.NewRecorder()
-	mux.ServeHTTP(without, httptest.NewRequest(http.MethodGet, "/v2/admin/dashboard", nil))
+	mux.ServeHTTP(without, httptest.NewRequest(http.MethodGet, "/console/dashboard", nil))
 	if without.Code != http.StatusUnauthorized {
 		t.Fatalf("without credentials status=%d", without.Code)
 	}
 
 	wrong := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/v2/admin/dashboard", nil)
-	req.Header.Set("X-Session-Id", "session")
+	req := httptest.NewRequest(http.MethodGet, "/console/dashboard", nil)
+	req.AddCookie(&http.Cookie{Name: "cartethyia_session", Value: "session"})
 	mux.ServeHTTP(wrong, req)
 	if wrong.Code != http.StatusOK {
 		t.Fatalf("health scope status=%d body=%s", wrong.Code, wrong.Body.String())
@@ -82,8 +82,8 @@ func TestAdminMutationPublishesGenerationAndAuditsAfterSuccess(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, Services{Settings: testSettings{}, Authorizer: testAuthorizer{scope: ScopeConfig}, Audit: audit, Generation: generation})
 
-	req := httptest.NewRequest(http.MethodPatch, "/v2/admin/settings", strings.NewReader(`{"logLevel":"info"}`))
-	req.Header.Set("X-Session-Id", "session")
+	req := httptest.NewRequest(http.MethodPatch, "/console/settings", strings.NewReader(`{"logLevel":"info"}`))
+	req.AddCookie(&http.Cookie{Name: "cartethyia_session", Value: "session"})
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

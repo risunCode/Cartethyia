@@ -127,7 +127,7 @@ func TestCatalogRoutesRequireCatalogScope(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, Services{Catalog: catalogTestService{}, Authorizer: catalogAuthorizer{scope: ScopeUsage}})
 	req := httptest.NewRequest(http.MethodGet, CatalogProvidersPath, nil)
-	req.Header.Set("X-Session-Id", "session")
+	req.AddCookie(&http.Cookie{Name: "cartethyia_session", Value: "session"})
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {

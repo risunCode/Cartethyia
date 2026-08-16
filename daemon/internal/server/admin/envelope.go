@@ -1,4 +1,4 @@
-// Package admin hosts the /v2/admin HTTP boundary for Cartethyia.
+// Package admin hosts the /console HTTP boundary for Cartethyia.
 //
 // The package is the centralized, source-clear composition of the dashboard,
 // account, API key, proxy, settings, backup, tools, auth/session, and telemetry

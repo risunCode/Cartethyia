@@ -2,7 +2,7 @@
  * API response models for the Cartethyia dashboard.
  *
  * These interfaces describe the JSON shape returned by the daemon's
- * `/v2/dashboard/...` and `/v2/admin/auth/...` endpoints. Consumers should
+ * `/v2/dashboard/...` and `/console/auth/...` endpoints. Consumers should
  * import from this module instead of declaring ad-hoc types so the
  * dashboard surface stays aligned with the server contract.
  */

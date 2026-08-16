@@ -1,5 +1,4 @@
 import { createSignal, onCleanup, createEffect } from 'solid-js'
-import { userSession } from './store'
 
 // SSE event types
 interface SSEEvent {
@@ -66,14 +65,8 @@ export function useSSE(url: string, options: SSEOptions = {}) {
       return
     }
 
-    // Add auth token to URL if available
-    const session = userSession()
-    const urlWithToken = session.token
-      ? `${url}${url.includes('?') ? '&' : '?'}token=${session.token}`
-      : url
-
-    // Create new EventSource connection
-    eventSource = new EventSource(urlWithToken)
+    // Same-origin EventSource: the session cookie travels with the connection.
+    eventSource = new EventSource(url)
 
     // Add to connection pool
     connectionPool.set(url, eventSource)

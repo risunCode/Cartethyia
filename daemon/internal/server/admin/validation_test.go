@@ -25,8 +25,8 @@ func TestSettingsValidationRunsBeforeServiceMutation(t *testing.T) {
 	settings := &validationSettings{}
 	mux := http.NewServeMux()
 	Register(mux, Services{Settings: settings, Authorizer: testAuthorizer{scope: ScopeConfig}})
-	req := httptest.NewRequest(http.MethodPatch, "/v2/admin/settings", strings.NewReader(`{"logLevel":"verbose"}`))
-	req.Header.Set("X-Session-Id", "session")
+	req := httptest.NewRequest(http.MethodPatch, "/console/settings", strings.NewReader(`{"logLevel":"verbose"}`))
+	req.AddCookie(&http.Cookie{Name: "cartethyia_session", Value: "session"})
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {

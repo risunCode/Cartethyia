@@ -16,7 +16,7 @@ import (
 func RegisterConsole(mux *http.ServeMux, services Services) {
 	if services.ConsoleLogs != nil {
 		logs := services.ConsoleLogs
-		mux.HandleFunc("/v2/admin/console/logs", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/console/logs", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 			query := ConsoleLogQuery{
 				From:   r.URL.Query().Get("from"),
 				To:     r.URL.Query().Get("to"),
@@ -33,7 +33,7 @@ func RegisterConsole(mux *http.ServeMux, services Services) {
 			WriteDataRequest(w, r, http.StatusOK, map[string]any{"items": items})
 		}))
 
-		mux.HandleFunc("/v2/admin/console/logs/stream", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/console/logs/stream", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 			stream, ok := beginAdminStream(w)
 			if !ok {
 				return
@@ -44,7 +44,7 @@ func RegisterConsole(mux *http.ServeMux, services Services) {
 
 	if services.WebRequest != nil {
 		web := services.WebRequest
-		mux.HandleFunc("/v2/admin/console/web-request", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/console/web-request", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 			var input WebRequestInput
 			if err := decodeBoundedJSON(r, &input, 64*1024); err != nil {
 				WriteError(w, NewError(CodeInvalidRequest, "invalid web request input").WithCause(err))

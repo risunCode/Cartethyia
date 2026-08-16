@@ -3,25 +3,25 @@ package admin
 import "net/http"
 import "strings"
 
-// RegisterBackup wires /v2/admin/backups/* routes.
+// RegisterBackup wires /console/backups/* routes.
 func RegisterBackup(mux *http.ServeMux, services Services) {
 	if services.Backup == nil {
 		return
 	}
 	bkp := services.Backup
 
-	mux.HandleFunc("/v2/admin/backups", requireMethods(map[string]http.HandlerFunc{
+	mux.HandleFunc("/console/backups", requireMethods(map[string]http.HandlerFunc{
 		http.MethodGet:  listBackups(bkp),
 		http.MethodPost: createBackup(bkp),
 	}))
 
-	mux.HandleFunc("/v2/admin/backups/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/console/backups/", func(w http.ResponseWriter, r *http.Request) {
 		handleBackupSubresource(w, r, bkp)
 	})
 }
 
 func handleBackupSubresource(w http.ResponseWriter, r *http.Request, svc BackupService) {
-	rest := strings.TrimPrefix(r.URL.Path, "/v2/admin/backups/")
+	rest := strings.TrimPrefix(r.URL.Path, "/console/backups/")
 	parts := strings.Split(rest, "/")
 	if len(parts) == 0 || parts[0] == "" {
 		WriteError(w, NewError(CodeNotFound, "backup not found"))

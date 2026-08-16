@@ -85,7 +85,7 @@ async function fetchQuotaSnapshot(): Promise<QuotaSnapshot> {
 
 /**
  * Flips one account's active flag. The browser contract reaches this through
- * PATCH /v2/admin/providers/:id/accounts/batch with a single-item payload
+ * PATCH /console/providers/:id/accounts/batch with a single-item payload
  * (the API's per-account PATCH is not a browser-facing route).
  */
 async function setAccountActive(providerId: string, accountId: string, enabled: boolean): Promise<void> {
@@ -370,7 +370,7 @@ export default function Quota(): JSX.Element {
         <Show when={summary().filtered > 0}>
           <p role="note" class="mt-2 rounded-lg border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2 text-[11px] text-[var(--text-3)]">
             {summary().filtered} account{summary().filtered === 1 ? "" : "s"} hidden — the provider exposes no quota endpoint
-            (GET /v2/admin/accounts/:id/quota is unavailable).
+            (GET /console/accounts/:id/quota is unavailable).
           </p>
         </Show>
         <Show when={snapshot()?.truncated}>
@@ -431,10 +431,10 @@ export default function Quota(): JSX.Element {
       <Card density="compact">
         <CardHeader title="Endpoint reference" sub="V2 admin routes behind this page" />
         <dl class="grid gap-2 text-[11.5px] sm:grid-cols-2">
-          <EndpointRow label="Accounts" value="GET /v2/admin/accounts" />
-          <EndpointRow label="Quota window" value="GET /v2/admin/accounts/:id/quota" />
-          <EndpointRow label="Toggle active" value="PATCH /v2/admin/providers/:id/accounts/batch" />
-          <EndpointRow label="Delete account" value="DELETE /v2/admin/providers/:id/accounts/:accountId" />
+          <EndpointRow label="Accounts" value="GET /console/accounts" />
+          <EndpointRow label="Quota window" value="GET /console/accounts/:id/quota" />
+          <EndpointRow label="Toggle active" value="PATCH /console/providers/:id/accounts/batch" />
+          <EndpointRow label="Delete account" value="DELETE /console/providers/:id/accounts/:accountId" />
         </dl>
       </Card>
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { ApiError, api, apiDownload, setUnauthorizedHandler } from "../../src/lib/api";
+import { ApiError, api, apiRaw, setUnauthorizedHandler } from "../../src/lib/api";
 
 describe("dashboard console API client", () => {
   afterEach(() => {
@@ -12,7 +12,7 @@ describe("dashboard console API client", () => {
     setUnauthorizedHandler(unauthorized);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 401 })));
 
-    await expect(api("/v2/admin/settings")).rejects.toMatchObject({ status: 401, code: "unauthorized" });
+    await expect(api("/console/settings")).rejects.toMatchObject({ status: 401, code: "unauthorized" });
     expect(unauthorized).toHaveBeenCalledOnce();
   });
 
@@ -21,7 +21,7 @@ describe("dashboard console API client", () => {
     setUnauthorizedHandler(unauthorized);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 401 })));
 
-    await expect(api("/v2/admin/auth/login", { method: "POST", body: "{}" })).rejects.toMatchObject({ status: 401, code: "error" });
+    await expect(api("/console/auth/login", { method: "POST", body: "{}" })).rejects.toMatchObject({ status: 401, code: "error" });
     expect(unauthorized).not.toHaveBeenCalled();
   });
 
@@ -29,16 +29,16 @@ describe("dashboard console API client", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(api("/v2/admin/settings", { method: "GET", body: "{}" })).rejects.toMatchObject({ status: 400, code: "invalid_request" });
+    await expect(api("/console/settings", { method: "GET", body: "{}" })).rejects.toMatchObject({ status: 400, code: "invalid_request" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("rejects V1 and absolute dashboard routes before fetch", async () => {
+  test("rejects cross-origin routes before fetch", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(api("/v1/models")).rejects.toEqual(new ApiError(400, "invalid_route", "dashboard routes must use the console API"));
-    await expect(api("https://api.invalid/v2/admin/settings")).rejects.toEqual(new ApiError(400, "invalid_route", "dashboard routes must use the console API"));
+    await expect(api("https://api.invalid/console/settings")).rejects.toEqual(new ApiError(400, "invalid_route", "dashboard routes must be same-origin console API paths"));
+    await expect(api("//api.invalid/console/settings")).rejects.toEqual(new ApiError(400, "invalid_route", "dashboard routes must be same-origin console API paths"));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -46,12 +46,13 @@ describe("dashboard console API client", () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response("{}", { status: 200 })));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(api("/v2/admin/telemetry/usage", { method: "PUT" })).rejects.toMatchObject({ status: 405, code: "method_not_allowed" });
-    await api("/v2/admin/telemetry/usage");
-    await api("/v2/admin/settings", { method: "PATCH", body: JSON.stringify({ logLevel: "info" }) });
-    await api("/v2/admin/settings", { method: "DELETE" });
+    await expect(api("/console/telemetry/usage", { method: "PUT" })).rejects.toMatchObject({ status: 405, code: "method_not_allowed" });
+    await api("/console/telemetry/usage");
+    await api("/console/settings", { method: "PATCH", body: JSON.stringify({ logLevel: "info" }) });
+    await api("/console/settings", { method: "DELETE" });
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect((fetchMock.mock.calls[0] as [string, RequestInit])[0]).toBe("/console/telemetry/usage");
     expect((fetchMock.mock.calls[0] as [string, RequestInit])[1].method).toBe("GET");
     expect((fetchMock.mock.calls[1] as [string, RequestInit])[1].method).toBe("PATCH");
     expect((fetchMock.mock.calls[2] as [string, RequestInit])[1].method).toBe("DELETE");
@@ -59,23 +60,23 @@ describe("dashboard console API client", () => {
 
   test("preserves structured errors and sanitizes non-JSON failures", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: "settings.validation_failed", message: "invalid" } }), { status: 400 })));
-    await expect(api("/v2/admin/settings")).rejects.toEqual(new ApiError(400, "settings.validation_failed", "invalid"));
+    await expect(api("/console/settings")).rejects.toEqual(new ApiError(400, "settings.validation_failed", "invalid"));
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("provider token leaked", { status: 502 })));
-    await expect(api("/v2/admin/settings")).rejects.toEqual(new ApiError(502, "error", "request failed (502)"));
+    await expect(api("/console/settings")).rejects.toEqual(new ApiError(502, "error", "request failed (502)"));
   });
 
-  test("downloads V2 blobs and preserves the server filename", async () => {
+  test("apiRaw returns the raw response with headers intact", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("backup", {
       status: 200,
       headers: { "content-disposition": 'attachment; filename="config.backup"' },
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await apiDownload("/v2/admin/backups/backup-1/download");
+    const res = await apiRaw("/console/backups/backup-1/download");
 
-    expect(result.filename).toBe("config.backup");
-    expect(await result.blob.text()).toBe("backup");
-    expect(fetchMock).toHaveBeenCalledWith("/console/api/v2/admin/backups/backup-1/download", expect.objectContaining({ method: "GET", credentials: "same-origin" }));
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="config.backup"');
+    expect(await res.text()).toBe("backup");
+    expect(fetchMock).toHaveBeenCalledWith("/console/backups/backup-1/download", expect.objectContaining({ method: "GET", credentials: "same-origin" }));
   });
 });

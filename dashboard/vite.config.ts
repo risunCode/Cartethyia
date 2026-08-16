@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => {
   const dashboardPort = Number(env.CARTETHYIA_DASHBOARD_PORT ?? "5173");
   const daemonPort = env.CARTETHYIA_DAEMON_PORT ?? "12800";
   const daemonTarget = `http://127.0.0.1:${daemonPort}`;
+  const auditTarget = `http://127.0.0.1:${env.CARTETHYIA_DASHBOARD_SERVER_PORT ?? "8787"}`;
 
   return {
     base: "/",
@@ -21,18 +22,31 @@ export default defineConfig(({ mode }) => {
     server: {
       port: dashboardPort,
       proxy: {
-        "/console/api": {
-          target: daemonTarget,
-          changeOrigin: false,
-          rewrite: (path) => path.replace(/^\/console\/api/, ""),
-        },
-        "/v2": {
+        "/console": {
           target: daemonTarget,
           changeOrigin: false,
         },
         "/v1": {
           target: daemonTarget,
           changeOrigin: false,
+        },
+        "/internal": {
+          target: auditTarget,
+          changeOrigin: false,
+        },
+        // Only the daemon's public share API subpaths (monitor data, monitor
+        // stream, and the one-shot setup flow) are proxied; every other
+        // /share/* path is the SPA's share page and must stay local.
+        "/share": {
+          target: daemonTarget,
+          changeOrigin: false,
+          bypass: (req) => {
+            const path = (req.url ?? "").split("?")[0].replace(/^\/share\/?/, "");
+            if (path.endsWith("/data") || path.endsWith("/stream") || path.startsWith("setup/")) {
+              return undefined;
+            }
+            return "/index.html";
+          },
         },
       },
     },

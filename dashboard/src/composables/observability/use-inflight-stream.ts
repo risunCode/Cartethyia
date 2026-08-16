@@ -1,12 +1,12 @@
 /**
- * useInFlightStream — EventSource hook for /console/api/live/in-flight/stream.
+ * useInFlightStream — EventSource hook for /console/telemetry/in-flight/stream.
  * Mirrors useConsoleLogStream's backoff (1s→2s→…→30s); native EventSource
  * handles SSE framing + sends the session cookie same-origin.
  */
 
 import { createSignal, onCleanup, type Accessor } from "solid-js";
 
-const STREAM_URL = "/console/api/live/in-flight/stream";
+const STREAM_URL = "/console/telemetry/in-flight/stream";
 
 const SHARE_STREAM_MAX_DELAY = 30_000;
 

@@ -28,7 +28,7 @@ describe("queued account imports", () => {
     expect(maximumActive).toBe(1);
     expect(requests).toHaveLength(Math.ceil(10_000 / ACCOUNT_IMPORT_CHUNK_SIZE));
     expect(Math.max(...requests.map((request) => request.count))).toBeLessThanOrEqual(ACCOUNT_IMPORT_CHUNK_SIZE);
-    expect(requests.every((request) => request.path === "/console/api/v2/admin/providers/provider/accounts/batch")).toBe(true);
+    expect(requests.every((request) => request.path === "/console/providers/provider/accounts/batch")).toBe(true);
   });
 
   test("retains bounded partial failure details without accepting secret fields", async () => {

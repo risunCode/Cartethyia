@@ -46,7 +46,7 @@ func TestOAuthStatusAndReauthRoutesUseBoundedMetadata(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterAuth(mux, Services{Auth: auth})
 
-	statusReq := httptest.NewRequest(http.MethodGet, "/v2/admin/auth/oauth/sessions/opaque-session/status", nil)
+	statusReq := httptest.NewRequest(http.MethodGet, "/console/auth/oauth/sessions/opaque-session/status", nil)
 	statusRec := httptest.NewRecorder()
 	mux.ServeHTTP(statusRec, statusReq)
 	if statusRec.Code != http.StatusOK || auth.statusCalls != 1 {
@@ -57,7 +57,7 @@ func TestOAuthStatusAndReauthRoutesUseBoundedMetadata(t *testing.T) {
 		t.Fatalf("OAuth status leaked token material: %s", body)
 	}
 
-	reauthReq := httptest.NewRequest(http.MethodPost, "/v2/admin/auth/oauth/reauth", strings.NewReader(`{"accountId":"account-1","force":false}`))
+	reauthReq := httptest.NewRequest(http.MethodPost, "/console/auth/oauth/reauth", strings.NewReader(`{"accountId":"account-1","force":false}`))
 	reauthRec := httptest.NewRecorder()
 	mux.ServeHTTP(reauthRec, reauthReq)
 	if reauthRec.Code != http.StatusOK || auth.reauthCalls != 1 {

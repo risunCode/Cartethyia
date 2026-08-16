@@ -97,34 +97,34 @@ func hasScope(scopes []string, wanted AdminScope) bool {
 
 func adminScopeForPath(path string) AdminScope {
 	switch {
-	case strings.HasPrefix(path, "/v2/admin/auth/"):
+	case strings.HasPrefix(path, "/console/auth/"):
 		return ScopeAuth
-	case strings.HasPrefix(path, "/v2/admin/accounts"), strings.HasPrefix(path, "/v2/admin/providers/"):
+	case strings.HasPrefix(path, "/console/accounts"), strings.HasPrefix(path, "/console/providers/"):
 		return ScopeAccounts
-	case strings.HasPrefix(path, "/v2/admin/keys"):
+	case strings.HasPrefix(path, "/console/keys"):
 		return ScopeKeys
-	case strings.HasPrefix(path, "/v2/admin/proxies"):
+	case strings.HasPrefix(path, "/console/proxies"):
 		return ScopeConfig
-	case strings.HasPrefix(path, "/v2/admin/custom-providers"):
+	case strings.HasPrefix(path, "/console/custom-providers"):
 		return ScopeConfig
-	case strings.HasPrefix(path, "/v2/admin/proxy-settings"), strings.HasPrefix(path, "/v2/admin/settings"):
+	case strings.HasPrefix(path, "/console/proxy-settings"), strings.HasPrefix(path, "/console/settings"):
 		return ScopeConfig
-	case strings.HasPrefix(path, "/v2/admin/backups"):
+	case strings.HasPrefix(path, "/console/backups"):
 		return ScopeBackups
-	case strings.HasPrefix(path, "/v2/admin/telemetry"),
-		strings.HasPrefix(path, "/v2/admin/console/logs"):
+	case strings.HasPrefix(path, "/console/telemetry"),
+		strings.HasPrefix(path, "/console/logs"):
 		return ScopeUsage
-	case strings.HasPrefix(path, "/v2/admin/console/web-request"):
+	case strings.HasPrefix(path, "/console/web-request"):
 		return ScopeHealth
-	case strings.HasPrefix(path, "/v2/admin/catalog/"):
+	case strings.HasPrefix(path, "/console/catalog/"):
 		return ScopeCatalog
-	case strings.HasPrefix(path, "/v2/admin/tools/cache"):
+	case strings.HasPrefix(path, "/console/tools/cache"):
 		return ScopeCache
-	case strings.HasPrefix(path, "/v2/admin/tools/restart"):
+	case strings.HasPrefix(path, "/console/tools/restart"):
 		return ScopeLifecycle
-	case strings.HasPrefix(path, "/v2/admin/tools"):
+	case strings.HasPrefix(path, "/console/tools"):
 		return ScopeHealth
-	case strings.HasPrefix(path, "/v2/admin/dashboard"):
+	case strings.HasPrefix(path, "/console/dashboard"):
 		return ScopeHealth
 	default:
 		return ScopeHealth
@@ -132,7 +132,7 @@ func adminScopeForPath(path string) AdminScope {
 }
 
 func isLoginPath(r *http.Request) bool {
-	return r != nil && r.Method == http.MethodPost && r.URL.Path == "/v2/admin/auth/login"
+	return r != nil && r.Method == http.MethodPost && r.URL.Path == "/console/auth/login"
 }
 
 // scopedAdmin wraps all registered admin routes. Login is the sole unauthenticated
@@ -229,14 +229,14 @@ func isGenerationMutation(path, method string) bool {
 		return false
 	}
 	switch {
-	case strings.HasPrefix(path, "/v2/admin/accounts"),
-		strings.HasPrefix(path, "/v2/admin/providers/"),
-		strings.HasPrefix(path, "/v2/admin/keys"),
-		strings.HasPrefix(path, "/v2/admin/settings"),
-		strings.HasPrefix(path, "/v2/admin/proxy-settings"),
-		strings.HasPrefix(path, "/v2/admin/tools/cache"),
-		strings.HasPrefix(path, "/v2/admin/tools/reindex"),
-		strings.HasPrefix(path, "/v2/admin/backups/") && strings.HasSuffix(path, "/restore"):
+	case strings.HasPrefix(path, "/console/accounts"),
+		strings.HasPrefix(path, "/console/providers/"),
+		strings.HasPrefix(path, "/console/keys"),
+		strings.HasPrefix(path, "/console/settings"),
+		strings.HasPrefix(path, "/console/proxy-settings"),
+		strings.HasPrefix(path, "/console/tools/cache"),
+		strings.HasPrefix(path, "/console/tools/reindex"),
+		strings.HasPrefix(path, "/console/backups/") && strings.HasSuffix(path, "/restore"):
 		return true
 	default:
 		return false
@@ -245,15 +245,15 @@ func isGenerationMutation(path, method string) bool {
 
 func generationScope(path string) string {
 	switch {
-	case strings.HasPrefix(path, "/v2/admin/providers/"), strings.HasPrefix(path, "/v2/admin/accounts"):
+	case strings.HasPrefix(path, "/console/providers/"), strings.HasPrefix(path, "/console/accounts"):
 		return "accounts"
-	case strings.HasPrefix(path, "/v2/admin/keys"):
+	case strings.HasPrefix(path, "/console/keys"):
 		return "credentials"
-	case strings.HasPrefix(path, "/v2/admin/proxies"), strings.HasPrefix(path, "/v2/admin/settings"), strings.HasPrefix(path, "/v2/admin/proxy-settings"):
+	case strings.HasPrefix(path, "/console/proxies"), strings.HasPrefix(path, "/console/settings"), strings.HasPrefix(path, "/console/proxy-settings"):
 		return "configuration"
-	case strings.HasPrefix(path, "/v2/admin/backups"):
+	case strings.HasPrefix(path, "/console/backups"):
 		return "backup"
-	case strings.HasPrefix(path, "/v2/admin/tools/cache"):
+	case strings.HasPrefix(path, "/console/tools/cache"):
 		return "cache"
 	default:
 		return "lifecycle"

@@ -93,11 +93,11 @@ func TestAdminInFlightStream(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/v2/admin/telemetry/in-flight/stream", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/console/telemetry/in-flight/stream", nil)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
-	req.Header.Set("X-Session-Id", "session-1")
+	req.AddCookie(&http.Cookie{Name: "cartethyia_session", Value: "session-1"})
 	resp, err := server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("do: %v", err)
@@ -146,11 +146,11 @@ func TestAdminConsoleLogStreamInitialAndTail(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/v2/admin/console/logs/stream", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/console/logs/stream", nil)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
-	req.Header.Set("X-Session-Id", "session-1")
+	req.AddCookie(&http.Cookie{Name: "cartethyia_session", Value: "session-1"})
 	resp, err := server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("do: %v", err)
@@ -185,8 +185,8 @@ func TestAdminStreamsRequireSession(t *testing.T) {
 	server := startAdminStreamServer(t, services)
 
 	for _, path := range []string{
-		"/v2/admin/telemetry/in-flight/stream",
-		"/v2/admin/console/logs/stream",
+		"/console/telemetry/in-flight/stream",
+		"/console/logs/stream",
 	} {
 		resp, err := server.Client().Get(server.URL + path)
 		if err != nil {
@@ -210,11 +210,11 @@ func TestAdminStreamSkipsBufferedAuditPath(t *testing.T) {
 	server := startAdminStreamServer(t, streamTestServices(nil, logs))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/v2/admin/console/logs/stream", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/console/logs/stream", nil)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
-	req.Header.Set("X-Session-Id", "session-1")
+	req.AddCookie(&http.Cookie{Name: "cartethyia_session", Value: "session-1"})
 	resp, err := server.Client().Do(req)
 	if err != nil {
 		t.Fatalf("do: %v", err)

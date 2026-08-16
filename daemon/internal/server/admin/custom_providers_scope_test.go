@@ -4,8 +4,8 @@ import "testing"
 
 func TestCustomProvidersRoutesRequireConfigScope(t *testing.T) {
 	paths := []string{
-		"/v2/admin/custom-providers",
-		"/v2/admin/custom-providers/prov_123",
+		"/console/custom-providers",
+		"/console/custom-providers/prov_123",
 	}
 	for _, path := range paths {
 		if got := adminScopeForPath(path); got != ScopeConfig {
@@ -13,10 +13,10 @@ func TestCustomProvidersRoutesRequireConfigScope(t *testing.T) {
 		}
 	}
 	// Adjacent configuration routes keep their existing scope assignment.
-	if got := adminScopeForPath("/v2/admin/proxies"); got != ScopeConfig {
+	if got := adminScopeForPath("/console/proxies"); got != ScopeConfig {
 		t.Fatalf("proxies scope = %q", got)
 	}
-	if got := adminScopeForPath("/v2/admin/telemetry/overview"); got != ScopeUsage {
+	if got := adminScopeForPath("/console/telemetry/overview"); got != ScopeUsage {
 		t.Fatalf("telemetry scope = %q", got)
 	}
 }

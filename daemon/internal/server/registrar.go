@@ -24,7 +24,7 @@ type V1Registrar interface {
 	Registrar
 }
 
-// AdminRegistrar owns the /v2/admin/ route group. The admin packages
+// AdminRegistrar owns the /console/ route group. The admin packages
 // implement this interface; the server consumes only the contract.
 type AdminRegistrar interface {
 	Registrar
@@ -58,7 +58,7 @@ type ShareOptions struct {
 	InFlight ShareInFlightSource
 }
 
-// Options configures NewRouterWith. Registry is required; V1 and V2Admin
+// Options configures NewRouterWith. Registry is required; V1 and Console
 // are optional seams. HealthArtwork is operator-facing HTML appended to the
 // GET /health response when non-empty.
 type Options struct {
@@ -67,6 +67,6 @@ type Options struct {
 	V1            V1Registrar
 	// V1Auth wraps the complete /v1 subtree without affecting health or admin.
 	V1Auth  func(http.Handler) http.Handler
-	V2Admin AdminRegistrar
+	Console AdminRegistrar
 	Share   *ShareOptions
 }

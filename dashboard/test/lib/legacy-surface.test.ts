@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 const sources = import.meta.glob("../../src/**/*.{ts,tsx}", { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
-const forbidden = /\bapi(?:Get|Post|PostForm|Patch|Delete)\b|\/custom-providers|\/aliases|\/combos|\/model-studio|\/db-map|\/proxy-requests|\bQUERY\b/;
+const forbidden = /\bapi(?:Get|Post|PostForm|Patch|Delete)\b|\/custom-providers|\/aliases|\/combos|\/model-studio|\/db-map|\/proxy-requests|\bQUERY\b|\/v2\/admin|\/console\/api/;
 
 describe("retained dashboard surface", () => {
   test("does not retain legacy helpers, routes, or QUERY methods", () => {

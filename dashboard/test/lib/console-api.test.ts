@@ -69,6 +69,6 @@ describe("console API contracts", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { ok: true } }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     await consoleApi("/settings", { method: "PATCH", body: JSON.stringify({ logLevel: "info" }) });
-    expect(fetchMock).toHaveBeenCalledWith("/console/api/v2/admin/settings", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ logLevel: "info" }) }));
+    expect(fetchMock).toHaveBeenCalledWith("/console/settings", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ logLevel: "info" }) }));
   });
 });

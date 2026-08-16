@@ -27,7 +27,7 @@ func NewRouterWith(opts Options) (http.Handler, error) {
 	mux.HandleFunc("/health", healthHandler(opts.HealthArtwork))
 	mux.HandleFunc("/metrics", handleMetrics(opts.Registry))
 	registerV1(mux, opts.V1, opts.V1Auth)
-	registerV2Admin(mux, opts.V2Admin)
+	registerConsole(mux, opts.Console)
 	registerShare(mux, opts.Share)
 	mux.HandleFunc("/", handleNotFound)
 	return middleware.RequestID(observeRequests(opts.Registry, mux)), nil
@@ -140,12 +140,12 @@ func registerV1(mux *http.ServeMux, v1 V1Registrar, auth func(http.Handler) http
 	mux.Handle("/v1beta/", auth(submux))
 }
 
-// registerV2Admin wires the /v2/admin/ route group. A nil registrar leaves
+// registerConsole wires the /console/ route group. A nil registrar leaves
 // the prefix on the shared "not implemented" placeholder for the same
 // reason as registerV1.
-func registerV2Admin(mux *http.ServeMux, admin AdminRegistrar) {
+func registerConsole(mux *http.ServeMux, admin AdminRegistrar) {
 	if admin == nil {
-		mux.HandleFunc("/v2/admin/", notReady("v2 admin API"))
+		mux.HandleFunc("/console/", notReady("console API"))
 		return
 	}
 	admin.Register(mux)
@@ -159,7 +159,7 @@ func handleNotFound(w http.ResponseWriter, _ *http.Request) {
 }
 
 // notReady is the 501 placeholder used while a route group is being built.
-// It is intentionally shared by /v1/ and /v2/admin/ so both expose the
+// It is intentionally shared by /v1/ and /console/ so both expose the
 // same discoverable shape ("not implemented" + module tag) when their
 // owning package is not yet wired.
 func notReady(name string) http.HandlerFunc {

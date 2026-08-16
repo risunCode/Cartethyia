@@ -93,7 +93,7 @@ func (s *postgresAPIKeyAdminService) ShareLink(ctx context.Context, id, kind, ba
 	if e != nil {
 		return admin.ShareLink{}, e
 	}
-	return admin.ShareLink{URL: strings.TrimRight(base, "/") + "/v2/admin/keys/share/" + url.PathEscape(row.ID) + "?token=" + url.QueryEscape(token), Kind: row.Kind, ExpiresAt: row.ExpiresAt.UTC().Format(time.RFC3339)}, nil
+	return admin.ShareLink{URL: strings.TrimRight(base, "/") + "/console/keys/share/" + url.PathEscape(row.ID) + "?token=" + url.QueryEscape(token), Kind: row.Kind, ExpiresAt: row.ExpiresAt.UTC().Format(time.RFC3339)}, nil
 }
 func (s *postgresAPIKeyAdminService) RevokeShareLinks(ctx context.Context, id string) (int, error) {
 	rows, e := s.repository.ListShareLinksByAPIKey(ctx, id)

@@ -272,7 +272,7 @@ func assertNoSecrets(t *testing.T, body string) {
 }
 
 func withSession(req *http.Request) *http.Request {
-	req.Header.Set("X-Session-Id", "session-matrix")
+	req.AddCookie(&http.Cookie{Name: "cartethyia_session", Value: "session-matrix"})
 	return req
 }
 
@@ -289,23 +289,23 @@ func TestAdminRouteMatrixAuthenticatedSuccessAndAuthFailure(t *testing.T) {
 	}
 
 	success := []caseSpec{
-		{group: "auth", method: http.MethodPost, path: "/v2/admin/auth/login", body: `{"username":"op","password":"x"}`, want: http.StatusOK},
-		{group: "auth", method: http.MethodGet, path: "/v2/admin/auth/session", want: http.StatusOK},
-		{group: "accounts", method: http.MethodGet, path: "/v2/admin/accounts", want: http.StatusOK},
-		{group: "accounts", method: http.MethodGet, path: "/v2/admin/providers/openai/accounts", want: http.StatusOK},
-		{group: "keys", method: http.MethodGet, path: "/v2/admin/keys", want: http.StatusOK},
-		{group: "catalog", method: http.MethodGet, path: "/v2/admin/catalog/providers", want: http.StatusOK},
-		{group: "custom-providers", method: http.MethodGet, path: "/v2/admin/custom-providers", want: http.StatusOK},
-		{group: "proxies", method: http.MethodGet, path: "/v2/admin/proxies", want: http.StatusOK},
-		{group: "proxy-settings", method: http.MethodGet, path: "/v2/admin/proxy-settings", want: http.StatusOK},
-		{group: "web-search-routing", method: http.MethodGet, path: "/v2/admin/web-search-routing", want: http.StatusOK},
-		{group: "settings", method: http.MethodGet, path: "/v2/admin/settings", want: http.StatusOK},
-		{group: "backups", method: http.MethodGet, path: "/v2/admin/backups", want: http.StatusOK},
-		{group: "telemetry", method: http.MethodGet, path: "/v2/admin/telemetry/overview", want: http.StatusOK},
-		{group: "console", method: http.MethodGet, path: "/v2/admin/console/logs", want: http.StatusOK},
-		{group: "console", method: http.MethodPost, path: "/v2/admin/console/web-request", body: `{"url":"https://example.test/"}`, want: http.StatusOK},
-		{group: "tools", method: http.MethodPost, path: "/v2/admin/tools/reindex", body: `{"target":"catalog"}`, want: http.StatusOK},
-		{group: "dashboard", method: http.MethodGet, path: "/v2/admin/dashboard", want: http.StatusOK},
+		{group: "auth", method: http.MethodPost, path: "/console/auth/login", body: `{"username":"op","password":"x"}`, want: http.StatusOK},
+		{group: "auth", method: http.MethodGet, path: "/console/auth/session", want: http.StatusOK},
+		{group: "accounts", method: http.MethodGet, path: "/console/accounts", want: http.StatusOK},
+		{group: "accounts", method: http.MethodGet, path: "/console/providers/openai/accounts", want: http.StatusOK},
+		{group: "keys", method: http.MethodGet, path: "/console/keys", want: http.StatusOK},
+		{group: "catalog", method: http.MethodGet, path: "/console/catalog/providers", want: http.StatusOK},
+		{group: "custom-providers", method: http.MethodGet, path: "/console/custom-providers", want: http.StatusOK},
+		{group: "proxies", method: http.MethodGet, path: "/console/proxies", want: http.StatusOK},
+		{group: "proxy-settings", method: http.MethodGet, path: "/console/proxy-settings", want: http.StatusOK},
+		{group: "web-search-routing", method: http.MethodGet, path: "/console/web-search-routing", want: http.StatusOK},
+		{group: "settings", method: http.MethodGet, path: "/console/settings", want: http.StatusOK},
+		{group: "backups", method: http.MethodGet, path: "/console/backups", want: http.StatusOK},
+		{group: "telemetry", method: http.MethodGet, path: "/console/telemetry/overview", want: http.StatusOK},
+		{group: "console", method: http.MethodGet, path: "/console/logs", want: http.StatusOK},
+		{group: "console", method: http.MethodPost, path: "/console/web-request", body: `{"url":"https://example.test/"}`, want: http.StatusOK},
+		{group: "tools", method: http.MethodPost, path: "/console/tools/reindex", body: `{"target":"catalog"}`, want: http.StatusOK},
+		{group: "dashboard", method: http.MethodGet, path: "/console/dashboard", want: http.StatusOK},
 	}
 
 	for _, tc := range success {
@@ -317,7 +317,7 @@ func TestAdminRouteMatrixAuthenticatedSuccessAndAuthFailure(t *testing.T) {
 				bodyReader = strings.NewReader("")
 			}
 			req := httptest.NewRequest(tc.method, tc.path, bodyReader)
-			if tc.path != "/v2/admin/auth/login" {
+			if tc.path != "/console/auth/login" {
 				withSession(req)
 			}
 			if tc.body != "" {
@@ -336,22 +336,22 @@ func TestAdminRouteMatrixAuthenticatedSuccessAndAuthFailure(t *testing.T) {
 	}
 
 	failures := []caseSpec{
-		{group: "auth", method: http.MethodGet, path: "/v2/admin/auth/session", want: http.StatusUnauthorized},
-		{group: "accounts", method: http.MethodGet, path: "/v2/admin/accounts", want: http.StatusUnauthorized},
-		{group: "accounts", method: http.MethodGet, path: "/v2/admin/providers/openai/accounts", want: http.StatusUnauthorized},
-		{group: "keys", method: http.MethodGet, path: "/v2/admin/keys", want: http.StatusUnauthorized},
-		{group: "catalog", method: http.MethodGet, path: "/v2/admin/catalog/providers", want: http.StatusUnauthorized},
-		{group: "custom-providers", method: http.MethodGet, path: "/v2/admin/custom-providers", want: http.StatusUnauthorized},
-		{group: "proxies", method: http.MethodGet, path: "/v2/admin/proxies", want: http.StatusUnauthorized},
-		{group: "proxy-settings", method: http.MethodGet, path: "/v2/admin/proxy-settings", want: http.StatusUnauthorized},
-		{group: "web-search-routing", method: http.MethodGet, path: "/v2/admin/web-search-routing", want: http.StatusUnauthorized},
-		{group: "settings", method: http.MethodGet, path: "/v2/admin/settings", want: http.StatusUnauthorized},
-		{group: "backups", method: http.MethodGet, path: "/v2/admin/backups", want: http.StatusUnauthorized},
-		{group: "telemetry", method: http.MethodGet, path: "/v2/admin/telemetry/overview", want: http.StatusUnauthorized},
-		{group: "console", method: http.MethodGet, path: "/v2/admin/console/logs", want: http.StatusUnauthorized},
-		{group: "console", method: http.MethodPost, path: "/v2/admin/console/web-request", body: `{"url":"https://example.test/"}`, want: http.StatusUnauthorized},
-		{group: "tools", method: http.MethodPost, path: "/v2/admin/tools/reindex", body: `{"target":"catalog"}`, want: http.StatusUnauthorized},
-		{group: "dashboard", method: http.MethodGet, path: "/v2/admin/dashboard", want: http.StatusUnauthorized},
+		{group: "auth", method: http.MethodGet, path: "/console/auth/session", want: http.StatusUnauthorized},
+		{group: "accounts", method: http.MethodGet, path: "/console/accounts", want: http.StatusUnauthorized},
+		{group: "accounts", method: http.MethodGet, path: "/console/providers/openai/accounts", want: http.StatusUnauthorized},
+		{group: "keys", method: http.MethodGet, path: "/console/keys", want: http.StatusUnauthorized},
+		{group: "catalog", method: http.MethodGet, path: "/console/catalog/providers", want: http.StatusUnauthorized},
+		{group: "custom-providers", method: http.MethodGet, path: "/console/custom-providers", want: http.StatusUnauthorized},
+		{group: "proxies", method: http.MethodGet, path: "/console/proxies", want: http.StatusUnauthorized},
+		{group: "proxy-settings", method: http.MethodGet, path: "/console/proxy-settings", want: http.StatusUnauthorized},
+		{group: "web-search-routing", method: http.MethodGet, path: "/console/web-search-routing", want: http.StatusUnauthorized},
+		{group: "settings", method: http.MethodGet, path: "/console/settings", want: http.StatusUnauthorized},
+		{group: "backups", method: http.MethodGet, path: "/console/backups", want: http.StatusUnauthorized},
+		{group: "telemetry", method: http.MethodGet, path: "/console/telemetry/overview", want: http.StatusUnauthorized},
+		{group: "console", method: http.MethodGet, path: "/console/logs", want: http.StatusUnauthorized},
+		{group: "console", method: http.MethodPost, path: "/console/web-request", body: `{"url":"https://example.test/"}`, want: http.StatusUnauthorized},
+		{group: "tools", method: http.MethodPost, path: "/console/tools/reindex", body: `{"target":"catalog"}`, want: http.StatusUnauthorized},
+		{group: "dashboard", method: http.MethodGet, path: "/console/dashboard", want: http.StatusUnauthorized},
 	}
 
 	for _, tc := range failures {
@@ -378,15 +378,15 @@ func TestAdminRouteMatrixValidationFailures(t *testing.T) {
 		path   string
 		body   string
 	}{
-		{name: "settings_log_level", method: http.MethodPatch, path: "/v2/admin/settings", body: `{"logLevel":"verbose"}`},
-		{name: "keys_name_too_long", method: http.MethodPost, path: "/v2/admin/keys", body: `{"name":"` + strings.Repeat("n", 300) + `"}`},
-		{name: "proxy_host_missing", method: http.MethodPost, path: "/v2/admin/proxies", body: `{"protocol":"http","host":"","port":8080}`},
-		{name: "account_label_too_long", method: http.MethodPost, path: "/v2/admin/providers/openai/accounts", body: `{"label":"` + strings.Repeat("a", 300) + `"}`},
-		{name: "backup_note_too_long", method: http.MethodPost, path: "/v2/admin/backups", body: `{"note":"` + strings.Repeat("b", 300) + `"}`},
-		{name: "probe_url_invalid", method: http.MethodPost, path: "/v2/admin/tools/probe", body: `{"url":"not-a-url"}`},
-		{name: "oauth_refresh_missing_account", method: http.MethodPost, path: "/v2/admin/auth/oauth/refresh", body: `{"accountId":""}`},
-		{name: "web_request_missing_url", method: http.MethodPost, path: "/v2/admin/console/web-request", body: `{"url":""}`},
-		{name: "metadata_secret_field", method: http.MethodPost, path: "/v2/admin/keys", body: `{"name":"ok","metadata":{"api_token":"x"}}`},
+		{name: "settings_log_level", method: http.MethodPatch, path: "/console/settings", body: `{"logLevel":"verbose"}`},
+		{name: "keys_name_too_long", method: http.MethodPost, path: "/console/keys", body: `{"name":"` + strings.Repeat("n", 300) + `"}`},
+		{name: "proxy_host_missing", method: http.MethodPost, path: "/console/proxies", body: `{"protocol":"http","host":"","port":8080}`},
+		{name: "account_label_too_long", method: http.MethodPost, path: "/console/providers/openai/accounts", body: `{"label":"` + strings.Repeat("a", 300) + `"}`},
+		{name: "backup_note_too_long", method: http.MethodPost, path: "/console/backups", body: `{"note":"` + strings.Repeat("b", 300) + `"}`},
+		{name: "probe_url_invalid", method: http.MethodPost, path: "/console/tools/probe", body: `{"url":"not-a-url"}`},
+		{name: "oauth_refresh_missing_account", method: http.MethodPost, path: "/console/auth/oauth/refresh", body: `{"accountId":""}`},
+		{name: "web_request_missing_url", method: http.MethodPost, path: "/console/web-request", body: `{"url":""}`},
+		{name: "metadata_secret_field", method: http.MethodPost, path: "/console/keys", body: `{"name":"ok","metadata":{"api_token":"x"}}`},
 	}
 
 	for _, tc := range cases {
@@ -414,10 +414,10 @@ func TestAdminRouteMatrixUnavailableDependencies(t *testing.T) {
 	cases := []struct {
 		path string
 	}{
-		{"/v2/admin/catalog/providers"},
-		{"/v2/admin/catalog/models"},
-		{"/v2/admin/custom-providers"},
-		{"/v2/admin/custom-providers/cp-1"},
+		{"/console/catalog/providers"},
+		{"/console/catalog/models"},
+		{"/console/custom-providers"},
+		{"/console/custom-providers/cp-1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.path, func(t *testing.T) {
@@ -443,73 +443,73 @@ func TestAdminRouteMatrixSubresourceCoverage(t *testing.T) {
 		body   string
 		want   int
 	}{
-		{name: "auth_logout", method: http.MethodPost, path: "/v2/admin/auth/logout", want: http.StatusOK},
-		{name: "auth_refresh", method: http.MethodPost, path: "/v2/admin/auth/refresh", want: http.StatusOK},
-		{name: "oauth_start", method: http.MethodPost, path: "/v2/admin/auth/oauth/start?providerId=openai", body: `{"flow":"browser"}`, want: http.StatusOK},
-		{name: "oauth_status", method: http.MethodGet, path: "/v2/admin/auth/oauth/sessions/oauth-session/status", want: http.StatusOK},
-		{name: "oauth_complete", method: http.MethodPost, path: "/v2/admin/auth/oauth/sessions/oauth-session/complete", body: `{"code":"abc","state":"st"}`, want: http.StatusOK},
-		{name: "oauth_cancel", method: http.MethodPost, path: "/v2/admin/auth/oauth/sessions/oauth-session/cancel", want: http.StatusOK},
-		{name: "oauth_refresh", method: http.MethodPost, path: "/v2/admin/auth/oauth/refresh", body: `{"accountId":"acct-1","force":true}`, want: http.StatusOK},
-		{name: "oauth_reauth", method: http.MethodPost, path: "/v2/admin/auth/oauth/reauth", body: `{"accountId":"acct-1"}`, want: http.StatusOK},
-		{name: "account_patch", method: http.MethodPatch, path: "/v2/admin/accounts/acct-1", body: `{"name":"renamed"}`, want: http.StatusOK},
-		{name: "account_delete", method: http.MethodDelete, path: "/v2/admin/accounts/acct-2", want: http.StatusNoContent},
-		{name: "account_quota_get", method: http.MethodGet, path: "/v2/admin/accounts/acct-1/quota", want: http.StatusOK},
-		{name: "account_quota_refresh", method: http.MethodPost, path: "/v2/admin/accounts/acct-1/quota", want: http.StatusOK},
-		{name: "account_revoke", method: http.MethodPost, path: "/v2/admin/accounts/acct-1/revoke", want: http.StatusOK},
-		{name: "account_oauth_status", method: http.MethodGet, path: "/v2/admin/accounts/acct-1/oauth-status", want: http.StatusOK},
-		{name: "quota_refresh_all", method: http.MethodPost, path: "/v2/admin/quota/refresh", body: `{"providerId":"openai"}`, want: http.StatusOK},
-		{name: "provider_create", method: http.MethodPost, path: "/v2/admin/providers/openai/accounts", body: `{"name":"n1","label":"l1"}`, want: http.StatusCreated},
-		{name: "provider_batch_create", method: http.MethodPost, path: "/v2/admin/providers/openai/accounts/batch", body: `{"items":[{"label":"a"}]}`, want: http.StatusCreated},
-		{name: "provider_batch_update", method: http.MethodPatch, path: "/v2/admin/providers/openai/accounts/batch", body: `{"items":[{"accountId":"acct-1"}]}`, want: http.StatusOK},
-		{name: "provider_batch_delete", method: http.MethodPost, path: "/v2/admin/providers/openai/accounts/batch-delete", body: `{"items":["acct-1"]}`, want: http.StatusOK},
-		{name: "provider_update", method: http.MethodPost, path: "/v2/admin/providers/openai/accounts/acct-1", body: `{"name":"n2"}`, want: http.StatusOK},
-		{name: "provider_delete", method: http.MethodDelete, path: "/v2/admin/providers/openai/accounts/acct-9", want: http.StatusNoContent},
-		{name: "provider_revoke", method: http.MethodPost, path: "/v2/admin/providers/openai/accounts/acct-1/revoke", want: http.StatusOK},
-		{name: "provider_oauth_start_redirect", method: http.MethodPost, path: "/v2/admin/providers/openai/accounts/oauth/start", want: http.StatusNotFound},
-		{name: "keys_create", method: http.MethodPost, path: "/v2/admin/keys", body: `{"name":"created"}`, want: http.StatusCreated},
-		{name: "keys_patch", method: http.MethodPatch, path: "/v2/admin/keys/key-1", body: `{"name":"patched"}`, want: http.StatusOK},
-		{name: "keys_delete", method: http.MethodDelete, path: "/v2/admin/keys/key-2", want: http.StatusNoContent},
-		{name: "keys_regenerate", method: http.MethodPost, path: "/v2/admin/keys/key-1/regenerate", want: http.StatusOK},
-		{name: "keys_revoke", method: http.MethodPost, path: "/v2/admin/keys/key-1/revoke", want: http.StatusOK},
-		{name: "keys_share", method: http.MethodPost, path: "/v2/admin/keys/key-1/share", want: http.StatusOK},
-		{name: "keys_setup_link", method: http.MethodPost, path: "/v2/admin/keys/key-1/setup-link", want: http.StatusOK},
-		{name: "keys_revoke_share", method: http.MethodDelete, path: "/v2/admin/keys/key-1/revoke-share", want: http.StatusOK},
-		{name: "proxy_create", method: http.MethodPost, path: "/v2/admin/proxies", body: `{"protocol":"http","host":"127.0.0.1","port":8080}`, want: http.StatusCreated},
-		{name: "proxy_patch", method: http.MethodPatch, path: "/v2/admin/proxies/proxy-1", body: `{"protocol":"http","host":"127.0.0.1","port":8081}`, want: http.StatusOK},
-		{name: "proxy_delete", method: http.MethodDelete, path: "/v2/admin/proxies/proxy-2", want: http.StatusNoContent},
-		{name: "proxy_test", method: http.MethodPost, path: "/v2/admin/proxies/proxy-1/test", want: http.StatusOK},
-		{name: "proxy_countries", method: http.MethodGet, path: "/v2/admin/proxies/scrape/countries", want: http.StatusOK},
-		{name: "proxy_catalog", method: http.MethodGet, path: "/v2/admin/proxies/scrape/catalog", want: http.StatusOK},
-		{name: "proxy_search", method: http.MethodPost, path: "/v2/admin/proxies/search", body: `{"query":"us","limit":5}`, want: http.StatusOK},
-		{name: "proxy_import", method: http.MethodPost, path: "/v2/admin/proxies/import", body: `{"proxies":[{"protocol":"http","host":"1.1.1.1","port":80}]}`, want: http.StatusOK},
-		{name: "proxy_scrape", method: http.MethodPost, path: "/v2/admin/proxies/scrape", body: `{"limit":1}`, want: http.StatusOK},
-		{name: "proxy_settings_patch", method: http.MethodPost, path: "/v2/admin/proxy-settings", body: `{"mode":"manual"}`, want: http.StatusOK},
-		{name: "settings_reset_post", method: http.MethodPost, path: "/v2/admin/settings", want: http.StatusOK},
-		{name: "settings_reset_delete", method: http.MethodDelete, path: "/v2/admin/settings", want: http.StatusOK},
-		{name: "backup_create", method: http.MethodPost, path: "/v2/admin/backups", body: `{"note":"nightly","includesDatabase":true}`, want: http.StatusCreated},
-		{name: "backup_download", method: http.MethodGet, path: "/v2/admin/backups/bkp-1/download", want: http.StatusOK},
-		{name: "backup_restore", method: http.MethodPost, path: "/v2/admin/backups/bkp-1/restore", body: `{"dryRun":true}`, want: http.StatusOK},
-		{name: "backup_delete", method: http.MethodDelete, path: "/v2/admin/backups/bkp-1", want: http.StatusNoContent},
-		{name: "tools_cache", method: http.MethodPost, path: "/v2/admin/tools/cache/models", want: http.StatusOK},
-		{name: "tools_probe", method: http.MethodPost, path: "/v2/admin/tools/probe", body: `{"url":"https://example.test/health"}`, want: http.StatusOK},
-		{name: "tools_restart", method: http.MethodPost, path: "/v2/admin/tools/restart", want: http.StatusAccepted},
-		{name: "telemetry_requests", method: http.MethodGet, path: "/v2/admin/telemetry/requests?period=1h&bucket=5m&limit=10&group_by=provider", want: http.StatusOK},
-		{name: "telemetry_errors", method: http.MethodGet, path: "/v2/admin/telemetry/errors", want: http.StatusOK},
-		{name: "telemetry_upstream", method: http.MethodGet, path: "/v2/admin/telemetry/upstream", want: http.StatusOK},
-		{name: "telemetry_usage", method: http.MethodGet, path: "/v2/admin/telemetry/usage", want: http.StatusOK},
-		{name: "telemetry_clients", method: http.MethodGet, path: "/v2/admin/telemetry/clients", want: http.StatusOK},
-		{name: "catalog_models", method: http.MethodGet, path: "/v2/admin/catalog/models?providerId=openai", want: http.StatusOK},
-		{name: "custom_get", method: http.MethodGet, path: "/v2/admin/custom-providers/cp-1", want: http.StatusOK},
-		{name: "custom_put", method: http.MethodPut, path: "/v2/admin/custom-providers/cp-2", body: `{"slug":"cp2","name":"CP2","type":"openai","protocol":"openai","surface":"chat","baseUrl":"https://example.test","credentialRef":"ref","models":[]}`, want: http.StatusOK},
-		{name: "custom_delete", method: http.MethodDelete, path: "/v2/admin/custom-providers/cp-2", want: http.StatusOK},
-		{name: "method_not_allowed_accounts", method: http.MethodPut, path: "/v2/admin/accounts", want: http.StatusBadRequest},
-		{name: "method_not_allowed_dashboard", method: http.MethodPost, path: "/v2/admin/dashboard", want: http.StatusBadRequest},
-		{name: "account_unknown_sub", method: http.MethodGet, path: "/v2/admin/accounts/acct-1/unknown", want: http.StatusNotFound},
-		{name: "key_unknown_sub", method: http.MethodGet, path: "/v2/admin/keys/key-1/unknown", want: http.StatusNotFound},
-		{name: "proxy_unknown_sub", method: http.MethodGet, path: "/v2/admin/proxies/proxy-1/unknown", want: http.StatusNotFound},
-		{name: "backup_unknown_sub", method: http.MethodGet, path: "/v2/admin/backups/bkp-1/unknown", want: http.StatusNotFound},
-		{name: "tools_cache_missing", method: http.MethodPost, path: "/v2/admin/tools/cache/", want: http.StatusBadRequest},
-		{name: "oauth_start_missing_provider", method: http.MethodPost, path: "/v2/admin/auth/oauth/start", body: `{}`, want: http.StatusBadRequest},
+		{name: "auth_logout", method: http.MethodPost, path: "/console/auth/logout", want: http.StatusOK},
+		{name: "auth_refresh", method: http.MethodPost, path: "/console/auth/refresh", want: http.StatusOK},
+		{name: "oauth_start", method: http.MethodPost, path: "/console/auth/oauth/start?providerId=openai", body: `{"flow":"browser"}`, want: http.StatusOK},
+		{name: "oauth_status", method: http.MethodGet, path: "/console/auth/oauth/sessions/oauth-session/status", want: http.StatusOK},
+		{name: "oauth_complete", method: http.MethodPost, path: "/console/auth/oauth/sessions/oauth-session/complete", body: `{"code":"abc","state":"st"}`, want: http.StatusOK},
+		{name: "oauth_cancel", method: http.MethodPost, path: "/console/auth/oauth/sessions/oauth-session/cancel", want: http.StatusOK},
+		{name: "oauth_refresh", method: http.MethodPost, path: "/console/auth/oauth/refresh", body: `{"accountId":"acct-1","force":true}`, want: http.StatusOK},
+		{name: "oauth_reauth", method: http.MethodPost, path: "/console/auth/oauth/reauth", body: `{"accountId":"acct-1"}`, want: http.StatusOK},
+		{name: "account_patch", method: http.MethodPatch, path: "/console/accounts/acct-1", body: `{"name":"renamed"}`, want: http.StatusOK},
+		{name: "account_delete", method: http.MethodDelete, path: "/console/accounts/acct-2", want: http.StatusNoContent},
+		{name: "account_quota_get", method: http.MethodGet, path: "/console/accounts/acct-1/quota", want: http.StatusOK},
+		{name: "account_quota_refresh", method: http.MethodPost, path: "/console/accounts/acct-1/quota", want: http.StatusOK},
+		{name: "account_revoke", method: http.MethodPost, path: "/console/accounts/acct-1/revoke", want: http.StatusOK},
+		{name: "account_oauth_status", method: http.MethodGet, path: "/console/accounts/acct-1/oauth-status", want: http.StatusOK},
+		{name: "quota_refresh_all", method: http.MethodPost, path: "/console/quota/refresh", body: `{"providerId":"openai"}`, want: http.StatusOK},
+		{name: "provider_create", method: http.MethodPost, path: "/console/providers/openai/accounts", body: `{"name":"n1","label":"l1"}`, want: http.StatusCreated},
+		{name: "provider_batch_create", method: http.MethodPost, path: "/console/providers/openai/accounts/batch", body: `{"items":[{"label":"a"}]}`, want: http.StatusCreated},
+		{name: "provider_batch_update", method: http.MethodPatch, path: "/console/providers/openai/accounts/batch", body: `{"items":[{"accountId":"acct-1"}]}`, want: http.StatusOK},
+		{name: "provider_batch_delete", method: http.MethodPost, path: "/console/providers/openai/accounts/batch-delete", body: `{"items":["acct-1"]}`, want: http.StatusOK},
+		{name: "provider_update", method: http.MethodPost, path: "/console/providers/openai/accounts/acct-1", body: `{"name":"n2"}`, want: http.StatusOK},
+		{name: "provider_delete", method: http.MethodDelete, path: "/console/providers/openai/accounts/acct-9", want: http.StatusNoContent},
+		{name: "provider_revoke", method: http.MethodPost, path: "/console/providers/openai/accounts/acct-1/revoke", want: http.StatusOK},
+		{name: "provider_oauth_start_redirect", method: http.MethodPost, path: "/console/providers/openai/accounts/oauth/start", want: http.StatusNotFound},
+		{name: "keys_create", method: http.MethodPost, path: "/console/keys", body: `{"name":"created"}`, want: http.StatusCreated},
+		{name: "keys_patch", method: http.MethodPatch, path: "/console/keys/key-1", body: `{"name":"patched"}`, want: http.StatusOK},
+		{name: "keys_delete", method: http.MethodDelete, path: "/console/keys/key-2", want: http.StatusNoContent},
+		{name: "keys_regenerate", method: http.MethodPost, path: "/console/keys/key-1/regenerate", want: http.StatusOK},
+		{name: "keys_revoke", method: http.MethodPost, path: "/console/keys/key-1/revoke", want: http.StatusOK},
+		{name: "keys_share", method: http.MethodPost, path: "/console/keys/key-1/share", want: http.StatusOK},
+		{name: "keys_setup_link", method: http.MethodPost, path: "/console/keys/key-1/setup-link", want: http.StatusOK},
+		{name: "keys_revoke_share", method: http.MethodDelete, path: "/console/keys/key-1/revoke-share", want: http.StatusOK},
+		{name: "proxy_create", method: http.MethodPost, path: "/console/proxies", body: `{"protocol":"http","host":"127.0.0.1","port":8080}`, want: http.StatusCreated},
+		{name: "proxy_patch", method: http.MethodPatch, path: "/console/proxies/proxy-1", body: `{"protocol":"http","host":"127.0.0.1","port":8081}`, want: http.StatusOK},
+		{name: "proxy_delete", method: http.MethodDelete, path: "/console/proxies/proxy-2", want: http.StatusNoContent},
+		{name: "proxy_test", method: http.MethodPost, path: "/console/proxies/proxy-1/test", want: http.StatusOK},
+		{name: "proxy_countries", method: http.MethodGet, path: "/console/proxies/scrape/countries", want: http.StatusOK},
+		{name: "proxy_catalog", method: http.MethodGet, path: "/console/proxies/scrape/catalog", want: http.StatusOK},
+		{name: "proxy_search", method: http.MethodPost, path: "/console/proxies/search", body: `{"query":"us","limit":5}`, want: http.StatusOK},
+		{name: "proxy_import", method: http.MethodPost, path: "/console/proxies/import", body: `{"proxies":[{"protocol":"http","host":"1.1.1.1","port":80}]}`, want: http.StatusOK},
+		{name: "proxy_scrape", method: http.MethodPost, path: "/console/proxies/scrape", body: `{"limit":1}`, want: http.StatusOK},
+		{name: "proxy_settings_patch", method: http.MethodPost, path: "/console/proxy-settings", body: `{"mode":"manual"}`, want: http.StatusOK},
+		{name: "settings_reset_post", method: http.MethodPost, path: "/console/settings", want: http.StatusOK},
+		{name: "settings_reset_delete", method: http.MethodDelete, path: "/console/settings", want: http.StatusOK},
+		{name: "backup_create", method: http.MethodPost, path: "/console/backups", body: `{"note":"nightly","includesDatabase":true}`, want: http.StatusCreated},
+		{name: "backup_download", method: http.MethodGet, path: "/console/backups/bkp-1/download", want: http.StatusOK},
+		{name: "backup_restore", method: http.MethodPost, path: "/console/backups/bkp-1/restore", body: `{"dryRun":true}`, want: http.StatusOK},
+		{name: "backup_delete", method: http.MethodDelete, path: "/console/backups/bkp-1", want: http.StatusNoContent},
+		{name: "tools_cache", method: http.MethodPost, path: "/console/tools/cache/models", want: http.StatusOK},
+		{name: "tools_probe", method: http.MethodPost, path: "/console/tools/probe", body: `{"url":"https://example.test/health"}`, want: http.StatusOK},
+		{name: "tools_restart", method: http.MethodPost, path: "/console/tools/restart", want: http.StatusAccepted},
+		{name: "telemetry_requests", method: http.MethodGet, path: "/console/telemetry/requests?period=1h&bucket=5m&limit=10&group_by=provider", want: http.StatusOK},
+		{name: "telemetry_errors", method: http.MethodGet, path: "/console/telemetry/errors", want: http.StatusOK},
+		{name: "telemetry_upstream", method: http.MethodGet, path: "/console/telemetry/upstream", want: http.StatusOK},
+		{name: "telemetry_usage", method: http.MethodGet, path: "/console/telemetry/usage", want: http.StatusOK},
+		{name: "telemetry_clients", method: http.MethodGet, path: "/console/telemetry/clients", want: http.StatusOK},
+		{name: "catalog_models", method: http.MethodGet, path: "/console/catalog/models?providerId=openai", want: http.StatusOK},
+		{name: "custom_get", method: http.MethodGet, path: "/console/custom-providers/cp-1", want: http.StatusOK},
+		{name: "custom_put", method: http.MethodPut, path: "/console/custom-providers/cp-2", body: `{"slug":"cp2","name":"CP2","type":"openai","protocol":"openai","surface":"chat","baseUrl":"https://example.test","credentialRef":"ref","models":[]}`, want: http.StatusOK},
+		{name: "custom_delete", method: http.MethodDelete, path: "/console/custom-providers/cp-2", want: http.StatusOK},
+		{name: "method_not_allowed_accounts", method: http.MethodPut, path: "/console/accounts", want: http.StatusBadRequest},
+		{name: "method_not_allowed_dashboard", method: http.MethodPost, path: "/console/dashboard", want: http.StatusBadRequest},
+		{name: "account_unknown_sub", method: http.MethodGet, path: "/console/accounts/acct-1/unknown", want: http.StatusNotFound},
+		{name: "key_unknown_sub", method: http.MethodGet, path: "/console/keys/key-1/unknown", want: http.StatusNotFound},
+		{name: "proxy_unknown_sub", method: http.MethodGet, path: "/console/proxies/proxy-1/unknown", want: http.StatusNotFound},
+		{name: "backup_unknown_sub", method: http.MethodGet, path: "/console/backups/bkp-1/unknown", want: http.StatusNotFound},
+		{name: "tools_cache_missing", method: http.MethodPost, path: "/console/tools/cache/", want: http.StatusBadRequest},
+		{name: "oauth_start_missing_provider", method: http.MethodPost, path: "/console/auth/oauth/start", body: `{}`, want: http.StatusBadRequest},
 	}
 
 	for _, tc := range cases {
@@ -547,14 +547,14 @@ func TestAdminRouteMatrixSessionAuthorizerAndScopes(t *testing.T) {
 		Generation: &testGeneration{},
 	})
 
-	okReq := withSession(httptest.NewRequest(http.MethodGet, "/v2/admin/dashboard", nil))
+	okReq := withSession(httptest.NewRequest(http.MethodGet, "/console/dashboard", nil))
 	okRec := httptest.NewRecorder()
 	mux.ServeHTTP(okRec, okReq)
 	if okRec.Code != http.StatusOK {
 		t.Fatalf("health scope status=%d body=%s", okRec.Code, okRec.Body.String())
 	}
 
-	denied := withSession(httptest.NewRequest(http.MethodGet, "/v2/admin/settings", nil))
+	denied := withSession(httptest.NewRequest(http.MethodGet, "/console/settings", nil))
 	deniedRec := httptest.NewRecorder()
 	mux.ServeHTTP(deniedRec, denied)
 	if deniedRec.Code != http.StatusForbidden {
@@ -563,7 +563,7 @@ func TestAdminRouteMatrixSessionAuthorizerAndScopes(t *testing.T) {
 	assertNoSecrets(t, deniedRec.Body.String())
 
 	// Mutation denied should still audit without secrets.
-	mut := withSession(httptest.NewRequest(http.MethodPatch, "/v2/admin/settings", strings.NewReader(`{"logLevel":"info"}`)))
+	mut := withSession(httptest.NewRequest(http.MethodPatch, "/console/settings", strings.NewReader(`{"logLevel":"info"}`)))
 	mut.Header.Set("Content-Type", "application/json")
 	mutRec := httptest.NewRecorder()
 	mux.ServeHTTP(mutRec, mut)
@@ -580,7 +580,7 @@ func TestAdminRouteMatrixCustomProviderErrorRedaction(t *testing.T) {
 		Authorizer:      matrixAuthorizer{},
 	})
 
-	req := withSession(httptest.NewRequest(http.MethodGet, "/v2/admin/custom-providers", nil))
+	req := withSession(httptest.NewRequest(http.MethodGet, "/console/custom-providers", nil))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
@@ -588,14 +588,14 @@ func TestAdminRouteMatrixCustomProviderErrorRedaction(t *testing.T) {
 	}
 	assertNoSecrets(t, rec.Body.String())
 
-	badID := withSession(httptest.NewRequest(http.MethodGet, "/v2/admin/custom-providers/bad/nested", nil))
+	badID := withSession(httptest.NewRequest(http.MethodGet, "/console/custom-providers/bad/nested", nil))
 	badRec := httptest.NewRecorder()
 	mux.ServeHTTP(badRec, badID)
 	if badRec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid id status=%d body=%s", badRec.Code, badRec.Body.String())
 	}
 
-	put := withSession(httptest.NewRequest(http.MethodPut, "/v2/admin/custom-providers/cp-x", strings.NewReader(`{"slug":"x","name":"x","type":"openai","protocol":"openai","surface":"chat","baseUrl":"https://example.test","models":[]}`)))
+	put := withSession(httptest.NewRequest(http.MethodPut, "/console/custom-providers/cp-x", strings.NewReader(`{"slug":"x","name":"x","type":"openai","protocol":"openai","surface":"chat","baseUrl":"https://example.test","models":[]}`)))
 	put.Header.Set("Content-Type", "application/json")
 	putRec := httptest.NewRecorder()
 	mux.ServeHTTP(putRec, put)
@@ -730,10 +730,14 @@ func TestAdminRouteMatrixEnvelopeAndValidationHelpers(t *testing.T) {
 		t.Fatal("boundedAuditField truncate")
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "http://example.test/v2/admin/dashboard?sessionId=from-query", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://example.test/console/dashboard?sessionId=from-query", nil)
 	req.Header.Set("X-Real-IP", "198.51.100.7")
-	if got := readSessionID(req); got != "from-query" {
-		t.Fatalf("readSessionID query=%q", got)
+	if got := readSessionID(req); got != "" {
+		t.Fatalf("readSessionID must ignore query transport, got %q", got)
+	}
+	req.Header.Set("X-Session-Id", "from-header")
+	if got := readSessionID(req); got != "" {
+		t.Fatalf("readSessionID must ignore header transport, got %q", got)
 	}
 	req2 := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
 	req2.AddCookie(&http.Cookie{Name: "cartethyia_session", Value: "cookie-session"})
@@ -765,37 +769,37 @@ func TestAdminRouteMatrixEnvelopeAndValidationHelpers(t *testing.T) {
 	_, _ = dummyResponseWriter{}.Write(nil)
 	dummyResponseWriter{}.WriteHeader(0)
 
-	if adminScopeForPath("/v2/admin/auth/login") != ScopeAuth {
+	if adminScopeForPath("/console/auth/login") != ScopeAuth {
 		t.Fatal("scope auth")
 	}
-	if adminScopeForPath("/v2/admin/keys/x") != ScopeKeys {
+	if adminScopeForPath("/console/keys/x") != ScopeKeys {
 		t.Fatal("scope keys")
 	}
-	if adminScopeForPath("/v2/admin/tools/cache/x") != ScopeCache {
+	if adminScopeForPath("/console/tools/cache/x") != ScopeCache {
 		t.Fatal("scope cache")
 	}
-	if adminScopeForPath("/v2/admin/tools/restart") != ScopeLifecycle {
+	if adminScopeForPath("/console/tools/restart") != ScopeLifecycle {
 		t.Fatal("scope lifecycle")
 	}
-	if adminScopeForPath("/v2/admin/backups") != ScopeBackups {
+	if adminScopeForPath("/console/backups") != ScopeBackups {
 		t.Fatal("scope backups")
 	}
-	if generationScope("/v2/admin/keys") != "credentials" {
+	if generationScope("/console/keys") != "credentials" {
 		t.Fatal("generation keys")
 	}
-	if generationScope("/v2/admin/backups/x/restore") != "backup" {
+	if generationScope("/console/backups/x/restore") != "backup" {
 		t.Fatal("generation backup")
 	}
-	if generationScope("/v2/admin/tools/cache/x") != "cache" {
+	if generationScope("/console/tools/cache/x") != "cache" {
 		t.Fatal("generation cache")
 	}
-	if generationScope("/v2/admin/tools/reindex") != "lifecycle" {
+	if generationScope("/console/tools/reindex") != "lifecycle" {
 		t.Fatal("generation lifecycle")
 	}
-	if !isGenerationMutation("/v2/admin/backups/x/restore", http.MethodPost) {
+	if !isGenerationMutation("/console/backups/x/restore", http.MethodPost) {
 		t.Fatal("restore generation mutation")
 	}
-	if isGenerationMutation("/v2/admin/dashboard", http.MethodGet) {
+	if isGenerationMutation("/console/dashboard", http.MethodGet) {
 		t.Fatal("get should not mutate generation")
 	}
 }
@@ -813,7 +817,7 @@ func TestAdminRouteMatrixNilServiceRegistrationIsAbsent(t *testing.T) {
 	RegisterConsole(mux, Services{})
 	RegisterUsage(mux, Services{})
 
-	req := httptest.NewRequest(http.MethodGet, "/v2/admin/accounts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/console/accounts", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
@@ -824,7 +828,7 @@ func TestAdminRouteMatrixNilServiceRegistrationIsAbsent(t *testing.T) {
 func TestAdminRouteMatrixDecodeJSONErrors(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, matrixServices())
-	req := withSession(httptest.NewRequest(http.MethodPatch, "/v2/admin/settings", strings.NewReader(`{"logLevel":`)))
+	req := withSession(httptest.NewRequest(http.MethodPatch, "/console/settings", strings.NewReader(`{"logLevel":`)))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -837,7 +841,7 @@ func TestAdminRouteMatrixDecodeJSONErrors(t *testing.T) {
 func TestAdminRouteMatrixLoginUsesBuildAuthRequest(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, matrixServices())
-	req := httptest.NewRequest(http.MethodPost, "/v2/admin/auth/login", strings.NewReader(`{}`))
+	req := httptest.NewRequest(http.MethodPost, "/console/auth/login", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Forwarded-For", "203.0.113.55, 10.0.0.2")
 	req.Header.Set("X-Forwarded-Proto", "https")

@@ -161,12 +161,12 @@ function parseAccountsPayload(value: unknown): readonly AccountRecord[] {
   });
 }
 
-/** Lists every account across providers (GET /v2/admin/accounts). */
+/** Lists every account across providers (GET /console/accounts). */
 export async function fetchAllAccounts(): Promise<readonly AccountRecord[]> {
   return parseAccountsPayload(await consoleGet<unknown>("/accounts"));
 }
 
-/** Lists the accounts of one provider (GET /v2/admin/providers/:id/accounts). */
+/** Lists the accounts of one provider (GET /console/providers/:id/accounts). */
 export async function fetchProviderScopedAccounts(providerId: string): Promise<readonly AccountRecord[]> {
   return parseAccountsPayload(await consoleGet<unknown>(`/providers/${encodeURIComponent(providerId)}/accounts`));
 }
@@ -190,7 +190,7 @@ export function normalizeQuotaWindow(value: unknown): AccountQuotaWindow | null 
 }
 
 /**
- * Reads one account's quota snapshot (GET /v2/admin/accounts/:id/quota) and
+ * Reads one account's quota snapshot (GET /console/accounts/:id/quota) and
  * classifies failures: degraded responses mean the provider exposes no quota
  * contract, everything else is a surfaced account error.
  */
@@ -223,7 +223,7 @@ export async function probeAccountQuotas(
   return outcomes;
 }
 
-/** Lists the redacted provider catalog (GET /v2/admin/catalog/providers). */
+/** Lists the redacted provider catalog (GET /console/catalog/providers). */
 export async function fetchProviderCatalog(): Promise<readonly ProviderCatalogEntry[]> {
   const value = await consoleGet<unknown>("/catalog/providers");
   if (!isRecordValue(value) || !Array.isArray(value.items)) {

@@ -15,6 +15,7 @@ describe("dashboard transport route contract", () => {
     expect(CONSOLE_ROUTE_MATRIX.length).toBeGreaterThan(0);
     for (const contract of CONSOLE_ROUTE_MATRIX) {
       expect(contract.route.startsWith("/v2/")).toBe(false);
+      expect(contract.route.startsWith("/console/")).toBe(false);
       expect(contract.methods.every((method): method is ConsoleHttpMethod => ["GET", "POST", "PATCH", "DELETE"].includes(method))).toBe(true);
       expect(contract.methods).not.toContain("QUERY");
     }
@@ -24,9 +25,11 @@ describe("dashboard transport route contract", () => {
     expect(isDocumentedConsoleRoute("/settings", "DELETE")).toBe(false);
     expect(isDocumentedConsoleRoute("/providers/openai/accounts/batch-delete", "POST")).toBe(true);
     expect(isDocumentedConsoleRoute("/providers/openai/accounts/batch-delete", "GET")).toBe(false);
+    expect(isDocumentedConsoleRoute("/auth/oauth/sessions/sess-1", "GET")).toBe(true);
+    expect(isDocumentedConsoleRoute("/oauth/sessions/sess-1", "GET")).toBe(false);
     expect(isDocumentedConsoleRoute("/settings", "QUERY" as ConsoleHttpMethod)).toBe(false);
     expect(isDocumentedConsoleRoute("/v1/models", "GET")).toBe(false);
-    expect(isDocumentedConsoleRoute("https://api.invalid/v2/admin/settings", "GET")).toBe(false);
+    expect(isDocumentedConsoleRoute("https://api.invalid/console/settings", "GET")).toBe(false);
     expect(isDocumentedConsoleRoute("/v2/https://api.invalid", "GET")).toBe(false);
   });
 
@@ -43,14 +46,14 @@ describe("dashboard transport route contract", () => {
   test("propagates cancellation and keeps network failures bounded at the state boundary", async () => {
     const abort = new DOMException("The operation was aborted", "AbortError");
     vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(abort).mockRejectedValueOnce(new TypeError("socket details must not escape")));
-    await expect(api("/v2/admin/settings", { signal: new AbortController().signal })).rejects.toBe(abort);
+    await expect(api("/console/settings", { signal: new AbortController().signal })).rejects.toBe(abort);
     const networkFailure = await consoleGet("/settings").catch((error: unknown) => error);
     expect(consoleFailure(networkFailure)).toEqual({ code: "network_error", message: "API request failed", degraded: true });
   });
 
   test.each([403, 404, 500, 503])("maps HTTP %i to a stable bounded error", async (status) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("provider credentials must not escape", { status })));
-    await expect(api("/v2/admin/settings")).rejects.toMatchObject({ status, code: "error", message: `request failed (${status})` });
+    await expect(api("/console/settings")).rejects.toMatchObject({ status, code: "error", message: `request failed (${status})` });
   });
 
   test("rejects a successful response with a malformed API envelope", async () => {

@@ -14,22 +14,22 @@
 
 /** Root prefixes used across the dashboard, grouped by domain. */
 export const qk = {
-  /** `/console/api/settings` — runtime + appearance settings bundle. */
+  /** `/console/settings` — runtime + appearance settings bundle. */
   settings: {
     all: ["settings"] as const,
   },
 
-  /** `/v2/admin/backups/*`. */
+  /** `/console/backups/*`. */
   backups: {
     all: ["backups"] as const,
   },
 
-  /** `/v2/admin/tools/*`. */
+  /** `/console/tools/*`. */
   tools: {
     all: ["tools"] as const,
   },
 
-  /** `/v2/admin/proxies/*` and `/v2/admin/proxy-settings`. */
+  /** `/console/proxies/*` and `/console/proxy-settings`. */
   proxies: {
     all: ["proxies"] as const,
     list: (limit = 100) => ["proxies", "list", limit] as const,
@@ -41,26 +41,26 @@ export const qk = {
   },
 
 
-  /** `/console/api/overview` — dashboard overview aggregate. */
+  /** `/console/overview` — dashboard overview aggregate. */
   overview: {
     all: ["overview"] as const,
   },
 
 
-  /** `/console/api/health/*` — proxy/runtime health probes. */
+  /** `/console/health/*` — proxy/runtime health probes. */
   health: {
     status: ["health-status"] as const,
     metrics: ["health-metrics"] as const,
   },
 
 
-  /** `/console/api/providers` catalog surface. */
+  /** `/console/providers` catalog surface. */
   catalog: {
     providers: ["catalog", "providers"] as const,
     provider: (providerId: string | undefined) => ["catalog", "provider", providerId] as const,
   },
 
-  /** `/console/api/providers/:id` (single provider detail/accounts). */
+  /** `/console/providers/:id` (single provider detail/accounts). */
   provider: {
     detail: (providerId: string | undefined) => ["provider", providerId] as const,
     accounts: (providerId: string | undefined) => ["provider-accounts", providerId] as const,
@@ -68,13 +68,13 @@ export const qk = {
 
 
 
-  /** `/console/api/quota` management. */
+  /** `/console/quota` management. */
   quota: {
     management: ["console", "quota-management"] as const,
     account: (accountId: string) => ["console", "quota-account", accountId] as const,
   },
 
-  /** `/console/api/usage/*`. */
+  /** `/console/usage/*`. */
   usage: {
     chart: (period: string) => ["usage-chart", period] as const,
     detail: (id: string | null) => ["usage-detail", id] as const,
@@ -85,7 +85,7 @@ export const qk = {
     clients: (period: string) => ["usage-clients", period] as const,
   },
 
-  /** `/console/api/oauth/sessions/:id` — OAuth popup polling. */
+  /** `/console/oauth/sessions/:id` — OAuth popup polling. */
   oauthLogin: {
     session: (sessionId: string | null | undefined) => ["oauth-login", sessionId] as const,
   },
