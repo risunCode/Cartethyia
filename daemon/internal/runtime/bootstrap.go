@@ -523,9 +523,13 @@ func (c registryCatalog) List() ([]contracts.Account, error) {
 			return nil, fmt.Errorf("runtime: catalog provider %q resolved to nil", id)
 		}
 		meta := provider.Metadata()
-		ref, err := contracts.NewCredentialRef(meta.CredentialRef)
-		if err != nil {
-			return nil, fmt.Errorf("runtime: catalog provider %q credential reference: %w", id, err)
+		var ref contracts.CredentialRef
+		if meta.CredentialRef != "" {
+			var err error
+			ref, err = contracts.NewCredentialRef(meta.CredentialRef)
+			if err != nil {
+				return nil, fmt.Errorf("runtime: catalog provider %q credential reference: %w", id, err)
+			}
 		}
 		models := provider.Models()
 		if models == nil {

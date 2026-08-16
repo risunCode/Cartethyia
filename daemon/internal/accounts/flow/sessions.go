@@ -239,13 +239,16 @@ func (m *Manager) ConsumeCallbackForExchange(id, providerID, callbackURL, redire
 		return Session{}, accounts.OAuthExchangeInput{}, ErrSessionConsumed
 	}
 	code, state, providerError, err := ParseLoopbackCallback(callbackURL)
-	if err != nil || state != s.State || code == "" {
+	if err != nil || state != s.State {
 		return Session{}, accounts.OAuthExchangeInput{}, ErrInvalidCallback
 	}
 	if providerError != "" {
 		s.Status = StatusDenied
 		s.Consumed = true
 		return publicCopy(*s), accounts.OAuthExchangeInput{}, errors.New("oauth flow: provider denied authorization")
+	}
+	if code == "" {
+		return Session{}, accounts.OAuthExchangeInput{}, ErrInvalidCallback
 	}
 	s.Consumed = true
 	s.Code = bounded(code, maxTokenBytes)

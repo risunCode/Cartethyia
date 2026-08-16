@@ -427,9 +427,15 @@ func (s *BunAccountStores) decrypt(blob []byte) ([]byte, error) {
 }
 
 type accountConfigRow struct {
-	ID, ProviderID, Kind                                      string
-	Enabled                                                   bool
-	Labels, CredentialRef, OAuthClientID, RedirectURI, Scopes []byte
+	ID            string `bun:"id"`
+	ProviderID    string `bun:"provider_id"`
+	Kind          string `bun:"kind"`
+	Enabled       bool   `bun:"enabled"`
+	Labels        []byte `bun:"labels_json"`
+	CredentialRef []byte `bun:"credential_ref"`
+	OAuthClientID []byte `bun:"oauth_client_id"`
+	RedirectURI   []byte `bun:"redirect_uri"`
+	Scopes        []byte `bun:"scopes_json"`
 }
 
 type accountDirectoryRow struct {

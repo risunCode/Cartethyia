@@ -290,6 +290,16 @@ func (s *DispatchService) responseCacheSpec(ctx context.Context, req contracts.R
 	model := req.Model
 	if member := plan.Members[0]; member.TargetSurface != "" {
 		target, provider, model = contracts.Surface(member.TargetSurface), member.ProviderID, member.ClientModelID
+	} else {
+		if member.ProviderID != "" {
+			provider = member.ProviderID
+		}
+		if member.ClientModelID != "" {
+			model = member.ClientModelID
+		}
+		if member.Surface != "" {
+			target = member.Surface
+		}
 	}
 	if provider == "" || model == "" {
 		return runtimecache.ResponseSpec{}, false
