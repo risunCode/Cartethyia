@@ -1,5 +1,13 @@
 import { Match, Switch, createResource, lazy, type JSX } from "solid-js";
-import { Navigate, Route, Router, useLocation, useNavigate } from "@solidjs/router";
+import {
+  A,
+  Navigate,
+  Route,
+  RouteSectionProps,
+  Router,
+  useLocation,
+  useNavigate,
+} from "@solidjs/router";
 
 import { consoleGet, consolePost } from "./lib/console-api";
 import { setUnauthorizedHandler } from "./lib/api";
@@ -53,11 +61,13 @@ export function DashboardShell(props: { children: JSX.Element }): JSX.Element {
 }
 
 /**
- * Blocks protected routes until the daemon session is confirmed. A failed or
- * unauthenticated session check redirects to the login page; expired sessions
- * mid-flight are caught by the global 401 handler registered in `App`.
+ * Layout route for every authenticated page. Mounts ONCE and stays mounted
+ * while its child routes swap, so navigating between console pages replaces
+ * only the page content — the sidebar/header/footer shell and the session
+ * check are not torn down and re-run (which used to look like a full-page
+ * refresh with the sidebar fade-in re-triggering on every click).
  */
-function AuthGuard(props: { children: JSX.Element }): JSX.Element {
+function ProtectedLayout(props: RouteSectionProps): JSX.Element {
   const location = useLocation();
   const [session] = createResource(async (): Promise<boolean> => {
     try {
@@ -96,7 +106,7 @@ function NotFound(): JSX.Element {
     <main class="flex min-h-screen flex-col items-center justify-center gap-2 px-6 text-center">
       <p class="text-xs uppercase tracking-[0.3em] text-[var(--text-3)]">404</p>
       <h1 class="text-2xl font-semibold">Page not found</h1>
-      <a class="underline" href="/">Return to the landing page</a>
+      <A class="underline" href="/">Return to the landing page</A>
     </main>
   );
 }
@@ -115,12 +125,15 @@ function App(): JSX.Element {
       <Route path="/login" component={LoginPage} />
       {/* Share pages are credential-free by contract and stay public. */}
       <Route path="/share/:shareId" component={Share} />
-      <Route path="/overview" component={() => <AuthGuard><Overview /></AuthGuard>} />
-      <Route path="/usage" component={() => <AuthGuard><Usage /></AuthGuard>} />
-      <Route path="/providers" component={() => <AuthGuard><Providers /></AuthGuard>} />
-      <Route path="/quota" component={() => <AuthGuard><Quota /></AuthGuard>} />
-      <Route path="/logs" component={() => <AuthGuard><ConsoleLog /></AuthGuard>} />
-      <Route path="/settings" component={() => <AuthGuard><Settings /></AuthGuard>} />
+      {/* Nested layout: ProtectedLayout mounts once across all child routes. */}
+      <Route component={ProtectedLayout}>
+        <Route path="/overview" component={Overview} />
+        <Route path="/usage" component={Usage} />
+        <Route path="/providers" component={Providers} />
+        <Route path="/quota" component={Quota} />
+        <Route path="/logs" component={ConsoleLog} />
+        <Route path="/settings" component={Settings} />
+      </Route>
       {/* Unknown paths must never render a blank document. */}
       <Route path="*" component={NotFound} />
     </Router>
