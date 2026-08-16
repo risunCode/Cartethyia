@@ -17,59 +17,6 @@ import (
 
 func closedDB() *bun.DB { return &bun.DB{} }
 
-func TestReadyBackupRepository(t *testing.T) {
-	ctx := context.Background()
-	var nilR *BunBackupRepository
-	empty := &BunBackupRepository{}
-	for _, r := range []*BunBackupRepository{nilR, empty} {
-		_, err := r.Insert(ctx, models.BackupMetadata{})
-		mustClosed(t, err)
-		_, err = r.Get(ctx, "id")
-		mustClosed(t, err)
-		_, err = r.List(ctx)
-		mustClosed(t, err)
-		_, err = r.ListOlderThan(ctx, "2020-01-01")
-		mustClosed(t, err)
-		_, err = r.Delete(ctx, "id")
-		mustClosed(t, err)
-		_, err = r.DeleteOlderThan(ctx, "2020-01-01")
-		mustClosed(t, err)
-	}
-}
-
-func TestValidBackupRepository(t *testing.T) {
-	ctx := context.Background()
-	r := &BunBackupRepository{db: closedDB()}
-	_, err := r.Insert(ctx, models.BackupMetadata{})
-	if err == nil || !strings.Contains(err.Error(), "invalid metadata") {
-		t.Fatalf("Insert empty = %v", err)
-	}
-	_, err = r.Insert(ctx, models.BackupMetadata{
-		ID: "id", SourceApp: "app", SizeBytes: -1, StoragePath: "/x",
-	})
-	if err == nil || !strings.Contains(err.Error(), "invalid metadata") {
-		t.Fatalf("Insert negative size = %v", err)
-	}
-	_, err = r.Insert(ctx, models.BackupMetadata{
-		ID: strings.Repeat("x", maxBackupText+1), SourceApp: "app", StoragePath: "/x",
-	})
-	if err == nil || !strings.Contains(err.Error(), "invalid metadata") {
-		t.Fatalf("Insert oversized id = %v", err)
-	}
-	_, err = r.ListOlderThan(ctx, "   ")
-	if err == nil || !strings.Contains(err.Error(), "cutoff") {
-		t.Fatalf("ListOlderThan empty = %v", err)
-	}
-	_, err = r.ListOlderThan(ctx, strings.Repeat("c", maxBackupText+1))
-	if err == nil || !strings.Contains(err.Error(), "cutoff") {
-		t.Fatalf("ListOlderThan oversized = %v", err)
-	}
-	_, err = r.DeleteOlderThan(ctx, "")
-	if err == nil || !strings.Contains(err.Error(), "cutoff") {
-		t.Fatalf("DeleteOlderThan empty = %v", err)
-	}
-}
-
 func TestReadyBanRepository(t *testing.T) {
 	ctx := context.Background()
 	var nilR *BunBanRepository

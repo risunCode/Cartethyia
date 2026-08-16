@@ -28,7 +28,6 @@ type Bundle struct {
 	Settings    SettingsRepository
 	Bans        BanRepository
 	Telemetry   TelemetryRepository
-	Backups     BackupRepository
 	Migrator    MigratorRunner
 	TokenBudget tokenbudget.TokenBudgetAuthority
 }
@@ -66,12 +65,6 @@ func (b Bundle) WithBans(r BanRepository) Bundle {
 // WithTelemetry returns a shallow copy of the bundle with Telemetry set.
 func (b Bundle) WithTelemetry(r TelemetryRepository) Bundle {
 	b.Telemetry = r
-	return b
-}
-
-// WithBackups returns a shallow copy of the bundle with Backups set.
-func (b Bundle) WithBackups(r BackupRepository) Bundle {
-	b.Backups = r
 	return b
 }
 

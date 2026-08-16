@@ -10,8 +10,8 @@ import (
 func TestConstructorsAndBundle(t *testing.T) {
 	db, _ := newFakeBun(t)
 
-	if NewBunBackupRepository(db) == nil || NewBunBanRepository(db) == nil {
-		t.Fatal("backup/ban constructors returned nil")
+	if NewBunBanRepository(db) == nil {
+		t.Fatal("ban constructor returned nil")
 	}
 	proxy := NewBunProxyRepository(db)
 	if proxy == nil || proxy.custom == nil {
@@ -61,7 +61,7 @@ func TestConstructorsAndBundle(t *testing.T) {
 
 	var b Bundle
 	b = b.WithAccounts(nil).WithAPIKeys(nil).WithProxies(nil).WithSettings(nil).
-		WithBans(nil).WithTelemetry(nil).WithBackups(nil).WithMigrator(nil).
+		WithBans(nil).WithTelemetry(nil).WithMigrator(nil).
 		WithTokenBudget(tokenbudget.TokenBudgetAuthority(nil))
 	_ = b
 }

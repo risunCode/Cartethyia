@@ -49,6 +49,7 @@ func All() []Migration {
 		accountAuthority(),
 		apiKeyTokenReservations(),
 		proxyHealthConvergence(),
+		dropBackupMetadata(),
 	}
 	for i, m := range migs {
 		if m.Version != i+1 {
@@ -66,6 +67,20 @@ func proxyHealthConvergence() Migration {
 		`ALTER TABLE proxy_health ADD COLUMN IF NOT EXISTS backoff_level INTEGER NOT NULL DEFAULT 0 CHECK (backoff_level BETWEEN 0 AND 30);`,
 		`CREATE INDEX IF NOT EXISTS idx_proxy_health_probe ON proxy_health (probe_until) WHERE probe_until IS NOT NULL;`,
 	}}
+}
+
+// dropBackupMetadata removes the backup_metadata table. The configuration
+// backup/restore feature was removed in v2.1; the repository that owned this
+// table is no longer invoked by any runtime surface, so the table (and its
+// rows) are dead weight in every deployment.
+func dropBackupMetadata() Migration {
+	return Migration{
+		Version: 31,
+		Name:    "drop_backup_metadata",
+		Statements: []string{
+			`DROP TABLE IF EXISTS backup_metadata;`,
+		},
+	}
 }
 
 func apiKeyTokenReservations() Migration {

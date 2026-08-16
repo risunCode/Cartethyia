@@ -17,6 +17,44 @@ func TestDefaultBootstrapDependenciesDevPath(t *testing.T) {
 	t.Cleanup(func() { _ = deps.Cache.Close() })
 }
 
+// TestDefaultBootstrapDependenciesWireResponseCacheAndUsage proves the
+// complete-response cache and the usage ledger are constructed on the default
+// bootstrap path, so the dispatch service's cache and usage seams are live in
+// production instead of silently no-oping.
+func TestDefaultBootstrapDependenciesWireResponseCacheAndUsage(t *testing.T) {
+	deps, err := defaultBootstrapDependencies(Config{}.WithDefaults())
+	if err != nil {
+		t.Fatalf("defaultBootstrapDependencies: %v", err)
+	}
+	t.Cleanup(func() { _ = deps.Cache.Close() })
+	if deps.ResponseCache == nil {
+		t.Fatal("ResponseCache is not wired by defaultBootstrapDependencies")
+	}
+	if deps.Usage == nil {
+		t.Fatal("Usage ledger is not wired by defaultBootstrapDependencies")
+	}
+}
+
+func TestParseEnableHedging(t *testing.T) {
+	cases := map[string]bool{
+		"":           false,
+		"   ":        false,
+		"true":       true,
+		"1":          true,
+		"TRUE":       true,
+		"false":      false,
+		"0":          false,
+		"yes":        false,
+		"garbage":    false,
+		" true \t\n": true,
+	}
+	for raw, want := range cases {
+		if got := parseEnableHedging(raw); got != want {
+			t.Fatalf("parseEnableHedging(%q) = %v, want %v", raw, got, want)
+		}
+	}
+}
+
 func TestDefaultBootstrapDependenciesProductionRequiresDatabaseURL(t *testing.T) {
 	_, err := defaultBootstrapDependencies(Config{Environment: "production"}.WithDefaults())
 	if err == nil || !strings.Contains(err.Error(), "DatabaseURL") {
@@ -100,5 +138,3 @@ func TestOpenDiagnosticSnapshotDevPath(t *testing.T) {
 	}
 	snapshot.close()
 }
-
-

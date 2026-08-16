@@ -109,13 +109,6 @@ func TestHelperScalarsAndNullables(t *testing.T) {
 
 func TestModelMappers(t *testing.T) {
 	now := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
-	backup := backupModel(backupMetadataRow{
-		ID: "b1", CreatedAt: now, SizeBytes: 9, SourceApp: "app", SourceVersion: 2,
-		Label: "L", StoragePath: "/p", ContentHash: "h",
-	})
-	if backup.ID != "b1" || backup.SizeBytes != 9 || backup.SourceVersion != 2 || backup.Label != "L" {
-		t.Fatalf("backupModel = %#v", backup)
-	}
 
 	offense := offenseModel(offenseRow{
 		IP: "1.2.3.4", Category: "auth", StrikeCount: 3, WindowStartedAt: now, LastEventAt: now,

@@ -558,3 +558,16 @@ func TestAllMigrationsAreOrderedAndUnique(t *testing.T) {
 		}
 	}
 }
+
+// TestFinalMigrationDropsBackupMetadata pins the v2.1 cleanup: the backup
+// feature is gone, so the last migration must idempotently drop its table.
+func TestFinalMigrationDropsBackupMetadata(t *testing.T) {
+	all := All()
+	last := all[len(all)-1]
+	if last.Version != 31 || last.Name != "drop_backup_metadata" {
+		t.Fatalf("final migration = %d (%s), want 31 (drop_backup_metadata)", last.Version, last.Name)
+	}
+	if len(last.Statements) != 1 || !strings.Contains(last.Statements[0], "DROP TABLE IF EXISTS backup_metadata") {
+		t.Fatalf("drop statements = %q", last.Statements)
+	}
+}

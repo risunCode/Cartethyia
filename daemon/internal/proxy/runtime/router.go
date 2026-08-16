@@ -71,8 +71,27 @@ type AttemptDecision struct {
 
 // RouterConfig configures the Router.
 type RouterConfig struct {
-	Pool        *AccountPool
+	Pool *AccountPool
+	// MaxAttempts caps total attempts per request when per-member budgeting
+	// is not enabled (see MaxAttemptsPerMember).
 	MaxAttempts int
+	// MaxAttemptsPerMember switches the retry budget from one route-wide
+	// counter to a per-member budget: every fallback member of the route
+	// plan may consume up to MaxAttemptsPerMember attempts of its own, so a
+	// combination route no longer shares a single budget across members.
+	//
+	// Semantics:
+	//   - Non-positive keeps the legacy behaviour: MaxAttempts is one global
+	//     budget shared by every member of the route (a 3-member combo with
+	//     MaxAttempts=3 gets ~1 attempt per member).
+	//   - Positive enables per-member budgeting. The route-wide worst case
+	//     stays bounded: total attempts are capped at
+	//     min(MaxAttemptsPerMember*len(members), MaxRouteAttempts), so a
+	//     catalog generation listing many members cannot multiply the budget
+	//     without bound. MaxAttempts is ignored while per-member budgeting is
+	//     active; reservation attempt numbering stays global (1..cap) so the
+	//     token-budget authority still sees unique attempt keys.
+	MaxAttemptsPerMember int
 	// EnableHedging opts into one delayed alternate attempt for eligible
 	// idempotent non-streaming requests. It is deliberately disabled by
 	// default; provider policy and request semantics are checked as well.
@@ -116,12 +135,21 @@ const (
 	MaxHedgeDelay             = 5 * time.Second
 	DefaultMaxHedges          = 1
 	MaxHedgesPerRequest       = 1
+	// DefaultMaxAttemptsPerMember is the per-member retry budget bootstrap
+	// opts into for combination routes.
+	DefaultMaxAttemptsPerMember = 3
+	// MaxRouteAttempts is the hard route-wide ceiling used when per-member
+	// budgeting is enabled. It bounds the worst case regardless of how many
+	// members a catalog generation lists (catalog.MaxComboMembers is 64, so
+	// per-member budgets alone would allow far more).
+	MaxRouteAttempts = 16
 )
 
 // Router drives one bounded coordinator per request.
 type Router struct {
 	pool                     *AccountPool
 	max                      int
+	perMember                int
 	maxRefresh               int
 	maxRepair                int
 	observer                 observability.AttemptObserver
@@ -150,6 +178,7 @@ type Router struct {
 type attemptState struct {
 	attempted        []map[string]struct{}
 	memberRequests   []contracts.Request
+	memberAttempts   []int
 	refreshes        map[string]int
 	refreshBudget    int
 	bestFailure      *Failure
@@ -165,7 +194,7 @@ type attemptState struct {
 func newAttemptState(req contracts.Request, plan catalog.RoutePlan) *attemptState {
 	attempted, memberRequests := prepareMembers(req, plan)
 	return &attemptState{
-		attempted: attempted, memberRequests: memberRequests,
+		attempted: attempted, memberRequests: memberRequests, memberAttempts: make([]int, len(attempted)),
 		refreshes: make(map[string]int), firstMemberIndex: -1,
 	}
 }
@@ -189,10 +218,19 @@ func (s *attemptState) startAttempt(accountID string, memberIndex int) int {
 		return 0
 	}
 	s.attempts++
+	s.noteMemberAttempt(memberIndex)
 	if s.firstAccountID == "" {
 		s.firstAccountID, s.firstMemberIndex = accountID, memberIndex
 	}
 	return s.attempts
+}
+
+// noteMemberAttempt records one attempt against a member's per-member budget.
+func (s *attemptState) noteMemberAttempt(memberIndex int) {
+	if s == nil || memberIndex < 0 || memberIndex >= len(s.memberAttempts) {
+		return
+	}
+	s.memberAttempts[memberIndex]++
 }
 
 func (s *attemptState) noteFailure(failure *Failure) {
@@ -218,6 +256,78 @@ func (s *attemptState) failover(accountID string, memberIndex int) bool {
 	return s != nil && s.attempts > 1 && (accountID != s.firstAccountID || memberIndex != s.firstMemberIndex)
 }
 
+// routeAttemptCap returns the route-wide attempt ceiling for a plan with
+// memberCount members. Legacy budgeting uses MaxAttempts as one shared
+// counter; per-member budgeting allows up to perMember attempts per member,
+// clamped by MaxRouteAttempts so the worst case stays bounded.
+func (r *Router) routeAttemptCap(memberCount int) int {
+	if r == nil || r.perMember <= 0 {
+		if r == nil {
+			return DefaultMaxAttempts
+		}
+		return r.max
+	}
+	routeCap := r.perMember * memberCount
+	if routeCap > MaxRouteAttempts {
+		routeCap = MaxRouteAttempts
+	}
+	if routeCap < 1 {
+		routeCap = 1
+	}
+	return routeCap
+}
+
+// overallBudgetRemains reports whether the route-wide cap still allows
+// another attempt.
+func (r *Router) overallBudgetRemains(state *attemptState, memberCount int) bool {
+	return state != nil && state.attempts < r.routeAttemptCap(memberCount)
+}
+
+// memberBudgetExhausted reports whether one member has consumed its whole
+// per-member budget. It is always false in legacy (global-budget) mode.
+func (r *Router) memberBudgetExhausted(state *attemptState, memberIndex int) bool {
+	if r == nil || r.perMember <= 0 || state == nil {
+		return false
+	}
+	return memberIndex >= 0 && memberIndex < len(state.memberAttempts) && state.memberAttempts[memberIndex] >= r.perMember
+}
+
+// skipExhaustedMembers advances the member cursor past members whose
+// per-member budget is spent so the next acquisition happens on a member
+// that can still accept an attempt.
+func (r *Router) skipExhaustedMembers(state *attemptState, memberCount int) {
+	for state.memberIndex < memberCount && r.memberBudgetExhausted(state, state.memberIndex) {
+		state.memberIndex++
+	}
+}
+
+// retryBudgetRemains reports whether any attempt budget remains for the rest
+// of the route: the route-wide cap plus, in per-member mode, the current or
+// any later member.
+func (r *Router) retryBudgetRemains(state *attemptState, memberCount int) bool {
+	if !r.overallBudgetRemains(state, memberCount) {
+		return false
+	}
+	if r.perMember <= 0 {
+		return true
+	}
+	for i := state.memberIndex; i < len(state.memberAttempts) && i < memberCount; i++ {
+		if state.memberAttempts[i] < r.perMember {
+			return true
+		}
+	}
+	return false
+}
+
+// currentMemberBudgetRemains reports whether the member at memberIndex can
+// accept another attempt. Legacy mode falls back to the global counter.
+func (r *Router) currentMemberBudgetRemains(state *attemptState, memberIndex, memberCount int) bool {
+	if r == nil || r.perMember <= 0 {
+		return r.overallBudgetRemains(state, memberCount)
+	}
+	return r.overallBudgetRemains(state, memberCount) && !r.memberBudgetExhausted(state, memberIndex)
+}
+
 func (r *Router) currentTime() time.Time {
 	if r == nil || r.now == nil {
 		return time.Now()
@@ -235,6 +345,10 @@ func NewRouter(cfg RouterConfig) (*Router, error) {
 	max := cfg.MaxAttempts
 	if max <= 0 {
 		max = DefaultMaxAttempts
+	}
+	perMember := cfg.MaxAttemptsPerMember
+	if perMember < 0 {
+		perMember = 0
 	}
 	maxRefresh := cfg.MaxRefreshAttempts
 	if maxRefresh <= 0 {
@@ -275,7 +389,7 @@ func NewRouter(cfg RouterConfig) (*Router, error) {
 		defaultOutputCap = int64(contracts.MaxOutputTokenCount)
 	}
 	return &Router{
-		pool: cfg.Pool, max: max, maxRefresh: maxRefresh, maxRepair: maxRepair, observer: cfg.Observer, repairObserver: cfg.RepairObserver,
+		pool: cfg.Pool, max: max, perMember: perMember, maxRefresh: maxRefresh, maxRepair: maxRepair, observer: cfg.Observer, repairObserver: cfg.RepairObserver,
 		refresher: cfg.Refresher, now: now, retryWaitMax: retryWaitMax, wait: wait, defaultOutputCap: defaultOutputCap,
 		preparer: cfg.Preparer, hedgeEnabled: cfg.EnableHedging || cfg.HedgeEnabled, hedgeDelay: hedgeDelay, maxHedges: maxHedges,
 	}, nil
@@ -299,13 +413,14 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 	hedges := 0
 	defer func() { r.observeRequestAttempts(state.attempts) }()
 
-	for state.attempts < r.max {
+	for r.overallBudgetRemains(state, len(plan.Members)) {
 		if err := ctx.Err(); err != nil {
 			return nil, Classify(ClassifyInput{Err: err}), nil
 		}
+		r.skipExhaustedMembers(state, len(plan.Members))
 		if state.memberIndex >= len(plan.Members) {
 			r.applyAvailabilityHint(state.bestFailure, state.availability)
-			if state.attempts < r.max && r.waitForAvailability(ctx, state.availability) {
+			if r.overallBudgetRemains(state, len(plan.Members)) && r.waitForAvailability(ctx, state.availability) {
 				state.memberIndex = 0
 				state.availability = Availability{}
 				continue
@@ -392,7 +507,7 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 		startedAt, endedAt := r.currentTime().UTC(), r.currentTime().UTC()
 		var network attemptNetworkSnapshot
 		if hedges < r.maxHedges && state.attempts == 1 && r.hedgeEligible(req, plan) {
-			outcome, hedged := r.executeHedge(ctx, transport, req, candidate, state.attempted, state.memberRequests, plan)
+			outcome, hedged := r.executeHedge(ctx, transport, req, candidate, state, state.memberRequests, plan)
 			if hedged {
 				hedges++
 				state.attempts++
@@ -431,7 +546,7 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 		state.markAttempted(state.memberIndex, acct.ID)
 		failure := r.classifyFailure(callErr, &acct)
 		r.releaseProvenUnaccepted(ctx, reservation, failure)
-		if state.attempts < r.max {
+		if r.currentMemberBudgetRemains(state, state.memberIndex, len(plan.Members)) {
 			if repairedBody, repair, accepted := proposeCompatibilityRepair(transport, repairState, acct, currentReq, callErr, state.attempts); repair.RuleID != "" {
 				r.observeRepair(req, plan, state.memberIndex, state.attempts, repair, accepted)
 				if accepted {
@@ -450,7 +565,7 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 		state.repairRule = ""
 		state.noteFailure(failure)
 		r.applyFailureForModel(failure, &acct, member.UpstreamModelID)
-		decision := r.decision(failure, state.refreshAllowed(acct.ID, r.maxRefresh), state.attempts)
+		decision := r.decision(failure, state.refreshAllowed(acct.ID, r.maxRefresh), r.retryBudgetRemains(state, len(plan.Members)))
 		evidence.Result = observability.AttemptFailed
 		evidence.Code, evidence.Scope, evidence.Phase = failure.Code, string(failure.Scope), string(failure.Phase)
 		evidence.RetryAction = string(decision.Action)
@@ -464,16 +579,21 @@ func (r *Router) Route(ctx context.Context, transport Transport, req contracts.R
 			if err := r.tryRefresh(ctx, acct.ID); err == nil {
 				r.pool.Reset(acct.ID)
 				_ = r.pool.Refresh(ctx, member.ProviderID)
-				state.retrySame = &acct
-				continue
+				// A same-account refresh retry spends the current member's
+				// budget; skip it when that member is already exhausted so
+				// the loop advances to the next member instead.
+				if r.currentMemberBudgetRemains(state, state.memberIndex, len(plan.Members)) {
+					state.retrySame = &acct
+					continue
+				}
 			} else {
 				refreshFailure := r.classifyFailure(err, &acct)
 				state.noteFailure(refreshFailure)
 				r.applyFailureForModel(refreshFailure, &acct, member.UpstreamModelID)
-				decision = r.decision(refreshFailure, false, state.attempts)
+				decision = r.decision(refreshFailure, false, r.retryBudgetRemains(state, len(plan.Members)))
 			}
 		}
-		if state.attempts >= r.max {
+		if !r.overallBudgetRemains(state, len(plan.Members)) {
 			break
 		}
 		if decision.Action == RetryStop || !decision.AlternateAccount {
@@ -500,13 +620,14 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 	state := newAttemptState(req, plan)
 	repairState := NewRepairState(req.Body, r.maxRepair, r.repairObserver)
 	defer func() { r.observeRequestAttempts(state.attempts) }()
-	for state.attempts < r.max {
+	for r.overallBudgetRemains(state, len(plan.Members)) {
 		if err := ctx.Err(); err != nil {
 			return nil, "", Classify(ClassifyInput{Err: err}), nil
 		}
+		r.skipExhaustedMembers(state, len(plan.Members))
 		if state.memberIndex >= len(plan.Members) {
 			r.applyAvailabilityHint(state.bestFailure, state.availability)
-			if state.attempts < r.max && r.waitForAvailability(ctx, state.availability) {
+			if r.overallBudgetRemains(state, len(plan.Members)) && r.waitForAvailability(ctx, state.availability) {
 				state.memberIndex = 0
 				state.availability = Availability{}
 				continue
@@ -609,7 +730,7 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 			if preflightErr != nil {
 				_ = stream.Close()
 				state.markAttempted(state.memberIndex, acct.ID)
-				if state.attempts < r.max {
+				if r.currentMemberBudgetRemains(state, state.memberIndex, len(plan.Members)) {
 					if repairedBody, repair, accepted := proposeCompatibilityRepair(transport, repairState, acct, currentReq, preflightErr, state.attempts); repair.RuleID != "" {
 						r.observeRepair(req, plan, state.memberIndex, state.attempts, repair, accepted)
 						if accepted {
@@ -648,7 +769,7 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 		}
 		state.noteFailure(failure)
 		r.applyFailureForModel(failure, &acct, member.UpstreamModelID)
-		decision := r.decision(failure, state.refreshAllowed(acct.ID, r.maxRefresh), state.attempts)
+		decision := r.decision(failure, state.refreshAllowed(acct.ID, r.maxRefresh), r.retryBudgetRemains(state, len(plan.Members)))
 		state.repairRule = ""
 		evidence.Result = observability.AttemptFailed
 		evidence.Code, evidence.Scope, evidence.Phase = failure.Code, string(failure.Scope), string(failure.Phase)
@@ -663,16 +784,21 @@ func (r *Router) RouteStream(ctx context.Context, transport StreamTransport, req
 			if err := r.tryRefresh(ctx, acct.ID); err == nil {
 				r.pool.Reset(acct.ID)
 				_ = r.pool.Refresh(ctx, member.ProviderID)
-				state.retrySame = &acct
-				continue
+				// A same-account refresh retry spends the current member's
+				// budget; skip it when that member is already exhausted so
+				// the loop advances to the next member instead.
+				if r.currentMemberBudgetRemains(state, state.memberIndex, len(plan.Members)) {
+					state.retrySame = &acct
+					continue
+				}
 			} else {
 				refreshFailure := r.classifyFailure(err, &acct)
 				state.noteFailure(refreshFailure)
 				r.applyFailureForModel(refreshFailure, &acct, member.UpstreamModelID)
-				decision = r.decision(refreshFailure, false, state.attempts)
+				decision = r.decision(refreshFailure, false, r.retryBudgetRemains(state, len(plan.Members)))
 			}
 		}
-		if state.attempts >= r.max {
+		if !r.overallBudgetRemains(state, len(plan.Members)) {
 			break
 		}
 		if decision.Action == RetryStop || !decision.AlternateAccount {
@@ -855,7 +981,7 @@ func (r *Router) startHedgeCall(ctx context.Context, transport Transport, candid
 
 func (r *Router) prepareHedgeAlternate(ctx context.Context, first *hedgeCandidate, attempted []map[string]struct{}, memberRequests []contracts.Request, plan catalog.RoutePlan) *hedgeCandidate {
 	nextAttempt := first.attempt + 1
-	if nextAttempt > r.max {
+	if nextAttempt > r.routeAttemptCap(len(plan.Members)) {
 		return nil
 	}
 	for memberIndex := first.memberIndex; memberIndex < len(plan.Members); memberIndex++ {
@@ -950,7 +1076,7 @@ func (r *Router) observeHedgeLoser(req contracts.Request, plan catalog.RoutePlan
 	r.observeAttempt(evidence)
 }
 
-func (r *Router) executeHedge(ctx context.Context, transport Transport, req contracts.Request, first *hedgeCandidate, attempted []map[string]struct{}, memberRequests []contracts.Request, plan catalog.RoutePlan) (hedgeResult, bool) {
+func (r *Router) executeHedge(ctx context.Context, transport Transport, req contracts.Request, first *hedgeCandidate, state *attemptState, memberRequests []contracts.Request, plan catalog.RoutePlan) (hedgeResult, bool) {
 	firstCh, firstCancel := r.startHedgeCall(ctx, transport, first)
 	firstResult := func() hedgeResult { return <-firstCh }
 	if !r.wait(ctx, r.hedgeDelay) {
@@ -964,7 +1090,7 @@ func (r *Router) executeHedge(ctx context.Context, transport Transport, req cont
 		return result, false
 	default:
 	}
-	second := r.prepareHedgeAlternate(ctx, first, attempted, memberRequests, plan)
+	second := r.prepareHedgeAlternate(ctx, first, state.attempted, memberRequests, plan)
 	if second == nil {
 		result := firstResult()
 		firstCancel()
@@ -978,8 +1104,13 @@ func (r *Router) executeHedge(ctx context.Context, transport Transport, req cont
 	default:
 	}
 	secondCh, secondCancel := r.startHedgeCall(ctx, transport, second)
+	attempted := state.attempted
 	attempted[first.memberIndex][first.account.ID] = struct{}{}
 	attempted[second.memberIndex][second.account.ID] = struct{}{}
+	// The alternate attempt consumes its member's per-member budget whichever
+	// candidate wins; the winner's own attempt was already counted by
+	// startAttempt.
+	state.noteMemberAttempt(second.memberIndex)
 	var firstResultValue, secondResultValue *hedgeResult
 	for firstResultValue == nil || secondResultValue == nil {
 		select {
@@ -1516,7 +1647,7 @@ func (r *Router) applyFailureForModel(f *Failure, acct *Account, modelID string)
 	}
 }
 
-func (r *Router) decision(f *Failure, refreshAllowed bool, attempt int) AttemptDecision {
+func (r *Router) decision(f *Failure, refreshAllowed bool, budgetRemains bool) AttemptDecision {
 	if f == nil {
 		return AttemptDecision{Action: RetryStop}
 	}
@@ -1526,7 +1657,7 @@ func (r *Router) decision(f *Failure, refreshAllowed bool, attempt int) AttemptD
 		AlternateAccount: f.AlternateAccountEligible,
 		RefreshAllowed:   refreshAllowed,
 	}
-	if !f.Retryable || r.max <= attempt {
+	if !f.Retryable || !budgetRemains {
 		return d
 	}
 	if f.Kind == FailureAuthentication && refreshAllowed && r.refresher != nil {

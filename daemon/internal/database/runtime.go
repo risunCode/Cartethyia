@@ -26,7 +26,6 @@ type RuntimeStore struct {
 	Telemetry     *repositories.BunTelemetryRepository
 	Settings      *repositories.BunSettingsRepository
 	Catalog       *repositories.BunCatalogRepository
-	Backups       *repositories.BunBackupRepository
 	Bans          *repositories.BunBanRepository
 	AccountCore   *repositories.BunAccountStores
 	Accounts      *repositories.BunAccountConfigStore
@@ -84,7 +83,6 @@ func openRuntimeStore(ctx context.Context, rawURL string, encryptionKeys ...[]by
 		Telemetry:       repositories.NewBunTelemetryRepository(database.Bun()),
 		Settings:        repositories.NewBunSettingsRepository(database.Bun()),
 		Catalog:         repositories.NewBunCatalogRepository(database.Bun()),
-		Backups:         repositories.NewBunBackupRepository(database.Bun()),
 		Bans:            repositories.NewBunBanRepository(database.Bun()),
 	}
 	if len(encryptionKeys) > 0 && len(encryptionKeys[0]) > 0 {

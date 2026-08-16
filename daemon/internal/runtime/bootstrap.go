@@ -11,6 +11,7 @@ import (
 	dbmodels "github.com/cartethyia/daemon/internal/database/models"
 	dbrepositories "github.com/cartethyia/daemon/internal/database/repositories"
 	"github.com/cartethyia/daemon/internal/observability"
+	"github.com/cartethyia/daemon/internal/observability/usage"
 	"github.com/cartethyia/daemon/internal/providers"
 	providerbuiltin "github.com/cartethyia/daemon/internal/providers/builtin"
 	"github.com/cartethyia/daemon/internal/proxy/control/admission"
@@ -30,6 +31,7 @@ import (
 	servermiddleware "github.com/cartethyia/daemon/internal/server/middleware"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -139,6 +141,34 @@ func (r publicAPIKeyResolver) TouchAPIKey(ctx context.Context, id string) error 
 	return r.store.TouchAPIKey(ctx, id)
 }
 
+// responseCacheTenant resolves the complete-response cache tenant from the
+// public V1 authentication seam: only requests dispatched under a
+// token-budget identity (an authenticated public API key) are tenant-scoped.
+// Anonymous dispatches resolve to no tenant and therefore never become
+// cache-eligible; this keeps the response cache opt-in per tenant without
+// loosening the cache's own non-stream, non-compaction eligibility rules.
+func responseCacheTenant(ctx context.Context, _ contracts.Request) string {
+	if _, identity, ok := tokenbudget.AuthorityFromContext(ctx); ok && identity.KeyID != "" {
+		return "api-key:" + identity.KeyID
+	}
+	return ""
+}
+
+// parseEnableHedging parses the CARTETHYIA_ENABLE_HEDGING override. Absent,
+// blank, or unparsable values keep hedging disabled; only explicit Go boolean
+// literals ("1", "t", "T", "TRUE", "true", "True", "0", "f", …) are honoured.
+func parseEnableHedging(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	parsed, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false
+	}
+	return parsed
+}
+
 func (f registrarFunc) Register(mux *http.ServeMux) {
 	if mux == nil {
 		return
@@ -223,6 +253,10 @@ type BootstrapDependencies struct {
 	// separate from resolution cache policy so callers cannot enable replay by
 	// merely configuring Redis.
 	ResponseCache *cache.ResponseCache
+	// Usage is the per-request token usage ledger consumed by the dispatch
+	// service. Production wires the process-local ledger here; durable token
+	// accounting still flows through MetadataWriter into request_history.
+	Usage *usage.Ledger
 	// MetadataWriter is the bounded, payload-free request-history enqueue path.
 	MetadataWriter *observability.AsyncMetadataWriter
 	// Observability is the single metrics and bounded lifecycle evidence registry.
@@ -352,6 +386,30 @@ func defaultBootstrapDependencies(configs ...Config) (BootstrapDependencies, err
 		}
 		deps.Cache = composed
 	}
+	// Wire the complete-response cache over the final resolution-cache
+	// backend (L0 memory, or the Redis-composed router when configured). The
+	// cache's own eligibility rules stay authoritative: the dispatch service
+	// only consults it for tenant-scoped, non-stream, non-compaction
+	// requests whose tenant resolves through the authenticated key seam.
+	responseCache, responseCacheErr := cache.NewResponseCache(deps.Cache, true, cache.MaxSharedContentTTL)
+	if responseCacheErr != nil {
+		if deps.MetadataWriter != nil {
+			_ = deps.MetadataWriter.Close(context.Background())
+		}
+		if deps.Database != nil {
+			_ = deps.Database.Close(context.Background())
+		}
+		_ = deps.Cache.Close()
+		return BootstrapDependencies{}, fmt.Errorf("runtime: response cache: %w", responseCacheErr)
+	}
+	deps.ResponseCache = responseCache
+	// The usage ledger is deliberately process-local: Register is a bounded
+	// in-memory map write, so recording usage can never block or fail the
+	// request path. Durable per-request token evidence continues to flow
+	// fail-open through the async MetadataWriter into request_history; a
+	// durable usage repository, once introduced, must follow that same async
+	// pattern (usage.WithRepository) rather than adding a synchronous write.
+	deps.Usage = usage.New()
 	return deps, nil
 }
 
@@ -715,7 +773,25 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 	if refresher != nil {
 		routerRefresher = accountRefresherAdapter{refresher: refresher, invalidate: invalidateCredential}
 	}
-	router, err := proxy.NewRouter(proxy.RouterConfig{Pool: pool, MaxAttempts: 3, Observer: metrics, Refresher: routerRefresher, DefaultOutputCap: int64(cfg.MaxOutputTokens)})
+	// Per-member attempt budgeting: each fallback member of a combination
+	// route gets its own retry budget instead of sharing one route-wide
+	// counter, so a 3-member combo no longer collapses to ~1 attempt per
+	// member. The route-wide worst case stays bounded by
+	// proxy.MaxRouteAttempts (see RouterConfig.MaxAttemptsPerMember).
+	//
+	// CARTETHYIA_ENABLE_HEDGING opts into the compiled-in hedge path (one
+	// delayed alternate attempt for eligible idempotent non-streaming
+	// requests). Reading the environment here mirrors the CONSOLE_PASSWORD
+	// seam below; Config is intentionally untouched. Absent or unparsable
+	// values keep hedging off.
+	router, err := proxy.NewRouter(proxy.RouterConfig{
+		Pool:                 pool,
+		MaxAttemptsPerMember: proxy.DefaultMaxAttemptsPerMember,
+		EnableHedging:        parseEnableHedging(os.Getenv("CARTETHYIA_ENABLE_HEDGING")),
+		Observer:             metrics,
+		Refresher:            routerRefresher,
+		DefaultOutputCap:     int64(cfg.MaxOutputTokens),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("runtime: router: %w", err)
 	}
@@ -775,8 +851,12 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 		Metadata:        deps.MetadataWriter,
 		Evidence:        metrics,
 		Catalog:         catalogStore,
+		Usage:           deps.Usage,
 		Codecs:          transforms.NewDefaultRegistry(),
-		ResponseCache:   deps.ResponseCache,
+		// The response cache is wired with its tenant resolver so only
+		// authenticated, key-scoped non-stream requests are ever eligible.
+		ResponseCache:       deps.ResponseCache,
+		ResponseCacheTenant: responseCacheTenant,
 	}
 	limiter, err := admission.New(
 		admission.Layer{Name: "global", Limit: cfg.MaxConcurrent},
