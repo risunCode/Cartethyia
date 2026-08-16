@@ -20,13 +20,21 @@ export function Switch(props: SwitchProps) {
       disabled={props.disabled}
       onClick={() => props.onChange(!props.checked)}
       class={cn(
-        "relative h-5 w-9 shrink-0 rounded-full border transition-colors duration-200",
+        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-200",
         disabledControlClasses,
         focusRingClasses,
-        props.checked ? "border-transparent bg-[var(--accent)]" : "border-[var(--inner-border)] bg-[var(--track)]",
+        props.checked
+          ? "border-transparent bg-[var(--accent)] shadow-[0_2px_8px_rgba(0,0,0,0.12)]"
+          : "border-[var(--border-strong)] bg-[var(--kbd-bg)] hover:bg-[var(--surface-hover)]",
       )}
     >
-      <span aria-hidden="true" class={cn("absolute left-0.5 top-0.5 block h-4 w-4 rounded-full bg-white shadow transition-transform duration-150", props.checked ? "translate-x-[18px]" : "translate-x-0")} />
+      <span
+        aria-hidden="true"
+        class={cn(
+          "block h-5 w-5 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.25)] transition-transform duration-200",
+          props.checked ? "translate-x-[22px]" : "translate-x-[2px]",
+        )}
+      />
     </button>
   );
 }
