@@ -2,14 +2,13 @@
 import type { JSX } from "solid-js";
 import { For, Show, createSignal, createMemo, onMount, onCleanup } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
-import type { LucideIcon } from "lucide-solid";
-import { Bell, ChevronDown, Moon, PanelLeftClose, PanelLeftOpen, Search, Sun, User } from "lucide-solid";
+import { Bell, ChevronDown, Moon, Search, Sun, User } from "lucide-solid";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon";
 import { cn } from "../../lib/cn";
 import { focusRingClasses } from "../ui/styles";
-import { sidebarCollapsed, setSidebarCollapsed, theme, setTheme, userSession, logout } from "../../lib/store";
+import { theme, setTheme, userSession, logout } from "../../lib/store";
 
 export interface HeaderNotification {
   id: string;
@@ -56,8 +55,6 @@ const severityTone: Record<NonNullable<HeaderNotification["severity"]>, "info" |
   danger: "danger",
 };
 
-const SidebarToggleIcon = (): LucideIcon => (sidebarCollapsed() ? PanelLeftOpen : PanelLeftClose);
-
 /**
  * Header — global app bar with theme toggle, notifications, and user menu.
  *
@@ -90,10 +87,6 @@ export function Header(props: HeaderProps): JSX.Element {
     const current = theme();
     const next: typeof current = current === "dark" ? "light" : "dark";
     setTheme(next);
-  };
-
-  const toggleSidebar = (): void => {
-    setSidebarCollapsed((value) => !value);
   };
 
   const submitSearch = (event: Event): void => {
@@ -142,14 +135,6 @@ export function Header(props: HeaderProps): JSX.Element {
         props.className,
       )}
     >
-      <IconButton
-        icon={SidebarToggleIcon()}
-        label={sidebarCollapsed() ? "Expand sidebar" : "Collapse sidebar"}
-        size="sm"
-        variant="ghost"
-        onClick={toggleSidebar}
-      />
-
       <div class="flex min-w-0 items-baseline gap-2">
         <h1 class="truncate text-[15px] font-bold tracking-tight text-[var(--text-1)] sm:text-[17px]">{title()}</h1>
         <span class="hidden text-xs text-[var(--text-3)] sm:inline" aria-hidden="true">/</span>

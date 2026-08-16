@@ -50,10 +50,12 @@ export function DashboardShell(props: { children: JSX.Element }): JSX.Element {
 
   return (
     <div class="mx-auto grid min-h-dvh max-w-[1560px] grid-cols-1 gap-4 bg-transparent p-4 lg:grid-cols-[auto_minmax(0,1fr)]">
-      <Sidebar />
+      <Sidebar version={health()?.version} />
       <div class="flex min-w-0 flex-col gap-4">
         <Header onSignOut={() => void signOut()} />
-        <main class="dashboard-page min-w-0 flex-1">{props.children}</main>
+        <main class="dashboard-page min-w-0 flex-1 rounded-[var(--radius-card)] border border-[var(--inner-border)] bg-[var(--surface-1)] p-4 shadow-[var(--shadow-card)] sm:p-5 lg:p-6">
+          {props.children}
+        </main>
         <Footer status={health()?.status ?? "unknown"} version={health()?.version} />
       </div>
     </div>

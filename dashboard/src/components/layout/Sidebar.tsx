@@ -12,6 +12,7 @@ import {
   Settings,
   TerminalSquare,
   Users,
+  Waypoints,
 } from "lucide-solid";
 import { IconButton } from "../ui/icon";
 import { StatusIndicator } from "../ui/icon";
@@ -34,11 +35,14 @@ export interface SidebarNavSection {
 export interface SidebarProps {
   sections?: readonly SidebarNavSection[];
   footer?: JSX.Element;
+  /** Daemon version shown under the product name (falls back to "dev"). */
+  version?: string;
   className?: string;
 }
 
 const DEFAULT_SECTIONS: readonly SidebarNavSection[] = [
   {
+    title: "Main",
     items: [
       { href: "/overview", label: "Overview", icon: LayoutDashboard },
       { href: "/usage", label: "Usage", icon: Activity },
@@ -101,9 +105,17 @@ export function Sidebar(props: SidebarProps): JSX.Element {
           when={!collapsed()}
           fallback={<span aria-hidden="true" class="mx-auto h-7 w-7 rounded-md bg-[var(--accent-soft)]" />}
         >
-          <A href="/overview" class="flex min-w-0 items-center gap-2 outline-none" aria-label="Cartethyia dashboard home">
-            <span class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-xs font-bold text-white">C</span>
-            <span class="truncate text-sm font-semibold tracking-tight text-[var(--text-1)]">Cartethyia</span>
+          <A href="/overview" class="flex min-w-0 items-center gap-2.5 outline-none" aria-label="Cartethyia dashboard home">
+            <span
+              aria-hidden="true"
+              class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[11px] bg-[var(--accent)] text-white shadow-[0_2px_8px_rgba(0,0,0,0.12)]"
+            >
+              <Waypoints size={16} />
+            </span>
+            <span class="min-w-0 flex flex-col">
+              <span class="truncate text-sm font-semibold leading-tight tracking-tight text-[var(--text-1)]">Cartethyia</span>
+              <span class="truncate text-[10.5px] leading-tight text-[var(--text-3)]">v{props.version ?? "dev"}</span>
+            </span>
           </A>
         </Show>
         <IconButton
@@ -121,7 +133,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
             <div class={cn("mb-3", sectionIndex() > 0 && "border-t border-[var(--inner-border)] pt-3")}>
               <Show when={section.title && !collapsed()}>
                 {(title) => (
-                  <div class="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+                  <div class="px-2.5 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-3)]">
                     {title()}
                   </div>
                 )}
