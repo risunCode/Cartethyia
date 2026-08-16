@@ -41,101 +41,11 @@ func (failingAccounts) BatchDelete(context.Context, string, []string) (BatchResu
 func (failingAccounts) RefreshQuota(context.Context, string) (QuotaState, error) {
 	return QuotaState{}, NewError(CodeUnavailable, "quota refresh failed")
 }
-func (failingAccounts) RefreshAllQuotas(context.Context, QuotaRefreshRequest) (BatchResult, error) {
-	return BatchResult{}, NewError(CodeUnavailable, "quota refresh all failed")
-}
 func (failingAccounts) Quota(context.Context, string) (QuotaState, error) {
 	return QuotaState{}, NewError(CodeUnavailable, "quota failed")
 }
-func (failingAccounts) Revoke(context.Context, string) error {
-	return NewError(CodeUnavailable, "revoke failed")
-}
 func (failingAccounts) RevokeForProvider(context.Context, string, string) error {
 	return NewError(CodeUnavailable, "provider revoke failed")
-}
-func (failingAccounts) OAuthStatus(context.Context, string) (OAuthState, error) {
-	return OAuthState{}, NewError(CodeUnavailable, "oauth status failed")
-}
-
-type failingAPIKeys struct{ matrixAPIKeys }
-
-func (failingAPIKeys) List(context.Context) ([]APIKey, error) {
-	return nil, NewError(CodeUnavailable, "keys list failed")
-}
-func (failingAPIKeys) Create(context.Context, APIKeyInput) (APIKeyCreateResult, error) {
-	return APIKeyCreateResult{}, NewError(CodeUnavailable, "keys create failed")
-}
-func (failingAPIKeys) Update(context.Context, string, APIKeyInput) (APIKey, error) {
-	return APIKey{}, NewError(CodeUnavailable, "keys update failed")
-}
-func (failingAPIKeys) Delete(context.Context, string) error {
-	return NewError(CodeUnavailable, "keys delete failed")
-}
-func (failingAPIKeys) Regenerate(context.Context, string) (APIKeyCreateResult, error) {
-	return APIKeyCreateResult{}, NewError(CodeUnavailable, "keys regenerate failed")
-}
-func (failingAPIKeys) Revoke(context.Context, string) error {
-	return NewError(CodeUnavailable, "keys revoke failed")
-}
-func (failingAPIKeys) ShareLink(context.Context, string, string, string) (ShareLink, error) {
-	return ShareLink{}, NewError(CodeUnavailable, "share failed")
-}
-func (failingAPIKeys) RevokeShareLinks(context.Context, string) (int, error) {
-	return 0, NewError(CodeUnavailable, "revoke share failed")
-}
-
-type failingProxies struct{ matrixProxies }
-
-func (failingProxies) List(context.Context, int) ([]Proxy, error) {
-	return nil, NewError(CodeUnavailable, "proxy list failed")
-}
-func (failingProxies) Create(context.Context, ProxyInput) (Proxy, error) {
-	return Proxy{}, NewError(CodeUnavailable, "proxy create failed")
-}
-func (failingProxies) Update(context.Context, string, ProxyInput) (Proxy, error) {
-	return Proxy{}, NewError(CodeUnavailable, "proxy update failed")
-}
-func (failingProxies) Delete(context.Context, string) error {
-	return NewError(CodeUnavailable, "proxy delete failed")
-}
-func (failingProxies) Test(context.Context, string) (ProxyTestResult, error) {
-	return ProxyTestResult{}, NewError(CodeUnavailable, "proxy test failed")
-}
-func (failingProxies) Search(context.Context, ProxySearchInput) ([]Proxy, error) {
-	return nil, NewError(CodeUnavailable, "proxy search failed")
-}
-func (failingProxies) Import(context.Context, ProxyImportInput) (BatchResult, error) {
-	return BatchResult{}, NewError(CodeUnavailable, "proxy import failed")
-}
-func (failingProxies) Scrape(context.Context, ProxyScrapeInput) (BatchResult, error) {
-	return BatchResult{}, NewError(CodeUnavailable, "proxy scrape failed")
-}
-func (failingProxies) Settings(context.Context) (ProxySettings, error) {
-	return ProxySettings{}, NewError(CodeUnavailable, "proxy settings failed")
-}
-func (failingProxies) PatchSettings(context.Context, ProxySettingsInput) (ProxySettings, error) {
-	return ProxySettings{}, NewError(CodeUnavailable, "proxy settings patch failed")
-}
-func (failingProxies) Countries(context.Context) ([]string, error) {
-	return nil, NewError(CodeUnavailable, "countries failed")
-}
-
-type failingBackup struct{ matrixBackup }
-
-func (failingBackup) List(context.Context) ([]BackupRecord, error) {
-	return nil, NewError(CodeUnavailable, "backup list failed")
-}
-func (failingBackup) Create(context.Context, BackupCreateInput) (BackupRecord, error) {
-	return BackupRecord{}, NewError(CodeUnavailable, "backup create failed")
-}
-func (failingBackup) Download(context.Context, string) (BackupArtifact, error) {
-	return BackupArtifact{}, NewError(CodeUnavailable, "backup download failed")
-}
-func (failingBackup) Restore(context.Context, string, RestoreOptions) (RestoreResult, error) {
-	return RestoreResult{}, NewError(CodeUnavailable, "backup restore failed")
-}
-func (failingBackup) Delete(context.Context, string) error {
-	return NewError(CodeUnavailable, "backup delete failed")
 }
 
 type failingSettings struct{}
@@ -154,12 +64,6 @@ type failingConsoleLogs struct{}
 
 func (failingConsoleLogs) List(context.Context, ConsoleLogQuery) ([]ConsoleLogEntry, error) {
 	return nil, NewError(CodeUnavailable, "console failed")
-}
-
-type failingWebRequest struct{}
-
-func (failingWebRequest) Execute(context.Context, WebRequestInput) (WebRequestResult, error) {
-	return WebRequestResult{}, NewError(CodeUnavailable, "web request failed")
 }
 
 type failingAuthNoStatus struct{}
@@ -208,8 +112,8 @@ func TestAdminRouteMatrixMethodNotAllowedAndEmptyIDs(t *testing.T) {
 	}{
 		{name: "account_get_method", method: http.MethodGet, path: "/console/accounts/acct-1", want: http.StatusBadRequest},
 		{name: "account_quota_put", method: http.MethodPut, path: "/console/accounts/acct-1/quota", want: http.StatusBadRequest},
-		{name: "account_revoke_get", method: http.MethodGet, path: "/console/accounts/acct-1/revoke", want: http.StatusBadRequest},
-		{name: "account_oauth_post", method: http.MethodPost, path: "/console/accounts/acct-1/oauth-status", want: http.StatusBadRequest},
+		{name: "account_removed_revoke_get", method: http.MethodGet, path: "/console/accounts/acct-1/revoke", want: http.StatusNotFound},
+		{name: "account_removed_oauth_post", method: http.MethodPost, path: "/console/accounts/acct-1/oauth-status", want: http.StatusNotFound},
 		{name: "account_empty_id", method: http.MethodDelete, path: "/console/accounts/", want: http.StatusNotFound},
 		{name: "provider_put", method: http.MethodPut, path: "/console/providers/openai/accounts", want: http.StatusBadRequest},
 		{name: "provider_batch_get", method: http.MethodGet, path: "/console/providers/openai/accounts/batch", want: http.StatusBadRequest},
@@ -219,19 +123,6 @@ func TestAdminRouteMatrixMethodNotAllowedAndEmptyIDs(t *testing.T) {
 		{name: "provider_missing_accounts", method: http.MethodGet, path: "/console/providers/openai/other", want: http.StatusNotFound},
 		{name: "provider_oauth_as_account_post", method: http.MethodPost, path: "/console/providers/openai/accounts/oauth", body: `{"label":"x"}`, want: http.StatusOK},
 		{name: "provider_oauth_as_account_get", method: http.MethodGet, path: "/console/providers/openai/accounts/oauth", want: http.StatusBadRequest},
-		{name: "keys_get_one", method: http.MethodGet, path: "/console/keys/key-1", want: http.StatusBadRequest},
-		{name: "keys_regenerate_get", method: http.MethodGet, path: "/console/keys/key-1/regenerate", want: http.StatusBadRequest},
-		{name: "keys_share_get", method: http.MethodGet, path: "/console/keys/key-1/share", want: http.StatusBadRequest},
-		{name: "keys_revoke_share_post", method: http.MethodPost, path: "/console/keys/key-1/revoke-share", want: http.StatusBadRequest},
-		{name: "keys_empty", method: http.MethodDelete, path: "/console/keys/", want: http.StatusNotFound},
-		{name: "proxy_get_one", method: http.MethodGet, path: "/console/proxies/proxy-1", want: http.StatusBadRequest},
-		{name: "proxy_test_get", method: http.MethodGet, path: "/console/proxies/proxy-1/test", want: http.StatusBadRequest},
-		{name: "proxy_empty", method: http.MethodDelete, path: "/console/proxies/", want: http.StatusNotFound},
-		{name: "backup_get_one", method: http.MethodGet, path: "/console/backups/bkp-1", want: http.StatusBadRequest},
-		{name: "backup_put", method: http.MethodPut, path: "/console/backups/bkp-1", want: http.StatusBadRequest},
-		{name: "backup_download_post", method: http.MethodPost, path: "/console/backups/bkp-1/download", want: http.StatusBadRequest},
-		{name: "backup_restore_get", method: http.MethodGet, path: "/console/backups/bkp-1/restore", want: http.StatusBadRequest},
-		{name: "backup_empty", method: http.MethodDelete, path: "/console/backups/", want: http.StatusNotFound},
 		{name: "oauth_session_empty", method: http.MethodGet, path: "/console/auth/oauth/sessions/", want: http.StatusNotFound},
 		{name: "oauth_session_unknown", method: http.MethodGet, path: "/console/auth/oauth/sessions/s1/weird", want: http.StatusNotFound},
 		{name: "oauth_status_post", method: http.MethodPost, path: "/console/auth/oauth/sessions/s1/status", want: http.StatusBadRequest},
@@ -239,8 +130,6 @@ func TestAdminRouteMatrixMethodNotAllowedAndEmptyIDs(t *testing.T) {
 		{name: "oauth_cancel_get", method: http.MethodGet, path: "/console/auth/oauth/sessions/s1/cancel", want: http.StatusBadRequest},
 		{name: "oauth_session_too_long", method: http.MethodGet, path: "/console/auth/oauth/sessions/" + strings.Repeat("s", 300), want: http.StatusBadRequest},
 		{name: "oauth_bare_session", method: http.MethodGet, path: "/console/auth/oauth/sessions/s1", want: http.StatusOK},
-		{name: "proxies_limit", method: http.MethodGet, path: "/console/proxies?limit=5", want: http.StatusOK},
-		{name: "proxies_bad_limit", method: http.MethodGet, path: "/console/proxies?limit=abc", want: http.StatusOK},
 		{name: "auth_login_wrong_method", method: http.MethodGet, path: "/console/auth/login", want: http.StatusUnauthorized},
 		{name: "match_method_fold", method: http.MethodGet, path: "/console/accounts", want: http.StatusOK},
 	}
@@ -271,15 +160,10 @@ func TestAdminRouteMatrixMethodNotAllowedAndEmptyIDs(t *testing.T) {
 func TestAdminRouteMatrixServiceErrorPaths(t *testing.T) {
 	svc := matrixServices()
 	svc.Accounts = failingAccounts{}
-	svc.APIKeys = failingAPIKeys{}
-	svc.Proxies = failingProxies{}
-	svc.Backup = failingBackup{}
 	svc.Settings = failingSettings{}
 	svc.ConsoleLogs = failingConsoleLogs{}
-	svc.WebRequest = failingWebRequest{}
 	svc.Auth = failingAuthNoStatus{}
 	svc.OAuth = failingAuthNoStatus{}
-	svc.Generation = failingGeneration{}
 
 	mux := http.NewServeMux()
 	Register(mux, svc)
@@ -296,9 +180,6 @@ func TestAdminRouteMatrixServiceErrorPaths(t *testing.T) {
 		{name: "accounts_delete", method: http.MethodDelete, path: "/console/accounts/a1", want: http.StatusServiceUnavailable},
 		{name: "accounts_quota", method: http.MethodGet, path: "/console/accounts/a1/quota", want: http.StatusServiceUnavailable},
 		{name: "accounts_quota_post", method: http.MethodPost, path: "/console/accounts/a1/quota", want: http.StatusServiceUnavailable},
-		{name: "accounts_revoke", method: http.MethodPost, path: "/console/accounts/a1/revoke", want: http.StatusServiceUnavailable},
-		{name: "accounts_oauth", method: http.MethodGet, path: "/console/accounts/a1/oauth-status", want: http.StatusServiceUnavailable},
-		{name: "quota_all", method: http.MethodPost, path: "/console/quota/refresh", body: `{}`, want: http.StatusServiceUnavailable},
 		{name: "provider_list", method: http.MethodGet, path: "/console/providers/openai/accounts", want: http.StatusServiceUnavailable},
 		{name: "provider_create", method: http.MethodPost, path: "/console/providers/openai/accounts", body: `{"label":"x"}`, want: http.StatusServiceUnavailable},
 		{name: "provider_batch", method: http.MethodPost, path: "/console/providers/openai/accounts/batch", body: `{"items":[{"label":"x"}]}`, want: http.StatusServiceUnavailable},
@@ -307,36 +188,10 @@ func TestAdminRouteMatrixServiceErrorPaths(t *testing.T) {
 		{name: "provider_update", method: http.MethodPost, path: "/console/providers/openai/accounts/a1", body: `{"name":"x"}`, want: http.StatusServiceUnavailable},
 		{name: "provider_delete", method: http.MethodDelete, path: "/console/providers/openai/accounts/a1", want: http.StatusServiceUnavailable},
 		{name: "provider_revoke", method: http.MethodPost, path: "/console/providers/openai/accounts/a1/revoke", want: http.StatusServiceUnavailable},
-		{name: "keys_list", method: http.MethodGet, path: "/console/keys", want: http.StatusServiceUnavailable},
-		{name: "keys_create", method: http.MethodPost, path: "/console/keys", body: `{"name":"x"}`, want: http.StatusServiceUnavailable},
-		{name: "keys_patch", method: http.MethodPatch, path: "/console/keys/k1", body: `{"name":"x"}`, want: http.StatusServiceUnavailable},
-		{name: "keys_delete", method: http.MethodDelete, path: "/console/keys/k1", want: http.StatusServiceUnavailable},
-		{name: "keys_regen", method: http.MethodPost, path: "/console/keys/k1/regenerate", want: http.StatusServiceUnavailable},
-		{name: "keys_revoke", method: http.MethodPost, path: "/console/keys/k1/revoke", want: http.StatusServiceUnavailable},
-		{name: "keys_share", method: http.MethodPost, path: "/console/keys/k1/share", want: http.StatusServiceUnavailable},
-		{name: "keys_revoke_share", method: http.MethodDelete, path: "/console/keys/k1/revoke-share", want: http.StatusServiceUnavailable},
-		{name: "proxies_list", method: http.MethodGet, path: "/console/proxies", want: http.StatusServiceUnavailable},
-		{name: "proxies_create", method: http.MethodPost, path: "/console/proxies", body: `{"protocol":"http","host":"127.0.0.1","port":1}`, want: http.StatusServiceUnavailable},
-		{name: "proxies_patch", method: http.MethodPatch, path: "/console/proxies/p1", body: `{"protocol":"http","host":"127.0.0.1","port":1}`, want: http.StatusServiceUnavailable},
-		{name: "proxies_delete", method: http.MethodDelete, path: "/console/proxies/p1", want: http.StatusServiceUnavailable},
-		{name: "proxies_test", method: http.MethodPost, path: "/console/proxies/p1/test", want: http.StatusServiceUnavailable},
-		{name: "proxies_search", method: http.MethodPost, path: "/console/proxies/search", body: `{}`, want: http.StatusServiceUnavailable},
-		{name: "proxies_import", method: http.MethodPost, path: "/console/proxies/import", body: `{"proxies":[]}`, want: http.StatusServiceUnavailable},
-		{name: "proxies_scrape", method: http.MethodPost, path: "/console/proxies/scrape", body: `{}`, want: http.StatusServiceUnavailable},
-		{name: "proxies_countries", method: http.MethodGet, path: "/console/proxies/scrape/countries", want: http.StatusServiceUnavailable},
-		{name: "proxy_settings", method: http.MethodGet, path: "/console/proxy-settings", want: http.StatusServiceUnavailable},
-		{name: "proxy_settings_patch", method: http.MethodPost, path: "/console/proxy-settings", body: `{"mode":"auto"}`, want: http.StatusServiceUnavailable},
-		{name: "web_search", method: http.MethodGet, path: "/console/web-search-routing", want: http.StatusServiceUnavailable},
 		{name: "settings_get", method: http.MethodGet, path: "/console/settings", want: http.StatusServiceUnavailable},
 		{name: "settings_patch", method: http.MethodPatch, path: "/console/settings", body: `{"logLevel":"info"}`, want: http.StatusServiceUnavailable},
 		{name: "settings_reset", method: http.MethodPost, path: "/console/settings", want: http.StatusServiceUnavailable},
-		{name: "backup_list", method: http.MethodGet, path: "/console/backups", want: http.StatusServiceUnavailable},
-		{name: "backup_create", method: http.MethodPost, path: "/console/backups", body: `{"note":"n"}`, want: http.StatusServiceUnavailable},
-		{name: "backup_download", method: http.MethodGet, path: "/console/backups/b1/download", want: http.StatusServiceUnavailable},
-		{name: "backup_restore", method: http.MethodPost, path: "/console/backups/b1/restore", body: `{}`, want: http.StatusServiceUnavailable},
-		{name: "backup_delete", method: http.MethodDelete, path: "/console/backups/b1", want: http.StatusServiceUnavailable},
 		{name: "console_logs", method: http.MethodGet, path: "/console/logs", want: http.StatusServiceUnavailable},
-		{name: "web_request", method: http.MethodPost, path: "/console/web-request", body: `{"url":"https://example.test"}`, want: http.StatusServiceUnavailable},
 		{name: "auth_logout", method: http.MethodPost, path: "/console/auth/logout", want: http.StatusServiceUnavailable},
 		{name: "auth_session", method: http.MethodGet, path: "/console/auth/session", want: http.StatusServiceUnavailable},
 		{name: "auth_refresh", method: http.MethodPost, path: "/console/auth/refresh", want: http.StatusServiceUnavailable},
@@ -346,7 +201,6 @@ func TestAdminRouteMatrixServiceErrorPaths(t *testing.T) {
 		{name: "oauth_cancel", method: http.MethodPost, path: "/console/auth/oauth/sessions/s1/cancel", want: http.StatusServiceUnavailable},
 		{name: "oauth_refresh", method: http.MethodPost, path: "/console/auth/oauth/refresh", body: `{"accountId":"a1"}`, want: http.StatusServiceUnavailable},
 		{name: "oauth_reauth", method: http.MethodPost, path: "/console/auth/oauth/reauth", body: `{"accountId":"a1"}`, want: http.StatusServiceUnavailable},
-		{name: "generation_fail", method: http.MethodPost, path: "/console/tools/reindex", body: `{"target":"catalog"}`, want: http.StatusServiceUnavailable},
 	}
 
 	for _, tc := range cases {
@@ -385,21 +239,11 @@ func TestAdminRouteMatrixInvalidJSONBranches(t *testing.T) {
 		{name: "provider_batch_patch", method: http.MethodPatch, path: "/console/providers/openai/accounts/batch", body: `{`},
 		{name: "provider_batch_delete", method: http.MethodPost, path: "/console/providers/openai/accounts/batch-delete", body: `{`},
 		{name: "provider_update", method: http.MethodPost, path: "/console/providers/openai/accounts/a1", body: `{`},
-		{name: "quota_refresh", method: http.MethodPost, path: "/console/quota/refresh", body: `{`},
-		{name: "keys_patch", method: http.MethodPatch, path: "/console/keys/k1", body: `{`},
-		{name: "proxy_patch", method: http.MethodPatch, path: "/console/proxies/p1", body: `{`},
-		{name: "proxy_search", method: http.MethodPost, path: "/console/proxies/search", body: `{`},
-		{name: "proxy_import", method: http.MethodPost, path: "/console/proxies/import", body: `{`},
-		{name: "proxy_scrape", method: http.MethodPost, path: "/console/proxies/scrape", body: `{`},
-		{name: "proxy_settings", method: http.MethodPost, path: "/console/proxy-settings", body: `{`},
-		{name: "backup_restore", method: http.MethodPost, path: "/console/backups/b1/restore", body: `{`},
 		{name: "oauth_start", method: http.MethodPost, path: "/console/auth/oauth/start?providerId=openai", body: `{`},
 		{name: "oauth_complete", method: http.MethodPost, path: "/console/auth/oauth/sessions/s1/complete", body: `{`},
 		{name: "oauth_refresh", method: http.MethodPost, path: "/console/auth/oauth/refresh", body: `{`},
 		{name: "oauth_reauth", method: http.MethodPost, path: "/console/auth/oauth/reauth", body: `{`},
-		{name: "web_request", method: http.MethodPost, path: "/console/web-request", body: `{`},
-		{name: "web_request_multi", method: http.MethodPost, path: "/console/web-request", body: `{}{}`},
-		{name: "decode_extra", method: http.MethodPost, path: "/console/keys", body: `{"name":"ok"}{"extra":true}`},
+		{name: "settings_patch", method: http.MethodPatch, path: "/console/settings", body: `{`},
 	}
 
 	for _, tc := range cases {
@@ -416,42 +260,7 @@ func TestAdminRouteMatrixInvalidJSONBranches(t *testing.T) {
 	}
 }
 
-func TestAdminRouteMatrixDecodeBoundedJSONHelpers(t *testing.T) {
-	if err := decodeBoundedJSON(nil, &map[string]any{}, 10); err == nil {
-		t.Fatal("expected nil request error")
-	}
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Body = nil
-	if err := decodeBoundedJSON(req, &map[string]any{}, 10); err == nil {
-		t.Fatal("expected nil body error")
-	}
-	req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
-	if err := decodeBoundedJSON(req2, &map[string]any{}, 0); err == nil {
-		t.Fatal("expected invalid limit")
-	}
-	req3 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}{}`))
-	if err := decodeBoundedJSON(req3, &map[string]any{}, 64); err == nil {
-		t.Fatal("expected multi value error")
-	}
-
-	// handleOAuthSubroutes is currently unreachable via routing order; call it
-	// directly so the redirect/unavailable contract stays covered.
-	rec := httptest.NewRecorder()
-	handleOAuthSubroutes(rec, httptest.NewRequest(http.MethodPost, "/console/providers/openai/accounts/oauth/start", nil), matrixAccounts{}, "openai", nil)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("oauth start redirect status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	rec2 := httptest.NewRecorder()
-	handleOAuthSubroutes(rec2, httptest.NewRequest(http.MethodGet, "/console/providers/openai/accounts/oauth/start", nil), matrixAccounts{}, "openai", nil)
-	if rec2.Code != http.StatusBadRequest {
-		t.Fatalf("oauth start method status=%d body=%s", rec2.Code, rec2.Body.String())
-	}
-	rec3 := httptest.NewRecorder()
-	handleOAuthSubroutes(rec3, httptest.NewRequest(http.MethodGet, "/console/providers/openai/accounts/oauth/other", nil), matrixAccounts{}, "openai", nil)
-	if rec3.Code != http.StatusNotFound {
-		t.Fatalf("oauth other status=%d body=%s", rec3.Code, rec3.Body.String())
-	}
-
+func TestAdminRouteMatrixOAuthSessionHelpers(t *testing.T) {
 	ctrl := httptest.NewRequest(http.MethodGet, "/console/auth/oauth/sessions/placeholder", nil)
 	ctrl.URL.Path = "/console/auth/oauth/sessions/" + string(rune(0x01))
 	rec4 := httptest.NewRecorder()
@@ -459,6 +268,23 @@ func TestAdminRouteMatrixDecodeBoundedJSONHelpers(t *testing.T) {
 	if rec4.Code != http.StatusBadRequest {
 		t.Fatalf("control char session status=%d body=%s", rec4.Code, rec4.Body.String())
 	}
+}
+
+func TestAdminRouteMatrixGenerationPublishFailure(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, Services{
+		Settings:   testSettings{},
+		Authorizer: matrixAuthorizer{},
+		Generation: failingGeneration{},
+	})
+	req := withSession(httptest.NewRequest(http.MethodPatch, "/console/settings", strings.NewReader(`{"logLevel":"info"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("generation publish failure status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	assertNoSecrets(t, rec.Body.String())
 }
 
 func TestAdminRouteMatrixOAuthHelpersAndReauth(t *testing.T) {
@@ -567,16 +393,14 @@ func TestAdminRouteMatrixOAuthHelpersAndReauth(t *testing.T) {
 	})
 }
 
-func TestAdminRouteMatrixCatalogAndBackupArtifactEdges(t *testing.T) {
+func TestAdminRouteMatrixCatalogErrorEdges(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, Services{
 		Dashboard:  testDashboard{},
 		Authorizer: matrixAuthorizer{},
 		Catalog: catalogTestService{
 			providerErr: errors.New("authorization Bearer " + matrixSecretMarker),
-			modelErr:    NewError(CodeNotFound, "missing model"),
 		},
-		Backup: matrixBackup{},
 	})
 
 	req := withSession(httptest.NewRequest(http.MethodGet, "/console/catalog/providers", nil))
@@ -586,14 +410,4 @@ func TestAdminRouteMatrixCatalogAndBackupArtifactEdges(t *testing.T) {
 		t.Fatalf("catalog providers status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	assertNoSecrets(t, rec.Body.String())
-
-	req2 := withSession(httptest.NewRequest(http.MethodGet, "/console/catalog/models", nil))
-	rec2 := httptest.NewRecorder()
-	mux.ServeHTTP(rec2, req2)
-	if rec2.Code != http.StatusNotFound {
-		t.Fatalf("catalog models status=%d body=%s", rec2.Code, rec2.Body.String())
-	}
-
-	writeBackupArtifact(httptest.NewRecorder(), BackupArtifact{Content: []byte("x")})
-	writeBackupArtifact(httptest.NewRecorder(), BackupArtifact{MIMEType: "text/plain", Filename: "a.bin", Content: nil})
 }

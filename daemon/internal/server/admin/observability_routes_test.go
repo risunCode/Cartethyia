@@ -24,20 +24,10 @@ func (routeUsage) Clients(context.Context, TelemetryQuery) (ClientDistribution, 
 	return ClientDistribution{Total: 1, Unknown: 1, Items: []ClientUsageItem{{Client: "unknown", Count: 1, Percentage: 100}}}, nil
 }
 
-type routeWebRequest struct{}
-
-func (routeWebRequest) Execute(context.Context, WebRequestInput) (WebRequestResult, error) {
-	return WebRequestResult{StatusCode: http.StatusOK, LatencyMS: 2}, nil
-}
-
 type routeCatalog struct{}
 
 func (routeCatalog) Providers(context.Context) ([]CatalogProvider, error) {
 	return []CatalogProvider{{ID: "openai", DisplayName: "OpenAI"}}, nil
-}
-
-func (routeCatalog) Models(context.Context, string) ([]CatalogModel, error) {
-	return []CatalogModel{{ID: "gpt-test", ProviderID: "openai"}}, nil
 }
 
 type routeTelemetry struct {
@@ -68,7 +58,6 @@ func TestV2ObservabilityRoutesUseContractMethods(t *testing.T) {
 		Telemetry:   telemetry,
 		ConsoleLogs: routeConsoleLogs{},
 		Usage:       routeUsage{},
-		WebRequest:  routeWebRequest{},
 		Catalog:     routeCatalog{},
 	}
 	RegisterTelemetry(mux, services)
@@ -86,8 +75,6 @@ func TestV2ObservabilityRoutesUseContractMethods(t *testing.T) {
 		{http.MethodGet, "/console/telemetry/usage", "", http.StatusOK},
 		{http.MethodGet, "/console/telemetry/clients", "", http.StatusOK},
 		{http.MethodGet, "/console/catalog/providers", "", http.StatusOK},
-		{http.MethodGet, "/console/catalog/models?provider=openai", "", http.StatusOK},
-		{http.MethodPost, "/console/web-request", `{"url":"https://example.test"}`, http.StatusOK},
 		{http.MethodGet, "/console/telemetry/usage", "", http.StatusOK},
 	}
 	for _, tc := range tests {

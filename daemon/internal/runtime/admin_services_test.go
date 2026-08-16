@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func TestFormatAdminTimeAndPtrTime(t *testing.T) {
+func TestFormatAdminTime(t *testing.T) {
 	if formatAdminTime(nil) != "" {
 		t.Fatal("nil time should format empty")
 	}
@@ -16,9 +16,5 @@ func TestFormatAdminTimeAndPtrTime(t *testing.T) {
 	got := formatAdminTime(&now)
 	if got != "2025-01-01T00:00:00Z" {
 		t.Fatalf("formatted = %q", got)
-	}
-	pt := ptrTime(now)
-	if pt == nil || !pt.Equal(now) {
-		t.Fatalf("ptrTime = %v", pt)
 	}
 }

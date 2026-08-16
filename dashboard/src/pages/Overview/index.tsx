@@ -1,5 +1,5 @@
 
-import { Activity, AlertTriangle, Database, DollarSign, Server, Zap } from "lucide-solid";
+import { Activity, AlertTriangle, Database, Server, Zap } from "lucide-solid";
 import { For, Show, createMemo, createResource, onCleanup, onMount, type JSX } from "solid-js";
 import { Card, CardHeader } from "@components/ui/card";
 import { Badge } from "@components/ui/badge";
@@ -9,15 +9,13 @@ import { ErrorList, type ErrorListItem } from "@components/shared/ErrorList";
 import { MetricCard, MetricCardSkeleton } from "@components/shared/MetricCard";
 import { consoleFailure, consoleGet } from "@lib/console-api";
 import { apiCache, getCacheKey } from "@lib/cache";
-import { formatNumber, formatUsd } from "@lib/format";
+import { formatNumber } from "@lib/format";
 
 export interface DashboardSummary {
   requests: number | null;
   errors: number | null;
   uptime: string | null;
   memoryMb: number | null;
-  bandwidthKb: number | null;
-  estimatedCostUsd: number | null;
   activeProviders: number | null;
   recentErrors: readonly ErrorListItem[];
   fetchedAt: string;
@@ -37,8 +35,6 @@ const METRIC_ICONS = {
   latencyMs: Zap,
   errors: AlertTriangle,
   memoryMb: Database,
-  bandwidthKb: Server,
-  estimatedCostUsd: DollarSign,
 } as const;
 
 const SUMMARY_CACHE_TTL_MS = 5_000;
@@ -50,8 +46,6 @@ const EMPTY_SUMMARY: DashboardSummary = {
   errors: null,
   uptime: null,
   memoryMb: null,
-  bandwidthKb: null,
-  estimatedCostUsd: null,
   activeProviders: null,
   recentErrors: [],
   fetchedAt: "",
@@ -102,8 +96,6 @@ function coerceSummary(dashboard: unknown, overview: unknown, errorBuckets: unkn
     errors: safeNumber(telemetry.errors),
     uptime: typeof board.uptime === "string" && board.uptime.length > 0 ? board.uptime : null,
     memoryMb: safeNumber(health.memoryMb),
-    bandwidthKb: null,
-    estimatedCostUsd: null,
     activeProviders: safeNumber(board.accountCount),
     recentErrors: coerceErrorBuckets(errorBuckets),
     fetchedAt: new Date().toISOString(),
@@ -155,21 +147,6 @@ function deriveMetrics(summary: DashboardSummary): OverviewMetric[] {
       unit: "MB",
       tone: "info",
       description: "Resident memory (RSS)",
-    },
-    {
-      key: "bandwidthKb",
-      label: "Bandwidth",
-      value: summary.bandwidthKb,
-      unit: "KB/s",
-      tone: "info",
-      description: "Live egress",
-    },
-    {
-      key: "estimatedCostUsd",
-      label: "Est. cost",
-      value: summary.estimatedCostUsd,
-      tone: "warning",
-      description: "Estimated spend, not billing",
     },
     {
       key: "activeProviders",
@@ -236,8 +213,8 @@ export default function Overview() {
         <Show
           when={!isLoading()}
           fallback={
-            <div class="grid grid-cols-2 gap-3 lg:grid-cols-6">
-              <For each={[0, 1, 2, 3, 4, 5]}>{(index) => <MetricCardSkeleton label={`Metric ${index}`} />}</For>
+            <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <For each={[0, 1, 2, 3]}>{(index) => <MetricCardSkeleton label={`Metric ${index}`} />}</For>
             </div>
           }
         >
@@ -256,7 +233,7 @@ export default function Overview() {
               />
             }
           >
-            <div class="grid animate-fade-in grid-cols-2 gap-3 lg:grid-cols-6">
+            <div class="grid animate-fade-in grid-cols-2 gap-3 lg:grid-cols-4">
               <For each={metrics()}>
                 {(metric) => {
                   const Icon = METRIC_ICONS[metric.key as keyof typeof METRIC_ICONS] ?? Activity;
@@ -279,7 +256,7 @@ export default function Overview() {
       <section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card density="compact" className="animate-fade-in lg:col-span-2">
           <CardHeader title="System health" icon={Server} iconColor="#0a84ff" sub="Uptime and API status" />
-          <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
             <Show when={summary().uptime !== null} fallback={<span class="text-xs text-[var(--text-3)]">—</span>}>
               <div class="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
                 <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Uptime</div>
@@ -292,10 +269,6 @@ export default function Overview() {
                 <div class="mt-1 text-lg font-bold tabular-nums">{formatNumber(summary().activeProviders)}</div>
               </div>
             </Show>
-            <div class="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-              <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Estimated spend</div>
-              <div class="mt-1 text-lg font-bold tabular-nums">{formatUsd(summary().estimatedCostUsd)}</div>
-            </div>
             <div class="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
               <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Memory</div>
               <div class="mt-1 text-lg font-bold tabular-nums">{formatNumber(summary().memoryMb)} MB</div>

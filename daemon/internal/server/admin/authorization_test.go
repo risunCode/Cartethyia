@@ -28,13 +28,6 @@ func (testDashboard) Summary(context.Context) (DashboardSummary, error) {
 	return DashboardSummary{Version: "test"}, nil
 }
 
-type testTools struct{}
-
-func (testTools) Cache(context.Context, string) (ToolResult, error)      { return ToolResult{}, nil }
-func (testTools) Reindex(context.Context, string) (ToolResult, error)    { return ToolResult{}, nil }
-func (testTools) Probe(context.Context, ProbeInput) (ProbeResult, error) { return ProbeResult{}, nil }
-func (testTools) Restart(context.Context) (ToolResult, error)            { return ToolResult{OK: true}, nil }
-
 type testAudit struct{ events []AuditEvent }
 
 func (a *testAudit) Emit(_ context.Context, event AuditEvent) error {

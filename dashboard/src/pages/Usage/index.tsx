@@ -1,26 +1,24 @@
 
-import { Activity, ArrowDownToLine, ArrowUpFromLine, Database, DollarSign, TriangleAlert } from "lucide-solid";
+import { Activity, ArrowDownToLine, ArrowUpFromLine, Database, TriangleAlert } from "lucide-solid";
 import { For, Show, createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js";
 import { Card, CardHeader } from "@components/ui/card";
 import { Badge } from "@components/ui/badge";
 import { Button } from "@components/ui/button";
 import { StatePanel } from "@components/ui/state";
 import { MetricCard, MetricCardSkeleton } from "@components/shared/MetricCard";
-import { SSEInFlightTable, type InFlightRow } from "@components/shared/InFlightTable";
+import { SSEInFlightTable } from "@components/shared/InFlightTable";
 import { TimeRangePicker, type TimeRange } from "@components/forms/TimeRangePicker";
 import { consoleFailure, consoleGet, consoleStreamUrl, normalizeTelemetryBuckets } from "@lib/console-api";
 import { apiCache, getCacheKey } from "@lib/cache";
 import { serializeTelemetryQuery } from "../../composables/usage/use-usage-resource";
-import { formatNumber, formatTokens, formatUsd } from "@lib/format";
+import { formatNumber, formatTokens } from "@lib/format";
 import { cn } from "@lib/cn";
 
 export interface UsageSummary {
   requests: number | null;
   inputTokens: number | null;
-  cachedTokens: number | null;
   outputTokens: number | null;
   errors: number | null;
-  estimatedCostUsd: number | null;
   period: TimeRange;
 }
 
@@ -54,9 +52,29 @@ function finiteOrNull(value: unknown): number | null {
 }
 
 /**
- * Reads period totals from `/telemetry/usage` and the request-volume
- * series from `/telemetry/requests`, combining them into the page's
- * summary + chart shape. Cached for 30s per period.
+ * Sums error counts across `/telemetry/errors` buckets for the period. A
+ * failed or malformed read degrades to null instead of failing the page.
+ */
+function sumErrorCounts(payload: unknown): number | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const items = (payload as { items?: unknown }).items;
+  if (!Array.isArray(items)) return null;
+  let total = 0;
+  for (const entry of items) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const count = (entry as { count?: unknown }).count;
+    if (typeof count === "number" && Number.isFinite(count) && count > 0) {
+      total += count;
+    }
+  }
+  return total;
+}
+
+/**
+ * Reads period totals from `/telemetry/usage`, the request-volume series
+ * from `/telemetry/requests`, and the error total from `/telemetry/errors`,
+ * combining them into the page's summary + chart shape. Cached for 30s per
+ * period.
  */
 async function fetchUsage(period: TimeRange): Promise<UsageResponse> {
   const cacheKey = getCacheKey("/telemetry/usage", { period });
@@ -65,9 +83,10 @@ async function fetchUsage(period: TimeRange): Promise<UsageResponse> {
 
   const query = serializeTelemetryQuery({ period, bucket: usageBucket(period) });
   const seriesQuery = serializeTelemetryQuery({ period, bucket: usageBucket(period), limit: 200 });
-  const [usage, requests] = await Promise.all([
+  const [usage, requests, errors] = await Promise.all([
     consoleGet<unknown>(`/telemetry/usage?${query}`),
     consoleGet<unknown>(`/telemetry/requests?${seriesQuery}`),
+    consoleGet<unknown>(`/telemetry/errors?${query}`).catch(() => null),
   ]);
 
   const record = (typeof usage === "object" && usage !== null ? usage : {}) as Record<string, unknown>;
@@ -75,10 +94,8 @@ async function fetchUsage(period: TimeRange): Promise<UsageResponse> {
     summary: {
       requests: finiteOrNull(record.requests),
       inputTokens: finiteOrNull(record.input_tokens),
-      cachedTokens: null,
       outputTokens: finiteOrNull(record.output_tokens),
-      errors: null,
-      estimatedCostUsd: null,
+      errors: sumErrorCounts(errors),
       period,
     },
     chart: {
@@ -99,10 +116,8 @@ async function fetchUsage(period: TimeRange): Promise<UsageResponse> {
 const STAT_CARDS = [
   { key: "requests", label: "Requests", icon: Activity, color: "#0a84ff", format: formatNumber, tone: "accent" as const },
   { key: "inputTokens", label: "Input tokens", icon: ArrowDownToLine, color: "#64d2ff", format: formatTokens, tone: "info" as const },
-  { key: "cachedTokens", label: "Cached", icon: Database, color: "#bf5af2", format: formatTokens, tone: "accent" as const },
   { key: "outputTokens", label: "Output", icon: ArrowUpFromLine, color: "#30d158", format: formatTokens, tone: "success" as const },
   { key: "errors", label: "Errors", icon: TriangleAlert, color: "#ff453a", format: formatNumber, tone: "danger" as const },
-  { key: "estimatedCostUsd", label: "Est. cost", icon: DollarSign, color: "#ffd60a", format: formatUsd, tone: "warning" as const },
 ];
 
 function UsageChart(props: { buckets: readonly UsageChartBucket[]; loading: boolean }) {
@@ -162,34 +177,6 @@ function UsageChart(props: { buckets: readonly UsageChartBucket[]; loading: bool
   );
 }
 
-function isInFlightRowArray(value: unknown): readonly InFlightRow[] {
-  if (!Array.isArray(value)) return [];
-  const out: InFlightRow[] = [];
-  for (const entry of value) {
-    if (typeof entry !== "object" || entry === null) continue;
-    const row = entry as { id?: unknown; model?: unknown; provider?: unknown; ip?: unknown; startedAt?: unknown; ageMs?: unknown };
-    if (
-      typeof row.id === "string" &&
-      typeof row.model === "string" &&
-      typeof row.provider === "string" &&
-      typeof row.ip === "string" &&
-      typeof row.startedAt === "string" &&
-      typeof row.ageMs === "number"
-    ) {
-      out.push({
-        id: row.id,
-        model: row.model,
-        provider: row.provider,
-        ip: row.ip,
-        startedAt: row.startedAt,
-        ageMs: row.ageMs,
-        bytes: typeof (entry as { bytes?: unknown }).bytes === "number" ? (entry as { bytes: number }).bytes : null,
-      });
-    }
-  }
-  return out;
-}
-
 function asTimeRange(value: string | undefined): TimeRange {
   return value === "1h" || value === "7d" || value === "30d" || value === "all" ? value : "24h";
 }
@@ -229,7 +216,7 @@ export default function Usage() {
         <Show
           when={!isLoading()}
           fallback={
-            <div class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+            <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
               <For each={STAT_CARDS}>{(card) => <MetricCardSkeleton label={card.label} />}</For>
             </div>
           }
@@ -249,7 +236,7 @@ export default function Usage() {
               />
             }
           >
-            <div class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+            <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
               <For each={STAT_CARDS}>
                 {(card) => (
                   <MetricCard
@@ -297,12 +284,12 @@ export default function Usage() {
                   <div class="mt-1 text-lg font-bold tabular-nums">{formatTokens(data().inputTokens)}</div>
                 </div>
                 <div class="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-                  <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Cached</div>
-                  <div class="mt-1 text-lg font-bold tabular-nums">{formatTokens(data().cachedTokens)}</div>
+                  <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Output</div>
+                  <div class="mt-1 text-lg font-bold tabular-nums">{formatTokens(data().outputTokens)}</div>
                 </div>
                 <div class="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-                  <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Cost</div>
-                  <div class="mt-1 text-lg font-bold tabular-nums">{formatUsd(data().estimatedCostUsd)}</div>
+                  <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Errors</div>
+                  <div class="mt-1 text-lg font-bold tabular-nums">{formatNumber(data().errors)}</div>
                 </div>
               </div>
             )}
@@ -312,6 +299,3 @@ export default function Usage() {
     </div>
   );
 }
-
-// Suppress unused warning helper, used by parent to validate shape
-export const _parseInFlight = isInFlightRowArray;

@@ -62,27 +62,6 @@ func (s *registryCatalogAdminService) Providers(ctx context.Context) ([]admin.Ca
 	return items, nil
 }
 
-func (s *registryCatalogAdminService) Models(_ context.Context, providerID string) ([]admin.CatalogModel, error) {
-	if s == nil || s.registry == nil {
-		return nil, errors.New("runtime: catalog registry is unavailable")
-	}
-	providerID = strings.TrimSpace(providerID)
-	if providerID == "" {
-		return nil, admin.NewError(admin.CodeAdminInvalidRequest, "provider is required")
-	}
-	if !s.registry.Has(providerID) {
-		return nil, admin.NewError(admin.CodeAdminInvalidRequest, "provider is unknown")
-	}
-	provider, err := s.registry.Get(providerID)
-	if err != nil {
-		return nil, fmt.Errorf("runtime: catalog provider %q: %w", providerID, err)
-	}
-	if provider == nil {
-		return []admin.CatalogModel{}, nil
-	}
-	return adminCatalogModels(providerID, provider, s.catalogGeneration()), nil
-}
-
 // accountCounts returns enabled account totals per provider. A failing or
 // absent account store yields no counts rather than failing the whole catalog
 // read; configuration state stays observable either way.

@@ -803,19 +803,6 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 				services.Settings = newPostgresSettingsAdminService(deps.Database.Settings, cfg.Environment, cfg.ListenAddress)
 				services.Auth = newSessionAuthService(deps.Database.Settings, oauthService, os.Getenv("CONSOLE_PASSWORD"))
 			}
-			if deps.CustomProviders != nil {
-				services.CustomProviders = &customProviderAdminService{repository: deps.CustomProviders, registry: deps.Registry}
-			}
-			adminserver.Register(mux, services)
-		})
-	} else if deps.Admin == nil && deps.CustomProviders != nil {
-		customService := &customProviderAdminService{repository: deps.CustomProviders, registry: deps.Registry}
-		deps.Admin = registrarFunc(func(mux *http.ServeMux) {
-			services := postgresAdminServices(deps, adminWiring)
-			services.CustomProviders = customService
-			if deps.Database != nil && deps.Database.Settings != nil {
-				services.Settings = newPostgresSettingsAdminService(deps.Database.Settings, cfg.Environment, cfg.ListenAddress)
-			}
 			adminserver.Register(mux, services)
 		})
 	} else if deps.Admin == nil && deps.Database != nil && deps.Database.Settings != nil {
@@ -871,15 +858,9 @@ func postgresAdminServices(deps BootstrapDependencies, wiring adminServiceWiring
 		}
 		return services
 	}
-	if deps.Database.AdminAPIKeys != nil {
-		services.APIKeys = &postgresAPIKeyAdminService{repository: deps.Database.AdminAPIKeys}
-	}
-	if deps.Database.Proxies != nil {
-		services.Proxies = &postgresProxyAdminService{repository: deps.Database.Proxies}
-	}
 	if deps.Database.Accounts != nil {
 		services.Dashboard = &postgresDashboardAdminService{accounts: deps.Database.Accounts, proxies: deps.Database.Proxies, keys: deps.Database.AdminAPIKeys, environment: wiring.environment, started: time.Now().UTC()}
-		services.Accounts = &postgresAccountAdminService{accounts: deps.Accounts, records: deps.Records, secrets: deps.Secrets, refresher: deps.Refresher}
+		services.Accounts = &postgresAccountAdminService{accounts: deps.Database.Accounts, records: deps.Records, secrets: deps.Secrets, refresher: deps.Refresher}
 	}
 	if deps.Database.Telemetry != nil {
 		services.Telemetry = newPostgresTelemetryAdminService(deps.Database.Telemetry)

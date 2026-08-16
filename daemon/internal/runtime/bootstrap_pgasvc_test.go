@@ -4,7 +4,7 @@ import "testing"
 
 func TestPostgresAdminServicesNilDatabase(t *testing.T) {
 	svc := postgresAdminServices(BootstrapDependencies{}, adminServiceWiring{})
-	if svc.APIKeys != nil || svc.Proxies != nil || svc.Accounts != nil || svc.Dashboard != nil {
+	if svc.Accounts != nil || svc.Dashboard != nil {
 		t.Fatalf("expected empty services, got %+v", svc)
 	}
 	if svc.Telemetry != nil || svc.Usage != nil || svc.ConsoleLogs != nil || svc.Catalog != nil || svc.InFlightStats != nil {

@@ -238,8 +238,6 @@ const DISPATCHER_SUBROUTES: ReadonlyArray<{
     subroutes: [
       { path: "/accounts/:id", methods: ["PATCH", "DELETE"] },
       { path: "/accounts/:id/quota", methods: ["GET", "POST"] },
-      { path: "/accounts/:id/revoke", methods: ["POST"] },
-      { path: "/accounts/:id/oauth-status", methods: ["GET"] },
     ],
   },
   {
@@ -250,7 +248,6 @@ const DISPATCHER_SUBROUTES: ReadonlyArray<{
       { path: "/providers/:id/accounts/batch-delete", methods: ["POST"] },
       { path: "/providers/:id/accounts/:accountId", methods: ["POST", "DELETE"] },
       { path: "/providers/:id/accounts/:accountId/revoke", methods: ["POST"] },
-      { path: "/providers/:id/accounts/oauth/start", methods: ["POST"] },
     ],
   },
   {
@@ -262,47 +259,13 @@ const DISPATCHER_SUBROUTES: ReadonlyArray<{
       { path: "/auth/oauth/sessions/:id/cancel", methods: ["POST"] },
     ],
   },
-  {
-    prefix: "/console/keys/",
-    subroutes: [
-      { path: "/keys/:id", methods: ["PATCH", "DELETE"] },
-      { path: "/keys/:id/regenerate", methods: ["POST"] },
-      { path: "/keys/:id/revoke", methods: ["POST"] },
-      { path: "/keys/:id/share", methods: ["POST"] },
-      { path: "/keys/:id/setup-link", methods: ["POST"] },
-      { path: "/keys/:id/revoke-share", methods: ["DELETE"] },
-    ],
-  },
-  {
-    prefix: "/console/backups/",
-    subroutes: [
-      { path: "/backups/:id", methods: ["DELETE"] },
-      { path: "/backups/:id/download", methods: ["GET"] },
-      { path: "/backups/:id/restore", methods: ["POST"] },
-    ],
-  },
-  {
-    prefix: "/console/proxies/",
-    subroutes: [
-      { path: "/proxies/:id", methods: ["PATCH", "DELETE"] },
-      { path: "/proxies/:id/test", methods: ["POST"] },
-    ],
-  },
-  {
-    prefix: "/console/tools/cache/",
-    subroutes: [{ path: "/tools/cache/:name", methods: ["POST"] }],
-  },
-  {
-    prefix: "/console/custom-providers/",
-    subroutes: [{ path: "/custom-providers/:id", methods: ["GET", "PUT", "POST", "DELETE"] }],
-  },
 ];
 
 /**
- * Daemon console routes the matrix deliberately does not claim. This is the
- * WS4 kill-list reference (docs/v2.1-console-plan.md §3): when WS4 removes an
- * orphan route, or anyone adds a daemon route the dashboard does not use,
- * this list must be updated in the same change.
+ * Daemon console routes the matrix deliberately does not claim. WS4 removed
+ * the orphan route families (docs/v2.1-console-plan.md §3), so this list is
+ * now exactly the intentional gaps; anyone adding a daemon route the
+ * dashboard does not use must update it in the same change.
  */
 const KNOWN_UNCOVERED_DAEMON_ROUTES = [
   // SSE streams ride the EventSource transport, not the JSON fetch matrix.
@@ -314,24 +277,6 @@ const KNOWN_UNCOVERED_DAEMON_ROUTES = [
   "POST /providers/:param/accounts/:param/revoke",
   // OAuth status polling variant not used by the dashboard.
   "GET /auth/oauth/sessions/:param/status",
-  // Stub that always 404s; the real flow is POST /auth/oauth/start.
-  "POST /providers/:param/accounts/oauth/start",
-  // WS4 kill list: orphan daemon routes with no dashboard consumer.
-  "DELETE /settings",
-  "GET /keys",
-  "POST /keys",
-  "PATCH /keys/:param",
-  "DELETE /keys/:param",
-  "POST /keys/:param/regenerate",
-  "POST /keys/:param/revoke",
-  "POST /keys/:param/share",
-  "POST /keys/:param/setup-link",
-  "DELETE /keys/:param/revoke-share",
-  "GET /custom-providers",
-  "GET /custom-providers/:param",
-  "PUT /custom-providers/:param",
-  "POST /custom-providers/:param",
-  "DELETE /custom-providers/:param",
 ].sort();
 
 /** Strips the /console mount and unifies `:name` params for comparison. */
@@ -371,7 +316,7 @@ describe("daemon console route registration parity", () => {
     expect(offenders).toEqual([]);
 
     const registrations = extractRegistrations();
-    expect(registrations.length).toBeGreaterThanOrEqual(40);
+    expect(registrations.length).toBeGreaterThanOrEqual(20);
     expect(registrations.every((registration) => registration.path.startsWith("/console/"))).toBe(true);
     expect(registrations.filter((registration) => registration.path.startsWith("/v2/"))).toEqual([]);
   });

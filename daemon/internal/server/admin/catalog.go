@@ -7,10 +7,10 @@ import (
 )
 
 const (
-	// CatalogProvidersPath and CatalogModelsPath are the only browser-facing
-	// catalog routes. The external /v1/models route is not an admin resource.
+	// CatalogProvidersPath is the only browser-facing catalog route. Model
+	// listings ride the provider payload. The external /v1/models route is not
+	// an admin resource.
 	CatalogProvidersPath = "/console/catalog/providers"
-	CatalogModelsPath    = "/console/catalog/models"
 
 	maxCatalogProviderID = 128
 	maxCatalogItems      = 512
@@ -40,32 +40,6 @@ func RegisterCatalog(mux *http.ServeMux, services Services) {
 		safe := make([]CatalogProvider, 0, len(items))
 		for _, item := range items {
 			safe = append(safe, redactCatalogProvider(item))
-		}
-		WriteDataRequest(w, r, http.StatusOK, map[string]any{"items": safe})
-	}))
-
-	mux.HandleFunc(CatalogModelsPath, requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
-		if services.Catalog == nil {
-			WriteError(w, NewError(CodeUnavailable, "catalog service is unavailable"))
-			return
-		}
-		providerID := strings.TrimSpace(r.URL.Query().Get("provider"))
-		if len(providerID) > maxCatalogProviderID {
-			WriteError(w, NewError(CodeInvalidRequest, "provider is too long"))
-			return
-		}
-		items, err := services.Catalog.Models(r.Context(), providerID)
-		if err != nil {
-			writeCatalogError(w, err)
-			return
-		}
-		if len(items) > maxCatalogItems {
-			WriteError(w, NewError(CodeUnavailable, "catalog model list is unavailable"))
-			return
-		}
-		safe := make([]CatalogModel, 0, len(items))
-		for _, item := range items {
-			safe = append(safe, redactCatalogModel(item))
 		}
 		WriteDataRequest(w, r, http.StatusOK, map[string]any{"items": safe})
 	}))

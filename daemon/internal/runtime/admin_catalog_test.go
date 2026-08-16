@@ -80,7 +80,7 @@ func TestRegistryCatalogAdminServiceAccountCounts(t *testing.T) {
 	t.Fatal("openai provider missing from the default registry")
 }
 
-func TestRegistryCatalogAdminServiceModels(t *testing.T) {
+func TestRegistryCatalogAdminServiceModelsWithinProviderPayload(t *testing.T) {
 	service := newCatalogTestService(t, fakeCatalogAccountStore{}, 4)
 	providers, err := service.Providers(context.Background())
 	if err != nil {
@@ -89,18 +89,8 @@ func TestRegistryCatalogAdminServiceModels(t *testing.T) {
 	if len(providers) == 0 {
 		t.Fatal("providers list is empty")
 	}
-	models, err := service.Models(context.Background(), providers[0].ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(models) != providers[0].ModelCount {
-		t.Fatalf("models = %#v", models)
-	}
-	if _, err := service.Models(context.Background(), ""); err == nil {
-		t.Fatal("empty provider accepted")
-	}
-	if _, err := service.Models(context.Background(), "no-such-provider"); err == nil {
-		t.Fatal("unknown provider accepted")
+	if len(providers[0].Models) != providers[0].ModelCount {
+		t.Fatalf("models = %#v", providers[0].Models)
 	}
 }
 

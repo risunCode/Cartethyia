@@ -60,3 +60,14 @@ func (s *adminStream) writeEvent(payload any) {
 	_ = s.controller.SetWriteDeadline(time.Now().Add(adminStreamWriteBudget))
 	s.flusher.Flush()
 }
+
+// Heartbeat emits an SSE comment frame (`: ping`) so an idle tick still moves
+// bytes on the wire. Proxies and load balancers that time out silent
+// connections stay observably active, while EventSource clients ignore comment
+// frames and fire no handlers. The write deadline is refreshed exactly like a
+// data event.
+func (s *adminStream) Heartbeat() {
+	_, _ = s.writer.Write([]byte(": ping\n\n"))
+	_ = s.controller.SetWriteDeadline(time.Now().Add(adminStreamWriteBudget))
+	s.flusher.Flush()
+}

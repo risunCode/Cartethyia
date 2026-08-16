@@ -236,6 +236,21 @@ func buildAuthRequest(r *http.Request) AuthRequest {
 	}
 }
 
+func baseURLFromRequest(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if h := r.Header.Get("X-Forwarded-Proto"); h != "" {
+		scheme = h
+	}
+	host := r.Host
+	if h := r.Header.Get("X-Forwarded-Host"); h != "" {
+		host = h
+	}
+	return scheme + "://" + host
+}
+
 func clientIP(r *http.Request) string {
 	if h := r.Header.Get("X-Forwarded-For"); h != "" {
 		if comma := strings.IndexByte(h, ','); comma >= 0 {

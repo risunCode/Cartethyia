@@ -20,16 +20,12 @@ const (
 type AdminScope string
 
 const (
-	ScopeAuth      AdminScope = "admin:auth"
-	ScopeHealth    AdminScope = "admin:health"
-	ScopeCatalog   AdminScope = "admin:catalog"
-	ScopeAccounts  AdminScope = "admin:accounts"
-	ScopeKeys      AdminScope = "admin:keys"
-	ScopeCache     AdminScope = "admin:cache"
-	ScopeUsage     AdminScope = "admin:usage"
-	ScopeBackups   AdminScope = "admin:backups"
-	ScopeLifecycle AdminScope = "admin:lifecycle"
-	ScopeConfig    AdminScope = "admin:config"
+	ScopeAuth     AdminScope = "admin:auth"
+	ScopeHealth   AdminScope = "admin:health"
+	ScopeCatalog  AdminScope = "admin:catalog"
+	ScopeAccounts AdminScope = "admin:accounts"
+	ScopeUsage    AdminScope = "admin:usage"
+	ScopeConfig   AdminScope = "admin:config"
 )
 
 // AdminActor is the redacted identity attached to an authenticated request.
@@ -101,29 +97,13 @@ func adminScopeForPath(path string) AdminScope {
 		return ScopeAuth
 	case strings.HasPrefix(path, "/console/accounts"), strings.HasPrefix(path, "/console/providers/"):
 		return ScopeAccounts
-	case strings.HasPrefix(path, "/console/keys"):
-		return ScopeKeys
-	case strings.HasPrefix(path, "/console/proxies"):
+	case strings.HasPrefix(path, "/console/settings"):
 		return ScopeConfig
-	case strings.HasPrefix(path, "/console/custom-providers"):
-		return ScopeConfig
-	case strings.HasPrefix(path, "/console/proxy-settings"), strings.HasPrefix(path, "/console/settings"):
-		return ScopeConfig
-	case strings.HasPrefix(path, "/console/backups"):
-		return ScopeBackups
 	case strings.HasPrefix(path, "/console/telemetry"),
 		strings.HasPrefix(path, "/console/logs"):
 		return ScopeUsage
-	case strings.HasPrefix(path, "/console/web-request"):
-		return ScopeHealth
 	case strings.HasPrefix(path, "/console/catalog/"):
 		return ScopeCatalog
-	case strings.HasPrefix(path, "/console/tools/cache"):
-		return ScopeCache
-	case strings.HasPrefix(path, "/console/tools/restart"):
-		return ScopeLifecycle
-	case strings.HasPrefix(path, "/console/tools"):
-		return ScopeHealth
 	case strings.HasPrefix(path, "/console/dashboard"):
 		return ScopeHealth
 	default:
@@ -231,12 +211,7 @@ func isGenerationMutation(path, method string) bool {
 	switch {
 	case strings.HasPrefix(path, "/console/accounts"),
 		strings.HasPrefix(path, "/console/providers/"),
-		strings.HasPrefix(path, "/console/keys"),
-		strings.HasPrefix(path, "/console/settings"),
-		strings.HasPrefix(path, "/console/proxy-settings"),
-		strings.HasPrefix(path, "/console/tools/cache"),
-		strings.HasPrefix(path, "/console/tools/reindex"),
-		strings.HasPrefix(path, "/console/backups/") && strings.HasSuffix(path, "/restore"):
+		strings.HasPrefix(path, "/console/settings"):
 		return true
 	default:
 		return false
@@ -247,14 +222,8 @@ func generationScope(path string) string {
 	switch {
 	case strings.HasPrefix(path, "/console/providers/"), strings.HasPrefix(path, "/console/accounts"):
 		return "accounts"
-	case strings.HasPrefix(path, "/console/keys"):
-		return "credentials"
-	case strings.HasPrefix(path, "/console/proxies"), strings.HasPrefix(path, "/console/settings"), strings.HasPrefix(path, "/console/proxy-settings"):
+	case strings.HasPrefix(path, "/console/settings"):
 		return "configuration"
-	case strings.HasPrefix(path, "/console/backups"):
-		return "backup"
-	case strings.HasPrefix(path, "/console/tools/cache"):
-		return "cache"
 	default:
 		return "lifecycle"
 	}

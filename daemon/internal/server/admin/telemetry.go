@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -19,6 +20,7 @@ func RegisterTelemetry(mux *http.ServeMux, services Services) {
 			}
 			ticker := time.NewTicker(adminStreamTick)
 			defer ticker.Stop()
+			var last *inFlightSnapshot
 			for {
 				snapshot := inFlightSnapshot{
 					InFlight: stats.InFlight(),
@@ -28,7 +30,15 @@ func RegisterTelemetry(mux *http.ServeMux, services Services) {
 				if detail != nil {
 					snapshot.Rows = detail.InFlightRows()
 				}
-				stream.writeEvent(snapshot)
+				// An unchanged snapshot is an idle tick: heartbeat instead of
+				// replaying identical data so the connection stays observable.
+				if last != nil && reflect.DeepEqual(*last, snapshot) {
+					stream.Heartbeat()
+				} else {
+					stream.writeEvent(snapshot)
+					sent := snapshot
+					last = &sent
+				}
 				select {
 				case <-r.Context().Done():
 					return

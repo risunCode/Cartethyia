@@ -1,7 +1,8 @@
 # Operations, Configuration, Docker, and Recovery
 
-This document covers the active Go daemon deployment boundary. The dashboard is
-built and operated separately.
+This document covers the active Go daemon deployment boundary. The dashboard
+(SolidJS + Vite SPA) is built and operated separately, with a small Bun
+auxiliary server (`/internal/*` on `:8787`) for browser error reporting.
 
 ## 1. Configuration precedence
 
@@ -54,6 +55,7 @@ The repository root `.env` is configured for the local Laragon services:
 PostgreSQL  127.0.0.1:5432  database cartethyia
 Redis       127.0.0.1:6379  database 0
 Daemon      127.0.0.1:12800
+Aux server  127.0.0.1:8787  /internal/* only
 ```
 
 Run the daemon from the repository or daemon directory:
@@ -62,6 +64,11 @@ Run the daemon from the repository or daemon directory:
 cd daemon
 go run ./cmd/cartethyia
 ```
+
+For hot reload from the repository root, use `bun run dev` (Air config
+`daemon/.air.toml`). The dashboard dev server (`bun run dev` from
+`dashboard/`, port 5173) and the auxiliary server (`bun run server` from
+`dashboard/`, port 8787) are separate processes.
 
 Verify liveness:
 
@@ -126,11 +133,12 @@ cache to avoid fixing PostgreSQL.
 
 ## 5. Docker image
 
-The root `Dockerfile` has these targets:
+The root Dockerfile has these targets:
 
 ```bash
 docker build --target runtime -t cartethyia:2.1.0 .
 docker build --target dashboard -t cartethyia-dashboard:2.1.0 .
+docker build --target dashboard-audit -t cartethyia-dashboard-audit:2.1.0 .
 ```
 
 The daemon image:
@@ -157,8 +165,18 @@ docker run --rm -p 12800:12800 \
 
 ## 6. Docker Compose
 
-Compose starts PostgreSQL, Redis, and the daemon. It gates the daemon on both
-backend healthchecks:
+Compose starts PostgreSQL, Redis, the daemon, the nginx dashboard edge, and
+the dashboard auxiliary server:
+
+- `postgres` and `redis` start first with healthchecks;
+- `cartethyia` (the daemon) is gated on both and stays internal to the
+  Compose network on `:12800`;
+- `dashboard` is the single published edge (`12800:80`): nginx serves the
+  SPA and proxies `/console/`, `/v1/`, `/v1beta/`, and public
+  `/share/*/data|stream` to the daemon, and `/internal/` to
+  `dashboard-audit`;
+- `dashboard-audit` runs the Bun auxiliary server (`:8787`, `/internal/*`
+  only) gated on the postgres healthcheck.
 
 ```bash
 cp .env.example .env
@@ -347,21 +365,7 @@ not contain secrets or raw payloads.
 Do not “fix” unavailable dependencies by enabling synthetic production accounts,
 empty success responses, or a second unofficial storage authority.
 
-## 11. Backup and recovery boundary
-
-Backup/restore is an admin operation with explicit service composition and
-bounded raw download handling. It must preserve:
-
-- safe filenames and bounded archive size;
-- encryption/upload policy when configured;
-- explicit confirmation for destructive restore/delete actions;
-- truthful unavailable/forbidden/stale/failed states;
-- no credentials or raw request payloads in backup metadata logs.
-
-A backup is not a substitute for PostgreSQL migration testing. Test restore
-against an isolated database before treating it as a recovery proof.
-
-## 12. Deployment verification checklist
+## 11. Deployment verification checklist
 
 Before a deployment is considered usable:
 
@@ -384,7 +388,7 @@ Then verify:
 - shutdown on `SIGTERM` completes within the configured budget;
 - logs contain lifecycle evidence but no raw payloads or credentials.
 
-## 13. Compatibility inspection and replay
+## 12. Compatibility inspection and replay
 
 The offline compatibility commands use the daemon's production decoders,
 canonical planner, codecs, capability policies, and corpus scorer. They never
@@ -431,7 +435,7 @@ opaque digest prefix, marker location, policy ID/generation, disabled code, and
 optional bounded provider usage. `accounts readiness` is read-only: it takes a
 safe immutable snapshot and does not acquire, refresh, probe, or mutate state.
 
-## 14. Capability and error-code matrix
+## 13. Capability and error-code matrix
 
 The route explanation and compatibility reports distinguish source surface,
 provider target surface, model policy generation, and operation. Compact V1 and
@@ -455,7 +459,7 @@ failures. A later successful candidate hides recoverable earlier failures;
 when no candidate succeeds, the final error preserves the most actionable
 credential, translation, quota, network, deadline, or budget meaning.
 
-## 15. Metrics, caches, readiness, and retention
+## 14. Metrics, caches, readiness, and retention
 
 `GET /metrics` exposes bounded counters/histograms for source/target/profile
 plan actions, capability-code outcomes, operation/compaction/bridge results,
@@ -485,7 +489,7 @@ failures remain unavailable until generation changes. Delayed hedging is
 default-off and may add only one prepared, idempotent, pre-commit attempt with
 independent reservations and exactly-once loser finalization.
 
-## 16. Permanent exclusions and clean-cutover review
+## 15. Permanent exclusions and clean-cutover review
 
 The following remain intentionally absent: dashboard and Share UI changes,
 `alegacy/` migration, public-path renames, live fusion/panel/judge, moderation-

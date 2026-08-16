@@ -178,6 +178,98 @@ func TestAdminConsoleLogStreamInitialAndTail(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
+// readStreamPing waits for a `: ping` heartbeat comment frame, skipping any
+// data events encountered along the way.
+func readStreamPing(t *testing.T, body *bufio.Reader) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for stream heartbeat")
+		}
+		line, err := body.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read stream line: %v", err)
+		}
+		if strings.TrimSpace(line) == ": ping" {
+			return
+		}
+	}
+}
+
+func TestAdminInFlightStreamHeartbeatWhenIdle(t *testing.T) {
+	originalTick := adminStreamTick
+	adminStreamTick = 50 * time.Millisecond
+	t.Cleanup(func() { adminStreamTick = originalTick })
+
+	// Static counters mean every post-snapshot tick is idle and must emit a
+	// heartbeat instead of replaying the identical snapshot.
+	stats := &streamInFlightStats{inFlight: 2, waiters: 0, grants: 9}
+	server := startAdminStreamServer(t, streamTestServices(stats, nil))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/console/telemetry/in-flight/stream", nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: "cartethyia_session", Value: "session-1"})
+	resp, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	events := readStreamEvents(t, reader, 1)
+	var snapshot inFlightSnapshot
+	if err := json.Unmarshal([]byte(events[0]), &snapshot); err != nil {
+		t.Fatalf("event json: %v", err)
+	}
+	if snapshot.InFlight != 2 || snapshot.Grants != 9 {
+		t.Fatalf("snapshot: %+v", snapshot)
+	}
+	readStreamPing(t, reader)
+	cancel()
+	_ = resp.Body.Close()
+}
+
+func TestAdminConsoleLogStreamHeartbeatWhenIdle(t *testing.T) {
+	originalTick := adminStreamTick
+	adminStreamTick = 50 * time.Millisecond
+	t.Cleanup(func() { adminStreamTick = originalTick })
+
+	// Empty log store: the initial batch writes nothing and every tail read
+	// stays empty, so the stream must stay alive through heartbeat frames.
+	server := startAdminStreamServer(t, streamTestServices(nil, &streamConsoleLogs{}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/console/logs/stream", nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: "cartethyia_session", Value: "session-1"})
+	resp, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	readStreamPing(t, reader)
+	// The ping must repeat: idle heartbeats continue on later ticks.
+	readStreamPing(t, reader)
+	cancel()
+	_ = resp.Body.Close()
+}
+
 func TestAdminStreamsRequireSession(t *testing.T) {
 	services := streamTestServices(&streamInFlightStats{}, &streamConsoleLogs{})
 	services.Authorizer = nil

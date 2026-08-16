@@ -23,19 +23,6 @@ func RegisterAccounts(mux *http.ServeMux, services Services) {
 	mux.HandleFunc("/console/accounts/", func(w http.ResponseWriter, r *http.Request) {
 		handleAccountSubresource(w, r, acct)
 	})
-	mux.HandleFunc("/console/quota/refresh", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
-		var body QuotaRefreshRequest
-		if err := decodeJSON(r, &body); err != nil {
-			WriteError(w, NewError(CodeInvalidRequest, "invalid JSON body").WithCause(err))
-			return
-		}
-		result, err := acct.RefreshAllQuotas(r.Context(), body)
-		if err != nil {
-			WriteError(w, err)
-			return
-		}
-		WriteData(w, http.StatusOK, result)
-	}))
 
 	// Provider-scoped account endpoints.
 	mux.HandleFunc("/console/providers/", func(w http.ResponseWriter, r *http.Request) {
@@ -97,27 +84,6 @@ func handleAccountSubresource(w http.ResponseWriter, r *http.Request, svc Accoun
 		default:
 			writeMethodNotAllowed(w, http.MethodGet, http.MethodPost)
 		}
-	case len(tail) == 1 && tail[0] == "revoke":
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		if err := svc.Revoke(r.Context(), accountID); err != nil {
-			WriteError(w, err)
-			return
-		}
-		WriteOK(w)
-	case len(tail) == 1 && tail[0] == "oauth-status":
-		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, http.MethodGet)
-			return
-		}
-		state, err := svc.OAuthStatus(r.Context(), accountID)
-		if err != nil {
-			WriteError(w, err)
-			return
-		}
-		WriteData(w, http.StatusOK, state)
 	default:
 		WriteError(w, NewError(CodeNotFound, "account subresource not found"))
 	}
@@ -245,26 +211,8 @@ func handleProviderAccounts(w http.ResponseWriter, r *http.Request, svc AccountS
 			return
 		}
 		WriteOK(w)
-	case len(tail) == 1 && tail[0] == "oauth":
-		// /providers/:id/oauth/start
-		handleOAuthSubroutes(w, r, svc, providerID, parts)
 	default:
 		WriteError(w, NewError(CodeNotFound, "provider account route not found"))
-	}
-}
-
-func handleOAuthSubroutes(w http.ResponseWriter, r *http.Request, _ AccountService, providerID string, _ []string) {
-	rest := strings.TrimPrefix(r.URL.Path, "/console/providers/"+providerID+"/accounts/oauth")
-	switch rest {
-	case "/start":
-		if r.Method != http.MethodPost {
-			writeMethodNotAllowed(w, http.MethodPost)
-			return
-		}
-		// Reuse AuthService for OAuth start; surface via the auth service stub.
-		WriteError(w, NewError(CodeUnavailable, "OAuth start must be served via /console/auth/oauth"))
-	default:
-		WriteError(w, NewError(CodeNotFound, "oauth subroute not found"))
 	}
 }
 

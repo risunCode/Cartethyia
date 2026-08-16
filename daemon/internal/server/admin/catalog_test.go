@@ -12,7 +12,6 @@ import (
 
 type catalogTestService struct {
 	providerErr error
-	modelErr    error
 }
 
 func (s catalogTestService) Providers(context.Context) ([]CatalogProvider, error) {
@@ -36,16 +35,6 @@ func (s catalogTestService) Providers(context.Context) ([]CatalogProvider, error
 			ID: "gpt-test", ProviderID: "openai", DisplayName: "GPT Test", Enabled: true,
 			Capabilities: map[string]bool{"chat": true, "credential": true, "tools": true}, Generation: 7,
 		}},
-	}}, nil
-}
-
-func (s catalogTestService) Models(context.Context, string) ([]CatalogModel, error) {
-	if s.modelErr != nil {
-		return nil, s.modelErr
-	}
-	return []CatalogModel{{
-		ID: "gpt-test", ProviderID: "openai", DisplayName: "GPT Test", Enabled: true,
-		Capabilities: map[string]bool{"chat": true, "credential": true}, Generation: 7,
 	}}, nil
 }
 
@@ -79,13 +68,6 @@ func TestCatalogRoutesReturnRedactedEnvelopeData(t *testing.T) {
 	}
 	if _, ok := provider.Models[0].Capabilities["credential"]; ok {
 		t.Fatal("unknown capability leaked")
-	}
-
-	req = httptest.NewRequest(http.MethodGet, CatalogModelsPath+"?provider=openai", nil)
-	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"providerId":"openai"`) {
-		t.Fatalf("models response status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -145,15 +127,4 @@ func (a catalogAuthorizer) Authorize(_ context.Context, sessionID string, scope 
 		return AdminActor{}, NewError(CodeAdminForbidden, "admin scope denied")
 	}
 	return AdminActor{ID: "operator"}, nil
-}
-
-func TestCatalogModelsRejectOversizedProviderFilter(t *testing.T) {
-	mux := http.NewServeMux()
-	RegisterCatalog(mux, Services{Catalog: catalogTestService{}})
-	rec := httptest.NewRecorder()
-	path := CatalogModelsPath + "?provider=" + strings.Repeat("x", maxCatalogProviderID+1)
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
 }

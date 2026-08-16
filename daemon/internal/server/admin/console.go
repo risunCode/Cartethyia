@@ -1,18 +1,14 @@
 package admin
 
 import (
-	"encoding/json"
-	"errors"
-	"io"
 	"net/http"
 	"sort"
-	"strings"
 	"time"
 )
 
-// RegisterConsole wires operator evidence and the explicit V2 Web Request
-// action. Each route is omitted when its owning service is unavailable; this
-// keeps unsupported product capabilities absent rather than returning fake data.
+// RegisterConsole wires operator evidence routes. Each route is omitted when
+// its owning service is unavailable; this keeps unsupported product
+// capabilities absent rather than returning fake data.
 func RegisterConsole(mux *http.ServeMux, services Services) {
 	if services.ConsoleLogs != nil {
 		logs := services.ConsoleLogs
@@ -41,48 +37,6 @@ func RegisterConsole(mux *http.ServeMux, services Services) {
 			tailConsoleLogs(r, stream, logs)
 		}))
 	}
-
-	if services.WebRequest != nil {
-		web := services.WebRequest
-		mux.HandleFunc("/console/web-request", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
-			var input WebRequestInput
-			if err := decodeBoundedJSON(r, &input, 64*1024); err != nil {
-				WriteError(w, NewError(CodeInvalidRequest, "invalid web request input").WithCause(err))
-				return
-			}
-			if strings.TrimSpace(input.URL) == "" {
-				WriteError(w, NewError(CodeInvalidRequest, "web request URL is required"))
-				return
-			}
-			result, err := web.Execute(r.Context(), input)
-			if err != nil {
-				WriteError(w, err)
-				return
-			}
-			WriteDataRequest(w, r, http.StatusOK, result)
-		}))
-	}
-}
-
-func decodeBoundedJSON(r *http.Request, dst any, limit int64) error {
-	if r == nil || r.Body == nil {
-		return errors.New("request body is required")
-	}
-	if limit <= 0 {
-		return errors.New("request body limit is invalid")
-	}
-	dec := json.NewDecoder(io.LimitReader(r.Body, limit+1))
-	if err := dec.Decode(dst); err != nil {
-		return err
-	}
-	var extra any
-	if err := dec.Decode(&extra); err != io.EOF {
-		if err == nil {
-			return errors.New("request body contains multiple JSON values")
-		}
-		return err
-	}
-	return nil
 }
 
 // consoleStreamEvent is the compact wire shape of the live console stream.
@@ -131,9 +85,17 @@ func tailConsoleLogs(r *http.Request, stream *adminStream, logs ConsoleLogServic
 		case <-ticker.C:
 			tail, err := logs.List(ctx, ConsoleLogQuery{From: newest, Level: level, Scope: scope, Limit: adminStreamTailLimit})
 			if err != nil {
-				continue // transient read failure; keep the stream alive
+				// Transient read failure; keep the stream alive with a heartbeat.
+				stream.Heartbeat()
+				continue
 			}
-			newest = emitConsoleEntries(stream, tail, newest)
+			delivered := emitConsoleEntries(stream, tail, newest)
+			if delivered == newest {
+				// Idle tick: nothing new to deliver, keep the connection observable.
+				stream.Heartbeat()
+			} else {
+				newest = delivered
+			}
 		}
 	}
 }

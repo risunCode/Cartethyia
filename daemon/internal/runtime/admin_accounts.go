@@ -161,39 +161,12 @@ func (s *postgresAccountAdminService) Credential(context.Context, string) (strin
 func (s *postgresAccountAdminService) RefreshQuota(context.Context, string) (admin.QuotaState, error) {
 	return admin.QuotaState{}, errors.New("account quota refresh is unavailable: no provider quota contract")
 }
-func (s *postgresAccountAdminService) RefreshAllQuotas(context.Context, admin.QuotaRefreshRequest) (admin.BatchResult, error) {
-	return admin.BatchResult{}, errors.New("account quota refresh is unavailable: no provider quota contract")
-}
 func (s *postgresAccountAdminService) Quota(context.Context, string) (admin.QuotaState, error) {
 	return admin.QuotaState{}, errors.New("account quota is unavailable: no provider quota contract")
-}
-func (s *postgresAccountAdminService) Revoke(ctx context.Context, accountID string) error {
-	cfg, err := s.accounts.Get(ctx, accountID)
-	if err != nil {
-		return err
-	}
-	cfg.Enabled = false
-	return s.accounts.Put(ctx, cfg)
 }
 func (s *postgresAccountAdminService) RevokeForProvider(ctx context.Context, providerID, accountID string) error {
 	_, err := s.Update(ctx, providerID, accountID, admin.AccountInput{Enabled: new(false)})
 	return err
-}
-func (s *postgresAccountAdminService) OAuthStatus(ctx context.Context, accountID string) (admin.OAuthState, error) {
-	cfg, err := s.accounts.Get(ctx, accountID)
-	if err != nil {
-		return admin.OAuthState{}, err
-	}
-	state := admin.OAuthState{AccountID: accountID, Status: "configured"}
-	if cfg.NeedsOAuth() {
-		state.Status = "oauth"
-	}
-	if s.records != nil {
-		if record, recordErr := s.records.Get(ctx, accountID); recordErr == nil && record.ReauthenticationRequired {
-			state.Status = "reauthentication_required"
-		}
-	}
-	return state, nil
 }
 
 func (s *postgresAccountAdminService) project(ctx context.Context, cfg *accounts.AccountConfig) contracts.Account {

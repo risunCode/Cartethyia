@@ -14,21 +14,15 @@ import (
 type Services struct {
 	Dashboard DashboardService
 	Accounts  AccountService
-	APIKeys   APIKeyService
-	Proxies   ProxyService
 	Settings  SettingsService
-	Backup    BackupService
-	Tools     ToolsService
 	Auth      AuthService
 	// OAuth optionally supplies the concrete provider-neutral OAuth lifecycle.
 	// When nil, Auth is used for backwards-compatible OAuth routes.
-	OAuth           OAuthLifecycleService
-	Telemetry       TelemetryService
-	ConsoleLogs     ConsoleLogService
-	Usage           UsageService
-	WebRequest      WebRequestService
-	Catalog         CatalogService
-	CustomProviders CustomProviderService
+	OAuth       OAuthLifecycleService
+	Telemetry   TelemetryService
+	ConsoleLogs ConsoleLogService
+	Usage       UsageService
+	Catalog     CatalogService
 	// InFlightStats exposes bounded admission counters for the in-flight
 	// stream. When nil the stream endpoint reports the service unavailable.
 	InFlightStats InFlightStatsSource
@@ -71,45 +65,6 @@ type InFlightDetailSource interface {
 	InFlightRows() []InFlightRow
 }
 
-// CustomProviderService owns durable user-defined provider endpoints. The
-// credential field is an opaque secret-store reference, never raw secret data.
-type CustomProviderService interface {
-	List(context.Context) ([]CustomProvider, error)
-	Get(context.Context, string) (CustomProvider, error)
-	Upsert(context.Context, CustomProviderInput) (CustomProvider, error)
-	Delete(context.Context, string) error
-}
-
-type CustomProvider struct {
-	ID             string            `json:"id"`
-	Slug           string            `json:"slug"`
-	Name           string            `json:"name"`
-	Type           string            `json:"type"`
-	Protocol       string            `json:"protocol"`
-	Surface        string            `json:"surface"`
-	BaseURL        string            `json:"baseUrl"`
-	CredentialRef  string            `json:"credentialRef,omitempty"`
-	CredentialRefs []string          `json:"credentialRefs,omitempty"`
-	TimeoutSeconds int               `json:"timeoutSeconds"`
-	Models         []any             `json:"models"`
-	Headers        map[string]string `json:"headers,omitempty"`
-}
-
-type CustomProviderInput struct {
-	ID             string            `json:"id,omitempty"`
-	Slug           string            `json:"slug"`
-	Name           string            `json:"name"`
-	Type           string            `json:"type"`
-	Protocol       string            `json:"protocol"`
-	Surface        string            `json:"surface"`
-	BaseURL        string            `json:"baseUrl"`
-	CredentialRef  string            `json:"credentialRef,omitempty"`
-	CredentialRefs []string          `json:"credentialRefs,omitempty"`
-	TimeoutSeconds int               `json:"timeoutSeconds,omitempty"`
-	Models         []any             `json:"models"`
-	Headers        map[string]string `json:"headers,omitempty"`
-}
-
 // DashboardService surfaces the at-a-glance status of the daemon.
 type DashboardService interface {
 	Summary(ctx context.Context) (DashboardSummary, error)
@@ -137,11 +92,8 @@ type AccountService interface {
 	BatchUpdate(ctx context.Context, providerID string, items []AccountBatchPatch) (BatchResult, error)
 	Credential(ctx context.Context, accountID string) (string, error)
 	RefreshQuota(ctx context.Context, accountID string) (QuotaState, error)
-	RefreshAllQuotas(ctx context.Context, body QuotaRefreshRequest) (BatchResult, error)
 	Quota(ctx context.Context, accountID string) (QuotaState, error)
-	Revoke(ctx context.Context, accountID string) error
 	RevokeForProvider(ctx context.Context, providerID, accountID string) error
-	OAuthStatus(ctx context.Context, accountID string) (OAuthState, error)
 }
 
 // AccountInput contains operator-safe account metadata. Secret material is
@@ -187,12 +139,6 @@ type QuotaState struct {
 	Extras      map[string]any `json:"extras,omitempty"`
 }
 
-// QuotaRefreshRequest is the optional filter for "refresh all quotas".
-type QuotaRefreshRequest struct {
-	ProviderID string `json:"providerId,omitempty"`
-	OnlyStale  bool   `json:"onlyStale,omitempty"`
-}
-
 // OAuthState reports the state of a long-running OAuth handshake. It contains
 // only bounded, operator-safe metadata; token material and provider responses
 // are never part of this contract.
@@ -207,149 +153,6 @@ type OAuthState struct {
 	VerificationURI string `json:"verificationUri,omitempty"`
 	IntervalSeconds int    `json:"intervalSeconds,omitempty"`
 	ExpiresAt       string `json:"expiresAt,omitempty"`
-}
-
-// APIKeyService is the contract for API key management endpoints.
-type APIKeyService interface {
-	List(ctx context.Context) ([]APIKey, error)
-	Create(ctx context.Context, input APIKeyInput) (APIKeyCreateResult, error)
-	Update(ctx context.Context, id string, input APIKeyInput) (APIKey, error)
-	Regenerate(ctx context.Context, id string) (APIKeyCreateResult, error)
-	Revoke(ctx context.Context, id string) error
-	Delete(ctx context.Context, id string) error
-	Credential(ctx context.Context, id string) (string, error)
-	ShareLink(ctx context.Context, id, kind string, baseURL string) (ShareLink, error)
-	RevokeShareLinks(ctx context.Context, id string) (int, error)
-}
-
-// APIKey is a single API key record.
-type APIKey struct {
-	ID         string         `json:"id"`
-	Name       string         `json:"name"`
-	Scopes     []string       `json:"scopes,omitempty"`
-	CreatedAt  string         `json:"createdAt,omitempty"`
-	LastUsedAt string         `json:"lastUsedAt,omitempty"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
-}
-
-// APIKeyInput is the create/update payload for API keys.
-type APIKeyInput struct {
-	Name     string         `json:"name,omitempty"`
-	Scopes   []string       `json:"scopes,omitempty"`
-	Metadata map[string]any `json:"metadata,omitempty"`
-}
-
-// APIKeyCreateResult includes the plaintext key, surfaced only on create/rotate.
-type APIKeyCreateResult struct {
-	Record APIKey `json:"record"`
-	Key    string `json:"key"`
-	Notice string `json:"notice,omitempty"`
-}
-
-// ShareLink is a generated, single-use or short-lived link payload.
-type ShareLink struct {
-	URL       string `json:"url"`
-	ExpiresAt string `json:"expiresAt,omitempty"`
-	Kind      string `json:"kind,omitempty"`
-}
-
-// ProxyService is the contract for proxy configuration and scraping endpoints.
-type ProxyService interface {
-	List(ctx context.Context, limit int) ([]Proxy, error)
-	Create(ctx context.Context, input ProxyInput) (Proxy, error)
-	Update(ctx context.Context, id string, input ProxyInput) (Proxy, error)
-	Delete(ctx context.Context, id string) error
-	Credential(ctx context.Context, id string) (string, error)
-	Test(ctx context.Context, id string) (ProxyTestResult, error)
-	TestAdHoc(ctx context.Context, input ProxyInput) (ProxyTestResult, error)
-	Search(ctx context.Context, input ProxySearchInput) ([]Proxy, error)
-	Import(ctx context.Context, input ProxyImportInput) (BatchResult, error)
-	Scrape(ctx context.Context, input ProxyScrapeInput) (BatchResult, error)
-	Settings(ctx context.Context) (ProxySettings, error)
-	PatchSettings(ctx context.Context, input ProxySettingsInput) (ProxySettings, error)
-	Countries(ctx context.Context) ([]string, error)
-	ScrapeCatalog(ctx context.Context) []ScrapeSourceInfo
-}
-
-// Proxy is a single persisted proxy entry.
-type Proxy struct {
-	ID        string         `json:"id"`
-	Label     string         `json:"label,omitempty"`
-	Protocol  string         `json:"protocol"`
-	Host      string         `json:"host"`
-	Port      int            `json:"port"`
-	Username  string         `json:"username,omitempty"`
-	Country   string         `json:"country,omitempty"`
-	Enabled   bool           `json:"enabled"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
-	CreatedAt string         `json:"createdAt,omitempty"`
-	UpdatedAt string         `json:"updatedAt,omitempty"`
-}
-
-// ProxyInput is the create/update payload for proxies.
-type ProxyInput struct {
-	Label    string         `json:"label,omitempty"`
-	Protocol string         `json:"protocol"`
-	Host     string         `json:"host"`
-	Port     int            `json:"port"`
-	Username string         `json:"username,omitempty"`
-	Password string         `json:"password,omitempty"`
-	Country  string         `json:"country,omitempty"`
-	Enabled  *bool          `json:"enabled,omitempty"`
-	Metadata map[string]any `json:"metadata,omitempty"`
-}
-
-// ProxyTestResult is the outcome of a connectivity probe.
-type ProxyTestResult struct {
-	ProxyID   string `json:"proxyId,omitempty"`
-	Reachable bool   `json:"reachable"`
-	LatencyMS int    `json:"latencyMs,omitempty"`
-	Detail    string `json:"detail,omitempty"`
-}
-
-// ProxySearchInput describes a remote proxy search request.
-type ProxySearchInput struct {
-	Query   string   `json:"query,omitempty"`
-	Country []string `json:"country,omitempty"`
-	Limit   int      `json:"limit,omitempty"`
-}
-
-// ProxyImportInput describes a bulk import payload (e.g. from the search endpoint).
-type ProxyImportInput struct {
-	Proxies []ProxyInput `json:"proxies"`
-}
-
-// ProxyScrapeInput is the request body for on-demand scraping.
-type ProxyScrapeInput struct {
-	Sources   []string `json:"sources,omitempty"`
-	Countries []string `json:"countries,omitempty"`
-	Limit     int      `json:"limit,omitempty"`
-}
-
-// ProxySettings is the persisted proxy configuration block.
-type ProxySettings struct {
-	Mode         string         `json:"mode"`
-	DefaultProxy string         `json:"defaultProxy,omitempty"`
-	AllowList    []string       `json:"allowList,omitempty"`
-	BlockList    []string       `json:"blockList,omitempty"`
-	Metadata     map[string]any `json:"metadata,omitempty"`
-}
-
-// ProxySettingsInput is the PATCH shape for proxy settings.
-type ProxySettingsInput struct {
-	Mode         *string        `json:"mode,omitempty"`
-	DefaultProxy *string        `json:"defaultProxy,omitempty"`
-	AllowList    []string       `json:"allowList,omitempty"`
-	BlockList    []string       `json:"blockList,omitempty"`
-	Metadata     map[string]any `json:"metadata,omitempty"`
-}
-
-// ScrapeSourceInfo is the metadata of a single scrapable source.
-type ScrapeSourceInfo struct {
-	ID           string   `json:"id"`
-	Label        string   `json:"label"`
-	Protocols    []string `json:"protocols,omitempty"`
-	CountryAware bool     `json:"countryAware"`
 }
 
 // SettingsService is the contract for runtime configuration endpoints.
@@ -374,86 +177,6 @@ type RuntimeSettingsInput struct {
 	ListenAddr *string         `json:"listenAddr,omitempty"`
 	Flags      map[string]bool `json:"flags,omitempty"`
 	Metadata   map[string]any  `json:"metadata,omitempty"`
-}
-
-// BackupService is the contract for backup/restore endpoints.
-type BackupService interface {
-	List(ctx context.Context) ([]BackupRecord, error)
-	Create(ctx context.Context, input BackupCreateInput) (BackupRecord, error)
-	Download(ctx context.Context, id string) (BackupArtifact, error)
-	Restore(ctx context.Context, id string, input RestoreOptions) (RestoreResult, error)
-	Delete(ctx context.Context, id string) error
-}
-
-// BackupRecord is a metadata entry for a stored backup.
-type BackupRecord struct {
-	ID         string `json:"id"`
-	CreatedAt  string `json:"createdAt"`
-	SizeBytes  int64  `json:"sizeBytes"`
-	Note       string `json:"note,omitempty"`
-	Source     string `json:"source,omitempty"`
-	IncludesDB bool   `json:"includesDatabase"`
-}
-
-// BackupCreateInput is the payload for triggering a new backup.
-type BackupCreateInput struct {
-	Note       string `json:"note,omitempty"`
-	IncludesDB bool   `json:"includesDatabase"`
-}
-
-// BackupArtifact is the download payload.
-type BackupArtifact struct {
-	Record   BackupRecord `json:"record"`
-	Content  []byte       `json:"-"`
-	Filename string       `json:"filename"`
-	MIMEType string       `json:"mimeType"`
-}
-
-// RestoreOptions tunes a restore operation.
-type RestoreOptions struct {
-	DryRun    bool `json:"dryRun"`
-	IncludeDB bool `json:"includeDatabase"`
-}
-
-// RestoreResult reports what a restore would or did change.
-type RestoreResult struct {
-	Applied bool     `json:"applied"`
-	Changed []string `json:"changed,omitempty"`
-	Notes   string   `json:"notes,omitempty"`
-}
-
-// ToolsService is the contract for operational endpoints (cache flush,
-// re-indexing, connectivity probes, etc.).
-type ToolsService interface {
-	Cache(ctx context.Context, name string) (ToolResult, error)
-	Reindex(ctx context.Context, target string) (ToolResult, error)
-	Probe(ctx context.Context, input ProbeInput) (ProbeResult, error)
-	Restart(ctx context.Context) (ToolResult, error)
-}
-
-// ToolResult is the standardized outcome of a tools endpoint.
-type ToolResult struct {
-	OK      bool           `json:"ok"`
-	Detail  string         `json:"detail,omitempty"`
-	Summary map[string]any `json:"summary,omitempty"`
-}
-
-// ProbeInput is the payload for ad-hoc upstream probes.
-type ProbeInput struct {
-	URL     string            `json:"url"`
-	Method  string            `json:"method,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    string            `json:"body,omitempty"`
-	Timeout string            `json:"timeout,omitempty"`
-}
-
-// ProbeResult is the response of an ad-hoc probe.
-type ProbeResult struct {
-	StatusCode int            `json:"statusCode"`
-	LatencyMS  int            `json:"latencyMs"`
-	Body       string         `json:"body,omitempty"`
-	Headers    map[string]any `json:"headers,omitempty"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
 // AuthService is the contract for login/session lifecycle endpoints.
@@ -668,33 +391,10 @@ type ClientUsageItem struct {
 	Confidence string  `json:"confidence,omitempty"`
 }
 
-// WebRequestService is the explicit V2 operator action seam. Implementations
-// own allowlisting, outbound policy, and body/header redaction.
-type WebRequestService interface {
-	Execute(ctx context.Context, input WebRequestInput) (WebRequestResult, error)
-}
-
-type WebRequestInput struct {
-	URL     string            `json:"url"`
-	Method  string            `json:"method,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    string            `json:"body,omitempty"`
-	Timeout string            `json:"timeout,omitempty"`
-}
-
-type WebRequestResult struct {
-	StatusCode int               `json:"status_code"`
-	LatencyMS  int               `json:"latency_ms"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Body       string            `json:"body,omitempty"`
-	Metadata   map[string]any    `json:"metadata,omitempty"`
-}
-
 // CatalogService backs the V2 operator catalog. It is separate from the
 // external /v1/models ingress so dashboard code has no V1 dependency.
 type CatalogService interface {
 	Providers(ctx context.Context) ([]CatalogProvider, error)
-	Models(ctx context.Context, providerID string) ([]CatalogModel, error)
 }
 
 // CatalogProvider is the redacted provider metadata exposed to operators.

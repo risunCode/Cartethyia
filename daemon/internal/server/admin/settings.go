@@ -10,10 +10,9 @@ func RegisterSettings(mux *http.ServeMux, services Services) {
 	set := services.Settings
 
 	mux.HandleFunc("/console/settings", requireMethods(map[string]http.HandlerFunc{
-		http.MethodGet:    getSettingsHandler(set),
-		http.MethodPatch:  patchSettingsHandler(set),
-		http.MethodPost:   resetSettingsHandler(set),
-		http.MethodDelete: resetSettingsHandler(set),
+		http.MethodGet:   getSettingsHandler(set),
+		http.MethodPatch: patchSettingsHandler(set),
+		http.MethodPost:  resetSettingsHandler(set),
 	}))
 }
 
