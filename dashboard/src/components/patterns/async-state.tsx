@@ -1,4 +1,3 @@
-/* @jsxImportSource solid-js */
 
 import { Show, type JSX } from "solid-js";
 import { StatePanel, type StatePanelKind } from "../ui/state";

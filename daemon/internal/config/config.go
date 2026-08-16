@@ -69,7 +69,7 @@ func FromEnvironment() (Config, error) {
 		ListenAddress:        firstNonEmpty("CARTETHYIA_LISTEN_ADDRESS", "LISTEN_ADDRESS", defaultListenAddress),
 		DatabaseURL:          firstNonEmpty("CARTETHYIA_DATABASE_URL", "DATABASE_URL", ""),
 		RedisURL:             firstNonEmpty("CARTETHYIA_REDIS_URL", "REDIS_URL", ""),
-		AccountEncryptionKey: firstNonEmpty("CARTETHYIA_ACCOUNT_ENCRYPTION_KEY", "ACCOUNT_ENCRYPTION_KEY", ""),
+		AccountEncryptionKey: firstNonEmpty("CARTETHYIA_ENCRYPTION_KEY", "CARTETHYIA_ACCOUNT_ENCRYPTION_KEY", "ACCOUNT_ENCRYPTION_KEY", ""),
 		Environment:          firstNonEmpty("CARTETHYIA_ENV", "NODE_ENV", defaultEnvironment),
 		RequestTimeout:       defaultRequestTimeout,
 		ReadHeaderTimeout:    defaultReadHeaderTimeout,

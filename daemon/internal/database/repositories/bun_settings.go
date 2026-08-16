@@ -28,6 +28,7 @@ func NewBunSettingsRepository(db *bun.DB) *BunSettingsRepository {
 }
 
 type settingsRow struct {
+	bun.BaseModel   `bun:"table:settings"`
 	PasswordHash    *string   `bun:"password_hash"`
 	PasswordVersion int       `bun:"password_version"`
 	JWTSecret       *string   `bun:"jwt_secret"`
@@ -51,7 +52,7 @@ func (r *BunSettingsRepository) Get(ctx context.Context) (models.Settings, error
 		return models.Settings{}, ErrRepositoryClosed
 	}
 	var row settingsRow
-	if err := r.db.NewSelect().Model(&row).Table("settings").Where("id = 1").Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&row).Where("id = 1").Scan(ctx); err != nil {
 		return models.Settings{}, err
 	}
 	return models.Settings{PasswordHash: valueString(row.PasswordHash), PasswordVersion: row.PasswordVersion, JWTSecret: valueString(row.JWTSecret), SettingsJSON: append([]byte(nil), row.SettingsJSON...), InitializedAt: row.InitializedAt, UpdatedAt: row.UpdatedAt}, nil
@@ -173,57 +174,70 @@ func (r *BunSettingsRepository) RotateJWTSecret(ctx context.Context, secret stri
 }
 
 type aliasSettingsRow struct {
-	Alias     string    `bun:"alias"`
-	Model     string    `bun:"model"`
-	CreatedAt time.Time `bun:"created_at"`
+	bun.BaseModel `bun:"table:model_aliases"`
+	Alias         string    `bun:"alias"`
+	Model         string    `bun:"model"`
+	CreatedAt     time.Time `bun:"created_at"`
 }
+
 type comboSettingsRow struct {
-	ID          string    `bun:"id"`
-	Name        string    `bun:"name"`
-	ModelsJSON  []byte    `bun:"models_json,type:jsonb"`
-	Strategy    string    `bun:"strategy"`
-	StickyLimit int       `bun:"sticky_limit"`
-	CreatedAt   time.Time `bun:"created_at"`
-	UpdatedAt   time.Time `bun:"updated_at"`
+	bun.BaseModel `bun:"table:combos"`
+	ID            string    `bun:"id"`
+	Name          string    `bun:"name"`
+	ModelsJSON    []byte    `bun:"models_json,type:jsonb"`
+	Strategy      string    `bun:"strategy"`
+	StickyLimit   int       `bun:"sticky_limit"`
+	CreatedAt     time.Time `bun:"created_at"`
+	UpdatedAt     time.Time `bun:"updated_at"`
 }
+
 type accessSettingsRow struct {
-	Scope     string    `bun:"scope"`
-	Mode      string    `bun:"mode"`
-	Entries   []byte    `bun:"entries_json,type:jsonb"`
-	UpdatedAt time.Time `bun:"updated_at"`
+	bun.BaseModel `bun:"table:access_rules"`
+	Scope         string    `bun:"scope"`
+	Mode          string    `bun:"mode"`
+	Entries       []byte    `bun:"entries_json,type:jsonb"`
+	UpdatedAt     time.Time `bun:"updated_at"`
 }
+
 type providerSettingsRow struct {
-	Provider  string    `bun:"provider"`
-	ModelID   string    `bun:"model_id"`
-	Enabled   bool      `bun:"enabled"`
-	Source    string    `bun:"source"`
-	CreatedAt time.Time `bun:"created_at"`
-	UpdatedAt time.Time `bun:"updated_at"`
+	bun.BaseModel `bun:"table:provider_models"`
+	Provider      string    `bun:"provider"`
+	ModelID       string    `bun:"model_id"`
+	Enabled       bool      `bun:"enabled"`
+	Source        string    `bun:"source"`
+	CreatedAt     time.Time `bun:"created_at"`
+	UpdatedAt     time.Time `bun:"updated_at"`
 }
+
 type cliMapRow struct {
-	ToolID      string    `bun:"tool_id"`
-	SlotKey     string    `bun:"slot_key"`
-	SourceModel string    `bun:"source_model"`
-	TargetModel string    `bun:"target_model"`
-	Enabled     bool      `bun:"enabled"`
-	CreatedAt   time.Time `bun:"created_at"`
-	UpdatedAt   time.Time `bun:"updated_at"`
+	bun.BaseModel `bun:"table:cli_model_mappings"`
+	ToolID        string    `bun:"tool_id"`
+	SlotKey       string    `bun:"slot_key"`
+	SourceModel   string    `bun:"source_model"`
+	TargetModel   string    `bun:"target_model"`
+	Enabled       bool      `bun:"enabled"`
+	CreatedAt     time.Time `bun:"created_at"`
+	UpdatedAt     time.Time `bun:"updated_at"`
 }
+
 type cliSettingRow struct {
-	ToolID    string    `bun:"tool_id"`
-	Enabled   bool      `bun:"enabled"`
-	UpdatedAt time.Time `bun:"updated_at"`
+	bun.BaseModel `bun:"table:cli_tool_mapping_settings"`
+	ToolID        string    `bun:"tool_id"`
+	Enabled       bool      `bun:"enabled"`
+	UpdatedAt     time.Time `bun:"updated_at"`
 }
+
 type filterSettingsRow struct {
-	ID          int64      `bun:"id,pk"`
-	RuleID      string     `bun:"rule_id"`
-	Pattern     string     `bun:"pattern"`
-	Replacement string     `bun:"replacement"`
-	IsActive    bool       `bun:"is_active"`
-	IsRegex     bool       `bun:"is_regex"`
-	SortOrder   int        `bun:"sort_order"`
-	CreatedAt   time.Time  `bun:"created_at"`
-	UpdatedAt   *time.Time `bun:"updated_at"`
+	bun.BaseModel `bun:"table:filter_rules"`
+	ID            int64      `bun:"id,pk"`
+	RuleID        string     `bun:"rule_id"`
+	Pattern       string     `bun:"pattern"`
+	Replacement   string     `bun:"replacement"`
+	IsActive      bool       `bun:"is_active"`
+	IsRegex       bool       `bun:"is_regex"`
+	SortOrder     int        `bun:"sort_order"`
+	CreatedAt     time.Time  `bun:"created_at"`
+	UpdatedAt     *time.Time `bun:"updated_at"`
 }
 
 func (r *BunSettingsRepository) ListAliases(ctx context.Context) ([]models.ModelAlias, error) {
@@ -231,7 +245,7 @@ func (r *BunSettingsRepository) ListAliases(ctx context.Context) ([]models.Model
 		return nil, ErrRepositoryClosed
 	}
 	rows := []aliasSettingsRow{}
-	if err := r.db.NewSelect().Model(&rows).Table("model_aliases").Order("alias ASC").Limit(maxSettingsRows).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).Order("alias ASC").Limit(maxSettingsRows).Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.ModelAlias, len(rows))
@@ -245,7 +259,7 @@ func (r *BunSettingsRepository) GetAlias(ctx context.Context, alias string) (mod
 		return models.ModelAlias{}, ErrRepositoryClosed
 	}
 	var v aliasSettingsRow
-	if err := r.db.NewSelect().Model(&v).Table("model_aliases").Where("alias = ?", boundedString(alias, maxSettingsText)).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&v).Where("alias = ?", boundedString(alias, maxSettingsText)).Scan(ctx); err != nil {
 		return models.ModelAlias{}, err
 	}
 	return models.ModelAlias{Alias: v.Alias, Model: v.Model, CreatedAt: v.CreatedAt}, nil
@@ -281,7 +295,7 @@ func (r *BunSettingsRepository) ListCombos(ctx context.Context) ([]models.Combo,
 		return nil, ErrRepositoryClosed
 	}
 	rows := []comboSettingsRow{}
-	if err := r.db.NewSelect().Model(&rows).Table("combos").Order("id ASC").Limit(maxSettingsRows).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).Order("id ASC").Limit(maxSettingsRows).Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.Combo, len(rows))
@@ -350,7 +364,7 @@ func (r *BunSettingsRepository) GetAccessRule(ctx context.Context, scope string)
 		return models.AccessRule{}, ErrRepositoryClosed
 	}
 	var v accessSettingsRow
-	if err := r.db.NewSelect().Model(&v).Table("access_rules").Where("scope=?", boundedString(scope, maxSettingsText)).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&v).Where("scope=?", boundedString(scope, maxSettingsText)).Scan(ctx); err != nil {
 		return models.AccessRule{}, err
 	}
 	return models.AccessRule{Scope: v.Scope, Mode: v.Mode, Entries: append([]byte(nil), v.Entries...), UpdatedAt: v.UpdatedAt}, nil
@@ -377,7 +391,7 @@ func (r *BunSettingsRepository) ListProviderModels(ctx context.Context, provider
 		return nil, ErrRepositoryClosed
 	}
 	rows := []providerSettingsRow{}
-	q := r.db.NewSelect().Model(&rows).Table("provider_models").Order("provider ASC, model_id ASC").Limit(maxSettingsRows)
+	q := r.db.NewSelect().Model(&rows).Order("provider ASC, model_id ASC").Limit(maxSettingsRows)
 	if p := strings.TrimSpace(provider); p != "" {
 		q = q.Where("provider=?", boundedString(p, maxSettingsText))
 	}
@@ -438,7 +452,7 @@ func (r *BunSettingsRepository) ListCliMappings(ctx context.Context, tool string
 		return nil, ErrRepositoryClosed
 	}
 	rows := []cliMapRow{}
-	q := r.db.NewSelect().Model(&rows).Table("cli_model_mappings").Order("tool_id ASC, slot_key ASC").Limit(maxSettingsRows)
+	q := r.db.NewSelect().Model(&rows).Order("tool_id ASC, slot_key ASC").Limit(maxSettingsRows)
 	if strings.TrimSpace(tool) != "" {
 		q = q.Where("tool_id=?", boundedString(tool, maxSettingsText))
 	}
@@ -496,7 +510,7 @@ func (r *BunSettingsRepository) GetCliMappingSettings(ctx context.Context, t str
 		return models.CliMappingSettings{}, ErrRepositoryClosed
 	}
 	var v cliSettingRow
-	if err := r.db.NewSelect().Model(&v).Table("cli_tool_mapping_settings").Where("tool_id=?", boundedString(t, maxSettingsText)).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&v).Where("tool_id=?", boundedString(t, maxSettingsText)).Scan(ctx); err != nil {
 		return models.CliMappingSettings{}, err
 	}
 	return models.CliMappingSettings{ToolID: v.ToolID, Enabled: v.Enabled, UpdatedAt: v.UpdatedAt}, nil
@@ -528,7 +542,7 @@ func (r *BunSettingsRepository) ListFilterRules(ctx context.Context) ([]models.F
 		return nil, ErrRepositoryClosed
 	}
 	rows := []filterSettingsRow{}
-	if err := r.db.NewSelect().Model(&rows).Table("filter_rules").Order("sort_order ASC,id ASC").Limit(maxSettingsRows).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).Order("sort_order ASC,id ASC").Limit(maxSettingsRows).Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.FilterRule, len(rows))

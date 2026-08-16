@@ -12,6 +12,9 @@ __pycache__/
 # Go hot-reload output
 daemon/tmp/
 
+# Go test coverage artifact
+daemon/*.out
+
 # MultiWarp
 bin/
 

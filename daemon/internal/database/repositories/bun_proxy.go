@@ -35,6 +35,7 @@ func NewBunProxyRepository(db *bun.DB) *BunProxyRepository {
 }
 
 type proxyRow struct {
+	bun.BaseModel            `bun:"table:proxies"`
 	ID                       string     `bun:"id"`
 	Name                     string     `bun:"name"`
 	Protocol                 string     `bun:"protocol"`
@@ -102,7 +103,7 @@ func validateProxyInput(v models.ProxyCreateInput) error {
 }
 func (r *BunProxyRepository) load(ctx context.Context, id string) (models.Proxy, error) {
 	var row proxyRow
-	err := r.db.NewSelect().Model(&row).Table("proxies").Where("id = ?", boundProxy(id)).Scan(ctx)
+	err := r.db.NewSelect().Model(&row).Where("id = ?", boundProxy(id)).Scan(ctx)
 	if err != nil {
 		return models.Proxy{}, err
 	}
@@ -113,7 +114,7 @@ func (r *BunProxyRepository) List(ctx context.Context) ([]models.Proxy, error) {
 		return nil, err
 	}
 	rows := []proxyRow{}
-	if err := r.db.NewSelect().Model(&rows).Table("proxies").Order("priority ASC, name ASC, id ASC").Limit(maxProxyRows).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).Order("priority ASC, name ASC, id ASC").Limit(maxProxyRows).Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.Proxy, len(rows))
@@ -299,15 +300,16 @@ func (r *BunProxyRepository) Delete(ctx context.Context, id string) (bool, error
 }
 
 type proxySettingsRow struct {
-	ID        int       `bun:"id"`
-	Enabled   bool      `bun:"enabled"`
-	Excluded  []byte    `bun:"excluded_providers_json,type:jsonb"`
-	Smart     bool      `bun:"smart_dynamic_routing"`
-	Count     int       `bun:"smart_dynamic_proxy_count"`
-	Preset    string    `bun:"routing_preset"`
-	Target    int       `bun:"target_concurrent"`
-	WebSearch string    `bun:"web_search_preference"`
-	UpdatedAt time.Time `bun:"updated_at"`
+	bun.BaseModel `bun:"table:proxy_settings"`
+	ID            int       `bun:"id"`
+	Enabled       bool      `bun:"enabled"`
+	Excluded      []byte    `bun:"excluded_providers_json,type:jsonb"`
+	Smart         bool      `bun:"smart_dynamic_routing"`
+	Count         int       `bun:"smart_dynamic_proxy_count"`
+	Preset        string    `bun:"routing_preset"`
+	Target        int       `bun:"target_concurrent"`
+	WebSearch     string    `bun:"web_search_preference"`
+	UpdatedAt     time.Time `bun:"updated_at"`
 }
 
 func normalizeExcluded(v []string) []string {
@@ -335,7 +337,7 @@ func (r *BunProxyRepository) GetSettings(ctx context.Context) (models.ProxySetti
 		return models.ProxySettings{}, err
 	}
 	var row proxySettingsRow
-	if err := r.db.NewSelect().Model(&row).Table("proxy_settings").Where("id=1").Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&row).Where("id=1").Scan(ctx); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return models.ProxySettings{RoutingPreset: "auto", WebSearchPreference: "auto", SmartDynamicProxyCount: 2}, nil
 		}
@@ -376,6 +378,7 @@ func (r *BunProxyRepository) PatchSettings(ctx context.Context, p models.ProxySe
 }
 
 type proxyHealthRow struct {
+	bun.BaseModel `bun:"table:proxy_health"`
 	ProxyID       string     `bun:"proxy_id"`
 	Status        string     `bun:"status"`
 	ErrorKind     *string    `bun:"error_kind"`
@@ -398,7 +401,7 @@ func (r *BunProxyRepository) GetHealth(ctx context.Context, id string) (models.P
 		return models.ProxyHealth{}, err
 	}
 	var row proxyHealthRow
-	if err := r.db.NewSelect().Model(&row).Table("proxy_health").Where("proxy_id=?", boundProxy(id)).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&row).Where("proxy_id=?", boundProxy(id)).Scan(ctx); err != nil {
 		return models.ProxyHealth{}, err
 	}
 	return row.model(), nil
@@ -552,6 +555,7 @@ func (r *BunProxyRepository) DeleteCustomProvider(ctx context.Context, id string
 }
 
 type warpAccountRow struct {
+	bun.BaseModel       `bun:"table:warp_accounts"`
 	ID                  string     `bun:"id"`
 	Label               string     `bun:"label"`
 	DeviceID            string     `bun:"device_id"`
@@ -584,7 +588,7 @@ func (r *BunProxyRepository) ListWarpAccounts(ctx context.Context) ([]models.War
 		return nil, err
 	}
 	rows := []warpAccountRow{}
-	if err := r.db.NewSelect().Model(&rows).Table("warp_accounts").Order("id ASC").Limit(maxProxyRows).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).Order("id ASC").Limit(maxProxyRows).Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.WarpAccount, len(rows))
@@ -598,7 +602,7 @@ func (r *BunProxyRepository) GetWarpAccount(ctx context.Context, id string) (mod
 		return models.WarpAccount{}, err
 	}
 	var w warpAccountRow
-	if err := r.db.NewSelect().Model(&w).Table("warp_accounts").Where("id=?", boundProxy(id)).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&w).Where("id=?", boundProxy(id)).Scan(ctx); err != nil {
 		return models.WarpAccount{}, err
 	}
 	return w.model(), nil

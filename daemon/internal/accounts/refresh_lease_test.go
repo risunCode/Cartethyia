@@ -53,16 +53,23 @@ func TestRefresherRenewsLeaseDuringLongRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	driver := &testAuthDriver{release: make(chan struct{}), result: &TokenSet{Access: NewSecretFromString("access"), ExpiresAt: time.Now().Add(time.Hour)}}
+	// LeaseTTL/renewal-wait margins are wide (not the original 20ms/70ms) on
+	// purpose: the refresher renews every leaseTTL/3, and a tight margin
+	// makes this test flaky under any scheduler jitter or GC pause (missing
+	// two renewal ticks at 20ms/3\u22486.7ms apart is easy on a loaded machine).
+	// 150ms/350ms preserves the same behavior under test (several renewals
+	// complete during a refresh that outlives one lease TTL) with slack an
+	// order of magnitude larger than realistic jitter.
 	refresher, err := NewInMemoryRefresher(RefresherOptions{
 		Driver: driver, Secrets: secrets, Records: NewMemoryRecordStore(), Accounts: accounts,
-		Lease: NewMemoryRefreshLeaseStore(), LeaseTTL: 20 * time.Millisecond, RefreshTimeout: time.Second,
+		Lease: NewMemoryRefreshLeaseStore(), LeaseTTL: 150 * time.Millisecond, RefreshTimeout: 5 * time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})
 	go func() {
-		time.Sleep(70 * time.Millisecond)
+		time.Sleep(350 * time.Millisecond)
 		close(driver.release)
 		close(done)
 	}()

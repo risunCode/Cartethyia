@@ -1,4 +1,3 @@
-/* @jsxImportSource solid-js */
 
 import { Check, Copy } from "lucide-solid";
 import { splitProps } from "solid-js";

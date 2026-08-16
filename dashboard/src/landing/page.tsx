@@ -1,8 +1,8 @@
-/* @jsxImportSource solid-js */
 
 import { Activity, ArrowRight, ArrowUpRight, GitFork, Home, Menu, MessageCircle, Network, ShieldCheck, Sparkles, Terminal, X } from "lucide-solid";
 import { createSignal, For, onCleanup, onMount, type JSX } from "solid-js";
 
+import "../styles/landing.css";
 import { ROUTES } from "../routes";
 
 interface Signal {
@@ -28,7 +28,7 @@ interface StoryChapter {
 
 const ASSET_BASE = import.meta.env.BASE_URL;
 const GITHUB_URL = "https://github.com/risunCode/Cartethyia";
-const CONSOLE_LOGIN_PATH = ROUTES.consoleLogin;
+const CONSOLE_LOGIN_PATH = ROUTES.login;
 
 const storyImage = (name: string): string => `${ASSET_BASE}when_yah/${name}`;
 const titleCase = (value: string): string => value.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());

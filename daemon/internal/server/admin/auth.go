@@ -18,8 +18,12 @@ func RegisterAuth(mux *http.ServeMux, services Services) {
 
 	if auth != nil {
 		mux.HandleFunc("/v2/admin/auth/login", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
-			var input LoginInput
-			result, err := auth.Login(r.Context(), input, buildAuthRequest(r))
+				var input LoginInput
+				if err := decodeJSON(r, &input); err != nil {
+					WriteError(w, NewError(CodeInvalidRequest, "invalid JSON body").WithCause(err))
+					return
+				}
+				result, err := auth.Login(r.Context(), input, buildAuthRequest(r))
 			if err != nil {
 				WriteError(w, err)
 				return
@@ -36,6 +40,9 @@ func RegisterAuth(mux *http.ServeMux, services Services) {
 				WriteError(w, err)
 				return
 			}
+			// Stateless tokens cannot be revoked server-side; expiring the
+			// cookie is the logout contract.
+			w.Header().Add("Set-Cookie", "cartethyia_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0")
 			WriteOK(w)
 		}))
 

@@ -1,4 +1,3 @@
-/* @jsxImportSource solid-js */
 
 import type { JSX } from "solid-js";
 import type { LucideIcon } from "lucide-solid";
@@ -57,7 +56,7 @@ const defaultCopy: Record<StatePanelKind, { title: string; description: string; 
   loading: { title: "Loading", description: "Please wait…", tone: "neutral" },
   empty: { title: "Nothing here yet", description: "There is no data to show.", tone: "neutral" },
   error: { title: "Unable to load", description: "Try again or check the connection.", tone: "danger" },
-  degraded: { title: "Data unavailable", description: "The daemon is running but this capability is currently degraded.", tone: "warning" },
+  degraded: { title: "Data unavailable", description: "The API is running but this capability is currently degraded.", tone: "warning" },
 };
 
 /** A standard loading, empty, error, or degraded state panel. */

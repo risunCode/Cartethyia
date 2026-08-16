@@ -3,10 +3,41 @@ package admin
 import (
 	"net/http"
 	"strings"
+	"time"
 )
 
 // RegisterTelemetry wires /v2/admin/telemetry/* routes.
 func RegisterTelemetry(mux *http.ServeMux, services Services) {
+	// The in-flight stream only depends on admission counters, so it stays
+	// available even when persisted telemetry is not configured.
+	if stats := services.InFlightStats; stats != nil {
+		detail := services.InFlightDetail
+		mux.HandleFunc("/v2/admin/telemetry/in-flight/stream", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+			stream, ok := beginAdminStream(w)
+			if !ok {
+				return
+			}
+			ticker := time.NewTicker(adminStreamTick)
+			defer ticker.Stop()
+			for {
+				snapshot := inFlightSnapshot{
+					InFlight: stats.InFlight(),
+					Waiters:  stats.Waiters(),
+					Grants:   stats.Grants(),
+				}
+				if detail != nil {
+					snapshot.Rows = detail.InFlightRows()
+				}
+				stream.writeEvent(snapshot)
+				select {
+				case <-r.Context().Done():
+					return
+				case <-ticker.C:
+				}
+			}
+		}))
+	}
+
 	if services.Telemetry == nil {
 		return
 	}
@@ -54,6 +85,15 @@ func RegisterTelemetry(mux *http.ServeMux, services Services) {
 		WriteDataRequest(w, r, http.StatusOK, map[string]any{"items": buckets})
 	}))
 
+}
+
+// inFlightSnapshot is the aggregate admission view pushed by the in-flight
+// stream, plus bounded per-request rows when a detail source is wired.
+type inFlightSnapshot struct {
+	InFlight int           `json:"inFlight"`
+	Waiters  int           `json:"waiters"`
+	Grants   uint64        `json:"grants"`
+	Rows     []InFlightRow `json:"rows,omitempty"`
 }
 
 func parseTelemetryQuery(r *http.Request) TelemetryQuery {

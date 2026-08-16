@@ -1,4 +1,3 @@
-/* @jsxImportSource solid-js */
 
 import { useQuery } from "@tanstack/solid-query";
 import { Boxes, Check, Search } from "lucide-solid";

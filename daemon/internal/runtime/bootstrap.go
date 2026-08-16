@@ -29,6 +29,7 @@ import (
 	apicontracts "github.com/cartethyia/daemon/internal/server/apicontracts"
 	servermiddleware "github.com/cartethyia/daemon/internal/server/middleware"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -46,6 +47,74 @@ func (s shareInFlightSource) InFlight() int {
 		return 0
 	}
 	return int(active)
+}
+
+// adminInFlightStats adapts the admission limiter snapshot to the admin
+// InFlightStatsSource contract without widening the admission package API.
+type adminInFlightStats struct{ limiter *admission.Limiter }
+
+func (s adminInFlightStats) InFlight() int {
+	if s.limiter == nil {
+		return 0
+	}
+	active := s.limiter.Stats().Active
+	if active < 0 {
+		return 0
+	}
+	return int(active)
+}
+
+func (s adminInFlightStats) Waiters() int {
+	if s.limiter == nil {
+		return 0
+	}
+	waiters := s.limiter.Stats().Waiters
+	if waiters < 0 {
+		return 0
+	}
+	return waiters
+}
+
+func (s adminInFlightStats) Grants() uint64 {
+	if s.limiter == nil {
+		return 0
+	}
+	return s.limiter.Stats().Grants
+}
+
+// adminInFlightDetail projects the bounded dispatch registry into the admin
+// per-request stream rows. Provider and client IP stay empty until the hot
+// path records them; the dashboard renders them as placeholders.
+type adminInFlightDetail struct{ registry *proxy.InFlightRegistry }
+
+func (s adminInFlightDetail) InFlightRows() []adminserver.InFlightRow {
+	if s.registry == nil {
+		return nil
+	}
+	records := s.registry.Snapshot()
+	if len(records) == 0 {
+		return nil
+	}
+	now := time.Now()
+	rows := make([]adminserver.InFlightRow, 0, len(records))
+	for _, record := range records {
+		age := int64(0)
+		if !record.StartedAt.IsZero() && now.After(record.StartedAt) {
+			age = now.Sub(record.StartedAt).Milliseconds()
+		}
+		startedAt := record.StartedAt
+		if startedAt.IsZero() {
+			startedAt = now
+		}
+		rows = append(rows, adminserver.InFlightRow{
+			ID:        record.ID,
+			Model:     record.Model,
+			Surface:   record.Surface,
+			StartedAt: startedAt.UTC().Format(time.RFC3339Nano),
+			AgeMS:     age,
+		})
+	}
+	return rows
 }
 
 type publicAPIKeyResolver struct {
@@ -572,8 +641,20 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 		metrics = observability.NewRegistry()
 	}
 	metrics.WithMetadataWriter(deps.MetadataWriter)
+	var console *consoleEventSink
+	if deps.Database != nil && deps.Database.Telemetry != nil {
+		// The console evidence sink rides the existing event pipeline: terminal
+		// lifecycle events become bounded operator evidence in the live ring
+		// and in console_logs. An externally provided Recorder keeps its own
+		// sink contract and the live tail is simply not attached.
+		console = newConsoleEventSink(context.Background(), deps.Database.Telemetry)
+	}
 	if metrics.Recorder() == nil {
-		metrics.WithRecorder(observability.NewRecorder(context.Background(), observability.LogSink{Logger: metrics.Logger()}, observability.WithCapacity(observability.MaxConcurrentEvents)))
+		sink := observability.EventSink(observability.LogSink{Logger: metrics.Logger()})
+		if console != nil {
+			sink = fanOutEventSink{sinks: []observability.EventSink{observability.LogSink{Logger: metrics.Logger()}, console}}
+		}
+		metrics.WithRecorder(observability.NewRecorder(context.Background(), sink, observability.WithCapacity(observability.MaxConcurrentEvents)))
 	}
 	var customAccountSource map[string][]proxy.Account
 	if deps.CustomProviders != nil {
@@ -705,6 +786,9 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 		return nil, fmt.Errorf("runtime: admission setup: %w", err)
 	}
 	dispatch.Admission = limiter
+	inFlightRegistry := proxy.NewInFlightRegistry(512)
+	dispatch.InFlight = inFlightRegistry
+	adminWiring := adminServiceWiring{console: console, catalog: catalogStore, limiter: limiter, environment: cfg.Environment, inFlight: inFlightRegistry}
 	publicCatalog := registryCatalog{registry: deps.Registry}
 	if deps.Admin == nil && deps.DriverRegistry != nil && deps.Accounts != nil && deps.Secrets != nil && deps.Records != nil {
 		sessions := flow.NewManager(flow.ManagerOptions{})
@@ -713,10 +797,11 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 			return nil, fmt.Errorf("runtime: OAuth admin composition: %w", oauthErr)
 		}
 		deps.Admin = registrarFunc(func(mux *http.ServeMux) {
-			services := postgresAdminServices(deps)
+			services := postgresAdminServices(deps, adminWiring)
 			services.OAuth = oauthService
 			if deps.Database != nil && deps.Database.Settings != nil {
 				services.Settings = newPostgresSettingsAdminService(deps.Database.Settings, cfg.Environment, cfg.ListenAddress)
+				services.Auth = newSessionAuthService(deps.Database.Settings, oauthService, os.Getenv("CONSOLE_PASSWORD"))
 			}
 			if deps.CustomProviders != nil {
 				services.CustomProviders = &customProviderAdminService{repository: deps.CustomProviders, registry: deps.Registry}
@@ -726,7 +811,7 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 	} else if deps.Admin == nil && deps.CustomProviders != nil {
 		customService := &customProviderAdminService{repository: deps.CustomProviders, registry: deps.Registry}
 		deps.Admin = registrarFunc(func(mux *http.ServeMux) {
-			services := postgresAdminServices(deps)
+			services := postgresAdminServices(deps, adminWiring)
 			services.CustomProviders = customService
 			if deps.Database != nil && deps.Database.Settings != nil {
 				services.Settings = newPostgresSettingsAdminService(deps.Database.Settings, cfg.Environment, cfg.ListenAddress)
@@ -736,7 +821,7 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 	} else if deps.Admin == nil && deps.Database != nil && deps.Database.Settings != nil {
 		settingsService := newPostgresSettingsAdminService(deps.Database.Settings, cfg.Environment, cfg.ListenAddress)
 		deps.Admin = registrarFunc(func(mux *http.ServeMux) {
-			services := postgresAdminServices(deps)
+			services := postgresAdminServices(deps, adminWiring)
 			services.Settings = settingsService
 			adminserver.Register(mux, services)
 		})
@@ -762,9 +847,28 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 	return base, nil
 }
 
-func postgresAdminServices(deps BootstrapDependencies) adminserver.Services {
+// adminServiceWiring carries bootstrap composition locals that are not part
+// of BootstrapDependencies but are required to build the production admin
+// services: the live console evidence sink, the runtime catalog store, the
+// admission limiter snapshot, the bounded in-flight registry, and the
+// configured environment.
+type adminServiceWiring struct {
+	console     *consoleEventSink
+	catalog     *runtimecatalog.Store
+	limiter     *admission.Limiter
+	inFlight    *proxy.InFlightRegistry
+	environment string
+}
+
+func postgresAdminServices(deps BootstrapDependencies, wiring adminServiceWiring) adminserver.Services {
 	services := adminserver.Services{}
 	if deps.Database == nil {
+		if deps.Registry != nil {
+			services.Catalog = &registryCatalogAdminService{registry: deps.Registry, accounts: deps.Accounts, catalog: wiring.catalog}
+		}
+		if wiring.limiter != nil {
+			services.InFlightStats = adminInFlightStats{limiter: wiring.limiter}
+		}
 		return services
 	}
 	if deps.Database.AdminAPIKeys != nil {
@@ -774,8 +878,22 @@ func postgresAdminServices(deps BootstrapDependencies) adminserver.Services {
 		services.Proxies = &postgresProxyAdminService{repository: deps.Database.Proxies}
 	}
 	if deps.Database.Accounts != nil {
-		services.Dashboard = &postgresDashboardAdminService{accounts: deps.Database.Accounts, proxies: deps.Database.Proxies, keys: deps.Database.AdminAPIKeys}
+		services.Dashboard = &postgresDashboardAdminService{accounts: deps.Database.Accounts, proxies: deps.Database.Proxies, keys: deps.Database.AdminAPIKeys, environment: wiring.environment, started: time.Now().UTC()}
 		services.Accounts = &postgresAccountAdminService{accounts: deps.Accounts, records: deps.Records, secrets: deps.Secrets, refresher: deps.Refresher}
+	}
+	if deps.Database.Telemetry != nil {
+		services.Telemetry = newPostgresTelemetryAdminService(deps.Database.Telemetry)
+		services.Usage = newPostgresUsageAdminService(deps.Database.Telemetry)
+		services.ConsoleLogs = newPostgresConsoleLogService(deps.Database.Telemetry, wiring.console)
+	}
+	if deps.Registry != nil {
+		services.Catalog = &registryCatalogAdminService{registry: deps.Registry, accounts: deps.Accounts, catalog: wiring.catalog}
+	}
+	if wiring.limiter != nil {
+		services.InFlightStats = adminInFlightStats{limiter: wiring.limiter}
+	}
+	if wiring.inFlight != nil {
+		services.InFlightDetail = adminInFlightDetail{registry: wiring.inFlight}
 	}
 	return services
 }

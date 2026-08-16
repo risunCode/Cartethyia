@@ -1,5 +1,3 @@
-/* @jsxImportSource solid-js */
-
 import { render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
@@ -123,3 +121,4 @@ describe("useShareInFlightStream", () => {
     view.unmount();
   });
 });
+

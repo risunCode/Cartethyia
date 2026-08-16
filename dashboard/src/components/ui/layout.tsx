@@ -1,5 +1,3 @@
-/* @jsxImportSource solid-js */
-
 import { splitProps, type JSX } from "solid-js";
 import { cn } from "../../lib/cn";
 
@@ -28,3 +26,4 @@ export function DataTable(props: DataTableProps): JSX.Element {
     </div>
   );
 }
+

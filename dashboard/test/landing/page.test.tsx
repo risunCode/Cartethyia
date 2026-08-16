@@ -1,5 +1,3 @@
-/* @jsxImportSource solid-js */
-
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
 
@@ -52,3 +50,4 @@ describe("LandingPage", () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
   });
 });
+

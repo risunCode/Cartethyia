@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError, api, apiDownload, setUnauthorizedHandler } from "../../src/lib/api";
 
-describe("dashboard V2 API client", () => {
+describe("dashboard console API client", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     setUnauthorizedHandler(() => undefined);
@@ -37,8 +37,8 @@ describe("dashboard V2 API client", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(api("/v1/models")).rejects.toEqual(new ApiError(400, "invalid_route", "dashboard routes must use the V2 daemon API"));
-    await expect(api("https://daemon.invalid/v2/admin/settings")).rejects.toEqual(new ApiError(400, "invalid_route", "dashboard routes must use the V2 daemon API"));
+    await expect(api("/v1/models")).rejects.toEqual(new ApiError(400, "invalid_route", "dashboard routes must use the console API"));
+    await expect(api("https://api.invalid/v2/admin/settings")).rejects.toEqual(new ApiError(400, "invalid_route", "dashboard routes must use the console API"));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

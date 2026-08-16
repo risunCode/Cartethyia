@@ -26,6 +26,7 @@ type BunBackupRepository struct{ db *bun.DB }
 func NewBunBackupRepository(db *bun.DB) *BunBackupRepository { return &BunBackupRepository{db: db} }
 
 type backupMetadataRow struct {
+	bun.BaseModel `bun:"table:backup_metadata"`
 	ID            string    `bun:"id"`
 	CreatedAt     time.Time `bun:"created_at"`
 	SizeBytes     int64     `bun:"size_bytes"`
@@ -47,7 +48,7 @@ func (r *BunBackupRepository) Insert(ctx context.Context, v models.BackupMetadat
 		v.CreatedAt = time.Now().UTC()
 	}
 	row := backupMetadataRow{ID: v.ID, CreatedAt: v.CreatedAt, SizeBytes: v.SizeBytes, SourceApp: v.SourceApp, SourceVersion: v.SourceVersion, Label: v.Label, StoragePath: v.StoragePath, ContentHash: v.ContentHash}
-	if _, err := r.db.NewInsert().Model(&row).Table("backup_metadata").Returning("*").Exec(ctx); err != nil {
+	if _, err := r.db.NewInsert().Model(&row).Returning("*").Exec(ctx); err != nil {
 		return models.BackupMetadata{}, err
 	}
 	return backupModel(row), nil
@@ -57,7 +58,7 @@ func (r *BunBackupRepository) Get(ctx context.Context, id string) (models.Backup
 		return models.BackupMetadata{}, ErrRepositoryClosed
 	}
 	var row backupMetadataRow
-	if err := r.db.NewSelect().Model(&row).Table("backup_metadata").Where("id=?", boundedString(id, maxBackupText)).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&row).Where("id=?", boundedString(id, maxBackupText)).Scan(ctx); err != nil {
 		return models.BackupMetadata{}, err
 	}
 	return backupModel(row), nil
@@ -67,7 +68,7 @@ func (r *BunBackupRepository) List(ctx context.Context) ([]models.BackupMetadata
 		return nil, ErrRepositoryClosed
 	}
 	rows := []backupMetadataRow{}
-	if err := r.db.NewSelect().Model(&rows).Table("backup_metadata").Order("created_at DESC,id DESC").Limit(maxBackupRows).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).Order("created_at DESC,id DESC").Limit(maxBackupRows).Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.BackupMetadata, len(rows))
@@ -85,7 +86,7 @@ func (r *BunBackupRepository) ListOlderThan(ctx context.Context, cutoff string) 
 		return nil, errors.New("backup: cutoff is required and bounded")
 	}
 	rows := []backupMetadataRow{}
-	if err := r.db.NewSelect().Model(&rows).Table("backup_metadata").Where("created_at < ?", cutoff).Order("created_at ASC,id ASC").Limit(maxBackupRows).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).Where("created_at < ?", cutoff).Order("created_at ASC,id ASC").Limit(maxBackupRows).Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.BackupMetadata, len(rows))
@@ -139,11 +140,14 @@ type BunBanRepository struct{ db *bun.DB }
 func NewBunBanRepository(db *bun.DB) *BunBanRepository { return &BunBanRepository{db: db} }
 
 type banRow struct {
-	IP        string    `bun:"ip"`
-	Reason    string    `bun:"reason"`
-	CreatedAt time.Time `bun:"created_at"`
+	bun.BaseModel `bun:"table:ip_bans"`
+	IP            string    `bun:"ip"`
+	Reason        string    `bun:"reason"`
+	CreatedAt     time.Time `bun:"created_at"`
 }
+
 type offenseRow struct {
+	bun.BaseModel   `bun:"table:security_offenses"`
 	IP              string    `bun:"ip"`
 	Category        string    `bun:"category"`
 	StrikeCount     int       `bun:"strike_count"`
@@ -166,7 +170,7 @@ func (r *BunBanRepository) GetBan(ctx context.Context, ip string) (models.IPBan,
 		return models.IPBan{}, ErrRepositoryClosed
 	}
 	var row banRow
-	if err := r.db.NewSelect().Model(&row).Table("ip_bans").Where("ip=?", boundedString(ip, maxBanText)).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&row).Where("ip=?", boundedString(ip, maxBanText)).Scan(ctx); err != nil {
 		return models.IPBan{}, err
 	}
 	return models.IPBan{IP: row.IP, Reason: row.Reason, CreatedAt: row.CreatedAt}, nil
@@ -176,7 +180,7 @@ func (r *BunBanRepository) ListBans(ctx context.Context) ([]models.IPBan, error)
 		return nil, ErrRepositoryClosed
 	}
 	rows := []banRow{}
-	if err := r.db.NewSelect().Model(&rows).Table("ip_bans").Order("created_at DESC,ip ASC").Limit(maxBanRows).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).Order("created_at DESC,ip ASC").Limit(maxBanRows).Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.IPBan, len(rows))
@@ -241,7 +245,7 @@ func (r *BunBanRepository) ListOffenses(ctx context.Context, ip string) ([]model
 		return nil, ErrRepositoryClosed
 	}
 	rows := []offenseRow{}
-	q := r.db.NewSelect().Model(&rows).Table("security_offenses").Order("last_event_at DESC").Limit(maxBanRows)
+	q := r.db.NewSelect().Model(&rows).Order("last_event_at DESC").Limit(maxBanRows)
 	if ip = strings.TrimSpace(ip); ip != "" {
 		q = q.Where("ip=?", boundedString(ip, maxBanText))
 	}
@@ -256,7 +260,7 @@ func (r *BunBanRepository) ListOffenses(ctx context.Context, ip string) ([]model
 }
 func (r *BunBanRepository) offense(ctx context.Context, ip, category string) (models.SecurityOffense, error) {
 	var row offenseRow
-	if err := r.db.NewSelect().Model(&row).Table("security_offenses").Where("ip=? AND category=?", ip, category).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&row).Where("ip=? AND category=?", ip, category).Scan(ctx); err != nil {
 		return models.SecurityOffense{}, fmt.Errorf("ban: read offense: %w", err)
 	}
 	return offenseModel(row), nil

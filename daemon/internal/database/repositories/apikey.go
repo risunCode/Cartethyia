@@ -113,6 +113,7 @@ func NewBunAPIKeyRepository(db *bun.DB) *BunAPIKeyRepository {
 }
 
 type apiKeyRow struct {
+	bun.BaseModel         `bun:"table:api_keys"`
 	ID                    string     `bun:"id"`
 	Name                  string     `bun:"name"`
 	KeyPrefix             string     `bun:"key_prefix"`
@@ -134,16 +135,18 @@ type apiKeyRow struct {
 	CreatedAt             time.Time  `bun:"created_at"`
 	RevokedAt             *time.Time `bun:"revoked_at"`
 }
+
 type shareLinkRow struct {
-	ID           string     `bun:"id"`
-	APIKeyID     string     `bun:"api_key_id"`
-	TokenHash    string     `bun:"token_hash"`
-	Kind         string     `bun:"kind"`
-	Active       bool       `bun:"active"`
-	CreatedAt    time.Time  `bun:"created_at"`
-	ExpiresAt    *time.Time `bun:"expires_at"`
-	UsedAt       *time.Time `bun:"used_at"`
-	LastViewedAt *time.Time `bun:"last_viewed_at"`
+	bun.BaseModel `bun:"table:share_links"`
+	ID            string     `bun:"id"`
+	APIKeyID      string     `bun:"api_key_id"`
+	TokenHash     string     `bun:"token_hash"`
+	Kind          string     `bun:"kind"`
+	Active        bool       `bun:"active"`
+	CreatedAt     time.Time  `bun:"created_at"`
+	ExpiresAt     *time.Time `bun:"expires_at"`
+	UsedAt        *time.Time `bun:"used_at"`
+	LastViewedAt  *time.Time `bun:"last_viewed_at"`
 }
 
 func (r *BunAPIKeyRepository) open() error {
@@ -191,7 +194,7 @@ func (r *BunAPIKeyRepository) List(ctx context.Context) ([]models.ApiKey, error)
 		return nil, err
 	}
 	rows := []apiKeyRow{}
-	if err := r.db.NewSelect().Model(&rows).Table("api_keys").Order("created_at DESC,id DESC").Limit(maxAPIKeyRows).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).Order("created_at DESC,id DESC").Limit(maxAPIKeyRows).Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.ApiKey, len(rows))
@@ -210,7 +213,7 @@ func (r *BunAPIKeyRepository) GetByID(ctx context.Context, id string) (models.Ap
 		return models.ApiKey{}, e
 	}
 	var row apiKeyRow
-	if e = r.db.NewSelect().Model(&row).Table("api_keys").Where("id = ?", id).Scan(ctx); e != nil {
+	if e = r.db.NewSelect().Model(&row).Where("id = ?", id).Scan(ctx); e != nil {
 		return models.ApiKey{}, e
 	}
 	return apiKeyModel(row), nil
@@ -241,7 +244,7 @@ func (r *BunAPIKeyRepository) Credential(ctx context.Context, id string) (string
 	var row struct {
 		Key string `bun:"key"`
 	}
-	if e = r.db.NewSelect().Model(&row).Table("api_keys").Column("key").Where("id = ?", id).Scan(ctx); e != nil {
+	if e = r.db.NewSelect().Model(&row).Column("key").Where("id = ?", id).Scan(ctx); e != nil {
 		return "", e
 	}
 	return row.Key, nil
@@ -481,7 +484,7 @@ func (r *BunAPIKeyRepository) CreateShareLink(ctx context.Context, v models.Shar
 }
 func (r *BunAPIKeyRepository) getShare(ctx context.Context, id string) (models.ShareLink, error) {
 	var v shareLinkRow
-	e := r.db.NewSelect().Model(&v).Table("share_links").Where("id=?", id).Scan(ctx)
+	e := r.db.NewSelect().Model(&v).Where("id=?", id).Scan(ctx)
 	return shareModel(v), e
 }
 func (r *BunAPIKeyRepository) GetShareLinkByTokenHash(ctx context.Context, h string) (models.ShareLink, error) {
@@ -493,7 +496,7 @@ func (r *BunAPIKeyRepository) GetShareLinkByTokenHash(ctx context.Context, h str
 		return models.ShareLink{}, errors.New("share link: token hash is required and bounded")
 	}
 	var v shareLinkRow
-	e := r.db.NewSelect().Model(&v).Table("share_links").Where("token_hash=?", h).Scan(ctx)
+	e := r.db.NewSelect().Model(&v).Where("token_hash=?", h).Scan(ctx)
 	return shareModel(v), e
 }
 func (r *BunAPIKeyRepository) ListShareLinksByAPIKey(ctx context.Context, id string) ([]models.ShareLink, error) {
@@ -506,7 +509,7 @@ func (r *BunAPIKeyRepository) ListShareLinksByAPIKey(ctx context.Context, id str
 		return nil, e
 	}
 	rows := []shareLinkRow{}
-	if e = r.db.NewSelect().Model(&rows).Table("share_links").Where("api_key_id=?", id).Order("created_at DESC,id DESC").Limit(maxShareRows).Scan(ctx); e != nil {
+	if e = r.db.NewSelect().Model(&rows).Where("api_key_id=?", id).Order("created_at DESC,id DESC").Limit(maxShareRows).Scan(ctx); e != nil {
 		return nil, e
 	}
 	out := make([]models.ShareLink, len(rows))

@@ -17,7 +17,7 @@ Use the `CARTETHYIA_*` names for new deployments:
 | `CARTETHYIA_ENV` | `development`, `test`, or `production` | production enables durable bootstrap rules |
 | `CARTETHYIA_DATABASE_URL` | PostgreSQL DSN | required for production/durable authority |
 | `CARTETHYIA_REDIS_URL` | Redis/Redis-compatible DSN | optional cache dependency |
-| `CARTETHYIA_ACCOUNT_ENCRYPTION_KEY` | account secret encryption material | required when PostgreSQL is configured |
+| `CARTETHYIA_ENCRYPTION_KEY` | account secret encryption material | required when PostgreSQL is configured |
 | `CARTETHYIA_REQUEST_TIMEOUT` | total request budget | default `2m`; `>0` and at most `24h` |
 | `CARTETHYIA_READ_HEADER_TIMEOUT` | inbound header-read budget | default `10s` (capped to request timeout); cannot exceed request timeout |
 | `CARTETHYIA_CONNECT_TIMEOUT` | dependency/connect budget | default `10s`; `>0` and at most `24h` |
@@ -151,7 +151,7 @@ docker run --rm -p 12800:12800 \
   -e CARTETHYIA_ENV=production \
   -e CARTETHYIA_DATABASE_URL="$CARTETHYIA_DATABASE_URL" \
   -e CARTETHYIA_REDIS_URL="$CARTETHYIA_REDIS_URL" \
-  -e CARTETHYIA_ACCOUNT_ENCRYPTION_KEY="$CARTETHYIA_ACCOUNT_ENCRYPTION_KEY" \
+  -e CARTETHYIA_ENCRYPTION_KEY="$CARTETHYIA_ENCRYPTION_KEY" \
   cartethyia:2.1.0
 ```
 
@@ -162,7 +162,7 @@ backend healthchecks:
 
 ```bash
 cp .env.example .env
-# Set CARTETHYIA_ACCOUNT_ENCRYPTION_KEY in .env.
+# Set CARTETHYIA_ENCRYPTION_KEY in .env.
 docker compose up -d
 docker compose ps
 docker compose logs -f cartethyia

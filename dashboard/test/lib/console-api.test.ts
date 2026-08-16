@@ -10,7 +10,7 @@ import {
 } from "../../src/lib/console-api";
 import { consoleDegradedFixture, consoleErrorFixture, consoleRedactedFixture, consoleSuccessFixture } from "../fixtures/console-api";
 
-describe("daemon API contracts", () => {
+describe("console API contracts", () => {
   afterEach(() => vi.restoreAllMocks());
 
   test("unwraps a successful envelope and retains only typed dashboard health", () => {
@@ -18,7 +18,7 @@ describe("daemon API contracts", () => {
     expect(result).toMatchObject({ accountCount: 2, health: { status: "ready", dependencies: { cache: "degraded" } } });
   });
 
-  test("preserves stable daemon error codes", async () => {
+  test("preserves stable API error codes", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(consoleErrorFixture), { status: 403 })));
     await expect(consoleGet("/dashboard")).rejects.toEqual(new ApiError(403, "forbidden", "operator scope required"));
   });
@@ -51,11 +51,11 @@ describe("daemon API contracts", () => {
   test("sanitizes attacker-controlled error text before it reaches operator state", () => {
     expect(sanitizeErrorMessage("authorization: Bearer top-secret", "request failed")).toBe("request failed");
     expect(() => unwrapConsoleEnvelope({ data: null, error: { code: "provider.error", message: "provider_response: top-secret" } })).toThrowError(
-      expect.objectContaining({ message: "daemon request failed" }),
+      expect.objectContaining({ message: "API request failed" }),
     );
   });
 
-  test("reports degraded daemon state without treating it as transport failure", () => {
+  test("reports degraded API state without treating it as transport failure", () => {
     const result = normalizeDashboardSummary(unwrapConsoleEnvelope(consoleDegradedFixture));
     expect(result.health.status).toBe("degraded");
     expect(consoleFailure(new ApiError(503, "unavailable", "cache unavailable"))).toEqual({ code: "unavailable", message: "cache unavailable", degraded: true });
@@ -65,7 +65,7 @@ describe("daemon API contracts", () => {
     expect(() => unwrapConsoleEnvelope({ nope: true })).toThrowError(expect.objectContaining({ code: "invalid_contract" }));
   });
 
-  test("targets the daemon admin route and sends JSON mutations", async () => {
+  test("targets the console admin route and sends JSON mutations", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { ok: true } }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     await consoleApi("/settings", { method: "PATCH", body: JSON.stringify({ logLevel: "info" }) });

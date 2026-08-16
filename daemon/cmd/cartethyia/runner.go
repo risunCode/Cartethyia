@@ -98,11 +98,11 @@ func serveCommand(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	}
 	runtime, err := newDaemonRuntime(cfg)
 	if err != nil {
-		return writeFailure(stdout, stderr, *jsonOutput, "serve", ExitDependency, "dependency_failure", "runtime construction failed")
+		return writeFailure(stdout, stderr, *jsonOutput, "serve", ExitDependency, "dependency_failure", "runtime construction failed: "+err.Error())
 	}
 	defer func() { _ = runtime.Close(context.Background()) }()
 	if err := runtime.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		return writeFailure(stdout, stderr, *jsonOutput, "serve", ExitDependency, "dependency_failure", "daemon serving failed")
+		return writeFailure(stdout, stderr, *jsonOutput, "serve", ExitDependency, "dependency_failure", "daemon serving failed: "+err.Error())
 	}
 	return ExitSuccess
 }

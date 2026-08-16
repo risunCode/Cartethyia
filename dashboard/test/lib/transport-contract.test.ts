@@ -26,8 +26,8 @@ describe("dashboard transport route contract", () => {
     expect(isDocumentedConsoleRoute("/providers/openai/accounts/batch-delete", "GET")).toBe(false);
     expect(isDocumentedConsoleRoute("/settings", "QUERY" as ConsoleHttpMethod)).toBe(false);
     expect(isDocumentedConsoleRoute("/v1/models", "GET")).toBe(false);
-    expect(isDocumentedConsoleRoute("https://daemon.invalid/v2/admin/settings", "GET")).toBe(false);
-    expect(isDocumentedConsoleRoute("/v2/https://daemon.invalid", "GET")).toBe(false);
+    expect(isDocumentedConsoleRoute("https://api.invalid/v2/admin/settings", "GET")).toBe(false);
+    expect(isDocumentedConsoleRoute("/v2/https://api.invalid", "GET")).toBe(false);
   });
 
   test("serializes only bounded, allow-listed query values", () => {
@@ -37,7 +37,7 @@ describe("dashboard transport route contract", () => {
     expect(isDocumentedConsoleRoute("/providers/openai/accounts?limit=100&cursor=next%20page", "GET")).toBe(true);
     expect(isDocumentedConsoleRoute("/providers/openai/accounts?secret=leaked", "GET")).toBe(false);
     expect(isDocumentedConsoleRoute(`/${"x".repeat(600)}`, "GET")).toBe(false);
-    expect(() => serializeConsoleQuery(accounts!, { cursor: "x".repeat(129) })).toThrow("daemon query value is too long");
+    expect(() => serializeConsoleQuery(accounts!, { cursor: "x".repeat(129) })).toThrow("API query value is too long");
   });
 
   test("propagates cancellation and keeps network failures bounded at the state boundary", async () => {
@@ -45,7 +45,7 @@ describe("dashboard transport route contract", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(abort).mockRejectedValueOnce(new TypeError("socket details must not escape")));
     await expect(api("/v2/admin/settings", { signal: new AbortController().signal })).rejects.toBe(abort);
     const networkFailure = await consoleGet("/settings").catch((error: unknown) => error);
-    expect(consoleFailure(networkFailure)).toEqual({ code: "network_error", message: "daemon request failed", degraded: true });
+    expect(consoleFailure(networkFailure)).toEqual({ code: "network_error", message: "API request failed", degraded: true });
   });
 
   test.each([403, 404, 500, 503])("maps HTTP %i to a stable bounded error", async (status) => {
@@ -53,8 +53,8 @@ describe("dashboard transport route contract", () => {
     await expect(api("/v2/admin/settings")).rejects.toMatchObject({ status, code: "error", message: `request failed (${status})` });
   });
 
-  test("rejects a successful response with a malformed daemon envelope", async () => {
+  test("rejects a successful response with a malformed API envelope", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ meta: { request_id: "req-1" } }), { status: 200 })));
-    await expect(consoleGet("/settings")).rejects.toEqual(new ConsoleContractError("invalid_contract", "daemon response envelope is invalid", 502));
+    await expect(consoleGet("/settings")).rejects.toEqual(new ConsoleContractError("invalid_contract", "API response envelope is invalid", 502));
   });
 });

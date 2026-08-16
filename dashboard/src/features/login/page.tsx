@@ -1,4 +1,3 @@
-/* @jsxImportSource solid-js */
 
 import { Eye, EyeOff, Lock } from "lucide-solid";
 import { createSignal } from "solid-js";
@@ -6,7 +5,7 @@ import { useNavigate, useSearchParams } from "@solidjs/router";
 
 import { ApiError } from "../../lib/api";
 import { ConsoleContractError, consolePost } from "../../lib/console-api";
-import { ROUTES, safeConsoleNextPath } from "../../routes";
+import { safeConsoleNextPath } from "../../routes";
 
 const LOGIN_BACKDROP_URL = `${import.meta.env.BASE_URL}default-backgrounds.webp`;
 const LOGIN_LOGO_URL = `${import.meta.env.BASE_URL}favicon.webp`;
@@ -30,7 +29,7 @@ export function LoginPage() {
       await consolePost("/auth/login", { username: "admin", password: password(), remember: true });
       const nextParam = params.next;
       const next = safeConsoleNextPath(typeof nextParam === "string" ? nextParam : undefined);
-      navigate(next.startsWith("/") ? next : ROUTES.consoleOverview.replace("/console", ""), { replace: true });
+      navigate(next, { replace: true });
     } catch (caught: unknown) {
       if (caught instanceof ApiError || caught instanceof ConsoleContractError) {
         if (caught.status === 429) {

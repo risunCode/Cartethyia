@@ -29,6 +29,12 @@ type Services struct {
 	WebRequest      WebRequestService
 	Catalog         CatalogService
 	CustomProviders CustomProviderService
+	// InFlightStats exposes bounded admission counters for the in-flight
+	// stream. When nil the stream endpoint reports the service unavailable.
+	InFlightStats InFlightStatsSource
+	// InFlightDetail optionally exposes bounded per-request dispatch records
+	// for the in-flight stream. Nil keeps the stream aggregate-only.
+	InFlightDetail InFlightDetailSource
 	// Authorizer is the injected scoped policy boundary. When nil, Register
 	// adapts Auth.Current to session-scoped authorization.
 	Authorizer AdminAuthorizer
@@ -37,6 +43,32 @@ type Services struct {
 	// Generation publishes cache/catalog invalidation after a successful
 	// service operation has crossed its commit boundary.
 	Generation GenerationPublisher
+}
+
+// InFlightStatsSource is the bounded aggregate view over the admission
+// limiter that backs the live in-flight stream.
+type InFlightStatsSource interface {
+	InFlight() int
+	Waiters() int
+	Grants() uint64
+}
+
+// InFlightRow is one live dispatch in the in-flight stream. Model/Surface
+// come from the dispatch request; Provider and ClientIP stay empty until the
+// hot path records them.
+type InFlightRow struct {
+	ID        string `json:"id"`
+	Model     string `json:"model"`
+	Provider  string `json:"provider"`
+	ClientIP  string `json:"ip"`
+	Surface   string `json:"surface,omitempty"`
+	StartedAt string `json:"startedAt"`
+	AgeMS     int64  `json:"ageMs"`
+}
+
+// InFlightDetailSource snapshots bounded per-request dispatch records.
+type InFlightDetailSource interface {
+	InFlightRows() []InFlightRow
 }
 
 // CustomProviderService owns durable user-defined provider endpoints. The

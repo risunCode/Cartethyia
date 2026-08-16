@@ -50,8 +50,15 @@ type DispatchService struct {
 	ResponseCache       *runtimecache.ResponseCache
 	ResponseCacheTenant func(context.Context, contracts.Request) string
 	Now                 func() time.Time
-	sideEffectFails     atomic.Uint64
+	// InFlight is the optional bounded live-dispatch registry backing the
+	// admin in-flight stream; nil disables per-request tracking entirely.
+	InFlight        *InFlightRegistry
+	sideEffectFails atomic.Uint64
 }
+
+// inFlightDispatchCounter disambiguates anonymous dispatches (no
+// X-Request-ID header) in the bounded in-flight registry.
+var inFlightDispatchCounter atomic.Uint64
 
 // defaultTokenSaver is local and deterministic. It is deliberately fail-open
 // and does not depend on a durable cache, so development startup remains
@@ -219,6 +226,23 @@ func (s *DispatchService) DispatchContext(ctx context.Context, req *contracts.Re
 		}
 	}
 
+	// Bounded live-dispatch tracking for the admin in-flight stream. Buffered
+	// dispatches release through the defer below; streams transfer the release
+	// to the stream finalizer, mirroring the admission lease ownership.
+	var inFlightID string
+	if s.InFlight != nil {
+		inFlightID = meta.RequestID
+		if inFlightID == "" {
+			inFlightID = fmt.Sprintf("dispatch-%d-%d", meta.StartedAt.UnixNano(), inFlightDispatchCounter.Add(1))
+		}
+		s.InFlight.Track(BoundedInFlightRecord{ID: inFlightID, Model: meta.Model, Surface: meta.Surface, StartedAt: meta.StartedAt})
+		defer func() {
+			if inFlightID != "" {
+				s.InFlight.Release(inFlightID)
+			}
+		}()
+	}
+
 	if req.Stream {
 		if s.StreamTransport == nil {
 			return nil, dispatchError(codeDispatchProvider, contracts.ErrorFatal, http.StatusNotImplemented, "streaming transport is not configured", nil)
@@ -235,14 +259,19 @@ func (s *DispatchService) DispatchContext(ctx context.Context, req *contracts.Re
 			return nil, dispatchError(codeDispatchMalformed, contracts.ErrorFatal, http.StatusBadGateway, "provider returned no stream", nil)
 		}
 		streamMeta := meta
+		trackedInFlight := inFlightID
 		stream.AttachAdmissionLease(lease)
 		stream.AttachFinalizer(func(streamErr, sideEffectErr error) {
 			if sideEffectErr != nil {
 				s.recordSideEffectFailure()
 			}
 			s.finalizeStream(ctx, *req, stream, &streamMeta, streamErr)
+			if trackedInFlight != "" {
+				s.InFlight.Release(trackedInFlight)
+			}
 		})
 		lease = nil
+		inFlightID = ""
 		deferMetadata = false
 		return &streamResponse{
 			status: http.StatusOK, contentType: "text/event-stream",

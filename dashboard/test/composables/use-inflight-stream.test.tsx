@@ -1,5 +1,3 @@
-/* @jsxImportSource solid-js */
-
 import { render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { useInFlightSnapshot } from "../../src/composables/observability/use-inflight-stream";
@@ -80,3 +78,4 @@ describe("useInFlightSnapshot", () => {
     expect(FakeEventSource.closeCount).toBe(1);
   });
 });
+

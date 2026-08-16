@@ -1,6 +1,5 @@
 /** Reusable key/value editor for a custom provider's extra outbound HTTP headers. */
 
-/* @jsxImportSource solid-js */
 
 import { For } from "solid-js";
 import { Plus, Trash2 } from "lucide-solid";
@@ -46,3 +45,4 @@ export function HeaderPairsEditor(props: { pairs: HeaderPair[]; onChange: (pairs
     </div>
   );
 }
+

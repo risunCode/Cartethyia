@@ -1,4 +1,3 @@
-/* @jsxImportSource solid-js */
 
 import { Show, type JSX } from "solid-js";
 import { cn } from "../../lib/cn";

@@ -1,4 +1,3 @@
-/* @jsxImportSource solid-js */
 
 import { cn } from "../../lib/cn";
 import { focusRingClasses } from "./styles";

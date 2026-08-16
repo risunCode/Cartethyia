@@ -44,11 +44,11 @@ export function serializeConsoleQuery(route: ConsoleRouteContract, values: Conso
     const value = values[key];
     if (value === undefined || value === null || value === "") continue;
     const text = String(value);
-    if (text.length > MAX_CONSOLE_QUERY_VALUE_LENGTH) throw new Error("daemon query value is too long");
+    if (text.length > MAX_CONSOLE_QUERY_VALUE_LENGTH) throw new Error("API query value is too long");
     params.set(key, text);
   }
   const query = params.toString();
-  if (query.length > MAX_CONSOLE_QUERY_LENGTH) throw new Error("daemon query is too long");
+  if (query.length > MAX_CONSOLE_QUERY_LENGTH) throw new Error("API query is too long");
   return query.length > 0 ? `?${query}` : "";
 }
 

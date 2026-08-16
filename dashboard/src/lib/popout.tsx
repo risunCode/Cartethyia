@@ -1,5 +1,3 @@
-/* @jsxImportSource solid-js */
-
 import { createEffect, createSignal, onCleanup, Show, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 
@@ -163,3 +161,4 @@ export function Popout(props: {
     </>
   );
 }
+

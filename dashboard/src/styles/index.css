@@ -1,0 +1,26 @@
+/* Entry stylesheet for the dashboard app shell: pulls in Tailwind v4, the
+   shared design tokens + component classes from base.css, and exposes the
+   spec's minimal animation utilities (150–200ms ease-out transitions). */
+@import "tailwindcss";
+@import "./base.css";
+
+@theme {
+  --animate-fade-in: fadeIn 200ms ease-out;
+  --animate-slide-down: slideDown 200ms ease-out;
+  --animate-spin-smooth: spinSmooth 1s linear infinite;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spinSmooth {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

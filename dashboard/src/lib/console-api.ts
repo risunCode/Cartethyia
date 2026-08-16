@@ -122,14 +122,14 @@ export function redactOperatorValue(value: unknown): unknown {
 /** Normalizes a successful console envelope and rejects malformed contracts. */
 export function unwrapConsoleEnvelope<T>(value: unknown): T {
   if (!isRecord(value) || !("data" in value)) {
-    throw new ConsoleContractError("invalid_contract", "daemon response envelope is invalid", 502);
+    throw new ConsoleContractError("invalid_contract", "API response envelope is invalid", 502);
   }
   if ("error" in value && value.error != null) {
     const error = isRecord(value.error) ? value.error : {};
     const code = typeof error.code === "string" && SAFE_ERROR_CODE.test(error.code) ? error.code : "invalid_contract";
     throw new ConsoleContractError(
       code,
-      sanitizeErrorMessage(error.message, "daemon request failed"),
+      sanitizeErrorMessage(error.message, "API request failed"),
       502,
     );
   }
@@ -152,6 +152,24 @@ export const consolePost = <T>(route: string, body?: unknown) => consoleApi<T>(r
 export const consolePatch = <T>(route: string, body?: unknown) => consoleApi<T>(route, { method: "PATCH", body: JSON.stringify(body ?? {}) });
 export const consoleDelete = <T>(route: string) => consoleApi<T>(route, { method: "DELETE" });
 
+/**
+ * Maps a clean console route to the versioned admin API path. Versioning
+ * lives here and in `api()` only — pages and components must never embed
+ * versioned paths directly.
+ */
+export function adminApiPath(route: string): string {
+  const normalized = route.startsWith("/") ? route : `/${route}`;
+  return `${ADMIN_PREFIX}${normalized}`;
+}
+
+/**
+ * URL for an admin-plane SSE stream (e.g. `consoleStreamUrl("/console/logs/stream")`).
+ * Same-origin, so the session cookie travels with the EventSource connection.
+ */
+export function consoleStreamUrl(route: string): string {
+  return adminApiPath(route);
+}
+
 /** Converts console failures into bounded state suitable for an operator view. */
 export function consoleFailure(error: unknown): { code: string; message: string; degraded: boolean } {
   if (error instanceof ApiError || error instanceof ConsoleContractError) {
@@ -161,7 +179,7 @@ export function consoleFailure(error: unknown): { code: string; message: string;
       degraded: error.status === 404 || error.status === 501 || error.status >= 500 || error.code === "unavailable",
     };
   }
-  return { code: "network_error", message: "daemon request failed", degraded: true };
+  return { code: "network_error", message: "API request failed", degraded: true };
 }
 
 /** Parses the redacted console summary contract without retaining arbitrary metadata. */

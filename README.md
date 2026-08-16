@@ -149,7 +149,7 @@ CARTETHYIA_LISTEN_ADDRESS  # Go API listen address (default :12800)
 CARTETHYIA_ENV             # development or production
 CARTETHYIA_DATABASE_URL    # PostgreSQL DSN; required in production
 CARTETHYIA_REDIS_URL       # Redis DSN; optional for development, used by production runtime
-CARTETHYIA_ACCOUNT_ENCRYPTION_KEY # account secret encryption key; required with PostgreSQL
+CARTETHYIA_ENCRYPTION_KEY # account secret encryption key; required with PostgreSQL
 CARTETHYIA_ALLOW_INMEMORY  # explicit development-only escape hatch
 PUBLIC_ORIGIN              # dashboard/API origin used for browser checks
 TRUST_PROXY                # enable only behind a trusted reverse proxy
@@ -177,14 +177,14 @@ docker run --rm -p 12800:12800 \
   -e CARTETHYIA_ENV=production \
   -e CARTETHYIA_DATABASE_URL="$CARTETHYIA_DATABASE_URL" \
   -e CARTETHYIA_REDIS_URL="$CARTETHYIA_REDIS_URL" \
-  -e CARTETHYIA_ACCOUNT_ENCRYPTION_KEY="$CARTETHYIA_ACCOUNT_ENCRYPTION_KEY" \
+  -e CARTETHYIA_ENCRYPTION_KEY="$CARTETHYIA_ENCRYPTION_KEY" \
   cartethyia
 ```
 
 For the complete local stack, use `docker compose up -d`. Compose starts
 PostgreSQL and Redis first, waits for both healthchecks, and then starts the
 daemon. It reads the runtime secret from `.env`; copy `.env.example` and set
-`CARTETHYIA_ACCOUNT_ENCRYPTION_KEY` when that file is absent. The compose
+`CARTETHYIA_ENCRYPTION_KEY` when that file is absent. The compose
 defaults use the service DNS names; override them with
 `CARTETHYIA_COMPOSE_DATABASE_URL` or `CARTETHYIA_COMPOSE_REDIS_URL` only when
 the dependencies run outside the Compose network. Set `CARTETHYIA_ENV_FILE`

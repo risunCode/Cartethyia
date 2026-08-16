@@ -64,6 +64,17 @@ services:
       redis:
         condition: service_healthy
 
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dashboard
+    ports:
+      - "8080:80"
+    depends_on:
+      cartethyia:
+        condition: service_healthy
+
 volumes:
   cartethyia-pg:
   cartethyia-redis:

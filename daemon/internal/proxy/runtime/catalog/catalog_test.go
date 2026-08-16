@@ -57,7 +57,7 @@ func TestPlanForSelectsIndependentProviderTargetSurface(t *testing.T) {
 	if err := registry.Register(adapters.NewOpenAIAdapter(adapters.OpenAIAdapterConfig{
 		ID: "responses-only", DisplayName: "Responses", BaseURL: "http://127.0.0.1",
 		Surfaces: []providers.Surface{providers.SurfaceOpenAIResponses},
-		Models: []providers.ProviderModel{providers.Model("native", "Native", &responses)},
+		Models:   []providers.ProviderModel{providers.Model("native", "Native", &responses)},
 	})); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestPlanForRejectsHardFeatureBeforeAccountPlanning(t *testing.T) {
 	if err := registry.Register(adapters.NewOpenAIAdapter(adapters.OpenAIAdapterConfig{
 		ID: "limited", DisplayName: "Limited", BaseURL: "http://127.0.0.1",
 		Surfaces: []providers.Surface{providers.SurfaceOpenAIResponses},
-		Models: []providers.ProviderModel{providers.Model("limited", "Limited", &caps)},
+		Models:   []providers.ProviderModel{providers.Model("limited", "Limited", &caps)},
 	})); err != nil {
 		t.Fatal(err)
 	}
@@ -185,5 +185,139 @@ func TestStoreRetainsBoundedStaleSnapshotAndExposesDegradedState(t *testing.T) {
 	_, status, err = store.Current(context.Background())
 	if !errors.Is(err, ErrStaleSnapshot) || !status.Degraded {
 		t.Fatalf("status=%#v err=%v", status, err)
+	}
+}
+
+func TestCatalogHelpersAndWrappers(t *testing.T) {
+	t.Run("nil capability error", func(t *testing.T) {
+		var err *CapabilityError
+		if got := err.Error(); got != "catalog: capability mismatch" {
+			t.Fatalf("Error() = %q", got)
+		}
+	})
+	t.Run("resolve errors", func(t *testing.T) {
+		var snapshot *Snapshot
+		if !errors.Is(func() error { _, err := snapshot.Resolve("x"); return err }(), ErrUnknownModel) {
+			t.Fatal("nil snapshot should reject Resolve")
+		}
+		snapshot = &Snapshot{Models: map[string]Model{}}
+		if !errors.Is(func() error { _, err := snapshot.Resolve("x"); return err }(), ErrUnknownModel) {
+			t.Fatal("unknown model should reject Resolve")
+		}
+	})
+	t.Run("dedupe and mappings", func(t *testing.T) {
+		req := normalizeRequirements(FeatureRequirements{
+			Hard:      []FeatureRequirement{"", FeatureVision, FeatureVision, FeatureAudio},
+			ToolKinds: []transforms.ToolKind{"", transforms.ToolKindMCP, transforms.ToolKindFunction, transforms.ToolKindMCP},
+		})
+		if len(req.Hard) != 2 || req.Hard[0] != FeatureAudio || req.Hard[1] != FeatureVision {
+			t.Fatalf("normalized hard = %#v", req.Hard)
+		}
+		if len(req.ToolKinds) != 2 || req.ToolKinds[0] != transforms.ToolKindFunction || req.ToolKinds[1] != transforms.ToolKindMCP {
+			t.Fatalf("normalized tools = %#v", req.ToolKinds)
+		}
+		for _, tc := range []struct {
+			in   transforms.ToolKind
+			want providers.ToolKind
+		}{
+			{transforms.ToolKindFunction, providers.ToolFunction},
+			{transforms.ToolKindCustom, providers.ToolCustom},
+			{transforms.ToolKindComputer, providers.ToolComputer},
+			{transforms.ToolKindHosted, providers.ToolHosted},
+			{transforms.ToolKindServer, providers.ToolServer},
+			{transforms.ToolKindWebSearch, providers.ToolWebSearch},
+			{transforms.ToolKindImage, providers.ToolImage},
+			{transforms.ToolKindMCP, providers.ToolMCP},
+			{"unknown", providers.ToolProviderNative},
+		} {
+			if got := providerToolKind(tc.in); got != tc.want {
+				t.Errorf("providerToolKind(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		}
+	})
+	t.Run("mismatch codes", func(t *testing.T) {
+		for _, tc := range []struct {
+			feature FeatureRequirement
+			want    string
+		}{
+			{FeatureToolDeclaration, "capability.tool_unsupported"},
+			{FeatureToolCall, "capability.tool_unsupported"},
+			{FeatureToolResult, "capability.tool_unsupported"},
+			{FeatureNativeTool, "capability.tool_unsupported"},
+			{FeatureVision, "capability.reference_unsupported"},
+			{FeatureAudio, "capability.reference_unsupported"},
+			{FeatureFile, "capability.reference_unsupported"},
+			{FeatureDocument, "capability.reference_unsupported"},
+			{FeaturePDF, "capability.reference_unsupported"},
+			{FeatureCompactionV1, "capability.compaction_unsupported"},
+			{FeatureCompactionV2, "capability.compaction_unsupported"},
+			{FeatureStructuredOutput, "capability.feature_unsupported"},
+		} {
+			if got := featureMismatchCode(tc.feature); got != tc.want {
+				t.Errorf("featureMismatchCode(%q) = %q, want %q", tc.feature, got, tc.want)
+			}
+		}
+	})
+}
+
+func TestCatalogPlanningWrappersAndFeatureBranches(t *testing.T) {
+	builder, err := NewBuilder(testRegistry(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := builder.Build(context.Background(), StaticSource{Gen: 11})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := snapshot.PlanWithRequirements("native-model", contracts.SurfaceOpenAIChat, transforms.OperationGenerate, FeatureRequirements{})
+	if err != nil || len(plan.Members) != 1 {
+		t.Fatalf("PlanWithRequirements() = %#v, %v", plan, err)
+	}
+	if _, err := snapshot.PlanCanonical("native-model", nil); !errors.Is(err, ErrUnknownModel) {
+		t.Fatalf("nil canonical request error = %v", err)
+	}
+	req := &transforms.NormalizedRequest{Model: "native-model", Source: contracts.SurfaceOpenAIChat, Reasoning: transforms.ReasoningDefault}
+	plan, err = snapshot.PlanCanonical("native-model", req)
+	if err != nil || plan.Operation != transforms.OperationGenerate {
+		t.Fatalf("PlanCanonical() = %#v, %v", plan, err)
+	}
+
+	model := Model{Capabilities: providers.ProviderCaps{Compatibility: providers.CompatibilityPolicy{
+		Tools:     providers.ToolPolicy{ProviderNative: true},
+		Reasoning: providers.ReasoningPolicy{Enabled: true},
+	}}}
+	requirements := FeatureRequirements{}
+	for _, feature := range []FeatureRequirement{
+		FeatureStructuredOutput, FeatureContinuation, FeatureReasoningHistory,
+		FeatureVision, FeatureAudio, FeatureFile, FeatureDocument, FeaturePDF,
+		FeatureToolDeclaration, FeatureToolCall, FeatureToolResult, FeatureNativeTool,
+	} {
+		got := modelSupportsFeature(model, providers.SurfaceOpenAIChat, contracts.SurfaceOpenAIChat, feature, requirements)
+		if feature == FeatureStructuredOutput || feature == FeatureContinuation || feature == FeatureReasoningHistory || feature == FeatureNativeTool {
+			if !got {
+				t.Errorf("modelSupportsFeature(%q) = false, want true", feature)
+			}
+		}
+	}
+	if modelSupportsFeature(model, providers.SurfaceOpenAIChat, contracts.SurfaceOpenAIChat, FeatureCompactionV1, requirements) {
+		t.Fatal("compaction should require responses target")
+	}
+	if !modelSupportsFeature(model, providers.SurfaceOpenAIChat, contracts.SurfaceOpenAIChat, "future", requirements) {
+		t.Fatal("unknown feature should be accepted")
+	}
+}
+
+func TestCatalogMemberRankAndSurfaceStrings(t *testing.T) {
+	if got := surfaceStrings([]providers.Surface{providers.SurfaceOpenAIChat, providers.SurfaceOpenAIResponses}); len(got) != 2 || got[0] != string(providers.SurfaceOpenAIChat) {
+		t.Fatalf("surfaceStrings = %#v", got)
+	}
+	member := RouteMember{ProviderID: "fixture", ClientModelID: "native-model", SourceSurface: contracts.SurfaceOpenAIChat, TargetSurface: providers.SurfaceOpenAIChat}
+	snapshot := &Snapshot{Models: map[string]Model{"fixture:native-model": {}}}
+	if got := memberRank(snapshot, member, FeatureRequirements{}); got != 1000 {
+		t.Fatalf("native rank = %d", got)
+	}
+	member.TargetSurface = providers.SurfaceOpenAIResponses
+	if got := memberRank(nil, member, FeatureRequirements{}); got != 2000 {
+		t.Fatalf("translated rank = %d", got)
 	}
 }

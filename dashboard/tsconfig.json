@@ -2,10 +2,11 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
-    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"],
+    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom", "node"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "jsx": "react-jsx",
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
@@ -14,7 +15,18 @@
     "esModuleInterop": true,
     "isolatedModules": true,
     "useDefineForClassFields": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+
+    /* Path aliases */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@components/*": ["./src/components/*"],
+      "@lib/*": ["./src/lib/*"],
+      "@pages/*": ["./src/pages/*"],
+      "@styles/*": ["./src/styles/*"]
+    }
   },
   "include": ["src", "test", "vite.config.ts"]
 }

@@ -1,4 +1,3 @@
-/* @jsxImportSource solid-js */
 
 /** Shared keyboard focus treatment for interactive dashboard controls. */
 export const focusRingClasses = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus-ring)]";

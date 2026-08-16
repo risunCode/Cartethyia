@@ -105,6 +105,8 @@ func adminScopeForPath(path string) AdminScope {
 		return ScopeKeys
 	case strings.HasPrefix(path, "/v2/admin/proxies"):
 		return ScopeConfig
+	case strings.HasPrefix(path, "/v2/admin/custom-providers"):
+		return ScopeConfig
 	case strings.HasPrefix(path, "/v2/admin/proxy-settings"), strings.HasPrefix(path, "/v2/admin/settings"):
 		return ScopeConfig
 	case strings.HasPrefix(path, "/v2/admin/backups"):
@@ -178,13 +180,38 @@ type actorContextKey struct{}
 
 type auditResponseWriter struct {
 	http.ResponseWriter
-	request  *http.Request
-	services Services
-	actor    AdminActor
-	status   int
-	wrote    bool
-	header   http.Header
-	body     []byte
+	request   *http.Request
+	services  Services
+	actor     AdminActor
+	status    int
+	wrote     bool
+	header    http.Header
+	body      []byte
+	streaming bool
+}
+
+// Unwrap exposes the underlying ResponseWriter so http.ResponseController can
+// reach per-connection controls (write deadlines) through this wrapper.
+func (w *auditResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+// Flush starts (or continues) a streaming response. The first flush commits
+// the buffered headers straight to the client; afterwards writes bypass the
+// audit body buffer so long-lived event streams never accumulate memory.
+func (w *auditResponseWriter) Flush() {
+	flusher, _ := w.ResponseWriter.(http.Flusher)
+	if flusher == nil {
+		return
+	}
+	if !w.streaming {
+		if !w.wrote {
+			w.WriteHeader(http.StatusOK)
+		}
+		w.flush()
+		w.streaming = true
+	}
+	flusher.Flush()
 }
 
 func (w *auditResponseWriter) publish() error {
@@ -248,11 +275,19 @@ func (w *auditResponseWriter) Write(p []byte) (int, error) {
 	if !w.wrote {
 		w.WriteHeader(http.StatusOK)
 	}
+	if w.streaming {
+		// Streaming responses pass through unbuffered; the audit trail for
+		// streams is scope + status, never the event payload.
+		return w.ResponseWriter.Write(p)
+	}
 	w.body = append(w.body, p...)
 	return len(p), nil
 }
 
 func (w *auditResponseWriter) flush() {
+	if w.streaming {
+		return
+	}
 	for key, values := range w.header {
 		w.ResponseWriter.Header()[key] = append([]string(nil), values...)
 	}

@@ -162,6 +162,33 @@
 }
 
 /* Popout/dropdown animation — CSS-driven. */
+.component-fade-in {
+  animation: component-fade-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes component-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.component-slide-down {
+  animation: component-slide-down 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-origin: top center;
+}
+
+@keyframes component-slide-down {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.component-spin {
+  animation: component-spin 800ms linear infinite;
+}
+
+@keyframes component-spin {
+  to { transform: rotate(360deg); }
+}
+
 @keyframes popout-in {
   from { opacity: 0; transform: translateY(-6px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -429,4 +456,38 @@ html[data-theme-wipe]::view-transition-new(root) {
 @keyframes theme-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+/* Console log entry fade-in (150ms with smooth easing). */
+@keyframes log-fade-in {
+  from { opacity: 0; transform: translateX(-2px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.log-entry-fade-in {
+  animation: log-fade-in 150ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Settings form section slide-down (200ms with smooth easing). */
+@keyframes settings-slide-down {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.settings-slide-down {
+  animation: settings-slide-down 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-origin: top center;
+}
+
+/* Share content fade-in (200ms with smooth easing). */
+@keyframes share-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.share-fade-in {
+  animation: share-fade-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Console log scroll container - smooth auto-scroll behavior. */
+.console-log-scroll {
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
 }

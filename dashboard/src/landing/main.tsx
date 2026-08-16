@@ -1,5 +1,3 @@
-/* @jsxImportSource solid-js */
-
 import { render } from "solid-js/web";
 
 import { LandingPage } from "./page";
@@ -13,3 +11,4 @@ if (root === null) {
 }
 
 render(() => <LandingPage />, root);
+

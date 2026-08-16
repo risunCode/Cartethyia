@@ -25,26 +25,31 @@ type BunCatalogRepository struct{ db *bun.DB }
 func NewBunCatalogRepository(db *bun.DB) *BunCatalogRepository { return &BunCatalogRepository{db: db} }
 
 type aliasRow struct {
-	Alias     string    `bun:"alias"`
-	Model     string    `bun:"model"`
-	CreatedAt time.Time `bun:"created_at"`
+	bun.BaseModel `bun:"table:model_aliases"`
+	Alias         string    `bun:"alias"`
+	Model         string    `bun:"model"`
+	CreatedAt     time.Time `bun:"created_at"`
 }
+
 type comboRow struct {
-	ID          string    `bun:"id"`
-	Name        string    `bun:"name"`
-	ModelsJSON  []byte    `bun:"models_json,type:jsonb"`
-	Strategy    string    `bun:"strategy"`
-	StickyLimit int       `bun:"sticky_limit"`
-	CreatedAt   time.Time `bun:"created_at"`
-	UpdatedAt   time.Time `bun:"updated_at"`
+	bun.BaseModel `bun:"table:combos"`
+	ID            string    `bun:"id"`
+	Name          string    `bun:"name"`
+	ModelsJSON    []byte    `bun:"models_json,type:jsonb"`
+	Strategy      string    `bun:"strategy"`
+	StickyLimit   int       `bun:"sticky_limit"`
+	CreatedAt     time.Time `bun:"created_at"`
+	UpdatedAt     time.Time `bun:"updated_at"`
 }
+
 type providerModelRow struct {
-	Provider  string    `bun:"provider"`
-	ModelID   string    `bun:"model_id"`
-	Enabled   bool      `bun:"enabled"`
-	Source    string    `bun:"source"`
-	CreatedAt time.Time `bun:"created_at"`
-	UpdatedAt time.Time `bun:"updated_at"`
+	bun.BaseModel `bun:"table:provider_models"`
+	Provider      string    `bun:"provider"`
+	ModelID       string    `bun:"model_id"`
+	Enabled       bool      `bun:"enabled"`
+	Source        string    `bun:"source"`
+	CreatedAt     time.Time `bun:"created_at"`
+	UpdatedAt     time.Time `bun:"updated_at"`
 }
 
 func (r *BunCatalogRepository) ListAliases(ctx context.Context) ([]models.ModelAlias, error) {
@@ -52,7 +57,7 @@ func (r *BunCatalogRepository) ListAliases(ctx context.Context) ([]models.ModelA
 		return nil, ErrRepositoryClosed
 	}
 	rows := []aliasRow{}
-	if err := r.db.NewSelect().Model(&rows).Table("model_aliases").Order("alias ASC").Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).Order("alias ASC").Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.ModelAlias, len(rows))
@@ -66,7 +71,7 @@ func (r *BunCatalogRepository) ListCombos(ctx context.Context) ([]models.Combo, 
 		return nil, ErrRepositoryClosed
 	}
 	rows := []comboRow{}
-	if err := r.db.NewSelect().Model(&rows).Table("combos").Order("id ASC").Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).Order("id ASC").Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.Combo, len(rows))
@@ -84,7 +89,7 @@ func (r *BunCatalogRepository) ListProviderModels(ctx context.Context, provider 
 		return nil, ErrRepositoryClosed
 	}
 	rows := []providerModelRow{}
-	q := r.db.NewSelect().Model(&rows).Table("provider_models").Order("model_id ASC")
+	q := r.db.NewSelect().Model(&rows).Order("model_id ASC")
 	if provider != "" {
 		q.Where("provider = ?", provider)
 	}

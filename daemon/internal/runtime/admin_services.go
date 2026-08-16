@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -253,12 +254,32 @@ type postgresDashboardAdminService struct {
 	accounts interface {
 		List(context.Context) ([]*accounts.AccountConfig, error)
 	}
-	proxies repos.ProxyRepository
-	keys    repos.APIKeyRepository
+	proxies     repos.ProxyRepository
+	keys        repos.APIKeyRepository
+	environment string
+	started     time.Time
 }
+
+// daemonBuildVersion reports the module version embedded by the toolchain.
+// Binaries without version metadata fall back to "dev".
+var daemonBuildVersion = func() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return "dev"
+	}
+	return info.Main.Version
+}()
 
 func (s *postgresDashboardAdminService) Summary(ctx context.Context) (admin.DashboardSummary, error) {
 	var out admin.DashboardSummary
+	out.Version = daemonBuildVersion
+	out.Environment = s.environment
+	if out.Environment == "" {
+		out.Environment = "development"
+	}
+	if !s.started.IsZero() {
+		out.Uptime = time.Since(s.started).Truncate(time.Second).String()
+	}
 	if s.accounts != nil {
 		rows, err := s.accounts.List(ctx)
 		if err != nil {
