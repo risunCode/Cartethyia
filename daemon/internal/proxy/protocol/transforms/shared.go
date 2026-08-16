@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/jsonclone"
 )
 
 // errEncode wraps a validation failure during encoding.
@@ -227,7 +228,7 @@ func encodeToolChoice(tc *ToolChoice) any {
 		return nil
 	}
 	if tc.Object != nil {
-		return cloneMap(tc.Object)
+		return jsonclone.CloneMap(tc.Object)
 	}
 	return tc.Mode
 }
@@ -399,17 +400,8 @@ func applyPassthroughBucket(payload map[string]any, req *NormalizedRequest, _ st
 		if _, ok := payload["passthrough"]; !ok {
 			payload["passthrough"] = map[string]any{}
 		}
-		payload["passthrough"].(map[string]any)["mcp_servers"] = cloneMapList(req.MCPServers)
+		payload["passthrough"].(map[string]any)["mcp_servers"] = jsonclone.CloneMapList(req.MCPServers)
 	}
-}
-
-// cloneMapList shallow-copies a slice of maps.
-func cloneMapList(in []map[string]any) []map[string]any {
-	out := make([]map[string]any, len(in))
-	for i, m := range in {
-		out[i] = cloneMap(m)
-	}
-	return out
 }
 
 // mergeMap returns a new map containing every key from b overriding any

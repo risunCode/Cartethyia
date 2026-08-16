@@ -789,16 +789,3 @@ func messageText(m NormalizedMessage) string {
 	}
 	return out
 }
-
-// cloneMap shallow-copies a map. Used to avoid leaking caller-owned maps
-// into encoder output.
-func cloneMap(in map[string]any) map[string]any {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
-}

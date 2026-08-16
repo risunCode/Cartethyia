@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/jsonclone"
 )
 
 // Native sidecars deliberately remain small. They carry provider/client-native
@@ -169,7 +170,7 @@ func (s NativeSidecar) apply(encoded map[string]any, mappings map[JSONPointer]JS
 	if encoded == nil {
 		return nil, nativeSidecarError(CodeNativeSidecar, "encoded", "encoded body is nil")
 	}
-	root := cloneJSONMap(encoded)
+	root := jsonclone.CloneValue(encoded).(map[string]any)
 	for _, field := range s.Fields {
 		if field.Class == NativeFieldTransport {
 			continue
@@ -468,35 +469,6 @@ func parseArrayIndex(segment string, length int) (int, error) {
 		}
 	}
 	return index, nil
-}
-
-func cloneJSONMap(input map[string]any) map[string]any {
-	out := make(map[string]any, len(input))
-	for key, value := range input {
-		out[key] = cloneJSONValue(value)
-	}
-	return out
-}
-
-func cloneJSONValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		return cloneJSONMap(typed)
-	case []any:
-		out := make([]any, len(typed))
-		for i, item := range typed {
-			out[i] = cloneJSONValue(item)
-		}
-		return out
-	case []map[string]any:
-		out := make([]any, len(typed))
-		for i, item := range typed {
-			out[i] = cloneJSONMap(item)
-		}
-		return out
-	default:
-		return value
-	}
 }
 
 func nativeSidecarError(code TransformErrorCode, field, reason string) *TransformError {

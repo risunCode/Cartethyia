@@ -465,7 +465,7 @@ func surfaceStrings(surfaces []providers.Surface) []string {
 }
 
 func normalizeRequirements(requirements FeatureRequirements) FeatureRequirements {
-	return FeatureRequirements{Hard: dedupeFeatures(requirements.Hard), Soft: dedupeFeatures(requirements.Soft), ToolKinds: dedupeToolKinds(requirements.ToolKinds), ReferenceKinds: dedupeStrings(requirements.ReferenceKinds)}
+	return FeatureRequirements{Hard: dedupeFeatures(requirements.Hard), Soft: dedupeFeatures(requirements.Soft), ToolKinds: dedupeToolKinds(requirements.ToolKinds), ReferenceKinds: providers.DedupeStrings(requirements.ReferenceKinds)}
 }
 
 func dedupeFeatures(values []FeatureRequirement) []FeatureRequirement {
@@ -502,22 +502,7 @@ func dedupeToolKinds(values []transforms.ToolKind) []transforms.ToolKind {
 	return out
 }
 
-func dedupeStrings(values []string) []string {
-	seen := make(map[string]struct{}, len(values))
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	sort.Strings(out)
-	return out
-}
+
 
 func memberRank(snapshot *Snapshot, member RouteMember, requirements FeatureRequirements) int {
 	rank := 2

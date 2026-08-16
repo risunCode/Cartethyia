@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	"github.com/cartethyia/daemon/internal/providers"
 )
 
 func providerCredentialRef(id string) string {
@@ -111,26 +113,13 @@ func aggregateCapabilities(models []ProviderModel, fallback ProviderCaps) Provid
 	merged.ExplicitCache = explicit
 	merged.PromptCacheKey = promptKey
 	merged.Search = search
-	merged.MediaGeneration = dedupeStrings(media)
+	merged.MediaGeneration = providers.DedupeStrings(media)
 	return merged
 }
 
 func dedupeSurfaces(in []Surface) []Surface {
 	seen := make(map[Surface]struct{}, len(in))
 	out := make([]Surface, 0, len(in))
-	for _, s := range in {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		out = append(out, s)
-	}
-	return out
-}
-
-func dedupeStrings(in []string) []string {
-	seen := make(map[string]struct{}, len(in))
-	out := make([]string, 0, len(in))
 	for _, s := range in {
 		if _, ok := seen[s]; ok {
 			continue

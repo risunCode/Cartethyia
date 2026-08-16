@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/url"
 	"strings"
+
+	"github.com/cartethyia/daemon/internal/proxy/protocol/jsonclone"
 )
 
 const (
@@ -1048,9 +1050,9 @@ func cloneContentBlock(input ContentBlock) ContentBlock {
 		compaction := *input.Compaction
 		output.Compaction = &compaction
 	}
-	output.ReasoningSummary = cloneMapList(input.ReasoningSummary)
-	output.NativePayload = cloneMap(input.NativePayload)
-	output.Raw = cloneMap(input.Raw)
+	output.ReasoningSummary = jsonclone.CloneMapList(input.ReasoningSummary)
+	output.NativePayload = jsonclone.CloneMap(input.NativePayload)
+	output.Raw = jsonclone.CloneMap(input.Raw)
 	return output
 }
 
@@ -1065,10 +1067,10 @@ func cloneContentBlocks(input []ContentBlock) []ContentBlock {
 func cloneTools(input []Tool) []Tool {
 	output := append([]Tool(nil), input...)
 	for i := range output {
-		output[i].InputSchema = cloneMap(input[i].InputSchema)
-		output[i].NativeOptions = cloneMap(input[i].NativeOptions)
+		output[i].InputSchema = jsonclone.CloneMap(input[i].InputSchema)
+		output[i].NativeOptions = jsonclone.CloneMap(input[i].NativeOptions)
 		output[i].AllowedCallers = append([]string(nil), input[i].AllowedCallers...)
-		output[i].InputExamples = cloneMapList(input[i].InputExamples)
+		output[i].InputExamples = jsonclone.CloneMapList(input[i].InputExamples)
 		if input[i].Format != nil {
 			format := *input[i].Format
 			format.Schema = cloneRaw(input[i].Format.Schema)

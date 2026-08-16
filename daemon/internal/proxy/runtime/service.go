@@ -21,6 +21,7 @@ import (
 	"github.com/cartethyia/daemon/internal/proxy/control/admission"
 	"github.com/cartethyia/daemon/internal/proxy/control/continuation"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/healing"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/transforms"
 	"github.com/cartethyia/daemon/internal/proxy/runtime/catalog"
 	runtimecache "github.com/cartethyia/daemon/internal/runtime/cache"
@@ -380,7 +381,6 @@ func (s *DispatchService) responseCacheSet(ctx context.Context, req contracts.Re
 		s.Evidence.ObserveCache(observability.CacheEvidence{Kind: observability.CacheKindResponseL0, Layer: "l0", Operation: op, Outcome: outcome})
 	}
 }
-
 func (s *DispatchService) validateRequest(ctx context.Context, req *contracts.Request) (*contracts.Request, error) {
 	if req == nil {
 		return nil, dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "request is required", nil)
@@ -405,7 +405,19 @@ func (s *DispatchService) validateRequest(ctx context.Context, req *contracts.Re
 	if err := json.Unmarshal(copyReq.Body, &payload); err != nil || payload == nil {
 		return nil, dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "request body is malformed", err)
 	}
+
+	if copyReq.Model == "" {
+		copyReq.Model = modelFromBody(copyReq.Body)
+	}
 	if copyReq.Protocol == contracts.ProtocolOpenAIChat || copyReq.Protocol == contracts.ProtocolOpenAIResponse || copyReq.Protocol == contracts.ProtocolAnthropic {
+		// Apply in-place edge-case healing (model suffix extraction, tool call/response healing, developer role normalization)
+		sanitizedBody, cleanModel, sanitizeErr := SanitizeSameSurfaceRequest(ctx, copyReq.Protocol, copyReq.Model, copyReq.Body)
+		if sanitizeErr == nil && len(sanitizedBody) > 0 {
+			copyReq.Body = sanitizedBody
+			if cleanModel != "" {
+				copyReq.Model = cleanModel
+			}
+		}
 		prepared, transformErr := transforms.NormalizeRequest(ctx, copyReq.Protocol, copyReq.Body, copyReq.Stream)
 		if transformErr != nil {
 			return nil, dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "request normalization failed", transformErr)
@@ -834,6 +846,9 @@ func (s *DispatchService) recordUsageTokens(req contracts.Request, tokens usage.
 }
 
 func parseUsage(body []byte) usage.Tokens {
+	if tokens, ok := healing.ExtractProviderTokens("", "", body); ok {
+		return tokens
+	}
 	var payload struct {
 		Usage struct {
 			Input      int64 `json:"input_tokens"`

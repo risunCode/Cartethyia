@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/jsonclone"
 )
 
 // AnthropicMessagesCodec implements request encoding for the Anthropic
@@ -86,7 +87,7 @@ func (c *AnthropicMessagesCodec) Encode(ctx context.Context, req *NormalizedRequ
 		disp = append(disp, FieldDisposition{Path: "system", Action: DispositionAdapted})
 	}
 	if len(req.MCPServers) > 0 {
-		payload["mcp_servers"] = cloneMapList(req.MCPServers)
+		payload["mcp_servers"] = jsonclone.CloneMapList(req.MCPServers)
 		disp = append(disp, FieldDisposition{Path: "mcp_servers", Action: DispositionPreserved})
 	}
 	if len(req.Tools) > 0 {
@@ -112,7 +113,7 @@ func (c *AnthropicMessagesCodec) Encode(ctx context.Context, req *NormalizedRequ
 				def["allowed_callers"] = append([]string(nil), t.AllowedCallers...)
 			}
 			if t.InputExamples != nil {
-				def["input_examples"] = cloneMapList(t.InputExamples)
+				def["input_examples"] = jsonclone.CloneMapList(t.InputExamples)
 			}
 			tools = append(tools, def)
 		}
@@ -178,7 +179,7 @@ func encodeAnthropicMessages(msgs []NormalizedMessage) ([]map[string]any, *Trans
 					}
 				case BlockCompaction:
 					if b.Raw != nil {
-						blocks = append(blocks, cloneMap(b.Raw))
+						blocks = append(blocks, jsonclone.CloneMap(b.Raw))
 					} else {
 						blocks = append(blocks, map[string]any{"type": "compaction", "content": nilIfEmpty(b.Text)})
 					}
@@ -194,7 +195,7 @@ func encodeAnthropicMessages(msgs []NormalizedMessage) ([]map[string]any, *Trans
 					blocks = append(blocks, toolUse)
 				case BlockNative:
 					if b.NativePayload != nil {
-						blocks = append(blocks, cloneMap(b.NativePayload))
+						blocks = append(blocks, jsonclone.CloneMap(b.NativePayload))
 					}
 				}
 			}
@@ -211,7 +212,7 @@ func encodeAnthropicMessages(msgs []NormalizedMessage) ([]map[string]any, *Trans
 					entry["is_error"] = true
 				}
 				if b.Raw != nil {
-					entry["content"] = cloneMap(b.Raw)
+					entry["content"] = jsonclone.CloneMap(b.Raw)
 				} else if b.Image != nil {
 					entry["content"] = []map[string]any{{"type": "image", "source": encodeAnthropicImageSource(b.Image)}}
 				}
@@ -253,7 +254,7 @@ func encodeAnthropicUserBlocks(blocks []ContentBlock) []map[string]any {
 			out = append(out, entry)
 		case BlockNative:
 			if b.NativePayload != nil {
-				out = append(out, cloneMap(b.NativePayload))
+				out = append(out, jsonclone.CloneMap(b.NativePayload))
 			}
 		}
 	}
@@ -715,9 +716,9 @@ func decodeAnthropicContent(raw any, field string, images *[]ImageReference, rea
 			b := ContentBlock{
 				Type:          BlockReasoning,
 				NativeType:    "thinking",
-				NativePayload: cloneMap(obj),
+				NativePayload: jsonclone.CloneMap(obj),
 				ReasoningText: text,
-				Raw:           cloneMap(obj),
+				Raw:           jsonclone.CloneMap(obj),
 			}
 			if sig, ok := obj["signature"].(string); ok {
 				if len(sig) > MaxTextBlockLength {
@@ -736,12 +737,12 @@ func decodeAnthropicContent(raw any, field string, images *[]ImageReference, rea
 					return nil, &protoErr{field: blockField + ".content", reason: "expected a string or null"}
 				}
 			}
-			out = append(out, ContentBlock{Type: BlockCompaction, Text: stringOf(content), Raw: cloneMap(obj)})
+			out = append(out, ContentBlock{Type: BlockCompaction, Text: stringOf(content), Raw: jsonclone.CloneMap(obj)})
 		default:
 			if t == "" {
 				return nil, &protoErr{field: blockField + ".type", reason: "missing block type"}
 			}
-			out = append(out, ContentBlock{Type: BlockNative, NativeType: t, NativePayload: cloneMap(obj), Raw: cloneMap(obj)})
+			out = append(out, ContentBlock{Type: BlockNative, NativeType: t, NativePayload: jsonclone.CloneMap(obj), Raw: jsonclone.CloneMap(obj)})
 		}
 	}
 	return out, nil
@@ -792,8 +793,8 @@ func decodeAnthropicToolResultContent(raw any, field, callID string, images *[]I
 				ToolCallID:        callID,
 				ToolResultIsError: isErr,
 				NativeType:        t,
-				NativePayload:     cloneMap(obj),
-				Raw:               cloneMap(obj),
+				NativePayload:     jsonclone.CloneMap(obj),
+				Raw:               jsonclone.CloneMap(obj),
 			})
 		}
 	}
@@ -924,7 +925,7 @@ func decodeAnthropicTool(raw any, field string) (Tool, error) {
 			Name:          "mcp_toolset",
 			Kind:          ToolKindMCP,
 			NativeType:    "mcp_toolset",
-			NativeOptions: cloneMap(obj),
+			NativeOptions: jsonclone.CloneMap(obj),
 		}, nil
 	}
 	name, err := asString(field+".name", obj["name"])

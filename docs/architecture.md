@@ -72,6 +72,7 @@ normalize
     - client wire shape -> normalized request
     - model/surface/tools/reasoning/stream intent
     - local RTK pass over eligible older tool-result text
+    - same-surface requests (client surface == target surface) take the in-place healing fast path (model suffix, tool-call healing, thinking normalization) without full AST reconstruction
     |
     v
 immutable route plan
@@ -286,6 +287,8 @@ daemon/internal/proxy/runtime/       dispatch, route loop, pool, streams
  daemon/internal/proxy/control/cacheplan/ provider cache boundary planning
  daemon/internal/proxy/protocol/contracts/ normalized domain contracts
  daemon/internal/proxy/protocol/transforms/ protocol translation
+ daemon/internal/proxy/protocol/healing/  edge-case healing + same-surface fast-path sanitization
+ daemon/internal/proxy/protocol/jsonclone/ shared JSON-shaped clone helpers (CloneMap / CloneMapList / CloneValue)
  daemon/internal/proxy/transport/     provider network I/O
  daemon/internal/proxy/compression/   local RTK token-saver primitives
 
@@ -307,6 +310,8 @@ proxy/runtime
     +--> control
     +--> protocol/contracts
     +--> protocol/transforms
+    +--> protocol/healing
+    +--> protocol/jsonclone
     +--> transport
     +--> compression
     |

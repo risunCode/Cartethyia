@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/jsonclone"
 )
 
 // OpenAIResponsesCodec implements request encoding for the OpenAI
@@ -55,7 +56,7 @@ func (c *OpenAIResponsesCodec) Encode(ctx context.Context, req *NormalizedReques
 				return nil, errEncode(contracts.ProtocolOpenAIResponse, "tools", fmt.Sprintf("native tool %q requires anthropic surface", t.NativeType))
 			}
 			if t.NativeType != "" {
-				native := cloneMap(t.NativeOptions)
+				native := jsonclone.CloneMap(t.NativeOptions)
 				if native == nil {
 					native = map[string]any{}
 				}
@@ -249,7 +250,7 @@ func encodeResponsesInput(msgs []NormalizedMessage, trailing []map[string]any) [
 		case RoleAssistant:
 			for _, b := range m.Content {
 				if b.Type == BlockCompaction && b.Raw != nil {
-					items = append(items, cloneMap(b.Raw))
+					items = append(items, jsonclone.CloneMap(b.Raw))
 				} else if b.Type == BlockCompaction && b.Compaction != nil {
 					item := map[string]any{"type": string(b.Compaction.Kind)}
 					if b.Compaction.EncryptedContent != "" {
@@ -316,7 +317,7 @@ func encodeResponsesInput(msgs []NormalizedMessage, trailing []map[string]any) [
 		out = append(out, items...)
 	}
 	for _, item := range trailing {
-		out = append(out, cloneMap(item))
+		out = append(out, jsonclone.CloneMap(item))
 	}
 	return out
 }
@@ -350,7 +351,7 @@ func encodeCompactionResponsesInput(request *CompactionRequest) []map[string]any
 			input = append(input, map[string]any{"type": "function_call_output", "call_id": block.ToolCallID, "output": block.Text})
 		default:
 			if block.Raw != nil {
-				input = append(input, cloneMap(block.Raw))
+				input = append(input, jsonclone.CloneMap(block.Raw))
 			}
 		}
 	}
@@ -742,7 +743,7 @@ func decodeResponsesInput(raw any, field string, images *[]ImageReference, reaso
 				}
 			}
 			if len(pending) > 0 {
-				nm.ReasoningItemsBefore = cloneMapList(pending)
+				nm.ReasoningItemsBefore = jsonclone.CloneMapList(pending)
 				pending = pending[:0]
 			}
 			msgs = append(msgs, nm)
@@ -752,7 +753,7 @@ func decodeResponsesInput(raw any, field string, images *[]ImageReference, reaso
 				return nil, nil, err
 			}
 			if len(pending) > 0 {
-				nm.ReasoningItemsBefore = cloneMapList(pending)
+				nm.ReasoningItemsBefore = jsonclone.CloneMapList(pending)
 				pending = pending[:0]
 			}
 			msgs = append(msgs, nm)
@@ -762,7 +763,7 @@ func decodeResponsesInput(raw any, field string, images *[]ImageReference, reaso
 				return nil, nil, err
 			}
 			if len(pending) > 0 {
-				nm.ReasoningItemsBefore = cloneMapList(pending)
+				nm.ReasoningItemsBefore = jsonclone.CloneMapList(pending)
 				pending = pending[:0]
 			}
 			msgs = append(msgs, nm)
@@ -776,9 +777,9 @@ func decodeResponsesInput(raw any, field string, images *[]ImageReference, reaso
 				*reasoningSeen = true
 			}
 		case "compaction":
-			pending = append(pending, cloneMap(obj))
+			pending = append(pending, jsonclone.CloneMap(obj))
 		case "compaction_trigger":
-			trigger := ContentBlock{Type: BlockCompactionTrigger, ID: stringOf(obj["id"]), Raw: cloneMap(obj), Compaction: &CompactionContent{Version: CompactionV2, Kind: CompactionItemTrigger}}
+			trigger := ContentBlock{Type: BlockCompactionTrigger, ID: stringOf(obj["id"]), Raw: jsonclone.CloneMap(obj), Compaction: &CompactionContent{Version: CompactionV2, Kind: CompactionItemTrigger}}
 			msgs = append(msgs, NormalizedMessage{Role: RoleAssistant, Content: []ContentBlock{trigger}})
 		case "additional_tools":
 			// Additional tools are declarations carried in the input item;
@@ -932,7 +933,7 @@ func decodeResponsesContent(raw any, field string, images *[]ImageReference, rea
 				return nil, &protoErr{field: blockField + ".type", reason: "missing block type"}
 			}
 			text, _ := obj["text"].(string)
-			out = append(out, ContentBlock{Type: BlockUnknown, Text: text, Raw: cloneMap(obj)})
+			out = append(out, ContentBlock{Type: BlockUnknown, Text: text, Raw: jsonclone.CloneMap(obj)})
 		}
 	}
 	return out, nil
@@ -1153,7 +1154,7 @@ func decodeResponsesTool(raw any, field string) (Tool, error) {
 		}
 		return Tool{Name: name, Description: desc, InputSchema: schema, Kind: ToolKindFunction}, nil
 	case "web_search", "tool_search":
-		return Tool{Name: t, Kind: ToolKindWebSearch, NativeType: t, NativeOptions: cloneMap(obj)}, nil
+		return Tool{Name: t, Kind: ToolKindWebSearch, NativeType: t, NativeOptions: jsonclone.CloneMap(obj)}, nil
 	case "custom", "namespace":
 		name, _ := asString(field+".name", obj["name"])
 		if name == "" {
@@ -1163,7 +1164,7 @@ func decodeResponsesTool(raw any, field string) (Tool, error) {
 			name = t
 		}
 		desc, _ := asString(field+".description", obj["description"])
-		return Tool{Name: name, Description: desc, Kind: ToolKindCustom, NativeType: t, NativeOptions: cloneMap(obj)}, nil
+		return Tool{Name: name, Description: desc, Kind: ToolKindCustom, NativeType: t, NativeOptions: jsonclone.CloneMap(obj)}, nil
 	default:
 		return Tool{}, &protoErr{field: field + ".type", reason: fmt.Sprintf("unsupported tool type %q", t)}
 	}

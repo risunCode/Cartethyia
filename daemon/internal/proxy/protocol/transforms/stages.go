@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/jsonclone"
 )
 
 // ProtocolValidationStage performs the first fail-closed canonical validation.
@@ -67,7 +68,7 @@ func (s SchemaToolNormalizationStage) Apply(_ context.Context, req *NormalizedRe
 		if out.Tools[i].InputSchema == nil {
 			continue
 		}
-		out.Tools[i].InputSchema = cloneMap(out.Tools[i].InputSchema)
+		out.Tools[i].InputSchema = jsonclone.CloneMap(out.Tools[i].InputSchema)
 	}
 	for mi := range out.Messages {
 		for bi := range out.Messages[mi].Content {
@@ -212,18 +213,18 @@ func cloneNormalizedRequest(in *NormalizedRequest) *NormalizedRequest {
 			out.Messages[i].Content[j] = cloneContentBlock(in.Messages[i].Content[j])
 			block := &out.Messages[i].Content[j]
 			block.Image = cloneImage(block.Image)
-			block.ReasoningSummary = cloneMapList(block.ReasoningSummary)
-			block.NativePayload = cloneMap(block.NativePayload)
-			block.Raw = cloneMap(block.Raw)
+			block.ReasoningSummary = jsonclone.CloneMapList(block.ReasoningSummary)
+			block.NativePayload = jsonclone.CloneMap(block.NativePayload)
+			block.Raw = jsonclone.CloneMap(block.Raw)
 		}
-		out.Messages[i].ReasoningItemsBefore = cloneMapList(in.Messages[i].ReasoningItemsBefore)
+		out.Messages[i].ReasoningItemsBefore = jsonclone.CloneMapList(in.Messages[i].ReasoningItemsBefore)
 	}
 	out.Tools = append([]Tool(nil), in.Tools...)
 	for i := range out.Tools {
-		out.Tools[i].InputSchema = cloneMap(in.Tools[i].InputSchema)
-		out.Tools[i].NativeOptions = cloneMap(in.Tools[i].NativeOptions)
+		out.Tools[i].InputSchema = jsonclone.CloneMap(in.Tools[i].InputSchema)
+		out.Tools[i].NativeOptions = jsonclone.CloneMap(in.Tools[i].NativeOptions)
 		out.Tools[i].AllowedCallers = append([]string(nil), in.Tools[i].AllowedCallers...)
-		out.Tools[i].InputExamples = cloneMapList(in.Tools[i].InputExamples)
+		out.Tools[i].InputExamples = jsonclone.CloneMapList(in.Tools[i].InputExamples)
 		if in.Tools[i].Format != nil {
 			format := *in.Tools[i].Format
 			format.Schema = cloneRaw(in.Tools[i].Format.Schema)
@@ -232,17 +233,17 @@ func cloneNormalizedRequest(in *NormalizedRequest) *NormalizedRequest {
 	}
 	if in.ToolChoice != nil {
 		tc := *in.ToolChoice
-		tc.Object = cloneMap(in.ToolChoice.Object)
+		tc.Object = jsonclone.CloneMap(in.ToolChoice.Object)
 		out.ToolChoice = &tc
 	}
-	out.ResponseFormatSchema = cloneMap(in.ResponseFormatSchema)
+	out.ResponseFormatSchema = jsonclone.CloneMap(in.ResponseFormatSchema)
 	if in.StructuredOutput != nil {
 		structured := *in.StructuredOutput
 		structured.Schema = cloneRaw(in.StructuredOutput.Schema)
 		out.StructuredOutput = &structured
 	}
 	out.Stop = append([]string(nil), in.Stop...)
-	out.Metadata = cloneMap(in.Metadata)
+	out.Metadata = jsonclone.CloneMap(in.Metadata)
 	out.Include = append([]string(nil), in.Include...)
 	if in.ContextManagement != nil {
 		contextManagement := *in.ContextManagement
@@ -252,9 +253,9 @@ func cloneNormalizedRequest(in *NormalizedRequest) *NormalizedRequest {
 		}
 		out.ContextManagement = &contextManagement
 	}
-	out.MCPServers = cloneMapList(in.MCPServers)
+	out.MCPServers = jsonclone.CloneMapList(in.MCPServers)
 	out.Images = append([]ImageReference(nil), in.Images...)
-	out.TrailingReasoningItems = cloneMapList(in.TrailingReasoningItems)
+	out.TrailingReasoningItems = jsonclone.CloneMapList(in.TrailingReasoningItems)
 	if in.ReasoningConfig != nil {
 		rc := *in.ReasoningConfig
 		out.ReasoningConfig = &rc
@@ -285,23 +286,6 @@ func cloneImage(in *ImageReference) *ImageReference {
 	}
 	out := *in
 	return &out
-}
-
-func cloneValue(value any) any {
-	switch v := value.(type) {
-	case map[string]any:
-		return cloneMap(v)
-	case []map[string]any:
-		return cloneMapList(v)
-	case []any:
-		out := make([]any, len(v))
-		for i := range v {
-			out[i] = cloneValue(v[i])
-		}
-		return out
-	default:
-		return value
-	}
 }
 
 func requestSizeEstimate(req *NormalizedRequest) int {

@@ -60,7 +60,12 @@ func (c *staticCatalog) List() []ProviderModel {
 	for i := range out {
 		out[i].Compatibility = clonePolicyPtr(out[i].Compatibility)
 		out[i].Policy = clonePolicyPtr(out[i].Policy)
-		if out[i].Capabilities != nil { caps := *out[i].Capabilities; caps.Compatibility = caps.Compatibility.Clone(); caps.Policy = caps.Policy.Clone(); out[i].Capabilities = &caps }
+		if out[i].Capabilities != nil {
+			caps := *out[i].Capabilities
+			caps.Compatibility = caps.Compatibility.Clone()
+			caps.Policy = caps.Policy.Clone()
+			out[i].Capabilities = &caps
+		}
 	}
 	return out
 }
@@ -74,7 +79,12 @@ func (c *staticCatalog) Get(modelID string) *ProviderModel {
 	mm := m
 	mm.Compatibility = clonePolicyPtr(mm.Compatibility)
 	mm.Policy = clonePolicyPtr(mm.Policy)
-	if mm.Capabilities != nil { caps := *mm.Capabilities; caps.Compatibility = caps.Compatibility.Clone(); caps.Policy = caps.Policy.Clone(); mm.Capabilities = &caps }
+	if mm.Capabilities != nil {
+		caps := *mm.Capabilities
+		caps.Compatibility = caps.Compatibility.Clone()
+		caps.Policy = caps.Policy.Clone()
+		mm.Capabilities = &caps
+	}
 	return &mm
 }
 
@@ -99,7 +109,9 @@ func aggregateCapabilities(models []ProviderModel, fallback ProviderCaps) Provid
 	search := fallback.Search
 	media := append([]string(nil), fallback.MediaGeneration...)
 	policy := fallback.Compatibility.Clone()
-	if policy.Generation == 0 && fallback.Policy.Generation != 0 { policy = fallback.Policy.Clone() }
+	if policy.Generation == 0 && fallback.Policy.Generation != 0 {
+		policy = fallback.Policy.Clone()
+	}
 	if policy.Generation == 0 {
 		policy = LegacyCompatibilityPolicy(fallback)
 	}
@@ -148,7 +160,7 @@ func aggregateCapabilities(models []ProviderModel, fallback ProviderCaps) Provid
 	merged.ExplicitCache = explicit
 	merged.PromptCacheKey = promptKey
 	merged.Search = search
-	merged.MediaGeneration = dedupeStrings(media)
+	merged.MediaGeneration = DedupeStrings(media)
 	merged.Compatibility = policy
 	return merged
 }
@@ -166,7 +178,7 @@ func dedupeSurfaces(in []Surface) []Surface {
 	return out
 }
 
-func dedupeStrings(in []string) []string {
+func DedupeStrings(in []string) []string {
 	seen := make(map[string]struct{}, len(in))
 	out := make([]string, 0, len(in))
 	for _, s := range in {

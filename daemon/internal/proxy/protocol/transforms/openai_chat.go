@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/jsonclone"
 )
 
 // OpenAIChatCodec implements request encoding for the OpenAI Chat
@@ -578,7 +579,7 @@ func decodeChatContent(raw any, field string, images *[]ImageReference) ([]Conte
 			if t == "" {
 				return nil, &protoErr{field: fmt.Sprintf("%s[%d].type", field, i), reason: "missing content block type"}
 			}
-			out = append(out, ContentBlock{Type: BlockNative, NativeType: t, NativePayload: cloneMap(obj), Raw: cloneMap(obj)})
+			out = append(out, ContentBlock{Type: BlockNative, NativeType: t, NativePayload: jsonclone.CloneMap(obj), Raw: jsonclone.CloneMap(obj)})
 		}
 	}
 	return out, nil

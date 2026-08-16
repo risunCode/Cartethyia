@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/jsonclone"
 )
 
 // DecodeCompactionRequest decodes compact V1/V2 using the same canonical
@@ -122,7 +123,7 @@ func encodeCompactionV1ResponsesInput(request *CompactionRequest) []map[string]a
 			input = append(input, map[string]any{"type": "function_call_output", "call_id": block.ToolCallID, "output": block.Text})
 		default:
 			if block.Raw != nil {
-				input = append(input, cloneMap(block.Raw))
+				input = append(input, jsonclone.CloneMap(block.Raw))
 			}
 		}
 	}
@@ -175,7 +176,7 @@ func encodeResponsesTools(tools []Tool) []map[string]any {
 	out := make([]map[string]any, 0, len(tools))
 	for _, tool := range tools {
 		if tool.NativeType != "" {
-			value := cloneMap(tool.NativeOptions)
+			value := jsonclone.CloneMap(tool.NativeOptions)
 			if value == nil {
 				value = map[string]any{}
 			}

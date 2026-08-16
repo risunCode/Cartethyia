@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
+	"github.com/cartethyia/daemon/internal/proxy/protocol/jsonclone"
 )
 
 // GeminiCodec implements the native Gemini generateContent request surface.
@@ -169,7 +170,7 @@ func decodeGeminiParts(raw any, field string) ([]ContentBlock, error) {
 				b.Type = BlockReasoning
 				b.ReasoningText = text
 				b.NativeType = "thought"
-				b.NativePayload = cloneMap(obj)
+				b.NativePayload = jsonclone.CloneMap(obj)
 			}
 			if sig := stringOf(obj["thoughtSignature"]); sig != "" {
 				b.ReasoningSignature = sig
@@ -224,7 +225,7 @@ func decodeGeminiParts(raw any, field string) ([]ContentBlock, error) {
 			}
 			out = append(out, ContentBlock{Type: BlockToolResult, ToolName: name, ToolCallID: callID, Text: value, ToolResult: value})
 		case obj["executableCode"] != nil, obj["codeExecutionResult"] != nil:
-			out = append(out, ContentBlock{Type: BlockNative, NativeType: firstNonEmpty(stringOf(obj["type"]), "code"), NativePayload: cloneMap(obj), Raw: cloneMap(obj)})
+			out = append(out, ContentBlock{Type: BlockNative, NativeType: firstNonEmpty(stringOf(obj["type"]), "code"), NativePayload: jsonclone.CloneMap(obj), Raw: jsonclone.CloneMap(obj)})
 		default:
 			return nil, &protoErr{field: partField, reason: "unsupported Gemini part"}
 		}
@@ -387,7 +388,7 @@ func decodeGeminiTools(raw any) ([]Tool, error) {
 		if typ == "" {
 			return nil, &protoErr{field: fmt.Sprintf("tools[%d]", i), reason: "tool declaration is missing type"}
 		}
-		out = append(out, Tool{Name: typ, Kind: ToolKindNative, NativeType: typ, NativeOptions: cloneMap(obj)})
+		out = append(out, Tool{Name: typ, Kind: ToolKindNative, NativeType: typ, NativeOptions: jsonclone.CloneMap(obj)})
 	}
 	return out, nil
 }
@@ -470,7 +471,7 @@ func (c *GeminiCodec) Encode(ctx context.Context, req *NormalizedRequest) (*Enco
 		generation["responseMimeType"] = "application/json"
 	case FormatJSONSchema:
 		generation["responseMimeType"] = "application/json"
-		generation["responseSchema"] = cloneMap(responseSchema)
+		generation["responseSchema"] = jsonclone.CloneMap(responseSchema)
 	}
 	if req.Reasoning == ReasoningEnabled || req.ReasoningConfig != nil {
 		thinking := map[string]any{"includeThoughts": true}
@@ -486,7 +487,7 @@ func (c *GeminiCodec) Encode(ctx context.Context, req *NormalizedRequest) (*Enco
 		payload["cachedContent"] = req.CacheKey
 	}
 	if req.Metadata != nil && req.Source == contracts.ProtocolGemini {
-		payload["metadata"] = cloneMap(req.Metadata)
+		payload["metadata"] = jsonclone.CloneMap(req.Metadata)
 	}
 	if err := validateGeminiWire(payload); err != nil {
 		return nil, err
@@ -580,9 +581,9 @@ func encodeGeminiParts(blocks []ContentBlock) []map[string]any {
 			}
 		case BlockNative, BlockUnknown:
 			if block.NativePayload != nil {
-				parts = append(parts, cloneMap(block.NativePayload))
+				parts = append(parts, jsonclone.CloneMap(block.NativePayload))
 			} else if block.Raw != nil {
-				parts = append(parts, cloneMap(block.Raw))
+				parts = append(parts, jsonclone.CloneMap(block.Raw))
 			}
 		}
 	}
@@ -609,7 +610,7 @@ func encodeGeminiTools(tools []Tool) []map[string]any {
 	native := make([]map[string]any, 0)
 	for _, tool := range tools {
 		if tool.NativeType != "" || (tool.Kind != "" && tool.Kind != ToolKindFunction) {
-			value := cloneMap(tool.NativeOptions)
+			value := jsonclone.CloneMap(tool.NativeOptions)
 			if value == nil {
 				value = map[string]any{}
 			}

@@ -14,7 +14,7 @@ import (
 	"github.com/cartethyia/daemon/internal/providers"
 	"github.com/cartethyia/daemon/internal/proxy/control/tokenbudget"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
-	runtimecatalog "github.com/cartethyia/daemon/internal/proxy/runtime/catalog"
+	"github.com/cartethyia/daemon/internal/proxy/runtime/catalog"
 )
 
 func FuzzProviderEventMapping(f *testing.F) {
@@ -238,18 +238,18 @@ func BenchmarkFailureClassification(b *testing.B) {
 }
 
 func BenchmarkRoutePlanExpansion(b *testing.B) {
-	models := make(map[string]runtimecatalog.Model, runtimecatalog.MaxComboMembers)
-	members := make([]string, runtimecatalog.MaxComboMembers)
-	for index := range runtimecatalog.MaxComboMembers {
+	models := make(map[string]catalog.Model, catalog.MaxComboMembers)
+	members := make([]string, catalog.MaxComboMembers)
+	for index := range catalog.MaxComboMembers {
 		qualified := "provider-" + strconv.Itoa(index) + ":model"
-		models[qualified] = runtimecatalog.Model{ID: "model", QualifiedID: qualified, ProviderID: "provider-" + strconv.Itoa(index), UpstreamID: "upstream", Surfaces: []providers.Surface{providers.SurfaceOpenAIChat}}
+		models[qualified] = catalog.Model{ID: "model", QualifiedID: qualified, ProviderID: "provider-" + strconv.Itoa(index), UpstreamID: "upstream", Surfaces: []providers.Surface{providers.SurfaceOpenAIChat}}
 		members[index] = qualified
 	}
-	snapshot := &runtimecatalog.Snapshot{Generation: 1, Models: models, Combinations: map[string]runtimecatalog.Combination{"combo": {ID: "combo", Members: members, Strategy: string(runtimecatalog.RouteStrategyFallback)}}}
+	snapshot := &catalog.Snapshot{Generation: 1, Models: models, Combinations: map[string]catalog.Combination{"combo": {ID: "combo", Members: members, Strategy: string(catalog.RouteStrategyFallback)}}}
 	b.ReportAllocs()
 	for b.Loop() {
 		plan, err := snapshot.Plan("combo", contracts.SurfaceOpenAIChat)
-		if err != nil || len(plan.Members) != runtimecatalog.MaxComboMembers {
+		if err != nil || len(plan.Members) != catalog.MaxComboMembers {
 			b.Fatalf("plan members=%d err=%v", len(plan.Members), err)
 		}
 	}
