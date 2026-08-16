@@ -320,16 +320,16 @@
   --hover: var(--surface-muted);
   --active-pill: var(--surface-hover);
   --kbd-bg: rgba(113, 82, 57, 0.08);
-  --shadow-card: 0 1px 2px rgba(83, 56, 36, 0.05), 0 12px 32px rgba(83, 56, 36, 0.1);
+  --shadow-card: 0 1px 2px rgba(83, 56, 36, 0.05), 0 4px 12px rgba(83, 56, 36, 0.07);
   color-scheme: light;
 }
 
 .dark {
   --background: #08080b;
   --foreground: #f5f5f7;
-  --card: #161618;
+  --card: #121214;
   --card-foreground: #f5f5f7;
-  --popover: #1c1c20;
+  --popover: #1a1a1e;
   --popover-foreground: #f5f5f7;
   --primary: #0a84ff;
   --primary-foreground: #fff;
@@ -342,9 +342,10 @@
   --warning: #ca7b32;
   --destructive: #c95145;
   --page-bg: #08080b;
-  /* Solid "performance" surfaces (alegacy glass="off") — opaque, no blur. */
-  --surface-1: #161618;
-  --surface-2: #1a1a1e;
+  /* Solid "performance" surfaces (alegacy glass="off") — opaque, no blur.
+     Deeper than gray to keep contrast crisp against the near-black page. */
+  --surface-1: #121214;
+  --surface-2: #17171a;
   --surface-muted: rgba(255, 255, 255, 0.07);
   --surface-hover: rgba(255, 255, 255, 0.12);
   --surface-active: rgba(255, 255, 255, 0.16);
@@ -356,13 +357,13 @@
   --accent-soft: rgba(10, 132, 255, 0.18);
   --focus-ring: #0a84ff;
   --track: rgba(255, 255, 255, 0.12);
-  --code-surface: #1a1a1e;
+  --code-surface: #17171a;
   --text-1: var(--text-primary);
   --text-2: var(--text-secondary);
   --text-3: var(--text-tertiary);
   --glass-bg: var(--surface-1);
   --glass-bg-2: var(--surface-2);
-  --popover-bg: #1c1c20;
+  --popover-bg: #1a1a1e;
   --glass-border: var(--border-strong);
   --glass-border-2: rgba(255, 255, 255, 0.16);
   --inner-border: var(--border-subtle);
@@ -374,7 +375,7 @@
   --orange-soft: rgba(202, 123, 50, 0.18);
   --teal-soft: rgba(68, 143, 141, 0.18);
   --purple-soft: rgba(135, 105, 164, 0.18);
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.45);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.35);
   color-scheme: dark;
 }
 
@@ -412,15 +413,19 @@ body {
   letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
   background-color: var(--page-bg);
+}
+
+/* Mesh gradients are a GLASS-MODE ambiance only — with glass off the page
+   stays a flat solid color so nothing reads as translucent. */
+html[data-glass="on"] body {
   background-attachment: fixed;
-  /* Soft mesh gradients behind the floating panels (paint only — no blur). */
   background-image:
     radial-gradient(1100px 640px at 78% -12%, rgba(250, 212, 178, 0.42), transparent 60%),
     radial-gradient(920px 600px at -10% 32%, rgba(246, 222, 182, 0.4), transparent 58%),
     radial-gradient(760px 540px at 62% 108%, rgba(240, 192, 169, 0.27), transparent 60%);
 }
 
-.dark body {
+html.dark[data-glass="on"] body {
   background-image:
     radial-gradient(1100px 640px at 78% -12%, rgba(14, 165, 233, 0.2), transparent 60%),
     radial-gradient(920px 600px at -10% 32%, rgba(139, 92, 246, 0.18), transparent 58%),
