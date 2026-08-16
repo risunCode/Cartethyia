@@ -25,7 +25,7 @@ provider destination, account, dan network path adalah keputusan terpisah.
 ```text
 +----------------------------+                 +----------------------------+
 | External client            |                 | Operator browser/dashboard |
-| SDK / CLI / IDE / HTTP     |                 | React/Vite                  |
+| SDK / CLI / IDE / HTTP     |                 | SolidJS/Vite                |
 +-------------+--------------+                 +-------------+--------------+
               |                                              |
               | POST /v1/*                                   | GET/POST/PATCH/DELETE
