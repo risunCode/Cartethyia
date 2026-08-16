@@ -13,6 +13,7 @@
  */
 
 import { Database, type SQLQueryBindings, type Statement } from 'bun:sqlite'
+import { mkdirSync } from 'node:fs'
 import { isLogLevel, LOG_LEVEL_PRIORITY, type LogLevel } from './log-level'
 
 // ---------------------------------------------------------------------------
@@ -237,6 +238,12 @@ export function readResidentMemory(): number {
 }
 
 function createPoolEntry(filename: string, synchronousOff: boolean, wal: boolean): PoolEntry {
+  // bun:sqlite does not create missing parent directories; a fresh checkout
+  // has no data/ yet, so ensure the directory exists before opening.
+  const parent = filename.replace(/[/\\][^/\\]+$/, '')
+  if (parent && parent !== filename) {
+    mkdirSync(parent, { recursive: true })
+  }
   const db = new Database(filename, { create: true })
   // Pragmas — applied in the order recommended by sqlite.org. bun:sqlite has
   // no `.pragma()` helper; PRAGMA statements run through `.run()`.
