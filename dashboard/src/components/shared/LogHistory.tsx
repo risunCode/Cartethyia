@@ -91,7 +91,7 @@ export function LogHistory(props: LogHistoryProps): JSX.Element {
 
   const filtered = createMemo<LogEntry[]>(() => {
     const sourceFilter = props.source?.trim().toLowerCase();
-    const list = historyResource() ?? [];
+    const list = historyResource.error ? [] : historyResource() ?? [];
     return list.filter((entry) => {
       if (!levelMatches(props.level, entry.level)) return false;
       if (sourceFilter && !entry.source.toLowerCase().includes(sourceFilter)) return false;

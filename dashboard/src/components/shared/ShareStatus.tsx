@@ -70,6 +70,19 @@ function parseShareSnapshot(value: unknown, fallbackId: string): ShareStatusSnap
     typeof outer.snapshot === "object" && outer.snapshot !== null && !Array.isArray(outer.snapshot)
       ? (outer.snapshot as Record<string, unknown>)
       : outer;
+  // Count-style payloads ({"inFlight":N}) carry no snapshot fields; returning
+  // null lets the caller's count branch refresh the live figure instead of
+  // replacing the snapshot with defaults.
+  const hasSnapshotField =
+    outer.snapshot !== undefined ||
+    outer.label !== undefined ||
+    innerCandidate.tone !== undefined ||
+    innerCandidate.progress !== undefined ||
+    innerCandidate.totalTokens !== undefined ||
+    innerCandidate.totalRequests !== undefined ||
+    innerCandidate.lastUsedAt !== undefined ||
+    innerCandidate.expiresAt !== undefined;
+  if (!hasSnapshotField) return null;
   const toneRaw = readString(innerCandidate.tone)?.toLowerCase() ?? "pending";
   const tone: ShareStatusTone =
     toneRaw === "active" || toneRaw === "expired" || toneRaw === "exhausted" || toneRaw === "paused"

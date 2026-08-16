@@ -42,7 +42,7 @@ export default function Settings(): JSX.Element {
   );
 
   const apiKeys = createMemo<readonly APIKeyRecord[]>(
-    () => settingsResource()?.apiKeys ?? [],
+    () => (settingsResource.error ? [] : settingsResource()?.apiKeys ?? []),
   );
 
   const isLoading = createMemo(() => settingsResource.loading);
@@ -108,7 +108,7 @@ export default function Settings(): JSX.Element {
             />
             Loading…
           </Show>
-          <Show when={!isLoading() && settingsResource()}>
+          <Show when={!isLoading() && !settingsResource.error && settingsResource()}>
             <span class="inline-block h-1.5 w-1.5 rounded-full bg-[var(--status-success)]" aria-hidden="true" />
             Synced
           </Show>

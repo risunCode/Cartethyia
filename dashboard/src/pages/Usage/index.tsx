@@ -194,8 +194,8 @@ export default function Usage() {
   const isLoading = () => resource.loading;
   const isError = () => resource.error !== undefined;
   const errorInfo = createMemo(() => (resource.error ? consoleFailure(resource.error) : null));
-  const summary = createMemo<UsageSummary | null>(() => resource()?.summary ?? null);
-  const buckets = createMemo<readonly UsageChartBucket[]>(() => resource()?.chart.buckets ?? []);
+  const summary = createMemo<UsageSummary | null>(() => (resource.error ? null : resource()?.summary ?? null));
+  const buckets = createMemo<readonly UsageChartBucket[]>(() => (resource.error ? [] : resource()?.chart.buckets ?? []));
 
   return (
     <div class="dashboard-page animate-fade-in space-y-5">

@@ -367,9 +367,9 @@ export default function Providers(): JSX.Element {
   const [visibleWindows, setVisibleWindows] = createSignal(PAGE_STEP);
   const [visibleEndpoints, setVisibleEndpoints] = createSignal(PAGE_STEP);
 
-  const snapshot = createMemo(() => resource() ?? null);
+  const snapshot = createMemo(() => (resource.error ? null : resource() ?? null));
   const rows = createMemo(() => snapshot()?.rows ?? []);
-  const detail = createMemo(() => detailResource() ?? null);
+  const detail = createMemo(() => (detailResource.error ? null : detailResource() ?? null));
   const initialLoading = createMemo(() => resource.loading && snapshot() === null);
   const errorInfo = createMemo(() => (resource.error ? consoleFailure(resource.error) : null));
   const telemetryUnavailable = createMemo(() => (snapshot() ? !snapshot()?.telemetryAvailable : false));

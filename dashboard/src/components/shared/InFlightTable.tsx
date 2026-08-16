@@ -65,7 +65,12 @@ export function InFlightTable(props: InFlightTableProps): JSX.Element {
   const visibleItems = createMemo(() => props.rows.slice(0, visibleCount()));
 
   const virtualizer = createVirtualizer({
-    count: visibleItems().length,
+    // Object getter (not an arrow value) so mergeProps reads re-track the
+    // memo and post-mount row updates re-render instead of freezing the
+    // initial count.
+    get count() {
+      return visibleItems().length;
+    },
     getScrollElement: () => scrollElement,
     estimateSize: () => rowHeight,
     overscan,

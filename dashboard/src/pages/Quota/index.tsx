@@ -175,7 +175,7 @@ export default function Quota(): JSX.Element {
   const [actionError, setActionError] = createSignal<string | null>(null);
   const [pendingDelete, setPendingDelete] = createSignal<QuotaAccountRow | null>(null);
 
-  const snapshot = createMemo(() => resource() ?? null);
+  const snapshot = createMemo(() => (resource.error ? null : resource() ?? null));
   const rows = createMemo(() => snapshot()?.rows ?? []);
   const initialLoading = createMemo(() => resource.loading && snapshot() === null);
   const errorInfo = createMemo(() => (resource.error ? consoleFailure(resource.error) : null));
