@@ -250,7 +250,7 @@
 :root {
   --background: #f7f3ed;
   --foreground: #2d2926;
-  --card: rgba(255, 252, 247, 0.9);
+  --card: #fffefb;
   --card-foreground: #2d2926;
   --popover: #fffefb;
   --popover-foreground: #2d2926;
@@ -265,8 +265,10 @@
   --warning: #ca7b32;
   --destructive: #c95145;
   --page-bg: #f7f3ed;
-  --surface-1: rgba(255, 252, 247, 0.9);
-  --surface-2: rgba(255, 253, 249, 0.96);
+  /* Solid "performance" surfaces (the alegacy glass="off" look): opaque
+     panels floating on the mesh background — no backdrop-filter anywhere. */
+  --surface-1: #fffefb;
+  --surface-2: #fffefb;
   --surface-muted: rgba(119, 83, 55, 0.1);
   --surface-hover: rgba(255, 248, 240, 0.92);
   --surface-active: rgba(255, 248, 240, 0.98);
@@ -283,7 +285,7 @@
   --status-info: #448f8d;
   --focus-ring: #d97757;
   --track: rgba(113, 82, 57, 0.1);
-  --code-surface: rgba(255, 252, 247, 0.82);
+  --code-surface: #fbf8f2;
   --radius-sm: 8px;
   --radius-md: 11px;
   --radius-lg: 16px;
@@ -325,7 +327,7 @@
 .dark {
   --background: #08080b;
   --foreground: #f5f5f7;
-  --card: rgba(28, 28, 32, 0.55);
+  --card: #161618;
   --card-foreground: #f5f5f7;
   --popover: #1c1c20;
   --popover-foreground: #f5f5f7;
@@ -340,8 +342,9 @@
   --warning: #ca7b32;
   --destructive: #c95145;
   --page-bg: #08080b;
-  --surface-1: rgba(28, 28, 32, 0.55);
-  --surface-2: rgba(34, 34, 40, 0.72);
+  /* Solid "performance" surfaces (alegacy glass="off") — opaque, no blur. */
+  --surface-1: #161618;
+  --surface-2: #1a1a1e;
   --surface-muted: rgba(255, 255, 255, 0.07);
   --surface-hover: rgba(255, 255, 255, 0.12);
   --surface-active: rgba(255, 255, 255, 0.16);
@@ -353,7 +356,7 @@
   --accent-soft: rgba(10, 132, 255, 0.18);
   --focus-ring: #0a84ff;
   --track: rgba(255, 255, 255, 0.12);
-  --code-surface: rgba(28, 28, 32, 0.8);
+  --code-surface: #1a1a1e;
   --text-1: var(--text-primary);
   --text-2: var(--text-secondary);
   --text-3: var(--text-tertiary);
@@ -408,6 +411,20 @@ body {
   color: var(--text-1);
   letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
+  background-color: var(--page-bg);
+  background-attachment: fixed;
+  /* Soft mesh gradients behind the floating panels (paint only — no blur). */
+  background-image:
+    radial-gradient(1100px 640px at 78% -12%, rgba(250, 212, 178, 0.42), transparent 60%),
+    radial-gradient(920px 600px at -10% 32%, rgba(246, 222, 182, 0.4), transparent 58%),
+    radial-gradient(760px 540px at 62% 108%, rgba(240, 192, 169, 0.27), transparent 60%);
+}
+
+.dark body {
+  background-image:
+    radial-gradient(1100px 640px at 78% -12%, rgba(14, 165, 233, 0.2), transparent 60%),
+    radial-gradient(920px 600px at -10% 32%, rgba(139, 92, 246, 0.18), transparent 58%),
+    radial-gradient(760px 540px at 62% 108%, rgba(190, 24, 93, 0.14), transparent 60%);
 }
 
 /* Every authenticated page owns the same width and shrink behavior inside the shell. */

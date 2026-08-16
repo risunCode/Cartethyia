@@ -90,7 +90,7 @@ export function Dialog(props: DialogProps): JSX.Element {
     <>{lifecycle.present() && (
       <Portal>
         <div ref={(element) => { rootRef = element; lifecycle.setElements(rootRef, dialogRef); }} class="motion-dialog-overlay fixed inset-0 z-90 flex items-center justify-center p-4" data-state={lifecycle.phase()} style={hasReducedMotion() ? { animation: "none" } : undefined}>
-          <button type="button" aria-label="Close dialog" class={"absolute inset-0 h-full w-full cursor-default bg-black/40 backdrop-blur-[6px] " + focusRingClasses} onClick={() => lifecycle.requestClose()} />
+          <button type="button" aria-label="Close dialog" class={"absolute inset-0 h-full w-full cursor-default bg-black/40 " + focusRingClasses} onClick={() => lifecycle.requestClose()} />
           <div
             ref={(element) => { dialogRef = element; lifecycle.setElements(rootRef, dialogRef); }}
             role="dialog"

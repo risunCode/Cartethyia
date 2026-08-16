@@ -75,7 +75,7 @@ export function Drawer(props: DrawerProps): JSX.Element {
     <>{lifecycle.present() && (
       <Portal>
         <div ref={(element) => { rootRef = element; lifecycle.setElements(rootRef, drawerRef); }} class="motion-drawer-overlay fixed inset-0 z-90" data-state={lifecycle.phase()} style={hasReducedMotion() ? { animation: "none" } : undefined}>
-          <button type="button" aria-label="Close drawer" class={"absolute inset-0 h-full w-full cursor-default bg-black/40 backdrop-blur-[6px] " + focusRingClasses} onClick={() => lifecycle.requestClose()} />
+          <button type="button" aria-label="Close drawer" class={"absolute inset-0 h-full w-full cursor-default bg-black/40 " + focusRingClasses} onClick={() => lifecycle.requestClose()} />
           <aside
             ref={(element) => { drawerRef = element; lifecycle.setElements(rootRef, drawerRef); }}
             role="dialog"

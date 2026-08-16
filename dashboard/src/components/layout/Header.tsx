@@ -138,7 +138,7 @@ export function Header(props: HeaderProps): JSX.Element {
       id="dashboard-header-root"
       role="banner"
       class={cn(
-        "component-fade-in sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-[var(--inner-border)] bg-[var(--glass-bg)] px-3 backdrop-blur-md lg:gap-3",
+        "component-fade-in sticky top-4 z-30 flex items-center gap-2 rounded-[18px] border border-[var(--inner-border)] bg-[var(--glass-bg)] px-3 py-2.5 shadow-[var(--shadow-card)] sm:gap-3.5 sm:px-4 sm:py-3",
         props.className,
       )}
     >
@@ -151,7 +151,7 @@ export function Header(props: HeaderProps): JSX.Element {
       />
 
       <div class="flex min-w-0 items-baseline gap-2">
-        <h1 class="truncate text-sm font-semibold tracking-tight text-[var(--text-1)]">{title()}</h1>
+        <h1 class="truncate text-[15px] font-bold tracking-tight text-[var(--text-1)] sm:text-[17px]">{title()}</h1>
         <span class="hidden text-xs text-[var(--text-3)] sm:inline" aria-hidden="true">/</span>
         <A href="/overview" class="hidden truncate text-xs text-[var(--text-3)] hover:text-[var(--text-2)] sm:inline">
           Cartethyia

@@ -87,7 +87,7 @@ export function Footer(props: FooterProps): JSX.Element {
       role="contentinfo"
       aria-label="Dashboard footer"
       class={cn(
-        "component-fade-in flex h-9 items-center gap-3 border-t border-[var(--inner-border)] bg-[var(--glass-bg)] px-3 text-[11px] text-[var(--text-2)] backdrop-blur-md",
+        "component-fade-in mt-auto flex w-full items-center gap-3 rounded-2xl border border-[var(--inner-border)] bg-[var(--glass-bg)] px-4 py-3 text-xs text-[var(--text-2)] shadow-[var(--shadow-card)]",
         props.className,
       )}
     >

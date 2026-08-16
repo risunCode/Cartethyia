@@ -74,7 +74,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
   };
 
   const collapsed = (): boolean => sidebarCollapsed();
-  const widthClass = createMemo(() => (collapsed() ? "w-[68px]" : "w-60"));
+  const widthClass = createMemo(() => (collapsed() ? "w-[76px]" : "w-[272px]"));
 
   const toggleCollapsed = (): void => {
     setSidebarCollapsed((value) => !value);
@@ -89,14 +89,14 @@ export function Sidebar(props: SidebarProps): JSX.Element {
     <aside
       aria-label="Dashboard navigation"
       class={cn(
-        "component-fade-in sticky top-0 z-30 hidden h-screen shrink-0 flex-col border-r border-[var(--inner-border)] bg-[var(--glass-bg)] backdrop-blur-md lg:flex",
+        "component-fade-in hidden shrink-0 flex-col rounded-[var(--radius-sidebar)] border border-[var(--inner-border)] bg-[var(--glass-bg)] shadow-[var(--shadow-card)] lg:sticky lg:top-4 lg:flex lg:h-[calc(100dvh-32px)] lg:self-start",
         "transition-[width] duration-150 ease-out",
         widthClass(),
         props.className,
       )}
       data-collapsed={collapsed() ? "true" : "false"}
     >
-      <div class="flex h-14 items-center justify-between gap-2 px-3">
+      <div class="flex h-14 items-center justify-between gap-2 px-4">
         <Show
           when={!collapsed()}
           fallback={<span aria-hidden="true" class="mx-auto h-7 w-7 rounded-md bg-[var(--accent-soft)]" />}
@@ -139,12 +139,12 @@ export function Sidebar(props: SidebarProps): JSX.Element {
                           aria-label={collapsed() ? item.label : undefined}
                           title={collapsed() ? item.label : undefined}
                           class={cn(
-                            "group flex h-9 items-center gap-2 rounded-lg px-2 text-xs font-medium outline-none transition-colors duration-150",
+                            "group flex h-9 items-center gap-2 rounded-[11px] px-2.5 text-[13.5px] font-medium outline-none transition-colors duration-150",
                             focusRingClasses,
                             active()
-                              ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                              ? "bg-[var(--active-pill)] font-semibold text-[var(--text-1)] shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
                               : "text-[var(--text-2)] hover:bg-[var(--hover)] hover:text-[var(--text-1)]",
-                            collapsed() && "justify-center",
+                            collapsed() && "justify-center px-0",
                           )}
                         >
                           <Icon size={16} aria-hidden="true" class="shrink-0" />
@@ -165,7 +165,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
         </For>
       </nav>
 
-      <div class="border-t border-[var(--inner-border)] p-2">
+      <div class="border-t border-[var(--inner-border)] p-3">
         <button
           type="button"
           onClick={toggleTheme}
