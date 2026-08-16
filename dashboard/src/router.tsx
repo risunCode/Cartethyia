@@ -53,7 +53,7 @@ export function DashboardShell(props: { children: JSX.Element }): JSX.Element {
       <Sidebar version={health()?.version} />
       <div class="flex min-w-0 flex-col gap-2.5">
         <Header onSignOut={() => void signOut()} />
-        <main class="dashboard-page min-w-0 flex-1 rounded-[var(--radius-card)] border border-[var(--inner-border)] bg-[var(--surface-1)] p-4 shadow-[var(--shadow-card)] sm:p-5 lg:p-6">
+        <main class="dashboard-page min-w-0 flex-1 rounded-[var(--radius-card)] border border-[var(--inner-border)] bg-[var(--surface-well)] p-4 shadow-[var(--shadow-card)] sm:p-5 lg:p-6">
           {props.children}
         </main>
         <Footer status={health()?.status ?? "unknown"} version={health()?.version} />

@@ -286,6 +286,8 @@
   --focus-ring: #d97757;
   --track: rgba(113, 82, 57, 0.1);
   --code-surface: #fbf8f2;
+  /* Recessed base inside raised panels — inner cards (surface-1) pop on it. */
+  --surface-well: #f6f1e9;
   --radius-sm: 8px;
   --radius-md: 11px;
   --radius-lg: 16px;
@@ -357,6 +359,7 @@
   --focus-ring: #0a84ff;
   --track: rgba(255, 255, 255, 0.12);
   --code-surface: #1a1a1e;
+  --surface-well: #101013;
   --text-1: var(--text-primary);
   --text-2: var(--text-secondary);
   --text-3: var(--text-tertiary);
@@ -425,6 +428,23 @@ body {
     radial-gradient(1100px 640px at 78% -12%, rgba(14, 165, 233, 0.2), transparent 60%),
     radial-gradient(920px 600px at -10% 32%, rgba(139, 92, 246, 0.18), transparent 58%),
     radial-gradient(760px 540px at 62% 108%, rgba(190, 24, 93, 0.14), transparent 60%);
+}
+
+/* ── Panel surfaces ──────────────────────────────────────────────────────────
+   Solid "glass" replacement: the same component classes the alegacy UI used,
+   but opaque (no backdrop-filter). Cards sit on --surface-1 with a border and
+   the card shadow; .glass-2 is the slightly raised variant for dialogs and
+   floating content. On a --surface-well base the layering reads clearly. */
+.glass {
+  background-color: var(--surface-1);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-card);
+}
+
+.glass-2 {
+  background-color: var(--surface-2);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-card);
 }
 
 /* Every authenticated page owns the same width and shrink behavior inside the shell. */

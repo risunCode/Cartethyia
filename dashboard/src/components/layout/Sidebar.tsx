@@ -154,7 +154,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
                             "group flex h-9 items-center gap-2 rounded-[11px] px-2.5 text-[13.5px] font-medium outline-none transition-colors duration-150",
                             focusRingClasses,
                             active()
-                              ? "bg-[var(--active-pill)] font-semibold text-[var(--text-1)] shadow-[0_2px_8px_rgba(0,0,0,0.06)]"
+                              ? "bg-[var(--active-pill)] font-semibold text-[var(--text-1)] shadow-[0_2px_8px_rgba(0,0,0,0.06),inset_0_0_0_1px_var(--border-strong)]"
                               : "text-[var(--text-2)] hover:bg-[var(--hover)] hover:text-[var(--text-1)]",
                             collapsed() && "justify-center px-0",
                           )}
@@ -183,7 +183,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
           onClick={toggleTheme}
           aria-label={`Switch to ${theme() === "dark" ? "light" : "dark"} theme`}
           class={cn(
-            "flex h-9 w-full items-center gap-2 rounded-lg px-2 text-xs font-medium text-[var(--text-2)] outline-none transition-colors duration-150 hover:bg-[var(--hover)] hover:text-[var(--text-1)]",
+            "flex h-9 w-full items-center gap-2 rounded-[11px] border border-[var(--inner-border)] bg-[var(--surface-muted)] px-2 text-xs font-medium text-[var(--text-2)] outline-none transition-colors duration-150 hover:bg-[var(--active-pill)] hover:text-[var(--text-1)]",
             focusRingClasses,
             collapsed() && "justify-center",
           )}
