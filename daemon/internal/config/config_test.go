@@ -81,6 +81,41 @@ func TestFromEnvironmentRejectsMalformedValues(t *testing.T) {
 	if _, err := FromEnvironment(); err == nil {
 		t.Fatal("expected malformed duration error")
 	}
+
+	t.Setenv("CARTETHYIA_REQUEST_TIMEOUT", "45s")
+	t.Setenv("CARTETHYIA_TRUST_PROXY", "not-a-bool")
+	if _, err := FromEnvironment(); err == nil {
+		t.Fatal("expected malformed trust proxy error")
+	}
+}
+
+func TestFromEnvironmentTrustProxy(t *testing.T) {
+	t.Setenv("CARTETHYIA_TRUST_PROXY", "")
+	if got, err := FromEnvironment(); err != nil || got.TrustProxy {
+		t.Fatalf("default must be untrusted: got=%v err=%v", got.TrustProxy, err)
+	}
+	if TrustProxyFromEnvironment() {
+		t.Fatal("TrustProxyFromEnvironment default must be false")
+	}
+
+	t.Setenv("CARTETHYIA_TRUST_PROXY", "true")
+	got, err := FromEnvironment()
+	if err != nil {
+		t.Fatalf("FromEnvironment: %v", err)
+	}
+	if !got.TrustProxy || !TrustProxyFromEnvironment() {
+		t.Fatal("trust proxy must parse true")
+	}
+
+	t.Setenv("CARTETHYIA_TRUST_PROXY", "0")
+	if got, err := FromEnvironment(); err != nil || got.TrustProxy {
+		t.Fatalf("explicit false must stay untrusted: got=%v err=%v", got.TrustProxy, err)
+	}
+
+	t.Setenv("CARTETHYIA_TRUST_PROXY", "garbage")
+	if TrustProxyFromEnvironment() {
+		t.Fatal("malformed value must fail closed")
+	}
 }
 
 func TestConfigValidateRejectsUnsafeBounds(t *testing.T) {

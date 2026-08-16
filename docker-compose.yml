@@ -55,6 +55,9 @@ services:
     environment:
       CARTETHYIA_LISTEN_ADDRESS: ":12800"
       CARTETHYIA_ENV: production
+      # The nginx edge in the dashboard image is the daemon's only direct
+      # client, so its X-Forwarded-For may feed the login rate limiter.
+      CARTETHYIA_TRUST_PROXY: "true"
       CARTETHYIA_DATABASE_URL: ${CARTETHYIA_COMPOSE_DATABASE_URL:-postgres://cartethyia:cartethyia@postgres:5432/cartethyia?sslmode=disable}
       CARTETHYIA_REDIS_URL: ${CARTETHYIA_COMPOSE_REDIS_URL:-redis://redis:6379/0}
     depends_on:
@@ -86,8 +89,9 @@ services:
       target: dashboard-audit
     restart: unless-stopped
     environment:
-      # Own database — dashboard migrations reuse table names (api_keys,
-      # share_links) with a different schema than the daemon's.
+      # Own database — keeps the aux schema isolated from the daemon's
+      # (migration 0002 drops the unused legacy tables; only
+      # schema_migrations remains).
       CARTETHYIA_DASHBOARD_DATABASE_URL: ${CARTETHYIA_COMPOSE_DASHBOARD_DATABASE_URL:-postgres://cartethyia:cartethyia@postgres:5432/cartethyia_dashboard?sslmode=disable}
       CARTETHYIA_DASHBOARD_SQLITE_PATH: /data/logs.db
     volumes:

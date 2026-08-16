@@ -184,7 +184,11 @@ type AuthService interface {
 	Login(ctx context.Context, input LoginInput, request AuthRequest) (LoginResult, error)
 	Logout(ctx context.Context, sessionID string) error
 	Current(ctx context.Context, sessionID string) (Session, error)
-	Refresh(ctx context.Context, sessionID string) (Session, error)
+	// Refresh validates the presented session token and re-issues a fresh
+	// one. The returned LoginResult carries the rotated token through
+	// SetCookie with the same cookie contract as Login; Session alone (with
+	// an empty SetCookie) keeps the legacy no-rotation behavior.
+	Refresh(ctx context.Context, sessionID string, request AuthRequest) (LoginResult, error)
 	OAuthStart(ctx context.Context, providerID string, input OAuthStartInput) (OAuthState, error)
 	OAuthComplete(ctx context.Context, sessionID string, input OAuthCompleteInput) (OAuthState, error)
 	OAuthCancel(ctx context.Context, sessionID string) error

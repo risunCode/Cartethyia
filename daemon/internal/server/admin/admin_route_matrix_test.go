@@ -47,8 +47,12 @@ func (a matrixAuthService) Current(_ context.Context, sessionID string) (Session
 	}
 	return Session{ID: sessionID, User: "operator", Scopes: scopes}, nil
 }
-func (a matrixAuthService) Refresh(_ context.Context, sessionID string) (Session, error) {
-	return a.Current(context.Background(), sessionID)
+func (a matrixAuthService) Refresh(_ context.Context, sessionID string, _ AuthRequest) (LoginResult, error) {
+	session, err := a.Current(context.Background(), sessionID)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	return LoginResult{Session: session}, nil
 }
 func (a matrixAuthService) OAuthStart(context.Context, string, OAuthStartInput) (OAuthState, error) {
 	return OAuthState{SessionID: "oauth-session", Status: "pending", URL: "https://example.test/authorize", Flow: "browser"}, nil
@@ -485,17 +489,17 @@ func TestAdminRouteMatrixEnvelopeAndValidationHelpers(t *testing.T) {
 		t.Fatalf("readSessionID cookie=%q", got)
 	}
 	authReq := buildAuthRequest(req)
-	if authReq.IP != "198.51.100.7" {
-		t.Fatalf("clientIP real=%q", authReq.IP)
+	if authReq.IP != "192.0.2.1" {
+		t.Fatalf("clientIP must ignore untrusted X-Real-IP, got %q", authReq.IP)
 	}
 	req3 := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
 	req3.Header.Set("X-Forwarded-For", "203.0.113.9")
-	if got := clientIP(req3); got != "203.0.113.9" {
-		t.Fatalf("clientIP single=%q", got)
+	if got := clientIP(req3); got != "192.0.2.1" {
+		t.Fatalf("clientIP must ignore untrusted X-Forwarded-For, got %q", got)
 	}
 	req4 := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
 	req4.RemoteAddr = "192.0.2.1:1234"
-	if got := clientIP(req4); got != "192.0.2.1:1234" {
+	if got := clientIP(req4); got != "192.0.2.1" {
 		t.Fatalf("clientIP remote=%q", got)
 	}
 	req5 := httptest.NewRequest(http.MethodGet, "https://example.test/", nil)

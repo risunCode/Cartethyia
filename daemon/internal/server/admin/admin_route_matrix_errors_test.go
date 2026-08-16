@@ -77,8 +77,8 @@ func (failingAuthNoStatus) Logout(context.Context, string) error {
 func (failingAuthNoStatus) Current(context.Context, string) (Session, error) {
 	return Session{}, NewError(CodeUnavailable, "session failed")
 }
-func (failingAuthNoStatus) Refresh(context.Context, string) (Session, error) {
-	return Session{}, NewError(CodeUnavailable, "refresh failed")
+func (failingAuthNoStatus) Refresh(context.Context, string, AuthRequest) (LoginResult, error) {
+	return LoginResult{}, NewError(CodeUnavailable, "refresh failed")
 }
 func (failingAuthNoStatus) OAuthStart(context.Context, string, OAuthStartInput) (OAuthState, error) {
 	return OAuthState{}, NewError(CodeUnavailable, "oauth start failed")

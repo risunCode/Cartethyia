@@ -46,6 +46,13 @@ type Config struct {
 	AccountEncryptionKey string
 	Environment          string
 
+	// TrustProxy allows client-identity consumers (login rate limiter,
+	// analytics) to honor X-Forwarded-For. It must only be enabled when a
+	// trusted reverse proxy is the sole direct client of the daemon;
+	// otherwise attackers rotate the header to evade or weaponize
+	// per-IP limits. Defaults to false.
+	TrustProxy bool
+
 	RequestTimeout      time.Duration
 	ReadHeaderTimeout   time.Duration
 	ConnectTimeout      time.Duration
@@ -88,6 +95,9 @@ func FromEnvironment() (Config, error) {
 	}
 
 	var err error
+	if cfg.TrustProxy, err = boolEnv("CARTETHYIA_TRUST_PROXY", false); err != nil {
+		return Config{}, err
+	}
 	if cfg.RequestTimeout, err = durationEnv("CARTETHYIA_REQUEST_TIMEOUT", cfg.RequestTimeout); err != nil {
 		return Config{}, err
 	}
@@ -280,6 +290,29 @@ func intEnv(name string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s must be an integer", name)
 	}
 	return value, nil
+}
+
+func boolEnv(name string, fallback bool) (bool, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%s must be a valid boolean", name)
+	}
+	return value, nil
+}
+
+// TrustProxyFromEnvironment reports whether forwarding headers may be
+// trusted for client-identity resolution. It exists for HTTP boundary
+// layers that resolve client identity per request and are wired without a
+// Config handle (the admin login limiter). Malformed values fail closed to
+// false; the parse semantics match the CARTETHYIA_TRUST_PROXY entry in
+// FromEnvironment.
+func TrustProxyFromEnvironment() bool {
+	trusted, err := boolEnv("CARTETHYIA_TRUST_PROXY", false)
+	return err == nil && trusted
 }
 
 func validateListenAddress(address string) error {

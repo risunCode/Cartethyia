@@ -185,10 +185,48 @@ func (s *sessionAuthService) Current(ctx context.Context, sessionID string) (adm
 	}, nil
 }
 
-// Refresh revalidates the token; the transport cookie keeps its original
-// expiry because refresh responses do not carry a new cookie.
-func (s *sessionAuthService) Refresh(ctx context.Context, sessionID string) (adminserver.Session, error) {
-	return s.Current(ctx, sessionID)
+// Refresh validates the presented session token (signature, expiry,
+// password version) and re-issues a freshly signed token that carries the
+// same subject and password-version binding with a rotated expiry. The new
+// token is delivered through a new cartethyia_session cookie using the
+// exact cookie contract Login applies; the response body keeps the GET
+// session shape.
+func (s *sessionAuthService) Refresh(ctx context.Context, sessionID string, request adminserver.AuthRequest) (adminserver.LoginResult, error) {
+	if s == nil || s.settings == nil {
+		return adminserver.LoginResult{}, adminserver.NewError(adminserver.CodeAdminAuthentication, "authentication required")
+	}
+	settings, err := s.currentSettings(ctx)
+	if err != nil {
+		return adminserver.LoginResult{}, adminserver.Wrap(adminserver.CodeAdminUnavailable, "console settings are unavailable: "+err.Error(), err)
+	}
+	secret, err := s.ensureSessionSecret(ctx, settings)
+	if err != nil {
+		return adminserver.LoginResult{}, adminserver.Wrap(adminserver.CodeAdminUnavailable, "session signing key is unavailable", err)
+	}
+	claims, err := verifySessionToken(sessionID, secret, settings.PasswordVersion, s.now)
+	if err != nil {
+		return adminserver.LoginResult{}, adminserver.NewError(adminserver.CodeAdminAuthentication, "authentication required")
+	}
+	// Preserve the original session's lifetime so a remember-me refresh
+	// stays a remember-me session; verifySessionToken bounds it to
+	// maxSessionTTL and a positive window already.
+	ttl := time.Duration(claims.EXP-claims.IAT) * time.Second
+	token, jti, issued, expires, err := signSessionToken(secret, claims.PV, ttl, s.now)
+	if err != nil {
+		return adminserver.LoginResult{}, adminserver.Wrap(adminserver.CodeAdminUnavailable, "session token signing failed", err)
+	}
+	maxAge := int(ttl / time.Second)
+	return adminserver.LoginResult{
+		Session: adminserver.Session{
+			ID:        jti,
+			User:      consoleSessionUser,
+			Scopes:    []string{consoleSessionScope},
+			CreatedAt: issued.UTC().Format(time.RFC3339),
+			ExpiresAt: expires.UTC().Format(time.RFC3339),
+		},
+		SetCookie: buildSessionCookie(token, maxAge, requestSecure(request)),
+		MaxAge:    maxAge,
+	}, nil
 }
 
 // currentSettings reads the settings record through a short-lived snapshot

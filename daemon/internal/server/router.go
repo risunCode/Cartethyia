@@ -30,7 +30,9 @@ func NewRouterWith(opts Options) (http.Handler, error) {
 	registerConsole(mux, opts.Console)
 	registerShare(mux, opts.Share)
 	mux.HandleFunc("/", handleNotFound)
-	return middleware.RequestID(observeRequests(opts.Registry, mux)), nil
+	// Recovery sits directly inside RequestID so a panic anywhere downstream
+	// still produces the JSON error envelope with the correlated request id.
+	return middleware.RequestID(middleware.Recovery(opts.Registry.Logger(), observeRequests(opts.Registry, mux))), nil
 }
 
 // observeRequests records the wall-clock duration of every request.

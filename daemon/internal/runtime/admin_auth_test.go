@@ -196,6 +196,131 @@ func cookieValue(t *testing.T, cookie string) string {
 	return parts[1]
 }
 
+// decodeClaims extracts the JWT payload of a signed session token so tests
+// can assert which claims a rotated token inherits.
+func decodeClaims(t *testing.T, token string) sessionClaims {
+	t.Helper()
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		t.Fatalf("token shape: %q", token)
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	var claims sessionClaims
+	if err := json.Unmarshal(raw, &claims); err != nil {
+		t.Fatalf("unmarshal claims: %v", err)
+	}
+	return claims
+}
+
+func TestRefreshRotatesSessionToken(t *testing.T) {
+	store := &fakeConsoleSettings{rows: dbmodels.Settings{PasswordVersion: 4}}
+	withStoredPassword(t, store, "pass", testSessionSecret)
+	svc := newSessionAuthService(nil, nil, "")
+	svc.settings = store
+
+	loginAt := time.Unix(1_700_000_000, 0)
+	svc.now = func() time.Time { return loginAt }
+	login, err := svc.Login(context.Background(), adminserver.LoginInput{Password: "pass"}, adminserver.AuthRequest{IP: "10.0.0.1"})
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	oldToken := cookieValue(t, login.SetCookie)
+
+	refreshAt := loginAt.Add(time.Hour)
+	svc.now = func() time.Time { return refreshAt }
+	refresh, err := svc.Refresh(context.Background(), oldToken, adminserver.AuthRequest{BaseURL: "https://console.example.test"})
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if !strings.Contains(refresh.SetCookie, "cartethyia_session=") ||
+		!strings.Contains(refresh.SetCookie, "Path=/") ||
+		!strings.Contains(refresh.SetCookie, "HttpOnly") ||
+		!strings.Contains(refresh.SetCookie, "SameSite=Strict") ||
+		!strings.Contains(refresh.SetCookie, "Secure") {
+		t.Fatalf("refresh cookie must match the login cookie contract: %q", refresh.SetCookie)
+	}
+	newToken := cookieValue(t, refresh.SetCookie)
+	if newToken == oldToken {
+		t.Fatal("refresh must issue a new token")
+	}
+	if refresh.MaxAge != login.MaxAge {
+		t.Fatalf("rotated lifetime = %d, want %d", refresh.MaxAge, login.MaxAge)
+	}
+
+	// The new token must authenticate; old claims (role, password version)
+	// carry over while the session id and expiry rotate.
+	session, err := svc.Current(context.Background(), newToken)
+	if err != nil {
+		t.Fatalf("rotated token rejected: %v", err)
+	}
+	if session.ID != refresh.Session.ID || session.User != "admin" {
+		t.Fatalf("rotated session: %+v vs %+v", session, refresh.Session)
+	}
+	oldClaims := decodeClaims(t, oldToken)
+	newClaims := decodeClaims(t, newToken)
+	if newClaims.PV != oldClaims.PV || newClaims.Role != oldClaims.Role {
+		t.Fatalf("claims must carry over: old=%+v new=%+v", oldClaims, newClaims)
+	}
+	if newClaims.JTI == oldClaims.JTI {
+		t.Fatal("rotated token must have a fresh session id")
+	}
+	if newClaims.EXP <= oldClaims.EXP {
+		t.Fatalf("rotated expiry %d must outlive the original %d", newClaims.EXP, oldClaims.EXP)
+	}
+}
+
+func TestRefreshPreservesRememberSessionLifetime(t *testing.T) {
+	store := &fakeConsoleSettings{rows: dbmodels.Settings{PasswordVersion: 1}}
+	withStoredPassword(t, store, "pass", testSessionSecret)
+	svc := newSessionAuthService(nil, nil, "")
+	svc.settings = store
+
+	login, err := svc.Login(context.Background(), adminserver.LoginInput{Password: "pass", Remember: true}, adminserver.AuthRequest{IP: "10.0.0.8"})
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	refresh, err := svc.Refresh(context.Background(), cookieValue(t, login.SetCookie), adminserver.AuthRequest{IP: "10.0.0.8"})
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if refresh.MaxAge != int(rememberSessionTTL/time.Second) {
+		t.Fatalf("remember lifetime lost: %d", refresh.MaxAge)
+	}
+}
+
+func TestRefreshRejectsInvalidAndStaleTokens(t *testing.T) {
+	store := &fakeConsoleSettings{rows: dbmodels.Settings{PasswordVersion: 1}}
+	withStoredPassword(t, store, "pass", testSessionSecret)
+	svc := newSessionAuthService(nil, nil, "")
+	svc.settings = store
+
+	login, err := svc.Login(context.Background(), adminserver.LoginInput{Password: "pass"}, adminserver.AuthRequest{IP: "10.0.0.9"})
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if _, err := svc.Refresh(context.Background(), "not-a-token", adminserver.AuthRequest{}); err == nil {
+		t.Fatal("garbage token must be rejected")
+	}
+
+	store.rows.PasswordVersion = 2
+	svc.snapshot = dbmodels.Settings{} // force cache refresh
+	svc.snapAt = time.Time{}
+	_, err = svc.Refresh(context.Background(), cookieValue(t, login.SetCookie), adminserver.AuthRequest{})
+	if err == nil {
+		t.Fatal("stale password version must be rejected")
+	}
+	if adminError, ok := err.(*adminserver.Error); !ok || adminError.Code != adminserver.CodeAdminAuthentication {
+		t.Fatalf("refresh error: %v", err)
+	}
+
+	if _, err := svc.Refresh(context.Background(), "", adminserver.AuthRequest{}); err == nil {
+		t.Fatal("missing token must be rejected")
+	}
+}
+
 func TestLoginRejectsWrongPasswordAndUninitialized(t *testing.T) {
 	uninitialized := testAuthService(t, nil)
 	if _, err := uninitialized.Login(context.Background(), adminserver.LoginInput{Password: "x"}, adminserver.AuthRequest{IP: "10.0.0.2"}); err == nil {

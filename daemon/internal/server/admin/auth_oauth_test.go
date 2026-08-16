@@ -19,7 +19,9 @@ func (a *oauthRouteAuth) Login(context.Context, LoginInput, AuthRequest) (LoginR
 }
 func (a *oauthRouteAuth) Logout(context.Context, string) error             { return nil }
 func (a *oauthRouteAuth) Current(context.Context, string) (Session, error) { return Session{}, nil }
-func (a *oauthRouteAuth) Refresh(context.Context, string) (Session, error) { return Session{}, nil }
+func (a *oauthRouteAuth) Refresh(context.Context, string, AuthRequest) (LoginResult, error) {
+	return LoginResult{}, nil
+}
 func (a *oauthRouteAuth) OAuthStart(context.Context, string, OAuthStartInput) (OAuthState, error) {
 	return OAuthState{SessionID: "opaque-session", Status: "pending", URL: "https://example.test/authorize", State: "csrf-state"}, nil
 }

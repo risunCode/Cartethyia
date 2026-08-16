@@ -3,6 +3,9 @@ package admin
 import (
 	"net/http"
 	"strings"
+
+	"github.com/cartethyia/daemon/internal/config"
+	"github.com/cartethyia/daemon/internal/server/middleware"
 )
 
 // RegisterAuth wires /console/auth/* session and OAuth routes.
@@ -18,12 +21,12 @@ func RegisterAuth(mux *http.ServeMux, services Services) {
 
 	if auth != nil {
 		mux.HandleFunc("/console/auth/login", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
-				var input LoginInput
-				if err := decodeJSON(r, &input); err != nil {
-					WriteError(w, NewError(CodeInvalidRequest, "invalid JSON body").WithCause(err))
-					return
-				}
-				result, err := auth.Login(r.Context(), input, buildAuthRequest(r))
+			var input LoginInput
+			if err := decodeJSON(r, &input); err != nil {
+				WriteError(w, NewError(CodeInvalidRequest, "invalid JSON body").WithCause(err))
+				return
+			}
+			result, err := auth.Login(r.Context(), input, buildAuthRequest(r))
 			if err != nil {
 				WriteError(w, err)
 				return
@@ -58,12 +61,15 @@ func RegisterAuth(mux *http.ServeMux, services Services) {
 
 		mux.HandleFunc("/console/auth/refresh", requireMethod(http.MethodPost, func(w http.ResponseWriter, r *http.Request) {
 			sessionID := readSessionID(r)
-			session, err := auth.Refresh(r.Context(), sessionID)
+			result, err := auth.Refresh(r.Context(), sessionID, buildAuthRequest(r))
 			if err != nil {
 				WriteError(w, err)
 				return
 			}
-			WriteData(w, http.StatusOK, session)
+			if result.SetCookie != "" {
+				w.Header().Add("Set-Cookie", result.SetCookie)
+			}
+			WriteData(w, http.StatusOK, result.Session)
 		}))
 	}
 
@@ -251,15 +257,13 @@ func baseURLFromRequest(r *http.Request) string {
 	return scheme + "://" + host
 }
 
+// clientIP resolves the identity used by the per-IP login failure limiter.
+// Forwarded headers are client-controlled by default and must not feed the
+// limiter: honoring them lets an attacker rotate X-Forwarded-For to evade
+// the failure budget or spoof a victim's address to lock them out. The
+// header is only honored when CARTETHYIA_TRUST_PROXY explicitly declares a
+// trusted reverse proxy, using the shared ClientKeyWithTrust semantics
+// (trusted -> leftmost forwarded entry; untrusted -> socket peer host).
 func clientIP(r *http.Request) string {
-	if h := r.Header.Get("X-Forwarded-For"); h != "" {
-		if comma := strings.IndexByte(h, ','); comma >= 0 {
-			return strings.TrimSpace(h[:comma])
-		}
-		return strings.TrimSpace(h)
-	}
-	if h := r.Header.Get("X-Real-IP"); h != "" {
-		return strings.TrimSpace(h)
-	}
-	return r.RemoteAddr
+	return middleware.ClientKeyWithTrust(r, config.TrustProxyFromEnvironment())
 }
