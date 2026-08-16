@@ -131,7 +131,7 @@ export function Header(props: HeaderProps): JSX.Element {
       id="dashboard-header-root"
       role="banner"
       class={cn(
-        "component-fade-in sticky top-4 z-30 flex items-center gap-2 rounded-[18px] border border-[var(--inner-border)] bg-[var(--glass-bg)] px-3 py-2.5 shadow-[var(--shadow-card)] sm:gap-3.5 sm:px-4 sm:py-3",
+        "component-fade-in sticky top-2.5 z-30 flex items-center gap-2 rounded-[18px] border border-[var(--inner-border)] bg-[var(--glass-bg)] px-3 py-2.5 shadow-[var(--shadow-card)] sm:gap-3.5 sm:px-4 sm:py-3",
         props.className,
       )}
     >

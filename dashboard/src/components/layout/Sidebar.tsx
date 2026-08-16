@@ -93,7 +93,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
     <aside
       aria-label="Dashboard navigation"
       class={cn(
-        "component-fade-in hidden shrink-0 flex-col rounded-[var(--radius-sidebar)] border border-[var(--inner-border)] bg-[var(--glass-bg)] shadow-[var(--shadow-card)] lg:sticky lg:top-4 lg:flex lg:h-[calc(100dvh-32px)] lg:self-start",
+        "component-fade-in hidden shrink-0 flex-col rounded-[var(--radius-sidebar)] border border-[var(--inner-border)] bg-[var(--glass-bg)] shadow-[var(--shadow-card)] lg:sticky lg:top-2.5 lg:flex lg:h-[calc(100dvh-20px)] lg:self-start",
         "transition-[width] duration-150 ease-out",
         widthClass(),
         props.className,

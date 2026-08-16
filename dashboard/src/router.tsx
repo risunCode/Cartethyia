@@ -49,9 +49,9 @@ export function DashboardShell(props: { children: JSX.Element }): JSX.Element {
   };
 
   return (
-    <div class="mx-auto grid min-h-dvh max-w-[1560px] grid-cols-1 gap-4 bg-transparent p-4 lg:grid-cols-[auto_minmax(0,1fr)]">
+    <div class="mx-auto grid min-h-dvh max-w-[1680px] grid-cols-1 gap-2.5 bg-transparent p-2.5 lg:grid-cols-[auto_minmax(0,1fr)]">
       <Sidebar version={health()?.version} />
-      <div class="flex min-w-0 flex-col gap-4">
+      <div class="flex min-w-0 flex-col gap-2.5">
         <Header onSignOut={() => void signOut()} />
         <main class="dashboard-page min-w-0 flex-1 rounded-[var(--radius-card)] border border-[var(--inner-border)] bg-[var(--surface-1)] p-4 shadow-[var(--shadow-card)] sm:p-5 lg:p-6">
           {props.children}
