@@ -67,16 +67,16 @@ describe("dashboard console API client", () => {
   });
 
   test("apiRaw returns the raw response with headers intact", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("backup", {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("export", {
       status: 200,
-      headers: { "content-disposition": 'attachment; filename="config.backup"' },
+      headers: { "content-disposition": 'attachment; filename="requests.export"' },
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const res = await apiRaw("/console/backups/backup-1/download");
+    const res = await apiRaw("/console/logs?limit=1");
 
-    expect(res.headers.get("content-disposition")).toBe('attachment; filename="config.backup"');
-    expect(await res.text()).toBe("backup");
-    expect(fetchMock).toHaveBeenCalledWith("/console/backups/backup-1/download", expect.objectContaining({ method: "GET", credentials: "same-origin" }));
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="requests.export"');
+    expect(await res.text()).toBe("export");
+    expect(fetchMock).toHaveBeenCalledWith("/console/logs?limit=1", expect.objectContaining({ method: "GET", credentials: "same-origin" }));
   });
 });

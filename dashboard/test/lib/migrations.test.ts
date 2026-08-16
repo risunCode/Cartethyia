@@ -83,6 +83,48 @@ describe("discoverMigrations", () => {
   });
 });
 
+describe("dashboard migrations tree", () => {
+  // Vitest runs with the dashboard package as cwd; the real tree is a sibling of src/lib.
+  const realDir = path.join(process.cwd(), "migrations");
+
+  test("pairs every forward migration with its .down.sql rollback", async () => {
+    const files = await discoverMigrations(realDir);
+
+    expect(files.map((file) => file.version)).toEqual(["0001", "0002"]);
+    const unpaired = files.filter((file) => file.rollbackSql === null).map((file) => file.forwardPath);
+    expect(unpaired).toEqual([]);
+  });
+
+  test("the final migration drops the orphaned 0001 tables", async () => {
+    const files = await discoverMigrations(realDir);
+    const drop = files.at(-1)!;
+
+    expect(drop.version).toBe("0002");
+    for (const table of ["share_links", "quota_accounts", "api_keys", "user_settings", "users"]) {
+      expect(drop.forwardSql).toMatch(new RegExp(`DROP TABLE IF EXISTS\\s+${table}\\s+CASCADE`, "i"));
+    }
+    // Rolling 0002 back must restore the schema it dropped.
+    expect(drop.rollbackSql).toMatch(/CREATE TABLE IF NOT EXISTS users/i);
+  });
+
+  test("applies 0002 cleanly on top of an already-applied 0001", async () => {
+    const files = await discoverMigrations(realDir);
+    const initial = files.find((file) => file.version === "0001")!;
+    // The applied 0001 row carries the checksum of the file as it ships, so
+    // adding 0002 must not disturb it (checksum stability of 0001).
+    const pool = fakePool([
+      { version: "0001", name: initial.name, checksum: checksum(initial.forwardSql), applied_at: new Date().toISOString(), duration_ms: 1 },
+    ]);
+
+    const result = await runMigrations(pool, { directory: realDir });
+
+    const drop = files.find((file) => file.version === "0002")!;
+    expect(result.applied.map((row) => row.version)).toEqual(["0002"]);
+    expect(result.applied[0]!.checksum).toBe(checksum(drop.forwardSql));
+    expect(result.pending.map((row) => row.version)).toEqual(["0001"]);
+  });
+});
+
 /** In-memory fake of `PgPoolHandle` backed by a `schema_migrations` array. */
 function fakePool(initialApplied: AppliedMigration[] = []): PgPoolHandle {
   const appliedRows = [...initialApplied];

@@ -85,6 +85,22 @@ function AuthGuard(props: { children: JSX.Element }): JSX.Element {
   );
 }
 
+/**
+ * Catch-all for unmatched paths (e.g. `/share` without a token id). The
+ * `/console` console-log page used to live here; that path now collides with
+ * the daemon's `/console/*` API prefix on every proxy, so the page moved to
+ * `/logs`.
+ */
+function NotFound(): JSX.Element {
+  return (
+    <main class="flex min-h-screen flex-col items-center justify-center gap-2 px-6 text-center">
+      <p class="text-xs uppercase tracking-[0.3em] text-[var(--text-3)]">404</p>
+      <h1 class="text-2xl font-semibold">Page not found</h1>
+      <a class="underline" href="/">Return to the landing page</a>
+    </main>
+  );
+}
+
 function App(): JSX.Element {
   // Any 401 from the console API plane (expired or revoked session) lands the
   // operator back on the login screen.
@@ -103,8 +119,10 @@ function App(): JSX.Element {
       <Route path="/usage" component={() => <AuthGuard><Usage /></AuthGuard>} />
       <Route path="/providers" component={() => <AuthGuard><Providers /></AuthGuard>} />
       <Route path="/quota" component={() => <AuthGuard><Quota /></AuthGuard>} />
-      <Route path="/console" component={() => <AuthGuard><ConsoleLog /></AuthGuard>} />
+      <Route path="/logs" component={() => <AuthGuard><ConsoleLog /></AuthGuard>} />
       <Route path="/settings" component={() => <AuthGuard><Settings /></AuthGuard>} />
+      {/* Unknown paths must never render a blank document. */}
+      <Route path="*" component={NotFound} />
     </Router>
   );
 }

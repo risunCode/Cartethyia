@@ -22,10 +22,10 @@ import { api, type ConsoleHttpMethod } from "../../src/lib/api";
 import { consoleFailure, consoleGet, ConsoleContractError } from "../../src/lib/console-api";
 import {
   CONSOLE_ROUTE_MATRIX,
-  findConsoleRouteContract,
+  CONSOLE_STREAM_ROUTES,
   isDocumentedConsoleRoute,
-  serializeConsoleQuery,
 } from "../../src/lib/console-routes";
+import { serializeConsoleQuery } from "./console-routes.test-utils";
 
 describe("dashboard transport route contract", () => {
   afterEach(() => vi.restoreAllMocks());
@@ -53,13 +53,24 @@ describe("dashboard transport route contract", () => {
   });
 
   test("serializes only bounded, allow-listed query values", () => {
-    const accounts = findConsoleRouteContract("/providers/openai/accounts");
+    const accounts = CONSOLE_ROUTE_MATRIX.find((contract) => contract.route === "/providers/:providerId/accounts");
     expect(accounts).toBeDefined();
     expect(serializeConsoleQuery(accounts!, { limit: 100, cursor: "next page", ignored: "not sent" })).toBe("?limit=100&cursor=next+page");
     expect(isDocumentedConsoleRoute("/providers/openai/accounts?limit=100&cursor=next%20page", "GET")).toBe(true);
     expect(isDocumentedConsoleRoute("/providers/openai/accounts?secret=leaked", "GET")).toBe(false);
     expect(isDocumentedConsoleRoute(`/${"x".repeat(600)}`, "GET")).toBe(false);
+    // The runtime predicate enforces the same bound the serializer does.
     expect(() => serializeConsoleQuery(accounts!, { cursor: "x".repeat(129) })).toThrow("API query value is too long");
+    expect(isDocumentedConsoleRoute(`/providers/openai/accounts?cursor=${"x".repeat(129)}`, "GET")).toBe(false);
+  });
+
+  test("keeps SSE stream routes out of the JSON matrix", () => {
+    expect(CONSOLE_STREAM_ROUTES.length).toBeGreaterThan(0);
+    for (const route of CONSOLE_STREAM_ROUTES) {
+      expect(route.includes(":")).toBe(false);
+      expect(CONSOLE_ROUTE_MATRIX.some((contract) => (contract.route as string) === route)).toBe(false);
+      expect(isDocumentedConsoleRoute(route, "GET")).toBe(false);
+    }
   });
 
   test("propagates cancellation and keeps network failures bounded at the state boundary", async () => {
@@ -262,15 +273,14 @@ const DISPATCHER_SUBROUTES: ReadonlyArray<{
 ];
 
 /**
- * Daemon console routes the matrix deliberately does not claim. WS4 removed
- * the orphan route families (docs/v2.1-console-plan.md §3), so this list is
- * now exactly the intentional gaps; anyone adding a daemon route the
- * dashboard does not use must update it in the same change.
+ * Daemon console routes the dashboard contract deliberately does not claim.
+ * WS4 removed the orphan route families (docs/v2.1-console-plan.md §3), and
+ * the SSE streams are claimed through CONSOLE_STREAM_ROUTES instead of the
+ * JSON fetch matrix, so this list is now exactly the intentional gaps;
+ * anyone adding a daemon route the dashboard does not use must update it in
+ * the same change.
  */
 const KNOWN_UNCOVERED_DAEMON_ROUTES = [
-  // SSE streams ride the EventSource transport, not the JSON fetch matrix.
-  "GET /telemetry/in-flight/stream",
-  "GET /logs/stream",
   // Daemon-supported mutations the dashboard matrix does not exercise.
   "PATCH /accounts/:param",
   "DELETE /accounts/:param",
@@ -368,10 +378,23 @@ describe("daemon console route registration parity", () => {
     expect(missing, "matrix entries without a daemon registration").toEqual([]);
   });
 
+  test("every CONSOLE_STREAM_ROUTES entry maps 1:1 to a registered daemon stream route", () => {
+    const daemonPairs = new Set(daemonConsoleSurface().pairs);
+    const missing: string[] = [];
+    for (const route of CONSOLE_STREAM_ROUTES) {
+      const pair = `GET ${normalizeConsolePath(route)}`;
+      if (!daemonPairs.has(pair)) missing.push(pair);
+    }
+    expect(missing, "stream routes without a daemon registration").toEqual([]);
+  });
+
   test("daemon console routes not covered by the matrix match the maintained list", () => {
     const daemonPairs = daemonConsoleSurface().pairs;
-    const matrixPairs = new Set(CONSOLE_ROUTE_MATRIX.flatMap((contract) => routePairs(contract.route, contract.methods)));
-    const uncovered = daemonPairs.filter((pair) => !matrixPairs.has(pair)).sort();
+    const claimedPairs = new Set([
+      ...CONSOLE_ROUTE_MATRIX.flatMap((contract) => routePairs(contract.route, contract.methods)),
+      ...CONSOLE_STREAM_ROUTES.map((route) => `GET ${normalizeConsolePath(route)}`),
+    ]);
+    const uncovered = daemonPairs.filter((pair) => !claimedPairs.has(pair)).sort();
     expect(uncovered).toEqual(KNOWN_UNCOVERED_DAEMON_ROUTES);
   });
 });

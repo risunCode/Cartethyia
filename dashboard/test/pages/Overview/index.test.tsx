@@ -3,6 +3,7 @@ import { render, screen } from "@solidjs/testing-library";
 
 import Overview from "../../../src/pages/Overview/index";
 import { consoleGet } from "../../../src/lib/console-api";
+import { ApiError } from "../../../src/lib/api";
 import { apiCache } from "../../../src/lib/cache";
 
 // Only the network reader is replaced; the contract normalizers stay real so
@@ -125,6 +126,36 @@ describe("Overview page", () => {
     render(() => <Overview />);
 
     expect(await screen.findByText("No errors in the last 24 hours.")).toBeInTheDocument();
+    expect(screen.queryByText("Summary degraded")).not.toBeInTheDocument();
+  });
+
+  test("renders no degraded banner when every summary endpoint succeeds", async () => {
+    render(() => <Overview />);
+
+    await screen.findByText("1,200");
+
+    expect(screen.queryByText("Summary degraded")).not.toBeInTheDocument();
+  });
+
+  test("shows the degraded banner while healthy endpoints still render metrics", async () => {
+    vi.mocked(consoleGet).mockImplementation(async (route: string) => {
+      if (route.startsWith("/telemetry/overview")) throw new ApiError(503, "unavailable", "telemetry backend down");
+      if (route.startsWith("/telemetry/errors")) return errorBucketsPayload;
+      return dashboardPayload;
+    });
+
+    render(() => <Overview />);
+
+    // The banner names the failing endpoint with the bounded console message.
+    expect(await screen.findByText("Summary degraded")).toBeInTheDocument();
+    expect(screen.getByText(/telemetry overview unavailable — telemetry backend down/)).toBeInTheDocument();
+    // Metrics fed by the healthy endpoints still render.
+    expect(await screen.findByText("512")).toBeInTheDocument();
+    expect(screen.getByText("3d 4h")).toBeInTheDocument();
+    expect(screen.getByText("upstream_502")).toBeInTheDocument();
+    // The failed endpoint's metrics degrade to placeholders, not stale values.
+    expect(screen.queryByText("1,200")).not.toBeInTheDocument();
+    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
   });
 
   test("degrades to placeholders instead of crashing when every endpoint fails", async () => {
@@ -132,7 +163,8 @@ describe("Overview page", () => {
 
     render(() => <Overview />);
 
-    await screen.findByText("No errors in the last 24 hours.");
+    await screen.findByText("Summary degraded");
+    expect(screen.getByText(/dashboard summary, telemetry overview, recent errors unavailable/)).toBeInTheDocument();
     // All four metrics fall back to the em-dash unavailable marker.
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(4);
     // Uptime is unknown too.

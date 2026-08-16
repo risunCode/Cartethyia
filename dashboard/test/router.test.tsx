@@ -22,7 +22,7 @@ describe("DashboardShell", () => {
     // Sidebar: primary navigation landmark with every route wired in router.tsx.
     const nav = screen.getByRole("navigation", { name: "Primary" });
     expect(nav).toBeInTheDocument();
-    for (const label of ["Overview", "Usage", "Providers", "Quota", "Console log", "Share", "Settings"]) {
+    for (const label of ["Overview", "Usage", "Providers", "Quota", "Console log", "Settings"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }
 

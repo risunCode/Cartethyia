@@ -100,10 +100,11 @@ describe("LogHistory", () => {
   test("renders the empty pane when nothing matches the source filter", async () => {
     render(() => <LogHistory level="debug" source="nothing.matches" />);
 
-    // Quirk under test: consoleFailure(undefined) is truthy, so the pane's
-    // fallback always renders the bounded failure copy instead of the
-    // dedicated empty-filter message. Assert the behavior as shipped.
-    expect(await screen.findByText("API request failed")).toBeInTheDocument();
+    // No fetch error occurred, so the pane must show the dedicated
+    // empty-filter copy — consoleFailure(null) is null, never a phantom
+    // "network_error" badge.
+    expect(await screen.findByText("No log entries match the current filter.")).toBeInTheDocument();
+    expect(screen.queryByText("API request failed")).not.toBeInTheDocument();
     expect(screen.queryByText("request routed")).not.toBeInTheDocument();
   });
 });

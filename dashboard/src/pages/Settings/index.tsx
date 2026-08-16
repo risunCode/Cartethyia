@@ -35,7 +35,7 @@ export default function Settings(): JSX.Element {
         return await consoleGet<SettingsResponse>(SETTINGS_ENDPOINT);
       } catch (cause) {
         const failure = consoleFailure(cause);
-        setError(failure.message);
+        setError(failure?.message ?? "Request failed");
         throw cause;
       }
     },
@@ -55,7 +55,7 @@ export default function Settings(): JSX.Element {
       setRefreshTick((tick) => tick + 1);
       return response;
     } catch (cause) {
-      setError(consoleFailure(cause).message);
+      setError(consoleFailure(cause)?.message ?? "Request failed");
       return null;
     }
   };

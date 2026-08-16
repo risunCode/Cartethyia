@@ -39,8 +39,7 @@ const routeTitles: Record<string, string> = {
   "/usage": "Usage",
   "/providers": "Providers",
   "/quota": "Quota",
-  "/console": "Console log",
-  "/share": "Share",
+  "/logs": "Console log",
   "/settings": "Settings",
 };
 

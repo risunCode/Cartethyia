@@ -19,6 +19,16 @@ export interface DashboardSummary {
   activeProviders: number | null;
   recentErrors: readonly ErrorListItem[];
   fetchedAt: string;
+  /** Endpoints whose failure degraded this summary (empty when all succeed). */
+  failures: readonly SummaryEndpointFailure[];
+}
+
+/** Bounded failure info for one summary endpoint (already through consoleFailure). */
+export interface SummaryEndpointFailure {
+  label: string;
+  code: string;
+  message: string;
+  degraded: boolean;
 }
 
 interface OverviewMetric {
@@ -41,6 +51,12 @@ const SUMMARY_CACHE_TTL_MS = 5_000;
 const SUMMARY_REFRESH_MS = 5_000;
 const SUMMARY_CACHE_ENDPOINT = "/dashboard";
 
+const SUMMARY_ENDPOINTS = [
+  { route: "/dashboard", label: "dashboard summary" },
+  { route: "/telemetry/overview?period=24h", label: "telemetry overview" },
+  { route: "/telemetry/errors?period=24h&limit=10", label: "recent errors" },
+] as const;
+
 const EMPTY_SUMMARY: DashboardSummary = {
   requests: null,
   errors: null,
@@ -49,6 +65,7 @@ const EMPTY_SUMMARY: DashboardSummary = {
   activeProviders: null,
   recentErrors: [],
   fetchedAt: "",
+  failures: [],
 };
 
 function safeNumber(value: unknown): number | null {
@@ -87,7 +104,7 @@ function coerceErrorBuckets(value: unknown): ErrorListItem[] {
   return errors;
 }
 
-function coerceSummary(dashboard: unknown, overview: unknown, errorBuckets: unknown): DashboardSummary {
+function coerceSummary(dashboard: unknown, overview: unknown, errorBuckets: unknown): Omit<DashboardSummary, "failures"> {
   const board = safeRecord(dashboard);
   const health = safeRecord(board.health);
   const telemetry = safeRecord(overview);
@@ -102,23 +119,37 @@ function coerceSummary(dashboard: unknown, overview: unknown, errorBuckets: unkn
   };
 }
 
+interface SummaryEndpointResult {
+  value: unknown;
+  failure: SummaryEndpointFailure | null;
+}
+
+async function fetchSummaryEndpoint(endpoint: (typeof SUMMARY_ENDPOINTS)[number]): Promise<SummaryEndpointResult> {
+  try {
+    return { value: await consoleGet<unknown>(endpoint.route), failure: null };
+  } catch (error) {
+    const failure = consoleFailure(error) ?? { code: "network_error", message: "API request failed", degraded: false };
+    return { value: null, failure: { label: endpoint.label, ...failure } };
+  }
+}
+
 /**
  * Combines the API summary (`/dashboard`), 24h request/error
  * totals (`/telemetry/overview`), and recent error buckets
- * (`/telemetry/errors`) into one Overview payload. Individual
- * endpoint failures degrade to nulls instead of failing the whole view.
+ * (`/telemetry/errors`) into one Overview payload. Each endpoint settles
+ * independently: a failure degrades only the metrics it feeds (recorded in
+ * `failures` so the page can surface it) instead of failing the whole view.
  */
 async function fetchSummary(): Promise<DashboardSummary> {
   const cacheKey = getCacheKey(SUMMARY_CACHE_ENDPOINT, { period: "24h" });
   const cached = apiCache.get<DashboardSummary>(cacheKey);
   if (cached !== null) return cached;
 
-  const [dashboard, overview, errors] = await Promise.all([
-    consoleGet<unknown>("/dashboard").catch(() => null),
-    consoleGet<unknown>("/telemetry/overview?period=24h").catch(() => null),
-    consoleGet<unknown>("/telemetry/errors?period=24h&limit=10").catch(() => null),
-  ]);
-  const summary = coerceSummary(dashboard, overview, errors);
+  const [dashboard, overview, errors] = await Promise.all(SUMMARY_ENDPOINTS.map(fetchSummaryEndpoint));
+  const summary: DashboardSummary = {
+    ...coerceSummary(dashboard.value, overview.value, errors.value),
+    failures: [dashboard, overview, errors].flatMap((result) => (result.failure ? [result.failure] : [])),
+  };
   apiCache.set(cacheKey, summary, SUMMARY_CACHE_TTL_MS);
   return summary;
 }
@@ -189,7 +220,14 @@ export default function Overview() {
   const metrics = createMemo<OverviewMetric[]>(() => deriveMetrics(summary()));
   const isLoading = () => resource.loading;
   const isError = () => resource.error !== undefined;
-  const errorInfo = createMemo(() => (resource.error ? consoleFailure(resource.error) : null));
+  // Endpoint failures surface through the same bounded info the fatal path
+  // uses, so a partial console outage is visible instead of silent nulls.
+  const errorInfo = createMemo(() => {
+    if (resource.error) return consoleFailure(resource.error);
+    const first = summary().failures[0];
+    return first ? { code: first.code, message: first.message, degraded: first.degraded } : null;
+  });
+  const degradedLabels = createMemo(() => summary().failures.map((failure) => failure.label));
 
   return (
     <div class="dashboard-page animate-fade-in space-y-5">
@@ -233,6 +271,19 @@ export default function Overview() {
               />
             }
           >
+            <Show when={summary().failures.length > 0}>
+              <StatePanel
+                kind={errorInfo()?.degraded ? "degraded" : "error"}
+                title="Summary degraded"
+                description={`${degradedLabels().join(", ")} unavailable — ${errorInfo()?.message ?? "unknown error"}`}
+                action={
+                  <Button variant="secondary" onClick={() => void refetch()}>
+                    Retry
+                  </Button>
+                }
+                className="mb-3"
+              />
+            </Show>
             <div class="grid animate-fade-in grid-cols-2 gap-3 lg:grid-cols-4">
               <For each={metrics()}>
                 {(metric) => {

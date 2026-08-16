@@ -4,6 +4,7 @@ import {
   consoleApi,
   consoleFailure,
   consoleGet,
+  consoleStreamUrl,
   normalizeDashboardSummary,
   redactOperatorValue,
   unwrapConsoleEnvelope,
@@ -70,5 +71,18 @@ describe("console API contracts", () => {
     vi.stubGlobal("fetch", fetchMock);
     await consoleApi("/settings", { method: "PATCH", body: JSON.stringify({ logLevel: "info" }) });
     expect(fetchMock).toHaveBeenCalledWith("/console/settings", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ logLevel: "info" }) }));
+  });
+
+  test("maps documented stream routes onto the console admin mount", () => {
+    expect(consoleStreamUrl("/logs/stream")).toBe("/console/logs/stream");
+    expect(consoleStreamUrl("telemetry/in-flight/stream")).toBe("/console/telemetry/in-flight/stream");
+  });
+
+  test("rejects stream routes outside the console contract", () => {
+    for (const route of ["/v1/logs/stream", "/telemetry/overview", "/logs/stream?level=debug", "https://api.invalid/logs/stream", "/logs/stream/extra"]) {
+      expect(() => consoleStreamUrl(route)).toThrowError(
+        expect.objectContaining({ code: "invalid_route", status: 400, message: "dashboard stream route is outside the console contract" }),
+      );
+    }
   });
 });

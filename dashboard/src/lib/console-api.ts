@@ -1,5 +1,5 @@
 import { api, ApiError, sanitizeErrorMessage, type ConsoleHttpMethod } from "./api";
-import { isDocumentedConsoleRoute } from "./console-routes";
+import { CONSOLE_STREAM_ROUTES, isDocumentedConsoleRoute } from "./console-routes";
 
 /** Envelope emitted by the console's /console routes. */
 export interface ConsoleEnvelope<T> {
@@ -163,15 +163,26 @@ export function adminApiPath(route: string): string {
 }
 
 /**
- * URL for an admin-plane SSE stream (e.g. `consoleStreamUrl("/console/logs/stream")`).
+ * URL for an admin-plane SSE stream (e.g. `consoleStreamUrl("/logs/stream")`).
  * Same-origin, so the session cookie travels with the EventSource connection.
+ * The route must be one of `CONSOLE_STREAM_ROUTES` — streams ride the
+ * EventSource transport rather than the JSON matrix, but they are still held
+ * to the same explicit contract.
  */
 export function consoleStreamUrl(route: string): string {
-  return adminApiPath(route);
+  const normalized = route.startsWith("/") ? route : `/${route}`;
+  if (!(CONSOLE_STREAM_ROUTES as readonly string[]).includes(normalized)) {
+    throw new ConsoleContractError("invalid_route", "dashboard stream route is outside the console contract", 400);
+  }
+  return adminApiPath(normalized);
 }
 
-/** Converts console failures into bounded state suitable for an operator view. */
-export function consoleFailure(error: unknown): { code: string; message: string; degraded: boolean } {
+/** Converts console failures into bounded state suitable for an operator view.
+ * Returns null when there is no error — callers render badges/panels from it
+ * truthiness, so a phantom "network_error" for undefined would paint a false
+ * failure badge on healthy pages. */
+export function consoleFailure(error: unknown): { code: string; message: string; degraded: boolean } | null {
+  if (error == null) return null;
   if (error instanceof ApiError || error instanceof ConsoleContractError) {
     return {
       code: error.code,

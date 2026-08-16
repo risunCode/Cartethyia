@@ -201,7 +201,7 @@ export async function fetchAccountQuota(accountId: string): Promise<QuotaProbeOu
       ? { kind: "ready", window }
       : { kind: "error", code: "invalid_contract", message: "quota response is invalid" };
   } catch (cause) {
-    const failure = consoleFailure(cause);
+    const failure = consoleFailure(cause) ?? { code: "network_error", message: "API request failed", degraded: true };
     return failure.degraded
       ? { kind: "unsupported", code: failure.code }
       : { kind: "error", code: failure.code, message: failure.message };

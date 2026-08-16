@@ -10,7 +10,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
-  Share2,
   TerminalSquare,
   Users,
 } from "lucide-solid";
@@ -45,8 +44,7 @@ const DEFAULT_SECTIONS: readonly SidebarNavSection[] = [
       { href: "/usage", label: "Usage", icon: Activity },
       { href: "/providers", label: "Providers", icon: Users },
       { href: "/quota", label: "Quota", icon: Gauge },
-      { href: "/console", label: "Console log", icon: TerminalSquare },
-      { href: "/share", label: "Share", icon: Share2 },
+      { href: "/logs", label: "Console log", icon: TerminalSquare },
     ],
   },
   {
@@ -70,7 +68,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
 
   const isActive = (href: string): boolean => {
     const path = location.pathname;
-    const exact = ["/overview", "/usage", "/providers", "/quota", "/console", "/settings"];
+    const exact = ["/overview", "/usage", "/providers", "/quota", "/logs", "/settings"];
     if (exact.includes(href)) return path === href || path.startsWith(`${href}/`);
     return path === href;
   };

@@ -766,7 +766,7 @@ export default function Providers(): JSX.Element {
                 <StatePanel
                   kind="error"
                   title="Failed to load provider detail"
-                  description={`${consoleFailure(detailResource.error).message} (${consoleFailure(detailResource.error).code})`}
+                  description={`${consoleFailure(detailResource.error)?.message ?? "unknown error"} (${consoleFailure(detailResource.error)?.code ?? "unknown"})`}
                   action={
                     <Button variant="secondary" onClick={() => void refetchDetail()}>
                       Retry

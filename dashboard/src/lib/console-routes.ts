@@ -15,13 +15,9 @@ export interface ConsoleRouteContract {
   readonly queryKeys?: readonly string[];
 }
 
-export interface ConsoleQueryOptions {
-  readonly [key: string]: string | number | boolean | null | undefined;
-}
-
-export const MAX_CONSOLE_QUERY_KEYS = 8;
-export const MAX_CONSOLE_QUERY_VALUE_LENGTH = 128;
-export const MAX_CONSOLE_QUERY_LENGTH = 512;
+const MAX_CONSOLE_QUERY_KEYS = 8;
+const MAX_CONSOLE_QUERY_VALUE_LENGTH = 128;
+const MAX_CONSOLE_QUERY_LENGTH = 512;
 
 function hasAllowedQuery(route: ConsoleRouteContract, query: string): boolean {
   if (query.length === 0) return true;
@@ -34,22 +30,6 @@ function hasAllowedQuery(route: ConsoleRouteContract, query: string): boolean {
     const value = params.get(key) ?? "";
     return value.length > 0 && value.length <= MAX_CONSOLE_QUERY_VALUE_LENGTH;
   });
-}
-
-/** Serializes only allow-listed, bounded query values for a route contract. */
-export function serializeConsoleQuery(route: ConsoleRouteContract, values: ConsoleQueryOptions): string {
-  const allowed = route.queryKeys ?? [];
-  const params = new URLSearchParams();
-  for (const key of allowed) {
-    const value = values[key];
-    if (value === undefined || value === null || value === "") continue;
-    const text = String(value);
-    if (text.length > MAX_CONSOLE_QUERY_VALUE_LENGTH) throw new Error("API query value is too long");
-    params.set(key, text);
-  }
-  const query = params.toString();
-  if (query.length > MAX_CONSOLE_QUERY_LENGTH) throw new Error("API query is too long");
-  return query.length > 0 ? `?${query}` : "";
 }
 
 
@@ -87,6 +67,17 @@ export const CONSOLE_ROUTE_MATRIX = [
 ] as const satisfies readonly ConsoleRouteContract[];
 export type ConsoleRoutePattern = (typeof CONSOLE_ROUTE_MATRIX)[number]["route"];
 
+/**
+ * Admin-plane SSE streams the browser opens through the EventSource
+ * transport (`consoleStreamUrl`). Deliberately exact static routes — the
+ * stream surface has no `:params` and no query string, so membership is a
+ * plain string check.
+ */
+export const CONSOLE_STREAM_ROUTES = [
+  "/telemetry/in-flight/stream",
+  "/logs/stream",
+] as const satisfies readonly string[];
+
 const ROUTE_SEGMENT = "[^/?#]+";
 
 function routePattern(contract: ConsoleRouteContract): RegExp {
@@ -100,7 +91,7 @@ function routePattern(contract: ConsoleRouteContract): RegExp {
 const COMPILED_ROUTES = CONSOLE_ROUTE_MATRIX.map((contract) => ({ ...contract, pattern: routePattern(contract) }));
 
 /** Returns the matching retained route contract for an admin suffix. */
-export function findConsoleRouteContract(route: string): ConsoleRouteContract | undefined {
+function findConsoleRouteContract(route: string): ConsoleRouteContract | undefined {
   if (route.includes("://") || route.startsWith("/v1/") || route.startsWith("/v2/")) return undefined;
   const separator = route.indexOf("?");
   const path = separator < 0 ? route : route.slice(0, separator);
