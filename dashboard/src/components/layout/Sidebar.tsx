@@ -17,7 +17,7 @@ import {
 import { IconButton } from "../ui/icon";
 import { StatusIndicator } from "../ui/icon";
 import { cn } from "../../lib/cn";
-import { sidebarCollapsed, setSidebarCollapsed, theme, setTheme } from "../../lib/store";
+import { sidebarCollapsed, setSidebarCollapsed, theme, setTheme, mobileNavOpen, setMobileNavOpen } from "../../lib/store";
 import { focusRingClasses } from "../ui/styles";
 
 export interface SidebarNavItem {
@@ -90,16 +90,27 @@ export function Sidebar(props: SidebarProps): JSX.Element {
   };
 
   return (
-    <aside
-      aria-label="Dashboard navigation"
-      class={cn(
-        "component-fade-in hidden shrink-0 flex-col rounded-[var(--radius-sidebar)] border border-[var(--inner-border)] bg-[var(--glass-bg)] shadow-[var(--shadow-card)] lg:sticky lg:top-2.5 lg:flex lg:h-[calc(100dvh-20px)] lg:self-start",
-        "transition-[width] duration-150 ease-out",
-        widthClass(),
-        props.className,
-      )}
-      data-collapsed={collapsed() ? "true" : "false"}
-    >
+    <>
+      <Show when={mobileNavOpen()}>
+        <div
+          aria-hidden="true"
+          class="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          onClick={() => setMobileNavOpen(false)}
+        />
+      </Show>
+      <aside
+        aria-label="Dashboard navigation"
+        class={cn(
+          "component-fade-in shrink-0 flex-col rounded-[var(--radius-sidebar)] border border-[var(--inner-border)] bg-[var(--glass-bg)] shadow-[var(--shadow-card)] lg:sticky lg:top-2.5 lg:flex lg:h-[calc(100dvh-20px)] lg:self-start",
+          "transition-[width] duration-150 ease-out",
+          widthClass(),
+          mobileNavOpen()
+            ? "fixed inset-y-2.5 left-2.5 z-50 flex w-[272px]"
+            : "hidden",
+          props.className,
+        )}
+        data-collapsed={collapsed() ? "true" : "false"}
+      >
       <div class="flex h-14 items-center justify-between gap-2 px-4">
         <Show
           when={!collapsed()}
@@ -150,6 +161,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
                           aria-current={active() ? "page" : undefined}
                           aria-label={collapsed() ? item.label : undefined}
                           title={collapsed() ? item.label : undefined}
+                          onClick={() => setMobileNavOpen(false)}
                           class={cn(
                             "group flex h-9 items-center gap-2 rounded-[11px] px-2.5 text-[13.5px] font-medium outline-none transition-colors duration-150",
                             focusRingClasses,
@@ -199,6 +211,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
           {(footer) => <div class="mt-2">{footer()}</div>}
         </Show>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

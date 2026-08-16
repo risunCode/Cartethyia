@@ -1,337 +1,184 @@
-
-import { Activity, AlertTriangle, Clock, Database, Server, Users, Zap } from "lucide-solid";
-import { For, Show, createMemo, createResource, onCleanup, onMount, type JSX } from "solid-js";
+import { Check, Clock, Copy, Globe, Key, Leaf, Server, Tag, Users } from "lucide-solid";
+import { For, Show, createMemo, createResource, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Card, CardHeader } from "@components/ui/card";
 import { Badge } from "@components/ui/badge";
-import { StatePanel } from "@components/ui/state";
 import { Button } from "@components/ui/button";
-import { ErrorList, type ErrorListItem } from "@components/shared/ErrorList";
 import { MetricCard, MetricCardSkeleton } from "@components/shared/MetricCard";
-import { consoleFailure, consoleGet } from "@lib/console-api";
-import { apiCache, getCacheKey } from "@lib/cache";
+import { consoleGet, normalizeDashboardSummary, type DashboardSummary } from "@lib/console-api";
 import { formatNumber } from "@lib/format";
 
-export interface DashboardSummary {
-  requests: number | null;
-  errors: number | null;
-  uptime: string | null;
-  memoryMb: number | null;
-  activeProviders: number | null;
-  recentErrors: readonly ErrorListItem[];
-  fetchedAt: string;
-  /** Endpoints whose failure degraded this summary (empty when all succeed). */
-  failures: readonly SummaryEndpointFailure[];
-}
+const SUMMARY_REFRESH_MS = 30_000;
 
-/** Bounded failure info for one summary endpoint (already through consoleFailure). */
-export interface SummaryEndpointFailure {
-  label: string;
-  code: string;
-  message: string;
-  degraded: boolean;
-}
-
-interface OverviewMetric {
-  key: keyof DashboardSummary | "latencyMs";
-  label: string;
-  value: number | string | null;
-  unit?: string;
-  tone: "accent" | "info" | "success" | "warning" | "danger" | "neutral";
-  description: string;
-}
-
-const METRIC_ICONS = {
-  requests: Activity,
-  latencyMs: Zap,
-  errors: AlertTriangle,
-  memoryMb: Database,
+const STATUS_TONE = {
+  ready: "success",
+  degraded: "warning",
+  offline: "danger",
+  unknown: "neutral",
 } as const;
 
-const SUMMARY_CACHE_TTL_MS = 5_000;
-const SUMMARY_REFRESH_MS = 5_000;
-const SUMMARY_CACHE_ENDPOINT = "/dashboard";
-
-const SUMMARY_ENDPOINTS = [
-  { route: "/dashboard", label: "dashboard summary" },
-  { route: "/telemetry/overview?period=24h", label: "telemetry overview" },
-  { route: "/telemetry/errors?period=24h&limit=10", label: "recent errors" },
-] as const;
-
-const EMPTY_SUMMARY: DashboardSummary = {
-  requests: null,
-  errors: null,
-  uptime: null,
-  memoryMb: null,
-  activeProviders: null,
-  recentErrors: [],
-  fetchedAt: "",
-  failures: [],
+const dependencyTone = (detail: string): "success" | "warning" | "danger" => {
+  if (/offline|down/i.test(detail)) return "danger";
+  if (/degrad|error|unavailable/i.test(detail)) return "warning";
+  return "success";
 };
 
-function safeNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
+type HealthStatus = keyof typeof STATUS_TONE;
 
-function safeRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
+type SummaryResult = { ok: true; data: DashboardSummary } | { ok: false };
 
-/**
- * Coerces error buckets from `/telemetry/errors` into bounded
- * ErrorList rows; malformed entries are dropped rather than rendered.
- */
-function coerceErrorBuckets(value: unknown): ErrorListItem[] {
-  const payload = safeRecord(value);
-  const items = Array.isArray(payload.items) ? payload.items : [];
-  const errors: ErrorListItem[] = [];
-  for (let index = 0; index < items.length && errors.length < 10; index += 1) {
-    const entry = safeRecord(items[index]);
-    const metadata = safeRecord(entry.metadata);
-    const timestamp = typeof entry.timestamp === "string" ? entry.timestamp : new Date().toISOString();
-    errors.push({
-      id: `${timestamp}-${index}`,
-      code: typeof metadata.code === "string" ? metadata.code.slice(0, 64) : "upstream_error",
-      message:
-        typeof metadata.message === "string" && metadata.message.trim().length > 0
-          ? metadata.message.slice(0, 200)
-          : "Request failed upstream",
-      source: typeof metadata.provider === "string" ? metadata.provider.slice(0, 64) : "api",
-      timestamp,
-      count: safeNumber(entry.count) ?? 1,
-      severity: metadata.severity === "warning" || metadata.severity === "info" ? metadata.severity : "error",
-    });
-  }
-  return errors;
-}
-
-function coerceSummary(dashboard: unknown, overview: unknown, errorBuckets: unknown): Omit<DashboardSummary, "failures"> {
-  const board = safeRecord(dashboard);
-  const health = safeRecord(board.health);
-  const telemetry = safeRecord(overview);
-  return {
-    requests: safeNumber(telemetry.requests),
-    errors: safeNumber(telemetry.errors),
-    uptime: typeof board.uptime === "string" && board.uptime.length > 0 ? board.uptime : null,
-    memoryMb: safeNumber(health.memoryMb),
-    activeProviders: safeNumber(board.accountCount),
-    recentErrors: coerceErrorBuckets(errorBuckets),
-    fetchedAt: new Date().toISOString(),
-  };
-}
-
-interface SummaryEndpointResult {
-  value: unknown;
-  failure: SummaryEndpointFailure | null;
-}
-
-async function fetchSummaryEndpoint(endpoint: (typeof SUMMARY_ENDPOINTS)[number]): Promise<SummaryEndpointResult> {
+/** The fetcher never rejects: a rejected resource would leave `loading`
+ * stuck true in Solid and the skeleton would never yield to the error UI. */
+async function fetchSummary(): Promise<SummaryResult> {
   try {
-    return { value: await consoleGet<unknown>(endpoint.route), failure: null };
-  } catch (error) {
-    const failure = consoleFailure(error) ?? { code: "network_error", message: "API request failed", degraded: false };
-    return { value: null, failure: { label: endpoint.label, ...failure } };
+    return { ok: true, data: normalizeDashboardSummary(await consoleGet<unknown>("/dashboard")) };
+  } catch {
+    return { ok: false };
   }
 }
 
 /**
- * Combines the API summary (`/dashboard`), 24h request/error
- * totals (`/telemetry/overview`), and recent error buckets
- * (`/telemetry/errors`) into one Overview payload. Each endpoint settles
- * independently: a failure degrades only the metrics it feeds (recorded in
- * `failures` so the page can surface it) instead of failing the whole view.
+ * Overview — daemon health page, recreated like the classic layout: the
+ * client-facing API endpoint, the facts reported by /console/dashboard,
+ * dependency health badges, and a readiness note. Data auto-refreshes every
+ * 30s; a failed refresh keeps the last accepted summary (marked stale).
  */
-async function fetchSummary(): Promise<DashboardSummary> {
-  const cacheKey = getCacheKey(SUMMARY_CACHE_ENDPOINT, { period: "24h" });
-  const cached = apiCache.get<DashboardSummary>(cacheKey);
-  if (cached !== null) return cached;
-
-  const [dashboard, overview, errors] = await Promise.all(SUMMARY_ENDPOINTS.map(fetchSummaryEndpoint));
-  const summary: DashboardSummary = {
-    ...coerceSummary(dashboard.value, overview.value, errors.value),
-    failures: [dashboard, overview, errors].flatMap((result) => (result.failure ? [result.failure] : [])),
-  };
-  apiCache.set(cacheKey, summary, SUMMARY_CACHE_TTL_MS);
-  return summary;
-}
-
-function deriveMetrics(summary: DashboardSummary): OverviewMetric[] {
-  const errorRate = summary.requests && summary.requests > 0 ? ((summary.errors ?? 0) / summary.requests) * 100 : null;
-  return [
-    {
-      key: "requests",
-      label: "Requests",
-      value: summary.requests,
-      tone: "accent",
-      description: "Last 24h routed traffic",
-    },
-    {
-      key: "latencyMs",
-      label: "Error rate",
-      value: errorRate === null ? null : `${errorRate.toFixed(1)}%`,
-      tone: errorRate === null ? "neutral" : errorRate > 5 ? "danger" : "success",
-      description: summary.errors === null ? "No errors reported" : `${formatNumber(summary.errors)} failed requests`,
-    },
-    {
-      key: "memoryMb",
-      label: "Memory",
-      value: summary.memoryMb,
-      unit: "MB",
-      tone: "info",
-      description: "Resident memory (RSS)",
-    },
-    {
-      key: "activeProviders",
-      label: "Providers",
-      value: summary.activeProviders,
-      tone: "success",
-      description: "Active provider accounts",
-    },
-  ];
-}
-
-function renderMetricValue(metric: OverviewMetric): JSX.Element {
-  if (metric.value === null || metric.value === undefined) {
-    return <span class="text-[var(--text-3)]">—</span>;
-  }
-  if (typeof metric.value === "number") {
-    return (
-      <span class="tabular-nums">
-        {formatNumber(metric.value)}
-        {metric.unit && <span class="ml-1 text-xs font-normal text-[var(--text-3)]">{metric.unit}</span>}
-      </span>
-    );
-  }
-  return <span class="tabular-nums">{metric.value}</span>;
-}
-
-export default function Overview() {
+export default function Overview(): JSX.Element {
   const [resource, { refetch }] = createResource(fetchSummary);
+  const [copied, setCopied] = createSignal(false);
+  let lastGood: DashboardSummary | null = null;
 
-  // Spec requirement 1: metric data refreshes every 5s without a page reload.
   onMount(() => {
     const timer = setInterval(() => void refetch(), SUMMARY_REFRESH_MS);
     onCleanup(() => clearInterval(timer));
   });
 
-  const summary = createMemo<DashboardSummary>(() => {
-    const value = resource();
-    return value === undefined ? EMPTY_SUMMARY : value;
+  const summary = createMemo<DashboardSummary | undefined>(() => {
+    const result = resource();
+    if (result === undefined) return lastGood ?? undefined;
+    if (result.ok) lastGood = result.data;
+    return lastGood ?? undefined;
   });
-  const metrics = createMemo<OverviewMetric[]>(() => deriveMetrics(summary()));
+  const failed = createMemo(() => {
+    const result = resource();
+    return result !== undefined && !result.ok;
+  });
   const isLoading = () => resource.loading;
-  const isError = () => resource.error !== undefined;
-  // Endpoint failures surface through the same bounded info the fatal path
-  // uses, so a partial console outage is visible instead of silent nulls.
-  const errorInfo = createMemo(() => {
-    if (resource.error) return consoleFailure(resource.error);
-    const first = summary().failures[0];
-    return first ? { code: first.code, message: first.message, degraded: first.degraded } : null;
-  });
-  const degradedLabels = createMemo(() => summary().failures.map((failure) => failure.label));
+  const isError = () => failed() && lastGood === null;
+  // Stale: a refresh failed but the last accepted summary is still shown.
+  const isStale = () => failed() && lastGood !== null;
+  const data = createMemo<DashboardSummary>(() => summary() as DashboardSummary);
+
+  const endpointUrl = `${window.location.origin}/v1`;
+
+  const copyEndpoint = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(endpointUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard unavailable (permissions/insecure context) — copy stays inert.
+    }
+  };
+
+  const health = createMemo(() => summary()?.health);
+  const overallStatus = createMemo<HealthStatus>(() => health()?.status ?? "unknown");
+  const dependencies = createMemo(() => Object.entries(health()?.dependencies ?? {}));
 
   return (
-    <div class="dashboard-page animate-fade-in space-y-5">
+    <div class="dashboard-page animate-fade-in space-y-4">
       <header class="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 class="text-xl font-bold text-[var(--text-1)]">Overview</h2>
-          <p class="mt-1 text-xs text-[var(--text-2)]">
-            Live telemetry snapshot of the API and provider fleet.
-          </p>
+          <p class="mt-1 text-xs text-[var(--text-2)]">Daemon health and connection facts.</p>
         </div>
-        <Show when={summary().fetchedAt}>
-          {(fetched) => (
-            <Badge tone="neutral" className="font-mono">
-              Fetched {fetched()}
-            </Badge>
-          )}
+        <Show when={summary()}>
+          <Badge tone="neutral" className="font-mono">
+            {isStale() ? "Stale" : "Live"}
+          </Badge>
         </Show>
       </header>
 
-      <section aria-label="Key metrics">
+      <Show
+        when={!isLoading() || summary()}
+        fallback={
+          <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <For each={["Version", "Environment", "Uptime", "Accounts", "Proxies", "API keys"]}>
+              {(label) => <MetricCardSkeleton label={label} />}
+            </For>
+          </div>
+        }
+      >
         <Show
-          when={!isLoading()}
+          when={!isError()}
           fallback={
-            <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <For each={[0, 1, 2, 3]}>{(index) => <MetricCardSkeleton label={`Metric ${index}`} />}</For>
-            </div>
+            <Card density="comfortable">
+              <CardHeader title="Unable to load overview" sub="The daemon dashboard summary could not be read." />
+              <Button variant="secondary" onClick={() => void refetch()}>Retry</Button>
+            </Card>
           }
         >
-          <Show
-            when={!isError()}
-            fallback={
-              <StatePanel
-                kind={errorInfo()?.degraded ? "degraded" : "error"}
-                title={errorInfo()?.degraded ? "Summary degraded" : "Failed to load overview"}
-                description={errorInfo()?.message ?? "Unknown error"}
-                action={
-                  <Button variant="secondary" onClick={() => void refetch()}>
-                    Retry
+          <>
+              <Card>
+                <CardHeader title="API endpoint" icon={Server} iconColor="#0a84ff" sub="Base URL for OpenAI- and Anthropic-compatible clients" />
+                <div class="flex flex-wrap items-center gap-2">
+                  <code class="min-w-0 flex-1 truncate rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--code-surface)] px-3 py-2 font-mono text-[12px] text-[var(--text-1)]" title={endpointUrl}>
+                    {endpointUrl}
+                  </code>
+                  <Badge tone="neutral">Local</Badge>
+                  <Button size="sm" variant="outline" onClick={() => void copyEndpoint()}>
+                    <Show when={copied()} fallback={<Copy size={14} aria-hidden="true" />}>
+                      <Check size={14} aria-hidden="true" />
+                    </Show>
+                    {copied() ? "Copied" : "Copy"}
                   </Button>
-                }
-              />
-            }
-          >
-            <Show when={summary().failures.length > 0}>
-              <StatePanel
-                kind={errorInfo()?.degraded ? "degraded" : "error"}
-                title="Summary degraded"
-                description={`${degradedLabels().join(", ")} unavailable — ${errorInfo()?.message ?? "unknown error"}`}
-                action={
-                  <Button variant="secondary" onClick={() => void refetch()}>
-                    Retry
-                  </Button>
-                }
-                className="mb-3"
-              />
-            </Show>
-            <div class="grid animate-fade-in grid-cols-2 gap-3 lg:grid-cols-4">
-              <For each={metrics()}>
-                {(metric) => {
-                  const Icon = METRIC_ICONS[metric.key as keyof typeof METRIC_ICONS] ?? Activity;
-                  return (
-                    <MetricCard
-                      label={metric.label}
-                      value={renderMetricValue(metric)}
-                      description={metric.description}
-                      icon={Icon}
-                      tone={metric.tone}
-                    />
-                  );
-                }}
-              </For>
-            </div>
-          </Show>
+                </div>
+                <p class="mt-2 text-[11px] text-[var(--text-3)]">OpenAI &amp; Anthropic compatible · Copy-ready for clients</p>
+              </Card>
+
+              <Card>
+                <CardHeader title="Daemon summary" sub="Facts reported by /console/dashboard" />
+                <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                  <MetricCard label="Version" value={data().version} icon={Tag} tone="info" />
+                  <MetricCard label="Environment" value={data().environment} icon={Leaf} tone="neutral" />
+                  <MetricCard label="Uptime" value={data().uptime} icon={Clock} tone="success" />
+                  <MetricCard label="Accounts" value={formatNumber(data().accountCount)} icon={Users} tone="accent" description="Provider accounts" />
+                  <MetricCard label="Proxies" value={formatNumber(data().proxyCount)} icon={Globe} tone="neutral" description="Egress proxies" />
+                  <MetricCard label="API keys" value={formatNumber(data().apiKeyCount)} icon={Key} tone="warning" description="Client keys" />
+                </div>
+              </Card>
+
+              <Card>
+                <CardHeader title="Dependency health" sub="Component readiness reported by the daemon" />
+                <div class="flex flex-wrap items-center gap-2">
+                  <Badge tone={STATUS_TONE[overallStatus()]}>{overallStatus()[0].toUpperCase()}{overallStatus().slice(1)}</Badge>
+                  <For each={dependencies()}>
+                    {([name, detail]) => (
+                      <Badge tone={dependencyTone(detail)}>
+                        {name} · {detail}
+                      </Badge>
+                    )}
+                  </For>
+                  <Show when={dependencies().length === 0}>
+                    <span class="text-[11px] text-[var(--text-3)]">No dependency health reported · Unknown</span>
+                  </Show>
+                </div>
+              </Card>
+
+              <Card density="comfortable">
+                <p class="text-xs leading-relaxed text-[var(--text-2)]">
+                  {isStale()
+                    ? "Showing a previously accepted response — the last refresh failed. Values may lag behind the daemon's current state."
+                    : overallStatus() === "ready"
+                      ? "The daemon reports all dependencies ready. Summary refreshes automatically every 30 seconds."
+                      : "The daemon summary is displayed, but one or more dependencies are not fully ready."}
+                </p>
+                <Show when={isLoading()}>
+                  <p class="mt-1.5 text-[11px] text-[var(--text-3)]" role="status">Refreshing dashboard health…</p>
+                </Show>
+              </Card>
+            </>
         </Show>
-      </section>
-
-      <section class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card density="compact" className="animate-fade-in lg:col-span-2">
-          <CardHeader title="System health" icon={Server} iconColor="#0a84ff" sub="Uptime and API status" />
-          <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <MetricCard label="Uptime" value={summary().uptime ?? "—"} icon={Clock} tone="success" />
-            <MetricCard
-              label="Active providers"
-              value={summary().activeProviders !== null ? formatNumber(summary().activeProviders) : "—"}
-              icon={Users}
-              tone="info"
-            />
-            <MetricCard
-              label="Memory"
-              value={`${formatNumber(summary().memoryMb)} MB`}
-              icon={Database}
-              tone="neutral"
-            />
-          </div>
-        </Card>
-
-        <ErrorList
-          errors={summary().recentErrors}
-          loading={isLoading()}
-          limit={10}
-          className="lg:col-span-1"
-          emptyMessage="No errors in the last 24 hours."
-        />
-      </section>
+      </Show>
     </div>
   );
 }

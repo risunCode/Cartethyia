@@ -2,13 +2,13 @@
 import type { JSX } from "solid-js";
 import { For, Show, createSignal, createMemo, onMount, onCleanup } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
-import { Bell, ChevronDown, Moon, Search, Sun, User } from "lucide-solid";
+import { Bell, ChevronDown, Menu, Moon, Search, Sun, User } from "lucide-solid";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon";
 import { cn } from "../../lib/cn";
 import { focusRingClasses } from "../ui/styles";
-import { theme, setTheme, userSession, logout } from "../../lib/store";
+import { setMobileNavOpen, theme, setTheme, userSession, logout } from "../../lib/store";
 
 export interface HeaderNotification {
   id: string;
@@ -135,6 +135,15 @@ export function Header(props: HeaderProps): JSX.Element {
         props.className,
       )}
     >
+      <IconButton
+        icon={Menu}
+        label="Open navigation"
+        size="sm"
+        variant="ghost"
+        class="lg:hidden"
+        onClick={() => setMobileNavOpen(true)}
+      />
+
       <div class="flex min-w-0 items-baseline gap-2">
         <h1 class="truncate text-[15px] font-bold tracking-tight text-[var(--text-1)] sm:text-[17px]">{title()}</h1>
         <span class="hidden text-xs text-[var(--text-3)] sm:inline" aria-hidden="true">/</span>

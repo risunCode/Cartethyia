@@ -6,10 +6,7 @@ export const consoleSuccessFixture = {
     accountCount: 2,
     proxyCount: 1,
     apiKeyCount: 1,
-    health: {
-      status: "ready",
-      dependencies: { database: "ready", cache: "degraded" },
-    },
+    health: { database: "postgresql" },
   },
 } as const;
 
@@ -31,10 +28,7 @@ export const consoleDegradedFixture = {
     accountCount: 2,
     proxyCount: 1,
     apiKeyCount: 1,
-    health: {
-      status: "degraded",
-      dependencies: { database: "ready", cache: "degraded" },
-    },
+    health: { database: "postgresql", cache: "degraded: sync lagging" },
   },
 } as const;
 export const consoleCatalogFixture = {

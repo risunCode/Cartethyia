@@ -15,8 +15,10 @@ export interface ConsoleEnvelope<T> {
 }
 
 export interface DashboardHealth {
+  /** Overall status: explicit daemon `status` field when present, otherwise derived. */
   status: "ready" | "degraded" | "offline" | "unknown";
-  dependencies: Readonly<Record<string, "ready" | "degraded" | "offline" | "unknown">>;
+  /** Dependency name -> reported detail (e.g. "database" -> "postgresql"). */
+  dependencies: Readonly<Record<string, string>>;
 }
 
 export interface DashboardSummary {
@@ -194,16 +196,32 @@ export function consoleFailure(error: unknown): { code: string; message: string;
 }
 
 /** Parses the redacted console summary contract without retaining arbitrary metadata. */
+/** Health-map keys that carry status semantics rather than a dependency entry. */
+const RESERVED_HEALTH_KEYS = new Set(["status", "dependencies"]);
+
 export function normalizeDashboardSummary(value: unknown): DashboardSummary {
   if (!isRecord(value)) throw new ConsoleContractError("invalid_contract", "dashboard summary is invalid", 502);
-  const statusValue = isRecord(value.health) && typeof value.health.status === "string" ? value.health.status : "unknown";
-  const status: DashboardHealth["status"] = statusValue === "ready" || statusValue === "degraded" || statusValue === "offline" ? statusValue : "unknown";
-  const dependencies: Record<string, DashboardHealth["status"]> = {};
-  if (isRecord(value.health) && isRecord(value.health.dependencies)) {
-    for (const [name, state] of Object.entries(value.health.dependencies)) {
-      if (state === "ready" || state === "degraded" || state === "offline" || state === "unknown") dependencies[name] = state;
+  // The daemon reports health as a flat map of dependency name -> detail
+  // (e.g. { database: "postgresql" }); an explicit `status` is honored when
+  // present, otherwise status is derived from the entries.
+  const dependencies: Record<string, string> = {};
+  if (isRecord(value.health)) {
+    for (const [name, state] of Object.entries(value.health)) {
+      if (typeof state === "string" && state.length > 0 && !RESERVED_HEALTH_KEYS.has(name)) {
+        dependencies[name] = state.slice(0, 64);
+      }
     }
   }
+  const explicitStatus = isRecord(value.health) && typeof value.health.status === "string" ? value.health.status : undefined;
+  const anyDependencyTroubled = Object.values(dependencies).some((detail) => /degrad|offline|down|error|unavailable/i.test(detail));
+  const status: DashboardHealth["status"] =
+    explicitStatus === "ready" || explicitStatus === "degraded" || explicitStatus === "offline"
+      ? explicitStatus
+      : Object.keys(dependencies).length === 0
+        ? "unknown"
+        : anyDependencyTroubled
+          ? "degraded"
+          : "ready";
   return {
     version: stringValue(value.version) ?? "unknown",
     environment: stringValue(value.environment) ?? "unknown",

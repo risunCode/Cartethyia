@@ -16,7 +16,7 @@ describe("console API contracts", () => {
 
   test("unwraps a successful envelope and retains only typed dashboard health", () => {
     const result = normalizeDashboardSummary(unwrapConsoleEnvelope(consoleSuccessFixture));
-    expect(result).toMatchObject({ accountCount: 2, health: { status: "ready", dependencies: { cache: "degraded" } } });
+    expect(result).toMatchObject({ accountCount: 2, health: { status: "ready", dependencies: { database: "postgresql" } } });
   });
 
   test("preserves stable API error codes", async () => {
@@ -59,6 +59,7 @@ describe("console API contracts", () => {
   test("reports degraded API state without treating it as transport failure", () => {
     const result = normalizeDashboardSummary(unwrapConsoleEnvelope(consoleDegradedFixture));
     expect(result.health.status).toBe("degraded");
+    expect(result.health.dependencies).toMatchObject({ database: "postgresql" });
     expect(consoleFailure(new ApiError(503, "unavailable", "cache unavailable"))).toEqual({ code: "unavailable", message: "cache unavailable", degraded: true });
   });
 

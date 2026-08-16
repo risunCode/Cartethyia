@@ -20,6 +20,8 @@ const storedUser = localStorage.getItem('sessionUser')
 const [theme, setTheme] = createSignal<Theme>(storedTheme || 'system')
 const [sidebarCollapsed, setSidebarCollapsed] = createSignal<boolean>(storedSidebarCollapsed)
 const [glassSurfaces, setGlassSurfaces] = createSignal<boolean>(storedGlassSurfaces)
+// Mobile off-canvas navigation (never persisted — starts closed).
+const [mobileNavOpen, setMobileNavOpen] = createSignal<boolean>(false)
 const [userSession, setUserSession] = createSignal<UserSession>({
   token: storedToken || null,
   user: storedUser ? JSON.parse(storedUser) : null,
@@ -92,4 +94,4 @@ export function refreshToken(newToken: string) {
 }
 
 // Export signals and setters
-export { theme, setTheme, sidebarCollapsed, setSidebarCollapsed, glassSurfaces, setGlassSurfaces, userSession, setUserSession }
+export { theme, setTheme, sidebarCollapsed, setSidebarCollapsed, glassSurfaces, setGlassSurfaces, mobileNavOpen, setMobileNavOpen, userSession, setUserSession }

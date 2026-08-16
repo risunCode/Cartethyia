@@ -1,10 +1,8 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { render, screen } from "@solidjs/testing-library";
 
 import Overview from "../../../src/pages/Overview/index";
 import { consoleGet } from "../../../src/lib/console-api";
-import { ApiError } from "../../../src/lib/api";
-import { apiCache } from "../../../src/lib/cache";
 
 // Only the network reader is replaced; the contract normalizers stay real so
 // the page is tested against the shapes it actually coerces.
@@ -26,149 +24,77 @@ const dashboardPayload = {
   accountCount: 2,
   proxyCount: 1,
   apiKeyCount: 3,
-  health: { status: "ready" as const, dependencies: { database: "ready" as const }, memoryMb: 512 },
+  health: { database: "postgresql", redis: "degraded" },
 };
-
-const telemetryOverviewPayload = {
-  requests: 1200,
-  errors: 30,
-  p50Ms: 120,
-  p95Ms: 480,
-  p99Ms: 900,
-  byRoute: { "/v1/chat/completions": 900 },
-};
-
-const errorBucketsPayload = {
-  items: [
-    {
-      timestamp: "2026-08-16T08:00:00Z",
-      count: 12,
-      metadata: { code: "upstream_502", message: "provider timeout", provider: "openai", severity: "error" },
-    },
-  ],
-};
-
-function mockHappyPath(): void {
-  vi.mocked(consoleGet).mockImplementation(async (route: string) => {
-    if (route.startsWith("/telemetry/overview")) return telemetryOverviewPayload;
-    if (route.startsWith("/telemetry/errors")) return errorBucketsPayload;
-    return dashboardPayload;
-  });
-}
 
 describe("Overview page", () => {
   beforeEach(() => {
-    apiCache.clear();
     vi.mocked(consoleGet).mockReset();
-    mockHappyPath();
-  });
-
-  test("reads the summary from the three documented console routes", async () => {
-    render(() => <Overview />);
-
-    await screen.findByText("1,200");
-
-    expect(consoleGet).toHaveBeenCalledWith("/dashboard");
-    expect(consoleGet).toHaveBeenCalledWith("/telemetry/overview?period=24h");
-    expect(consoleGet).toHaveBeenCalledWith("/telemetry/errors?period=24h&limit=10");
-  });
-
-  test("renders metric cards from the combined payload", async () => {
-    render(() => <Overview />);
-
-    expect(screen.getByRole("heading", { level: 2, name: "Overview" })).toBeInTheDocument();
-    // Requests and derived error rate (30 / 1200 = 2.5%).
-    expect(await screen.findByText("1,200")).toBeInTheDocument();
-    expect(screen.getByText("2.5%")).toBeInTheDocument();
-    expect(screen.getByText("512")).toBeInTheDocument();
-    // Provider accounts total from /dashboard.
-    expect(screen.getAllByText("2").length).toBeGreaterThan(0);
-    // Badge timestamp appears once the resource resolves.
-    expect(await screen.findByText(/^Fetched /)).toBeInTheDocument();
-  });
-
-  test("shows skeleton metrics first and resolves them without a reload", async () => {
-    render(() => <Overview />);
-
-    expect(screen.getByText("Metric 0")).toBeInTheDocument();
-    expect(screen.getByText("Metric 3")).toBeInTheDocument();
-
-    expect(await screen.findByText("1,200")).toBeInTheDocument();
-    expect(screen.queryByText("Metric 0")).not.toBeInTheDocument();
-  });
-
-  test("renders the system health card and recent errors from the payloads", async () => {
-    render(() => <Overview />);
-
-    await screen.findByText("1,200");
-    expect(screen.getByText("System health")).toBeInTheDocument();
-
-    expect(screen.getByText("Uptime")).toBeInTheDocument();
-    expect(screen.getByText("3d 4h")).toBeInTheDocument();
-    expect(screen.getByText("Active providers")).toBeInTheDocument();
-    expect(screen.getByText("512 MB")).toBeInTheDocument();
-
-    expect(screen.getByText("Recent errors")).toBeInTheDocument();
-    expect(screen.getByText("1 entries")).toBeInTheDocument();
-    expect(screen.getByText("upstream_502")).toBeInTheDocument();
-    expect(screen.getByText("provider timeout")).toBeInTheDocument();
-    expect(screen.getByText("openai")).toBeInTheDocument();
-    expect(screen.getByText("12")).toBeInTheDocument();
-  });
-
-  test("shows the healthy empty state when no error buckets are reported", async () => {
-    vi.mocked(consoleGet).mockImplementation(async (route: string) => {
-      if (route.startsWith("/telemetry/overview")) return telemetryOverviewPayload;
-      if (route.startsWith("/telemetry/errors")) return { items: [] };
-      return dashboardPayload;
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
     });
-
-    render(() => <Overview />);
-
-    expect(await screen.findByText("No errors in the last 24 hours.")).toBeInTheDocument();
-    expect(screen.queryByText("Summary degraded")).not.toBeInTheDocument();
   });
 
-  test("renders no degraded banner when every summary endpoint succeeds", async () => {
-    render(() => <Overview />);
-
-    await screen.findByText("1,200");
-
-    expect(screen.queryByText("Summary degraded")).not.toBeInTheDocument();
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  test("shows the degraded banner while healthy endpoints still render metrics", async () => {
-    vi.mocked(consoleGet).mockImplementation(async (route: string) => {
-      if (route.startsWith("/telemetry/overview")) throw new ApiError(503, "unavailable", "telemetry backend down");
-      if (route.startsWith("/telemetry/errors")) return errorBucketsPayload;
-      return dashboardPayload;
-    });
-
+  test("renders the API endpoint card with a copy button for the /v1 base URL", async () => {
+    vi.mocked(consoleGet).mockResolvedValue(dashboardPayload);
     render(() => <Overview />);
 
-    // The banner names the failing endpoint with the bounded console message.
-    expect(await screen.findByText("Summary degraded")).toBeInTheDocument();
-    expect(screen.getByText(/telemetry overview unavailable — telemetry backend down/)).toBeInTheDocument();
-    // Metrics fed by the healthy endpoints still render.
-    expect(await screen.findByText("512")).toBeInTheDocument();
+    expect(await screen.findByText(/\/v1$/)).toBeInTheDocument();
+    expect(screen.getByText("Local")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /copy/i })).toBeInTheDocument();
+  });
+
+  test("copying the endpoint flips the button to Copied via the clipboard", async () => {
+    vi.mocked(consoleGet).mockResolvedValue(dashboardPayload);
+    render(() => <Overview />);
+    const button = await screen.findByRole("button", { name: /copy/i });
+    button.click();
+    await vi.waitFor(() => expect(screen.getByText("Copied")).toBeInTheDocument());
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining("/v1"));
+  });
+
+  test("renders the six daemon summary facts from /console/dashboard", async () => {
+    vi.mocked(consoleGet).mockResolvedValue(dashboardPayload);
+    render(() => <Overview />);
+
+    expect(await screen.findByText("Daemon summary")).toBeInTheDocument();
+    expect(screen.getByText("2.1.0-beta")).toBeInTheDocument();
+    expect(screen.getByText("production")).toBeInTheDocument();
     expect(screen.getByText("3d 4h")).toBeInTheDocument();
-    expect(screen.getByText("upstream_502")).toBeInTheDocument();
-    // The failed endpoint's metrics degrade to placeholders, not stale values.
-    expect(screen.queryByText("1,200")).not.toBeInTheDocument();
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Accounts")).toBeInTheDocument();
+    expect(screen.getByText("Proxies")).toBeInTheDocument();
+    expect(screen.getByText("API keys")).toBeInTheDocument();
   });
 
-  test("degrades to placeholders instead of crashing when every endpoint fails", async () => {
+  test("renders the overall health badge plus one badge per dependency", async () => {
+    vi.mocked(consoleGet).mockResolvedValue(dashboardPayload);
+    render(() => <Overview />);
+
+    expect(await screen.findByText("Dependency health")).toBeInTheDocument();
+    expect(screen.getByText("Degraded")).toBeInTheDocument();
+    expect(screen.getByText("database · postgresql")).toBeInTheDocument();
+    expect(screen.getByText("redis · degraded")).toBeInTheDocument();
+  });
+
+  test("shows the unknown fallback when no dependencies report health", async () => {
+    vi.mocked(consoleGet).mockResolvedValue({
+      ...dashboardPayload,
+      health: {},
+    });
+    render(() => <Overview />);
+
+    expect(await screen.findByText("No dependency health reported · Unknown")).toBeInTheDocument();
+  });
+
+  test("shows the failure panel with Retry when /dashboard cannot be read", async () => {
     vi.mocked(consoleGet).mockRejectedValue(new Error("network down"));
-
     render(() => <Overview />);
 
-    await screen.findByText("Summary degraded");
-    expect(screen.getByText(/dashboard summary, telemetry overview, recent errors unavailable/)).toBeInTheDocument();
-    // All four metrics fall back to the em-dash unavailable marker.
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(4);
-    // Uptime is unknown too.
-    expect(screen.getByText("Last 24h routed traffic")).toBeInTheDocument();
-    expect(screen.getByText("No errors reported")).toBeInTheDocument();
+    expect(await screen.findByText("Unable to load overview")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 });
