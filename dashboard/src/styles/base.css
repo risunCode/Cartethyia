@@ -286,8 +286,9 @@
   --focus-ring: #d97757;
   --track: rgba(113, 82, 57, 0.1);
   --code-surface: #fbf8f2;
-  /* Recessed base inside raised panels — inner cards (surface-1) pop on it. */
-  --surface-well: #f6f1e9;
+  /* Recessed base inside raised panels — kept CLOSE to surface-1 so cards
+     read via their border/shadow, not a strong color jump. */
+  --surface-well: #fbf7f0;
   --radius-sm: 8px;
   --radius-md: 11px;
   --radius-lg: 16px;
@@ -359,7 +360,7 @@
   --focus-ring: #0a84ff;
   --track: rgba(255, 255, 255, 0.12);
   --code-surface: #1a1a1e;
-  --surface-well: #101013;
+  --surface-well: #141416;
   --text-1: var(--text-primary);
   --text-2: var(--text-secondary);
   --text-3: var(--text-tertiary);
