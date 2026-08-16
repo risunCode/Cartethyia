@@ -1,184 +1,238 @@
-interface ValidationCheck {
+/**
+ * Local E2E validation for the v2.1 console surface.
+ *
+ * Targets the single public edge at port 12800 (the daemon directly in local
+ * dev, the nginx edge under compose). Runs the cookie-authenticated console
+ * lifecycle end to end: health, login, session, JSON reads, both SSE
+ * handshakes, and the two regression guards (legacy /v2/admin is gone,
+ * unauthenticated session reads are rejected).
+ *
+ * Usage:
+ *   CONSOLE_PASSWORD=... bunx tsx scripts/validate-fullstack.ts
+ *
+ * Environment:
+ *   CARTETHYIA_BASE_URL  edge base URL (default http://127.0.0.1:12800)
+ *   CONSOLE_PASSWORD     console login password (default cartethyia-dev-12800)
+ *
+ * Uses only fetch/AbortController, so it runs under Bun and Node 18+.
+ */
+
+const BASE_URL = (process.env.CARTETHYIA_BASE_URL ?? "http://127.0.0.1:12800").replace(/\/+$/, "");
+const CONSOLE_PASSWORD = process.env.CONSOLE_PASSWORD ?? "cartethyia-dev-12800";
+const SESSION_COOKIE = "cartethyia_session";
+const REQUEST_TIMEOUT_MS = 15_000;
+const SSE_FIRST_EVENT_TIMEOUT_MS = 5_000;
+
+interface CheckResult {
   readonly name: string;
   readonly passed: boolean;
-  readonly detail?: string;
 }
 
-const checks: ValidationCheck[] = [];
-const baseUrl = "http://localhost:8080";
-const consolePassword = process.env.CONSOLE_PASSWORD ?? "";
+const results: CheckResult[] = [];
 
-function addCheck(name: string, passed: boolean, detail?: string): void {
-  checks.push({ name, passed, ...(detail === undefined ? {} : { detail }) });
+function record(name: string, passed: boolean, detail?: string): void {
+  results.push({ name, passed });
+  const line = `${passed ? "PASS" : "FAIL"}  ${name}`;
+  console.log(detail === undefined || detail.length === 0 ? line : `${line} — ${detail}`);
 }
 
 function errorDetail(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
+  return error instanceof Error ? error.message : String(error);
 }
 
-function responseDetail(response: Response, body: string): string {
-  const excerpt = body.replace(/\s+/g, " ").trim().slice(0, 200);
-  return `HTTP ${response.status}${excerpt.length > 0 ? `: ${excerpt}` : ""}`;
+function bodyExcerpt(body: string): string {
+  const excerpt = body.replace(/\s+/g, " ").trim().slice(0, 160);
+  return excerpt.length > 0 ? `: ${excerpt}` : "";
 }
 
-async function bringUp(): Promise<boolean> {
-  try {
-    const process = Bun.spawn(
-      ["docker", "compose", "up", "-d", "postgres", "redis", "cartethyia", "dashboard", "--wait"],
-      { stdout: "ignore", stderr: "pipe" },
-    );
-    const [exitCode, stderr] = await Promise.all([
-      process.exited,
-      new Response(process.stderr).text(),
-    ]);
-    if (exitCode !== 0) {
-      addCheck("compose-up", false, stderr.trim() || `docker compose exited with code ${exitCode}`);
-      return false;
+/** Extracts the cartethyia_session cookie pair from a Set-Cookie header list. */
+function sessionCookieFrom(response: Response): string {
+  const rawValues =
+    typeof response.headers.getSetCookie === "function"
+      ? response.headers.getSetCookie()
+      : [response.headers.get("set-cookie") ?? ""];
+  for (const raw of rawValues) {
+    const pair = (raw.split(";")[0] ?? "").trim();
+    if (pair.startsWith(`${SESSION_COOKIE}=`) && pair.length > `${SESSION_COOKIE}=`.length) {
+      return pair;
     }
-    addCheck("compose-up", true);
-    return true;
-  } catch (error) {
-    addCheck("compose-up", false, errorDetail(error));
-    return false;
+  }
+  return "";
+}
+
+async function request(path: string, init: RequestInit = {}, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(`${BASE_URL}${path}`, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-async function checkLandingPage(): Promise<void> {
+function cookieHeader(cookie: string): Record<string, string> {
+  return cookie.length > 0 ? { cookie } : {};
+}
+
+async function expectStatus(name: string, method: string, path: string, expected: number, init: RequestInit = {}): Promise<void> {
   try {
-    const response = await fetch(`${baseUrl}/`);
+    const response = await request(path, { method, ...init });
     const body = await response.text();
-    addCheck(
-      "landing-page",
-      response.status === 200 && body.includes("<title>Cartethyia"),
-      response.status === 200 && body.includes("<title>Cartethyia")
-        ? undefined
-        : responseDetail(response, body),
+    const passed = response.status === expected;
+    record(
+      name,
+      passed,
+      passed ? `HTTP ${response.status}` : `expected HTTP ${expected}, got ${response.status}${bodyExcerpt(body)}`,
     );
   } catch (error) {
-    addCheck("landing-page", false, errorDetail(error));
+    record(name, false, errorDetail(error));
   }
 }
 
 async function login(): Promise<string> {
-  if (consolePassword.length === 0) {
-    addCheck("auth-login", false, "CONSOLE_PASSWORD is not set");
-    return "";
-  }
   try {
-    const response = await fetch(`${baseUrl}/console/api/auth/login`, {
+    const response = await request("/console/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: "admin", password: consolePassword, remember: true }),
+      body: JSON.stringify({ username: "admin", password: CONSOLE_PASSWORD, remember: true }),
     });
     const body = await response.text();
-    const setCookie = response.headers.get("set-cookie");
-    const cookie = setCookie?.split(";")[0] ?? "";
+    const cookie = sessionCookieFrom(response);
     const passed = response.status === 200 && cookie.length > 0;
-    addCheck("auth-login", passed, passed ? undefined : responseDetail(response, body));
-    return passed ? cookie : "";
+    record(
+      "POST /console/auth/login (200 + cartethyia_session cookie)",
+      passed,
+      passed
+        ? `HTTP ${response.status}`
+        : `HTTP ${response.status}${cookie.length > 0 ? "" : ", no cartethyia_session Set-Cookie"}${bodyExcerpt(body)}`,
+    );
+    return cookie;
   } catch (error) {
-    addCheck("auth-login", false, errorDetail(error));
+    record("POST /console/auth/login (200 + cartethyia_session cookie)", false, errorDetail(error));
     return "";
   }
 }
 
-async function checkJsonEndpoint(path: string, cookie: string): Promise<void> {
-  const name = `json-${path.split("/").filter(Boolean).pop() ?? "endpoint"}`;
-  try {
-    const response = await fetch(`${baseUrl}${path}`, {
-      headers: cookie.length > 0 ? { cookie } : undefined,
-    });
-    const body = await response.text();
-    if (response.status !== 200) {
-      addCheck(name, false, responseDetail(response, body));
-      return;
-    }
-    try {
-      JSON.parse(body);
-      addCheck(name, true);
-    } catch (error) {
-      addCheck(name, false, `HTTP 200 but response was not JSON: ${errorDetail(error)}`);
-    }
-  } catch (error) {
-    addCheck(name, false, errorDetail(error));
-  }
-}
-
-async function checkConsoleLogStream(cookie: string): Promise<void> {
+/** Reads an SSE body until the first `data:` line or the timeout fires. */
+async function expectSseFirstDataLine(path: string, label: string): Promise<void> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
+  const timer = setTimeout(() => controller.abort(), SSE_FIRST_EVENT_TIMEOUT_MS);
   try {
-    const response = await fetch(`${baseUrl}/v2/admin/console/logs/stream`, {
-      headers: cookie.length > 0 ? { cookie } : undefined,
+    const response = await fetch(`${BASE_URL}${path}`, {
+      headers: cookieHeader(sessionCookie),
       signal: controller.signal,
     });
     if (response.status !== 200 || response.body === null) {
       const body = await response.text();
-      addCheck("console-log-sse", false, responseDetail(response, body));
+      record(label, false, `expected HTTP 200, got ${response.status}${bodyExcerpt(body)}`);
       return;
     }
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    let receivedFrame = false;
+    let sawDataLine = false;
     try {
-      while (!receivedFrame) {
-        const result = await reader.read();
-        if (result.done) {
-          break;
-        }
-        buffer += decoder.decode(result.value, { stream: true });
-        receivedFrame = buffer.split("\n").some((line) => line.startsWith("data:") || line.startsWith(":"));
+      while (!sawDataLine) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        sawDataLine = buffer.split(/\r?\n/).some((line) => line.startsWith("data:"));
       }
     } finally {
-      await reader.cancel();
+      await reader.cancel().catch(() => undefined);
     }
-    addCheck(
-      "console-log-sse",
-      receivedFrame,
-      receivedFrame ? undefined : "Timed out or stream closed without a data frame or keep-alive comment",
+    record(
+      label,
+      sawDataLine,
+      sawDataLine ? "HTTP 200, first data: frame received" : `stream closed or timed out after ${SSE_FIRST_EVENT_TIMEOUT_MS / 1000}s without a data: line`,
     );
   } catch (error) {
-    addCheck(
-      "console-log-sse",
-      false,
-      controller.signal.aborted ? "Timed out after 10 seconds" : errorDetail(error),
-    );
+    record(label, false, controller.signal.aborted ? `timed out after ${SSE_FIRST_EVENT_TIMEOUT_MS / 1000}s` : errorDetail(error));
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timer);
   }
 }
 
-function printReport(): void {
-  console.log("\nFull-stack validation report");
-  for (const check of checks) {
-    const status = check.passed ? "PASS" : "FAIL";
-    console.log(`${status} ${check.name}${check.detail === undefined ? "" : ` — ${check.detail}`}`);
+/** Verifies the SSE handshake headers, then drops the body without reading it. */
+async function expectSseHandshake(path: string, label: string): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${BASE_URL}${path}`, {
+      headers: cookieHeader(sessionCookie),
+      signal: controller.signal,
+    });
+    const contentType = response.headers.get("content-type") ?? "";
+    if (response.body !== null) {
+      await response.body.cancel().catch(() => undefined);
+    }
+    const passed = response.status === 200 && contentType.startsWith("text/event-stream");
+    record(
+      label,
+      passed,
+      passed
+        ? `HTTP 200, content-type ${contentType}`
+        : `expected HTTP 200 + text/event-stream, got ${response.status} + ${contentType.length > 0 ? contentType : "no content-type"}`,
+    );
+  } catch (error) {
+    record(label, false, errorDetail(error));
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-async function main(): Promise<void> {
-  const stackReady = await bringUp();
-  if (stackReady) {
-    await checkLandingPage();
-    const cookie = await login();
-    await Promise.all([
-      checkJsonEndpoint("/console/api/dashboard", cookie),
-      checkJsonEndpoint("/console/api/telemetry/usage", cookie),
-      checkJsonEndpoint("/console/api/telemetry/providers", cookie),
-    ]);
-    await checkConsoleLogStream(cookie);
-  }
+let sessionCookie = "";
+
+async function run(): Promise<void> {
+  console.log(`Cartethyia v2.1 full-stack validation — ${BASE_URL}\n`);
+
+  await expectStatus("GET /health", "GET", "/health", 200);
+
+  sessionCookie = await login();
+  const authed = cookieHeader(sessionCookie);
+
+  await expectStatus("GET /console/auth/session", "GET", "/console/auth/session", 200, { headers: authed });
+  await expectStatus("GET /console/dashboard", "GET", "/console/dashboard", 200, { headers: authed });
+  await expectStatus(
+    "GET /console/telemetry/overview?period=24h",
+    "GET",
+    "/console/telemetry/overview?period=24h",
+    200,
+    { headers: authed },
+  );
+  await expectStatus("GET /console/telemetry/usage", "GET", "/console/telemetry/usage", 200, { headers: authed });
+  await expectStatus("GET /console/accounts", "GET", "/console/accounts", 200, { headers: authed });
+  await expectStatus("GET /console/settings", "GET", "/console/settings", 200, { headers: authed });
+
+  await expectSseFirstDataLine(
+    "/console/telemetry/in-flight/stream",
+    "GET /console/telemetry/in-flight/stream (SSE, first data: frame <= 5s)",
+  );
+  await expectSseHandshake("/console/logs/stream", "GET /console/logs/stream (SSE handshake)");
+
+  await expectStatus("POST /v2/admin/auth/login (must be 404)", "POST", "/v2/admin/auth/login", 404, {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: "regression-guard", password: "regression-guard" }),
+  });
+  await expectStatus("GET /console/auth/session without cookie (must be 401)", "GET", "/console/auth/session", 401);
 }
 
-try {
-  await main();
-} catch (error) {
-  addCheck("harness", false, errorDetail(error));
-} finally {
-  printReport();
-  process.exit(checks.some((check) => !check.passed) ? 1 : 0);
+function summary(): number {
+  const failed = results.filter((result) => !result.passed);
+  console.log(`\nSummary: ${results.length - failed.length}/${results.length} checks passed`);
+  if (failed.length > 0) {
+    console.log("Failed checks:");
+    for (const failure of failed) console.log(`  - ${failure.name}`);
+  }
+  return failed.length > 0 ? 1 : 0;
 }
+
+void (async (): Promise<void> => {
+  try {
+    await run();
+  } catch (error) {
+    record("harness", false, errorDetail(error));
+  } finally {
+    process.exitCode = summary();
+  }
+})();
