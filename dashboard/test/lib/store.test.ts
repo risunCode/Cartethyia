@@ -97,4 +97,31 @@ describe("signals store", () => {
     expect(store.sidebarCollapsed()).toBe(true);
     expect(store.userSession()).toEqual({ token: "tok-9", user: { name: "Operator" } });
   });
+
+  test("glass surfaces default off, toggles the document data-glass attribute, and persists", async () => {
+    const store = await loadStore();
+
+    expect(store.glassSurfaces()).toBe(false);
+    expect(document.documentElement.dataset.glass).toBe("off");
+
+    store.setGlassSurfaces(true);
+
+    expect(store.glassSurfaces()).toBe(true);
+    expect(document.documentElement.dataset.glass).toBe("on");
+    expect(localStorage.getItem("glassSurfaces")).toBe("true");
+
+    store.setGlassSurfaces(false);
+    expect(document.documentElement.dataset.glass).toBe("off");
+    expect(localStorage.getItem("glassSurfaces")).toBe("false");
+  });
+
+  test("theme signal drives the .dark class on the document root", async () => {
+    const store = await loadStore();
+
+    store.setTheme("dark");
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+
+    store.setTheme("light");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+  });
 });

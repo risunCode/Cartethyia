@@ -12,15 +12,39 @@ interface UserSession {
 // Initialize signals from localStorage
 const storedTheme = localStorage.getItem('theme') as Theme
 const storedSidebarCollapsed = localStorage.getItem('sidebarCollapsed') === 'true'
+const storedGlassSurfaces = localStorage.getItem('glassSurfaces') === 'true'
 const storedToken = localStorage.getItem('sessionToken')
 const storedUser = localStorage.getItem('sessionUser')
 
 // Global signals
 const [theme, setTheme] = createSignal<Theme>(storedTheme || 'system')
 const [sidebarCollapsed, setSidebarCollapsed] = createSignal<boolean>(storedSidebarCollapsed)
+const [glassSurfaces, setGlassSurfaces] = createSignal<boolean>(storedGlassSurfaces)
 const [userSession, setUserSession] = createSignal<UserSession>({
   token: storedToken || null,
   user: storedUser ? JSON.parse(storedUser) : null,
+})
+
+// Resolve 'system' against the OS preference (jsdom has no matchMedia).
+const systemPrefersDark =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-color-scheme: dark)')
+    : null
+
+const applyDocumentTheme = () => {
+  const current = theme()
+  const effective =
+    current === 'system' ? (systemPrefersDark?.matches ? 'dark' : 'light') : current
+  document.documentElement.classList.toggle('dark', effective === 'dark')
+}
+
+// Apply theme + surface mode to the document root (this is what actually
+// flips the .dark class and the data-glass attribute the CSS keys off).
+createEffect(applyDocumentTheme)
+systemPrefersDark?.addEventListener('change', applyDocumentTheme)
+
+createEffect(() => {
+  document.documentElement.dataset.glass = glassSurfaces() ? 'on' : 'off'
 })
 
 // Persist theme to localStorage
@@ -31,6 +55,11 @@ createEffect(() => {
 // Persist sidebar collapsed to localStorage
 createEffect(() => {
   localStorage.setItem('sidebarCollapsed', sidebarCollapsed().toString())
+})
+
+// Persist glass surface mode to localStorage
+createEffect(() => {
+  localStorage.setItem('glassSurfaces', glassSurfaces().toString())
 })
 
 // Persist session to localStorage
@@ -63,4 +92,4 @@ export function refreshToken(newToken: string) {
 }
 
 // Export signals and setters
-export { theme, setTheme, sidebarCollapsed, setSidebarCollapsed, userSession, setUserSession }
+export { theme, setTheme, sidebarCollapsed, setSidebarCollapsed, glassSurfaces, setGlassSurfaces, userSession, setUserSession }

@@ -7,7 +7,7 @@ import { Button } from "../../components/ui/button";
 import { Badge, Skeleton } from "../../components/ui/badge";
 import { SettingRow, SettingSection } from "../../components/patterns/setting-row";
 import { APIKeyManager, type APIKeyRecord } from "../../components/shared/APIKeyManager";
-import { sidebarCollapsed, setSidebarCollapsed, setTheme, theme } from "../../lib/store";
+import { glassSurfaces, setGlassSurfaces, sidebarCollapsed, setSidebarCollapsed, setTheme, theme } from "../../lib/store";
 import { consoleFailure, consoleGet, consolePatch } from "../../lib/console-api";
 
 interface SettingsResponse {
@@ -200,6 +200,19 @@ function AppearanceSection(props: {
                 )}
               </For>
             </div>
+          }
+        />
+      </SettingSection>
+      <SettingSection title="Surfaces">
+        <SettingRow
+          label="Glass surfaces"
+          description="Translucent cards with a subtle backdrop blur (the classic look). Off by default; blur is confined to small cards, so it stays smooth even while scrolling."
+          control={
+            <Switch
+              checked={glassSurfaces()}
+              onChange={setGlassSurfaces}
+              label="Glass surfaces"
+            />
           }
         />
       </SettingSection>

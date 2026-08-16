@@ -447,6 +447,38 @@ body {
   box-shadow: var(--shadow-card);
 }
 
+/* ── Optional glass mode ─────────────────────────────────────────────────────
+   Opt-in via Settings (html[data-glass="on"], persisted per browser).
+   Default stays solid for predictable performance; when enabled, only the
+   small bordered .glass/.glass-2 cards get backdrop-filter — never the
+   large content panel or the page itself — so it stays cheap even while
+   scrolling, unlike the early translucent-everywhere React build. */
+html[data-glass="on"] {
+  --surface-1: rgba(255, 252, 247, 0.82);
+  --surface-2: rgba(255, 253, 249, 0.9);
+  --card: rgba(255, 252, 247, 0.82);
+  --code-surface: rgba(255, 252, 247, 0.75);
+  --surface-well: rgba(255, 252, 247, 0.5);
+}
+
+html.dark[data-glass="on"] {
+  --surface-1: rgba(28, 28, 32, 0.55);
+  --surface-2: rgba(34, 34, 40, 0.72);
+  --card: rgba(28, 28, 32, 0.55);
+  --code-surface: rgba(28, 28, 32, 0.8);
+  --surface-well: rgba(24, 24, 28, 0.42);
+}
+
+html[data-glass="on"] .glass {
+  backdrop-filter: blur(10px) saturate(1.15);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+}
+
+html[data-glass="on"] .glass-2 {
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+}
+
 /* Every authenticated page owns the same width and shrink behavior inside the shell. */
 .dashboard-page {
   width: 100%;
