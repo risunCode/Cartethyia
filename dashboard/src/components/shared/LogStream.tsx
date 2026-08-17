@@ -1,16 +1,16 @@
 
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { useSSE } from "../../lib/sse";
-import { cn } from "../../lib/cn";
-import { formatTime } from "../../lib/format";
+import { useSSE } from "@lib/sse";
+import { cn } from "@lib/cn";
+import { formatTime } from "@lib/format";
 import { Badge } from "../ui/badge";
 import {
   type LogEntry,
   type LogLevel,
   levelMatches,
   normalizeLogEntry,
-} from "./log-types";
+} from "@lib/log-types";
 
 export interface LogStreamProps {
   url: string;
@@ -167,7 +167,7 @@ export function LogStream(props: LogStreamProps): JSX.Element {
         aria-live="polite"
         aria-relevant="additions"
         aria-label="Live console log stream"
-        class="console-log-scroll relative h-[480px] overflow-y-auto rounded-[var(--radius-card)] border border-[var(--inner-border)] bg-[var(--surface-1)] font-mono text-[11.5px]"
+        class="console-log-scroll log-zebra relative h-[480px] overflow-y-auto rounded-[var(--radius-card)] border border-[var(--inner-border)] bg-[var(--surface-1)] font-mono text-[11.5px]"
       >
         <Show
           when={filtered().length > 0}

@@ -5,7 +5,7 @@ import type { LucideIcon } from "lucide-solid";
 import { Card, CardHeader } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Skeleton } from "../ui/badge";
-import { cn } from "../../lib/cn";
+import { cn } from "@lib/cn";
 
 export interface VirtualTableColumn<T> {
   key: string;
@@ -122,7 +122,7 @@ export function VirtualTable<T>(props: VirtualTableProps<T>): JSX.Element {
             aria-label={props.ariaLabel ?? props.title ?? "Virtual scroll table"}
             tabIndex={0}
           >
-            <table class="w-full border-collapse text-left text-xs" style={{ "min-width": "640px" }}>
+            <table class="vtable-sticky vtable-zebra w-full border-collapse text-left text-xs" style={{ "min-width": "640px" }}>
               <thead>
                 <tr class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
                   <For each={props.columns}>

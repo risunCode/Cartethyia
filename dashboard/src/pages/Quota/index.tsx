@@ -23,7 +23,7 @@ import {
   quotaUsageTone,
   type AccountQuotaWindow,
   type AccountRecord,
-} from "@components/shared/quota-contracts";
+} from "@lib/quota-contracts";
 
 /** Requirement 4: quota data refreshes every 30 seconds without a reload. */
 const QUOTA_REFRESH_MS = 30_000;
@@ -333,7 +333,7 @@ export default function Quota(): JSX.Element {
             </div>
           }
         >
-          <div class="grid animate-fade-in grid-cols-2 gap-3 lg:grid-cols-4">
+          <div class="grid animate-fade-in grid-cols-2 gap-3 card-stagger lg:grid-cols-4">
             <MetricCard label="Accounts" value={formatNumber(summary().total)} icon={Users} tone="accent" description="Quota-visible accounts" />
             <MetricCard label="Active" value={formatNumber(summary().active)} icon={CheckCircle2} tone="success" description="Enabled accounts" />
             <MetricCard

@@ -1,5 +1,5 @@
 
-import { cn } from "../../lib/cn";
+import { cn } from "@lib/cn";
 
 export interface ProgressBarProps {
   value: number | null | undefined;
@@ -38,7 +38,7 @@ export function ProgressBar(props: ProgressBarProps) {
         </div>
       )}
       <div class="h-1.5 overflow-hidden rounded-full bg-[var(--track)]" role="progressbar" aria-label={props.label} aria-valuemin={0} aria-valuemax={normalizedMax()} aria-valuenow={normalizedValue()}>
-        <div class={cn("h-full origin-left rounded-full transition-transform duration-500", toneClasses[props.tone ?? "accent"])} style={{ transform: `scaleX(${percentage() / 100})` }} />
+        <div class={cn("bar-transition h-full origin-left rounded-full", toneClasses[props.tone ?? "accent"])} style={{ transform: `scaleX(${percentage() / 100})` }} />
       </div>
     </div>
   );

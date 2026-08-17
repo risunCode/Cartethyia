@@ -1,15 +1,18 @@
 
 import { For, Show, createMemo, createResource, createSignal, type JSX } from "solid-js";
-import { Card, CardHeader } from "../../components/ui/card";
-import { Switch } from "../../components/ui/switch";
-import { Button } from "../../components/ui/button";
-import { Badge, Skeleton } from "../../components/ui/badge";
-import { SettingRow, SettingSection } from "../../components/patterns/setting-row";
-import { glassSurfaces, setGlassSurfaces, setTheme, theme } from "../../lib/store";
-import { consoleFailure, consoleGet, consolePatch } from "../../lib/console-api";
+import { KeyRound, Server, Shield } from "lucide-solid";
+import { Card, CardHeader } from "@components/ui/card";
+import { Switch } from "@components/ui/switch";
+import { Button } from "@components/ui/button";
+import { Badge, Skeleton } from "@components/ui/badge";
+import { StatePanel } from "@components/ui/state";
+import { SettingRow, SettingSection } from "@components/patterns/setting-row";
+import { glassSurfaces, setGlassSurfaces, setTheme, theme } from "@lib/store";
+import { consoleFailure, consoleGet, consolePatch } from "@lib/console-api";
 
 interface SettingsResponse {
   readonly theme?: string;
+  readonly version?: string;
   readonly sidebarCollapsed?: boolean;
   readonly solidMode?: boolean;
   readonly performanceMode?: boolean;
@@ -52,11 +55,11 @@ export default function Settings(): JSX.Element {
   };
 
   return (
-    <div class="space-y-6">
+    <div class="dashboard-page space-y-5">
       <header class="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 class="text-2xl font-bold text-[var(--text-1)]">Settings</h1>
-          <p class="mt-1 text-[12px] text-[var(--text-3)]">
+          <h1 class="text-xl font-bold text-[var(--text-1)]">Settings</h1>
+          <p class="mt-1 text-[11px] text-[var(--text-2)]">
             Operator preferences, dashboard behaviour, and API key management.
           </p>
         </div>
@@ -82,14 +85,48 @@ export default function Settings(): JSX.Element {
         when={!isLoading()}
         fallback={
           <div class="grid gap-3">
-            <Skeleton className="h-16" />
-            <Skeleton className="h-16" />
-            <Skeleton className="h-32" />
+            <Skeleton className="h-20 rounded-[var(--radius-card)]" />
+            <Skeleton className="h-16 rounded-[var(--radius-card)]" />
+            <Skeleton className="h-24 rounded-[var(--radius-card)]" />
           </div>
         }
       >
         <AppearanceSection onThemePatch={(value) => patchSetting({ theme: value })} />
       </Show>
+
+      <Card density="comfortable" class="settings-slide-down">
+        <CardHeader title="Connection" icon={Server} iconColor="var(--accent)" sub="Daemon binding and version" />
+        <dl class="grid gap-3 text-[12px] sm:grid-cols-2">
+          <Detail label="Endpoint" value={`${window.location.origin}/v1`} />
+          <Detail label="Version" value={settingsResource()?.version ?? "—"} />
+          <Detail label="Status" value={settingsResource() ? "Connected" : "Unavailable"} />
+        </dl>
+      </Card>
+
+      <Card density="comfortable" class="settings-slide-down">
+        <CardHeader title="API keys" icon={Shield} iconColor="var(--status-warning)" sub="Operator credentials and access" />
+        <Show
+          when={settingsResource()?.defaultModel ?? false}
+          fallback={
+            <div class="flex flex-col items-center gap-2 rounded-xl border border-dashed border-[var(--inner-border)] bg-[var(--hover)] px-4 py-6 text-center">
+              <span class="grid h-10 w-10 place-items-center rounded-full bg-[var(--accent-soft)] text-[var(--accent)]">
+                <KeyRound size={18} aria-hidden="true" />
+              </span>
+              <div>
+                <p class="text-xs font-semibold text-[var(--text-1)]">No API keys configured</p>
+                <p class="mt-0.5 text-[10px] text-[var(--text-3)]">
+                  API key management will appear here once the /console/settings contract includes credential routes.
+                </p>
+              </div>
+            </div>
+          }
+        >
+          <dl class="grid gap-3 text-[12px] sm:grid-cols-2">
+            <Detail label="Default model" value={settingsResource()?.defaultModel ?? "—"} />
+            <Detail label="Notifications" value={settingsResource()?.notificationsEnabled ? "Enabled" : "Disabled"} />
+          </dl>
+        </Show>
+      </Card>
 
       <Show when={error()}>
         {(message) => (
@@ -159,6 +196,15 @@ function AppearanceSection(props: {
         />
       </SettingSection>
     </Card>
+  );
+}
+
+function Detail(props: { label: string; value: string }): JSX.Element {
+  return (
+    <div class="min-w-0">
+      <dt class="text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)]">{props.label}</dt>
+      <dd class="mt-0.5 break-words text-[var(--text-1)]">{props.value}</dd>
+    </div>
   );
 }
 

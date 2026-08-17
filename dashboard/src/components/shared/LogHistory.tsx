@@ -2,17 +2,17 @@
 import { For, Show, createEffect, createMemo, type JSX } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createResource } from "solid-js";
-import { cn } from "../../lib/cn";
-import { formatTime } from "../../lib/format";
+import { cn } from "@lib/cn";
+import { formatTime } from "@lib/format";
 import { Badge } from "../ui/badge";
-import { consoleGet, consoleFailure } from "../../lib/console-api";
-import { apiCache, getCacheKey } from "../../lib/cache";
+import { consoleGet, consoleFailure } from "@lib/console-api";
+import { apiCache, getCacheKey } from "@lib/cache";
 import {
   type LogEntry,
   type LogLevel,
   levelMatches,
   normalizeLogEntry,
-} from "./log-types";
+} from "@lib/log-types";
 
 export interface LogHistoryProps {
   level: LogLevel;
@@ -132,7 +132,7 @@ export function LogHistory(props: LogHistoryProps): JSX.Element {
 
       <div
         ref={scrollContainer}
-        class="console-log-scroll relative h-[420px] overflow-y-auto rounded-[var(--radius-card)] border border-[var(--inner-border)] bg-[var(--surface-1)] font-mono text-[11.5px]"
+        class="console-log-scroll log-zebra relative h-[420px] overflow-y-auto rounded-[var(--radius-card)] border border-[var(--inner-border)] bg-[var(--surface-1)] font-mono text-[11.5px]"
         aria-label="Historical console log"
       >
         <Show

@@ -195,6 +195,37 @@
   animation: login-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+.login-card {
+  background: color-mix(in srgb, var(--surface-2) 24%, transparent);
+  border-color: color-mix(in srgb, var(--glass-border) 30%, transparent);
+  backdrop-filter: blur(4px) saturate(1.04);
+  -webkit-backdrop-filter: blur(4px) saturate(1.04);
+}
+
+.login-card-title {
+  color: var(--text-1);
+  text-shadow: 0 1px 18px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.login-card-subtitle {
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.65), 0 2px 20px rgba(0, 0, 0, 0.4);
+}
+
+.login-card-label {
+  color: var(--text-1);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.4);
+}
+
+.login-card-note {
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.75);
+}
+
+.login-flash {
+  animation: toast-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
 @keyframes login-in {
   from { opacity: 0; transform: translateY(14px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
@@ -654,4 +685,71 @@ html[data-theme-wipe]::view-transition-new(root) {
 .console-log-scroll {
   scroll-behavior: smooth;
   scrollbar-gutter: stable;
+}
+
+/* ── VirtualTable sticky header ──────────────────────────────────────────── */
+.vtable-sticky thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--surface-1);
+}
+
+html[data-glass="on"] .vtable-sticky thead {
+  background-color: rgba(255, 252, 247, 0.92);
+  backdrop-filter: blur(6px) saturate(1.1);
+  -webkit-backdrop-filter: blur(6px) saturate(1.1);
+}
+
+html.dark[data-glass="on"] .vtable-sticky thead {
+  background-color: rgba(28, 28, 32, 0.82);
+}
+
+/* ── Zebra striping for virtual tables and log entries ───────────────────── */
+.vtable-zebra tbody tr:nth-child(even) {
+  background-color: var(--hover);
+}
+
+.log-zebra > :nth-child(even) {
+  background-color: var(--hover);
+}
+
+/* ── MetricCard number count-up transition ───────────────────────────────── */
+.metric-value-enter {
+  animation: metric-pop 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes metric-pop {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Page-wide fade-in stagger for card grids ────────────────────────────── */
+.card-stagger > :nth-child(1) { animation-delay: 0ms; }
+.card-stagger > :nth-child(2) { animation-delay: 30ms; }
+.card-stagger > :nth-child(3) { animation-delay: 60ms; }
+.card-stagger > :nth-child(4) { animation-delay: 90ms; }
+.card-stagger > :nth-child(5) { animation-delay: 120ms; }
+.card-stagger > :nth-child(6) { animation-delay: 150ms; }
+
+.card-stagger > * {
+  animation: metric-pop 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-fill-mode: both;
+}
+
+/* ── Log entry improved hover + level glow ───────────────────────────────── */
+.log-entry-fade-in:hover {
+  background-color: var(--surface-hover) !important;
+}
+
+/* ── Focus ring consistency for interactive elements ───────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Bar chart smooth width transition ────────────────────────────────────── */
+.bar-transition {
+  transition: transform 500ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
