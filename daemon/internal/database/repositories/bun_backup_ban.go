@@ -64,7 +64,7 @@ func (r *BunBanRepository) ListBans(ctx context.Context) ([]models.IPBan, error)
 		return nil, ErrRepositoryClosed
 	}
 	rows := []banRow{}
-	if err := r.db.NewSelect().Model(&rows).Order("created_at DESC,ip ASC").Limit(maxBanRows).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).OrderExpr("created_at DESC, ip ASC").Limit(maxBanRows).Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.IPBan, len(rows))

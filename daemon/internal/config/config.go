@@ -41,6 +41,7 @@ const (
 // Config is the validated process-level configuration.
 type Config struct {
 	ListenAddress        string
+	DashboardDir         string
 	DatabaseURL          string
 	RedisURL             string
 	AccountEncryptionKey string
@@ -74,6 +75,7 @@ type Config struct {
 func FromEnvironment() (Config, error) {
 	cfg := Config{
 		ListenAddress:        firstNonEmpty("CARTETHYIA_LISTEN_ADDRESS", "LISTEN_ADDRESS", defaultListenAddress),
+		DashboardDir:         firstNonEmpty("CARTETHYIA_DASHBOARD_DIR", "dashboard/dist"),
 		DatabaseURL:          firstNonEmpty("CARTETHYIA_DATABASE_URL", "DATABASE_URL", ""),
 		RedisURL:             firstNonEmpty("CARTETHYIA_REDIS_URL", "REDIS_URL", ""),
 		AccountEncryptionKey: firstNonEmpty("CARTETHYIA_ENCRYPTION_KEY", "CARTETHYIA_ACCOUNT_ENCRYPTION_KEY", "ACCOUNT_ENCRYPTION_KEY", ""),

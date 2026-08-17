@@ -391,7 +391,7 @@ func (r *BunSettingsRepository) ListProviderModels(ctx context.Context, provider
 		return nil, ErrRepositoryClosed
 	}
 	rows := []providerSettingsRow{}
-	q := r.db.NewSelect().Model(&rows).Order("provider ASC, model_id ASC").Limit(maxSettingsRows)
+	q := r.db.NewSelect().Model(&rows).OrderExpr("provider ASC, model_id ASC").Limit(maxSettingsRows)
 	if p := strings.TrimSpace(provider); p != "" {
 		q = q.Where("provider=?", boundedString(p, maxSettingsText))
 	}
@@ -452,7 +452,7 @@ func (r *BunSettingsRepository) ListCliMappings(ctx context.Context, tool string
 		return nil, ErrRepositoryClosed
 	}
 	rows := []cliMapRow{}
-	q := r.db.NewSelect().Model(&rows).Order("tool_id ASC, slot_key ASC").Limit(maxSettingsRows)
+	q := r.db.NewSelect().Model(&rows).OrderExpr("tool_id ASC, slot_key ASC").Limit(maxSettingsRows)
 	if strings.TrimSpace(tool) != "" {
 		q = q.Where("tool_id=?", boundedString(tool, maxSettingsText))
 	}
@@ -542,7 +542,7 @@ func (r *BunSettingsRepository) ListFilterRules(ctx context.Context) ([]models.F
 		return nil, ErrRepositoryClosed
 	}
 	rows := []filterSettingsRow{}
-	if err := r.db.NewSelect().Model(&rows).Order("sort_order ASC,id ASC").Limit(maxSettingsRows).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).OrderExpr("sort_order ASC, id ASC").Limit(maxSettingsRows).Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.FilterRule, len(rows))

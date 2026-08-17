@@ -114,7 +114,7 @@ func (r *BunProxyRepository) List(ctx context.Context) ([]models.Proxy, error) {
 		return nil, err
 	}
 	rows := []proxyRow{}
-	if err := r.db.NewSelect().Model(&rows).Order("priority ASC, name ASC, id ASC").Limit(maxProxyRows).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).OrderExpr("priority ASC, name ASC, id ASC").Limit(maxProxyRows).Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.Proxy, len(rows))

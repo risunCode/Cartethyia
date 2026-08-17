@@ -14,6 +14,7 @@ import { setUnauthorizedHandler } from "./lib/api";
 import { Sidebar } from "./components/layout/Sidebar";
 import { Header } from "./components/layout/Header";
 import { Footer } from "./components/layout/Footer";
+import { ToastViewport } from "./components/ui/toast-viewport";
 import type { FooterStatus } from "./components/layout/Footer";
 
 // Lazy load pages for code splitting.
@@ -58,6 +59,7 @@ export function DashboardShell(props: { children: JSX.Element }): JSX.Element {
         </main>
         <Footer status={health()?.status ?? "unknown"} version={health()?.version} />
       </div>
+      <ToastViewport />
     </div>
   );
 }

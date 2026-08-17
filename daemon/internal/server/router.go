@@ -5,12 +5,38 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/cartethyia/daemon/internal/observability"
 	"github.com/cartethyia/daemon/internal/server/middleware"
 )
+
+func dashboardHandler(directory string) http.Handler {
+	files := http.FileServer(http.Dir(directory))
+	indexPath := filepath.Join(directory, "index.html")
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			writeMethodNotAllowed(w, http.MethodGet)
+			return
+		}
+		if _, err := os.Stat(indexPath); err != nil {
+			handleNotFound(w, r)
+			return
+		}
+		cleanPath := filepath.Clean(filepath.FromSlash(r.URL.Path))
+		if cleanPath != "." && cleanPath != string(filepath.Separator) {
+			candidate := filepath.Join(directory, cleanPath)
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				files.ServeHTTP(w, r)
+				return
+			}
+		}
+		http.ServeFile(w, r, indexPath)
+	})
+}
 
 // NewRouter builds the foundation HTTP boundary without extension registrars.
 func NewRouter(registry *observability.Registry) (http.Handler, error) {
@@ -29,7 +55,11 @@ func NewRouterWith(opts Options) (http.Handler, error) {
 	registerV1(mux, opts.V1, opts.V1Auth)
 	registerConsole(mux, opts.Console)
 	registerShare(mux, opts.Share)
-	mux.HandleFunc("/", handleNotFound)
+	if opts.DashboardDir == "" {
+		mux.HandleFunc("/", handleNotFound)
+	} else {
+		mux.Handle("/", dashboardHandler(opts.DashboardDir))
+	}
 	// Recovery sits directly inside RequestID so a panic anywhere downstream
 	// still produces the JSON error envelope with the correlated request id.
 	return middleware.RequestID(middleware.Recovery(opts.Registry.Logger(), observeRequests(opts.Registry, mux))), nil

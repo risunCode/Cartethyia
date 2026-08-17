@@ -17,6 +17,7 @@ var healthArtwork string
 // Config contains the runtime settings needed to construct Cartethyia.
 type Config struct {
 	ListenAddress        string
+	DashboardDir         string
 	DatabaseURL          string
 	RedisURL             string
 	AccountEncryptionKey string
@@ -66,6 +67,7 @@ func LoadConfig() (Config, error) {
 	}
 	return Config{
 		ListenAddress:        loaded.ListenAddress,
+		DashboardDir:         loaded.DashboardDir,
 		DatabaseURL:          loaded.DatabaseURL,
 		RedisURL:             loaded.RedisURL,
 		AccountEncryptionKey: loaded.AccountEncryptionKey,
@@ -89,6 +91,7 @@ func New(cfg Config) (*Runtime, error) {
 func newRuntime(cfg Config, artwork string) (*Runtime, error) {
 	inner, err := runtime.NewWithHealthArtwork(runtime.Config{
 		ListenAddress:        cfg.ListenAddress,
+		DashboardDir:         cfg.DashboardDir,
 		DatabaseURL:          cfg.DatabaseURL,
 		RedisURL:             cfg.RedisURL,
 		AccountEncryptionKey: cfg.AccountEncryptionKey,

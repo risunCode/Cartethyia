@@ -80,10 +80,10 @@ describe("Quota page", () => {
     render(() => <Quota />);
 
     await screen.findByText("Relay");
-    expect(screen.getByText("Endpoint reference")).toBeInTheDocument();
-    expect(screen.getByText("GET /console/accounts")).toBeInTheDocument();
-    expect(screen.getByText("PATCH /console/providers/:id/accounts/batch")).toBeInTheDocument();
-    expect(screen.getByText("DELETE /console/providers/:id/accounts/:accountId")).toBeInTheDocument();
+    expect(screen.queryByText("Endpoint reference")).not.toBeInTheDocument();
+    expect(screen.queryByText("GET /console/accounts")).not.toBeInTheDocument();
+    expect(screen.queryByText("PATCH /console/providers/:id/accounts/batch")).not.toBeInTheDocument();
+    expect(screen.queryByText("DELETE /console/providers/:id/accounts/:accountId")).not.toBeInTheDocument();
   });
 
   test("toggles an account through the batch PATCH route and refetches", async () => {

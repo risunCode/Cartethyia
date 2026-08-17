@@ -260,10 +260,10 @@ cd daemon && go build ./... && go test ./...
 cd dashboard && bun run test:ci
 ```
 
-## Documentation and source map
+## Visualization
 
-The [active documentation index](./docs/README.md) links to the consolidated
-architecture, routing, protocol, operations, and engineering documents.
+The workspace map lives in [`docs/visualize/`](./docs/visualize/). It is the
+only active documentation while the repo is still changing shape.
 Release history remains in [`CHANGELOG.md`](./CHANGELOG.md). The main source
 areas are:
 
@@ -273,7 +273,7 @@ areas are:
 | Dashboard | [`dashboard/src/`](./dashboard/src/) | The single SolidJS/Vite frontend |
 | Legacy TypeScript | [`alegacy/`](./alegacy/) | Read-only migration reference (`src.old`, `dashboard.old`) |
 
-See [Engineering](./docs/engineering.md) for the current verification commands and behavior-focused test scope.
+See [`docs/visualize/`](./docs/visualize/) for the current workspace orientation.
 
 ## Credits
 

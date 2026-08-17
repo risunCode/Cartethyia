@@ -1,6 +1,6 @@
 
 import type { JSX } from "solid-js";
-import { For, Show, createMemo } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import type { LucideIcon } from "lucide-solid";
 import {
@@ -63,12 +63,32 @@ const indicatorStatus = (s: SidebarNavItem["status"]): "ok" | "warn" | "error" |
  * Sidebar — primary left-hand navigation for the dashboard.
  *
  * Reads collapsed state and theme from the signals store; collapses to icon
- * rail via the `data-collapsed` attribute (caller's CSS). Plays a 200ms
- * fade-up entrance animation on first mount via `.component-fade-in`.
+ * rail via the `data-collapsed` attribute (caller's CSS). The mobile drawer
+ * enters from the left so opening navigation reads as a spatial transition
+ * instead of a page fade.
  */
 export function Sidebar(props: SidebarProps): JSX.Element {
   const location = useLocation();
   const sections = (): readonly SidebarNavSection[] => props.sections ?? DEFAULT_SECTIONS;
+  const [drawerPresent, setDrawerPresent] = createSignal(mobileNavOpen());
+  let closeTimer: number | undefined;
+
+  createEffect(() => {
+    if (mobileNavOpen()) {
+      if (closeTimer !== undefined) window.clearTimeout(closeTimer);
+      setDrawerPresent(true);
+      return;
+    }
+    if (!drawerPresent()) return;
+    closeTimer = window.setTimeout(() => {
+      setDrawerPresent(false);
+      closeTimer = undefined;
+    }, 280);
+  });
+
+  onCleanup(() => {
+    if (closeTimer !== undefined) window.clearTimeout(closeTimer);
+  });
 
   const isActive = (href: string): boolean => {
     const path = location.pathname;
@@ -91,22 +111,26 @@ export function Sidebar(props: SidebarProps): JSX.Element {
 
   return (
     <>
-      <Show when={mobileNavOpen()}>
+      <Show when={drawerPresent()}>
         <div
           aria-hidden="true"
-          class="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          class={cn(
+            "fixed inset-0 z-40 bg-black/40 lg:hidden",
+            mobileNavOpen() ? "mobile-sidebar-overlay-enter" : "mobile-sidebar-overlay-exit",
+          )}
           onClick={() => setMobileNavOpen(false)}
         />
       </Show>
       <aside
         aria-label="Dashboard navigation"
         class={cn(
-          "component-fade-in shrink-0 flex-col rounded-[var(--radius-sidebar)] border border-[var(--inner-border)] bg-[var(--glass-bg)] shadow-[var(--shadow-card)] lg:sticky lg:top-2.5 lg:flex lg:h-[calc(100dvh-20px)] lg:self-start",
-          "transition-[width] duration-150 ease-out",
-          widthClass(),
+          "shrink-0 flex flex-col rounded-[var(--radius-sidebar)] border border-[var(--inner-border)] bg-[var(--glass-bg)] shadow-[var(--shadow-card)]",
+          "fixed inset-y-2.5 left-2.5 z-50 w-[272px] transition-[width,transform,opacity] duration-300 ease-out",
           mobileNavOpen()
-            ? "fixed inset-y-2.5 left-2.5 z-50 flex w-[272px]"
-            : "hidden",
+            ? "mobile-sidebar-open"
+            : "mobile-sidebar-closed pointer-events-none",
+          "lg:static lg:top-2.5 lg:left-auto lg:z-auto lg:h-[calc(100dvh-20px)] lg:self-start lg:pointer-events-auto lg:sticky",
+          widthClass(),
           props.className,
         )}
         data-collapsed={collapsed() ? "true" : "false"}

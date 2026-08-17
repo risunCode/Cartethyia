@@ -1,5 +1,5 @@
 
-import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
+import { For, Show, createEffect, createMemo, type JSX } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { createResource } from "solid-js";
 import { cn } from "../../lib/cn";
@@ -58,9 +58,8 @@ function pickList(value: LogHistoryResponse): readonly unknown[] {
  */
 export function LogHistory(props: LogHistoryProps): JSX.Element {
   const route = (): string => props.route ?? "/logs";
-  const [from, setFrom] = createSignal(props.from ?? new Date(Date.now() - 60 * 60 * 1000).toISOString());
-  const [to, setTo] = createSignal(props.to ?? new Date().toISOString());
-  const [refreshTick, setRefreshTick] = createSignal(0);
+  const from = () => props.from ?? new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const to = () => props.to ?? new Date().toISOString();
 
   const cacheKey = createMemo(() =>
     getCacheKey(route(), {
@@ -71,7 +70,7 @@ export function LogHistory(props: LogHistoryProps): JSX.Element {
   );
 
   const [historyResource] = createResource(
-    () => ({ from: from(), to: to(), limit: props.limit ?? HISTORY_LIMIT, tick: refreshTick() }),
+    () => ({ from: from(), to: to(), limit: props.limit ?? HISTORY_LIMIT }),
     async (params) => {
       const key = cacheKey();
       const cached = apiCache.get<LogEntry[]>(key);
@@ -111,50 +110,25 @@ export function LogHistory(props: LogHistoryProps): JSX.Element {
     overscan: 6,
   });
 
-  const handleRefresh = () => {
-    apiCache.invalidate(cacheKey());
-    setRefreshTick((tick) => tick + 1);
-  };
+  createEffect(() => {
+    historyResource();
+    if (scrollContainer && !historyResource.loading) {
+      queueMicrotask(() => {
+        if (!scrollContainer) return;
+        if (typeof scrollContainer.scrollTo === "function") {
+          scrollContainer.scrollTo({ top: scrollContainer.scrollHeight });
+        } else {
+          scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        }
+      });
+    }
+  });
 
   return (
     <div class={cn("flex flex-col gap-3", props.className)}>
-      <div class="flex flex-wrap items-end justify-between gap-2 px-1">
-        <div class="flex flex-wrap items-end gap-3">
-          <label class="flex flex-col gap-1">
-            <span class="text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)]">From</span>
-            <input
-              type="datetime-local"
-              value={toLocalInput(from())}
-              onChange={(event) => setFrom(fromLocalInput(event.currentTarget.value))}
-              class="h-8 rounded-md border border-[var(--inner-border)] bg-[var(--hover)] px-2 text-[11px] text-[var(--text-1)] outline-none transition-colors duration-150 focus:border-[var(--accent)]"
-            />
-          </label>
-          <label class="flex flex-col gap-1">
-            <span class="text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)]">To</span>
-            <input
-              type="datetime-local"
-              value={toLocalInput(to())}
-              onChange={(event) => setTo(fromLocalInput(event.currentTarget.value))}
-              class="h-8 rounded-md border border-[var(--inner-border)] bg-[var(--hover)] px-2 text-[11px] text-[var(--text-1)] outline-none transition-colors duration-150 focus:border-[var(--accent)]"
-            />
-          </label>
-        </div>
-        <div class="flex items-center gap-2">
-          <Show when={failure()}>
-            {(status) => (
-              <span class="text-[11px] text-[var(--status-danger)]">{status().message}</span>
-            )}
-          </Show>
-          <button
-            type="button"
-            onClick={handleRefresh}
-            disabled={historyResource.loading}
-            class="rounded-full border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-1 text-[11px] font-semibold text-[var(--text-1)] transition-colors duration-150 hover:bg-[var(--active-pill)] disabled:opacity-50"
-          >
-            {historyResource.loading ? "Loading…" : "Refresh"}
-          </button>
-        </div>
-      </div>
+      <Show when={failure()}>
+        {(status) => <p class="px-1 text-[11px] text-[var(--status-danger)]">{status().message}</p>}
+      </Show>
 
       <div
         ref={scrollContainer}
@@ -218,17 +192,4 @@ export function LogHistory(props: LogHistoryProps): JSX.Element {
   );
 }
 
-function toLocalInput(iso: string): string {
-  if (!iso) return "";
-  const parsed = Date.parse(iso.includes("T") ? iso : `${iso.replace(" ", "T")}Z`);
-  if (!Number.isFinite(parsed)) return "";
-  const date = new Date(parsed);
-  const pad = (value: number): string => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
 
-function fromLocalInput(value: string): string {
-  if (!value) return new Date().toISOString();
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : value;
-}

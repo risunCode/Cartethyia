@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun scripts/dev.ts",
-    "dev:no-open": "bun scripts/dev.ts --no-open"
+    "dev:no-open": "bun scripts/dev.ts --no-open",
+    "windows": "powershell -ExecutionPolicy Bypass -File scripts/run-windows.ps1"
   }
 }

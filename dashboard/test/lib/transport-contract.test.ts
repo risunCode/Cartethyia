@@ -274,11 +274,10 @@ const DISPATCHER_SUBROUTES: ReadonlyArray<{
 
 /**
  * Daemon console routes the dashboard contract deliberately does not claim.
- * WS4 removed the orphan route families (docs/v2.1-console-plan.md §3), and
- * the SSE streams are claimed through CONSOLE_STREAM_ROUTES instead of the
- * JSON fetch matrix, so this list is now exactly the intentional gaps;
- * anyone adding a daemon route the dashboard does not use must update it in
- * the same change.
+ * The SSE streams are claimed through CONSOLE_STREAM_ROUTES instead of the
+ * JSON fetch matrix, so this list is exactly the intentional gaps; anyone
+ * adding a daemon route the dashboard does not use must update it in the same
+ * change.
  */
 const KNOWN_UNCOVERED_DAEMON_ROUTES = [
   // Daemon-supported mutations the dashboard matrix does not exercise.

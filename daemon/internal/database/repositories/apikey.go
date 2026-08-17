@@ -194,7 +194,7 @@ func (r *BunAPIKeyRepository) List(ctx context.Context) ([]models.ApiKey, error)
 		return nil, err
 	}
 	rows := []apiKeyRow{}
-	if err := r.db.NewSelect().Model(&rows).Order("created_at DESC,id DESC").Limit(maxAPIKeyRows).Scan(ctx); err != nil {
+	if err := r.db.NewSelect().Model(&rows).OrderExpr("created_at DESC, id DESC").Limit(maxAPIKeyRows).Scan(ctx); err != nil {
 		return nil, err
 	}
 	out := make([]models.ApiKey, len(rows))
@@ -509,7 +509,7 @@ func (r *BunAPIKeyRepository) ListShareLinksByAPIKey(ctx context.Context, id str
 		return nil, e
 	}
 	rows := []shareLinkRow{}
-	if e = r.db.NewSelect().Model(&rows).Where("api_key_id=?", id).Order("created_at DESC,id DESC").Limit(maxShareRows).Scan(ctx); e != nil {
+	if e = r.db.NewSelect().Model(&rows).Where("api_key_id=?", id).OrderExpr("created_at DESC, id DESC").Limit(maxShareRows).Scan(ctx); e != nil {
 		return nil, e
 	}
 	out := make([]models.ShareLink, len(rows))

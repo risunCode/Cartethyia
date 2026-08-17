@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { fireEvent, render, screen } from "@solidjs/testing-library";
+import { render, screen } from "@solidjs/testing-library";
 
 import { LogHistory } from "../../../src/components/shared/LogHistory";
 import { consoleGet } from "../../../src/lib/console-api";
@@ -60,33 +60,6 @@ describe("LogHistory", () => {
   // rejection aborts the render with an unhandled error before the inline
   // failure message can mount.
 
-  test("refetches when the time window changes", async () => {
-    render(() => <LogHistory level="info" />);
-
-    await screen.findByText("request routed");
-    expect(vi.mocked(consoleGet)).toHaveBeenCalledTimes(1);
-
-    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-08-16T09:00" } });
-
-    await vi.waitFor(() => expect(vi.mocked(consoleGet)).toHaveBeenCalledTimes(2));
-    // The new window is serialized into the from= query (UTC ISO, so only the
-    // difference from the first call is asserted, not the literal timestamp).
-    const [firstRoute, secondRoute] = vi.mocked(consoleGet).mock.calls.map(([route]) => route);
-    expect(secondRoute.startsWith("/logs?from=")).toBe(true);
-    expect(secondRoute).not.toBe(firstRoute);
-  });
-
-  test("Refresh invalidates the cache and refetches the same window", async () => {
-    render(() => <LogHistory level="info" />);
-
-    await screen.findByText("request routed");
-    expect(vi.mocked(consoleGet)).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
-
-    await vi.waitFor(() => expect(vi.mocked(consoleGet)).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(consoleGet).mock.calls[1][0]).toBe(vi.mocked(consoleGet).mock.calls[0][0]);
-  });
 
   test("accepts the items list key and honors a custom route", async () => {
     vi.mocked(consoleGet).mockResolvedValue({ items: [historyEntries.entries[0]] });

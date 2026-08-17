@@ -97,14 +97,6 @@ export function Footer(props: FooterProps): JSX.Element {
         <Badge tone={statusTone[status()]}>{statusLabel[status()]}</Badge>
       </div>
 
-      <Show when={props.version}>
-        {(version) => (
-          <span class="hidden items-center gap-1 sm:inline-flex" aria-label={`Version ${version()}`}>
-            <span class="text-[var(--text-3)]">v</span>
-            <span class="font-mono tabular-nums">{version()}</span>
-          </span>
-        )}
-      </Show>
 
       <Show when={props.uptimeSeconds !== undefined}>
         <span class="hidden items-center gap-1 md:inline-flex" aria-label={`Uptime ${formatUptime(props.uptimeSeconds)}`}>

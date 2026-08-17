@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -53,5 +55,43 @@ func TestHealthRendersServingHeaderAndArtwork(t *testing.T) {
 	}
 	if traceID := response.Header().Get("X-Trace-Id"); traceID == "" {
 		t.Fatal("missing generated trace id")
+	}
+}
+
+func TestRouterServesDashboardAndSPAFallback(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("<main>dashboard</main>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(directory, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "assets", "app.js"), []byte("console.log('ok')"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := NewRouterWith(Options{
+		Registry:     observability.NewRegistry(),
+		DashboardDir: directory,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		path string
+		want string
+	}{
+		{path: "/", want: "<main>dashboard</main>"},
+		{path: "/overview", want: "<main>dashboard</main>"},
+		{path: "/assets/app.js", want: "console.log('ok')"},
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s status = %d", test.path, response.Code)
+		}
+		if got := response.Body.String(); got != test.want {
+			t.Fatalf("%s body = %q, want %q", test.path, got, test.want)
+		}
 	}
 }

@@ -896,6 +896,7 @@ func buildHandlerWithArtworkAndDependencies(cfg Config, deps BootstrapDependenci
 	base, err := server.NewRouterWith(server.Options{
 		Registry:      metrics,
 		HealthArtwork: artwork,
+		DashboardDir:  cfg.DashboardDir,
 		V1: registrarFunc(func(mux *http.ServeMux) {
 			api.RegisterV1(mux, api.Deps{Proxy: dispatch, Catalog: publicCatalog, Evidence: metrics})
 		}),

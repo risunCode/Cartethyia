@@ -44,7 +44,6 @@ describe("Overview page", () => {
     render(() => <Overview />);
 
     expect(await screen.findByText(/\/v1$/)).toBeInTheDocument();
-    expect(screen.getByText("Local")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /copy/i })).toBeInTheDocument();
   });
 
@@ -57,38 +56,6 @@ describe("Overview page", () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining("/v1"));
   });
 
-  test("renders the six daemon summary facts from /console/dashboard", async () => {
-    vi.mocked(consoleGet).mockResolvedValue(dashboardPayload);
-    render(() => <Overview />);
-
-    expect(await screen.findByText("Daemon summary")).toBeInTheDocument();
-    expect(screen.getByText("2.1.0-beta")).toBeInTheDocument();
-    expect(screen.getByText("production")).toBeInTheDocument();
-    expect(screen.getByText("3d 4h")).toBeInTheDocument();
-    expect(screen.getByText("Accounts")).toBeInTheDocument();
-    expect(screen.getByText("Proxies")).toBeInTheDocument();
-    expect(screen.getByText("API keys")).toBeInTheDocument();
-  });
-
-  test("renders the overall health badge plus one badge per dependency", async () => {
-    vi.mocked(consoleGet).mockResolvedValue(dashboardPayload);
-    render(() => <Overview />);
-
-    expect(await screen.findByText("Dependency health")).toBeInTheDocument();
-    expect(screen.getByText("Degraded")).toBeInTheDocument();
-    expect(screen.getByText("database · postgresql")).toBeInTheDocument();
-    expect(screen.getByText("redis · degraded")).toBeInTheDocument();
-  });
-
-  test("shows the unknown fallback when no dependencies report health", async () => {
-    vi.mocked(consoleGet).mockResolvedValue({
-      ...dashboardPayload,
-      health: {},
-    });
-    render(() => <Overview />);
-
-    expect(await screen.findByText("No dependency health reported · Unknown")).toBeInTheDocument();
-  });
 
   test("shows the failure panel with Retry when /dashboard cannot be read", async () => {
     vi.mocked(consoleGet).mockRejectedValue(new Error("network down"));

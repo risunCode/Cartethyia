@@ -5,6 +5,7 @@
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+
 @keyframes highlightFade {
   0% { background-color: color-mix(in srgb, var(--accent) 18%, transparent); }
   100% { background-color: transparent; }
@@ -12,6 +13,10 @@
 
 .toast-item {
   animation: toast-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.toast-enter {
+  animation: toast-in 220ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 @keyframes motion-fade-up {
@@ -34,6 +39,26 @@
   to { opacity: 1; transform: translateX(0); }
 }
 
+@keyframes mobile-sidebar-in {
+  from { opacity: 0; transform: translateX(calc(-100% - 1rem)); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes mobile-sidebar-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes mobile-sidebar-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(calc(-100% - 1rem)); }
+}
+
+@keyframes mobile-sidebar-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
 .route-enter,
 .motion-entry-enter {
   animation: motion-route-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
@@ -47,34 +72,121 @@
   animation: sidebar-from-right 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
-.motion-dialog-overlay {
-  animation: dialog-overlay-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+.mobile-sidebar-enter {
+  animation: mobile-sidebar-in 280ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
-@keyframes dialog-overlay-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.mobile-sidebar-overlay-enter {
+  animation: mobile-sidebar-overlay-in 220ms ease-out both;
 }
 
-.motion-dialog-panel {
-  animation: dialog-panel-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+.mobile-sidebar-exit {
+  animation: mobile-sidebar-out 280ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  pointer-events: none;
 }
 
-@keyframes dialog-panel-in {
+.mobile-sidebar-overlay-exit {
+  animation: mobile-sidebar-overlay-out 220ms ease-out both;
+  pointer-events: none;
+}
+
+.mobile-sidebar-open {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.mobile-sidebar-closed {
+  opacity: 0;
+  transform: translateX(calc(-100% - 1rem));
+}
+
+@media (min-width: 1024px) {
+  .mobile-sidebar-open,
+  .mobile-sidebar-closed {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── Kobalte overlay animations ──────────────────────────────────────────
+   All Kobalte primitives (Dialog, DropdownMenu, Select, Popover, Tooltip)
+   use [data-expanded] / [data-closed] data attributes on their overlay
+   and content elements. These selectors drive CSS keyframe transitions. */
+
+/* Dialog overlay: fade in/out */
+[data-kb-root][data-expanded] > [data-overlay] {
+  animation: kb-overlay-show 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+[data-overlay] {
+  animation: kb-overlay-hide 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes kb-overlay-show { from { opacity: 0; } to { opacity: 1; } }
+@keyframes kb-overlay-hide { from { opacity: 1; } to { opacity: 0; } }
+
+/* Dialog content: scale + fade in/out */
+[data-kb-root][data-expanded] > [data-content] {
+  animation: kb-dialog-content-show 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+[data-content] {
+  animation: kb-dialog-content-hide 150ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes kb-dialog-content-show {
   from { opacity: 0; transform: translateY(8px) scale(0.97); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
-.motion-drawer-overlay {
-  animation: dialog-overlay-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-
-.motion-drawer-panel {
-  animation: drawer-panel-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+@keyframes kb-dialog-content-hide {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(8px) scale(0.97); }
 }
 
-@keyframes drawer-panel-in {
+/* Drawer content: slide from right */
+.kb-drawer-panel[data-expanded] {
+  animation: kb-drawer-show 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.kb-drawer-panel {
+  animation: kb-drawer-hide 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes kb-drawer-show {
   from { transform: translateX(105%); }
-  to { transform: translateX(0); }
+  to   { transform: translateX(0); }
+}
+@keyframes kb-drawer-hide {
+  from { transform: translateX(0); }
+  to   { transform: translateX(105%); }
+}
+
+/* DropdownMenu / Select / Popover content: origin-aware scale + fade */
+[data-kb-root][data-expanded] > [data-content].kb-popout {
+  animation: kb-popout-show 150ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+[data-content].kb-popout {
+  animation: kb-popout-hide 120ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-origin: var(--kb-menu-content-transform-origin, var(--kb-popover-content-transform-origin, top center));
+}
+@keyframes kb-popout-show {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes kb-popout-hide {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.96); }
+}
+
+/* Tooltip content: small scale + fade */
+[data-kb-root][data-expanded] > [data-content].kb-tooltip {
+  animation: kb-tooltip-show 120ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+[data-content].kb-tooltip {
+  animation: kb-tooltip-hide 100ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-origin: var(--kb-tooltip-content-transform-origin, top center);
+}
+@keyframes kb-tooltip-show {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes kb-tooltip-hide {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.95); }
 }
 
 
@@ -189,23 +301,6 @@
   to { transform: rotate(360deg); }
 }
 
-@keyframes popout-in {
-  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-.popout-enter {
-  animation: popout-in 0.16s cubic-bezier(0.32, 0.72, 0, 1) both;
-  transform-origin: top center;
-}
-
-
-/* Ensure popout panels are always opaque and on top */
-.popout-enter {
-  background-color: var(--popover-bg);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
 
 .model-picker-grid {
   display: grid;

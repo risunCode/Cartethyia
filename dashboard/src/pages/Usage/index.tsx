@@ -1,5 +1,5 @@
 
-import { Activity, ArrowDownToLine, ArrowUpFromLine, Database, TriangleAlert } from "lucide-solid";
+import { Activity, ArrowDownToLine, ArrowUpFromLine, TriangleAlert } from "lucide-solid";
 import { For, Show, createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js";
 import { Card, CardHeader } from "@components/ui/card";
 import { Badge } from "@components/ui/badge";
@@ -12,7 +12,6 @@ import { consoleFailure, consoleGet, consoleStreamUrl, normalizeTelemetryBuckets
 import { apiCache, getCacheKey } from "@lib/cache";
 import { serializeTelemetryQuery } from "../../composables/usage/use-usage-resource";
 import { formatNumber, formatTokens } from "@lib/format";
-import { cn } from "@lib/cn";
 
 export interface UsageSummary {
   requests: number | null;
@@ -269,33 +268,6 @@ export default function Usage() {
         />
       </section>
 
-      <section class="animate-fade-in">
-        <Card density="compact">
-          <CardHeader title="Period totals" icon={Database} iconColor="#bf5af2" sub={`Snapshot for ${period()}`} />
-          <Show when={summary()} fallback={<p class="text-xs text-[var(--text-3)]">No telemetry available.</p>}>
-            {(data) => (
-              <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <div class={cn("rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3")}>
-                  <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Requests</div>
-                  <div class="mt-1 text-lg font-bold tabular-nums">{formatNumber(data().requests)}</div>
-                </div>
-                <div class="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-                  <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Input</div>
-                  <div class="mt-1 text-lg font-bold tabular-nums">{formatTokens(data().inputTokens)}</div>
-                </div>
-                <div class="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-                  <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Output</div>
-                  <div class="mt-1 text-lg font-bold tabular-nums">{formatTokens(data().outputTokens)}</div>
-                </div>
-                <div class="rounded-xl border border-[var(--inner-border)] bg-[var(--hover)] p-3">
-                  <div class="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">Errors</div>
-                  <div class="mt-1 text-lg font-bold tabular-nums">{formatNumber(data().errors)}</div>
-                </div>
-              </div>
-            )}
-          </Show>
-        </Card>
-      </section>
     </div>
   );
 }

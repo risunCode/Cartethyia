@@ -62,8 +62,6 @@ describe("Usage page", () => {
     // Errors are summed across /telemetry/errors buckets (3 + 4).
     expect(screen.getAllByText("7").length).toBeGreaterThan(0);
 
-    expect(screen.getByText("Period totals")).toBeInTheDocument();
-    expect(screen.getByText("Snapshot for 24h")).toBeInTheDocument();
   });
 
   test("renders the request chart once buckets resolve and reports the point count", async () => {
@@ -121,7 +119,6 @@ describe("Usage page", () => {
 
     // The page still renders from usage + series; the error total is unknown.
     expect((await screen.findAllByText("5,432")).length).toBeGreaterThan(0);
-    expect(screen.getByText("Snapshot for 24h")).toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
 });

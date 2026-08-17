@@ -43,31 +43,23 @@ describe("Settings page", () => {
     vi.restoreAllMocks();
   });
 
-  test("renders the sections and API keys from the console settings payload", async () => {
+  test("renders the appearance settings from the console settings payload", async () => {
     render(() => <Settings />);
 
     expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
     expect(await screen.findByText("Synced")).toBeInTheDocument();
 
     expect(screen.getByText("Appearance")).toBeInTheDocument();
-    expect(screen.getByText("Layout")).toBeInTheDocument();
-    expect(screen.getByText("API keys")).toBeInTheDocument();
-    expect(screen.getByText("2 active · managed via console PATCH")).toBeInTheDocument();
-
-    expect(screen.getByText("prod-bot")).toBeInTheDocument();
-    expect(screen.getByText("ci-runner")).toBeInTheDocument();
-    expect(screen.getByText("Active")).toBeInTheDocument();
-    expect(screen.getByText("Inactive")).toBeInTheDocument();
-    expect(screen.getByText("sk-abc…")).toBeInTheDocument();
-
-    expect(screen.getByText("Console session cookie")).toBeInTheDocument();
+    expect(screen.queryByText("Layout")).not.toBeInTheDocument();
+    expect(screen.queryByText("API keys")).not.toBeInTheDocument();
+    expect(screen.queryByText("Endpoint reference")).not.toBeInTheDocument();
   });
 
   test("shows the loading indicator first and resolves without a reload", async () => {
     render(() => <Settings />);
 
     expect(screen.getByText("Loading…")).toBeInTheDocument();
-    expect(await screen.findByText("prod-bot")).toBeInTheDocument();
+    expect(await screen.findByText("Appearance")).toBeInTheDocument();
     expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
   });
 
@@ -81,32 +73,6 @@ describe("Settings page", () => {
     await vi.waitFor(() => expect(vi.mocked(consoleGet).mock.calls.length).toBeGreaterThanOrEqual(2));
   });
 
-  test("creates an API key through the manager form", async () => {
-    render(() => <Settings />);
-
-    await screen.findByText("prod-bot");
-    fireEvent.input(screen.getByLabelText("Label"), { target: { value: "staging-bot" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create key" }));
-
-    await vi.waitFor(() =>
-      expect(consolePatch).toHaveBeenCalledWith("/settings", {
-        apiKeyAction: "create",
-        apiKeyLabel: "staging-bot",
-        apiKeyScope: "",
-      }),
-    );
-  });
-
-  test("revokes an existing key through the manager", async () => {
-    render(() => <Settings />);
-
-    await screen.findByText("prod-bot");
-    fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
-
-    await vi.waitFor(() =>
-      expect(consolePatch).toHaveBeenCalledWith("/settings", { apiKeyAction: "revoke", apiKeyId: "key-1" }),
-    );
-  });
 
   test("surfaces a failed patch as an inline alert", async () => {
     vi.mocked(consolePatch).mockRejectedValue(new ApiError(403, "forbidden", "write blocked"));

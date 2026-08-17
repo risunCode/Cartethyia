@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">Cartethyia workspace map</title>
+  <desc id="desc">High-level map of the active Go daemon, dashboard, storage, upstream providers, and legacy archive.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <style>
+      .bg { fill: #ffffff; }
+      .title { font: 700 30px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 15px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .section { font: 700 18px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .label { font: 600 15px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .small { font: 400 13px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #334155; }
+      .muted { fill: #64748b; }
+      .frame { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; rx: 18; }
+      .panel { fill: #ffffff; stroke: #94a3b8; stroke-width: 2; rx: 14; }
+      .accent { fill: #eff6ff; stroke: #2563eb; stroke-width: 2; rx: 14; }
+      .accent2 { fill: #f0fdf4; stroke: #16a34a; stroke-width: 2; rx: 14; }
+      .accent3 { fill: #fdf4ff; stroke: #a855f7; stroke-width: 2; rx: 14; }
+      .line { stroke: #475569; stroke-width: 2.25; fill: none; marker-end: url(#arrow); }
+      .dashed { stroke: #64748b; stroke-width: 2; stroke-dasharray: 6 6; fill: none; marker-end: url(#arrow); }
+      .pill { fill: #e2e8f0; rx: 999; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1400" height="860"/>
+
+  <text class="title" x="70" y="54">Cartethyia workspace map</text>
+  <text class="subtitle" x="70" y="80">Self-hosted AI proxy/router with a separate operator dashboard and a Go runtime at the center.</text>
+
+  <!-- root -->
+  <rect class="frame" x="340" y="112" width="720" height="88" rx="18"/>
+  <text class="section" x="700" y="145" text-anchor="middle">Cartethyia repo</text>
+  <text class="small" x="700" y="170" text-anchor="middle">daemon/ = active Go core · dashboard/ = operator frontend · docs/ = understanding · alegacy/ = historical archive</text>
+
+  <!-- sections -->
+  <rect class="frame" x="70" y="240" width="580" height="320" rx="18"/>
+  <rect class="frame" x="750" y="240" width="580" height="320" rx="18"/>
+  <rect class="frame" x="70" y="590" width="1260" height="200" rx="18"/>
+
+  <text class="section" x="90" y="270">dashboard/</text>
+  <text class="section" x="770" y="270">daemon/</text>
+  <text class="section" x="90" y="620">data, upstream, and historical boundary</text>
+
+  <!-- dashboard panel -->
+  <rect class="accent" x="100" y="296" width="220" height="64" rx="14"/>
+  <text class="label" x="210" y="322" text-anchor="middle">src/App.tsx</text>
+  <text class="small" x="210" y="342" text-anchor="middle">mounts the router</text>
+
+  <rect class="panel" x="100" y="382" width="220" height="88" rx="14"/>
+  <text class="label" x="210" y="408" text-anchor="middle">src/router.tsx</text>
+  <text class="small" x="210" y="428" text-anchor="middle">landing / login / overview</text>
+  <text class="small" x="210" y="446" text-anchor="middle">usage / providers / quota / logs / settings / share</text>
+
+  <rect class="panel" x="100" y="490" width="220" height="48" rx="14"/>
+  <text class="label" x="210" y="520" text-anchor="middle">src/server/index.ts</text>
+
+  <rect class="accent3" x="350" y="296" width="270" height="242" rx="14"/>
+  <text class="label" x="485" y="322" text-anchor="middle">dashboard role</text>
+  <text class="small" x="485" y="351" text-anchor="middle">SolidJS + Vite SPA for operators</text>
+  <text class="small" x="485" y="374" text-anchor="middle">talks to /console/* on the daemon</text>
+  <text class="small" x="485" y="397" text-anchor="middle">runs a separate Bun aux server on :8787</text>
+  <text class="small" x="485" y="420" text-anchor="middle">/internal/* only: migrations + browser log sink</text>
+  <text class="small" x="485" y="443" text-anchor="middle">cookie session, not public API ingress</text>
+  <text class="small" x="485" y="466" text-anchor="middle">UI control plane, not the proxy engine</text>
+
+  <!-- daemon panel -->
+  <rect class="accent2" x="780" y="296" width="240" height="64" rx="14"/>
+  <text class="label" x="900" y="322" text-anchor="middle">cmd/cartethyia/main.go</text>
+  <text class="small" x="900" y="342" text-anchor="middle">signal handler + run(ctx, argv...)</text>
+
+  <rect class="panel" x="780" y="382" width="240" height="76" rx="14"/>
+  <text class="label" x="900" y="408" text-anchor="middle">daemon.go / bootstrap</text>
+  <text class="small" x="900" y="428" text-anchor="middle">composition, config, lifecycle</text>
+
+  <rect class="panel" x="1040" y="296" width="260" height="262" rx="14"/>
+  <text class="label" x="1170" y="322" text-anchor="middle">internal/*</text>
+  <text class="small" x="1170" y="352" text-anchor="middle">server/ → API + admin + middleware</text>
+  <text class="small" x="1170" y="375" text-anchor="middle">proxy/ → normalization + routing + transport</text>
+  <text class="small" x="1170" y="398" text-anchor="middle">accounts/ → providers + credentials + OAuth</text>
+  <text class="small" x="1170" y="421" text-anchor="middle">database/ → PostgreSQL authority</text>
+  <text class="small" x="1170" y="444" text-anchor="middle">observability/ → bounded evidence</text>
+  <text class="small" x="1170" y="467" text-anchor="middle">runtime/ → process composition</text>
+  <text class="small" x="1170" y="490" text-anchor="middle">/v1/* · /console/* · /health · /metrics · /share/*</text>
+
+  <path class="line" d="M700 200 L700 232"/>
+  <path class="line" d="M700 200 L360 240"/>
+  <path class="line" d="M700 200 L1040 240"/>
+
+  <path class="line" d="M320 328 L332 328"/>
+  <path class="line" d="M320 426 L332 426"/>
+  <path class="line" d="M320 514 L332 514"/>
+
+  <path class="line" d="M1020 328 L1032 328"/>
+  <path class="line" d="M1020 420 L1032 420"/>
+
+  <!-- runtime arrows -->
+  <path class="line" d="M650 395 C690 395, 720 395, 750 395"/>
+  <path class="line" d="M650 500 C740 500, 790 500, 840 500"/>
+  <path class="line" d="M650 540 C760 540, 860 540, 1030 540"/>
+
+  <!-- bottom row: data and boundaries -->
+  <rect class="accent" x="100" y="642" width="238" height="88" rx="14"/>
+  <text class="label" x="219" y="668" text-anchor="middle">PostgreSQL</text>
+  <text class="small" x="219" y="688" text-anchor="middle">account / quota / routing / admin state</text>
+  <text class="small" x="219" y="706" text-anchor="middle">durable authority</text>
+
+  <rect class="panel" x="358" y="642" width="180" height="88" rx="14"/>
+  <text class="label" x="448" y="668" text-anchor="middle">Redis</text>
+  <text class="small" x="448" y="688" text-anchor="middle">optional cache</text>
+  <text class="small" x="448" y="706" text-anchor="middle">coordination</text>
+
+  <rect class="accent2" x="558" y="642" width="220" height="88" rx="14"/>
+  <text class="label" x="668" y="668" text-anchor="middle">Provider upstreams</text>
+  <text class="small" x="668" y="688" text-anchor="middle">OpenAI · Anthropic · Gemini · custom</text>
+  <text class="small" x="668" y="706" text-anchor="middle">the daemon routes traffic here</text>
+
+  <rect class="panel" x="798" y="642" width="220" height="88" rx="14"/>
+  <text class="label" x="908" y="668" text-anchor="middle">SQLite</text>
+  <text class="small" x="908" y="688" text-anchor="middle">dashboard aux browser logs</text>
+  <text class="small" x="908" y="706" text-anchor="middle">data/logs.db</text>
+
+  <rect class="accent3" x="1038" y="642" width="262" height="88" rx="14"/>
+  <text class="label" x="1169" y="668" text-anchor="middle">Historical boundary</text>
+  <text class="small" x="1169" y="688" text-anchor="middle">alegacy/ is read-only reference</text>
+  <text class="small" x="1169" y="706" text-anchor="middle">not part of the active runtime</text>
+
+  <path class="line" d="M900 458 C900 560, 900 600, 898 642"/>
+  <path class="line" d="M900 458 C780 560, 740 600, 668 642"/>
+  <path class="line" d="M210 540 C210 590, 210 610, 219 642"/>
+  <path class="line" d="M485 538 C485 592, 448 608, 448 642"/>
+  <path class="line" d="M1210 558 C1210 606, 1210 620, 1169 642"/>
+
+  <!-- legend strip -->
+  <rect class="pill" x="70" y="810" width="1260" height="24" rx="12"/>
+  <text class="small muted" x="700" y="827" text-anchor="middle">Purpose: self-hosted AI proxy/router + operator dashboard · Dashboard is control plane · Daemon is runtime core · docs explain the system · legacy stays archived</text>
+</svg>

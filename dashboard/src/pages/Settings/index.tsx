@@ -2,12 +2,10 @@
 import { For, Show, createMemo, createResource, createSignal, type JSX } from "solid-js";
 import { Card, CardHeader } from "../../components/ui/card";
 import { Switch } from "../../components/ui/switch";
-import { Label } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
 import { Badge, Skeleton } from "../../components/ui/badge";
 import { SettingRow, SettingSection } from "../../components/patterns/setting-row";
-import { APIKeyManager, type APIKeyRecord } from "../../components/shared/APIKeyManager";
-import { glassSurfaces, setGlassSurfaces, sidebarCollapsed, setSidebarCollapsed, setTheme, theme } from "../../lib/store";
+import { glassSurfaces, setGlassSurfaces, setTheme, theme } from "../../lib/store";
 import { consoleFailure, consoleGet, consolePatch } from "../../lib/console-api";
 
 interface SettingsResponse {
@@ -15,7 +13,6 @@ interface SettingsResponse {
   readonly sidebarCollapsed?: boolean;
   readonly solidMode?: boolean;
   readonly performanceMode?: boolean;
-  readonly apiKeys?: readonly APIKeyRecord[];
   readonly notificationsEnabled?: boolean;
   readonly defaultModel?: string;
 }
@@ -25,8 +22,6 @@ const SETTINGS_ENDPOINT = "/settings";
 export default function Settings(): JSX.Element {
   const [refreshTick, setRefreshTick] = createSignal(0);
   const [error, setError] = createSignal<string | null>(null);
-  const [busyKeyId, setBusyKeyId] = createSignal<string | null>(null);
-  const [creatingKey, setCreatingKey] = createSignal(false);
 
   const [settingsResource] = createResource<SettingsResponse, number>(
     refreshTick,
@@ -41,10 +36,6 @@ export default function Settings(): JSX.Element {
     },
   );
 
-  const apiKeys = createMemo<readonly APIKeyRecord[]>(
-    () => (settingsResource.error ? [] : settingsResource()?.apiKeys ?? []),
-  );
-
   const isLoading = createMemo(() => settingsResource.loading);
   const failure = createMemo(() => (settingsResource.error ? consoleFailure(settingsResource.error) : null));
 
@@ -57,37 +48,6 @@ export default function Settings(): JSX.Element {
     } catch (cause) {
       setError(consoleFailure(cause)?.message ?? "Request failed");
       return null;
-    }
-  };
-
-  const handleCreateKey = async (input: { label: string; scope: string }) => {
-    setCreatingKey(true);
-    try {
-      await patchSetting({
-        apiKeyAction: "create",
-        apiKeyLabel: input.label,
-        apiKeyScope: input.scope,
-      });
-    } finally {
-      setCreatingKey(false);
-    }
-  };
-
-  const handleRevokeKey = async (id: string) => {
-    setBusyKeyId(id);
-    try {
-      await patchSetting({ apiKeyAction: "revoke", apiKeyId: id });
-    } finally {
-      setBusyKeyId(null);
-    }
-  };
-
-  const handleToggleKey = async (id: string, active: boolean) => {
-    setBusyKeyId(id);
-    try {
-      await patchSetting({ apiKeyAction: active ? "enable" : "disable", apiKeyId: id });
-    } finally {
-      setBusyKeyId(null);
     }
   };
 
@@ -129,15 +89,6 @@ export default function Settings(): JSX.Element {
         }
       >
         <AppearanceSection onThemePatch={(value) => patchSetting({ theme: value })} />
-        <LayoutSection />
-        <APIKeysSection
-          keys={apiKeys()}
-          creating={creatingKey()}
-          onCreate={handleCreateKey}
-          onRevoke={handleRevokeKey}
-          onToggle={handleToggleKey}
-          busyKeyId={busyKeyId()}
-        />
       </Show>
 
       <Show when={error()}>
@@ -148,15 +99,6 @@ export default function Settings(): JSX.Element {
         )}
       </Show>
 
-      <Card density="compact">
-        <CardHeader title="Endpoint reference" sub="Console API route contract for these settings" />
-        <dl class="grid gap-2 text-[11.5px] sm:grid-cols-2">
-          <Row label="Method" value="GET / PATCH" />
-          <Row label="Route" value="/settings" />
-          <Row label="Cache TTL" value="5 minutes (apiCache)" />
-          <Row label="Auth" value="Console session cookie" />
-        </dl>
-      </Card>
     </div>
   );
 }
@@ -220,60 +162,3 @@ function AppearanceSection(props: {
   );
 }
 
-function LayoutSection(): JSX.Element {
-  return (
-    <Card density="comfortable" className="settings-slide-down">
-      <CardHeader title="Layout" sub="Shell configuration" />
-      <SettingSection title="Navigation">
-        <SettingRow
-          label="Collapse sidebar by default"
-          description="Sidebar starts collapsed on wide screens; user can still toggle it."
-          control={
-            <Switch
-              checked={sidebarCollapsed()}
-              onChange={setSidebarCollapsed}
-              label="Collapse sidebar by default"
-            />
-          }
-        />
-      </SettingSection>
-    </Card>
-  );
-}
-
-interface APIKeysSectionProps {
-  keys: readonly APIKeyRecord[];
-  creating: boolean;
-  busyKeyId: string | null;
-  onCreate: (input: { label: string; scope: string }) => Promise<void>;
-  onRevoke: (id: string) => Promise<void>;
-  onToggle: (id: string, active: boolean) => Promise<void>;
-}
-
-function APIKeysSection(props: APIKeysSectionProps): JSX.Element {
-  const disabledWhileBusy = (): boolean => props.busyKeyId !== null;
-  return (
-    <Card density="comfortable" className="settings-slide-down">
-      <CardHeader title="API keys" sub={`${props.keys.length} active · managed via console PATCH`} />
-      <SettingSection title="Manage keys">
-        <Label>Keys</Label>
-        <APIKeyManager
-          keys={props.keys}
-          creating={props.creating}
-          onCreate={props.onCreate}
-          onRevoke={disabledWhileBusy() ? undefined : props.onRevoke}
-          onToggle={disabledWhileBusy() ? undefined : props.onToggle}
-        />
-      </SettingSection>
-    </Card>
-  );
-}
-
-function Row(props: { label: string; value: string }): JSX.Element {
-  return (
-    <div class="flex items-center justify-between gap-3">
-      <dt class="text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)]">{props.label}</dt>
-      <dd class="font-mono text-[11.5px] text-[var(--text-1)]">{props.value}</dd>
-    </div>
-  );
-}

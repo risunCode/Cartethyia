@@ -5,8 +5,8 @@ import { ApiError, apiRaw, sanitizeErrorMessage } from "@lib/api";
 import { consoleFailure, consolePatch, adminApiPath } from "@lib/console-api";
 import { Badge } from "@components/ui/badge";
 import { Button } from "@components/ui/button";
-import { Card, CardHeader } from "@components/ui/card";
-import { Dialog } from "@components/ui/dialog";
+
+import { Modal } from "@components/ui/modal";
 import { StatePanel } from "@components/ui/state";
 import { Switch } from "@components/ui/switch";
 import { MetricCard, MetricCardSkeleton } from "@components/shared/MetricCard";
@@ -152,17 +152,6 @@ function QuotaWindowCell(props: { row: QuotaAccountRow }): JSX.Element {
           {formatQuotaPercent(quota.usedPercent)} used · {formatNumber(quota.remaining)} left
         </span>
       </div>
-    </div>
-  );
-}
-
-function EndpointRow(props: { label: string; value: string }): JSX.Element {
-  return (
-    <div class="flex items-center justify-between gap-3">
-      <dt class="text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)]">{props.label}</dt>
-      <dd class="truncate font-mono text-[11.5px] text-[var(--text-1)]" title={props.value}>
-        {props.value}
-      </dd>
     </div>
   );
 }
@@ -329,16 +318,6 @@ export default function Quota(): JSX.Element {
           <Show when={resource.loading && snapshot() !== null}>
             <Badge tone="info">Refreshing…</Badge>
           </Show>
-          <Show when={snapshot()}>
-            {(current) => (
-              <Badge tone="neutral" className="font-mono">
-                Fetched {formatTime(current().fetchedAt)}
-              </Badge>
-            )}
-          </Show>
-          <Button size="sm" variant="secondary" onClick={() => void refetch()}>
-            Refresh
-          </Button>
         </div>
       </header>
 
@@ -428,22 +407,12 @@ export default function Quota(): JSX.Element {
         />
       </Show>
 
-      <Card density="compact">
-        <CardHeader title="Endpoint reference" sub="V2 admin routes behind this page" />
-        <dl class="grid gap-2 text-[11.5px] sm:grid-cols-2">
-          <EndpointRow label="Accounts" value="GET /console/accounts" />
-          <EndpointRow label="Quota window" value="GET /console/accounts/:id/quota" />
-          <EndpointRow label="Toggle active" value="PATCH /console/providers/:id/accounts/batch" />
-          <EndpointRow label="Delete account" value="DELETE /console/providers/:id/accounts/:accountId" />
-        </dl>
-      </Card>
-
       <Show when={pendingDelete()}>
         {(row) => (
-          <Dialog
+          <Modal
             open
             title="Delete account?"
-            onClose={() => setPendingDelete(null)}
+            onOpenChange={() => setPendingDelete(null)}
             footer={
               <>
                 <Button variant="secondary" onClick={() => setPendingDelete(null)}>
@@ -459,7 +428,7 @@ export default function Quota(): JSX.Element {
               Permanently delete <span class="font-semibold text-[var(--text-1)]">{row().account.label}</span> on provider{" "}
               <span class="font-mono text-[12px]">{row().account.providerId}</span>? This cannot be undone.
             </p>
-          </Dialog>
+          </Modal>
         )}
       </Show>
     </div>
