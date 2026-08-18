@@ -47,6 +47,15 @@ describe("LogHistory", () => {
     expect(route.endsWith("&limit=500")).toBe(true);
   });
 
+  test("applies the zebra striping class to the scroll container", async () => {
+    const { container } = render(() => <LogHistory level="debug" />);
+    await screen.findByText("request routed");
+
+    const scroll = container.querySelector(".console-log-scroll");
+    expect(scroll).not.toBeNull();
+    expect(scroll?.className).toContain("log-zebra");
+  });
+
   test("applies the level floor to the fetched entries", async () => {
     render(() => <LogHistory level="error" />);
 

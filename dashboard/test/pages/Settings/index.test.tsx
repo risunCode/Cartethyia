@@ -51,7 +51,8 @@ describe("Settings page", () => {
 
     expect(screen.getByText("Appearance")).toBeInTheDocument();
     expect(screen.queryByText("Layout")).not.toBeInTheDocument();
-    expect(screen.queryByText("API keys")).not.toBeInTheDocument();
+    expect(screen.getByText("API keys")).toBeInTheDocument();
+    expect(screen.getByText("Default model")).toBeInTheDocument();
     expect(screen.queryByText("Endpoint reference")).not.toBeInTheDocument();
   });
 

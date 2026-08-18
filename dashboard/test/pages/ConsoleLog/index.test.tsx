@@ -1,6 +1,7 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, render, screen } from "@solidjs/testing-library";
 import ConsoleLog from "../../../src/pages/ConsoleLog/index";
+import { FakeEventSource, stubEventSource } from "../../helpers/live-surfaces";
 
 vi.mock("../../../src/components/shared/LogHistory", () => ({
   LogHistory: (props: { level: string; source: string }) => (
@@ -9,6 +10,16 @@ vi.mock("../../../src/components/shared/LogHistory", () => ({
 }));
 
 describe("ConsoleLog page", () => {
+  beforeEach(() => {
+    stubEventSource();
+    Object.defineProperty(Element.prototype, "scrollTo", { configurable: true, writable: true, value: () => {} });
+  });
+
+  afterEach(() => {
+    FakeEventSource.reset();
+    vi.unstubAllGlobals();
+  });
+
   test("renders the heading, filters, and history by default", () => {
     render(() => <ConsoleLog />);
 

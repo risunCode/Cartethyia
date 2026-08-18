@@ -30,7 +30,7 @@ describe("LogStream", () => {
   });
 
   test("starts disconnected with an empty buffer", () => {
-    render(() => <LogStream url="/console/logs/stream" level="info" />);
+    const { container } = render(() => <LogStream url="/console/logs/stream" level="info" />);
 
     expect(FakeEventSource.instances).toHaveLength(1);
     expect(FakeEventSource.instances[0].url).toBe("/console/logs/stream");
@@ -38,6 +38,10 @@ describe("LogStream", () => {
     expect(screen.getByText(/Disconnected/)).toBeInTheDocument();
     expect(screen.getByText(/0 \/ 0 entries \(buffer 1000\)/)).toBeInTheDocument();
     expect(screen.getByText("Stream offline")).toBeInTheDocument();
+
+    const scroll = container.querySelector(".console-log-scroll");
+    expect(scroll).not.toBeNull();
+    expect(scroll?.className).toContain("log-zebra");
   });
 
   test("streams entries and reports the live connection", () => {
