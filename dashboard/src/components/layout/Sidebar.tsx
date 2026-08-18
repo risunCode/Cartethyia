@@ -7,17 +7,14 @@ import {
   Activity,
   Gauge,
   LayoutDashboard,
-  PanelLeftClose,
-  PanelLeftOpen,
   Settings,
   TerminalSquare,
   Users,
   Waypoints,
 } from "lucide-solid";
-import { IconButton } from "../ui/icon";
 import { StatusIndicator } from "../ui/icon";
-import { cn } from "../../lib/cn";
-import { sidebarCollapsed, setSidebarCollapsed, theme, setTheme, mobileNavOpen, setMobileNavOpen } from "../../lib/store";
+import { cn } from "@lib/cn";
+import { sidebarCollapsed, theme, setTheme, mobileNavOpen, setMobileNavOpen } from "@lib/store";
 import { focusRingClasses } from "../ui/styles";
 
 export interface SidebarNavItem {
@@ -46,6 +43,8 @@ const DEFAULT_SECTIONS: readonly SidebarNavSection[] = [
     items: [
       { href: "/overview", label: "Overview", icon: LayoutDashboard },
       { href: "/usage", label: "Usage", icon: Activity },
+      { href: "/proxy", label: "Proxy", icon: Waypoints },
+      { href: "/requests", label: "Requests", icon: Activity },
       { href: "/providers", label: "Providers", icon: Users },
       { href: "/quota", label: "Quota", icon: Gauge },
       { href: "/logs", label: "Console log", icon: TerminalSquare },
@@ -92,7 +91,7 @@ export function Sidebar(props: SidebarProps): JSX.Element {
 
   const isActive = (href: string): boolean => {
     const path = location.pathname;
-    const exact = ["/overview", "/usage", "/providers", "/quota", "/logs", "/settings"];
+    const exact = ["/overview", "/usage", "/proxy", "/requests", "/providers", "/quota", "/logs", "/settings"];
     if (exact.includes(href)) return path === href || path.startsWith(`${href}/`);
     return path === href;
   };
@@ -100,9 +99,6 @@ export function Sidebar(props: SidebarProps): JSX.Element {
   const collapsed = (): boolean => sidebarCollapsed();
   const widthClass = createMemo(() => (collapsed() ? "w-[76px]" : "w-[272px]"));
 
-  const toggleCollapsed = (): void => {
-    setSidebarCollapsed((value) => !value);
-  };
   const toggleTheme = (): void => {
     const current = theme();
     const next: typeof current = current === "dark" ? "light" : "dark";
@@ -153,13 +149,6 @@ export function Sidebar(props: SidebarProps): JSX.Element {
             </span>
           </A>
         </Show>
-        <IconButton
-          icon={collapsed() ? PanelLeftOpen : PanelLeftClose}
-          label={collapsed() ? "Expand sidebar" : "Collapse sidebar"}
-          size="sm"
-          variant="ghost"
-          onClick={toggleCollapsed}
-        />
       </div>
 
       <nav class="flex-1 overflow-y-auto px-2 py-2" aria-label="Primary">

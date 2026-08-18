@@ -9,13 +9,13 @@ import {
   useNavigate,
 } from "@solidjs/router";
 
-import { consoleGet, consolePost } from "./lib/console-api";
-import { setUnauthorizedHandler } from "./lib/api";
-import { Sidebar } from "./components/layout/Sidebar";
-import { Header } from "./components/layout/Header";
-import { Footer } from "./components/layout/Footer";
-import { ToastViewport } from "./components/ui/toast-viewport";
-import type { FooterStatus } from "./components/layout/Footer";
+import { consoleGet, consolePost } from "@lib/console-api";
+import { setUnauthorizedHandler } from "@lib/api";
+import { Sidebar } from "@components/layout/Sidebar";
+import { Header } from "@components/layout/Header";
+import { Footer } from "@components/layout/Footer";
+import { ToastViewport } from "@components/ui/toast-viewport";
+import type { FooterStatus } from "@components/layout/Footer";
 
 // Lazy load pages for code splitting.
 const Overview = lazy(() => import("@pages/Overview"));
@@ -25,8 +25,10 @@ const Quota = lazy(() => import("@pages/Quota"));
 const ConsoleLog = lazy(() => import("@pages/ConsoleLog"));
 const Settings = lazy(() => import("@pages/Settings"));
 const Share = lazy(() => import("@pages/Share"));
-const LoginPage = lazy(() => import("./features/login/page").then((m) => ({ default: m.LoginPage })));
-const LandingPage = lazy(() => import("./landing/page").then((m) => ({ default: m.LandingPage })));
+const LoginPage = lazy(() => import("@pages/Login"));
+const LandingPage = lazy(() => import("@pages/Landing"));
+const Proxy = lazy(() => import("@pages/Proxy"));
+const Requests = lazy(() => import("@pages/Requests"));
 
 /**
  * Persistent app chrome (sidebar, header, footer) around every authenticated
@@ -133,6 +135,8 @@ function App(): JSX.Element {
       <Route component={ProtectedLayout}>
         <Route path="/overview" component={Overview} />
         <Route path="/usage" component={Usage} />
+        <Route path="/proxy" component={Proxy} />
+        <Route path="/requests" component={Requests} />
         <Route path="/providers" component={Providers} />
         <Route path="/quota" component={Quota} />
         <Route path="/logs" component={ConsoleLog} />
