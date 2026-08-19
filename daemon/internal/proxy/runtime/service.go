@@ -447,7 +447,9 @@ func (s *DispatchService) validateRequest(ctx context.Context, req *contracts.Re
 				copyReq.Model = cleanModel
 			}
 		}
-		prepared, transformErr := transforms.NormalizeRequest(ctx, copyReq.Protocol, copyReq.Body, copyReq.Stream)
+		// Fast path: validate JSON and extract model without full decode/encode.
+		// The sanitizer already did tool healing and field normalization.
+		prepared, transformErr := transforms.NormalizeRequestSameSurface(ctx, copyReq.Protocol, copyReq.Body, copyReq.Stream, copyReq.Model)
 		if transformErr != nil {
 			return nil, dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "request normalization failed", transformErr)
 		}
@@ -459,10 +461,17 @@ func (s *DispatchService) validateRequest(ctx context.Context, req *contracts.Re
 			s.Evidence.ObserveCache(observability.CacheEvidence{Kind: observability.CacheKindTokenSaverL0, Layer: "l0", Operation: observability.CacheLookup, Outcome: "miss"})
 		}
 		if saverReq, changed := applyTokenSaver(ctx, prepared.Request); changed {
+			// Token saver needs full NormalizedRequest. Decode on demand from
+			// the sanitized body — the fast path deferred this work.
+			fullPrepared, fullErr := transforms.NormalizeRequest(ctx, copyReq.Protocol, copyReq.Body, copyReq.Stream)
+			if fullErr != nil {
+				return nil, dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "request normalization failed", fullErr)
+			}
+			saverReq, _ = applyTokenSaver(ctx, fullPrepared.Request)
 			if s.Evidence != nil {
 				s.Evidence.ObserveCache(observability.CacheEvidence{Kind: observability.CacheKindTokenSaverL0, Layer: "l0", Operation: observability.CacheWrite, Outcome: "stored"})
 			}
-			body, encodeErr := transforms.EncodeNormalizedRequest(ctx, copyReq.Protocol, saverReq, copyReq.Body)
+			body, encodeErr := transforms.EncodeNormalizedRequest(ctx, copyReq.Protocol, saverReq, fullPrepared.Body)
 			if encodeErr != nil {
 				return nil, dispatchError(codeDispatchInvalidRequest, contracts.ErrorInvalidRequest, http.StatusBadRequest, "request token preparation failed", encodeErr)
 			}

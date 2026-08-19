@@ -93,6 +93,55 @@ func NormalizeRequest(ctx context.Context, protocol contracts.Protocol, body []b
 	return prepared, nil
 }
 
+// NormalizeRequestSameSurface is the fast path for same-surface requests where
+// the caller has already sanitized the body (e.g. via SanitizeSameSurfaceRequest).
+// It validates JSON well-formedness, extracts the model for routing, and returns
+// the body unchanged — skipping the full decode/pipeline/encode cycle.
+//
+// Use this when source and target protocols match and no cross-surface
+// translation is needed. If the caller later needs to apply a lossy transform
+// (e.g. token saver), EncodeNormalizedRequest will capture the sidecar from
+// the original body at that point.
+func NormalizeRequestSameSurface(ctx context.Context, protocol contracts.Protocol, body []byte, stream bool, model string) (*PrepareResult, *TransformError) {
+	if !json.Valid(body) {
+		return nil, newTransformError(CodeInvalidRequest, "fast-path", string(protocol), "body", "request body is not valid JSON", nil)
+	}
+	if model == "" {
+		model = extractModelFromRaw(body)
+	}
+	if model == "" {
+		return nil, newTransformError(CodeInvalidRequest, "fast-path", string(protocol), "model", "model is required", nil)
+	}
+	req := &NormalizedRequest{
+		Model:  model,
+		Stream: stream,
+		Source: protocol,
+		Native: NewNativeSidecar(protocol),
+	}
+	// Preserve body byte-for-byte. The sidecar is empty — if EncodeNormalizedRequest
+	// is called later (e.g. by token saver), it falls through to
+	// preserveNativeSidecarJSON which captures from the original body.
+	return &PrepareResult{
+		Request: req,
+		Body:    append([]byte(nil), body...),
+		Report:  contracts.TransformReport{},
+		Sidecar: NewNativeSidecar(protocol),
+		Changed: false,
+	}, nil
+}
+
+// extractModelFromRaw extracts the "model" field from raw JSON without a full
+// unmarshal. Returns empty string if not found.
+func extractModelFromRaw(body []byte) string {
+	var partial struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(body, &partial); err != nil {
+		return ""
+	}
+	return partial.Model
+}
+
 // EncodeNormalizedRequest renders a canonical request while preserving unknown
 // provider-specific fields from originalBody. This is used after an explicit
 // lossy stage (for example RTK token saving) changes canonical content.

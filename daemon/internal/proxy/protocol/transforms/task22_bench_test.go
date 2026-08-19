@@ -19,6 +19,20 @@ func BenchmarkTask22SourceDecode(b *testing.B) {
 	}
 }
 
+func BenchmarkTask22SameSurfaceFastPath(b *testing.B) {
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		prepared, terr := NormalizeRequestSameSurface(ctx, contracts.ProtocolOpenAIChat, task22BenchmarkRequestBody, false, "fixture-model")
+		if terr != nil {
+			b.Fatal(terr)
+		}
+		if prepared.Changed {
+			b.Fatal("fast path should never report Changed=true")
+		}
+	}
+}
+
 func BenchmarkTask22DecodeNormalizeEncode(b *testing.B) {
 	ctx := context.Background()
 	b.ReportAllocs()
