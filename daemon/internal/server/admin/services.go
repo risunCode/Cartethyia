@@ -16,6 +16,7 @@ type Services struct {
 	Accounts  AccountService
 	Settings  SettingsService
 	Auth      AuthService
+	ProxyAdmin ProxyAdminService
 	// OAuth optionally supplies the concrete provider-neutral OAuth lifecycle.
 	// When nil, Auth is used for backwards-compatible OAuth routes.
 	OAuth       OAuthLifecycleService
@@ -283,6 +284,7 @@ type TelemetryService interface {
 	Requests(ctx context.Context, input TelemetryQuery) ([]TelemetryBucket, error)
 	Errors(ctx context.Context, input TelemetryQuery) ([]TelemetryBucket, error)
 	Upstream(ctx context.Context, input TelemetryQuery) ([]TelemetryBucket, error)
+	RequestDetail(ctx context.Context, id string) (RequestDetail, error)
 }
 
 // TelemetryQuery is the common bounded filter for telemetry endpoints.
@@ -314,6 +316,32 @@ type TelemetryBucket struct {
 	Errors    int64          `json:"errors,omitempty"`
 	LatencyMS int            `json:"latencyMs,omitempty"`
 	Metadata  map[string]any `json:"metadata,omitempty"`
+}
+
+// RequestDetail is the operator-safe per-request view surfaced by the request
+// detail endpoint. It exposes bounded request evidence (no prompts, payloads,
+// headers, cookies, or credentials) and is keyed by the persisted integer id
+// used by the request_history table.
+type RequestDetail struct {
+	ID           string `json:"id"`
+	TraceID      string `json:"traceId"`
+	Model        string `json:"model"`
+	Provider     string `json:"provider"`
+	Surface      string `json:"surface,omitempty"`
+	Endpoint     string `json:"endpoint,omitempty"`
+	APIKeyID     string `json:"apiKeyId,omitempty"`
+	APIKeyPrefix string `json:"apiKeyPrefix,omitempty"`
+	Status       int    `json:"status"`
+	LatencyMs    int64  `json:"latencyMs"`
+	InputTokens  int    `json:"inputTokens"`
+	OutputTokens int    `json:"outputTokens"`
+	Error        string `json:"error,omitempty"`
+	ClientIP     string `json:"clientIp,omitempty"`
+	ClientName   string `json:"clientName,omitempty"`
+	ClientSource string `json:"clientSource,omitempty"`
+	Stream       bool   `json:"stream"`
+	StartedAt    string `json:"startedAt,omitempty"`
+	FinishedAt   string `json:"finishedAt,omitempty"`
 }
 
 // ConsoleLogService provides bounded, operator-safe lifecycle evidence.
@@ -455,4 +483,38 @@ func (model CatalogModel) MarshalJSON() ([]byte, error) {
 		Name         string `json:"name,omitempty"`
 		ProviderIDV2 string `json:"providerId,omitempty"`
 	}{catalogModelAlias: catalogModelAlias(model), Name: model.DisplayName, ProviderIDV2: model.ProviderID})
+}
+
+// ProxyAdminService is the contract for proxy management endpoints.
+type ProxyAdminService interface {
+	List(ctx context.Context) ([]ProxyRecord, error)
+	Create(ctx context.Context, input ProxyInput) (ProxyRecord, error)
+	Update(ctx context.Context, id string, input ProxyInput) (ProxyRecord, error)
+	Delete(ctx context.Context, id string) error
+}
+
+// ProxyRecord is the operator-safe proxy representation.
+type ProxyRecord struct {
+	ID             string `json:"id"`
+	Type           string `json:"type"`
+	Host           string `json:"host"`
+	Port           int    `json:"port"`
+	Priority       int    `json:"priority"`
+	Weight         int    `json:"weight"`
+	MaxConcurrency int    `json:"max_concurrency"`
+	Active         bool   `json:"active"`
+	Health         string `json:"health"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+}
+
+// ProxyInput is the create/update payload for proxies.
+type ProxyInput struct {
+	Type           *string `json:"type,omitempty"`
+	Host           *string `json:"host,omitempty"`
+	Port           *int    `json:"port,omitempty"`
+	Priority       *int    `json:"priority,omitempty"`
+	Weight         *int    `json:"weight,omitempty"`
+	MaxConcurrency *int    `json:"max_concurrency,omitempty"`
+	Active         *bool   `json:"active,omitempty"`
 }

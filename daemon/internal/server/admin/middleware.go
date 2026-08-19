@@ -59,7 +59,7 @@ func writeMethodNotAllowedHeader(w http.ResponseWriter, allow string) {
 	if allow != "" {
 		w.Header().Set("Allow", allow)
 	}
-	WriteError(w, NewError(CodeInvalidRequest, "method not allowed"))
+	WriteError(w, NewError(CodeMethodNotAllowed, "method not allowed"))
 }
 
 // dummyResponseWriter is a defensive stand-in used when helpers need to

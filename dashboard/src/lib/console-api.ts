@@ -305,3 +305,58 @@ export class ConsoleContractError extends Error {
     this.status = status;
   }
 }
+
+// --- Proxy Management ---
+
+/**
+ * Operator-safe view of one outbound proxy route. Mirrors the daemon's
+ * `admin.ProxyRecord` JSON contract (snake_case timestamps, `max_concurrency`).
+ */
+export interface ProxyRecord {
+  id: string;
+  type: string;
+  host: string;
+  port: number;
+  priority: number;
+  weight: number;
+  max_concurrency: number;
+  active: boolean;
+  health: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Partial mutation payload for `POST /proxies` and `PATCH /proxies/:proxyId`.
+ * Create requires the daemon-validated subset (type/host/port); update sends
+ * only the fields that should change.
+ */
+export interface ProxyInput {
+  type?: string;
+  host?: string;
+  port?: number;
+  priority?: number;
+  weight?: number;
+  max_concurrency?: number;
+  active?: boolean;
+}
+
+/** Lists every configured outbound proxy, joined with its current health sidecar. */
+export async function fetchProxies(): Promise<ProxyRecord[]> {
+  return consoleGet<ProxyRecord[]>("/proxies");
+}
+
+/** Creates one outbound proxy and returns the persisted record (id + health). */
+export async function createProxy(input: ProxyInput): Promise<ProxyRecord> {
+  return consolePost<ProxyRecord>("/proxies", input);
+}
+
+/** Applies a partial update to an existing proxy and returns the refreshed record. */
+export async function updateProxy(id: string, input: ProxyInput): Promise<ProxyRecord> {
+  return consolePatch<ProxyRecord>(`/proxies/${encodeURIComponent(id)}`, input);
+}
+
+/** Deletes a proxy by id. Throws on transport / contract failure. */
+export async function deleteProxy(id: string): Promise<void> {
+  return consoleDelete<void>(`/proxies/${encodeURIComponent(id)}`);
+}

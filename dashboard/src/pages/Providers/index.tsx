@@ -1,16 +1,20 @@
 
-import { ArrowLeft, CheckCircle2, CircleAlert, Gauge, Layers, Server, Timer, TriangleAlert, Users } from "lucide-solid";
+import { ArrowLeft, CheckCircle2, CircleAlert, Gauge, Layers, Plus, Server, Timer, TriangleAlert, Users } from "lucide-solid";
 import { Show, createEffect, createMemo, createResource, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { Badge } from "@components/ui/badge";
 import { Button } from "@components/ui/button";
 import { Card, CardHeader } from "@components/ui/card";
+import { Input, Label } from "@components/ui/input";
+import { Modal } from "@components/ui/modal";
 import { StatePanel } from "@components/ui/state";
+import { Switch } from "@components/ui/switch";
 import { LoadingState } from "@components/shared/LoadingState";
 import { MetricCard, MetricCardSkeleton } from "@components/shared/MetricCard";
 import { StatusBadge, type StatusBadgeStatus } from "@components/shared/StatusBadge";
 import { VirtualTable, type VirtualTableColumn } from "@components/shared/VirtualTable";
 import { ProgressBar } from "@components/patterns/progress-bar";
-import { consoleFailure, consoleGet } from "@lib/console-api";
+import { consoleFailure, consoleGet, consolePost } from "@lib/console-api";
+import { toast } from "@lib/toast";
 import { formatDuration, formatNumber, formatTime } from "@lib/format";
 import {
   MAX_DETAIL_QUOTA_PROBES,
@@ -81,6 +85,91 @@ interface ProviderDetailSnapshot {
 interface QuotaWindowRow {
   readonly account: AccountRecord;
   readonly outcome: QuotaProbeOutcome | null;
+}
+
+/** Credential kinds the admin form is allowed to attach when creating an account. */
+type AccountCredentialKind = "api_key" | "oauth";
+
+/** Form state for the Add Account modal in the provider detail view. */
+interface AccountCreationDraft {
+  readonly name: string;
+  readonly credentialKind: AccountCredentialKind;
+  readonly priority: number;
+  readonly active: boolean;
+}
+
+/** Body shape for POST /console/providers/:providerId/accounts (admin AccountInput). */
+interface AccountCreationPayload {
+  readonly name: string;
+  readonly label: string;
+  readonly enabled: boolean;
+  readonly metadata: Record<string, unknown>;
+}
+
+/** Body shape for POST /console/auth/oauth/start. */
+interface OAuthStartPayload {
+  readonly scopes: readonly string[];
+  readonly accountLabel: string;
+}
+
+/** Trimmed OAuth state returned by /console/auth/oauth/start — only operator-safe fields. */
+interface OAuthStartResult {
+  readonly sessionId: string | null;
+  readonly status: string;
+  readonly flow: string | null;
+  readonly url: string | null;
+}
+
+/** Creates a draft from the form's default values. */
+function createEmptyAccountDraft(): AccountCreationDraft {
+  return { name: "", credentialKind: "api_key", priority: 0, active: true };
+}
+
+/** Builds the JSON body for POST /console/providers/:providerId/accounts. */
+function buildAccountPayload(providerId: string, draft: AccountCreationDraft): AccountCreationPayload {
+  const trimmedName = draft.name.trim();
+  return {
+    name: trimmedName,
+    label: trimmedName,
+    enabled: draft.active,
+    metadata: {
+      providerId,
+      credentialKind: draft.credentialKind,
+      priority: draft.priority,
+      active: draft.active,
+    },
+  };
+}
+
+/** Posts a new account record for the provider; returns the parsed JSON envelope. */
+async function createProviderAccount(providerId: string, draft: AccountCreationDraft): Promise<unknown> {
+  return consolePost<unknown>(
+    `/providers/${encodeURIComponent(providerId)}/accounts`,
+    buildAccountPayload(providerId, draft),
+  );
+}
+
+/** Posts /console/auth/oauth/start?providerId=… and returns the trimmed OAuth state. */
+async function startProviderOAuth(providerId: string, draft: AccountCreationDraft): Promise<OAuthStartResult> {
+  const payload: OAuthStartPayload = { scopes: [], accountLabel: draft.name.trim() };
+  const raw = await consolePost<unknown>(
+    `/auth/oauth/start?providerId=${encodeURIComponent(providerId)}`,
+    payload,
+  );
+  return normalizeOAuthStart(raw);
+}
+
+/** Reads the operator-safe fields out of an OAuth start response. */
+function normalizeOAuthStart(value: unknown): OAuthStartResult {
+  if (!isRecordValue(value)) {
+    return { sessionId: null, status: "unknown", flow: null, url: null };
+}
+  return {
+    sessionId: toBoundedString(value.sessionId ?? value.session_id, 128),
+    status: toBoundedString(value.status, 32) ?? "unknown",
+    flow: toBoundedString(value.flow, 32),
+    url: toBoundedString(value.url ?? value.redirectUrl ?? value.redirect_url, 2048),
+  };
 }
 
 /**
@@ -446,6 +535,72 @@ export default function Providers(): JSX.Element {
     };
   });
 
+  // Add Account modal: form state, submit handler, OAuth launcher.
+  const [createOpen, setCreateOpen] = createSignal(false);
+  const [draft, setDraft] = createSignal<AccountCreationDraft>(createEmptyAccountDraft());
+  const [submitting, setSubmitting] = createSignal(false);
+  const [oauthPending, setOauthPending] = createSignal(false);
+  const [createError, setCreateError] = createSignal<string | null>(null);
+
+  const openCreateModal = () => {
+    setDraft(createEmptyAccountDraft());
+    setCreateError(null);
+    setCreateOpen(true);
+    };
+  const closeCreateModal = () => {
+    if (submitting() || oauthPending()) return;
+    setCreateOpen(false);
+    };
+  const updateDraft = (patch: Partial<AccountCreationDraft>) => {
+    setDraft((current) => ({ ...current, ...patch }));
+    };
+
+  const handleCreateSubmit = async (event: SubmitEvent) => {
+    event.preventDefault();
+    const active = selected();
+    const current = draft();
+    if (!active || submitting()) return;
+    if (current.name.trim().length === 0) {
+      setCreateError("Account name is required.");
+      return;
+    }
+    setSubmitting(true);
+    setCreateError(null);
+    try {
+      await createProviderAccount(active.entry.id, current);
+      toast.success(`Account "${current.name.trim()}" created`);
+      setCreateOpen(false);
+      await Promise.all([refetch(), refetchDetail()]);
+    } catch (cause) {
+      const failure = consoleFailure(cause);
+      setCreateError(failure?.message ?? "Failed to create account.");
+    } finally {
+      setSubmitting(false);
+    }
+    };
+
+  const handleOAuthStart = async () => {
+    const active = selected();
+    const current = draft();
+    if (!active || oauthPending()) return;
+    setOauthPending(true);
+    setCreateError(null);
+    try {
+      const result = await startProviderOAuth(active.entry.id, current);
+      if (result.url) {
+        window.open(result.url, "_blank", "noopener,noreferrer");
+        toast.success("OAuth authorization opened in a new tab");
+      } else {
+        toast.message(`OAuth session started (${result.status})`);
+      }
+    } catch (cause) {
+      const failure = consoleFailure(cause);
+      setCreateError(failure?.message ?? "Failed to start OAuth.");
+    } finally {
+      setOauthPending(false);
+    }
+    };
+
   const providerColumns: VirtualTableColumn<ProviderRow>[] = [
     {
       key: "name",
@@ -758,6 +913,16 @@ export default function Providers(): JSX.Element {
                   </p>
                 )}
               </Show>
+              <span class="ml-auto flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={openCreateModal}
+                  aria-label={`Add account to ${active().entry.name}`}
+                >
+                  <Plus size={13} aria-hidden="true" /> Add account
+                </Button>
+              </span>
             </div>
 
             <Show
@@ -857,6 +1022,135 @@ export default function Providers(): JSX.Element {
                 <LoadingState variant="skeleton" rows={6} label={`Loading ${active().entry.name} detail`} />
               </Show>
             </Show>
+
+            <Modal
+              open={createOpen()}
+              onOpenChange={(next) => (next ? setCreateOpen(true) : closeCreateModal())}
+              title={`Add account — ${active().entry.name}`}
+              footer={
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={closeCreateModal}
+                    disabled={submitting() || oauthPending()}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    form="provider-add-account-form"
+                    size="sm"
+                    disabled={submitting() || oauthPending()}
+                  >
+                    {submitting() ? "Creating…" : "Create account"}
+                  </Button>
+                </>
+              }
+            >
+              <form
+                id="provider-add-account-form"
+                onSubmit={(event) => {
+                  void handleCreateSubmit(event);
+                }}
+                class="space-y-4"
+              >
+                <div>
+                  <Label htmlFor="provider-add-account-name">Name</Label>
+                  <Input
+                    id="provider-add-account-name"
+                    name="name"
+                    type="text"
+                    placeholder="e.g. prod-workspace"
+                    value={draft().name}
+                    onInput={(event) => updateDraft({ name: event.currentTarget.value })}
+                    autocomplete="off"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="provider-add-account-credential">Credential kind</Label>
+                  <select
+                    id="provider-add-account-credential"
+                    name="credentialKind"
+                    value={draft().credentialKind}
+                    onChange={(event) =>
+                      updateDraft({
+                        credentialKind:
+                          event.currentTarget.value === "oauth" ? "oauth" : "api_key",
+                      })
+                    }
+                    class="w-full rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2 text-sm text-[var(--text-1)] outline-none transition-colors duration-150 focus:border-[var(--accent)] focus:bg-[var(--glass-bg-2)]"
+                  >
+                    <option value="api_key">API key</option>
+                    <option value="oauth">OAuth</option>
+                  </select>
+                </div>
+
+                <div>
+                  <Label htmlFor="provider-add-account-priority">Priority</Label>
+                  <Input
+                    id="provider-add-account-priority"
+                    name="priority"
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    step="1"
+                    value={draft().priority}
+                    onInput={(event) => {
+                      const parsed = Number.parseInt(event.currentTarget.value, 10);
+                      updateDraft({ priority: Number.isFinite(parsed) ? parsed : 0 });
+                    }}
+                  />
+                </div>
+
+                <div class="flex items-center justify-between gap-3 rounded-[var(--radius-control)] border border-[var(--inner-border)] bg-[var(--hover)] px-3 py-2">
+                  <div>
+                    <Label htmlFor="provider-add-account-active" className="mb-0">
+                      Active
+                    </Label>
+                    <p class="mt-0.5 text-[11px] text-[var(--text-3)]">
+                      When off, the account is registered but excluded from routing.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={draft().active}
+                    onChange={(next) => updateDraft({ active: next })}
+                    label="Account active"
+                  />
+                </div>
+
+                <Show when={draft().credentialKind === "oauth"}>
+                  <div class="rounded-[var(--radius-control)] border border-dashed border-[var(--inner-border)] bg-[var(--surface-muted)] p-3">
+                    <p class="text-[11px] text-[var(--text-2)]">
+                      OAuth accounts are authorized out-of-band. Click below to launch the provider authorization flow in a new tab; the daemon completes the account once the browser callback lands.
+                    </p>
+                    <div class="mt-2 flex justify-end">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          void handleOAuthStart();
+                        }}
+                        disabled={oauthPending() || submitting() || draft().name.trim().length === 0}
+                      >
+                        {oauthPending() ? "Starting…" : "Authorize via OAuth"}
+                      </Button>
+                   </div>
+                  </div>
+                </Show>
+
+                <Show when={createError()}>
+                  {(message) => (
+                    <p class="rounded-[var(--radius-control)] border border-[var(--status-danger)] bg-[var(--surface-muted)] px-3 py-2 text-[11px] text-[var(--status-danger)]" role="alert">
+                      {message()}
+                    </p>
+                  )}
+                </Show>
+              </form>
+            </Modal>
           </section>
         )}
       </Show>

@@ -2,8 +2,11 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +26,7 @@ type adminTelemetryStore interface {
 	UpstreamGroups(ctx context.Context, from, to time.Time, groupBy, surface string, limit int) ([]models.TelemetryUpstreamGroup, error)
 	UsageTotals(ctx context.Context, from, to time.Time, surface string) (models.TelemetryUsageTotals, error)
 	ClientUsage(ctx context.Context, from, to time.Time, surface string, limit int) ([]models.TelemetryClientUsage, error)
+	GetRequest(ctx context.Context, id int64) (models.RequestHistory, error)
 }
 
 // postgresTelemetryAdminService implements the admin telemetry contract over
@@ -95,6 +99,67 @@ func (s *postgresTelemetryAdminService) Upstream(ctx context.Context, input admi
 		out = append(out, admin.TelemetryBucket{Timestamp: reference, Count: group.Count, Errors: group.Errors, LatencyMS: int(group.LatencyMS), Metadata: metadata})
 	}
 	return out, nil
+}
+
+// RequestDetail loads a single persisted request row by id and projects the
+// bounded fields into the admin RequestDetail contract. A non-numeric or
+// missing row resolves to a 404 so the handler maps cleanly to the operator
+// not-found boundary; storage failures keep the existing unavailable contract.
+func (s *postgresTelemetryAdminService) RequestDetail(ctx context.Context, id string) (admin.RequestDetail, error) {
+	if id == "" {
+		return admin.RequestDetail{}, admin.NewError(admin.CodeNotFound, "request not found")
+	}
+	parsed, err := strconv.ParseInt(strings.TrimSpace(id), 10, 64)
+	if err != nil || parsed <= 0 {
+		return admin.RequestDetail{}, admin.NewError(admin.CodeNotFound, "request not found")
+	}
+	row, err := s.store.GetRequest(ctx, parsed)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return admin.RequestDetail{}, admin.NewError(admin.CodeNotFound, "request not found")
+		}
+		return admin.RequestDetail{}, wrapAdminReadError("telemetry request detail", err)
+	}
+	if row.ID == 0 {
+		return admin.RequestDetail{}, admin.NewError(admin.CodeNotFound, "request not found")
+	}
+	return adminTelemetryRequestDetail(row), nil
+}
+
+// adminTelemetryRequestDetail maps the persisted request_history row to the
+// bounded admin contract. Only operator-safe fields cross the boundary; raw
+// payloads, prompts, credentials, and headers never appear here.
+func adminTelemetryRequestDetail(row models.RequestHistory) admin.RequestDetail {
+	detail := admin.RequestDetail{
+		ID:           strconv.FormatInt(row.ID, 10),
+		TraceID:      row.TraceID,
+		Model:        row.Model,
+		Provider:     row.Provider,
+		Surface:      row.Surface,
+		Endpoint:     row.Endpoint,
+		APIKeyID:     row.APIKeyID,
+		APIKeyPrefix: row.APIKeyPrefix,
+		Status:       row.Status,
+		LatencyMs:    int64(row.DurationMs),
+		Error:        row.ErrorKind,
+		ClientIP:     row.ClientIP,
+		ClientName:   row.ClientName,
+		ClientSource: row.ClientSource,
+		Stream:       row.Stream,
+	}
+	if row.InputTokens != nil {
+		detail.InputTokens = *row.InputTokens
+	}
+	if row.OutputTokens != nil {
+		detail.OutputTokens = *row.OutputTokens
+	}
+	if !row.StartedAt.IsZero() {
+		detail.StartedAt = row.StartedAt.UTC().Format(time.RFC3339)
+	}
+	if !row.FinishedAt.IsZero() {
+		detail.FinishedAt = row.FinishedAt.UTC().Format(time.RFC3339)
+	}
+	return detail
 }
 
 // postgresUsageAdminService implements the admin usage contract over persisted

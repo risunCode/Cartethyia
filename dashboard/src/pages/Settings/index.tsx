@@ -5,7 +5,6 @@ import { Card, CardHeader } from "@components/ui/card";
 import { Switch } from "@components/ui/switch";
 import { Button } from "@components/ui/button";
 import { Badge, Skeleton } from "@components/ui/badge";
-import { StatePanel } from "@components/ui/state";
 import { SettingRow, SettingSection } from "@components/patterns/setting-row";
 import { glassSurfaces, setGlassSurfaces, setTheme, theme } from "@lib/store";
 import { consoleFailure, consoleGet, consolePatch } from "@lib/console-api";

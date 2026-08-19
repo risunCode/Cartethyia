@@ -95,7 +95,8 @@ func adminScopeForPath(path string) AdminScope {
 	switch {
 	case strings.HasPrefix(path, "/console/auth/"):
 		return ScopeAuth
-	case strings.HasPrefix(path, "/console/accounts"), strings.HasPrefix(path, "/console/providers/"):
+	case strings.HasPrefix(path, "/console/accounts"), strings.HasPrefix(path, "/console/providers/"),
+		strings.HasPrefix(path, "/console/proxies"):
 		return ScopeAccounts
 	case strings.HasPrefix(path, "/console/settings"):
 		return ScopeConfig
@@ -211,6 +212,7 @@ func isGenerationMutation(path, method string) bool {
 	switch {
 	case strings.HasPrefix(path, "/console/accounts"),
 		strings.HasPrefix(path, "/console/providers/"),
+		strings.HasPrefix(path, "/console/proxies"),
 		strings.HasPrefix(path, "/console/settings"):
 		return true
 	default:
@@ -220,7 +222,8 @@ func isGenerationMutation(path, method string) bool {
 
 func generationScope(path string) string {
 	switch {
-	case strings.HasPrefix(path, "/console/providers/"), strings.HasPrefix(path, "/console/accounts"):
+	case strings.HasPrefix(path, "/console/providers/"), strings.HasPrefix(path, "/console/accounts"),
+		strings.HasPrefix(path, "/console/proxies"):
 		return "accounts"
 	case strings.HasPrefix(path, "/console/settings"):
 		return "configuration"

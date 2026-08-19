@@ -13,6 +13,7 @@ func Register(mux *http.ServeMux, services Services) {
 	internal := http.NewServeMux()
 	RegisterDashboard(internal, services)
 	RegisterAccounts(internal, services)
+	RegisterProxies(internal, services)
 	RegisterSettings(internal, services)
 	RegisterAuth(internal, services)
 	RegisterTelemetry(internal, services)

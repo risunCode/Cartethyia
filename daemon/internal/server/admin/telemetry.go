@@ -75,6 +75,27 @@ func RegisterTelemetry(mux *http.ServeMux, services Services) {
 		WriteDataRequest(w, r, http.StatusOK, map[string]any{"items": buckets, "surface": query.Surface})
 	}))
 
+	mux.HandleFunc("/console/telemetry/requests/", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		// Go's net/http ServeMux redirects "/console/telemetry/requests" to
+		// "/console/telemetry/requests/" automatically; both shapes arrive here
+		// with the trailing slash. An empty id means the caller followed the
+		// list redirect or sent the bare collection path; in either case no
+		// detail can be resolved, so report not found instead of leaking the
+		// list shape or attempting an empty lookup.
+		rest := strings.TrimPrefix(r.URL.Path, "/console/telemetry/requests/")
+		id := strings.Trim(rest, "/")
+		if id == "" {
+			WriteError(w, NewError(CodeNotFound, "request not found"))
+			return
+		}
+		detail, err := tel.RequestDetail(r.Context(), id)
+		if err != nil {
+			WriteError(w, err)
+			return
+		}
+		WriteData(w, http.StatusOK, detail)
+	}))
+
 	mux.HandleFunc("/console/telemetry/errors", requireMethod(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		query := parseTelemetryQuery(r)
 		buckets, err := tel.Errors(r.Context(), query)

@@ -34,6 +34,18 @@ const (
 	CodeRateLimited    ErrorCode = "rate_limited"
 	CodeUnavailable    ErrorCode = "unavailable"
 	CodeInternal       ErrorCode = "internal_error"
+
+	// CodeMethodNotAllowed is emitted when the HTTP method does not match any
+	// registered handler for the requested subresource. It maps to HTTP 405.
+	CodeMethodNotAllowed ErrorCode = "method_not_allowed"
+
+	// CodeProxyNotFound is emitted when a proxy lookup, update, or delete
+	// targets an unknown id. It maps to HTTP 404.
+	CodeProxyNotFound ErrorCode = "proxy_not_found"
+
+	// CodeProxyInUse is emitted when a mutation is rejected because the
+	// proxy is still referenced by other state. It maps to HTTP 409.
+	CodeProxyInUse ErrorCode = "proxy_in_use"
 )
 
 // Error is a structured error that handlers return to the envelope layer.
@@ -268,6 +280,12 @@ func statusFor(code ErrorCode) int {
 		return http.StatusServiceUnavailable
 	case CodeOK:
 		return http.StatusOK
+	case CodeMethodNotAllowed:
+		return http.StatusMethodNotAllowed
+	case CodeProxyNotFound:
+		return http.StatusNotFound
+	case CodeProxyInUse:
+		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
 	}

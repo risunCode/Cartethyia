@@ -270,6 +270,18 @@ const DISPATCHER_SUBROUTES: ReadonlyArray<{
       { path: "/auth/oauth/sessions/:id/cancel", methods: ["POST"] },
     ],
   },
+  {
+    prefix: "/console/proxies/",
+    subroutes: [
+      { path: "/proxies/:id", methods: ["PATCH", "DELETE"] },
+    ],
+  },
+  {
+    prefix: "/console/telemetry/requests/",
+    subroutes: [
+      { path: "/telemetry/requests/:id", methods: ["GET"] },
+    ],
+  },
 ];
 
 /**

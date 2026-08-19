@@ -46,6 +46,7 @@ type Config struct {
 	RedisURL             string
 	AccountEncryptionKey string
 	Environment          string
+	ConsolePassword      string
 
 	// TrustProxy allows client-identity consumers (login rate limiter,
 	// analytics) to honor X-Forwarded-For. It must only be enabled when a
@@ -80,6 +81,7 @@ func FromEnvironment() (Config, error) {
 		RedisURL:             firstNonEmpty("CARTETHYIA_REDIS_URL", "REDIS_URL", ""),
 		AccountEncryptionKey: firstNonEmpty("CARTETHYIA_ENCRYPTION_KEY", "CARTETHYIA_ACCOUNT_ENCRYPTION_KEY", "ACCOUNT_ENCRYPTION_KEY", ""),
 		Environment:          firstNonEmpty("CARTETHYIA_ENV", "NODE_ENV", defaultEnvironment),
+		ConsolePassword:      firstNonEmpty("CONSOLE_PASSWORD", ""),
 		RequestTimeout:       defaultRequestTimeout,
 		ReadHeaderTimeout:    defaultReadHeaderTimeout,
 		ConnectTimeout:       defaultConnectTimeout,

@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 const sources = import.meta.glob("../../src/**/*.{ts,tsx}", { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
 // Killed daemon route families (v2.1 WS4) stay locked out of dashboard code
 // alongside the legacy transport helpers.
-const forbidden = /\bapi(?:Get|Post|PostForm|Patch|Delete)\b|\/custom-providers|\/aliases|\/combos|\/model-studio|\/db-map|\/proxy-requests|\bQUERY\b|\/v2\/admin|\/console\/api|\/keys|\/proxies|\/proxy-settings|\/web-search-routing|\/tools\/|\/backups|\/web-request|\/quota\/refresh|\/catalog\/models|\/revoke|oauth-status/;
+const forbidden = /\bapi(?:Get|Post|PostForm|Patch|Delete)\b|\/custom-providers|\/aliases|\/combos|\/model-studio|\/db-map|\/proxy-requests|\bQUERY\b|\/v2\/admin|\/console\/api|\/keys|\/proxy-settings|\/web-search-routing|\/tools\/|\/backups|\/web-request|\/quota\/refresh|\/catalog\/models|\/revoke|oauth-status/;
 // Module names deleted in v2.1 (WS3 + WS5). `\bPopout\b` is case-sensitive on
 // purpose: alive files legitimately use the lowercase `popout-enter` CSS
 // class, while the deleted component was `Popout`. The lib names are

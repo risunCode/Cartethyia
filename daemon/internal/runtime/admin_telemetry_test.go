@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"reflect"
 	"testing"
@@ -22,12 +23,16 @@ type fakeTelemetryStore struct {
 	usageErr    error
 	clients     []models.TelemetryClientUsage
 	clientErr   error
+	request     models.RequestHistory
+	requestErr  error
+	requestID   int64
 
 	overviewCalls []fakeTelemetryCall
 	bucketCalls   []fakeTelemetryCall
 	groupCalls    []fakeTelemetryCall
 	usageCalls    []fakeTelemetryCall
 	clientCalls   []fakeTelemetryCall
+	requestCalls  []int64
 }
 
 type fakeTelemetryCall struct {
@@ -63,6 +68,14 @@ func (s *fakeTelemetryStore) UsageTotals(_ context.Context, from, to time.Time, 
 func (s *fakeTelemetryStore) ClientUsage(_ context.Context, from, to time.Time, surface string, limit int) ([]models.TelemetryClientUsage, error) {
 	s.clientCalls = append(s.clientCalls, fakeTelemetryCall{from: from, to: to, surface: surface, limit: limit})
 	return s.clients, s.clientErr
+}
+
+func (s *fakeTelemetryStore) GetRequest(_ context.Context, id int64) (models.RequestHistory, error) {
+	s.requestCalls = append(s.requestCalls, id)
+	if s.requestErr != nil {
+		return models.RequestHistory{}, s.requestErr
+	}
+	return s.request, nil
 }
 
 func fixedTelemetryNow() time.Time {
@@ -335,4 +348,74 @@ func TestAdminTelemetryLimitClamp(t *testing.T) {
 	if got := adminTelemetryLimit(25); got != 25 {
 		t.Fatalf("limit(25) = %d", got)
 	}
+}
+
+func TestPostgresTelemetryAdminServiceRequestDetailSuccess(t *testing.T) {
+	in := int64(7)
+	tokens := 11
+	outTokens := 13
+	started := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+	finished := started.Add(1500 * time.Millisecond)
+	store := &fakeTelemetryStore{request: models.RequestHistory{
+		ID: in, TraceID: "trace-7", Endpoint: "chat", Surface: "client_action",
+		APIKeyID: "key", APIKeyPrefix: "abc", Provider: "openai", Model: "gpt-x",
+		Status: 200, ErrorKind: "", Stream: true,
+		StartedAt: started, FinishedAt: finished, DurationMs: 1500,
+		InputTokens: &tokens, OutputTokens: &outTokens,
+		ClientName: "curl", ClientSource: "user_agent", ClientIP: "10.0.0.1",
+	}}
+	service := newPostgresTelemetryAdminService(store)
+	detail, err := service.RequestDetail(context.Background(), "7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.ID != "7" || detail.TraceID != "trace-7" || detail.Provider != "openai" || detail.Model != "gpt-x" ||
+		detail.Status != 200 || detail.LatencyMs != 1500 || detail.InputTokens != 11 || detail.OutputTokens != 13 ||
+		detail.ClientIP != "10.0.0.1" || detail.ClientName != "curl" || !detail.Stream ||
+		detail.StartedAt != "2026-08-16T10:00:00Z" || detail.FinishedAt != "2026-08-16T10:00:01Z" {
+		t.Fatalf("detail = %#v", detail)
+	}
+	if len(store.requestCalls) != 1 || store.requestCalls[0] != 7 {
+		t.Fatalf("store calls = %#v", store.requestCalls)
+	}
+}
+
+func TestPostgresTelemetryAdminServiceRequestDetailNotFound(t *testing.T) {
+	service := newPostgresTelemetryAdminService(&fakeTelemetryStore{requestErr: sql.ErrNoRows})
+	if _, err := service.RequestDetail(context.Background(), "42"); err == nil {
+		t.Fatal("expected not found error")
+	} else if code := adminCode(err); code != admin.CodeNotFound {
+		t.Fatalf("err code = %s want not_found", code)
+	}
+}
+
+func TestPostgresTelemetryAdminServiceRequestDetailInvalidID(t *testing.T) {
+	store := &fakeTelemetryStore{}
+	service := newPostgresTelemetryAdminService(store)
+	for _, id := range []string{"", "   ", "abc", "0", "-1"} {
+		_, err := service.RequestDetail(context.Background(), id)
+		if code := adminCode(err); code != admin.CodeNotFound {
+			t.Fatalf("id=%q err code = %s want not_found", id, code)
+		}
+	}
+	if len(store.requestCalls) != 0 {
+		t.Fatalf("store calls = %#v", store.requestCalls)
+	}
+}
+
+func TestPostgresTelemetryAdminServiceRequestDetailStoreError(t *testing.T) {
+	service := newPostgresTelemetryAdminService(&fakeTelemetryStore{requestErr: errors.New("boom")})
+	_, err := service.RequestDetail(context.Background(), "9")
+	if code := adminCode(err); code != admin.CodeAdminUnavailable {
+		t.Fatalf("err code = %s want unavailable", code)
+	}
+}
+
+// adminCode extracts the operator-safe ErrorCode from an admin error if any.
+func adminCode(err error) admin.ErrorCode {
+	var adminErr *admin.Error
+	if errors.As(err, &adminErr) {
+		return adminErr.Code
+	}
+	return ""
 }

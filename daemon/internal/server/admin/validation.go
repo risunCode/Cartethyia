@@ -9,6 +9,11 @@ import (
 
 const maxAdminField = 256
 
+const (
+	maxProxyTypeLen = 16
+	maxProxyHostLen = 255
+)
+
 func validateAdminPayload(v any) error {
 	switch value := v.(type) {
 	case *AccountInput:
@@ -94,6 +99,55 @@ func validateMetadata(metadata map[string]any) error {
 		if strings.Contains(lower, "secret") || strings.Contains(lower, "token") || strings.Contains(lower, "password") || strings.Contains(lower, "credential") {
 			return errors.New("metadata contains a forbidden secret field")
 		}
+	}
+	return nil
+}
+
+// validateProxyInput enforces the shared contract for proxy create/update
+// payloads. requireAll mirrors the repository convention: true on Create
+// (Type/Host/Port are mandatory), false on Update (any field is optional).
+func validateProxyInput(input ProxyInput, requireAll bool) *Error {
+	if requireAll {
+		if input.Type == nil {
+			return NewError(CodeInvalidRequest, "type is required")
+		}
+		if input.Host == nil {
+			return NewError(CodeInvalidRequest, "host is required")
+		}
+		if input.Port == nil {
+			return NewError(CodeInvalidRequest, "port is required")
+		}
+	}
+	if input.Type != nil {
+		switch *input.Type {
+		case "http", "https", "socks5":
+			// valid
+		default:
+			return NewError(CodeInvalidRequest, "type must be http, https, or socks5")
+		}
+		if len(*input.Type) > maxProxyTypeLen {
+			return NewError(CodeInvalidRequest, "type is too long")
+		}
+	}
+	if input.Host != nil {
+		if len(*input.Host) > maxProxyHostLen {
+			return NewError(CodeInvalidRequest, "host is too long")
+		}
+		if strings.ContainsAny(*input.Host, " \t\r\n") {
+			return NewError(CodeInvalidRequest, "host contains whitespace")
+		}
+	}
+	if input.Port != nil && (*input.Port < 1 || *input.Port > 65535) {
+		return NewError(CodeInvalidRequest, "port must be 1-65535")
+	}
+	if input.Priority != nil && (*input.Priority < 0 || *input.Priority > 1000) {
+		return NewError(CodeInvalidRequest, "priority must be 0-1000")
+	}
+	if input.Weight != nil && (*input.Weight < 1 || *input.Weight > 1000) {
+		return NewError(CodeInvalidRequest, "weight must be 1-1000")
+	}
+	if input.MaxConcurrency != nil && (*input.MaxConcurrency < 1 || *input.MaxConcurrency > 10000) {
+		return NewError(CodeInvalidRequest, "max_concurrency must be 1-10000")
 	}
 	return nil
 }
