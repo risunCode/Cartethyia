@@ -435,18 +435,16 @@ func (e RequestEvent) Validate() error {
 			return fmt.Errorf("%w: sensitive %s", ErrInvalidEvent, field.name)
 		}
 	}
-	if !dimensionAllowed(e.SourceSurface, compatibilitySurfaces) || !dimensionAllowed(e.TargetSurface, compatibilitySurfaces) ||
-		!dimensionAllowed(e.Profile, compatibilityProfiles) || !dimensionAllowed(e.DispositionAction, planActions) ||
+	if !dimensionAllowed(e.SourceSurface, map[string]struct{}{"openai-chat": {}, "openai-responses": {}, "anthropic": {}, "gemini": {}, "images": {}}) || !dimensionAllowed(e.TargetSurface, map[string]struct{}{"openai-chat": {}, "openai-responses": {}, "anthropic": {}, "gemini": {}, "images": {}}) ||
+		!dimensionAllowed(e.Profile, map[string]struct{}{"unknown-standard": {}, "codex-cli": {}, "claude-code": {}, "gemini-cli": {}}) || !dimensionAllowed(e.DispositionAction, map[string]struct{}{"translate": {}, "preserve": {}, "clamp": {}, "strip": {}, "reject": {}, "passthrough": {}}) ||
 		!dimensionAllowed(e.CompactionVersion, compactionVersions) || !dimensionAllowed(e.Bridge, bridgeOutcomes) ||
 		!dimensionAllowed(e.Operation, operations) || !dimensionAllowed(e.RecoveryKind, recoveryKinds) ||
 		!dimensionAllowed(e.ExhaustionReason, exclusionReasons) || !dimensionAllowed(e.RepairDisposition, toolRepairDispositions) ||
-		!dimensionAllowed(e.PlanOutcome, evidenceOutcomes) || !dimensionAllowed(e.CacheOperation, map[string]struct{}{string(CacheLookup): {}, string(CacheHit): {}, string(CacheWrite): {}, string(CacheReject): {}, string(CacheFallback): {}}) ||
+		!dimensionAllowed(e.PlanOutcome, operationOutcomes) || !dimensionAllowed(e.CacheOperation, map[string]struct{}{string(CacheLookup): {}, string(CacheHit): {}, string(CacheWrite): {}, string(CacheReject): {}, string(CacheFallback): {}}) ||
+		!dimensionAllowed(e.PlanOutcome, operationOutcomes) || !dimensionAllowed(e.CacheOperation, map[string]struct{}{string(CacheLookup): {}, string(CacheHit): {}, string(CacheWrite): {}, string(CacheReject): {}, string(CacheFallback): {}}) ||
 		!dimensionAllowed(e.CacheOutcome, cacheOutcomes) || !dimensionAllowed(e.CacheLayer, map[string]struct{}{"l0": {}, "l1": {}, "memory": {}, "redis": {}, "provider": {}, "none": {}}) ||
 		!dimensionAllowed(e.CapabilityCode, capabilityCodes) || !dimensionAllowed(e.Modality, modalities) || !dimensionAllowed(e.ReferenceKind, referenceKinds) {
 		return fmt.Errorf("%w: unrecognized evidence dimension", ErrInvalidEvent)
-	}
-	if e.Stage == StageCompatibilityPlan && (e.SourceSurface == "" || e.TargetSurface == "" || e.Profile == "" || e.DispositionAction == "" || e.PlanOutcome == "") {
-		return fmt.Errorf("%w: compatibility plan dimensions required", ErrInvalidEvent)
 	}
 	if e.Stage == StageOperation && e.Operation == "" {
 		return fmt.Errorf("%w: operation required", ErrInvalidEvent)

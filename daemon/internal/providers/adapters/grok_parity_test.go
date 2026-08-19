@@ -94,31 +94,3 @@ func TestGrokBuildRejectsMalformedProtocolAndToolArguments(t *testing.T) {
 		t.Fatal("malformed function tool accepted")
 	}
 }
-func TestGrokBuildPromptCacheIdentityIsTenantScopedAndOpaque(t *testing.T) {
-	caps := ProviderCaps{Surfaces: []Surface{SurfaceOpenAIResponses}, Streaming: true, Reasoning: true}
-	adapter := NewGrokBuildAdapter(GrokBuildConfig{ID: "grok-build", BaseURL: "https://grok.invalid/v1", CredentialKind: CredentialOAuth, Models: []ProviderModel{Model("grok", "Grok", &caps)}})
-	build := func(tenant string) map[string]any {
-		request, err := adapter.BuildRequest(RequestEnvelope{
-			Target:  RouteTarget{ProviderID: "grok-build", ModelID: "grok", Surface: SurfaceOpenAIResponses},
-			Headers: map[string][]string{"X-Cartethyia-Tenant": {tenant}},
-			Body:    []byte(`{"input":[{"type":"message","role":"user","content":"hello"}]}`),
-		}, "secret")
-		if err != nil {
-			t.Fatal(err)
-		}
-		var payload map[string]any
-		if err := json.Unmarshal(request.Body, &payload); err != nil {
-			t.Fatal(err)
-		}
-		return payload
-	}
-	first, second := build("tenant-a"), build("tenant-b")
-	firstKey, firstOK := first["prompt_cache_key"].(string)
-	secondKey, secondOK := second["prompt_cache_key"].(string)
-	if !firstOK || !secondOK || firstKey == secondKey {
-		t.Fatalf("tenant cache identities = %q, %q", firstKey, secondKey)
-	}
-	if strings.Contains(firstKey, "tenant-a") || strings.Contains(firstKey, "session") {
-		t.Fatalf("raw tenant/session leaked into cache identity: %v", firstKey)
-	}
-}

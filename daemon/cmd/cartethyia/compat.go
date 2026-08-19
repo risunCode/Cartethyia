@@ -110,7 +110,7 @@ func compatCommand(ctx context.Context, args []string, stdin io.Reader, stdout, 
 	case "matrix":
 		return compatMatrixCommand(ctx, args[1:], stdout, stderr)
 	case "replay":
-		return compatReplayCommand(ctx, args[1:], stdin, stdout, stderr)
+		return writeFailure(stdout, stderr, wantsJSON(args), "compat", ExitConfiguration, "configuration_failure", "replay command removed")
 	default:
 		return writeFailure(stdout, stderr, wantsJSON(args), "compat", ExitConfiguration, "configuration_failure", "unknown compat command")
 	}

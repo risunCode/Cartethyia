@@ -51,6 +51,10 @@ func (t *routeTelemetry) Upstream(context.Context, TelemetryQuery) ([]TelemetryB
 	return nil, nil
 }
 
+func (t *routeTelemetry) RequestDetail(context.Context, string) (RequestDetail, error) {
+	return RequestDetail{}, nil
+}
+
 func TestV2ObservabilityRoutesUseContractMethods(t *testing.T) {
 	mux := http.NewServeMux()
 	telemetry := &routeTelemetry{}

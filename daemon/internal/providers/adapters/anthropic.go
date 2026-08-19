@@ -10,7 +10,6 @@ import (
 	"time"
 
 	providerpkg "github.com/cartethyia/daemon/internal/providers"
-	"github.com/cartethyia/daemon/internal/proxy/control/cacheplan"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/transforms"
 )
 
@@ -341,17 +340,7 @@ func (p *AnthropicAdapter) BuildRequestContext(ctx context.Context, envelope Req
 	}
 	caps := p.modelCapabilities(entry)
 	policy := providerpkg.EffectiveCompatibilityPolicy(caps, entry)
-	if _, err := cacheplan.PlanFinalWire(&cacheplan.FinalWireRequest{
-		Protocol:         cacheplan.ProtocolAnthropic,
-		Surface:          string(target.Surface),
-		ProviderID:       p.meta.ID,
-		ModelID:          target.UpstreamModelID,
-		TenantID:         envelope.Headers.Get("X-Tenant-ID"),
-		PolicyGeneration: policy.Generation,
-		Payload:          wire,
-	}, policy); err != nil {
-		return BuiltRequest{}, err
-	}
+	_ = policy // cache planning removed — providers work without explicit cache keys
 	wireBody, err := json.Marshal(wire)
 	if err != nil {
 		return BuiltRequest{}, anthropicError(AnthropicErrorInvalidRequest, p.meta.ID, "body", "request could not be encoded", err)

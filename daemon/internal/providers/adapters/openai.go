@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	providerpkg "github.com/cartethyia/daemon/internal/providers"
-	"github.com/cartethyia/daemon/internal/proxy/control/cacheplan"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/contracts"
 	"github.com/cartethyia/daemon/internal/proxy/protocol/transforms"
 )
@@ -378,13 +377,7 @@ func (p *OpenAIAdapter) BuildRequestContext(ctx context.Context, envelope Reques
 		}
 		payload["model"] = upstream
 		policy := providerpkg.EffectiveCompatibilityPolicy(caps, entry)
-		if _, err := cacheplan.PlanFinalWire(&cacheplan.FinalWireRequest{
-			Protocol: cacheplan.ProtocolOpenAI, Surface: string(target.Surface), ProviderID: p.meta.ID,
-			ModelID: target.UpstreamModelID, TenantID: envelope.Headers.Get("X-Tenant-ID"),
-			PolicyGeneration: policy.Generation, Payload: payload,
-		}, policy); err != nil {
-			return BuiltRequest{}, err
-		}
+		_ = policy // cache planning removed
 		body, err := json.Marshal(payload)
 		if err != nil {
 			return BuiltRequest{}, fmt.Errorf("providers/openai: marshal payload: %w", err)
@@ -398,13 +391,7 @@ func (p *OpenAIAdapter) BuildRequestContext(ctx context.Context, envelope Reques
 	}
 	target.Surface = SurfaceOpenAIResponses
 	policy := providerpkg.EffectiveCompatibilityPolicy(caps, entry)
-	if _, err := cacheplan.PlanFinalWire(&cacheplan.FinalWireRequest{
-		Protocol: cacheplan.ProtocolOpenAI, Surface: string(target.Surface), ProviderID: p.meta.ID,
-		ModelID: target.UpstreamModelID, TenantID: envelope.Headers.Get("X-Tenant-ID"),
-		PolicyGeneration: policy.Generation, Payload: payload,
-	}, policy); err != nil {
-		return BuiltRequest{}, err
-	}
+	_ = policy // cache planning removed
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return BuiltRequest{}, fmt.Errorf("providers/openai: marshal payload: %w", err)

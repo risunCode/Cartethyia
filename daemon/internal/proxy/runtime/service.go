@@ -608,21 +608,7 @@ func (s *DispatchService) observeRoutePlan(req contracts.Request, plan catalog.R
 	if plan.Operation == transforms.OperationCompactV2 {
 		version = "v2"
 	}
-	s.Evidence.ObserveOperation(observability.OperationEvidence{Operation: operationLabel(plan.Operation), CompactionVersion: version, Bridge: "none", Outcome: observability.PlanOutcomePlanned})
-	for _, member := range plan.Members {
-		target := string(member.TargetSurface)
-		if target == "" {
-			target = string(member.Surface)
-		}
-		action := observability.PlanActionTranslate
-		if source == target {
-			action = observability.PlanActionPreserve
-		}
-		s.Evidence.ObserveCompatibilityPlan(observability.CompatibilityPlanEvidence{
-			SourceSurface: source, TargetSurface: target, Profile: "unknown-standard",
-			Action: action, Outcome: observability.PlanOutcomePlanned, Operation: operationLabel(plan.Operation),
-		})
-	}
+	s.Evidence.ObserveOperation(observability.OperationEvidence{Operation: operationLabel(plan.Operation), CompactionVersion: version, Bridge: "none", Outcome: "planned"})
 	for _, exclusion := range plan.Exclusions {
 		s.Evidence.ObserveCapability(observability.CapabilityEvidence{Code: exclusion.Code, Operation: operationLabel(plan.Operation), Feature: string(exclusion.Feature)})
 	}

@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	providerpkg "github.com/cartethyia/daemon/internal/providers"
-	"github.com/cartethyia/daemon/internal/proxy/control/cacheplan"
 )
 
 // GrokRepairInvalidEncryptedReasoning is the stable compatibility rule used
@@ -162,17 +161,7 @@ func (p *GrokBuildAdapter) BuildRequest(envelope RequestEnvelope, credential str
 	if tenantID == "" {
 		tenantID = envelope.Headers.Get("X-Cartethyia-Tenant")
 	}
-	if _, err := cacheplan.PlanFinalWire(&cacheplan.FinalWireRequest{
-		Protocol:         cacheplan.ProtocolOpenAI,
-		Surface:          string(target.Surface),
-		ProviderID:       p.meta.ID,
-		ModelID:          target.UpstreamModelID,
-		TenantID:         tenantID,
-		PolicyGeneration: policy.Generation,
-		Payload:          payload,
-	}, policy); err != nil {
-		return BuiltRequest{}, err
-	}
+	_ = tenantID // cache planning removed
 	if envelope.Stream {
 		auth.Headers.Set("Accept", "text/event-stream")
 	} else {

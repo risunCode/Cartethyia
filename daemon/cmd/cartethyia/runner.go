@@ -76,11 +76,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	case "probe":
 		return probeCommand(ctx, args[1:], stdin, stdout, stderr)
 	case "compat":
-		return compatCommand(ctx, args[1:], stdin, stdout, stderr)
-	case "cache":
-		return cacheCommand(ctx, args[1:], stdout, stderr)
-	case "accounts":
-		return accountsCommand(ctx, args[1:], stdout, stderr)
+		return writeFailure(stdout, stderr, wantsJSON(args), "cli", ExitConfiguration, "configuration_failure", "compat command removed")
 	default:
 		return writeFailure(stdout, stderr, wantsJSON(args), "cli", ExitConfiguration, "configuration_failure", "unknown command")
 	}
