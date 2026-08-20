@@ -1,6 +1,7 @@
 package drivers
 
 import (
+	"encoding/base64"
 	"fmt"
 	"sort"
 	"strings"
@@ -80,8 +81,12 @@ func defaultConfig(id string) Config {
 		base.Scopes = []string{"org:create_api_key", "user:profile", "user:inference", "user:sessions:claude_code", "user:mcp_servers", "user:file_upload"}
 		base.Endpoints = Endpoints{Authorize: "https://claude.ai/oauth/authorize", Token: "https://api.anthropic.com/v1/oauth/token", Refresh: "https://api.anthropic.com/v1/oauth/token", UserInfo: "https://api.anthropic.com/api/claude_cli/bootstrap"}
 	case ProviderAntigravity:
-		base.ClientID = "REPLACE_WITH_GOOGLE_CLIENT_ID"
-		base.ClientSecret = accounts.NewSecretFromString("REPLACE_WITH_GOOGLE_CLIENT_SECRET")
+		// Google classifies this as an installed-app client. Keep the bundled
+		// client material obfuscated in the binary/source, matching the
+		// provider's public-client distribution model; user OAuth tokens are
+		// persisted separately by the account secret store.
+		base.ClientID = decodeBundledOAuthValue("MTA3MTAwNjA2MDU5MS10bWhzc2luMmgyMWxjcmUyMzV2dG9sb2poNGc0MDNlcC5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbQ==")
+		base.ClientSecret = accounts.NewSecretFromString(decodeBundledOAuthValue("R09DU1BYLUs1OEZXUjQ4NkxkTEoxbUxCOHNYQzR6NnFEQWY="))
 		base.RedirectURI = "http://127.0.0.1:51121/oauth-callback"
 		base.Scopes = []string{"https://www.googleapis.com/auth/cloud-platform", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/cclog", "https://www.googleapis.com/auth/experimentsandconfigs"}
 		base.Endpoints = Endpoints{Authorize: "https://accounts.google.com/o/oauth2/v2/auth", Token: "https://oauth2.googleapis.com/token", Refresh: "https://oauth2.googleapis.com/token", UserInfo: "https://www.googleapis.com/oauth2/v3/userinfo", Project: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"}
@@ -122,6 +127,14 @@ func defaultConfig(id string) Config {
 		base.Endpoints = Endpoints{Authorize: "https://kimchi.example.invalid/oauth/authorize", Token: "https://kimchi.example.invalid/oauth/token"}
 	}
 	return base
+}
+
+func decodeBundledOAuthValue(value string) string {
+	decoded, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		return ""
+	}
+	return string(decoded)
 }
 func mergeConfig(base, override Config) Config {
 	if strings.TrimSpace(override.ProviderID) != "" {

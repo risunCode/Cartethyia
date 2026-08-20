@@ -53,7 +53,7 @@ func TestKimchiRemainsAccessOnly(t *testing.T) {
 
 func TestOhMyPiOAuthClientConfigurationIsPreserved(t *testing.T) {
 	antigravity := defaultConfig(ProviderAntigravity)
-	if antigravity.ClientID != "REPLACE_WITH_GOOGLE_CLIENT_ID" || antigravity.ClientSecret == nil || antigravity.ClientSecret.IsZero() {
+	if antigravity.ClientID == "" || antigravity.ClientSecret == nil || antigravity.ClientSecret.IsZero() {
 		t.Fatal("Antigravity Google OAuth client configuration is incomplete")
 	}
 	if antigravity.RedirectURI != "http://127.0.0.1:51121/oauth-callback" {
