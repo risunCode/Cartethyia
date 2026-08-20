@@ -6,7 +6,7 @@
  *     mapping, envelope validation) — mocked fetch, no daemon required.
  *  2. Parity between CONSOLE_ROUTE_MATRIX and the daemon's actually
  *     registered routes, extracted live from the Go sources in
- *     daemon/internal/server/admin/*.go. Extraction covers every
+ *     router/internal/console/api/*.go. Extraction covers every
  *     `mux.HandleFunc(...)` registration (string-literal and const-resolved
  *     paths, methods from requireMethod/requireMethods). Trailing-slash
  *     registrations are prefix dispatchers whose sub-routes are decided
@@ -44,6 +44,7 @@ describe("dashboard transport route contract", () => {
     expect(isDocumentedConsoleRoute("/settings", "DELETE")).toBe(false);
     expect(isDocumentedConsoleRoute("/providers/openai/accounts/batch-delete", "POST")).toBe(true);
     expect(isDocumentedConsoleRoute("/providers/openai/accounts/batch-delete", "GET")).toBe(false);
+    expect(isDocumentedConsoleRoute("/client-errors", "POST")).toBe(true);
     expect(isDocumentedConsoleRoute("/auth/oauth/sessions/sess-1", "GET")).toBe(true);
     expect(isDocumentedConsoleRoute("/oauth/sessions/sess-1", "GET")).toBe(false);
     expect(isDocumentedConsoleRoute("/settings", "QUERY" as ConsoleHttpMethod)).toBe(false);
@@ -97,7 +98,7 @@ describe("dashboard transport route contract", () => {
  * the contract test reads it directly instead of maintaining a second list.
  */
 // Vitest runs with the dashboard package as cwd; the daemon tree is a sibling.
-const DAEMON_ADMIN_DIR = join(process.cwd(), "..", "daemon", "internal", "server", "admin");
+const DAEMON_CONSOLE_API_DIR = join(process.cwd(), "..", "router", "internal", "console", "api");
 
 interface GoSource {
   readonly file: string;
@@ -124,11 +125,11 @@ function goMethod(name: string): string {
   return GO_METHODS[name] ?? name.toUpperCase();
 }
 
-function listAdminSources(): GoSource[] {
-  return readdirSync(DAEMON_ADMIN_DIR)
+function listConsoleSources(): GoSource[] {
+  return readdirSync(DAEMON_CONSOLE_API_DIR)
     .filter((name) => name.endsWith(".go") && !name.endsWith("_test.go"))
     .sort()
-    .map((name) => ({ file: name, source: readFileSync(join(DAEMON_ADMIN_DIR, name), "utf8") }));
+    .map((name) => ({ file: name, source: readFileSync(join(DAEMON_CONSOLE_API_DIR, name), "utf8") }));
 }
 
 /** Collects simple `name = "value"` string constants (const blocks included). */
@@ -218,7 +219,7 @@ function handlerMethods(source: string, start: number): string[] {
 
 function extractRegistrations(): DaemonRegistration[] {
   const registrations: DaemonRegistration[] = [];
-  for (const { file, source } of listAdminSources()) {
+  for (const { file, source } of listConsoleSources()) {
     const constants = extractStringConstants(source);
     const call = /mux\.HandleFunc\(/g;
     let match: RegExpExecArray | null;
@@ -262,6 +263,14 @@ const DISPATCHER_SUBROUTES: ReadonlyArray<{
     ],
   },
   {
+    prefix: "/console/batches/",
+    subroutes: [
+      { path: "/batches/:batchId", methods: ["GET"] },
+      { path: "/batches/:batchId/cancel", methods: ["POST"] },
+      { path: "/batches/:batchId/progress", methods: ["GET"] },
+    ],
+  },
+  {
     prefix: "/console/auth/oauth/sessions/",
     subroutes: [
       { path: "/auth/oauth/sessions/:id", methods: ["GET"] },
@@ -292,9 +301,14 @@ const DISPATCHER_SUBROUTES: ReadonlyArray<{
  * change.
  */
 const KNOWN_UNCOVERED_DAEMON_ROUTES = [
-  // Daemon-supported mutations the dashboard matrix does not exercise.
+  // Daemon routes the dashboard matrix does not exercise.
   "PATCH /accounts/:param",
   "DELETE /accounts/:param",
+  "GET /batches",
+  "POST /batches",
+  "GET /batches/:param",
+  "POST /batches/:param/cancel",
+  "GET /batches/:param/progress",
   "POST /providers/:param/accounts/:param/revoke",
   // OAuth status polling variant not used by the dashboard.
   "GET /auth/oauth/sessions/:param/status",
@@ -331,7 +345,7 @@ function daemonConsoleSurface(): { pairs: string[]; dispatchers: DaemonRegistrat
 
 describe("daemon console route registration parity", () => {
   test("daemon admin sources never register the legacy /v2/admin surface", () => {
-    const sources = listAdminSources();
+    const sources = listConsoleSources();
     expect(sources.length).toBeGreaterThan(10);
     const offenders = sources.filter((entry) => entry.source.includes("v2/admin")).map((entry) => entry.file);
     expect(offenders).toEqual([]);
@@ -355,7 +369,7 @@ describe("daemon console route registration parity", () => {
     const curated = DISPATCHER_SUBROUTES.map((entry) => entry.prefix).sort();
     expect(registered).toEqual(curated);
 
-    const sources = new Map(listAdminSources().map((entry) => [entry.file, entry.source]));
+    const sources = new Map(listConsoleSources().map((entry) => [entry.file, entry.source]));
     for (const entry of DISPATCHER_SUBROUTES) {
       const registration = dispatchers.find((candidate) => candidate.path === entry.prefix);
       expect(registration, `dispatcher ${entry.prefix} must be registered`).toBeDefined();

@@ -7,14 +7,14 @@ describe("reportError", () => {
     vi.restoreAllMocks();
   });
 
-  test("posts the level, message, and context to /internal/logs", async () => {
+  test("posts the level, message, and context to /console/client-errors", async () => {
     const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(new Response(null, { status: 201 }));
 
     reportError("error", "boom", { source: "test" });
     await Promise.resolve();
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      "/internal/logs",
+      "/console/client-errors",
       expect.objectContaining({
         method: "POST",
         headers: { "content-type": "application/json" },

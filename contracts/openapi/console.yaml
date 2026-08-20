@@ -1,0 +1,357 @@
+openapi: 3.0.3
+info:
+  title: Cartethyia Console API
+  version: 1.0.0
+  description: >-
+    Bounded operator console and public share surfaces. This contract documents
+    only routes registered by router/internal/console/api. Database records,
+    credentials, cookies, authorization headers, prompts, and full request or
+    provider bodies are intentionally absent from wire schemas.
+servers:
+  - url: /
+tags:
+  - name: auth
+  - name: dashboard
+  - name: accounts
+  - name: proxies
+  - name: settings
+  - name: telemetry
+  - name: logs
+  - name: catalog
+  - name: batches
+  - name: share
+paths:
+  /console/dashboard:
+    get:
+      tags: [dashboard]
+      responses: {"200": {description: Dashboard summary, content: {application/json: {$ref: '#/components/schemas/EnvelopeDashboardSummary'}}}}
+  /console/batches:
+    get:
+      tags: [batches]
+      parameters:
+        - {name: state, in: query, required: false, schema: {type: string, enum: [queued, running, completed, failed, cancelled, expired]}}
+        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 1000, default: 100}}
+      responses: {"200": {description: Batch jobs, content: {application/json: {$ref: '#/components/schemas/EnvelopeBatchList'}}}}
+    post:
+      tags: [batches]
+      requestBody: {$ref: '#/components/requestBodies/BatchSubmit'}
+      responses: {"202": {description: Accepted batch, content: {application/json: {$ref: '#/components/schemas/EnvelopeBatchJob'}}}}
+  /console/batches/{batchId}:
+    parameters: [{$ref: '#/components/parameters/BatchId'}]
+    get:
+      tags: [batches]
+      responses: {"200": {description: Batch job, content: {application/json: {$ref: '#/components/schemas/EnvelopeBatchGet'}}}}
+  /console/batches/{batchId}/cancel:
+    parameters: [{$ref: '#/components/parameters/BatchId'}]
+    post:
+      tags: [batches]
+      responses: {"200": {description: Cancelled batch, content: {application/json: {$ref: '#/components/schemas/EnvelopeBatchJob'}}}}
+  /console/batches/{batchId}/progress:
+    parameters: [{$ref: '#/components/parameters/BatchId'}]
+    get:
+      tags: [batches]
+      responses: {"200": {description: Batch progress, content: {application/json: {$ref: '#/components/schemas/EnvelopeBatchProgress'}}}}
+  /console/accounts:
+    get:
+      tags: [accounts]
+      parameters: [{$ref: '#/components/parameters/ProviderId'}]
+      responses: {"200": {description: Account list, content: {application/json: {$ref: '#/components/schemas/EnvelopeAccountList'}}}}
+  /console/accounts/{accountId}:
+    parameters: [{$ref: '#/components/parameters/AccountId'}]
+    patch:
+      tags: [accounts]
+      requestBody: {$ref: '#/components/requestBodies/AccountInput'}
+      responses: {"200": {description: Account, content: {application/json: {$ref: '#/components/schemas/EnvelopeAccount'}}}}
+    delete:
+      tags: [accounts]
+      responses: {"204": {description: Account deleted}}
+  /console/accounts/{accountId}/quota:
+    parameters: [{$ref: '#/components/parameters/AccountId'}]
+    get:
+      tags: [accounts]
+      responses: {"200": {description: Quota snapshot, content: {application/json: {$ref: '#/components/schemas/EnvelopeQuotaState'}}}}
+    post:
+      tags: [accounts]
+      responses: {"200": {description: Refreshed quota snapshot, content: {application/json: {$ref: '#/components/schemas/EnvelopeQuotaState'}}}}
+  /console/providers/{providerId}/accounts:
+    parameters: [{$ref: '#/components/parameters/ProviderId'}]
+    get:
+      tags: [accounts]
+      responses: {"200": {description: Account list, content: {application/json: {$ref: '#/components/schemas/EnvelopeAccountList'}}}}
+    post:
+      tags: [accounts]
+      requestBody: {$ref: '#/components/requestBodies/AccountInput'}
+      responses: {"201": {description: Account, content: {application/json: {$ref: '#/components/schemas/EnvelopeAccount'}}}}
+  /console/providers/{providerId}/accounts/batch:
+    parameters: [{$ref: '#/components/parameters/ProviderId'}]
+    post:
+      tags: [accounts]
+      requestBody: {$ref: '#/components/requestBodies/AccountBatch'}
+      responses: {"201": {description: Created accounts, content: {application/json: {$ref: '#/components/schemas/EnvelopeAccountList'}}}}
+    patch:
+      tags: [accounts]
+      requestBody: {$ref: '#/components/requestBodies/AccountBatchPatch'}
+      responses: {"200": {description: Batch result, content: {application/json: {$ref: '#/components/schemas/EnvelopeBatchResult'}}}}
+  /console/providers/{providerId}/accounts/batch-delete:
+    parameters: [{$ref: '#/components/parameters/ProviderId'}]
+    post:
+      tags: [accounts]
+      requestBody: {$ref: '#/components/requestBodies/AccountIDBatch'}
+      responses: {"200": {description: Batch result, content: {application/json: {$ref: '#/components/schemas/EnvelopeBatchResult'}}}}
+  /console/providers/{providerId}/accounts/{accountId}:
+    parameters: [{$ref: '#/components/parameters/ProviderId'}, {$ref: '#/components/parameters/AccountId'}]
+    post:
+      tags: [accounts]
+      requestBody: {$ref: '#/components/requestBodies/AccountInput'}
+      responses: {"200": {description: Account, content: {application/json: {$ref: '#/components/schemas/EnvelopeAccount'}}}}
+    delete:
+      tags: [accounts]
+      responses: {"204": {description: Account deleted}}
+  /console/providers/{providerId}/accounts/{accountId}/revoke:
+    parameters: [{$ref: '#/components/parameters/ProviderId'}, {$ref: '#/components/parameters/AccountId'}]
+    post:
+      tags: [accounts]
+      responses: {"200": {description: Account revoked}}
+  /console/proxies:
+    get:
+      tags: [proxies]
+      responses: {"200": {description: Proxy list, content: {application/json: {$ref: '#/components/schemas/EnvelopeProxyList'}}}}
+    post:
+      tags: [proxies]
+      requestBody: {$ref: '#/components/requestBodies/ProxyInput'}
+      responses: {"201": {description: Proxy, content: {application/json: {$ref: '#/components/schemas/EnvelopeProxy'}}}}
+  /console/proxies/{proxyId}:
+    parameters: [{$ref: '#/components/parameters/ProxyId'}]
+    patch:
+      tags: [proxies]
+      requestBody: {$ref: '#/components/requestBodies/ProxyInput'}
+      responses: {"200": {description: Proxy, content: {application/json: {$ref: '#/components/schemas/EnvelopeProxy'}}}}
+    delete:
+      tags: [proxies]
+      responses: {"200": {description: Proxy deleted}}
+  /console/settings:
+    get:
+      tags: [settings]
+      responses: {"200": {description: Runtime settings, content: {application/json: {$ref: '#/components/schemas/EnvelopeRuntimeSettings'}}}}
+    patch:
+      tags: [settings]
+      requestBody: {$ref: '#/components/requestBodies/RuntimeSettingsInput'}
+      responses: {"200": {description: Runtime settings, content: {application/json: {$ref: '#/components/schemas/EnvelopeRuntimeSettings'}}}}
+    post:
+      tags: [settings]
+      responses: {"200": {description: Reset runtime settings, content: {application/json: {$ref: '#/components/schemas/EnvelopeRuntimeSettings'}}}}
+  /console/auth/login:
+    post:
+      tags: [auth]
+      description: Password material is accepted only by the transport and is not part of the bounded contract schema.
+      requestBody: {$ref: '#/components/requestBodies/LoginInput'}
+      responses: {"200": {description: Session, content: {application/json: {$ref: '#/components/schemas/EnvelopeSession'}}}}
+  /console/auth/logout:
+    post:
+      tags: [auth]
+      responses: {"200": {description: Logged out}}
+  /console/auth/session:
+    get:
+      tags: [auth]
+      responses: {"200": {description: Session, content: {application/json: {$ref: '#/components/schemas/EnvelopeSession'}}}}
+  /console/auth/refresh:
+    post:
+      tags: [auth]
+      responses: {"200": {description: Session, content: {application/json: {$ref: '#/components/schemas/EnvelopeSession'}}}}
+  /console/auth/oauth/start:
+    post:
+      tags: [auth]
+      parameters: [{$ref: '#/components/parameters/OAuthProviderId'}]
+      description: >-
+        Only bounded OAuth flow metadata is documented. Provider credential
+        material is transport-only and is never returned or persisted by this API.
+      requestBody: {$ref: '#/components/requestBodies/OAuthStartInput'}
+      responses: {"200": {description: OAuth state, content: {application/json: {$ref: '#/components/schemas/EnvelopeOAuthState'}}}}
+  /console/auth/oauth/sessions/{sessionId}:
+    parameters: [{$ref: '#/components/parameters/OAuthSessionId'}]
+    get:
+      tags: [auth]
+      responses: {"200": {description: OAuth state, content: {application/json: {$ref: '#/components/schemas/EnvelopeOAuthState'}}}}
+  /console/auth/oauth/sessions/{sessionId}/status:
+    parameters: [{$ref: '#/components/parameters/OAuthSessionId'}]
+    get:
+      tags: [auth]
+      responses: {"200": {description: OAuth state, content: {application/json: {$ref: '#/components/schemas/EnvelopeOAuthState'}}}}
+  /console/auth/oauth/sessions/{sessionId}/complete:
+    parameters: [{$ref: '#/components/parameters/OAuthSessionId'}]
+    post:
+      tags: [auth]
+      requestBody: {$ref: '#/components/requestBodies/OAuthCompleteInput'}
+      responses: {"200": {description: OAuth state, content: {application/json: {$ref: '#/components/schemas/EnvelopeOAuthState'}}}}
+  /console/auth/oauth/sessions/{sessionId}/cancel:
+    parameters: [{$ref: '#/components/parameters/OAuthSessionId'}]
+    post:
+      tags: [auth]
+      responses: {"200": {description: OAuth session cancelled}}
+  /console/auth/oauth/refresh:
+    post:
+      tags: [auth]
+      requestBody: {$ref: '#/components/requestBodies/OAuthRefreshInput'}
+      responses: {"200": {description: OAuth state, content: {application/json: {$ref: '#/components/schemas/EnvelopeOAuthState'}}}}
+  /console/auth/oauth/reauth:
+    post:
+      tags: [auth]
+      requestBody: {$ref: '#/components/requestBodies/OAuthRefreshInput'}
+      responses: {"200": {description: OAuth state, content: {application/json: {$ref: '#/components/schemas/EnvelopeOAuthState'}}}}
+  /console/telemetry/in-flight/stream:
+    get:
+      tags: [telemetry]
+      responses: {"200": {description: Server-sent bounded in-flight snapshots, content: {text/event-stream: {schema: {$ref: '#/components/schemas/InFlightSnapshot'}}}}}
+  /console/telemetry/overview:
+    get:
+      tags: [telemetry]
+      parameters: [{$ref: '#/components/parameters/TelemetryQuery'}]
+      responses: {"200": {description: Telemetry overview, content: {application/json: {$ref: '#/components/schemas/EnvelopeTelemetryOverview'}}}}
+  /console/telemetry/requests:
+    get:
+      tags: [telemetry]
+      parameters: [{$ref: '#/components/parameters/TelemetryQuery'}]
+      responses: {"200": {description: Request buckets, content: {application/json: {$ref: '#/components/schemas/EnvelopeTelemetryBuckets'}}}}
+  /console/telemetry/requests/{requestId}:
+    parameters: [{$ref: '#/components/parameters/RequestId'}]
+    get:
+      tags: [telemetry]
+      responses: {"200": {description: Request detail, content: {application/json: {$ref: '#/components/schemas/EnvelopeRequestDetail'}}}}
+  /console/telemetry/errors:
+    get:
+      tags: [telemetry]
+      parameters: [{$ref: '#/components/parameters/TelemetryQuery'}]
+      responses: {"200": {description: Error buckets, content: {application/json: {$ref: '#/components/schemas/EnvelopeTelemetryBuckets'}}}}
+  /console/telemetry/upstream:
+    get:
+      tags: [telemetry]
+      parameters: [{$ref: '#/components/parameters/TelemetryQuery'}]
+      responses: {"200": {description: Upstream buckets, content: {application/json: {$ref: '#/components/schemas/EnvelopeTelemetryBuckets'}}}}
+  /console/telemetry/usage:
+    get:
+      tags: [telemetry]
+      parameters: [{$ref: '#/components/parameters/TelemetryQuery'}]
+      responses: {"200": {description: Usage aggregate, content: {application/json: {$ref: '#/components/schemas/EnvelopeUsageSummary'}}}}
+  /console/telemetry/clients:
+    get:
+      tags: [telemetry]
+      parameters: [{$ref: '#/components/parameters/TelemetryQuery'}]
+      responses: {"200": {description: Client distribution, content: {application/json: {$ref: '#/components/schemas/EnvelopeClientDistribution'}}}}
+  /console/logs:
+    get:
+      tags: [logs]
+      parameters: [{$ref: '#/components/parameters/LogQuery'}]
+      responses: {"200": {description: Bounded lifecycle log rows, content: {application/json: {$ref: '#/components/schemas/EnvelopeLogList'}}}}
+  /console/client-errors:
+    post:
+      tags: [logs]
+      requestBody: {$ref: '#/components/requestBodies/ClientErrorInput'}
+      responses: {"204": {description: Client error accepted}}
+  /console/logs/stream:
+    get:
+      tags: [logs]
+      parameters: [{$ref: '#/components/parameters/LogQuery'}]
+      responses: {"200": {description: Server-sent bounded lifecycle events, content: {text/event-stream: {schema: {$ref: '#/components/schemas/ConsoleStreamEvent'}}}}}
+  /console/catalog/providers:
+    get:
+      tags: [dashboard]
+      responses: {"200": {description: Provider catalog, content: {application/json: {$ref: '#/components/schemas/EnvelopeCatalog'}}}}
+  /share/setup/{token}:
+    parameters: [{$ref: '#/components/parameters/ShareToken'}]
+    get:
+      tags: [share]
+      description: >-
+        One-shot setup response. The key is a setup-only secret emitted after
+        successful link consumption; clients MUST NOT cache, log, or reuse the
+        setup response. This field is never present in monitor, dashboard,
+        account, provider, quota, proxy, settings, telemetry, or log schemas.
+      responses: {"200": {description: One-shot setup secret, headers: {Cache-Control: {schema: {type: string}, description: MUST be no-store}}, content: {application/json: {$ref: '#/components/schemas/ShareSetupResponse'}}}}
+  /share/{token}/data:
+    parameters: [{$ref: '#/components/parameters/ShareToken'}]
+    get:
+      tags: [share]
+      responses: {"200": {description: Bounded share monitor, content: {application/json: {$ref: '#/components/schemas/ShareMonitorResponse'}}}}
+  /share/{token}/stream:
+    parameters: [{$ref: '#/components/parameters/ShareToken'}]
+    get:
+      tags: [share]
+      responses: {"200": {description: Bounded share event stream, content: {text/event-stream: {schema: {type: object, properties: {inFlight: {type: integer}}}}}}}
+components:
+  parameters:
+    AccountId: {name: accountId, in: path, required: true, schema: {type: string, maxLength: 256}}
+    ProviderId: {name: providerId, in: query, required: false, schema: {type: string, maxLength: 128}}
+    OAuthProviderId: {name: providerId, in: query, required: true, schema: {type: string, maxLength: 128}}
+    OAuthSessionId: {name: sessionId, in: path, required: true, schema: {type: string, maxLength: 256}}
+    ProxyId: {name: proxyId, in: path, required: true, schema: {type: string, maxLength: 256}}
+    RequestId: {name: requestId, in: path, required: true, schema: {type: string, maxLength: 256}}
+    BatchId: {name: batchId, in: path, required: true, schema: {type: string, minLength: 1, maxLength: 256}}
+    ShareToken: {name: token, in: path, required: true, schema: {type: string, maxLength: 512}}
+    TelemetryQuery: {name: from, in: query, required: false, schema: {type: string, maxLength: 64}}
+    LogQuery: {name: level, in: query, required: false, schema: {type: string, maxLength: 64}}
+  requestBodies:
+    AccountInput: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AccountInput'}}}}
+    AccountBatch: {required: true, content: {application/json: {schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/AccountInput'}}}}}}}
+    AccountBatchPatch: {required: true, content: {application/json: {schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/AccountBatchPatch'}}}}}}}
+    AccountIDBatch: {required: true, content: {application/json: {schema: {type: object, required: [items], properties: {items: {type: array, items: {type: string, maxLength: 256}}}}}}}
+    ProxyInput: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProxyInput'}}}}
+    RuntimeSettingsInput: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RuntimeSettingsInput'}}}}
+    ClientErrorInput: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ClientErrorInput'}}}}
+    LoginInput: {required: true, content: {application/json: {schema: {type: object, properties: {username: {type: string, maxLength: 256}, remember: {type: boolean}}}}}}
+    OAuthStartInput: {required: true, content: {application/json: {schema: {type: object, properties: {scopes: {type: array, items: {type: string, maxLength: 128}}, accountId: {type: string, maxLength: 256}, flow: {type: string, maxLength: 32}, redirectUri: {type: string, maxLength: 2048}, mode: {type: string, maxLength: 32}, awsMode: {type: string, maxLength: 32}, socialProvider: {type: string, maxLength: 64}, awsRegion: {type: string, maxLength: 64}, awsStartUrl: {type: string, maxLength: 2048}, awsClientId: {type: string, maxLength: 256}, profileArn: {type: string, maxLength: 512}}}}}}
+    OAuthCompleteInput: {required: true, content: {application/json: {schema: {type: object, required: [code], properties: {code: {type: string, maxLength: 256}, state: {type: string, maxLength: 256}}}}}}
+    OAuthRefreshInput: {required: true, content: {application/json: {schema: {type: object, required: [accountId], properties: {accountId: {type: string, maxLength: 256}, force: {type: boolean}}}}}}
+    BatchSubmit: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/BatchSubmitRequest'}}}}
+  schemas:
+    Account: {type: object, required: [id, provider, enabled], properties: {id: {type: string}, provider: {type: string}, model: {type: string}, enabled: {type: boolean}, email: {type: string}, name: {type: string}, providerAccountId: {type: string}, orgId: {type: string}, orgName: {type: string}, projectId: {type: string}, region: {type: string}, reauthRequired: {type: boolean}}}
+    AccountInput: {type: object, properties: {label: {type: string}, credentialRef: {type: string, description: Opaque non-secret reference only}, enabled: {type: boolean}, model: {type: string}, name: {type: string}, email: {type: string}, providerAccountId: {type: string}, orgId: {type: string}, orgName: {type: string}, projectId: {type: string}, metadata: {type: object, additionalProperties: true}}}
+    AccountBatchPatch: {type: object, required: [accountId], properties: {accountId: {type: string}, enabled: {type: boolean}, metadata: {type: object, additionalProperties: true}}}
+    BatchResult: {type: object, required: [processed, succeeded, failed], properties: {processed: {type: integer}, succeeded: {type: integer}, failed: {type: integer}, errors: {type: array, items: {type: string}}}}
+    BatchSubmitRequest: {type: object, required: [key, items], additionalProperties: false, properties: {key: {type: object, additionalProperties: true, description: Full compatibility grouping key; no request body or credential material}, items: {type: array, minItems: 1, maxItems: 10000, items: {type: object, required: [id, requestId], additionalProperties: false, properties: {id: {type: string, maxLength: 256}, requestId: {type: string, maxLength: 256}}}}}}
+    BatchJob: {type: object, required: [id, state, createdAt, expiresAt, itemCount], properties: {id: {type: string, maxLength: 256}, state: {type: string, enum: [queued, running, completed, failed, cancelled, expired]}, createdAt: {type: string, format: date-time}, expiresAt: {type: string, format: date-time}, itemCount: {type: integer}}}
+    BatchItem: {type: object, required: [id, jobId, position, requestId, state], properties: {id: {type: string, maxLength: 256}, jobId: {type: string, maxLength: 256}, position: {type: integer}, requestId: {type: string, maxLength: 256}, state: {type: string, enum: [queued, running, completed, failed, cancelled, expired]}}}
+    BatchProgress: {type: object, required: [jobId, state, total, completed, failed, pending, updatedAt], properties: {jobId: {type: string, maxLength: 256}, state: {type: string, enum: [queued, running, completed, failed, cancelled, expired]}, total: {type: integer}, completed: {type: integer}, failed: {type: integer}, pending: {type: integer}, updatedAt: {type: string, format: date-time}}}
+    BatchGet: {type: object, required: [job, items], properties: {job: {$ref: '#/components/schemas/BatchJob'}, items: {type: array, items: {$ref: '#/components/schemas/BatchItem'}}}}
+    QuotaState: {type: object, required: [accountId, used, limit, remaining], properties: {accountId: {type: string}, used: {type: integer, format: int64}, limit: {type: integer, format: int64}, remaining: {type: integer, format: int64}, resetsAt: {type: string}, lastChecked: {type: string}, extras: {type: object, additionalProperties: true}}}
+    DashboardSummary: {type: object, required: [version, environment, uptime, accountCount, proxyCount, apiKeyCount], properties: {version: {type: string}, environment: {type: string}, uptime: {type: string}, accountCount: {type: integer}, proxyCount: {type: integer}, apiKeyCount: {type: integer}, health: {type: object, additionalProperties: true}}}
+    RuntimeSettings: {type: object, required: [environment, logLevel, listenAddr], properties: {environment: {type: string}, logLevel: {type: string}, listenAddr: {type: string}, flags: {type: object, additionalProperties: {type: boolean}}, metadata: {type: object, additionalProperties: true}}}
+    RuntimeSettingsInput: {type: object, properties: {logLevel: {type: string}, listenAddr: {type: string}, flags: {type: object, additionalProperties: {type: boolean}}, metadata: {type: object, additionalProperties: true}}}
+    ClientErrorInput: {type: object, required: [level, message], properties: {level: {type: string, enum: [trace, debug, info, warn, error, fatal]}, message: {type: string, maxLength: 256, description: Sanitized browser message}, context: {type: object, additionalProperties: true, description: Redacted browser context}}}
+    Session: {type: object, required: [id, user], properties: {id: {type: string}, user: {type: string}, scopes: {type: array, items: {type: string}}, createdAt: {type: string}, expiresAt: {type: string}}}
+    OAuthState: {type: object, required: [status], properties: {sessionId: {type: string}, accountId: {type: string}, status: {type: string}, flow: {type: string}, url: {type: string}, state: {type: string}, userCode: {type: string}, verificationUri: {type: string}, intervalSeconds: {type: integer}, expiresAt: {type: string}}}
+    TelemetryOverview: {type: object, required: [requests, errors, p50Ms, p95Ms, p99Ms], properties: {requests: {type: integer, format: int64}, errors: {type: integer, format: int64}, p50Ms: {type: integer}, p95Ms: {type: integer}, p99Ms: {type: integer}, byRoute: {type: object, additionalProperties: {type: integer}}}}
+    TelemetryBucket: {type: object, required: [timestamp, count], properties: {timestamp: {type: string}, count: {type: integer, format: int64}, errors: {type: integer, format: int64}, latencyMs: {type: integer}, metadata: {type: object, additionalProperties: true}}}
+    RequestDetail: {type: object, required: [id, traceId, model, provider, status, latencyMs, inputTokens, outputTokens, stream], properties: {id: {type: string}, traceId: {type: string}, model: {type: string}, provider: {type: string}, surface: {type: string}, endpoint: {type: string}, apiKeyId: {type: string}, apiKeyPrefix: {type: string}, status: {type: integer}, latencyMs: {type: integer, format: int64}, inputTokens: {type: integer}, outputTokens: {type: integer}, error: {type: string}, clientIp: {type: string}, clientName: {type: string}, clientSource: {type: string}, stream: {type: boolean}, startedAt: {type: string}, finishedAt: {type: string}}}
+    ConsoleLogEntry: {type: object, required: [id, timestamp, event, level], properties: {id: {type: string}, timestamp: {type: string}, event: {type: string}, level: {type: string}, scope: {type: string}, message: {type: string, description: Bounded redacted summary only}, request_id: {type: string}, trace_id: {type: string}, origin: {type: string}, client_family: {type: string}, method: {type: string}, path: {type: string}, provider: {type: string}, model: {type: string}, account_id: {type: string}, account_display: {type: string}, proxy_id: {type: string}, proxy_display: {type: string}, proxy_source: {type: string}, status: {type: integer}, error_code: {type: string}, latency_ms: {type: integer}, input_tokens: {type: integer}, output_tokens: {type: integer}, metadata: {type: object, additionalProperties: true}}}
+    UsageSummary: {type: object, required: [requests], properties: {requests: {type: integer, format: int64}, input_tokens: {type: integer, format: int64}, output_tokens: {type: integer, format: int64}, total_tokens: {type: integer, format: int64}, by_provider: {type: object, additionalProperties: {type: integer}}, by_model: {type: object, additionalProperties: {type: integer}}}}
+    ClientUsageItem: {type: object, required: [client, count, percentage], properties: {client: {type: string}, count: {type: integer, format: int64}, percentage: {type: number}, source: {type: string}, confidence: {type: string}}}
+    ClientDistribution: {type: object, required: [total, unknown, items], properties: {total: {type: integer, format: int64}, unknown: {type: integer, format: int64}, items: {type: array, items: {$ref: '#/components/schemas/ClientUsageItem'}}}}
+    CatalogProvider: {type: object, required: [id, enabled, configured, account_count, model_count, generation], properties: {id: {type: string}, name: {type: string}, display_name: {type: string}, protocol: {type: string}, protocols: {type: array, items: {type: string}}, credential_kind: {type: string, description: Kind only; never credential material}, credential_kinds: {type: array, items: {type: string}}, enabled: {type: boolean}, configured: {type: boolean}, account_count: {type: integer}, model_count: {type: integer}, generation: {type: integer, format: int64}, auth_scope: {type: string}, models: {type: array, items: {$ref: '#/components/schemas/CatalogModel'}}}}
+    CatalogModel: {type: object, required: [id, provider_id, enabled, generation], properties: {id: {type: string}, name: {type: string}, provider_id: {type: string}, providerId: {type: string}, display_name: {type: string}, enabled: {type: boolean}, capabilities: {type: object, additionalProperties: {type: boolean}}, generation: {type: integer, format: int64}}}
+    ProxyRecord: {type: object, required: [id, type, host, port, priority, weight, max_concurrency, active, health, created_at, updated_at], properties: {id: {type: string}, type: {type: string}, host: {type: string}, port: {type: integer}, priority: {type: integer}, weight: {type: integer}, max_concurrency: {type: integer}, active: {type: boolean}, health: {type: string}, created_at: {type: string}, updated_at: {type: string}}}
+    ProxyInput: {type: object, properties: {type: {type: string}, host: {type: string}, port: {type: integer}, priority: {type: integer}, weight: {type: integer}, max_concurrency: {type: integer}, active: {type: boolean}}}
+    InFlightRow: {type: object, required: [id, model, provider, startedAt, ageMs], properties: {id: {type: string}, model: {type: string}, provider: {type: string}, ip: {type: string}, surface: {type: string}, startedAt: {type: string}, ageMs: {type: integer, format: int64}}}
+    InFlightSnapshot: {type: object, required: [inFlight, waiters, grants], properties: {inFlight: {type: integer}, waiters: {type: integer}, grants: {type: integer, format: int64}, rows: {type: array, items: {$ref: '#/components/schemas/InFlightRow'}}}
+    ConsoleStreamEvent: {type: object, required: [id, timestamp, level, source, message], properties: {id: {type: string}, timestamp: {type: string}, level: {type: string}, source: {type: string}, message: {type: string, description: Bounded redacted summary only}}}
+    ShareMonitorResponse: {type: object, required: [name, active, apiKey, quotaAvailable, inFlight, totalTokens, totalRequests, notes, createdAt, baseUrl], properties: {name: {type: string}, active: {type: boolean}, apiKey: {type: object, properties: {id: {type: string}, prefix: {type: string}, active: {type: boolean}}}, quotaAvailable: {type: boolean}, inFlight: {type: integer}, totalTokens: {type: integer, format: int64}, totalRequests: {type: integer, format: int64}, dailyUsed: {type: integer, format: int64}, dailyLimit: {type: integer}, dailyRemaining: {type: integer, format: int64}, monthlyUsed: {type: integer, format: int64}, monthlyLimit: {type: integer}, monthlyRemaining: {type: integer, format: int64}, oneTimeLimit: {type: integer}, oneTimeUsed: {type: integer}, oneTimeRemaining: {type: integer, format: int64}, rateLimitRpm: {type: integer}, maxConcurrentRequests: {type: integer}, providerAllowlist: {type: string}, modelAllowlist: {type: string}, modelDenylist: {type: string}, notes: {type: object, properties: {title: {type: string}, subtitle: {type: string}, body: {type: string}}}, createdAt: {type: string, format: date-time}, lastUsedAt: {type: string, format: date-time}, baseUrl: {type: string}}}
+    ShareSetupResponse: {type: object, required: [name, key, baseUrl], x-console-security: one-shot-setup-secret, properties: {name: {type: string}, key: {type: string, writeOnly: true, description: Setup-only secret emitted exactly once after link consumption; MUST NOT be cached, logged, or reused}, baseUrl: {type: string}, expiresAt: {type: string, format: date-time}}}
+    EnvelopeDashboardSummary: {type: object, properties: {data: {$ref: '#/components/schemas/DashboardSummary'}}}
+    EnvelopeAccount: {type: object, properties: {data: {$ref: '#/components/schemas/Account'}}}
+    EnvelopeAccountList: {type: object, properties: {data: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Account'}}}}}}
+    EnvelopeQuotaState: {type: object, properties: {data: {$ref: '#/components/schemas/QuotaState'}}}
+    EnvelopeBatchResult: {type: object, properties: {data: {$ref: '#/components/schemas/BatchResult'}}}
+    EnvelopeBatchJob: {type: object, properties: {data: {$ref: '#/components/schemas/BatchJob'}}}
+    EnvelopeBatchList: {type: object, properties: {data: {type: object, properties: {object: {type: string, const: list}, data: {type: array, items: {$ref: '#/components/schemas/BatchJob'}}}}}}
+    EnvelopeBatchGet: {type: object, properties: {data: {$ref: '#/components/schemas/BatchGet'}}}
+    EnvelopeBatchProgress: {type: object, properties: {data: {$ref: '#/components/schemas/BatchProgress'}}}
+    EnvelopeProxy: {type: object, properties: {data: {$ref: '#/components/schemas/ProxyRecord'}}}
+    EnvelopeProxyList: {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/ProxyRecord')}}}
+    EnvelopeRuntimeSettings: {type: object, properties: {data: {$ref: '#/components/schemas/RuntimeSettings'}}}
+    EnvelopeSession: {type: object, properties: {data: {$ref: '#/components/schemas/Session'}}}
+    EnvelopeOAuthState: {type: object, properties: {data: {$ref: '#/components/schemas/OAuthState'}}}
+    EnvelopeTelemetryOverview: {type: object, properties: {data: {$ref: '#/components/schemas/TelemetryOverview'}}}
+    EnvelopeTelemetryBuckets: {type: object, properties: {data: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/TelemetryBucket'}}}}}}
+    EnvelopeRequestDetail: {type: object, properties: {data: {$ref: '#/components/schemas/RequestDetail'}}}
+    EnvelopeLogList: {type: object, properties: {data: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/ConsoleLogEntry'}}}}}}
+    EnvelopeUsageSummary: {type: object, properties: {data: {$ref: '#/components/schemas/UsageSummary'}}}
+    EnvelopeClientDistribution: {type: object, properties: {data: {$ref: '#/components/schemas/ClientDistribution'}}}
+    EnvelopeCatalog: {type: object, properties: {data: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/CatalogProvider'}}}}}}

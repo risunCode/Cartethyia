@@ -4,7 +4,7 @@ import App from './App'
 import { reportError } from './lib/error-reporter'
 
 window.addEventListener('error', (event) => {
-  reportError('error', event.message, { filename: event.filename, lineno: event.lineno })
+  reportError('error', event.message, { filename: event.filename, lineno: event.lineno, colno: event.colno })
 })
 window.addEventListener('unhandledrejection', (event) => {
   reportError('error', String(event.reason))

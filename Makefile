@@ -1,15 +1,16 @@
-.PHONY: daemon daemon-test test run dev
+.PHONY: router router-test test run dev
 
-daemon:
-	cd daemon && go build -o ../bin/cartethyia ./cmd/cartethyia
+router:
+	cd router && go build -o ../bin/cartethyia ./cmd/cartethyia
 
 test:
-	cd daemon && go test ./...
+	cd router && go test ./...
+	go test ./tests/load/...
 
-daemon-test: test
+router-test: test
 
 run:
-	cd daemon && go run ./cmd/cartethyia
+	cd router && go run ./cmd/cartethyia
 
 dev:
-	cd daemon && air -c .air.toml
+	cd router && air -c .air.toml

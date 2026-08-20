@@ -1,18 +1,16 @@
 # Cartethyia
 <img width="1760" height="576" alt="image (1)" src="https://github.com/user-attachments/assets/666f3a3d-136e-49d7-8bec-ff967f93b78f" />
 
-> **2.1.0 Beta is here.**
-> Cartethyia is still beta software. Expect provider API changes and validate your credentials, proxy settings, and persistent data before production use.
-> This project is maintained as a self-hosted deployment, and pull requests are welcome as of the 2.0 beta.
+> **Warning: Go rewrite discontinued.**
+> Go rewrite discontinue due to long time development and kekurangan resource yang dibutuhkan.
+> Repository is kept for reference only; no further rewrite work is planned.
 
 A self-hosted Go daemon with a SolidJS + Vite dashboard. Cartethyia
 accepts OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and
 native Gemini generateContent requests; Go replaces the legacy server core
-under `daemon/`, while `dashboard/` remains the only frontend.
+under `router/`, while `dashboard/` remains the only frontend.
 
-> **Migration status:** the Go core and route contracts are in place.
-> Provider/storage wiring and production parity are still being migrated; do
-> not treat this foundation build as a production-parity release.
+> **Migration status:** discontinued; do not plan new rewrite work here.
 
 **Current release:** `2.1.0-beta` (2026-08-16)
 
@@ -20,17 +18,17 @@ under `daemon/`, while `dashboard/` remains the only frontend.
 
 ### Go daemon foundation
 
-- Runtime lifecycle and composition live under `daemon/internal/runtime/`.
-- HTTP server, API, admin, and middleware live under `daemon/internal/server/`.
+- Runtime lifecycle and composition live under `router/internal/runtime/`.
+- HTTP server, API, admin, and middleware live under `router/internal/server/`.
 - Hot-path pool, routing, failure classification, stream handling, request
   sanitization, transforms, and normalized contracts live under
-  `daemon/internal/proxy/`.
-- Provider registry and adapters live under `daemon/internal/providers/`.
-- Credential lifecycle and OAuth/device flows live under `daemon/internal/auth/`.
+  `router/internal/proxy/`.
+- Provider registry and adapters live under `router/internal/providers/`.
+- Credential lifecycle and OAuth/device flows live under `router/internal/auth/`.
 - PostgreSQL models, migrations, and repositories live under
-  `daemon/internal/database/`.
+  `router/internal/storage/`.
 - Process configuration and observability live under
-  `daemon/internal/config/` and `daemon/internal/observability/`.
+  `router/internal/config/` and `router/internal/observability/`.
 - Legacy TypeScript source remains available as read-only reference under
   `alegacy/`.
 
@@ -49,7 +47,7 @@ runtime dependency wiring, and full production parity are not complete.
   - **T3 permanent** (invalid request, client abort) → no cooldown, skipped entirely.
 ### Providers
 
-Built-in adapters are registered in `daemon/internal/providers/` (api-key,
+Built-in adapters are registered in `router/internal/providers/` (api-key,
 OAuth, and special definitions). The handwritten catalog is the source of
 truth; among others:
 
@@ -76,18 +74,13 @@ sessions and ships these pages:
 - **Providers** — provider catalog with account listings, quota aggregates,
   and per-provider success-rate/latency telemetry.
 - **Quota** — per-account quota snapshots, refresh, and health state.
-- **Console Log** — live tailed operator log stream (SSE) with level/scope
-  filters and bounded history.
+- **Console Log** — live tailed operator log stream (SSE), browser client
+  error ingest, level/scope filters, and bounded history.
 - **Share** — credential-free API-key usage monitor at `/share/:shareId`
   backed by the daemon's public `/share/*` endpoints.
 - **Settings** — runtime console settings.
 - Responsive desktop and mobile layouts, dark/light theme, reduced-motion
   support.
-
-A small Bun auxiliary server (`bun run server` from `dashboard/`) listens on
-`:8787` and serves `/internal/*` only — the browser error-report sink backed
-by SQLite, with a Postgres health probe. It is never exposed publicly; both
-the Vite dev server and nginx proxy `/internal` to it.
 
 ### Security
 
@@ -101,35 +94,47 @@ the Vite dev server and nginx proxy `/internal` to it.
 
 ## Quick start
 
-Requirements: Go 1.26.5, Bun 1.4, PostgreSQL, and a writable data directory.
+Requirements: Go 1.26.5, Bun 1.4, PostgreSQL, Redis, and a writable data
+directory.
 
-Start the Go daemon from the repository root (it finds `.env` there; Air hot
-reload rebuilds into `daemon/tmp/` and serves on `:12800`):
+First-time setup:
+
+```bash
+bun run setup
+```
+
+If you just installed Bun or Go, or changed PATH, restart the terminal before
+running the scripts.
+
+Start the cross-platform local dev launcher from the repository root:
 
 ```bash
 bun run dev
 ```
 
-In a second terminal, run the dashboard dev server:
+For a one-shot setup + dev launch:
 
 ```bash
-cd dashboard
-bun install
-bun run dev
+bun run setup:dev
 ```
 
-In a third terminal, run the dashboard auxiliary server (browser error sink
-on `:8787`, `/internal/*` only):
+Windows direct run:
 
 ```bash
-cd dashboard
-bun run server
+bun run windows
 ```
 
-The Vite dev server on `:5173` proxies `/console` and `/v1` to the Go daemon
-on `:12800`, `/internal` to the Bun aux server on `:8787`, and the daemon's
-public `/share/*/data|stream` subpaths through to `:12800`. Open
-<http://localhost:5173/> for the landing page; the landing-page Console
+That path builds the dashboard and router binary directly on Windows, then
+starts the router with the built dashboard assets. It expects PostgreSQL and
+Redis on `127.0.0.1:5432` and `127.0.0.1:6379`; if Laragon or your local
+services live elsewhere, pass `-DatabaseUrl` / `-RedisUrl` to
+`tools/run-windows.ps1`.
+
+The cross-platform dev launcher opens the dashboard and router together. The
+dashboard dev server on `:12800` proxies `/console` and `/v1` to the Go
+daemon, and the daemon's public `/share/*/data|stream` subpaths through to
+`:12800`.
+Open <http://localhost:5173/> for the landing page; the landing-page Console
 links continue to <http://localhost:5173/console/>.
 
 ## API
@@ -155,8 +160,8 @@ The console API lives under `/console/*` on the same daemon (cookie
 authenticated via the `cartethyia_session` cookie): `auth/*` (login, logout,
 session, refresh, OAuth flows), `dashboard`, `telemetry/*` (overview,
 requests, errors, upstream, usage, clients, and the two SSE streams
-`console/logs/stream` and `telemetry/in-flight/stream`), `console/logs`,
-`settings`, `accounts` + provider-scoped account routes, and
+`console/logs/stream` and `telemetry/in-flight/stream`), `console/logs`
+and `console/client-errors`, `settings`, `accounts` + provider-scoped account routes, and
 `catalog/providers`. Idle SSE streams emit `: ping` comment heartbeats so
 proxies keep them alive. `/v1/*` and `/v1beta/*` are reserved for external
 client protocol ingress.
@@ -187,11 +192,6 @@ CARTETHYIA_ENCRYPTION_KEY  # account secret encryption key; required with Postgr
 CARTETHYIA_ALLOW_INMEMORY  # explicit development-only escape hatch
 PUBLIC_ORIGIN              # dashboard/API origin used for browser checks
 TRUST_PROXY                # enable only behind a trusted reverse proxy
-
-# Dashboard auxiliary server (bun run server from dashboard/)
-CARTETHYIA_DASHBOARD_SERVER_PORT   # aux server port (default 8787)
-CARTETHYIA_DASHBOARD_DATABASE_URL  # Postgres DSN for aux health probe + migrations
-CARTETHYIA_DASHBOARD_SQLITE_PATH   # SQLite file for the /internal/logs sink (default data/logs.db)
 ```
 
 The Go daemon owns API, proxy, provider, storage, and authentication
@@ -205,8 +205,7 @@ by the Go binary.
 ## Docker
 
 The root Dockerfile is the only deployment definition. Targets: `runtime`
-(Go daemon, the default), `dashboard` (nginx + built SPA), and
-`dashboard-audit` (Bun aux server).
+(Go daemon, the default) and `dashboard` (nginx + built SPA).
 
 ```bash
 docker build --target runtime -t cartethyia .
@@ -228,10 +227,8 @@ For the complete local stack, use `docker compose up -d`. Compose topology:
 - **dashboard** — the single public edge: nginx serves the SPA and publishes
   `12800:80`. It proxies `/console/`, `/v1/`, `/v1beta/`, and the public
   `/share/*/data|stream` subpaths to the daemon (SSE locations keep
-  buffering off), and `/internal/` to `dashboard-audit`.
-- **dashboard-audit** — the Bun aux server (`:8787`, `/internal/*` only),
-  backed by the `cartethyia-dashboard-audit` volume for its SQLite sink and
-  gated on the postgres healthcheck.
+  buffering off). Browser client-error reports go straight to the daemon's
+  `/console/client-errors` route through the `/console/` proxy.
 
 Compose reads the runtime secret from `.env`; copy `.env.example` and set
 `CARTETHYIA_ENCRYPTION_KEY` when that file is absent. The compose
@@ -242,21 +239,30 @@ to use a different runtime env file.
 
 ## Development
 
-Go hot reload uses Air from the repository root:
+`bun run dev` starts the Go router and dashboard dev server together from the
+repository root. The Go side runs from source (`go run ./cmd/cartethyia`) and
+restarts when Go files change.
 
 ```bash
-go install github.com/air-verse/air@latest
 bun run dev
 ```
 
-The Air config is `daemon/.air.toml`; it rebuilds the single Go binary into
-`daemon/tmp/` and restarts it on Go source changes. The API remains on port
-`12800`.
+For the first launch after a dependency install:
+
+```bash
+bun run setup:dev
+```
+
+If you prefer the Windows direct build/run path instead of the dev launcher:
+
+```bash
+bun run windows
+```
 
 Run verification:
 
 ```bash
-cd daemon && go build ./... && go test ./...
+cd router && go build ./... && go test ./...
 cd dashboard && bun run test:ci
 ```
 
@@ -269,7 +275,7 @@ areas are:
 
 | Area | Location | Purpose |
 | --- | --- | --- |
-| Go daemon | [`daemon/`](./daemon/) | API server, proxy, providers, database, and runtime |
+| Go router | [`router/`](./router/) | API server, proxy, providers, database, and runtime |
 | Dashboard | [`dashboard/src/`](./dashboard/src/) | The single SolidJS/Vite frontend |
 | Legacy TypeScript | [`alegacy/`](./alegacy/) | Read-only migration reference (`src.old`, `dashboard.old`) |
 

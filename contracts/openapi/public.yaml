@@ -1,0 +1,683 @@
+openapi: 3.1.0
+info:
+  title: Cartethyia Public Gateway API
+  version: 1.0.0
+  description: >-
+    The active public HTTP surface. Provider request and response bodies are
+    intentionally represented as bounded opaque objects; this contract does
+    not contain prompts, credentials, authorization headers, or full payloads.
+servers:
+  - url: /
+paths:
+  /health:
+    get:
+      operationId: health
+      summary: Liveness health check
+      responses:
+        '200':
+          description: Healthy daemon. JSON is returned without artwork; HTML may be returned when artwork is configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+            text/html:
+              schema:
+                type: string
+                maxLength: 1048576
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+  /metrics:
+    get:
+      operationId: metrics
+      summary: Prometheus metrics
+      responses:
+        '200':
+          description: Prometheus text exposition.
+          content:
+            text/plain:
+              schema:
+                type: string
+                maxLength: 10485760
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+  /v1/batches:
+    get:
+      operationId: listBatches
+      summary: List batch jobs visible to the authenticated public key
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema: {type: string, enum: [queued, running, completed, failed, cancelled, expired]}
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 1000, default: 100}
+      responses:
+        '200': {description: Batch jobs, content: {application/json: {schema: {$ref: '#/components/schemas/BatchList'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+    post:
+      operationId: submitBatch
+      summary: Submit a bounded model batch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BatchSubmitRequest'}
+      responses:
+        '202': {description: Batch accepted, content: {application/json: {schema: {$ref: '#/components/schemas/BatchJob'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMedia'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  "/v1/batches/{batchId}":
+    parameters:
+      - name: batchId
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 256}
+    get:
+      operationId: getBatch
+      summary: Get a batch job and its item states
+      responses:
+        '200': {description: Batch job, content: {application/json: {schema: {$ref: '#/components/schemas/BatchGet'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  "/v1/batches/{batchId}/cancel":
+    parameters:
+      - name: batchId
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 256}
+    post:
+      operationId: cancelBatch
+      summary: Cancel a queued or running batch
+      responses:
+        '200': {description: Cancelled batch, content: {application/json: {schema: {$ref: '#/components/schemas/BatchJob'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  "/v1/batches/{batchId}/progress":
+    parameters:
+      - name: batchId
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 256}
+    get:
+      operationId: getBatchProgress
+      summary: Get bounded batch progress
+      responses:
+        '200': {description: Batch progress, content: {application/json: {schema: {$ref: '#/components/schemas/BatchProgress'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '405': {$ref: '#/components/responses/MethodNotAllowed'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /v1/action:
+    post:
+      operationId: action
+      summary: Protocol-neutral bounded dispatch ingress
+      requestBody:
+        $ref: '#/components/requestBodies/JsonRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/StreamOrJson'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '429':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /v1/chat/completions:
+    post:
+      operationId: chatCompletions
+      summary: OpenAI Chat Completions proxy
+      requestBody:
+        $ref: '#/components/requestBodies/JsonRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/StreamOrJson'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '429':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /v1/messages:
+    post:
+      operationId: anthropicMessages
+      summary: Anthropic Messages proxy
+      requestBody:
+        $ref: '#/components/requestBodies/JsonRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/StreamOrJson'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '429':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /v1/messages/count_tokens:
+    post:
+      operationId: anthropicCountTokens
+      summary: Anthropic token-count proxy
+      requestBody:
+        $ref: '#/components/requestBodies/JsonRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/StreamOrJson'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '429':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /v1/responses:
+    post:
+      operationId: openaiResponses
+      summary: OpenAI Responses proxy
+      requestBody:
+        $ref: '#/components/requestBodies/JsonRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/StreamOrJson'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '429':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /v1/images/generations:
+    post:
+      operationId: imageGenerations
+      summary: OpenAI image generation proxy
+      requestBody:
+        $ref: '#/components/requestBodies/JsonRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/StreamOrJson'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '429':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /v1/images/edits:
+    post:
+      operationId: imageEdits
+      summary: OpenAI image edit proxy
+      requestBody:
+        $ref: '#/components/requestBodies/MultipartRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/StreamOrJson'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '429':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /v1/models:
+    get:
+      operationId: listModels
+      summary: Enabled model catalog
+      responses:
+        '200':
+          description: OpenAI-compatible model list.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  "/v1beta/models/{model}:generateContent":
+    parameters:
+      - $ref: '#/components/parameters/Model'
+    post:
+      operationId: geminiGenerateContent
+      summary: Gemini generateContent proxy
+      requestBody:
+        $ref: '#/components/requestBodies/JsonRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/JsonOrEventStream'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '429':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  "/v1beta/models/{model}:streamGenerateContent":
+    parameters:
+      - $ref: '#/components/parameters/Model'
+    post:
+      operationId: geminiStreamGenerateContent
+      summary: Gemini streaming generateContent proxy
+      requestBody:
+        $ref: '#/components/requestBodies/JsonRequest'
+      responses:
+        '200':
+          description: Gemini event stream or provider JSON stream.
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/StreamEvent'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BoundedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMedia'
+        '429':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+components:
+  parameters:
+    Model:
+      name: model
+      in: path
+      required: true
+      description: Bounded provider model identifier.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+        pattern: '^[^/\\x00-\\x1f\\x7f]+$'
+  requestBodies:
+    JsonRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/BoundedRequest'
+    MultipartRequest:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            $ref: '#/components/schemas/BoundedMultipartRequest'
+  responses:
+    StreamOrJson:
+      description: Provider response, passed through with bounded safe headers.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/BoundedResponse'
+        text/event-stream:
+          schema:
+            $ref: '#/components/schemas/StreamEvent'
+    JsonOrEventStream:
+      description: Provider JSON response or server-sent event stream.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/BoundedResponse'
+        text/event-stream:
+          schema:
+            $ref: '#/components/schemas/StreamEvent'
+    BadRequest:
+      description: Invalid or malformed bounded request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: The requested public resource or batch job was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Public authentication is required.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Authentication or entitlement policy rejected the request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    MethodNotAllowed:
+      description: Method is not registered for this route. The response includes an Allow header.
+      headers:
+        Allow:
+          schema:
+            type: string
+            maxLength: 64
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PayloadTooLarge:
+      description: Request exceeded the 10 MiB public body bound.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnsupportedMedia:
+      description: Request media type is not accepted by the route.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UpstreamError:
+      description: Provider or routing failure represented by the stable error envelope.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Internal gateway failure represented by the stable error envelope.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ServiceUnavailable:
+      description: Required gateway dependency is unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    BoundedRequest:
+      type: object
+      description: >-
+        Opaque provider request object. Individual prompt, content, tool, and
+        credential fields are deliberately not part of this public contract.
+        The gateway accepts application/json and bounds the complete body to
+        10485760 bytes.
+      maxProperties: 128
+      additionalProperties: true
+      x-max-body-bytes: 10485760
+    BoundedMultipartRequest:
+      type: object
+      description: >-
+        Opaque multipart form. File and text part names are intentionally not
+        expanded into this contract; the complete request remains bounded by
+        the gateway body limit.
+      maxProperties: 32
+      additionalProperties: true
+      x-max-body-bytes: 10485760
+    BoundedResponse:
+      type: object
+      description: Opaque provider JSON response with bounded gateway framing.
+      maxProperties: 128
+      additionalProperties: true
+    StreamEvent:
+      type: object
+      description: One bounded event payload carried by text/event-stream.
+      maxProperties: 32
+      additionalProperties: true
+    ErrorResponse:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [type, code, message]
+          additionalProperties: false
+          properties:
+            type:
+              type: string
+              maxLength: 64
+            code:
+              type: string
+              maxLength: 128
+            message:
+              type: string
+              maxLength: 256
+            param:
+              type: string
+              maxLength: 128
+            request_id:
+              type: string
+              maxLength: 96
+    HealthResponse:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          const: ok
+    ModelList:
+      type: object
+      required: [object, data]
+      additionalProperties: false
+      properties:
+        object:
+          type: string
+          const: list
+        data:
+          type: array
+          maxItems: 2048
+          items:
+            $ref: '#/components/schemas/ModelEntry'
+    ModelEntry:
+      type: object
+      required: [id, object, owned_by]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        object:
+          type: string
+          const: model
+        owned_by:
+          type: string
+          maxLength: 128
+    BatchSubmitRequest:
+      type: object
+      required: [key, items]
+      additionalProperties: false
+      properties:
+        key: {type: object, additionalProperties: true, description: Full compatibility grouping key; no request body or credential material.}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 10000
+          items:
+            type: object
+            required: [id, requestId]
+            additionalProperties: false
+            properties:
+              id: {type: string, minLength: 1, maxLength: 256}
+              requestId: {type: string, minLength: 1, maxLength: 256}
+    BatchJob:
+      type: object
+      required: [id, state, createdAt, expiresAt, itemCount]
+      properties:
+        id: {type: string, maxLength: 256}
+        state: {type: string, enum: [queued, running, completed, failed, cancelled, expired]}
+        createdAt: {type: string, format: date-time}
+        expiresAt: {type: string, format: date-time}
+        itemCount: {type: integer, minimum: 0}
+    BatchItem:
+      type: object
+      required: [id, jobId, position, requestId, state]
+      properties:
+        id: {type: string, maxLength: 256}
+        jobId: {type: string, maxLength: 256}
+        position: {type: integer, minimum: 0}
+        requestId: {type: string, maxLength: 256}
+        state: {type: string, enum: [queued, running, completed, failed, cancelled, expired]}
+    BatchProgress:
+      type: object
+      required: [jobId, state, total, completed, failed, pending, updatedAt]
+      properties:
+        jobId: {type: string, maxLength: 256}
+        state: {type: string, enum: [queued, running, completed, failed, cancelled, expired]}
+        total: {type: integer, minimum: 0}
+        completed: {type: integer, minimum: 0}
+        failed: {type: integer, minimum: 0}
+        pending: {type: integer, minimum: 0}
+        updatedAt: {type: string, format: date-time}
+    BatchList:
+      type: object
+      required: [object, data]
+      properties:
+        object: {type: string, const: list}
+        data: {type: array, items: {$ref: '#/components/schemas/BatchJob'}}
+    BatchGet:
+      type: object
+      required: [job, items]
+      properties:
+        job: {$ref: '#/components/schemas/BatchJob'}
+        items: {type: array, items: {$ref: '#/components/schemas/BatchItem'}}

@@ -16,31 +16,27 @@ flowchart TB
     Browser["Operator browser"]
     Client["External client\nSDK / CLI / IDE / app"]
     Dashboard["Dashboard SPA\nSolidJS + Vite"]
-    Aux["Dashboard aux server\nBun :8787\n/internal/* only"]
     Daemon["Go daemon\n:12800\n/v1/* /console/* /health /metrics /share/*"]
     Upstream["Provider upstream\nOpenAI / Anthropic / Gemini / custom"]
     DB["PostgreSQL\naccount / routing / quota / admin state"]
     Redis["Redis\noptional cache / coordination"]
-    SQLite["SQLite\n/dashboard logs sink"]
 
     Browser -->|/console/*| Dashboard
     Client -->|/v1/*| Daemon
     Dashboard -->|cookie session + JSON| Daemon
-    Dashboard -->|/internal/*| Aux
+    Dashboard -->|browser errors| Daemon
     Daemon --> Upstream
     Daemon --> DB
     Daemon --> Redis
-    Aux --> DB
-    Aux --> SQLite
   end
 
-  subgraph DaemonInternals["daemon/"]
+  subgraph DaemonInternals["router/"]
     Main["cmd/cartethyia/main.go\nsignal handler + run(ctx, argv...)"]
     Runtime["daemon.go / runtime bootstrap"]
     Server["internal/server/\nAPI + admin + middleware"]
     Proxy["internal/proxy/\nnormalization + routing + transport"]
     Accounts["internal/accounts/\nproviders + credentials + OAuth"]
-    Data["internal/database/\nPostgreSQL authority"]
+    Data["internal/storage/\nPostgreSQL authority"]
     Obs["internal/observability/\nbounded lifecycle evidence"]
 
     Main --> Runtime --> Server
@@ -55,14 +51,12 @@ flowchart TB
   subgraph DashboardInternals["dashboard/"]
     App["src/App.tsx\n<Router />"]
     Router["src/router.tsx\nlanding / login / overview / usage / providers / quota / logs / settings / share"]
-    ServerEntrypoint["src/server/index.ts\naux server + migrations"]
     Lib["src/lib/*\nconsole API + routing helpers"]
     Pages["src/pages/*\noperator screens"]
 
     App --> Router
     Router --> Pages
     Router --> Lib
-    ServerEntrypoint --> Aux
   end
 
   subgraph History["Historical reference only"]
@@ -81,14 +75,14 @@ flowchart TB
 - **Operator** masuk ke **dashboard** lewat `/console/*`.
 - **Dashboard** bukan mesin routing; ia hanya UI control plane yang berbicara ke daemon.
 - **Daemon** adalah pusat kerja: auth, provider registry, routing, storage, proxy, dan observability.
-- **`dashboard/src/server/index.ts`** adalah server bantu terpisah untuk migrasi dan sink log browser.
+- **`dashboard/src/lib/error-reporter.ts`** mengirim error browser langsung ke `POST /console/client-errors` di daemon.
 - **`alegacy/`** hanya arsip historis; tidak menjadi runtime aktif.
 
 ## Entry points yang paling penting
 
-- `daemon/cmd/cartethyia/main.go` — proses Go dimulai dari sini.
+- `router/cmd/cartethyia/main.go` — proses Go dimulai dari sini.
 - `dashboard/src/App.tsx` — frontend dashboard masuk ke router dari sini.
-- `dashboard/src/server/index.ts` — server bantu dashboard dimulai dari sini.
+- `dashboard/src/lib/error-reporter.ts` — browser error reporter dashboard dimulai dari sini.
 
 ## Inti produk
 

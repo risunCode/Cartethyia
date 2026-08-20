@@ -20,6 +20,8 @@ export interface LogEntryInit {
   readonly timestamp?: string;
   readonly level?: unknown;
   readonly source?: unknown;
+  readonly scope?: unknown;
+  readonly origin?: unknown;
   readonly message?: unknown;
   readonly id?: unknown;
 }
@@ -46,7 +48,14 @@ export function normalizeLogEntry(value: unknown, fallbackId: string): LogEntry 
   const level: LogLevel = ALLOWED_LEVELS[levelCandidate] === true ? levelCandidate : "info";
   const messageRaw = typeof record.message === "string" ? record.message : String(record.message ?? "");
   const message = messageRaw.slice(0, MAX_LOG_MESSAGE_LENGTH);
-  const sourceRaw = typeof record.source === "string" ? record.source : "";
+  const sourceRaw =
+    typeof record.source === "string"
+      ? record.source
+      : typeof record.scope === "string"
+        ? record.scope
+        : typeof record.origin === "string"
+          ? record.origin
+          : "";
   const source = sourceRaw.slice(0, MAX_LOG_SOURCE_LENGTH) || "system";
   const timestamp = typeof record.timestamp === "string" ? record.timestamp : new Date().toISOString();
   const idRaw = typeof record.id === "string" || typeof record.id === "number" ? String(record.id) : null;

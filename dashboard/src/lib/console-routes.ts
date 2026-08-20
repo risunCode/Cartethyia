@@ -60,6 +60,7 @@ export const CONSOLE_ROUTE_MATRIX = [
   { route: "/telemetry/usage", methods: ["GET"], queryKeys: ["from", "to", "period", "bucket", "cursor", "limit", "group_by"] },
   { route: "/telemetry/clients", methods: ["GET"], queryKeys: ["from", "to", "period", "bucket", "cursor", "limit", "group_by"] },
   { route: "/logs", methods: ["GET"], queryKeys: ["from", "to", "level", "scope", "origin", "limit"] },
+  { route: "/client-errors", methods: ["POST"] },
   { route: "/catalog/providers", methods: ["GET"] },
   { route: "/providers/:providerId/accounts", methods: ["GET", "POST"], queryKeys: ["limit", "cursor"] },
   { route: "/providers/:providerId/accounts/batch", methods: ["PATCH", "POST"] },

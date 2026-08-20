@@ -64,7 +64,7 @@ checkpoint.
 
 ### Added
 
-- Go daemon module and runtime composition under `daemon/`.
+- Go router module and runtime composition under `router/`.
 - Provider account drivers for API-key and OAuth-backed providers already
   present in the rewrite scope.
 - Encrypted account secret storage with defensive-copy boundaries.

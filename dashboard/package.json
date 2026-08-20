@@ -7,7 +7,6 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "server": "bun run src/server/index.ts",
     "test": "vitest run",
     "test:ci": "vitest run && tsc --noEmit && vite build",
     "test:watch": "vitest"

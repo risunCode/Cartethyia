@@ -32,7 +32,7 @@
   <!-- root -->
   <rect class="frame" x="340" y="112" width="720" height="88" rx="18"/>
   <text class="section" x="700" y="145" text-anchor="middle">Cartethyia repo</text>
-  <text class="small" x="700" y="170" text-anchor="middle">daemon/ = active Go core · dashboard/ = operator frontend · docs/ = understanding · alegacy/ = historical archive</text>
+  <text class="small" x="700" y="170" text-anchor="middle">router/ = active Go core · dashboard/ = operator frontend · docs/ = understanding · alegacy/ = historical archive</text>
 
   <!-- sections -->
   <rect class="frame" x="70" y="240" width="580" height="320" rx="18"/>
@@ -40,7 +40,7 @@
   <rect class="frame" x="70" y="590" width="1260" height="200" rx="18"/>
 
   <text class="section" x="90" y="270">dashboard/</text>
-  <text class="section" x="770" y="270">daemon/</text>
+  <text class="section" x="770" y="270">router/</text>
   <text class="section" x="90" y="620">data, upstream, and historical boundary</text>
 
   <!-- dashboard panel -->
@@ -54,14 +54,14 @@
   <text class="small" x="210" y="446" text-anchor="middle">usage / providers / quota / logs / settings / share</text>
 
   <rect class="panel" x="100" y="490" width="220" height="48" rx="14"/>
-  <text class="label" x="210" y="520" text-anchor="middle">src/server/index.ts</text>
+  <text class="label" x="210" y="520" text-anchor="middle">src/lib/error-reporter.ts</text>
 
   <rect class="accent3" x="350" y="296" width="270" height="242" rx="14"/>
   <text class="label" x="485" y="322" text-anchor="middle">dashboard role</text>
   <text class="small" x="485" y="351" text-anchor="middle">SolidJS + Vite SPA for operators</text>
   <text class="small" x="485" y="374" text-anchor="middle">talks to /console/* on the daemon</text>
-  <text class="small" x="485" y="397" text-anchor="middle">runs a separate Bun aux server on :8787</text>
-  <text class="small" x="485" y="420" text-anchor="middle">/internal/* only: migrations + browser log sink</text>
+  <text class="small" x="485" y="397" text-anchor="middle">browser errors post directly to /console/client-errors</text>
+  <text class="small" x="485" y="420" text-anchor="middle">SPA-only; no local backend or SQLite sink</text>
   <text class="small" x="485" y="443" text-anchor="middle">cookie session, not public API ingress</text>
   <text class="small" x="485" y="466" text-anchor="middle">UI control plane, not the proxy engine</text>
 
@@ -117,9 +117,9 @@
   <text class="small" x="668" y="706" text-anchor="middle">the daemon routes traffic here</text>
 
   <rect class="panel" x="798" y="642" width="220" height="88" rx="14"/>
-  <text class="label" x="908" y="668" text-anchor="middle">SQLite</text>
-  <text class="small" x="908" y="688" text-anchor="middle">dashboard aux browser logs</text>
-  <text class="small" x="908" y="706" text-anchor="middle">data/logs.db</text>
+  <text class="label" x="908" y="668" text-anchor="middle">Console log pipeline</text>
+  <text class="small" x="908" y="688" text-anchor="middle">daemon-owned evidence store</text>
+  <text class="small" x="908" y="706" text-anchor="middle">browser/client errors + lifecycle logs</text>
 
   <rect class="accent3" x="1038" y="642" width="262" height="88" rx="14"/>
   <text class="label" x="1169" y="668" text-anchor="middle">Historical boundary</text>

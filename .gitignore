@@ -8,10 +8,10 @@ data/
 __pycache__/
 
 # Go hot-reload output
-daemon/tmp/
+router/tmp/
 
 # Go test coverage artifact
-daemon/*.out
+router/*.out
 
 # MultiWarp
 bin/

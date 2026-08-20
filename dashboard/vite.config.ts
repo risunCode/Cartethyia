@@ -8,7 +8,6 @@ export default defineConfig(({ mode }) => {
   const dashboardPort = Number(env.CARTETHYIA_DASHBOARD_PORT ?? "5173");
   const daemonPort = env.CARTETHYIA_DAEMON_PORT ?? "12800";
   const daemonTarget = `http://127.0.0.1:${daemonPort}`;
-  const auditTarget = `http://127.0.0.1:${env.CARTETHYIA_DASHBOARD_SERVER_PORT ?? "8787"}`;
 
   return {
     base: "/",
@@ -28,10 +27,6 @@ export default defineConfig(({ mode }) => {
         },
         "/v1": {
           target: daemonTarget,
-          changeOrigin: false,
-        },
-        "/internal": {
-          target: auditTarget,
           changeOrigin: false,
         },
         // Only the daemon's public share API subpaths (monitor data, monitor

@@ -3,8 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun scripts/dev.ts",
-    "dev:no-open": "bun scripts/dev.ts --no-open",
-    "windows": "powershell -ExecutionPolicy Bypass -File scripts/run-windows.ps1"
+    "setup": "bun tools/setup.ts",
+    "setup:dev": "bun tools/setup.ts --dev",
+    "dev": "bun tools/dev.ts",
+    "dev:no-open": "bun tools/dev.ts --no-open",
+    "dev:windows": "powershell -ExecutionPolicy Bypass -File tools/run-windows.ps1",
+    "windows": "powershell -ExecutionPolicy Bypass -File tools/run-windows.ps1",
+    "verify:imports": "bun tools/verify-imports.ts",
+    "verify:fullstack": "bun tools/validate-fullstack.ts"
   }
 }

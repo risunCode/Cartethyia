@@ -2,6 +2,8 @@
 # github.com/DATA-DOG/go-sqlmock v1.5.2
 ## explicit; go 1.15
 github.com/DATA-DOG/go-sqlmock
+# github.com/cartethyia/daemon v0.0.0 => ./router
+## explicit; go 1.26
 # github.com/cespare/xxhash/v2 v2.3.0
 ## explicit; go 1.11
 github.com/cespare/xxhash/v2

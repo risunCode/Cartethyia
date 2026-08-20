@@ -1,9 +1,10 @@
 /**
- * `LogLevel` and its helpers, split out of `sqlite.ts` on purpose: this
+ * `LogLevel` and its helpers, split out of the former Bun-only SQLite module
+ * on purpose: this
  * module has zero dependencies, so anything that only needs the log-level
- * concept (e.g. the aux-backend route handlers, the frontend error
- * reporter) can import it as a real value without transitively pulling in
- * `bun:sqlite` — which Vite/Vitest cannot resolve outside a Bun runtime.
+ * concept (e.g. the frontend error reporter) can import it as a real value
+ * without transitively pulling in `bun:sqlite` — which Vite/Vitest cannot
+ * resolve outside a Bun runtime.
  */
 
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'

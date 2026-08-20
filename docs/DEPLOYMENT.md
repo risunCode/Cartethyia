@@ -11,11 +11,11 @@ Keep deployment, environment, and runtime notes here. The root README stays shor
 ## Environment
 
 - Copy `.env.example` to `.env`
-- Keep daemon/runtime secrets out of the dashboard bundle
+- Keep router/runtime secrets out of the dashboard bundle
 - Use the repository root `.env` for shared development settings
 
 ## Deployment rule of thumb
 
-- `daemon/` owns runtime behavior and API ingress
+- `router/` owns runtime behavior and API ingress
 - `dashboard/` owns operator UI only
 - `docs/visualize/` is the place for workspace maps and diagrams
