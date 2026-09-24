@@ -54,15 +54,25 @@ resolveFn, agent, protocol, http2Fallback })`:
   exceeded`. Known-length bodies get explicit `content-length`.
 - Hosted-relay mode sends `x-relay-target` / `x-relay-path` / `x-relay-auth`
   instead of CONNECT.
-- HTTP/2 for direct HTTPS only (see below); pool/relay paths stay HTTP/1.1.
+- Direct HTTPS egress is HTTP/1.1 by default; HTTP/2 is opt-in
+  (`CARTETHYIA_HTTP2_ENABLED=true`) and applies to direct HTTPS only —
+  pool/relay paths stay HTTP/1.1. See below for why it is not the default.
 
 `http2-fetch.ts`: process-wide `Http2PinnedFetcher` with a per-origin
 multiplexed session cache (default max 64 sessions, 60 s idle reap, 5 s
 connect timeout, `unref`'d). `pinnedTlsConnection` dials the validated IP with
-real-host SNI / ALPN-`h2`; strips HTTP/2-forbidden headers. Pre-response
-failures surface as fallback-eligible errors; post-header errors stream
-through. A failed HTTP/2 attempt falls back to HTTP/1.1 unless
+real-host SNI and advertises **only** `h2` in ALPN; strips HTTP/2-forbidden
+headers. Pre-response failures surface as fallback-eligible errors; post-header
+errors stream through. A failed HTTP/2 attempt falls back to HTTP/1.1 unless
 `CARTETHYIA_HTTP2_FALLBACK_ENABLED=false`.
+
+**Why HTTP/2 is opt-in.** Advertising only `h2` makes the transport an
+enforcement, not a preference: an upstream that speaks HTTP/1.1 alone fails
+the TLS handshake rather than being served, and the caller sees a protocol
+error on a request that worked before. Falling back costs an extra round trip
+before the retry, so it is a recovery, not a substitute for negotiating
+normally. The default is therefore the transport every upstream accepts, and
+an operator turns h2 on for the upstreams known to support it.
 
 ## SSRF policy
 

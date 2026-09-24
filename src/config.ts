@@ -66,6 +66,19 @@ interface FlagConfigEntry {
   readonly kind: "flag";
 }
 
+/**
+ * Opt-in flag: disabled unless the literal string `"true"` is set.
+ *
+ * The counterpart to {@link FlagConfigEntry} for a behavior that must not be on
+ * by default. An egress transport that changes the wire protocol is the case
+ * this exists for: defaulting it on makes every deployment negotiate a
+ * protocol some upstreams reject, and the failure surfaces as a handshake
+ * error on requests that were working before the feature landed.
+ */
+interface OptInFlagConfigEntry {
+  readonly kind: "opt_in_flag";
+}
+
 /** Comma-separated list; an empty result reads as absent. */
 interface ListConfigEntry {
   readonly kind: "list";
@@ -78,6 +91,7 @@ export type ConfigEntry =
   | OptionalIntConfigEntry
   | RequiredTextConfigEntry
   | FlagConfigEntry
+  | OptInFlagConfigEntry
   | ListConfigEntry;
 
 /**
@@ -143,8 +157,8 @@ export const CONFIG_SPEC = {
   CARTETHYIA_ACCOUNT_UNCLASSIFIED_COOLDOWN_MS: { kind: "int", default: 60_000, min: 0, max: 86_400_000 },
   CARTETHYIA_POOL_COOLDOWN_MS: { kind: "int", default: 120_000, min: 0, max: 86_400_000 },
 
-  // Outbound HTTP/2
-  CARTETHYIA_HTTP2_ENABLED: { kind: "flag" },
+  // Outbound HTTP/2 (opt-in: HTTP/1.1 is the default egress transport)
+  CARTETHYIA_HTTP2_ENABLED: { kind: "opt_in_flag" },
   CARTETHYIA_HTTP2_FALLBACK_ENABLED: { kind: "flag" },
 
   // Proxy pool agents
@@ -224,6 +238,17 @@ function readRequired(name: string, entry: RequiredTextConfigEntry): string {
 function readFlag(name: string, entry: FlagConfigEntry): boolean {
   void entry;
   return process.env[name] !== "false";
+}
+
+/**
+ * Reads an opt-in flag: true only for the literal string `"true"`.
+ *
+ * Anything else — unset, empty, `"1"`, `"yes"` — reads as disabled, so a
+ * deployment that never opted in is never affected by the feature.
+ */
+function readOptInFlag(name: string, entry: OptInFlagConfigEntry): boolean {
+  void entry;
+  return process.env[name] === "true";
 }
 
 /** Reads a comma-separated list, dropping empty entries. */
@@ -435,13 +460,23 @@ export function resolvePoolCooldownMs(): number {
 // ─── Outbound HTTP/2 ────────────────────────────────────────────────────────
 
 /**
- * Whether validated *direct* HTTPS egress prefers HTTP/2 (multiplexed pinned
- * connections). Defaults on; set `CARTETHYIA_HTTP2_ENABLED=false` to force
- * HTTP/1.1. Pool-bound egress (HTTP CONNECT / SOCKS5 agents) is always
- * HTTP/1.1 because those tunnels are owned by the node:http agent layer.
+ * Whether validated *direct* HTTPS egress uses HTTP/2 (multiplexed pinned
+ * connections). **Opt-in and off by default**: egress is HTTP/1.1 unless the
+ * operator sets `CARTETHYIA_HTTP2_ENABLED=true`.
+ *
+ * HTTP/2 is not a drop-in upgrade here. The pinned transport advertises only
+ * `h2` in ALPN, so an upstream that speaks HTTP/1.1 alone fails the handshake
+ * instead of being served — and the failure is a protocol error on requests
+ * that worked before, not a graceful downgrade. Falling back is also not free:
+ * a fallback-eligible failure costs an extra round trip before the retry. The
+ * default is therefore the transport every upstream accepts, and h2 is enabled
+ * where it is known to help and to be supported.
+ *
+ * Pool-bound egress (HTTP CONNECT / SOCKS5 agents) is always HTTP/1.1 because
+ * those tunnels are owned by the node:http agent layer.
  */
 export function resolveHttp2Enabled(): boolean {
-  return readFlag("CARTETHYIA_HTTP2_ENABLED", CONFIG_SPEC.CARTETHYIA_HTTP2_ENABLED);
+  return readOptInFlag("CARTETHYIA_HTTP2_ENABLED", CONFIG_SPEC.CARTETHYIA_HTTP2_ENABLED);
 }
 
 /**
