@@ -1,0 +1,12 @@
+-- Adds `telemetry_events.error_origin`: which layer produced a failure
+-- (`cartethyia` | `upstream` | `network`).
+--
+-- Why: `error_category` alone cannot separate the gateway's own failures from
+-- an upstream's. `invalid_request` is recorded both when the caller's body is
+-- malformed and when the provider rejects a well-formed body, so an operator
+-- triaging a spike cannot tell whether to look at the router or at the
+-- provider. Rows written before this migration carry NULL and are read as
+-- "unknown", which is the honest answer for historical data.
+--
+-- Idempotent: safe to run more than once.
+ALTER TABLE telemetry_events ADD COLUMN IF NOT EXISTS error_origin text;

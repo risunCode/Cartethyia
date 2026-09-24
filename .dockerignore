@@ -1,0 +1,61 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Node.js and package management
+node_modules
+npm-debug.log
+yarn-error.log
+.pnp
+.pnp.js
+
+# Build and distribution
+/build
+/dist
+scripts/build/*.test.ts
+
+# Local dev artifacts: platform-specific proxy binaries (the image downloads
+# its own in the binary-downloader stage) and generated runtime configs.
+bin
+.cache
+
+# Development tools and IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+# Environment files and secrets
+.env*
+!.env.example
+*.pem
+*.key
+*.crt
+*.pfx
+*.dump
+*.sql
+backups
+!drizzle/
+!drizzle/migrations/
+!drizzle/migrations/*.sql
+# Testing
+coverage
+.nyc_output
+*.lcov
+# Tests live under the root test tree; source is production-only.
+test
+# Documentation
+README.md
+LICENSE
+CHANGELOG.md
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.circleci
+.travis.yml
+
+# Project-specific
+docker-compose*.yml

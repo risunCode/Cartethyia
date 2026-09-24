@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+/* Standalone public share HUD. Theme colors are supplied by SharePage inline variables. */
+:root {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-head: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --surface-1: #0b1220;
+  --surface-2: rgba(255, 255, 255, 0.08);
+  --surface-muted: rgba(255, 255, 255, 0.06);
+  --inner-border: rgba(255, 255, 255, 0.12);
+  --border-subtle: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.72);
+  --text-tertiary: rgba(255, 255, 255, 0.5);
+  color-scheme: dark;
+}
+
+.share-page {
+  --share-accent: #67e8f9;
+  --share-accent-2: #a78bfa;
+  --share-background: #050a18;
+  --share-panel: rgba(9, 18, 42, 0.72);
+  --share-grid: rgba(103, 232, 249, 0.16);
+  position: relative;
+  min-height: 100vh;
+  overflow-x: clip;
+  background: var(--share-background);
+  color: #fff;
+  font-family: var(--font-sans);
+  isolation: isolate;
+}
+
+.share-page::before {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  content: "";
+  pointer-events: none;
+  background-image: linear-gradient(var(--share-grid) 1px, transparent 1px), linear-gradient(90deg, var(--share-grid) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(to bottom, black, transparent 75%);
+  opacity: 0.32;
+}
+
+.share-page::after {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  content: "";
+  pointer-events: none;
+  background: radial-gradient(60rem 28rem at 50% -8%, color-mix(in srgb, var(--share-accent) 22%, transparent), transparent 68%);
+}
+
+.share-page .fixed.inset-0 img { filter: saturate(0.8) contrast(1.08); mix-blend-mode: screen; }
+.share-page .fixed.inset-0 > div { background: linear-gradient(to top, color-mix(in srgb, var(--share-background) 92%, transparent), color-mix(in srgb, var(--share-background) 30%, transparent), transparent) !important; }
+
+.share-hud-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--share-accent) 24%, transparent);
+  border-radius: 18px;
+  background: var(--share-panel);
+  padding: 1rem;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.24), inset 0 1px 0 color-mix(in srgb, var(--share-accent) 16%, transparent);
+  backdrop-filter: blur(22px) saturate(1.18);
+  -webkit-backdrop-filter: blur(22px) saturate(1.18);
+}
+
+.share-hud-card::before {
+  position: absolute;
+  inset: 0 24% auto 0;
+  height: 1px;
+  content: "";
+  background: linear-gradient(90deg, var(--share-accent), transparent);
+  opacity: 0.7;
+}
+
+.share-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; flex-wrap: wrap; }
+.share-home-link,
+.share-theme-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--share-accent) 25%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--share-panel) 76%, transparent);
+  color: rgba(255, 255, 255, 0.82);
+  padding: 0.4rem 0.72rem;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease;
+}
+.share-home-link:hover,
+.share-theme-trigger:hover { border-color: var(--share-accent); background: var(--share-accent); color: var(--share-background); transform: translateY(-1px); }
+.share-theme-trigger { font-family: var(--font-sans); }
+.share-theme-dot { width: 7px; height: 7px; border-radius: 999px; box-shadow: 0 0 12px var(--share-accent); }
+.share-theme-picker { position: relative; z-index: 60; }
+.share-theme-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(330px, calc(100vw - 32px));
+  padding: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--share-accent) 32%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--share-background) 94%, transparent);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42), 0 0 28px color-mix(in srgb, var(--share-accent) 14%, transparent);
+  backdrop-filter: blur(26px);
+}
+.share-theme-menu-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 0.55rem 0.55rem 0.65rem; }
+.share-theme-menu-head strong, .share-theme-menu-head span { display: block; }
+.share-theme-menu-head strong { color: #fff; font-size: 12px; }
+.share-theme-menu-head span { margin-top: 3px; color: rgba(255,255,255,.48); font-size: 10px; }
+.share-theme-menu-head > button { border: 0; background: transparent; color: rgba(255,255,255,.55); font-size: 20px; line-height: 1; cursor: pointer; }
+.share-theme-options { display: grid; gap: 0.35rem; }
+.share-theme-option { display: flex; align-items: center; gap: 0.65rem; width: 100%; padding: 0.55rem; border: 1px solid transparent; border-radius: 12px; background: transparent; color: #fff; text-align: left; cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease; }
+.share-theme-option:hover, .share-theme-option.is-active { border-color: color-mix(in srgb, var(--share-accent) 48%, transparent); background: color-mix(in srgb, var(--share-accent) 12%, transparent); transform: translateX(2px); }
+.share-theme-option > span:nth-child(2) { min-width: 0; flex: 1; }
+.share-theme-option strong, .share-theme-option small { display: block; }
+.share-theme-option strong { font-size: 11px; }
+.share-theme-option small { margin-top: 2px; color: rgba(255,255,255,.48); font-size: 10px; }
+.share-theme-swatch { width: 30px; height: 30px; flex: 0 0 auto; border-radius: 10px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.22), 0 0 16px color-mix(in srgb, var(--share-accent) 20%, transparent); }
+.share-theme-option > svg { color: var(--share-accent); }
+
+.share-page .text-cyan-200 { color: color-mix(in srgb, var(--share-accent) 72%, white) !important; }
+.share-page .bg-cyan-400 { background: var(--share-accent) !important; }
+.share-page .from-cyan-400 { --tw-gradient-from: var(--share-accent) var(--tw-gradient-from-position) !important; }
+.share-page .to-blue-400 { --tw-gradient-to: var(--share-accent-2) var(--tw-gradient-to-position) !important; }
+.share-page .text-white\/80 { color: color-mix(in srgb, var(--share-accent) 34%, white) !important; }
+
+@media (max-width: 640px) {
+  .share-header-actions { gap: 0.35rem; }
+  .share-theme-trigger span:not(.share-theme-dot) { display: none; }
+  .share-theme-menu { right: -0.25rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

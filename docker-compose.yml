@@ -1,0 +1,48 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cartethyia:local
+    ports:
+      - "${PORT:-12800}:12800"
+    # Keep credentials and the external DATABASE_URL in .env; do not bake
+    # database secrets or a database service into this application stack.
+    env_file:
+      - "${CARTETHYIA_ENV_FILE:-.env}"
+    environment:
+      NODE_ENV: production
+      PORT: "12800"
+      DASHBOARD_DIST: /app/dist/dashboard
+      REDIS_MODE: normal
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - cartethyia
+
+  # Redis is the only stateful service managed by this Compose file.
+  # PostgreSQL remains an external dependency supplied through DATABASE_URL.
+  redis:
+    image: redis:7.4.2-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - cartethyia
+
+volumes:
+  redisdata:
+
+networks:
+  cartethyia:
+    driver: bridge

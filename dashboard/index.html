@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#05070d" />
+    <meta
+      name="description"
+      content="One self-hosted gateway for OpenAI, Anthropic and 40 provider adapters. Route providers through one gateway with translation, failover and quotas."
+    />
+    <link rel="icon" type="image/webp" href="/favicon.webp" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Cartethyia — One Stop OpenAI &amp; Anthropic Proxy Router" />
+    <meta
+      property="og:description"
+      content="Self-hosted Bun + Elysia proxy router for OpenAI &amp; Anthropic clients. Route 40 providers through one gateway with translation, failover and quotas."
+    />
+    <meta property="og:image" content="/og_image.webp" />
+    <meta property="og:image:type" content="image/webp" />
+    <meta property="og:image:width" content="1568" />
+    <meta property="og:image:height" content="513" />
+    <meta
+      property="og:image:alt"
+      content="Cartethyia — One Stop OpenAI &amp; Anthropic Proxy Router, Powered by Bun"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Cartethyia — One Stop OpenAI &amp; Anthropic Proxy Router" />
+    <meta
+      name="twitter:description"
+      content="One self-hosted gateway for OpenAI, Anthropic and 40 provider adapters. Powered by Elysia + Bun."
+    />
+    <meta name="twitter:image" content="/og_image.webp" />
+    <meta name="twitter:image:alt" content="Cartethyia — One Stop OpenAI &amp; Anthropic Proxy Router" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Geist+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+    />
+    <style>
+      html { background: #05070d; }
+      html[data-app="console"] { background: #fffdf8; }
+      html[data-app="console"][data-theme="dark"] { background: #08080b; }
+      @media (prefers-color-scheme: dark) {
+        html[data-app="console"][data-theme="system"] { background: #08080b; }
+      }
+    </style>
+    <script>
+      // This bootstrap mirrors dashboard/src/lib/theme.ts because it must run
+      // before the selected app chunk loads. Keep the /console predicate,
+      // storage keys, and accepted values in sync with the TypeScript entry.
+      (() => {
+        const isConsole =
+          window.location.pathname === "/console" || window.location.pathname.startsWith("/console/");
+        const root = document.documentElement;
+        root.dataset.app = isConsole ? "console" : "landing";
+        const themeMeta = document.querySelector('meta[name="theme-color"]');
+        const colorSchemeMeta = document.createElement("meta");
+        colorSchemeMeta.name = "color-scheme";
+        colorSchemeMeta.content = isConsole ? "light dark" : "dark";
+        document.head.appendChild(colorSchemeMeta);
+        document.title = isConsole
+          ? "Cartethyia Console"
+          : "Cartethyia — One Stop OpenAI & Anthropic Proxy Router";
+        if (themeMeta) themeMeta.setAttribute("content", isConsole ? "#09090b" : "#05070d");
+        if (!isConsole) return;
+        try {
+          const storedTheme = window.localStorage.getItem("console-theme");
+          const theme =
+            storedTheme === "light" || storedTheme === "dark" || storedTheme === "system"
+              ? storedTheme
+              : "system";
+          root.dataset.theme = theme;
+        } catch {
+          root.dataset.theme = "system";
+        }
+        try {
+          if (window.localStorage.getItem("console-ambient-glow") === "off") {
+            root.dataset.ambientGlow = "off";
+          }
+        } catch {
+          // Ambient glow stays on by default when storage is unavailable.
+        }
+      })();
+    </script>
+    <title>Cartethyia</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

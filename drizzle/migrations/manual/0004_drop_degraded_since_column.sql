@@ -1,0 +1,24 @@
+-- Hand-run once on any database created from the previous baseline.
+--
+-- `network_pools.degraded_since` was never read or written. The health state
+-- machine records transitions through `status`, `last_error_at`,
+-- `cooldown_until`, and `last_recovered_at`, and the column was dropped from
+-- `src/persistence/schema.ts` with no replacement. It is gone from
+-- `0000_baseline.sql`, so a database created from the current baseline never
+-- has it. The migration ledger (`cartethyia_schema_migrations`) already records
+-- `0000_baseline.sql` as applied, so `bun run db:migrate` will NOT re-run the
+-- edited baseline — a live database keeps the column until this runs.
+--
+-- `test/integration/isolated-db.test.ts` asserts the live schema matches
+-- `src/persistence/schema.ts` exactly, including the total column count, so it
+-- fails with a column-count mismatch until this is applied. Run it against
+-- `DATABASE_URL` (and again against `CARTETHYIA_TEST_DATABASE_URL` if that
+-- points at a separate database):
+--
+--   bun run db:migrate   # no-op for the edited baseline, safe to run first
+--   # then paste this file into psql, or run the statement below.
+
+-- No index or CHECK constraint depends on this column, so the drop is a single
+-- statement; `IF EXISTS` keeps a partially-applied or already-migrated run
+-- convergent.
+ALTER TABLE "network_pools" DROP COLUMN IF EXISTS "degraded_since";

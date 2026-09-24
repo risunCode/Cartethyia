@@ -1,0 +1,567 @@
+@import "tailwindcss";
+
+
+
+/* Login form entrance — CSS-only, zero framer-motion overhead */
+.login-enter {
+  animation: login-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.login-card {
+  background: color-mix(in srgb, var(--surface-2) 24%, transparent);
+  border-color: color-mix(in srgb, var(--glass-border) 30%, transparent);
+  backdrop-filter: blur(4px) saturate(1.04);
+  -webkit-backdrop-filter: blur(4px) saturate(1.04);
+}
+
+.login-card-title {
+  color: var(--text-1);
+  text-shadow: 0 1px 18px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.login-card-subtitle {
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.65), 0 2px 20px rgba(0, 0, 0, 0.4);
+}
+
+.login-card-label {
+  color: var(--text-1);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.4);
+}
+
+.login-card-note {
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.75);
+}
+
+.login-flash {
+  animation: toast-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes login-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+
+/* Theme toggle icon swap — CSS-only crossfade + rotate */
+.theme-icon-enter {
+  animation: theme-icon-in 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes theme-icon-in {
+  from { opacity: 0; transform: rotate(-60deg) scale(0.7); }
+  to { opacity: 1; transform: rotate(0) scale(1); }
+}
+
+
+/* Traffic chart active line — CSS-only dash animation. */
+.traffic-line-active {
+  animation: traffic-dash 0.8s linear infinite;
+}
+.traffic-chart-container {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 200px;
+}
+
+/* iOS-style chat bubble entrance — slide + fade in from bottom */
+.chat-bubble-enter {
+  animation: chat-bubble-in 0.3s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+@keyframes chat-bubble-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+
+/* "Thinking" shimmer — glowing text that sweeps right, like iOS/ChatGPT loading */
+.thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--text-3) 0%,
+    var(--text-3) 40%,
+    var(--accent) 50%,
+    var(--text-3) 60%,
+    var(--text-3) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: thinking-sweep 1.8s linear infinite;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+@keyframes thinking-sweep {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+
+@keyframes traffic-dash {
+  to { stroke-dashoffset: -12; }
+}
+
+/* Popout/dropdown animation — CSS-driven. */
+.component-fade-in {
+  animation: component-fade-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes component-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.component-slide-down {
+  animation: component-slide-down 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-origin: top center;
+}
+
+@keyframes component-slide-down {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.component-spin {
+  animation: component-spin 800ms linear infinite;
+}
+
+@keyframes component-spin {
+  to { transform: rotate(360deg); }
+}
+
+
+.model-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.375rem;
+}
+
+@media (min-width: 420px) {
+  .model-picker-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  --font-display: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono-tech: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--destructive);
+  --radius-card: 18px;
+  --radius-sidebar: 22px;
+  --radius-control: 11px;
+}
+
+:root {
+  --background: #f7f3ed;
+  --foreground: #2d2926;
+  --card: #fffefb;
+  --card-foreground: #2d2926;
+  --popover: #fffefb;
+  --popover-foreground: #2d2926;
+  --primary: #d97757;
+  --primary-foreground: #fff;
+  --muted: rgba(119, 83, 55, 0.1);
+  --muted-foreground: #746b65;
+  --border: rgba(78, 58, 42, 0.09);
+  --input: rgba(78, 58, 42, 0.09);
+  --ring: #d97757;
+  --success: #4c9368;
+  --warning: #ca7b32;
+  --destructive: #c95145;
+  --page-bg: #f7f3ed;
+  /* Solid "performance" surfaces (the alegacy glass="off" look): opaque
+     panels floating on the mesh background — no backdrop-filter anywhere. */
+  --surface-1: #fffefb;
+  --surface-2: #fffefb;
+  --surface-muted: rgba(119, 83, 55, 0.1);
+  --surface-hover: rgba(255, 248, 240, 0.92);
+  --surface-active: rgba(255, 248, 240, 0.98);
+  --text-primary: #2d2926;
+  --text-secondary: #746b65;
+  --text-tertiary: #a49a92;
+  --border-subtle: rgba(78, 58, 42, 0.09);
+  --border-strong: rgba(119, 94, 72, 0.12);
+  --accent: #d97757;
+  --accent-soft: rgba(217, 119, 87, 0.14);
+  --status-success: #4c9368;
+  --status-danger: #c95145;
+  --status-warning: #ca7b32;
+  --status-info: #448f8d;
+  --focus-ring: #d97757;
+  --track: rgba(113, 82, 57, 0.1);
+  --code-surface: #fbf8f2;
+  --radius-sm: 8px;
+  --radius-md: 11px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --control-height-sm: 32px;
+  --control-height-md: 36px;
+  --control-height-lg: 40px;
+  --touch-target: 40px;
+  --motion-fast: 120ms;
+  --motion-base: 160ms;
+  --motion-slow: 240ms;
+
+  --text-1: var(--text-primary);
+  --text-2: var(--text-secondary);
+  --text-3: var(--text-tertiary);
+  --green: var(--status-success);
+  --red: var(--status-danger);
+  --orange: var(--status-warning);
+  --purple: #8769a4;
+  --teal: var(--status-info);
+  --green-soft: rgba(76, 147, 104, 0.12);
+  --red-soft: rgba(201, 81, 69, 0.12);
+  --orange-soft: rgba(202, 123, 50, 0.12);
+  --teal-soft: rgba(68, 143, 141, 0.12);
+  --purple-soft: rgba(135, 105, 164, 0.12);
+  --glass-bg: var(--surface-1);
+  --glass-bg-2: var(--surface-2);
+  --popover-bg: #fffefb;
+  --glass-border: var(--border-strong);
+  --glass-border-2: rgba(255, 255, 255, 0.78);
+  --inner-border: var(--border-subtle);
+  --hover: var(--surface-muted);
+  --active-pill: var(--surface-hover);
+  --kbd-bg: rgba(113, 82, 57, 0.08);
+  --shadow-card: 0 1px 2px rgba(83, 56, 36, 0.05), 0 4px 12px rgba(83, 56, 36, 0.07);
+  color-scheme: light;
+}
+
+.dark {
+  --background: #08080b;
+  --foreground: #f5f5f7;
+  --card: #121214;
+  --card-foreground: #f5f5f7;
+  --popover: #1a1a1e;
+  --popover-foreground: #f5f5f7;
+  --primary: #0a84ff;
+  --primary-foreground: #fff;
+  --muted: rgba(255, 255, 255, 0.07);
+  --muted-foreground: #a1a1a6;
+  --border: rgba(255, 255, 255, 0.07);
+  --input: rgba(255, 255, 255, 0.07);
+  --ring: #0a84ff;
+  --success: #4c9368;
+  --warning: #ca7b32;
+  --destructive: #c95145;
+  --page-bg: #08080b;
+  /* Solid "performance" surfaces (alegacy glass="off") — opaque, no blur.
+     Deeper than gray to keep contrast crisp against the near-black page. */
+  --surface-1: #121214;
+  --surface-2: #17171a;
+  --surface-muted: rgba(255, 255, 255, 0.07);
+  --surface-hover: rgba(255, 255, 255, 0.12);
+  --surface-active: rgba(255, 255, 255, 0.16);
+  --text-primary: #f5f5f7;
+  --text-secondary: #a1a1a6;
+  --text-tertiary: #6e6e73;
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.1);
+  --accent-soft: rgba(10, 132, 255, 0.18);
+  --focus-ring: #0a84ff;
+  --track: rgba(255, 255, 255, 0.12);
+  --code-surface: #17171a;
+  --text-1: var(--text-primary);
+  --text-2: var(--text-secondary);
+  --text-3: var(--text-tertiary);
+  --glass-bg: var(--surface-1);
+  --glass-bg-2: var(--surface-2);
+  --popover-bg: #1a1a1e;
+  --glass-border: var(--border-strong);
+  --glass-border-2: rgba(255, 255, 255, 0.16);
+  --inner-border: var(--border-subtle);
+  --hover: var(--surface-muted);
+  --active-pill: var(--surface-hover);
+  --kbd-bg: rgba(255, 255, 255, 0.1);
+  --green-soft: rgba(76, 147, 104, 0.18);
+  --red-soft: rgba(201, 81, 69, 0.18);
+  --orange-soft: rgba(202, 123, 50, 0.18);
+  --teal-soft: rgba(68, 143, 141, 0.18);
+  --purple-soft: rgba(135, 105, 164, 0.18);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html,
+body,
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .sidebar-drawer {
+    transform: none !important;
+  }
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--text-1);
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  background-color: var(--page-bg);
+}
+
+/* Mesh gradients are a GLASS-MODE ambiance only — with glass off the page
+   stays a flat solid color so nothing reads as translucent. */
+html[data-glass="on"] body {
+  background-attachment: fixed;
+  background-image:
+    radial-gradient(1100px 640px at 78% -12%, rgba(250, 212, 178, 0.42), transparent 60%),
+    radial-gradient(920px 600px at -10% 32%, rgba(246, 222, 182, 0.4), transparent 58%),
+    radial-gradient(760px 540px at 62% 108%, rgba(240, 192, 169, 0.27), transparent 60%);
+}
+
+html.dark[data-glass="on"] body {
+  background-image:
+    radial-gradient(1100px 640px at 78% -12%, rgba(14, 165, 233, 0.2), transparent 60%),
+    radial-gradient(920px 600px at -10% 32%, rgba(139, 92, 246, 0.18), transparent 58%),
+    radial-gradient(760px 540px at 62% 108%, rgba(190, 24, 93, 0.14), transparent 60%);
+}
+
+/* ── Panel surfaces ──────────────────────────────────────────────────────────
+   Solid "glass" replacement: the same component classes the alegacy UI used,
+   but opaque (no backdrop-filter). Cards sit on --surface-1 with a border and
+   the card shadow; .glass-2 is the slightly raised variant for dialogs and
+   floating content. On a --surface-well base the layering reads clearly. */
+.glass {
+  background-color: var(--surface-1);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-card);
+}
+
+.glass-2 {
+  background-color: var(--surface-2);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-card);
+}
+
+/* ── Optional glass mode ─────────────────────────────────────────────────────
+   Opt-in via Settings (html[data-glass="on"], persisted per browser).
+   Default stays solid for predictable performance; when enabled, only the
+   small bordered .glass/.glass-2 cards get backdrop-filter — never the
+   large content panel or the page itself — so it stays cheap even while
+   scrolling, unlike the early translucent-everywhere React build. */
+html[data-glass="on"] {
+  --surface-1: rgba(255, 252, 247, 0.82);
+  --surface-2: rgba(255, 253, 249, 0.9);
+  --card: rgba(255, 252, 247, 0.82);
+  --code-surface: rgba(255, 252, 247, 0.75);
+}
+
+html.dark[data-glass="on"] {
+  --surface-1: rgba(28, 28, 32, 0.55);
+  --surface-2: rgba(34, 34, 40, 0.72);
+  --card: rgba(28, 28, 32, 0.55);
+  --code-surface: rgba(28, 28, 32, 0.8);
+}
+
+html[data-glass="on"] .glass {
+  backdrop-filter: blur(10px) saturate(1.15);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+}
+
+html[data-glass="on"] .glass-2 {
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+}
+
+/* Every authenticated page owns the same width and shrink behavior inside the shell. */
+.dashboard-page {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Native dropdown menus are rendered outside the page surface by the browser.
+   Give both the closed control and its option popup the active theme colors so
+   dark mode never falls back to a white system menu. */
+select {
+  color: var(--text-1);
+  color-scheme: light;
+}
+.dark select {
+  color-scheme: dark;
+}
+select option,
+select optgroup {
+  background-color: var(--glass-bg-2);
+  color: var(--text-1);
+}
+
+
+/* ── Theme transition ───────────────────────────────────────────────────────
+   Crossfade the snapshots instead of clipping a full glass/chart surface. */
+html[data-theme-wipe]::view-transition-old(root),
+html[data-theme-wipe]::view-transition-new(root) {
+  mix-blend-mode: normal;
+  backface-visibility: hidden;
+}
+html[data-theme-wipe]::view-transition-old(root) {
+  z-index: 0;
+  animation: theme-fade-out 160ms ease-out both;
+}
+html[data-theme-wipe]::view-transition-new(root) {
+  z-index: 1;
+  animation: theme-fade-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes theme-fade-out {
+  to { opacity: 0; }
+}
+
+@keyframes theme-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Console log entry fade-in (150ms with smooth easing). */
+@keyframes log-fade-in {
+  from { opacity: 0; transform: translateX(-2px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.log-entry-fade-in {
+  animation: log-fade-in 150ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Settings form section slide-down (200ms with smooth easing). */
+@keyframes settings-slide-down {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.settings-slide-down {
+  animation: settings-slide-down 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-origin: top center;
+}
+
+/* Share content fade-in (200ms with smooth easing). */
+@keyframes share-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.share-fade-in {
+  animation: share-fade-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Console log scroll container - smooth auto-scroll behavior. */
+.console-log-scroll {
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+}
+
+/* ── VirtualTable sticky header ──────────────────────────────────────────── */
+.vtable-sticky thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--surface-1);
+}
+
+html[data-glass="on"] .vtable-sticky thead {
+  background-color: rgba(255, 252, 247, 0.92);
+  backdrop-filter: blur(6px) saturate(1.1);
+  -webkit-backdrop-filter: blur(6px) saturate(1.1);
+}
+
+html.dark[data-glass="on"] .vtable-sticky thead {
+  background-color: rgba(28, 28, 32, 0.82);
+}
+
+/* ── Zebra striping for virtual tables and log entries ───────────────────── */
+.vtable-zebra tbody tr:nth-child(even) {
+  background-color: var(--hover);
+}
+
+.log-zebra > :nth-child(even) {
+  background-color: var(--hover);
+}
+
+/* ── MetricCard number count-up transition ───────────────────────────────── */
+.metric-value-enter {
+  animation: metric-pop 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes metric-pop {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Page-wide fade-in stagger for card grids ────────────────────────────── */
+.card-stagger > :nth-child(1) { animation-delay: 0ms; }
+.card-stagger > :nth-child(2) { animation-delay: 30ms; }
+.card-stagger > :nth-child(3) { animation-delay: 60ms; }
+.card-stagger > :nth-child(4) { animation-delay: 90ms; }
+.card-stagger > :nth-child(5) { animation-delay: 120ms; }
+.card-stagger > :nth-child(6) { animation-delay: 150ms; }
+
+.card-stagger > * {
+  animation: metric-pop 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-fill-mode: both;
+}
+
+/* ── Log entry improved hover + level glow ───────────────────────────────── */
+.log-entry-fade-in:hover {
+  background-color: var(--surface-hover) !important;
+}
+
+/* ── Focus ring consistency for interactive elements ───────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Bar chart smooth width transition ────────────────────────────────────── */
+.bar-transition {
+  transition: transform 500ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}

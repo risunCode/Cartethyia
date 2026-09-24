@@ -1,0 +1,19 @@
+# Set default behavior to automatically handle line endings and force LF for text files
+* text=auto eol=lf
+
+# Explicit shell scripts must always be LF
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Windows scripts
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files
+*.exe binary
+*.zip binary
+*.tar.gz binary
+*.webp binary
+*.png binary
+*.jpg binary
+*.ico binary

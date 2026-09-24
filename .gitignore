@@ -1,0 +1,46 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+.codegraph/
+*.tsbuildinfo
+
+# Local runtime scratch (e.g. generated proxy process configs).
+.cache/
+
+# Throwaway probe/debug scripts written during an investigation. Never
+# committed: they are one-off reproduction helpers, not project code.
+.tmp-*
+
+# Saved terminal transcripts (e.g. a session log written to the repo root by
+# mistake). Never project code.
+20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.txt
+
+# Vendored multi-protocol proxy binaries for local development. Fetch them with
+# `bun run fetch:binaries` (Docker builds its own copies in the image). Never
+# committed: they are large, platform-specific, and version-pinned.
+bin/
+.kanbots/
+
+# Test coverage output
+coverage/
+
+# Local runtime scratch: captured telemetry payload frames. Written constantly
+# by the running gateway and pruned by retention, so tracking them churns the
+# repo with megabytes of transient request bodies.
+data/
+
+# Agent working state: per-session worktrees under `.claude/worktrees/` are full
+# repository checkouts created by tooling, plus local settings that differ per
+# machine. Never project code, and `git add -A` would otherwise stage entire
+# duplicate trees.
+.claude/
+
+# Backup export dumps written to the repo root during an investigation. A
+# backup carries every provider credential and API-key hash in the clear, so a
+# file left here is a secret leak waiting for `git add -A`. Keep them out of the
+# repo entirely; a real backup belongs wherever the operator stores it.
+backup-probe.json
+cartethyia-backup-*.json

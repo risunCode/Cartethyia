@@ -1,0 +1,35 @@
+{
+  "name": "cartethyia-dashboard",
+  "version": "2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "codegen": "bun ../scripts/ci-generate-usage-periods.ts",
+    "dev": "bun run codegen && vite",
+    "typecheck": "bun run codegen && tsc --noEmit",
+    "test": "bun run codegen && bun test",
+    "build": "bun run codegen && tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@radix-ui/react-select": "^2.3.7",
+    "@tanstack/react-query": "5.102.8",
+    "lucide-react": "^1.38.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "7.18.3",
+    "recharts": "^2.15.0",
+    "remark-gfm": "^4.0.1",
+    "sonner": "^2.0.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "@vitejs/plugin-react": "6.1.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.2",
+    "vite": "8.2.2"
+  }
+}

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" role="img" aria-label="InferHub">
+<g stroke="currentColor" stroke-linecap="round">
+<line stroke-width="18" x1="252" x2="160" y1="250" y2="136"/>
+<line stroke-width="24" x1="252" x2="344" y1="250" y2="70"/>
+<line stroke-width="16" x1="252" x2="410" y1="250" y2="220"/>
+<line stroke-width="22" x1="252" x2="372" y1="250" y2="386"/>
+<line stroke-width="18" x1="252" x2="134" y1="250" y2="384"/>
+</g>
+<g fill="currentColor">
+<circle cx="252" cy="250" r="62"/>
+<circle cx="160" cy="136" r="27"/>
+<circle cx="344" cy="70" r="37"/>
+<circle cx="410" cy="220" r="24"/>
+<circle cx="372" cy="386" r="32"/>
+<circle cx="134" cy="384" r="25"/>
+</g>
+</svg>
