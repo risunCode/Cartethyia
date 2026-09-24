@@ -42,8 +42,8 @@ import {
 export const BACKUP_APP = "cartethyia";
 export const BACKUP_VERSION = 1;
 
-/** Upper bound on an accepted restore body, enforced at the HTTP boundary. */
-export const MAX_BACKUP_BYTES = 128 * 1024 * 1024;
+/** Upper bound for restore payloads; the listener enforces the same ceiling. */
+export const MAX_BACKUP_BYTES = 8 * 1024 * 1024 * 1024;
 
 /** Defense-in-depth row cap per table, after the byte bound. */
 export const MAX_ROWS_PER_TABLE = 500_000;
