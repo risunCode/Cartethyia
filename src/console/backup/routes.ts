@@ -29,6 +29,17 @@ export interface BackupRoutesConfig {
    * instance would have to hold one request's identity across others.
    */
   readonly backupFor: (request: Request) => BackupService;
+  /**
+   * Structurally satisfied by `InMemoryRouteSnapshotService`.
+   *
+   * A restore replaces the rows that decide where traffic goes — providers,
+   * models, aliases, and combos among them — so the cached route snapshot
+   * describes a catalog that no longer exists the moment the transaction
+   * commits. Without this the data plane keeps dispatching the pre-restore
+   * routing (a combo that now points at different members still resolves its
+   * old members) until some unrelated console write happens to invalidate.
+   */
+  readonly snapshotInvalidator?: { invalidate(): Promise<number> };
 }
 
 /**
@@ -107,6 +118,9 @@ export function createBackupRoutes(config: BackupRoutesConfig): Elysia {
         // into: that would let any holder of the scope import into, and
         // overwrite, a tenant they are not.
         const result = await config.backupFor(request).restore(body.password, body.backup, access.tenantId);
+        // Routing-visible write: the restore has committed, so the cached
+        // snapshot must be rebuilt before the next `/v1/*` dispatch.
+        await config.snapshotInvalidator?.invalidate();
         set.status = 200;
         return result;
       } catch (error) {

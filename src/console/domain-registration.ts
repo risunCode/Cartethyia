@@ -240,6 +240,7 @@ export function registerConsoleDomains(
             return ctx.credentialService.verifyPassword(password, user.passwordHash);
           },
         }),
+      snapshotInvalidator: ctx.routeSnapshotService,
     }),
   );
   console.use(createModelRoutingRoutes({ store: modelRoutingStore, accessResolver: ctx.accessResolver, auditSink: ctx.auditRecorder, snapshotInvalidator: ctx.routeSnapshotService }));

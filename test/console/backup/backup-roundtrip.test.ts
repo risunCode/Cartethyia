@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { getDb, type CartethyiaDatabase } from "../../../src/persistence/postgres";
@@ -19,6 +19,7 @@ import {
   tableName,
 } from "../../../src/console/backup/contracts";
 import { applyRestore, exportBackup } from "../../../src/console/backup/store";
+import { createBackupRoutes } from "../../../src/console/backup/routes";
 import { restoreOrder, validateRestorePayload } from "../../../src/console/backup/validate";
 
 /**
@@ -239,6 +240,71 @@ dbDescribe("backup export/restore round trip", () => {
       .from(providerAccounts)
       .where(eq(providerAccounts.tenantId, tenantId));
     expect(after[0]?.n).toBe(before);
+  });
+});
+
+/**
+ * A restore is a routing-visible write: it replaces providers, models, aliases,
+ * and combos. The cached route snapshot must be dropped once it commits, or the
+ * data plane keeps dispatching the pre-restore catalog — an edited combo keeps
+ * resolving its old members — until some unrelated console write invalidates.
+ *
+ * These run without a database: the route boundary is what is under test, so
+ * the service is a stub that records that a restore was requested.
+ */
+describe("backup restore invalidates the route snapshot", () => {
+  const tenantId = "00000000-0000-0000-0000-0000000000aa";
+  const sessionAccess = {
+    id: "operator",
+    tenantId,
+    scopes: ["dashboard:write"] as const,
+    admissionIdentity: "operator",
+  };
+
+  function routesWith(invalidations: { count: number }, restore: () => Promise<unknown>) {
+    return createBackupRoutes({
+      accessResolver: () => sessionAccess,
+      backupFor: () =>
+        ({
+          restore,
+        }) as never,
+      snapshotInvalidator: {
+        invalidate: async () => {
+          invalidations.count += 1;
+          return invalidations.count;
+        },
+      },
+    });
+  }
+
+  test("a committed restore invalidates exactly once", async () => {
+    const invalidations = { count: 0 };
+    const app = routesWith(invalidations, async () => ({ restored: {}, skipped: {} }));
+    const res = await app.handle(
+      new Request("http://localhost/backup/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "pw", backup: { app: "cartethyia" } }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(invalidations.count).toBe(1);
+  });
+
+  test("a failed restore does not invalidate", async () => {
+    const invalidations = { count: 0 };
+    const app = routesWith(invalidations, async () => {
+      throw new Error("restore rolled back");
+    });
+    const res = await app.handle(
+      new Request("http://localhost/backup/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "pw", backup: { app: "cartethyia" } }),
+      }),
+    );
+    expect(res.status).toBe(500);
+    expect(invalidations.count).toBe(0);
   });
 });
 

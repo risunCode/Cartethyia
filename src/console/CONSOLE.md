@@ -66,7 +66,8 @@ Every privileged write records through the domain's `auditSink`, then calls
 `snapshotInvalidator.invalidate()` so `/v1/*` dispatch picks up the new revision without a
 restart. Covered groups: `providers/catalog` and `providers/detail` (provider, model, account,
 routing preference), `providers/oauth` (account creation), `routing/model` and `routing/pools`
-(aliases, combos, pools), `cli-tools` slot mappings, and `quota` deletes. Two exceptions:
+(aliases, combos, pools), `cli-tools` slot mappings, `quota` deletes, and `backup` restore (a
+committed restore replaces the same routing rows wholesale). Two exceptions:
 `settings` and `domains/api-keys` are registered without a snapshot invalidator (their writes
 do not change routing), and the tenant-scoped `quota` status flips invalidate the snapshot but
 write no audit row — only the global variants and `DELETE /accounts/:id` are audited. Audit is
@@ -447,6 +448,15 @@ error rolls back rather than leaving half a configuration. A row that carries a 
 checked against the restoring tenant before any write, so a payload lifted from another deployment
 fails loudly instead of writing rows that belong to a different tenant; the tenant id comes from
 the caller's access decision and never from the request body.
+
+**A committed restore invalidates the route snapshot.** A restore replaces the rows that decide
+where traffic goes — providers, models, aliases, and combos among them — so the cached snapshot
+describes a catalog that no longer exists the moment the transaction commits. `createBackupRoutes`
+therefore calls `snapshotInvalidator.invalidate()` after a successful restore, the same epilogue
+every other routing-visible write runs (see "The mutation epilogue" above). Without it the data
+plane keeps dispatching the pre-restore routing — a combo whose members were edited still resolves
+its old members — until some unrelated console write happens to invalidate. A restore that throws
+invalidates nothing, because nothing was committed.
 
 **Restored history and the retention sweep.** `CARTETHYIA_TELEMETRY_RETENTION_DAYS` (default 30)
 feeds `pruneTelemetry`, so history older than the window is deleted on the next sweep — including
