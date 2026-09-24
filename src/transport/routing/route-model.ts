@@ -256,19 +256,34 @@ function deepFreeze<T>(obj: T): T {
 export class InMemoryRouteSnapshotService implements RouteSnapshotService {
   private revision: RoutingRevision = 0;
   private snapshot: RouteSnapshot | undefined;
-  private building: Promise<RouteSnapshot> | undefined;
+  /**
+   * The in-flight build, tagged with the revision it is building.
+   *
+   * The tag is what keeps a mutation from being lost. A build reads the catalog
+   * over ten Postgres round-trips, so a dashboard write can land while one is
+   * in flight. Without the tag two things went wrong: a reader that arrived
+   * *after* the mutation was handed the still-running pre-mutation build, and
+   * that build then overwrote the cache the mutation had just cleared — so the
+   * data plane served the old routing until some later write invalidated it
+   * again. A build may only be reused by readers at its own revision, and may
+   * only populate the cache if no mutation happened while it ran.
+   */
+  private building: { revision: RoutingRevision; promise: Promise<RouteSnapshot> } | undefined;
 
   constructor(private readonly builder: SnapshotBuilder) {}
 
   async getSnapshot(): Promise<RouteSnapshot> {
     if (this.snapshot) return this.snapshot;
-    if (this.building) return this.building;
-    this.building = this.build();
+    if (this.building && this.building.revision === this.revision) return this.building.promise;
+    const revision = this.revision;
+    const promise = this.build(revision);
+    this.building = { revision, promise };
     try {
-      const s = await this.building;
-      return s;
+      return await promise;
     } finally {
-      this.building = undefined;
+      // Only the build that is still current may clear the slot; a build
+      // started after a mutation must not be dropped by an older one finishing.
+      if (this.building?.promise === promise) this.building = undefined;
     }
   }
 
@@ -282,7 +297,7 @@ export class InMemoryRouteSnapshotService implements RouteSnapshotService {
     return this.revision;
   }
 
-  private async build(): Promise<RouteSnapshot> {
+  private async build(revision: RoutingRevision): Promise<RouteSnapshot> {
     const built = await this.builder();
     const providerRouting: ProviderRoutingMap | undefined = built.providerRouting
       ? Object.fromEntries(
@@ -301,7 +316,7 @@ export class InMemoryRouteSnapshotService implements RouteSnapshotService {
     // that differed only by the `providerRouting` key, so a snapshot field added
     // to one branch would silently vanish on the other.
     const snapshot = deepFreeze({
-      revision: this.revision,
+      revision,
       candidates: Object.freeze([...built.candidates]) as readonly RouteCandidate[],
       aliases: Object.freeze({ ...built.aliases }),
       ...(built.cli_aliases ? { cli_aliases: Object.freeze({ ...built.cli_aliases }) } : {}),
@@ -312,7 +327,11 @@ export class InMemoryRouteSnapshotService implements RouteSnapshotService {
       ...(built.poolRouting ? { poolRouting: { ...built.poolRouting } } : {}),
       created_at: built.created_at ?? Date.now(),
     });
-    this.snapshot = snapshot;
+    // A mutation during the build means this snapshot describes a catalog that
+    // has already been superseded. Returning it is fine — the caller asked
+    // before the mutation — but caching it would strand the data plane on the
+    // old routing until the next write.
+    if (revision === this.revision) this.snapshot = snapshot;
     return snapshot;
   }
 }

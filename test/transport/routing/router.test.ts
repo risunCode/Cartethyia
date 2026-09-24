@@ -229,6 +229,51 @@ describe("engine.test.ts", () => {
     });
   });
 
+  describe("RoutingEngine — a combo edit survives an in-flight snapshot build", () => {
+    test("a plan after the edit routes to the new member, not the pre-edit one", async () => {
+      // The reported failure: a combo whose members were repointed at another
+      // provider kept dispatching the old one. The edit does invalidate the
+      // snapshot, but a build already running could finish afterwards and
+      // re-cache the pre-edit catalog, so every later request kept routing to
+      // the member the operator had just removed.
+      let members = ["cb/deepseek-v4.1-flash"];
+      const gate = Promise.withResolvers<void>();
+      let builds = 0;
+      const svc = new InMemoryRouteSnapshotService(async () => {
+        const captured = [...members];
+        builds += 1;
+        // Hold the first (pre-edit) build open so the edit lands mid-build.
+        if (builds === 1) await gate.promise;
+        return {
+          candidates: [
+            cand("deepseek-v4.1-flash", "cb"),
+            cand("deepseek-v4.1-flash", "workbuddy"),
+          ],
+          aliases: {},
+          combos: {
+            "tenant-a": { pool: { members: captured, strategy: "fallback" } },
+          },
+        };
+      });
+      const engine = new RoutingEngine();
+      const inFlight = svc.getSnapshot();
+      await Promise.resolve();
+      members = ["workbuddy/deepseek-v4.1-flash"];
+      await svc.invalidate();
+      // Start the post-edit read without awaiting it: when the bug is present
+      // it joins the gated pre-edit build, so the gate has to be released
+      // before either promise can settle. Awaiting here instead would deadlock
+      // and report a timeout rather than the wrong route.
+      const afterEditPromise = svc.getSnapshot();
+      gate.resolve();
+      const afterEdit = await afterEditPromise;
+      await inFlight;
+
+      const plan = await engine.plan("pool", afterEdit, "tenant-a");
+      expect(plan.provider_id).toBe("workbuddy");
+    });
+  });
+
   describe("RoutingEngine — provider-qualified model auto by registry", () => {
     test("bare model with multiple providers is ambiguous, provider/model pins to one", async () => {
       const snap = await buildSnapshot(async () => ({

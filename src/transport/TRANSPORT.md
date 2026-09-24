@@ -293,7 +293,13 @@ Every routing snapshot carries `rotateCount`; legacy snapshots normalize to `1` 
 counter comparison differs by back end. `ReservationManager` is an in-memory lease store with a lazy 30s sweep. `reserve()` admits candidates in plan order; exhaustion throws `capacityExhaustedError`. `release()` drops both
 admission count and lease.
 
-**Invariants.** The snapshot is deep-frozen; `invalidate()` bumps revision and rebuilds lazily. Bounded state everywhere:
+**Invariants.** The snapshot is deep-frozen; `invalidate()` bumps revision and rebuilds lazily. An
+in-flight build is tagged with the revision it is building, and that tag is load-bearing twice: a
+reader that arrives *after* a mutation never joins the still-running pre-mutation build, and a build
+that finishes after a mutation ran does not populate the cache. Both failures served the old
+routing — the first to a reader that asked post-mutation, the second to every reader until the next
+write — so a snapshot may only be reused at its own revision and only cached while still current.
+Bounded state everywhere:
 round-robin state behind a `MAX_ROUND_ROBIN_ENTRIES` (1000) LRU. `requires_account: false` is the only credential-less
 path; missing accounts otherwise mean unusable, never silently public. A new provider default is `defaultBypassProxy` in the
 provider registry, not here.

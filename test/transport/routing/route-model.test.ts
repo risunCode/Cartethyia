@@ -88,6 +88,33 @@ describe("snapshot.test.ts", () => {
       expect(Object.isFrozen(s1.candidates)).toBe(true);
     });
 
+    test("an invalidate during an in-flight build is not lost", async () => {
+      let version = 0;
+      const gate = Promise.withResolvers<void>();
+      const svc = new InMemoryRouteSnapshotService(async () => {
+        const v = version++;
+        // The first build is held open so a mutation can invalidate while a
+        // request is still reading the pre-mutation catalog.
+        if (v === 0) await gate.promise;
+        return { candidates: [cand(`v${v}`)], aliases: {}, combos: {} };
+      });
+      const inFlight = svc.getSnapshot();
+      await Promise.resolve();
+      expect(await svc.invalidate()).toBe(1);
+      // A reader that arrives after the mutation must not be handed the
+      // pre-mutation build that is still in flight.
+      const afterMutation = svc.getSnapshot();
+      gate.resolve();
+      const [before, after] = await Promise.all([inFlight, afterMutation]);
+      expect(before.revision).toBe(0);
+      expect(after.revision).toBe(1);
+      expect(after.candidates[0]?.model_id).toBe("v1");
+      // The stale build must not have overwritten the newer cache entry.
+      const cached = await svc.getSnapshot();
+      expect(cached.revision).toBe(1);
+      expect(cached.candidates[0]?.model_id).toBe("v1");
+    });
+
     test("forwards builder poolRouting into the snapshot, deep-frozen", async () => {
       const svc = new InMemoryRouteSnapshotService(async () => ({
         candidates: [cand("a")],
