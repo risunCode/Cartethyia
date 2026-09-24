@@ -45,7 +45,7 @@ export interface ImportResult {
 }
 
 function sectionsOrDefault(sections: readonly BackupSection[] | undefined): readonly BackupSection[] {
-  if (sections === undefined || sections.length === 0) return ["config", "telemetry"];
+  if (sections === undefined || sections.length === 0) return ["config"];
   for (const section of sections) {
     if (section !== "config" && section !== "telemetry") {
       throw new ConsoleDomainError("invalid_request", 400, `unknown backup section "${String(section)}"`);

@@ -67,16 +67,25 @@ function ImportReportPanel({ report }: { readonly report: BackupImportReport }):
 
 export function BackupPanel(): ReactNode {
   const [password, setPassword] = useState("");
+  const [includeConfig, setIncludeConfig] = useState(true);
+  const [includeTelemetry, setIncludeTelemetry] = useState(false);
   const [restored, setRestored] = useState<Record<string, number> | null>(null);
   const [report, setReport] = useState<BackupImportReport | null>(null);
   const [format, setFormat] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const exportBackup = useExportBackup();
   const restoreBackup = useRestoreBackup();
-
   const download = () => {
+    const sections = [
+      ...(includeConfig ? ["config"] : []),
+      ...(includeTelemetry ? ["telemetry"] : []),
+    ].join(",");
+    if (sections.length === 0) {
+      toast.error("Select at least one backup section.");
+      return;
+    }
     exportBackup.mutate(
-      { password },
+      { password, sections },
       {
         onSuccess: (payload) => {
           const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -140,6 +149,16 @@ export function BackupPanel(): ReactNode {
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="current-password"
           />
+          <Inline justify="flex-start">
+            <label>
+              <input type="checkbox" checked={includeConfig} onChange={(event) => setIncludeConfig(event.target.checked)} />
+              Account, proxy & settings
+            </label>
+            <label>
+              <input type="checkbox" checked={includeTelemetry} onChange={(event) => setIncludeTelemetry(event.target.checked)} />
+              Telemetry history
+            </label>
+          </Inline>
           <p style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
             Both actions re-authenticate with your console password. The export is plain JSON
             containing every provider credential and API-key hash — treat the file exactly as you
