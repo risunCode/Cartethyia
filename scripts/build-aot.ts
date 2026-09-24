@@ -109,12 +109,22 @@ export async function buildAOT(
     const outputFile = Bun.file(outputPath);
     if (await outputFile.exists()) {
       const output = await outputFile.text();
+      const compileCallNeedle = "Compile2(this.schema)";
+      const buildResultNeedle = "this.tb.buildResult.external.variables.some(isAsyncPredicate)";
+      const compileCallCount = output.split(compileCallNeedle).length - 1;
+      const buildResultCount = output.split(buildResultNeedle).length - 1;
       const patchedOutput = output
-        .replaceAll("Compile2(this.schema)", "Compile2({}, this.schema)")
+        .replaceAll(compileCallNeedle, "Compile2({}, this.schema)")
         .replaceAll(
-          "this.tb.buildResult.external.variables.some(isAsyncPredicate)",
+          buildResultNeedle,
           "(this.tb.buildResult?.external?.variables ?? []).some(isAsyncPredicate)",
         );
+      console.log(
+        `[AOT] validator patch: compileCalls=${compileCallCount}, buildResultAccesses=${buildResultCount}`,
+      );
+      if (compileCallCount === 0 && buildResultCount === 0) {
+        throw new Error("[AOT] validator patch found no runtime TypeBox call sites");
+      }
       await Bun.write(outputPath, patchedOutput);
     }
     // Treat any diagnostics (warnings or errors) as build failures
