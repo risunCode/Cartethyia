@@ -175,18 +175,15 @@ export function validateRestorePayload(payload: unknown, tenantId: string): Rest
             return { ok: false, error: `${name}[${i}].${column} must be a scalar, null, or a carrier` };
           }
         }
-        // A row may not claim a tenant other than the restoring one. Only the
-        // tables that actually carry the column are checked; the rest are
-        // scoped by their parent, which the store filters on.
-        if (types.has("tenant_id") && row["tenant_id"] !== undefined && row["tenant_id"] !== null) {
-          if (row["tenant_id"] !== tenantId) {
-            return {
-              ok: false,
-              error: `${name}[${i}] belongs to a different tenant than the one importing`,
-            };
-          }
-        }
-        rows.push(row as BackupRow);
+        // A backup is portable across deployments: tenant-scoped rows keep
+        // their shape but are assigned to the authenticated importing tenant.
+        // The tenant row itself is handled separately below and never gets
+        // remapped here.
+        const normalizedRow =
+          table === TENANT_TABLE || !types.has("tenant_id")
+            ? (row as BackupRow)
+            : { ...(row as BackupRow), tenant_id: tenantId };
+        rows.push(normalizedRow);
       }
 
       if (table === TENANT_TABLE) {
