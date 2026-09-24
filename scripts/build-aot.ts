@@ -109,7 +109,13 @@ export async function buildAOT(
     const outputFile = Bun.file(outputPath);
     if (await outputFile.exists()) {
       const output = await outputFile.text();
-      await Bun.write(outputPath, output.replaceAll("Compile2(this.schema)", "Compile2({}, this.schema)"));
+      const patchedOutput = output
+        .replaceAll("Compile2(this.schema)", "Compile2({}, this.schema)")
+        .replaceAll(
+          "this.tb.buildResult.external.variables.some(isAsyncPredicate)",
+          "(this.tb.buildResult?.external?.variables ?? []).some(isAsyncPredicate)",
+        );
+      await Bun.write(outputPath, patchedOutput);
     }
     // Treat any diagnostics (warnings or errors) as build failures
     if (result.logs.length > 0) {
