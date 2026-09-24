@@ -11,7 +11,7 @@
     "bun": "1.4.2"
   },
   "scripts": {
-    "dev": "bun run scripts/ops-dev-supervisor.ts",
+    "dev": "bun run dev:stack",
     "dev:stack": "concurrently -n BACKEND,DASHBOARD -c cyan,magenta --kill-others-on-fail \"bun run dev:backend\" \"bun run dashboard:dev\"",
     "test": "bun run scripts/ops-run-tests.ts",
     "build": "bun run dashboard:build && bun run build:aot && bun run build:binary",
