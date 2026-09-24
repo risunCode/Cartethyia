@@ -13,7 +13,7 @@
   "scripts": {
     "dev": "bun run dev:stack",
     "start": "bun run scripts/ops-start-binary.ts",
-    "test": "bun run scripts/ops-run-tests.ts",
+    "dev:stack": "concurrently -n BACKEND,DASHBOARD -c cyan,magenta --kill-others-on-fail \"bun run dev:backend\" \"bun run dashboard:dev\"",
     "build": "bun run dashboard:build && bun run build:aot && bun run build:binary",
     "setup": "bun run scripts/ops-setup.ts",
     "doctor": "bun run scripts/ops-doctor.ts",
