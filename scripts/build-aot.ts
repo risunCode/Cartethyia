@@ -12,6 +12,30 @@
 
 import { aot } from "elysia/plugin/aot/bun";
 
+const typeboxCompileBridge = {
+  name: "cartethyia-elysia-typebox-compile",
+  setup(build: {
+    onLoad: (
+      options: { filter: RegExp },
+      callback: (args: { path: string }) => Promise<{ contents: string; loader: "js" }>,
+    ) => void;
+  }): void {
+    build.onLoad(
+      { filter: /[\\/]elysia[\\/]dist[\\/]type[\\/]typebox-value\.js$/ },
+      async ({ path }) => {
+        const contents = await Bun.file(path).text();
+        return {
+          contents: contents.replace(
+            "SchemaCompile = typebox.schema.Compile",
+            "SchemaCompile = typebox.compile.Compile",
+          ),
+          loader: "js",
+        };
+      },
+    );
+  },
+};
+
 /**
  * Bun.build configuration for AOT compilation (Requirement 181.4).
  */
@@ -22,6 +46,8 @@ interface BuildConfig {
   plugins: unknown[];
   /** Compile-time constant substitution, e.g. baking `process.env.NODE_ENV`. */
   define: Record<string, string>;
+  /** Keep Elysia on its ESM build so its TypeBox bridge is statically bundled. */
+  alias: Record<string, string>;
 }
 
 /**
@@ -67,16 +93,17 @@ export async function buildAOT(
       outdir: "dist",
       target: "bun",
       define: { "process.env.NODE_ENV": JSON.stringify("production") },
+      plugins: [typeboxCompileBridge, aot("src/main.ts", { strip: false })],
+      alias: { elysia: "elysia/dist/index.mjs" },
       // `strip: false` keeps the runtime handler JIT reachable. The default
       // `'auto'` stubs it out whenever its frozen replay proves no route needs
       // it, but this application registers routes whose handlers are not all
       // reconstructable from the frozen manifest — with the stub in place, the
       // first request to such a route throws "handler compiler JIT was stripped
       // (strip mode) but a route needed runtime compilation" and the listener
-      // never comes up. Stripping also collapses TypeBox, which is what makes a
-      // compiled binary fail on a bare `require("typebox/type")`; keeping the
+      // never comes up. Stripping also collapses TypeBox, which is what makes
+      // a compiled binary fail on a bare `require("typebox/type")`; keeping the
       // JIT present keeps TypeBox wired the ordinary way.
-      plugins: [aot("src/main.ts", { strip: false })],
     });
 
     // Treat any diagnostics (warnings or errors) as build failures
