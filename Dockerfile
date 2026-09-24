@@ -13,13 +13,21 @@ RUN bun install --frozen-lockfile
 
 # Copy application sources only after dependencies are installed.
 COPY src ./src
+COPY scripts ./scripts
 COPY drizzle ./drizzle
 COPY dashboard ./dashboard
 
 # Build dashboard assets, then precompile and compile the backend.
+# The compile reads `dist/main.js` (the AOT output), not `src/main.ts`: the AOT
+# plugin rewrites TypeBox into statically wired imports, and bundling the raw
+# source instead leaves Elysia's lazy `require("typebox/type")` unresolved in
+# the standalone binary. `scripts/build-binary.ts` also bakes `NODE_ENV` to
+# production, which the binary needs to find `/app/migrations` and to avoid the
+# development-only `pino-pretty` transport whose worker cannot load in a
+# standalone executable. `bun run build` performs the same three steps.
 RUN bun run dashboard:build
 RUN bun run build:aot
-RUN bun build --compile --minify --bytecode --target bun src/main.ts --outfile /build/dist/cartethyia
+RUN bun run build:binary --outfile /build/dist/cartethyia
 
 # Runtime stage: only the compiled backend, dashboard output, migrations, and
 # the small health-check/entrypoint toolset are shipped.

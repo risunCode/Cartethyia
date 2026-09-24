@@ -58,6 +58,29 @@ describe("SQL migration integrity", () => {
     expect(migration).toContain('CREATE INDEX "idx_share_links_active"');
   });
 
+  test("baseline is self-contained: it declares every column the schema reads", async () => {
+    // The baseline is the whole schema for a database created today — the
+    // ledger records it as applied, so `bun run db:migrate` never re-runs it,
+    // and the hand-run files under `manual/` exist only to bring an *older*
+    // database up to it. A column that lives only in a manual file therefore
+    // reaches a pre-existing database and no fresh one, so a new deployment
+    // starts missing it. That is exactly how `network_pools.kind` and
+    // `telemetry_events.error_origin` went absent from a fresh install while
+    // every developer's long-lived database had them.
+    const migration = await readFile(resolve(migrationsDir, "0000_baseline.sql"), "utf8");
+
+    const networkPools = migration.match(/CREATE TABLE "network_pools" \(([\s\S]*?)\n\);/)?.[1] ?? "";
+    expect(networkPools).toContain('"kind" "network_pool_kind" NOT NULL');
+
+    const telemetryEvents =
+      migration.match(/CREATE TABLE "telemetry_events" \(([\s\S]*?)\n\);/)?.[1] ?? "";
+    expect(telemetryEvents).toContain('"error_origin" text');
+
+    // The enum the column depends on must be declared here too, or the table
+    // cannot be created.
+    expect(migration).toContain('CREATE TYPE "public"."network_pool_kind" AS ENUM(\'http\', \'socks5\')');
+  });
+
   test("baseline carries the studio-sessions table and index", async () => {
     const migration = await readFile(resolve(migrationsDir, "0000_baseline.sql"), "utf8");
     expect(migration).toContain('CREATE TABLE "studio_sessions"');

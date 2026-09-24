@@ -156,6 +156,15 @@ ciphertext.
   matches numbered `NNNN_*.sql` entries at the top level of the migrations
   folder, so the ledger runner never sees that subfolder and each file must be
   applied by hand (its own header says so).
+- **The baseline must be self-contained.** It is the entire schema for a
+  database created today, so a column that exists only in a `manual/` file
+  reaches an already-migrated database and no fresh one — a new deployment then
+  starts missing it while every developer machine looks fine. `network_pools.kind`
+  and `telemetry_events.error_origin` were absent from a fresh install exactly
+  this way. When a manual statement adds a column, the same column belongs in the
+  baseline; `test/contracts/migration-integrity.contract.test.ts` asserts the
+  baseline carries both, and `test/integration/isolated-db.test.ts` compares a
+  freshly migrated database against `schema.ts` column by column.
 - Telemetry tables stay metadata-only; bodies are written to the append-only
   `.jsonb` frame files and the `telemetry_payloads` row keeps only a
   checksummed file reference — opt-in, redacted, and TTL-expired.

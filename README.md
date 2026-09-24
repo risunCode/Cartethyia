@@ -172,8 +172,18 @@ bun run typecheck
 bun run dashboard:typecheck
 bun run dashboard:build
 bun run build:aot
+bun run build:binary
 bun run build
 ```
+
+`bun run build` produces the standalone binary in three steps: build the
+dashboard assets, run the Elysia AOT precompile into `dist/main.js`, then
+compile that output into `dist/cartethyia`. The binary step reads the AOT output
+rather than `src/main.ts` — the AOT pass rewrites TypeBox into statically wired
+imports, and bundling the raw source instead leaves an unresolvable
+`require("typebox/type")` in the executable. It also bakes `NODE_ENV=production`
+into the artifact, which the binary needs in order to find `<cwd>/migrations`
+and to avoid the development-only pretty-print log transport.
 
 ## Tests and coverage
 
@@ -204,6 +214,30 @@ docker compose down
 The Docker image builds the dashboard and compiled backend, runs as a dedicated
 non-root user, and exposes port `12800`. PostgreSQL must be reachable through
 `DATABASE_URL`; Compose manages Redis only.
+
+### Migrating an existing deployment
+
+The application applies its migration baseline at boot, so a new database needs
+no manual step — but a database that already existed before a baseline change
+may need the hand-run statements under `drizzle/migrations/manual/`. Those are
+never applied automatically; their headers say so, and they are idempotent.
+
+To move a deployment's configuration to another host, use **Settings →
+Backup** in the console:
+
+1. On the source, export a backup. It downloads as plain JSON and contains every
+   provider credential and API-key hash, so treat the file as secret. Export
+   requires the operator's console password.
+2. On the destination, start the new instance against an empty database and wait
+   for `/health/ready` to return `200`. Boot creates the schema and seeds the
+   bundled provider catalog, which the import depends on.
+3. Import the file on the destination. It re-authenticates the same way.
+
+A backup carries a tenant's own configuration and its request telemetry, not the
+shared built-in catalog (the build re-supplies that) and not captured
+prompt/response bodies. Restore replaces the importing tenant's config rows,
+merges telemetry without duplicating it, and cannot touch another tenant's rows.
+It is not a substitute for a database dump.
 
 ## Providers and egress
 

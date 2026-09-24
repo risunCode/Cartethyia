@@ -13,7 +13,7 @@ yarn-error.log
 # Build and distribution
 /build
 /dist
-scripts/build/*.test.ts
+scripts/*.test.ts
 
 # Local dev artifacts: platform-specific proxy binaries (the image downloads
 # its own in the binary-downloader stage) and generated runtime configs.

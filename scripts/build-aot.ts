@@ -20,6 +20,8 @@ interface BuildConfig {
   outdir: string;
   target: string;
   plugins: unknown[];
+  /** Compile-time constant substitution, e.g. baking `process.env.NODE_ENV`. */
+  define: Record<string, string>;
 }
 
 /**
@@ -39,16 +41,42 @@ interface BuildResult {
  */
 export async function buildAOT(
   buildFn: (config: BuildConfig) => Promise<BuildResult> = Bun.build as unknown as (
-    config: BuildConfig,
+    config: BuildConfig
   ) => Promise<BuildResult>,
   exitFn: (code: number) => never = process.exit as unknown as (code: number) => never,
 ): Promise<void> {
+  // Bun bakes `process.env.NODE_ENV` into the output as a literal, so the value
+  // substituted here is the value every consumer of `dist/main.js` sees forever
+  // after. Two things depend on it being `production`:
+  //   - `resolveMigrationsFolder()` reads `<cwd>/migrations` only in production;
+  //     otherwise it resolves relative to `import.meta.dir`, which inside a
+  //     standalone executable is Bun's virtual `/~BUN` root and can never hold
+  //     the migrations, so the binary fails to boot.
+  //   - the logger attaches the `pino-pretty` transport only in development.
+  //     That transport spawns a worker thread that loads `real-require`, which
+  //     is not present in a standalone executable, so a development build
+  //     bundles a logger that crashes on first use.
+  //
+  // Substituted through `define` rather than by assigning `process.env`, because
+  // this module is imported by tests that run in the same process as everything
+  // else — mutating the environment here would flip `NODE_ENV` for every later
+  // suite in that process. `scripts/build-binary.ts` passes the same define.
   try {
     const result = await buildFn({
       entrypoints: ["src/main.ts"],
       outdir: "dist",
       target: "bun",
-      plugins: [aot("src/main.ts")],
+      define: { "process.env.NODE_ENV": JSON.stringify("production") },
+      // `strip: false` keeps the runtime handler JIT reachable. The default
+      // `'auto'` stubs it out whenever its frozen replay proves no route needs
+      // it, but this application registers routes whose handlers are not all
+      // reconstructable from the frozen manifest — with the stub in place, the
+      // first request to such a route throws "handler compiler JIT was stripped
+      // (strip mode) but a route needed runtime compilation" and the listener
+      // never comes up. Stripping also collapses TypeBox, which is what makes a
+      // compiled binary fail on a bare `require("typebox/type")`; keeping the
+      // JIT present keeps TypeBox wired the ordinary way.
+      plugins: [aot("src/main.ts", { strip: false })],
     });
 
     // Treat any diagnostics (warnings or errors) as build failures

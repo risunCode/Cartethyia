@@ -103,6 +103,7 @@ CREATE TABLE "tenant_disabled_models" (
 --> statement-breakpoint
 CREATE TABLE "network_pools" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "kind" "network_pool_kind" NOT NULL,
   "created_at" timestamptz DEFAULT now() NOT NULL,
   "endpoint_config" jsonb NOT NULL,
   "credential_ciphertext" bytea,
@@ -310,6 +311,7 @@ CREATE TABLE "telemetry_events" (
   "status" "telemetry_status",
   "http_status" integer,
   "error_category" text,
+  "error_origin" text,
   "input_tokens" integer,
   "cached_input_tokens" integer,
   "output_tokens" integer,

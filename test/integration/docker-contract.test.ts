@@ -292,15 +292,71 @@ describe("Docker Contract", () => {
     expect(runsAot).toBe(true);
   });
 
-  it("builder stage compiles to binary with bytecode", () => {
+  it("builder stage compiles the AOT output through the shared binary script", () => {
+    // The compile must read `dist/main.js` (the AOT output), never `src/main.ts`.
+    // The AOT plugin rewrites TypeBox into statically wired imports; bundling the
+    // raw source leaves Elysia's lazy `require("typebox/type")` unresolved, and
+    // a standalone executable has no node_modules to resolve it against, so the
+    // binary dies at startup with `Cannot find module 'typebox/type'`.
+    //
+    // It must also go through `scripts/build-binary.ts` rather than a raw
+    // `bun build` line, because that script bakes `NODE_ENV=production` into the
+    // artifact. Without it the binary takes the development branch of
+    // `resolveMigrationsFolder()` (which resolves relative to Bun's virtual
+    // `/~BUN` root and can never hold the migrations) and attaches the
+    // development-only `pino-pretty` transport, whose worker loads `real-require`
+    // and cannot start in a standalone executable.
+    //
+    // This assertion replaces one that *required* `--bytecode`, which is why the
+    // broken command survived: the image was never built locally, and the test
+    // locked the defect in place.
     const builderStage = stages.find((s) => s.name === "builder");
     const runInstructions = builderStage?.instructions.RUN || [];
 
-    const compilesWithBytecode = runInstructions.some(
-      (run) =>
-        run.includes("build --compile") && run.includes("--bytecode") && run.includes("--minify"),
+    const compiles = runInstructions.some((run) => run.includes("build:binary"));
+    expect(compiles).toBe(true);
+
+    const compilesRawSource = runInstructions.some(
+      (run) => run.includes("build --compile") && run.includes("src/main.ts"),
     );
-    expect(compilesWithBytecode).toBe(true);
+    expect(compilesRawSource).toBe(false);
+
+    const usesBytecode = runInstructions.some((run) => run.includes("--bytecode"));
+    expect(usesBytecode).toBe(false);
+  });
+
+  it("builder stage can run the build scripts it invokes", () => {
+    // `build:aot` and `build:binary` are `bun run scripts/...`, so the builder
+    // stage must copy `scripts/`. It previously did not, which meant the image
+    // could not have run either step even once the entrypoint was correct.
+    const builderStage = stages.find((s) => s.name === "builder");
+    const copyInstructions = builderStage?.instructions.COPY || [];
+    const copiesScripts = copyInstructions.some((copy) => /(^|\s)\.?\/?scripts(\s|$)/.test(copy));
+    expect(copiesScripts).toBe(true);
+  });
+
+  it("the image build matches `bun run build`", () => {
+    const builderStage = stages.find((s) => s.name === "builder");
+    const runInstructions = builderStage?.instructions.RUN || [];
+
+    // The image's last three build steps must be the same three the package
+    // script runs, so a native build and an image build cannot diverge.
+    const packageBuild = (
+      JSON.parse(readFileSync(resolve(import.meta.dir, "../../package.json"), "utf8")) as {
+        scripts: Record<string, string>;
+      }
+    ).scripts["build"];
+    expect(packageBuild).toBeDefined();
+    const steps = (packageBuild ?? "").split("&&").map((step) => step.trim());
+    expect(steps).toEqual(["bun run dashboard:build", "bun run build:aot", "bun run build:binary"]);
+
+    for (const step of steps.slice(0, 2)) {
+      expect(runInstructions.some((run) => run.includes(step))).toBe(true);
+    }
+    // The binary step carries an `--outfile` pointing into the builder's dist.
+    expect(
+      runInstructions.some((run) => run.includes("build:binary") && run.includes("--outfile")),
+    ).toBe(true);
   });
 
   it("builder stage installs the locked dependency graph", () => {
