@@ -21,13 +21,13 @@ const typeboxCompileBridge = {
     ) => void;
   }): void {
     build.onLoad(
-      { filter: /[\\/]elysia[\\/]dist[\\/]type[\\/]typebox-value\.js$/ },
+      { filter: /[\\/]elysia[\\/]dist[\\/]type[\\/]validator[\\/]index\.js$/ },
       async ({ path }) => {
         const contents = await Bun.file(path).text();
         return {
-          contents: contents.replace(
-            "SchemaCompile = typebox.schema.Compile",
-            "SchemaCompile = typebox.compile.Compile",
+          contents: contents.replaceAll(
+            "SchemaCompile(this.schema)",
+            "SchemaCompile({}, this.schema)",
           ),
           loader: "js",
         };
@@ -105,7 +105,12 @@ export async function buildAOT(
       // a compiled binary fail on a bare `require("typebox/type")`; keeping the
       // JIT present keeps TypeBox wired the ordinary way.
     });
-
+    const outputPath = "dist/main.js";
+    const outputFile = Bun.file(outputPath);
+    if (await outputFile.exists()) {
+      const output = await outputFile.text();
+      await Bun.write(outputPath, output.replaceAll("Compile2(this.schema)", "Compile2({}, this.schema)"));
+    }
     // Treat any diagnostics (warnings or errors) as build failures
     if (result.logs.length > 0) {
       for (const log of result.logs) {
