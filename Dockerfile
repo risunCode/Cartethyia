@@ -2,7 +2,7 @@
 # Build the backend and dashboard together so the runtime image always serves
 # a matched application/static-assets version.
 
-FROM --platform=linux/amd64 oven/bun:1.4.2-debian@sha256:53710ce0f14eef8312521c586a7ae1d9aeab4011840f09f1966073b68fc2e2ab AS builder
+FROM oven/bun:1.4.2-debian@sha256:53710ce0f14eef8312521c586a7ae1d9aeab4011840f09f1966073b68fc2e2ab AS builder
 
 WORKDIR /build
 
@@ -31,7 +31,7 @@ RUN bun run build:binary --outfile /build/dist/cartethyia
 
 # Runtime stage: only the compiled backend, dashboard output, migrations, and
 # the small health-check/entrypoint toolset are shipped.
-FROM --platform=linux/amd64 debian:bookworm-slim
+FROM debian:bookworm-slim
 
 WORKDIR /app
 
@@ -41,18 +41,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a dedicated non-root runtime identity.
-RUN groupadd -r cartethyia && useradd -r -g cartethyia cartethyia
+RUN groupadd -r cartethyia && useradd -r -g cartethyia cartethyia && \
+    mkdir -p /app/data && chown -R cartethyia:cartethyia /app
 
 COPY --from=builder --chown=cartethyia:cartethyia /build/drizzle/migrations ./migrations
 COPY --from=builder --chown=cartethyia:cartethyia /build/dist/dashboard ./dist/dashboard
 COPY --chmod=755 docker-entrypoint.sh ./entrypoint.sh
 COPY --from=builder --chown=cartethyia:cartethyia /build/dist/cartethyia ./cartethyia
 
-# The application listens on PORT (default 12800 in src/main.ts and
-# .env.example). Docker sets the production runtime contract explicitly.
+# Railway supplies PORT at runtime; the binary uses 12800 only as its fallback.
 ENV CARTETHYIA_VERSION=2.0
 ENV NODE_ENV=production
-ENV PORT=12800
 ENV DASHBOARD_DIST=/app/dist/dashboard
 EXPOSE 12800
 STOPSIGNAL SIGTERM
