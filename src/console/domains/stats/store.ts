@@ -3,7 +3,7 @@ import { and, desc, eq, gte, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../../persistence/postgres";
 import type { RedisClient } from "../../../persistence/redis";
 import { apiKeys, networkPools, telemetryEvents, telemetryPayloads } from "../../../persistence/schema";
-import { decodeCursor as decodeGenericCursor, encodeCursor } from "../../../persistence/page-cursor";
+import { decodeDatedCursor, encodeCursor } from "../../../persistence/page-cursor";
 import { CARTETHYIA_VERSION } from "../../../transport/version";
 import { CachedPreferencesReader, DrizzlePreferencesReader, type PreferencesReader } from "../../../persistence/tenant-preferences";
 import type {
@@ -68,17 +68,6 @@ function effectiveHttpStatusExpression() {
  * row across pages — so we tie-break on id and encode both, matching
  * `DrizzleAuditReadStore`'s cursor.
  */
-interface EventCursor {
-  createdAt: string;
-  id: string;
-}
-
-function decodeEventCursor(cursor: string | undefined): EventCursor | undefined {
-  const parsed = decodeGenericCursor<EventCursor>(cursor);
-  if (!parsed || typeof parsed.createdAt !== "string" || typeof parsed.id !== "string") return undefined;
-  if (Number.isNaN(new Date(parsed.createdAt).getTime())) return undefined;
-  return parsed;
-}
 
 /** Resolves a `usage` period token ("24h", "7d", "30d", "all") to its inclusive start date. */
 function periodStartDate(period: string): Date | undefined {
@@ -638,17 +627,20 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
       ? await resolveProxyLabel(this.db, tenantId, event.networkPoolId)
       : "direct";
     const presented = { ...labeled, proxy };
+    // Filter the payload table directly instead of joining `telemetry_events`
+    // only to re-apply the tenant predicate: `telemetry_payloads` carries
+    // `tenant_id` itself, so the join added a second table's rows to filter for
+    // no additional constraint. This matches `getEvent` above and uses
+    // `telemetry_payloads_tenant_request_idx`.
     const linkedPayloadRows = await this.db
       .select({ payload: telemetryPayloads })
       .from(telemetryPayloads)
-      .innerJoin(
-        telemetryEvents,
+      .where(
         and(
-          eq(telemetryPayloads.requestId, telemetryEvents.requestId),
-          eq(telemetryEvents.tenantId, tenantId),
+          eq(telemetryPayloads.requestId, requestId),
+          eq(telemetryPayloads.tenantId, tenantId),
         ),
       )
-      .where(eq(telemetryPayloads.requestId, requestId))
       .orderBy(desc(telemetryPayloads.capturedAt))
       .limit(1);
     const payloadRow = linkedPayloadRows[0]?.payload;
@@ -677,7 +669,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
     limit: number,
     cursor?: string,
   ): Promise<TelemetryEventListPage> {
-    const before = decodeEventCursor(cursor);
+    const before = decodeDatedCursor(cursor);
     const filters = [eq(telemetryEvents.tenantId, tenantId)];
     if (before) {
       filters.push(

@@ -47,3 +47,29 @@ function copyDecoded<T>(value: unknown): T {
   if (value !== null && typeof value === "object") return { ...(value as object) } as T;
   return value as T;
 }
+
+/** A keyset page boundary: the `(createdAt, id)` pair every listing orders by. */
+export interface DatedCursor {
+  createdAt: string;
+  id: string;
+}
+
+/**
+ * Decodes a `(createdAt, id)` keyset cursor, rejecting anything malformed.
+ *
+ * Both the audit log and the telemetry event listing paginate on the same pair
+ * and both had written the same validation locally — a shape check plus a
+ * parseable timestamp. It lives here so the two listings cannot drift: a cursor
+ * the audit store accepts must be one the stats store accepts.
+ *
+ * Deliberately not generic over `T extends DatedCursor`: a caller could then
+ * instantiate it with a wider type and read fields that were never validated.
+ */
+export function decodeDatedCursor(cursor: string | undefined): DatedCursor | undefined {
+  const parsed = decodeCursor<DatedCursor>(cursor);
+  if (!parsed || typeof parsed.createdAt !== "string" || typeof parsed.id !== "string") {
+    return undefined;
+  }
+  if (Number.isNaN(new Date(parsed.createdAt).getTime())) return undefined;
+  return parsed;
+}

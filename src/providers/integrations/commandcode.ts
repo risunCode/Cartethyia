@@ -4,6 +4,7 @@ import { GatewayError } from "../../transport/gateway-error";
 import { canContainToolResult, joinTextParts, toolCallParts, toolResultParts } from "../../transport/canonical-model";
 import { mapUpstreamHttpError } from "../../transport/failure-policy";
 import type { CanonicalEvent, CanonicalRequest, CanonicalStopReason } from "../../transport/canonical-model";
+import { readNumber, readString } from "../../protocol/primitives";
 import { normalizeUsage } from "../usage";
 import { readCredentialSecret, type ProviderDispatchTarget, type ProviderAdapter, type ProviderDispatchContext } from "../provider-registry";
 import { providerBaseUrl } from "../provider-metadata";
@@ -140,15 +141,6 @@ export async function headers(sessionId: string, token: string): Promise<Record<
 
 type StreamState = { toolIndexById: Map<string, number>; nextToolIndex: number; finishReason: string | undefined; usage: Record<string, unknown> | undefined };
 
-function ccEventString(event: Record<string, unknown>, key: string): string | undefined {
-  const v = event[key];
-  return typeof v === "string" ? v : undefined;
-}
-function ccEventNumber(record: Record<string, unknown>, key: string): number | undefined {
-  const v = record[key];
-  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
-}
-
 export function ccMapFinishReason(reason: string): CanonicalStopReason {
   return reason === "length" ? "length" : reason === "tool_calls" ? "tool_use" : reason === "content_filter" ? "content_filter" : "stop";
 }
@@ -160,57 +152,57 @@ export function transformLine(line: string, state: StreamState, seqBase: number)
   } catch {
     return [];
   }
-  const type = ccEventString(event, "type");
+  const type = readString(event, "type");
   if (!type) return [];
   if (type === "text-delta" || type === "reasoning-delta") {
-    const text = ccEventString(event, "text") || ccEventString(event, "delta");
+    const text = readString(event, "text") || readString(event, "delta");
     return text ? [{ type: "content_delta", sequence_number: seqBase, content: { kind: "text", text } } as CanonicalEvent] : [];
   }
   if (type === "tool-input-start") {
-    const id = ccEventString(event, "id") || ccEventString(event, "toolCallId");
+    const id = readString(event, "id") || readString(event, "toolCallId");
     if (!id || state.toolIndexById.has(id)) return [];
     state.toolIndexById.set(id, state.nextToolIndex++);
-    return [{ type: "tool_call_delta", sequence_number: seqBase, call_id: id, name: ccEventString(event, "toolName") ?? "", arguments_delta: "" } as CanonicalEvent];
+    return [{ type: "tool_call_delta", sequence_number: seqBase, call_id: id, name: readString(event, "toolName") ?? "", arguments_delta: "" } as CanonicalEvent];
   }
   if (type === "tool-input-delta") {
-    const id = ccEventString(event, "id") || ccEventString(event, "toolCallId");
-    const delta = ccEventString(event, "delta") || ccEventString(event, "inputTextDelta");
+    const id = readString(event, "id") || readString(event, "toolCallId");
+    const delta = readString(event, "delta") || readString(event, "inputTextDelta");
     if (!id || !delta || !state.toolIndexById.has(id)) return [];
     return [{ type: "tool_call_delta", sequence_number: seqBase, call_id: id, arguments_delta: delta } as CanonicalEvent];
   }
   if (type === "tool-call") {
-    const id = ccEventString(event, "toolCallId");
+    const id = readString(event, "toolCallId");
     if (!id || state.toolIndexById.has(id)) return [];
     state.toolIndexById.set(id, state.nextToolIndex++);
     const input = typeof event["input"] === "string" ? (event["input"] as string) : JSON.stringify(event["input"] ?? {});
     return [
-      { type: "tool_call_delta", sequence_number: seqBase, call_id: id, name: ccEventString(event, "toolName") ?? "", arguments_delta: "" } as CanonicalEvent,
+      { type: "tool_call_delta", sequence_number: seqBase, call_id: id, name: readString(event, "toolName") ?? "", arguments_delta: "" } as CanonicalEvent,
       { type: "tool_call_delta", sequence_number: seqBase + 1, call_id: id, arguments_delta: input } as CanonicalEvent,
     ];
   }
   if (type === "finish-step") {
-    const reason = ccEventString(event, "finishReason");
+    const reason = readString(event, "finishReason");
     if (reason) state.finishReason = reason;
     if (typeof event["usage"] === "object" && event["usage"] !== null && !Array.isArray(event["usage"])) state.usage = event["usage"] as Record<string, unknown>;
     return [];
   }
   if (type === "finish") {
-    const reason = state.finishReason ?? ccEventString(event, "finishReason") ?? "stop";
+    const reason = state.finishReason ?? readString(event, "finishReason") ?? "stop";
     const canonicalReason = ccMapFinishReason(reason);
     const events: CanonicalEvent[] = [
       { type: "terminal", sequence_number: seqBase, state: "complete", stop_reason: canonicalReason, provider_stop_reason: reason } as CanonicalEvent,
     ];
     if (state.usage) {
-      const prompt = ccEventNumber(state.usage, "promptTokens") ?? ccEventNumber(state.usage, "inputTokens") ?? 0;
-      const completion = ccEventNumber(state.usage, "completionTokens") ?? ccEventNumber(state.usage, "outputTokens") ?? 0;
-      const total = ccEventNumber(state.usage, "totalTokens") ?? prompt + completion;
-      const cached = ccEventNumber(state.usage, "cachedTokens") ?? ccEventNumber(state.usage, "cacheReadTokens") ?? 0;
+      const prompt = readNumber(state.usage, "promptTokens") ?? readNumber(state.usage, "inputTokens") ?? 0;
+      const completion = readNumber(state.usage, "completionTokens") ?? readNumber(state.usage, "outputTokens") ?? 0;
+      const total = readNumber(state.usage, "totalTokens") ?? prompt + completion;
+      const cached = readNumber(state.usage, "cachedTokens") ?? readNumber(state.usage, "cacheReadTokens") ?? 0;
       const usageRecord = normalizeUsage({
         input_tokens: prompt,
         output_tokens: completion,
         total_tokens: total,
         cached_tokens: cached,
-        cache_creation_input_tokens: ccEventNumber(state.usage, "cacheWriteTokens") ?? undefined,
+        cache_creation_input_tokens: readNumber(state.usage, "cacheWriteTokens") ?? undefined,
       } as unknown as Record<string, unknown>);
       // Append usage to terminal
       (events[0] as unknown as Record<string, unknown>)["usage"] = usageRecord;

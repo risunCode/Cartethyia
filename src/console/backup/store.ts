@@ -244,18 +244,33 @@ async function existingTelemetryKeys(
   db: CartethyiaDatabase,
   rows: readonly BackupRow[],
 ): Promise<Set<string>> {
-  const tenantIds = [
-    ...new Set(rows.map((row) => row.tenant_id).filter((id): id is string => typeof id === "string")),
+  const requestIds = [
+    ...new Set(
+      rows.map((row) => row.request_id).filter((id): id is string => typeof id === "string"),
+    ),
   ];
-  if (tenantIds.length === 0) return new Set();
-  const existing = await db
-    .select({
-      tenantId: telemetryEvents.tenantId,
-      requestId: telemetryEvents.requestId,
-      createdAt: sql<string>`to_char(${telemetryEvents.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
-    })
-    .from(telemetryEvents)
-    .where(inArray(telemetryEvents.tenantId, tenantIds));
+  if (requestIds.length === 0) return new Set();
+  // Scope the read to the rows being restored instead of loading the tenant's
+  // whole retained history. An unfiltered read grows with the tenant's
+  // telemetry, so a restore into a long-lived database fetched far more than it
+  // compared — and the request ids are what identify the rows anyway. Chunked
+  // to stay under the protocol's bind-parameter limit; served by
+  // `telemetry_events_request_id_idx`.
+  const CHUNK = 1000;
+  const existing: Array<{ tenantId: string; requestId: string; createdAt: string }> = [];
+  for (let offset = 0; offset < requestIds.length; offset += CHUNK) {
+    const chunk = requestIds.slice(offset, offset + CHUNK);
+    existing.push(
+      ...(await db
+        .select({
+          tenantId: telemetryEvents.tenantId,
+          requestId: telemetryEvents.requestId,
+          createdAt: sql<string>`to_char(${telemetryEvents.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+        })
+        .from(telemetryEvents)
+        .where(inArray(telemetryEvents.requestId, chunk))),
+    );
+  }
   return new Set(existing.map((row) => `${row.tenantId}\u0000${row.requestId}\u0000${row.createdAt}`));
 }
 

@@ -2,7 +2,7 @@ import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { globalOrOwnedBy, ownedByOnly } from "../../../persistence/tenant-scope";
 import type { CartethyiaDatabase } from "../../../persistence/postgres";
 import { adminAuditLog, consoleUsers } from "../../../persistence/schema";
-import { decodeCursor as decodeGenericCursor, encodeCursor } from "../../../persistence/page-cursor";
+import { decodeDatedCursor, encodeCursor } from "../../../persistence/page-cursor";
 import type { AuditEntry, AuditListPage, AuditReadStore } from "./contracts";
 
 /**
@@ -10,17 +10,6 @@ import type { AuditEntry, AuditListPage, AuditReadStore } from "./contracts";
  * — two audits in the same millisecond would silently skip one row across
  * pages — so we tie-break on id and encode both.
  */
-interface AuditCursor {
-  createdAt: string;
-  id: string;
-}
-
-function decodeCursor(cursor: string | undefined): AuditCursor | undefined {
-  const parsed = decodeGenericCursor<AuditCursor>(cursor);
-  if (!parsed || typeof parsed.createdAt !== "string" || typeof parsed.id !== "string") return undefined;
-  if (Number.isNaN(new Date(parsed.createdAt).getTime())) return undefined;
-  return parsed;
-}
 
 function mapAuditRow(
   row: typeof adminAuditLog.$inferSelect,
@@ -111,7 +100,7 @@ export class DrizzleAuditReadStore implements AuditReadStore {
     action?: string;
     actor?: string;
   }): Promise<AuditListPage> {
-    const cursor = decodeCursor(params.cursor);
+    const cursor = decodeDatedCursor(params.cursor);
     const tenantFilter = params.platformAdmin
       ? globalOrOwnedBy(adminAuditLog.tenantId, params.tenantId)
       : ownedByOnly(adminAuditLog.tenantId, params.tenantId);
