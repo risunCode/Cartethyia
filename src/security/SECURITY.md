@@ -139,9 +139,16 @@ request or response payloads.
 - Admission: 60 s RPM window; lease TTL 1 h; lifetime reconciled to Postgres.
 - Redis keys: `admission:rpm|daily|monthly|lifetime|concurrent:<key>[:bucket]`,
   `admission:lease:<reservationId>`, `admission:tenant_concurrent:<tenant>`,
-  `cartethyia:ip:<identity>:<route>`, `cartethyia:ip:ban:<identity>`.
-  All scripted calls are static Lua (no dynamic eval) with finite-number
-  result guards (`redisEvalNumber`).
+  `admission:inflight:<provider:model:account>`,
+  `cartethyia:ip:<identity>:<route>`, `cartethyia:ip:ban-count:<identity>`,
+  `cartethyia:ip:ban:<identity>`, `proxy:inflight:<poolId>`,
+  `proxy:cooldown:<poolId>:<providerId>`, `proxy:cooldown:providers:<poolId>`.
+  Every one carries a TTL. The per-IP admission step is a single static Lua
+  script over its three keys, so an admitted `/v1` request costs one round trip
+  and a banned one costs one; the two counters stay separate (admission per
+  route for fairness, escalation per identity so rotating the path cannot dodge
+  the ban). All scripted calls are static Lua (no dynamic eval) with
+  finite-number result guards (`redisEvalNumber` / `redisEvalTuple`).
 
 ## How to extend
 

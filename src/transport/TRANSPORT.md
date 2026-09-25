@@ -291,7 +291,9 @@ serving `rotateCount` requests per account before advancing. Applies per provide
 Every routing snapshot carries `rotateCount`; legacy snapshots normalize to `1` at the snapshot boundary.
 
 **Admission and leases.** `InMemoryAdmissionController` / `RedisAdmissionController` keep per-account inflight buckets
-(`provider:model:account`) with 60s TTL self-heal on Redis. Both read the same three-way ceiling from `admissionDirective`
+(`provider:model:account`) with a crash-recovery TTL on Redis derived by `resolveInflightTtlSeconds()` from the upstream
+deadline plus the stream stall budget (600s at the defaults) — the same bound the network-pool selector uses, since both
+hold a slot for the same request duration. Both read the same three-way ceiling from `admissionDirective`
 (absent → unlimited, `<= 0` → reject, at the ceiling → reject) and reject through the same `capacityRejected`, so only the
 counter comparison differs by back end. `ReservationManager` is an in-memory lease store with a lazy 30s sweep. `reserve()` admits candidates in plan order; exhaustion throws `capacityExhaustedError`. `release()` drops both
 admission count and lease.

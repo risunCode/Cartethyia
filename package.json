@@ -26,6 +26,7 @@
     "dashboard:dev": "bun run --cwd dashboard dev",
     "check:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage && bun run scripts/ci-check-coverage.ts",
     "dashboard:test": "bun run --cwd dashboard test",
+    "test": "bun run scripts/ops-run-tests.ts",
     "test:contracts": "bun run scripts/ops-run-tests.ts test/contracts",
     "dashboard:build": "bun run --cwd dashboard build",
     "test:integration": "bun run scripts/ops-run-tests.ts test/integration",
