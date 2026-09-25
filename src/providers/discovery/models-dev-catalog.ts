@@ -48,6 +48,16 @@ const UNKNOWN_COST: ModelsDevModelCost = {
   pricing_model: "unknown",
 };
 
+/**
+ * Removes a trailing release date from a model id, in either spelling the
+ * catalog uses: `-YYYY-MM-DD` (`gpt-4o-2024-11-20`) or `-YYYYMMDD`
+ * (`claude-haiku-4-5-20251001`). A dated snapshot bills the same rate as the
+ * model it snapshots, so both forms must reach the same row.
+ */
+function stripDateSuffix(modelId: string): string {
+  return modelId.replace(/-\d{4}-\d{2}-\d{2}$/, "").replace(/-\d{8}$/, "");
+}
+
 function pricingModel(cost: BaseModelRow["cost"]): ModelsDevModelCost["pricing_model"] {
   return cost.input !== null || cost.output !== null ? "pay-per-use" : "unknown";
 }
@@ -204,6 +214,16 @@ export class ModelsDevCatalog {
       }
       if (winner) this.globalCostMap.set(bareId, winner.cost);
     }
+    // A dated snapshot is the same model at the same rate, and callers may ask
+    // for either spelling. Seed the undated form too, without letting it
+    // override a rate already recorded for that exact id: the catalog's own
+    // undated row (when it has one) stays authoritative.
+    for (const [bareId, cost] of [...this.globalCostMap]) {
+      const undated = stripDateSuffix(bareId);
+      if (undated !== bareId && !this.globalCostMap.has(undated)) {
+        this.globalCostMap.set(undated, cost);
+      }
+    }
   }
 
   /**
@@ -235,7 +255,7 @@ export class ModelsDevCatalog {
       : normalizedModel;
     const bare = this.unambiguousBare(bareId);
     if (bare) return bare;
-    const strippedDate = bareId.replace(/-\d{4}-\d{2}-\d{2}$/, "");
+    const strippedDate = stripDateSuffix(bareId);
     return strippedDate === bareId ? undefined : this.unambiguousBare(strippedDate);
   }
 
@@ -277,7 +297,10 @@ export class ModelsDevCatalog {
     const bareId = normalized.includes("/")
       ? normalized.slice(normalized.indexOf("/") + 1)
       : normalized;
-    return this.globalCostMap.get(bareId) ?? own ?? UNKNOWN_COST;
+    // The global index carries both spellings of a dated id (see the
+    // constructor), so one lookup answers either.
+    const global = this.globalCostMap.get(bareId);
+    return global ?? own ?? UNKNOWN_COST;
   }
 }
 

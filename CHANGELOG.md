@@ -23,10 +23,13 @@ wrong for cost: a paid model billed as free understates spend and hides it from
 the operator. `costFor` now falls back to the rate the catalog records for the
 model itself, whichever provider filed it, with the most frequently published
 price winning and a tie resolving to the dearer rate so a free-tier row cannot
-make a paid model look free. Metadata stays provider-specific and fail-closed.
-This took unpriced models across the bundled providers from 286 to 52; the 52
-remaining are ids the catalog does not price at all (`qoder` internal codenames,
-`perplexity-search`), which stay unknown.
+make a paid model look free. A dated snapshot also reaches the undated rate
+(`claude-3-7-sonnet-20250219` → `claude-3-7-sonnet`), since a snapshot bills the
+model it snapshots. Metadata stays provider-specific and fail-closed.
+This took unpriced models across the bundled providers from 286 to 50; the 50
+remaining are ids models.dev does not list at all (`qoder` internal codenames,
+`cursor` `default`/`composer-*`, `perplexity-search`), which stay unknown and
+count toward the console's `partial` flag.
 
 ### An unpriced turn is `null`, not a measured `$0.00`
 

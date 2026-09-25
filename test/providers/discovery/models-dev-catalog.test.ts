@@ -149,6 +149,17 @@ describe("provider id mapping", () => {
     expect(grok.output).not.toBeNull();
   });
 
+  test("an undated id reaches the rate filed under its dated snapshot", () => {
+    // The catalog files this model only under its dated id, and `resolve` has
+    // no undated row to fall back to, so the undated spelling is reachable
+    // solely through the global index seeding both forms. A snapshot bills the
+    // same rate as the model it snapshots.
+    const dated = modelsDevCatalog.costFor("anthropic", "claude-3-7-sonnet-20250219");
+    const undated = modelsDevCatalog.costFor("anthropic", "claude-3-7-sonnet");
+    expect(dated.input).not.toBeNull();
+    expect(undated).toMatchObject({ input: dated.input, output: dated.output });
+  });
+
   test("a model with no price anywhere stays unknown", () => {
     // `perplexity-search` is not a model the catalog prices at all; the honest
     // answer is unknown, which the console reports as `partial`.
