@@ -96,6 +96,56 @@ describe("repriceUsage", () => {
     const usage = normalizeUsage({ prompt_tokens: 100, completion_tokens: 10 });
     expect(repriceUsage(usage, "unknown", "unknown-model").estimated_cost).toBe(0);
   });
+
+  test("prices the input side when the upstream reported no cache breakdown", () => {
+    // The common case: a plain OpenAI-compatible response with no cache
+    // details. `uncached_input_tokens` is then `"unavailable"`, and reading it
+    // as zero priced only the output — a million prompt tokens cost nothing.
+    const usage = normalizeUsage({ prompt_tokens: 1_000_000, completion_tokens: 500_000 });
+    expect(usage.uncached_input_tokens).toBe("unavailable");
+
+    const repriced = repriceUsage(usage, "openai", "gpt-4o");
+    const catalog = modelsDevCatalog.costFor("openai", "gpt-4o");
+    const expected =
+      (1_000_000 * (catalog.input ?? 0) + 500_000 * (catalog.output ?? 0)) / 1_000_000;
+    expect(expected).toBeGreaterThan(0);
+    expect(repriced.estimated_cost).toBeCloseTo(expected, 12);
+    // Guard against the regression specifically: output-only pricing is half.
+    expect(repriced.estimated_cost).toBeGreaterThan((500_000 * (catalog.output ?? 0)) / 1_000_000);
+  });
+
+  test("a cache-less turn prices the same as an explicitly all-uncached record", () => {
+    // `uncached_input_tokens` unavailable and an explicit uncached count of the
+    // same size describe the same billing; both must price identically. The
+    // explicit side is the shape the dispatch estimate produces.
+    const implicit = normalizeUsage({ prompt_tokens: 1000, completion_tokens: 100 });
+    expect(implicit.uncached_input_tokens).toBe("unavailable");
+    const explicit: typeof implicit = {
+      ...implicit,
+      uncached_input_tokens: 1000,
+    };
+    expect(repriceUsage(implicit, "openai", "gpt-4o").estimated_cost).toBe(
+      repriceUsage(explicit, "openai", "gpt-4o").estimated_cost,
+    );
+  });
+
+  test("a cached turn still bills the cached portion at the cache rate", () => {
+    // The input fallback must not shadow a real cache breakdown.
+    const usage = normalizeUsage({
+      prompt_tokens: 1000,
+      prompt_tokens_details: { cached_tokens: 600 },
+      completion_tokens: 100,
+    });
+    expect(usage.uncached_input_tokens).toBe(400);
+    const repriced = repriceUsage(usage, "openai", "gpt-4o");
+    const catalog = modelsDevCatalog.costFor("openai", "gpt-4o");
+    const expected =
+      (400 * (catalog.input ?? 0) +
+        600 * (catalog.cache_read ?? catalog.input ?? 0) +
+        100 * (catalog.output ?? 0)) /
+      1_000_000;
+    expect(repriced.estimated_cost).toBeCloseTo(expected, 12);
+  });
 });
 describe("usage-to-wire builders (E1)", () => {
   const full: UsageRecord = {

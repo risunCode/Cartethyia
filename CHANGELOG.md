@@ -5,6 +5,38 @@
 > All changes below are pre-release. Cartethyia has not been tagged or
 > released; this document reflects the current production codebase architecture and capabilities.
 
+### Usage cost now prices the input side
+
+`calculateEstimatedCost` accepted an `inputTokens` field it never read, so the
+input rate was applied only through `uncached_input_tokens` — which is
+`"unavailable"` whenever the upstream reported no cache breakdown, the common
+case. Every cache-less turn therefore priced its output alone: a million prompt
+tokens on `gpt-4o` recorded $5 instead of $7.50. The uncached count now falls
+back to `inputTokens` when the breakdown is absent, while a real cache
+breakdown still bills cached and uncached at their own rates.
+
+### Claude and Gemini models are priced again
+
+The billing catalog resolves pricing through an exact `provider:model` key, and
+two bundled providers filed under a different key than their runtime id. `claude`
+(display name "Claude Code") declares the same `baseUrl` as `anthropic` —
+`https://api.anthropic.com` — and `gemini` declares Google's own
+`generativelanguage.googleapis.com`; both are the same upstream as their catalog
+key, not look-alikes. Neither was mapped, so the exact lookup missed and the bare
+fallback failed closed on disagreement: **15 of 16 Claude models and 5 of 6
+Gemini models priced at zero**. Both are now mapped, with the reseller-style
+gateways (`codex`, `grok`, `antigravity`, `cb`, `qoder`, `commandcode`,
+`inferhub`, `tokenharbor`) still deliberately absent — a shared model id is not
+proof of a shared price.
+
+### Responses compaction records a real cost
+
+The native Responses-compact route committed `estimatedUsage(...)` without
+repricing it, so every compaction recorded `estimated_cost: 0`. It now runs the
+estimate through `repriceUsage` against the routed model, like the other dispatch
+paths, and the `TRANSPORT.md` note that claimed it "deliberately keeps the
+estimate" is corrected.
+
 ### Abuse admission costs one Redis round trip per request
 
 The per-IP abuse check read the ban, incremented the route window, and

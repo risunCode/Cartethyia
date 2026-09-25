@@ -13,6 +13,7 @@ import { ProxyRequestPreparer } from "../request/preparer";
 import { isModelAllowed } from "../../security/api-key-auth";
 import type { CodexCompactAdapter } from "../../providers/integrations/codex/codex";
 import { completeAttempt, estimatedUsage } from "./attempt-finalize";
+import { repriceUsage } from "../../providers/usage";
 import { runAttemptLoop } from "./attempt-loop";
 
 /**
@@ -130,7 +131,11 @@ export function createResponsesCompactHandler(deps: ResponsesCompactHandlerDeps)
               }
             : {}),
         });
-        const usage = estimatedUsage(prepared.estimatedInputTokens, prepared.estimatedOutputTokens);
+        const usage = repriceUsage(
+          estimatedUsage(prepared.estimatedInputTokens, prepared.estimatedOutputTokens),
+          candidate.provider_id,
+          candidate.model_id,
+        );
         await completeAttempt(state, {
           status: "completed",
           providerId: candidate.provider_id,

@@ -111,4 +111,43 @@ describe("provider id mapping", () => {
     // keep the caller's declared limits, never another reseller's.
     expect(modelsDevCatalog.resolve("workbuddy", "claude-opus-4-6")).toBeUndefined();
   });
+
+  test("claude and gemini resolve through their same-upstream catalog key", () => {
+    // Both providers are the same upstream as their catalog key, not
+    // look-alikes: `claude` and `anthropic` declare one `baseUrl`
+    // (api.anthropic.com), and `gemini` declares Google's own
+    // generativelanguage endpoint whose ids the catalog files under `google`.
+    // Before these mappings every model on both priced at zero.
+    expect(modelsDevCatalog.costFor("claude", "claude-sonnet-4-6")).toMatchObject({
+      input: 3,
+      output: 15,
+    });
+    expect(modelsDevCatalog.costFor("gemini", "gemini-2.5-pro")).toMatchObject({
+      input: 1.25,
+      output: 10,
+    });
+    // The mapping must agree with the row's own provider, not invent one.
+    expect(modelsDevCatalog.costFor("claude", "claude-sonnet-4-6")).toEqual(
+      modelsDevCatalog.costFor("anthropic", "claude-sonnet-4-6"),
+    );
+    expect(modelsDevCatalog.costFor("gemini", "gemini-2.5-pro")).toEqual(
+      modelsDevCatalog.costFor("google", "gemini-2.5-pro"),
+    );
+  });
+
+  test("reseller gateways keep borrowing nothing despite shared model ids", () => {
+    // `antigravity`, `codex`, and `grok` serve their own upstreams, so a
+    // catalog row under a different provider is not evidence of their price.
+    // Mapping them on id similarity is exactly what this catalog forbids.
+    for (const [provider, model] of [
+      ["antigravity", "claude-sonnet-4-5"],
+      ["codex", "gpt-5.5"],
+      ["grok", "grok-4.7"],
+    ] as const) {
+      expect(modelsDevCatalog.costFor(provider, model)).toMatchObject({
+        input: null,
+        output: null,
+      });
+    }
+  });
 });

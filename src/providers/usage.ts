@@ -72,7 +72,15 @@ interface UsageCostBasis {
 function calculateEstimatedCost(basis: UsageCostBasis, rawCost: unknown): number | undefined {
   const multipliers = extractCostMultipliers(rawCost);
   if (!multipliers) return undefined;
-  const uncached = Math.max(0, typeof basis.uncachedInputTokens === "number" ? basis.uncachedInputTokens : 0);
+  // Input that is not cached costs the full input rate. `uncachedInputTokens`
+  // is `"unavailable"` whenever the upstream reported no cache breakdown — the
+  // common case — so falling back to `inputTokens` is what keeps the input side
+  // priced at all. Without it every non-Anthropic, cache-less response priced
+  // only its output: a million prompt tokens contributed zero.
+  const uncached =
+    typeof basis.uncachedInputTokens === "number"
+      ? Math.max(0, basis.uncachedInputTokens)
+      : Math.max(0, basis.inputTokens);
   const cached = typeof basis.cachedInputTokens === "number" ? basis.cachedInputTokens : 0;
   const writes = typeof basis.cacheWriteTokens === "number" ? basis.cacheWriteTokens : 0;
   const reasoning = typeof basis.reasoningTokens === "number" ? basis.reasoningTokens : 0;

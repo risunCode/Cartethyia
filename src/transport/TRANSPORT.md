@@ -387,8 +387,9 @@ usage commit (`commitUsage`, estimated on intermediate failover attempts, real o
 (`reportAttemptOutcome` with `classifyUpstreamFailure` evidence; cancelled attempts write no health), terminal-only payload
 capture (settings-gated, bounded, never throws) and telemetry finalization. Terminal usage is repriced at the dispatch call
 sites through `repriceUsage(usage, providerId, modelId)` against the *routed* provider/model, so the committed cost reflects
-the route that served the request rather than the requested alias; the native Responses-compact route deliberately keeps the
-estimate instead. The `state.completed` idempotency guard guarantees
+the route that served the request rather than the requested alias. The native Responses-compact route prices its estimate
+the same way — it has no upstream usage frame, but the estimate must still be repriced against the routed model, or every
+compaction recorded `estimated_cost: 0`. The `state.completed` idempotency guard guarantees
 one telemetry row per request however many candidates ran. Pool-cooldown flagging, metrics, encoding, and refresh decisions
 stay at the call sites — retry policy, not bookkeeping.
 

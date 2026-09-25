@@ -81,14 +81,30 @@ function toMetadata(row: BaseModelRow): ModelsDevModelMetadata {
  * to the bare lookup — which fails closed when providers disagree — and the
  * entry was published with invented defaults.
  *
+ * `claude` and `gemini` are here on the same evidence: each is the *same
+ * upstream* as its catalog key, not a look-alike id. `claude` and `anthropic`
+ * both declare `baseUrl: https://api.anthropic.com` (provider-metadata.ts) and
+ * serve the Messages wire — the [CC] impersonation adapter and the plain
+ * API-key adapter are two credential paths to one API. `gemini` declares
+ * `https://generativelanguage.googleapis.com`, Google's own Gemini endpoint,
+ * and its runtime ids (`gemini-2.5-pro`, `gemini-3-flash-preview`, ...) are
+ * exactly the ids the catalog files under `google`. Before these two entries
+ * every model on both providers priced at zero.
+ *
  * Deliberately absent: providers with no models.dev counterpart (a private
  * gateway, a BYOK endpoint) and any id whose match rests on model ids alone.
  * A shared model id is not proof of identity — the same generic id appears
  * under hundreds of resellers — so a guess here would attribute a stranger's
  * limits to this gateway's serving, which is the exact failure this catalog's
- * disagreement rule exists to prevent.
+ * disagreement rule exists to prevent. That is why reseller-style ids (`codex`
+ * on chatgpt.com, `grok` on xAI's CLI proxy, `antigravity` on Cloud Code,
+ * `cb`/`cbcn`/`workbuddy`/`qoder`/`commandcode`/`inferhub`/`tokenharbor` on
+ * their own gateways) are still absent even though many of their model ids
+ * appear elsewhere in the catalog: the upstream differs, so the price may too.
  */
 const MODELS_DEV_PROVIDER_IDS: Readonly<Record<string, string>> = {
+  claude: "anthropic",
+  gemini: "google",
   opencodeft: "opencode",
   opencodezen: "opencode",
   opencodego: "opencode-go",
