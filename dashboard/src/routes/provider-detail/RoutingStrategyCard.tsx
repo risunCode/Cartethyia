@@ -37,96 +37,94 @@ export function RoutingStrategyCard({ providerId }: { readonly providerId: strin
         icon={<Layers size={16} />}
       />
       <CardBody>
-        <Stack gap="10px">
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "12px",
-              padding: "10px 12px",
-              borderRadius: "10px",
-              border: "1px solid var(--inner-border)",
-            }}
-          >
-            <Inline gap="8px">
-              <div>
-                <label htmlFor="routing-round-robin">
-                  <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
-                    <Repeat
-                      size={15}
-                      aria-hidden="true"
-                      style={{ color: routing.roundRobinEnabled ? "var(--accent)" : "var(--text-tertiary)", flexShrink: 0 }}
-                    />
-                    Round robin
-                  </Inline>
-                </label>
-                <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
-                  Off = failover: use accounts in priority order, fall through on failure. On = rotate
-                  requests across this provider's accounts.
-                </div>
-              </div>
-            </Inline>
-            <Switch
-              checked={routing.roundRobinEnabled}
-              onChange={routing.setRoundRobinEnabled}
-              id="routing-round-robin"
-            />
-          </div>
-
-          {routing.roundRobinEnabled ? (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr auto",
-                alignItems: "center",
-                gap: "12px",
-                padding: "10px 12px",
-                borderRadius: "10px",
-                border: "1px solid var(--inner-border)",
-              }}
-            >
-              <div>
-                <label htmlFor="routing-rotate-count" style={{ fontSize: "13px", fontWeight: 600 }}>
-                  Accounts per rotation
-                </label>
-                <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
-                  Requests served by one account before the rotation advances
-                </div>
-                <input
-                  id="routing-rotate-count"
-                  type="range"
-                  min={1}
-                  max={10}
-                  step={1}
-                  value={Math.min(10, routing.rotateCount)}
-                  onChange={(event) => {
-                    const value = Number(event.target.value);
-                    if (Number.isFinite(value)) routing.setRotateCount(Math.min(1000, Math.max(1, Math.round(value))));
-                  }}
-                  style={{ width: "100%", marginTop: "8px" }}
+        <div className="routing-strategy-grid">
+          <div className="routing-strategy-main">
+            <Stack gap="10px">
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  padding: "10px 12px",
+                  borderRadius: "10px",
+                  border: "1px solid var(--inner-border)",
+                }}
+              >
+                <Inline gap="8px">
+                  <div>
+                    <label htmlFor="routing-round-robin">
+                      <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
+                        <Repeat
+                          size={15}
+                          aria-hidden="true"
+                          style={{ color: routing.roundRobinEnabled ? "var(--accent)" : "var(--text-tertiary)", flexShrink: 0 }}
+                        />
+                        Round robin
+                      </Inline>
+                    </label>
+                    <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                      Off = failover: use accounts in priority order, fall through on failure. On = rotate
+                      requests across this provider's accounts.
+                    </div>
+                  </div>
+                </Inline>
+                <Switch
+                  checked={routing.roundRobinEnabled}
+                  onChange={routing.setRoundRobinEnabled}
+                  id="routing-round-robin"
                 />
               </div>
-              <Input
-                label="Accounts"
-                type="number"
-                min={1}
-                max={1000}
-                value={String(routing.rotateCount)}
-                onChange={(event) => {
-                  const value = Number(event.target.value);
-                  if (Number.isFinite(value)) routing.setRotateCount(Math.min(1000, Math.max(1, Math.round(value))));
-                }}
-              />
-            </div>
-          ) : null}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-              gap: "10px",
-            }}
-          >
+
+              {routing.roundRobinEnabled ? (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto",
+                    alignItems: "center",
+                    gap: "12px",
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    border: "1px solid var(--inner-border)",
+                  }}
+                >
+                  <div>
+                    <label htmlFor="routing-rotate-count" style={{ fontSize: "13px", fontWeight: 600 }}>
+                      Accounts per rotation
+                    </label>
+                    <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                      Requests served by one account before the rotation advances
+                    </div>
+                    <input
+                      id="routing-rotate-count"
+                      type="range"
+                      min={1}
+                      max={10}
+                      step={1}
+                      value={Math.min(10, routing.rotateCount)}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+                        if (Number.isFinite(value)) routing.setRotateCount(Math.min(1000, Math.max(1, Math.round(value))));
+                      }}
+                      style={{ width: "100%", marginTop: "8px" }}
+                    />
+                  </div>
+                  <Input
+                    label="Accounts"
+                    type="number"
+                    min={1}
+                    max={1000}
+                    value={String(routing.rotateCount)}
+                    onChange={(event) => {
+                      const value = Number(event.target.value);
+                      if (Number.isFinite(value)) routing.setRotateCount(Math.min(1000, Math.max(1, Math.round(value))));
+                    }}
+                  />
+                </div>
+              ) : null}
+            </Stack>
+          </div>
+          <div className="routing-strategy-side">
             <Input
               label="Max inflight / account"
               type="number"
@@ -144,9 +142,10 @@ export function RoutingStrategyCard({ providerId }: { readonly providerId: strin
                 if (!Number.isFinite(parsed)) return;
                 routing.setMaxInflight(Math.min(10000, Math.max(1, Math.round(parsed))));
               }}
-              hint="Per-account concurrency ceiling; empty = unlimited"
+              hint="Shared provider ceiling; empty = unlimited"
             />
           </div>
+        </div>
 
           <div
             style={{
@@ -157,6 +156,7 @@ export function RoutingStrategyCard({ providerId }: { readonly providerId: strin
               padding: "10px 12px",
               borderRadius: "10px",
               border: "1px solid var(--inner-border)",
+              marginTop: "10px",
             }}
           >
             <Inline gap="8px">
@@ -184,7 +184,7 @@ export function RoutingStrategyCard({ providerId }: { readonly providerId: strin
           </div>
 
           {showUnsupportedHint && (
-                <Inline gap="6px" align="flex-start" style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                <Inline gap="6px" align="flex-start" style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "10px" }}>
               <Info size={12} style={{ flexShrink: 0, marginTop: "1px" }} />
               <span>
                 This provider doesn't reliably work through a plain HTTP/S proxy — use a SOCKS5 or
@@ -192,7 +192,6 @@ export function RoutingStrategyCard({ providerId }: { readonly providerId: strin
               </span>
             </Inline>
           )}
-        </Stack>
       </CardBody>
     </Card>
   );

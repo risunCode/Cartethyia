@@ -53,6 +53,7 @@ const app = boot
               redis: boot.deps.redis,
               oauthRefreshService: boot.deps.oauthRefreshService,
               admissionService: boot.deps.admissionService,
+              readRoutingAccountInflight: boot.deps.readRoutingAccountInflight,
             },
           }
         : {}),

@@ -28,6 +28,7 @@ import {
   useRecoverAccount,
   useUpdateProviderAccount,
 } from "../../lib/hooks/providers";
+import { useProviderAccountInflight } from "../../lib/hooks/routing";
 import { useRefreshAccountQuota } from "../../lib/hooks/quota";
 import { queryKeys } from "../../lib/query-keys";
 import {
@@ -156,12 +157,14 @@ function accountDetail(account: ProviderAccountResponse): string {
 function AccountRow({
   providerId,
   account,
+  inflight,
   selected,
   onToggleSelect,
   onDelete,
 }: {
   readonly providerId: string;
   readonly account: ProviderAccountResponse;
+  readonly inflight?: number;
   readonly selected: boolean;
   readonly onToggleSelect: (accountId: string, next: boolean) => void;
   readonly onDelete: (account: ProviderAccountResponse) => void;
@@ -178,13 +181,7 @@ function AccountRow({
   const [, setTick] = useState(0);
   const [renaming, setRenaming] = useState(false);
   const [draftLabel, setDraftLabel] = useState("");
-  const [draftMaxInflight, setDraftMaxInflight] = useState(
-    account.maxInflight === null ? "" : String(account.maxInflight),
-  );
   const label = account.label || account.id.slice(0, 8);
-  useEffect(() => {
-    setDraftMaxInflight(account.maxInflight === null ? "" : String(account.maxInflight));
-  }, [account.maxInflight]);
   useEffect(() => {
     if (!hasActiveCooldown || !account.cooldownUntil) return;
     if (new Date(account.cooldownUntil).getTime() - Date.now() <= 0) return;
@@ -208,26 +205,6 @@ function AccountRow({
       },
     );
   };
-  const saveMaxInflight = () => {
-    const value = draftMaxInflight.trim();
-    const maxInflight = value === "" ? null : Number(value);
-    if (maxInflight !== null && (!Number.isSafeInteger(maxInflight) || maxInflight < 1)) {
-      toast.error("Invalid max inflight", "Enter a positive whole number or leave it empty to inherit.");
-      return;
-    }
-    update.mutate(
-      { providerId, accountId: account.id, request: { maxInflight } },
-      {
-        onSuccess: () => toast.success("Max inflight updated", label),
-        onError: (err) =>
-          toast.error(
-            "Update failed",
-            (err as { message?: string }).message ?? "Unable to update max inflight",
-          ),
-      },
-    );
-  };
-
   const toggleEnabled = () => {
     const nextActive = disabled;
     update.mutate(
@@ -332,36 +309,9 @@ function AccountRow({
               All time: {account.usageAllTime.totalTokens.toLocaleString()} tokens ·{" "}
               {account.usageAllTime.requests.toLocaleString()} requests
             </span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px", marginTop: "6px" }}>
-            <label
-              htmlFor={`max-inflight-${account.id}`}
-              style={{ fontSize: "11px", color: "var(--text-muted)", whiteSpace: "nowrap", flexShrink: 0 }}
-            >
-              Max inflight
-            </label>
-            <Input
-              id={`max-inflight-${account.id}`}
-              type="number"
-              min="1"
-              step="1"
-              value={draftMaxInflight}
-              placeholder="Inherit"
-              onChange={(event) => setDraftMaxInflight(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") saveMaxInflight();
-              }}
-              aria-label={`Max inflight for ${label}`}
-              style={{ width: "72px", padding: "4px 7px", minHeight: "28px" }}
-            />
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={saveMaxInflight}
-              disabled={update.isPending}
-            >
-              Save
-            </Button>
+            <span title="Concurrency comes from this provider’s Routing Strategy; accounts no longer carry manual ceilings.">
+              In flight: {inflight?.toLocaleString() ?? "—"}
+            </span>
           </div>
         </div>
 
@@ -496,6 +446,8 @@ export function AccountsList({
   const update = useUpdateProviderAccount();
   const recover = useRecoverAccount();
   const exportAccounts = useExportProviderAccounts();
+  const inflightQuery = useProviderAccountInflight(providerId);
+  const inflightByAccount = inflightQuery.data ?? new Map<string, number>();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [sortKey, setSortKey] = useState<AccountSortKey>("createdAt");
@@ -729,6 +681,7 @@ export function AccountsList({
             key={account.id}
             providerId={providerId}
             account={account}
+            inflight={inflightByAccount.get(account.id) ?? account.inflight}
             selected={selected.has(account.id)}
             onToggleSelect={toggleSelect}
             onDelete={onDelete}

@@ -172,7 +172,7 @@ function PasswordChangeForm(): ReactNode {
 
 export default function Settings(): ReactNode {
   return (
-    <div className="two-column-grid">
+    <div className="settings-column">
       {/* Security Controls / Password Change */}
       <Card>
         <CardHeader

@@ -11,6 +11,7 @@ import type { OAuthTokenRefresher } from "../providers/authentication/oauth-refr
 import { oauthRefreshSweep } from "../workers/oauth-refresh-worker";
 import { seedBundledModels } from "../providers/operations/provider-catalog-seeder";
 import { createDatabaseSnapshotBuilder } from "../transport/routing/route-catalog";
+import { DrizzleProviderCatalogStore } from "../console/providers/catalog/store";
 import { InMemoryRouteSnapshotService } from "../transport/routing/route-model";
 import { RedisAdmissionController, RoutingEngine } from "../transport/routing/router";
 import { ApiKeyAdmissionService, InMemoryAdmissionCounterStore, RedisAdmissionCounterStore, sweepLeases } from "../security/admission";
@@ -54,6 +55,11 @@ export interface ProductionDeps {
   db: CartethyiaDatabase;
   redis: RedisClient | undefined;
   snapshotService: InMemoryRouteSnapshotService;
+  /** Live routing admission snapshot scoped to one provider/tenant for console reads. */
+  readRoutingAccountInflight: (
+    providerId: string,
+    tenantId: string | null,
+  ) => Promise<readonly { accountId: string; inflight: number }[]>;
   /** On-demand adapter resolution keeps heavy providers out of the boot path. */
   resolveProviderAdapter: (providerId: string) => Promise<ProviderAdapter | undefined>;
   bundledModelCatalog: BundledProviderCatalog;
@@ -95,6 +101,30 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   const routingEngine = new RoutingEngine(
     redis ? new RedisAdmissionController(redis) : undefined,
   );
+  const readRoutingAccountInflight = async (
+    providerId: string,
+    tenantId: string | null,
+  ): Promise<readonly { accountId: string; inflight: number }[]> => {
+    if (providerId === "" || tenantId === null) return [];
+    const snapshot = await routingEngine.accountInflightSnapshot();
+    const accounts = await new DrizzleProviderCatalogStore(db, {
+      telemetryBuffer,
+      bundledModelCatalog: bundledCatalog,
+      providerRegistry: registry,
+      outboundFetchFor: async () => ({ fetch: networkBindingFactory.fetch(undefined, tenantId) }),
+      snapshotInvalidator: snapshotService,
+    }).listAccounts(tenantId, providerId);
+    const owned = new Set(accounts.map((account) => account.id));
+    const totals = new Map<string, number>();
+    for (const [bucket, count] of snapshot) {
+      const prefix = `${providerId}:`;
+      if (!bucket.startsWith(prefix)) continue;
+      const accountId = bucket.slice(bucket.lastIndexOf(":") + 1);
+      if (!owned.has(accountId)) continue;
+      totals.set(accountId, (totals.get(accountId) ?? 0) + count);
+    }
+    return [...totals].map(([accountId, inflight]) => ({ accountId, inflight }));
+  };
   const admissionStore = redis
     ? new RedisAdmissionCounterStore(redis)
     : new InMemoryAdmissionCounterStore();
@@ -256,6 +286,7 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
     db,
     redis,
     snapshotService,
+    readRoutingAccountInflight,
     resolveProviderAdapter: (providerId) => registry.resolve(providerId),
     bundledModelCatalog: bundledCatalog,
     byokUpstreamHosts,

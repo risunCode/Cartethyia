@@ -10,7 +10,7 @@ import { listAccountHealthEvents, recoverAccount, type AccountHealthEventRecord 
 import { encryptCredential, hashSecret } from "../../../security/crypto";
 import type { TelemetryBatchBuffer } from "../../../observability/telemetry-buffer";
 import type { BundledProviderCatalog } from "../../../providers/operations/provider-catalog-service";
-import { validateCompatibilityProfile, type ByokConnectionTestRequest, type ByokConnectionTestResult, type CreateProviderAccountRequest, type ModelCatalogEntry, type ProbeAllAccountsResult, type ProbeAllModelsResult, type ProbeModelRequest, type ProbeModelResult, type ProviderAccountResponse, type ProviderAccountTokenUsage, type ProviderCatalogStore, type ProviderRecord, type SetModelEnabledRequest, type UpdateProviderAccountRequest, ACCOUNT_MAX_INFLIGHT_BOUNDS } from "./contracts";
+import { validateCompatibilityProfile, type AccountInflightReading, type ByokConnectionTestRequest, type ByokConnectionTestResult, type CreateProviderAccountRequest, type ModelCatalogEntry, type ProbeAllAccountsResult, type ProbeAllModelsResult, type ProbeModelRequest, type ProbeModelResult, type ProviderAccountResponse, type ProviderAccountTokenUsage, type ProviderCatalogStore, type ProviderRecord, type SetModelEnabledRequest, type UpdateProviderAccountRequest } from "./contracts";
 import { ProviderProbingService, type ProbeOutboundResolver } from "../../../providers/discovery/probing-service";
 import { resolveManualModelMetadata } from "../../../providers/model-definition";
 import { isUniqueViolation } from "../../../persistence/postgres";
@@ -78,26 +78,17 @@ function mapModelRow(
   } satisfies ModelCatalogEntry;
 }
 
-function validateAccountMaxInflight(value: number | null | undefined): void {
-  if (
-    value !== null &&
-    value !== undefined &&
-    (!Number.isInteger(value) ||
-      value < ACCOUNT_MAX_INFLIGHT_BOUNDS.min ||
-      value > ACCOUNT_MAX_INFLIGHT_BOUNDS.max)
-  ) {
-    throw new ConsoleDomainError(
-      "invalid_account_max_inflight",
-      400,
-      `maxInflight must be an integer between ${ACCOUNT_MAX_INFLIGHT_BOUNDS.min} and ${ACCOUNT_MAX_INFLIGHT_BOUNDS.max}, or null`,
-    );
-  }
-}
-
 export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
   private readonly probing: ProviderProbingService;
   private readonly bundledModelCatalog: ReadonlyMap<string, readonly ModelDefinition[]>;
   private readonly providerRegistry: ProviderRegistry;
+
+  private readonly readAccountInflight:
+    | ((
+        providerId: string,
+        tenantId: string,
+      ) => Promise<readonly AccountInflightReading[]>)
+    | undefined;
 
   constructor(
     private readonly db: CartethyiaDatabase,
@@ -107,10 +98,17 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
       readonly providerRegistry: ProviderRegistry;
       readonly outboundFetchFor: ProbeOutboundResolver;
       readonly snapshotInvalidator: { invalidate(): unknown };
+      readonly readAccountInflight?:
+        | ((
+            providerId: string,
+            tenantId: string,
+          ) => Promise<readonly AccountInflightReading[]>)
+        | undefined;
     },
   ) {
     this.bundledModelCatalog = options.bundledModelCatalog.modelsByProvider;
     this.providerRegistry = options.providerRegistry;
+    this.readAccountInflight = options.readAccountInflight;
     this.probing = new ProviderProbingService({
       db,
       telemetryBuffer: options.telemetryBuffer,
@@ -641,12 +639,30 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
         totalTokens: inputTokens + outputTokens,
       };
     };
-    return rows.map((row) =>
-      this.mapAccount(row, {
+    const first = rows[0];
+    const inflightByAccount = await this.accountInflightFor(tenantId, first?.providerId);
+    return rows.map((row) => {
+      const inflight = inflightByAccount.get(row.id);
+      return this.mapAccount(row, {
         today: mapUsage(todayByAccount.get(row.id)),
         allTime: mapUsage(lifetimeByAccount.get(row.id)),
-      }),
-    );
+        ...(inflight === undefined ? {} : { inflight }),
+      });
+    });
+  }
+
+  private async accountInflightFor(
+    tenantId: string,
+    providerId: string | undefined,
+  ): Promise<Map<string, number>> {
+    const readings = new Map<string, number>();
+    if (!this.readAccountInflight || !providerId) return readings;
+    const rows = await this.readAccountInflight(providerId, tenantId);
+    for (const row of rows) {
+      if (typeof row.accountId !== "string" || !Number.isFinite(row.inflight)) continue;
+      readings.set(row.accountId, Math.max(0, Math.floor(row.inflight)));
+    }
+    return readings;
   }
 
   async listAccounts(
@@ -684,7 +700,6 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
       request.credentialKind === "none" || request.secret.length === 0
         ? undefined
         : hashSecret(request.secret);
-    validateAccountMaxInflight(request.maxInflight);
     try {
       const rows = await this.db
         .insert(providerAccounts)
@@ -695,7 +710,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
           credentialCiphertext: encryptCredential(request.secret),
           ...(credentialFingerprint ? { credentialFingerprint } : {}),
           credentialKind: request.credentialKind,
-          maxInflight: request.maxInflight ?? null,
+          maxInflight: null,
           status: "active",
         })
         .returning();
@@ -730,10 +745,6 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
         patch.secret.length === 0 ? null : hashSecret(patch.secret);
     }
     if (patch.status !== undefined) set.status = patch.status;
-    if (patch.maxInflight !== undefined) {
-      validateAccountMaxInflight(patch.maxInflight);
-      set.maxInflight = patch.maxInflight;
-    }
     // Re-enabling an account, or handing it a new credential, clears the failure
     // state the health machine recorded — the same reset `recoverAccount`
     // performs. Without it the stale mark outlived the condition it described: a
@@ -783,6 +794,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
     usage: {
       readonly today: ProviderAccountTokenUsage;
       readonly allTime: ProviderAccountTokenUsage;
+      readonly inflight?: number | undefined;
     },
   ): ProviderAccountResponse {
     return {
@@ -792,7 +804,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
       label: row.label,
       credentialKind: row.credentialKind,
       status: row.status,
-      maxInflight: row.maxInflight,
+      ...(usage.inflight === undefined ? {} : { inflight: usage.inflight }),
       usageToday: usage.today,
       usageAllTime: usage.allTime,
       consecutiveFailures: row.consecutiveFailures,

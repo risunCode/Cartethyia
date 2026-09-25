@@ -52,7 +52,6 @@ const CliToolDetail = lazyWithRetry(() => import("./routes/CliToolDetail"), "cli
 const ConsoleLog = lazyWithRetry(() => import("./routes/ConsoleLog"), "console-log");
 const Customization = lazyWithRetry(() => import("./routes/Customization"), "customization");
 const Studio = lazyWithRetry(() => import("./routes/Studio"), "studio");
-const Share = lazyWithRetry(() => import("./routes/Share"), "share");
 
 /**
  * Forwards shell-wide session transitions into router navigation. A 401 means
@@ -188,7 +187,6 @@ function ProtectedRoutes(): ReactNode {
           <Route path="/cli-tools/:toolId" element={<CliToolDetail />} />
           <Route path="/console-log" element={<ConsoleLog />} />
           <Route path="/settings" element={<Settings />} />
-          <Route path="/share" element={<Share />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </ErrorBoundary>

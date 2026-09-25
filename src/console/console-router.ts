@@ -43,6 +43,12 @@ export interface ConsoleApiCompositionDeps {
   readonly redis: RedisClient;
   readonly oauthRefreshService: OAuthRefreshService;
   readonly admissionService: Pick<ApiKeyAdmissionService, "purgeKey">;
+  readonly readRoutingAccountInflight?:
+    | ((
+        providerId: string,
+        tenantId: string | null,
+      ) => Promise<readonly { accountId: string; inflight: number }[]>)
+    | undefined;
   readonly resolvePeerAddress?: (request: Request) => string | null;
   readonly trustedProxyBoundary?: TrustedProxyBoundary;
 }
@@ -146,6 +152,7 @@ export function createConsoleRouter(deps: ConsoleApiCompositionDeps): Elysia {
     bundledModelCatalog: deps.bundledModelCatalog,
     networkBindingFactory: deps.networkBindingFactory,
     admissionService: deps.admissionService,
+    readRoutingAccountInflight: deps.readRoutingAccountInflight,
     credentialService,
     // The backup surface re-authenticates the operator, so it needs the current
     // user's hash. Read from the session on the request that asks for it, never

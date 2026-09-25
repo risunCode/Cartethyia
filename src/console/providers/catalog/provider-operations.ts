@@ -451,7 +451,7 @@ export function createProviderCatalogOperations(config: ProviderCatalogConfig) {
               credentialKind: account.credentialKind,
               status: account.status,
               secret,
-              maxInflight: account.maxInflight,
+              ...(account.inflight === undefined ? {} : { inflight: account.inflight }),
               createdAt: account.createdAt,
               ...(account.cooldownUntil ? { cooldownUntil: account.cooldownUntil } : {}),
               ...(account.lastErrorCategory

@@ -1,0 +1,222 @@
+/* Public share enrollment page: full-page layout built from the console's shared
+   tokens, cards, buttons, states, and data tables. It carries no theme of its
+   own — the console `console-theme` preference decides light/dark here too. */
+
+/* The console shell pins the document and scrolls an inner column; the public
+   share document has no shell, so the page itself is the scroll container. */
+html[data-app="share"],
+html[data-app="share"] body {
+  height: auto;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+html[data-app="share"] #root {
+  height: auto;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: visible;
+}
+
+.share-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 16px 40px;
+  /* Transparent so the document's ambient-glow background (tokens.css `body`)
+     shows through exactly as it does behind the console. */
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  box-sizing: border-box;
+}
+
+.share-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: min(760px, 100%);
+  margin-bottom: 20px;
+}
+
+.share-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-primary);
+  font-family: var(--font-head);
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.share-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-control);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.share-home-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--inner-border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.share-home-link:hover {
+  background: var(--hover);
+  color: var(--text-primary);
+}
+
+.share-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(760px, 100%);
+}
+
+.share-main h2 {
+  font-size: 15px;
+}
+
+.share-notes {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.share-trust-copy {
+  margin-top: 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--accent);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.share-expiry {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.share-model-policy {
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.share-issue-controls {
+  display: grid;
+  gap: 9px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--inner-border);
+}
+
+.share-issue-controls p,
+.share-issued-secret > p {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.share-warning {
+  padding: 9px 11px;
+  border: 1px solid var(--orange-soft);
+  border-radius: 9px;
+  background: var(--orange-soft);
+  color: var(--orange);
+  font-size: 11.5px;
+}
+
+.share-issued-secret {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 15px;
+  border: 1px solid var(--inner-border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.share-issued-secret h2 {
+  font-size: 15px;
+}
+
+.share-issued-secret code {
+  display: block;
+  padding: 11px;
+  border: 1px solid var(--inner-border);
+  border-radius: 8px;
+  background: var(--code-surface);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.share-secret-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.share-secret-actions span {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+}
+
+.share-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-tertiary);
+}
+
+.share-footer {
+  padding-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.share-main .data-table td:last-child {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+@media (max-width: 560px) {
+  .share-page {
+    padding: 16px 12px 32px;
+  }
+  .share-topbar {
+    margin-bottom: 14px;
+  }
+}

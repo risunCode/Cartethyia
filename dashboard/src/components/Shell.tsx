@@ -11,7 +11,6 @@ import {
   Moon,
   Network,
   Rocket,
-  Link2,
   Search,
   ScrollText,
   Server,
@@ -61,7 +60,6 @@ export const navigationGroups: readonly NavGroupDef[] = [
       { label: "Usage", path: "/usage", icon: Activity },
       { label: "Providers", path: "/providers", icon: Server },
       { label: "Model Lab", path: "/model-lab", icon: FlaskConical },
-      { label: "Share", path: "/share", icon: Link2 },
     ],
   },
   {
@@ -104,7 +102,6 @@ const titlesMap: Record<string, { title: string; sub: string }> = {
     sub: "Claude Code CLI, OpenCode, and local developer tool integrations",
   },
   "/console-log": { title: "Console Log", sub: "Live server logs and audit trail" },
-  "/share": { title: "Shared Access", sub: "Enrollment links and recipient activity" },
   "/settings": {
     title: "Settings",
     sub: "Account security, runtime preferences, and state recovery",

@@ -62,9 +62,46 @@ function readBrandingCached(): CustomAsset | null {
 }
 
 let cachedSettings: CustomizationSettings | null = null;
-let hydrated = false;
+type HydrationState = "cold" | "loading" | "ready";
+let hydrationState: HydrationState = "cold";
 let hydration: Promise<void> | null = null;
+let pendingHydrationPatch: Partial<CustomizationSettings> = {};
 let saveTimer: number | undefined;
+let writeChain: Promise<void> = Promise.resolve();
+let brandingWriteChain: Promise<void> = Promise.resolve();
+let persistenceError: string | null = null;
+
+function notifyCustomizationChange(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(CHANGE_EVENT));
+}
+
+function setPersistenceError(error: unknown): void {
+  persistenceError = error instanceof Error ? error.message : "Could not save customization settings";
+  notifyCustomizationChange();
+}
+
+function clearPersistenceError(): void {
+  if (persistenceError === null) return;
+  persistenceError = null;
+  notifyCustomizationChange();
+  notifyBrandingChange();
+}
+
+function notifyBrandingChange(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(BRANDING_EVENT));
+}
+
+function enqueueDatabaseWrite(settings: CustomizationSettings): void {
+  writeChain = writeChain
+    .catch(() => undefined)
+    .then(() => writeDatabase(settings))
+    .then(() => clearPersistenceError());
+  void writeChain.catch((error: unknown) => setPersistenceError(error));
+}
+
+export function readCustomizationPersistenceError(): string | null {
+  return persistenceError;
+}
 
 function isAsset(value: unknown): value is CustomAsset {
   if (typeof value !== "object" || value === null) return false;
@@ -92,11 +129,17 @@ function parseGlow(value: unknown): AmbientGlowChoice {
   return value === "off" ? "off" : "on";
 }
 
+function normalizeSettings(settings: CustomizationSettings): CustomizationSettings {
+  return settings.backgroundAsset === null && settings.backgroundEnabled
+    ? { ...settings, backgroundEnabled: false }
+    : settings;
+}
+
 function parseSettings(value: unknown): CustomizationSettings | null {
   if (typeof value !== "object" || value === null) return null;
   const obj = value as Record<string, unknown>;
   const asset = isAsset(obj.backgroundAsset) ? obj.backgroundAsset : null;
-  return {
+  return normalizeSettings({
     theme: parseConsoleTheme(obj.theme),
     ambientGlow: parseGlow(obj.ambientGlow),
     backgroundAsset: asset,
@@ -105,7 +148,7 @@ function parseSettings(value: unknown): CustomizationSettings | null {
     backgroundBlur: clamp(obj.backgroundBlur, DEFAULTS.backgroundBlur, 0, 18),
     glassEnabled: obj.glassEnabled === true,
     glassDepth: obj.glassDepth === 2 ? 2 : 1,
-  };
+  });
 }
 function applyDomAppearance(settings: CustomizationSettings): void {
   if (typeof document === "undefined") return;
@@ -150,20 +193,16 @@ function getMainDatabase(): Promise<IDBDatabase> {
 
 /** Reads the settings record from the main database (cached connection). */
 async function readDatabase(): Promise<CustomizationSettings | null> {
-  try {
-    const database = await getMainDatabase();
-    return await new Promise((resolve, reject) => {
-      const request = database
-        .transaction(STORE_NAME, "readonly")
-        .objectStore(STORE_NAME)
-        .get(RECORD_KEY);
-      request.onsuccess = () => resolve(parseSettings(request.result));
-      request.onerror = () =>
-        reject(request.error ?? new Error("Could not read customization storage"));
-    });
-  } catch {
-    return null;
-  }
+  const database = await getMainDatabase();
+  return await new Promise((resolve, reject) => {
+    const request = database
+      .transaction(STORE_NAME, "readonly")
+      .objectStore(STORE_NAME)
+      .get(RECORD_KEY);
+    request.onsuccess = () => resolve(parseSettings(request.result));
+    request.onerror = () =>
+      reject(request.error ?? new Error("Could not read customization storage"));
+  });
 }
 
 async function writeDatabase(settings: CustomizationSettings): Promise<void> {
@@ -195,25 +234,31 @@ function readSyncStorage(): Partial<CustomizationSettings> | null {
 
 async function hydrate(): Promise<void> {
   if (hydration) return hydration;
+  hydrationState = "loading";
   hydration = (async () => {
     try {
       const stored = await readDatabase();
       const syncLocal = readSyncStorage();
-
-      if (!hydrated) {
-        cachedSettings = {
-          ...DEFAULTS,
-          ...(stored ?? {}),
-          ...(syncLocal ?? {}),
-        };
-        hydrated = true;
-        applyDomAppearance(cachedSettings);
-        await writeDatabase(cachedSettings);
-        window.dispatchEvent(new Event(CHANGE_EVENT));
-      }
-    } catch {
-      cachedSettings ??= { ...DEFAULTS };
+      const next = normalizeSettings({
+        ...DEFAULTS,
+        ...(stored ?? {}),
+        ...(syncLocal ?? {}),
+        ...pendingHydrationPatch,
+      });
+      pendingHydrationPatch = {};
+      cachedSettings = next;
+      hydrationState = "ready";
+      clearPersistenceError();
+      applyDomAppearance(next);
+      enqueueDatabaseWrite(next);
+      notifyCustomizationChange();
+    } catch (error: unknown) {
+      hydrationState = "ready";
+      cachedSettings ??= { ...DEFAULTS, ...pendingHydrationPatch };
+      pendingHydrationPatch = {};
       applyDomAppearance(cachedSettings);
+      setPersistenceError(error);
+      notifyCustomizationChange();
     }
   })();
   return hydration;
@@ -234,17 +279,19 @@ export function readCustomizationSettings(): CustomizationSettings {
 export function saveCustomizationSettings(
   patch: Partial<CustomizationSettings>,
 ): CustomizationSettings {
-  const next: CustomizationSettings = { ...readCustomizationSettings(), ...patch };
+  if (hydrationState !== "ready") {
+    pendingHydrationPatch = { ...pendingHydrationPatch, ...patch };
+  }
+  const next = normalizeSettings({ ...readCustomizationSettings(), ...patch });
   cachedSettings = next;
-  hydrated = true;
   applyDomAppearance(next);
 
   if (typeof window !== "undefined") {
     try {
       window.localStorage.setItem(CONSOLE_THEME_KEY, next.theme);
       window.localStorage.setItem(LOCALSTORAGE_GLOW_KEY, next.ambientGlow);
-    } catch {
-      // Storage write error ignored
+    } catch (error: unknown) {
+      setPersistenceError(error);
     }
     if (saveTimer !== undefined) window.clearTimeout(saveTimer);
     const persistenceSensitiveChange =
@@ -252,19 +299,35 @@ export function saveCustomizationSettings(
       Object.prototype.hasOwnProperty.call(patch, "backgroundEnabled") ||
       Object.prototype.hasOwnProperty.call(patch, "backgroundOpacity") ||
       Object.prototype.hasOwnProperty.call(patch, "backgroundBlur");
-    if (persistenceSensitiveChange) {
+    const persist = () => {
+      if (hydrationState !== "ready") return;
+      enqueueDatabaseWrite(next);
+      saveTimer = undefined;
+    };
+    if (persistenceSensitiveChange && hydrationState === "ready") {
       // Asset/blob and visual controls must survive an immediate refresh. Do
       // not defer these writes behind the slider debounce window.
-      void writeDatabase(next).catch(() => undefined);
-    } else {
-      saveTimer = window.setTimeout(() => {
-        void writeDatabase(next).catch(() => undefined);
-        saveTimer = undefined;
-      }, 250);
+      persist();
+    } else if (hydrationState === "ready") {
+      saveTimer = window.setTimeout(persist, 250);
     }
-    window.dispatchEvent(new Event(CHANGE_EVENT));
+    notifyCustomizationChange();
   }
   return next;
+}
+
+export function useCustomizationPersistenceError(): string | null {
+  const [error, setError] = useState(() => readCustomizationPersistenceError());
+  useEffect(() => {
+    const sync = () => setError(readCustomizationPersistenceError());
+    window.addEventListener(CHANGE_EVENT, sync);
+    window.addEventListener(BRANDING_EVENT, sync);
+    return () => {
+      window.removeEventListener(CHANGE_EVENT, sync);
+      window.removeEventListener(BRANDING_EVENT, sync);
+    };
+  }, []);
+  return error;
 }
 
 export function useCustomizationSettings(): [
@@ -275,9 +338,9 @@ export function useCustomizationSettings(): [
   useEffect(() => {
     let active = true;
     void hydrate().then(() => {
-      if (active) setSettings(readCustomizationSettings());
+      if (active) setSettings({ ...readCustomizationSettings() });
     });
-    const sync = () => setSettings(readCustomizationSettings());
+    const sync = () => setSettings({ ...readCustomizationSettings() });
     window.addEventListener(CHANGE_EVENT, sync);
     return () => {
       active = false;
@@ -357,7 +420,13 @@ export function useCustomizationBranding(): [
     const next = typeof value === "function" ? value({ asset: brandingCached ?? null }) : value;
     brandingCached = next.asset;
     setBranding({ asset: next.asset });
-    void persistBranding(next.asset).catch(() => undefined);
+    brandingWriteChain = brandingWriteChain
+      .catch(() => undefined)
+      .then(() => persistBranding(next.asset));
+    void brandingWriteChain
+      .then(() => clearPersistenceError())
+      .catch((error: unknown) => setPersistenceError(error));
+    notifyBrandingChange();
   };
   return [branding, update];
 }

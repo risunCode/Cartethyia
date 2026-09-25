@@ -195,7 +195,6 @@ const ACCOUNT_COLUMNS = {
   tenantId: providerAccounts.tenantId,
   label: providerAccounts.label,
   status: providerAccounts.status,
-  maxInflight: providerAccounts.maxInflight,
   cooldownUntil: providerAccounts.cooldownUntil,
   modelCooldowns: providerAccounts.modelCooldowns,
 } as const;
@@ -355,21 +354,21 @@ class RouteCatalogRepository {
       );
     }
 
-    /** Per-account concurrency ceiling. An explicit account value wins; the
-     * provider routing panel's `maxInflight` is the per-provider default for
-     * accounts that set nothing. `undefined` means UNLIMITED for that account
-     * — an empty field never falls back to the deployment ceiling.
-     * Tenant setting wins over global, mirroring bypassProxy. */
+    /** Provider-wide concurrency ceiling shared by every account of the provider.
+     * Tenant setting wins over global, mirroring bypassProxy. `undefined`
+     * means UNLIMITED — an empty field never falls back to the deployment
+     * ceiling. Per-account overrides are intentionally unsupported: legacy
+     * stored account values are ignored so a stale manual cap cannot survive
+     * the Routing Strategy cutover. */
     function resolveMaxInflight(
       providerId: string,
       rowTenantId: string | null,
-      accountMaxInflight: number | null | undefined,
     ): number | undefined {
       const tenantSetting = rowTenantId
         ? providerRouting[rowTenantId]?.[providerId]?.maxInflight
         : undefined;
       const globalSetting = providerRouting.__global__?.[providerId]?.maxInflight;
-      const resolved = accountMaxInflight ?? tenantSetting ?? globalSetting;
+      const resolved = tenantSetting ?? globalSetting;
       return resolved === null || resolved === undefined ? undefined : resolved;
     }
 
@@ -501,10 +500,10 @@ class RouteCatalogRepository {
           tenant_id: rowTenantId,
           provider_account_id: account.id,
           ...(account.label ? { provider_account_label: account.label } : {}),
-          // Per-account concurrency ceiling: account value wins, else the
-          // provider routing panel's `maxInflight`; empty = unlimited.
+          // Provider-wide concurrency ceiling from Routing Strategy; legacy
+          // account overrides are never read here.
           ...(() => {
-            const resolved = resolveMaxInflight(model.providerId, rowTenantId, account.maxInflight);
+            const resolved = resolveMaxInflight(model.providerId, rowTenantId);
             return resolved === undefined ? {} : { max_inflight: resolved };
           })(),
           ...(networkPools

@@ -26,7 +26,7 @@ export const CREDENTIAL_KINDS = ["api_key", "oauth", "none"] as const;
 
 /** One credential kind. */
 export type CredentialKind = (typeof CREDENTIAL_KINDS)[number];
-export const ACCOUNT_MAX_INFLIGHT_BOUNDS = { min: 1, max: 10_000 } as const;
+export const PROVIDER_ROUTING_MAX_INFLIGHT_BOUNDS = { min: 1, max: 10_000 } as const;
 
 /**
  * Scopes that grant catalog access, one pair per resource.
@@ -331,21 +331,18 @@ export interface SetModelEnabledRequest {
   route: string;
   enabled: boolean;
 }
-/** Credential input accepted when provisioning a provider account. Never echoed back. */
+/** Credential input accepted when provisioning a provider account. Never echoed back.
+ * Concurrency is governed by Routing Strategy, not by an account field. */
 export interface CreateProviderAccountRequest {
   label?: string;
   credentialKind: CredentialKind;
   secret: string;
-  /** null inherits the provider routing default; no provider default means unlimited. */
-  maxInflight?: number | null;
 }
 /** Patch accepted when editing or revoking an existing account. */
 export interface UpdateProviderAccountRequest {
   label?: string;
   secret?: string;
   status?: AccountStatus;
-  /** null inherits the provider routing default; no provider default means unlimited. */
-  maxInflight?: number | null;
 }
 export interface ProviderAccountTokenUsage {
   readonly requests: number;
@@ -355,7 +352,15 @@ export interface ProviderAccountTokenUsage {
   readonly totalTokens: number;
 }
 
-/** Public account representation; never carries the decrypted secret. */
+export interface AccountInflightReading {
+  readonly accountId: string;
+  readonly inflight: number;
+}
+
+/** Public account representation; never carries the decrypted secret.
+ * Effective concurrency comes from the provider Routing Strategy value, which
+ * the route snapshot publishes to admission. This projection carries account
+ * identity, status, and usage only. */
 export interface ProviderAccountResponse {
   id: string;
   providerId: string;
@@ -363,8 +368,8 @@ export interface ProviderAccountResponse {
   label: string;
   credentialKind: CredentialKind;
   status: string;
-  /** null inherits the provider routing default; no provider default means unlimited. */
-  maxInflight: number | null;
+  /** Live routing admission count for this request path; absent when unavailable. */
+  inflight?: number;
   /** Token aggregates are tenant-scoped and use a UTC calendar day. */
   usageToday: ProviderAccountTokenUsage;
   usageAllTime: ProviderAccountTokenUsage;
@@ -394,7 +399,8 @@ export interface ProviderAccountExport {
   /** Decrypted credential; `""` when the account has none or resolution failed. */
   secret: string;
   createdAt: string;
-  maxInflight: number | null;
+  /** Live routing admission count at export time; absent when unavailable. */
+  inflight?: number;
   cooldownUntil?: string;
   lastErrorCategory?: string;
 }

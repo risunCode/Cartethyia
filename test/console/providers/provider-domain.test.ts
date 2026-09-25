@@ -388,7 +388,7 @@ describe("ProviderDetailOperations.updateRouting", () => {
     expect(other.strategy).toBe("fallback");
   });
 
-  test("maxInflight patch persists and clears back to null", async () => {
+  test("provider maxInflight patch persists and clears back to null", async () => {
     const { store } = makeStore();
     const factory = createProviderDetailOperations({ store, accessResolver: () => access });
     const set = await factory.updateRouting(access, "openai", {
@@ -403,6 +403,24 @@ describe("ProviderDetailOperations.updateRouting", () => {
     const cleared = await factory.updateRouting(access, "openai", { maxInflight: null });
     expect(cleared.maxInflight).toBeNull();
     expect((await factory.getRouting(access, "openai")).maxInflight).toBeNull();
+  });
+
+  test("account inflight normalizes readings and reports zero when unwired", async () => {
+    const { store } = makeStore();
+    const wired = createProviderDetailOperations({
+      store,
+      accessResolver: () => access,
+      accountInflight: async () => [
+        { accountId: "acct-1", inflight: 2.7 },
+        { accountId: "acct-2", inflight: -1 },
+      ],
+    });
+    await expect(wired.accountInflight(access, "openai")).resolves.toEqual([
+      { accountId: "acct-1", inflight: 2 },
+      { accountId: "acct-2", inflight: 0 },
+    ]);
+    const unwired = createProviderDetailOperations({ store, accessResolver: () => access });
+    await expect(unwired.accountInflight(access, "openai")).resolves.toEqual([]);
   });
 
   test("bypassProxy toggles independently of strategy", async () => {
@@ -1020,7 +1038,6 @@ function makeModelStore(): {
         label: patch.label ?? "account",
         credentialKind: "api_key" as const,
         status: patch.status ?? "active",
-        maxInflight: patch.maxInflight ?? null,
         usageToday: EMPTY_ACCOUNT_USAGE,
         usageAllTime: EMPTY_ACCOUNT_USAGE,
         createdAt: new Date().toISOString(),
@@ -1521,7 +1538,6 @@ describe("POST /providers/:providerId/accounts/export", () => {
       label: "primary",
       credentialKind: "api_key",
       status: "active",
-      maxInflight: null,
       usageToday: EMPTY_ACCOUNT_USAGE,
       usageAllTime: EMPTY_ACCOUNT_USAGE,
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -1533,7 +1549,6 @@ describe("POST /providers/:providerId/accounts/export", () => {
       label: "backup",
       credentialKind: "api_key",
       status: "disabled",
-      maxInflight: null,
       usageToday: EMPTY_ACCOUNT_USAGE,
       usageAllTime: EMPTY_ACCOUNT_USAGE,
       createdAt: "2026-01-02T00:00:00.000Z",
@@ -1603,7 +1618,6 @@ describe("POST /providers/:providerId/accounts/export", () => {
       label: "shared",
       credentialKind: "api_key",
       status: "active",
-      maxInflight: null,
       usageToday: EMPTY_ACCOUNT_USAGE,
       usageAllTime: EMPTY_ACCOUNT_USAGE,
       createdAt: "2026-01-03T00:00:00.000Z",

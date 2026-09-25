@@ -1,6 +1,6 @@
 import { consoleRequest } from "../api";
 import type { ApiErrorShape } from "../api";
-import type { ModelAliasCreateInput, ModelAliasPatchInput, ModelAliasRow, ModelComboCreateInput, ModelComboPatchInput, ModelComboRow, ProviderRoutingResponse, UpdateProviderRoutingRequest } from "../contracts";
+import type { AccountInflightReading, ModelAliasCreateInput, ModelAliasPatchInput, ModelAliasRow, ModelComboCreateInput, ModelComboPatchInput, ModelComboRow, ProviderRoutingResponse, UpdateProviderRoutingRequest } from "../contracts";
 import { queryKeys } from "../query-keys";
 import { QUERY_OPTIONS, assertModelAliases, assertModelCombos, assertProviderRouting, querySignal } from "./common";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -40,6 +40,31 @@ export function useProviderRouting(providerId: string | undefined) {
       }).then(assertProviderRouting),
     enabled: providerId !== undefined && providerId.length > 0,
     ...QUERY_OPTIONS,
+  });
+}
+
+/** Loads live per-account admission counts for one provider; absent means zero. */
+export function useProviderAccountInflight(providerId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.providers.accountInflight(providerId),
+    queryFn: async (context) => {
+      const response = await consoleRequest<unknown>(
+        `/providers/${encodeURIComponent(providerId ?? "")}/account-inflight`,
+        { signal: querySignal(context) },
+      );
+      if (!Array.isArray(response)) throw { status: 500, code: "invalid_response", message: "Invalid account inflight response" } satisfies ApiErrorShape;
+      const byAccount = new Map<string, number>();
+      for (const row of response as readonly AccountInflightReading[]) {
+        if (typeof row !== "object" || row === null) continue;
+        const reading = row as { accountId?: unknown; inflight?: unknown };
+        if (typeof reading.accountId !== "string" || typeof reading.inflight !== "number") continue;
+        byAccount.set(reading.accountId, Math.max(0, Math.floor(reading.inflight)));
+      }
+      return byAccount;
+    },
+    enabled: providerId !== undefined && providerId.length > 0,
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: false,
   });
 }
 

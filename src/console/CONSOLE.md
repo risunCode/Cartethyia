@@ -496,15 +496,16 @@ Only the hash is persisted; plaintext is returned once to the recipient. A datab
 index enforces one active shared child per canonical client IP globally, including concurrent
 enrollment attempts through different parents.
 
-The owner-side Share page lists child-key prefixes and aggregate hits, errors, tokens, and masked IP
-addresses. It polls metadata-only telemetry, shows top models and recent request details, and obeys
-the tenant's client-IP privacy preference. Lifetime per-key totals are maintained in
+The owner-side share dialog, launched from a share-template row in Overview’s API Credentials
+panel, lists child-key prefixes and aggregate hits, errors, tokens, and masked IP addresses. It
+polls metadata-only telemetry, shows top models and recent request details, and obeys the tenant’s
+client-IP privacy preference. Lifetime per-key totals are maintained in
 `telemetry_usage_totals`; model breakdowns and request details use retained telemetry and never
 include payloads or credentials.
 
 Revoking a share template or converting it back to personal mode atomically revokes every child and
 deactivates its enrollment links. Child keys cannot be edited through the personal-key form; owners
-revoke them from the Share page. Revoking one child releases its canonical IP for a future
+revoke them from the share dialog. Revoking one child releases its canonical IP for a future
 enrollment. Public responses are `no-store` and carry the locked-down API CSP, frame protection,
 `nosniff`, and `no-referrer`.
 

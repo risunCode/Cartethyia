@@ -88,7 +88,9 @@ and API-key usage totals.
 ## Other trees (not covered by layer docs)
 
 - `dashboard/` — React/Vite console and landing, with public share enrollment
-  mounted through the shared `index.html` and isolated share CSS. Its map and
+  mounted through the shared `index.html` and the shared console stylesheet
+  (`src/styles.css`), so no dashboard app carries a private theme. Its own
+  tests live under `dashboard/test/`, mirroring `dashboard/src/`. Its map and
   browser-safe import rules live in `dashboard/README.md`.
 - `test/` — backend tests mirroring `src/`, plus `contracts`, `integration`,
   `architecture` (naming contracts), `frontend`, `helpers`; loose root files

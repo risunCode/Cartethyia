@@ -8,7 +8,7 @@ import { consoleRequest } from "../../dashboard/src/lib/api";
  * Dashboard backend-boundary contracts expressible without the JSX toolchain:
  * the session-cookie policy, the session/mutation status unions, and the
  * same-origin API boundary. Render-level dashboard contracts live in the
- * dashboard workspace (`dashboard/src/route-modules.test.ts`), which owns JSX.
+ * dashboard workspace (`dashboard/test/route-modules.test.ts`), which owns JSX.
  */
 
 describe("dashboard auth and status contracts", () => {

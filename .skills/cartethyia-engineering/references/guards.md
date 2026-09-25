@@ -137,8 +137,8 @@ Use when bundled providers are added, removed, renamed, or de-aliased.
 3. Exclude BYOK/custom providers and removed aliases.
 4. No file pins a provider *number*: the contract is set equality. Prove
    coverage with `test/providers/default-registry.test.ts` and
-   `dashboard/src/provider-display-names-parity.test.ts` /
-   `dashboard/src/provider-lists-parity.test.ts`, and confirm no stale id
+   `dashboard/test/provider-display-names-parity.test.ts` /
+   `dashboard/test/provider-lists-parity.test.ts`, and confirm no stale id
    remains in any mirror.
 
 Evidence: report the identity source, the mirrors checked, the coverage test

@@ -169,6 +169,8 @@ export interface AdmissionDecision {
 export interface AdmissionController {
   admit(candidate: RouteCandidate): Promise<AdmissionDecision>;
   release(reservation: Reservation): Promise<void>;
+  /** Observable current counters by admission bucket (`provider:model[:account]`). */
+  snapshotAccountInflight?(): Promise<ReadonlyMap<string, number>> | ReadonlyMap<string, number>;
 }
 
 export function ambiguousModelError(bare: string, owners: string[]): GatewayError {

@@ -7,7 +7,7 @@
     "codegen": "bun ../scripts/ci-generate-usage-periods.ts",
     "dev": "bun run codegen && vite",
     "typecheck": "bun run codegen && tsc --noEmit",
-    "test": "bun run codegen && bun test",
+    "test": "bun run codegen && bun test test",
     "build": "bun run codegen && tsc --noEmit && vite build",
     "preview": "vite preview"
   },

@@ -71,6 +71,9 @@ function capacityRejected(): AdmissionDecision {
 
 export class InMemoryAdmissionController implements AdmissionController {
   private inflight = new Map<string, number>();
+  snapshotAccountInflight(): ReadonlyMap<string, number> {
+    return new Map(this.inflight);
+  }
   async admit(candidate: RouteCandidate): Promise<AdmissionDecision> {
     // Bucket per ACCOUNT, not per provider:model. A provider with N accounts
     // holds N independent ceilings, so total inflight scales with the account
@@ -159,6 +162,20 @@ export class RedisAdmissionController implements AdmissionController {
 
   async release(reservation: Reservation): Promise<void> {
     await redisEvalNumber(this.redis, RELEASE_SCRIPT, 1, this.key(reservation.candidate));
+  }
+
+  async snapshotAccountInflight(): Promise<ReadonlyMap<string, number>> {
+    const keys = await this.redis.keys("admission:inflight:*");
+    if (keys.length === 0) return new Map();
+    const values = await this.redis.mget(...keys);
+    const snapshot = new Map<string, number>();
+    for (const [index, key] of keys.entries()) {
+      const value = Number(values[index] ?? 0);
+      if (Number.isFinite(value) && value > 0) {
+        snapshot.set(key.slice("admission:inflight:".length), value);
+      }
+    }
+    return snapshot;
   }
 }
 
@@ -412,6 +429,12 @@ export class RoutingEngine {
   /** Observable bounded-collection sizes for the runtime metrics sampler. */
   roundRobinEntries(): { readonly combo: number; readonly provider: number } {
     return { combo: this._roundRobinByCombo.size, provider: this._roundRobinByProvider.size };
+  }
+
+  /** Live admission counters by `provider:model[:account]` bucket. */
+  async accountInflightSnapshot(): Promise<ReadonlyMap<string, number>> {
+    const snapshot = await this.admission.snapshotAccountInflight?.();
+    return snapshot ? new Map(snapshot) : new Map();
   }
 
   private resolveProviderRouting(

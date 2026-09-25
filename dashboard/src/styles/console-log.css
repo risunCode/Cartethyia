@@ -1,0 +1,347 @@
+/* Console Log rows, toolbar, filters, and provider routing pins. */
+/* Console Log — structured request rows plus plain server output. */
+.console-log-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+  background: #050606;
+  color: #c8d3cf;
+  container-type: inline-size;
+  container-name: console-log;
+}
+
+.console-log-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 16px;
+  min-height: 21px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.console-log-row--warn {
+  background: rgba(255, 168, 0, 0.05);
+}
+
+.console-log-row--error {
+  background: rgba(255, 64, 64, 0.07);
+}
+
+.console-log-row:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+/* A freshly arrived line gets a brief neutral flash — no colour, so the
+   highlight never competes with the severity cues. */
+.console-log-row.is-new {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.console-log-time {
+  flex: 0 0 auto;
+  color: #6b7573;
+  font-variant-numeric: tabular-nums;
+}
+
+.console-log-level {
+  flex: 0 0 auto;
+  width: 26px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-align: left;
+}
+
+.console-log-msg {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #9aa5a1;
+}
+
+/* ---- structured request fields ---- */
+.console-log-method {
+  flex: 0 0 auto;
+  min-width: 38px;
+  color: #6b7573;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.console-log-path {
+  flex: 0 0 auto;
+  color: #d7e2de;
+}
+
+.console-log-status {
+  flex: 0 0 auto;
+  min-width: 30px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Only a failing status is coloured; a 2xx stays neutral so the column does
+   not read as a wall of green. */
+.console-log-status--ok {
+  color: #6b7573;
+}
+
+.console-log-status--warn {
+  color: var(--orange);
+  font-weight: 600;
+}
+
+.console-log-status--err {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.console-log-status--pending {
+  color: #4d5654;
+  letter-spacing: 0.1em;
+}
+
+.console-log-route {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #63d6ff;
+}
+
+.console-log-account {
+  flex: 0 0 auto;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #c9a6ff;
+}
+
+.console-log-ip {
+  flex: 0 0 auto;
+  color: #8a9390;
+  font-variant-numeric: tabular-nums;
+}
+
+.console-log-duration {
+  flex: 0 0 auto;
+  color: #8a9390;
+  font-variant-numeric: tabular-nums;
+}
+
+.console-log-tokens {
+  flex: 0 0 auto;
+  color: #ffb454;
+  font-variant-numeric: tabular-nums;
+}
+
+.console-log-error {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(255, 64, 64, 0.16);
+  color: #ff8080;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.console-log-id {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #4d5654;
+  font-size: 10px;
+}
+
+.console-log-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-top: 1px solid var(--inner-border);
+  background: var(--surface-2);
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+.console-log-footer-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.console-log-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+
+.console-log-filter {
+  appearance: none;
+  border: 0;
+  border-radius: 5px;
+  padding: 7px 10px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font: 600 11px/1 var(--font-sans);
+  cursor: pointer;
+}
+
+.console-log-filter:hover,
+.console-log-filter.is-active {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+@container console-log (max-width: 900px) {
+  /* Secondary fields drop before the primary ones: the row must stay readable
+     at narrow widths instead of overflowing into a scrollbar. */
+  .console-log-ip,
+  .console-log-id {
+    display: none;
+  }
+}
+
+@container console-log (max-width: 720px) {
+  .console-log-account,
+  .console-log-tokens {
+    display: none;
+  }
+}
+
+@container console-log (max-width: 620px) {
+  .console-log-row {
+    gap: 6px;
+    padding: 3px 10px;
+    font-size: 11px;
+  }
+
+  .console-log-time {
+    flex: 0 0 auto;
+  }
+
+  .console-log-method,
+  .console-log-duration {
+    display: none;
+  }
+
+  .console-log-msg {
+    min-width: 0;
+  }
+
+  .console-log-filters {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+}
+.console-log-filter-count {
+  margin-left: 5px;
+  color: inherit;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+
+.console-log-clear {
+  margin-left: 6px;
+  color: var(--red);
+}
+
+.console-log-clear:hover {
+  background: var(--red-soft);
+  color: var(--red);
+}
+.console-log-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--inner-border);
+}
+
+.console-log-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.console-log-search {
+  position: relative;
+  width: min(280px, 28vw);
+}
+
+.console-log-search > svg {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.console-log-search input {
+  width: 100%;
+  padding-left: 30px;
+}
+
+.console-log-clear-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.console-log-clear-icon:hover {
+  border-color: var(--red);
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+@container console-log (max-width: 720px) {
+  .console-log-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .console-log-tools {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .console-log-search {
+    flex: 1;
+    width: auto;
+  }
+}
+
+.routing-sticky-set {
+  justify-self: start;
+  min-width: 0;
+  width: 100%;
+  max-width: 148px;
+}
+
+.routing-sticky-set input[type="number"] {
+  width: 72px;
+}
+
+@media (max-width: 680px) {
+  .routing-sticky-set {
+    max-width: none;
+  }
+}

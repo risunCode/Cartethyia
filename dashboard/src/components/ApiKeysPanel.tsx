@@ -1,9 +1,5 @@
 import {
-  Activity,
-  Clock3,
-  Gauge,
   KeyRound,
-  ListChecks,
   Pencil,
   Plus,
   Share2,
@@ -14,18 +10,17 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card, CardBody, CardHeader } from "./ui/card";
 import { Dialog } from "./ui/dialog";
-import { Input } from "./ui/input";
 import { EmptyState, ErrorState, LoadingState } from "./ui/state";
-import { StatCard } from "./ui/layout";
 import { ApiKeyForm, oneTimeSecretForMode, type KeyFormInput } from "./ApiKeyForm";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ClipboardButton } from "./patterns/clipboard-button";
+import { ShareManagementDialog } from "./ShareManagementDialog";
 import { toast } from "../lib/toast";
 import { getErrorMessage } from "../lib/helpers";
-import type { ApiKeyResponse, ShareKeyResponse } from "../lib/contracts";
-import { useApiKeys, useCreateApiKey, useRevokeApiKey, useShareApiKey, useUpdateApiKey } from "../lib/hooks/api-keys";
+import type { ApiKeyResponse } from "../lib/contracts";
+import { useApiKeys, useCreateApiKey, useRevokeApiKey, useUpdateApiKey } from "../lib/hooks/api-keys";
 
-/** Compact K/M/B/T token count used by the panel's stat cards and rows. */
+/** Compact K/M/B/T token count used by the credential rows. */
 function compactTokens(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
   const amount = Math.max(0, value);
@@ -53,43 +48,17 @@ export function ApiKeysPanel(): ReactNode {
   const createKey = useCreateApiKey();
   const updateKey = useUpdateApiKey();
   const revokeKey = useRevokeApiKey();
-  const shareKey = useShareApiKey();
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ApiKeyResponse | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyResponse | null>(null);
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<ApiKeyResponse | null>(null);
-  const [shareResult, setShareResult] = useState<ShareKeyResponse | null>(null);
-  const [shareExpiry, setShareExpiry] = useState("");
 
   const keys = keysQuery.data ?? [];
-  const activeKeys = keys.filter((key) => !key.revokedAt).length;
-  const totalUsage = keys.reduce((sum, key) => sum + Math.max(0, key.tokensConsumed ?? 0), 0);
 
   const openShare = (key: ApiKeyResponse) => {
     setRevealedSecret(null);
-    setShareResult(null);
-    setShareExpiry("");
     setShareTarget(key);
-  };
-  const confirmShare = () => {
-    if (!shareTarget) return;
-    let expiresAt: string | undefined;
-    if (shareExpiry) {
-      const parsed = new Date(shareExpiry);
-      if (Number.isNaN(parsed.getTime())) {
-        toast.error("Enter a valid expiry date or leave it empty.");
-        return;
-      }
-      expiresAt = parsed.toISOString();
-    }
-    shareKey.mutate(
-      { keyId: shareTarget.id, expiresAt },
-      {
-        onSuccess: (result) => setShareResult(result),
-        onError: (error) => toast.error(getErrorMessage(error, "Could not create share link.")),
-      },
-    );
   };
 
   return (
@@ -110,44 +79,6 @@ export function ApiKeysPanel(): ReactNode {
         }
       />
       <CardBody>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-            gap: "10px",
-            marginBottom: "16px",
-          }}
-        >
-          <StatCard
-            label="Active keys"
-            icon={<Gauge size={12} />}
-            tone="accent"
-            value={`${activeKeys} / ${keys.length}`}
-            detail="not revoked"
-          />
-          <StatCard
-            label="Total usage"
-            icon={<Activity size={12} />}
-            tone="teal"
-            value={compactTokens(totalUsage)}
-            detail="all-time tokens"
-          />
-          <StatCard
-            label="Total requests"
-            icon={<ListChecks size={12} />}
-            tone="purple"
-            value={keys.length.toLocaleString()}
-            detail="issued credentials"
-          />
-          <StatCard
-            label="Revoked"
-            icon={<Clock3 size={12} />}
-            tone={keys.length - activeKeys > 0 ? "orange" : "green"}
-            value={String(keys.length - activeKeys)}
-            detail="no longer accepted"
-          />
-        </div>
-
         {revealedSecret ? (
           <div
             style={{
@@ -289,7 +220,7 @@ export function ApiKeysPanel(): ReactNode {
                     onClick={() => openShare(key)}
                     disabled={Boolean(key.revokedAt)}
                   >
-                    Create enrollment link
+                    Manage sharing
                   </Button>}
                   <Button
                     variant="danger"
@@ -352,36 +283,9 @@ export function ApiKeysPanel(): ReactNode {
         />
       </Dialog>
 
-      <Dialog
-        open={shareTarget !== null}
-        onClose={() => { setShareTarget(null); setShareResult(null); }}
-        title="Create enrollment link"
-        width={560}
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <p style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-            This link lets a visitor manually generate one child credential. The share template itself never authenticates requests, and each active IP can enroll once.
-          </p>
-          {shareResult ? (
-            <div style={{ display: "grid", gap: 8 }}>
-              <code style={{ display: "block", padding: 8, borderRadius: 8, background: "var(--surface-1)", border: "1px solid var(--inner-border)", fontSize: 11.5, overflowWrap: "anywhere" }}>{shareResult.url}</code>
-              <div style={{ display: "flex", gap: 8 }}>
-                <ClipboardButton value={shareResult.url} size="sm" variant="secondary" />
-                <Button variant="secondary" size="sm" onClick={() => window.open(shareResult.url, "_blank", "noopener")}>Open</Button>
-              </div>
-              <p style={{ fontSize: 11, color: "var(--text-tertiary)" }}>The enrollment URL contains a one-time link token. Store and share it carefully.</p>
-            </div>
-          ) : (
-            <>
-              <Input label="Expires" hint="optional" type="datetime-local" value={shareExpiry} onChange={(event) => setShareExpiry(event.target.value)} />
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                <Button variant="secondary" size="sm" onClick={() => setShareTarget(null)} disabled={shareKey.isPending}>Cancel</Button>
-                <Button variant="primary" size="sm" onClick={confirmShare} disabled={shareKey.isPending} icon={<Share2 size={13} />}>{shareKey.isPending ? "Creating…" : "Create link"}</Button>
-              </div>
-            </>
-          )}
-        </div>
-      </Dialog>
+      {shareTarget ? (
+        <ShareManagementDialog parent={shareTarget} onClose={() => setShareTarget(null)} />
+      ) : null}
 
       <ConfirmDialog
         open={revokeTarget !== null}

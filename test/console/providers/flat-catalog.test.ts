@@ -60,7 +60,6 @@ function catalog(options: {
           label: providerId,
           credentialKind: "api_key" as const,
           status: "active",
-          maxInflight: null,
           usageToday: noUsage,
           usageAllTime: noUsage,
           createdAt: new Date(0).toISOString(),

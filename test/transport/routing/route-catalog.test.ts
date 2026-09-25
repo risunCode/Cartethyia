@@ -281,8 +281,10 @@ dbDescribe("createDatabaseSnapshotBuilder — global vs tenant routing precedenc
         id: overrideAccountId,
         providerId,
         tenantId: tenantWithOverride,
-        label: "override-account",
+        label: "previously-overridden-account",
         credentialKind: "api_key",
+        // The cutover must ignore this legacy row value: it would otherwise
+        // still win over the common Routing Strategy ceiling below.
         maxInflight: 2,
       },
       {
@@ -310,8 +312,8 @@ dbDescribe("createDatabaseSnapshotBuilder — global vs tenant routing precedenc
       bypassProxy: false,
       maxInflight: 8,
     });
-    // Tenant-specific settings override the global ceiling, while the account
-    // value remains the most specific admission limit.
+    // Tenant-specific settings override the global ceiling. A stale legacy
+    // account override must not remain the most specific admission limit.
     await db.insert(providerRoutingSettings).values({
       providerId,
       tenantId: tenantWithOverride,
@@ -366,8 +368,9 @@ dbDescribe("createDatabaseSnapshotBuilder — global vs tenant routing precedenc
     // No tenant-specific row for this tenant → falls through to the global
     // bypassProxy=false row → its active pool is attached.
     expect(defaultRouteCandidate?.network_pool_ids).toEqual([tenantPoolId]);
-    // The account limit is most specific, followed by tenant, then global.
-    expect(overrideRouteCandidate?.max_inflight).toBe(2);
+    // Tenant-specific ceiling wins over global, and the legacy account override
+    // is ignored rather than remaining most specific.
+    expect(overrideRouteCandidate?.max_inflight).toBe(6);
     expect(inheritedRouteCandidate?.max_inflight).toBe(6);
     expect(defaultRouteCandidate?.max_inflight).toBe(8);
   });

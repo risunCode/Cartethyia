@@ -366,6 +366,10 @@ result. "The tests pass" means you ran them this turn.
 ## 10. Repository boundaries
 
 - `src/` contains production backend code only. Tests belong under `test/`.
+- `dashboard/src/` contains production browser code only. Dashboard tests
+  belong under `dashboard/test/`, mirroring `dashboard/src/` one-for-one, with
+  shared scaffolding in `dashboard/test/helpers/`; `dashboard/tsconfig.json`
+  includes that tree so typecheck covers it.
 - `dashboard/` is the React/Vite workspace. Browser code must not import
   backend modules that pull in Elysia, database drivers, filesystem access,
   secrets, or Node-only runtime dependencies.

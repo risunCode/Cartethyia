@@ -40,10 +40,13 @@
     />
     <style>
       html { background: #05070d; }
-      html[data-app="console"] { background: #fffdf8; }
-      html[data-app="console"][data-theme="dark"] { background: #08080b; }
+      html[data-app="console"],
+      html[data-app="share"] { background: #fffdf8; }
+      html[data-app="console"][data-theme="dark"],
+      html[data-app="share"][data-theme="dark"] { background: #08080b; }
       @media (prefers-color-scheme: dark) {
-        html[data-app="console"][data-theme="system"] { background: #08080b; }
+        html[data-app="console"][data-theme="system"],
+        html[data-app="share"][data-theme="system"] { background: #08080b; }
       }
     </style>
     <script>
@@ -59,15 +62,18 @@
         const themeMeta = document.querySelector('meta[name="theme-color"]');
         const colorSchemeMeta = document.createElement("meta");
         colorSchemeMeta.name = "color-scheme";
-        colorSchemeMeta.content = isConsole ? "light dark" : "dark";
+        // The console and the public share page both render from the console
+        // token set, so both advertise the same light/dark support. The landing
+        // app keeps its own dark-only presentation.
+        colorSchemeMeta.content = isConsole || isShare ? "light dark" : "dark";
         document.head.appendChild(colorSchemeMeta);
         document.title = isShare
           ? "Cartethyia — Shared access"
           : isConsole
             ? "Cartethyia Console"
             : "Cartethyia — One Stop OpenAI & Anthropic Proxy Router";
-        if (themeMeta) themeMeta.setAttribute("content", isConsole ? "#09090b" : "#05070d");
-        if (!isConsole) return;
+        if (themeMeta) themeMeta.setAttribute("content", isConsole || isShare ? "#09090b" : "#05070d");
+        if (!isConsole && !isShare) return;
         try {
           const storedTheme = window.localStorage.getItem("console-theme");
           const theme =

@@ -31,6 +31,8 @@ export const queryKeys = {
       ["console", "providers", providerId, "accounts"] as const,
     routing: (providerId: string | undefined) =>
       ["console", "providers", providerId, "routing"] as const,
+    accountInflight: (providerId: string | undefined) =>
+      ["console", "providers", providerId, "account-inflight"] as const,
     healthEvents: (providerId: string | undefined, accountId: string | undefined) =>
       [
         "console",

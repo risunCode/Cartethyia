@@ -121,7 +121,7 @@ export interface UsageByRow {
  * three layers read it: the route table registers one `by-<dimension>` path per
  * member, the operations validator rejects anything outside it, and the
  * dashboard's `Dimension` union mirrors it (pinned by
- * `dashboard/src/usage-dimensions-parity.test.ts`).
+ * `dashboard/test/usage-dimensions-parity.test.ts`).
  */
 export const USAGE_DIMENSIONS = ["model", "provider", "key", "client", "client_ip"] as const;
 

@@ -32,6 +32,7 @@ import {
   saveCustomizationSettings,
   useCustomizationAssetUrl,
   useCustomizationBranding,
+  useCustomizationPersistenceError,
   useCustomizationSettings,
   readCustomizationSettings,
 } from "../lib/customization";
@@ -418,6 +419,7 @@ function BackgroundControls(): ReactNode {
 
 export default function Customization(): ReactNode {
   const [settings, setSettings] = useCustomizationSettings();
+  const persistenceError = useCustomizationPersistenceError();
 
   return (
     <Stack gap="16px">
@@ -490,7 +492,12 @@ export default function Customization(): ReactNode {
         </Button>
       </div>
 
-      <div className="two-column-grid">
+      {persistenceError ? (
+        <p role="alert" className="form-error">
+          Local persistence failed: {persistenceError}. Your current selections may not survive a refresh.
+        </p>
+      ) : null}
+      <section aria-label="Appearance and surface treatment" className="customization-section">
         <Card>
           <CardHeader
             title="Appearance Mode"
@@ -617,12 +624,12 @@ export default function Customization(): ReactNode {
             </Stack>
           </CardBody>
         </Card>
-      </div>
+      </section>
 
-      <div className="two-column-grid">
+      <section aria-label="Branding and background" className="customization-section">
         <BrandingCard />
         <BackgroundControls />
-      </div>
+      </section>
       <p style={{ fontSize: "11px", color: "var(--text-tertiary)", textAlign: "center" }}>
         Background files are limited to {formatBytes(MAX_CUSTOM_ASSET_BYTES)}. Branding & background
         never leave this browser.

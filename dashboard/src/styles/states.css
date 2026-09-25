@@ -1,0 +1,236 @@
+/* Empty, loading, error, auth, and API-key form states. */
+/* Empty, Loading, Error States */
+
+/* The centering host. `flex: 1` lets it claim the leftover height of whatever
+   column it sits in, and `min-height` keeps it from collapsing to nothing when
+   that column has no free space (a state nested mid-card). */
+.state-viewport {
+  flex: 1 1 auto;
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+/* A route-level state is the page's whole body, so it centers in the visible
+   content area rather than in its own content height.
+
+   It cannot simply grow: the shell's column is exactly as tall as its children
+   (its gaps and bottom padding consume every pixel), so there is no free space
+   for `main` to expand into and a growing box would only push a scrollbar onto
+   a page that has nothing to scroll. A viewport-relative floor is what actually
+   puts the card in the middle of what the operator is looking at; the constant
+   is the shell chrome above and below (topbar + footer clock + gaps + padding),
+   so the box always fits without overflowing at any window height.
+
+   Scoped to a direct child of `main` so a state nested inside a card keeps its
+   compact height. */
+main > .state-viewport {
+  min-height: clamp(220px, calc(100dvh - 270px), 1000px);
+}
+
+.state-box {
+  padding: 32px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.state-box-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  display: grid;
+  place-items: center;
+  background: var(--hover);
+  color: var(--text-tertiary);
+}
+
+.state-box-icon-danger {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  color: var(--red);
+}
+
+.state-box h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.state-box p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 360px;
+}
+
+.state-box-label {
+  font-weight: 500;
+}
+
+/* Auth View (Login & Setup) */
+.auth-viewport {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.auth-window {
+  width: min(100%, 420px);
+  border-radius: 24px;
+  padding: 36px 32px;
+  box-shadow: 0 24px 70px -15px rgba(0, 0, 0, 0.45);
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.auth-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--accent);
+  color: var(--accent-foreground);
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  font-weight: 800;
+  margin: 0 auto 14px;
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.auth-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.auth-desc {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.api-key-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.scope-fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: 1px solid var(--inner-border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.scope-fieldset legend {
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.scope-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  color: var(--text-primary);
+  font: 500 11px var(--font-mono);
+}
+
+.quota-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.quota-controls .form-label {
+  grid-column: 1 / -1;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.secret-reveal {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--accent-soft);
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+
+.secret-reveal strong {
+  color: var(--accent);
+  font-size: 12.5px;
+}
+
+.secret-reveal span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.secret-reveal code {
+  display: block;
+  padding: 8px 12px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--inner-border);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.api-key-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.api-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--inner-border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.api-key-row strong {
+  margin-right: 8px;
+  font-size: 13px;
+}
+
+.api-key-row p {
+  margin-top: 3px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+@media (max-width: 560px) {
+  .quota-controls {
+    grid-template-columns: 1fr;
+  }
+}

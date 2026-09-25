@@ -30,6 +30,7 @@ export type {
 } from "../../../src/console/domains/stats/contracts";
 
 export type {
+  AccountInflightReading,
   ProviderResponse,
   CreateProviderRequest,
   UpdateProviderRequest,

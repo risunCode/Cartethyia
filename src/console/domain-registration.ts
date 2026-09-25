@@ -69,6 +69,12 @@ export interface ConsoleDomainContext {
   readonly poolSelector: NetworkPoolSelector;
   readonly telemetryBuffer: TelemetryBatchBuffer;
   readonly admissionService: Pick<ApiKeyAdmissionService, "purgeKey">;
+  readonly readRoutingAccountInflight?:
+    | ((
+        providerId: string,
+        tenantId: string | null,
+      ) => Promise<readonly { accountId: string; inflight: number }[]>)
+    | undefined;
   /**
    * Loads the signed-in console user, for surfaces that re-authenticate the
    * operator rather than trusting the session alone (backup export/restore).
@@ -171,6 +177,8 @@ export function registerConsoleDomains(
       return { fetch: ctx.networkBindingFactory.fetch(undefined, tenantId) };
     },
     snapshotInvalidator: ctx.routeSnapshotService,
+    readAccountInflight: async (providerId, tenantId) =>
+      ctx.readRoutingAccountInflight ? ctx.readRoutingAccountInflight(providerId, tenantId) : [],
   });
   const providerDetailStore = new DrizzleProviderDetailStore(ctx.db);
   const networkPoolStore = new DrizzleNetworkPoolStore(ctx.db, resolveSsrfPolicy());
@@ -218,6 +226,7 @@ export function registerConsoleDomains(
     accessResolver: ctx.accessResolver,
     auditSink: ctx.auditRecorder,
     snapshotInvalidator: ctx.routeSnapshotService,
+    accountInflight: ctx.readRoutingAccountInflight,
   }));
   console.use(createNetworkPoolRoutes({
     store: networkPoolStore,

@@ -135,7 +135,6 @@ dbDescribe("DrizzleProviderCatalogStore account mutations", () => {
       label: "acct-mut",
       secret: "sk-mut-secret",
       credentialKind: "api_key",
-      maxInflight: 2,
     });
     accountId = created.id;
   });
@@ -150,9 +149,9 @@ dbDescribe("DrizzleProviderCatalogStore account mutations", () => {
     expect(await store.updateAccount(tenantId, providerId, randomUUID(), { label: "x" })).toBeUndefined();
   });
 
-  test("persists per-account concurrency and reports today/lifetime token usage", async () => {
-    const updated = await store.updateAccount(tenantId, providerId, accountId, { maxInflight: 4 });
-    expect(updated?.maxInflight).toBe(4);
+  test("ignores legacy per-account concurrency input and reports token usage", async () => {
+    const updated = await store.updateAccount(tenantId, providerId, accountId, { label: "acct-mut" });
+    expect(updated?.label).toBe("acct-mut");
 
     const telemetry = new DrizzleTelemetryStore(db);
     await telemetry.insertEvents([
@@ -191,7 +190,7 @@ dbDescribe("DrizzleProviderCatalogStore account mutations", () => {
       totalTokens: 33,
     });
     expect(account?.usageAllTime).toEqual(account?.usageToday);
-    expect(account?.maxInflight).toBe(4);
+    expect(account).not.toHaveProperty("maxInflight");
   });
 
   test("listAccountHealthEvents returns an array", async () => {

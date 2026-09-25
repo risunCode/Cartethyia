@@ -2,8 +2,12 @@ import { Elysia, t } from "elysia";
 import { ConsoleDomainError, errorResponse, requireTenantScope } from "../../shared/errors";
 import { literalUnion } from "../../shared/elysia-schema";
 import type { AccessDecision } from "../../../security/access-control";
-import type { ProviderRoutingResponse, UpdateProviderRoutingRequest } from "../catalog/contracts";
-import type { ProviderDetailConfig } from "./contracts";
+import {
+  PROVIDER_ROUTING_MAX_INFLIGHT_BOUNDS,
+  type ProviderRoutingResponse,
+  type UpdateProviderRoutingRequest,
+} from "../catalog/contracts";
+import type { AccountInflightReading, ProviderDetailConfig } from "./contracts";
 import { ROUTING_STRATEGIES } from "../../../transport/routing/route-model";
 
 /**
@@ -15,7 +19,7 @@ import { ROUTING_STRATEGIES } from "../../../transport/routing/route-model";
  */
 const ROUTING_BOUNDS = {
   rotateCount: { min: 1, max: 1000 },
-  maxInflight: { min: 1, max: 10000 },
+  maxInflight: PROVIDER_ROUTING_MAX_INFLIGHT_BOUNDS,
 } as const;
 
 export function createProviderDetailOperations(deps: ProviderDetailConfig) {
@@ -72,6 +76,20 @@ export function createProviderDetailOperations(deps: ProviderDetailConfig) {
       await deps.snapshotInvalidator?.invalidate();
       return updated;
     },
+    async accountInflight(
+      access: AccessDecision | undefined,
+      providerId: string,
+    ): Promise<readonly AccountInflightReading[]> {
+      const a = requireTenantScope(access, "dashboard:read");
+      if (!deps.accountInflight) return [];
+      const readings = await deps.accountInflight(providerId, a.tenantId);
+      return readings
+        .filter((reading) => typeof reading.accountId === "string")
+        .map((reading) => ({
+          accountId: reading.accountId,
+          inflight: Number.isFinite(reading.inflight) ? Math.max(0, Math.floor(reading.inflight)) : 0,
+        }));
+    },
   };
   return operations;
 }
@@ -102,6 +120,13 @@ export function createProviderDetailRoutes(config: ProviderDetailConfig): Elysia
     .get("/:providerId/routing", async ({ request, params, set }) => {
       try {
         return await factory.getRouting(config.accessResolver(request), params.providerId);
+      } catch (e) {
+        return providerDetailErrorResponse(e, set);
+      }
+    })
+    .get("/:providerId/account-inflight", async ({ request, params, set }) => {
+      try {
+        return await factory.accountInflight(config.accessResolver(request), params.providerId);
       } catch (e) {
         return providerDetailErrorResponse(e, set);
       }
