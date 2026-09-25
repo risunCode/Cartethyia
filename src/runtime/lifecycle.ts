@@ -168,7 +168,6 @@ export async function bootstrap(): Promise<CartethyiaBoot> {
             closeRedis(),
             deps.poolAgentResolver.closeAll(),
           ]);
-          deps.networkBindingFactory.close();
         },
       },
       { drainTimeoutMs: 8_000, flushTimeoutMs: 1_000 },

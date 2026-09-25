@@ -4,16 +4,10 @@ import { Agent as HttpAgent, request as httpRequest, type RequestOptions } from 
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
 import { Readable } from "node:stream";
 import { resolveAllAddresses, validateResolvedAddresses } from "./ssrf";
-import { resolveHttp2Enabled, resolveHttp2FallbackEnabled } from "../config";
 import type { SsrfPolicy } from "../config";
 import { isProxyAgentPair, type ProxyAgentPair } from "./pool/agent";
 import { metrics } from "../observability/metrics";
 import { trackNetworkCall } from "../observability/performance-metrics";
-import {
-  Http2ConnectionError,
-  Http2UnsupportedError,
-  http2PinnedFetcher,
-} from "./http2-fetch";
 import { stripResponseHeaders } from "./response-headers";
 // Validated fetch — single egress with ProxyAgent support
 export interface ValidatedFetchOptions {
@@ -22,15 +16,6 @@ export interface ValidatedFetchOptions {
   readonly maxRedirects?: number;
   readonly resolveFn?: (hostname: string, signal: AbortSignal) => Promise<readonly string[]>;
   readonly agent?: HttpAgent | HttpsAgent | ProxyAgentPair;
-  /**
-   * Transport preference for direct HTTPS egress. `"http2"` (default, unless
-   * `CARTETHYIA_HTTP2_ENABLED=false`) uses multiplexed pinned HTTP/2 sessions;
-   * `"http1"` forces the node:http agent path. Ignored when a pool agent or a
-   * custom `fetchFn` owns the dial.
-   */
-  readonly protocol?: "http1" | "http2";
-  /** Override `CARTETHYIA_HTTP2_FALLBACK_ENABLED` for this fetch closure. */
-  readonly http2Fallback?: boolean;
 }
 export type ValidatedFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -167,8 +152,6 @@ export function createValidatedFetch(options: ValidatedFetchOptions = {}): Valid
   const relayEndpoint = isProxyAgentPair(configuredAgent)
     ? configuredAgent.relayEndpoint
     : undefined;
-  const protocol = options.protocol ?? (resolveHttp2Enabled() ? "http2" : "http1");
-  const http2Fallback = options.http2Fallback ?? resolveHttp2FallbackEnabled();
   return async (input, init = {}) => {
     const startedAt = performance.now();
     let url = input instanceof Request ? new URL(input.url) : new URL(input.toString());
@@ -229,32 +212,7 @@ export function createValidatedFetch(options: ValidatedFetchOptions = {}): Valid
         response = await options.fetchFn(url, requestInit);
       } else {
         const agent = agentForTarget(configuredAgent, url.protocol);
-        // HTTP/2 is only reachable for direct HTTPS dials: a pool agent or an
-        // injected fetchFn owns its own transport, and h2 requires TLS.
-        const http2Eligible =
-          protocol === "http2" && url.protocol === "https:" && configuredAgent === undefined;
-        if (http2Eligible) {
-          try {
-            response = await http2PinnedFetcher.fetch(url, requestInit, resolvedAddress!);
-            metrics.cartethyia_http2_requests_total.inc(1, { protocol: "http2" });
-          } catch (error) {
-            if (
-              http2Fallback &&
-              (error instanceof Http2UnsupportedError || error instanceof Http2ConnectionError)
-            ) {
-              // The upstream does not speak h2 (or the session died): degrade to
-              // the HTTP/1.1 pinned path rather than failing the request.
-              metrics.cartethyia_http2_fallbacks_total.inc();
-              metrics.cartethyia_http2_requests_total.inc(1, { protocol: "http1" });
-              response = await pinnedFetch(url, requestInit, resolvedAddress!, agent);
-            } else {
-              throw error;
-            }
-          }
-        } else {
-          response = await pinnedFetch(url, requestInit, resolvedAddress!, agent);
-          metrics.cartethyia_http2_requests_total.inc(1, { protocol: "http1" });
-        }
+        response = await pinnedFetch(url, requestInit, resolvedAddress!, agent);
       }
       if (response.status < 300 || response.status >= 400) {
         trackNetworkCall(url.hostname, performance.now() - startedAt);

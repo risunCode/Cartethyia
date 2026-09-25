@@ -14,8 +14,7 @@ exception: they dial the provider's own API through `globalThis.fetch`.
 ```text
 src/network/
   NETWORK.md              this file
-  outbound-fetch.ts       createValidatedFetch: per-hop validation, pinning, redirects, relay mode, H2 selection
-  http2-fetch.ts          Http2PinnedFetcher: per-origin multiplexed sessions, pinned TLS, fallback-eligible errors
+  outbound-fetch.ts       createValidatedFetch: per-hop validation, pinning, redirects, relay mode
   ssrf.ts                 resolveAllAddresses, isAddressAllowed, validateResolvedAddresses, resolveAndValidateOnce
   pool/                   pool-bound egress: agents, loading, cache lifecycle, admission
     agent.ts              transports (http/https/socks5), ProxyAgentPair, relay classification, per-connect SSRF lookup
@@ -39,7 +38,7 @@ name itself.
 ## Validated egress
 
 `outbound-fetch.ts: createValidatedFetch({ fetchFn, policy, maxRedirects,
-resolveFn, agent, protocol, http2Fallback })`:
+resolveFn, agent })`:
 
 - Every hop is DNS-resolved and SSRF-checked against `SsrfPolicy`
   (`src/config.ts`): `allowPrivate`, `allowedNetworks`, `maxRedirects`. When a
@@ -54,25 +53,11 @@ resolveFn, agent, protocol, http2Fallback })`:
   exceeded`. Known-length bodies get explicit `content-length`.
 - Hosted-relay mode sends `x-relay-target` / `x-relay-path` / `x-relay-auth`
   instead of CONNECT.
-- Direct HTTPS egress is HTTP/1.1 by default; HTTP/2 is opt-in
-  (`CARTETHYIA_HTTP2_ENABLED=true`) and applies to direct HTTPS only —
-  pool/relay paths stay HTTP/1.1. See below for why it is not the default.
-
-`http2-fetch.ts`: process-wide `Http2PinnedFetcher` with a per-origin
-multiplexed session cache (default max 64 sessions, 60 s idle reap, 5 s
-connect timeout, `unref`'d). `pinnedTlsConnection` dials the validated IP with
-real-host SNI and advertises **only** `h2` in ALPN; strips HTTP/2-forbidden
-headers. Pre-response failures surface as fallback-eligible errors; post-header
-errors stream through. A failed HTTP/2 attempt falls back to HTTP/1.1 unless
-`CARTETHYIA_HTTP2_FALLBACK_ENABLED=false`.
-
-**Why HTTP/2 is opt-in.** Advertising only `h2` makes the transport an
-enforcement, not a preference: an upstream that speaks HTTP/1.1 alone fails
-the TLS handshake rather than being served, and the caller sees a protocol
-error on a request that worked before. Falling back costs an extra round trip
-before the retry, so it is a recovery, not a substitute for negotiating
-normally. The default is therefore the transport every upstream accepts, and
-an operator turns h2 on for the upstreams known to support it.
+- Direct egress is HTTP/1.1 over a pinned socket (`pinnedFetch`). The transport
+  is deliberately not negotiated: an upgrade path that advertises only `h2` in
+  ALPN makes an HTTP/1.1-only upstream fail the TLS handshake, turning a
+  working request into a protocol error, and a fallback retry costs an extra
+  round trip to recover what plain HTTP/1.1 would have served first.
 
 ## SSRF policy
 
@@ -119,8 +104,8 @@ Destroy/close failures are logged, never swallowed, so leaked sockets surface.
 shutdown. Create-time `validateDialHost` resolves the endpoint host under a 5 s
 timeout and hands the policy to the agent for per-connect revalidation.
 `ValidatedNetworkBindingFactory.resolve()` is the one-shot SSRF-validated
-direct destination; `fetch(poolId, tenantId)` returns either a direct fetch
-(`http2PinnedFetcher` / `createValidatedFetch`) or a pool-bound validated fetch.
+direct destination; `fetch(poolId, tenantId)` returns either a direct
+`createValidatedFetch` or a pool-bound validated fetch.
 `PoolBindingError` maps to `proxy_pool_unavailable` 503.
 
 **Weighted, cooldown-aware admission.** `NetworkPoolSelector` scores

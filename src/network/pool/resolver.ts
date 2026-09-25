@@ -12,7 +12,6 @@ import {
   type ValidatedDestination,
 } from "../ssrf";
 import { createValidatedFetch, type ValidatedFetch } from "../outbound-fetch";
-import { http2PinnedFetcher } from "../http2-fetch";
 import { GatewayError } from "../../transport/gateway-error";
 import type { SsrfPolicy } from "../../config";
 import { log } from "../../observability/logger";
@@ -296,14 +295,6 @@ export class ValidatedNetworkBindingFactory {
    */
   resolve(hostname: string, signal: AbortSignal, port = 443): Promise<ValidatedDestination> {
     return resolveAndValidateOnce(hostname, this.policy, signal, port);
-  }
-
-  /**
-   * Closes cached HTTP/2 egress sessions. Sessions are unref'd so they never
-   * block shutdown on their own; this is the eager, graceful counterpart.
-   */
-  close(): void {
-    http2PinnedFetcher.close();
   }
 
   /**

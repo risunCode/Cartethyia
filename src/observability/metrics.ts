@@ -210,10 +210,7 @@ export class PrometheusRegistry {
   readonly cartethyia_ip_abuse_keys: GaugeMetric;
   readonly cartethyia_quota_cache_entries: GaugeMetric;
   readonly cartethyia_pool_agent_entries: GaugeMetric;
-  readonly cartethyia_http2_requests_total: CounterMetric;
-  readonly cartethyia_http2_fallbacks_total: CounterMetric;
   readonly cartethyia_proxy_dial_dns_fallback_total: CounterMetric;
-  readonly cartethyia_http2_connection_reuse_total: CounterMetric;
   readonly proxy_provider_adapter_load_ms: HistogramMetric;
   readonly pool_cooldown_record_failed: CounterMetric;
   readonly quota_cache_invalidate_failed: CounterMetric;
@@ -295,22 +292,9 @@ export class PrometheusRegistry {
       "cartethyia_pool_agent_entries",
       "Cached per-pool egress agents",
     );
-    this.cartethyia_http2_requests_total = this.counter(
-      "cartethyia_http2_requests_total",
-      "Direct egress requests by negotiated protocol",
-      ["protocol"],
-    );
-    this.cartethyia_http2_fallbacks_total = this.counter(
-      "cartethyia_http2_fallbacks_total",
-      "HTTP/2 requests that fell back to HTTP/1.1",
-    );
     this.cartethyia_proxy_dial_dns_fallback_total = this.counter(
       "cartethyia_proxy_dial_dns_fallback_total",
       "Pool/relay-bound dials whose local DNS resolution failed and were downgraded to proxy-resolved egress",
-    );
-    this.cartethyia_http2_connection_reuse_total = this.counter(
-      "cartethyia_http2_connection_reuse_total",
-      "HTTP/2 requests served from a cached multiplexed connection",
     );
     this.proxy_provider_adapter_load_ms = this.histogram(
       "proxy_provider_adapter_load_ms",

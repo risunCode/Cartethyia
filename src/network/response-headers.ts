@@ -1,11 +1,10 @@
 /**
- * Upstream response header sanitization shared by the HTTP/1.1 and HTTP/2
- * egress paths.
+ * Upstream response header sanitization for the validated egress path.
  *
  * Upstream responses must not hand gateway state or credentials to callers:
  * strip Set-Cookie/auth challenges and hop-by-hop fields; keep everything
  * content-bearing (content-type, location, etc.). Keeping this in one module
- * ensures both transports apply the identical allow/deny policy.
+ * means every transport applies the identical allow/deny policy.
  */
 
 /** Hop-by-hop and credential-bearing headers never forwarded to callers. */

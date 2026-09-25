@@ -10,8 +10,6 @@ import {
   resolveDashboardDist,
   resolveFallbackRetryBaseMs,
   resolveFallbackRetryCapMs,
-  resolveHttp2Enabled,
-  resolveHttp2FallbackEnabled,
   resolvePort,
   resolveSsrfPolicy,
   resolveStreamFirstChunkTimeoutMs,
@@ -256,30 +254,5 @@ describe("upstream timeout + retry backoff", () => {
         );
       });
     }
-  });
-});
-
-describe("outbound HTTP/2 is opt-in", () => {
-  test("egress is HTTP/1.1 unless the operator opts in", () => {
-    // The regression this pins: HTTP/2 used to be on by default, and because
-    // the pinned transport advertises only `h2`, an upstream that speaks
-    // HTTP/1.1 alone failed the handshake on requests that previously worked.
-    for (const value of [undefined, "false", "0", "1", "yes", "TRUE"]) {
-      withEnvironment("CARTETHYIA_HTTP2_ENABLED", value, () => {
-        expect(resolveHttp2Enabled()).toBe(false);
-      });
-    }
-    withEnvironment("CARTETHYIA_HTTP2_ENABLED", "true", () => {
-      expect(resolveHttp2Enabled()).toBe(true);
-    });
-  });
-
-  test("the HTTP/1.1 fallback stays on by default when h2 is enabled", () => {
-    withEnvironment("CARTETHYIA_HTTP2_FALLBACK_ENABLED", undefined, () => {
-      expect(resolveHttp2FallbackEnabled()).toBe(true);
-    });
-    withEnvironment("CARTETHYIA_HTTP2_FALLBACK_ENABLED", "false", () => {
-      expect(resolveHttp2FallbackEnabled()).toBe(false);
-    });
   });
 });

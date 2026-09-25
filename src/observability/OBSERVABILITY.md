@@ -93,7 +93,6 @@ batched `insertEvents` -> scheduled retention prune:
   (rss/heap_used/heap_total/limit), `cartethyia_routing_roundrobin_entries{scope}`,
   `cartethyia_ip_abuse_keys`,
   `cartethyia_quota_cache_entries`, `cartethyia_pool_agent_entries`,
-  `cartethyia_http2_*` (requests by protocol, fallbacks, connection reuse),
   `cartethyia_proxy_dial_dns_fallback_total`, `proxy_provider_adapter_load_ms`,
   `pool_cooldown_record_failed`, `quota_cache_invalidate_failed`,
   `version_discovery_failed{provider}`.

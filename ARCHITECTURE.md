@@ -66,7 +66,7 @@ telemetry row).
 |---|---|---|
 | transport | `src/transport/TRANSPORT.md` | Canonical core, lifecycle, ingress pipeline, surface codecs, preparation/state, capability/alias/combo, routing plan, dispatch, error taxonomy |
 | protocol | `src/protocol/PROTOCOL.md` | Canonical↔wire codecs, registry dispatcher, shared primitives |
-| network | `src/network/NETWORK.md` | Validated egress, SSRF policy, HTTP/2, pool agents, weighted admission, retry/dedup rules |
+| network | `src/network/NETWORK.md` | Validated egress, SSRF policy, pool agents, weighted admission, retry/dedup rules |
 | security | `src/security/SECURITY.md` | Identity → auth → CSRF → IP-abuse → admission, crypto, headers |
 | providers | `src/providers/PROVIDERS.md` | Registry, metadata × capabilities × lazy import, seeding/catalog/discovery, OAuth kit, quota shape and window engine, per-provider adapters, runtime operations |
 
