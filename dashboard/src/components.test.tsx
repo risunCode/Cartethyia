@@ -34,6 +34,7 @@ describe("dashboard components", () => {
     expect(markup).toContain('aria-label="Open navigation"');
     expect(markup).toContain("Overview");
     expect(markup).toContain("Settings");
+    expect(markup).toContain("Share");
     expect(markup).toContain("Command palette");
     expect(markup).toContain("Sign out");
     expect(markup).toContain("page content");

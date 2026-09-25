@@ -353,15 +353,14 @@ export function createCodexAdapter(
         token === undefined
           ? undefined
           : getCodexResidency({ accessToken: token });
-      const { turnMetadataJson, turnMetadataHeaderJson } =
-        createCodexRequestMetadata({
-          installationId,
-          sessionId: identity.session_id,
-          threadId: identity.thread_id,
-          windowId: identity.window_id,
-          turnId: identity.turn_id,
-          requestKind: "compaction",
-        });
+      const { turnMetadataJson } = createCodexRequestMetadata({
+        installationId,
+        sessionId: identity.session_id,
+        threadId: identity.thread_id,
+        windowId: identity.window_id,
+        turnId: identity.turn_id,
+        requestKind: "compaction",
+      });
       await ensureVersion();
       const headers: Record<string, string> = {
         "content-type": "application/json",
@@ -378,7 +377,6 @@ export function createCodexAdapter(
           turnId: identity.turn_id,
           installationId,
           turnMetadataJson,
-          turnMetadataHeaderJson,
           betaFeatures: betaRemoteCompaction
             ? "remote_compaction_v2"
             : undefined,
@@ -427,7 +425,6 @@ export function createCodexAdapter(
           "model must not contain query string",
         );
       }
-      const isProbe = request.provider_options?.cartethyia_probe === true;
 
       assertCodexOAuthCredential(context.credential);
 
@@ -508,7 +505,7 @@ export function createCodexAdapter(
           ? undefined
           : getCodexResidency({ accessToken: token }));
 
-      const { clientMetadata, turnMetadataJson, turnMetadataHeaderJson } =
+      const { clientMetadata, turnMetadataJson } =
         createCodexRequestMetadata({
           installationId,
           sessionId: effectiveSessionId,
@@ -553,7 +550,6 @@ export function createCodexAdapter(
           conversationId,
           installationId,
           turnMetadataJson,
-          turnMetadataHeaderJson,
           betaFeatures,
           subAgent,
           responsesLite,
@@ -571,8 +567,6 @@ export function createCodexAdapter(
       // official client sends this key on every Responses request; relying on
       // an optional inbound cache hint leaves Model Lab sessions uncached.
       payload["prompt_cache_key"] = effectiveSessionId;
-      if (!isProbe) {
-      }
       payload["client_metadata"] = clientMetadata;
 
       const { res, release } = await postUpstreamJson(

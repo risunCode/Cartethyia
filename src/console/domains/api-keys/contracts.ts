@@ -8,18 +8,24 @@ import { randomBytes } from "node:crypto";
 import type { ApiKeyRecord, ApiKeyStore } from "../../../persistence/api-key-store";
 import { hashSecret } from "../../../security/crypto";
 import { type ShareLinkStore, type ShareLinkSummary } from "../../../persistence/share-store";
-import type { ShareLinkKind } from "../../../persistence/schema";
+import { API_KEY_MODES, type ApiKeyMode, type ShareLinkKind } from "../../../persistence/schema";
 import { isValidTenantKeyScope, type AccessScope } from "../../../security/access-control";
+import type { ShareActivityPort } from "../../share/share-usage";
 import { ConsoleDomainError } from "../../shared/errors";
 import type { ConsoleAccessResolver } from "../../auth/access";
 import type { ApiKeyAdmissionService } from "../../../security/admission";
-/** Input accepted when creating an API key. `null` on a limit clears it (unlimited). */
+export type {
+  SharedKeySummary,
+  SharedKeyActivityDetail,
+} from "../../share/share-usage";
+/** Input accepted when creating or editing a key. Null limits mean unlimited. */
 export interface CreateApiKeyRequest {
   label?: string;
+  keyMode?: ApiKeyMode;
   scopes?: readonly string[];
-  /** Public leading fragment of the generated key; defaults to `rk_`. */
+  /** Public leading fragment used for generated keys; defaults to `rk_`. */
   keyPrefix?: string;
-  /** Owner-supplied raw key value; when omitted a secret is generated. */
+  /** Owner-supplied raw key value; valid only for personal keys. */
   key?: string;
   requestsPerMinute?: number | null;
   dailyTokenLimit?: number | null;
@@ -35,12 +41,14 @@ export interface CreateApiKeyRequest {
   notesBody?: string;
 }
 
-/** Public key representation; it never contains a secret or hash. */
+/** Public key representation; it never contains a secret, hash, or IP-key digest. */
 export interface ApiKeyResponse {
   readonly id: string;
   readonly label: string;
+  readonly keyMode: ApiKeyMode;
   readonly scopes: readonly AccessScope[];
   readonly keyPrefix?: string;
+  readonly parentKeyId?: string;
   readonly requestsPerMinute?: number;
   readonly dailyTokenLimit?: number;
   readonly monthlyTokenLimit?: number;
@@ -57,22 +65,23 @@ export interface ApiKeyResponse {
   readonly revokedAt?: string;
   readonly tokensConsumed: number;
 }
-
-/** Creation result; plaintext secret is returned only by create. */
+/** Creation result; plaintext is returned only when a personal key is minted. */
 export interface CreateApiKeyResponse extends ApiKeyResponse {
-  readonly secret: string;
+  readonly secret?: string;
 }
 
-/** Records privileged API-key mutations to `admin_audit_log`. */
+/** Edit result carries one new secret on personal rotation or template conversion. */
+export interface UpdateApiKeyResponse extends ApiKeyResponse {
+  readonly secret?: string;
+}
+
 /** API-key route dependency boundary. */
 export interface ApiKeyConfig {
   readonly store: ApiKeyStore;
   readonly accessResolver: ConsoleAccessResolver;
-  /** Records privileged mutations to `admin_audit_log`; a no-op when omitted (e.g. tests). */
   readonly auditSink?: AuditSink;
-  /** Share-link persistence; share routes report 501 when omitted. */
   readonly shareStore?: ShareLinkStore;
-  /** Admission-state purge on revocation; required so a recycled key id never inherits history. */
+  readonly shareActivity?: ShareActivityPort;
   readonly admissionService: Pick<ApiKeyAdmissionService, "purgeKey">;
 }
 
@@ -92,7 +101,6 @@ export interface ShareLinkResponse {
   readonly active: boolean;
   readonly createdAt: string;
   readonly expiresAt: string | null;
-  readonly usedAt: string | null;
   readonly lastViewedAt: string | null;
 }
 
@@ -118,7 +126,7 @@ export function resolveKeyPrefix(raw: string | undefined): string {
   return trimmed && trimmed.length > 0 ? trimmed : DEFAULT_API_KEY_PREFIX;
 }
 
-/** Hashes and encrypts an owner-supplied raw key so it can be shared later. */
+/** Hashes an owner-supplied personal key; persistence encrypts it for Studio handoff. */
 export function prepareCustomKey(secret: string): { secret: string; hash: string } {
   if (secret.trim().length === 0) {
     throw new ConsoleDomainError("invalid_key", 400, "Custom key must be a non-empty string");
@@ -136,6 +144,13 @@ export function finitePositive(value: number | null | undefined, name: string): 
 
 /** Validates scopes and quota fields before persistence. */
 export function validateApiKeyRequest(request: CreateApiKeyRequest): readonly AccessScope[] {
+  const keyMode = request.keyMode ?? "personal";
+  if (!(API_KEY_MODES as readonly string[]).includes(keyMode)) {
+    throw new ConsoleDomainError("invalid_key_mode", 400, "keyMode must be personal or share");
+  }
+  if (keyMode === "share" && request.key !== undefined) {
+    throw new ConsoleDomainError("invalid_key_mode", 400, "Share templates cannot carry a personal key");
+  }
   const scopes = request.scopes ?? ["routing:invoke"];
   for (const scope of scopes) {
     if (!isValidTenantKeyScope(scope as AccessScope)) {
@@ -170,33 +185,25 @@ export function validateApiKeyRequest(request: CreateApiKeyRequest): readonly Ac
   return scopes as AccessScope[];
 }
 
-/** Serializes a persisted record without credential material or undefined keys. */
+/** Serializes a persisted record without credential material or IP-key digests. */
 export function sanitizeApiKeyResponse(record: ApiKeyRecord): ApiKeyResponse {
   return {
     id: record.id,
     label: record.label,
+    keyMode: record.keyMode,
     scopes: record.scopes,
     ...(record.keyPrefix === undefined ? {} : { keyPrefix: record.keyPrefix }),
+    ...(record.parentKeyId === undefined ? {} : { parentKeyId: record.parentKeyId }),
     ...(record.notesTitle === undefined ? {} : { notesTitle: record.notesTitle }),
     ...(record.notesSubtitle === undefined ? {} : { notesSubtitle: record.notesSubtitle }),
     ...(record.notesBody === undefined ? {} : { notesBody: record.notesBody }),
-    ...(record.requestsPerMinute === undefined
-      ? {}
-      : { requestsPerMinute: record.requestsPerMinute }),
+    ...(record.requestsPerMinute === undefined ? {} : { requestsPerMinute: record.requestsPerMinute }),
     ...(record.dailyTokenLimit === undefined ? {} : { dailyTokenLimit: record.dailyTokenLimit }),
-    ...(record.monthlyTokenLimit === undefined
-      ? {}
-      : { monthlyTokenLimit: record.monthlyTokenLimit }),
-    ...(record.lifetimeTokenBudget === undefined
-      ? {}
-      : { lifetimeTokenBudget: record.lifetimeTokenBudget }),
-    ...(record.maxConcurrentRequests === undefined
-      ? {}
-      : { maxConcurrentRequests: record.maxConcurrentRequests }),
+    ...(record.monthlyTokenLimit === undefined ? {} : { monthlyTokenLimit: record.monthlyTokenLimit }),
+    ...(record.lifetimeTokenBudget === undefined ? {} : { lifetimeTokenBudget: record.lifetimeTokenBudget }),
+    ...(record.maxConcurrentRequests === undefined ? {} : { maxConcurrentRequests: record.maxConcurrentRequests }),
     ...(record.modelPrefix === undefined ? {} : { modelPrefix: record.modelPrefix }),
-    ...(record.providerAllowlist === undefined
-      ? {}
-      : { providerAllowlist: record.providerAllowlist }),
+    ...(record.providerAllowlist === undefined ? {} : { providerAllowlist: record.providerAllowlist }),
     ...(record.modelAllowlist === undefined ? {} : { modelAllowlist: record.modelAllowlist }),
     ...(record.modelDenylist === undefined ? {} : { modelDenylist: record.modelDenylist }),
     createdAt: record.createdAt.toISOString(),
@@ -219,7 +226,6 @@ export function mapShareLinkResponse(link: ShareLinkSummary): ShareLinkResponse 
     active: link.active,
     createdAt: link.createdAt.toISOString(),
     expiresAt: link.expiresAt === null ? null : link.expiresAt.toISOString(),
-    usedAt: link.usedAt === null ? null : link.usedAt.toISOString(),
     lastViewedAt: link.lastViewedAt === null ? null : link.lastViewedAt.toISOString(),
   };
 }

@@ -2,7 +2,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint, boolean, check, customType, index, integer, jsonb, numeric, pgEnum, pgTable,
-  primaryKey, text, timestamp, uniqueIndex, uuid,
+  primaryKey, text, timestamp, uniqueIndex, uuid, type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 // Exactly id, name, status, created_at — no status enum/default or extra
@@ -126,15 +126,14 @@ export const providers = pgTable(
     // see `src/transport/routing/route-catalog.ts`.
     requiresAccount: boolean("requires_account").notNull().default(true),
   },
-  (table) => [index("providers_capability_profile_gin_idx").using("gin", table.capabilityProfile)],
 );
 
 export type Provider = typeof providers.$inferSelect;
 
 // Upstream account credentials plus the full health state machine.
 // `tenant_id` null means the account is shared pool-wide; populated means
-// tenant-owned/BYOK. Concurrency limiting and network-pool egress are
-// provider-scoped, not per-account — see `provider_routing_settings`.
+// tenant-owned/BYOK. Provider routing supplies the default concurrency
+// ceiling and network-pool policy; `max_inflight` can override it per account.
 export const providerAccounts = pgTable("provider_accounts", {
   id: uuid("id").primaryKey().defaultRandom(),
   providerId: text("provider_id")
@@ -161,9 +160,7 @@ export const providerAccounts = pgTable("provider_accounts", {
   cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
   lastRecoveredAt: timestamp("last_recovered_at", { withTimezone: true }),
   modelCooldowns: jsonb("model_cooldowns").notNull().default({}),
-  /** Per-account concurrency ceiling for route admission. `null` = UNLIMITED
-   * concurrency for that account. Admission buckets by account, so N accounts
-   * each get their own ceiling instead of sharing one pool-wide one. */
+  /** Per-account ceiling; null inherits provider routing, whose null means unlimited. */
   maxInflight: integer("max_inflight"),
 
   },
@@ -260,7 +257,6 @@ export const tenantDisabledModels = pgTable(
       t.modelId,
       t.endpointPath,
     ),
-    index("tenant_disabled_models_tenant_idx").on(t.tenantId),
   ],
 );
 
@@ -423,33 +419,34 @@ export const poolRoutingSettings = pgTable("pool_routing_settings", {
 export type PoolRoutingSettings = typeof poolRoutingSettings.$inferSelect;
 
 
-// Inbound `/v1/*` credential, unrelated to upstream provider credentials.
-// `key_hash` is an HMAC-SHA256 (keyed with the process encryption key, so no
-// per-row salt) — the raw key is never stored. `provider_allowlist` holds canonical
-// provider IDs; `model_allowlist`/`model_denylist` hold canonical model
-// identifiers resolved through the model catalog, never arbitrary caller
-// strings. `lifetime_token_budget`/`lifetime_tokens_consumed` use bigint's
-// "number" mode: realistic token volume stays far below
-// Number.MAX_SAFE_INTEGER, and "number" mode keeps the column JSON-safe and
-// directly comparable without BigInt ergonomics costs.
+export const API_KEY_MODES = ["personal", "share"] as const;
+export type ApiKeyMode = (typeof API_KEY_MODES)[number];
+
+/**
+ * Inbound `/v1/*` keys never store plaintext secrets. Personal keys carry an
+ * authentication hash; share templates carry policy and child keys point back
+ * to the template that issued them.
+ */
 export const apiKeys = pgTable(
   "api_keys",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     tenantId: tenantRefRequired(),
-    keyHash: text("key_hash").notNull(),
+    keyHash: text("key_hash"),
+    keyMode: text("key_mode").$type<ApiKeyMode>().notNull().default("personal"),
+    parentKeyId: uuid("parent_key_id").references(
+      (): AnyPgColumn => apiKeys.id,
+      { onDelete: "cascade" },
+    ),
+    issuedClientIp: text("issued_client_ip"),
+    issuedClientIpKey: text("issued_client_ip_key"),
     label: text("label").notNull(),
     scopes: jsonb("scopes").notNull().$type<readonly string[]>(),
-    // Public, non-secret leading fragment of the issued key (e.g. `rk_`). Shown
-    // in the console list and on the public share page; the full key stays in
-    // `key_encrypted`/`key_hash` only.
+    // Only the non-secret public key prefix is returned to the owner.
     keyPrefix: text("key_prefix"),
-    // Recoverable copy of the issued secret, AES-256-GCM encrypted with
-    // `CARTETHYIA_ENCRYPTION_KEY`. Required only so the owner can hand the
-    // existing key to a share recipient; `key_hash` remains the auth source of
-    // truth. Null for keys created before share-secret storage existed.
+    // Personal keys retain an encrypted copy for the Studio handoff. Shared
+    // children are revealed once and persist only their authentication hash.
     keyEncrypted: bytea("key_encrypted"),
-    // Optional owner-authored copy rendered on the public share page.
     notesTitle: text("notes_title"),
     notesSubtitle: text("notes_subtitle"),
     notesBody: text("notes_body"),
@@ -470,24 +467,46 @@ export const apiKeys = pgTable(
   },
   (table) => [
     uniqueIndex("api_keys_key_hash_idx").on(table.keyHash),
+    uniqueIndex("api_keys_active_shared_ip_uidx")
+      .on(table.issuedClientIpKey)
+      .where(sql`${table.parentKeyId} IS NOT NULL AND ${table.revokedAt} IS NULL`),
     index("api_keys_tenant_id_idx").on(table.tenantId),
+    index("api_keys_parent_key_id_idx").on(table.parentKeyId),
+    check(
+      "api_keys_mode_shape_check",
+      sql`(
+        (${table.keyMode} = 'personal' AND ${table.keyHash} IS NOT NULL
+          AND ${table.parentKeyId} IS NULL AND ${table.issuedClientIp} IS NULL
+          AND ${table.issuedClientIpKey} IS NULL)
+        OR
+        (${table.keyMode} = 'share' AND (
+          (${table.parentKeyId} IS NULL AND ${table.keyHash} IS NULL
+            AND ${table.keyEncrypted} IS NULL
+            AND ${table.issuedClientIp} IS NULL AND ${table.issuedClientIpKey} IS NULL)
+          OR
+          (${table.parentKeyId} IS NOT NULL AND ${table.keyHash} IS NOT NULL
+            AND ${table.keyEncrypted} IS NULL
+            AND ${table.issuedClientIp} IS NOT NULL AND ${table.issuedClientIpKey} IS NOT NULL)
+        ))
+      )`,
+    ),
   ],
 );
 
+export type ApiKey = typeof apiKeys.$inferSelect;
 
-// Public, unauthenticated share links. The bearer token is never stored — only
-// its SHA-256 hash — so a leaked `share_links` row cannot be replayed. `kind`
-// separates the durable monitor link from the single-use setup handoff
-// (`used_at`/`active` are flipped atomically when a setup token is consumed).
+
+// Public bearer links for enrolling one shared key per resolved client IP.
+// Only the hash is persisted; tokens are never stored.
 /**
- * Share-link kinds, as a runtime tuple. The column above stores one as text;
- * the console request/response types and the route's Elysia schema project
- * this list rather than restating it.
+ * Share-link kinds, as a runtime tuple. Route schemas and DTOs project this
+ * list rather than restating it.
  */
-export const SHARE_LINK_KINDS = ["monitor", "setup"] as const;
+export const SHARE_LINK_KINDS = ["enroll"] as const;
 
 /** One share-link kind. */
 export type ShareLinkKind = (typeof SHARE_LINK_KINDS)[number];
+
 
 export const shareLinks = pgTable(
   "share_links",
@@ -497,10 +516,11 @@ export const shareLinks = pgTable(
       .notNull()
       .references(() => apiKeys.id, { onDelete: "cascade" }),
     tokenHash: text("token_hash").notNull(),
-    kind: text("kind").notNull().default("monitor"),
+    kind: text("kind").notNull().default("enroll"),
     active: boolean("active").notNull().default(true),
     createdAt: createdAtColumn(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
+    // Retained for historical rows from the retired one-time setup-link flow.
     usedAt: timestamp("used_at", { withTimezone: true }),
     lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }),
   },
@@ -508,6 +528,7 @@ export const shareLinks = pgTable(
     uniqueIndex("share_links_token_hash_idx").on(table.tokenHash),
     index("idx_share_links_api_key").on(table.apiKeyId),
     index("idx_share_links_active").on(table.active, table.kind, table.expiresAt),
+    check("share_links_kind_check", sql`${table.kind} = 'enroll'`),
   ],
 );
 
@@ -528,7 +549,6 @@ export const consoleUsers = pgTable(
     isPlatformAdmin: boolean("is_platform_admin").notNull().default(false),
     isFirstBoot: boolean("is_first_boot").notNull().default(true),
     ...timestampColumns(),
-    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   },
   (table) => [
     index("idx_console_users_tenant_id").on(table.tenantId),
@@ -557,7 +577,6 @@ export const consoleSessions = pgTable(
   },
   (table) => [
     index("idx_console_sessions_user_id").on(table.userId),
-    index("idx_console_sessions_expires_at").on(table.expiresAt),
   ],
 );
 
@@ -583,7 +602,6 @@ export const consoleLockouts = pgTable(
   },
   (table) => [
     uniqueIndex("idx_console_lockouts_ip").on(table.ip),
-    index("idx_console_lockouts_locked_until").on(table.lockedUntil),
   ],
 );
 
@@ -725,12 +743,48 @@ export const telemetryEvents = pgTable(
     index("idx_telemetry_created_at").on(table.createdAt),
     index("telemetry_events_tenant_created_idx").on(table.tenantId, table.createdAt),
     index("telemetry_events_request_id_idx").on(table.requestId),
+    index("telemetry_events_tenant_account_created_idx").on(
+      table.tenantId,
+      table.accountId,
+      table.createdAt,
+    ),
     /**
      * Serves the public share page's per-key aggregate (`share-usage.ts`):
      * equality on `api_key_id`, range and aggregate on `created_at`. Without
      * it every share render scanned the largest table in the schema.
      */
     index("telemetry_events_api_key_created_idx").on(table.apiKeyId, table.createdAt),
+  ],
+);
+
+/** Durable aggregates retained after metadata telemetry expires. */
+export const TELEMETRY_USAGE_IDENTITY_TYPES = ["account", "api_key"] as const;
+export type TelemetryUsageIdentityType = (typeof TELEMETRY_USAGE_IDENTITY_TYPES)[number];
+
+export const telemetryUsageTotals = pgTable(
+  "telemetry_usage_totals",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    identityType: text("identity_type").$type<TelemetryUsageIdentityType>().notNull(),
+    entityId: uuid("entity_id").notNull(),
+    requests: bigint("requests", { mode: "number" }).notNull().default(0),
+    errors: bigint("errors", { mode: "number" }).notNull().default(0),
+    inputTokens: bigint("input_tokens", { mode: "number" }).notNull().default(0),
+    outputTokens: bigint("output_tokens", { mode: "number" }).notNull().default(0),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull(),
+    updatedAt: updatedAtColumn(),
+  },
+  (table) => [
+    primaryKey({
+      name: "telemetry_usage_totals_identity_pk",
+      columns: [table.tenantId, table.identityType, table.entityId],
+    }),
+    check(
+      "telemetry_usage_totals_identity_type_check",
+      sql`${table.identityType} IN ('account', 'api_key')`,
+    ),
   ],
 );
 
@@ -749,7 +803,6 @@ export const telemetryPayloads = pgTable(
      * this row is only the index into the frame store.
      */
     requestBody: jsonb("request_body"),
-    redactionApplied: boolean("redaction_applied").notNull().default(true),
   },
   (table) => [
     index("telemetry_payloads_request_id_idx").on(table.requestId),

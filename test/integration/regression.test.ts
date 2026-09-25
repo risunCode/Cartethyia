@@ -59,7 +59,9 @@ describe("payload capture redaction", () => {
         text: "hi",
       },
     });
-    expect(record.redaction_applied).toBe(true);
+    // Redaction is asserted on the captured bytes themselves: the record no
+    // longer carries a `redaction_applied` flag, since it was always `true` and
+    // nothing read it. What matters is that the secrets are gone.
     const serialized =
       JSON.stringify(record.request_body) + JSON.stringify(record.response_body);
     expect(serialized).not.toContain("sk-abc123DEADBEEF");

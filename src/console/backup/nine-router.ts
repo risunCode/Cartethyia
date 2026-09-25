@@ -390,6 +390,3 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
   };
 }
 
-/** Exposed for tests and docs: the ids this converter will not import. */
-export const UNMAPPED_ROUTER_PROVIDERS: readonly string[] = Object.keys(UNSUPPORTED_PROVIDERS).sort();
-export { PROVIDER_MAP as ROUTER_PROVIDER_MAP };

@@ -51,15 +51,14 @@ export default defineConfig({
         target: backendTarget,
         changeOrigin: false,
       },
-      // Share API calls reach the gateway; every other `/share/*` path is the
-      // client-rendered share document so deep links work in development.
+      // Share API routes are proxied; public page deep links use index.html.
       "/share": {
         target: backendTarget,
         changeOrigin: false,
         bypass: (req) => {
           const path = (req.url ?? "").split("?")[0] ?? "";
-          if (path.endsWith("/data")) return undefined;
-          return "/share.html";
+          if (path.endsWith("/data") || path.endsWith("/issue")) return undefined;
+          return "/index.html";
         },
       },
     },
@@ -74,7 +73,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         index: "index.html",
-        share: "share.html",
       },
     },
   },

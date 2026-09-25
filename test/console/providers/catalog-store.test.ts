@@ -1,8 +1,12 @@
-import { beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import { randomUUID } from "node:crypto";
 import { getDb, type CartethyiaDatabase } from "../../../src/persistence/postgres";
 import { dbDescribe } from "../../helpers/db-gate";
-import { tenants } from "../../../src/persistence/schema";
+import { models, providers, tenants } from "../../../src/persistence/schema";
+import { DrizzleTelemetryStore } from "../../../src/persistence/telemetry-store";
 import { DrizzleProviderCatalogStore } from "../../../src/console/providers/catalog/store";
 import { createDefaultProviderRegistry } from "../../../src/providers/default-registry";
 
@@ -131,14 +135,63 @@ dbDescribe("DrizzleProviderCatalogStore account mutations", () => {
       label: "acct-mut",
       secret: "sk-mut-secret",
       credentialKind: "api_key",
+      maxInflight: 2,
     });
     accountId = created.id;
+  });
+
+  afterAll(async () => {
+    await db.delete(tenants).where(eq(tenants.id, tenantId));
   });
 
   test("updateAccount changes the label", async () => {
     const updated = await store.updateAccount(tenantId, providerId, accountId, { label: "renamed" });
     expect(updated?.label).toBe("renamed");
     expect(await store.updateAccount(tenantId, providerId, randomUUID(), { label: "x" })).toBeUndefined();
+  });
+
+  test("persists per-account concurrency and reports today/lifetime token usage", async () => {
+    const updated = await store.updateAccount(tenantId, providerId, accountId, { maxInflight: 4 });
+    expect(updated?.maxInflight).toBe(4);
+
+    const telemetry = new DrizzleTelemetryStore(db);
+    await telemetry.insertEvents([
+      {
+        tenantId,
+        requestId: randomUUID(),
+        sourceSurface: "chat",
+        requestedModel: "openai/gpt-5",
+        accountId,
+        stream: false,
+        status: "completed",
+        inputTokens: 20,
+        outputTokens: 5,
+      },
+      {
+        tenantId,
+        requestId: randomUUID(),
+        sourceSurface: "chat",
+        requestedModel: "openai/gpt-5",
+        accountId,
+        stream: false,
+        status: "failed",
+        inputTokens: 7,
+        outputTokens: 1,
+      },
+    ]);
+
+    const account = (await store.listAccounts(tenantId, providerId)).find(
+      (entry) => entry.id === accountId,
+    );
+    expect(account?.usageToday).toMatchObject({
+      requests: 2,
+      errors: 1,
+      inputTokens: 27,
+      outputTokens: 6,
+      totalTokens: 33,
+    });
+    expect(account?.usageAllTime).toEqual(account?.usageToday);
+    expect(account?.maxInflight).toBe(4);
   });
 
   test("listAccountHealthEvents returns an array", async () => {
@@ -149,5 +202,63 @@ dbDescribe("DrizzleProviderCatalogStore account mutations", () => {
     await store.updateAccount(tenantId, providerId, accountId, { status: "disabled" } as never);
     expect(await store.recoverAccount(tenantId, providerId, accountId)).toBe(true);
     expect(await store.recoverAccount(tenantId, providerId, randomUUID())).toBe(false);
+  });
+
+  test("listModelsForTenant costs a constant number of queries, not one pair per provider", async () => {
+    // The defect this pins: the flat catalog looped per provider and called
+    // `listModels`, which is two queries each, so the cost grew with the
+    // provider count. A value-only assertion cannot see that — the same rows
+    // come back either way — so this counts the statements Postgres receives.
+    // The count must stay flat as providers are added; that is the whole fix.
+    const counted: number[] = [];
+    for (const providerCount of [1, 5]) {
+      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      let queries = 0;
+      const original = pool.query.bind(pool);
+      pool.query = ((...args: unknown[]) => {
+        queries += 1;
+        return (original as (...a: unknown[]) => unknown)(...args);
+      }) as typeof pool.query;
+
+      const tag = randomUUID().slice(0, 8);
+      const extraTenant = randomUUID();
+      try {
+        const countingStore = new DrizzleProviderCatalogStore(
+          drizzle(pool) as unknown as CartethyiaDatabase,
+          storeOptions(),
+        );
+        // Seed through the shared handle: the store's own `db` is private, and
+        // the seeding must not count toward the measurement anyway.
+        await db.insert(tenants).values({
+          id: extraTenant,
+          name: `catalog-bulk-${tag}`,
+          status: "active",
+        });
+        for (let i = 0; i < providerCount; i += 1) {
+          const pid = `bulk-${tag}-${i}`;
+          await db
+            .insert(providers)
+            .values({ id: pid, tenantId: extraTenant, enabled: true, requiresAccount: true });
+          await db.insert(models).values({
+            providerId: pid,
+            modelId: `m${i}`,
+            endpointPath: "/v1/chat/completions",
+            wireFamily: "chat",
+          } as never);
+        }
+
+        queries = 0;
+        await countingStore.listModelsForTenant(extraTenant);
+        counted.push(queries);
+      } finally {
+        await db.delete(tenants).where(eq(tenants.id, extraTenant));
+        await pool.end();
+      }
+    }
+
+    // Two statements — the disabled-model read and the models join — for both
+    // a one-provider and a five-provider tenant.
+    expect(counted[0]).toBe(counted[1]);
+    expect(counted[0]).toBeLessThanOrEqual(2);
   });
 });

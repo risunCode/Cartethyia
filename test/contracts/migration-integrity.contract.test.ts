@@ -37,6 +37,17 @@ describe("SQL migration integrity", () => {
     );
   });
 
+  test("baseline carries no orphan backup_status table", async () => {
+    // `backup_status` was a single-row bookkeeping table with no Drizzle
+    // definition, no reader, and no writer — it survived only in the baseline,
+    // so a fresh install carried a table nothing could touch. This asserts it
+    // cannot come back through a baseline edit; the removal itself is in
+    // `drizzle/migrations/manual/0012_drop_backup_status_table.sql` for
+    // databases created before the edit.
+    const migration = await readFile(resolve(migrationsDir, "0000_baseline.sql"), "utf8");
+    expect(migration).not.toContain('CREATE TABLE "backup_status"');
+  });
+
   test("baseline carries no unused network-pool health column", async () => {
     // `degraded_since` was never read or written; the health state machine
     // records transitions through `status`, `last_error_at`, `cooldown_until`,

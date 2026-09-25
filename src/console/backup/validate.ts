@@ -31,6 +31,7 @@ import {
   type ValidatedRestore,
   type ValidatedTable,
 } from "./contracts";
+import { shareLinks } from "../../persistence/schema";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -179,10 +180,19 @@ export function validateRestorePayload(payload: unknown, tenantId: string): Rest
         // their shape but are assigned to the authenticated importing tenant.
         // The tenant row itself is handled separately below and never gets
         // remapped here.
-        const normalizedRow =
+        const tenantScopedRow =
           table === TENANT_TABLE || !types.has("tenant_id")
             ? (row as BackupRow)
             : { ...(row as BackupRow), tenant_id: tenantId };
+        // Version-1 backups can carry the retired monitor/setup link kinds.
+        // Import them as inactive enrollment links so their old tokens never
+        // regain a usable public endpoint.
+        const normalizedRow =
+          table === shareLinks &&
+          tenantScopedRow["kind"] !== undefined &&
+          tenantScopedRow["kind"] !== "enroll"
+            ? { ...tenantScopedRow, kind: "enroll", active: false }
+            : tenantScopedRow;
         rows.push(normalizedRow);
       }
 

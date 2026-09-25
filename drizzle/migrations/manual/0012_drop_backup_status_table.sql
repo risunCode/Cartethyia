@@ -1,0 +1,13 @@
+-- Hand-run once on any database created from the previous baseline.
+--
+-- `backup_status` was a single-row bookkeeping table (id fixed at 1) for a
+-- backup feature that never used it: no Drizzle definition, no reader, no
+-- writer, and absent from `src/console/backup/contracts.ts`'s CONFIG_TABLES and
+-- TELEMETRY_TABLES, so no backup round-trip ever touched it. It survived only
+-- in the baseline SQL, which is why a fresh install carried a table nothing
+-- could read.
+--
+-- A fresh database no longer creates it (the baseline no longer defines it);
+-- this file removes it from a database created before that edit. Safe to run
+-- more than once.
+DROP TABLE IF EXISTS "backup_status";

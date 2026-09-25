@@ -662,6 +662,23 @@ export const LEASE_REAP_HORIZON_SECONDS = Math.ceil(LEASE_TTL_MS / 1000);
 /** Seconds the lease hash itself lives; must exceed the reap horizon. */
 export const LEASE_KEY_TTL_SECONDS = LEASE_REAP_HORIZON_SECONDS + LEASE_TTL_GRACE_SECONDS;
 
+/**
+ * TTLs for the token-budget counters, in seconds.
+ *
+ * Daily lives just past two days (a day bucket plus slack to cover a request
+ * straddling midnight); monthly and lifetime share one 35-day window — long
+ * enough that a month bucket is never evicted mid-month, and it is the *only*
+ * thing bounding `admission:lifetime:*`, which has no natural bucket to expire
+ * on. Every writer below must therefore carry its own TTL: a plain `SET`
+ * without one creates a key that outlives every bucket it feeds.
+ */
+const DAILY_COUNTER_TTL_SECONDS = 172800;
+const MONTHLY_COUNTER_TTL_SECONDS = 3024000;
+const LIFETIME_COUNTER_TTL_SECONDS = 3024000;
+/** RPM window plus slack; concurrency slots are held for the request duration. */
+const RPM_WINDOW_TTL_SECONDS = 65;
+const CONCURRENCY_TTL_SECONDS = 3600;
+
 function dailyBucket(now: number): string {
   return new Date(now).toISOString().slice(0, 10);
 }
@@ -717,7 +734,7 @@ if tonumber(ARGV[6]) then
   local rawLifetime = redis.call('GET', KEYS[5])
   lifetime = rawLifetime and tonumber(rawLifetime) or tonumber(ARGV[9])
   if not lifetime then return -99 end
-  if not rawLifetime then redis.call('SET', KEYS[5], lifetime) end
+  if not rawLifetime then redis.call('SET', KEYS[5], lifetime, 'EX', ${LIFETIME_COUNTER_TTL_SECONDS}) end
 end
 local estimated = tonumber(ARGV[2])
 if not estimated or estimated < 0 then return -99 end
@@ -728,12 +745,12 @@ if tonumber(ARGV[6]) and lifetime + estimated > tonumber(ARGV[6]) then return -4
 if tonumber(ARGV[7]) and concurrent >= tonumber(ARGV[7]) then return -5 end
 if tonumber(ARGV[10]) and tenantConcurrent >= tonumber(ARGV[10]) then return -6 end
 redis.call('ZADD', KEYS[1], ARGV[1], ARGV[8])
-redis.call('EXPIRE', KEYS[1], 65)
-if tonumber(ARGV[4]) then redis.call('INCRBY', KEYS[2], estimated); redis.call('EXPIRE', KEYS[2], 172800) end
-if tonumber(ARGV[5]) then redis.call('INCRBY', KEYS[3], estimated); redis.call('EXPIRE', KEYS[3], 3024000) end
-if tonumber(ARGV[6]) then redis.call('INCRBY', KEYS[5], estimated); redis.call('EXPIRE', KEYS[5], 3024000) end
-if tonumber(ARGV[7]) then redis.call('INCR', KEYS[4]); redis.call('EXPIRE', KEYS[4], 3600) end
-if tonumber(ARGV[10]) then redis.call('INCR', KEYS[7]); redis.call('EXPIRE', KEYS[7], 3600) end
+redis.call('EXPIRE', KEYS[1], ${RPM_WINDOW_TTL_SECONDS})
+if tonumber(ARGV[4]) then redis.call('INCRBY', KEYS[2], estimated); redis.call('EXPIRE', KEYS[2], ${DAILY_COUNTER_TTL_SECONDS}) end
+if tonumber(ARGV[5]) then redis.call('INCRBY', KEYS[3], estimated); redis.call('EXPIRE', KEYS[3], ${MONTHLY_COUNTER_TTL_SECONDS}) end
+if tonumber(ARGV[6]) then redis.call('INCRBY', KEYS[5], estimated); redis.call('EXPIRE', KEYS[5], ${LIFETIME_COUNTER_TTL_SECONDS}) end
+if tonumber(ARGV[7]) then redis.call('INCR', KEYS[4]); redis.call('EXPIRE', KEYS[4], ${CONCURRENCY_TTL_SECONDS}) end
+if tonumber(ARGV[10]) then redis.call('INCR', KEYS[7]); redis.call('EXPIRE', KEYS[7], ${CONCURRENCY_TTL_SECONDS}) end
 redis.call('HSET', KEYS[6], 'state', 'active', 'reserved', estimated, 'daily', tonumber(ARGV[4]) and KEYS[2] or '', 'monthly', tonumber(ARGV[5]) and KEYS[3] or '', 'lifetime', tonumber(ARGV[6]) and KEYS[5] or '', 'concurrent', tonumber(ARGV[7]) and '1' or '0', 'tenant_concurrent', tonumber(ARGV[10]) and '1' or '0', 'tenant_id', ARGV[11], 'api_key_id', ARGV[12], 'expires_at', tonumber(ARGV[1]) + tonumber(ARGV[13]))
 redis.call('EXPIRE', KEYS[6], tonumber(ARGV[14]))
 return 0
@@ -763,7 +780,7 @@ for _, field in ipairs({'daily', 'monthly', 'lifetime'}) do
   if key and key ~= '' then
     local value = tonumber(redis.call('GET', key))
     if not value or value < 0 or value + delta < 0 or value + delta ~= math.floor(value + delta) then return -99 end
-    table.insert(updates, {key, value + delta})
+    table.insert(updates, key)
   end
 end
 local concurrentKey = 'admission:concurrent:' .. ARGV[2]
@@ -781,7 +798,12 @@ if hasTenantConcurrency then
   local value = tonumber(redis.call('GET', tenantKey))
   if not value or value < 1 or value ~= math.floor(value) then return -99 end
 end
-for _, update in ipairs(updates) do redis.call('SET', update[1], update[2]) end
+-- INCRBY, never SET: a plain SET replaces the key and drops its TTL, so the
+-- first reconcile after admission would strip the bucket's expiry and the
+-- counter would outlive its window forever. INCRBY adjusts the value in place
+-- and leaves the TTL intact. (KEEPTTL would also work but is unavailable on
+-- the oldest Redis this is documented against.)
+for _, key in ipairs(updates) do redis.call('INCRBY', key, delta) end
 if hasConcurrency then redis.call('DECR', concurrentKey) end
 if hasTenantConcurrency then redis.call('DECR', tenantKey) end
 redis.call('HSET', KEYS[1], 'state', 'committed', 'actual', actual)

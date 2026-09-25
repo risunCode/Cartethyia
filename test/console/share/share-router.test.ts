@@ -2,36 +2,49 @@ import { describe, expect, test } from "bun:test";
 import { createShareRouter } from "../../../src/console/share/share-router";
 import { hashShareToken, type ShareApiKeyRow, type ShareLinkStore } from "../../../src/persistence/share-store";
 import type { CartethyiaDatabase } from "../../../src/persistence/postgres";
-import type { ShareUsagePort } from "../../../src/console/share/share-usage";
 
-/** A share-link fixture: the bearer token plus the key row it resolves to. */
 interface ShareFixture {
   readonly token: string;
   readonly row: ShareApiKeyRow;
 }
 
-/**
- * In-memory share store keyed by token hash. Mirrors the Drizzle store's
- * observable contract: monitor links stay active, setup links are consumed
- * exactly once.
- */
 function fakeStore(fixtures: readonly ShareFixture[]) {
-  const byHash = new Map(fixtures.map((f) => [hashShareToken(f.token), f.row]));
-  const consumed = new Set<string>();
-  const store: ShareLinkStore & { touched: string[] } = {
+  const byHash = new Map(fixtures.map((fixture) => [hashShareToken(fixture.token), fixture.row]));
+  const activeIps = new Set<string>();
+  const store: ShareLinkStore & {
+    readonly touched: string[];
+    readonly issued: { readonly tokenHash: string; readonly clientIp: string; readonly clientIpKey: string }[];
+  } = {
     touched: [],
+    issued: [],
     async create() {
       throw new Error("not used");
     },
     async getApiKeyByShareToken(tokenHash) {
       return byHash.get(tokenHash) ?? null;
     },
-    async consumeSetupToken(tokenHash) {
-      if (consumed.has(tokenHash)) return null;
+    async hasActiveSharedKeyForIp(clientIpKey) {
+      return activeIps.has(clientIpKey);
+    },
+    async issueSharedApiKey(tokenHash, material) {
       const row = byHash.get(tokenHash);
-      if (!row) return null;
-      consumed.add(tokenHash);
-      return row;
+      if (!row) return { kind: "link_unavailable" };
+      if (activeIps.has(material.clientIpKey)) return { kind: "ip_limit" };
+      activeIps.add(material.clientIpKey);
+      store.issued.push({
+        tokenHash,
+        clientIp: material.clientIp,
+        clientIpKey: material.clientIpKey,
+      });
+      return {
+        kind: "issued",
+        apiKeyId: "child-1",
+        parentKeyId: row.id,
+        tenantId: row.tenantId,
+        label: row.name,
+        keyPrefix: material.keyPrefix,
+        createdAt: new Date("2026-01-03T00:00:00.000Z"),
+      };
     },
     async touchView(tokenHash) {
       store.touched.push(tokenHash);
@@ -52,52 +65,37 @@ function shareRow(overrides: Partial<ShareApiKeyRow> = {}): ShareApiKeyRow {
     tenantId: "tenant-1",
     name: "shared-key",
     keyPrefix: "rk_",
-    keyEncrypted: null,
     active: true,
-    rateLimitRpm: null,
+    requestsPerMinute: null,
     dailyTokenLimit: null,
     monthlyTokenLimit: null,
     lifetimeTokenBudget: null,
-    lifetimeTokensConsumed: 0,
     maxConcurrentRequests: null,
     providerAllowlist: null,
     modelAllowlist: null,
     modelDenylist: null,
+    modelPrefix: null,
     notesTitle: null,
     notesSubtitle: null,
     notesBody: null,
     createdAt: "2026-01-01T00:00:00.000Z",
-    shareCreatedAt: "2026-01-02T00:00:00.000Z",
     expiresAt: null,
     ...overrides,
   };
 }
 
-const EMPTY_USAGE: ShareUsagePort = {
-  async getApiKeyTotals() {
-    return {
-      totalTokens: 0,
-      totalRequests: 0,
-      dailyTokens: 0,
-      monthlyTokens: 0,
-      successCount: 0,
-      errorCount: 0,
-      lastUsedAt: null,
-    };
-  },
-};
-
 const noopDb = {} as unknown as CartethyiaDatabase;
-
 const VALID_TOKEN = "a".repeat(43);
 
 describe("public share router", () => {
-  test("serves monitor data for a valid token and marks the view", async () => {
+  test("serves enrollment metadata without disclosing any bearer key", async () => {
     const store = fakeStore([
       {
         token: VALID_TOKEN,
         row: shareRow({
-          modelAllowlist: ["anthropic/", "openai/gpt-5"],
+          modelAllowlist: ["anthropic/", "openai/gpt-5", "openai/gpt-4"],
+          modelDenylist: ["openai/gpt-5"],
+          modelPrefix: "openai/",
           notesTitle: "Bansos Token",
         }),
       },
@@ -105,7 +103,7 @@ describe("public share router", () => {
     const router = createShareRouter({
       db: noopDb,
       shareStore: store,
-      usage: EMPTY_USAGE,
+      resolveClientIp: () => "198.51.100.1",
     });
 
     const response = await router.handle(
@@ -117,69 +115,95 @@ describe("public share router", () => {
     const body = (await response.json()) as Record<string, unknown>;
     expect(body).toMatchObject({
       name: "shared-key",
-      active: true,
-      modelAllowlist: ["anthropic/", "openai/gpt-5"],
+      keyPrefix: "rk_",
+      canIssue: true,
+      alreadyIssued: false,
+      modelAllowlist: ["openai/gpt-4"],
+      modelPrefix: "openai/",
       notes: { title: "Bansos Token", subtitle: null, body: null },
     });
+    expect(body).not.toHaveProperty("key");
+    expect(body).not.toHaveProperty("apiKey");
+    expect(body).not.toHaveProperty("clientIp");
     expect(store.touched).toEqual([hashShareToken(VALID_TOKEN)]);
   });
 
-  test("never advertises a loopback origin when the OAuth origin is loopback", async () => {
-    // `CARTETHYIA_PUBLIC_ORIGIN` is the fixed OAuth redirect host; in a local
-    // deployment it is a loopback address. A share page reached through a
-    // tunnel would otherwise tell its recipient to call 127.0.0.1. The payload
-    // must not carry an origin at all — the browser supplies its own.
-    //
-    // A configured allowlist keeps this on the success path: the unrestricted
-    // fallback enumerates the catalog and needs a real database, which would
-    // turn the response into a 500 whose error body contains no origin and
-    // make the assertions below pass without testing anything.
-    const original = process.env.CARTETHYIA_PUBLIC_ORIGIN;
-    process.env.CARTETHYIA_PUBLIC_ORIGIN = "http://127.0.0.1:12800";
-    try {
-      const router = createShareRouter({
-        db: noopDb,
-        shareStore: fakeStore([
-          { token: VALID_TOKEN, row: shareRow({ modelAllowlist: ["anthropic/"] }) },
-        ]),
-        usage: EMPTY_USAGE,
-      });
-      const response = await router.handle(
-        new Request(`http://internal.test/share/${VALID_TOKEN}/data`),
-      );
-      expect(response.status).toBe(200);
-      const body = (await response.json()) as Record<string, unknown>;
-      expect(body["baseUrl"]).toBeUndefined();
-      expect(JSON.stringify(body)).not.toContain("127.0.0.1");
-    } finally {
-      if (original === undefined) delete process.env.CARTETHYIA_PUBLIC_ORIGIN;
-      else process.env.CARTETHYIA_PUBLIC_ORIGIN = original;
-    }
-  });
-
-  test("never returns the raw key when only the hash is stored", async () => {
+  test("issues the child bearer once and binds it to the resolved client IP", async () => {
+    const store = fakeStore([{ token: VALID_TOKEN, row: shareRow() }]);
     const router = createShareRouter({
       db: noopDb,
-      shareStore: fakeStore([
-        { token: VALID_TOKEN, row: shareRow({ keyEncrypted: null, modelAllowlist: ["anthropic/"] }) },
-      ]),
-      usage: EMPTY_USAGE,
+      shareStore: store,
+      resolveClientIp: () => "198.51.100.9",
     });
 
     const response = await router.handle(
-      new Request(`http://internal.test/share/${VALID_TOKEN}/data`),
+      new Request(`http://internal.test/share/${VALID_TOKEN}/issue`, { method: "POST" }),
     );
-    const body = (await response.json()) as { apiKey: { key: string | null } };
-    expect(body.apiKey.key).toBeNull();
+    expect(response.status).toBe(201);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      keyId: "child-1",
+      keyPrefix: "rk_",
+      createdAt: "2026-01-03T00:00:00.000Z",
+    });
+    expect(typeof body["key"]).toBe("string");
+    expect(store.issued).toEqual([
+      {
+        tokenHash: hashShareToken(VALID_TOKEN),
+        clientIp: "198.51.100.9",
+        clientIpKey: "v4:3325256713",
+      },
+    ]);
+  });
+
+  test("rejects a second child key for an already active client IP", async () => {
+    const store = fakeStore([{ token: VALID_TOKEN, row: shareRow() }]);
+    const router = createShareRouter({
+      db: noopDb,
+      shareStore: store,
+      resolveClientIp: () => "198.51.100.9",
+    });
+    const request = () =>
+      router.handle(new Request(`http://internal.test/share/${VALID_TOKEN}/issue`, { method: "POST" }));
+
+    expect((await request()).status).toBe(201);
+    const second = await request();
+    expect(second.status).toBe(409);
+    expect(await second.json()).toMatchObject({
+      error: { code: "shared_key_ip_limit" },
+    });
+  });
+
+  test("fails closed when a trusted client IP is missing or invalid", async () => {
+    const store = fakeStore([{ token: VALID_TOKEN, row: shareRow() }]);
+    const missing = createShareRouter({
+      db: noopDb,
+      shareStore: store,
+      resolveClientIp: () => null,
+    });
+    const missingResponse = await missing.handle(
+      new Request(`http://internal.test/share/${VALID_TOKEN}/issue`, { method: "POST" }),
+    );
+    expect(missingResponse.status).toBe(503);
+
+    const invalid = createShareRouter({
+      db: noopDb,
+      shareStore: store,
+      resolveClientIp: () => "not-an-ip",
+    });
+    const invalidResponse = await invalid.handle(
+      new Request(`http://internal.test/share/${VALID_TOKEN}/issue`, { method: "POST" }),
+    );
+    expect(invalidResponse.status).toBe(400);
   });
 
   test("rejects unknown and short tokens with a JSON 404", async () => {
     const router = createShareRouter({
       db: noopDb,
       shareStore: fakeStore([]),
-      usage: EMPTY_USAGE,
+      resolveClientIp: () => "198.51.100.1",
     });
-
     for (const token of ["short", "b".repeat(43)]) {
       const response = await router.handle(
         new Request(`http://internal.test/share/${token}/data`),
@@ -188,25 +212,5 @@ describe("public share router", () => {
       expect(response.headers.get("content-type")).toContain("application/json");
       expect(await response.text()).not.toContain("<html");
     }
-  });
-
-  test("consumes a setup token exactly once", async () => {
-    const router = createShareRouter({
-      db: noopDb,
-      shareStore: fakeStore([{ token: VALID_TOKEN, row: shareRow() }]),
-      usage: EMPTY_USAGE,
-    });
-
-    const first = await router.handle(
-      new Request(`http://internal.test/share/setup/${VALID_TOKEN}/data`),
-    );
-    expect(first.status).toBe(200);
-    const body = (await first.json()) as Record<string, unknown>;
-    expect(body).toMatchObject({ name: "shared-key", key: null });
-
-    const second = await router.handle(
-      new Request(`http://internal.test/share/setup/${VALID_TOKEN}/data`),
-    );
-    expect(second.status).toBe(404);
   });
 });

@@ -5,10 +5,7 @@
  */
 import { redisEvalNumber, type RedisClient } from "../../persistence/redis";
 import { isRecord } from "../../protocol/primitives";
-import {
-  resolveStreamStallTimeoutMs,
-  resolveUpstreamTimeoutMs,
-} from "../../config";
+import { resolveInflightTtlSeconds } from "../../config";
 import { log } from "../../observability/logger";
 
 // Pool selector
@@ -17,18 +14,12 @@ const DEFAULT_PROXY_WEIGHT = 100;
 const MAX_PROXY_WEIGHT = 1000;
 // Crash-recovery bound, not a lease duration: normal releases DECR/DEL the
 // key immediately, so the TTL only matters when a holder dies mid-request.
-// It must exceed the longest legitimate slot hold — the pre-stream request
-// deadline plus the post-establishment stream stall budget — or long healthy
-// requests expire their key mid-flight and let admission exceed the configured
-// cap. Derived from the same resolvers the dispatch path uses, so raising
-// either timeout keeps the invariant; the fixed buffer covers pre-stream
-// retries and clock skew.
-const POOL_INFLIGHT_TTL_BUFFER_SECONDS = 120;
+// Derived by `resolveInflightTtlSeconds` from the same resolvers the dispatch
+// path uses, so raising either timeout keeps the invariant — and so this
+// selector and the routing admission controller expire their slots on the same
+// bound, since both hold one for the same request duration.
 function poolInflightTtlSeconds(): number {
-  return (
-    Math.ceil((resolveUpstreamTimeoutMs() + resolveStreamStallTimeoutMs()) / 1000) +
-    POOL_INFLIGHT_TTL_BUFFER_SECONDS
-  );
+  return resolveInflightTtlSeconds();
 }
 const POOL_ADMIT_SCRIPT = `
 local current = tonumber(redis.call('GET', KEYS[1]) or '0')

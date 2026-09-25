@@ -208,6 +208,14 @@ export const PROVIDER_CAPABILITIES = {
     loadModelDiscovery: openAIModelDiscovery("opencodezen", { transformBaseUrl: (baseUrl) => `${baseUrl.replace(/\/+$/, "")}/zen/v1`, headers: (credential) => ({ authorization: `Bearer ${credential}` }) }),
   },
   opencodego: {
+    // The billed Go tier serves the same two wire families as the shared Zen
+    // base, under its own `/zen/go/v1` prefix. Declaring them here is what the
+    // endpoint-parity test guards against the catalog's own rows: without the
+    // map this provider declared no paths at all, so its gate was a no-op.
+    endpointPathsByWireFamily: {
+      chat: "/zen/go/v1/chat/completions",
+      responses: "/zen/go/v1/responses",
+    },
     loadAdapter: async () => createApiKeyAdapter((await import("./integrations/opencode")).OPENCODE_GO_SPEC),
     loadModels: async () => (await import("./integrations/opencode")).OPENCODE_GO_MODELS,
     loadModelDiscovery: openAIModelDiscovery("opencodego", { transformBaseUrl: (baseUrl) => `${baseUrl.replace(/\/+$/, "")}/zen/go/v1`, headers: (credential) => ({ authorization: `Bearer ${credential}` }) }),

@@ -5,6 +5,102 @@
 > All changes below are pre-release. Cartethyia has not been tagged or
 > released; this document reflects the current production codebase architecture and capabilities.
 
+### Abuse admission costs one Redis round trip per request
+
+The per-IP abuse check read the ban, incremented the route window, and
+incremented the identity-wide escalation counter as three separate Redis calls
+(four once a ban fired). They are now one static Lua script over the three keys,
+so an admitted request is a single round trip and a banned one still is. The ban
+is read first and short-circuits without writing, so a banned identity cannot
+extend its own counters. The two counters stay separate — admission per
+`(identity, route)` for fairness, escalation per identity so rotating the path
+cannot dodge the ban — and the ban marker carries its duration as its own TTL.
+
+### Token-budget counters no longer leak in Redis
+
+`admission:lifetime:*` is the only thing bounding a key's lifetime token total,
+and two writes dropped that bound. The reserve script seeded a missing counter
+with a plain `SET` and no TTL, and the reconcile script wrote every bucket with a
+plain `SET`, which replaces the key and strips the expiry the reserve had just
+armed. A counter with no expiry is never reclaimed, so the total leaked for the
+life of the deployment; a *rejected* reserve leaked it too, because the seed runs
+before the budget check that returns early. The seed now carries its TTL and
+reconcile adjusts with `INCRBY`, which preserves it.
+
+### Route and pool inflight slots share one crash-recovery TTL
+
+Routing admission expired its per-account inflight key after a hardcoded 60
+seconds, while the network-pool selector derived its own from the upstream
+deadline plus the stream stall budget. A stream running longer than a minute
+therefore lost its slot mid-flight and a second request could admit against the
+freed slot, exceeding the configured ceiling. Both now use
+`resolveInflightTtlSeconds()` — 600s at the defaults — so raising either timeout
+keeps them in step.
+
+### Telemetry retention prunes in bounded batches
+
+The retention sweep deleted every aged `telemetry_events` row in one statement.
+On a long-lived deployment that statement grows without limit, and once it
+exceeds the pool's `statement_timeout` it is cancelled and the sweep never
+converges, so retention silently stops working. Aged events are now removed in
+bounded 5000-row batches that commit independently, mirroring the payload
+sweeper, so progress survives a cancel or a restart.
+
+### The flat model catalog reads the catalog once, not per provider
+
+`listFlatModels` called `listModels` for every provider, and each call was two
+queries, so the picker's cost grew with the bundled provider count. One grouped
+read now serves the whole tenant: a tenant with 50 providers issues 2 queries
+instead of 100, and the count is constant as providers are added.
+
+### The cooldown sweep prunes model cooldowns in one statement
+
+`sweepExpiredCooldowns` selected every account holding a cooldown and then
+issued one `UPDATE` per row, all inside one transaction. It now recomputes the
+pruned object in a single set-based `UPDATE`, so the sweep's cost no longer
+grows with the number of throttled accounts and its locks are held for one
+statement instead of many.
+
+### The orphan `backup_status` table is gone
+
+`backup_status` existed only in the baseline SQL: no Drizzle definition, no
+reader, no writer, and absent from the backup feature's own table lists, so a
+fresh install carried a table nothing could touch. It is removed from the
+baseline and dropped from existing databases by
+`drizzle/migrations/manual/0012_drop_backup_status_table.sql`, with a contract
+test asserting the baseline cannot reintroduce it.
+
+### Shared API-key templates enroll non-authenticating child keys
+
+API keys can be personal or share templates. Templates store no authentication
+hash or recoverable secret; public enrollment issues one child key per globally
+unique canonical trusted client IP and reveals its secret once. Owners can
+revoke children and view masked-IP, model, request, error, and token telemetry.
+Revoking a template or converting it to personal mode revokes its children and
+enrollment links. The landing page, console, and share enrollment now use one
+dashboard index while share styling remains isolated.
+
+### Provider accounts expose concurrency limits and usage
+
+Operators can set a per-account in-flight ceiling that overrides tenant/provider
+routing defaults, with an empty value inheriting the configured default. Account
+rows also show UTC-today and durable lifetime request/token totals. Lifetime
+totals are initialized from telemetry still retained at rollout and continue
+after raw telemetry retention expires.
+
+### Provider probes use an internal marker instead of a probe User-Agent
+
+Provider dispatch probes carry `Cartethyia-Probe` only in their internal
+dispatch context and telemetry. A shared probe-fetch wrapper removes
+`User-Agent` before upstream requests, including discovery, BYOK connection
+tests, and API-key connectivity checks.
+
+### Codex turn metadata has one serialized form
+
+The request header and `client_metadata` body carry the same turn metadata.
+Codex dispatch now builds that JSON once and reuses it at both wire locations;
+the outbound request test pins their byte-for-byte equality.
+
 ### Backup routes no longer advertise a credential that cannot use them
 
 `BACKUP_SCOPES` listed `providers:write` on the stated grounds that a tenant API

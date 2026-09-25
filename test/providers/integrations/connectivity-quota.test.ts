@@ -4,21 +4,28 @@ import { probeApiKeyConnectivity } from "../../../src/providers/quota/quota-supp
 import { fetchCerebrasQuota } from "../../../src/providers/integrations/cerebras";
 import { fetchInferhubQuota } from "../../../src/providers/integrations/inferhub";
 
-function mockFetch(status: number): { fetcher: FetchLike; seenUrl: string[] } {
+function mockFetch(status: number): {
+  fetcher: FetchLike;
+  seenUrl: string[];
+  seenInit: RequestInit[];
+} {
   const seenUrl: string[] = [];
-  const fetcher = (async (input: RequestInfo | URL) => {
+  const seenInit: RequestInit[] = [];
+  const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
     seenUrl.push(String(input));
+    seenInit.push(init ?? {});
     return new Response("{}", { status });
   }) as unknown as FetchLike;
-  return { fetcher, seenUrl };
+  return { fetcher, seenUrl, seenInit };
 }
 
 describe("probeApiKeyConnectivity", () => {
   test("200 means the key is valid", async () => {
-    const { fetcher, seenUrl } = mockFetch(200);
+    const { fetcher, seenUrl, seenInit } = mockFetch(200);
     const result = await probeApiKeyConnectivity("inferhub", "sk-test", fetcher);
     expect(seenUrl[0]).toBe("https://api.inferhub.dev/v1/models");
     expect(result).toMatchObject({ source: "inferhub", error: null });
+    expect(new Headers(seenInit[0]?.headers).get("user-agent")).toBeNull();
     expect(result.windows).toEqual([]);
   });
 

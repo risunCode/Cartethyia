@@ -63,6 +63,11 @@ class MemoryKeyStore implements ApiKeyStore {
     return record?.tenantId === tenantId ? record : undefined;
   }
 
+  async listChildren(tenantId: string, parentKeyId: string): Promise<readonly ApiKeyRecord[]> {
+    return [...this.records.values()].filter(
+      (record) => record.tenantId === tenantId && record.parentKeyId === parentKeyId,
+    );
+  }
   async create(record: ApiKeyRecord): Promise<void> {
     this.records.set(record.id, record);
   }
@@ -100,16 +105,16 @@ describe("API-key lifecycle security", () => {
       scopes: ["routing:invoke"],
     });
     const persisted = store.records.get(created.id);
+    const secret = created.secret;
+    if (secret === undefined) throw new Error("personal key creation did not return a secret");
 
-    expect(created.secret.startsWith("rk_")).toBe(true);
+    expect(secret.startsWith("rk_")).toBe(true);
     expect(persisted?.keyHash).toBeDefined();
-    expect(persisted?.keyHash).not.toBe(created.secret);
+    expect(persisted?.keyHash).not.toBe(secret);
     expect(factory.listKeys(access("tenant-a"))).resolves.toEqual([
       expect.objectContaining({ id: created.id, label: "build" }),
     ]);
-    expect(JSON.stringify(await factory.listKeys(access("tenant-a")))).not.toContain(
-      created.secret,
-    );
+    expect(JSON.stringify(await factory.listKeys(access("tenant-a")))).not.toContain(secret);
     expect(JSON.stringify(await factory.listKeys(access("tenant-a")))).not.toContain(
       persisted?.keyHash,
     );
@@ -979,6 +984,9 @@ function makeModelStore(): {
     async listModels(): Promise<readonly ModelCatalogEntry[]> {
       return [];
     },
+    async listModelsForTenant() {
+      return new Map<string, readonly ModelCatalogEntry[]>();
+    },
     async registerModels(
       _tenantId: string,
       providerId: string,
@@ -1012,6 +1020,9 @@ function makeModelStore(): {
         label: patch.label ?? "account",
         credentialKind: "api_key" as const,
         status: patch.status ?? "active",
+        maxInflight: patch.maxInflight ?? null,
+        usageToday: EMPTY_ACCOUNT_USAGE,
+        usageAllTime: EMPTY_ACCOUNT_USAGE,
         createdAt: new Date().toISOString(),
       };
     },
@@ -1468,6 +1479,14 @@ describe("PATCH /providers/:providerId/accounts/:accountId", () => {
   });
 });
 
+const EMPTY_ACCOUNT_USAGE = {
+  requests: 0,
+  errors: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  totalTokens: 0,
+};
+
 describe("POST /providers/:providerId/accounts/export", () => {
   const access: AccessDecision = {
     id: "key-1",
@@ -1502,6 +1521,9 @@ describe("POST /providers/:providerId/accounts/export", () => {
       label: "primary",
       credentialKind: "api_key",
       status: "active",
+      maxInflight: null,
+      usageToday: EMPTY_ACCOUNT_USAGE,
+      usageAllTime: EMPTY_ACCOUNT_USAGE,
       createdAt: "2026-01-01T00:00:00.000Z",
     },
     {
@@ -1511,6 +1533,9 @@ describe("POST /providers/:providerId/accounts/export", () => {
       label: "backup",
       credentialKind: "api_key",
       status: "disabled",
+      maxInflight: null,
+      usageToday: EMPTY_ACCOUNT_USAGE,
+      usageAllTime: EMPTY_ACCOUNT_USAGE,
       createdAt: "2026-01-02T00:00:00.000Z",
     },
   ];
@@ -1578,6 +1603,9 @@ describe("POST /providers/:providerId/accounts/export", () => {
       label: "shared",
       credentialKind: "api_key",
       status: "active",
+      maxInflight: null,
+      usageToday: EMPTY_ACCOUNT_USAGE,
+      usageAllTime: EMPTY_ACCOUNT_USAGE,
       createdAt: "2026-01-03T00:00:00.000Z",
     };
     let resolverCalls = 0;

@@ -35,6 +35,7 @@ import type { IpAbuseProtectionService } from "./security/abuse";
 import type { ReadinessCheckResult } from "./persistence/readiness";
 import type { RouteSnapshotService } from "./transport/routing/route-model";
 import type { TrustedProxyBoundary } from "./config";
+import { resolveClientIdentity } from "./security/ip-boundary";
 import type { ValidatedNetworkBindingFactory } from "./network/pool/resolver";
 import { metrics } from "./observability/metrics";
 import { API_CONTENT_SECURITY_POLICY, X_FRAME_OPTIONS } from "./security/outbound-headers";
@@ -100,10 +101,11 @@ export interface ProductionAppDeps {
   readonly oauthRefreshService: OAuthRefreshService;
   /**
    * The console control plane. Optional because the console needs Redis
-   * (session/CSRF/oauth-flow state and the quota cache are Redis-backed),
-   * while `REDIS_MODE=single_instance_local` runs without a Redis client at
-   * all. A Redis-less boot serves `/v1/*`, `/health` and `/metrics` and does
-   * not mount `/console/api/*`, which is exactly what that mode documents.
+   * (OAuth-flow state and the quota cache are Redis-backed; sessions live in
+   * `console_sessions` in Postgres and CSRF is stateless), while
+   * `REDIS_MODE=single_instance_local` runs without a Redis client at all. A
+   * Redis-less boot serves `/v1/*`, `/health` and `/metrics` and does not
+   * mount `/console/api/*`, which is exactly what that mode documents.
    */
   readonly consoleApi?: ConsoleApiCompositionDeps;
   readonly shutdownCoordinator: ShutdownCoordinatorLike;
@@ -412,11 +414,20 @@ export function createGatewayApp(deps: GatewayAppDeps) {
       );
     }
 
-    // Public share API is registered before the static catch-alls so
-    // `/share/:token/data` never falls through to the share document. The
-    // public origin for `baseUrl` resolves from CARTETHYIA_PUBLIC_ORIGIN inside
-    // the router, falling back to the request origin.
-    app.use(createShareRouter({ db: deps.db, shareStore: new DrizzleShareLinkStore(deps.db) }));
+    // Public share API routes are registered before the SPA catch-all, and
+    // enrollment uses only the peer address captured by the trusted boundary.
+    app.use(
+      createShareRouter({
+        db: deps.db,
+        shareStore: new DrizzleShareLinkStore(deps.db),
+        resolveClientIp: (request) => {
+          const peer = peerAddresses.get(request);
+          return peer
+            ? resolveClientIdentity(request, deps.trustedProxyBoundary, peer)
+            : null;
+        },
+      }),
+    );
   }
 
   app.all("/", serveDashboard);

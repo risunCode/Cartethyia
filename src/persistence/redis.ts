@@ -104,7 +104,46 @@ export async function redisEvalNumber(
   numKeys: number,
   ...keysAndArgs: (string | number)[]
 ): Promise<number> {
-  const raw = await (
+  const raw = await evalRaw(redis, script, numKeys, keysAndArgs);
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    throw new Error(`[redis] eval returned a non-finite result: ${String(raw)}`);
+  }
+  return value;
+}
+
+/**
+ * Runs a Lua script and returns its result as an array of the script's own
+ * elements, for scripts that decide and report several things at once.
+ *
+ * The array shape is validated here (not per call site): a script whose
+ * multi-value return arrived as a scalar, or a reply the client could not
+ * parse, would otherwise reach callers as an array of the wrong length or a
+ * string they must re-split. Throwing keeps one guard for every tuple script,
+ * matching {@link redisEvalNumber}'s job for the scalar ones. Elements are
+ * returned as the driver decoded them; a caller converts and range-checks its
+ * own fields, because only it knows which are counts and which are flags.
+ */
+export async function redisEvalTuple(
+  redis: RedisClient,
+  script: string,
+  numKeys: number,
+  ...keysAndArgs: (string | number)[]
+): Promise<readonly unknown[]> {
+  const raw = await evalRaw(redis, script, numKeys, keysAndArgs);
+  if (!Array.isArray(raw)) {
+    throw new Error(`[redis] eval returned a non-array result: ${String(raw)}`);
+  }
+  return raw as readonly unknown[];
+}
+
+async function evalRaw(
+  redis: RedisClient,
+  script: string,
+  numKeys: number,
+  keysAndArgs: readonly (string | number)[],
+): Promise<unknown> {
+  return (
     redis as unknown as {
       eval: (
         script: string,
@@ -113,9 +152,4 @@ export async function redisEvalNumber(
       ) => Promise<unknown>;
     }
   ).eval(script, numKeys, ...keysAndArgs);
-  const value = Number(raw);
-  if (!Number.isFinite(value)) {
-    throw new Error(`[redis] eval returned a non-finite result: ${String(raw)}`);
-  }
-  return value;
 }

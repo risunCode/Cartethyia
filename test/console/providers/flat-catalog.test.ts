@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { createModelCatalogOperations } from "../../../src/console/providers/catalog/model-operations";
 import { ProviderRegistry, parseProviderId } from "../../../src/providers/provider-registry";
-import type { ModelCatalogEntry } from "../../../src/console/providers/catalog/contracts";
+import type { ModelCatalogEntry, ProviderCatalogStore } from "../../../src/console/providers/catalog/contracts";
 
 function entry(modelId: string, provider: string): ModelCatalogEntry {
   return {
@@ -38,31 +38,47 @@ function catalog(options: {
   readonly activeProviders?: readonly string[];
 }) {
   const models = options.models ?? [];
+  const providerIds = options.activeProviders ?? models.map((m) => m.providerId);
+  const noUsage = { requests: 0, errors: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
   return createModelCatalogOperations({
     store: {
       async list() {
-        return (options.activeProviders ?? models.map((m) => m.providerId)).map((providerId) => ({
+        return providerIds.map((providerId) => ({
           providerId,
           tenantId: "tenant-1",
           enabled: true,
           isBuiltIn: false,
           requiresAccount: true,
+          supportsModelDiscovery: false,
         }));
       },
       async listAllAccounts() {
-        return (options.activeProviders ?? models.map((m) => m.providerId)).map((providerId, index) => ({
+        return providerIds.map((providerId, index) => ({
           id: `acc-${index}`,
           providerId,
           tenantId: "tenant-1",
           label: providerId,
-          credentialKind: "api_key",
+          credentialKind: "api_key" as const,
           status: "active",
+          maxInflight: null,
+          usageToday: noUsage,
+          usageAllTime: noUsage,
+          createdAt: new Date(0).toISOString(),
         }));
       },
       async listModels(_tenantId: string, providerId: string) {
         return models.find((m) => m.providerId === providerId)?.entries ?? [];
       },
-    } as never,
+      // The bulk read `listFlatModels` uses: one map for the whole tenant.
+      async listModelsForTenant(_tenantId: string, providerId?: string) {
+        const grouped = new Map<string, readonly ModelCatalogEntry[]>();
+        for (const provider of models) {
+          if (providerId !== undefined && provider.providerId !== providerId) continue;
+          grouped.set(provider.providerId, provider.entries);
+        }
+        return grouped;
+      },
+    } as unknown as ProviderCatalogStore,
     accessResolver: () => access,
     providerRegistry: new ProviderRegistry(),
     listRoutingTargets: async () => ({
@@ -154,7 +170,10 @@ describe("listFlatModels", () => {
         async listModels() {
           return [entry("one", "acme")];
         },
-      } as never,
+        async listModelsForTenant() {
+          return new Map([["acme", [entry("one", "acme")]]]);
+        },
+      } as unknown as ProviderCatalogStore,
       accessResolver: () => access,
       providerRegistry: new ProviderRegistry(),
     });

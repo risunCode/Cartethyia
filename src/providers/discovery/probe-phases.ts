@@ -387,7 +387,6 @@ export function buildProbeCanonicalRequest(args: {
       temperature: 0.2,
     },
     ...(probeReasoning ? { reasoning: probeReasoning as never } : {}),
-    provider_options: { cartethyia_probe: true },
     stream: request.stream ?? false,
     source_surface: sourceSurface,
   };

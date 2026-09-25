@@ -27,7 +27,7 @@ import { ScheduledTaskRegistry } from "../workers/tasks";
 import { quotaRefreshSweep } from "../workers/quota-refresh-worker";
 import { createAccountSecretResolver } from "../providers/operations/provider-credential-service";
 import { quotaCacheSize } from "../console/quota/quota-cache";
-import { DrizzleRuntimeSettingsStore } from "../console/settings/store";
+import { preferencesReaderFor } from "../transport/dispatch/attempt-finalize";
 import { sweepExpiredCooldowns } from "../providers/operations/account-health-service";
 import { DrizzleTelemetryStore } from "../persistence/telemetry-store";
 import { TelemetryPayloadCapture } from "../observability/payload-capture";
@@ -95,14 +95,22 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   const routingEngine = new RoutingEngine(
     redis ? new RedisAdmissionController(redis) : undefined,
   );
-  const runtimeSettingsStore = new DrizzleRuntimeSettingsStore(db);
   const admissionStore = redis
     ? new RedisAdmissionCounterStore(redis)
     : new InMemoryAdmissionCounterStore();
   const admissionService = new ApiKeyAdmissionService(
     admissionStore,
     undefined,
-    (tenantId) => runtimeSettingsStore.getTenantConcurrencyLimit(tenantId),
+    // The per-tenant concurrency cap is a `console_settings` preference, read
+    // on every admitted request. Reading it directly cost one Postgres round
+    // trip per request (multiplied by each failover candidate); the shared
+    // revision-keyed reader answers from memory and converges the moment an
+    // operator saves, because `DrizzleRuntimeSettingsStore.update` bumps the
+    // revision every cached key embeds.
+    (tenantId) =>
+      preferencesReaderFor(db)
+        .readPreferences(tenantId)
+        .then((prefs) => prefs?.tenantConcurrencyLimit ?? null),
     async ({ apiKeyId, delta }) => {
       // Persist reconciled lifetime token consumption so budgets survive a
       // Redis flush. Uses an incremental UPDATE (COALESCE) so concurrent

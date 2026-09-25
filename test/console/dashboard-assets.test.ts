@@ -82,6 +82,13 @@ describe("Console Static Handler", () => {
       expect(new TextDecoder().decode(result.body)).toContain("<body>Dashboard</body>");
     });
 
+
+    it("serves the shared index document for public enrollment routes", async () => {
+      const result = await handler(`/share/${"a".repeat(43)}`);
+      expect(result.status).toBe(200);
+      expect(result.headers["content-type"]).toBe("text/html; charset=utf-8");
+      expect(new TextDecoder().decode(result.body)).toContain("<body>Dashboard</body>");
+    });
     it("serves index.html for extensionless SPA routes", async () => {
       const result = await handler("/console/dashboard");
       expect(result.status).toBe(200);

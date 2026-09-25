@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="referrer" content="no-referrer" />
     <meta name="theme-color" content="#05070d" />
     <meta
       name="description"
@@ -47,21 +48,24 @@
     </style>
     <script>
       // This bootstrap mirrors dashboard/src/lib/theme.ts because it must run
-      // before the selected app chunk loads. Keep the /console predicate,
-      // storage keys, and accepted values in sync with the TypeScript entry.
+      // before the selected app chunk loads. Keep the /console and /share
+      // predicates, storage keys, and accepted values in sync with TypeScript.
       (() => {
-        const isConsole =
-          window.location.pathname === "/console" || window.location.pathname.startsWith("/console/");
+        const pathname = window.location.pathname;
+        const isShare = pathname === "/share" || pathname.startsWith("/share/");
+        const isConsole = pathname === "/console" || pathname.startsWith("/console/");
         const root = document.documentElement;
-        root.dataset.app = isConsole ? "console" : "landing";
+        root.dataset.app = isShare ? "share" : isConsole ? "console" : "landing";
         const themeMeta = document.querySelector('meta[name="theme-color"]');
         const colorSchemeMeta = document.createElement("meta");
         colorSchemeMeta.name = "color-scheme";
         colorSchemeMeta.content = isConsole ? "light dark" : "dark";
         document.head.appendChild(colorSchemeMeta);
-        document.title = isConsole
-          ? "Cartethyia Console"
-          : "Cartethyia — One Stop OpenAI & Anthropic Proxy Router";
+        document.title = isShare
+          ? "Cartethyia — Shared access"
+          : isConsole
+            ? "Cartethyia Console"
+            : "Cartethyia — One Stop OpenAI & Anthropic Proxy Router";
         if (themeMeta) themeMeta.setAttribute("content", isConsole ? "#09090b" : "#05070d");
         if (!isConsole) return;
         try {

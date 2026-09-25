@@ -2,8 +2,7 @@
 
 `src/persistence/` is the single persistence boundary for Postgres and Redis.
 Every table, enum, index, and shared column helper that the code reads or
-writes lives in `schema.ts` (canonical Drizzle source); the lone exception is
-the orphan `backup_status` table, which exists only in the baseline SQL;
+writes lives in `schema.ts` (canonical Drizzle source);
 `postgres.ts` owns the bounded `pg` pool, the
 single `drizzle()` instance, and the SQL-only migration ledger; `redis.ts`
 owns the shared ioredis client. All other modules are table operations or
@@ -18,8 +17,8 @@ src/persistence/
   postgres.ts             bounded pg Pool + drizzle singleton + migration ledger runner
   redis.ts                shared ioredis client + atomic Lua eval guard
   readiness.ts            boot probe (DB + migrations + Redis) with 5s memo
-  telemetry-store.ts      telemetry_events / telemetry_payloads table ops only
-  share-store.ts          hash-only bearer share-link store
+  telemetry-store.ts      event writes, durable usage totals, retention/payload ops
+  share-store.ts          hash-only enrollment links + atomic child-key issuance
   tenant-scope.ts         globalOrOwnedBy / ownedByOnly / resolveTenantOverride
   tenant-preferences.ts   console_settings reader + TTL cache + revision counter
   page-cursor.ts          base64url cursor encode/decode with bounded LRU memo
@@ -54,21 +53,20 @@ src/persistence/
   carries `error_origin` (cartethyia/upstream/network) beside `error_category`
   because the category alone cannot separate "our bad request" from "upstream
   rejected the request".
-- **Inbound keys / sharing:** `api_keys` (HMAC-SHA256 `key_hash`, public
-  `key_prefix`, AES-GCM recoverable `key_encrypted`, notes, budgets,
-  concurrency, allow/deny lists, `model_prefix`, `revoked_at`);
-  `share_links` (SHA-256 `token_hash` only, kind `monitor`/`setup`, active,
-  expires/used/last-viewed); `console_users`, `console_sessions`,
+- **Inbound keys / sharing:** `api_keys` (personal authentication hashes or
+  hashless share templates, child-parent relationship, canonical issued-IP
+  identity, encrypted personal-key material, limits and allow/deny lists);
+  `share_links` (SHA-256 `token_hash` only, enroll-only kind, active/expiry/
+  last-viewed metadata; legacy `used_at` stays stored but is not exposed);
   `console_lockouts` (IP-keyed, survives restart, shared across instances).
 - **Ops:** `admin_audit_log` (actor, tenant SET NULL, action, target, detail);
   `console_settings(tenant_id PK, preferences JSONB, updated_at)`;
   `cli_tool_mappings` + `cli_tool_settings`; `telemetry_events`
   (metadata-only by construction — no prompt/body/key columns; catalog FKs
   deliberately omitted so a telemetry write never depends on a provider row);
-  `telemetry_payloads` (15-minute rows); `studio_sessions` (opaque JSONB);
-  `backup_status` (single-row backup bookkeeping, id fixed at 1) — the one
-  table that lives only in the baseline SQL, with no Drizzle definition and
-  no code reader.
+  `telemetry_usage_totals` (durable per-tenant/account and per-tenant/API-key
+  request, error, and token aggregates that survive event retention);
+  `telemetry_payloads` (15-minute rows); `studio_sessions` (opaque JSONB).
 
 Enums: `health_status`, `credential_kind`, `wire_family`,
 `network_pool_kind`, `health_entity_kind`, `telemetry_source_surface`,
@@ -87,8 +85,10 @@ ciphertext.
   statement 30s, idle-in-transaction 60s, lock 5s, keepAlive; PgBouncer-safe:
   no session state, no LISTEN/NOTIFY). `DATABASE_POOL_MAX` is a per-process
   *ceiling*, not a reservation — connections open on demand, and the proxy path
-  issues none (routing comes from the in-process snapshot, admission counters
-  live in Redis), so the pool's real consumers are the console API, one
+  issues few (routing comes from the in-process snapshot, admission counters
+  live in Redis; a dispatch attempt still does its own credential read and
+  health write, and reads tenant preferences behind a short cache), so the
+  pool's largest consumers are the console API, one
   telemetry flush, the worker sweeps, auth, and readiness.
   `assertPoolFitsServerCapacity()` runs at boot: it reads the server's
   `max_connections` and refuses a pool that alone meets it, because the gateway
@@ -116,20 +116,23 @@ ciphertext.
 ## Table stores and helpers
 
 - `telemetry-store.ts`: `DrizzleTelemetryStore(db)` — `insertEvents(rows)`
-  batched multi-row, `insertPayload(row)`, `deleteExpiredPayloads()`,
-  `pruneTelemetry(before)`. Metadata retention is configured by
+  writes event batches and upserts account/API-key lifetime totals in one
+  transaction; those totals remain after metadata events expire.
+  `insertPayload(row)`, `deleteExpiredPayloads()`, and `pruneTelemetry(before)`
+  retain the existing payload policy. Metadata retention is configured by
   `CARTETHYIA_TELEMETRY_RETENTION_DAYS` (default 30 days); payload retention is
   15 minutes. `telemetryPayloads` is tenant-gated and off by default
   (`bounded` is an explicit debugging opt-in); rows hold checksummed frame
   references, not bodies (see `observability/OBSERVABILITY.md`).
 - `share-store.ts`: `hashShareToken()` (SHA-256); `DrizzleShareLinkStore` —
-  `create()` returns metadata, never the token; monitor lookup gated on
-  active + unexpired + key-not-revoked; `consumeSetupToken()` uses one
-  transaction with `SELECT … FOR UPDATE` for exactly-once consumption;
-  `touchView()`, `listForApiKey()`, scoped soft `revoke()`.
-- `api-key-store.ts`: list/get/create/update/revoke plus
-  `findActiveByHash()` gating `revokedAt` — `key_hash` stays the auth source
-  of truth.
+  creates enroll-only links and resolves only active, unexpired links whose
+  parent is an active hashless share template. `issueSharedApiKey()` locks
+  parent and link before inserting the policy-inheriting child; the database
+  unique-IP violation maps to the one-active-child-per-IP conflict.
+- `api-key-store.ts`: list/get/create/update/revoke plus `listChildren()` and
+  `findActiveByHash()`. Parent revoke or conversion to personal mode revokes
+  children and deactivates links transactionally; hashless templates cannot
+  authenticate.
 - `tenant-scope.ts`: `globalOrOwnedBy(column, tenantId)` (NULL rows are
   global; a null requester is a platform identity and matches globals only),
   `ownedByOnly()`, and `resolveTenantOverride(tenantRow, globalRow, default)`
@@ -152,10 +155,14 @@ ciphertext.
   historical baseline entries stay historical. Live databases need the
   hand-run idempotent DDL because the baseline ledger row is
   already applied. Those hand-run statements are kept in
-  `drizzle/migrations/manual/` (`0001_`..`0010_`): `migrationFiles()` only
+  `drizzle/migrations/manual/` (including `0011_`): `migrationFiles()` only
   matches numbered `NNNN_*.sql` entries at the top level of the migrations
   folder, so the ledger runner never sees that subfolder and each file must be
   applied by hand (its own header says so).
+- Manual migration `0011` backfills lifetime usage totals from telemetry rows
+  still retained at rollout. Older events already pruned cannot be reconstructed.
+- It disables legacy share links and normalizes their kind to `enroll`; the
+  old bearer values remain in the database but can no longer be used.
 - **The baseline must be self-contained.** It is the entire schema for a
   database created today, so a column that exists only in a `manual/` file
   reaches an already-migrated database and no fresh one — a new deployment then

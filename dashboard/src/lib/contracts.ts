@@ -68,9 +68,15 @@ export type {
   CreateApiKeyRequest,
   ApiKeyResponse,
   CreateApiKeyResponse,
+  UpdateApiKeyResponse,
   ShareKeyResponse,
-  ShareLinkResponse,
 } from "../../../src/console/domains/api-keys/contracts";
+export type {
+  SharedKeySummary,
+  SharedKeyActivityDetail,
+  SharedKeyModelUsage,
+  SharedKeyRequestEvent,
+} from "../../../src/console/share/share-usage";
 
 // Backup export returns the payload itself (it is the file the operator
 // downloads); import returns the per-table counts plus the router-import

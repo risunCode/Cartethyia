@@ -119,3 +119,21 @@ export function resolveClientIdentity(
   }
   return fallback;
 }
+
+/**
+ * Produces a stable, family-tagged identity key for database uniqueness.
+ * Mapped IPv4 and alternate IPv6 spellings collapse to one canonical address.
+ */
+export function canonicalClientIpKey(address: string): string | undefined {
+  const normalized = unwrapMappedIpv4(address);
+  const family = isIP(normalized);
+  if (family === 4) {
+    const value = ipv4ToNumber(normalized);
+    return value === undefined ? undefined : `v4:${value}`;
+  }
+  if (family === 6) {
+    const value = ipv6ToBigInt(normalized);
+    return value === undefined ? undefined : `v6:${value.toString(16).padStart(32, "0")}`;
+  }
+  return undefined;
+}

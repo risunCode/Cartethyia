@@ -24,6 +24,7 @@ import CliToolDetail from "./routes/CliToolDetail";
 import ConsoleLog from "./routes/ConsoleLog";
 import Customization from "./routes/Customization";
 import Studio from "./routes/Studio";
+import Share from "./routes/Share";
 
 /**
  * Every route registered in `App.tsx`, keyed by the path it is mounted at.
@@ -45,6 +46,7 @@ const ROUTE_MODULES: ReadonlyArray<readonly [string, ComponentType]> = [
   ["/cli-tools/:toolId", CliToolDetail],
   ["/console-log", ConsoleLog],
   ["/customization", Customization],
+  ["/share", Share],
   ["/model-lab", Studio],
 ];
 
@@ -92,7 +94,7 @@ describe("dashboard navigation", () => {
     );
 
     const expected: Record<string, readonly string[]> = {
-      Main: ["Overview", "Usage", "Providers", "Model Lab"],
+      Main: ["Overview", "Usage", "Providers", "Model Lab", "Share"],
       Control: ["Combos & Routes", "Quota Management", "Proxy & Requests", "CLI Tools"],
       System: ["Customization", "Console Log", "Settings"],
     };

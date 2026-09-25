@@ -39,6 +39,7 @@ import { createAccountSecretResolver } from "../providers/operations/provider-cr
 import { syncByokProvider } from "../providers/operations/provider-catalog-service";
 import { DrizzleApiKeyStore } from "../persistence/api-key-store";
 import { DrizzleShareLinkStore } from "../persistence/share-store";
+import { createShareUsagePort } from "./share/share-usage";
 import { resolveSsrfPolicy } from "../config";
 import type { AuditRecorder } from "./auth/service";
 import type { CliToolService } from "./cli-tools/service";
@@ -177,6 +178,7 @@ export function registerConsoleDomains(
   const modelRoutingStore = new DrizzleModelRoutingStore(ctx.db);
   const apiKeyStore = new DrizzleApiKeyStore(ctx.db);
   const shareStore = new DrizzleShareLinkStore(ctx.db);
+  const shareActivity = createShareUsagePort(ctx.db);
 
 
   console.use(createObservabilityRoutes({ store: observabilityStore, accessResolver: ctx.accessResolver }));
@@ -244,7 +246,7 @@ export function registerConsoleDomains(
     }),
   );
   console.use(createModelRoutingRoutes({ store: modelRoutingStore, accessResolver: ctx.accessResolver, auditSink: ctx.auditRecorder, snapshotInvalidator: ctx.routeSnapshotService }));
-  console.use(createApiKeyRoutes({ store: apiKeyStore, accessResolver: ctx.accessResolver, auditSink: ctx.auditRecorder, shareStore, admissionService: ctx.admissionService }));
+  console.use(createApiKeyRoutes({ store: apiKeyStore, accessResolver: ctx.accessResolver, auditSink: ctx.auditRecorder, shareStore, shareActivity, admissionService: ctx.admissionService }));
   console.use(createCliToolsRoutes({ service: ctx.cliToolService, accessResolver: ctx.accessResolver, auditSink: ctx.auditRecorder, snapshotInvalidator: ctx.routeSnapshotService }));
   console.use(createAccountQuotaRoutes({
     db: ctx.db,

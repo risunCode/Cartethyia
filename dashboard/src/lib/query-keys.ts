@@ -52,7 +52,9 @@ export const queryKeys = {
   },
   apiKeys: {
     all: ["console", "api-keys"] as const,
-    shares: (keyId: string) => ["console", "api-keys", keyId, "shares"] as const,
+    sharedKeys: (keyId: string) => ["console", "api-keys", keyId, "shared-keys"] as const,
+    sharedKeyActivity: (parentKeyId: string, childKeyId: string) =>
+      ["console", "api-keys", parentKeyId, "shared-keys", childKeyId, "activity"] as const,
   },
   settings: {
 

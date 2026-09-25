@@ -13,9 +13,14 @@ function event(): TelemetryEventInput {
   };
 }
 
-/** Minimal `db.insert(...).values(...)` stub; telemetry is the only write path used. */
-function dbWithInsert(impl: () => Promise<void>): CartethyiaDatabase {
-  return { insert: () => ({ values: impl }) } as unknown as CartethyiaDatabase;
+/** Minimal transactional insert stub; these events have no aggregate identity. */
+function dbWithInsert(
+  impl: (batch: Array<Record<string, unknown>>) => Promise<void>,
+): CartethyiaDatabase {
+  const transaction = { insert: () => ({ values: impl }) };
+  return {
+    transaction: (run: (tx: typeof transaction) => Promise<unknown>) => run(transaction),
+  } as unknown as CartethyiaDatabase;
 }
 
 describe("adaptiveFlushIntervalMs", () => {
@@ -97,13 +102,9 @@ describe("telemetry error origin", () => {
   test("carries errorOrigin through to the inserted row", async () => {
     const rows: Array<Record<string, unknown>> = [];
     const buffer = new TelemetryBatchBuffer(
-      {
-        insert: () => ({
-          values: async (batch: Array<Record<string, unknown>>) => {
-            for (const row of batch) rows.push(row);
-          },
-        }),
-      } as unknown as CartethyiaDatabase,
+      dbWithInsert(async (batch) => {
+        for (const row of batch) rows.push(row);
+      }),
       { flushIntervalMs: 60_000 },
     );
     buffer.enqueue({ ...event(), status: "failed", errorCategory: "invalid_request", errorOrigin: "upstream" });
@@ -118,13 +119,9 @@ describe("telemetry error origin", () => {
   test("writes null rather than dropping the column when no origin is set", async () => {
     const rows: Array<Record<string, unknown>> = [];
     const buffer = new TelemetryBatchBuffer(
-      {
-        insert: () => ({
-          values: async (batch: Array<Record<string, unknown>>) => {
-            for (const row of batch) rows.push(row);
-          },
-        }),
-      } as unknown as CartethyiaDatabase,
+      dbWithInsert(async (batch) => {
+        for (const row of batch) rows.push(row);
+      }),
       { flushIntervalMs: 60_000 },
     );
     buffer.enqueue(event());

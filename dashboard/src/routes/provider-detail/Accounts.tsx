@@ -178,7 +178,13 @@ function AccountRow({
   const [, setTick] = useState(0);
   const [renaming, setRenaming] = useState(false);
   const [draftLabel, setDraftLabel] = useState("");
+  const [draftMaxInflight, setDraftMaxInflight] = useState(
+    account.maxInflight === null ? "" : String(account.maxInflight),
+  );
   const label = account.label || account.id.slice(0, 8);
+  useEffect(() => {
+    setDraftMaxInflight(account.maxInflight === null ? "" : String(account.maxInflight));
+  }, [account.maxInflight]);
   useEffect(() => {
     if (!hasActiveCooldown || !account.cooldownUntil) return;
     if (new Date(account.cooldownUntil).getTime() - Date.now() <= 0) return;
@@ -198,6 +204,25 @@ function AccountRow({
           toast.error(
             "Rename failed",
             (err as { message?: string }).message ?? "Unable to rename account",
+          ),
+      },
+    );
+  };
+  const saveMaxInflight = () => {
+    const value = draftMaxInflight.trim();
+    const maxInflight = value === "" ? null : Number(value);
+    if (maxInflight !== null && (!Number.isSafeInteger(maxInflight) || maxInflight < 1)) {
+      toast.error("Invalid max inflight", "Enter a positive whole number or leave it empty to inherit.");
+      return;
+    }
+    update.mutate(
+      { providerId, accountId: account.id, request: { maxInflight } },
+      {
+        onSuccess: () => toast.success("Max inflight updated", label),
+        onError: (err) =>
+          toast.error(
+            "Update failed",
+            (err as { message?: string }).message ?? "Unable to update max inflight",
           ),
       },
     );
@@ -293,6 +318,50 @@ function AccountRow({
           <div className="account-row-meta" title={accountDetail(account)}>
             <AccountStatusBadge account={account} />
             <span className="account-row-detail">{accountDetail(account)}</span>
+          </div>
+          <div
+            className="account-row-detail"
+            aria-label={`Usage for ${label}`}
+            style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px" }}
+          >
+            <span>
+              Today: {account.usageToday.totalTokens.toLocaleString()} tokens ·{" "}
+              {account.usageToday.requests.toLocaleString()} requests
+            </span>
+            <span title="Lifetime totals are backfilled from telemetry still retained when tracking starts; new totals survive telemetry cleanup.">
+              All time: {account.usageAllTime.totalTokens.toLocaleString()} tokens ·{" "}
+              {account.usageAllTime.requests.toLocaleString()} requests
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px", marginTop: "6px" }}>
+            <label
+              htmlFor={`max-inflight-${account.id}`}
+              style={{ fontSize: "11px", color: "var(--text-muted)", whiteSpace: "nowrap", flexShrink: 0 }}
+            >
+              Max inflight
+            </label>
+            <Input
+              id={`max-inflight-${account.id}`}
+              type="number"
+              min="1"
+              step="1"
+              value={draftMaxInflight}
+              placeholder="Inherit"
+              onChange={(event) => setDraftMaxInflight(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") saveMaxInflight();
+              }}
+              aria-label={`Max inflight for ${label}`}
+              style={{ width: "72px", padding: "4px 7px", minHeight: "28px" }}
+            />
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={saveMaxInflight}
+              disabled={update.isPending}
+            >
+              Save
+            </Button>
           </div>
         </div>
 

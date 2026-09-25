@@ -1214,6 +1214,7 @@ describe("codex payload P0 fixes", () => {
     expect(meta?.["turn_id"]).toBe("turn-client");
     const turnMetaJson = meta?.["x-codex-turn-metadata"] as string | undefined;
     expect(turnMetaJson).toBeDefined();
+    expect(requests[0]?.headers["x-codex-turn-metadata"]).toBe(turnMetaJson);
     const parsed = JSON.parse(turnMetaJson as string) as Record<
       string,
       unknown
@@ -1688,8 +1689,7 @@ describe("codex payload P0 fixes", () => {
       parentTurnId: "parent-1",
       conversationId: "conv-1",
       installationId: "install-1",
-      turnMetadataHeaderJson:
-        '{"installation_id":"install-1","session_id":"sess-1"}',
+      turnMetadataJson: '{"installation_id":"install-1","session_id":"sess-1"}',
       betaFeatures: "remote_compaction_v2",
       subAgent: "sub-1",
       responsesLite: true,

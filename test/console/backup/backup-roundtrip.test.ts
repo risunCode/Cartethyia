@@ -9,6 +9,8 @@ import {
   models,
   providerAccounts,
   providers,
+  shareLinks,
+  telemetryUsageTotals,
   telemetryEvents,
   tenants,
 } from "../../../src/persistence/schema";
@@ -32,11 +34,27 @@ import { restoreOrder, validateRestorePayload } from "../../../src/console/backu
  * mode it guards against — a `Buffer` stringified into `{type,data}` — only
  * appears with a real driver.
  */
+function objectRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new Error("expected a backup object");
+  return value as Record<string, unknown>;
+}
+
 dbDescribe("backup export/restore round trip", () => {
   let db: CartethyiaDatabase;
   const tenantId = randomUUID();
   const providerId = `backup-test-${randomUUID().slice(0, 8)}`;
   const keyId = randomUUID();
+  const shareParentId = randomUUID();
+  const shareChildId = randomUUID();
+  const shareIpNumber = Number.parseInt(tenantId.replaceAll("-", "").slice(0, 8), 16);
+  const shareClientIp = [
+    (shareIpNumber >>> 24) & 255,
+    (shareIpNumber >>> 16) & 255,
+    (shareIpNumber >>> 8) & 255,
+    shareIpNumber & 255,
+  ].join(".");
+  const shareClientIpKey = `v4:${shareIpNumber}`;
   const requestId = randomUUID();
   const credential = Buffer.from("super-secret-credential-value", "utf8");
 
@@ -78,15 +96,55 @@ dbDescribe("backup export/restore round trip", () => {
       keyPrefix: "rk_",
       modelAllowlist: ["roundtrip-model"],
     });
+    await db.insert(apiKeys).values({
+      id: shareParentId,
+      tenantId,
+      keyHash: null,
+      keyMode: "share",
+      label: "share template",
+      scopes: ["routing:invoke"],
+      keyPrefix: "rk_",
+      keyEncrypted: null,
+    });
+    await db.insert(apiKeys).values({
+      id: shareChildId,
+      tenantId,
+      keyHash: "b".repeat(64),
+      keyMode: "share",
+      parentKeyId: shareParentId,
+      issuedClientIp: shareClientIp,
+      issuedClientIpKey: shareClientIpKey,
+      label: "shared child",
+      scopes: ["routing:invoke"],
+      keyPrefix: "rk_",
+      keyEncrypted: null,
+    });
+    await db.insert(shareLinks).values({
+      apiKeyId: shareParentId,
+      tokenHash: "c".repeat(64),
+      kind: "enroll",
+      active: true,
+    });
     await db.insert(modelAliases).values({ tenantId, alias: "rt-alias", targetModel: "roundtrip-model" });
     await db.insert(telemetryEvents).values({
       tenantId,
       requestId,
+      apiKeyId: keyId,
       status: "completed",
       sourceSurface: "chat",
       requestedModel: "roundtrip-model",
       inputTokens: 11,
       outputTokens: 22,
+    });
+    await db.insert(telemetryUsageTotals).values({
+      tenantId,
+      identityType: "api_key",
+      entityId: keyId,
+      requests: 1,
+      errors: 0,
+      inputTokens: 11,
+      outputTokens: 22,
+      lastUsedAt: new Date(),
     });
   });
 
@@ -106,9 +164,24 @@ dbDescribe("backup export/restore round trip", () => {
 
     expect(counts["providers"]).toBeGreaterThan(0);
     expect(counts["telemetry_events"]).toBeGreaterThan(0);
+    expect(counts["telemetry_usage_totals"]).toBe(1);
+    expect(counts["share_links"]).toBe(1);
 
     // JSON round trip, exactly as a downloaded file would be read back.
     const reparsed = JSON.parse(JSON.stringify(payload)) as unknown;
+    const sections = objectRecord(objectRecord(reparsed)["sections"]);
+    const config = objectRecord(sections["config"]);
+    const keyRows = config["api_keys"];
+    if (!Array.isArray(keyRows)) throw new Error("backup has no API-key rows");
+    if (!keyRows.some((row) => objectRecord(row)["id"] === shareParentId))
+      throw new Error("backup is missing the share parent");
+    const childIndex = keyRows.findIndex(
+      (row) => objectRecord(row)["id"] === shareChildId,
+    );
+    if (childIndex < 0) throw new Error("backup is missing the share child");
+    const [childRow] = keyRows.splice(childIndex, 1);
+    if (childRow === undefined) throw new Error("share child row could not be reordered");
+    keyRows.unshift(childRow);
     const validation = validateRestorePayload(reparsed, tenantId);
     expect(validation.ok).toBe(true);
     if (!validation.ok) return;
@@ -141,6 +214,11 @@ dbDescribe("backup export/restore round trip", () => {
     const [key] = await db.select().from(apiKeys).where(eq(apiKeys.id, keyId));
     expect(key?.modelAllowlist).toEqual(["roundtrip-model"]);
     expect(key?.createdAt).toBeInstanceOf(Date);
+    const [shareChild] = await db.select().from(apiKeys).where(eq(apiKeys.id, shareChildId));
+    expect(shareChild?.parentKeyId).toBe(shareParentId);
+    expect(shareChild?.issuedClientIpKey).toBe(shareClientIpKey);
+    const [enrollment] = await db.select().from(shareLinks).where(eq(shareLinks.apiKeyId, shareParentId));
+    expect(enrollment).toMatchObject({ kind: "enroll", active: true });
 
     const [event] = await db
       .select()
@@ -149,6 +227,16 @@ dbDescribe("backup export/restore round trip", () => {
     expect(event?.inputTokens).toBe(11);
     expect(event?.outputTokens).toBe(22);
     expect(event?.createdAt).toBeInstanceOf(Date);
+    const [totals] = await db
+      .select()
+      .from(telemetryUsageTotals)
+      .where(eq(telemetryUsageTotals.entityId, keyId));
+    expect(totals).toMatchObject({
+      identityType: "api_key",
+      requests: 1,
+      inputTokens: 11,
+      outputTokens: 22,
+    });
   });
 
   test("importing the same telemetry twice does not duplicate history", async () => {
@@ -173,6 +261,11 @@ dbDescribe("backup export/restore round trip", () => {
     // Config was replaced; telemetry was merged. The tenant's own event count is
     // therefore unchanged, which is the whole point of append mode.
     expect(after[0]?.n).toBe(before[0]?.n);
+    const [totals] = await db
+      .select()
+      .from(telemetryUsageTotals)
+      .where(eq(telemetryUsageTotals.entityId, keyId));
+    expect(totals?.requests).toBe(1);
   });
 
   test("a telemetry-only restore leaves configuration untouched", async () => {

@@ -27,6 +27,12 @@ bin/
 # Test coverage output
 coverage/
 
+# Migrations staged for a local `bun run start`: the compiled binary resolves
+# them from `<cwd>/migrations` (that is where the image copies them), while the
+# source of truth stays `drizzle/migrations`. Generated on every start, so it is
+# never project code.
+/migrations/
+
 # Local runtime scratch: captured telemetry payload frames. Written constantly
 # by the running gateway and pruned by retention, so tracking them churns the
 # repo with megabytes of transient request bodies.

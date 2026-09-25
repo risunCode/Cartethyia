@@ -1,9 +1,8 @@
-// Share-link persistence: creation for the console owner, lookup for the
-// public share routes. Only the SHA-256 hash of the bearer token is stored, so
-// a leaked `share_links` row cannot be replayed.
-
 import { createHash } from "node:crypto";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+
+// Share-link persistence and atomic child-key issuance. Only bearer token hashes are stored.
+
+import { and, desc, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "./postgres";
 import { apiKeys, shareLinks, type ShareLinkKind } from "./schema";
 
@@ -21,12 +20,7 @@ export interface ShareLinkRecord {
   readonly expiresAt: Date | null;
 }
 
-/**
- * Console-facing summary of one share link. Carries lifecycle state
- * (`active`/`usedAt`/`lastViewedAt`) so the owner can see which links are
- * still live and revoke the ones that should not be — never the bearer token,
- * which exists only in the response to the create call.
- */
+/** Console-facing summary of an enrollment link; never includes its token. */
 export interface ShareLinkSummary {
   readonly id: string;
   readonly apiKeyId: string;
@@ -34,34 +28,51 @@ export interface ShareLinkSummary {
   readonly active: boolean;
   readonly createdAt: Date;
   readonly expiresAt: Date | null;
-  readonly usedAt: Date | null;
   readonly lastViewedAt: Date | null;
 }
 
-/** API-key fields authorized for a valid share-link lookup. */
+/** Public template fields authorized for a valid enrollment-link lookup. */
 export interface ShareApiKeyRow {
   readonly id: string;
   readonly tenantId: string;
   readonly name: string;
   readonly keyPrefix: string | null;
-  readonly keyEncrypted: Buffer | null;
   readonly active: boolean;
-  readonly rateLimitRpm: number | null;
+  readonly requestsPerMinute: number | null;
   readonly dailyTokenLimit: number | null;
   readonly monthlyTokenLimit: number | null;
   readonly lifetimeTokenBudget: number | null;
-  readonly lifetimeTokensConsumed: number;
   readonly maxConcurrentRequests: number | null;
   readonly providerAllowlist: readonly string[] | null;
   readonly modelAllowlist: readonly string[] | null;
   readonly modelDenylist: readonly string[] | null;
+  readonly modelPrefix: string | null;
   readonly notesTitle: string | null;
   readonly notesSubtitle: string | null;
   readonly notesBody: string | null;
   readonly createdAt: string;
-  readonly shareCreatedAt: string;
   readonly expiresAt: string | null;
 }
+
+export interface SharedApiKeyMaterial {
+  readonly keyHash: string;
+  readonly keyPrefix: string;
+  readonly clientIp: string;
+  readonly clientIpKey: string;
+}
+
+export type SharedApiKeyIssueResult =
+  | {
+      readonly kind: "issued";
+      readonly apiKeyId: string;
+      readonly parentKeyId: string;
+      readonly tenantId: string;
+      readonly label: string;
+      readonly keyPrefix: string;
+      readonly createdAt: Date;
+    }
+  | { readonly kind: "link_unavailable" }
+  | { readonly kind: "ip_limit" };
 
 type ApiKeyRow = typeof apiKeys.$inferSelect;
 type ShareLinkRow = typeof shareLinks.$inferSelect;
@@ -72,53 +83,67 @@ function mapShareRow(key: ApiKeyRow, link: ShareLinkRow): ShareApiKeyRow {
     tenantId: key.tenantId,
     name: key.label,
     keyPrefix: key.keyPrefix,
-    keyEncrypted: key.keyEncrypted,
     active: key.revokedAt === null,
-    rateLimitRpm: key.requestsPerMinute,
+    requestsPerMinute: key.requestsPerMinute,
     dailyTokenLimit: key.dailyTokenLimit,
     monthlyTokenLimit: key.monthlyTokenLimit,
     lifetimeTokenBudget: key.lifetimeTokenBudget,
-    lifetimeTokensConsumed: key.lifetimeTokensConsumed,
     maxConcurrentRequests: key.maxConcurrentRequests,
-    providerAllowlist: key.providerAllowlist,
-    modelAllowlist: key.modelAllowlist,
-    modelDenylist: key.modelDenylist,
+    providerAllowlist: key.providerAllowlist as readonly string[] | null,
+    modelAllowlist: key.modelAllowlist as readonly string[] | null,
+    modelDenylist: key.modelDenylist as readonly string[] | null,
+    modelPrefix: key.modelPrefix,
     notesTitle: key.notesTitle,
     notesSubtitle: key.notesSubtitle,
     notesBody: key.notesBody,
     createdAt: key.createdAt.toISOString(),
-    shareCreatedAt: link.createdAt.toISOString(),
-    expiresAt: link.expiresAt === null ? null : link.expiresAt.toISOString(),
+    expiresAt: link.expiresAt?.toISOString() ?? null,
   };
 }
 
-/** Persistence boundary for share links. */
+function uniqueConstraint(error: unknown): string | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (typeof current !== "object" || current === null) return undefined;
+    if (
+      "code" in current && current.code === "23505" &&
+      "constraint" in current && typeof current.constraint === "string"
+    ) {
+      return current.constraint;
+    }
+    if (!("cause" in current)) return undefined;
+    current = current.cause;
+  }
+  return undefined;
+}
+
+/** Persistence boundary for public enrollment links and child API keys. */
 export interface ShareLinkStore {
   create(input: {
     apiKeyId: string;
     tokenHash: string;
-    kind: "monitor" | "setup";
     expiresAt: Date | null;
   }): Promise<ShareLinkRecord>;
   getApiKeyByShareToken(tokenHash: string): Promise<ShareApiKeyRow | null>;
-  consumeSetupToken(tokenHash: string): Promise<ShareApiKeyRow | null>;
+  hasActiveSharedKeyForIp(clientIpKey: string): Promise<boolean>;
+  issueSharedApiKey(
+    tokenHash: string,
+    material: SharedApiKeyMaterial,
+  ): Promise<SharedApiKeyIssueResult>;
   touchView(tokenHash: string): Promise<void>;
-  /** All share links minted for one API key, newest first (never tokens). */
+  /** All enrollment links for one API key, newest first (never tokens). */
   listForApiKey(apiKeyId: string): Promise<readonly ShareLinkSummary[]>;
-  /**
-   * Deactivates one share link. Scoped by both ids so a key can only revoke
-   * its own link; returns false when no active link matched.
-   */
+  /** Deactivates one enrollment link scoped to its owning parent API key. */
   revoke(apiKeyId: string, shareId: string): Promise<boolean>;
 }
 
+/** SQLSTATE/constraint extraction is local so only the IP uniqueness violation becomes a conflict. */
 export class DrizzleShareLinkStore implements ShareLinkStore {
   constructor(private readonly db: CartethyiaDatabase) {}
 
   async create(input: {
     apiKeyId: string;
     tokenHash: string;
-    kind: "monitor" | "setup";
     expiresAt: Date | null;
   }): Promise<ShareLinkRecord> {
     const rows = await this.db
@@ -126,7 +151,7 @@ export class DrizzleShareLinkStore implements ShareLinkStore {
       .values({
         apiKeyId: input.apiKeyId,
         tokenHash: input.tokenHash,
-        kind: input.kind,
+        kind: "enroll",
         expiresAt: input.expiresAt,
       })
       .returning();
@@ -135,7 +160,7 @@ export class DrizzleShareLinkStore implements ShareLinkStore {
     return {
       id: row.id,
       apiKeyId: row.apiKeyId,
-      kind: row.kind === "setup" ? "setup" : "monitor",
+      kind: "enroll",
       createdAt: row.createdAt,
       expiresAt: row.expiresAt,
     };
@@ -149,10 +174,12 @@ export class DrizzleShareLinkStore implements ShareLinkStore {
       .where(
         and(
           eq(shareLinks.tokenHash, tokenHash),
-          eq(shareLinks.kind, "monitor"),
+          eq(shareLinks.kind, "enroll"),
           eq(shareLinks.active, true),
           sql`(${shareLinks.expiresAt} IS NULL OR ${shareLinks.expiresAt} > now())`,
           isNull(apiKeys.revokedAt),
+          eq(apiKeys.keyMode, "share"),
+          isNull(apiKeys.parentKeyId),
         ),
       )
       .limit(1);
@@ -160,70 +187,146 @@ export class DrizzleShareLinkStore implements ShareLinkStore {
     return row ? mapShareRow(row.key, row.link) : null;
   }
 
-  async consumeSetupToken(tokenHash: string): Promise<ShareApiKeyRow | null> {
-    // Row lock + conditional update in one transaction: a setup token is
-    // consumed exactly once even under concurrent redemption.
-    return this.db.transaction(async (tx) => {
-      const links = await tx
-        .select()
-        .from(shareLinks)
-        .where(
-          and(
-            eq(shareLinks.tokenHash, tokenHash),
-            eq(shareLinks.kind, "setup"),
-            eq(shareLinks.active, true),
-            isNull(shareLinks.usedAt),
-            sql`(${shareLinks.expiresAt} IS NULL OR ${shareLinks.expiresAt} > now())`,
-          ),
-        )
-        .limit(1)
-        .for("update");
-      const link = links[0];
-      if (!link) return null;
-      const keys = await tx
-        .select()
-        .from(apiKeys)
-        .where(and(eq(apiKeys.id, link.apiKeyId), isNull(apiKeys.revokedAt)))
-        .limit(1);
-      const key = keys[0];
-      if (!key) return null;
-      await tx
-        .update(shareLinks)
-        .set({ active: false, usedAt: new Date() })
-        .where(eq(shareLinks.id, link.id));
-      return mapShareRow(key, link);
-    });
+  async hasActiveSharedKeyForIp(clientIpKey: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: apiKeys.id })
+      .from(apiKeys)
+      .where(
+        and(
+          eq(apiKeys.issuedClientIpKey, clientIpKey),
+          isNotNull(apiKeys.parentKeyId),
+          isNull(apiKeys.revokedAt),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  async issueSharedApiKey(
+    tokenHash: string,
+    material: SharedApiKeyMaterial,
+  ): Promise<SharedApiKeyIssueResult> {
+    try {
+      return await this.db.transaction(async (tx) => {
+        // Read the link first without locking, then lock its parent before the
+        // link. Parent revocation uses the same lock order and is atomic with
+        // child revocation, so a concurrent issue cannot escape the parent.
+        const [linkRef] = await tx
+          .select({ id: shareLinks.id, apiKeyId: shareLinks.apiKeyId })
+          .from(shareLinks)
+          .where(
+            and(
+              eq(shareLinks.tokenHash, tokenHash),
+              eq(shareLinks.kind, "enroll"),
+              eq(shareLinks.active, true),
+              sql`(${shareLinks.expiresAt} IS NULL OR ${shareLinks.expiresAt} > now())`,
+            ),
+          )
+          .limit(1);
+        if (!linkRef) return { kind: "link_unavailable" };
+
+        const [parent] = await tx
+          .select()
+          .from(apiKeys)
+          .where(
+            and(
+              eq(apiKeys.id, linkRef.apiKeyId),
+              eq(apiKeys.keyMode, "share"),
+              isNull(apiKeys.parentKeyId),
+              isNull(apiKeys.revokedAt),
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!parent) return { kind: "link_unavailable" };
+
+        const [activeLink] = await tx
+          .select({ id: shareLinks.id })
+          .from(shareLinks)
+          .where(
+            and(
+              eq(shareLinks.id, linkRef.id),
+              eq(shareLinks.tokenHash, tokenHash),
+              eq(shareLinks.active, true),
+              sql`(${shareLinks.expiresAt} IS NULL OR ${shareLinks.expiresAt} > now())`,
+            ),
+          )
+          .limit(1)
+          .for("update");
+        if (!activeLink) return { kind: "link_unavailable" };
+
+        const label = `${parent.label} shared key`;
+        const [child] = await tx
+          .insert(apiKeys)
+          .values({
+            tenantId: parent.tenantId,
+            keyHash: material.keyHash,
+            keyMode: "share",
+            parentKeyId: parent.id,
+            issuedClientIp: material.clientIp,
+            issuedClientIpKey: material.clientIpKey,
+            label,
+            scopes: parent.scopes,
+            keyPrefix: material.keyPrefix,
+            keyEncrypted: null,
+            notesTitle: parent.notesTitle,
+            notesSubtitle: parent.notesSubtitle,
+            notesBody: parent.notesBody,
+            requestsPerMinute: parent.requestsPerMinute,
+            dailyTokenLimit: parent.dailyTokenLimit,
+            monthlyTokenLimit: parent.monthlyTokenLimit,
+            lifetimeTokenBudget: parent.lifetimeTokenBudget,
+            maxConcurrentRequests: parent.maxConcurrentRequests,
+            modelPrefix: parent.modelPrefix,
+            providerAllowlist: parent.providerAllowlist,
+            modelAllowlist: parent.modelAllowlist,
+            modelDenylist: parent.modelDenylist,
+            lifetimeTokensConsumed: 0,
+          })
+          .returning({ id: apiKeys.id, tenantId: apiKeys.tenantId, createdAt: apiKeys.createdAt });
+        if (!child) throw new Error("shared API-key insert returned no row");
+        return {
+          kind: "issued",
+          apiKeyId: child.id,
+          parentKeyId: parent.id,
+          tenantId: child.tenantId,
+          label,
+          keyPrefix: material.keyPrefix,
+          createdAt: child.createdAt,
+        };
+      });
+    } catch (error) {
+      if (uniqueConstraint(error) === "api_keys_active_shared_ip_uidx")
+        return { kind: "ip_limit" };
+      throw error;
+    }
   }
 
   async touchView(tokenHash: string): Promise<void> {
     await this.db
       .update(shareLinks)
       .set({ lastViewedAt: new Date() })
-      .where(eq(shareLinks.tokenHash, tokenHash));
+      .where(and(eq(shareLinks.tokenHash, tokenHash), eq(shareLinks.active, true)));
   }
 
   async listForApiKey(apiKeyId: string): Promise<readonly ShareLinkSummary[]> {
     const rows = await this.db
       .select()
       .from(shareLinks)
-      .where(eq(shareLinks.apiKeyId, apiKeyId))
+      .where(and(eq(shareLinks.apiKeyId, apiKeyId), eq(shareLinks.kind, "enroll")))
       .orderBy(desc(shareLinks.createdAt));
     return rows.map((row) => ({
       id: row.id,
       apiKeyId: row.apiKeyId,
-      kind: row.kind === "setup" ? "setup" : "monitor",
+      kind: "enroll",
       active: row.active,
       createdAt: row.createdAt,
       expiresAt: row.expiresAt,
-      usedAt: row.usedAt,
       lastViewedAt: row.lastViewedAt,
     }));
   }
 
   async revoke(apiKeyId: string, shareId: string): Promise<boolean> {
-    // Soft revoke (not delete): both lookup paths already gate on
-    // `active = true`, so flipping the flag disables a monitor link and burns
-    // an unspent setup link while keeping the row for audit.
     const rows = await this.db
       .update(shareLinks)
       .set({ active: false })
@@ -231,6 +334,7 @@ export class DrizzleShareLinkStore implements ShareLinkStore {
         and(
           eq(shareLinks.id, shareId),
           eq(shareLinks.apiKeyId, apiKeyId),
+          eq(shareLinks.kind, "enroll"),
           eq(shareLinks.active, true),
         ),
       )

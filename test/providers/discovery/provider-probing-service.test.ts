@@ -274,13 +274,17 @@ describe("ProviderProbingService discovery hardening", () => {
         values: async (_values: unknown) => [],
       }),
     };
-    const events: Array<{ networkPoolId?: string }> = [];
+    const events: Array<{ networkPoolId?: string; userAgent?: string }> = [];
+    let outboundHeaders: Headers | undefined;
+    let outboundBody: string | undefined;
     let released = 0;
     const probing = probingService(db, {
-      telemetryBuffer: { enqueue: (event: { networkPoolId?: string }) => events.push(event) },
+      telemetryBuffer: { enqueue: (event: { networkPoolId?: string; userAgent?: string }) => events.push(event) },
       outboundFetchFor: () => ({
-        fetch: (async () =>
-          new Response(
+        fetch: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+          outboundHeaders = new Headers(init?.headers);
+          outboundBody = typeof init?.body === "string" ? init.body : undefined;
+          return new Response(
             JSON.stringify({
               id: "chatcmpl-1",
               model: "gpt-4o-mini",
@@ -288,7 +292,8 @@ describe("ProviderProbingService discovery hardening", () => {
               usage: { prompt_tokens: 5, completion_tokens: 2 },
             }),
             { status: 200, headers: { "content-type": "application/json" } },
-          )) as unknown as typeof fetch,
+          );
+        }) as unknown as typeof fetch,
         networkPoolId: "pool-live",
         release: () => {
           released += 1;
@@ -303,6 +308,38 @@ describe("ProviderProbingService discovery hardening", () => {
     expect(released).toBe(1);
     expect(events).toHaveLength(1);
     expect(events[0]?.networkPoolId).toBe("pool-live");
+    expect(events[0]?.userAgent).toBe("Cartethyia-Probe");
+    expect(outboundHeaders?.get("user-agent")).toBeNull();
+    expect(outboundBody).not.toContain("Cartethyia-Probe");
+  });
+
+  test("passes the internal probe marker without serializing it upstream", async () => {
+    const events: Array<{ userAgent?: string }> = [];
+    let outboundHeaders: Headers | undefined;
+    let outboundBody: string | undefined;
+    const probing = probingService(probingDb({ accounts: [], requiresAccount: false }), {
+      telemetryBuffer: { enqueue: (event: { userAgent?: string }) => events.push(event) },
+      outboundFetchFor: () =>
+        (async (_input: RequestInfo | URL, init?: RequestInit) => {
+          outboundHeaders = new Headers(init?.headers);
+          outboundBody = typeof init?.body === "string" ? init.body : undefined;
+          return new Response("{}", {
+            status: 202,
+            headers: { "content-type": "application/json" },
+          });
+        }) as unknown as typeof fetch as never,
+    });
+
+    const result = await probing.probeModel("tenant-1", "openai", {
+      modelId: "gpt-4o-mini",
+      wireFamily: "responses",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.statusCode).toBe(202);
+    expect(events[0]?.userAgent).toBe("Cartethyia-Probe");
+    expect(outboundHeaders?.get("user-agent")).toBeNull();
+    expect(outboundBody).not.toContain("Cartethyia-Probe");
   });
 
   test("registry exposes discovery capabilities for wired providers", async () => {
@@ -973,6 +1010,7 @@ describe("testByokConnection", () => {
     expect(captured.url).toBe("https://api.anthropic-compatible.test/v1/models");
     expect(captured.headers?.get("x-api-key")).toBe("sk-ant-test");
     expect(captured.headers?.get("authorization")).toBeNull();
+    expect(captured.headers?.get("user-agent")).toBeNull();
   });
 
   test("a chat-wire test sends bearer auth and honours a base that already has /v1", async () => {

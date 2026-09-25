@@ -1,5 +1,6 @@
 // Routing admission, reservations, and route planning.
 import { redisEvalNumber, type RedisClient } from "../../persistence/redis";
+import { resolveInflightTtlSeconds } from "../../config";
 import { metrics } from "../../observability/metrics";
 import {
   accountsUnavailableError,
@@ -95,11 +96,19 @@ export class InMemoryAdmissionController implements AdmissionController {
  * Redis-backed admission controller for routing inflight. Replaces the
  * in-memory controller so multi-instance deployments enforce one shared
  * per-account inflight bucket — mirroring the in-memory controller's
- * account-scoped ceiling. A 60s TTL self-heals crash-orphaned increments
- * without the full lease machinery (over-inflating a route slot is bounded
- * and less harmful than corrupting quota counters).
+ * account-scoped ceiling. The TTL self-heals crash-orphaned increments without
+ * the full lease machinery (over-inflating a route slot is bounded and less
+ * harmful than corrupting quota counters).
+ *
+ * The TTL is the shared {@link resolveInflightTtlSeconds}, not a local
+ * constant: it must exceed the longest legitimate slot hold, which is the
+ * upstream deadline plus the stream stall budget. A fixed 60s expired a slot
+ * mid-stream for any request running longer than a minute, so a second request
+ * could admit against the freed slot and exceed the configured ceiling. The
+ * pool selector holds its slot for the same request duration and derives the
+ * same value, so both admit on one invariant.
  */
-const INFLIGHT_TTL_SECONDS = 60;
+const INFLIGHT_TTL_SECONDS = resolveInflightTtlSeconds();
 
 const ADMIT_SCRIPT = `
 local current = tonumber(redis.call('GET', KEYS[1]) or '0')

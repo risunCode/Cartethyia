@@ -356,6 +356,34 @@ export function resolveStreamStallTimeoutMs(): number {
 }
 
 /**
+ * Crash-recovery TTL, in seconds, for a distributed inflight slot.
+ *
+ * The normal release path decrements the key immediately, so this TTL only
+ * matters when a holder dies mid-request. It must therefore exceed the longest
+ * legitimate slot hold — the pre-stream request deadline plus the
+ * post-establishment stream stall budget — or a long healthy request expires
+ * its own key mid-flight and lets admission exceed the configured cap. The
+ * fixed buffer covers pre-stream retries and clock skew.
+ *
+ * Derived from the same two resolvers the dispatch path uses, so raising either
+ * timeout keeps the invariant. Shared by the routing admission controller and
+ * the network-pool selector: both hold a slot for the same request duration, so
+ * a shorter TTL in either one reintroduces the over-admission the other avoids.
+ */
+export function resolveInflightTtlSeconds(): number {
+  return (
+    Math.ceil((resolveUpstreamTimeoutMs() + resolveStreamStallTimeoutMs()) / 1000) +
+    INFLIGHT_TTL_BUFFER_SECONDS
+  );
+}
+
+/**
+ * Slack added to the derived inflight TTL: covers pre-stream retries and clock
+ * skew between the instance that armed the key and the one that reads it.
+ */
+const INFLIGHT_TTL_BUFFER_SECONDS = 120;
+
+/**
  * Max time from dispatch to the first client-visible stream chunk (TTFB).
  * Defaults to 200s; once the first chunk is enqueued the longer stall bound
  * applies, so a provider that is actively reasoning is not cut short.

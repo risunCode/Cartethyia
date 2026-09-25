@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveClientIdentity } from "../../src/security/ip-boundary";
+import { canonicalClientIpKey, resolveClientIdentity } from "../../src/security/ip-boundary";
 import type { TrustedProxyBoundary } from "../../src/config";
 
 describe("trusted proxy boundary", () => {
@@ -98,5 +98,12 @@ describe("trusted proxy boundary", () => {
         "::ffff:127.0.0.1",
       ),
     ).toBe("198.51.100.12");
+  });
+  test("canonicalizes equivalent client IP spellings to one database key", () => {
+    expect(canonicalClientIpKey("198.51.100.7")).toBe(canonicalClientIpKey("::ffff:198.51.100.7"));
+    expect(canonicalClientIpKey("2001:db8::1")).toBe(
+      canonicalClientIpKey("2001:0db8:0:0:0:0:0:1"),
+    );
+    expect(canonicalClientIpKey("not-an-ip")).toBeUndefined();
   });
 });

@@ -94,6 +94,20 @@ produces:
 `csrf_token` cookie must timing-safe-equal the `x-csrf-token` header).
 Stateless, no DB.
 
+## Shared API-key enrollment
+
+A share template is non-authenticating: the database shape constraint requires
+its `key_hash` and `key_encrypted` to be null. A child has a hash, parent id,
+and canonical issued-client-IP identity, but no recoverable secret. Public
+enrollment resolves the client only through `resolveClientIdentity`; forwarded
+headers are ignored unless the trusted-proxy boundary accepts them. The
+database partial unique index enforces one active child per canonical IP
+globally, so concurrent requests cannot issue duplicates. The plaintext child
+secret is returned only by the successful issue response and is never returned
+by owner summary or activity endpoints. Issued and request IPs are masked unless
+the tenant explicitly enables full IP display; metadata endpoints do not expose
+request or response payloads.
+
 ## Shared primitives
 
 - `access-control.ts`: closed `AccessScope` (`routing:invoke`,

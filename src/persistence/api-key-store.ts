@@ -1,26 +1,25 @@
 // Persisted API-key store: the console API-key domain and gateway authentication both consume this boundary.
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { CartethyiaDatabase } from "./postgres";
-import { apiKeys } from "./schema";
+import { apiKeys, shareLinks, type ApiKeyMode } from "./schema";
 import type { AccessScope } from "../security/access-control";
 
-/** Persisted key record. `keyHash` is the only credential material stored. */
+/** Persisted API key. Only its one-way hash authenticates; plaintext is never stored. */
 export interface ApiKeyRecord {
   readonly id: string;
   readonly tenantId: string;
-  readonly keyHash: string;
+  readonly keyHash: string | null;
+  readonly keyMode: ApiKeyMode;
+  readonly parentKeyId?: string;
+  readonly issuedClientIp?: string;
+  readonly issuedClientIpKey?: string;
   readonly label: string;
   readonly scopes: readonly AccessScope[];
-  /** Public, non-secret leading fragment of the issued key. */
+  /** Non-secret prefix configured on a key or used to identify a share child. */
   readonly keyPrefix?: string;
-  /**
-   * Recoverable copy of the issued secret, AES-256-GCM encrypted with
-   * `CARTETHYIA_ENCRYPTION_KEY`. Present only so the owner can share the key;
-   * authentication always uses `keyHash`.
-   */
+  /** Encrypted copy exists only for personal keys used by Studio handoff. */
   readonly keyEncrypted?: Buffer;
-  /** Optional owner-authored copy rendered on the public share page. */
   readonly notesTitle?: string;
   readonly notesSubtitle?: string;
   readonly notesBody?: string;
@@ -39,12 +38,24 @@ export interface ApiKeyRecord {
 }
 
 /**
- * Partial update patch. Notes and numeric limits accept `null` to clear the
- * stored value (back to unlimited); `undefined` leaves the field unchanged.
+ * Partial key update. Nullable policy fields clear their values; `undefined`
+ * leaves them unchanged. Credential metadata is writable only for a mode
+ * transition performed by the API-key domain.
  */
 export interface ApiKeyPatch
   extends Omit<
     Partial<ApiKeyRecord>,
+    | "id"
+    | "tenantId"
+    | "keyHash"
+    | "parentKeyId"
+    | "issuedClientIp"
+    | "issuedClientIpKey"
+    | "createdAt"
+    | "revokedAt"
+    | "tokensConsumed"
+    | "keyEncrypted"
+    | "keyPrefix"
     | "notesTitle"
     | "notesSubtitle"
     | "notesBody"
@@ -54,6 +65,9 @@ export interface ApiKeyPatch
     | "lifetimeTokenBudget"
     | "maxConcurrentRequests"
   > {
+  readonly keyHash?: string | null;
+  readonly keyEncrypted?: Buffer | null;
+  readonly keyPrefix?: string | null;
   readonly notesTitle?: string | null;
   readonly notesSubtitle?: string | null;
   readonly notesBody?: string | null;
@@ -68,6 +82,7 @@ export interface ApiKeyPatch
 export interface ApiKeyStore {
   list(tenantId: string): Promise<readonly ApiKeyRecord[]>;
   get(tenantId: string, keyId: string): Promise<ApiKeyRecord | undefined>;
+  listChildren(tenantId: string, parentKeyId: string): Promise<readonly ApiKeyRecord[]>;
   create(record: ApiKeyRecord): Promise<void>;
   update(tenantId: string, keyId: string, patch: ApiKeyPatch): Promise<ApiKeyRecord | undefined>;
   revoke(tenantId: string, keyId: string, revokedAt: Date): Promise<boolean>;
@@ -76,11 +91,18 @@ export interface ApiKeyStore {
 
 export class DrizzleApiKeyStore implements ApiKeyStore {
   constructor(private readonly db: CartethyiaDatabase) {}
+
   private map(row: typeof apiKeys.$inferSelect): ApiKeyRecord {
     return {
       id: row.id,
       tenantId: row.tenantId,
       keyHash: row.keyHash,
+      keyMode: row.keyMode,
+      ...(row.parentKeyId === null ? {} : { parentKeyId: row.parentKeyId }),
+      ...(row.issuedClientIp === null ? {} : { issuedClientIp: row.issuedClientIp }),
+      ...(row.issuedClientIpKey === null
+        ? {}
+        : { issuedClientIpKey: row.issuedClientIpKey }),
       label: row.label,
       scopes: row.scopes as ApiKeyRecord["scopes"],
       ...(row.keyPrefix === null ? {} : { keyPrefix: row.keyPrefix }),
@@ -118,11 +140,28 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
       .limit(1);
     return rows[0] ? this.map(rows[0]) : undefined;
   }
+  async listChildren(tenantId: string, parentKeyId: string): Promise<readonly ApiKeyRecord[]> {
+    const rows = await this.db
+      .select()
+      .from(apiKeys)
+      .where(
+        and(
+          eq(apiKeys.tenantId, tenantId),
+          eq(apiKeys.parentKeyId, parentKeyId),
+        ),
+      )
+      .orderBy(apiKeys.createdAt, apiKeys.id);
+    return rows.map((row) => this.map(row));
+  }
   async create(record: ApiKeyRecord): Promise<void> {
     await this.db.insert(apiKeys).values({
       id: record.id,
       tenantId: record.tenantId,
       keyHash: record.keyHash,
+      keyMode: record.keyMode,
+      parentKeyId: record.parentKeyId ?? null,
+      issuedClientIp: record.issuedClientIp ?? null,
+      issuedClientIpKey: record.issuedClientIpKey ?? null,
       label: record.label,
       scopes: record.scopes,
       keyPrefix: record.keyPrefix ?? null,
@@ -147,45 +186,97 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
     keyId: string,
     patch: ApiKeyPatch,
   ): Promise<ApiKeyRecord | undefined> {
-    const rows = await this.db
-      .update(apiKeys)
-      .set({
-        ...(patch.label !== undefined ? { label: patch.label } : {}),
-        ...(patch.scopes !== undefined ? { scopes: patch.scopes } : {}),
-        ...(patch.notesTitle !== undefined ? { notesTitle: patch.notesTitle } : {}),
-        ...(patch.notesSubtitle !== undefined ? { notesSubtitle: patch.notesSubtitle } : {}),
-        ...(patch.notesBody !== undefined ? { notesBody: patch.notesBody } : {}),
-        ...(patch.requestsPerMinute !== undefined
-          ? { requestsPerMinute: patch.requestsPerMinute }
-          : {}),
-        ...(patch.dailyTokenLimit !== undefined ? { dailyTokenLimit: patch.dailyTokenLimit } : {}),
-        ...(patch.monthlyTokenLimit !== undefined
-          ? { monthlyTokenLimit: patch.monthlyTokenLimit }
-          : {}),
-        ...(patch.lifetimeTokenBudget !== undefined
-          ? { lifetimeTokenBudget: patch.lifetimeTokenBudget }
-          : {}),
-        ...(patch.maxConcurrentRequests !== undefined
-          ? { maxConcurrentRequests: patch.maxConcurrentRequests }
-          : {}),
-        ...(patch.modelPrefix !== undefined ? { modelPrefix: patch.modelPrefix } : {}),
-        ...(patch.providerAllowlist !== undefined
-          ? { providerAllowlist: patch.providerAllowlist }
-          : {}),
-        ...(patch.modelAllowlist !== undefined ? { modelAllowlist: patch.modelAllowlist } : {}),
-        ...(patch.modelDenylist !== undefined ? { modelDenylist: patch.modelDenylist } : {}),
-      })
-      .where(and(eq(apiKeys.tenantId, tenantId), eq(apiKeys.id, keyId)))
-      .returning();
-    return rows[0] ? this.map(rows[0]) : undefined;
+    return this.db.transaction(async (tx) => {
+      const existingRows = await tx
+        .select({
+          id: apiKeys.id,
+          keyMode: apiKeys.keyMode,
+          parentKeyId: apiKeys.parentKeyId,
+        })
+        .from(apiKeys)
+        .where(and(eq(apiKeys.tenantId, tenantId), eq(apiKeys.id, keyId)))
+        .limit(1)
+        .for("update");
+      const existing = existingRows[0];
+      if (!existing) return undefined;
+      if (existing.parentKeyId !== null && patch.keyMode !== undefined && patch.keyMode !== existing.keyMode)
+        return undefined;
+
+      if (existing.keyMode === "share" && patch.keyMode === "personal") {
+        await tx
+          .update(apiKeys)
+          .set({ revokedAt: new Date() })
+          .where(and(eq(apiKeys.parentKeyId, keyId), isNull(apiKeys.revokedAt)));
+        await tx
+          .update(shareLinks)
+          .set({ active: false })
+          .where(and(eq(shareLinks.apiKeyId, keyId), eq(shareLinks.active, true)));
+      }
+
+      const rows = await tx
+        .update(apiKeys)
+        .set({
+          ...(patch.label !== undefined ? { label: patch.label } : {}),
+          ...(patch.scopes !== undefined ? { scopes: patch.scopes } : {}),
+          ...(patch.keyHash !== undefined ? { keyHash: patch.keyHash } : {}),
+          ...(patch.keyMode !== undefined ? { keyMode: patch.keyMode } : {}),
+          ...(patch.keyEncrypted !== undefined ? { keyEncrypted: patch.keyEncrypted } : {}),
+          ...(patch.keyPrefix !== undefined ? { keyPrefix: patch.keyPrefix } : {}),
+          ...(patch.notesTitle !== undefined ? { notesTitle: patch.notesTitle } : {}),
+          ...(patch.notesSubtitle !== undefined ? { notesSubtitle: patch.notesSubtitle } : {}),
+          ...(patch.notesBody !== undefined ? { notesBody: patch.notesBody } : {}),
+          ...(patch.requestsPerMinute !== undefined
+            ? { requestsPerMinute: patch.requestsPerMinute }
+            : {}),
+          ...(patch.dailyTokenLimit !== undefined ? { dailyTokenLimit: patch.dailyTokenLimit } : {}),
+          ...(patch.monthlyTokenLimit !== undefined
+            ? { monthlyTokenLimit: patch.monthlyTokenLimit }
+            : {}),
+          ...(patch.lifetimeTokenBudget !== undefined
+            ? { lifetimeTokenBudget: patch.lifetimeTokenBudget }
+            : {}),
+          ...(patch.maxConcurrentRequests !== undefined
+            ? { maxConcurrentRequests: patch.maxConcurrentRequests }
+            : {}),
+          ...(patch.modelPrefix !== undefined ? { modelPrefix: patch.modelPrefix } : {}),
+          ...(patch.providerAllowlist !== undefined
+            ? { providerAllowlist: patch.providerAllowlist }
+            : {}),
+          ...(patch.modelAllowlist !== undefined ? { modelAllowlist: patch.modelAllowlist } : {}),
+          ...(patch.modelDenylist !== undefined ? { modelDenylist: patch.modelDenylist } : {}),
+        })
+        .where(and(eq(apiKeys.tenantId, tenantId), eq(apiKeys.id, keyId)))
+        .returning();
+      return rows[0] ? this.map(rows[0]) : undefined;
+    });
   }
   async revoke(tenantId: string, keyId: string, revokedAt: Date): Promise<boolean> {
-    const rows = await this.db
-      .update(apiKeys)
-      .set({ revokedAt })
-      .where(and(eq(apiKeys.tenantId, tenantId), eq(apiKeys.id, keyId)))
-      .returning({ id: apiKeys.id });
-    return rows.length > 0;
+    return this.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(apiKeys)
+        .set({ revokedAt })
+        .where(
+          and(
+            eq(apiKeys.tenantId, tenantId),
+            eq(apiKeys.id, keyId),
+            isNull(apiKeys.revokedAt),
+          ),
+        )
+        .returning({ id: apiKeys.id, keyMode: apiKeys.keyMode, parentKeyId: apiKeys.parentKeyId });
+      const row = rows[0];
+      if (!row) return false;
+      if (row.keyMode === "share" && row.parentKeyId === null) {
+        await tx
+          .update(apiKeys)
+          .set({ revokedAt })
+          .where(and(eq(apiKeys.parentKeyId, keyId), isNull(apiKeys.revokedAt)));
+        await tx
+          .update(shareLinks)
+          .set({ active: false })
+          .where(and(eq(shareLinks.apiKeyId, keyId), eq(shareLinks.active, true)));
+      }
+      return true;
+    });
   }
   async findActiveByHash(hash: string): Promise<typeof apiKeys.$inferSelect | undefined> {
     const rows = await this.db.select().from(apiKeys).where(eq(apiKeys.keyHash, hash)).limit(1);

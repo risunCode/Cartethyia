@@ -42,6 +42,8 @@ import {
   type ProbeProviderRow,
 } from "./probe-phases";
 import { createDefaultProviderRegistry } from "../default-registry";
+import { createProbeFetch } from "../operations/probe-fetch";
+import { CARTETHYIA_PROBE_MARKER } from "../provider-registry";
 import { authHeaders } from "../compatible-adapter";
 import {
   byokAuthHeaderShape,
@@ -50,7 +52,6 @@ import {
   resolveByokWireProfile,
 } from "../operations/byok-wire-profile";
 import { resolveCustomCliHeaders } from "../operations/custom-cli-headers";
-import { GATEWAY_PROBE_USER_AGENT } from "../operations/gateway-user-agent";
 import { resolveCredentialForAccount } from "../operations/provider-credential-service";
 import { decryptCredentialToString } from "../../security/crypto";
 import { GatewayError } from "../../transport/gateway-error";
@@ -273,6 +274,7 @@ export class ProviderProbingService {
         : { provider_id: parsedProviderId, credential_kind: "none" as const };
       const outbound = asOutboundBinding(await this.outboundFetchFor(tenantId, providerId));
       networkPoolId = outbound.networkPoolId;
+      const probeFetch = createProbeFetch(outbound.fetch);
       try {
         const dispatchProbe = async (request: CanonicalRequest): Promise<void> => {
           capturedRequest = request;
@@ -280,7 +282,8 @@ export class ProviderProbingService {
             credential,
             deadline: startedAt + 30_000,
             abort_signal: probeSignal,
-            outbound_fetch: outbound.fetch,
+            outbound_fetch: probeFetch,
+            probe_marker: CARTETHYIA_PROBE_MARKER,
           })) {
             if (ttfbMs === undefined) ttfbMs = Date.now() - startedAt;
             events.push(event);
@@ -357,7 +360,7 @@ export class ProviderProbingService {
       sourceSurface,
       requestedModel: modelId,
       endpoint: endpointPath,
-      userAgent: "gateway-probe",
+      userAgent: CARTETHYIA_PROBE_MARKER,
       providerId,
       ...(accountId ? { accountId } : {}),
       ...(networkPoolId ? { networkPoolId } : {}),
@@ -416,15 +419,10 @@ export class ProviderProbingService {
       : "chat";
     const url = modelListUrl(request.baseUrl);
     const outbound = asOutboundBinding(await this.outboundFetchFor(tenantId));
+    const probeFetch = createProbeFetch(outbound.fetch);
     try {
       const headers: Record<string, string> = {
         accept: "application/json",
-        // Probes identify as the gateway, never as first-party CLI tooling:
-        // this path only runs GET /models against a BYOK base URL the
-        // operator is testing, never Codex/Claude-Code-shaped traffic.
-        // The gateway probe identity is authoritative: it is assigned after
-        // the CLI spread so an explicit CLI request cannot overwrite it,
-        // while operator extra headers still can.
         ...authHeaders(
           byokAuthHeaderShape([wireFamily]),
           new TextEncoder().encode(request.apiKey),
@@ -432,9 +430,8 @@ export class ProviderProbingService {
         ),
         ...(request.cliIdentity === false ? {} : resolveCustomCliHeaders(wireFamily)),
         ...(request.extraHeaders ?? {}),
-        "user-agent": GATEWAY_PROBE_USER_AGENT,
       };
-      const response = await outbound.fetch(url, {
+      const response = await probeFetch(url, {
         method: "GET",
         headers,
         signal: AbortSignal.timeout(15_000),

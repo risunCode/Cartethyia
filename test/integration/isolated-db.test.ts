@@ -46,7 +46,11 @@ const expectedColumns: Record<string, readonly ExpectedColumn[]> = {
   api_keys: [
     column("id", "uuid", "uuid", "NO"),
     column("tenant_id", "uuid", "uuid", "NO"),
-    column("key_hash", "text", "text", "NO"),
+    column("key_hash", "text", "text", "YES"),
+    column("key_mode", "text", "text", "NO"),
+    column("parent_key_id", "uuid", "uuid", "YES"),
+    column("issued_client_ip", "text", "text", "YES"),
+    column("issued_client_ip_key", "text", "text", "YES"),
     column("label", "text", "text", "NO"),
     column("scopes", "jsonb", "jsonb", "NO"),
     column("requests_per_minute", "integer", "int4", "YES"),
@@ -224,7 +228,6 @@ const expectedColumns: Record<string, readonly ExpectedColumn[]> = {
     column("is_first_boot", "boolean", "bool", "NO"),
     column("created_at", "timestamp with time zone", "timestamptz", "NO"),
     column("updated_at", "timestamp with time zone", "timestamptz", "NO"),
-    column("last_login_at", "timestamp with time zone", "timestamptz", "YES"),
     column("is_platform_admin", "boolean", "bool", "NO"),
     column("username", "text", "text", "NO"),
   ],
@@ -269,13 +272,6 @@ const expectedColumns: Record<string, readonly ExpectedColumn[]> = {
     column("mode", "text", "text", "NO"),
     column("updated_at", "timestamp with time zone", "timestamptz", "NO"),
   ],
-  backup_status: [
-    column("id", "integer", "int4", "NO"),
-    column("status", "text", "text", "NO"),
-    column("last_backup_at", "timestamp with time zone", "timestamptz", "YES"),
-    column("last_error", "text", "text", "YES"),
-    column("updated_at", "timestamp with time zone", "timestamptz", "NO"),
-  ],
   telemetry_events: [
     column("id", "uuid", "uuid", "NO"),
     column("created_at", "timestamp with time zone", "timestamptz", "NO"),
@@ -306,6 +302,17 @@ const expectedColumns: Record<string, readonly ExpectedColumn[]> = {
     column("first_content_delta_at_ms", "bigint", "int8", "YES"),
     column("last_event_at_ms", "bigint", "int8", "YES"),
   ],
+  telemetry_usage_totals: [
+    column("tenant_id", "uuid", "uuid", "NO"),
+    column("identity_type", "text", "text", "NO"),
+    column("entity_id", "uuid", "uuid", "NO"),
+    column("requests", "bigint", "int8", "NO"),
+    column("errors", "bigint", "int8", "NO"),
+    column("input_tokens", "bigint", "int8", "NO"),
+    column("output_tokens", "bigint", "int8", "NO"),
+    column("last_used_at", "timestamp with time zone", "timestamptz", "NO"),
+    column("updated_at", "timestamp with time zone", "timestamptz", "NO"),
+  ],
   telemetry_payloads: [
     column("id", "uuid", "uuid", "NO"),
     column("tenant_id", "uuid", "uuid", "NO"),
@@ -313,7 +320,6 @@ const expectedColumns: Record<string, readonly ExpectedColumn[]> = {
     column("captured_at", "timestamp with time zone", "timestamptz", "NO"),
     column("expires_at", "timestamp with time zone", "timestamptz", "NO"),
     column("request_body", "jsonb", "jsonb", "YES"),
-    column("redaction_applied", "boolean", "bool", "NO"),
   ],
 };
 
@@ -419,6 +425,7 @@ dbDescribe("isolated PostgreSQL schema", () => {
     const expected = [
       "admin_audit_log.tenant_id->tenants.id:set null",
       "api_keys.tenant_id->tenants.id:cascade",
+      "api_keys.parent_key_id->api_keys.id:cascade",
       "cli_tool_mappings.tenant_id->tenants.id:cascade",
       "cli_tool_settings.tenant_id->tenants.id:cascade",
       "console_sessions.user_id->console_users.id:cascade",
@@ -441,6 +448,7 @@ dbDescribe("isolated PostgreSQL schema", () => {
       "share_links.api_key_id->api_keys.id:cascade",
       "telemetry_events.tenant_id->tenants.id:cascade",
       "telemetry_payloads.tenant_id->tenants.id:cascade",
+      "telemetry_usage_totals.tenant_id->tenants.id:cascade",
       "tenant_disabled_models.provider_id->providers.id:cascade",
       "tenant_disabled_models.tenant_id->tenants.id:cascade",
     ];

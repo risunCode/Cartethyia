@@ -13,5 +13,3 @@ import { CARTETHYIA_VERSION } from "../../transport/version";
  */
 export const GATEWAY_USER_AGENT = `Cartethyia/${CARTETHYIA_VERSION}` as const;
 
-/** Probe variant: marks gateway-initiated traffic apart from live dispatch. */
-export const GATEWAY_PROBE_USER_AGENT = `Cartethyia-Probe/${CARTETHYIA_VERSION}` as const;

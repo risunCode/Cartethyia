@@ -204,7 +204,14 @@ describe("InMemoryIpAbuseStore bounds", () => {
   test("evicts the oldest tracked keys past maxKeys", async () => {
     const store = new InMemoryIpAbuseStore({ windowMs: 60_000, maxKeys: 3, clock: () => 0 });
     for (const ip of ["1.1.1.1", "2.2.2.2", "3.3.3.3", "4.4.4.4", "5.5.5.5"]) {
-      await store.checkAndIncrement(ip, "/v1/chat/completions", 0, 10, 20);
+      await store.checkAndRecord({
+        identity: ip,
+        route: "/v1/chat/completions",
+        now: 0,
+        limit: 10,
+        banThreshold: 20,
+        banDurationMs: 60_000,
+      });
     }
 
     expect(store.keyCount()).toBe(3);
@@ -215,10 +222,21 @@ describe("InMemoryIpAbuseStore bounds", () => {
   });
 
   test("evicts the oldest recorded bans past maxKeys", async () => {
+    // Each identity bans itself on its first attempt, so the ban map is what
+    // the bound has to hold; `maxKeys` is shared by the counters and the bans.
     const store = new InMemoryIpAbuseStore({ windowMs: 60_000, maxKeys: 2, clock: () => 0 });
-    await store.recordBan("1.1.1.1", 0, 60_000);
-    await store.recordBan("2.2.2.2", 0, 60_000);
-    await store.recordBan("3.3.3.3", 0, 60_000);
+    const banOnFirst = (identity: string) =>
+      store.checkAndRecord({
+        identity,
+        route: "/v1/chat/completions",
+        now: 0,
+        limit: 1,
+        banThreshold: 1,
+        banDurationMs: 60_000,
+      });
+    await banOnFirst("1.1.1.1");
+    await banOnFirst("2.2.2.2");
+    await banOnFirst("3.3.3.3");
 
     expect(await store.isBanned("1.1.1.1", 0)).toBe(false);
     expect(await store.isBanned("2.2.2.2", 0)).toBe(true);
@@ -229,47 +247,88 @@ describe("InMemoryIpAbuseStore bounds", () => {
     const store = new InMemoryIpAbuseStore({ windowMs: 60_000, capacityPerKey: 2 });
     let count = 0;
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      count = await store.checkAndIncrement("1.1.1.1", "/v1/chat/completions", 0, 1, 6);
+      const outcome = await store.checkAndRecord({
+        identity: "1.1.1.1",
+        route: "/v1/chat/completions",
+        now: 0,
+        limit: 1,
+        banThreshold: 6,
+        banDurationMs: 60_000,
+      });
+      count = outcome.count;
     }
     expect(count).toBe(6);
   });
 });
 
 describe("RedisIpAbuseStore", () => {
-  test("recordBan uses the caller's duration for both the value and the key TTL", async () => {
-    const writes: Array<{ key: string; value: string; mode: string; ttl: number }> = [];
+  test("one call issues exactly one eval over the route, escalation, and ban keys", async () => {
+    // The whole point of the merged store method: the per-request cost is one
+    // round trip. If a future change re-splits it into separate reads and
+    // writes, this assertion fails on the count, not just on the shape.
+    const evals: Array<{ script: string; numKeys: number; keys: unknown[] }> = [];
     const redis = {
-      set: (key: string, value: string, mode: string, ttl: number) => {
-        writes.push({ key, value, mode, ttl });
-        return Promise.resolve("OK");
+      eval: (script: string, numKeys: number, ...args: unknown[]) => {
+        evals.push({ script, numKeys, keys: args.slice(0, numKeys) });
+        return Promise.resolve([0, 1, 0]);
       },
     } as unknown as RedisClient;
     const store = new RedisIpAbuseStore(redis);
 
-    await store.recordBan("1.2.3.4", 1_000, 2_500);
-
-    expect(writes).toEqual([
-      { key: "cartethyia:ip:ban:1.2.3.4", value: "3500", mode: "PX", ttl: 2_500 },
-    ]);
-  });
-
-  test("recordBanCandidate keys one identity-wide counter, not one per route", async () => {
-    // Escalation must aggregate across routes: if this wrote under the
-    // per-route key, a caller rotating paths would keep every count low and
-    // never reach the threshold. The prefix is asserted so a future change
-    // cannot silently re-alias the escalation counter onto a route key.
-    const evals: Array<{ script: string; keys: unknown[] }> = [];
-    const redis = {
-      eval: (script: string, _numKeys: number, ...args: unknown[]) => {
-        evals.push({ script, keys: args.slice(0, 1) });
-        return Promise.resolve(1);
-      },
-    } as unknown as RedisClient;
-    const store = new RedisIpAbuseStore(redis);
-
-    await store.recordBanCandidate("1.2.3.4", 1_000, 480);
+    const outcome = await store.checkAndRecord({
+      identity: "1.2.3.4",
+      route: "/v1/chat/completions",
+      now: 1_000,
+      limit: 240,
+      banThreshold: 480,
+      banDurationMs: 2_500,
+    });
 
     expect(evals).toHaveLength(1);
-    expect(evals[0]?.keys).toEqual(["cartethyia:ip:ban-count:1.2.3.4"]);
+    expect(evals[0]?.numKeys).toBe(3);
+    expect(evals[0]?.keys).toEqual([
+      "cartethyia:ip:1.2.3.4:/v1/chat/completions",
+      "cartethyia:ip:ban-count:1.2.3.4",
+      "cartethyia:ip:ban:1.2.3.4",
+    ]);
+    expect(outcome).toEqual({ banned: false, count: 1, bannedNow: false });
+  });
+
+  test("decodes the banned short-circuit without inventing a count", async () => {
+    const redis = {
+      eval: () => Promise.resolve([1, 0, 0]),
+    } as unknown as RedisClient;
+    const store = new RedisIpAbuseStore(redis);
+
+    const outcome = await store.checkAndRecord({
+      identity: "1.2.3.4",
+      route: "/v1/chat/completions",
+      now: 1_000,
+      limit: 240,
+      banThreshold: 480,
+      banDurationMs: 2_500,
+    });
+
+    expect(outcome).toEqual({ banned: true, count: 0, bannedNow: false });
+  });
+
+  test("a garbled script reply throws instead of reading as a bogus decision", async () => {
+    // A reply that is not a 3-tuple means the script/response pair drifted.
+    // Reading it as `banned: false, count: NaN` would admit on garbage.
+    const redis = {
+      eval: () => Promise.resolve("nonsense"),
+    } as unknown as RedisClient;
+    const store = new RedisIpAbuseStore(redis);
+
+    await expect(
+      store.checkAndRecord({
+        identity: "1.2.3.4",
+        route: "/v1/chat/completions",
+        now: 1_000,
+        limit: 240,
+        banThreshold: 480,
+        banDurationMs: 2_500,
+      }),
+    ).rejects.toThrow("non-array");
   });
 });

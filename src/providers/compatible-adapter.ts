@@ -7,6 +7,7 @@ import type {
   ProviderId,
   ProviderDispatchContext,
 } from "./provider-registry";
+import { CARTETHYIA_PROBE_MARKER } from "./provider-registry";
 import { createUpstreamDeadlineLifecycle } from "./operations/upstream-deadline";
 import { encodeWireRequest, decodeWireResponse, decodeWireStream } from "../protocol/registry";
 import { postUpstreamJson } from "../protocol/transport/openai";
@@ -313,7 +314,7 @@ export class OpenAICompatibleAdapter extends BaseProviderAdapter {
     if (
       res.status === 202 &&
       candidate?.wire_family === "responses" &&
-      request.provider_options?.cartethyia_probe === true
+      context.probe_marker === CARTETHYIA_PROBE_MARKER
     ) {
       throw new GatewayError(
         "transport_unavailable",

@@ -3,7 +3,11 @@ import { literalUnion } from "../../shared/elysia-schema";
 import { Elysia, t } from "elysia";
 import { WIRE_FAMILIES } from "../../../transport/canonical-model";
 import { PROBE_REASONING_EFFORTS } from "../../../providers/discovery/discovery-types";
-import { ACCOUNT_STATUSES, CREDENTIAL_KINDS } from "./contracts";
+import {
+  ACCOUNT_MAX_INFLIGHT_BOUNDS,
+  ACCOUNT_STATUSES,
+  CREDENTIAL_KINDS,
+} from "./contracts";
 import { createModelCatalogOperations } from "./model-operations";
 import {
   createProviderCatalogOperations,
@@ -63,15 +67,26 @@ const updateProviderBody = t.Partial(
     compatibilityProfile: compatibilityProfileSchema,
   }),
 );
+const accountMaxInflightBody = t.Optional(
+  t.Union([
+    t.Integer({
+      minimum: ACCOUNT_MAX_INFLIGHT_BOUNDS.min,
+      maximum: ACCOUNT_MAX_INFLIGHT_BOUNDS.max,
+    }),
+    t.Null(),
+  ]),
+);
 const createAccountBody = t.Object({
   label: t.Optional(t.String()),
   credentialKind: literalUnion(CREDENTIAL_KINDS),
   secret: t.String(),
+  maxInflight: accountMaxInflightBody,
 });
 const updateAccountBody = t.Object({
   label: t.Optional(t.String()),
   secret: t.Optional(t.String()),
   status: t.Optional(literalUnion(ACCOUNT_STATUSES)),
+  maxInflight: accountMaxInflightBody,
 });
 const registerModelsBody = t.Object({
   modelIds: t.Array(t.String()),

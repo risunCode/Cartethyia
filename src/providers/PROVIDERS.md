@@ -157,7 +157,7 @@ for key-only providers. Provider specifics (endpoint URLs, field names, plan der
 - **Key-only connectivity probe.** `probeApiKeyConnectivity` hits the provider's `/models` (via
   `providerBaseUrl`) with the key: 401/403 means definitively invalid-or-revoked, 2xx means valid, anything
   else is an inconclusive transport/wire error surfaced as-is, never a credential verdict. It throws on
-  transport failure and returns a `ProviderQuotaResult` otherwise.
+  transport failure and returns a `ProviderQuotaResult` otherwise. It sends no probe-specific User-Agent.
 - **Cline's collector routes by credential kind.** `api_key` credentials (wrapped by
   `markClineApiKeyCredential`) go to that `/models` probe, while OAuth credentials keep the
   `users/me` quota surface — keys carry no OAuth envelope and upstream exposes no quota
@@ -216,7 +216,9 @@ database. Per-provider entry points live in `integrations/`, registered as each 
   computation, and sample extraction — live in `discovery/probe-phases.ts` as plain functions taking a small
   args object, so the method body reads as named steps. The dispatch-and-retry step stays inline: it owns
   the event stream, TTFB, captured request, and pool binding across the retry, and its `release` must run on
-  the same frame as the binding.
+  the same frame as the binding. Probe dispatch carries `CARTETHYIA_PROBE_MARKER` in
+  `ProviderDispatchContext` and telemetry; `createProbeFetch` strips any
+  `User-Agent` before the validated fetch.
 - **Wire reconciliation.** `applyDiscoveredWire` merges a discovered wire family/endpoint onto a registered
   model for probing without mutating the catalog; `staticEndpointForWire` maps a wire family to the
   provider's own bundled-catalog path and backs explicit-wire probes plus manual registration. Probing takes
@@ -307,14 +309,24 @@ deadlines. Routing, console, and discovery consume providers through these servi
   row still reads healthy. Clearing the mark is what returns an account to the sweep: replacing the credential
   or re-enabling the account (`updateAccount`) resets the same failure state `recoverAccount` does, so a
   re-authed account is probed again instead of sitting out of rotation forever.
+- **Per-account request concurrency and usage.** `provider_accounts.max_inflight`
+  (validated from 1 through 10,000) overrides the effective tenant/global
+  `provider_routing_settings.max_inflight` for that account. `null` inherits the
+  provider-routing value; when that value is also `null`, admission is unlimited.
+  The route snapshot carries the resolved ceiling into the account-specific
+  reservation bucket. Account responses report UTC-today usage from retained
+  request telemetry and lifetime usage from `telemetry_usage_totals`.
 - **Credential resolution.** `loadAccountWithFreshness` loads the account row plus its optional
   `provider_oauth_states` row in one query and computes `dueAt` as expiry minus skew (`OAUTH_REFRESH_SKEW_MS`,
   5m). `resolveCredentialForAccount` decrypts the stored ciphertext into a dispatchable `ResolvedCredential`
   (triggering the refresh service when due); `resolveAccountSecretString` is the string-typed read beside it.
 - **Dispatch-time request context.** `resolveCustomCliHeaders` stamps Codex-CLI identity
   (`codex_cli_rs/<version>`) on chat/responses traffic and Claude-CLI identity (`x-app: cli` + stainless
-  headers) on messages traffic so upstream sees realistic first-party tooling. `resolveInboundSessionId`
-  extracts affinity from session headers in declaration order (`x-conversation-id`, `x-session-id`,
+  headers) on messages traffic so upstream sees realistic first-party tooling.
+  Probe dispatch carries the internal `Cartethyia-Probe` marker in context and
+  telemetry; `createProbeFetch` strips any `User-Agent` before the network
+  boundary.
+  `resolveInboundSessionId` extracts affinity from session headers in declaration order (`x-conversation-id`, `x-session-id`,
   `x-session-affinity`, `x-opencode-session`, `x-claude-code-session-id`, `prompt_cache_key`,
   `prompt-cache-key`, `session-id`) or the canonical conversation id; `resolvePromptCacheKey` prefers an explicit caller cache key from any surface
   (chat `prompt_cache_key`, responses `prompt_cache_key`, messages `metadata.user_id`) before that
@@ -326,8 +338,7 @@ deadlines. Routing, console, and discovery consume providers through these servi
   the decoder then synthesizes a `complete` terminal for a body it never finished reading.
 
 Rules: only successful, non-empty values are ever cached — every failure path retries instead of pinning a
-miss. `providerUpstreamHosts` / `liveProviderUpstreamHosts` are the single source of upstream origins for
-SSRF binding; no second host map. Health cooldowns are parser-driven with short deliberate fallbacks; unknown
+miss. `liveProviderUpstreamHosts` is the single source of upstream origins for SSRF binding; no second host map. Health cooldowns are parser-driven with short deliberate fallbacks; unknown
 quota cadence parks an account for 1h, not 24h, and self-corrects on re-probe. Credential ciphertext is
 decrypted only inside this layer (plus the refresh service); adapters receive plaintext via
 `ResolvedCredential`.
@@ -370,7 +381,7 @@ an upstream outage in the public envelope and degraded the network pool, since `
 |---|---|---|
 | Single-file (`openai.ts`, `gemini.ts`, `openrouter.ts`, …) | `*_SPEC` or adapter class, plus a `*_MODELS` catalog where the provider ships one (openrouter relies on live discovery) | Whole provider contract; `loadAdapter` imports it directly |
 | `claude-code/` | `claude.ts` + `claude-{betas,cch,compatibility,credentials,fingerprint,oauth,quota}.ts` | Header/credential/beta/billing policy split by concern |
-| `codex/` | `codex.ts` + `codex-{device-code,errors,headers,identity,oauth,quota}.ts` | Identity + header + error + OAuth/refresh split |
+| `codex/` | `codex.ts` + `codex-{device-code,errors,headers,identity,oauth,quota}.ts` | Identity + headers + error + OAuth/refresh split; one turn-metadata serialization is reused in the header and request body |
 | `cursor/`, `devin/` | dispatch + `catalog.ts` + `*-oauth.ts` + `*-quota.ts` + `generated/` | Protobuf wire; hand-written wiring only outside `generated/` |
 | `antigravity/`, `cline/`, `kimi/`, `grok/`, `muse/` | `<name>.ts` + `<name>-{oauth,quota}.ts` (+ `shared`/extra splits where the provider needs them) | OAuth login, quota parser beside the adapter |
 | `buddy/` | `codebuddy.ts` + `codebuddy-{cn,oauth,quota,shared}.ts`, `workbuddy.ts` + `workbuddy-{oauth,quota,shared}.ts`, `buddy-{catalog,chat,oauth,quota}-shared.ts` | Tencent buddy family (provider IDs `cb`, `cbcn`, `workbuddy`): cn variant split, per-brand headers, shared Tencent payload/quota/oauth/catalog kernels, plus `buddy-checkin.ts` (daily check-in + growth activity report) for the `daily-checkin` worker |

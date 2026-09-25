@@ -9,6 +9,7 @@ import type { ApiKeyResponse } from "../lib/contracts";
 
 const ACTIVE_KEY: ApiKeyResponse = {
   id: "key-active-0001",
+  keyMode: "personal",
   label: "ci-key",
   scopes: ["dashboard:read"],
   keyPrefix: "ctk_",
@@ -23,12 +24,22 @@ const ACTIVE_KEY: ApiKeyResponse = {
 
 const REVOKED_KEY: ApiKeyResponse = {
   id: "key-revoked-0002",
+  keyMode: "personal",
   label: "old-key",
   scopes: ["dashboard:read"],
   keyPrefix: "rk_",
   createdAt: "2025-12-01T00:00:00.000Z",
   revokedAt: "2026-01-05T00:00:00.000Z",
   tokensConsumed: 10,
+};
+const SHARE_TEMPLATE: ApiKeyResponse = {
+  id: "key-share-0003",
+  keyMode: "share",
+  label: "team-share",
+  scopes: ["routing:invoke"],
+  keyPrefix: "rk_",
+  createdAt: "2026-01-03T00:00:00.000Z",
+  tokensConsumed: 0,
 };
 
 function render(keys: readonly ApiKeyResponse[] | undefined): string {
@@ -51,8 +62,14 @@ describe("API keys panel", () => {
     expect(markup).toContain(">revoked<");
     expect(markup).toContain("ctk_…");
     expect(markup).toContain("Edit");
-    expect(markup).toContain("Share");
+    expect(markup).not.toContain("Create enrollment link");
     expect(markup).toContain("Revoke");
+  });
+
+  test("only share templates can create enrollment links", () => {
+    const markup = render([SHARE_TEMPLATE]);
+    expect(markup).toContain("share template");
+    expect(markup).toContain("Create enrollment link");
   });
 
   test("never renders a secret or key hash", () => {

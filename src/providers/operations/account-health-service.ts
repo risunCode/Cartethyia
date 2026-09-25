@@ -621,37 +621,39 @@ async function sweepExpiredCooldownsFor(db: CartethyiaDatabase): Promise<number>
     }
 
     // Prune per-model cooldowns: remove entries whose ISO timestamp has passed.
-    // `jsonb_object_size` does not exist in vanilla PostgreSQL; compare
-    // against the empty object instead so a real failure never aborts the
-    // whole sweep transaction.
-    const withModelCooldowns = await client
-      .select({
-        id: providerAccounts.id,
-        modelCooldowns: providerAccounts.modelCooldowns,
+    //
+    // One set-based UPDATE rather than a SELECT followed by an UPDATE per row.
+    // The per-row form issued one statement per account holding any cooldown —
+    // on a deployment where many accounts are throttled at once that is the
+    // sweep's dominant cost, and it all runs inside this transaction, holding
+    // its locks for the whole pass. Recomputing the object in SQL does the same
+    // work in one statement.
+    //
+    // `jsonb_typeof(...) = 'object'` guards the shape the same way the old
+    // `typeof raw !== "object"` check did: a malformed value must not abort the
+    // whole sweep. `IS DISTINCT FROM` keeps the update from rewriting rows it
+    // did not change, so the returned row count is the number of accounts whose
+    // cooldown set actually shrank — the same thing the loop counted.
+    const pruned = await client
+      .update(providerAccounts)
+      .set({
+        modelCooldowns: sql`COALESCE(
+          (SELECT jsonb_object_agg(entry.key, entry.value)
+           FROM jsonb_each_text(${providerAccounts.modelCooldowns}) AS entry
+           WHERE entry.value > ${nowIso}),
+          '{}'::jsonb
+        )`,
       })
-      .from(providerAccounts)
       .where(
-        sql`${providerAccounts.modelCooldowns} IS NOT NULL AND ${providerAccounts.modelCooldowns} <> '{}'::jsonb`,
+        sql`jsonb_typeof(${providerAccounts.modelCooldowns}) = 'object'
+          AND ${providerAccounts.modelCooldowns} IS DISTINCT FROM COALESCE(
+            (SELECT jsonb_object_agg(entry.key, entry.value)
+             FROM jsonb_each_text(${providerAccounts.modelCooldowns}) AS entry
+             WHERE entry.value > ${nowIso}),
+            '{}'::jsonb
+          )`,
       );
-
-    let prunedCount = 0;
-    for (const row of withModelCooldowns) {
-      const raw = row.modelCooldowns as Record<string, string> | null;
-      if (!raw || typeof raw !== "object") continue;
-      const next: Record<string, string> = {};
-      for (const [modelId, until] of Object.entries(raw)) {
-        if (typeof until === "string" && until > nowIso) {
-          next[modelId] = until;
-        } else {
-          prunedCount++;
-        }
-      }
-      await client
-        .update(providerAccounts)
-        .set({ modelCooldowns: next })
-        .where(eq(providerAccounts.id, row.id));
-    }
-    return expired.length + prunedCount;
+    return expired.length + (pruned.rowCount ?? 0);
   };
   try {
     if (typeof db.transaction === "function") {

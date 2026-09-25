@@ -26,6 +26,22 @@
  */
 const DEFAULT_OUTFILE = "dist/cartethyia";
 
+/**
+ * The artifact path `bun build --compile` actually writes for `outfile`.
+ *
+ * Bun appends `.exe` when it compiles for Windows, so the extensionless
+ * `dist/cartethyia` handed to it never exists on that platform. This is the one
+ * place that knows where the compiled binary lands; `ops-start-binary.ts`
+ * resolves its target from here instead of re-deriving the name, because a
+ * launcher that probed the requested path reported "run bun run build first"
+ * immediately after a successful build.
+ */
+export function compiledBinaryPath(outfile: string = DEFAULT_OUTFILE): string {
+  return process.platform === "win32" && !outfile.toLowerCase().endsWith(".exe")
+    ? `${outfile}.exe`
+    : outfile;
+}
+
 /** Reads `--outfile <path>`, falling back to a positional path or the default. */
 export function resolveOutfile(argv: readonly string[]): string {
   const flag = argv.indexOf("--outfile");
@@ -59,7 +75,7 @@ export async function buildBinary(
     for (const log of result.logs) console.error(`[binary] ${log.message}`);
     throw new Error(`binary build emitted ${result.logs.length} diagnostic(s)`);
   }
-  console.log(`[binary] compiled ${outfile}`);
+  console.log(`[binary] compiled ${compiledBinaryPath(outfile)}`);
 }
 
 if (import.meta.main) {

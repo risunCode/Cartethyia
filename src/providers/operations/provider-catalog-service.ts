@@ -60,23 +60,6 @@ export interface ByokUpstreamHost {
   readonly port: number;
 }
 
-/**
- * Derives the SSRF-binding hostname/port for every registered built-in
- * provider from its `upstream_host` (set alongside `provider_id`/`load` at
- * registration, above) — a provider that only registers `upstream_host`
- * needs no separate edit anywhere else. Providers without one (custom BYOK,
- * or a future adapter that resolves its own host at dispatch time) are
- * simply absent from the map.
- */
-export function providerUpstreamHosts(
-  registry: ProviderRegistry,
-): ReadonlyMap<string, ByokUpstreamHost> {
-  const hosts = new Map<string, ByokUpstreamHost>();
-  for (const registration of registry.registrations()) {
-    if (registration.upstream_host) hosts.set(registration.provider_id, registration.upstream_host);
-  }
-  return hosts;
-}
 
 /**
  * Live view of every registered provider's `upstream_host`.

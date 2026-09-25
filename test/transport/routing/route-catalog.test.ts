@@ -254,6 +254,7 @@ dbDescribe("createDatabaseSnapshotBuilder — global vs tenant routing precedenc
   const modelId = `precedence-model-${randomUUID().slice(0, 8)}`;
   const overrideAccountId = randomUUID();
   const defaultAccountId = randomUUID();
+  const inheritedAccountId = randomUUID();
   const tenantPoolId = randomUUID();
 
   beforeAll(async () => {
@@ -282,6 +283,14 @@ dbDescribe("createDatabaseSnapshotBuilder — global vs tenant routing precedenc
         tenantId: tenantWithOverride,
         label: "override-account",
         credentialKind: "api_key",
+        maxInflight: 2,
+      },
+      {
+        id: inheritedAccountId,
+        providerId,
+        tenantId: tenantWithOverride,
+        label: "inherited-account",
+        credentialKind: "api_key",
       },
       {
         id: defaultAccountId,
@@ -299,15 +308,17 @@ dbDescribe("createDatabaseSnapshotBuilder — global vs tenant routing precedenc
       strategy: "fallback",
       enabled: true,
       bypassProxy: false,
+      maxInflight: 8,
     });
-    // Tenant-specific override: bypassProxy=true must win over the global
-    // row above for this tenant only.
+    // Tenant-specific settings override the global ceiling, while the account
+    // value remains the most specific admission limit.
     await db.insert(providerRoutingSettings).values({
       providerId,
       tenantId: tenantWithOverride,
       strategy: "fallback",
       enabled: true,
       bypassProxy: true,
+      maxInflight: 6,
     });
     await db.insert(networkPools).values({
       id: tenantPoolId,
@@ -327,7 +338,7 @@ dbDescribe("createDatabaseSnapshotBuilder — global vs tenant routing precedenc
       .where(eq(providerRoutingSettings.providerId, providerId));
     await db
       .delete(providerAccounts)
-      .where(inArray(providerAccounts.id, [overrideAccountId, defaultAccountId]));
+      .where(inArray(providerAccounts.id, [overrideAccountId, inheritedAccountId, defaultAccountId]));
     await db.delete(models).where(eq(models.providerId, providerId));
     await db.delete(providers).where(eq(providers.id, providerId));
     await db.delete(tenants).where(inArray(tenants.id, [tenantWithOverride, tenantWithoutOverride]));
@@ -338,19 +349,27 @@ dbDescribe("createDatabaseSnapshotBuilder — global vs tenant routing precedenc
     const built = await builder();
 
     const overrideRouteCandidate = built.candidates.find(
-      (c) => c.provider_account_id === overrideAccountId,
+      (candidate) => candidate.provider_account_id === overrideAccountId,
+    );
+    const inheritedRouteCandidate = built.candidates.find(
+      (candidate) => candidate.provider_account_id === inheritedAccountId,
     );
     const defaultRouteCandidate = built.candidates.find(
-      (c) => c.provider_account_id === defaultAccountId,
+      (candidate) => candidate.provider_account_id === defaultAccountId,
     );
 
     expect(overrideRouteCandidate).toBeDefined();
+    expect(inheritedRouteCandidate).toBeDefined();
     expect(defaultRouteCandidate).toBeDefined();
     // Tenant-specific bypassProxy=true → no network pools attached.
     expect(overrideRouteCandidate?.network_pool_ids).toBeUndefined();
     // No tenant-specific row for this tenant → falls through to the global
     // bypassProxy=false row → its active pool is attached.
     expect(defaultRouteCandidate?.network_pool_ids).toEqual([tenantPoolId]);
+    // The account limit is most specific, followed by tenant, then global.
+    expect(overrideRouteCandidate?.max_inflight).toBe(2);
+    expect(inheritedRouteCandidate?.max_inflight).toBe(6);
+    expect(defaultRouteCandidate?.max_inflight).toBe(8);
   });
 });
 

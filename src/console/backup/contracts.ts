@@ -5,7 +5,7 @@
  * Two sections, and the split is the point:
  * - `config` — the rows that decide where traffic goes and with which
  *   credential (providers, models, accounts, keys, aliases, combos, pools).
- * - `telemetry` — durable per-request metadata (status, tokens, cost, latency).
+ * - `telemetry` — per-request metadata plus durable per-key/account lifetime aggregates.
  *
  * `telemetry_payloads` is deliberately **not** restorable and never exported:
  * it holds captured prompt/response bodies. The user asked for metadata-only
@@ -37,6 +37,7 @@ import {
   tenantDisabledModels,
   tenants,
   telemetryEvents,
+  telemetryUsageTotals,
 } from "../../persistence/schema";
 
 export const BACKUP_APP = "cartethyia";
@@ -85,8 +86,9 @@ export const CONFIG_TABLES = [
  * The tenant row, upserted and never deleted.
  *
  * Every tenant-scoped table cascades from `tenants`, and several of those are
- * **not** part of a config backup: `telemetry_events`, `telemetry_payloads`,
- * `console_users`, `console_sessions`, `studio_sessions`. Deleting the tenant
+ * **not** part of a config backup: `telemetry_events`,
+ * `telemetry_usage_totals`, `telemetry_payloads`, `console_users`,
+ * `console_sessions`, `studio_sessions`. Deleting the tenant
  * to re-insert it would therefore destroy the usage history this feature exists
  * to preserve — and log out every console user as a side effect. A restore
  * ensures the tenant exists (needed when importing into a fresh database) and
@@ -94,8 +96,8 @@ export const CONFIG_TABLES = [
  */
 export const TENANT_TABLE = tenants;
 
-/** The one restorable telemetry table. Payload bodies are never included. */
-export const TELEMETRY_TABLES = [telemetryEvents] as const satisfies readonly Table[];
+/** Restorable metadata events and durable lifetime totals; payloads are excluded. */
+export const TELEMETRY_TABLES = [telemetryEvents, telemetryUsageTotals] as const satisfies readonly Table[];
 
 /**
  * Which rows of a table belong to one tenant, and how a restore replaces them.
@@ -299,22 +301,6 @@ export interface BackupBytes {
 /** Base64 carrier for an ISO timestamp, so a date survives the round trip. */
 export interface BackupDate {
   readonly __date: string;
-}
-
-export function isBackupBytes(value: unknown): value is BackupBytes {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as BackupBytes).__bytes === "string"
-  );
-}
-
-export function isBackupDate(value: unknown): value is BackupDate {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as BackupDate).__date === "string"
-  );
 }
 
 /**

@@ -23,15 +23,15 @@ export interface StaticHandlerConfig {
   /**
    * SPA entry documents are keyed by URL prefix. A request whose path is not a
    * real file but sits under one of these prefixes is served that document so
-   * the client router can resolve the route. `/` and `/console` use the
+   * the client can resolve the route.
    */
   entries?: Readonly<Record<string, string>>;
 }
 
-/** Shared landing/console and public share entry documents produced by Vite. */
+/** Shared landing, console, and public share entry document produced by Vite. */
 export const DEFAULT_ENTRY_DOCUMENTS: Readonly<Record<string, string>> = {
   "/": "index.html",
-  "/share": "share.html",
+  "/share": "index.html",
   "/console": "index.html",
 };
 
@@ -54,9 +54,8 @@ function entryDocumentFor(pathname: string, entries: Readonly<Record<string, str
 /**
  * Creates a hardened multi-page static file handler for the public routes.
  *
- * This handler:
- * - Serves the landing document at `/`, the share app at `/share/*`, and the
- *   console SPA at `/console/*` as extensionless client-side routes
+ * - Serves the shared index at `/`, `/share/*`, and `/console/*` for
+ *   extensionless client-side routes
  * - Serves real files (assets, provider icons, chapter art) from the build root
  * - Safely decodes and normalizes request paths, rejecting traversal
  * - Rejects the reserved `/console/api` namespace defensively

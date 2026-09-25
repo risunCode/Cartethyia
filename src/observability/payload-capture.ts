@@ -30,7 +30,6 @@ export interface StoredPayload {
   client_response_body: unknown;
   provider_request_body: unknown;
   provider_response_body: unknown;
-  redaction_applied: boolean;
 }
 
 function payloadRetentionMs(): number {
@@ -102,7 +101,6 @@ export function buildPayloadRecord(
     client_response_body: storedClientResponseBody,
     provider_request_body: storedProviderRequestBody,
     provider_response_body: storedProviderResponseBody,
-    redaction_applied: true,
   };
 }
 
@@ -134,7 +132,6 @@ export class TelemetryPayloadCapture {
       capturedAt: record.captured_at,
       expiresAt: record.expires_at,
       requestBody: { _payload_ref: reference as PayloadFileReference },
-      redactionApplied: record.redaction_applied,
     });
   }
 

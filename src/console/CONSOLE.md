@@ -6,8 +6,9 @@ unauthenticated public share surface (`/share/*`), and the static SPA host (`/`,
 access checks, `admin_audit_log` writes, and route-snapshot invalidation so the next `/v1/*`
 request sees the change. It never proxies inference traffic.
 
-The console needs Redis (sessions, CSRF, OAuth flow state, and the quota cache are
-Redis-backed), so it mounts only when a Redis client exists. Under
+The console needs Redis (OAuth flow state and the quota cache are Redis-backed), so
+it mounts only when a Redis client exists. Sessions are not: they live in
+`console_sessions` (Postgres), and CSRF is stateless. Under
 `REDIS_MODE=single_instance_local` the process serves `/v1/*`, `/health` and
 `/metrics` with no `/console/api/*` and no share surface; `ProductionAppDeps.consoleApi`
 is optional for exactly that reason.
@@ -34,7 +35,7 @@ src/console/
   domains/                api-keys, studio, live/logs, stats, audit, performance, sse
   cli-tools/              CLI-agent onboarding + host injectors (injectors/ holds the per-tool
                           InjectorSpecs; CONTRACT.md is the spec contract)
-  share/                  public unauthenticated monitor/setup surface
+  share/                  public enrollment and owner-side shared-key activity
   backup/                 export/restore of config + telemetry metadata, and the router-export
                           importer (nine-router.ts)
 ```
@@ -407,10 +408,10 @@ overwrite them. The body bound (`MAX_BACKUP_BYTES`) is enforced from `content-le
 JSON parse, because the point of the limit is to not buffer an unbounded file.
 
 **Two sections, and the split is the point.** `config` holds the rows that decide where traffic
-goes and with which credential; `telemetry` holds durable per-request metadata (status, tokens,
-cost, latency). `telemetry_payloads` — captured prompt/response bodies — is deliberately never
-exported and never restorable. A backup is a file that gets copied around, so bodies stay out of
-it; a backup is therefore **not** a substitute for a database dump. Export is plain JSON at the
+goes and with which credential; `telemetry` holds per-request metadata plus durable lifetime
+account/API-key totals. `telemetry_payloads` — captured prompt/response bodies — is deliberately
+never exported and never restorable. A backup is a file that gets copied around, so bodies stay out
+of it; a backup is therefore **not** a substitute for a database dump. Export is plain JSON at the
 operator's explicit request, so the file is as sensitive as the database and both the layer doc
 and the dashboard copy say so.
 
@@ -427,11 +428,16 @@ payload at all, because the build re-supplies it on boot (`seedBundledProviders`
 **Restore modes differ, and the difference is load-bearing.** `config` is replaced for tables
 whose every non-tenant row is a shared row the payload re-ensures anyway; a table that mixes in
 other tenants' rows, or rows the payload legitimately omits, is `upsert` and never deleted.
-`telemetry` is **merged, never deleted**: importing history must not remove rows already present,
-so existing `(tenant_id, request_id, created_at)` keys are read first and duplicates skipped,
-making a re-import idempotent. The tenant row is upserted and never deleted — every tenant-scoped
-table cascades from `tenants`, including `telemetry_events` and the console session tables, so
-replacing it would erase the history this feature preserves and log every user out.
+`telemetry` is **merged, never deleted**: importing history must not remove rows already present.
+Raw events deduplicate by `(tenant_id, request_id, created_at)`. Lifetime totals insert only when
+their `(tenant_id, identity_type, entity_id)` is absent, so re-importing an older backup cannot
+lower counters already accumulated in the destination. The tenant row is upserted and never
+deleted — every tenant-scoped table cascades from `tenants`, including `telemetry_events` and the
+console session tables, so replacing it would erase the history this feature preserves and log
+every user out.
+
+Legacy monitor/setup link rows are normalized to inactive enrollment rows during
+validation, so importing an older backup can never reactivate those public bearer URLs.
 
 **An empty array describes nothing.** A payload naming a table with zero rows must not be read as
 "delete everything here" — a config-only file carrying `provider_accounts: []` (a router export
@@ -475,41 +481,32 @@ not ours, and a credential is never persisted in the clear.
 
 ## Share (`share/`)
 
-Unauthenticated public pages for shared API keys: `share-router.ts` serves a monitor page (quota
-usage and key metadata) plus a one-time setup page disclosing the key secret, and `share-usage.ts`
-(`createShareUsagePort`) aggregates per-key telemetry. Authorization is bearer-token possession —
-no session, no scopes — so every response is `no-store` with a locked-down CSP.
+API-key rows have two modes. A personal key has an authentication hash and may be used directly;
+a share template has no hash or recoverable secret, so it can never authenticate. Only an active
+share template can mint an enrollment link. `share-store.ts` stores a SHA-256 token hash and the
+`enroll` kind; the bearer token is returned once with a URL built from the authenticated request
+origin.
 
-The monitor read hashes the token (`hashShareToken`) and resolves the key row, returning a uniform
-`link_not_found` 404 for short or unknown tokens, and responds with key metadata (decrypted secret
-included — the recipient needs it), quota windows, allowed models, and notes. The setup read
-consumes its token atomically (`consumeSetupToken`: single disclosure, replay returns 404) and
-returns only name, key, and expiry.
+The public `/share/:token` page is served by the single dashboard index. Its `/data` response
+contains only the template policy and notes, never a parent or child credential. The
+`POST /share/:token/issue` endpoint generates one child key for the client identity resolved
+through the trusted proxy boundary. The child copies the parent's scopes, limits, allow/deny lists,
+and model prefix.
+Only the hash is persisted; plaintext is returned once to the recipient. A database partial unique
+index enforces one active shared child per canonical client IP globally, including concurrent
+enrollment attempts through different parents.
 
-Neither payload carries a Base URL. The gateway cannot know the origin a share page is reached by:
-a tunnel, a reverse proxy, or `CARTETHYIA_PUBLIC_ORIGIN` — which is pinned to the OAuth redirect
-host and is a loopback address in a local deployment — can each differ from what the request
-reports. Sending one made a share page reached through a tunnel tell its recipient to call
-`127.0.0.1`. The share app derives it from `window.location.origin` instead, the one party that
-knows the origin for certain, which is also where the `/v1` hint beside it already came from.
+The owner-side Share page lists child-key prefixes and aggregate hits, errors, tokens, and masked IP
+addresses. It polls metadata-only telemetry, shows top models and recent request details, and obeys
+the tenant's client-IP privacy preference. Lifetime per-key totals are maintained in
+`telemetry_usage_totals`; model breakdowns and request details use retained telemetry and never
+include payloads or credentials.
 
-`modelsForShare` resolves usable models without widening access: a configured allowlist is
-authoritative (returned verbatim minus denylisted entries, filtered by the provider allowlist),
-and only an unrestricted key falls back to enumerating the enabled catalog under the key's tenant
-lens. Usage totals come from one indexed telemetry query — lifetime totals plus rolling 24h/30d
-sums (the `api_keys` row stores only a lifetime counter, so daily/monthly windows are
-approximations, not calendar resets); a telemetry failure returns `EMPTY_USAGE` rather than taking
-down the public page. `shareKey` (the factory in `domains/api-keys/routes.ts`) generates 32 random bytes
-(base64url), stores only `hashShareToken(token)`, and returns the bearer once with a request-origin
-`url`.
-
-**Invariants.** Only the SHA-256 hash of the share token is persisted; the bearer is shown once at
-mint time. Responses carry `no-store`, `X-Frame-Options`, `nosniff`, `no-referrer`, and the
-locked-down API CSP, so share documents can never be cached or framed. Setup tokens are
-single-use; monitor tokens shorter than 20 chars are rejected before any store lookup, and unknown
-tokens are indistinguishable from expired ones. The decrypted secret is disclosed only for keys
-that still exist and are active; denylists always subtract, and a partially synced catalog can
-never silently widen the model list.
+Revoking a share template or converting it back to personal mode atomically revokes every child and
+deactivates its enrollment links. Child keys cannot be edited through the personal-key form; owners
+revoke them from the Share page. Revoking one child releases its canonical IP for a future
+enrollment. Public responses are `no-store` and carry the locked-down API CSP, frame protection,
+`nosniff`, and `no-referrer`.
 
 ## How to extend
 
@@ -541,10 +538,7 @@ never silently widen the model list.
   `injectors/driver.ts`, surfaced via the exported `INJECTORS` map; guide-only tools need no
   injector code, and the registry stays presentation metadata only).
 - **New quota action or share data:** reuse `refreshAccountQuota` (provider-specific parsing
-  belongs in `src/providers/quota/`); staleness is computed here and sent to the dashboard, so a
-  change touches `QUOTA_STALE_AFTER_MS` and the sweep's `minAgeMs` together — the browser does not
-  re-derive it. Share data is shaped in
-  `share-router.ts` and read through `ShareUsagePort` (injectable for tests) rather than querying
-  telemetry directly; new share kinds mint via the `shareKey` factory in `domains/api-keys/routes.ts`
-  and consume here,
-  so keep the pair symmetric (monitor = repeatable metadata, setup = one-time secret).
+  belongs in `src/providers/quota/`); account controls expose the stored per-account concurrency
+  override beside the same account's today and lifetime usage totals. Share activity is shaped by
+  `share-usage.ts` from retained metadata plus durable lifetime aggregates, with raw payloads and
+  credentials excluded.

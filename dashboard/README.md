@@ -1,12 +1,14 @@
 # Dashboard
 
-`dashboard/` is the React/Vite client for the authenticated `/console` surface.
-The backend serves the built files from `dist/dashboard`; source changes are not
-visible to a running backend until the dashboard build is regenerated.
+`dashboard/` is the React/Vite client for the landing page, authenticated
+`/console` surface, and public `/share/:token` enrollment app. One `index.html`
+dispatches by pathname; share styling remains isolated in `src/share.css`.
+Production serves the built files from `dist/dashboard`.
 
 ## Route map
 
-`src/App.tsx` mounts a `BrowserRouter` with basename `/console` and lazy route
+`src/main.tsx` dispatches landing, console, or share from the pathname. The
+console app mounts a `BrowserRouter` with basename `/console` and lazy route
 chunks:
 
 | Path | Route component | Backend domain mirror |
@@ -24,6 +26,8 @@ chunks:
 | `/cli-tools`, `/cli-tools/:toolId` | `CliTools`, `CliToolDetail` | `console/cli-tools` |
 | `/console-log` | `ConsoleLog` | `console/domains/logs` and SSE |
 | `/settings` | `Settings` | `console/settings` |
+| `/share` | `Share` | `console/domains/api-keys` and `console/share` |
+| `/share/:token` (public root route) | `apps/share/page.tsx` | public child-key enrollment via `src/console/share/share-router.ts` |
 
 Unknown protected paths redirect to `/`. Session transitions clear the shared
 query cache and navigate to `/login` or `/banned` rather than rendering stale

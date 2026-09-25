@@ -122,6 +122,9 @@ function TokenBudgetField({
 
 export interface KeyFormInput {
   label: string;
+  keyMode: ApiKeyResponse["keyMode"];
+  keyPrefix?: string;
+  key?: string;
   modelAllowlist: string[];
   providerAllowlist: string[];
   scopes: string[];
@@ -130,7 +133,6 @@ export interface KeyFormInput {
   dailyTokenLimit?: number | null;
   monthlyTokenLimit?: number | null;
   lifetimeTokenBudget?: number | null;
-  modelPrefix?: string;
   notesTitle?: string;
   notesSubtitle?: string;
   notesBody?: string;
@@ -139,15 +141,28 @@ interface KeyFormProps {
   mode: "create" | "edit";
   record: ApiKeyResponse | null;
   busy: boolean;
-  onDone: (input: KeyFormInput & { customKey?: string; prefix?: string }) => void;
+  onDone: (input: KeyFormInput) => void;
   onClose: () => void;
+}
+export function keyCredentialFields(
+  keyMode: ApiKeyResponse["keyMode"],
+  customKey: string,
+  keyPrefix: string,
+): Pick<KeyFormInput, "keyMode" | "key" | "keyPrefix"> {
+  const key = keyMode === "personal" ? customKey.trim() : "";
+  return {
+    keyMode,
+    keyPrefix: keyPrefix.trim() || undefined,
+    ...(key ? { key } : {}),
+  };
+}
+export function oneTimeSecretForMode(keyMode: ApiKeyResponse["keyMode"], secret: string | undefined): string | null {
+  return keyMode === "personal" ? secret ?? null : null;
 }
 export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps): ReactNode {
   const [label, setLabel] = useState(record?.label ?? "");
+  const [prefix, setPrefix] = useState(record?.keyPrefix ?? "");
   const [customKey, setCustomKey] = useState("");
-  const [prefix, setPrefix] = useState(
-    (record as unknown as { modelPrefix?: string })?.modelPrefix ?? "",
-  );
   const [rpm, setRpm] = useState(record?.requestsPerMinute?.toString() ?? "");
   const [daily, setDaily] = useState(
     tokenInputValue(
@@ -195,6 +210,9 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
     const b = (record as unknown as { notesBody?: string | null })?.notesBody;
     return b ?? "";
   });
+  const [keyMode, setKeyMode] = useState<ApiKeyResponse["keyMode"]>(
+    record?.keyMode ?? "personal",
+  );
   const isOneTime = budgetMode === "one-time";
   const toggleScope = (scope: string) =>
     setScopes((cur) => (cur.includes(scope) ? cur.filter((s) => s !== scope) : [...cur, scope]));
@@ -205,8 +223,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
       .filter(Boolean);
     onDone({
       label: label.trim(),
-      customKey: customKey.trim() || undefined,
-      prefix: prefix.trim() || undefined,
+      ...keyCredentialFields(keyMode, customKey, prefix),
       scopes,
       modelAllowlist: models,
       providerAllowlist: providers,
@@ -215,7 +232,6 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
       dailyTokenLimit: isOneTime ? null : (parseTokenLimit(daily) ?? null),
       monthlyTokenLimit: isOneTime ? null : (parseTokenLimit(monthly) ?? null),
       lifetimeTokenBudget: isOneTime ? (parseTokenLimit(lifetime) ?? null) : null,
-      modelPrefix: prefix.trim() || undefined,
       notesTitle: notesTitle.trim(),
       notesSubtitle: notesSubtitle.trim(),
       notesBody: notesBody.trim(),
@@ -223,46 +239,45 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
   };
   return (
     <div className="modal-form-layout" style={{ paddingBottom: "4px" }}>
+      <section className="modal-form-section-wide" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>Credential mode</h3>
+        <div role="group" aria-label="Credential mode" style={{ display: "flex", gap: "8px" }}>
+          {(["personal", "share"] as const).map((modeOption) => (
+            <button key={modeOption} type="button" aria-pressed={keyMode === modeOption}
+              disabled={busy} onClick={() => setKeyMode(modeOption)}
+              style={{ border: "1px solid var(--inner-border)", borderRadius: "8px", padding: "8px 12px",
+                color: keyMode === modeOption ? "var(--accent)" : "var(--text-secondary)",
+                background: keyMode === modeOption ? "var(--accent-soft)" : "var(--surface-2)", cursor: "pointer" }}>
+              {modeOption === "personal" ? "Personal" : "Share template"}
+            </button>
+          ))}
+        </div>
+        <p style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+          {keyMode === "share"
+            ? "A share template does not authenticate requests. Recipients generate their own child key from its public enrollment page."
+            : record?.keyMode === "share"
+              ? "Converting this template to a personal key revokes all child keys and enrollment links. A new personal secret will be shown once."
+              : "A personal key authenticates requests directly; its secret is shown once when created or rotated."}
+        </p>
+      </section>
       {mode === "create" && (
         <section className="modal-form-section-wide" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           <div>
-            <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>
-              Identity
-            </h3>
+            <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>Identity</h3>
             <p style={{ marginTop: "2px", fontSize: "11px", color: "var(--text-tertiary)" }}>
               Give this credential a recognizable name.
             </p>
           </div>
-          <div
-            style={{
-              display: "grid",
-              gap: "12px",
-              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            }}
-          >
-            <Input
-              label="Name"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="ci-key…"
-              disabled={busy}
-              autoFocus
-            />
-            <Input
-              label="Key prefix"
-              value={prefix}
-              onChange={(e) => setPrefix(e.target.value)}
-              placeholder="ctk (default)…"
-              disabled={busy || customKey.trim().length > 0}
-            />
+          <div style={{ display: "grid", gap: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+            <Input label="Name" value={label} onChange={(e) => setLabel(e.target.value)}
+              placeholder="ci-key…" disabled={busy} autoFocus />
+            <Input label="Key prefix" value={prefix} onChange={(e) => setPrefix(e.target.value)}
+              placeholder="rk_ (default)…" disabled={busy || customKey.trim().length > 0} />
           </div>
-          <Input
-            label="Custom API key value (optional)"
-            value={customKey}
-            onChange={(e) => setCustomKey(e.target.value)}
-            placeholder="Leave blank to generate…"
-            disabled={busy}
-          />
+          {keyMode === "personal" && (
+            <Input label="Custom API key value (optional)" value={customKey}
+              onChange={(e) => setCustomKey(e.target.value)} placeholder="Leave blank to generate…" disabled={busy} />
+          )}
         </section>
       )}
       {mode === "edit" && (

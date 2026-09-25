@@ -26,6 +26,7 @@ export const CREDENTIAL_KINDS = ["api_key", "oauth", "none"] as const;
 
 /** One credential kind. */
 export type CredentialKind = (typeof CREDENTIAL_KINDS)[number];
+export const ACCOUNT_MAX_INFLIGHT_BOUNDS = { min: 1, max: 10_000 } as const;
 
 /**
  * Scopes that grant catalog access, one pair per resource.
@@ -335,15 +336,25 @@ export interface CreateProviderAccountRequest {
   label?: string;
   credentialKind: CredentialKind;
   secret: string;
+  /** null inherits the provider routing default; no provider default means unlimited. */
+  maxInflight?: number | null;
 }
-/** Patch accepted when editing or revoking an existing account. `status: "disabled"`
- * revokes the account (soft, so reservation/telemetry history stays intact) without
- * needing a hard-delete-plus-FK-dependent-cleanup workflow. */
+/** Patch accepted when editing or revoking an existing account. */
 export interface UpdateProviderAccountRequest {
   label?: string;
   secret?: string;
   status?: AccountStatus;
+  /** null inherits the provider routing default; no provider default means unlimited. */
+  maxInflight?: number | null;
 }
+export interface ProviderAccountTokenUsage {
+  readonly requests: number;
+  readonly errors: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+}
+
 /** Public account representation; never carries the decrypted secret. */
 export interface ProviderAccountResponse {
   id: string;
@@ -352,19 +363,17 @@ export interface ProviderAccountResponse {
   label: string;
   credentialKind: CredentialKind;
   status: string;
+  /** null inherits the provider routing default; no provider default means unlimited. */
+  maxInflight: number | null;
+  /** Token aggregates are tenant-scoped and use a UTC calendar day. */
+  usageToday: ProviderAccountTokenUsage;
+  usageAllTime: ProviderAccountTokenUsage;
   consecutiveFailures?: number;
   lastSuccessAt?: string;
   lastError?: string;
   lastErrorCategory?: string;
   lastErrorAt?: string;
   cooldownUntil?: string;
-  /**
-   * Per-model backoff deadlines (`modelId` → ISO timestamp), the same map the
-   * router reads to skip an (account, model) pair. Without this the console
-   * showed `Active` for an account whose every request for a throttled model
-   * was being routed away — the cooldown existed and worked, it was simply
-   * invisible.
-   */
   modelCooldowns?: Readonly<Record<string, string>>;
   lastRecoveredAt?: string;
   createdAt: string;
@@ -385,6 +394,7 @@ export interface ProviderAccountExport {
   /** Decrypted credential; `""` when the account has none or resolution failed. */
   secret: string;
   createdAt: string;
+  maxInflight: number | null;
   cooldownUntil?: string;
   lastErrorCategory?: string;
 }
@@ -447,6 +457,19 @@ export interface ProviderCatalogStore {
   ): Promise<ProviderRecord | undefined>;
   deleteGlobal(providerId: string): Promise<boolean>;
   listModels(tenantId: string, providerId: string): Promise<readonly ModelCatalogEntry[]>;
+  /**
+   * Every model row the tenant can see, grouped by provider id.
+   *
+   * The bulk counterpart to {@link listModels}: one query pair for the whole
+   * tenant rather than one pair per provider, so a caller that needs the entire
+   * catalog does not pay a cost that grows with the bundled provider count.
+   * `providerId` narrows it to a single provider when the caller already knows
+   * which one it wants.
+   */
+  listModelsForTenant(
+    tenantId: string,
+    providerId?: string,
+  ): Promise<Map<string, readonly ModelCatalogEntry[]>>;
   probeModel(
     tenantId: string,
     providerId: string,

@@ -47,15 +47,6 @@ export class DrizzleRuntimeSettingsStore implements RuntimeSettingsStore {
       .limit(1);
     return mapRuntimeSettingsRow(rows[0]);
   }
-  /** Per-tenant concurrency cap read by the admission service; null = unset. */
-  async getTenantConcurrencyLimit(tenantId: string): Promise<number | null> {
-    const rows = await this.db
-      .select({ preferences: consoleSettings.preferences })
-      .from(consoleSettings)
-      .where(eq(consoleSettings.tenantId, tenantId))
-      .limit(1);
-    return rows[0]?.preferences?.tenantConcurrencyLimit ?? null;
-  }
 
   async update(
     tenantId: string,

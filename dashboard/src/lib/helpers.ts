@@ -19,9 +19,9 @@ export function getErrorMessage(error: unknown, fallback = "Request failed"): st
 
 /** Maps public-share error codes to safe user-facing copy; unknown codes yield undefined. */
 export function shareCodeMessage(code: string | undefined): string | undefined {
-  if (code === "link_expired_or_used") return "This setup link is expired or already used.";
-  if (code === "key_unavailable") return "The API key is no longer available.";
-  if (code === "link_not_found") return "This shared passage is unavailable.";
+  if (code === "link_expired_or_used") return "This enrollment link has expired or has already been used.";
+  if (code === "key_unavailable") return "The shared access template is no longer available.";
+  if (code === "link_not_found") return "This enrollment link is unavailable.";
   return undefined;
 }
 

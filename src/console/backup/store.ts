@@ -32,7 +32,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getTableColumns, type Column, type SQL, type Table } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
-import { telemetryEvents } from "../../persistence/schema";
+import { apiKeys, telemetryEvents, telemetryUsageTotals } from "../../persistence/schema";
 import {
   BACKUP_APP,
   BACKUP_VERSION,
@@ -305,6 +305,7 @@ async function insertRows(
     readonly skipKeys?: ReadonlySet<string>;
     readonly keyOf?: (row: BackupRow) => string;
     readonly conflictTarget?: readonly Column[];
+    readonly ignoreConflicts?: boolean;
   } = {},
 ): Promise<number> {
   let inserted = 0;
@@ -315,6 +316,15 @@ async function insertRows(
     const values = toValues(table, row);
     if (Object.keys(values).length === 0) continue;
     const statement = insertRow(tx, table, values);
+    if (options.ignoreConflicts) {
+      if (options.conflictTarget === undefined)
+        throw new Error(`ignoreConflicts requires a target for ${tableName(table)}`);
+      const insertedRows = await statement
+        .onConflictDoNothing({ target: options.conflictTarget as never })
+        .returning();
+      inserted += insertedRows.length;
+      continue;
+    }
     if (options.conflictTarget === undefined) {
       await statement;
     } else {
@@ -347,9 +357,9 @@ async function insertRows(
  *
  * `order` is children-before-parents for the config tables. The tenant row is
  * upserted first and never deleted — every tenant-scoped table cascades from
- * `tenants`, including `telemetry_events`, `console_users`, and
- * `console_sessions`, so replacing it would destroy the usage history this
- * feature preserves and log out every console user.
+ * `tenants`, including `telemetry_events`, `telemetry_usage_totals`,
+ * `console_users`, and `console_sessions`, so replacing it would destroy the
+ * usage history this feature preserves and log out every console user.
  *
  * Every write is scoped to `tenantId`. A table the payload does not mention is
  * left completely alone — not cleared — so a partial import (a router export
@@ -411,12 +421,23 @@ export async function applyRestore(
       const entry = validation.tables.get(table);
       if (entry === undefined) continue;
       const ownership = ownershipOf(table);
-      restored[tableName(table)] = await insertRows(scoped, table, entry.rows, {
+      const rows =
+        table === apiKeys
+          ? [...entry.rows].sort((left, right) => {
+              const leftParent = left["parent_key_id"];
+              const rightParent = right["parent_key_id"];
+              const leftIsChild = leftParent !== null && leftParent !== undefined;
+              const rightIsChild = rightParent !== null && rightParent !== undefined;
+              return Number(leftIsChild) - Number(rightIsChild);
+            })
+          : entry.rows;
+      restored[tableName(table)] = await insertRows(scoped, table, rows, {
         ...(ownership.kind === "authored" ? { conflictTarget: ownership.keyColumns } : {}),
       });
     }
 
-    // Telemetry merges: existing natural keys are read once, duplicates skipped.
+    // Event rows use a natural idempotency key; lifetime totals insert once per
+    // identity so re-importing an older backup cannot reduce newer counters.
     for (const table of appendTables) {
       const entry = validation.tables.get(table);
       if (entry === undefined) continue;
@@ -429,6 +450,17 @@ export async function applyRestore(
         skipped[tableName(table)] = entry.rows.filter((row) =>
           existing.has(telemetryKey(row)),
         ).length;
+      } else if (table === telemetryUsageTotals) {
+        const restoredCount = await insertRows(scoped, table, entry.rows, {
+          conflictTarget: [
+            telemetryUsageTotals.tenantId,
+            telemetryUsageTotals.identityType,
+            telemetryUsageTotals.entityId,
+          ],
+          ignoreConflicts: true,
+        });
+        restored[tableName(table)] = restoredCount;
+        skipped[tableName(table)] = entry.rows.length - restoredCount;
       } else {
         restored[tableName(table)] = await insertRows(scoped, table, entry.rows);
       }
@@ -436,11 +468,6 @@ export async function applyRestore(
   });
 
   return { restored, skipped };
-}
-
-/** Whether a table is the tenant row, which restore upserts instead of replacing. */
-export function isTenantTable(table: Table): boolean {
-  return table === TENANT_TABLE;
 }
 
 export { and, eq };

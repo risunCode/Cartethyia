@@ -37,9 +37,9 @@ Built with Bun, TypeScript, Elysia, PostgreSQL, and optional Redis coordination.
 - **Validated egress pools** — HTTP CONNECT, HTTPS CONNECT, and SOCKS5, with
   SSRF validation at both creation and connection time. Configured pool failures
   surface as failures; a request never silently falls back to direct egress.
-- **Multi-tenant by construction** — tenants, scoped API keys, model
-  allow/deny lists, per-key rate and token budgets, and a public usage share
-  page.
+- **Multi-tenant by construction** — scoped personal API keys, non-authenticating
+  share templates that enroll one child per trusted client IP, model allow/deny
+  policies, and per-key rate and token budgets.
 - **Observability you can act on** — per-request telemetry, bounded and redacted
   payload capture, Prometheus metrics, a live console log, and JSON export /
   import for moving configuration between deployments.
@@ -119,6 +119,7 @@ Useful endpoints:
 /metrics      Prometheus metrics
 /v1/*         gateway APIs
 /console      dashboard
+/share/:token public child-key enrollment
 ```
 
 ## Dashboard
@@ -128,7 +129,8 @@ surface:
 
 - **Overview** — traffic, success rate, latency, and provider health at a glance
 - **Usage** — per-request telemetry with request detail and payload inspection
-- **Providers** — accounts, credentials, health, and per-model probing
+- **Providers** — accounts, credentials, health, per-account in-flight limits,
+  today/lifetime token usage, and per-model probing
 - **Model Lab** — exercise a model directly and see the raw exchange
 - **Combos & Routes** — model combos, aliases, and CLI-tool mappings
 - **Quota Management** — account quota, check-in state, and refresh control

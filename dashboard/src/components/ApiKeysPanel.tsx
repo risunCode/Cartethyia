@@ -15,24 +15,15 @@ import { Button } from "./ui/button";
 import { Card, CardBody, CardHeader } from "./ui/card";
 import { Dialog } from "./ui/dialog";
 import { Input } from "./ui/input";
-import { Select } from "./ui/select";
 import { EmptyState, ErrorState, LoadingState } from "./ui/state";
 import { StatCard } from "./ui/layout";
-import { ApiKeyForm, type KeyFormInput } from "./ApiKeyForm";
+import { ApiKeyForm, oneTimeSecretForMode, type KeyFormInput } from "./ApiKeyForm";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ClipboardButton } from "./patterns/clipboard-button";
 import { toast } from "../lib/toast";
 import { getErrorMessage } from "../lib/helpers";
-import type { ApiKeyResponse, ShareKeyResponse, ShareLinkResponse } from "../lib/contracts";
-import {
-  useApiKeys,
-  useCreateApiKey,
-  useRevokeApiKey,
-  useRevokeShareLink,
-  useShareApiKey,
-  useShareLinks,
-  useUpdateApiKey,
-} from "../lib/hooks/api-keys";
+import type { ApiKeyResponse, ShareKeyResponse } from "../lib/contracts";
+import { useApiKeys, useCreateApiKey, useRevokeApiKey, useShareApiKey, useUpdateApiKey } from "../lib/hooks/api-keys";
 
 /** Compact K/M/B/T token count used by the panel's stat cards and rows. */
 function compactTokens(value: number | null | undefined): string {
@@ -45,19 +36,6 @@ function compactTokens(value: number | null | undefined): string {
   return amount.toLocaleString();
 }
 
-function formatDate(value: string | null | undefined): string {
-  if (!value) return "Never";
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : "Unknown";
-}
-
-/** Lifecycle label for one share link row. */
-function shareStatus(link: ShareLinkResponse): string {
-  if (!link.active) return "revoked";
-  if (link.usedAt) return "used";
-  if (link.expiresAt && Date.parse(link.expiresAt) <= Date.now()) return "expired";
-  return "active";
-}
 
 function limitLabel(value: number | null | undefined): string {
   if (value === null || value === undefined) return "Unlimited";
@@ -76,32 +54,27 @@ export function ApiKeysPanel(): ReactNode {
   const updateKey = useUpdateApiKey();
   const revokeKey = useRevokeApiKey();
   const shareKey = useShareApiKey();
-  const revokeShare = useRevokeShareLink();
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ApiKeyResponse | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyResponse | null>(null);
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<ApiKeyResponse | null>(null);
   const [shareResult, setShareResult] = useState<ShareKeyResponse | null>(null);
-  const [shareKind, setShareKind] = useState<"monitor" | "setup">("monitor");
   const [shareExpiry, setShareExpiry] = useState("");
-  const [revokeShareTarget, setRevokeShareTarget] = useState<ShareLinkResponse | null>(null);
-  // Existing links for the key whose dialog is open; disabled while closed.
-  const shareLinks = useShareLinks(shareTarget?.id ?? null);
 
   const keys = keysQuery.data ?? [];
   const activeKeys = keys.filter((key) => !key.revokedAt).length;
   const totalUsage = keys.reduce((sum, key) => sum + Math.max(0, key.tokensConsumed ?? 0), 0);
 
   const openShare = (key: ApiKeyResponse) => {
+    setRevealedSecret(null);
     setShareResult(null);
-    setShareKind("monitor");
     setShareExpiry("");
     setShareTarget(key);
   };
   const confirmShare = () => {
     if (!shareTarget) return;
-    let expiresAt: string | null = null;
+    let expiresAt: string | undefined;
     if (shareExpiry) {
       const parsed = new Date(shareExpiry);
       if (Number.isNaN(parsed.getTime())) {
@@ -111,7 +84,7 @@ export function ApiKeysPanel(): ReactNode {
       expiresAt = parsed.toISOString();
     }
     shareKey.mutate(
-      { keyId: shareTarget.id, kind: shareKind, expiresAt },
+      { keyId: shareTarget.id, expiresAt },
       {
         onSuccess: (result) => setShareResult(result),
         onError: (error) => toast.error(getErrorMessage(error, "Could not create share link.")),
@@ -129,7 +102,7 @@ export function ApiKeysPanel(): ReactNode {
           <Button
             variant="primary"
             size="sm"
-            onClick={() => setCreateOpen(true)}
+            onClick={() => { setRevealedSecret(null); setCreateOpen(true); }}
             icon={<Plus size={13} />}
           >
             Create Key
@@ -260,6 +233,9 @@ export function ApiKeysPanel(): ReactNode {
                     <Badge tone={key.revokedAt ? "err" : "ok"}>
                       {key.revokedAt ? "revoked" : "active"}
                     </Badge>
+                    <Badge tone={key.keyMode === "share" ? "accent" : "default"}>
+                      {key.keyMode === "share" ? "share template" : "personal"}
+                    </Badge>
                   </div>
                   <code
                     style={{
@@ -302,19 +278,19 @@ export function ApiKeysPanel(): ReactNode {
                     variant="secondary"
                     size="sm"
                     icon={<Pencil size={13} />}
-                    onClick={() => setEditTarget(key)}
+                    onClick={() => { setRevealedSecret(null); setEditTarget(key); }}
                   >
                     Edit
                   </Button>
-                  <Button
+                  {key.keyMode === "share" && <Button
                     variant="secondary"
                     size="sm"
                     icon={<Share2 size={13} />}
                     onClick={() => openShare(key)}
                     disabled={Boolean(key.revokedAt)}
                   >
-                    Share
-                  </Button>
+                    Create enrollment link
+                  </Button>}
                   <Button
                     variant="danger"
                     size="sm"
@@ -337,11 +313,11 @@ export function ApiKeysPanel(): ReactNode {
           record={null}
           busy={createKey.isPending}
           onClose={() => setCreateOpen(false)}
-          onDone={(input: KeyFormInput & { customKey?: string; prefix?: string }) => {
-            createKey.mutate(input as never, {
+          onDone={(input: KeyFormInput) => {
+            createKey.mutate(input, {
               onSuccess: (res) => {
                 setCreateOpen(false);
-                setRevealedSecret((res as { secret?: string }).secret ?? null);
+                setRevealedSecret(oneTimeSecretForMode(input.keyMode, res.secret));
               },
               onError: (error) => toast.error(getErrorMessage(error, "Could not create API key.")),
             });
@@ -360,12 +336,15 @@ export function ApiKeysPanel(): ReactNode {
           record={editTarget}
           busy={updateKey.isPending}
           onClose={() => setEditTarget(null)}
-          onDone={(input: KeyFormInput & { customKey?: string; prefix?: string }) => {
+          onDone={(input: KeyFormInput) => {
             if (!editTarget) return;
             updateKey.mutate(
-              { keyId: editTarget.id, request: input as never },
+              { keyId: editTarget.id, request: input },
               {
-                onSuccess: () => setEditTarget(null),
+                onSuccess: (res) => {
+                  setEditTarget(null);
+                  setRevealedSecret(oneTimeSecretForMode(input.keyMode, res.secret));
+                },
                 onError: (error) => toast.error(getErrorMessage(error, "Could not update API key.")),
               },
             );
@@ -375,149 +354,31 @@ export function ApiKeysPanel(): ReactNode {
 
       <Dialog
         open={shareTarget !== null}
-        onClose={() => {
-          setShareTarget(null);
-          setShareResult(null);
-        }}
-        title="Share API Key"
+        onClose={() => { setShareTarget(null); setShareResult(null); }}
+        title="Create enrollment link"
         width={560}
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-            Creates a public link showing this key&apos;s live usage, quota, and allowed models.
-            Anyone with the link can read the key, so share it only with people you trust.
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <p style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+            This link lets a visitor manually generate one child credential. The share template itself never authenticates requests, and each active IP can enroll once.
           </p>
-          {shareResult === null ? (
+          {shareResult ? (
+            <div style={{ display: "grid", gap: 8 }}>
+              <code style={{ display: "block", padding: 8, borderRadius: 8, background: "var(--surface-1)", border: "1px solid var(--inner-border)", fontSize: 11.5, overflowWrap: "anywhere" }}>{shareResult.url}</code>
+              <div style={{ display: "flex", gap: 8 }}>
+                <ClipboardButton value={shareResult.url} size="sm" variant="secondary" />
+                <Button variant="secondary" size="sm" onClick={() => window.open(shareResult.url, "_blank", "noopener")}>Open</Button>
+              </div>
+              <p style={{ fontSize: 11, color: "var(--text-tertiary)" }}>The enrollment URL contains a one-time link token. Store and share it carefully.</p>
+            </div>
+          ) : (
             <>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                <span
-                  style={{
-                    fontSize: "11px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.04em",
-                    color: "var(--text-tertiary)",
-                  }}
-                >
-                  Existing links
-                </span>
-                {shareLinks.isLoading ? (
-                  <p style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>Loading links…</p>
-                ) : (shareLinks.data ?? []).length === 0 ? (
-                  <p style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>
-                    No share links yet.
-                  </p>
-                ) : (
-                  (shareLinks.data ?? []).map((link) => (
-                    <div
-                      key={link.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: "8px",
-                        padding: "8px 10px",
-                        borderRadius: "8px",
-                        background: "var(--surface-1)",
-                        border: "1px solid var(--inner-border)",
-                      }}
-                    >
-                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                        <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>
-                          {link.kind} · {shareStatus(link)}
-                        </span>
-                        <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
-                          created {formatDate(link.createdAt)}
-                          {link.lastViewedAt ? ` · last viewed ${formatDate(link.lastViewedAt)}` : ""}
-                          {link.expiresAt ? ` · expires ${formatDate(link.expiresAt)}` : ""}
-                        </span>
-                      </div>
-                      {link.active ? (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => setRevokeShareTarget(link)}
-                          disabled={revokeShare.isPending}
-                        >
-                          Revoke
-                        </Button>
-                      ) : null}
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                <Select
-                  label="Kind"
-                  value={shareKind}
-                  onValueChange={(value) => setShareKind(value === "setup" ? "setup" : "monitor")}
-                  options={[
-                    { value: "monitor", label: "Monitor (live usage page)" },
-                    { value: "setup", label: "Setup (one-time key handoff)" },
-                  ]}
-                />
-                <Input
-                  label="Expires"
-                  hint="optional"
-                  type="datetime-local"
-                  value={shareExpiry}
-                  onChange={(event) => setShareExpiry(event.target.value)}
-                />
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    setShareTarget(null);
-                    setShareResult(null);
-                  }}
-                  disabled={shareKey.isPending}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={confirmShare}
-                  disabled={shareKey.isPending}
-                  icon={<Share2 size={13} />}
-                >
-                  {shareKey.isPending ? "Creating…" : "Create share link"}
-                </Button>
+              <Input label="Expires" hint="optional" type="datetime-local" value={shareExpiry} onChange={(event) => setShareExpiry(event.target.value)} />
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <Button variant="secondary" size="sm" onClick={() => setShareTarget(null)} disabled={shareKey.isPending}>Cancel</Button>
+                <Button variant="primary" size="sm" onClick={confirmShare} disabled={shareKey.isPending} icon={<Share2 size={13} />}>{shareKey.isPending ? "Creating…" : "Create link"}</Button>
               </div>
             </>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <code
-                style={{
-                  display: "block",
-                  padding: "8px 12px",
-                  borderRadius: "8px",
-                  background: "var(--surface-1)",
-                  border: "1px solid var(--inner-border)",
-                  fontSize: "11.5px",
-                  wordBreak: "break-all",
-                  color: "var(--text-primary)",
-                }}
-              >
-                {shareResult.url}
-              </code>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <ClipboardButton value={shareResult.url} size="sm" variant="secondary" />
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => window.open(shareResult.url, "_blank", "noopener")}
-                >
-                  Open
-                </Button>
-              </div>
-              <p style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
-                Created {formatDate(shareResult.expiresAt)} · expires never unless set
-              </p>
-            </div>
           )}
         </div>
       </Dialog>
@@ -534,29 +395,13 @@ export function ApiKeysPanel(): ReactNode {
         title="Revoke API key?"
         message={
           revokeTarget
-            ? `Revoke ${revokeTarget.label || revokeTarget.id}? Clients using it will be rejected.`
+            ? `Revoke ${revokeTarget.label || revokeTarget.id}? Clients using it will be rejected.${revokeTarget.keyMode === "share" ? " All child keys and enrollment links will also be revoked." : ""}`
             : "Revoke this API key?"
         }
         confirmLabel="Revoke"
         danger
       />
 
-      <ConfirmDialog
-        open={revokeShareTarget !== null}
-        onClose={() => setRevokeShareTarget(null)}
-        onConfirm={async () => {
-          if (!revokeShareTarget || !shareTarget) return;
-          await revokeShare.mutateAsync({
-            keyId: shareTarget.id,
-            shareId: revokeShareTarget.id,
-          });
-          toast.success("Share link revoked.");
-        }}
-        title="Revoke share link?"
-        message="Anyone using this link will immediately lose access to the shared page."
-        confirmLabel="Revoke"
-        danger
-      />
     </Card>
   );
 }

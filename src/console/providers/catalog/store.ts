@@ -1,16 +1,16 @@
 // Drizzle-backed provider, account, model, routing, and API-key repositories.
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { ConsoleDomainError } from "../../shared/errors";
 import { parseCustomProviderId, isBundledProviderId, type ModelDefinition, type ProviderRegistry } from "../../../providers/provider-registry";
 import { globalOrOwnedBy, ownedByOnly } from "../../../persistence/tenant-scope";
 import type { CartethyiaDatabase } from "../../../persistence/postgres";
-import { models, providerAccounts, providers, tenantDisabledModels } from "../../../persistence/schema";
+import { models, providerAccounts, providers, telemetryEvents, telemetryUsageTotals, tenantDisabledModels } from "../../../persistence/schema";
 import type { WireFamily } from "../../../transport/canonical-model";
 import { listAccountHealthEvents, recoverAccount, type AccountHealthEventRecord } from "../../../providers/operations/account-health-service";
 import { encryptCredential, hashSecret } from "../../../security/crypto";
 import type { TelemetryBatchBuffer } from "../../../observability/telemetry-buffer";
 import type { BundledProviderCatalog } from "../../../providers/operations/provider-catalog-service";
-import { validateCompatibilityProfile, type ByokConnectionTestRequest, type ByokConnectionTestResult, type CreateProviderAccountRequest, type ModelCatalogEntry, type ProbeAllAccountsResult, type ProbeAllModelsResult, type ProbeModelRequest, type ProbeModelResult, type ProviderAccountResponse, type ProviderCatalogStore, type ProviderRecord, type SetModelEnabledRequest, type UpdateProviderAccountRequest } from "./contracts";
+import { validateCompatibilityProfile, type ByokConnectionTestRequest, type ByokConnectionTestResult, type CreateProviderAccountRequest, type ModelCatalogEntry, type ProbeAllAccountsResult, type ProbeAllModelsResult, type ProbeModelRequest, type ProbeModelResult, type ProviderAccountResponse, type ProviderAccountTokenUsage, type ProviderCatalogStore, type ProviderRecord, type SetModelEnabledRequest, type UpdateProviderAccountRequest, ACCOUNT_MAX_INFLIGHT_BOUNDS } from "./contracts";
 import { ProviderProbingService, type ProbeOutboundResolver } from "../../../providers/discovery/probing-service";
 import { resolveManualModelMetadata } from "../../../providers/model-definition";
 import { isUniqueViolation } from "../../../persistence/postgres";
@@ -36,6 +36,62 @@ function liveModelCooldowns(
     if (Number.isFinite(at) && at > now) live[modelId] = value;
   }
   return Object.keys(live).length > 0 ? { modelCooldowns: live } : undefined;
+}
+
+
+/**
+ * Projects one persisted `models` row into the console's catalog entry.
+ *
+ * `disabled` is resolved by the caller (from `tenant_disabled_models`), because
+ * the bulk read has to look it up across every provider at once while the
+ * single-provider read looks it up for one; the projection itself is identical
+ * either way, so it lives here rather than being written twice.
+ */
+function mapModelRow(
+  row: typeof models.$inferSelect,
+  disabled: boolean,
+): ModelCatalogEntry {
+  const modalities =
+    row.modalities && typeof row.modalities === "object"
+      ? (row.modalities as { input?: unknown; output?: unknown })
+      : undefined;
+  const inputModalities = Array.isArray(modalities?.input) ? modalities.input : [];
+  const outputModalities = Array.isArray(modalities?.output) ? modalities.output : [];
+  return {
+    modelId: row.modelId,
+    route: row.endpointPath,
+    provider: row.providerId,
+    wireFamily: row.wireFamily,
+    enabled: disabled ? false : row.enabled,
+    contextLimit: row.contextLimit,
+    outputLimit: row.outputLimit,
+    reasoning: row.reasoning,
+    toolCall: row.toolCall,
+    vision: inputModalities.includes("image"),
+    document: inputModalities.includes("document"),
+    audio: inputModalities.includes("audio"),
+    mediaGeneration: outputModalities.includes("image"),
+    webSearch: row.webSearch,
+    cost: row.cost as ModelCatalogEntry["cost"],
+    source: row.source,
+    sourceUpdatedAt: row.sourceUpdatedAt?.toISOString() ?? null,
+  } satisfies ModelCatalogEntry;
+}
+
+function validateAccountMaxInflight(value: number | null | undefined): void {
+  if (
+    value !== null &&
+    value !== undefined &&
+    (!Number.isInteger(value) ||
+      value < ACCOUNT_MAX_INFLIGHT_BOUNDS.min ||
+      value > ACCOUNT_MAX_INFLIGHT_BOUNDS.max)
+  ) {
+    throw new ConsoleDomainError(
+      "invalid_account_max_inflight",
+      400,
+      `maxInflight must be an integer between ${ACCOUNT_MAX_INFLIGHT_BOUNDS.min} and ${ACCOUNT_MAX_INFLIGHT_BOUNDS.max}, or null`,
+    );
+  }
 }
 
 export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
@@ -218,49 +274,64 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
     return rows.length > 0;
   }
   async listModels(tenantId: string, providerId: string): Promise<readonly ModelCatalogEntry[]> {
+    const byProvider = await this.listModelsForTenant(tenantId, providerId);
+    return byProvider.get(providerId) ?? [];
+  }
+
+  /**
+   * Every enabled-and-disabled model row the tenant can see, grouped by
+   * provider. One pair of statements for the whole tenant instead of a pair per
+   * provider.
+   *
+   * The per-provider `listModels` shape costs two queries per call, so a caller
+   * that needs every provider's models — the flat catalog the picker renders —
+   * issued `2 * providers + 2` statements, growing with the bundled catalog.
+   * Grouping here makes it constant: one disabled-model read and one models
+   * join, regardless of provider count. `providerId` narrows it to a single
+   * provider for callers that already know which one they want.
+   */
+  async listModelsForTenant(
+    tenantId: string,
+    providerId?: string,
+  ): Promise<Map<string, readonly ModelCatalogEntry[]>> {
     const disabled = await this.db
-      .select({ modelId: tenantDisabledModels.modelId, endpointPath: tenantDisabledModels.endpointPath })
+      .select({
+        providerId: tenantDisabledModels.providerId,
+        modelId: tenantDisabledModels.modelId,
+        endpointPath: tenantDisabledModels.endpointPath,
+      })
       .from(tenantDisabledModels)
-      .where(and(eq(tenantDisabledModels.tenantId, tenantId), eq(tenantDisabledModels.providerId, providerId)));
-    const disabledKeys = new Set(disabled.map((d) => `${d.modelId}::${d.endpointPath}`));
+      .where(
+        providerId === undefined
+          ? eq(tenantDisabledModels.tenantId, tenantId)
+          : and(
+              eq(tenantDisabledModels.tenantId, tenantId),
+              eq(tenantDisabledModels.providerId, providerId),
+            ),
+      );
+    const disabledKeys = new Set(
+      disabled.map((d) => `${d.providerId}::${d.modelId}::${d.endpointPath}`),
+    );
     const dbRows = await this.db
       .select({ model: models })
       .from(models)
       .innerJoin(providers, eq(models.providerId, providers.id))
       .where(
         and(
-          eq(models.providerId, providerId),
+          ...(providerId === undefined ? [] : [eq(models.providerId, providerId)]),
           globalOrOwnedBy(providers.tenantId, tenantId),
         ),
       );
-    return dbRows.map(({ model: row }) => {
-      const isDisabled = disabledKeys.has(`${row.modelId}::${row.endpointPath}`);
-      const modalities =
-        row.modalities && typeof row.modalities === "object"
-          ? (row.modalities as { input?: unknown; output?: unknown })
-          : undefined;
-      const inputModalities = Array.isArray(modalities?.input) ? modalities.input : [];
-      const outputModalities = Array.isArray(modalities?.output) ? modalities.output : [];
-      return {
-        modelId: row.modelId,
-        route: row.endpointPath,
-        provider: row.providerId,
-        wireFamily: row.wireFamily,
-        enabled: isDisabled ? false : row.enabled,
-        contextLimit: row.contextLimit,
-        outputLimit: row.outputLimit,
-        reasoning: row.reasoning,
-        toolCall: row.toolCall,
-        vision: inputModalities.includes("image"),
-        document: inputModalities.includes("document"),
-        audio: inputModalities.includes("audio"),
-        mediaGeneration: outputModalities.includes("image"),
-        webSearch: row.webSearch,
-        cost: row.cost as ModelCatalogEntry["cost"],
-        source: row.source,
-        sourceUpdatedAt: row.sourceUpdatedAt?.toISOString() ?? null,
-      } satisfies ModelCatalogEntry;
-    });
+    const grouped = new Map<string, ModelCatalogEntry[]>();
+    for (const { model: row } of dbRows) {
+      const isDisabled = disabledKeys.has(
+        `${row.providerId}::${row.modelId}::${row.endpointPath}`,
+      );
+      const list = grouped.get(row.providerId) ?? [];
+      list.push(mapModelRow(row, isDisabled));
+      grouped.set(row.providerId, list);
+    }
+    return grouped;
   }
   async registerModels(
     tenantId: string,
@@ -512,6 +583,72 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
     return rows.length > 0;
   }
 
+  private async accountsWithUsage(
+    tenantId: string,
+    rows: readonly (typeof providerAccounts.$inferSelect)[],
+  ): Promise<readonly ProviderAccountResponse[]> {
+    if (rows.length === 0) return [];
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const accountIds = rows.map((row) => row.id);
+    const [todayRows, lifetimeRows] = await Promise.all([
+      this.db
+        .select({
+          accountId: telemetryEvents.accountId,
+          requests: sql<number>`count(*)`,
+          errors: sql<number>`count(*) filter (where ${telemetryEvents.status} in ('failed', 'truncated'))`,
+          inputTokens: sql<number>`coalesce(sum(${telemetryEvents.inputTokens}), 0)`,
+          outputTokens: sql<number>`coalesce(sum(${telemetryEvents.outputTokens}), 0)`,
+        })
+        .from(telemetryEvents)
+        .where(
+          and(
+            eq(telemetryEvents.tenantId, tenantId),
+            inArray(telemetryEvents.accountId, accountIds),
+            gte(telemetryEvents.createdAt, todayStart),
+          ),
+        )
+        .groupBy(telemetryEvents.accountId),
+      this.db
+        .select()
+        .from(telemetryUsageTotals)
+        .where(
+          and(
+            eq(telemetryUsageTotals.tenantId, tenantId),
+            eq(telemetryUsageTotals.identityType, "account"),
+            inArray(telemetryUsageTotals.entityId, accountIds),
+          ),
+        ),
+    ]);
+    const todayByAccount = new Map<string, (typeof todayRows)[number]>();
+    for (const row of todayRows) {
+      if (row.accountId !== null) todayByAccount.set(row.accountId, row);
+    }
+    const lifetimeByAccount = new Map(lifetimeRows.map((row) => [row.entityId, row]));
+    const mapUsage = (row: {
+      readonly requests: number | string | null;
+      readonly errors: number | string | null;
+      readonly inputTokens: number | string | null;
+      readonly outputTokens: number | string | null;
+    } | undefined): ProviderAccountTokenUsage => {
+      const inputTokens = Number(row?.inputTokens ?? 0);
+      const outputTokens = Number(row?.outputTokens ?? 0);
+      return {
+        requests: Number(row?.requests ?? 0),
+        errors: Number(row?.errors ?? 0),
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
+      };
+    };
+    return rows.map((row) =>
+      this.mapAccount(row, {
+        today: mapUsage(todayByAccount.get(row.id)),
+        allTime: mapUsage(lifetimeByAccount.get(row.id)),
+      }),
+    );
+  }
+
   async listAccounts(
     tenantId: string,
     providerId: string,
@@ -526,7 +663,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
         ),
       )
       .orderBy(asc(providerAccounts.createdAt), asc(providerAccounts.id));
-    return rows.map((row) => this.mapAccount(row));
+    return this.accountsWithUsage(tenantId, rows);
   }
 
   async listAllAccounts(tenantId: string): Promise<readonly ProviderAccountResponse[]> {
@@ -535,7 +672,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
       .from(providerAccounts)
       .where(globalOrOwnedBy(providerAccounts.tenantId, tenantId))
       .orderBy(asc(providerAccounts.createdAt), asc(providerAccounts.id));
-    return rows.map((row) => this.mapAccount(row));
+    return this.accountsWithUsage(tenantId, rows);
   }
 
   async createAccount(
@@ -547,6 +684,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
       request.credentialKind === "none" || request.secret.length === 0
         ? undefined
         : hashSecret(request.secret);
+    validateAccountMaxInflight(request.maxInflight);
     try {
       const rows = await this.db
         .insert(providerAccounts)
@@ -557,12 +695,15 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
           credentialCiphertext: encryptCredential(request.secret),
           ...(credentialFingerprint ? { credentialFingerprint } : {}),
           credentialKind: request.credentialKind,
+          maxInflight: request.maxInflight ?? null,
           status: "active",
         })
         .returning();
       const row = rows[0];
       if (!row) throw new Error("failed to create provider account");
-      return this.mapAccount(row);
+      const [account] = await this.accountsWithUsage(tenantId, [row]);
+      if (!account) throw new Error("created provider account could not be mapped");
+      return account;
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new ConsoleDomainError(
@@ -589,6 +730,10 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
         patch.secret.length === 0 ? null : hashSecret(patch.secret);
     }
     if (patch.status !== undefined) set.status = patch.status;
+    if (patch.maxInflight !== undefined) {
+      validateAccountMaxInflight(patch.maxInflight);
+      set.maxInflight = patch.maxInflight;
+    }
     // Re-enabling an account, or handing it a new credential, clears the failure
     // state the health machine recorded — the same reset `recoverAccount`
     // performs. Without it the stale mark outlived the condition it described: a
@@ -618,7 +763,9 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
           ? await this.db.update(providerAccounts).set(set).where(where).returning()
           : await this.db.select().from(providerAccounts).where(where);
       const row = rows[0];
-      return row ? this.mapAccount(row) : undefined;
+      if (!row) return undefined;
+      const [account] = await this.accountsWithUsage(tenantId, [row]);
+      return account;
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new ConsoleDomainError(
@@ -631,7 +778,13 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
     }
   }
 
-  private mapAccount(row: typeof providerAccounts.$inferSelect): ProviderAccountResponse {
+  private mapAccount(
+    row: typeof providerAccounts.$inferSelect,
+    usage: {
+      readonly today: ProviderAccountTokenUsage;
+      readonly allTime: ProviderAccountTokenUsage;
+    },
+  ): ProviderAccountResponse {
     return {
       id: row.id,
       providerId: row.providerId,
@@ -639,6 +792,9 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
       label: row.label,
       credentialKind: row.credentialKind,
       status: row.status,
+      maxInflight: row.maxInflight,
+      usageToday: usage.today,
+      usageAllTime: usage.allTime,
       consecutiveFailures: row.consecutiveFailures,
       ...(row.lastSuccessAt ? { lastSuccessAt: row.lastSuccessAt.toISOString() } : {}),
       ...(row.lastError ? { lastError: row.lastError } : {}),

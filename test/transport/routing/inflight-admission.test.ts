@@ -23,8 +23,29 @@ test("3 accounts x max_inflight 2 => 6 concurrent, not 2", async () => {
   for (let i = 0; i < 6; i++) {
     try { held.push(await e.reserve(plan)); } catch { /* rejected */ }
   }
-  console.log("admitted:", held.length, "accounts:", [...new Set(held.map(h=>h.candidate.provider_account_id))].sort().join(","));
   expect(held.length).toBe(6);
+  expect(held.filter((reservation) => reservation.candidate.provider_account_id === "A")).toHaveLength(2);
+  expect(held.filter((reservation) => reservation.candidate.provider_account_id === "B")).toHaveLength(2);
+  expect(held.filter((reservation) => reservation.candidate.provider_account_id === "C")).toHaveLength(2);
+});
+
+test("different account ceilings are enforced independently", async () => {
+  const engine = new RoutingEngine(new InMemoryAdmissionController());
+  const mixed = {
+    revision: 1,
+    candidates: [acct("A", 1), acct("B", 2)],
+    combos: {},
+    aliases: {},
+  } as never as RouteSnapshot;
+  const plan = await engine.plan("cb/m", mixed, null, []);
+  const held = [];
+  for (let i = 0; i < 4; i++) {
+    try { held.push(await engine.reserve(plan)); } catch { /* rejected at capacity */ }
+  }
+
+  expect(held).toHaveLength(3);
+  expect(held.filter((reservation) => reservation.candidate.provider_account_id === "A")).toHaveLength(1);
+  expect(held.filter((reservation) => reservation.candidate.provider_account_id === "B")).toHaveLength(2);
 });
 
 test("7th is rejected (all 3 buckets full at 2)", async () => {

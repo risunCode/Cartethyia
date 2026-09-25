@@ -182,7 +182,11 @@ CREATE TABLE "pool_routing_settings" (
 CREATE TABLE "api_keys" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "tenant_id" uuid NOT NULL,
-  "key_hash" text NOT NULL,
+  "key_hash" text,
+  "key_mode" text DEFAULT 'personal' NOT NULL,
+  "parent_key_id" uuid,
+  "issued_client_ip" text,
+  "issued_client_ip_key" text,
   "label" text NOT NULL,
   "scopes" jsonb NOT NULL,
   "requests_per_minute" integer,
@@ -202,7 +206,22 @@ CREATE TABLE "api_keys" (
   "notes_title" text,
   "notes_subtitle" text,
   "notes_body" text,
-  CONSTRAINT "api_keys_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade
+  CONSTRAINT "api_keys_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade,
+  CONSTRAINT "api_keys_parent_key_id_api_keys_id_fk" FOREIGN KEY ("parent_key_id") REFERENCES "api_keys"("id") ON DELETE cascade,
+  CONSTRAINT "api_keys_mode_shape_check" CHECK (
+    ("key_mode" = 'personal' AND "key_hash" IS NOT NULL AND "parent_key_id" IS NULL
+      AND "issued_client_ip" IS NULL AND "issued_client_ip_key" IS NULL)
+    OR
+    ("key_mode" = 'share' AND (
+      ("parent_key_id" IS NULL AND "key_hash" IS NULL
+        AND "key_encrypted" IS NULL
+        AND "issued_client_ip" IS NULL AND "issued_client_ip_key" IS NULL)
+      OR
+      ("parent_key_id" IS NOT NULL AND "key_hash" IS NOT NULL
+        AND "key_encrypted" IS NULL
+        AND "issued_client_ip" IS NOT NULL AND "issued_client_ip_key" IS NOT NULL)
+    ))
+  )
 );
 --> statement-breakpoint
 CREATE TABLE "console_users" (
@@ -217,7 +236,6 @@ CREATE TABLE "console_users" (
   "is_first_boot" boolean DEFAULT true NOT NULL,
   "created_at" timestamptz DEFAULT now() NOT NULL,
   "updated_at" timestamptz DEFAULT now() NOT NULL,
-  "last_login_at" timestamptz,
   CONSTRAINT "console_users_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade
 );
 --> statement-breakpoint
@@ -283,14 +301,6 @@ CREATE TABLE "admin_audit_log" (
   CONSTRAINT "admin_audit_log_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE set null
 );
 --> statement-breakpoint
-CREATE TABLE "backup_status" (
-  "id" integer PRIMARY KEY DEFAULT 1 NOT NULL,
-  "status" text DEFAULT 'idle' NOT NULL,
-  "last_backup_at" timestamptz,
-  "last_error" text,
-  "updated_at" timestamptz DEFAULT now() NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE "telemetry_events" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "created_at" timestamptz DEFAULT now() NOT NULL,
@@ -323,6 +333,21 @@ CREATE TABLE "telemetry_events" (
   CONSTRAINT "telemetry_events_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE TABLE "telemetry_usage_totals" (
+  "tenant_id" uuid NOT NULL,
+  "identity_type" text NOT NULL,
+  "entity_id" uuid NOT NULL,
+  "requests" bigint DEFAULT 0 NOT NULL,
+  "errors" bigint DEFAULT 0 NOT NULL,
+  "input_tokens" bigint DEFAULT 0 NOT NULL,
+  "output_tokens" bigint DEFAULT 0 NOT NULL,
+  "last_used_at" timestamptz NOT NULL,
+  "updated_at" timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT "telemetry_usage_totals_identity_pk" PRIMARY KEY ("tenant_id", "identity_type", "entity_id"),
+  CONSTRAINT "telemetry_usage_totals_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade,
+  CONSTRAINT "telemetry_usage_totals_identity_type_check" CHECK ("identity_type" IN ('account', 'api_key'))
+);
+--> statement-breakpoint
 CREATE TABLE "telemetry_payloads" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "tenant_id" uuid NOT NULL,
@@ -330,7 +355,6 @@ CREATE TABLE "telemetry_payloads" (
   "captured_at" timestamptz DEFAULT now() NOT NULL,
   "expires_at" timestamptz NOT NULL,
   "request_body" jsonb,
-  "redaction_applied" boolean DEFAULT true NOT NULL,
   CONSTRAINT "telemetry_payloads_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade
 );
 --> statement-breakpoint
@@ -338,15 +362,15 @@ CREATE UNIQUE INDEX "api_keys_key_hash_idx" ON "api_keys" USING btree ("key_hash
 --> statement-breakpoint
 CREATE INDEX "api_keys_tenant_id_idx" ON "api_keys" USING btree ("tenant_id");
 --> statement-breakpoint
-CREATE INDEX "providers_capability_profile_gin_idx" ON "providers" USING gin ("capability_profile");
+CREATE INDEX "api_keys_parent_key_id_idx" ON "api_keys" USING btree ("parent_key_id");
+--> statement-breakpoint
+CREATE UNIQUE INDEX "api_keys_active_shared_ip_uidx" ON "api_keys" USING btree ("issued_client_ip_key") WHERE "parent_key_id" IS NOT NULL AND "revoked_at" IS NULL;
 --> statement-breakpoint
 CREATE UNIQUE INDEX "models_provider_model_route_uidx" ON "models" USING btree ("provider_id", "model_id", "endpoint_path");
 --> statement-breakpoint
 CREATE INDEX "models_provider_enabled_idx" ON "models" USING btree ("provider_id", "enabled");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "tenant_disabled_models_tenant_provider_model_uidx" ON "tenant_disabled_models" USING btree ("tenant_id", "provider_id", "model_id", "endpoint_path");
---> statement-breakpoint
-CREATE INDEX "tenant_disabled_models_tenant_idx" ON "tenant_disabled_models" USING btree ("tenant_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "provider_accounts_identity_uidx" ON "provider_accounts" USING btree ("provider_id", (coalesce("tenant_id", '00000000-0000-0000-0000-000000000000'::uuid)), "credential_fingerprint");
 --> statement-breakpoint
@@ -372,11 +396,7 @@ CREATE UNIQUE INDEX "provider_routing_settings_global_provider_idx" ON "provider
 --> statement-breakpoint
 CREATE UNIQUE INDEX "idx_console_lockouts_ip" ON "console_lockouts" USING btree ("ip");
 --> statement-breakpoint
-CREATE INDEX "idx_console_lockouts_locked_until" ON "console_lockouts" USING btree ("locked_until");
---> statement-breakpoint
 CREATE INDEX "idx_console_sessions_user_id" ON "console_sessions" USING btree ("user_id");
---> statement-breakpoint
-CREATE INDEX "idx_console_sessions_expires_at" ON "console_sessions" USING btree ("expires_at");
 --> statement-breakpoint
 CREATE INDEX "idx_console_users_tenant_id" ON "console_users" USING btree ("tenant_id");
 --> statement-breakpoint
@@ -394,6 +414,8 @@ CREATE INDEX "telemetry_events_request_id_idx" ON "telemetry_events" USING btree
 --> statement-breakpoint
 CREATE INDEX "telemetry_events_api_key_created_idx" ON "telemetry_events" USING btree ("api_key_id", "created_at");
 --> statement-breakpoint
+CREATE INDEX "telemetry_events_tenant_account_created_idx" ON "telemetry_events" USING btree ("tenant_id", "account_id", "created_at");
+--> statement-breakpoint
 CREATE INDEX "telemetry_payloads_request_id_idx" ON "telemetry_payloads" USING btree ("request_id");
 --> statement-breakpoint
 CREATE INDEX "telemetry_payloads_tenant_request_idx" ON "telemetry_payloads" USING btree ("tenant_id", "request_id");
@@ -404,12 +426,13 @@ CREATE TABLE "share_links" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "api_key_id" uuid NOT NULL REFERENCES "api_keys" ("id") ON DELETE CASCADE,
   "token_hash" text NOT NULL,
-  "kind" text NOT NULL DEFAULT 'monitor',
+  "kind" text NOT NULL DEFAULT 'enroll',
   "active" boolean NOT NULL DEFAULT true,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "expires_at" timestamptz,
   "used_at" timestamptz,
-  "last_viewed_at" timestamptz
+  "last_viewed_at" timestamptz,
+  CONSTRAINT "share_links_kind_check" CHECK ("kind" = 'enroll')
 );
 --> statement-breakpoint
 CREATE TABLE "studio_sessions" (

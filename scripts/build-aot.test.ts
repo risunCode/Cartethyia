@@ -70,15 +70,14 @@ describe("AOT build contract", () => {
     expect(fx.exitCode).toBe(1);
   });
 
-  it("invokes Bun.build with the pinned entrypoint, outdir, target, and one plugin", async () => {
+  it("invokes Bun.build with the pinned entrypoint, outdir, and target", async () => {
     const fx = new Fixture();
     await run(fx);
     const config = fx.lastConfig as
-      | { entrypoints: readonly string[]; outdir: string; target: string; plugins: readonly unknown[] }
+      | { entrypoints: readonly string[]; outdir: string; target: string }
       | undefined;
     expect(config?.entrypoints).toEqual(["src/main.ts"]);
     expect(config?.outdir).toBe("dist");
     expect(config?.target).toBe("bun");
-    expect(config?.plugins).toHaveLength(1);
   });
 });

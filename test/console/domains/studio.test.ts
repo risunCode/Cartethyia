@@ -111,6 +111,11 @@ function memoryKeys(): ApiKeyStore & { rows: ApiKeyRecord[] } {
     async get(tenantId, keyId) {
       return rows.find((r) => r.tenantId === tenantId && r.id === keyId);
     },
+    async listChildren(tenantId, parentKeyId) {
+      return rows.filter(
+        (r) => r.tenantId === tenantId && r.parentKeyId === parentKeyId,
+      );
+    },
     async create(record) {
       rows.push(record);
     },
@@ -146,6 +151,7 @@ function defaultKeyRow(overrides: Partial<ApiKeyRecord> = {}): ApiKeyRecord {
   return {
     id: "default-key",
     tenantId: "tenant-a",
+    keyMode: "personal",
     keyHash: hashSecret(DEFAULT_KEY_SECRET),
     label: DEFAULT_API_KEY_LABEL,
     scopes: ["routing:invoke"],

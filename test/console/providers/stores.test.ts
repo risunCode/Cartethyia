@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { eq, inArray } from "drizzle-orm";
 import { getDb, type CartethyiaDatabase } from "../../../src/persistence/postgres";
 import { dbDescribe } from "../../helpers/db-gate";
-import { tenants, providers, healthEvents, providerAccounts } from "../../../src/persistence/schema";
+import { tenants, providers, healthEvents, providerAccounts, providerRoutingSettings } from "../../../src/persistence/schema";
 import { DrizzleProviderCatalogStore } from "../../../src/console/providers/catalog/store";
 import { DrizzleProviderDetailStore } from "../../../src/console/providers/detail/store";
 import { CLINE_MODELS } from "../../../src/providers/integrations/cline/cline";
@@ -184,6 +184,57 @@ dbDescribe("DrizzleProviderCatalogStore — account ownership boundary", () => {
 });
 
 describe("provider-detail.test.ts", () => {
+dbDescribe("DrizzleProviderDetailStore — global routing upsert", () => {
+  // The global routing row is guarded by a *partial* unique index
+  // (`WHERE tenant_id IS NULL`). An `onConflictDoUpdate` target of
+  // `(provider_id)` alone cannot match a partial index, so Postgres rejects the
+  // statement with `42P10` and every global routing write failed. The target
+  // must carry `targetWhere` naming the predicate; this asserts the write
+  // succeeds and that a second call updates rather than inserting a duplicate.
+  let db: CartethyiaDatabase;
+  let store: DrizzleProviderDetailStore;
+  const tenantId = randomUUID();
+  const providerId = `detail-global-${randomUUID().slice(0, 8)}`;
+
+  beforeAll(async () => {
+    db = getDb();
+    store = new DrizzleProviderDetailStore(db);
+    await db
+      .insert(tenants)
+      .values({ id: tenantId, name: "detail-global-test", status: "active" })
+      .onConflictDoNothing();
+    await db.insert(providers).values({ id: providerId, tenantId, enabled: true });
+  });
+
+  afterAll(async () => {
+    await db.delete(providerRoutingSettings).where(eq(providerRoutingSettings.providerId, providerId));
+    await db.delete(providers).where(eq(providers.id, providerId));
+    await db.delete(tenants).where(eq(tenants.id, tenantId));
+  });
+
+  test("upserts the global (tenant-less) routing row twice without a 42P10", async () => {
+    const first = await store.updateRouting(providerId, null, {
+      enabled: true,
+      strategy: "round_robin",
+    });
+    expect(first.tenantId).toBeNull();
+    expect(first.strategy).toBe("round_robin");
+
+    // The second write is the one that used to fail: it must update in place.
+    const second = await store.updateRouting(providerId, null, { enabled: false });
+    expect(second.enabled).toBe(false);
+    // Still one row — a failed conflict target would have thrown, and a
+    // mismatched one would have inserted a second global row.
+    expect(second.strategy).toBe("round_robin");
+
+    const rows = await db
+      .select()
+      .from(providerRoutingSettings)
+      .where(eq(providerRoutingSettings.providerId, providerId));
+    expect(rows).toHaveLength(1);
+  });
+});
+
 /**
  * Minimal Drizzle-compatible query builder stub covering the exact call
  * shapes used by DrizzleProviderDetailStore: select → where → limit, and

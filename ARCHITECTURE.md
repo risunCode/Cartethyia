@@ -35,9 +35,8 @@ Two planes share one process (`src/main.ts` → `bootstrap()` in
   dispatch) → protocol codecs → provider adapters → network egress, guarded
   by security layers and recorded by observability.
 - **Control plane** — `/console/api/*` dashboard API plus the public
-  `/share/*` surface: operator mutations with per-tenant access checks,
-  audit rows, and route-snapshot invalidation so the next `/v1/*` request
-  picks up changes without a restart.
+  `/share/:token` enrollment surface: per-tenant operator mutations and
+  metadata-only child-key telemetry with trusted-IP enrollment limits.
 
 `src/app.ts` exposes a single builder, `createGatewayApp(deps)`, whose `mode`
 discriminant selects how much of the process mounts:
@@ -56,7 +55,8 @@ prepare) → `RoutingEngine.plan()` (alias → combo → ambiguity → eligibili
 → capability filter → provider-routing reorder) → leases (admission →
 pool slot → reservation) → provider adapter dispatch (stream primed before
 the 200 commits) → `completeAttempt()` (usage, health, capture, exactly one
-telemetry row).
+telemetry row); the persistence batch transaction also updates durable account
+and API-key usage totals.
 
 ## Doc map
 
@@ -74,20 +74,21 @@ telemetry row).
 
 | Layer | Doc | Covers |
 |---|---|---|
-| console | `src/console/CONSOLE.md` | Conventions, cookie auth and first-boot, catalog and accounts, alias/combo and pools, domains and Studio, CLI tools, quota views, runtime settings, backup/restore and router-export import, share pages ([injector contract](src/console/cli-tools/injectors/CONTRACT.md)) |
+| console | `src/console/CONSOLE.md` | Conventions, cookie auth and first-boot, catalog/accounts, account concurrency and usage, API-key modes and shared-key enrollment/activity, alias/combo and pools, CLI tools, quotas, runtime settings, backup/restore |
 
 ### Foundation
 
 | Layer | Doc | Covers |
 |---|---|---|
-| persistence | `src/persistence/PERSISTENCE.md` | Schema groups, pool singletons, migration ledger, stores |
+| persistence | `src/persistence/PERSISTENCE.md` | Schema groups, durable telemetry totals, pool singletons, migration ledger, stores |
 | runtime | `src/runtime/RUNTIME.md` | Boot order, shutdown stages, timeout/backoff/TTL-cache |
 | observability | `src/observability/OBSERVABILITY.md` | Telemetry pipeline, logger, metrics, payloads, gauges |
 | workers | `src/workers/WORKERS.md` | Scheduler semantics, task table, OAuth + quota sweeps |
 
 ## Other trees (not covered by layer docs)
 
-- `dashboard/` — React/Vite console, landing, and share apps. Its map and
+- `dashboard/` — React/Vite console and landing, with public share enrollment
+  mounted through the shared `index.html` and isolated share CSS. Its map and
   browser-safe import rules live in `dashboard/README.md`.
 - `test/` — backend tests mirroring `src/`, plus `contracts`, `integration`,
   `architecture` (naming contracts), `frontend`, `helpers`; loose root files

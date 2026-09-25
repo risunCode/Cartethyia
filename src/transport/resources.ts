@@ -17,11 +17,15 @@ export const DEFAULT_BOUNDS = {
    * demand and returns them to idle, so a value the workload never reaches
    * costs nothing today — it only bounds the worst case. The old value (60)
    * was justified in a comment as "bursty 10k-inflight traffic", which is a
-   * property of the proxy path, and the proxy path issues **zero** Postgres
-   * queries: the routing snapshot is served from `InMemoryRouteSnapshotService`
-   * and admission counters live in Redis. The actual database consumers are
-   * the console API, one telemetry flush at a time, the worker sweeps
-   * (`runGrowingWaves`, at most 5 concurrent), auth, and readiness.
+   * property of the proxy path. The proxy path is *mostly* database-free —
+   * routing comes from `InMemoryRouteSnapshotService` and admission counters
+   * live in Redis — but not entirely: a dispatch attempt resolves its
+   * credential with a per-attempt read, health transitions write, and tenant
+   * preferences are read behind a short cache. Those are small, bounded reads
+   * on the request's own attempt, not a per-request fan-out. The larger
+   * database consumers remain the console API, one telemetry flush at a time,
+   * the worker sweeps (`runGrowingWaves`, at most 5 concurrent), auth, and
+   * readiness.
    *
    * 20 leaves headroom over that without letting one process hold a large
    * share of the server's `max_connections` (Postgres defaults to 100), which

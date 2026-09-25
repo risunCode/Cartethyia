@@ -65,10 +65,13 @@ export function createModelCatalogOperations(config: ProviderCatalogConfig) {
       const entriesByQualified = new Map<string, ModelCatalogEntry>();
       const rank = (entry: ModelCatalogEntry): number =>
         (entry.source === "builtin" ? 2 : 0) + (entry.contextLimit ?? 0);
+      // One bulk read for every provider the tenant can see, instead of a pair
+      // of queries per provider inside the loop below.
+      const modelsByProvider = await config.store.listModelsForTenant(a.tenantId);
       for (const provider of providers) {
         if (provider.requiresAccount !== false && (accountsByProvider.get(provider.providerId) ?? 0) === 0)
           continue;
-        for (const entry of await config.store.listModels(a.tenantId, provider.providerId)) {
+        for (const entry of modelsByProvider.get(provider.providerId) ?? []) {
           if (entry.enabled === false) continue;
           const qualified = `${provider.providerId}/${entry.modelId}`;
           const existing = entriesByQualified.get(qualified);

@@ -27,6 +27,7 @@ import { maskClientIp } from "../../../observability/redaction";
 import { splitEndpointConfig } from "../../../network/pool/agent";
 import { extractPayloadFileReference, readPayloadFrame } from "../../../observability/payload-store";
 import { ConsoleDomainError } from "../../shared/errors";
+import { shouldMaskClientIp } from "../../shared/ip-privacy";
 
 function mapTelemetryEventRow(event: typeof telemetryEvents.$inferSelect): TelemetryEventView {
   return {
@@ -116,23 +117,6 @@ function chartBucketSeconds(period: string): number {
   return 86_400;
 }
 
-/**
- * Fail-closed privacy gate for client IP presentation: masked unless the
- * tenant explicitly opts into full display. Mirrors the 21.beta contract —
- * storage keeps raw values, only the read path masks.
- */
-async function privacyHidesClientIp(
-  preferences: PreferencesReader,
-  tenantId: string,
-): Promise<boolean> {
-  try {
-    const prefs = await preferences.readPreferences(tenantId);
-    return prefs?.privacyMode !== "full";
-  } catch {
-    // Fail closed: an unreadable preference hides the IP rather than exposing it.
-    return true;
-  }
-}
 
 function mapUsageRequestItem(
   event: typeof telemetryEvents.$inferSelect,
@@ -535,7 +519,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
     if (dimension === "client_ip") {
       // Same fail-closed gate as the request list: storage keeps the raw
       // address, only presentation masks it.
-      const hideClientIp = await privacyHidesClientIp(this.preferences, tenantId);
+      const hideClientIp = await shouldMaskClientIp(this.preferences, tenantId);
       if (!hideClientIp) return { rows: mapped };
       // Grouping happened on the raw address, so masking can collapse distinct
       // hosts into one display name (`203.0.113.7` and `203.0.113.9` both become
@@ -629,7 +613,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
       .where(filter)
       .orderBy(desc(telemetryEvents.createdAt), desc(telemetryEvents.id))
       .limit(limit);
-    const hideClientIp = await privacyHidesClientIp(this.preferences, tenantId);
+    const hideClientIp = await shouldMaskClientIp(this.preferences, tenantId);
     return { items: rows.map((row) => mapUsageRequestItem(row, hideClientIp)) };
   }
   async usageRequestDetail(
@@ -644,7 +628,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
       .limit(1);
     const event = rows[0];
     if (!event) return undefined;
-    const hideClientIp = await privacyHidesClientIp(this.preferences, tenantId);
+    const hideClientIp = await shouldMaskClientIp(this.preferences, tenantId);
     const item = mapUsageRequestItem(event, hideClientIp);
     const keyLabel = event.apiKeyId
       ? (await this.apiKeyLabels(tenantId, [event.apiKeyId])).get(event.apiKeyId)

@@ -2,7 +2,7 @@ import type { FetchLike, ProviderQuotaResult } from "./quota-contracts";
 import { cleanError, unsupportedQuota } from "./quota-contracts";
 import { type ProviderRegistry, resolveProviderId } from "../provider-registry";
 import { providerBaseUrl } from "../provider-metadata";
-import { GATEWAY_PROBE_USER_AGENT } from "../operations/gateway-user-agent";
+import { createProbeFetch } from "../operations/probe-fetch";
 /**
  * Verifies an API key against the provider's OpenAI-compatible `/models`
  * endpoint. For providers that expose no billing/quota surface, a reachable
@@ -23,9 +23,8 @@ export async function probeApiKeyConnectivity(
   }
   let response: Response;
   try {
-    response = await fetcher(`${base}/models`, {
-      // Key-validity probes identify as the gateway, matching the probe path.
-      headers: { accept: "application/json", authorization: `Bearer ${credential}`, "user-agent": GATEWAY_PROBE_USER_AGENT },
+    response = await createProbeFetch(fetcher)(`${base}/models`, {
+      headers: { accept: "application/json", authorization: `Bearer ${credential}` },
       signal: AbortSignal.timeout(15_000),
     });
   } catch (error) {

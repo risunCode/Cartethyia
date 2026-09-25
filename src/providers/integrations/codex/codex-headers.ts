@@ -20,8 +20,6 @@ interface CodexIdentityHeadersOptions {
   readonly conversationId?: string | undefined;
   readonly installationId?: string | undefined;
   readonly turnMetadataJson?: string | undefined;
-  /** Header variant of turn metadata (without tool_namespaces_info) — same as turnMetadataJson for Cartethyia's simple shape. */
-  readonly turnMetadataHeaderJson?: string | undefined;
   readonly betaFeatures?: string | undefined;
   readonly subAgent?: string | undefined;
   readonly responsesLite?: boolean | undefined;
@@ -83,11 +81,6 @@ export function buildCodexIdentityHeaders(
     headers["x-codex-installation-id"] = options.installationId;
   }
   if (
-    options.turnMetadataHeaderJson !== undefined &&
-    options.turnMetadataHeaderJson.length > 0
-  ) {
-    headers["x-codex-turn-metadata"] = options.turnMetadataHeaderJson;
-  } else if (
     options.turnMetadataJson !== undefined &&
     options.turnMetadataJson.length > 0
   ) {
@@ -115,8 +108,7 @@ export function buildCodexIdentityHeaders(
 }
 
 /**
- * Builds the Codex `client_metadata` envelope and both variants of
- * turn-metadata JSON. Mirrors provider `createCodexRequestMetadata`.
+ * Builds the Codex `client_metadata` envelope and turn-metadata JSON.
  */
 export function createCodexRequestMetadata(args: {
   installationId: string;
@@ -131,7 +123,6 @@ export function createCodexRequestMetadata(args: {
 }): {
   clientMetadata: Record<string, string>;
   turnMetadataJson: string;
-  turnMetadataHeaderJson: string;
 } {
   const requestKind = args.requestKind ?? "turn";
   const turnMetadata: Record<string, unknown> = {
@@ -148,8 +139,7 @@ export function createCodexRequestMetadata(args: {
     turnMetadata["compaction"] = args.compaction;
   if (args.turnStartedAtUnixMs !== undefined)
     turnMetadata["turn_started_at_unix_ms"] = args.turnStartedAtUnixMs;
-  const turnMetadataHeaderJson = toAsciiJsonString(turnMetadata);
-  const turnMetadataJson = turnMetadataHeaderJson;
+  const turnMetadataJson = toAsciiJsonString(turnMetadata);
   const clientMetadata: Record<string, string> = {
     "x-codex-installation-id": args.installationId,
     session_id: args.sessionId,
@@ -160,5 +150,5 @@ export function createCodexRequestMetadata(args: {
   if (args.parentTurnId !== undefined && args.parentTurnId.length > 0)
     clientMetadata["parent_turn_id"] = args.parentTurnId;
   clientMetadata["x-codex-turn-metadata"] = turnMetadataJson;
-  return { clientMetadata, turnMetadataJson, turnMetadataHeaderJson };
+  return { clientMetadata, turnMetadataJson };
 }
