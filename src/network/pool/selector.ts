@@ -298,6 +298,29 @@ export class NetworkPoolSelector {
     return `proxy:cooldown:providers:${poolId}`;
   }
 
+  /** One cooldown marker plus its index entry, written atomically. */
+  private static readonly COOLDOWN_FLAG_SCRIPT = `
+    redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+    redis.call('SADD', KEYS[2], ARGV[3])
+    -- The index set must outlive every marker it lists, or it is evicted while
+    -- a cooldown is still active and the pair becomes invisible to other
+    -- processes. EXPIRE ... GT only ever extends, so a later short cooldown
+    -- cannot shorten a longer one already indexed.
+    local ttl = redis.call('TTL', KEYS[1])
+    if ttl > 0 then
+      local current = redis.call('TTL', KEYS[2])
+      if current < 0 or ttl > current then redis.call('EXPIRE', KEYS[2], ttl) end
+    end
+    return 1
+  `;
+
+  /** Clears one cooldown marker and its index entry atomically. */
+  private static readonly COOLDOWN_CLEAR_SCRIPT = `
+    redis.call('DEL', KEYS[1])
+    redis.call('SREM', KEYS[2], ARGV[1])
+    return 1
+  `;
+
   private redisInflightKey(poolId: string): string {
     return `proxy:inflight:${poolId}`;
   }
@@ -320,13 +343,20 @@ export class NetworkPoolSelector {
     if (this.redis) {
       try {
         const ttlSec = Math.max(1, Math.ceil(durationMs / 1000));
-        await this.redis.set(
+        // One script, not `SET` then `SADD`: a crash between the two left the
+        // marker unindexed (invisible to the pool listing) or the index
+        // pointing at a marker that expired. The script also arms the index
+        // set's own TTL, which previously had none and so grew without bound.
+        await redisEvalNumber(
+          this.redis,
+          NetworkPoolSelector.COOLDOWN_FLAG_SCRIPT,
+          2,
           this.redisCooldownKey(poolId, providerId),
+          this.redisCooldownProvidersKey(poolId),
           JSON.stringify(entry),
-          "EX",
           ttlSec,
+          entry.providerId,
         );
-        await this.redis.sadd(this.redisCooldownProvidersKey(poolId), entry.providerId);
       } catch {
         // The local entry remains conservative for this process.
       }
@@ -356,8 +386,7 @@ export class NetworkPoolSelector {
           return { inCooldown: true, resetsAt: new Date(parsed.until), reason: parsed.reason };
         }
         if (raw) {
-          await this.redis.del(this.redisCooldownKey(poolId, providerId));
-          await this.redis.srem(this.redisCooldownProvidersKey(poolId), providerId.toLowerCase());
+          await this.clearRedisCooldown(poolId, providerId);
         }
       } catch {
         return {
@@ -415,11 +444,46 @@ export class NetworkPoolSelector {
   async clearProviderCooldown(poolId: string, providerId: string): Promise<void> {
     this.cooldowns.delete(this.cooldownKey(poolId, providerId));
     if (!this.redis) return;
-    await this.redis.del(this.redisCooldownKey(poolId, providerId));
-    await this.redis.srem(
+    await this.clearRedisCooldown(poolId, providerId);
+  }
+
+  /**
+   * Removes one cooldown marker and its index entry in one atomic step.
+   *
+   * The two writes used to be separate `DEL` + `SREM`, so a crash between them
+   * left the index listing a provider whose marker was gone — a pool would
+   * report a cooldown that no longer applied until the index entry expired.
+   */
+  private async clearRedisCooldown(poolId: string, providerId: string): Promise<void> {
+    if (!this.redis) return;
+    await redisEvalNumber(
+      this.redis,
+      NetworkPoolSelector.COOLDOWN_CLEAR_SCRIPT,
+      2,
+      this.redisCooldownKey(poolId, providerId),
       this.redisCooldownProvidersKey(poolId),
       providerId.toLowerCase(),
     );
+  }
+
+  /**
+   * Drops every cooldown this pool holds, marker and index together.
+   *
+   * Called when a pool is deleted: without it the index set and its markers
+   * outlive the pool row, so a later pool reusing the id inherits cooldowns it
+   * never earned.
+   */
+  async clearPoolCooldowns(poolId: string): Promise<void> {
+    for (const key of [...this.cooldowns.keys()]) {
+      if (key.startsWith(`${poolId}::`)) this.cooldowns.delete(key);
+    }
+    if (!this.redis) return;
+    const indexKey = this.redisCooldownProvidersKey(poolId);
+    const providerIds = await this.redis.smembers(indexKey);
+    for (const providerId of providerIds) {
+      await this.redis.del(this.redisCooldownKey(poolId, providerId));
+    }
+    await this.redis.del(indexKey);
   }
 
   /**

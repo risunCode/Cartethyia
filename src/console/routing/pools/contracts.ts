@@ -493,6 +493,11 @@ export function createNetworkPoolOperations(config: NetworkPoolConfig) {
         const ok = await config.store.delete(a.tenantId, poolId);
         if (!ok) throw new ConsoleDomainError("pool_not_found", 404, `Pool ${poolId} not found`);
         await config.poolAgentReleaser?.releasePool(poolId, a.tenantId);
+        // Drop the pool's cooldown markers and their index set with it. Without
+        // this the Redis keys outlive the row, so a pool later reusing the id
+        // inherits cooldowns it never earned — and the index set, which has no
+        // TTL of its own, would keep listing them.
+        await config.poolSelector?.clearPoolCooldowns(poolId);
         await config.auditSink?.record({
           access: a,
           action: "network_pool.deleted",

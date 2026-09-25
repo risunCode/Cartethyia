@@ -63,6 +63,32 @@ function cooldownRedis(): CooldownRedisDouble & RedisClient {
       }
       return removed;
     },
+    /**
+     * Emulates the two cooldown scripts the selector now issues.
+     *
+     * Flagging and clearing are each one atomic script rather than a
+     * `SET`/`SADD` (or `DEL`/`SREM`) pair, so a double without `eval` would
+     * make every flag call throw into the selector's best-effort catch — the
+     * tests would pass while asserting nothing about the write path.
+     */
+    async eval(script: string, _numKeys: number, ...args: unknown[]): Promise<number> {
+      const [key, indexKey] = args.slice(0, 2) as [string, string];
+      const rest = args.slice(2) as string[];
+      if (script.includes("SADD")) {
+        // KEYS[1]=marker, KEYS[2]=index; ARGV[1]=json, ARGV[2]=ttlSec, ARGV[3]=providerId.
+        entries.set(key, rest[0]!);
+        const set = sets.get(indexKey) ?? new Set<string>();
+        sets.set(indexKey, set);
+        set.add(rest[2]!);
+        return 1;
+      }
+      if (script.includes("SREM")) {
+        entries.delete(key);
+        sets.get(indexKey)?.delete(rest[0]!);
+        return 1;
+      }
+      throw new Error(`cooldownRedis double: unrecognized script`);
+    },
   } as unknown as CooldownRedisDouble & RedisClient;
 }
 

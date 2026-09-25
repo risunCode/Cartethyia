@@ -137,7 +137,7 @@ interface MergedModelRow {
  * performed before this function runs, so no static-vs-DB merge is needed.
  */
 function mergeModelCatalog(
-  dbRows: readonly (typeof models.$inferSelect)[],
+  dbRows: readonly ModelRouteRow[],
 ): MergedModelRow[] {
   return dbRows
     .filter((row) => row.enabled)
@@ -154,6 +154,107 @@ function mergeModelCatalog(
     }));
 }
 
+/**
+ * Column projections for the snapshot read.
+ *
+ * The builder reads a handful of fields from each table, but the read used to
+ * be a bare `select()` — every column of all ten tables, including
+ * `provider_accounts.credential_ciphertext` and `network_pools.
+ * endpoint_config`, which the snapshot never touches. That ciphertext is the
+ * largest thing the gateway stores per account, and the snapshot is rebuilt on
+ * every catalog change, so the bytes were transferred and then discarded on
+ * every rebuild. The projection keeps the query count at ten and drops the
+ * payload to what is actually read.
+ *
+ * Each object doubles as the row type (`ModelRouteRow` and friends are derived
+ * from it), so a column added here is automatically typed, and a column the
+ * builder starts reading but is missing here fails to compile rather than
+ * silently reading `undefined`.
+ */
+const PROVIDER_COLUMNS = {
+  id: providers.id,
+  tenantId: providers.tenantId,
+  requiresAccount: providers.requiresAccount,
+} as const;
+
+const MODEL_COLUMNS = {
+  providerId: models.providerId,
+  modelId: models.modelId,
+  wireFamily: models.wireFamily,
+  endpointPath: models.endpointPath,
+  modalities: models.modalities,
+  reasoning: models.reasoning,
+  toolCall: models.toolCall,
+  webSearch: models.webSearch,
+  enabled: models.enabled,
+} as const;
+
+const ACCOUNT_COLUMNS = {
+  id: providerAccounts.id,
+  providerId: providerAccounts.providerId,
+  tenantId: providerAccounts.tenantId,
+  label: providerAccounts.label,
+  status: providerAccounts.status,
+  maxInflight: providerAccounts.maxInflight,
+  cooldownUntil: providerAccounts.cooldownUntil,
+  modelCooldowns: providerAccounts.modelCooldowns,
+} as const;
+
+const ALIAS_COLUMNS = {
+  tenantId: modelAliases.tenantId,
+  alias: modelAliases.alias,
+  targetModel: modelAliases.targetModel,
+} as const;
+
+const COMBO_COLUMNS = {
+  tenantId: modelCombos.tenantId,
+  name: modelCombos.name,
+  members: modelCombos.members,
+  strategy: modelCombos.strategy,
+} as const;
+
+const ROUTING_COLUMNS = {
+  providerId: providerRoutingSettings.providerId,
+  tenantId: providerRoutingSettings.tenantId,
+  strategy: providerRoutingSettings.strategy,
+  rotateCount: providerRoutingSettings.rotateCount,
+  maxInflight: providerRoutingSettings.maxInflight,
+  enabled: providerRoutingSettings.enabled,
+  bypassProxy: providerRoutingSettings.bypassProxy,
+} as const;
+
+const POOL_COLUMNS = {
+  id: networkPools.id,
+  tenantId: networkPools.tenantId,
+  status: networkPools.status,
+  maxInflight: networkPools.maxInflight,
+  weight: networkPools.weight,
+} as const;
+
+const DISABLED_MODEL_COLUMNS = {
+  tenantId: tenantDisabledModels.tenantId,
+  providerId: tenantDisabledModels.providerId,
+  modelId: tenantDisabledModels.modelId,
+  endpointPath: tenantDisabledModels.endpointPath,
+} as const;
+
+const CLI_MAPPING_COLUMNS = {
+  tenantId: cliToolMappings.tenantId,
+  toolId: cliToolMappings.toolId,
+  sourceModel: cliToolMappings.sourceModel,
+  targetModel: cliToolMappings.targetModel,
+  enabled: cliToolMappings.enabled,
+} as const;
+
+const POOL_SETTING_COLUMNS = {
+  tenantId: poolRoutingSettings.tenantId,
+  strategy: poolRoutingSettings.strategy,
+  rotateCount: poolRoutingSettings.rotateCount,
+} as const;
+
+/** A row of `models` as this module reads it. */
+type ModelRouteRow = { [K in keyof typeof MODEL_COLUMNS]: (typeof models.$inferSelect)[K] };
+
 /** Snapshot load result from the 10-table catalog read. */
 type RouteCatalogSnapshotResult = Omit<RouteSnapshot, "revision" | "created_at"> & { created_at?: number };
 
@@ -164,20 +265,20 @@ class RouteCatalogRepository {
   async loadRouteCatalogSnapshot(tenantId?: string): Promise<RouteCatalogSnapshotResult> {
     const [providerRows, modelRows, accountRows, aliasRows, comboRows, routingRows, poolRows, disabledModelRows, cliMappingRows, poolSettingRows] =
       await Promise.all([
-        this.db.select().from(providers).where(eq(providers.enabled, true)),
-        this.db.select().from(models),
+        this.db.select(PROVIDER_COLUMNS).from(providers).where(eq(providers.enabled, true)),
+        this.db.select(MODEL_COLUMNS).from(models),
         this.db
-          .select()
+          .select(ACCOUNT_COLUMNS)
           .from(providerAccounts)
           .where(ne(providerAccounts.status, "disabled"))
           .orderBy(asc(providerAccounts.status), asc(providerAccounts.createdAt), asc(providerAccounts.id)),
-        this.db.select().from(modelAliases),
-        this.db.select().from(modelCombos),
-        this.db.select().from(providerRoutingSettings),
-        this.db.select().from(networkPools),
-        this.db.select().from(tenantDisabledModels),
-        this.db.select().from(cliToolMappings),
-        this.db.select().from(poolRoutingSettings),
+        this.db.select(ALIAS_COLUMNS).from(modelAliases),
+        this.db.select(COMBO_COLUMNS).from(modelCombos),
+        this.db.select(ROUTING_COLUMNS).from(providerRoutingSettings),
+        this.db.select(POOL_COLUMNS).from(networkPools),
+        this.db.select(DISABLED_MODEL_COLUMNS).from(tenantDisabledModels),
+        this.db.select(CLI_MAPPING_COLUMNS).from(cliToolMappings),
+        this.db.select(POOL_SETTING_COLUMNS).from(poolRoutingSettings),
       ]);
     const mergedModelRows = mergeModelCatalog(modelRows);
 
