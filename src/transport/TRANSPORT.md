@@ -5,10 +5,11 @@ Responses, Anthropic Messages, legacy Completion) into one canonical vocabulary,
 with unified failover, watchdogs, usage repricing, health, and telemetry. Provider wires, the canonical schema registry,
 outbound socket policy, persistence, and the dashboard live elsewhere; this subtree owns only the gateway path.
 
-**Lifecycle:** ingress (single body read) → ordered pipeline (readiness → identity → IP-abuse → auth → canonical parse → route
+**Lifecycle:** ingress (single body read) → ordered pipeline (readiness → identity → auth → canonical parse → route
 prepare) → capability preflight + variant planning → `RoutingEngine.plan()` → leases (admission → pool slot → reservation) →
 adapter dispatch (stream primed before the 200 commits) → `completeAttempt()` (usage, health, capture, one telemetry row) →
-surface encode.
+surface encode. The per-IP abuse check is not a pipeline stage: it mounts at the root on the `request` hook so it runs for
+every `/v1/*` request, including paths that match no route — see `security/SECURITY.md`.
 
 ## Layout
 
@@ -58,7 +59,9 @@ no telemetry buffer is configured):
   (health/console/dashboard traffic gets no state, no deadline timer, and no in-flight count) and stamps security headers
   (`x-request-id`, content-security, frame options).
 -  **Elysia trap** — `createClientIdentityMiddleware` must use `beforeHandle`; plugin `onRequest` does not fire under Elysia 2
-  beta. No peer address → 503.
+  beta. No peer address → 503. `createIpAbuseProtectionMiddleware` is the mirror image: it needs the **root** `request` hook,
+  because a `beforeHandle` (root or plugin) only runs for a request that matches a registered route, which left unregistered
+  `/v1/*` paths uncounted. It resolves its own client identity for that reason.
 -  **Skips and failure modes** — canonical parse and route preparation skip GET/HEAD, non-JSON routes, and
   `/v1/responses/compact` (native path). Parse fails closed when the ingress stage did not run (`ingressBody === undefined`;
   an explicit `null` still flows to parse errors) and stashes a capped user-agent; preparation requires authorization +

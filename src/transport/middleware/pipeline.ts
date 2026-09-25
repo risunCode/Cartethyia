@@ -76,14 +76,6 @@ export function createTransportPipeline(context: TransportPipelineContext): Tran
       trustedProxyBoundary: context.trustedProxyBoundary,
       ...(context.resolvePeerAddress ? { resolvePeerAddress: context.resolvePeerAddress } : {}),
     }),
-    ...(context.ipAbuseProtection
-      ? [
-          createIpAbuseProtectionMiddleware({
-            stateStore: context.stateStore,
-            ipAbuseProtection: context.ipAbuseProtection,
-          }),
-        ]
-      : []),
     createApiKeyAuthenticationMiddleware({ db: context.db, stateStore: context.stateStore }),
     createCanonicalRequestMiddleware({
       stateStore: context.stateStore,
@@ -104,6 +96,20 @@ export function createTransportPipeline(context: TransportPipelineContext): Tran
           : { requestDeadlineMs: context.requestDeadlineMs }),
       }),
     );
+    // Root-mounted, not a gateway stage: its `request` hook must run for every
+    // `/v1/*` request, including paths that match no route, or a caller can
+    // hammer the gateway without ever being counted. See the middleware's own
+    // doc for the measured bypass this closes.
+    if (context.ipAbuseProtection) {
+      app.use(
+        createIpAbuseProtectionMiddleware({
+          stateStore: context.stateStore,
+          ipAbuseProtection: context.ipAbuseProtection,
+          trustedProxyBoundary: context.trustedProxyBoundary,
+          ...(context.resolvePeerAddress ? { resolvePeerAddress: context.resolvePeerAddress } : {}),
+        }),
+      );
+    }
     app.use(
       createErrorNormalizationMiddleware({
         stateStore: context.stateStore,

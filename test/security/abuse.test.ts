@@ -252,4 +252,24 @@ describe("RedisIpAbuseStore", () => {
       { key: "cartethyia:ip:ban:1.2.3.4", value: "3500", mode: "PX", ttl: 2_500 },
     ]);
   });
+
+  test("recordBanCandidate keys one identity-wide counter, not one per route", async () => {
+    // Escalation must aggregate across routes: if this wrote under the
+    // per-route key, a caller rotating paths would keep every count low and
+    // never reach the threshold. The prefix is asserted so a future change
+    // cannot silently re-alias the escalation counter onto a route key.
+    const evals: Array<{ script: string; keys: unknown[] }> = [];
+    const redis = {
+      eval: (script: string, _numKeys: number, ...args: unknown[]) => {
+        evals.push({ script, keys: args.slice(0, 1) });
+        return Promise.resolve(1);
+      },
+    } as unknown as RedisClient;
+    const store = new RedisIpAbuseStore(redis);
+
+    await store.recordBanCandidate("1.2.3.4", 1_000, 480);
+
+    expect(evals).toHaveLength(1);
+    expect(evals[0]?.keys).toEqual(["cartethyia:ip:ban-count:1.2.3.4"]);
+  });
 });

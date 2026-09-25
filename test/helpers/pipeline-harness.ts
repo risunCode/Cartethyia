@@ -12,6 +12,7 @@ import { parseProviderId, type ProviderAdapter } from "../../src/providers/provi
 import type { RouteCandidate, Reservation, RoutePlan } from "../../src/transport/routing/route-model";
 import type { RoutingEngine } from "../../src/transport/routing/router";
 import type { AdmissionLease, ApiKeyAdmissionService } from "../../src/security/admission";
+import type { IpAbuseProtectionService } from "../../src/security/abuse";
 import type { ResolvedApiKey } from "../../src/security/api-key-auth";
 import type { ByokUpstreamHost } from "../../src/providers/operations/provider-catalog-service";
 import type { ValidatedNetworkBindingFactory } from "../../src/network/pool/resolver";
@@ -154,6 +155,11 @@ export interface PipelineHarnessOptions {
    * pass a wider stub to exercise DB-backed read routes (`/v1/models*`).
    */
   readonly db?: CartethyiaDatabase;
+  /**
+   * Overrides the no-op abuse-protection stub with the real service, so the
+   * per-IP counter can be observed through the production middleware order.
+   */
+  readonly ipAbuseProtection?: Pick<IpAbuseProtectionService, "checkBeforeAccess">;
 }
 
 export interface PipelineHarness {
@@ -296,7 +302,8 @@ export function buildPipelineHarness(options: PipelineHarnessOptions = {}): Pipe
       id === providerId ? adapter : undefined,
     byokUpstreamHosts,
     networkBindingFactory,
-    ipAbuseProtection: { checkBeforeAccess: async () => undefined } as never,
+    ipAbuseProtection:
+      options.ipAbuseProtection ?? ({ checkBeforeAccess: async () => undefined } as never),
     trustedProxyBoundary: { mode: "disabled" },
     poolSelector: {} as never,
     snapshotService: {} as never,

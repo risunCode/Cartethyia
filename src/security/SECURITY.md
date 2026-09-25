@@ -40,12 +40,25 @@ produces:
    for its lockout key.
 2. `abuse.ts: IpAbuseProtectionService.checkBeforeAccess` — `/v1/*` only
    (health and non-`/v1` skipped). Defaults 240 req/60 s per (IP, route), ban
-   at 480 for 1 h; rejected attempts still count toward the ban (atomic
+   at 480 for 1 h. **Two counters, and the split is load-bearing:** admission
+   is per `(IP, route)` so one busy route cannot spend another's budget, while
+   escalation is per IP across every route — a single per-route counter let a
+   caller rotate paths, keep each count below the threshold, and never be
+   banned. Every attempt counts, including rejected and unauthenticated ones,
+   so failing requests escalate rather than being exempt (atomic
    `checkAndIncrement`, so concurrent callers cannot race past the limit).
    Fail-closed 503 on store outage. Stores: `InMemoryIpAbuseStore` (per-key
    ring counters, 10 000-key bound, oldest-evicted) and `RedisIpAbuseStore`
    (ZSET sliding window trimmed to the ceiling, separate ban keys). This runs
    before credentials are resolved, so a throttled IP costs no key lookup.
+
+   Mounted at the **root** through the `request` hook, not as a gateway plugin
+   stage: a plugin (or root) `beforeHandle` only fires for a request that
+   matches a registered route, so an unregistered `/v1/*` path or a real path
+   with the wrong method skipped the counter entirely — the cheapest evasion
+   available to a client that has decided to hammer the gateway. The hook
+   resolves the client identity itself, from the same trusted-proxy boundary
+   the identity middleware uses, because it runs ahead of that middleware.
 3. `api-key-auth.ts: requestToken` + `resolveApiKeyAuthorization` — exactly one of
    `Authorization: Bearer` / `x-api-key`; both present is 400, neither or
    malformed is 401. The token is HMAC-hashed (`hashSecret`, same key as
