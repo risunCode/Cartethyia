@@ -80,6 +80,40 @@ dbDescribe("ConsoleLockoutService — real DB persistence", () => {
     expect(after[0]!.failureCount).toBe(before[0]!.failureCount);
   });
 
+  test("remainingLockSeconds reports the real shrinking remainder, not the full duration", async () => {
+    // The login route publishes this as `retry-after`. A hardcoded 3600 told a
+    // client whose lock had 5 seconds left to wait a full hour again.
+    const db = getDb();
+    const ip = testIp();
+    usedIps.push(ip);
+    const service = new ConsoleLockoutService(db, 2, 3_600_000);
+
+    expect(await service.remainingLockSeconds(ip)).toBe(0);
+    await service.recordFailure(ip, "invalid_password");
+    await service.recordFailure(ip, "invalid_password");
+
+    const lockedFor = await service.remainingLockSeconds(ip);
+    expect(lockedFor).toBeGreaterThan(3_500);
+    expect(lockedFor).toBeLessThanOrEqual(3_600);
+
+    // A later read sees the remainder shrink rather than repeating the window.
+    const later = await service.remainingLockSeconds(ip, Date.now() + 3_000_000);
+    expect(later).toBeGreaterThan(500);
+    expect(later).toBeLessThanOrEqual(600);
+  });
+
+  test("remainingLockSeconds returns 0 once the lock has elapsed", async () => {
+    const db = getDb();
+    const ip = testIp();
+    usedIps.push(ip);
+    const service = new ConsoleLockoutService(db, 2, 60_000);
+    await service.recordFailure(ip, "invalid_password");
+    await service.recordFailure(ip, "invalid_password");
+
+    expect(await service.remainingLockSeconds(ip, Date.now() + 120_000)).toBe(0);
+    expect(await service.isLocked(ip)).toBe(true);
+  });
+
   test("clearFailures removes the row so a fresh window starts clean", async () => {
     const db = getDb();
     const ip = testIp();

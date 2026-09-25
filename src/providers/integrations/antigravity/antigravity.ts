@@ -27,7 +27,7 @@ import { GatewayError } from "../../../transport/gateway-error";
 import { firstUserText } from "../../../transport/canonical-model";
 import { decodeSseEvents } from "../../../transport/streaming";
 import { mapUpstreamHttpError } from "../../../transport/failure-policy";
-import { normalizeUsage } from "../../usage";
+import { usageFromProvider } from "../../usage";
 import { isRecord } from "../../../protocol/primitives";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { buildGeminiPayload } from "../../../protocol/request/gemini";
@@ -301,9 +301,7 @@ class AntigravityAdapter implements ProviderAdapter {
             arguments_delta: JSON.stringify(call.args),
           } as CanonicalEvent;
         }
-        const usageRec = normalizeUsage(
-          mapGeminiUsage(decoded) as Record<string, unknown>,
-        );
+        const usageRec = usageFromProvider(mapGeminiUsage(decoded));
         const finishReason =
           typeof cand["finishReason"] === "string"
             ? (cand["finishReason"] as string)
@@ -403,10 +401,8 @@ class AntigravityAdapter implements ProviderAdapter {
           finishReason = cand["finishReason"] as string;
         }
       }
-      const usageRec = normalizeUsage(
-        (rawUsage
-          ? mapGeminiUsage({ usageMetadata: rawUsage })
-          : {}) as Record<string, unknown>,
+      const usageRec = usageFromProvider(
+        rawUsage ? mapGeminiUsage({ usageMetadata: rawUsage }) : undefined,
       );
       if (context.abort_signal.aborted || finishReason === undefined) {
         yield {

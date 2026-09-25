@@ -1,6 +1,6 @@
 import { GatewayError } from "../../transport/gateway-error";
 import { mapUpstreamHttpError } from "../../transport/failure-policy";
-import { normalizeUsage } from "../usage";
+import { usageFromProvider } from "../usage";
 import type { CanonicalEvent, CanonicalRequest } from "../../transport/canonical-model";
 import type { ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext } from "../provider-registry";
 import { providerBaseUrl } from "../provider-metadata";
@@ -135,8 +135,7 @@ export function createPerplexityAdapter(fetchImpl?: typeof fetch): ProviderAdapt
               .join("\n\n---\n\n")
           : (answer ?? contentFallback ?? "No results found.");
 
-      const rawUsage = (json["usage"] as Record<string, unknown> | undefined) ?? {};
-      const usage = normalizeUsage(rawUsage);
+      const usage = usageFromProvider(json["usage"]);
       const eventId = `perplexity-${crypto.randomUUID()}`;
 
       yield { type: "response_start", sequence_number: 1, event_id: eventId, model: request.model } as CanonicalEvent;

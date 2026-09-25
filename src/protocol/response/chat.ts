@@ -7,7 +7,7 @@ import { type CanonicalEvent, type CanonicalRequest } from "../../transport/cano
 import { decodeSseEvents } from "../../transport/streaming";
 import { gatewayErrorFromStreamError } from "../stream-error-frames";
 import { mergeResponsesUsage } from "./responses";
-import { normalizeUsage, readReasoningText } from "../../providers/usage";
+import { usageFromProvider, readReasoningText } from "../../providers/usage";
 import { createToolEmitLedger } from "../../transport/tool-identity";
 
 export function mapChatStopReason(
@@ -99,14 +99,14 @@ export function parseChatResponseToEvents(
     }
   }
   const rawUsage = json["usage"] as Record<string, unknown> | undefined;
-  const usageRecord = normalizeUsage(
+  const usageRecord = usageFromProvider(
     rawUsage
       ? {
           ...rawUsage,
           input_tokens: rawUsage["input_tokens"] ?? rawUsage["prompt_tokens"],
           output_tokens: rawUsage["output_tokens"] ?? rawUsage["completion_tokens"],
         }
-      : {},
+      : undefined,
   );
   const providerStopReason = first?.["finish_reason"];
   const chatJsonStopReason = mapChatStopReason(providerStopReason);
@@ -324,6 +324,6 @@ export async function* decodeChatSseStream(
         : "complete",
     stopReason: chatStopReason,
     providerStopReason: chatProviderStopReason,
-    usage: normalizeUsage(rawUsage ?? {}),
+    usage: usageFromProvider(rawUsage),
   });
 }

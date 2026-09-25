@@ -11,7 +11,7 @@
  */
 import { GatewayError } from "../../transport/gateway-error";
 import { type CanonicalEvent, type CanonicalRequest, type CanonicalStopReason } from "../../transport/canonical-model";
-import { normalizeUsage, readResponsesReasoningDelta } from '../../providers/usage';
+import { usageFromProvider, readResponsesReasoningDelta } from '../../providers/usage';
 import { canonicalTerminal, decodeCodexToolCallId, isRecord, readOutputIndex } from '../primitives';
 import { gatewayErrorFromStreamError } from '../stream-error-frames';
 
@@ -195,11 +195,7 @@ export function parseCodexResponsesJsonToEvents(
     }
   }
 
-  const usageRaw = json["usage"];
-  const usage =
-    usageRaw !== null && typeof usageRaw === "object"
-      ? normalizeUsage(usageRaw as Record<string, unknown>)
-      : undefined;
+  const usage = usageFromProvider(json["usage"]);
   const status =
     typeof json["status"] === "string" ? json["status"] : undefined;
   const hasToolCall = output.some(
@@ -643,10 +639,7 @@ export class CodexStreamFrameProcessor {
     if (this.terminalEndTurn === false && stopReason === "stop") {
       stopReason = "pause_turn" as CanonicalStopReason;
     }
-    const usage =
-      this.terminalUsage === undefined
-        ? undefined
-        : normalizeUsage(this.terminalUsage);
+    const usage = usageFromProvider(this.terminalUsage);
     return canonicalTerminal({
       sequenceNumber: this.#seq++,
       // No terminal status means the stream ended without a terminal frame

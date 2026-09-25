@@ -283,6 +283,47 @@ export function normalizeUsage(input: Record<string, unknown>): UsageRecord {
 }
 
 /**
+ * Whether a normalized record carries a token count the provider actually
+ * reported.
+ *
+ * `normalizeUsage({})` yields a record of zeros and `"unavailable"` — the same
+ * shape a genuinely measured all-zero turn would have. The two must not be
+ * conflated: a provider that omits its usage frame is *unmeasured*, and reading
+ * that as a measured zero makes the dispatch fallback to the conservative
+ * estimate unreachable (`terminal.usage ?? estimatedUsage(...)` never falls
+ * through), so the turn is reconciled to zero and its token budget is refunded
+ * in full. Any positive count means the provider reported something.
+ */
+function hasReportedUsage(usage: UsageRecord): boolean {
+  for (const count of [
+    usage.input_tokens,
+    usage.output_tokens,
+    usage.cached_input_tokens,
+    usage.cache_write_tokens,
+    usage.reasoning_tokens,
+  ]) {
+    if (typeof count === "number" && count > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Normalizes a provider usage payload, or returns `undefined` when the
+ * provider reported nothing to normalize.
+ *
+ * Decoders that passed `rawUsage ?? {}` turned "the upstream sent no usage
+ * frame" (or an empty `usage: {}`) into a zero record, which is not a
+ * measurement. Those paths hand the payload here instead, so absence stays
+ * absence all the way to the dispatch fallback — the Messages and Codex
+ * decoders already leave `usage` unset for the same reason.
+ */
+export function usageFromProvider(raw: unknown): UsageRecord | undefined {
+  if (raw === null || typeof raw !== "object") return undefined;
+  const usage = normalizeUsage(raw as Record<string, unknown>);
+  return hasReportedUsage(usage) ? usage : undefined;
+}
+
+/**
  * Single usage-to-wire home: every surface encodes canonical usage through
  * these builders so a new upstream token field is mapped once. Each builder
  * implements exactly its surface's historical math.

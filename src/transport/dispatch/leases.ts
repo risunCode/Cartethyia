@@ -133,8 +133,12 @@ async function acquirePoolSlot(
         : "No active proxy pool is available for this tenant and provider.";
   throw new GatewayError(code, status, message, {
     pools: failure.pools,
+    // Only measured evidence: a cooldown's real reset instant. The
+    // `at_capacity` 429 carries no hint at all — how long until a slot frees is
+    // not known here — so it keeps the documented one-second floor the error
+    // normalization applies to every evidence-free 429, rather than this path
+    // asserting a fabricated 1000ms that only happened to match it.
     ...(failure.retryAt ? { retryAt: new Date(failure.retryAt).toISOString() } : {}),
-    ...(status === 429 ? { retryAfterMs: 1000 } : {}),
   });
 }
 

@@ -16,6 +16,43 @@ extend its own counters. The two counters stay separate — admission per
 `(identity, route)` for fairness, escalation per identity so rotating the path
 cannot dodge the ban — and the ban marker carries its duration as its own TTL.
 
+### A one-time (lifetime) token budget is no longer refunded on an unreported turn
+
+A provider that omits its usage frame left the decoder normalizing an empty
+payload into a record of zeros. That record is not `undefined`, so
+`terminal.usage ?? estimatedUsage(...)` never fell through to the conservative
+estimate — the turn reconciled to zero and refunded its whole reservation. A key
+with a one-time token budget could therefore be replayed indefinitely: the
+lifetime counter never grew. Decoders now hand the raw payload to
+`usageFromProvider`, which returns `undefined` when nothing was reported (an
+absent frame, `usage: {}`, or an all-zero shape — no real request has zero prompt
+tokens), so absence stays absence to the dispatch fallback. The Messages and
+Codex decoders already behaved this way; chat, responses, cloudflare, qoder,
+perplexity, gemini, antigravity, and commandcode now match.
+
+### `retry-after` reports the measured wait, not a fixed value
+
+Three surfaces answered a rate-limit or lockout with a constant. The console
+login route returned a hardcoded `3600` for every lockout, so a client whose
+lock had seconds left was told to wait a full hour again;
+`ConsoleLockoutService.remainingLockSeconds` now reports the real shrinking
+remainder. The per-IP abuse middleware returned `3600` for every 429 — a
+60-second window included — so the store now measures the remainder (a ban's
+marker TTL via `PTTL`, or the age of the oldest attempt in a rate-limited
+window) and carries it as `retryAfterMs`. The pool `at_capacity` 429 no longer
+asserts a fabricated `1000ms`; it keeps the documented one-second floor every
+evidence-free 429 already received.
+
+### A gateway wiring defect reports `internal_error`, not `invalid_request`
+
+Three provider-registry guards (adapter/registration id mismatch, non-normalized
+registration id) threw `invalid_request` with a 500 status — a client-error code
+paired with a server-error status, which told the caller to fix a request it
+could not change. They now throw `internal_error` (500), the honest code for a
+misconfiguration the client has no part in. `internal_error` is added to the
+stable `GatewayErrorCode` union and the `TRANSPORT.md` table, and it is
+deliberately not retryable: a byte-identical retry cannot fix wiring.
+
 ### Token-budget counters no longer leak in Redis
 
 `admission:lifetime:*` is the only thing bounding a key's lifetime token total,

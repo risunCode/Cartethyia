@@ -73,6 +73,36 @@ describe("registry.test.ts", () => {
       await expect(registry.load()).rejects.toThrow();
     });
 
+    test("adapter identity drift is a gateway fault, not a client error", async () => {
+      // The registration/adapter mismatch is our own wiring defect. It used to
+      // surface as `invalid_request` (a client-error code) with a 500 status —
+      // a contradiction that told the caller to fix a request it could not
+      // change. It must be `internal_error` at 500.
+      const registry = new ProviderRegistry();
+      registry.register({
+        provider_id: "anthropic",
+        load: async () => fakeAdapter("openai"),
+      });
+
+      await expect(registry.load()).rejects.toMatchObject({
+        code: "internal_error",
+        status: 500,
+      });
+    });
+
+    test("a non-normalized registration id is an internal error, not invalid_request", () => {
+      const registry = new ProviderRegistry();
+      // `register` normalizes first, so a raw id that survives unchanged is
+      // normalized; the guard fires only when the parsed id differs, which is
+      // a programming error in the caller of the registry, not the end client.
+      expect(() =>
+        registry.register({
+          provider_id: "OpenAI" as never,
+          load: async () => fakeAdapter("openai"),
+        }),
+      ).toThrow(/not normalized|already registered/);
+    });
+
     test("resolve loads lazily, caches, and returns undefined when unregistered", async () => {
       const registry = new ProviderRegistry();
       const loads: string[] = [];

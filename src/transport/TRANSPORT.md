@@ -421,6 +421,7 @@ disagreed on 5xx and 529 — it is gone, and no adapter keeps a private copy of 
 | `context_length_exceeded` | 413 | upstream | no | the request exceeded the model's context window |
 | `invalid_request` | 400/401/403/409/413/415 | cartethyia/upstream | no | an unclassified rejection; the client should not retry unchanged |
 | `unsupported_field` | 400 | cartethyia | no | the request carried a field this route rejects |
+| `internal_error` | 500 | cartethyia | no | a gateway wiring defect (e.g. an adapter/registration mismatch); the caller cannot fix it |
 | `invalid_pool_limits` | 400 | cartethyia | no | network-pool limits were rejected |
 | `slug_reserved` | 409 | cartethyia | no | the provider slug collides with a built-in |
 | `authentication_failed` | 401/403 | cartethyia/upstream | yes | the credential was rejected |

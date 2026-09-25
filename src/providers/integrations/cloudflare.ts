@@ -5,7 +5,7 @@ import { GatewayError } from "../../transport/gateway-error";
 import { mapUpstreamHttpError } from "../../transport/failure-policy";
 import type { CanonicalEvent, CanonicalRequest } from "../../transport/canonical-model";
 import { decodeSseEvents } from "../../transport/streaming";
-import { normalizeUsage } from "../usage";
+import { usageFromProvider } from "../usage";
 import { joinUrl, normalizeBearerToken } from "../../protocol/primitives";
 import { postUpstreamJson } from "../../protocol/transport/openai";
 import { canonicalToChatPayload } from "../../protocol/request/chat";
@@ -124,7 +124,7 @@ class CloudflareAdapter implements ProviderAdapter {
           state: "complete",
           ...(chatStop === undefined ? {} : { stop_reason: chatStop }),
           ...(typeof finishReason === "string" ? { provider_stop_reason: finishReason as string } : {}),
-          usage: normalizeUsage(rawUsage ?? {}),
+          usage: usageFromProvider(rawUsage),
         } as CanonicalEvent;
         return;
       }
@@ -156,7 +156,7 @@ class CloudflareAdapter implements ProviderAdapter {
         state: "complete",
         ...(mapChatStopReason(providerStop) === undefined ? {} : { stop_reason: mapChatStopReason(providerStop) }),
         ...(typeof providerStop === "string" ? { provider_stop_reason: providerStop } : {}),
-        usage: normalizeUsage(rawUsage ?? {}),
+        usage: usageFromProvider(rawUsage),
       } as CanonicalEvent;
     } catch (err: unknown) {
       if (err instanceof GatewayError) throw err;

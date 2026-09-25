@@ -17,17 +17,24 @@ export interface ClientIdentity {
  * for an unreachable store.
  */
 function decodeAbuseOutcome(raw: readonly unknown[]): IpAbuseOutcome {
-  if (raw.length !== 3) {
-    throw new Error(`[abuse] admission script returned ${raw.length} elements, expected 3`);
+  if (raw.length !== 4) {
+    throw new Error(`[abuse] admission script returned ${raw.length} elements, expected 4`);
   }
-  const [bannedRaw, countRaw, bannedNowRaw] = raw.map((value) => Number(value));
+  const [bannedRaw, countRaw, bannedNowRaw, retryAfterRaw] = raw.map((value) => Number(value));
   const banned = bannedRaw ?? NaN;
   const count = countRaw ?? NaN;
   const bannedNow = bannedNowRaw ?? NaN;
-  if (!Number.isFinite(banned) || !Number.isFinite(count) || !Number.isFinite(bannedNow)) {
+  const retryAfterMs = retryAfterRaw ?? NaN;
+  if (
+    !Number.isFinite(banned) ||
+    !Number.isFinite(count) ||
+    !Number.isFinite(bannedNow) ||
+    !Number.isFinite(retryAfterMs) ||
+    retryAfterMs < 0
+  ) {
     throw new Error(`[abuse] admission script returned a non-finite value: ${String(raw)}`);
   }
-  return { banned: banned === 1, count, bannedNow: bannedNow === 1 };
+  return { banned: banned === 1, count, bannedNow: bannedNow === 1, retryAfterMs };
 }
 
 /**
@@ -65,6 +72,18 @@ export interface IpAbuseOutcome {
   readonly count: number;
   /** This attempt crossed the ban threshold, so the ban was recorded. */
   readonly bannedNow: boolean;
+  /**
+   * Whole milliseconds until this identity may be retried, `0` when the
+   * attempt was admitted.
+   *
+   * The store is the only component that knows this: a ban's remainder is its
+   * marker's TTL, and a rate-limited window's remainder is the age of its
+   * oldest attempt. Both are server state. The middleware used to answer every
+   * 429 with a fixed `retry-after: 3600`, which told a client hitting a 60-second
+   * window to wait sixty times longer than it had to — and told a client whose
+   * ban had nearly elapsed to wait the full hour again.
+   */
+  readonly retryAfterMs: number;
 }
 
 export interface IpAbuseStore {
@@ -148,6 +167,10 @@ class RingCounter {
   }
   count(): number {
     return this.size;
+  }
+  /** Oldest live timestamp in the window, or `undefined` when empty. */
+  oldest(): number | undefined {
+    return this.size > 0 ? this.buf[this.head] : undefined;
   }
   push(now: number): void {
     this.buf[this.tail] = now;
@@ -277,7 +300,7 @@ export class InMemoryIpAbuseStore implements IpAbuseStore {
     // ban it already earned.
     const until = this.bans.get(identity);
     if (until !== undefined) {
-      if (until > now) return { banned: true, count: 0, bannedNow: false };
+      if (until > now) return { banned: true, count: 0, bannedNow: false, retryAfterMs: until - now };
       this.bans.delete(identity);
     }
 
@@ -293,6 +316,14 @@ export class InMemoryIpAbuseStore implements IpAbuseStore {
     if (window.count() >= window.capacity) window.reserve(banThreshold);
     window.push(now);
     const count = window.count();
+    // Mirrors the script's measured wait: a window over its limit reports how
+    // long until its oldest attempt ages out. `count > limit` is the same
+    // rejection the service applies below.
+    let retryAfterMs = 0;
+    if (count > limit) {
+      const oldest = window.oldest();
+      if (oldest !== undefined) retryAfterMs = Math.max(0, oldest + this.windowMs - now);
+    }
 
     // Escalation counts every attempt against one identity-wide ring, so
     // spreading the same volume over many paths cannot keep each route's count
@@ -311,8 +342,9 @@ export class InMemoryIpAbuseStore implements IpAbuseStore {
       // a rotating fan-out never does.
       this.evictOldest(this.bans);
       this.bans.set(identity, now + banDurationMs);
+      retryAfterMs = banDurationMs;
     }
-    return { banned: false, count, bannedNow };
+    return { banned: false, count, bannedNow, retryAfterMs };
   }
 }
 
@@ -392,6 +424,10 @@ export class IpAbuseProtectionService {
           reason: "admission-unavailable",
           ip,
           route: input.route,
+          // Measured by the store: the ban marker's remaining TTL. Carried as
+          // the standard wait hint so the error normalization emits the real
+          // remainder instead of a fixed hour.
+          ...(outcome.retryAfterMs > 0 ? { retryAfterMs: outcome.retryAfterMs } : {}),
         });
       }
 
@@ -401,6 +437,7 @@ export class IpAbuseProtectionService {
           ip,
           route: input.route,
           count: outcome.count,
+          ...(outcome.retryAfterMs > 0 ? { retryAfterMs: outcome.retryAfterMs } : {}),
         });
       }
     } catch (err) {
@@ -424,19 +461,35 @@ export class IpAbuseProtectionService {
  * `ARGV`: 1 now(ms), 2 windowMs, 3 limit, 4 banThreshold, 5 banDurationMs,
  * 6 per-route member, 7 escalation member.
  *
- * Returns a `{banned, count, bannedNow}` tuple. The ban is read first and
- * short-circuits without writing, so a banned identity cannot keep extending
- * its own counters. Both rings are trimmed to `banThreshold` members so an
- * abusive key cannot grow them without bound. The ban key carries the ban
- * duration as its TTL, so an expired ban needs no sweeper.
+ * Returns a `{banned, count, bannedNow, retryAfterMs}` tuple. The ban is read
+ * first and short-circuits without writing, so a banned identity cannot keep
+ * extending its own counters. Both rings are trimmed to `banThreshold` members
+ * so an abusive key cannot grow them without bound. The ban key carries the
+ * ban duration as its TTL, so an expired ban needs no sweeper.
+ *
+ * `retryAfterMs` is measured, never assumed: a live ban reports the marker's
+ * remaining TTL (`PTTL`, so the answer shrinks as the ban elapses), a
+ * rate-limited window reports how long until its oldest attempt leaves the
+ * window, and an admitted attempt reports 0. The middleware answers with this
+ * instead of a fixed one-hour value that over-stated every wait.
  */
 const IP_ADMISSION_SCRIPT = `
   local banned = redis.call('GET', KEYS[3])
   if banned and tonumber(banned) > tonumber(ARGV[1]) then
-    return {1, 0, 0}
+    local ttl = redis.call('PTTL', KEYS[3])
+    if ttl < 0 then ttl = 0 end
+    return {1, 0, 0, ttl}
   end
   redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, tonumber(ARGV[1]) - tonumber(ARGV[2]))
   local count = redis.call('ZCARD', KEYS[1])
+  local retryAfterMs = 0
+  if count >= tonumber(ARGV[3]) then
+    local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+    if oldest[2] then
+      retryAfterMs = tonumber(oldest[2]) + tonumber(ARGV[2]) - tonumber(ARGV[1])
+      if retryAfterMs < 0 then retryAfterMs = 0 end
+    end
+  end
   redis.call('ZADD', KEYS[1], ARGV[1], ARGV[6])
   redis.call('PEXPIRE', KEYS[1], ARGV[2])
   if count >= tonumber(ARGV[4]) then
@@ -453,8 +506,9 @@ const IP_ADMISSION_SCRIPT = `
   if banCount + 1 >= tonumber(ARGV[4]) then
     redis.call('SET', KEYS[3], tonumber(ARGV[1]) + tonumber(ARGV[5]), 'PX', ARGV[5])
     bannedNow = 1
+    retryAfterMs = tonumber(ARGV[5])
   end
-  return {0, count + 1, bannedNow}
+  return {0, count + 1, bannedNow, retryAfterMs}
 `;
 
 export class RedisIpAbuseStore implements IpAbuseStore {

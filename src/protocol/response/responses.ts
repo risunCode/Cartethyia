@@ -7,7 +7,7 @@ import { GatewayError } from "../../transport/gateway-error";
 import { isRecord, readOutputIndex } from "../primitives";
 import { decodeSseEvents } from "../../transport/streaming";
 import { gatewayErrorFromStreamError } from "../stream-error-frames";
-import { normalizeUsage, readResponsesReasoningDelta } from "../../providers/usage";
+import { usageFromProvider, readResponsesReasoningDelta } from "../../providers/usage";
 import { createToolEmitLedger } from "../../transport/tool-identity";
 
 export function mapResponsesStopReason(
@@ -265,7 +265,7 @@ export function parseResponsesResponseToEvents(
       state: status === "cancelled" ? "aborted" : status === "failed" ? "failed" : "complete",
       stopReason: respJsonStopReason,
       providerStopReason: respJsonProviderStopReason,
-      usage: normalizeUsage(usage ?? {}),
+      usage: usageFromProvider(usage),
     }),
   );
   return events;
@@ -701,6 +701,6 @@ export async function* decodeResponsesSseStream(
       status === "cancelled" ? "aborted" : status === "failed" || truncated ? "failed" : "complete",
     stopReason: responsesStopReason,
     providerStopReason: responsesProviderStopReason,
-    usage: normalizeUsage(rawUsage ?? {}),
+    usage: usageFromProvider(rawUsage),
   });
 }

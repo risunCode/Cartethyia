@@ -198,9 +198,10 @@ export function createConsoleAuthRoutes(
       const input = parseLoginRequest(body);
       const loginIdentifier = input?.username.trim().toLowerCase() ?? "<invalid>";
       const lockoutKey = `${loginIdentifier}:${clientIp}`;
-      if (await lockoutService.isLocked(lockoutKey)) {
+      const remainingLock = await lockoutService.remainingLockSeconds(lockoutKey);
+      if (remainingLock > 0) {
         set.status = 429;
-        set.headers["retry-after"] = "3600";
+        set.headers["retry-after"] = String(remainingLock);
         return {
           status: "failed",
           message: "This login is temporarily blocked due to repeated authentication failures.",
@@ -222,7 +223,7 @@ export function createConsoleAuthRoutes(
         const isBanned = await lockoutService.recordFailure(lockoutKey, "unknown_user");
         if (isBanned) {
           set.status = 429;
-          set.headers["retry-after"] = "3600";
+          set.headers["retry-after"] = String(await lockoutService.remainingLockSeconds(lockoutKey));
           return {
             status: "failed",
             message: "This login has been blocked due to repeated failed authentication attempts.",
@@ -237,7 +238,7 @@ export function createConsoleAuthRoutes(
         const isBanned = await lockoutService.recordFailure(lockoutKey, "invalid_password");
         if (isBanned) {
           set.status = 429;
-          set.headers["retry-after"] = "3600";
+          set.headers["retry-after"] = String(await lockoutService.remainingLockSeconds(lockoutKey));
           return {
             status: "failed",
             message: "This login has been blocked due to repeated failed authentication attempts.",

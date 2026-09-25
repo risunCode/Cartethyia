@@ -259,6 +259,57 @@ describe("InMemoryIpAbuseStore bounds", () => {
     }
     expect(count).toBe(6);
   });
+
+  test("reports the real remaining wait for a rate-limited window", async () => {
+    // The wait is how long until the oldest attempt leaves the window, not a
+    // fixed value. A hardcoded `retry-after` told a client facing a 60-second
+    // window to wait an hour.
+    const store = new InMemoryIpAbuseStore({ windowMs: 60_000, clock: () => 0 });
+    const first = await store.checkAndRecord({
+      identity: "1.1.1.1",
+      route: "/v1/chat/completions",
+      now: 0,
+      limit: 1,
+      banThreshold: 100,
+      banDurationMs: 60_000,
+    });
+    expect(first.retryAfterMs).toBe(0); // admitted
+
+    // Second attempt at t=10s is over the limit; the oldest attempt ages out
+    // at t=60s, so 50s remain.
+    const second = await store.checkAndRecord({
+      identity: "1.1.1.1",
+      route: "/v1/chat/completions",
+      now: 10_000,
+      limit: 1,
+      banThreshold: 100,
+      banDurationMs: 60_000,
+    });
+    expect(second.count).toBe(2);
+    expect(second.retryAfterMs).toBe(50_000);
+  });
+
+  test("reports the real remaining wait for a live ban", async () => {
+    const store = new InMemoryIpAbuseStore({ windowMs: 60_000, clock: () => 0 });
+    const attempt = (now: number) =>
+      store.checkAndRecord({
+        identity: "1.1.1.1",
+        route: "/v1/chat/completions",
+        now,
+        limit: 1,
+        banThreshold: 2,
+        banDurationMs: 3_600_000,
+      });
+    await attempt(0);
+    const banned = await attempt(0);
+    expect(banned.bannedNow).toBe(true);
+    expect(banned.retryAfterMs).toBe(3_600_000);
+
+    // A later attempt sees the ban's shrinking remainder, not the full hour.
+    const later = await attempt(3_000_000);
+    expect(later.banned).toBe(true);
+    expect(later.retryAfterMs).toBe(600_000);
+  });
 });
 
 describe("RedisIpAbuseStore", () => {
@@ -270,7 +321,7 @@ describe("RedisIpAbuseStore", () => {
     const redis = {
       eval: (script: string, numKeys: number, ...args: unknown[]) => {
         evals.push({ script, numKeys, keys: args.slice(0, numKeys) });
-        return Promise.resolve([0, 1, 0]);
+        return Promise.resolve([0, 1, 0, 0]);
       },
     } as unknown as RedisClient;
     const store = new RedisIpAbuseStore(redis);
@@ -291,12 +342,12 @@ describe("RedisIpAbuseStore", () => {
       "cartethyia:ip:ban-count:1.2.3.4",
       "cartethyia:ip:ban:1.2.3.4",
     ]);
-    expect(outcome).toEqual({ banned: false, count: 1, bannedNow: false });
+    expect(outcome).toEqual({ banned: false, count: 1, bannedNow: false, retryAfterMs: 0 });
   });
 
   test("decodes the banned short-circuit without inventing a count", async () => {
     const redis = {
-      eval: () => Promise.resolve([1, 0, 0]),
+      eval: () => Promise.resolve([1, 0, 0, 45_000]),
     } as unknown as RedisClient;
     const store = new RedisIpAbuseStore(redis);
 
@@ -309,11 +360,13 @@ describe("RedisIpAbuseStore", () => {
       banDurationMs: 2_500,
     });
 
-    expect(outcome).toEqual({ banned: true, count: 0, bannedNow: false });
+    // The ban's remaining TTL rides through as the wait hint; the count stays
+    // 0 because a banned attempt records nothing.
+    expect(outcome).toEqual({ banned: true, count: 0, bannedNow: false, retryAfterMs: 45_000 });
   });
 
   test("a garbled script reply throws instead of reading as a bogus decision", async () => {
-    // A reply that is not a 3-tuple means the script/response pair drifted.
+    // A reply that is not a 4-tuple means the script/response pair drifted.
     // Reading it as `banned: false, count: NaN` would admit on garbage.
     const redis = {
       eval: () => Promise.resolve("nonsense"),

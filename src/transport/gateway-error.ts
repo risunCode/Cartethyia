@@ -21,6 +21,7 @@ export type GatewayErrorCode =
   | "authentication_failed"
   | "invalid_request"
   | "unsupported_field"
+  | "internal_error"
   | "transport_unavailable"
   | "tunnel_setup_failed"
   | "platform_unavailable"

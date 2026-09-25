@@ -5,7 +5,7 @@ import { canContainToolResult, joinTextParts, toolCallParts, toolResultParts } f
 import { mapUpstreamHttpError } from "../../transport/failure-policy";
 import type { CanonicalEvent, CanonicalRequest, CanonicalStopReason } from "../../transport/canonical-model";
 import { readNumber, readString } from "../../protocol/primitives";
-import { normalizeUsage } from "../usage";
+import { usageFromProvider } from "../usage";
 import { readCredentialSecret, type ProviderDispatchTarget, type ProviderAdapter, type ProviderDispatchContext } from "../provider-registry";
 import { providerBaseUrl } from "../provider-metadata";
 import { createUpstreamDeadlineLifecycle } from "../operations/upstream-deadline";
@@ -197,7 +197,7 @@ export function transformLine(line: string, state: StreamState, seqBase: number)
       const completion = readNumber(state.usage, "completionTokens") ?? readNumber(state.usage, "outputTokens") ?? 0;
       const total = readNumber(state.usage, "totalTokens") ?? prompt + completion;
       const cached = readNumber(state.usage, "cachedTokens") ?? readNumber(state.usage, "cacheReadTokens") ?? 0;
-      const usageRecord = normalizeUsage({
+      const usageRecord = usageFromProvider({
         input_tokens: prompt,
         output_tokens: completion,
         total_tokens: total,

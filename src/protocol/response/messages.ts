@@ -8,7 +8,7 @@ import { canonicalTerminal } from "../../protocol/primitives";
 import { GatewayError } from "../../transport/gateway-error";
 import { type CanonicalEvent, type CanonicalRequest, type CanonicalStopReason, type ContentPart, type UsageRecord } from "../../transport/canonical-model";
 import { decodeSseEvents } from '../../transport/streaming';
-import { normalizeUsage } from '../../providers/usage';
+import { usageFromProvider } from '../../providers/usage';
 import { mapClaudeStreamError } from '../../protocol/messages-errors';
 import {
   finiteNumber,
@@ -111,8 +111,7 @@ export function parseClaudeContent(value: unknown, isOAuth = false): ContentPart
 }
 
 export function responseUsage(value: unknown): UsageRecord | undefined {
-  if (!isRecord(value)) return undefined;
-  return normalizeUsage(value);
+  return usageFromProvider(value);
 }
 
 export function eventContent(

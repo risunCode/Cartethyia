@@ -381,9 +381,24 @@ export class ConsoleLockoutService {
     this.lockoutDurationMs = lockoutDurationMs;
   }
 
-  async isLocked(ip: string): Promise<boolean> {
+  /**
+   * Whole seconds remaining on `ip`'s lock, or `0` when it is not locked.
+   *
+   * The login route reports this as `retry-after`. The lock is a fixed window
+   * from the last failure, so the real wait shrinks toward zero while a
+   * hardcoded value never does — every client that retried partway through a
+   * lock was told to wait the full duration again. A locked row always reports
+   * at least one second, because a 429 must not carry `retry-after: 0`.
+   */
+  async remainingLockSeconds(ip: string, now = Date.now()): Promise<number> {
     const lockedUntil = await this.store.getLockedUntil(ip);
-    return lockedUntil !== null && lockedUntil !== undefined && lockedUntil.getTime() > Date.now();
+    if (lockedUntil === null || lockedUntil === undefined) return 0;
+    const remainingMs = lockedUntil.getTime() - now;
+    return remainingMs > 0 ? Math.max(1, Math.ceil(remainingMs / 1000)) : 0;
+  }
+
+  async isLocked(ip: string): Promise<boolean> {
+    return (await this.remainingLockSeconds(ip)) > 0;
   }
 
   async recordFailure(ip: string, reason: string): Promise<boolean> {

@@ -291,6 +291,7 @@ function errorMessageFor(errorKind: string | undefined): string {
     timeout: "request timed out before a response was received",
     deadline_exceeded: "upstream stream stalled past the deadline",
     invalid_request: "request was rejected as invalid",
+    internal_error: "the gateway was misconfigured for this request",
     provider_error: "upstream provider returned an error",
     platform_unavailable: "upstream provider was unavailable",
     proxy_unreachable: "network proxy was unreachable",

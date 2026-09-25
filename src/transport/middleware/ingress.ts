@@ -454,7 +454,15 @@ export function createConsoleMutationLimiterMiddleware(): Elysia {
       pruneConsoleMutationHits(now);
       const hits = consoleMutationHits.get(key) ?? [];
       if (hits.length >= CONSOLE_MUTATION_LIMIT) {
-        set.headers["retry-after"] = "10";
+        // Measured, not a literal: the wait is however long the oldest tracked
+        // mutation still needs to age out of the window. A hardcoded value had
+        // to be kept in step with `CONSOLE_MUTATION_WINDOW_MS` by hand.
+        const oldest = hits[0];
+        const retryAfterSeconds =
+          oldest === undefined
+            ? Math.ceil(CONSOLE_MUTATION_WINDOW_MS / 1000)
+            : Math.max(1, Math.ceil((oldest + CONSOLE_MUTATION_WINDOW_MS - now) / 1000));
+        set.headers["retry-after"] = String(retryAfterSeconds);
         throw new GatewayError("quota_exceeded", 429, "Console mutation rate limit exceeded");
       }
       hits.push(now);
@@ -523,11 +531,10 @@ export function createIpAbuseProtectionMiddleware(deps: {
       handler: (context: {
         request: Request;
         server?: { requestIP(request: Request): { address: string } | null };
-        set: { headers: Record<string, string> };
       }) => void | Promise<void>,
     ): unknown;
   };
-  app.request(async ({ request, server, set }) => {
+  app.request(async ({ request, server }) => {
     const path = fastPathname(request.url);
     if (
       path === "/health" ||
@@ -562,9 +569,12 @@ export function createIpAbuseProtectionMiddleware(deps: {
         ...(state === undefined ? {} : { signal: state.abortController.signal }),
       });
     } catch (error) {
-      if (error instanceof GatewayError && error.status === 429) {
-        set.headers["retry-after"] = "3600";
-      }
+      // No fixed `retry-after` here. The store measures the real remainder —
+      // a ban's marker TTL, or the age of the oldest attempt in a rate-limited
+      // window — and carries it as `retryAfterMs`, which the error
+      // normalization middleware turns into the header. Assigning a constant
+      // here pre-empted that hint (`retry-after` is only filled when unset) and
+      // told a client facing a 60-second window to wait a full hour.
       throw error;
     }
   });

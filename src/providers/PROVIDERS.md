@@ -18,7 +18,7 @@ src/providers/
   credential-envelope.ts  TokenEnvelope + unwrapProviderToken (adapters never emit "Bearer Bearer")
   model-definition.ts     static catalog shape: defineModel, manual-model defaults
   reasoning.ts            canonical reasoning-intent → per-wire reasoning payload helpers
-  usage.ts                usage home: normalizeUsage, repriceUsage, wire encoders
+  usage.ts                usage home: normalizeUsage, usageFromProvider, repriceUsage, wire encoders
   authentication/         OAuth kit every per-provider login client builds on
   discovery/              model probing: discovery contract, /models fetcher, offline billing catalog, sync service
   operations/             runtime glue: seeding, caches, version resolution, health, credentials, deadlines

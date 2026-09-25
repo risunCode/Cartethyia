@@ -5,7 +5,7 @@ import { GatewayError } from "../../transport/gateway-error";
 import { mapUpstreamHttpError } from "../../transport/failure-policy";
 import type { CanonicalEvent, CanonicalRequest, CanonicalStopReason } from "../../transport/canonical-model";
 import { decodeSseEvents } from "../../transport/streaming";
-import { normalizeUsage } from "../usage";
+import { usageFromProvider } from "../usage";
 import { readCredentialSecret, type ProviderDispatchTarget, type ModelDefinition, type ProviderAdapter, type ProviderDispatchContext } from "../provider-registry";
 import { fetchOpenAICompatibleModels } from "../discovery/openai-model-discovery";
 import { isRecord } from "../../protocol/primitives";
@@ -117,7 +117,7 @@ class GeminiAdapter implements ProviderAdapter {
         for (const call of output.calls) {
           yield { type: "tool_call_delta", sequence_number: seq++, call_id: call.id, name: call.name, arguments_delta: JSON.stringify(call.args) } as CanonicalEvent;
         }
-        const usageRec = normalizeUsage(mapGeminiUsage(json) as Record<string, unknown>);
+        const usageRec = usageFromProvider(mapGeminiUsage(json));
         const reason = toCanonicalStopReason(cand, output.calls.length);
         yield {
           type: "terminal",
@@ -173,7 +173,7 @@ class GeminiAdapter implements ProviderAdapter {
       // truncated, never complete.
       const truncated = finishReason === undefined;
       // Prefer usageMetadata if present, else empty
-      const usageRec = normalizeUsage(((rawUsage ? mapGeminiUsage({ usageMetadata: rawUsage }) : {}) as Record<string, unknown>));
+      const usageRec = usageFromProvider(rawUsage ? mapGeminiUsage({ usageMetadata: rawUsage }) : undefined);
       if (context.abort_signal.aborted || truncated) {
         yield {
           type: "terminal",

@@ -7,7 +7,7 @@ import { GatewayError } from "../../transport/gateway-error";
 import type { CanonicalEvent, CanonicalRequest, CanonicalStopReason, ContentPart } from "../../transport/canonical-model";
 import { toolResultParts } from "../../transport/canonical-model";
 import { decodeSseEvents } from "../../transport/streaming";
-import { normalizeUsage, readReasoningText } from "../usage";
+import { usageFromProvider, readReasoningText } from "../usage";
 import { readCredentialSecret, type ProviderDispatchTarget, type ModelDefinition, type ProviderAdapter, type ProviderDispatchContext } from "../provider-registry";
 import { defineModel } from "../model-definition";
 import { getQoderVersion, resolveQoderVersion } from "../operations/client-versions";
@@ -587,7 +587,7 @@ async function* qoderBodyToCanonicalEvents(
     state: "complete",
     ...(stopReason === undefined ? {} : { stop_reason: stopReason }),
     ...(_providerStop === undefined ? {} : { provider_stop_reason: _providerStop }),
-    usage: normalizeUsage(rawUsage ?? {}),
+    usage: usageFromProvider(rawUsage),
   } as CanonicalEvent;
 }
 
