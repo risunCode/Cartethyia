@@ -8,7 +8,7 @@ import {
 import { CLAUDE_CODE_SDK_VERSION, CLAUDE_CODE_USER_AGENT, CLAUDE_CODE_VERSION } from "../../../../src/providers/integrations/claude-code/claude-fingerprint";
 import { CLAUDE_TOOL_PREFIX, prefixClaudeToolName, unprefixClaudeToolName } from "../../../../src/protocol/primitives";
 import { OAUTH_MESSAGES_MAX_OUTPUT_TOKENS, ANTHROPIC_DEFAULT_MAX_TOKENS, canonicalToClaudeMessagesPayload } from "../../../../src/protocol/request/messages";
-import { CLAUDE_CODE_COMPATIBILITY_USER_AGENT, buildClaudeHeaders, mapStainlessArch, mapStainlessOs, resolveClaudeCredential } from "../../../../src/providers/integrations/claude-code/claude-credentials";
+import { buildClaudeHeaders, mapStainlessArch, mapStainlessOs } from "../../../../src/providers/integrations/claude-code/claude-credentials";
 import { filterClaudeCustomHeaders } from "../../../../src/providers/integrations/claude-messages";
 import { CURATED_CLAUDE_MODELS, ClaudeOAuthClient, discoverClaudeModels } from "../../../../src/providers/integrations/claude-code/claude-oauth";
 import { GatewayError } from "../../../../src/transport/gateway-error";
@@ -82,10 +82,6 @@ describe("claude fingerprint constants", () => {
     expect(CLAUDE_CODE_USER_AGENT).toBe(
       `claude-cli/${CLAUDE_CODE_VERSION} (external, cli)`,
     );
-  });
-
-  test("policy compatibility user-agent alias derives from the fingerprint module", () => {
-    expect(CLAUDE_CODE_COMPATIBILITY_USER_AGENT).toBe(CLAUDE_CODE_USER_AGENT);
   });
 
   test("pins the SDK version and output-token ceiling", () => {
@@ -449,14 +445,14 @@ describe("discovery.test.ts", () => {
     const encode = (v: string) => new TextEncoder().encode(v);
 
     test("strips a stored Bearer envelope so no Bearer Bearer header is emitted", () => {
-      const policy = resolveClaudeCredential({ credential_kind: "oauth", secret: encode("Bearer abc") });
-      expect(policy.token).toBe("abc");
+      const headers = buildClaudeHeaders(encode("Bearer abc"), "acct-1", {});
+      expect(headers.Authorization).toBe("Bearer abc");
+      expect(headers.Authorization).not.toContain("Bearer Bearer");
     });
 
-    test("rejects an envelope-only secret as missing material", () => {
-      expect(() =>
-        resolveClaudeCredential({ credential_kind: "oauth", secret: encode("Bearer ") }),
-      ).toThrow();
+    test("an envelope-only secret emits no Authorization header", () => {
+      const headers = buildClaudeHeaders(encode("Bearer "), "acct-1", {});
+      expect(headers.Authorization).toBeUndefined();
     });
   });
 });

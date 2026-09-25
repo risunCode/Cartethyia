@@ -222,11 +222,7 @@ export const DEFAULT_PROXY_BYPASS_PROVIDER_IDS: ReadonlySet<string> = new Set(
 export const MAX_UPSTREAM_LABEL_LENGTH = 256;
 /** Default cap for an upstream-provided list (models, accounts, tools). */
 export const MAX_UPSTREAM_LIST_ITEMS = 10_000;
-/** Default cap for an upstream-provided free-text error/message field. */
-export const MAX_UPSTREAM_TEXT_LENGTH = 2_048;
 
-// C0/C1 controls except tab (\u0009), newline (\u000A), and CR (\u000D).
-const TEXT_UNSAFE_CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g;
 // All C0/C1 controls including newlines — for labels/identifiers.
 const LABEL_UNSAFE_CONTROL = /[\u0000-\u001F\u007F-\u009F]/g;
 
@@ -247,17 +243,6 @@ export function sanitizeUpstreamLabel(
   maxLength = MAX_UPSTREAM_LABEL_LENGTH,
 ): string | undefined {
   return clean(value, LABEL_UNSAFE_CONTROL, maxLength);
-}
-
-/**
- * Sanitizes upstream free text (error/detail fields): removes control
- * characters while preserving tabs/newlines, trims, and caps length.
- */
-export function sanitizeUpstreamText(
-  value: unknown,
-  maxLength = MAX_UPSTREAM_TEXT_LENGTH,
-): string | undefined {
-  return clean(value, TEXT_UNSAFE_CONTROL, maxLength);
 }
 
 export interface UpstreamNumberBounds {

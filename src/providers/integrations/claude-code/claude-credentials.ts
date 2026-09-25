@@ -2,33 +2,14 @@ import { GatewayError } from "../../../transport/gateway-error";
 import type { CredentialKind } from "../../provider-registry";
 import { HEADER_CONTROL as CONTROL_CHARACTERS } from "../../../security/outbound-headers";
 import { filterClaudeCustomHeaders } from "../claude-messages";
-import {
-  CLAUDE_CODE_SDK_VERSION,
-  CLAUDE_CODE_VERSION,
-  CLAUDE_CODE_USER_AGENT,
-} from "./claude-fingerprint";
+import { CLAUDE_CODE_SDK_VERSION, CLAUDE_CODE_VERSION } from "./claude-fingerprint";
 import { assertAnthropicBetaNegotiation, negotiateAnthropicBetas, parseAnthropicBeta, type AnthropicBetaInput, type AnthropicBetaNegotiation, type AnthropicBetaUnsupportedPolicy } from "./claude-betas";
-
-/** Stable non-Cartethyia user-agent used when the inbound client did not provide one. */
-export const CLAUDE_CODE_COMPATIBILITY_USER_AGENT = CLAUDE_CODE_USER_AGENT;
 
 function invalidHeader(
   message: string,
   details: Readonly<Record<string, unknown>> = {},
 ): GatewayError {
   return new GatewayError("invalid_request", 400, message, details);
-}
-
-/** Credential material and kind at the provider dispatch boundary. */
-interface ClaudeCredentialInput {
-  readonly credential_kind: CredentialKind;
-  readonly secret?: Uint8Array | undefined;
-}
-
-/** Auth mode and sanitized bearer/API-key token selected by Claude policy. */
-interface ClaudeCredentialPolicy {
-  readonly mode: "none" | "api_key" | "oauth";
-  readonly token?: string;
 }
 
 function decodeSecret(secret: Uint8Array | undefined): string | undefined {
@@ -50,27 +31,6 @@ function decodeSecret(secret: Uint8Array | undefined): string | undefined {
  * value. Missing material is rejected for authenticated kinds and accepted
  * only for the explicit `none` kind.
  */
-export function resolveClaudeCredential(
-  input: ClaudeCredentialInput,
-): ClaudeCredentialPolicy {
-  if (input.credential_kind === "none") return { mode: "none" };
-  const token = decodeSecret(input.secret);
-  if (!token) {
-    throw new GatewayError(
-      "invalid_request",
-      401,
-      "Claude credential secret is missing",
-      {
-        credential_kind: input.credential_kind,
-      },
-    );
-  }
-  if (input.credential_kind === "api_key") {
-    return { mode: "api_key", token };
-  }
-  return { mode: "oauth", token };
-}
-
 /** Header-construction inputs shared by ClaudeAdapter and deterministic tests. */
 export interface ClaudeHeaderOptions {
   readonly credential_kind?: CredentialKind;

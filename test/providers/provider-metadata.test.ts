@@ -4,7 +4,6 @@ import {
   boundedUpstreamNumber,
   providerDisplayName,
   sanitizeUpstreamLabel,
-  sanitizeUpstreamText,
   validateUpstreamBaseUrl,
 } from "../../src/providers/provider-metadata";
 
@@ -33,12 +32,6 @@ describe("sanitizeUpstreamLabel", () => {
     expect(sanitizeUpstreamLabel(42)).toBeUndefined();
     expect(sanitizeUpstreamLabel("   ")).toBeUndefined();
     expect(sanitizeUpstreamLabel(undefined)).toBeUndefined();
-  });
-});
-
-describe("sanitizeUpstreamText", () => {
-  test("preserves tabs and newlines but drops other control characters", () => {
-    expect(sanitizeUpstreamText("a\nb\tc\u0007")).toBe("a\nb\tc");
   });
 });
 
