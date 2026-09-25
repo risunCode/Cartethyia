@@ -75,6 +75,7 @@ const expectedColumns: Record<string, readonly ExpectedColumn[]> = {
     column("id", "uuid", "uuid", "NO"),
     column("api_key_id", "uuid", "uuid", "NO"),
     column("token_hash", "text", "text", "NO"),
+    column("token_encrypted", "bytea", "bytea", "YES"),
     column("kind", "text", "text", "NO"),
     column("active", "boolean", "bool", "NO"),
     column("created_at", "timestamp with time zone", "timestamptz", "NO"),

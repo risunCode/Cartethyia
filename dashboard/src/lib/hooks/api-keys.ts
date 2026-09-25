@@ -61,18 +61,58 @@ export function useRevokeApiKey() {
   });
 }
 
-/** Mints a public enrollment link; the bearer token is returned once. */
+/**
+ * Loads the key's stable link, or null when it has none yet. Never rotates:
+ * the console shows one link that stays put until the operator regenerates it.
+ */
+export function useShareLink(keyId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.apiKeys.shareLink(keyId ?? ""),
+    queryFn: (context) =>
+      consoleRequest<ShareKeyResponse | null>(
+        `/api-keys/${encodeURIComponent(keyId ?? "")}/share`,
+        { signal: querySignal(context) },
+      ),
+    enabled: keyId !== null,
+  });
+}
+
+/** Establishes the key's link, or rotates it when `regenerate` is set. */
 export function useShareApiKey() {
+  const queryClient = useQueryClient();
   return useMutation<
     ShareKeyResponse,
     ApiErrorShape,
-    { keyId: string; expiresAt?: string | null }
+    { keyId: string; expiresAt?: string | null; regenerate?: boolean }
   >({
     mutationFn: ({ keyId, ...body }) =>
       consoleRequest<ShareKeyResponse>(`/api-keys/${encodeURIComponent(keyId)}/share`, {
         method: "POST",
         body: JSON.stringify(body),
       }),
+    onSuccess: async (_result, { keyId }) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys.shareLink(keyId) });
+    },
+  });
+}
+
+/** Rotates a personal key's credential and re-points its handoff link. */
+export function useRegenerateApiKey() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    { secret: string; share: ShareKeyResponse | null },
+    ApiErrorShape,
+    { keyId: string }
+  >({
+    mutationFn: ({ keyId }) =>
+      consoleRequest<{ secret: string; share: ShareKeyResponse | null }>(
+        `/api-keys/${encodeURIComponent(keyId)}/regenerate`,
+        { method: "POST" },
+      ),
+    onSuccess: async (_result, { keyId }) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys.all });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys.shareLink(keyId) });
+    },
   });
 }
 

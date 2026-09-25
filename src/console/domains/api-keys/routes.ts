@@ -4,12 +4,12 @@
 
 import { Elysia, t } from "elysia";
 import { randomBytes, randomUUID } from "node:crypto";
-import { encryptCredential } from "../../../security/crypto";
+import { decryptCredentialToString, encryptCredential } from "../../../security/crypto";
 import { hashShareToken } from "../../../persistence/share-store";
 import type { AccessDecision } from "../../../security/access-control";
 import { ConsoleDomainError, errorResponse, requireTenantScope } from "../../shared/errors";
 import { literalUnion } from "../../shared/elysia-schema";
-import { API_KEY_MODES } from "../../../persistence/schema";
+import { API_KEY_MODES, type ShareLinkKind } from "../../../persistence/schema";
 import type { ApiKeyConfig, ApiKeyResponse, UpdateApiKeyResponse } from "./contracts";
 import type { ApiKeyPatch, ApiKeyRecord } from "../../../persistence/api-key-store";
 import {
@@ -212,10 +212,17 @@ export function createApiKeyOperations(config: ApiKeyConfig) {
       });
       return { success: true };
     },
+    /**
+     * Establishes or rotates the key's single stable link.
+     *
+     * The console shows one link that never moves; `regenerate` replaces the
+     * token in place so the previous URL stops resolving. A share template
+     * hands out child keys; a personal key hands out the key itself.
+     */
     async shareKey(
       access: AccessDecision | undefined,
       keyId: string,
-      options: { expiresAt?: string | null; origin?: string } = {},
+      options: { expiresAt?: string | null; origin?: string; regenerate?: boolean } = {},
     ): Promise<ShareKeyResponse> {
       const authorized = requireTenantScope(access, "dashboard:write");
       const shareStore = config.shareStore;
@@ -224,12 +231,35 @@ export function createApiKeyOperations(config: ApiKeyConfig) {
       const record = await config.store.get(authorized.tenantId, keyId);
       if (!record || record.revokedAt !== undefined)
         throw new ConsoleDomainError("key_not_found", 404, "Key not found");
-      if (record.keyMode !== "share" || record.parentKeyId !== undefined)
+      if (record.parentKeyId !== undefined)
         throw new ConsoleDomainError(
           "key_not_share_parent",
           409,
-          "Only an active share template can create an enrollment link",
+          "Only a top-level key can carry a handoff link",
         );
+      const kind: ShareLinkKind = record.keyMode === "share" ? "enroll" : "handoff";
+      const origin = (options.origin ?? "").replace(/\/$/, "");
+      // Re-issuing without regeneration must return the link that is actually
+      // stored. Minting a fresh token here would hand back a URL that was never
+      // persisted, so the link would be dead on arrival.
+      if (options.regenerate !== true) {
+        const existing = await shareStore.findTokenForApiKey(keyId);
+        if (existing !== null && existing.tokenEncrypted !== null) {
+          try {
+            const token = decryptCredentialToString(existing.tokenEncrypted);
+            return {
+              id: existing.id,
+              url: `${origin}/share/${token}`,
+              token,
+              kind: existing.kind,
+              expiresAt: existing.expiresAt === null ? null : existing.expiresAt.toISOString(),
+            };
+          } catch {
+            // A row written under a different encryption key cannot be shown;
+            // fall through and establish a fresh link.
+          }
+        }
+      }
       let expiresAt: Date | null = null;
       if (options.expiresAt !== undefined && options.expiresAt !== null) {
         const parsed = new Date(options.expiresAt);
@@ -245,22 +275,128 @@ export function createApiKeyOperations(config: ApiKeyConfig) {
       const link = await shareStore.create({
         apiKeyId: keyId,
         tokenHash: hashShareToken(token),
+        tokenEncrypted: encryptCredential(token),
+        kind,
         expiresAt,
+        rotate: options.regenerate === true,
       });
       await config.auditSink?.record({
         access: authorized,
-        action: "api_key.shared",
+        action: options.regenerate === true ? "api_key.share_regenerated" : "api_key.shared",
         target: keyId,
-        detail: { shareId: link.id },
+        detail: { shareId: link.id, kind },
       });
+      return {
+        id: link.id,
+        url: `${origin}/share/${token}`,
+        token,
+        kind: link.kind,
+        expiresAt: link.expiresAt === null ? null : link.expiresAt.toISOString(),
+      };
+    },
+    /**
+     * The key's stable link with its retained token, for the console to show
+     * without rotating it. Returns null when the key has no link yet or the
+     * link predates token retention.
+     */
+    async getShare(
+      access: AccessDecision | undefined,
+      keyId: string,
+      options: { origin?: string } = {},
+    ): Promise<ShareKeyResponse | null> {
+      const authorized = requireTenantScope(access, "dashboard:read");
+      const shareStore = config.shareStore;
+      if (!shareStore)
+        throw new ConsoleDomainError("capability_unsupported", 501, "key share not configured");
+      const record = await config.store.get(authorized.tenantId, keyId);
+      if (!record || record.revokedAt !== undefined)
+        throw new ConsoleDomainError("key_not_found", 404, "Key not found");
+      if (record.parentKeyId !== undefined)
+        throw new ConsoleDomainError(
+          "key_not_share_parent",
+          409,
+          "Only a top-level key can carry a handoff link",
+        );
+      const link = await shareStore.findTokenForApiKey(keyId);
+      if (link === null || link.tokenEncrypted === null) return null;
+      let token: string;
+      try {
+        token = decryptCredentialToString(link.tokenEncrypted);
+      } catch {
+        // A row written under a different key cannot be shown; the operator
+        // regenerates to establish a fresh link.
+        return null;
+      }
       const origin = (options.origin ?? "").replace(/\/$/, "");
       return {
         id: link.id,
         url: `${origin}/share/${token}`,
         token,
-        kind: "enroll",
+        kind: link.kind,
         expiresAt: link.expiresAt === null ? null : link.expiresAt.toISOString(),
       };
+    },
+    /**
+     * Rotates a personal key's credential in place and re-points its handoff
+     * link at the new secret. Share templates have no credential of their own,
+     * so they are rejected here.
+     */
+    async regenerateKey(
+      access: AccessDecision | undefined,
+      keyId: string,
+      options: { origin?: string } = {},
+    ): Promise<{ secret: string; share: ShareKeyResponse | null }> {
+      const authorized = requireTenantScope(access, "dashboard:write");
+      const current = await config.store.get(authorized.tenantId, keyId);
+      if (!current || current.revokedAt !== undefined)
+        throw new ConsoleDomainError("key_not_found", 404, "Key not found");
+      if (current.parentKeyId !== undefined)
+        throw new ConsoleDomainError(
+          "shared_key_managed_by_parent",
+          409,
+          "Edit or revoke this key through its share parent",
+        );
+      if (current.keyMode !== "personal")
+        throw new ConsoleDomainError(
+          "key_not_personal",
+          409,
+          "Only a personal key can be regenerated; rotate a share template's link instead",
+        );
+      const generated = generateApiKeySecret(current.keyPrefix ?? undefined);
+      const updated = await config.store.update(authorized.tenantId, keyId, {
+        keyHash: generated.hash,
+        keyEncrypted: encryptCredential(generated.secret),
+        keyPrefix: generated.prefix,
+      });
+      if (!updated) throw new ConsoleDomainError("key_not_found", 404, "Key not found");
+      await config.admissionService.purgeKey(keyId);
+      const shareStore = config.shareStore;
+      let share: ShareKeyResponse | null = null;
+      if (shareStore) {
+        const token = randomBytes(32).toString("base64url");
+        const link = await shareStore.create({
+          apiKeyId: keyId,
+          tokenHash: hashShareToken(token),
+          tokenEncrypted: encryptCredential(token),
+          kind: "handoff",
+          expiresAt: null,
+          rotate: true,
+        });
+        const origin = (options.origin ?? "").replace(/\/$/, "");
+        share = {
+          id: link.id,
+          url: `${origin}/share/${token}`,
+          token,
+          kind: link.kind,
+          expiresAt: null,
+        };
+      }
+      await config.auditSink?.record({
+        access: authorized,
+        action: "api_key.regenerated",
+        target: keyId,
+      });
+      return { secret: generated.secret, share };
     },
     async listShares(
       access: AccessDecision | undefined,
@@ -357,6 +493,8 @@ const apiKeyBody = t.Object({
 
 const apiKeyShareBody = t.Object({
   expiresAt: t.Optional(t.Union([t.String(), t.Null()])),
+  /** Replaces the existing link's token so the previous URL stops resolving. */
+  regenerate: t.Optional(t.Boolean()),
 });
 /** Creates tenant-bound API-key routes with request-local authorization. */
 export function createApiKeyRoutes(config: ApiKeyConfig): Elysia {
@@ -438,12 +576,31 @@ export function createApiKeyRoutes(config: ApiKeyConfig): Elysia {
         return errorResponse(error, set, "API-key operation failed");
       }
     })
+    .get("/:keyId/share", async ({ request, params, set }) => {
+      try {
+        return await factory.getShare(config.accessResolver(request), params.keyId, {
+          origin: new URL(request.url).origin,
+        });
+      } catch (error) {
+        return errorResponse(error, set, "API-key operation failed");
+      }
+    })
     .post("/:keyId/share", { body: t.Optional(apiKeyShareBody) }, async ({ request, params, body, set }) => {
       try {
         set.status = 201;
-        const input = (body ?? {}) as { expiresAt?: string | null };
+        const input = (body ?? {}) as { expiresAt?: string | null; regenerate?: boolean };
         return await factory.shareKey(config.accessResolver(request), params.keyId, {
           ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
+          ...(input.regenerate === undefined ? {} : { regenerate: input.regenerate }),
+          origin: new URL(request.url).origin,
+        });
+      } catch (error) {
+        return errorResponse(error, set, "API-key operation failed");
+      }
+    })
+    .post("/:keyId/regenerate", async ({ request, params, set }) => {
+      try {
+        return await factory.regenerateKey(config.accessResolver(request), params.keyId, {
           origin: new URL(request.url).origin,
         });
       } catch (error) {

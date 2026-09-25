@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createShareRouter } from "../../../src/console/share/share-router";
 import { hashShareToken, type ShareApiKeyRow, type ShareLinkStore } from "../../../src/persistence/share-store";
 import type { CartethyiaDatabase } from "../../../src/persistence/postgres";
+import { encryptCredential } from "../../../src/security/crypto";
 
 interface ShareFixture {
   readonly token: string;
@@ -22,6 +23,12 @@ function fakeStore(fixtures: readonly ShareFixture[]) {
     },
     async getApiKeyByShareToken(tokenHash) {
       return byHash.get(tokenHash) ?? null;
+    },
+    async getHandoffByShareToken() {
+      return null;
+    },
+    async findTokenForApiKey() {
+      return null;
     },
     async hasActiveSharedKeyForIp(clientIpKey) {
       return activeIps.has(clientIpKey);
@@ -88,6 +95,69 @@ const noopDb = {} as unknown as CartethyiaDatabase;
 const VALID_TOKEN = "a".repeat(43);
 
 describe("public share router", () => {
+  test("serves a personal key through its handoff link, decrypting the stored secret", async () => {
+    const secret = "rk_live_personal_secret";
+    const store = fakeStore([]);
+    const handoffStore = Object.assign(store, {
+      async getHandoffByShareToken(tokenHash: string) {
+        if (tokenHash !== hashShareToken(VALID_TOKEN)) return null;
+        return {
+          id: "key-1",
+          name: "personal-key",
+          keyPrefix: "rk_",
+          keyEncrypted: encryptCredential(secret),
+          requestsPerMinute: 30,
+          dailyTokenLimit: 1000,
+          monthlyTokenLimit: null,
+          lifetimeTokenBudget: null,
+          maxConcurrentRequests: 2,
+          modelAllowlist: ["openai/gpt-5"],
+          notesTitle: null,
+          notesSubtitle: null,
+          notesBody: null,
+          expiresAt: null,
+        };
+      },
+    });
+    const router = createShareRouter({
+      db: noopDb,
+      shareStore: handoffStore,
+      resolveClientIp: () => "198.51.100.1",
+    });
+
+    const response = await router.handle(
+      new Request(`http://internal.test/share/${VALID_TOKEN}/handoff`),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = (await response.json()) as Record<string, unknown>;
+    // The handoff reveals the key itself — that is its whole purpose — and the
+    // plaintext comes from decrypting the stored ciphertext.
+    expect(body).toMatchObject({
+      kind: "handoff",
+      name: "personal-key",
+      keyPrefix: "rk_",
+      key: secret,
+      requestsPerMinute: 30,
+      maxConcurrentRequests: 2,
+      dailyLimit: 1000,
+    });
+  });
+
+  test("a dead handoff link resolves to 404 without touching the key", async () => {
+    const store = fakeStore([]);
+    const router = createShareRouter({
+      db: noopDb,
+      shareStore: store,
+      resolveClientIp: () => "198.51.100.1",
+    });
+    const response = await router.handle(
+      new Request(`http://internal.test/share/${VALID_TOKEN}/handoff`),
+    );
+    expect(response.status).toBe(404);
+    expect(store.touched).toEqual([]);
+  });
+
   test("serves enrollment metadata without disclosing any bearer key", async () => {
     const store = fakeStore([
       {

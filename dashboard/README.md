@@ -47,8 +47,8 @@ chunks:
 | `/cli-tools`, `/cli-tools/:toolId` | `CliTools`, `CliToolDetail` | `console/cli-tools` |
 | `/console-log` | `ConsoleLog` | `console/domains/logs` and SSE |
 | `/settings` | `Settings` | `console/settings` |
-| Overview `API Credentials` share-template row | `ShareManagementDialog` | `console/domains/api-keys` and `console/share` |
-| `/share/:token` (public root route) | `apps/share/page.tsx` | public child-key enrollment via `src/console/share/share-router.ts` |
+| Overview `API Credentials` row → share | `ShareManagementDialog` | `console/domains/api-keys` and `console/share` |
+| `/share/:token` (public root route) | `apps/share/page.tsx` | public key enrollment (`/data`, `/issue`) and personal handoff (`/handoff`) via `src/console/share/share-router.ts` |
 
 Unknown protected paths redirect to `/`. Session transitions clear the shared
 query cache and navigate to `/login` or `/banned` rather than rendering stale

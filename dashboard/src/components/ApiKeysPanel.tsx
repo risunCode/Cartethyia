@@ -213,14 +213,13 @@ export function ApiKeysPanel(): ReactNode {
                   >
                     Edit
                   </Button>
-                  {key.keyMode === "share" && <Button
+                  {!key.revokedAt && <Button
                     variant="secondary"
                     size="sm"
                     icon={<Share2 size={13} />}
                     onClick={() => openShare(key)}
-                    disabled={Boolean(key.revokedAt)}
                   >
-                    Manage sharing
+                    {key.keyMode === "share" ? "Recipients" : "Share"}
                   </Button>}
                   <Button
                     variant="danger"

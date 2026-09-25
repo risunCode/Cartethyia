@@ -209,7 +209,13 @@ prefix-length hints leave the store.
 - **API keys** (`api-keys/`): list (hides revoked), detail, create (generated `rk_` secret or
   owner-supplied key, hashed via `hashSecret` plus an encrypted copy so share recipients can
   reuse it; secret returned once), patch, revoke (also purges admission state, so a recycled id
-  never inherits admission history), and share links (a bearer token whose hash alone is stored).
+  never inherits admission history), regenerate (rotates a personal key's credential and
+  re-points its handoff link), and links. Each top-level key carries exactly one active link:
+  `POST /:keyId/share` establishes it or rotates its token when `regenerate` is set, `GET
+  /:keyId/share` returns the stored link without rotating, and the bearer token is retained
+  encrypted (never selected by a public lookup) so the console can show the link again. The
+  link's kind follows the key: a share template gets an `enroll` link that issues child keys, a
+  personal key gets a `handoff` link that reveals the key itself.
 - **Studio** (`studio/`): CRUD over per-tenant saved sessions (capped, messages and media
   normalized and bounded on write and read), a tenant-scoped `web-fetch` tool over
   the validated outbound network binding, plus a key endpoint that decrypts the tenant's default

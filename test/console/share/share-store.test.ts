@@ -63,7 +63,10 @@ dbDescribe("shared API-key persistence", () => {
       await shares.create({
         apiKeyId: id,
         tokenHash: hashShareToken(tokenAt(index)),
+        tokenEncrypted: Buffer.from(tokenAt(index), "utf8"),
+        kind: "enroll",
         expiresAt: null,
+        rotate: false,
       });
     }
   });

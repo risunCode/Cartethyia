@@ -45,22 +45,62 @@ function fakeKeyStore() {
 }
 
 function fakeShareStore() {
-  const created: Array<{ apiKeyId: string; tokenHash: string }> = [];
+  const created: Array<{ apiKeyId: string; tokenHash: string; kind: string; rotate: boolean }> = [];
   const revoked: Array<{ apiKeyId: string; shareId: string }> = [];
   let links: readonly ShareLinkSummary[] = [];
+  // Mirrors the store contract: one stable link per key, token retained so the
+  // console can show it again, replaced in place when rotate is requested.
+  const stored = new Map<string, { tokenEncrypted: Buffer; id: string; expiresAt: Date | null }>();
+  let counter = 0;
   const shareStore: ShareLinkStore = {
     async create(input) {
-      created.push({ apiKeyId: input.apiKeyId, tokenHash: input.tokenHash });
-      return {
-        id: "share-1",
+      created.push({
         apiKeyId: input.apiKeyId,
-        kind: "enroll",
+        tokenHash: input.tokenHash,
+        kind: input.kind,
+        rotate: input.rotate,
+      });
+      const existing = stored.get(input.apiKeyId);
+      if (existing && !input.rotate) {
+        return {
+          id: existing.id,
+          apiKeyId: input.apiKeyId,
+          kind: input.kind,
+          createdAt: new Date("2026-01-02T00:00:00.000Z"),
+          expiresAt: existing.expiresAt,
+        };
+      }
+      counter += 1;
+      const id = existing?.id ?? `share-${counter}`;
+      stored.set(input.apiKeyId, {
+        tokenEncrypted: input.tokenEncrypted,
+        id,
+        expiresAt: input.expiresAt,
+      });
+      return {
+        id,
+        apiKeyId: input.apiKeyId,
+        kind: input.kind,
         createdAt: new Date("2026-01-02T00:00:00.000Z"),
         expiresAt: input.expiresAt,
       };
     },
     async getApiKeyByShareToken() {
       return null;
+    },
+    async getHandoffByShareToken() {
+      return null;
+    },
+    async findTokenForApiKey(apiKeyId) {
+      const entry = stored.get(apiKeyId);
+      if (!entry) return null;
+      return {
+        id: entry.id,
+        apiKeyId,
+        kind: "enroll",
+        expiresAt: entry.expiresAt,
+        tokenEncrypted: entry.tokenEncrypted,
+      };
     },
     async hasActiveSharedKeyForIp() {
       return false;
@@ -246,7 +286,78 @@ describe("api-key operations", () => {
     expect(created[0]?.tokenHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  test("does not allow personal authentication keys to create enrollment links", async () => {
+  test("gives a personal key a handoff link and a share template an enrollment link", async () => {
+    const { store } = fakeKeyStore();
+    const { shareStore, created } = fakeShareStore();
+    const operations = createApiKeyOperations({
+      store,
+      accessResolver: () => writer,
+      shareStore,
+      admissionService: fakeAdmission(),
+    });
+
+    const personal = await operations.createKey(writer, { label: "personal" });
+    const handoff = await operations.shareKey(writer, personal.id, {
+      origin: "https://gateway.test",
+    });
+    // A personal key reveals itself, so its link is a handoff, not enrollment.
+    expect(handoff.kind).toBe("handoff");
+    expect(created.at(-1)?.kind).toBe("handoff");
+
+    const template = await operations.createKey(writer, { label: "shared", keyMode: "share" });
+    const enroll = await operations.shareKey(writer, template.id, {
+      origin: "https://gateway.test",
+    });
+    expect(enroll.kind).toBe("enroll");
+    expect(created.at(-1)?.kind).toBe("enroll");
+  });
+
+  test("rotates the link only when regeneration is requested", async () => {
+    const { store } = fakeKeyStore();
+    const { shareStore, created } = fakeShareStore();
+    const operations = createApiKeyOperations({
+      store,
+      accessResolver: () => writer,
+      shareStore,
+      admissionService: fakeAdmission(),
+    });
+    const key = await operations.createKey(writer, { label: "shared", keyMode: "share" });
+
+    const first = await operations.shareKey(writer, key.id, { origin: "https://gateway.test" });
+    const second = await operations.shareKey(writer, key.id, { origin: "https://gateway.test" });
+    // Re-issuing without regenerate reuses the stored link; the token never moves.
+    expect(second.token).toBe(first.token);
+    expect(created.at(-1)?.rotate).toBe(false);
+
+    const rotated = await operations.shareKey(writer, key.id, {
+      origin: "https://gateway.test",
+      regenerate: true,
+    });
+    expect(created.at(-1)?.rotate).toBe(true);
+    expect(rotated.token).not.toBe(first.token);
+  });
+
+  test("regenerating a personal key rotates its credential and re-points the link", async () => {
+    const { store, records } = fakeKeyStore();
+    const { shareStore, created } = fakeShareStore();
+    const operations = createApiKeyOperations({
+      store,
+      accessResolver: () => writer,
+      shareStore,
+      admissionService: fakeAdmission(),
+    });
+    const personal = await operations.createKey(writer, { label: "personal" });
+    const before = records.get(personal.id)?.keyHash;
+    const result = await operations.regenerateKey(writer, personal.id, {
+      origin: "https://gateway.test",
+    });
+    expect(result.secret).toMatch(/^rk_/);
+    expect(records.get(personal.id)?.keyHash).not.toBe(before);
+    expect(result.share?.kind).toBe("handoff");
+    expect(created.at(-1)?.rotate).toBe(true);
+  });
+
+  test("refuses to regenerate a share template, which has no credential of its own", async () => {
     const { store } = fakeKeyStore();
     const operations = createApiKeyOperations({
       store,
@@ -254,10 +365,10 @@ describe("api-key operations", () => {
       shareStore: fakeShareStore().shareStore,
       admissionService: fakeAdmission(),
     });
-    const personal = await operations.createKey(writer, { label: "personal" });
-    await expect(operations.shareKey(writer, personal.id)).rejects.toMatchObject({
+    const template = await operations.createKey(writer, { label: "shared", keyMode: "share" });
+    await expect(operations.regenerateKey(writer, template.id)).rejects.toMatchObject({
       status: 409,
-      code: "key_not_share_parent",
+      code: "key_not_personal",
     });
   });
 

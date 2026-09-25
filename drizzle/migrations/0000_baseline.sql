@@ -426,13 +426,14 @@ CREATE TABLE "share_links" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "api_key_id" uuid NOT NULL REFERENCES "api_keys" ("id") ON DELETE CASCADE,
   "token_hash" text NOT NULL,
+  "token_encrypted" bytea,
   "kind" text NOT NULL DEFAULT 'enroll',
   "active" boolean NOT NULL DEFAULT true,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "expires_at" timestamptz,
   "used_at" timestamptz,
   "last_viewed_at" timestamptz,
-  CONSTRAINT "share_links_kind_check" CHECK ("kind" = 'enroll')
+  CONSTRAINT "share_links_kind_check" CHECK ("kind" IN ('enroll', 'handoff'))
 );
 --> statement-breakpoint
 CREATE TABLE "studio_sessions" (

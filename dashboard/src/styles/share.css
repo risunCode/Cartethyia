@@ -1,86 +1,93 @@
-/* Owner-side share dialog detail, event grid, and recipient table. */
+/* Owner-side share dialog: the stable link row, the recipient table, and the
+   expanded per-recipient detail. */
+
+/* One link, one row: icon, URL, copy, regenerate. */
+.share-link-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--inner-border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text-tertiary);
+}
+
+.share-link-row code {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-link-empty {
+  flex: 1 1 auto;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.share-expand-toggle {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.share-expand-toggle:hover {
+  background: var(--hover);
+  color: var(--text-primary);
+}
+
+.share-recipient-context {
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
+}
+
+/* Expanded recipient: two dense tables, no nested cards. */
 .share-child-detail {
   display: grid;
-  gap: 20px;
+  gap: 16px;
   min-width: 0;
-  padding: 18px;
+  padding: 14px 16px;
   border-top: 1px solid var(--inner-border);
   background: var(--surface-1);
 }
 
-.share-detail-heading { margin-bottom: 10px; }
-.share-detail-heading h3 { color: var(--text-primary); font-size: 14px; font-weight: 700; }
-.share-detail-heading p { margin-top: 3px; color: var(--text-tertiary); font-size: 11px; }
-.share-detail-empty { padding: 12px 0; color: var(--text-tertiary); font-size: 12px; }
-
-.share-model-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
-  gap: 10px;
+.share-detail-heading {
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
 }
 
-.share-model-card,
-.share-event-card {
-  min-width: 0;
-  border: 1px solid var(--inner-border);
-  border-radius: 12px;
-  background: var(--surface-2);
+.share-detail-empty {
+  padding: 8px 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
 
-.share-model-card { padding: 14px; }
-.share-model-card h4 { margin-bottom: 12px; color: var(--text-primary); font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
-.share-model-periods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.share-model-period { min-width: 0; padding: 10px; border: 1px solid var(--inner-border); border-radius: 9px; background: var(--surface-1); }
-.share-model-period h5 { margin-bottom: 8px; color: var(--text-secondary); font-size: 11px; font-weight: 700; }
-.share-model-period dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
-.share-model-period dl > div { min-width: 0; }
-.share-model-period dt,
-.share-event-fields dt { color: var(--text-tertiary); font-size: 10px; font-weight: 600; }
-.share-model-period dd,
-.share-event-fields dd { margin: 4px 0 0; color: var(--text-primary); font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-
-.share-event-list { display: grid; gap: 10px; }
-.share-event-card { padding: 14px; }
-.share-event-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.share-event-model { min-width: 0; color: var(--text-primary); font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
-.share-event-model > span { color: var(--text-tertiary); font-weight: 400; }
-.share-event-status { flex: 0 0 auto; padding: 4px 8px; border: 1px solid var(--inner-border); border-radius: 7px; background: var(--surface-1); color: var(--text-secondary); font-size: 11px; font-weight: 700; }
-.share-event-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 16px; margin: 0; }
-.share-event-fields > div { min-width: 0; }
-.share-event-error { grid-column: span 2; }
-
-@media (max-width: 900px) {
-  .share-event-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .share-event-error { grid-column: span 2; }
+.share-child-detail .data-table {
+  font-size: 11.5px;
 }
 
 @media (max-width: 640px) {
-  .share-child-detail { gap: 16px; padding: 12px; }
-  .share-model-grid { grid-template-columns: minmax(0, 1fr); }
-  .share-model-periods { grid-template-columns: minmax(0, 1fr); }
-  .share-model-card,
-  .share-event-card { padding: 12px; }
-  .share-event-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 10px; }
-  .share-event-error { grid-column: span 2; }
-  .share-event-card > header { flex-wrap: wrap; }
-}
-
-.share-recipient-main { display: grid; gap: 12px; min-width: 0; padding: 14px; }
-.share-recipient-identity { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
-.share-recipient-key { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--text-primary); font-size: 14px; font-weight: 700; text-align: left; cursor: pointer; }
-.share-recipient-identity > div { min-width: 0; }
-.share-recipient-key span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.share-recipient-key:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
-.share-recipient-context { margin: 4px 0 0 20px; color: var(--text-tertiary); font-size: 11px; overflow-wrap: anywhere; }
-.share-recipient-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
-.share-recipient-metrics > div { min-width: 0; padding: 9px 10px; border: 1px solid var(--inner-border); border-radius: 9px; background: var(--surface-1); }
-.share-recipient-metrics dt { color: var(--text-tertiary); font-size: 10px; font-weight: 600; }
-.share-recipient-metrics dd { margin: 4px 0 0; color: var(--text-primary); font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.share-recipient-dates { color: var(--text-tertiary); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
-
-@media (max-width: 640px) {
-  .share-recipient-main { gap: 10px; padding: 12px; }
-  .share-recipient-identity { align-items: flex-start; }
-  .share-recipient-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
-  .share-recipient-metrics > div { padding: 8px; }
+  .share-link-row {
+    flex-wrap: wrap;
+  }
+  .share-child-detail {
+    padding: 12px;
+  }
 }

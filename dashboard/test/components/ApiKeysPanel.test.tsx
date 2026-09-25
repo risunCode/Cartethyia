@@ -62,14 +62,17 @@ describe("API keys panel", () => {
     expect(markup).toContain(">revoked<");
     expect(markup).toContain("ctk_…");
     expect(markup).toContain("Edit");
-    expect(markup).not.toContain("Manage sharing");
     expect(markup).toContain("Revoke");
   });
 
-  test("only share templates can manage sharing", () => {
-    const markup = render([SHARE_TEMPLATE]);
-    expect(markup).toContain("share template");
-    expect(markup).toContain("Manage sharing");
+  test("offers a share entry point on every live key, labelled by kind", () => {
+    // A personal key carries a handoff link; a share template carries an
+    // enrollment link. Both are reached from the same control.
+    expect(render([SHARE_TEMPLATE])).toContain("Recipients");
+    const personal = render([ACTIVE_KEY]);
+    expect(personal).toContain("Share");
+    // A revoked key cannot be shared.
+    expect(render([REVOKED_KEY])).not.toContain("Share</button>");
   });
 
   test("never renders a secret or key hash", () => {

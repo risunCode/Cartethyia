@@ -497,13 +497,15 @@ export const apiKeys = pgTable(
 export type ApiKey = typeof apiKeys.$inferSelect;
 
 
-// Public bearer links for enrolling one shared key per resolved client IP.
-// Only the hash is persisted; tokens are never stored.
+// Public bearer links for enrolling one shared key per resolved client IP, and
+// for handing a personal key to its owner. The hash is the lookup key; the
+// token is additionally retained encrypted so the owner's console can show the
+// link again instead of losing it after the one response that minted it.
 /**
  * Share-link kinds, as a runtime tuple. Route schemas and DTOs project this
  * list rather than restating it.
  */
-export const SHARE_LINK_KINDS = ["enroll"] as const;
+export const SHARE_LINK_KINDS = ["enroll", "handoff"] as const;
 
 /** One share-link kind. */
 export type ShareLinkKind = (typeof SHARE_LINK_KINDS)[number];
@@ -517,7 +519,11 @@ export const shareLinks = pgTable(
       .notNull()
       .references(() => apiKeys.id, { onDelete: "cascade" }),
     tokenHash: text("token_hash").notNull(),
-    kind: text("kind").notNull().default("enroll"),
+    // Encrypted bearer token. Present so the console can re-display a stable
+    // link; historical rows written before this column carry NULL and simply
+    // cannot be shown again.
+    tokenEncrypted: bytea("token_encrypted"),
+    kind: text("kind").$type<ShareLinkKind>().notNull().default("enroll"),
     active: boolean("active").notNull().default(true),
     createdAt: createdAtColumn(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
@@ -529,7 +535,7 @@ export const shareLinks = pgTable(
     uniqueIndex("share_links_token_hash_idx").on(table.tokenHash),
     index("idx_share_links_api_key").on(table.apiKeyId),
     index("idx_share_links_active").on(table.active, table.kind, table.expiresAt),
-    check("share_links_kind_check", sql`${table.kind} = 'enroll'`),
+    check("share_links_kind_check", sql`${table.kind} IN ('enroll', 'handoff')`),
   ],
 );
 

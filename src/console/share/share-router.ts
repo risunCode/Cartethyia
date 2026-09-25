@@ -8,10 +8,16 @@ import { and, eq, isNull, or } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { models, providers } from "../../persistence/schema";
 import { canonicalClientIpKey } from "../../security/ip-boundary";
+import { decryptCredentialToString } from "../../security/crypto";
 import { isModelAllowed, isProviderAllowed, type ApiKeyAuthorizationSnapshot } from "../../security/api-key-auth";
 import { API_CONTENT_SECURITY_POLICY, X_FRAME_OPTIONS } from "../../security/outbound-headers";
 import { generateApiKeySecret } from "../domains/api-keys/contracts";
-import { hashShareToken, type ShareLinkStore, type ShareApiKeyRow } from "../../persistence/share-store";
+import {
+  hashShareToken,
+  type ShareHandoffRow,
+  type ShareLinkStore,
+  type ShareApiKeyRow,
+} from "../../persistence/share-store";
 
 /** Minimum accepted token length; generated tokens are 43 base64url chars. */
 const MIN_TOKEN_LENGTH = 20;
@@ -101,6 +107,47 @@ export function createShareRouter(options: ShareRouterOptions): Elysia {
   const { db, shareStore } = options;
 
   return new Elysia()
+    /**
+     * Handoff link for a personal key: reveals the key itself, never a child.
+     * The link's authority is the same as the enrollment link's — possession of
+     * the token — so a dead or revoked link resolves to nothing.
+     */
+    .get("/share/:token/handoff", async ({ params }) => {
+      if (typeof params.token !== "string") return notFound();
+      const token = params.token;
+      if (token.length < MIN_TOKEN_LENGTH) return notFound();
+      const row: ShareHandoffRow | null = await shareStore.getHandoffByShareToken(
+        hashShareToken(token),
+      );
+      if (row === null) return notFound();
+      let key: string | null = null;
+      if (row.keyEncrypted !== null) {
+        try {
+          key = decryptCredentialToString(row.keyEncrypted);
+        } catch {
+          key = null;
+        }
+      }
+      void shareStore.touchView(hashShareToken(token)).catch(() => undefined);
+      return json({
+        kind: "handoff",
+        name: row.name,
+        keyPrefix: row.keyPrefix,
+        key,
+        requestsPerMinute: row.requestsPerMinute,
+        maxConcurrentRequests: row.maxConcurrentRequests,
+        dailyLimit: row.dailyTokenLimit,
+        monthlyLimit: row.monthlyTokenLimit,
+        oneTimeLimit: row.lifetimeTokenBudget,
+        modelAllowlist: row.modelAllowlist,
+        notes: {
+          title: row.notesTitle,
+          subtitle: row.notesSubtitle,
+          body: row.notesBody,
+        },
+        expiresAt: row.expiresAt,
+      });
+    })
     .get("/share/:token/data", async ({ params, request }) => {
       if (typeof params.token !== "string") return notFound();
       const token = params.token;

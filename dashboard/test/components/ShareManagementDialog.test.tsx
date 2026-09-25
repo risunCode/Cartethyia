@@ -35,6 +35,8 @@ const activity: SharedKeyActivityDetail = {
 
 mock.module("../../src/lib/hooks/api-keys", () => ({
   useShareApiKey: () => ({ isPending: false, mutate: () => undefined }),
+  useRegenerateApiKey: () => ({ isPending: false, mutate: () => undefined }),
+  useShareLink: () => ({ data: null, isPending: false, isError: false }),
   useRevokeSharedKey: () => ({ isPending: false, mutate: () => undefined }),
   useSharedKeys: () => ({ data: [], isPending: true, isError: false }),
   useSharedKeyActivity: () => ({ data: activity, isPending: false, isError: false }),
@@ -54,12 +56,15 @@ function render(): string {
 }
 
 describe("share management dialog", () => {
-  test("expanded child detail exposes safe telemetry without credential material", () => {
+  test("expanded recipient exposes token usage without credential material", () => {
     const markup = render();
     expect(markup).toContain("Top models");
     expect(markup).toContain("gpt-5");
     expect(markup).toContain("Recent requests");
-    expect(markup).toContain("203.0.113.*");
+    // Token totals only: the detail deliberately drops the per-event client IP
+    // and error fields the owner does not act on.
+    expect(markup).toContain("25");
+    expect(markup).not.toContain("203.0.113.*");
     expect(markup).not.toContain("child-id");
   });
 });

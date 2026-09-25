@@ -1,16 +1,17 @@
-import { ChevronDown, ChevronRight, Link2, RefreshCw, Users } from "lucide-react";
+import { ChevronDown, ChevronRight, Link2, RefreshCw, RotateCw } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
-import { Input } from "./ui/input";
 import { EmptyState, ErrorState, LoadingState } from "./ui/state";
 import { ClipboardButton } from "./patterns/clipboard-button";
 import { toast } from "../lib/toast";
 import { getErrorMessage } from "../lib/helpers";
 import type { ApiKeyResponse, SharedKeyActivityDetail, SharedKeySummary } from "../lib/contracts";
 import {
+  useRegenerateApiKey,
   useRevokeSharedKey,
   useShareApiKey,
+  useShareLink,
   useSharedKeyActivity,
   useSharedKeys,
 } from "../lib/hooks/api-keys";
@@ -18,128 +19,87 @@ import {
 const count = (n: number | null | undefined) => (n ?? 0).toLocaleString();
 const stamp = (s: string | null | undefined) => (s ? new Date(s).toLocaleString() : "—");
 
+/** Compact token count; the owner only needs the magnitude at a glance. */
+function compactTokens(value: number | null | undefined): string {
+  const amount = value ?? 0;
+  if (amount >= 1_000_000_000_000) return `${Number((amount / 1_000_000_000_000).toFixed(2))}T`;
+  if (amount >= 1_000_000_000) return `${Number((amount / 1_000_000_000).toFixed(2))}B`;
+  if (amount >= 1_000_000) return `${Number((amount / 1_000_000).toFixed(2))}M`;
+  if (amount >= 1_000) return `${Number((amount / 1_000).toFixed(2))}K`;
+  return amount.toLocaleString();
+}
+
+/** Expanded recipient body: model totals and recent requests, loaded on demand. */
 export function ChildDetail({ parentId, childId }: { parentId: string; childId: string }): ReactNode {
   const detail = useSharedKeyActivity(parentId, childId);
-  if (detail.isPending) return <LoadingState label="Loading safe activity…" />;
+  if (detail.isPending) return <LoadingState label="Loading activity…" />;
   if (detail.isError) {
     return (
       <ErrorState
-        message={getErrorMessage(detail.error, "Could not load child activity.")}
+        message={getErrorMessage(detail.error, "Could not load activity.")}
         onRetry={() => void detail.refetch()}
       />
     );
   }
   const activity: SharedKeyActivityDetail | undefined = detail.data;
+  if (!activity) return null;
   return (
     <div className="share-child-detail">
-      <section aria-labelledby="share-model-heading">
-        <div className="share-detail-heading">
-          <div>
-            <h3 id="share-model-heading">Top models</h3>
-            <p>Today and retained telemetry totals</p>
-          </div>
-        </div>
-        {activity?.models.length ? (
-          <div className="share-model-grid">
-            {activity.models.map((model, i) => (
-              <article
-                className="share-model-card"
-                key={`${model.providerId ?? ""}-${model.modelId}-${i}`}
-              >
-                <h4>{model.modelId}</h4>
-                <div className="share-model-periods">
-                  <div className="share-model-period">
-                    <h5>Today</h5>
-                    <dl>
-                      <div>
-                        <dt>Hits</dt>
-                        <dd>{count(model.todayRequests)}</dd>
-                      </div>
-                      <div>
-                        <dt>Errors</dt>
-                        <dd>{count(model.todayErrors)}</dd>
-                      </div>
-                      <div>
-                        <dt>Tokens</dt>
-                        <dd>{count(model.todayTokens)}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                  <div className="share-model-period">
-                    <h5>Retained telemetry</h5>
-                    <dl>
-                      <div>
-                        <dt>Hits</dt>
-                        <dd>{count(model.retainedRequests)}</dd>
-                      </div>
-                      <div>
-                        <dt>Errors</dt>
-                        <dd>{count(model.retainedErrors)}</dd>
-                      </div>
-                      <div>
-                        <dt>Tokens</dt>
-                        <dd>{count(model.retainedTokens)}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
+      <section>
+        <h4 className="share-detail-heading">Top models</h4>
+        {activity.models.length ? (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Model</th>
+                <th scope="col">Today</th>
+                <th scope="col">Errors</th>
+                <th scope="col">Tokens</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activity.models.map((model, i) => (
+                <tr key={`${model.providerId ?? ""}-${model.modelId}-${i}`}>
+                  <td>{model.modelId}</td>
+                  <td>{count(model.todayRequests)}</td>
+                  <td>{count(model.todayErrors)}</td>
+                  <td>{compactTokens(model.todayTokens)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ) : (
           <p className="share-detail-empty">No model activity yet.</p>
         )}
       </section>
-      <section aria-labelledby="share-requests-heading">
-        <div className="share-detail-heading">
-          <div>
-            <h3 id="share-requests-heading">Recent requests</h3>
-            <p>Safe request metadata only — no captured payloads</p>
-          </div>
-        </div>
-        {activity?.requests.length ? (
-          <div className="share-event-list">
-            {activity.requests.map((event) => (
-              <article className="share-event-card" key={event.requestId}>
-                <header>
-                  <div className="share-event-model">
-                    {event.providerId ?? "Provider"} <span aria-hidden="true">/</span>{" "}
-                    {event.modelId ?? "Model"}
-                  </div>
-                  <span className="share-event-status">
+      <section>
+        <h4 className="share-detail-heading">Recent requests</h4>
+        {activity.requests.length ? (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Model</th>
+                <th scope="col">Status</th>
+                <th scope="col">Tokens</th>
+                <th scope="col">Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activity.requests.map((event) => (
+                <tr key={event.requestId}>
+                  <td>
+                    {event.providerId ?? "Provider"}/{event.modelId ?? "Model"}
+                  </td>
+                  <td>
                     {event.status}
-                    {event.httpStatus ? ` · HTTP ${event.httpStatus}` : ""}
-                  </span>
-                </header>
-                <dl className="share-event-fields">
-                  <div>
-                    <dt>Client IP</dt>
-                    <dd>{event.clientIp ?? "—"}</dd>
-                  </div>
-                  <div className="share-event-error">
-                    <dt>Error</dt>
-                    <dd>{event.errorCategory ?? event.errorOrigin ?? "None"}</dd>
-                  </div>
-                  <div>
-                    <dt>Time</dt>
-                    <dd>{stamp(event.startedAt)}</dd>
-                  </div>
-                  <div>
-                    <dt>Input tokens</dt>
-                    <dd>{count(event.inputTokens)}</dd>
-                  </div>
-                  <div>
-                    <dt>Output tokens</dt>
-                    <dd>{count(event.outputTokens)}</dd>
-                  </div>
-                  <div>
-                    <dt>Total tokens</dt>
-                    <dd>{count(event.totalTokens)}</dd>
-                  </div>
-                </dl>
-              </article>
-            ))}
-          </div>
+                    {event.httpStatus ? ` · ${event.httpStatus}` : ""}
+                  </td>
+                  <td>{compactTokens(event.totalTokens)}</td>
+                  <td>{stamp(event.startedAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ) : (
           <p className="share-detail-empty">No recent requests.</p>
         )}
@@ -155,123 +115,102 @@ export function ShareManagementDialog({
   parent: ApiKeyResponse;
   onClose: () => void;
 }): ReactNode {
-  const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [link, setLink] = useState<string | null>(null);
-  const [expiry, setExpiry] = useState("");
   const share = useShareApiKey();
+  const regenerate = useRegenerateApiKey();
   const revoke = useRevokeSharedKey();
+  const link = useShareLink(parent.id);
   const summary = useSharedKeys(parent.id);
   const children = summary.data ?? [];
+  const isPersonal = parent.keyMode !== "share";
 
   useEffect(() => {
-    setQuery("");
     setExpanded(null);
-    setLink(null);
-    setExpiry("");
   }, [parent.id]);
 
-  const normalizedQuery = query.trim().toLowerCase();
-  const filtered = normalizedQuery
-    ? children.filter((child: SharedKeySummary) =>
-        `${child.keyPrefix ?? ""} ${child.issuedClientIp ?? ""} ${child.id}`.toLowerCase().includes(normalizedQuery),
-      )
-    : children;
+  const busy = share.isPending || regenerate.isPending;
 
-  const createLink = () => {
-    setLink(null);
-    let expiresAt: string | undefined;
-    if (expiry) {
-      const parsed = new Date(expiry);
-      if (Number.isNaN(parsed.getTime())) {
-        toast.error("Enter a valid expiry date or leave it empty.");
-        return;
-      }
-      expiresAt = parsed.toISOString();
+  const onRegenerate = () => {
+    if (isPersonal) {
+      regenerate.mutate(
+        { keyId: parent.id },
+        {
+          onSuccess: () => toast.success("Key regenerated; the link now reveals the new key."),
+          onError: (error) => toast.error(getErrorMessage(error, "Could not regenerate key.")),
+        },
+      );
+      return;
     }
     share.mutate(
-      { keyId: parent.id, expiresAt },
+      { keyId: parent.id, regenerate: true },
       {
-        onSuccess: (result) => setLink(result.url),
-        onError: (error) => toast.error(getErrorMessage(error, "Could not create share link.")),
+        onSuccess: () => toast.success("Link regenerated; the previous URL no longer works."),
+        onError: (error) => toast.error(getErrorMessage(error, "Could not regenerate link.")),
       },
     );
   };
+
+  const onEnsureLink = () => {
+    share.mutate(
+      { keyId: parent.id },
+      { onError: (error) => toast.error(getErrorMessage(error, "Could not create link.")) },
+    );
+  };
+
+  const url = link.data?.url ?? null;
 
   return (
     <Dialog
       open
       onClose={onClose}
-      title={`Share management — ${parent.label || "share template"}`}
-      description="Create enrollment links and inspect or revoke issued child credentials."
-      width={760}
+      title={`Sharing — ${parent.label || "API key"}`}
+      description={
+        isPersonal
+          ? "One stable handoff link for this key. Regenerating rotates the key itself."
+          : "One stable enrollment link. Regenerating replaces the URL; recipients keep the keys they already generated."
+      }
+      width={860}
     >
-      <div style={{ display: "grid", gap: 14 }}>
-        <section aria-label="Enrollment link" style={{ display: "grid", gap: 8 }}>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 8,
-              alignItems: "end",
-              justifyContent: "space-between",
-            }}
-          >
-            <div style={{ flex: "1 1 220px", minWidth: 0 }}>
-              <Input
-                label="Expires"
-                hint="optional"
-                type="datetime-local"
-                value={expiry}
-                onChange={(event) => setExpiry(event.target.value)}
-              />
+      <div style={{ display: "grid", gap: 16 }}>
+        <section aria-label="Link" style={{ display: "grid", gap: 8 }}>
+          {link.isPending ? (
+            <LoadingState label="Loading link…" />
+          ) : link.isError ? (
+            <ErrorState
+              message={getErrorMessage(link.error, "Could not load the link.")}
+              onRetry={() => void link.refetch()}
+            />
+          ) : url ? (
+            <div className="share-link-row">
+              <Link2 size={14} aria-hidden="true" />
+              <code>{url}</code>
+              <ClipboardButton value={url} size="sm" variant="secondary" label="Copy" copiedLabel="Copied" />
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<RotateCw size={13} />}
+                loading={busy}
+                disabled={busy}
+                onClick={onRegenerate}
+              >
+                Regenerate
+              </Button>
             </div>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={createLink}
-              disabled={share.isPending || Boolean(parent.revokedAt)}
-              icon={<Link2 size={13} />}
-            >
-              {share.isPending ? "Creating…" : "Create enrollment link"}
-            </Button>
-          </div>
-          {link ? (
-            <div
-              role="status"
-              style={{
-                padding: 12,
-                borderRadius: 10,
-                border: "1px solid var(--accent-soft)",
-                background: "var(--accent-soft)",
-                display: "grid",
-                gap: 8,
-              }}
-            >
-              <strong style={{ fontSize: 12 }}>Enrollment URL — copy now</strong>
-              <code style={{ overflowWrap: "anywhere", fontSize: 11 }}>{link}</code>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <ClipboardButton value={link} size="sm" variant="secondary" />
-                <Button variant="secondary" size="sm" onClick={() => window.open(link, "_blank", "noopener")}>
-                  Open
-                </Button>
-              </div>
+          ) : (
+            <div className="share-link-row">
+              <Link2 size={14} aria-hidden="true" />
+              <span className="share-link-empty">No link yet.</span>
+              <Button variant="primary" size="sm" loading={busy} disabled={busy} onClick={onEnsureLink}>
+                Create link
+              </Button>
             </div>
-          ) : null}
+          )}
         </section>
 
-        <section aria-label="Issued child keys" style={{ display: "grid", gap: 8 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: 8,
-            }}
-          >
-            <strong style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <Users size={14} /> Recipients
+        <section aria-label="Recipients" style={{ display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <strong style={{ fontSize: 12 }}>
+              {isPersonal ? "Usage" : "Recipients"}
             </strong>
             <Button
               variant="ghost"
@@ -282,107 +221,95 @@ export function ShareManagementDialog({
               Refresh
             </Button>
           </div>
-          <Input
-            label="Search recipients"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Prefix, masked IP, or key id"
-          />
           {summary.isPending && !summary.data ? (
             <LoadingState label="Loading recipients…" />
           ) : summary.isError ? (
             <ErrorState
-              message={getErrorMessage(summary.error, "Could not load share activity.")}
+              message={getErrorMessage(summary.error, "Could not load recipients.")}
               onRetry={() => void summary.refetch()}
             />
-          ) : filtered.length === 0 ? (
+          ) : children.length === 0 ? (
             <EmptyState
               title="No recipients yet"
-              message="Issued child keys will appear here with masked client IP and aggregate usage."
+              message="Keys generated through this link appear here with their masked client IP and token usage."
             />
           ) : (
-            <div style={{ display: "grid", gap: 8 }}>
-              {filtered.map((child: SharedKeySummary) => (
-                <section
-                  key={child.id}
-                  style={{ border: "1px solid var(--inner-border)", borderRadius: 10, overflow: "hidden" }}
-                >
-                  <div className="share-recipient-main">
-                    <div className="share-recipient-identity">
-                      <div>
-                        <button
-                          type="button"
-                          className="share-recipient-key"
-                          aria-expanded={expanded === child.id}
-                          onClick={() => setExpanded(expanded === child.id ? null : child.id)}
-                        >
-                          {expanded === child.id ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                          <span>{child.keyPrefix ?? "key"}…</span>
-                        </button>
-                        <div className="share-recipient-context">
-                          {child.issuedClientIp ?? "IP hidden"} <span aria-hidden="true">·</span>{" "}
-                          {child.revokedAt ? "revoked" : "active"}
-                        </div>
-                      </div>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        disabled={revoke.isPending || Boolean(child.revokedAt)}
-                        onClick={() =>
-                          revoke.mutate(
-                            { parentKeyId: parent.id, childKeyId: child.id },
-                            {
-                              onError: (error) =>
-                                toast.error(getErrorMessage(error, "Could not revoke child key.")),
-                            },
-                          )
-                        }
-                      >
-                        Revoke
-                      </Button>
-                    </div>
-                    <dl className="share-recipient-metrics">
-                      <div>
-                        <dt>Today requests</dt>
-                        <dd>{count(child.today.requests)}</dd>
-                      </div>
-                      <div>
-                        <dt>Today errors</dt>
-                        <dd>{count(child.today.errors)}</dd>
-                      </div>
-                      <div>
-                        <dt>Today tokens</dt>
-                        <dd>{count(child.today.totalTokens)}</dd>
-                      </div>
-                      <div>
-                        <dt>Lifetime requests</dt>
-                        <dd>{count(child.allTime.requests)}</dd>
-                      </div>
-                      <div>
-                        <dt>Lifetime errors</dt>
-                        <dd>{count(child.allTime.errors)}</dd>
-                      </div>
-                      <div>
-                        <dt>Lifetime tokens</dt>
-                        <dd>{count(child.allTime.totalTokens)}</dd>
-                      </div>
-                    </dl>
-                    <p className="share-recipient-dates">
-                      Registered {stamp(child.createdAt)} <span aria-hidden="true">·</span> Last activity{" "}
-                      {stamp(child.lastUsedAt)}
-                    </p>
-                  </div>
-                  {expanded === child.id && <ChildDetail parentId={parent.id} childId={child.id} />}
-                </section>
-              ))}
+            <div className="data-table-container">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col" style={{ width: 26 }} aria-label="Expand" />
+                    <th scope="col">Key</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Today tokens</th>
+                    <th scope="col">Lifetime tokens</th>
+                    <th scope="col">Last activity</th>
+                    <th scope="col" style={{ textAlign: "right" }}>
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {children.map((child: SharedKeySummary) => {
+                    const open = expanded === child.id;
+                    return (
+                      <>
+                        <tr key={child.id}>
+                          <td>
+                            <button
+                              type="button"
+                              className="share-expand-toggle"
+                              aria-expanded={open}
+                              aria-label={open ? "Collapse recipient" : "Expand recipient"}
+                              onClick={() => setExpanded(open ? null : child.id)}
+                            >
+                              {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            </button>
+                          </td>
+                          <td>
+                            <code>{child.keyPrefix ?? "key"}…</code>
+                            <div className="share-recipient-context">
+                              {child.issuedClientIp ?? "IP hidden"}
+                            </div>
+                          </td>
+                          <td>{child.revokedAt ? "revoked" : "active"}</td>
+                          <td>{compactTokens(child.today.totalTokens)}</td>
+                          <td>{compactTokens(child.allTime.totalTokens)}</td>
+                          <td>{stamp(child.lastUsedAt)}</td>
+                          <td style={{ textAlign: "right" }}>
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              disabled={revoke.isPending || Boolean(child.revokedAt)}
+                              onClick={() =>
+                                revoke.mutate(
+                                  { parentKeyId: parent.id, childKeyId: child.id },
+                                  {
+                                    onError: (error) =>
+                                      toast.error(getErrorMessage(error, "Could not revoke key.")),
+                                  },
+                                )
+                              }
+                            >
+                              Revoke
+                            </Button>
+                          </td>
+                        </tr>
+                        {open ? (
+                          <tr key={`${child.id}-detail`}>
+                            <td colSpan={7} style={{ padding: 0 }}>
+                              <ChildDetail parentId={parent.id} childId={child.id} />
+                            </td>
+                          </tr>
+                        ) : null}
+                      </>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </section>
-
-        <p style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-          Masked identity; live telemetry refreshes every five seconds. Lifetime totals use retained
-          telemetry available at rollout.
-        </p>
       </div>
     </Dialog>
   );
