@@ -5,6 +5,41 @@
 > All changes below are pre-release. Cartethyia has not been tagged or
 > released; this document reflects the current production codebase architecture and capabilities.
 
+### Claude Code tool results reach Codex
+
+When a Claude Code Messages session continued through Codex, the Messages
+ledger placed each `tool_result` on a canonical user turn, but the Codex
+Responses encoder emitted `function_call_output` only from tool-role turns.
+The upstream received the `function_call` without its output and rejected the
+next turn with HTTP 400. Codex now emits matched output items from either role,
+preserving the original `call_id` and tool-result order.
+
+### Pricing falls back to the model's own global rate
+
+A reseller gateway that republishes a model without publishing its own rate was
+recorded at `$0.00`, because pricing used the same fail-closed provider lookup as
+metadata. That is right for limits — a wrong context window is harmful — but
+wrong for cost: a paid model billed as free understates spend and hides it from
+the operator. `costFor` now falls back to the rate the catalog records for the
+model itself, whichever provider filed it, with the most frequently published
+price winning and a tie resolving to the dearer rate so a free-tier row cannot
+make a paid model look free. Metadata stays provider-specific and fail-closed.
+This took unpriced models across the bundled providers from 286 to 52; the 52
+remaining are ids the catalog does not price at all (`qoder` internal codenames,
+`perplexity-search`), which stay unknown.
+
+### An unpriced turn is `null`, not a measured `$0.00`
+
+`estimated_cost` was typed `number`, so "the catalog has no rate for this route"
+collapsed into `0` — indistinguishable from a genuinely free turn. The console
+already counted completed rows with no cost toward a `partial` flag, but no
+writer could ever produce that null, so the flag was dead and every unpriced
+route read as a measured zero. `estimated_cost` is now `number | null`, and the
+dispatch estimate, the failover commit, Devin's usage builder, and
+`repriceUsage` all leave it `null` when unpriced. The telemetry writer persists
+NULL instead of `String(null)`, and the analytics summary reports `partial`
+again.
+
 ### Usage cost now prices the input side
 
 `calculateEstimatedCost` accepted an `inputTokens` field it never read, so the

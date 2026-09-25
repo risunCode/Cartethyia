@@ -189,7 +189,10 @@ database. Per-provider entry points live in `integrations/`, registered as each 
   floors: `parsedContext ?? fallback?.contextLimit ?? 200_000` (and `64_192` for output), so a provider that
   states its own limits is never overridden by the catalog. models.dev is authoritative mainly for **pricing**
   — an upstream `/models` response rarely states a price — and its limits are a secondary source.
-  Discovery callers pass their `providerId` so limits and pricing come from the row for
+  `resolve()` is fail-closed and provider-specific (right for metadata), while `costFor()` additionally
+  falls back to the rate the catalog records for the model itself: a reseller that republishes a model
+  without publishing its own rate is billed the model's global rate, never `$0.00`. Discovery callers pass
+  their `providerId` so limits and pricing come from the row for
   the provider actually serving the model. Non-OK responses
   return `null`; the request carries a 10s timeout composed with the caller's signal.
 - **Provider id → models.dev filing name.** A Cartethyia provider id is not always the key models.dev uses:
@@ -367,7 +370,7 @@ single-file specs add hooks only where needed. `zai/spec.ts` shows the credentia
 factory's reach, each carrying a `Factory-blocked` or `Bespoke by wire protocol` header comment naming the
 reason: `anthropic.ts` (Messages envelope + `x-api-key`), `gemini.ts` (per-model `:generateContent` RPC +
 `x-goog-api-key`), `claude-code/claude.ts` (the assistant CLI fingerprint: Stainless identity headers, beta negotiation, CCH billing, and a persisted per-install `device_id` in `metadata.user_id`), `codex/codex.ts`
-(Responses envelope + session headers), `cursor/` and `devin/` (Connect+protobuf), `qoder.ts` (COSY AES/RSA
+(Responses envelope + session headers; `protocol/request/codex.ts` emits tool results from both Chat `tool` and Messages `user` turns as `function_call_output` with the matching `call_id`), `cursor/` and `devin/` (Connect+protobuf), `qoder.ts` (COSY AES/RSA
 signing + enveloped SSE), `commandcode.ts` (NDJSON thread/config envelope), `agentrouter.ts`, `cloudflare.ts`
 (composite `{apiKey, accountId}` credential), `kimi/kimi.ts` (Messages envelope reusing the shared Claude
 pipeline).

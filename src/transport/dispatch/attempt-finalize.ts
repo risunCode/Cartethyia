@@ -247,6 +247,12 @@ export function terminalFailure(
   return undefined;
 }
 
+/**
+ * A usage record carrying only the request's own token estimate, with no price
+ * yet: `estimated_cost` is `null` (unpriced) so the analytics `partial` flag
+ * counts it, rather than `0`, which would claim the turn cost nothing. The
+ * dispatch call sites reprice it against the routed model before committing.
+ */
 export function estimatedUsage(inputTokens: number, outputTokens: number): UsageRecord {
   return {
     input_tokens: inputTokens,
@@ -255,7 +261,7 @@ export function estimatedUsage(inputTokens: number, outputTokens: number): Usage
     uncached_input_tokens: inputTokens,
     output_tokens: outputTokens,
     reasoning_tokens: "unavailable",
-    estimated_cost: 0,
+    estimated_cost: null,
   };
 }
 

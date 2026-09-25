@@ -101,7 +101,10 @@ export function repriceUsage(
   modelId: string,
   catalogCost?: unknown,
 ): UsageRecord {
-  const rawCost = catalogCost ?? modelsDevCatalog.resolve(providerId, modelId)?.cost;
+  // `costFor`, not `resolve`: pricing falls back to the model's own global rate
+  // when the routed provider published none of its own, so a reseller gateway
+  // is billed for the model it served instead of recording `$0.00`.
+  const rawCost = catalogCost ?? modelsDevCatalog.costFor(providerId, modelId);
   const estimatedCost = calculateEstimatedCost(
     {
       inputTokens: usage.input_tokens,
@@ -113,7 +116,12 @@ export function repriceUsage(
     },
     rawCost,
   );
-  return estimatedCost === undefined ? usage : { ...usage, estimated_cost: estimatedCost };
+  // No rate for this route: report the cost as unknown, not as zero. Zero is a
+  // real answer (a free tier); `null` is what lets the console's `partial` flag
+  // count the row as unpriced instead of reporting a measured `$0.00`.
+  return estimatedCost === undefined
+    ? { ...usage, estimated_cost: null }
+    : { ...usage, estimated_cost: estimatedCost };
 }
 
 /**
@@ -265,6 +273,8 @@ export function normalizeUsage(input: Record<string, unknown>): UsageRecord {
   }
 
   // Calculate cost from the models.dev catalog using the raw upstream model id.
+  // Absent a rate this stays `null` (unpriced), never `0`: see
+  // `UsageRecord.estimated_cost`.
   const rawCost =
     typeof input.model === "string" ? modelsDevCatalog.costFor("", input.model) : undefined;
   const estimated_cost = calculateEstimatedCost(
@@ -277,7 +287,7 @@ export function normalizeUsage(input: Record<string, unknown>): UsageRecord {
       reasoningTokens: reasoning_tokens,
     },
     rawCost,
-  ) ?? 0;
+  ) ?? null;
   return {
     input_tokens,
     cached_input_tokens,

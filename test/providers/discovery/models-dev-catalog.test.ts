@@ -125,29 +125,43 @@ describe("provider id mapping", () => {
     expect(modelsDevCatalog.costFor("gemini", "gemini-2.5-pro")).toMatchObject({
       input: 1.25,
       output: 10,
+      cache_read: 0.125,
     });
-    // The mapping must agree with the row's own provider, not invent one.
-    expect(modelsDevCatalog.costFor("claude", "claude-sonnet-4-6")).toEqual(
+    // Pricing agrees with the model's own provider row, not an invented one.
+    expect(modelsDevCatalog.costFor("claude", "claude-sonnet-4-6")).toMatchObject(
       modelsDevCatalog.costFor("anthropic", "claude-sonnet-4-6"),
     );
-    expect(modelsDevCatalog.costFor("gemini", "gemini-2.5-pro")).toEqual(
+    expect(modelsDevCatalog.costFor("gemini", "gemini-2.5-pro")).toMatchObject(
       modelsDevCatalog.costFor("google", "gemini-2.5-pro"),
     );
   });
 
-  test("reseller gateways keep borrowing nothing despite shared model ids", () => {
-    // `antigravity`, `codex`, and `grok` serve their own upstreams, so a
-    // catalog row under a different provider is not evidence of their price.
-    // Mapping them on id similarity is exactly what this catalog forbids.
-    for (const [provider, model] of [
-      ["antigravity", "claude-sonnet-4-5"],
-      ["codex", "gpt-5.5"],
-      ["grok", "grok-4.7"],
-    ] as const) {
-      expect(modelsDevCatalog.costFor(provider, model)).toMatchObject({
-        input: null,
-        output: null,
-      });
-    }
+  test("an unpriced reseller is billed the model's own global rate", () => {
+    // A gateway that republishes a model without publishing its own rate still
+    // owes a cost. `codex` and `grok` serve their own upstreams and have no
+    // catalog row, so their price comes from the model's own global rate —
+    // never `$0.00`, which would report a paid model as free.
+    const codex = modelsDevCatalog.costFor("codex", "gpt-5.5");
+    expect(codex.input).not.toBeNull();
+    expect(codex.output).not.toBeNull();
+    const grok = modelsDevCatalog.costFor("grok", "grok-4.7");
+    expect(grok.input).not.toBeNull();
+    expect(grok.output).not.toBeNull();
+  });
+
+  test("a model with no price anywhere stays unknown", () => {
+    // `perplexity-search` is not a model the catalog prices at all; the honest
+    // answer is unknown, which the console reports as `partial`.
+    expect(modelsDevCatalog.costFor("perplexity", "perplexity-search")).toMatchObject({
+      input: null,
+      output: null,
+    });
+  });
+
+  test("global pricing never resolves a free-tier row over a paid one", () => {
+    // Providers disagree about some ids, and a reseller's `$0/$0` free-tier
+    // entry must not make a paid model look free. On a tie the dearer rate wins.
+    const grok = modelsDevCatalog.costFor("grok", "grok-4.7");
+    expect((grok.input ?? 0) + (grok.output ?? 0)).toBeGreaterThan(0);
   });
 });

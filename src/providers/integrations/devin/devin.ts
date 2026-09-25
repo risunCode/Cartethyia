@@ -600,7 +600,8 @@ function devinUsage(
       cacheRead > 0 ? Math.max(0, inputTokens - cacheRead) : "unavailable",
     output_tokens: outputTokens,
     reasoning_tokens: "unavailable",
-    estimated_cost: 0,
+    // Unpriced until the dispatch call site reprices against the routed model.
+    estimated_cost: null,
     total_tokens: inputTokens + outputTokens,
   };
 }

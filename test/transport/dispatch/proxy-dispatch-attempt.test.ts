@@ -158,6 +158,9 @@ describe("ProxyRequestPreparer wire-specific generation control preflight", () =
 });
 
 describe("completeAttempt telemetry parity (D3)", () => {
+  // `telemetry-model` is not a model the catalog prices, so the repriced cost
+  // is unknown (`null`), which is what the analytics `partial` flag counts —
+  // not `0`, which would claim the turn was measured as free.
   const FIXTURE_USAGE = {
     input_tokens: 10,
     cached_input_tokens: 0,
@@ -165,7 +168,7 @@ describe("completeAttempt telemetry parity (D3)", () => {
     uncached_input_tokens: 10,
     output_tokens: 7,
     reasoning_tokens: 0,
-    estimated_cost: 0,
+    estimated_cost: null,
   };
 
   function telemetryRouteCandidate(): Record<string, unknown> {
@@ -465,6 +468,9 @@ describe("runAttemptLoop — failover accounting", () => {
 describe("createResponsesCompactHandler — shared attempt loop", () => {
   const COMPACT_MODEL = "gpt-5.6-sol";
   const ACCOUNT_ID = "codex-account";
+  // The compact route has no upstream usage frame, so it commits its own
+  // estimate repriced against the routed model: 10 input + 10 output on
+  // `gpt-5.6-sol` at the catalog's global rate (4 / 20 per 1M).
   const ESTIMATED_USAGE = {
     input_tokens: 10,
     cached_input_tokens: "unavailable",
@@ -472,7 +478,7 @@ describe("createResponsesCompactHandler — shared attempt loop", () => {
     uncached_input_tokens: 10,
     output_tokens: 10,
     reasoning_tokens: "unavailable",
-    estimated_cost: 0,
+    estimated_cost: ((10 * 4) + (10 * 20)) / 1_000_000,
   };
 
   beforeAll(() => setCredentialEncryptionKeyForTesting(Buffer.alloc(32, 7)));
@@ -646,8 +652,14 @@ describe("createResponsesCompactHandler — shared attempt loop", () => {
     });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ status: "completed", requestedModel: "unknown" });
-    // Each attempt reconciled the lease it held.
-    expect(commits).toEqual([ESTIMATED_USAGE, ESTIMATED_USAGE]);
+    // Each attempt reconciled the lease it held, repriced against the candidate
+    // that ran. The failed candidate's id is not in the catalog, so its
+    // estimate is unpriced (`null`) — an honest "unknown", not a fake `$0.00`;
+    // the served one carries the model's real rate.
+    expect(commits).toEqual([
+      { ...ESTIMATED_USAGE, estimated_cost: null },
+      ESTIMATED_USAGE,
+    ]);
   });
 });
 

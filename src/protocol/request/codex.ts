@@ -149,6 +149,43 @@ export function canonicalToCodexResponsesPayload(
       }
     }
   }
+  const emitToolResults = (message: CanonicalMessage): void => {
+    for (const part of message.content) {
+      if (part.kind !== "toolResult") continue;
+      const wireCallId = decodeCodexToolCallId(part.call_id);
+      const callKind = part.call_kind ?? "function";
+      if (callKind === "custom") {
+        input.push({
+          type: "custom_tool_call_output",
+          call_id: wireCallId,
+          output: typeof part.content === "string" ? part.content : JSON.stringify(part.content),
+        });
+      } else if (callKind === "computer") {
+        let imageUrl: unknown;
+        if (typeof part.content === "string") {
+          imageUrl = part.content;
+        } else {
+          const imagePart = part.content.find((p) => p.kind === "image");
+          imageUrl =
+            imagePart !== undefined && imagePart.kind === "image"
+              ? imagePart.payload
+              : JSON.stringify(part.content);
+        }
+        input.push({
+          type: "computer_call_output",
+          call_id: wireCallId,
+          output: { type: "computer_screenshot", image_url: imageUrl },
+        });
+      } else {
+        input.push({
+          type: "function_call_output",
+          call_id: wireCallId,
+          output: typeof part.content === "string" ? part.content : JSON.stringify(part.content),
+        });
+      }
+    }
+  };
+
   const repairedMessages = repairOrphanedCodexToolExchanges(request.messages);
   for (const message of repairedMessages) {
     // A system-role turn in the message list is the same rejected shape as a
@@ -162,6 +199,9 @@ export function canonicalToCodexResponsesPayload(
       if (text.length > 0) systemText.push(text);
       continue;
     }
+    // The Messages ledger re-homes tool answers to user turns. They must be
+    // emitted as Responses output items, not swallowed by the user text renderer.
+    if (message.role === "user") emitToolResults(message);
     if (message.role === "user" || message.role === "developer") {
       const text = message.content
         .filter((p) => p.kind === "text")
@@ -274,50 +314,7 @@ export function canonicalToCodexResponsesPayload(
         }
       }
     } else if (message.role === "tool") {
-      for (const part of message.content) {
-        if (part.kind === "toolResult") {
-          const tr = part as Extract<typeof part, { kind: "toolResult" }>;
-          const wireCallId = decodeCodexToolCallId(tr.call_id);
-          const callKind = tr.call_kind ?? "function";
-          if (callKind === "custom") {
-            const output =
-              typeof tr.content === "string"
-                ? tr.content
-                : JSON.stringify(tr.content);
-            input.push({
-              type: "custom_tool_call_output",
-              call_id: wireCallId,
-              output,
-            });
-          } else if (callKind === "computer") {
-            let imageUrl: unknown;
-            if (typeof tr.content === "string") {
-              imageUrl = tr.content;
-            } else {
-              const imagePart = tr.content.find((p) => p.kind === "image");
-              imageUrl =
-                imagePart !== undefined && imagePart.kind === "image"
-                  ? imagePart.payload
-                  : JSON.stringify(tr.content);
-            }
-            input.push({
-              type: "computer_call_output",
-              call_id: wireCallId,
-              output: { type: "computer_screenshot", image_url: imageUrl },
-            });
-          } else {
-            const output =
-              typeof tr.content === "string"
-                ? tr.content
-                : JSON.stringify(tr.content);
-            input.push({
-              type: "function_call_output",
-              call_id: wireCallId,
-              output,
-            });
-          }
-        }
-      }
+      emitToolResults(message);
     }
   }
   // Harmony escaping is limited to models whose wire dialect consumes these

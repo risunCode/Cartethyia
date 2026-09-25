@@ -106,7 +106,13 @@ function telemetryEventRow(event: TelemetryEventInput) {
     cachedInputTokens: tokenCountToInt(event.usage?.cached_input_tokens) ?? null,
     outputTokens: event.usage?.output_tokens ?? null,
     reasoningTokens: tokenCountToInt(event.usage?.reasoning_tokens) ?? null,
-    estimatedCostUsd: event.usage ? String(event.usage.estimated_cost) : null,
+    // `estimated_cost` is `null` when the route is unpriced; persist NULL so
+    // the analytics `partial` flag can count it. `String(null)` would store the
+    // text "null", which the numeric column rejects.
+    estimatedCostUsd:
+      event.usage?.estimated_cost === null || event.usage === undefined
+        ? null
+        : String(event.usage.estimated_cost),
     tokensPerSec: event.tokensPerSec != null ? String(event.tokensPerSec) : null,
     firstContentDeltaAtMs: event.firstContentDeltaAtMs ?? null,
     lastEventAtMs: event.lastEventAtMs ?? null,

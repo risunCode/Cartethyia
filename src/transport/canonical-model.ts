@@ -410,7 +410,18 @@ export interface UsageRecord {
   uncached_input_tokens: TokenCount;
   output_tokens: number;
   reasoning_tokens: TokenCount;
-  estimated_cost: number;
+  /**
+   * Estimated USD cost, or `null` when no price is known for the routed
+   * provider/model.
+   *
+   * `null` is not `0`: zero is a real answer (a free tier, a genuinely
+   * zero-priced route), while `null` says the catalog had no rate to apply. The
+   * two must stay distinguishable or the analytics `partial` flag — which
+   * counts completed rows with no persisted cost — can never fire, and an
+   * unpriced route reports `$0.00` as if it were measured. A route the catalog
+   * cannot price is unpriced, not free.
+   */
+  estimated_cost: number | null;
   total_tokens?: number | "unavailable";
   details?: {
     accepted_prediction_tokens?: number | "unavailable";

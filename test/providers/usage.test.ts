@@ -82,8 +82,8 @@ describe("repriceUsage", () => {
       prompt_cache_hit_tokens: 600,
       completion_tokens: 100,
     });
-    const repriced = repriceUsage(usage, "cb", "deepseek-v4.1-flash");
-    const catalog = modelsDevCatalog.costFor("cb", "deepseek-v4.1-flash");
+    const repriced = repriceUsage(usage, "openai", "gpt-4o");
+    const catalog = modelsDevCatalog.costFor("openai", "gpt-4o");
     const expected =
       (400 * (catalog.input ?? 0) +
         600 * (catalog.cache_read ?? catalog.input ?? 0) +
@@ -92,9 +92,12 @@ describe("repriceUsage", () => {
     expect(repriced.estimated_cost).toBeCloseTo(expected, 12);
   });
 
-  test("leaves unknown pricing as the existing estimate", () => {
+  test("reports an unpriced route as null, never as a measured zero", () => {
+    // Zero is a real answer (a free tier); `null` is what lets the console's
+    // `partial` flag count the row as unpriced instead of reporting `$0.00` as
+    // if it were measured.
     const usage = normalizeUsage({ prompt_tokens: 100, completion_tokens: 10 });
-    expect(repriceUsage(usage, "unknown", "unknown-model").estimated_cost).toBe(0);
+    expect(repriceUsage(usage, "unknown", "unknown-model").estimated_cost).toBeNull();
   });
 
   test("prices the input side when the upstream reported no cache breakdown", () => {
@@ -497,9 +500,10 @@ describe("normalizeUsage - complete usage record contract", () => {
     expect(typeof result.reasoning_tokens).toBe("number");
     expect(result.reasoning_tokens).toBe(100);
 
-    expect(typeof result.estimated_cost).toBe("number");
-  });
-  test("typecheck: unavailable fields are string literal", () => {
+    // No `model` in the payload means no catalog lookup, so the cost is
+    // unknown (`null`) rather than a fabricated zero.
+    expect(result.estimated_cost).toBeNull();
+  });  test("typecheck: unavailable fields are string literal", () => {
     const result = normalizeUsage({
       input_tokens: 1000,
       output_tokens: 100,
@@ -526,7 +530,8 @@ describe("normalizeUsage - complete usage record contract", () => {
     expect(result.cache_write_tokens).toBe("unavailable");
     expect(result.uncached_input_tokens).toBe("unavailable");
     expect(result.reasoning_tokens).toBe("unavailable");
-    expect(result.estimated_cost).toBe(0);
+    // Unpriced, not free: no model was named, so no rate could be applied.
+    expect(result.estimated_cost).toBeNull();
   });
 });
 

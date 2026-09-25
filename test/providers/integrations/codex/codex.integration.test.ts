@@ -10,6 +10,7 @@ import { applyCodexResponsesLiteShape, canonicalToCodexResponsesPayload } from "
 import { CodexStreamFrameProcessor } from "../../../../src/protocol/response/codex";
 import { GatewayError } from "../../../../src/transport/gateway-error";
 import type { CanonicalEvent, CanonicalRequest, ToolDefinition } from "../../../../src/transport/canonical-model";
+import { MessagesAdapter } from "../../../../src/transport/surface/messages/adapter";
 import { captureRequest, dispatchContext } from "../../../helpers/provider-dispatch";
 
 describe("Codex Integration", () => {
@@ -1796,6 +1797,40 @@ describe("codex P1 robustness backlog (gap report Phase 4)", () => {
       Record<string, unknown> | undefined;
     expect(outputPayload?.["type"]).toBe("computer_screenshot");
     expect(outputPayload?.["image_url"]).toBe("data:image/png;base64,AAAA");
+  });
+
+  test("Claude Messages tool results survive the Codex Responses wire with their call IDs", () => {
+    const request = new MessagesAdapter().parse({
+      model: "gpt-5-codex",
+      max_tokens: 256,
+      messages: [
+        { role: "user", content: "Write a text file." },
+        {
+          role: "assistant",
+          content: [
+            { type: "tool_use", id: "call-first", name: "Bash", input: { command: "pwd" } },
+            { type: "tool_use", id: "call-second", name: "Read", input: { path: "a.txt" } },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "call-second", content: "contents" },
+            { type: "tool_result", tool_use_id: "call-first", content: "C:/Users/Aria" },
+          ],
+        },
+        { role: "user", content: "Now save the file." },
+      ],
+    });
+    const input = canonicalToCodexResponsesPayload(request)["input"] as Array<Record<string, unknown>>;
+    expect(input.filter((item) => item["type"] === "function_call_output")).toEqual([
+      { type: "function_call_output", call_id: "call-first", output: "C:/Users/Aria" },
+      { type: "function_call_output", call_id: "call-second", output: "contents" },
+    ]);
+    expect(input.map((item) => item["type"])).toEqual([
+      "message", "function_call", "function_call",
+      "function_call_output", "function_call_output", "message",
+    ]);
   });
 
   test("orphaned tool call without a result gets a synthesized placeholder output (gap P3.5 orphan repair)", () => {

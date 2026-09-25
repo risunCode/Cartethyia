@@ -26,6 +26,7 @@ import type { ProxyRequestState } from "../request/state";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
 import { flagPoolCooldown } from "../../network/pool-health";
 import { completeAttempt, estimatedUsage, type ProviderExchangeCapture } from "./attempt-finalize";
+import { repriceUsage } from "../../providers/usage";
 import { shouldCooldownPool, isOAuthCredentialInvalidated } from "./retry-policy";
 
 /** Route-specific preconditions resolved for one candidate before its leases are taken. */
@@ -161,9 +162,16 @@ export async function runAttemptLoop<TResult, TAdapter>(
         ...(lease ? { lease } : {}),
         ...(!cancelled && bindingEstablished
           ? {
-              commitUsage: estimatedUsage(
-                leaseSource.estimatedInputTokens,
-                leaseSource.estimatedOutputTokens,
+              // Repriced against the candidate that actually ran: a failed
+              // attempt still consumed its tokens, and committing the raw
+              // estimate left `estimated_cost` null for every failover.
+              commitUsage: repriceUsage(
+                estimatedUsage(
+                  leaseSource.estimatedInputTokens,
+                  leaseSource.estimatedOutputTokens,
+                ),
+                candidate.provider_id,
+                candidate.model_id,
               ),
             }
           : {}),
