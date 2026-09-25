@@ -102,10 +102,8 @@ and API-key usage totals.
   each later file, every one recorded in `cartethyia_schema_migrations`.
   A new schema change is a new numbered file, so a deployment migrates itself;
   `0000_baseline.sql` stays the whole schema for a database created today.
-  `drizzle/migrations/manual/` holds hand-run statements kept as a record of
-  what a database created from an older baseline still needed before the
-  numbered runner covered it; those files are not a replayable sequence and the
-  ledger runner never reads that subfolder.
+  There is no separate hand-run path: every schema change is a numbered file
+  the runner applies.
   Committed protobuf output lives under the provider integrations that
   consume it (`src/providers/integrations/*/generated/`).
 

@@ -222,12 +222,9 @@ non-root user, and exposes port `12800`. PostgreSQL must be reachable through
 The application migrates itself at boot: it applies every numbered
 `NNNN_*.sql` file under `drizzle/migrations/` in order and records each in the
 `cartethyia_schema_migrations` ledger, so a new database and an existing one
-both reach the current schema with no manual step.
-
-`drizzle/migrations/manual/` is a historical record of the hand-run statements a
-database created from an *older* baseline needed. Those files are not part of
-the numbered sequence, are not applied automatically, and are not replayable in
-order — apply one only if you are following its own header.
+both reach the current schema with no manual step. `0000_baseline.sql` is the
+whole schema for a database created today; a later change ships as the next
+number beside it and is applied the same way. There is no hand-run step.
 
 To move a deployment's configuration to another host, use **Settings →
 Backup** in the console:

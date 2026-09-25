@@ -11,19 +11,19 @@ async function numberedMigrations(): Promise<string[]> {
 }
 
 describe("SQL migration integrity", () => {
-  test("the consolidated baseline is the first auto-applied migration", async () => {
+  test("the baseline is the first auto-applied migration", async () => {
     const files = await numberedMigrations();
-    // Numbered files under `drizzle/migrations/` are applied at boot, in order,
-    // after the baseline. `manual/` is deliberately not in this set: those files
-    // are hand-run patches for a database created from an older baseline and are
-    // not a replayable sequence.
+    // Every numbered file under `drizzle/migrations/` is applied at boot, in
+    // order, and recorded in the ledger. The baseline comes first and is the
+    // whole schema for a database created today; a later change is a new
+    // number beside it.
     expect(files[0]).toBe("0000_baseline.sql");
     expect(files.length).toBeGreaterThan(0);
     const migration = await readFile(resolve(migrationsDir, "0000_baseline.sql"), "utf8");
     expect(migration.trim().length).toBeGreaterThan(0);
   });
 
-  test("every numbered migration is idempotent", async () => {
+  test("every migration after the baseline is idempotent", async () => {
     // The ledger skips an applied file, but a file that fails midway leaves no
     // ledger row and is retried on the next boot, so each must converge when
     // re-run. Guards: `IF NOT EXISTS`, `IF EXISTS`, or an `EXCEPTION` block.
@@ -58,10 +58,8 @@ describe("SQL migration integrity", () => {
   test("baseline carries no orphan backup_status table", async () => {
     // `backup_status` was a single-row bookkeeping table with no Drizzle
     // definition, no reader, and no writer — it survived only in the baseline,
-    // so a fresh install carried a table nothing could touch. This asserts it
-    // cannot come back through a baseline edit; the removal itself is in
-    // `drizzle/migrations/manual/0012_drop_backup_status_table.sql` for
-    // databases created before the edit.
+    // so a fresh install carried a table nothing could touch. It is gone from
+    // the baseline, and this asserts it cannot come back.
     const migration = await readFile(resolve(migrationsDir, "0000_baseline.sql"), "utf8");
     expect(migration).not.toContain('CREATE TABLE "backup_status"');
   });

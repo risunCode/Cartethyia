@@ -158,25 +158,20 @@ ciphertext.
   that fails midway leaves no ledger row and is retried on the next boot.
   `0000_baseline.sql` remains the whole schema for a database created today and
   the first file the runner applies.
-- `drizzle/migrations/manual/` is not part of that sequence. It holds the
-  hand-run statements a database created from an *older* baseline needed, kept
-  as a historical record. They are not replayable in order — `0007_` writes a
-  `sticky` enum value that a later file's enum no longer contains — so the
-  runner never reads that subfolder and each file is applied by hand, as its own
-  header says.
-- Manual migration `0011` backfills lifetime usage totals from telemetry rows
-  still retained at rollout. Older events already pruned cannot be reconstructed.
-- It disables legacy share links and normalizes their kind to `enroll`; the
-  old bearer values remain in the database but can no longer be used.
+- There is no hand-run path. Every schema change is a numbered file the runner
+  applies, and `0000_baseline.sql` is folded up to date whenever a change lands,
+  so a database created today and one migrated from any earlier baseline reach
+  the same shape through the same sequence.
 - **The baseline must be self-contained.** It is the entire schema for a
-  database created today, so a column that exists only in a `manual/` file
+  database created today, so a column that exists only in a later numbered file
   reaches an already-migrated database and no fresh one — a new deployment then
   starts missing it while every developer machine looks fine. `network_pools.kind`
   and `telemetry_events.error_origin` were absent from a fresh install exactly
-  this way. When a manual statement adds a column, the same column belongs in the
-  baseline; `test/contracts/migration-integrity.contract.test.ts` asserts the
-  baseline carries both, and `test/integration/isolated-db.test.ts` compares a
-  freshly migrated database against `schema.ts` column by column.
+  this way. A change therefore updates `schema.ts`, the baseline, and — when an
+  existing database needs to converge — a numbered file, all in one commit.
+  `test/contracts/migration-integrity.contract.test.ts` asserts the baseline
+  carries the folded-in shape, and `test/integration/isolated-db.test.ts`
+  compares a freshly migrated database against `schema.ts` column by column.
 - Telemetry tables stay metadata-only; bodies are written to the append-only
   `.jsonb` frame files and the `telemetry_payloads` row keeps only a
   checksummed file reference — opt-in, redacted, and TTL-expired.

@@ -66,7 +66,7 @@ Use when failover / round robin "doesn't work"; done when you can show whether i
    - High `rotateCount` (1–1000, default 1) = requests served by one account before rotation advances. A large value looks like stuck round robin; it is configuration.
    - Fewer than 2 candidates: `applyProviderRouting` only reorders a `provider_id::model_id` run with `run.length > 1`. One eligible account means nothing to rotate. Cooling-down or unhealthy accounts leave `eligible` earlier, so failover can look like it "skips" — correct behavior.
 3. Only then read the strategy code: `RoundRobinState.next(candidates, rotateCount)` advances after `servedByCurrent >= rotateCount`; `resolveProviderRouting` prefers the tenant bucket, then `__global__`; combo-level round robin is separate (`getRoundRobin()` vs `getProviderRoundRobin()`).
-4. Schema co-edit rule: any routing-setting change touches `src/persistence/schema.ts` **and** `drizzle/migrations/0000_baseline.sql` in the same commit — never a second auto-applied migration. An already-migrated database needs a hand-run statement under `drizzle/migrations/manual/` (see `development.md` §3).
+4. Schema co-edit rule: any routing-setting change touches `src/persistence/schema.ts` **and** `drizzle/migrations/0000_baseline.sql` in the same commit, plus the next numbered migration so an already-migrated database converges. Numbered files are applied in order at boot, so there is no hand-run step (see `development.md` §3).
 
 ### Pitfalls
 
