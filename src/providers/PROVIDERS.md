@@ -283,7 +283,8 @@ deadlines. Routing, console, and discovery consume providers through these servi
   is not swept, so it carries a null deadline. Only real credential evidence disables: deterministic
   content-policy rejections (`11140` and its safety-review phrasing) and hosted-tool failures
   (`web_search`/`x_search`/`web_fetch`) are excluded, because refreshing the token cannot change them.
-  The buddy family (`cb`/`cbcn`/`workbuddy`) is the one exception, and only as a cooldown: its `11140`
+  The buddy family (`cb`/`cbcn`/`workbuddy`, declared once as `BUDDY_PROVIDER_IDS` in
+  `provider-metadata.ts`) is the one exception, and only as a cooldown: its `11140`
   block persists across every subsequent invocation, so the account is parked in a 24h
   `policy_blocked` cooldown (never `disabled` — the credential is valid and the block clears upstream)
   to stop routing from selecting it.

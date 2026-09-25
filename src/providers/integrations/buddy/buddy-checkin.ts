@@ -20,6 +20,7 @@
 
 import { providerBaseUrl } from "../../provider-metadata";
 import { WORKBUDDY_DOMAIN } from "./workbuddy-shared";
+import { BUDDY_PROVIDER_IDS } from "../../provider-metadata";
 import { buildWorkBuddyUserAgent, resolveWorkBuddyVersion } from "../../operations/client-versions";
 import {
   buildCodeBuddyUserAgent,
@@ -27,7 +28,12 @@ import {
 } from "../../operations/client-versions";
 import { codebuddyDomain, type CodeBuddyVariant } from "./codebuddy-shared";
 /** Providers whose billing facade exposes the daily check-in routes. */
-export const DAILY_CHECKIN_PROVIDER_IDS = ["workbuddy", "cb", "cbcn"] as const;
+/**
+ * The Buddy providers the daily check-in claims a credit for. Derived from the
+ * shared family set so this list cannot drift from the health recorder's or the
+ * request preparer's.
+ */
+export const DAILY_CHECKIN_PROVIDER_IDS: readonly string[] = [...BUDDY_PROVIDER_IDS];
 
 /** Abort budget for one upstream check-in request. */
 const TIMEOUT_MS = 15_000;

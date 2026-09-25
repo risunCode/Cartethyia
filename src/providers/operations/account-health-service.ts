@@ -2,6 +2,7 @@
 import { and, desc, eq, inArray, isNotNull, lte, or, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { isRecord } from "../../protocol/primitives";
+import { BUDDY_PROVIDER_IDS } from "../provider-metadata";
 import { healthEvents, providerAccounts } from "../../persistence/schema";
 
 import { parseProviderResetDuration, parseUpstreamBackoff } from "../../transport/failure-policy";
@@ -54,7 +55,6 @@ const GROK_QUOTA_COOLDOWN_MS = 24 * 60 * 60 * 1000;
  */
 const POLICY_BLOCK_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 /** Providers whose `11140` policy block parks the account for a long cooldown. */
-const BUDDY_PROVIDER_IDS: ReadonlySet<string> = new Set(["cb", "cbcn", "workbuddy"]);
 
 // ===== health/account-recorder.ts =====
 export interface AccountHealthEventRecord {

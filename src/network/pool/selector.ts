@@ -672,8 +672,12 @@ export class NetworkPoolSelector {
   ): Promise<PoolSelectionFailure> {
     if (eligiblePoolIds.length === 0) return { reason: "no_active_pool", pools: [] };
     try {
-      const pools = await Promise.all(
-        eligiblePoolIds.map(async (poolId): Promise<PoolCapacitySnapshot> => {
+      // One pass, not two: the cooldown lookup is a Redis read per pool, and
+      // the first version read it once for the capacity snapshot and again for
+      // the rejection decision, doubling the round trips on exactly the path
+      // that runs when selection fails.
+      const checks = await Promise.all(
+        eligiblePoolIds.map(async (poolId) => {
           const cooldown = await this.isProviderCooldown(poolId, providerId);
           const maxInflight = effectiveConcurrency(
             limitsByPool?.[poolId] ?? DEFAULT_PROXY_CONCURRENCY,
@@ -681,18 +685,20 @@ export class NetworkPoolSelector {
           const weight = normalizedWeight(weightsByPool?.[poolId]);
           const currentInflight = await this.getInflightAuthoritative(poolId);
           return {
-            poolId,
-            maxInflight,
-            currentInflight,
-            available: Math.max(0, maxInflight - currentInflight),
-            weight,
-            ...(cooldown.resetsAt ? { retryAt: cooldown.resetsAt.getTime() } : {}),
+            cooldown,
+            pool: {
+              poolId,
+              maxInflight,
+              currentInflight,
+              available: Math.max(0, maxInflight - currentInflight),
+              weight,
+              ...(cooldown.resetsAt ? { retryAt: cooldown.resetsAt.getTime() } : {}),
+            } satisfies PoolCapacitySnapshot,
           };
         }),
       );
-      const cooldowns = await Promise.all(
-        eligiblePoolIds.map((poolId) => this.isProviderCooldown(poolId, providerId)),
-      );
+      const pools = checks.map((check) => check.pool);
+      const cooldowns = checks.map((check) => check.cooldown);
       if (cooldowns.some((entry) => entry.reason === "cooldown store unavailable")) {
         return { reason: "coordination_unavailable", pools };
       }

@@ -82,6 +82,17 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
 export type BundledProviderId = (typeof RAW_BUNDLED_PROVIDER_METADATA)[number]["id"];
 
 /**
+ * The Buddy family: CodeBuddy, its China tenant, and WorkBuddy.
+ *
+ * They share one billing and credit system, so several layers need to ask "is
+ * this a Buddy provider" — the health recorder, the request preparer, and the
+ * daily check-in. Each had its own list, which is how a fourth sibling would
+ * get added in one place and silently missed in the others. Declared here
+ * beside the identities it names; the layers keep their own *policies*.
+ */
+export const BUDDY_PROVIDER_IDS: ReadonlySet<string> = new Set(["cb", "cbcn", "workbuddy"]);
+
+/**
  * Per-provider JWT verification defaults for issued OAuth access tokens. An
  * empty object means registered-claim validation only (the issuer's TLS token
  * endpoint is the trust boundary); a `jwksUrl` additionally verifies signatures.

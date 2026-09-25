@@ -9,6 +9,7 @@ import { isModelAllowed, isProviderAllowed, type ResolvedApiKey } from "../../se
 import { dropIncompleteToolRounds, repairRequestToolCalls } from "../translation/tool-repair";
 import { sanitizeRequestToolIds } from "../translation/tool-id";
 import { log } from "../../observability/logger";
+import { BUDDY_PROVIDER_IDS } from "../../providers/provider-metadata";
 
 const DEFAULT_ESTIMATED_OUTPUT_TOKENS = 1024;
 
@@ -436,7 +437,7 @@ export class ProxyRequestPreparer {
     // that would otherwise be re-emitted as unpaired `role:"tool"` turns.
     const winningProvider = eligible[0]?.provider_id;
     const buddyFamily =
-      winningProvider === "cb" || winningProvider === "cbcn" || winningProvider === "workbuddy";
+      winningProvider !== undefined && BUDDY_PROVIDER_IDS.has(winningProvider);
     const repairedMessages = buddyFamily
       ? repairRequestToolCalls({
           ...variantRequest,
