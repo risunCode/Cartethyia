@@ -1,9 +1,8 @@
 import { useEffect, useState, type ReactElement } from "react";
-import { Home, KeyRound, ShieldCheck, WandSparkles } from "lucide-react";
+import { Home, ShieldCheck } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/state";
-import { DataTable } from "../../components/ui/layout";
 import { ClipboardButton } from "../../components/patterns/clipboard-button";
 import { readConsoleTheme, applyConsoleTheme } from "../../lib/theme";
 import { useShareData, type ShareEnrollmentData } from "../../lib/hooks/share-data";
@@ -18,7 +17,7 @@ interface IssueResult { key: string; keyId: string; keyPrefix: string; createdAt
 interface ApiError { error?: string | { code?: string; message?: string }; message?: string }
 function message(payload: ApiError): string {
   if (typeof payload.error === "string") return payload.error;
-  return payload.error?.message ?? payload.message ?? "Unable to generate a child key.";
+  return payload.error?.message ?? payload.message ?? "Unable to generate an API key.";
 }
 function fmt(value: number | null): string { return value === null ? "Unlimited" : value.toLocaleString(); }
 
@@ -32,6 +31,11 @@ export function SharePage(): ReactElement {
   const dataPath = `${path}/data`;
   const issuePath = `${path}/issue`;
   const enrollmentToken = typeof window === "undefined" ? "" : tokenFromPathname(path);
+  // The gateway cannot know the origin a share page is reached by — a tunnel, a
+  // reverse proxy, or the operator's own public origin can all differ from the
+  // request's view. The browser is the only party that knows for certain, so
+  // the endpoint the recipient is told to call is derived here.
+  const baseUrl = typeof window === "undefined" ? "" : window.location.origin;
   const state = useShareData<ShareEnrollmentData>(dataPath);
   const [secret, setSecret] = useState<IssueResult | null>(null);
   const [restoredSecret, setRestoredSecret] = useState<StoredShareKey | null>(null);
@@ -68,7 +72,7 @@ export function SharePage(): ReactElement {
       })
       .catch(() => {
         if (active) {
-          setStorageWarning("This browser could not read the stored child key. Issue a new key only if this enrollment permits one.");
+          setStorageWarning("This browser could not read the stored key. Issue a new key only if this enrollment permits one.");
         }
       });
     return () => { active = false; };
@@ -82,7 +86,7 @@ export function SharePage(): ReactElement {
       const payload = await response.json() as IssueResult | ApiError;
       if (!response.ok) {
         if (response.status === 409) setIssueConflict(true);
-        setIssueError(response.status === 409 ? "A recipient from this IP already has an active child key for a share. This link cannot issue another key." : message(payload as ApiError));
+        setIssueError(response.status === 409 ? "A recipient from this IP already has an active key for a share. This link cannot issue another key." : message(payload as ApiError));
         return;
       }
       const issued = payload as IssueResult;
@@ -112,6 +116,7 @@ export function SharePage(): ReactElement {
   };
   const visibleSecret = restoredSecret ?? secret;
   const data = state.data;
+  const canIssue = Boolean(data?.canIssue) && !data?.alreadyIssued && !issueConflict;
   return (
     <div className="share-page">
       <header className="share-topbar">
@@ -143,144 +148,109 @@ export function SharePage(): ReactElement {
             </CardBody>
           </Card>
         ) : data ? (
-          <>
-            <Card>
-              <CardHeader
-                title={data.notes.title || data.name || "Shared API access"}
-                subtitle={data.notes.subtitle ?? "Secure key enrollment"}
-                icon={<WandSparkles size={16} />}
-              />
-              <CardBody>
-                {data.notes.body ? <p className="share-notes">{data.notes.body}</p> : null}
-                <p className="share-trust-copy">
-                  This page never displays a parent credential. Generate your own child key
-                  manually; while this link remains valid, this browser can keep and restore the
-                  key you generated here.
-                </p>
-                {data.expiresAt ? (
-                  <p className="share-expiry">
-                    Enrollment link expires {new Date(data.expiresAt).toLocaleString()}
-                  </p>
+          <Card>
+            <CardHeader
+              title={data.notes.title || data.name || "Shared API access"}
+              subtitle={data.notes.subtitle ?? `${data.keyPrefix ?? "API"} · share key`}
+              icon={<ShieldCheck size={16} />}
+            />
+            <CardBody>
+              {data.notes.body ? <p className="share-notes">{data.notes.body}</p> : null}
+
+              {/* Endpoint on the left, the single action on the right. */}
+              <div className="share-endpoint">
+                <div className="share-endpoint-field">
+                  <span className="share-endpoint-label">Base URL</span>
+                  <code>{baseUrl}/v1</code>
+                  <ClipboardButton
+                    value={`${baseUrl}/v1`}
+                    size="sm"
+                    variant="secondary"
+                    label="Copy"
+                    copiedLabel="Copied"
+                  />
+                </div>
+                {canIssue ? (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    loading={issueBusy}
+                    disabled={issueBusy}
+                    onClick={() => void issue()}
+                  >
+                    {issueBusy ? "Generating…" : "Generate API Key"}
+                  </Button>
                 ) : null}
-              </CardBody>
-            </Card>
-            <Card>
-              <CardHeader
-                title="What this key can do"
-                subtitle={`${data.keyPrefix ?? "API"} · child key`}
-                icon={<KeyRound size={16} />}
-              />
-              <CardBody>
-                <DataTable headers={["Limit", "Value"]}>
-                  <tr>
-                    <td>Requests / minute</td>
-                    <td>{fmt(data.requestsPerMinute)}</td>
-                  </tr>
-                  <tr>
-                    <td>Concurrent requests</td>
-                    <td>{fmt(data.maxConcurrentRequests)}</td>
-                  </tr>
-                  <tr>
-                    <td>Daily token cap</td>
-                    <td>{fmt(data.dailyLimit)}</td>
-                  </tr>
-                  <tr>
-                    <td>Monthly token cap</td>
-                    <td>{fmt(data.monthlyLimit)}</td>
-                  </tr>
-                  <tr>
-                    <td>Lifetime cap</td>
-                    <td>{fmt(data.oneTimeLimit)}</td>
-                  </tr>
-                  <tr>
-                    <td>Providers</td>
-                    <td>
-                      {data.providerAllowlist?.length
-                        ? data.providerAllowlist.join(", ")
-                        : "All allowed"}
-                    </td>
-                  </tr>
-                </DataTable>
-                <p className="share-model-policy">
-                  {data.modelAllowlist.length
-                    ? `Allowed models: ${data.modelAllowlist.join(", ")}`
-                    : "Model access follows the share template policy."}
-                  {data.modelDenylist?.length
-                    ? ` · Excluded: ${data.modelDenylist.join(", ")}`
-                    : ""}
-                </p>
-                {data.modelPrefix ? (
-                  <p className="share-model-policy">Required model prefix: {data.modelPrefix}</p>
-                ) : null}
-                {visibleSecret ? (
-                  <div className="share-issued-secret" role="status">
-                    <p className="share-eyebrow">GENERATED ONCE · COPY AND KEEP IT</p>
-                    <h2>Your child API key</h2>
-                    <code>{visibleSecret.key}</code>
-                    <div className="share-secret-actions">
-                      <ClipboardButton
-                        value={visibleSecret.key}
-                        size="sm"
-                        variant="primary"
-                        label="Copy key"
-                        copiedLabel="Copied"
-                      />
-                      <span>Key ID {visibleSecret.keyId.slice(0, 12)}…</span>
-                    </div>
-                    <p>
-                      Saved in this browser while this enrollment link remains valid. It is not
-                      shown again from another browser, and an expired, revoked, or unavailable
-                      link does not restore a local copy.
-                    </p>
-                    {storageWarning ? (
-                      <p role="alert" className="form-error">
-                        {storageWarning}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div className="share-issue-controls">
-                    {data.alreadyIssued || issueConflict ? (
-                      <p role="status" className="share-warning">
-                        An active child key has already been issued from this IP.
-                      </p>
-                    ) : issueError ? (
-                      <p role="alert" className="form-error">
-                        {issueError}
-                      </p>
-                    ) : null}
-                    {!data.canIssue && !data.alreadyIssued && !issueConflict ? (
-                      <p role="status" className="share-warning">
-                        This enrollment link is not currently accepting key requests.
-                      </p>
-                    ) : null}
-                    <Button
-                      variant="primary"
+              </div>
+
+              {visibleSecret ? (
+                <div className="share-issued-secret" role="status">
+                  <p className="share-eyebrow">GENERATED ONCE · COPY AND KEEP IT</p>
+                  <h2>Your API key</h2>
+                  <code>{visibleSecret.key}</code>
+                  <div className="share-secret-actions">
+                    <ClipboardButton
+                      value={visibleSecret.key}
                       size="sm"
-                      loading={issueBusy}
-                      disabled={!data.canIssue || data.alreadyIssued || issueConflict || issueBusy}
-                      onClick={() => void issue()}
-                    >
-                      {issueBusy
-                        ? "Generating…"
-                        : data.canIssue && !data.alreadyIssued && !issueConflict
-                          ? "Generate my child key"
-                          : "Enrollment unavailable"}
-                    </Button>
-                    <p>
-                      One active child key per canonical IP. This link remains the authority for
-                      enrollment; the browser copy is only restored while the link stays valid.
-                    </p>
-                    {storageWarning ? (
-                      <p role="alert" className="form-error">
-                        {storageWarning}
-                      </p>
-                    ) : null}
+                      variant="primary"
+                      label="Copy key"
+                      copiedLabel="Copied"
+                    />
+                    <span>Key ID {visibleSecret.keyId.slice(0, 12)}…</span>
                   </div>
-                )}
-              </CardBody>
-            </Card>
-          </>
+                  <p>
+                    Saved in this browser while this enrollment link remains valid. It is not
+                    shown again from another browser, and an expired, revoked, or unavailable
+                    link does not restore a local copy.
+                  </p>
+                  {storageWarning ? (
+                    <p role="alert" className="form-error">{storageWarning}</p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {!canIssue && !visibleSecret ? (
+                <p role="status" className="share-warning">
+                  {data.alreadyIssued || issueConflict
+                    ? "An active key has already been issued from this IP."
+                    : issueError ?? "This enrollment link is not currently accepting key requests."}
+                </p>
+              ) : null}
+              {issueError && canIssue ? (
+                <p role="alert" className="form-error">{issueError}</p>
+              ) : null}
+
+              <dl className="share-policy">
+                <div><dt>Requests / minute</dt><dd>{fmt(data.requestsPerMinute)}</dd></div>
+                <div><dt>Concurrent requests</dt><dd>{fmt(data.maxConcurrentRequests)}</dd></div>
+                <div><dt>Daily token cap</dt><dd>{fmt(data.dailyLimit)}</dd></div>
+                <div><dt>Monthly token cap</dt><dd>{fmt(data.monthlyLimit)}</dd></div>
+                <div><dt>Lifetime cap</dt><dd>{fmt(data.oneTimeLimit)}</dd></div>
+                <div>
+                  <dt>Providers</dt>
+                  <dd>{data.providerAllowlist?.length ? data.providerAllowlist.join(", ") : "All allowed"}</dd>
+                </div>
+              </dl>
+              <p className="share-model-policy">
+                {data.modelAllowlist.length
+                  ? `Allowed models: ${data.modelAllowlist.join(", ")}`
+                  : "Model access follows the share template policy."}
+                {data.modelDenylist?.length ? ` · Excluded: ${data.modelDenylist.join(", ")}` : ""}
+              </p>
+              {data.modelPrefix ? (
+                <p className="share-model-policy">Required model prefix: {data.modelPrefix}</p>
+              ) : null}
+              {data.expiresAt ? (
+                <p className="share-expiry">
+                  Enrollment link expires {new Date(data.expiresAt).toLocaleString()}
+                </p>
+              ) : null}
+              <p className="share-trust-copy">
+                This page never displays a parent credential. One active key per canonical IP;
+                the browser copy is restored only while this link stays valid.
+              </p>
+            </CardBody>
+          </Card>
         ) : (
           <Card>
             <CardBody>
@@ -291,7 +261,6 @@ export function SharePage(): ReactElement {
             </CardBody>
           </Card>
         )}
-        <p className="share-footer">Cartethyia · share-key enrollment</p>
       </main>
     </div>
   );

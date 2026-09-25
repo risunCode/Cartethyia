@@ -28,7 +28,7 @@ describe("public share enrollment page", () => {
     shareState = { data: null, error: null, loading: true };
     const markup = render();
     expect(markup).toContain("Loading enrollment policy…");
-    expect(markup).not.toContain("Generate my child key");
+    expect(markup).not.toContain("Generate API Key");
   });
 
   test("renders with the global console surface classes and no page-local theme", () => {
@@ -36,16 +36,26 @@ describe("public share enrollment page", () => {
     const markup = render();
     expect(markup).toContain("share-page");
     expect(markup).toContain("card-solid");
-    expect(markup).toContain("data-table");
+    expect(markup).toContain("share-policy");
     expect(markup).not.toContain("data-share-theme");
     expect(markup).not.toContain("share-enrollment-");
+  });
+
+  test("shows the /v1 endpoint on the left and the generate action on the right", () => {
+    shareState = { data, error: null, loading: false };
+    const markup = render();
+    // The recipient is told to call the origin they reached this page by.
+    expect(markup).toContain("https://gateway.example/v1");
+    expect(markup).toContain("Base URL");
+    expect(markup).toContain("share-endpoint");
+    expect(markup).toContain("Generate API Key");
   });
 
   test("shows policy and explicit child-key generation without disclosing any credential", () => {
     shareState = { data, error: null, loading: false };
     const markup = render();
     expect(markup).toContain("Team Access");
-    expect(markup).toContain("Generate my child key");
+    expect(markup).toContain("Generate API Key");
     expect(markup).toContain("never displays a parent credential");
     expect(markup).toContain("Allowed models: gpt-5");
     expect(markup).toContain("Required model prefix: gpt-");
@@ -57,9 +67,8 @@ describe("public share enrollment page", () => {
   test("does not offer another generation after this IP has already enrolled", () => {
     shareState = { data: { ...data, canIssue: false, alreadyIssued: true }, error: null, loading: false };
     const markup = render();
-    expect(markup).toContain("An active child key has already been issued from this IP.");
-    expect(markup).toContain("Enrollment unavailable");
-    expect(markup).not.toContain("Generate my child key");
+    expect(markup).toContain("An active key has already been issued from this IP.");
+    expect(markup).not.toContain("Generate API Key");
   });
 
   test("shows a useful unavailable state", () => {
