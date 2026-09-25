@@ -150,15 +150,20 @@ ciphertext.
 
 - `DATABASE_URL` and `REDIS_URL` are the only connection sources; never infer
   a host.
-- Schema changes go through `schema.ts` plus the single
-  `drizzle/migrations/0000_baseline.sql` consumed by the ledger runner;
-  historical baseline entries stay historical. Live databases need the
-  hand-run idempotent DDL because the baseline ledger row is
-  already applied. Those hand-run statements are kept in
-  `drizzle/migrations/manual/` (including `0011_`): `migrationFiles()` only
-  matches numbered `NNNN_*.sql` entries at the top level of the migrations
-  folder, so the ledger runner never sees that subfolder and each file must be
-  applied by hand (its own header says so).
+- Schema changes go through `schema.ts` plus a numbered migration in
+  `drizzle/migrations/`. `migrationFiles()` matches numbered `NNNN_*.sql`
+  entries at the top level of the migrations folder and the ledger runner
+  applies them in order at boot, so a change ships as `0001_…`, `0002_…` and a
+  deployment migrates itself. Every numbered file must be idempotent: a file
+  that fails midway leaves no ledger row and is retried on the next boot.
+  `0000_baseline.sql` remains the whole schema for a database created today and
+  the first file the runner applies.
+- `drizzle/migrations/manual/` is not part of that sequence. It holds the
+  hand-run statements a database created from an *older* baseline needed, kept
+  as a historical record. They are not replayable in order — `0007_` writes a
+  `sticky` enum value that a later file's enum no longer contains — so the
+  runner never reads that subfolder and each file is applied by hand, as its own
+  header says.
 - Manual migration `0011` backfills lifetime usage totals from telemetry rows
   still retained at rollout. Older events already pruned cannot be reconstructed.
 - It disables legacy share links and normalizes their kind to `enroll`; the

@@ -219,10 +219,15 @@ non-root user, and exposes port `12800`. PostgreSQL must be reachable through
 
 ### Migrating an existing deployment
 
-The application applies its migration baseline at boot, so a new database needs
-no manual step — but a database that already existed before a baseline change
-may need the hand-run statements under `drizzle/migrations/manual/`. Those are
-never applied automatically; their headers say so, and they are idempotent.
+The application migrates itself at boot: it applies every numbered
+`NNNN_*.sql` file under `drizzle/migrations/` in order and records each in the
+`cartethyia_schema_migrations` ledger, so a new database and an existing one
+both reach the current schema with no manual step.
+
+`drizzle/migrations/manual/` is a historical record of the hand-run statements a
+database created from an *older* baseline needed. Those files are not part of
+the numbered sequence, are not applied automatically, and are not replayable in
+order — apply one only if you are following its own header.
 
 To move a deployment's configuration to another host, use **Settings →
 Backup** in the console:

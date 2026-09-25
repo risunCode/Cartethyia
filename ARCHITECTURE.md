@@ -97,12 +97,15 @@ and API-key usage totals.
   such as `config.test.ts` and `config-env-drift.test.ts` cover cross-cutting
   config contracts.
 - `scripts/` — flat operational scripts (`ops-*`, `build-*`, `ci-*`).
-- `drizzle/migrations/` — `0000_baseline.sql` is the only auto-applied file;
-  `applySqlMigrations` reads numbered `NNNN_*.sql` files from that folder's
-  top level (non-recursive) and records each in
-  `cartethyia_schema_migrations`. `drizzle/migrations/manual/` holds
-  hand-run statements kept as a record of what a database created from an
-  older baseline still needs; the ledger runner never reads that subfolder.
+- `drizzle/migrations/` — numbered `NNNN_*.sql` files at the top level
+  (non-recursive) are applied in order at boot: `0000_baseline.sql` first, then
+  each later file, every one recorded in `cartethyia_schema_migrations`.
+  A new schema change is a new numbered file, so a deployment migrates itself;
+  `0000_baseline.sql` stays the whole schema for a database created today.
+  `drizzle/migrations/manual/` holds hand-run statements kept as a record of
+  what a database created from an older baseline still needed before the
+  numbered runner covered it; those files are not a replayable sequence and the
+  ledger runner never reads that subfolder.
   Committed protobuf output lives under the provider integrations that
   consume it (`src/providers/integrations/*/generated/`).
 

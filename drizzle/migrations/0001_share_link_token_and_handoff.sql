@@ -1,5 +1,8 @@
 -- Share links gain a re-displayable token and a personal handoff kind.
 --
+-- Applied automatically at boot, after `0000_baseline.sql`, and recorded in the
+-- `cartethyia_schema_migrations` ledger like every other numbered file.
+--
 -- Why the token column: the console must show a stable link for a key instead
 -- of losing it after the single response that minted it. The hash stays the
 -- lookup key; the token is retained encrypted for the owner's console only, so
@@ -11,9 +14,11 @@
 -- handoff reveals the key itself. The old check constraint allowed only
 -- 'enroll'.
 --
--- Rows written before this migration keep NULL token_encrypted and simply
--- cannot be shown again, which is the honest outcome for a token that was
--- never retained.
+-- A database created from the current baseline already has both, so this is a
+-- no-op there; it exists to bring a database created from an earlier baseline
+-- up to the same shape. Rows written before this ran keep NULL
+-- token_encrypted and simply cannot be shown again, which is the honest
+-- outcome for a token that was never retained.
 --
 -- Idempotent: safe to run more than once.
 ALTER TABLE share_links ADD COLUMN IF NOT EXISTS token_encrypted bytea;

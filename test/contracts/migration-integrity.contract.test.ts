@@ -11,11 +11,29 @@ async function numberedMigrations(): Promise<string[]> {
 }
 
 describe("SQL migration integrity", () => {
-  test("a single consolidated baseline is the only migration", async () => {
+  test("the consolidated baseline is the first auto-applied migration", async () => {
     const files = await numberedMigrations();
-    expect(files).toEqual(["0000_baseline.sql"]);
+    // Numbered files under `drizzle/migrations/` are applied at boot, in order,
+    // after the baseline. `manual/` is deliberately not in this set: those files
+    // are hand-run patches for a database created from an older baseline and are
+    // not a replayable sequence.
+    expect(files[0]).toBe("0000_baseline.sql");
+    expect(files.length).toBeGreaterThan(0);
     const migration = await readFile(resolve(migrationsDir, "0000_baseline.sql"), "utf8");
     expect(migration.trim().length).toBeGreaterThan(0);
+  });
+
+  test("every numbered migration is idempotent", async () => {
+    // The ledger skips an applied file, but a file that fails midway leaves no
+    // ledger row and is retried on the next boot, so each must converge when
+    // re-run. Guards: `IF NOT EXISTS`, `IF EXISTS`, or an `EXCEPTION` block.
+    for (const file of await numberedMigrations()) {
+      if (file === "0000_baseline.sql") continue; // the baseline creates the schema
+      const migration = await readFile(resolve(migrationsDir, file), "utf8");
+      const guarded =
+        /IF NOT EXISTS|IF EXISTS|EXCEPTION WHEN|DO \$/.test(migration);
+      expect({ file, guarded }).toEqual({ file, guarded: true });
+    }
   });
 
 
