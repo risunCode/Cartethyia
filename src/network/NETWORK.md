@@ -139,7 +139,7 @@ candidate (`leases.ts` builds it only when the pool-owning tenant's setting is
 `MGET` per pool, and a pool with no cooling providers — the normal state — lists no members, so the
 empty case returns an empty list without issuing a command Redis would reject (`MGET` requires at
 least one key). `pool-health-machine.ts` records pool-origin tunnel
-failures and successful pooled requests: unhealthy pools enter `degraded` or `cooldown`, with a
+failures and successful pooled requests: a pool that cannot carry traffic enters `cooldown`, with a
 recovery deadline from `CARTETHYIA_POOL_COOLDOWN_MS` (default two minutes), and are excluded from new
 route snapshots. Three consecutive faults are labeled `cooldown`; successful requests recover these
 states immediately, while the 30-second health sweep recovers expired faults. A request through a pool

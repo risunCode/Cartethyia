@@ -32,7 +32,7 @@ Built with Bun, TypeScript, Elysia, PostgreSQL, and optional Redis coordination.
   degraded in place (generation controls dropped, media replaced by placeholders)
   rather than silently rerouted to a model you never asked for.
 - **Account health as a state machine** — every failure is classified into
-  `active` / `degraded` / `cooldown` / `disabled`, with per-account and per-model
+  `active` / `cooldown` / `disabled`, with per-account and per-model
   backoffs, automatic recovery, and a full transition log you can read.
 - **Validated egress pools** — HTTP CONNECT, HTTPS CONNECT, and SOCKS5, with
   SSRF validation at both creation and connection time. Configured pool failures

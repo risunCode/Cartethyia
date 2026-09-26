@@ -294,7 +294,7 @@ all lookup keys.
 
 Account fan-out is per account, not per provider-tenant: global providers still pair with each tenant's own accounts. Expired
 cooldowns read as healthy (the health sweeper materializes recovery); per-model `modelCooldowns` mark individual candidates
-cooling down, and degraded accounts are excluded until explicit recovery.
+cooling down. A cooling account is deprioritized rather than excluded — it is ordered behind every healthy sibling and reached only when nothing better is left — while a `disabled` account is a hard exclusion until an operator restores it.
 
 **Planning** (`RoutingEngine.plan()`) order: alias resolve → combo expand → tenant filter → ambiguity check → eligibility →
 capability filter → provider routing reorder. Returns a `RoutePlan` with ordered `candidates`.

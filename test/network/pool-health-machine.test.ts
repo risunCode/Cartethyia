@@ -43,7 +43,7 @@ dbDescribe("network pool health machine", () => {
     });
     let row = (await db.select().from(networkPools).where(eq(networkPools.id, poolId)))[0];
     expect(row).toMatchObject({
-      status: "degraded",
+      status: "cooldown",
       consecutiveFailures: 1,
       lastErrorCategory: "proxy_unreachable",
     });
@@ -61,11 +61,11 @@ dbDescribe("network pool health machine", () => {
     expect(events).toHaveLength(2);
     expect(events).toContainEqual(expect.objectContaining({
       fromStatus: "active",
-      toStatus: "degraded",
+      toStatus: "cooldown",
       errorCategory: "proxy_unreachable",
     }));
     expect(events).toContainEqual(expect.objectContaining({
-      fromStatus: "degraded",
+      fromStatus: "cooldown",
       toStatus: "active",
       errorCategory: null,
     }));

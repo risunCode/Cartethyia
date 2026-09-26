@@ -190,7 +190,7 @@ code; because the pool is unusable, it is disabled from routing and the reason i
 `health_events`. The same response during dispatch disables the bound pool instead of flagging
 the provider account. Operators must explicitly re-enable it after fixing payment or credentials.
 Other transport failures remain `Unhealthy`/`Timeout` and dispatch health is maintained by
-pool-bound requests. A successful pooled dispatch recovers degraded/cooldown pools immediately.
+pool-bound requests. A successful pooled dispatch recovers cooling pools immediately.
 Operators can inspect `GET /:poolId/health-events`; mutations release the cached dial agent
 (`poolAgentReleaser`), and responses redact legacy secret config keys and surface only
 `hasCredential`.
@@ -206,7 +206,7 @@ strategy (`invalid_pool`) and clamp `rotateCount` to 1..1000 (`invalid_pool_limi
 **Invariants.** Tenant scoping is enforced at the operations layer (`requireTenantScope`) and
 again in store queries (`globalOrOwnedBy` / `ownedByOnly`), and pool endpoints can never point
 at loopback or internal hosts. Operators may set `active`/`disabled`; health policy may also
-disable a pool after HTTP 402/407. `degraded` and `cooldown` remain health-machine-owned.
+disable a pool after HTTP 402/407. `cooldown` remains health-machine-owned.
 Manual checks do not mutate dispatch health except for the explicit 402/407 disable policy.
 Credentials are encrypted on write (`encryptCredential`) and never rehydrated on read; only
 prefix-length hints leave the store.
@@ -368,7 +368,7 @@ refresh-deps construction that both groups use.
 **never blocks on upstream**: it batch-reads every account's cache per lens and enqueues anything
 missing or older than `QUOTA_STALE_AFTER_MS` on a bounded background queue, reporting `refreshing:
 <count>` and a per-account `pending` flag so the client can poll fast while the fill runs. Status
-flips (`active|degraded|cooldown|disabled`) invalidate the snapshot, `DELETE` also drops the
+flips (`active|cooldown|disabled`) invalidate the snapshot, `DELETE` also drops the
 cached entry and audits `provider_account.deleted`, and the `/global/accounts*` routes are
 `platform:admin`-only management of tenant-null shared accounts. Every health block is built by
 `toQuotaAccountHealth` in `account-quota-view.ts`, so the four call sites cannot drift: it carries the

@@ -21,15 +21,14 @@ describe("proxy pool overview metrics", () => {
     const pools = [
       pool({ id: "a", status: "active", maxInflight: 10, inflight: 4 }),
       pool({ id: "b", status: "active", maxInflight: 5, inflight: 1 }),
-      pool({ id: "c", status: "degraded", maxInflight: 8 }),
+      pool({ id: "c", status: "cooldown", maxInflight: 8 }),
       pool({ id: "d", status: "cooldown", maxInflight: 4 }),
       pool({ id: "e", status: "disabled", maxInflight: 2 }),
     ];
     expect(summarizePools(pools)).toEqual({
       totalPools: 5,
       active: 2,
-      degraded: 1,
-      cooldown: 1,
+      cooldown: 2,
       totalMaxConcurrency: 15,
       usedInflight: 5,
       availableCapacity: 10,
@@ -40,7 +39,6 @@ describe("proxy pool overview metrics", () => {
     expect(summarizePools([])).toEqual({
       totalPools: 0,
       active: 0,
-      degraded: 0,
       cooldown: 0,
       totalMaxConcurrency: 0,
       usedInflight: 0,
@@ -62,7 +60,6 @@ describe("summarizePools with live usage", () => {
     expect(summarizePools(pools, live)).toEqual({
       totalPools: 2,
       active: 2,
-      degraded: 0,
       cooldown: 0,
       totalMaxConcurrency: 20,
       usedInflight: 7,

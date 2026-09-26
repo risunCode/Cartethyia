@@ -490,7 +490,7 @@ describe("Account Error Classifier", () => {
       statusCode: 504,
     });
     expect(res.category).toBe("timeout");
-    expect(res.status).toBe("degraded");
+    expect(res.status).toBe("cooldown");
     expect(res.status).not.toBe("disabled");
     expect(res.retryAt).not.toBeNull();
   });
@@ -510,6 +510,28 @@ describe("Account Error Classifier", () => {
     );
     expect(res.status).not.toBe("disabled");
     expect(res.category).not.toBe("auth_invalidated");
+  });
+
+  test("a price refusal is recorded without mutating the account", () => {
+    // inferhub answers 402 with `no provider's ask matches your max-per-mtok
+    // bid`: the caller's own price ceiling was below every upstream ask. That
+    // says nothing about the credential or its balance, so cooling the account
+    // down for an hour was wrong — the operator reported it as an account
+    // blocked from every model. Only the request fails.
+    const res = classifyAccountError(
+      new Error(
+        "no provider's ask matches your max-per-mtok bid (upstream 402)",
+      ),
+      {
+        origin: "upstream",
+        scope: "account",
+        credentialEvidence: true,
+        statusCode: 402,
+      },
+    );
+    expect(res.category).toBe("quota_exhausted");
+    expect(res.mutatesAccount).toBe(false);
+    expect(res.retryAt).toBeNull();
   });
 
   test("an upstream 402 quota response cools the account down instead of disabling it", () => {

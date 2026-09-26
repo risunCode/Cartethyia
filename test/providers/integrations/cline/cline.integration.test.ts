@@ -193,24 +193,32 @@ describe("Cline model catalog", () => {
     // This list owns the builtin rows: `seedBundledModels` deletes a builtin
     // row the list no longer declares, so an id Cline has retired would
     // otherwise stay in the catalog — and stay routable — forever. The live
-    // roster is the authority; this pins the seed against it.
+    // roster is the authority for the `free` bucket; `deepseek/deepseek-v4-flash`
+    // is served on the free tier without appearing in that bucket.
     expect(CLINE_MODELS.map((model) => model.modelId)).toEqual([
       "deepseek/deepseek-v4-flash",
+      "stealth/pixel-canary",
+      "stealth/space-bunny-alpha",
+      "cline-free/mimo-v2.6-flash",
       "cline-free/deepseek-v4.1-flash",
-      "z-ai/glm-5.3-flash",
+      "cline-free/gemini-3.8-flash",
       "cline-free/muse-spark-1.3-contributor",
     ]);
     expect(CLINE_MODELS.every((model) => model.cost.input === 0 && model.cost.output === 0)).toBe(true);
   });
 
-  test("does not seed the two ids Cline's free roster dropped", () => {
-    // Regression pin for the reported bug: both ids were seeded here while
-    // Cline served neither on the free tier, so each rendered as a builtin
-    // card whose every probe could only fail, and — because nothing prunes a
-    // builtin row the list still declares — neither could be deleted from the
-    // dashboard. Cline's live roster is the authority; a network check is not
-    // possible from a unit test, so this pins the removal itself.
-    for (const id of ["nvidia/nemotron-3-ultra-550b-a55b:free", "google/gemma-4-31b-it:free"]) {
+  test("does not seed the retired ids, including the one that billed credits", () => {
+    // Regression pins for reported bugs: `nvidia/nemotron-3-ultra-550b-a55b:free`
+    // and `google/gemma-4-31b-it:free` are absent from the live free roster, so
+    // both rendered as builtin cards whose every probe could only fail — and
+    // which the dashboard refuses to delete (`builtin_model_immutable`).
+    // `z-ai/glm-5.3-flash` dispatched onto Cline Credits and answered
+    // `402 Insufficient balance`, so a free account could never use it.
+    for (const id of [
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "google/gemma-4-31b-it:free",
+      "z-ai/glm-5.3-flash",
+    ]) {
       expect(CLINE_MODELS.some((model) => model.modelId === id)).toBe(false);
     }
   });

@@ -31,7 +31,7 @@ export interface NetworkPoolResponse {
   endpoint: string;
   maxInflight: number;
   weight: number;
-  status: "active" | "degraded" | "cooldown" | "disabled";
+  status: "active" | "cooldown" | "disabled";
   inflight: number;
   available?: number;
   utilization?: number;
@@ -89,10 +89,10 @@ export function validateTransportConfig(
 }
 
 /**
- * Pool kinds and operator-settable statuses, as runtime tuples. `degraded` and
- * `cooldown` are health-machine-only and deliberately absent from the status
- * tuple. The Elysia body schema, the config validator, and the request types
- * all project these lists.
+ * Pool kinds and operator-settable statuses, as runtime tuples. `cooldown` is
+ * health-machine-only and deliberately absent from the status tuple. The Elysia
+ * body schema, the config validator, and the request types all project these
+ * lists.
  */
 export const POOL_KINDS = TRANSPORT_KINDS;
 export const POOL_STATUSES = ["active", "disabled"] as const;

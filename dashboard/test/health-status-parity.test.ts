@@ -10,11 +10,10 @@ import type { HealthStatus } from "../src/lib/contracts";
  */
 describe("dashboard/backend parity — health status", () => {
   test("HealthStatus is exactly the pgEnum union", () => {
-    expectTypeOf<HealthStatus>().toEqualTypeOf<"active" | "degraded" | "cooldown" | "disabled">();
+    expectTypeOf<HealthStatus>().toEqualTypeOf<"active" | "cooldown" | "disabled">();
     expect([...healthStatus.enumValues].sort()).toEqual([
       "active",
       "cooldown",
-      "degraded",
       "disabled",
     ]);
   });

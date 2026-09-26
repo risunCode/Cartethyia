@@ -41,13 +41,13 @@ describe("dashboard auth and status contracts", () => {
       session_expires_at: "2026-08-31T00:00:00.000Z",
       is_platform_admin: false,
     };
-    const statuses: readonly HealthStatus[] = ["active", "degraded", "cooldown", "disabled"];
+    const statuses: readonly HealthStatus[] = ["active", "cooldown", "disabled"];
 
     expect(loginSuccess.status).toBe("success");
     expect(loginFailure.status).toBe("failed");
     expect(unauthenticated.status).toBe("unauthenticated");
     expect(authenticated.status).toBe("authenticated");
-    expect(statuses).toHaveLength(4);
+    expect(statuses).toHaveLength(3);
   });
 
   test("uses a same-origin API boundary and preserves typed error status", async () => {

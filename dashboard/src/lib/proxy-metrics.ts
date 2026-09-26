@@ -3,7 +3,6 @@ import type { NetworkPoolResponse } from "./contracts";
 export interface ProxyPoolSummary {
   readonly totalPools: number;
   readonly active: number;
-  readonly degraded: number;
   readonly cooldown: number;
   readonly totalMaxConcurrency: number;
   readonly usedInflight: number;
@@ -27,7 +26,6 @@ export function summarizePools(
   return {
     totalPools: pools.length,
     active: activePools.length,
-    degraded: pools.filter((pool) => pool.status === "degraded").length,
     cooldown: pools.filter((pool) => pool.status === "cooldown").length,
     totalMaxConcurrency,
     usedInflight,

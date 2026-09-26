@@ -16,7 +16,7 @@ export interface PoolHealthEvent {
 export interface PoolHealthSnapshot {
   readonly poolId: string;
   readonly tenantId: string;
-  readonly status: "active" | "degraded" | "cooldown" | "disabled";
+  readonly status: "active" | "cooldown" | "disabled";
   readonly consecutiveFailures: number;
   readonly lastError?: string;
   readonly lastErrorCategory?: string;
@@ -78,7 +78,10 @@ export async function recordPoolDispatchOutcome(
     lastSuccessAt = now;
   } else {
     failures += 1;
-    status = failures >= 3 ? "cooldown" : "degraded";
+    // Every failed probe parks the pool: a pool that cannot carry traffic is
+    // unusable either way, and the old "degraded until the third failure" tier
+    // only meant routing and the console disagreed about whether it was up.
+    status = "cooldown";
     cooldownUntil = new Date(now.getTime() + POOL_COOLDOWN_MS());
     lastErrorCategory = category ?? "proxy_unreachable";
     lastError = `Proxy transport failed (${lastErrorCategory})`;
@@ -211,10 +214,10 @@ export async function listNetworkPoolHealthEvents(db: CartethyiaDatabase, tenant
   return rows.map((row) => ({ id: row.id, networkPoolId: row.networkPoolId ?? poolId, fromStatus: row.fromStatus, toStatus: row.toStatus, reason: row.reason, errorCategory: row.errorCategory, createdAt: row.createdAt.toISOString() }));
 }
 
-/** Recover expired degraded/cooldown pools; operator-disabled pools are never swept. */
+/** Recover expired cooling pools; operator-disabled pools are never swept. */
 export async function sweepExpiredPoolCooldowns(db: CartethyiaDatabase): Promise<number> {
   const now = new Date();
-  const expired = await db.select({ id: networkPools.id, tenantId: networkPools.tenantId, status: networkPools.status }).from(networkPools).where(and(inArray(networkPools.status, ["degraded", "cooldown"]), isNotNull(networkPools.cooldownUntil), lte(networkPools.cooldownUntil, now)));
+  const expired = await db.select({ id: networkPools.id, tenantId: networkPools.tenantId, status: networkPools.status }).from(networkPools).where(and(inArray(networkPools.status, ["cooldown"]), isNotNull(networkPools.cooldownUntil), lte(networkPools.cooldownUntil, now)));
   if (expired.length === 0) return 0;
   await db.update(networkPools).set({ status: "active", consecutiveFailures: 0, cooldownUntil: null, lastRecoveredAt: now }).where(inArray(networkPools.id, expired.map((row) => row.id)));
   await db.insert(healthEvents).values(expired.map((row) => ({ entityKind: "pool" as const, networkPoolId: row.id, fromStatus: row.status, toStatus: "active" as const, reason: "Cooldown elapsed — auto-recovered", errorCategory: null, createdAt: now })));

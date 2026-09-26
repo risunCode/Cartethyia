@@ -1,5 +1,5 @@
 // Account health: error classification, failure/success recording, recovery and cooldown sweeps.
-import { and, desc, eq, inArray, isNotNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { isRecord } from "../../protocol/primitives";
 import { BUDDY_PROVIDER_IDS } from "../provider-metadata";
@@ -15,8 +15,11 @@ import {
 } from "../../config";
 // ===== health/constants.ts =====
 /**
- * Account status is authoritative for routing: degraded accounts remain
- * excluded until an explicit success/recovery transition clears the state.
+ * Account status is authoritative for routing: `disabled` is a hard exclusion
+ * until an operator restores it, while `cooldown` is a *soft* one — the account
+ * is deprioritized behind every healthy sibling and reached only when nothing
+ * better is left, so a cooling credential still serves rather than parking the
+ * model entirely.
  *
  * Every delay below is a *fallback*: an upstream `Retry-After`/reset header or
  * a duration stated in the provider message always wins. They are read through
@@ -33,14 +36,13 @@ const TRANSIENT_ERROR_COOLDOWN_MS = resolveAccountTransientCooldownMs;
 /**
  * Backoff for a failure no rule matched. Short on purpose: an unclassified
  * error is more likely a new upstream shape than a broken account, so the
- * account returns to rotation quickly instead of parking in `degraded`.
+ * account returns to rotation quickly.
  */
 const UNCLASSIFIED_COOLDOWN_MS = resolveAccountUnclassifiedCooldownMs;
 /**
  * xAI Grok Build's free tier resets on a rolling 24-hour window, so its
- * exhaustion is a full-day quota cooldown — never the generic 1h fallback and
- * never `degraded` (a degraded row is a transport-shaped fault, and treating a
- * free-tier wall as one let the account re-enter rotation inside the window).
+ * exhaustion is a full-day quota cooldown — never the generic 1h fallback,
+ * which let the account re-enter rotation inside the window.
  */
 const GROK_QUOTA_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 /**
@@ -107,7 +109,7 @@ export interface AccountFailureEvidence {
 
 export interface AccountErrorClassification {
   readonly category: AccountErrorCategory;
-  readonly status: "cooldown" | "disabled" | "degraded";
+  readonly status: "cooldown" | "disabled";
   readonly cooldownMs: number;
   readonly reason: string;
   readonly retryAt: Date | null;
@@ -170,28 +172,44 @@ export function classifyAccountError(
     mutatesAccount,
   });
 
+  // A price refusal is a verdict on the *request*, not on the account. inferhub
+  // answers 402 with `no provider's ask matches your max-per-mtok bid`: the
+  // caller's own price ceiling was below every upstream ask, which says nothing
+  // about the credential or its balance. Classified as quota it cooled a
+  // fully-credited account down for an hour and the operator reported it as
+  // "blocked, unusable at all". Detected before the quota branch and recorded
+  // without mutating the account, so only that request fails.
+  const priceRefusal =
+    lower.includes("max-per-mtok") ||
+    lower.includes("no provider's ask") ||
+    (lower.includes("ask") && lower.includes("bid"));
+
   // Quota-shaped provider codes/messages (e.g. xAI's
   // `subscription:free-usage-exhausted`) must win over the 401/403 auth
   // branch below: an exhausted free tier is quota exhaustion with a
-  // cooldown, never a dead credential.
+  // cooldown, never a dead credential. A bare 402 stays here: `Payment
+  // Required` conventionally means the account cannot pay, and a cooldown is
+  // recoverable and — since cooling accounts are deprioritized rather than
+  // excluded — no longer blocks the account from serving a request.
   const quotaSignal =
-    statusCode === 402 ||
-    providerCode === "insufficient_quota" ||
-    providerCode === "quota_exceeded" ||
-    providerCode === "subscription:free-usage-exhausted" ||
-    lower.includes("insufficient_quota") ||
-    lower.includes("quota_exceeded") ||
-    lower.includes("usage_limit_reached") ||
-    lower.includes("usage-exhausted") ||
-    lower.includes("usage_exhausted") ||
-    lower.includes("usage exhausted") ||
-    lower.includes("free-usage") ||
-    lower.includes("free usage") ||
-    lower.includes("exceeded your current quota") ||
-    lower.includes("balance exhausted") ||
-    lower.includes("insufficient balance") ||
-    lower.includes("out of credits") ||
-    lower.includes("spending limit");
+    !priceRefusal &&
+    (statusCode === 402 ||
+      providerCode === "insufficient_quota" ||
+      providerCode === "quota_exceeded" ||
+      providerCode === "subscription:free-usage-exhausted" ||
+      lower.includes("insufficient_quota") ||
+      lower.includes("quota_exceeded") ||
+      lower.includes("usage_limit_reached") ||
+      lower.includes("usage-exhausted") ||
+      lower.includes("usage_exhausted") ||
+      lower.includes("usage exhausted") ||
+      lower.includes("free-usage") ||
+      lower.includes("free usage") ||
+      lower.includes("exceeded your current quota") ||
+      lower.includes("balance exhausted") ||
+      lower.includes("insufficient balance") ||
+      lower.includes("out of credits") ||
+      lower.includes("spending limit"));
   // A deterministic content-policy rejection is NOT credential invalidation.
   // CodeBuddy returns HTTP 403 with provider code 11140 ("request illegal",
   // "did not pass the safety review") — refreshing the token cannot change
@@ -259,6 +277,22 @@ export function classifyAccountError(
       oauthRecovery ? new Date(Date.now() + cooldownMs) : null,
       reason(oauthRecovery ? "OAuth credential requires refresh" : "Provider credential rejected"),
       canMutate,
+    );
+  }
+
+  // A price refusal says the caller's bid was below every upstream ask, so the
+  // account is not at fault and must not be mutated: `mutatesAccount` is false
+  // and the deadline is left null. The category is `quota_exhausted` because the
+  // request could not be afforded — not because the account ran out — and the
+  // caller can fix it by raising its own ceiling.
+  if (priceRefusal) {
+    return result(
+      "quota_exhausted",
+      "cooldown",
+      0,
+      null,
+      reason("Request price refused by the provider"),
+      false,
     );
   }
 
@@ -347,13 +381,13 @@ export function classifyAccountError(
     lower.includes("econnrefused") ||
     lower.includes("fetch failed");
   if (serverSignal) {
-    // `degraded` still needs a `retryAt`: `sweepExpiredCooldowns` selects on
-    // `cooldownUntil IS NOT NULL`, so a degraded row with a null deadline is
-    // never swept back to `active` and stays visibly unhealthy until an
-    // operator restores it by hand.
+    // A transport-shaped fault clears on its own, so it is a cooldown with a
+    // deadline rather than a state needing an operator. The deadline matters:
+    // `sweepExpiredCooldowns` selects on `cooldownUntil IS NOT NULL`, so a row
+    // parked without one is never recovered and stays out of rotation.
     return result(
       lower.includes("timeout") ? "timeout" : "server_error",
-      "degraded",
+      "cooldown",
       TRANSIENT_ERROR_COOLDOWN_MS(),
       new Date(Date.now() + TRANSIENT_ERROR_COOLDOWN_MS()),
       reason(`Provider ${statusCode ?? "network"} failure`),
@@ -365,7 +399,7 @@ export function classifyAccountError(
   // must still be retried automatically rather than parked forever.
   return result(
     "unknown",
-    "degraded",
+    "cooldown",
     UNCLASSIFIED_COOLDOWN_MS(),
     new Date(Date.now() + UNCLASSIFIED_COOLDOWN_MS()),
     reason("Unclassified provider failure"),
@@ -439,7 +473,7 @@ async function persistAccountFailure(
       await client.insert(healthEvents).values({
         entityKind: "account",
         accountId,
-        fromStatus: fromStatus as "active" | "degraded" | "cooldown" | "disabled",
+        fromStatus: fromStatus as "active" | "cooldown" | "disabled",
         toStatus: classification.status,
         reason: classification.reason,
         errorCategory: classification.category,
@@ -493,7 +527,7 @@ async function persistAccountSuccess(
       await client.insert(healthEvents).values({
         entityKind: "account",
         accountId,
-        fromStatus: fromStatus as "active" | "degraded" | "cooldown" | "disabled",
+        fromStatus: fromStatus as "active" | "cooldown" | "disabled",
         toStatus: "active",
         reason: "Request dispatched successfully",
         errorCategory: null,
@@ -553,7 +587,7 @@ async function persistAccountRecovery(
       await client.insert(healthEvents).values({
         entityKind: "account",
         accountId,
-        fromStatus: fromStatus as "active" | "degraded" | "cooldown" | "disabled",
+        fromStatus: fromStatus as "active" | "cooldown" | "disabled",
         toStatus: "active",
         reason,
         errorCategory: null,
@@ -585,10 +619,7 @@ async function sweepExpiredCooldownsFor(db: CartethyiaDatabase): Promise<number>
       .from(providerAccounts)
       .where(
         and(
-          or(
-            eq(providerAccounts.status, "cooldown"),
-            eq(providerAccounts.status, "degraded"),
-          ),
+          eq(providerAccounts.status, "cooldown"),
           isNotNull(providerAccounts.cooldownUntil),
           lte(providerAccounts.cooldownUntil, now),
         ),

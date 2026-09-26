@@ -4,28 +4,28 @@ import { classifyAccountError } from "../../../src/providers/operations/account-
 /**
  * Every classification that sets a non-`active` status must carry a `retryAt`,
  * because `sweepExpiredCooldowns` selects on `cooldownUntil IS NOT NULL`. A
- * `degraded` row with a null deadline is never swept back to `active`, so it
- * stays visibly unhealthy until an operator restores it by hand — which is
- * exactly the "cooldown shows as healthy / never clears" symptom.
+ * `cooldown` row with a null deadline is never swept back to `active`, so it
+ * stays out of rotation until an operator restores it by hand — which is
+ * exactly the "cooldown never clears" symptom.
  */
 describe("account health always schedules its own recovery", () => {
-  test("a 5xx upstream failure is degraded WITH a retry deadline", () => {
+  test("a 5xx upstream failure is a cooldown WITH a retry deadline", () => {
     const c = classifyAccountError(
       Object.assign(new Error("upstream returned 502"), { status: 502 }),
       { origin: "upstream", scope: "provider", statusCode: 502 },
     );
-    expect(c.status).toBe("degraded");
+    expect(c.status).toBe("cooldown");
     expect(c.retryAt).not.toBeNull();
     expect(c.retryAt!.getTime()).toBeGreaterThan(Date.now());
     expect(c.cooldownMs).toBeGreaterThan(0);
   });
 
-  test("an unclassified failure is degraded WITH a retry deadline", () => {
+  test("an unclassified failure is a cooldown WITH a retry deadline", () => {
     const c = classifyAccountError(new Error("something nobody mapped"), {
       origin: "upstream",
       scope: "provider",
     });
-    expect(c.status).toBe("degraded");
+    expect(c.status).toBe("cooldown");
     expect(c.retryAt).not.toBeNull();
     expect(c.retryAt!.getTime()).toBeGreaterThan(Date.now());
   });

@@ -66,10 +66,18 @@ export const bytea = customType<{ data: Buffer }>({
   },
 });
 
-// Shared four-state health machine for provider_accounts and network_pools —
+// Shared three-state health machine for provider_accounts and network_pools —
 // the account state machine is reused for network pools rather than
 // inventing a second one.
-export const healthStatus = pgEnum("health_status", ["active", "degraded", "cooldown", "disabled"]);
+//
+// `degraded` was retired. It sat between "working" and "parked" and every
+// consumer had to decide what it meant: routing treated it as a hard exclusion,
+// the sweep treated it as recoverable, and the console showed it as a third
+// badge — three readings of one value, and the operator reported the result as
+// ambiguous. The two facts it mixed are now each stated by a value that means
+// exactly one thing: a fault that clears on its own is `cooldown` (with a
+// deadline the sweep honors), and a fault that needs an operator is `disabled`.
+export const healthStatus = pgEnum("health_status", ["active", "cooldown", "disabled"]);
 
 export const credentialKind = pgEnum("credential_kind", ["api_key", "oauth", "none"]);
 

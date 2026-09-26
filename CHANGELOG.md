@@ -5,6 +5,41 @@
 > All changes below are pre-release. Cartethyia has not been tagged or
 > released; this document reflects the current production codebase architecture and capabilities.
 
+### Cooldown is a deprioritization, and the `degraded` status is retired
+
+A cooling account was excluded from routing outright, so a deployment whose only
+account for a model was cooling answered `503 accounts_unavailable` while a
+usable credential sat idle — reported as "cooldown blocks the account completely,
+cannot be used at all". `EligibilityEvaluator` now keeps a cooling candidate
+eligible and `plan()` orders it after every healthy sibling, re-asserting that
+order after provider rotation (which is deliberately health-blind and could
+otherwise float a cooling account back to the front). A healthy account always
+wins; a cooling one is reached only when nothing better is left. `disabled`
+remains a hard exclusion, because only an operator reverses it.
+
+`degraded` is gone from the health machine, so the account and pool statuses are
+`active | cooldown | disabled`. It sat between "working" and "parked" and each
+consumer read it differently — routing treated it as a hard exclusion, the sweep
+treated it as recoverable, and the console showed it as a third badge — which is
+what made it ambiguous to operate. The two facts it mixed now each have a value
+that means one thing: a self-clearing fault is a cooldown with a deadline, and a
+fault needing an operator is `disabled`. A 5xx, timeout, or unclassified failure
+is therefore a cooldown, and the pool health machine parks a pool on its first
+failed probe rather than after a third. Migration
+`0002_retire_degraded_health_status.sql` folds existing `degraded` rows onto
+`cooldown` (never `disabled`, which would park an account that was recovering on
+its own) and supplies a deadline where one was missing, since the sweep selects
+on `cooldownUntil IS NOT NULL`. It rebuilds the shared `health_status` enum and
+moves all four dependent columns, including the `health_events` history.
+
+A bare upstream `402` no longer means the account ran out of quota on its own.
+inferhub answers `402` with `no provider's ask matches your max-per-mtok bid` —
+a verdict on the caller's price ceiling, not on the credential — and classifying
+it as quota exhaustion cooled a fully-credited account down for an hour. A price
+refusal is now recorded with `mutatesAccount: false`, so only that request fails;
+a `402` whose message carries a real balance or quota signal still cools the
+account down.
+
 ### A cooldown states when it ends, and a compound duration is read in full
 
 A model-scoped throttle (a 429 for one model) writes `modelCooldowns` and

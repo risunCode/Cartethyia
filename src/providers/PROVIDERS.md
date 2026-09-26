@@ -356,12 +356,19 @@ deadlines. Routing, console, and discovery consume providers through these servi
   An upstream `Retry-After`/`x-ratelimit-reset` header or a duration quoted in the provider message always wins
   over the fallback. xAI Grok Build is the one pinned provider rule: its free-tier exhaustion
   (`subscription:free-usage-exhausted`, "included free usage", "rolling 24-hour window") is a 24h
-  `quota_exhausted` cooldown — never the generic 1h fallback and never `degraded`, so the account cannot re-enter
-  rotation inside the provider's own reset window. Every non-`active` classification except `disabled`
-  carries a `retryAt`, because `sweepExpiredCooldowns` selects on `cooldownUntil IS NOT NULL`: a `degraded`
-  row with a null deadline would never be swept back and would stay unroutable until an operator restored it
-  by hand. `disabled` is deliberately permanent — a rejected credential with no OAuth-refresh recovery path
-  is not swept, so it carries a null deadline. Only real credential evidence disables: deterministic
+  `quota_exhausted` cooldown — never the generic 1h fallback, so the account cannot re-enter rotation inside
+  the provider's own reset window. The account state machine has three states: `active`, `cooldown`, and
+  `disabled`. `degraded` was retired because it mixed two facts that each need their own value — a fault that
+  clears on its own (a cooldown, which carries a deadline) and a fault needing an operator (disabled). Every
+  non-`active` classification except `disabled` carries a `retryAt`, because `sweepExpiredCooldowns` selects on
+  `cooldownUntil IS NOT NULL`: a row with a null deadline would never be swept back and would stay out of
+  rotation until an operator restored it by hand. `disabled` is deliberately permanent — a rejected credential
+  with no OAuth-refresh recovery path is not swept, so it carries a null deadline. A cooling account is
+  deprioritized rather than excluded: `EligibilityEvaluator` keeps it eligible and `plan()` orders it after
+  every healthy sibling, so a single-account deployment still routes through its own cooling account instead of
+  answering `accounts_unavailable`. A bare upstream 402 is a quota cooldown, but a price refusal
+  (`no provider's ask matches your max-per-mtok bid`) is a verdict on the request, not the account: it is
+  recorded with `mutatesAccount: false` so only that request fails. Only real credential evidence disables: deterministic
   content-policy rejections (`11140` and its safety-review phrasing) and hosted-tool failures
   (`web_search`/`x_search`/`web_fetch`) are excluded, because refreshing the token cannot change them.
   The buddy family (`cb`/`cbcn`/`workbuddy`, declared once as `BUDDY_PROVIDER_IDS` in
@@ -479,7 +486,7 @@ rather than the wire, and the operator vocabulary is the three real protocols.
 Qoder's enveloped SSE status codes are normalized inside `qoder.ts` at the integration boundary through the shared
 `statusToGatewayErrorCode` table, tagged `origin: "upstream"` because the status came from the provider's own envelope.
 The adapter used to keep a private copy of that table which mapped every 5xx to `proxy_unreachable`; that both mislabelled
-an upstream outage in the public envelope and degraded the network pool, since `pool-health-machine.ts` treats
+an upstream outage in the public envelope and parked the network pool, since `pool-health-machine.ts` treats
 `proxy_unreachable` as a pool fault.
 
 | Directory | Shape | Contents |

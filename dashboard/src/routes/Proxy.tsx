@@ -575,7 +575,7 @@ function PoolRow({
   const poolLabel = poolName(pool);
   const isEnabled = pool.status !== "disabled";
   const healthBadgeTone: BadgeTone | undefined =
-    pool.status === "degraded" || pool.status === "cooldown" ? "warn" : undefined;
+    pool.status === "cooldown" ? "warn" : undefined;
   const proxyFailureLabel = proxyResponseLabel(pool.lastErrorCategory);
   const proxyResponseDisabled = pool.status === "disabled" && proxyFailureLabel !== undefined;
   const lastSuccess = pool.lastSuccessAt ? new Date(pool.lastSuccessAt).getTime() : 0;
@@ -759,7 +759,7 @@ function PoolRow({
             onClick={() => onActivity(pool)}
             title="Health and error activity"
           />
-          {(pool.status === "degraded" || pool.status === "cooldown") && (
+          {(pool.status === "cooldown") && (
             <Button
               size="sm"
               variant="secondary"
@@ -877,7 +877,7 @@ function PoolHealthDialog({
             {pool.status}
           </Badge>
         </div>
-        {(pool.status === "degraded" || pool.status === "cooldown") && (
+        {(pool.status === "cooldown") && (
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
             <Button
               size="sm"
@@ -1344,13 +1344,6 @@ export default function Proxy(): ReactNode {
               detail={`${summary.usedInflight} inflight · ${summary.availableCapacity} available`}
               tone={summary.availableCapacity === 0 ? "orange" : "teal"}
               icon={<Gauge size={13} />}
-            />
-            <StatCard
-              label="Degraded"
-              value={String(summary.degraded)}
-              detail={summary.degraded > 0 ? "needs attention" : "none"}
-              tone={summary.degraded > 0 ? "orange" : "green"}
-              icon={<Network size={13} />}
             />
             <StatCard
               label="Cooldown"

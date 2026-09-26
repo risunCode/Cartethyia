@@ -282,6 +282,21 @@ function resolveAlias(
 /**
  * Shared eligibility evaluator used by live routing, console diagnostics,
  * manual tests, and probes. No path bypasses it.
+ *
+ * A cooling account is *deprioritized*, not excluded. Cooling means "recently
+ * failed, try something else first", not "cannot serve this request": a quota
+ * cooldown is usually scoped to one model or one provider, the deadline can be
+ * the classifier's own fallback rather than the provider's statement, and a
+ * per-request refusal (a bid the upstream declined) can park an otherwise
+ * healthy account for an hour. Excluding it made the gateway answer
+ * `accounts_unavailable` while a usable credential sat idle — reported as
+ * "cooldown blocks the account completely". Ordering is what carries the
+ * intent instead: `plan()` sorts cooling candidates after every healthy one,
+ * so they are reached only when nothing better is left, and a single-account
+ * deployment still routes through its own cooling account rather than failing.
+ *
+ * `disabled` stays a hard exclusion: it is an operator decision, and only an
+ * operator restores it.
  */
 export class EligibilityEvaluator {
   evaluate(candidate: RouteCandidate): EligibilityDecision {
@@ -292,12 +307,10 @@ export class EligibilityEvaluator {
     };
     if (state.account_locked || state.locked)
       return { eligible: false, reason: "locked", candidate };
-    if (state.health_status === "cooldown")
-      return { eligible: false, reason: "cooldown", candidate };
     if (state.health_status === "disabled")
       return { eligible: false, reason: "disabled", candidate };
-    if (state.health_status === "unhealthy" || state.health_status === "degraded")
-      return { eligible: false, reason: "unhealthy", candidate };
+    if (state.health_status === "cooldown")
+      return { eligible: true, reason: "cooldown", candidate };
     return { eligible: true, reason: "healthy", candidate };
   }
 
@@ -530,6 +543,22 @@ export class RoutingEngine {
         resolved.model,
       );
     }
+    // Cooling accounts are eligible but tried last: a healthy candidate that
+    // can serve the request must win, while a deployment whose only account is
+    // cooling still routes instead of failing. Sorted on the evaluator's reason
+    // so the ordering and the eligibility rule cannot disagree about which
+    // candidates are cooling.
+    const cooling = new Set(
+      decisions
+        .filter((decision) => decision.eligible && decision.reason === "cooldown")
+        .map((decision) => decision.candidate),
+    );
+    if (cooling.size > 0 && cooling.size < eligible.length) {
+      eligible = [
+        ...eligible.filter((candidate) => !cooling.has(candidate)),
+        ...eligible.filter((candidate) => cooling.has(candidate)),
+      ];
+    }
     // Capability-aware routing: filter against snapshot capability profiles
     // (shared predicate with the planner). Empty here means no candidate
     // supports the variant — the planner catches this code and re-plans a
@@ -547,6 +576,18 @@ export class RoutingEngine {
         throw capabilityUnsupportedError(requiredCapabilities.join(", "));
     }
     eligible = this.applyProviderRouting(eligible, snapshot, tid);
+    // Re-assert the cooling order: `applyProviderRouting` rotates accounts
+    // within one `provider::model` run, and that rotation is by design blind to
+    // health — so it can float a cooling account back to the front and undo the
+    // deprioritization above. Sorting again here is what makes the cooling rule
+    // hold regardless of the operator's rotation strategy. A stable partition
+    // keeps the rotation's own ordering inside each group.
+    if (cooling.size > 0 && cooling.size < eligible.length) {
+      eligible = [
+        ...eligible.filter((candidate) => !cooling.has(candidate)),
+        ...eligible.filter((candidate) => cooling.has(candidate)),
+      ];
+    }
     const chosen = eligible[0]!;
     return {
       revision: snapshot.revision,

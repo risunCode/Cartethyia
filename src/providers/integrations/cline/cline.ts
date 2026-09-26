@@ -389,6 +389,9 @@ async function fetchClineUpstreamCatalog(
  * that makes a fresh install usable before the first fetch.
  */
 export const CLINE_MODELS: readonly ModelDefinition[] = [
+  // `deepseek/deepseek-v4-flash` is servable on the free tier even though the
+  // roster's `free` bucket does not list it — the bucket is not the whole tier.
+  // It is routed and answers for a free account, so it belongs here.
   defineModel({
     id: "deepseek/deepseek-v4-flash",
     ctx: 1_048_576,
@@ -397,18 +400,44 @@ export const CLINE_MODELS: readonly ModelDefinition[] = [
     vision: true,
     free: true,
   }),
+  // The `free` bucket's own ids, as `/ai/cline/recommended-models` publishes
+  // them. Two of the bucket's ids carry no `cline-free/` prefix — the bucket is
+  // the tier, the id prefix never was.
   defineModel({
-    id: "cline-free/deepseek-v4.1-flash",
-    ctx: 1_048_576,
-    out: 384_000,
+    id: "stealth/pixel-canary",
+    ctx: 200_000,
+    out: 64_192,
+    reasoning: true,
+    free: true,
+  }),
+  defineModel({
+    id: "stealth/space-bunny-alpha",
+    ctx: 1_000_000,
+    out: 524_288,
     reasoning: true,
     vision: true,
     free: true,
   }),
   defineModel({
-    id: "z-ai/glm-5.3-flash",
-    ctx: 1_310_720,
+    id: "cline-free/mimo-v2.6-flash",
+    ctx: 1_048_576,
     out: 131_072,
+    reasoning: true,
+    vision: true,
+    free: true,
+  }),
+  defineModel({
+    id: "cline-free/deepseek-v4.1-flash",
+    ctx: 1_048_576,
+    out: 131_072,
+    reasoning: true,
+    vision: true,
+    free: true,
+  }),
+  defineModel({
+    id: "cline-free/gemini-3.8-flash",
+    ctx: 1_048_576,
+    out: 65_536,
     reasoning: true,
     vision: true,
     free: true,
@@ -416,7 +445,7 @@ export const CLINE_MODELS: readonly ModelDefinition[] = [
   defineModel({
     id: "cline-free/muse-spark-1.3-contributor",
     ctx: 1_048_576,
-    out: 131_072,
+    out: 943_718,
     reasoning: true,
     vision: true,
     free: true,

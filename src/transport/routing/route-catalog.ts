@@ -67,7 +67,7 @@ export function cliMappingSourceKeys(toolId: string, sourceModel: string): reado
  */
 
 type RouteCandidateWithHealth = RouteCandidate & {
-  health_status?: "cooldown" | "disabled" | "unhealthy";
+  health_status?: "cooldown" | "disabled";
 };
 
 /**
@@ -529,10 +529,6 @@ class RouteCatalogRepository {
           if (account.cooldownUntil && account.cooldownUntil.getTime() > Date.now()) {
             candidate.health_status = "cooldown";
           }
-        } else if (account.status === "degraded") {
-          // Degraded is a terminal routing exclusion until an explicit
-          // success/recovery transition changes the persisted account status.
-          candidate.health_status = "unhealthy";
         }
 
         // Per-model cooldown: an account may be healthy globally but cooling down

@@ -46,8 +46,15 @@ describe("routing matrix composition", () => {
   });
 
   test("eligibility shared between live and diagnostic", async () => {
+    // A cooling candidate is eligible — deprioritized, not excluded — and the
+    // evaluator is the single rule both paths read, so live and diagnostic must
+    // agree on it. A disabled candidate is the hard-exclusion control: the
+    // evaluator drops it on both paths.
     const snapshots = new InMemoryRouteSnapshotService(async () => ({
-      candidates: [{ ...cand("x"), health_status: "cooldown" } as unknown as RouteCandidate],
+      candidates: [
+        { ...cand("x"), health_status: "cooldown" } as unknown as RouteCandidate,
+        { ...cand("y"), health_status: "disabled" } as unknown as RouteCandidate,
+      ],
       aliases: {},
       combos: {},
     }));
@@ -55,8 +62,8 @@ describe("routing matrix composition", () => {
     const evaluator = new EligibilityEvaluator();
     const live = evaluator.filter(snap.candidates);
     const diag = evaluator.filter(snap.candidates);
-    expect(live.length).toBe(0);
-    expect(diag.length).toBe(0);
+    expect(live.map((c) => c.model_id)).toEqual(["x"]);
+    expect(diag.map((c) => c.model_id)).toEqual(["x"]);
   });
 
   test("reservation lease lifecycle", async () => {

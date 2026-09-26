@@ -47,7 +47,7 @@ async function insertAccount(opts: {
   providerId: string;
   refreshToken: string | undefined;
   expiresAt: Date | undefined;
-  status?: "active" | "degraded" | "cooldown" | "disabled";
+  status?: "active" | "cooldown" | "disabled";
   cooldownUntil?: Date;
 }): Promise<string> {
   await requireDb()

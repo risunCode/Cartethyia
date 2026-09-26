@@ -137,7 +137,6 @@ export interface RouteSnapshot {
 export type EligibilityReason =
   | "healthy"
   | "cooldown"
-  | "unhealthy"
   | "quota_exhausted"
   | "locked"
   | "disabled"
@@ -220,7 +219,7 @@ export function capacityExhaustedError(): GatewayError {
 
 /**
  * The model exists and is routed, but every account serving it is currently
- * unusable (cooldown / unhealthy / disabled / locked). This is transient and
+ * unusable (disabled / locked). This is transient and
  * retry-able, so it must NOT surface as `model_not_found` — a 404 tells the
  * client to fix its request when the real fix is to wait or add capacity.
  */

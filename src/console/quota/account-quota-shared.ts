@@ -15,7 +15,7 @@ export interface AccountQuotaRoutesDeps extends QuotaRefreshDeps {
   readonly auditRecorder?: AuditRecorder | undefined;
 }
 
-export const ACCOUNT_STATUSES = ["active", "degraded", "cooldown", "disabled"] as const;
+export const ACCOUNT_STATUSES = ["active", "cooldown", "disabled"] as const;
 export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
 
 /**
