@@ -10,7 +10,9 @@ export const DEVIN_CHAT_PATH = "/exa.api_server_pb.ApiServerService/GetChatMessa
 export const DEVIN_MODELS: readonly ModelDefinition[] = [
   defineModel({
     id: "swe-1-6-slow",
-    wireFamily: "native",
+    // Served by the bespoke Devin adapter (gRPC), not a codec; the endpoint
+    // is the adapter's own RPC path, not a wire path.
+    wireFamily: "chat",
     endpoint: DEVIN_CHAT_PATH,
     ctx: 200_000,
     out: 64_000,

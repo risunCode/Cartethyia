@@ -50,6 +50,7 @@ import { useProviderAccounts } from "../lib/hooks/providers";
 import { useInFlight } from "../lib/hooks/live";
 import { useTrackedTimeout } from "../lib/use-timeout";
 import { USAGE_PERIODS, type UsagePeriod as Period } from "../lib/usage-periods";
+import { httpStatusLabel, httpStatusTone } from "../lib/http-status";
 import { USAGE_DIMENSIONS, type UsageDimension } from "../lib/contracts";
 import {
   DEFAULT_TOKEN_SCALE,
@@ -184,17 +185,17 @@ function statusCode(
       : httpStatus === 200
         ? "ok"
         : "warn";
-    return { code: httpStatus === 200 ? "200 OK" : String(httpStatus), tone };
+    return { code: httpStatusLabel(httpStatus), tone };
   }
   switch (status) {
     case "completed":
-      return { code: "200 OK", tone: "ok" };
+      return { code: httpStatusLabel(200), tone: "ok" };
     case "failed":
-      return { code: "500 ERR", tone: "err" };
+      return { code: httpStatusLabel(500), tone: "err" };
     case "cancelled":
-      return { code: "499", tone: "warn" };
+      return { code: httpStatusLabel(499), tone: "warn" };
     case "truncated":
-      return { code: "502", tone: "err" };
+      return { code: httpStatusLabel(502), tone: "err" };
     default:
       return { code: status, tone: "warn" };
   }
@@ -1147,8 +1148,6 @@ export default function Usage(): ReactNode {
   const flight = useInFlight();
   const summary = summaryQuery.data?.totals;
   const requestItems = requestsQuery.data?.items ?? [];
-  const countForStatus = (status: number): number =>
-    summary?.statusCounts.find((item) => item.status === status)?.count ?? 0;
   const toggleRequestStatus = (status: number): void => {
     setRequestLimit(50);
     setRequestStatusFilter((current) => (current === status ? null : status));
@@ -1309,29 +1308,28 @@ export default function Usage(): ReactNode {
           subtitle={`Most recent first · ${requestItems.length} entries · updates live · open a row to inspect`}
           subtitleAddon={
             <div className="usage-status-filters" role="group" aria-label="Filter requests by HTTP status">
-              {[
-                { status: 200, label: "200 OK" },
-                { status: 499, label: "499" },
-                { status: 503, label: "503" },
-              ]
-                .filter(({ status }) => countForStatus(status) > 0)
-                .map(({ status, label }) => (
-                  <button
-                    key={status}
-                    type="button"
-                    className="usage-status-filter"
-                    data-status={status}
-                    aria-pressed={requestStatusFilter === status}
-                    aria-label={`Filter ${label}: ${formatNumber(countForStatus(status))} requests`}
-                    title={`Show ${formatNumber(countForStatus(status))} requests with HTTP ${status}`}
-                    onClick={() => toggleRequestStatus(status)}
-                  >
-                    <span>{label}</span>
-                    <span className="usage-status-filter-count">
-                      {formatNumber(countForStatus(status))}
-                    </span>
-                  </button>
-                ))}
+              {(summary?.statusCounts ?? [])
+                .filter((entry) => entry.count > 0)
+                .map((entry) => {
+                  const label = httpStatusLabel(entry.status);
+                  return (
+                    <button
+                      key={entry.status}
+                      type="button"
+                      className="usage-status-filter"
+                      data-tone={httpStatusTone(entry.status)}
+                      aria-pressed={requestStatusFilter === entry.status}
+                      aria-label={`Filter ${label}: ${formatNumber(entry.count)} requests`}
+                      title={`Show ${formatNumber(entry.count)} requests with HTTP ${label}`}
+                      onClick={() => toggleRequestStatus(entry.status)}
+                    >
+                      <span>{label}</span>
+                      <span className="usage-status-filter-count">
+                        {formatNumber(entry.count)}
+                      </span>
+                    </button>
+                  );
+                })}
             </div>
           }
           icon={<Activity size={16} />}

@@ -87,24 +87,23 @@ and API-key usage totals.
 
 ## Other trees (not covered by layer docs)
 
-- `dashboard/` — React/Vite console and landing, with public share enrollment
-  mounted through the shared `index.html` and the shared console stylesheet
-  (`src/styles.css`), so no dashboard app carries a private theme. Its own
-  tests live under `dashboard/test/`, mirroring `dashboard/src/`. Its map and
-  browser-safe import rules live in `dashboard/README.md`.
+- `dashboard/` — React/Vite landing, console, and public share enrollment
+  mounted through the shared `index.html`. Every entry imports
+  `dashboard/src/styles/base.css` then its one app-specific extension
+  (`console.css`, `landing.css`, or `share.css`) directly; no style barrel.
+  Tests live under `dashboard/test/`; route and browser-safe import rules
+  live in `dashboard/README.md`.
 - `test/` — backend tests mirroring `src/`, plus `contracts`, `integration`,
   `architecture` (naming contracts), `frontend`, `helpers`; loose root files
   such as `config.test.ts` and `config-env-drift.test.ts` cover cross-cutting
   config contracts.
 - `scripts/` — flat operational scripts (`ops-*`, `build-*`, `ci-*`).
-- `drizzle/migrations/` — numbered `NNNN_*.sql` files at the top level
-  (non-recursive) are applied in order at boot: `0000_baseline.sql` first, then
-  each later file, every one recorded in `cartethyia_schema_migrations`.
-  A new schema change is a new numbered file, so a deployment migrates itself;
-  `0000_baseline.sql` stays the whole schema for a database created today.
-  There is no separate hand-run path: every schema change is a numbered file
-  the runner applies.
-  Committed protobuf output lives under the provider integrations that
+- `migrations/` — tracked `0000_baseline.sql` is the complete schema applied
+  automatically on first boot and recorded in `cartethyia_schema_migrations`;
+  later `NNNN_*.sql` files are forward migrations for databases that already
+  recorded an earlier one. A schema change edits the baseline and adds the next
+  numbered file.
+- Committed protobuf output lives under the provider integrations that
   consume it (`src/providers/integrations/*/generated/`).
 
 ## Conventions (short version)

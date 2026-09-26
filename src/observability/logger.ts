@@ -9,6 +9,18 @@ import { redactTelemetryValue } from './redaction';
 
 const isDevelopment = process.env.NODE_ENV !== 'production';
 
+/**
+ * Pretty-printing runs the `pino-pretty` transport in a **worker thread**, and
+ * that thread outlives the log call: it is torn down when the process exits,
+ * which in a test worker means it can exit mid-run and take the worker with it
+ * (`error: the worker thread exited`, surfacing as unrelated failures across
+ * whatever file the worker was running). It is also pure presentation — a
+ * human reading a terminal — so it is enabled only for an interactive TTY.
+ * Piped output, CI, and tests get the plain JSON transport, which writes on
+ * the calling thread and has nothing to tear down.
+ */
+const wantsPrettyTransport = isDevelopment && process.stdout.isTTY === true;
+
 const baseOptions = {
   level: process.env.LOG_LEVEL || (isDevelopment ? 'debug' : 'info'),
   formatters: {
@@ -22,8 +34,8 @@ const baseOptions = {
   timestamp: pino.stdTimeFunctions.isoTime,
 };
 
-// Pretty print in development, JSON in production
-const developmentOptions = isDevelopment
+// Pretty print for an interactive terminal, JSON everywhere else.
+const developmentOptions = wantsPrettyTransport
   ? {
       transport: {
         target: 'pino-pretty',

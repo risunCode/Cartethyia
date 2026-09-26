@@ -42,8 +42,23 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
       jwksUrl: "https://auth.x.ai/.well-known/jwks.json",
     },
   },
-  { id: "cursor", displayName: "Cursor", baseUrl: "https://api2.cursor.sh" },
-  { id: "devin", displayName: "Devin", baseUrl: "https://server.codeium.com" },
+  {
+    // Cursor speaks the AgentService Connect+protobuf protocol over HTTP/2.
+    // No canonical wire codec serves it, so the router must not assume the
+    // codec's rich-content coverage or filter its generation controls through
+    // a wire matrix the adapter never reads.
+    id: "cursor",
+    displayName: "Cursor",
+    baseUrl: "https://api2.cursor.sh",
+    bespokeWire: true,
+  },
+  {
+    // Devin frames its own gRPC chat protocol; same reasoning as Cursor.
+    id: "devin",
+    displayName: "Devin",
+    baseUrl: "https://server.codeium.com",
+    bespokeWire: true,
+  },
   { id: "antigravity", displayName: "Antigravity", baseUrl: "https://daily-cloudcode-pa.googleapis.com" },
   { id: "muse", displayName: "Muse Code", baseUrl: "https://api.meta.ai" },
   { id: "kimi", displayName: "Kimi Code", baseUrl: "https://api.kimi.com/coding" },
@@ -116,6 +131,14 @@ export interface BundledProviderMetadata {
   readonly requiresAccount: boolean;
   readonly defaultBypassProxy: boolean;
   readonly jwtVerification: ProviderJwtVerification;
+  /**
+   * The provider's adapter frames its own wire protocol instead of going
+   * through one of the gateway's canonical codecs (chat / responses /
+   * messages). Cursor and Devin are the bundled cases: they encode requests
+   * by hand, so a part their codec does not handle is dropped rather than
+   * encoded, and generation controls reach them raw.
+   */
+  readonly bespokeWire: boolean;
 }
 
 /** Normalizes optional identity defaults once before any provider lookup. */
@@ -125,12 +148,14 @@ export const BUNDLED_PROVIDER_METADATA: readonly BundledProviderMetadata[] = RAW
   const defaultBypassProxy = Boolean("defaultBypassProxy" in definition && definition.defaultBypassProxy);
   const jwtVerification: ProviderJwtVerification =
     "jwtVerification" in definition ? definition.jwtVerification : {};
+  const bespokeWire = Boolean("bespokeWire" in definition && definition.bespokeWire);
   return {
     ...definition,
     wireFamilyDefault,
     requiresAccount,
     defaultBypassProxy,
     jwtVerification,
+    bespokeWire,
   };
 });
 
@@ -177,6 +202,16 @@ export const PROVIDER_COMPATIBILITY_PROFILES: Record<string, CompatibilityProfil
 /** Default wire family for a builtin provider. */
 export function providerDefaultWireFamily(providerId: string): WireFamily {
   return BUNDLED_PROVIDER_METADATA.find((candidate) => candidate.id === providerId)?.wireFamilyDefault ?? "chat";
+}
+
+/**
+ * Whether a builtin provider's adapter frames its own wire protocol, so no
+ * canonical codec serves its rows. Unknown ids answer `false`: only a bundled
+ * module can declare this, and a BYOK row always uses the shared
+ * OpenAI-compatible adapter.
+ */
+export function providerUsesBespokeWire(providerId: string): boolean {
+  return BUNDLED_PROVIDER_METADATA.find((candidate) => candidate.id === providerId)?.bespokeWire ?? false;
 }
 
 /** Whether a builtin provider requires a persisted account row. */

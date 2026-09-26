@@ -39,6 +39,7 @@ import {
 import {
   enqueueBackgroundQuotaRefresh,
   pendingQuotaRefreshes,
+  toQuotaAccountHealth,
   toQuotaView,
 } from "./account-quota-view";
 import {
@@ -142,6 +143,8 @@ export function registerAccountQuotaTenantRoutes(
           lastError: providerAccounts.lastError,
           lastErrorCategory: providerAccounts.lastErrorCategory,
           lastSuccessAt: providerAccounts.lastSuccessAt,
+          cooldownUntil: providerAccounts.cooldownUntil,
+          modelCooldowns: providerAccounts.modelCooldowns,
         })
         .from(providerAccounts)
         .innerJoin(providers, eq(providerAccounts.providerId, providers.id))
@@ -225,11 +228,7 @@ export function registerAccountQuotaTenantRoutes(
               })
             : null,
           pending: isRefreshing,
-          health: {
-            status: row.status,
-            sanitizedMessage: row.lastError ?? null,
-            lastErrorCategory: row.lastErrorCategory ?? null,
-          },
+          health: toQuotaAccountHealth(row),
           providerName: providerDisplayName(row.providerId),
           providerIcon: row.providerId,
           // Present only on buddy accounts. `attemptedToday` is the sweep
@@ -267,11 +266,7 @@ export function registerAccountQuotaTenantRoutes(
         return {
           accountId,
           quota: null,
-          health: {
-            status: account.status,
-            sanitizedMessage: account.lastError ?? null,
-            lastErrorCategory: account.lastErrorCategory ?? null,
-          },
+          health: toQuotaAccountHealth(account),
         };
       }
       const cached = await getCachedQuotaEntry(access.tenantId, accountId, redis);
@@ -279,11 +274,7 @@ export function registerAccountQuotaTenantRoutes(
         return {
           accountId,
           quota: toQuotaView(cached.quota, account, { fetchedAt: cached.fetchedAt }),
-          health: {
-            status: account.status,
-            sanitizedMessage: account.lastError ?? null,
-            lastErrorCategory: account.lastErrorCategory ?? null,
-          },
+          health: toQuotaAccountHealth(account),
         };
       }
 
@@ -303,11 +294,7 @@ export function registerAccountQuotaTenantRoutes(
           lastAttemptAt: new Date().toISOString(),
           lastSuccessAt: outcome.quota.error === null ? new Date().toISOString() : null,
         }),
-        health: {
-          status: account.status,
-          sanitizedMessage: account.lastError ?? null,
-          lastErrorCategory: account.lastErrorCategory ?? null,
-        },
+        health: toQuotaAccountHealth(account),
       };
     })
     .post("/accounts/:id/quota/refresh", async ({ request, params, set }) => {

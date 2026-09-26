@@ -317,7 +317,6 @@ const GrokConfig = withBearerAuthentication({
   provider_id: GROK_PROVIDER_ID,
   base_url: GROK_BASE_URL,
   endpoint_paths_by_wire_family: { responses: "/v1/responses" },
-  supported_wire_families: ["responses"],
   extra_headers: { accept: "text/event-stream", "accept-encoding": "identity" },
   buildExtraHeaders: grokHeaders,
   prePayload: normalizeGrokPayload,

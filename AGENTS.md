@@ -4,12 +4,42 @@ This file is the repository operating contract for coding agents. It is
 intentionally direct and tool-oriented so reasoning produces repository
 progress instead of a long planning loop.
 
-Product usage and runtime configuration belong in `README.md` and
-`.env.example`. The repository map belongs in `ARCHITECTURE.md`. Human
-contributor workflow belongs in `CONTRIBUTING.md`. Subsystem behavior belongs
-in the top-level `src/` folder's layer doc — one doc per top-level folder,
-named for its layer (`src/transport/TRANSPORT.md`, `src/providers/PROVIDERS.md`),
-covering every subfolder beneath it.
+Read it once at the start of a task. Sections 5–9 are the ones that decide
+whether a change is acceptable; sections 2–4 are how to work; sections 10–16
+are boundaries and the closing audit.
+
+## Section index
+
+Stable titles, so another file can cite a section by name and land somewhere
+real. If you rename a section, update every citation — a citation that resolves
+to nothing is worse than no citation.
+
+| § | Title |
+| --- | --- |
+| 1 | Mission and priority |
+| 2 | Required start-of-task protocol |
+| 3 | Action gate and context budget |
+| 4 | Research and web-source protocol |
+| 5 | Hard implementation boundaries |
+| 6 | Clean cutover: no aliases for new features |
+| 7 | Real fix, and temporary-test limits |
+| 8 | Proving deadness before deletion |
+| 9 | Evidence discipline (9.1–9.6) |
+| 10 | Repository boundaries |
+| 11 | TypeScript and implementation rules |
+| 12 | Tests and verification |
+| 13 | Documentation and configuration currency |
+| — | Required guard registry |
+| 14 | Deletion and data safety |
+| 15 | Completion contract |
+| 16 | Default execution loop |
+
+Companion documents: product usage and runtime configuration belong in
+`README.md` and `.env.example`; the repository map belongs in `ARCHITECTURE.md`;
+human contributor workflow belongs in `CONTRIBUTING.md`; subsystem behavior
+belongs in the top-level `src/` folder's layer doc — one doc per top-level
+folder, named for its layer (`src/transport/TRANSPORT.md`,
+`src/providers/PROVIDERS.md`), covering every subfolder beneath it.
 
 ## 1. Mission and priority
 
@@ -49,7 +79,9 @@ criteria are proven or a concrete blocker is reported.
 For a one-file or obvious edit, do not create a large plan. Read, edit, and
 run the smallest useful check.
 
-## 3. Absolute action gate: no reasoning-only loops
+## 3. Action gate and context budget
+
+### A turn counts only when it acts
 
 A turn counts as progress only when it performs at least one concrete action:
 
@@ -71,14 +103,42 @@ Never spend consecutive turns only:
 - producing internal deliberation without a tool action.
 
 If the next action is clear, perform it immediately. If reasoning is needed,
-make one short decision pass, then read/search/run/edit. Do not let a thinking
-model spend an unbounded turn exploring possibilities before touching the
-repository.
+make one short decision pass, then read/search/run/edit. After two failed
+approaches, inspect the failure and change the approach. After three
+no-progress actions, stop and report the exact blocker instead of continuing
+speculative reasoning. Do not claim that thinking is progress unless it caused
+a read, search, edit, command, fetch, or evidence-backed decision.
 
-### DeepSeek-specific control
+### Spend context deliberately
 
-DeepSeek thinking mode is useful but can spend excessive time deliberating.
-When using DeepSeek or another high-reasoning model:
+Context is a budget, and the largest tasks here run against a real ceiling. A
+turn that exhausts it mid-edit loses the work in flight, so the budget is part
+of the job rather than an inconvenience.
+
+- **Reach for the index before reading files.** When `.codegraph/` exists at the
+  repository root, this repository is CodeGraph indexed and `codegraph_explore`
+  answers most "how does X work / where is X / what calls X" questions in one
+  call, returning verbatim source plus the call paths grep cannot follow —
+  including dynamic-dispatch hops. The index is gitignored, so a fresh clone has
+  none until someone builds it; without it, fall back to search. Reserve `Read`
+  for a specific line range the index cannot surface, and prefer one explore call
+  over a grep-then-read loop.
+- **Delegate wide, independent searches.** When a question spans many files or
+  several unrelated areas, a subagent returns the conclusion and keeps the file
+  dumps out of the main context. Keep the reading of a single known file local.
+- **Break long work into verifiable pieces.** If a task needs many edits or a
+  long report, land and verify one piece before starting the next. State the
+  next piece explicitly rather than holding it in your head.
+- **Do not paste file contents you have already read.** Quote the line, the
+  symbol, or the diff. A transcript of unchanged source is the most expensive
+  way to say nothing.
+- **Match the report to the reader.** A summary is evidence plus the decisions
+  a reader must act on, not a walkthrough of the search that produced it.
+
+### High-reasoning models
+
+Thinking mode is useful but can spend excessive time deliberating, and its
+reasoning state may persist across tool turns:
 
 - use low or normal reasoning for straightforward edits and targeted fixes;
 - reserve high/max reasoning for ambiguous architecture, security, data safety,
@@ -86,18 +146,10 @@ When using DeepSeek or another high-reasoning model:
 - even with high reasoning, take the first relevant tool action immediately
   after identifying the target;
 - after every tool result, choose the next evidence-producing action;
-- never restart the same thought cycle without new evidence;
-- after two failed approaches, inspect the failure and change the approach;
-- after three no-progress actions, stop and report the exact blocker instead of
-  continuing speculative reasoning;
-- do not claim that thinking is progress unless it caused a read, search, edit,
-  command, fetch, or evidence-backed decision.
+- never restart the same thought cycle without new evidence.
 
-These rules are behavioral and apply to every model. They are especially
-important for DeepSeek because its reasoning mode may preserve long
-`reasoning_content` across tool turns. The harness must continue the tool loop
-only while a tool call is requested; when the model has no tool call, inspect
-and verify rather than blindly resubmitting the same turn.
+The harness continues the tool loop only while a tool call is requested. When
+there is no tool call, inspect and verify rather than resubmitting the turn.
 
 ## 4. Research and web-source protocol
 
@@ -124,6 +176,11 @@ Do not turn research into an endless search loop.
 
 ## 5. Hard implementation boundaries
 
+**The root rule, which sections 6 and 7 apply rather than restate: fix the
+cause, never the symptom.** A change that makes a failure disappear without
+removing its cause is not a fix, and this repository treats it as a defect in
+the change.
+
 - Solve the root cause. Do not suppress errors, special-case one input, loosen
   validation, swallow exceptions, pin a fixture, or add a path-specific
   fallback merely to make a symptom disappear.
@@ -144,10 +201,9 @@ Do not turn research into an endless search loop.
 - Never leave a stub, fake implementation, TODO implementation, debug logging,
   or misleading placeholder in production code.
 
-## 6. Mandatory clean-cutover rule: no aliases for new features
+## 6. Clean cutover: no aliases for new features
 
 This repository requires real integration, not a compatibility-looking patch.
-
 When adding, renaming, moving, or replacing a feature/API/symbol/module:
 
 1. Identify every existing caller, import, export, test, doc, script, and
@@ -164,8 +220,6 @@ Never create an alias merely to keep old imports compiling. Never define a new
 function that forwards to the old function when the requested change is a
 rename or clean cutover. Never leave the old implementation as dead code.
 
-Examples of forbidden patches:
-
 ```ts
 // Forbidden: new feature hidden behind an old name.
 export const newFeature = oldFeature;
@@ -180,13 +234,12 @@ If compatibility is genuinely required, it must be an explicit release
 boundary named in the task and documented in the affected layer doc, with a
 removal condition. Otherwise migrate imports and remove the old path.
 
-## 7. Real-fix and temporary-test rule
+## 7. Real fix, and temporary-test limits
 
 A temporary test or script is allowed only when it executes the real affected
 path and proves the real fix. It must not bypass the failing layer or become a
-workaround.
-
-Temporary work must never:
+workaround, and §5's rule against fixing the symptom instead of the cause
+applies to it in full. In particular, temporary work must never:
 
 - mock away the defect;
 - hardcode success or expected output without exercising behavior;

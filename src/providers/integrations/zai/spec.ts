@@ -43,7 +43,6 @@ function zaiAuthHeaders(context: ProviderDispatchContext): Record<string, string
 export const ZAI_SPEC: ApiKeyProviderSpec = {
   provider_id: ZAI_PROVIDER_ID,
   endpoint_paths_by_wire_family: {},
-  supported_wire_families: ["chat"],
   credential_forwarding: "never",
   buildExtraHeaders: zaiAuthHeaders,
 };

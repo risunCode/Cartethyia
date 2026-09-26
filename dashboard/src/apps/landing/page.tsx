@@ -27,7 +27,7 @@ interface StoryChapter {
 
 const ASSET_BASE = import.meta.env.BASE_URL;
 const GITHUB_URL = "https://github.com/risunCode/Cartethyia";
-const CONSOLE_LOGIN_PATH = "/console/login";
+const CONSOLE_PATH = "/console";
 
 const storyImage = (name: string): string => `${ASSET_BASE}when_yah/${name}`;
 const titleCase = (value: string): string => value.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -186,14 +186,8 @@ export function LandingPage(): ReactElement {
   const [activeIndex, setActiveIndex] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [revealed, setRevealed] = useState<ReadonlySet<number>>(() => new Set([0]));
-  const [autoScroll, setAutoScroll] = useState(true);
   const [showAll, setShowAll] = useState(false);
   const sectionRefs = useRef<Array<HTMLElement | null>>([]);
-  const autoPausedRef = useRef<number | null>(null);
-  const activeIndexRef = useRef(activeIndex);
-  useEffect(() => {
-    activeIndexRef.current = activeIndex;
-  }, [activeIndex]);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -203,34 +197,6 @@ export function LandingPage(): ReactElement {
     };
   }, [menuOpen]);
 
-  // Autoscroll — advances section every 4.5s, pauses on user interaction
-  useEffect(() => {
-    if (!autoScroll || showAll) return;
-    const pause = (): void => {
-      if (autoPausedRef.current !== null) window.clearTimeout(autoPausedRef.current);
-      autoPausedRef.current = window.setTimeout(() => {
-        autoPausedRef.current = null;
-      }, 8000);
-    };
-    const onInteract = (): void => pause();
-    window.addEventListener("wheel", onInteract, { passive: true });
-    window.addEventListener("touchstart", onInteract, { passive: true });
-    window.addEventListener("keydown", onInteract);
-    window.addEventListener("mousedown", onInteract);
-    const id = window.setInterval(() => {
-      if (autoPausedRef.current !== null || document.hidden) return;
-      const next = (activeIndexRef.current + 1) % CHAPTERS.length;
-      sectionRefs.current[next]?.scrollIntoView({ behavior: scrollBehavior, block: "start" });
-    }, 4500);
-    return () => {
-      window.clearInterval(id);
-      window.removeEventListener("wheel", onInteract);
-      window.removeEventListener("touchstart", onInteract);
-      window.removeEventListener("keydown", onInteract);
-      window.removeEventListener("mousedown", onInteract);
-      if (autoPausedRef.current !== null) window.clearTimeout(autoPausedRef.current);
-    };
-  }, [autoScroll, showAll, scrollBehavior]);
 
   useEffect(() => {
     if (typeof IntersectionObserver === "undefined") return;
@@ -302,13 +268,9 @@ export function LandingPage(): ReactElement {
               <Home size={14} aria-hidden={true} />
               Home
             </button>
-            <a href={CONSOLE_LOGIN_PATH}>
+            <a href={CONSOLE_PATH}>
               <Terminal size={14} aria-hidden={true} />
               Console
-            </a>
-            <a href={GITHUB_URL} target="_blank" rel="noreferrer">
-              <GitFork size={14} aria-hidden={true} />
-              Source
             </a>
             <a href={GITHUB_URL} target="_blank" rel="noreferrer">
               <MessageCircle size={14} aria-hidden={true} />
@@ -316,29 +278,21 @@ export function LandingPage(): ReactElement {
             </a>
           </nav>
           <div className="story-header-actions">
+            <a className="story-github-link" href={GITHUB_URL} target="_blank" rel="noreferrer">
+              <GitFork size={14} aria-hidden={true} />
+              GitHub
+            </a>
             <button
               type="button"
               aria-label={showAll ? "Show story" : "Show all"}
               aria-pressed={showAll}
               onClick={() => setShowAll((v) => !v)}
-              className={`hidden h-[38px] items-center gap-1.5 rounded-[10px] border px-2.5 text-[11px] font-bold transition sm:inline-flex ${showAll ? "border-white bg-white text-[#05070d]" : "border-white/25 bg-white/5 text-white hover:bg-white hover:text-[#05070d]"}`}
+              className={`story-mode-button${showAll ? " is-selected" : ""}`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${showAll ? "bg-violet-500" : "bg-white/60"}`} aria-hidden={true} />
+              <span className="story-mode-dot" aria-hidden={true} />
               {showAll ? "Story" : "All view"}
             </button>
-            {!showAll && (
-              <button
-                type="button"
-                aria-label={autoScroll ? "Pause autoscroll" : "Play autoscroll"}
-                aria-pressed={autoScroll}
-                onClick={() => setAutoScroll((v) => !v)}
-                className={`hidden h-[38px] items-center gap-1.5 rounded-[10px] border px-2.5 text-[11px] font-bold transition sm:inline-flex ${autoScroll ? "border-white/25 bg-white/10 text-white hover:bg-white hover:text-[#05070d]" : "border-white/15 bg-transparent text-white/60 hover:bg-white/10 hover:text-white"}`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${autoScroll ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]" : "bg-white/40"}`} aria-hidden={true} />
-                {autoScroll ? "Auto" : "Paused"}
-              </button>
-            )}
-            <a className="story-console-link" href={CONSOLE_LOGIN_PATH}>
+            <a className="story-console-link" href={CONSOLE_PATH}>
               Enter console
               <ArrowUpRight size={14} aria-hidden={true} />
             </a>
@@ -368,7 +322,7 @@ export function LandingPage(): ReactElement {
               <ArrowUpRight size={13} aria-hidden={true} />
             </button>
           ))}
-          <a href={CONSOLE_LOGIN_PATH}>
+          <a href={CONSOLE_PATH}>
             Enter console
             <ArrowUpRight size={14} aria-hidden={true} />
           </a>

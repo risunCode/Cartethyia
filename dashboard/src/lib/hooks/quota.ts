@@ -39,7 +39,10 @@ export interface QuotaAccountHealth {
   readonly statusCode?: number | null;
   readonly sanitizedMessage?: string | null;
   readonly lastErrorCategory?: string | null;
-  readonly retryAt?: string | null;
+  /** Account-wide cooldown deadline; null for a model-scoped throttle. */
+  readonly cooldownUntil?: string | null;
+  /** Per-model backoffs still in force, keyed by model id. */
+  readonly modelCooldowns?: Readonly<Record<string, string>>;
 }
 
 export interface QuotaEntry {

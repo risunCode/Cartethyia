@@ -73,22 +73,6 @@ async function probeDocker(timeoutMs: number): Promise<ProbeResult> {
   }
 }
 
-
-
-async function runMigrations(): Promise<void> {
-  console.log("📦 Running database migrations...");
-
-  const proc = Bun.spawn(["bun", "run", "db:migrate"], {
-    cwd: projectRoot,
-    stdio: ["inherit", "inherit", "inherit"],
-  });
-
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    throw new Error(`Migrations failed with exit code ${exitCode}`);
-  }
-}
-
 async function setup(): Promise<void> {
   console.log("🚀 Setting up Cartethyia local environment...\n");
 
@@ -191,17 +175,6 @@ async function setup(): Promise<void> {
     console.log("✗ Redis is not reachable");
     for (const hint of getOsHints("redis")) console.log(`  ${hint}`);
     throw new Error("Redis is required unless REDIS_MODE=single_instance_local");
-  }
-
-  // Step 6: Run migrations
-  if (dbResult.success) {
-    try {
-      await runMigrations();
-      console.log("✓ Database migrations completed\n");
-    } catch (err) {
-      console.error("✗ Migration failed:", err);
-      process.exit(1);
-    }
   }
 
   console.log("✅ Setup complete!");

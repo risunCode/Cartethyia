@@ -107,7 +107,6 @@ export const INFERHUB_PROVIDER_ID = "inferhub" as const;
 const INFERHUB_CHAT_SPEC: ApiKeyProviderSpec = {
   provider_id: INFERHUB_PROVIDER_ID,
   endpoint_paths_by_wire_family: { responses: "/responses" },
-  supported_wire_families: ["chat", "responses"],
   // InferHub is explicitly provisioned for the gateway identity; bespoke
   // first-party adapters (Codex, Claude Code) are untouched by this flag.
   gatewayUserAgent: true,

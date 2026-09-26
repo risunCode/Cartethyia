@@ -228,14 +228,27 @@ describe("provider matrix composition", () => {
     }
 
     expect(requests[0]?.url).toContain("api.cerebras.ai");
+  });
 
+  test("30.7b a wire family the spec does not declare still reaches the upstream", async () => {
+    // Dispatch applies no wire-family gate: the upstream is the authority on
+    // which protocols it answers, and a manually added provider exists so an
+    // operator can reach one this gateway carries no bundled knowledge of.
+    // Cerebras declaring only `chat` therefore does not make a `responses`
+    // candidate fail locally — it is sent, and the upstream's own answer is
+    // what the operator sees.
+    const req = canonicalFor("chat");
+    const { fetch, requests } = captureRequest();
+    const adapter = createApiKeyAdapter(CEREBRAS_SPEC, fetch);
+    const ctx = dispatchContext("cerebras");
     const candResp = candidateFor("cerebras", "responses", "/v1/responses");
-    await expect(
-      (async () => {
-        for await (const _ of adapter.dispatch(req, candResp, ctx)) {
-        }
-      })(),
-    ).rejects.toMatchObject({ code: "capability_unsupported" });
+
+    for await (const _event of adapter.dispatch(req, candResp, ctx)) {
+      // drain
+    }
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toContain("/responses");
   });
 
   test("30.8 no-credential and alternative selection", async () => {

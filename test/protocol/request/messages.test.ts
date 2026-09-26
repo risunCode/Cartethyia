@@ -169,3 +169,63 @@ describe("messages builder hoists developer instructions", () => {
     expect(messages.map((m) => m["role"])).toEqual(["user"]);
   });
 });
+
+describe("the Messages wire carries no audio block", () => {
+  // The Anthropic Messages request content blocks are text, image, document,
+  // search_result, thinking, redacted_thinking, tool_use, tool_result, the
+  // server-tool result blocks, and container_upload. There is no audio variant
+  // and no accepted `media_type` admits an audio MIME type, so an `audio` block
+  // is not a shape this wire can express.
+  const withAudio = {
+    model: "m",
+    messages: [
+      {
+        role: "user",
+        content: [
+          { kind: "text", text: "transcribe this" },
+          { kind: "audio", data: "QUJD", media_type: "audio/wav" },
+        ],
+      },
+    ],
+    generation_controls: { max_tokens: 10 },
+    stream: false,
+    source_surface: "chat",
+  } as unknown as CanonicalRequest;
+
+  test("an audio part degrades to a visible placeholder, never an undefined block type", () => {
+    const payload = canonicalToClaudeMessagesPayload(withAudio);
+    const content = (payload.messages as Array<Record<string, unknown>>)[0]?.["content"] as Array<
+      Record<string, unknown>
+    >;
+    // The caller's text survives; only the attachment is replaced. The
+    // placeholder may carry the same cache breakpoint as its neighbours.
+    expect(content).toContainEqual({ type: "text", text: "transcribe this" });
+    expect(content.some((b) => b["text"] === "[audio]" && b["type"] === "text")).toBe(true);
+    // No block on the wire carries the audio payload or an audio discriminator.
+    for (const block of content) expect(block["type"]).not.toBe("audio");
+    expect(JSON.stringify(payload)).not.toContain("QUJD");
+  });
+
+  test("the same part keeps its payload on the wires that do define an audio block", () => {
+    // Chat and Responses both define `input_audio`; only Messages does not. This
+    // pins the asymmetry so the placeholder above cannot spread to a wire that
+    // can actually carry the part.
+    const chat = canonicalToChatPayload(withAudio);
+    const chatContent = (chat.messages as Array<Record<string, unknown>>)[0]?.["content"] as Array<
+      Record<string, unknown>
+    >;
+    expect(chatContent).toContainEqual({
+      type: "input_audio",
+      input_audio: { data: "QUJD", format: "wav" },
+    });
+
+    const responses = canonicalToResponsesPayload(withAudio);
+    const input = responses.input as Array<Record<string, unknown>>;
+    const responsesContent = input[0]?.["content"] as Array<Record<string, unknown>>;
+    expect(responsesContent).toContainEqual({
+      type: "input_audio",
+      data: "QUJD",
+      media_type: "audio/wav",
+    });
+  });
+});

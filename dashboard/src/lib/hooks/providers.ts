@@ -515,8 +515,20 @@ export function useSyncProviderModels() {
         `/providers/${encodeURIComponent(providerId)}/models/sync`,
         { method: "POST", body: "{}" },
       ),
-    onSuccess: async (_result, providerId) => {
+    // The request resolves only once the fetch has finished, so this toast
+    // reports the real outcome. It was silent before, which made a completed
+    // fetch indistinguishable from one that never ran.
+    onSuccess: async (result, providerId) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.providers.models(providerId) });
+      toast.success(
+        "Models fetched",
+        result.synced > 0
+          ? `${result.synced} new model${result.synced === 1 ? "" : "s"} added`
+          : "No new models found",
+      );
+    },
+    onError: (error) => {
+      toast.error("Failed to fetch models", getErrorMessage(error));
     },
   });
 }

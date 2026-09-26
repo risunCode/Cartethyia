@@ -150,18 +150,13 @@ ciphertext.
 
 - `DATABASE_URL` and `REDIS_URL` are the only connection sources; never infer
   a host.
-- Schema changes go through `schema.ts` plus a numbered migration in
-  `drizzle/migrations/`. `migrationFiles()` matches numbered `NNNN_*.sql`
-  entries at the top level of the migrations folder and the ledger runner
-  applies them in order at boot, so a change ships as `0001_…`, `0002_…` and a
-  deployment migrates itself. Every numbered file must be idempotent: a file
-  that fails midway leaves no ledger row and is retried on the next boot.
-  `0000_baseline.sql` remains the whole schema for a database created today and
-  the first file the runner applies.
-- There is no hand-run path. Every schema change is a numbered file the runner
-  applies, and `0000_baseline.sql` is folded up to date whenever a change lands,
-  so a database created today and one migrated from any earlier baseline reach
-  the same shape through the same sequence.
+- Schema changes go through `schema.ts` and `migrations/0000_baseline.sql`.
+  `migrationFiles()` reads numbered `NNNN_*.sql` files directly from the
+  repository's tracked `migrations/` directory and applies them in order at
+  boot, recording each in `cartethyia_schema_migrations`. `0000_baseline.sql`
+  is the complete schema for a fresh install and `0001_*` and later are forward
+  migrations for databases that already recorded an earlier file, so a schema
+  change updates the baseline and adds the next numbered file.
 - **The baseline must be self-contained.** It is the entire schema for a
   database created today, so a column that exists only in a later numbered file
   reaches an already-migrated database and no fresh one — a new deployment then

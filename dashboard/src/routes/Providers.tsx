@@ -31,7 +31,7 @@ import {
 import { providerDisplayName } from "../lib/provider-names";
 import { getErrorMessage } from "../lib/helpers";
 
-const wireFamilies = ["chat", "responses", "messages", "native"] as const;
+const wireFamilies = ["chat", "responses", "messages"] as const;
 type WireFamily = (typeof wireFamilies)[number];
 
 // ── Custom Compatible Provider Modal ──────────────────────────────────────────

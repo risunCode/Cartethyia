@@ -138,7 +138,6 @@ class MuseCodeAdapter implements ProviderAdapter {
           chat: "/v1/chat/completions",
           responses: "/v1/responses",
         },
-        supported_wire_families: ["chat", "responses"],
       },
       options.fetch,
     );

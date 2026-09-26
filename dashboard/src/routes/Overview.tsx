@@ -19,7 +19,7 @@ import { Stack } from "../components/ui/stack";
 import { ApiKeysPanel } from "../components/ApiKeysPanel";
 import { useTrackedTimeout } from "../lib/use-timeout";
 import { useNetworkPools } from "../lib/hooks/network";
-import { useSystemHealth, useUsage } from "../lib/hooks/system";
+import { useSystemHealth } from "../lib/hooks/system";
 import { formatBytes, formatDuration, formatUptime } from "../lib/format";
 
 // ── System Overview 4 Resource Cards ──────────────────────────────────────────
@@ -546,16 +546,13 @@ function ApiEndpointCard() {
 
 export default function Overview(): ReactNode {
   const healthQuery = useSystemHealth();
-  const usageQuery = useUsage();
   const poolsQuery = useNetworkPools();
 
   const refresh = () => {
-    void Promise.all([healthQuery.refetch(), usageQuery.refetch(), poolsQuery.refetch()]).catch(
-      () => undefined,
-    );
+    void Promise.all([healthQuery.refetch(), poolsQuery.refetch()]).catch(() => undefined);
   };
 
-  const isFetching = healthQuery.isFetching || usageQuery.isFetching || poolsQuery.isFetching;
+  const isFetching = healthQuery.isFetching || poolsQuery.isFetching;
 
   return (
     <Stack gap="16px">

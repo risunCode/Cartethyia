@@ -6,6 +6,7 @@ import { GetChatMessageResponseSchema } from "../../../../src/providers/integrat
 import { GetUserJwtResponseSchema } from "../../../../src/providers/integrations/devin/generated/exa/auth_pb/auth_pb";
 import { _resetDevinAuthCache, buildDevinChatRequest, createDevinAdapter, fetchDevinModels, normalizeDevinSessionToken } from "../../../../src/providers/integrations/devin/devin";
 import { DEVIN_MODELS } from "../../../../src/providers/integrations/devin/catalog";
+import { providerUsesBespokeWire } from "../../../../src/providers/provider-metadata";
 import type { CanonicalRequest, CanonicalMessage } from "../../../../src/transport/canonical-model";
 import type { ProviderDispatchTarget, ProviderDispatchContext } from "../../../../src/providers/provider-registry";
 import { CONNECT_COMPRESSED_FLAG, CONNECT_END_STREAM_FLAG, frameConnectMessage } from "../../../../src/providers/integrations/connect";
@@ -85,7 +86,9 @@ function request(): CanonicalRequest {
 const candidate: ProviderDispatchTarget = {
   provider_id: "devin",
   model_id: "swe-1-6-slow",
-  wire_family: "native",
+  // Inert for this adapter: it frames its own gRPC protocol and reads the
+  // model id, not the wire family.
+  wire_family: "chat",
   endpoint_path: "/exa.api_server_pb.ApiServerService/GetChatMessage",
   capabilities: {},
 };
@@ -116,10 +119,14 @@ describe("Devin token handling", () => {
     expect(DEVIN_MODELS).toHaveLength(1);
     expect(DEVIN_MODELS[0]).toMatchObject({
       modelId: "swe-1-6-slow",
-      wireFamily: "native",
+      // Devin's adapter frames its own gRPC protocol and ignores the wire
+      // family, so the row carries an inert canonical value; the RPC path and
+      // the provider's bespoke declaration are what the router acts on.
+      endpointPath: "/exa.api_server_pb.ApiServerService/GetChatMessage",
       contextLimit: 200_000,
       outputLimit: 64_000,
     });
+    expect(providerUsesBespokeWire("devin")).toBe(true);
   });
 
   test("empty credentials skip discovery without network", async () => {

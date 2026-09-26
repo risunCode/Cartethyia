@@ -25,8 +25,19 @@ describe("landing page", () => {
     }
   });
 
-  test("links into the console", () => {
-    expect(markup).toContain("/console/login");
+  test("keeps Github before All view and has no automatic scrolling", () => {
+    const github = markup.indexOf(">GitHub</a>");
+    const allView = markup.indexOf("All view");
+    expect(github).toBeGreaterThan(-1);
+    expect(github).toBeLessThan(allView);
+    expect(markup).not.toContain(">Source</a>");
+    expect(markup).not.toContain(">Auto</button>");
+    expect(markup).not.toContain("autoscroll");
+  });
+
+  test("enters the session-aware console route instead of forcing login", () => {
+    expect(markup).toContain('href="/console"');
+    expect(markup).not.toContain('href="/console/login"');
   });
 
   test("loads chapter artwork from the public asset base", () => {

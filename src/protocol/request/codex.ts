@@ -17,6 +17,7 @@ import {
   hashToBase36,
   isClaudeBillingHeaderText,
   mapReasoningEffortToWireTier,
+  resolveImageSource,
   tryParseJsonObject,
 } from "../primitives";
 
@@ -161,20 +162,33 @@ export function canonicalToCodexResponsesPayload(
           output: typeof part.content === "string" ? part.content : JSON.stringify(part.content),
         });
       } else if (callKind === "computer") {
-        let imageUrl: unknown;
+        // Same wire constraint as the image message path above: the screenshot's
+        // `image_url` must be a string. A canonical image part is an opaque
+        // origin payload, so resolve it through the shared normalizer instead of
+        // putting the raw object on the wire.
+        const screenshot: Record<string, unknown> = { type: "computer_screenshot" };
         if (typeof part.content === "string") {
-          imageUrl = part.content;
+          screenshot["image_url"] = part.content;
         } else {
           const imagePart = part.content.find((p) => p.kind === "image");
-          imageUrl =
-            imagePart !== undefined && imagePart.kind === "image"
-              ? imagePart.payload
-              : JSON.stringify(part.content);
+          // A canonical image payload is either an opaque origin object or an
+          // already-formed URL/data-URL string; `resolveImageSource` handles the
+          // former, so the string case is taken directly.
+          const rawPayload =
+            imagePart !== undefined && imagePart.kind === "image" ? imagePart.payload : undefined;
+          const source = resolveImageSource(rawPayload);
+          if (source?.url !== undefined) screenshot["image_url"] = source.url;
+          else if (source?.fileId !== undefined) screenshot["file_id"] = source.fileId;
+          else if (typeof rawPayload === "string") screenshot["image_url"] = rawPayload;
+          // No resolvable image: the screenshot's own payload is the only
+          // remaining evidence, and it must still be a string on the wire.
+          else screenshot["image_url"] = JSON.stringify(part.content);
+          if (source?.detail !== undefined) screenshot["detail"] = source.detail;
         }
         input.push({
           type: "computer_call_output",
           call_id: wireCallId,
-          output: { type: "computer_screenshot", image_url: imageUrl },
+          output: screenshot,
         });
       } else {
         input.push({
@@ -213,25 +227,35 @@ export function canonicalToCodexResponsesPayload(
       if (text.length > 0) content.push({ type: "input_text", text });
       for (const img of images) {
         const payload = (img as { payload: unknown }).payload;
-        // Canonical image parts don't carry `detail` today; forward as
-        // `image_url`. When a payload object already declares `detail`,
-        // preserve it so the Lite shaping pass can strip it.
-        if (
-          payload !== null &&
-          typeof payload === "object" &&
-          "image_url" in (payload as Record<string, unknown>)
-        ) {
-          const imgObj = payload as Record<string, unknown>;
-          const entry: Record<string, unknown> = {
+        // `image_url` is a *string* on the Responses wire — the backend rejects
+        // anything else with "expected an image URL, but got an object
+        // instead". A canonical image part is an opaque origin payload, so it
+        // arrives in whichever shape the inbound surface used: Anthropic's
+        // `{type:"image",source:{...}}`, Chat's nested `{image_url:{url}}`, or a
+        // flat `{url}`. Forwarding it as-is put an object on the wire. Resolve
+        // through the shared normalizer — the same one the Chat and Responses
+        // builders use — so every origin shape collapses to a URL or file id.
+        const source = resolveImageSource(payload);
+        if (source?.url !== undefined) {
+          content.push({
             type: "input_image",
-            image_url: imgObj["image_url"],
-          };
-          if (typeof imgObj["detail"] === "string")
-            entry["detail"] = imgObj["detail"];
-          content.push(entry);
-        } else {
+            image_url: source.url,
+            ...(source.detail === undefined ? {} : { detail: source.detail }),
+          });
+        } else if (source?.fileId !== undefined) {
+          content.push({
+            type: "input_image",
+            file_id: source.fileId,
+            ...(source.detail === undefined ? {} : { detail: source.detail }),
+          });
+        } else if (typeof payload === "string") {
+          // A bare URL string is not an object the resolver recognizes, but it
+          // is already exactly what the wire wants.
           content.push({ type: "input_image", image_url: payload });
         }
+        // Unrecognized source: the image is dropped rather than sent as an
+        // object the backend rejects, which would fail the whole request —
+        // including the text the user actually asked about.
       }
       input.push({ type: "message", role: message.role, content });
     } else if (message.role === "assistant") {

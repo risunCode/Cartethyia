@@ -2,7 +2,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { SharePage } from "./page";
-import "../../styles.css";
+import "../../styles/base.css";
+import "../../styles/share.css";
 
 const root = document.getElementById("root");
 

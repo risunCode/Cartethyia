@@ -14,7 +14,7 @@ import {
   Trash2,
   Wrench,
 } from "lucide-react";
-import { memo, useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import { Button } from "../../components/ui/button";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Dialog } from "../../components/ui/dialog";
@@ -31,7 +31,7 @@ import {
 import { UNKNOWN_LIMITS_TOOLTIP } from "../../lib/model-limits";
 import { toast } from "../../lib/toast";
 import { useTrackedTimeout } from "../../lib/use-timeout";
-import type { ModelCatalogEntry } from "../../lib/contracts";
+import { PROBE_REASONING_EFFORTS, type ModelCatalogEntry, type ProbeReasoningEffort } from "../../lib/contracts";
 
 function formatModelTokens(value: number | null): string {
   if (value === null) return "\u2014";
@@ -45,10 +45,126 @@ function formatProbeDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
 }
+/**
+ * The badge shown on a non-builtin card, naming where the row came from.
+ *
+ * `auto_free` is its own case rather than folded into "Fetched": a free-tier row
+ * is discovered from a tier the provider publishes, and the section it sits in
+ * says the same thing. Labelling it "Fetched" would make the badge disagree with
+ * the section heading above it.
+ */
 function modelSourceTitle(source: string | null): string {
   if (source === "builtin") return "Built-in model";
+  if (source === "auto_free") return "Free tier, discovered from the provider";
   if (source === "discovered") return "Fetched from provider";
   return "Added manually";
+}
+
+/** The badge label for a non-builtin source. */
+function modelSourceBadge(source: string | null): string {
+  if (source === "auto_free") return "Free tier";
+  if (source === "discovered") return "Fetched";
+  return "Manual";
+}
+
+/**
+ * The four model groups, in the order the model list renders them.
+ *
+ * Order is a reading order, not a sort: the compiled catalog first (what ships),
+ * then what the provider's free tier publishes, then the operator's own hand
+ * additions, then the broad fetched tail. `source === null` is a row written
+ * before the column existed; it is treated as built-in, which is the
+ * conservative reading (disable, not delete) and matches the badge rule.
+ *
+ * Exported so a test can pin the grouping and its order without rendering.
+ */
+export const MODEL_GROUPS: ReadonlyArray<{
+  readonly key: string;
+  readonly label: string;
+  readonly hint: string;
+  readonly matches: (source: string | null) => boolean;
+}> = [
+  {
+    key: "builtin",
+    label: "Built-in models",
+    hint: "Compiled catalog — can be disabled, not deleted",
+    matches: (source) => source === null || source === "builtin",
+  },
+  {
+    key: "auto_free",
+    label: "Free models (auto)",
+    hint: "Discovered from the provider's free tier",
+    matches: (source) => source === "auto_free",
+  },
+  {
+    key: "manual",
+    label: "Manually added",
+    hint: "Added by hand from the Add Model dialog",
+    matches: (source) => source === "manual",
+  },
+  {
+    key: "fetched",
+    label: "Fetched from provider",
+    hint: "Listed by the provider's /v1/models",
+    matches: (source) => source !== null && source !== "builtin" && source !== "auto_free" && source !== "manual",
+  },
+];
+
+/**
+ * The reasoning effort a probe asks for.
+ *
+ * `auto` (the default) sends no reasoning intent at all, so the probe reflects
+ * what the route does by itself — the right choice when the model's reasoning
+ * support is exactly what is in question. A specific effort is sent only when
+ * the operator picks one, which is how a probe can be made to follow a setting.
+ *
+ * The member list comes from the backend tuple (`PROBE_REASONING_EFFORTS`)
+ * rather than a hand-written copy, so the selector cannot offer a value the
+ * route schema rejects.
+ */
+/**
+ * The options the thinking selector offers.
+ *
+ * Derived from the backend tuple (`PROBE_REASONING_EFFORTS`) rather than a
+ * hand-written copy, so the selector cannot offer a value the route schema
+ * rejects — a hand-written list drifts the moment the backend vocabulary does.
+ * Exported so a test can pin the vocabulary without opening the Radix portal.
+ */
+export function probeThinkingOptions(): { value: ProbeReasoningEffort; label: string }[] {
+  return PROBE_REASONING_EFFORTS.map((effort) => ({
+    value: effort,
+    label: effort === "auto" ? "Thinking: auto" : effort.charAt(0).toUpperCase() + effort.slice(1),
+  }));
+}
+
+export function ThinkingSelect({
+  value,
+  onChange,
+  disabled,
+  id = "probe-thinking-effort",
+}: {
+  readonly value: ProbeReasoningEffort;
+  readonly onChange: (value: ProbeReasoningEffort) => void;
+  readonly disabled?: boolean;
+  /** Distinct per call site: the section header and the Add-Model dialog can be
+   * mounted at once, and two triggers sharing one DOM id is invalid. */
+  readonly id?: string;
+}): ReactNode {
+  return (
+    <div
+      title="Reasoning effort every test in this section sends. Auto leaves the model's own reasoning default in place."
+      style={{ minWidth: "148px", flexShrink: 0 }}
+    >
+      <Select
+        id={id}
+        aria-label="Thinking effort"
+        value={value}
+        disabled={disabled}
+        onValueChange={(next) => onChange(next as ProbeReasoningEffort)}
+        options={probeThinkingOptions()}
+      />
+    </div>
+  );
 }
 
 export function AddModelModal({
@@ -61,8 +177,10 @@ export function AddModelModal({
     readonly isBuiltIn?: boolean;
     readonly wireFamilyDefault?: string;
     /** Families the backend resolved for this provider (registry for built-ins,
-     * BYOK profile for custom). The Add-Model wire choice is constrained to
-     * these so a probe can never target a wire the adapter rejects. */
+     * BYOK profile for custom). Used to order the wire choice so the provider's
+     * own family comes first — not to restrict it: a manually added provider may
+     * serve a protocol the gateway carries no bundled knowledge of, so the
+     * operator must be able to select any wire family. */
     readonly supportedWireFamilies?: readonly string[];
   };
   readonly onClose: () => void;
@@ -70,24 +188,23 @@ export function AddModelModal({
   const probe = useProbeModel();
   const register = useRegisterProviderModels();
   const [modelId, setModelId] = useState("");
-  // The backend already derived which wires this provider may serve, so the
-  // dashboard never re-derives the rule: a custom provider is locked to that
-  // set (the operator's chosen default when it is among them, otherwise the
-  // first declared family), and a built-in keeps the full vocabulary.
+  // The full vocabulary is always selectable, with the provider's declared
+  // families offered first so the sensible choice is the default one. Locking
+  // the list to the derived set made a manually added provider unable to reach
+  // any wire outside it, which is the one thing this selector exists to do.
   const declaredWires = provider?.supportedWireFamilies;
   const preferredWire =
     provider?.wireFamilyDefault !== undefined &&
     (declaredWires === undefined || declaredWires.includes(provider.wireFamilyDefault))
       ? provider.wireFamilyDefault
       : declaredWires?.[0];
-  const selectableWires =
-    provider?.isBuiltIn === false && declaredWires !== undefined && declaredWires.length > 0
-      ? declaredWires
-      : undefined;
-  const lockedWire = selectableWires?.length === 1 ? selectableWires[0] : undefined;
-  const [wireFamily, setWireFamily] = useState(
-    lockedWire ?? preferredWire ?? "chat",
-  );
+  const wireOptions = useMemo(() => {
+    const all = ["chat", "responses", "messages"];
+    const preferred = (declaredWires ?? []).filter((value) => all.includes(value));
+    return [...preferred, ...all.filter((value) => !preferred.includes(value))];
+  }, [declaredWires]);
+  const [wireFamily, setWireFamily] = useState(preferredWire ?? "chat");
+  const [thinking, setThinking] = useState<ProbeReasoningEffort>("auto");
   const [testState, setTestState] = useState<"idle" | "testing" | "passed" | "failed">("idle");
   const [testError, setTestError] = useState("");
 
@@ -106,7 +223,7 @@ export function AddModelModal({
     setTestState("testing");
     setTestError("");
     probe.mutate(
-      { providerId, request: { modelId: normalized, wireFamily } },
+      { providerId, request: { modelId: normalized, wireFamily, reasoningEffort: thinking } },
       {
         onSuccess: (result) => {
           if (result.ok) {
@@ -184,21 +301,49 @@ export function AddModelModal({
             prefix removed).
           </div>
         )}
-        {lockedWire === undefined ? (
-          <Select
-            label="Wire family"
-            id="add-model-wire-family"
-            value={wireFamily}
-            onValueChange={(value) => {
-              setWireFamily(value);
+        <Select
+          label="Wire family"
+          id="add-model-wire-family"
+          value={wireFamily}
+          onValueChange={(value) => {
+            setWireFamily(value);
+            setTestState("idle");
+            setTestError("");
+          }}
+          options={wireOptions.map((value) => ({ value, label: wireLabel(value) }))}
+        />
+        <div>
+          <div
+            style={{
+              fontSize: "11px",
+              fontWeight: 600,
+              color: "var(--text-secondary)",
+              marginBottom: "4px",
+            }}
+          >
+            Thinking
+          </div>
+          <ThinkingSelect
+            id="add-model-thinking-effort"
+            value={thinking}
+            onChange={(next) => {
+              setThinking(next);
               setTestState("idle");
               setTestError("");
             }}
-            options={(selectableWires ?? ["chat", "responses", "messages", "native"]).map(
-              (value) => ({ value, label: wireLabel(value) }),
-            )}
+            disabled={probe.isPending}
           />
-        ) : null}
+          <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
+            Sent with the test. Auto leaves the model's own reasoning default in place.
+          </div>
+        </div>
+        {declaredWires !== undefined && !declaredWires.includes(wireFamily) && (
+          <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+            This provider does not declare the{" "}
+            <span style={{ fontFamily: "var(--font-mono)" }}>{wireLabel(wireFamily)}</span> wire.
+            The request is sent as chosen; the upstream decides whether it answers.
+          </div>
+        )}
         {testState === "passed" && (
           <div
             style={{
@@ -248,11 +393,16 @@ export function AddModelModal({
 function ModelCard({
   providerId,
   model,
+  thinkingEffort,
   onDeleteRequest,
   deletePending,
 }: {
   readonly providerId: string;
   readonly model: ModelCatalogEntry;
+  /** The section-wide reasoning effort, owned by the Models card header so one
+   * setting governs every test in the section instead of each card carrying its
+   * own — which is what made "set thinking, then test" need a per-card repeat. */
+  readonly thinkingEffort: ProbeReasoningEffort;
   readonly onDeleteRequest: (model: ModelCatalogEntry) => void;
   readonly deletePending: boolean;
 }): ReactNode {
@@ -265,7 +415,10 @@ function ModelCard({
 
   const runProbe = () => {
     probe.mutate(
-      { providerId, request: { modelId: model.modelId, route: model.route } },
+      {
+        providerId,
+        request: { modelId: model.modelId, route: model.route, reasoningEffort: thinkingEffort },
+      },
       {
         onSuccess: (result) => {
           setProbeResult({ ok: result.ok, latencyMs: result.latencyMs });
@@ -395,7 +548,7 @@ function ModelCard({
                     border: "1px solid color-mix(in srgb, var(--teal) 35%, transparent)",
                   }}
                 >
-                  Fetched
+                  {modelSourceBadge(model.source)}
                 </span>
               ) : null}
               {model.enabled ? null : (
@@ -482,8 +635,9 @@ function ModelCard({
           </span>
         </div>
 
-        {/* Actions: single row, equal weights — delete is a quiet icon, not a full-width alarm */}
-        <div style={{ display: "flex", gap: "6px" }}>
+        {/* Actions: equal-weight buttons; the thinking setting lives in the
+            section header so it applies to the whole section at once. */}
+        <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
           <Button
             variant="secondary"
             size="sm"
@@ -580,39 +734,83 @@ function wireLabel(wireFamily: string): string {
   const lower = wireFamily.toLowerCase();
   if (lower === "responses") return "Responses";
   if (lower === "messages") return "Messages";
-  if (lower === "native") return "Native";
   return "Chat";
 }
 
 export function ModelGrid({
   providerId,
   models,
+  thinkingEffort,
 }: {
   readonly providerId: string;
   readonly models: readonly ModelCatalogEntry[];
+  readonly thinkingEffort: ProbeReasoningEffort;
 }): ReactNode {
   const deleteModel = useDeleteProviderModel();
   const [deleteTarget, setDeleteTarget] = useState<ModelCatalogEntry | null>(null);
+  // Built-in catalog rows and provider-sourced rows are different things: a
+  // built-in row is the compiled catalog and can only be disabled, while a
+  // fetched or manually added row is this deployment's own data and can be
+  // deleted. Rendering them as one undifferentiated grid made a catalog entry
+  // and an operator's own addition look alike, so the groups are labelled and
+  // ordered — see `MODEL_GROUPS`.
+  const groups = MODEL_GROUPS.map((group) => ({
+    ...group,
+    rows: models.filter((model) => group.matches(model.source)),
+  }));
+  const renderCard = (model: ModelCatalogEntry) => (
+    <MemoModelCard
+      key={`${model.modelId}::${model.route}`}
+      providerId={providerId}
+      model={model}
+      thinkingEffort={thinkingEffort}
+      deletePending={deleteModel.isPending}
+      onDeleteRequest={setDeleteTarget}
+    />
+  );
   return (
     <>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-          gap: "8px",
-          alignItems: "stretch",
-        }}
-      >
-        {models.map((model) => (
-          <MemoModelCard
-            key={`${model.modelId}::${model.route}`}
-            providerId={providerId}
-            model={model}
-            deletePending={deleteModel.isPending}
-            onDeleteRequest={setDeleteTarget}
-          />
-        ))}
-      </div>
+      <Stack gap="16px">
+        {groups.map((group) =>
+          group.rows.length === 0 ? null : (
+            <section
+              key={group.key}
+              style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+            >
+              <div style={{ display: "flex", alignItems: "baseline", gap: "8px", minWidth: 0 }}>
+                <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-secondary)" }}>
+                  {group.label}
+                </span>
+                <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                  {group.rows.length}
+                </span>
+                <span
+                  title={group.hint}
+                  style={{
+                    fontSize: "10px",
+                    color: "var(--text-tertiary)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  · {group.hint}
+                </span>
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                  gap: "8px",
+                  alignItems: "stretch",
+                }}
+              >
+                {group.rows.map(renderCard)}
+              </div>
+            </section>
+          ),
+        )}
+      </Stack>
       <ConfirmDialog
         open={deleteTarget !== null}
         onClose={() => {

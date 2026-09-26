@@ -6,7 +6,7 @@
 
 <!-- Paste or check what you ran. Do not claim a command passed unless it was executed. -->
 
-### Backend (required for any `src/`, `test/`, `scripts/`, `drizzle/` change)
+### Backend (required for any `src/`, `test/`, `scripts/`, `migrations/` change)
 
 - [ ] `bun run typecheck`
 - [ ] `bun run test`
@@ -31,8 +31,8 @@
 ## Docs
 
 <!-- Required when the change adds a layer, route group, provider capability,
-     env var, or DB table. See AGENTS.md "Documentation currency" for the
-     co-change rules and the never-record list. -->
+     env var, or DB table. See AGENTS.md §13 "Documentation and configuration
+     currency" for the co-change rules and the never-record list. -->
 
 - [ ] No doc update needed (why: <!-- ... -->)
 - [ ] Updated: <!-- e.g. src/transport/TRANSPORT.md, .env.example -->

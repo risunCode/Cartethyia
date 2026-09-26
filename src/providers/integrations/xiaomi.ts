@@ -37,12 +37,10 @@ export const XIAOMI_MODELS: readonly ModelDefinition[] = [
 export const XIAOMIPG_SPEC: ApiKeyProviderSpec = {
   provider_id: XIAOMIPG_PROVIDER_ID,
   endpoint_paths_by_wire_family: {},
-  supported_wire_families: ["chat"],
 };
 
 /** Xiaomi MiMo (Token Plan) — separate upstream origin. */
 export const XIAOMITP_SPEC: ApiKeyProviderSpec = {
   provider_id: XIAOMITP_PROVIDER_ID,
   endpoint_paths_by_wire_family: {},
-  supported_wire_families: ["chat"],
 };

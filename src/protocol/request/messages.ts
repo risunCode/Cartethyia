@@ -20,6 +20,7 @@ import {
   toWellFormedString,
   type ClaudeWireObject,
   isRecord,
+  resolveImageSource,
 } from "../primitives";
 import { log } from "../../observability/logger";
 import { clampReasoningEffort, resolveSupportedReasoningEfforts } from "../../transport/translation/thinking";
@@ -73,24 +74,97 @@ function normalizeAnthropicImageMediaType(mediaType: string): string {
 }
 
 /**
- * Normalizes an opaque image payload's `source.media_type` when present and
- * tags `source.type` for url/base64/file variants that omitted it, without
- * altering payloads this codebase doesn't recognize (gap report P14).
+ * Splits an RFC 2397 `data:` URL into Anthropic's `{media_type, data}` base64
+ * source. Returns `undefined` for a non-data URL, or for a data URL whose
+ * payload is not base64 (Anthropic's `source` has no other transport).
+ */
+function base64FromDataUrl(url: string): { media_type: string; data: string } | undefined {
+  const match = /^data:([^;,]+);base64,(.*)$/s.exec(url);
+  const mediaType = match?.[1];
+  const data = match?.[2];
+  if (mediaType === undefined || data === undefined || data.length === 0) return undefined;
+  return { media_type: mediaType, data };
+}
+
+/**
+ * Projects a canonical image part onto an Anthropic `image` block.
+ *
+ * Anthropic's `source.type` is a closed set — `base64` | `url` | `file` — and
+ * the upstream rejects anything else. A canonical image part is an opaque
+ * origin payload, so it can arrive in a vocabulary that is *not* Anthropic's:
+ * a Responses part carries `type: "input_image"` with a top-level `image_url`
+ * string, and a Chat part carries a nested `image_url` object. Both used to be
+ * forwarded with their own `type` intact (or with no `source` at all), so a
+ * Responses- or Chat-origin image sent to a Claude model produced
+ * `source.type: "input_image"` — an invalid block the provider refused.
+ *
+ * Every shape now collapses to a valid source, preferring the cheapest
+ * transport: a Files API reference, then a URL, then base64 bytes (a `data:`
+ * URL is split rather than embedded, because Anthropic has no data-URL field).
  */
 function normalizeImageBlock(payload: unknown): ClaudeWireObject {
-  if (!isRecord(payload)) return { type: "image", source: payload };
+  // A bare string payload (a tolerant Chat parse of `image_url: "…"`) is a URL,
+  // not a source object. Anthropic has no string source, so it is projected
+  // like any other origin shape instead of being passed through as `source`.
+  if (!isRecord(payload)) {
+    const resolved = resolveImageSource(payload);
+    if (resolved?.url !== undefined) {
+      const split = base64FromDataUrl(resolved.url);
+      return {
+        type: "image",
+        source:
+          split !== undefined
+            ? { type: "base64", media_type: split.media_type, data: split.data }
+            : { type: "url", url: resolved.url },
+      };
+    }
+    if (resolved?.fileId !== undefined) {
+      return { type: "image", source: { type: "file", file_id: resolved.fileId } };
+    }
+    return { type: "image", source: payload };
+  }
   const rawSource = isRecord(payload["source"]) ? payload["source"] : payload;
   if (!isRecord(rawSource)) return payload;
-  const source: Record<string, unknown> = { ...rawSource };
-  if (typeof source["media_type"] === "string") {
-    source["media_type"] = normalizeAnthropicImageMediaType(
-      source["media_type"],
-    );
+
+  // A `source` that is already Anthropic-shaped keeps its own fields; anything
+  // else is re-projected from whichever origin vocabulary it arrived in.
+  const sourceIsAnthropic = ["base64", "url", "file"].includes(String(rawSource["type"]));
+  const source: Record<string, unknown> = sourceIsAnthropic ? { ...rawSource } : {};
+  if (!sourceIsAnthropic) {
+    const fileId = rawSource["file_id"];
+    // A nested `image_url` (Chat) may itself be a string or `{url}`.
+    const nested = rawSource["image_url"];
+    const nestedUrl = isRecord(nested) ? nested["url"] : nested;
+    const url = typeof nestedUrl === "string" ? nestedUrl : rawSource["url"];
+    const inlineData = rawSource["data"];
+    if (typeof fileId === "string") {
+      source["type"] = "file";
+      source["file_id"] = fileId;
+    } else if (typeof url === "string") {
+      const split = base64FromDataUrl(url);
+      if (split !== undefined) {
+        source["type"] = "base64";
+        source["media_type"] = split.media_type;
+        source["data"] = split.data;
+      } else {
+        source["type"] = "url";
+        source["url"] = url;
+      }
+    } else if (typeof inlineData === "string") {
+      source["type"] = "base64";
+      source["media_type"] = typeof rawSource["media_type"] === "string" ? rawSource["media_type"] : "image/png";
+      source["data"] = inlineData;
+    }
+    // `detail` is an OpenAI hint with no Anthropic equivalent; it is dropped
+    // rather than forwarded, since the upstream rejects unknown source fields.
   }
-  if (typeof source["type"] !== "string") {
-    if (typeof source["url"] === "string") source["type"] = "url";
-    else if (typeof source["file_id"] === "string") source["type"] = "file";
-    else if (typeof source["data"] === "string") source["type"] = "base64";
+  if (typeof source["media_type"] === "string") {
+    source["media_type"] = normalizeAnthropicImageMediaType(source["media_type"]);
+  }
+  // A source still lacking a valid discriminator cannot be repaired into one;
+  // preserve the origin payload rather than fabricating a transport.
+  if (!["base64", "url", "file"].includes(String(source["type"]))) {
+    return rawSource === payload ? { type: "image", source } : { ...payload, source };
   }
   return rawSource === payload
     ? { type: "image", source }
@@ -148,7 +222,13 @@ function partToClaudeBlock(
         ...(part.citations === undefined ? {} : { citations: { enabled: part.citations } }),
       };
     case "audio":
-      return { type: "audio", media_type: part.media_type, data: part.data };
+      // The Messages wire defines no audio content block, so there is nothing
+      // to encode here — see `AUDIO_CAPABLE_WIRE_FAMILIES`, which denies audio
+      // to this wire so the request degrades before it reaches this builder.
+      // Emitting the part anyway would put an undefined block type on the wire
+      // and fail the whole request; degrade to the same visible placeholder the
+      // capability path uses, so an unexpected part loses only the attachment.
+      return { type: "text", text: "[audio]" };
     case "refusal":
       return { type: "text", text: toWellFormedString(part.text) };
     case "toolCall": {

@@ -9,6 +9,7 @@ import type { WireFamily } from "../../../transport/canonical-model";
 import { listAccountHealthEvents, recoverAccount, type AccountHealthEventRecord } from "../../../providers/operations/account-health-service";
 import { encryptCredential, hashSecret } from "../../../security/crypto";
 import type { TelemetryBatchBuffer } from "../../../observability/telemetry-buffer";
+import { gatewayErrorSql } from "../../../observability/telemetry-status";
 import type { BundledProviderCatalog } from "../../../providers/operations/provider-catalog-service";
 import { validateCompatibilityProfile, type AccountInflightReading, type ByokConnectionTestRequest, type ByokConnectionTestResult, type CreateProviderAccountRequest, type ModelCatalogEntry, type ProbeAllAccountsResult, type ProbeAllModelsResult, type ProbeModelRequest, type ProbeModelResult, type ProviderAccountResponse, type ProviderAccountTokenUsage, type ProviderCatalogStore, type ProviderRecord, type SetModelEnabledRequest, type UpdateProviderAccountRequest } from "./contracts";
 import { ProviderProbingService, type ProbeOutboundResolver } from "../../../providers/discovery/probing-service";
@@ -594,7 +595,10 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
         .select({
           accountId: telemetryEvents.accountId,
           requests: sql<number>`count(*)`,
-          errors: sql<number>`count(*) filter (where ${telemetryEvents.status} in ('failed', 'truncated'))`,
+          // The same predicate the lifetime arm reads out of
+          // `telemetry_usage_totals`, so the "today" and "all time" error
+          // counts shown side by side cannot disagree about what an error is.
+          errors: sql<number>`count(*) filter (where ${gatewayErrorSql(telemetryEvents.status, telemetryEvents.httpStatus)})`,
           inputTokens: sql<number>`coalesce(sum(${telemetryEvents.inputTokens}), 0)`,
           outputTokens: sql<number>`coalesce(sum(${telemetryEvents.outputTokens}), 0)`,
         })

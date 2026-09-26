@@ -107,6 +107,53 @@ export function toQuotaView(
   };
 }
 
+/**
+ * The account health block every quota view returns.
+ *
+ * One builder for all four call sites: a field added to one and missed by the
+ * others is exactly how the cooldown deadline went missing from the Quota
+ * health dialog, which showed a 429 message and no time. `cooldownUntil` is the
+ * account-wide deadline only — a model-scoped throttle moves `modelCooldowns`
+ * and deliberately leaves it null.
+ */
+export function toQuotaAccountHealth(row: {
+  status: string;
+  lastError: string | null;
+  lastErrorCategory: string | null;
+  cooldownUntil: Date | null;
+  modelCooldowns: unknown;
+}): {
+  status: string;
+  sanitizedMessage: string | null;
+  lastErrorCategory: string | null;
+  cooldownUntil: string | null;
+  modelCooldowns: Record<string, string>;
+} {
+  return {
+    status: row.status,
+    sanitizedMessage: row.lastError ?? null,
+    lastErrorCategory: row.lastErrorCategory ?? null,
+    cooldownUntil: row.cooldownUntil ? row.cooldownUntil.toISOString() : null,
+    // Only deadlines still in force are returned: the sweep prunes the column
+    // on a timer, so a raw read can carry an entry that has already elapsed and
+    // would render as a cooldown that no longer applies.
+    modelCooldowns: liveModelCooldowns(row.modelCooldowns),
+  };
+}
+
+/** The not-yet-elapsed entries of a `model_cooldowns` column value. */
+function liveModelCooldowns(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  const now = Date.now();
+  const live: Record<string, string> = {};
+  for (const [modelId, at] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof at === "string" && Number.isFinite(new Date(at).getTime()) && new Date(at).getTime() > now) {
+      live[modelId] = at;
+    }
+  }
+  return live;
+}
+
 /** Removes credential material from global-account responses. */
 export function sanitizeGlobalAccount(
   row: typeof providerAccounts.$inferSelect,

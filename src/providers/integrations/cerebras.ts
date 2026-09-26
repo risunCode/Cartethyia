@@ -7,7 +7,6 @@ const CEREBRAS_PROVIDER_ID = "cerebras" as const;
 export const CEREBRAS_SPEC: ApiKeyProviderSpec = {
   provider_id: CEREBRAS_PROVIDER_ID,
   endpoint_paths_by_wire_family: {},
-  supported_wire_families: ["chat"],
 };
 
 import { defineModel } from "../model-definition";

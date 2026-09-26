@@ -200,8 +200,8 @@ bun run test:integration
 bun run check:coverage
 ```
 
-The offline coverage gate requires at least 75% line coverage for handwritten
-backend `src/` code. DB-gated tests may be skipped when
+The coverage gate requires at least 90% line coverage for handwritten backend
+`src/` code. DB-gated tests may be skipped when
 `CARTETHYIA_TEST_DATABASE_URL` is not configured; when it is, the suite runs
 against that database and leaves `DATABASE_URL` alone.
 
@@ -220,11 +220,11 @@ non-root user, and exposes port `12800`. PostgreSQL must be reachable through
 ### Migrating an existing deployment
 
 The application migrates itself at boot: it applies every numbered
-`NNNN_*.sql` file under `drizzle/migrations/` in order and records each in the
+`NNNN_*.sql` file under `migrations/` in order and records each in the
 `cartethyia_schema_migrations` ledger, so a new database and an existing one
 both reach the current schema with no manual step. `0000_baseline.sql` is the
-whole schema for a database created today; a later change ships as the next
-number beside it and is applied the same way. There is no hand-run step.
+whole schema for a database created today; later numbered files converge
+existing databases automatically at startup.
 
 To move a deployment's configuration to another host, use **Settings →
 Backup** in the console:
@@ -273,7 +273,8 @@ src/        production backend
  test/      backend and contract tests
  dashboard/ React/Vite dashboard (route and browser-boundary map in `dashboard/README.md`)
  scripts/   flat operational scripts
- drizzle/   database migrations
+ migrations/ tracked SQL migrations, applied automatically at boot
 ```
 
-For repository-local coding conventions and cleanup rules, see `AGENTS.md`.
+For repository-local coding conventions, cutover rules, and cleanup rules, see
+`AGENTS.md` (§5–§9).

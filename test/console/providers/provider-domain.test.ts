@@ -1255,6 +1255,42 @@ describe("provider-catalog routes", () => {
       expect(provider.oauthFlows).toEqual({ browser: false, device: false });
     });
 
+    it("hides the browser button for a device-only client that still exposes the methods", async () => {
+      // The base OAuthClient always defines `buildAuthorizeUrl` and
+      // `exchangeCode` — device-only clients override the latter to throw — so
+      // a method-shape test alone reported browser support for Cline, Cursor,
+      // Grok, Kimi, Muse and Buddy. The dashboard then offered "Login with
+      // browser" and the click failed with `browser_code_not_supported`.
+      const factory = detailFactory({
+        supportsDeviceCode: true,
+        supportsBrowserCode: false,
+        buildAuthorizeUrl: () => "https://login.test/authorization?state=s",
+        exchangeCode: async () => ({ access: "a", refresh: "r", expiresAt: new Date() }),
+        startDeviceAuth: async () => ({
+          verificationUri: "https://login.test/device",
+          userCode: "ABCD",
+          deviceAuthId: "d1",
+          intervalSeconds: 5,
+          expiresInSeconds: 600,
+        }),
+      });
+      const provider = await factory.getProviderDetail(tenantAccess, "vendor");
+      expect(provider.oauthFlows).toEqual({ browser: false, device: true });
+    });
+
+    it("still reports browser login for a client that states the capability", async () => {
+      // An explicit `true` must not be overridden by the method-shape test's
+      // result; a client that declares browser support keeps its button.
+      const factory = detailFactory({
+        supportsDeviceCode: false,
+        supportsBrowserCode: true,
+        buildAuthorizeUrl: () => "https://login.test/authorization?state=s",
+        exchangeCode: async () => ({ access: "a", refresh: "r", expiresAt: new Date() }),
+      });
+      const provider = await factory.getProviderDetail(tenantAccess, "vendor");
+      expect(provider.oauthFlows).toEqual({ browser: true, device: false });
+    });
+
     it("reports only device when the client exposes the device flow", async () => {
       const factory = detailFactory({
         supportsDeviceCode: true,

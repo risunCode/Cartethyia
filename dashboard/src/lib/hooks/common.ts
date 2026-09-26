@@ -18,7 +18,6 @@ import type {
   UsageChartResponse,
   UsageRequestDetail,
   UsageRequestsResponse,
-  UsageResponse,
   UsageSummaryResponse,
 } from "../contracts";
 
@@ -66,34 +65,6 @@ export function assertSystemHealth(value: unknown): SystemHealthResponse {
     throw invalidResponse("Invalid system health response");
   }
   return value as unknown as SystemHealthResponse;
-}
-
-export function assertUsage(value: unknown): UsageResponse {
-  if (!isRecord(value) || typeof value.tenantId !== "string" || typeof value.period !== "string") {
-    throw invalidResponse("Invalid usage response");
-  }
-  const numericFields = [
-    "requestsTotal",
-    "requestsSucceeded",
-    "requestsFailed",
-    "tokensUsed",
-    "estimatedCost",
-  ];
-  if (
-    !numericFields.every((field) => isFiniteNumber(value[field])) ||
-    !Array.isArray(value.topModels) ||
-    !Array.isArray(value.topProviders)
-  ) {
-    throw invalidResponse("Invalid usage response");
-  }
-  const hasCounts = (item: unknown): boolean =>
-    isRecord(item) && typeof item.modelId === "string" && isFiniteNumber(item.count);
-  const hasProviderCounts = (item: unknown): boolean =>
-    isRecord(item) && typeof item.providerId === "string" && isFiniteNumber(item.count);
-  if (!value.topModels.every(hasCounts) || !value.topProviders.every(hasProviderCounts)) {
-    throw invalidResponse("Invalid usage response");
-  }
-  return value as unknown as UsageResponse;
 }
 
 function isOptionalFiniteNumber(value: unknown): boolean {

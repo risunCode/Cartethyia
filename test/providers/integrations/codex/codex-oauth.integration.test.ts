@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CODEX_DEVICE_MAX_POLLS, parseCodexDeviceStart, pollCodexDeviceAuth, startCodexDeviceAuth } from "../../../../src/providers/integrations/codex/codex-device-code";
+import { parseCodexDeviceStart, pollCodexDeviceAuth, startCodexDeviceAuth } from "../../../../src/providers/integrations/codex/codex-device-code";
 import { createCodexIdentity, filterCodexMetadata, getCodexAccountId, getCodexInstallId, getCodexResidency } from "../../../../src/providers/integrations/codex/codex-identity";
 import { CODEX_CLIENT_ID, CODEX_DEVICE_REDIRECT_URI, CodexOAuthClient } from "../../../../src/providers/integrations/codex/codex-oauth";
 import { OAuthFlowStore } from "../../../../src/providers/authentication/oauth-flow-store";
@@ -73,7 +73,9 @@ describe("Codex OAuth and Identity Integration", () => {
 
     describe("device-code.test.ts", () => {
       describe("Codex device authorization", () => {
-        test("starts and polls through pending responses", async () => {
+        test("returns pending until the user approves, then the PKCE pair", async () => {
+          // One poll attempt per call. The dashboard owns the cadence, so the
+          // console route must not hold a request open for the whole window.
           let calls = 0;
           const fetchFn = (async (_url: string | URL | Request, _init?: RequestInit) => {
             calls += 1;
@@ -88,25 +90,69 @@ describe("Codex OAuth and Identity Integration", () => {
             });
           }) as unknown as typeof fetch;
           const started = await startCodexDeviceAuth("client", fetchFn);
-          const result = await pollCodexDeviceAuth(started, fetchFn, async () => undefined);
-          expect(result.authorizationCode).toBe("auth");
+          // 403 is "not approved yet" — pending, not a failure.
+          expect(await pollCodexDeviceAuth(started, fetchFn)).toBeUndefined();
+          expect(await pollCodexDeviceAuth(started, fetchFn)).toBeUndefined();
+          const result = await pollCodexDeviceAuth(started, fetchFn);
+          expect(result?.authorizationCode).toBe("auth");
           expect(calls).toBe(4);
         });
-        test("distinguishes real errors and times out", async () => {
+        test("distinguishes a real error from a pending answer", async () => {
           const device = { deviceAuthId: "d", userCode: "u", intervalSeconds: 0 };
+          // 404 is the endpoint's other "not approved yet" answer.
+          const pending = (async (_url: string | URL | Request, _init?: RequestInit) =>
+            new Response("", { status: 404 })) as unknown as typeof fetch;
+          expect(await pollCodexDeviceAuth(device, pending)).toBeUndefined();
+          // Anything else is a real failure and must surface.
           const failed = (async (_url: string | URL | Request, _init?: RequestInit) =>
             new Response("", { status: 500 })) as unknown as typeof fetch;
-          await expect(pollCodexDeviceAuth(device, failed, async () => undefined)).rejects.toThrow("500");
-          let calls = 0;
-          const pending = (async (_url: string | URL | Request, _init?: RequestInit) => {
-            calls += 1;
-            return new Response("", { status: 404 });
-          }) as unknown as typeof fetch;
-          await expect(pollCodexDeviceAuth(device, pending, async () => undefined)).rejects.toThrow(
-            "120 polls",
-          );
-          expect(calls).toBe(CODEX_DEVICE_MAX_POLLS);
+          await expect(pollCodexDeviceAuth(device, failed)).rejects.toThrow("500");
         });
+        test("a not-yet-approved poll returns pending and keeps the state for a retry", async () => {
+          // The dashboard polls on its own interval. Returning `pending` — not
+          // blocking, and not a failure — is what makes the dialog's countdown
+          // and interval mean anything; and the device state must survive so
+          // the next attempt can still complete.
+          let calls = 0;
+          const fetchFn = (async (_url: string | URL | Request, _init?: RequestInit) => {
+            calls += 1;
+            if (calls === 1)
+              return new Response(JSON.stringify({ device_auth_id: "d3", user_code: "u3", interval: 0 }));
+            if (calls === 2) return new Response("", { status: 403 });
+            if (calls === 3)
+              return new Response(JSON.stringify({ authorization_code: "a3", code_verifier: "v3" }));
+            return new Response(
+              JSON.stringify({ access_token: codexAccessToken(), refresh_token: "y", expires_in: 60 }),
+            );
+          }) as unknown as typeof fetch;
+          const store = new OAuthFlowStore(fakeRedis());
+          const client = new CodexOAuthClient(fetchFn, store);
+          const started = await client.startDeviceAuth();
+          expect((await client.pollDeviceAuth(started.deviceAuthId)).status).toBe("pending");
+          // The pending attempt must not have discarded the authorization.
+          expect(await store.getDeviceState(started.deviceAuthId)).toBeDefined();
+          expect((await client.pollDeviceAuth(started.deviceAuthId)).status).toBe("complete");
+        });
+
+        test("device state survives a failed exchange so the operator can retry", async () => {
+          // The authorization code is single-use; dropping the state before the
+          // exchange would strand a failure with no way to retry.
+          let calls = 0;
+          const fetchFn = (async (_url: string | URL | Request, _init?: RequestInit) => {
+            calls += 1;
+            if (calls === 1)
+              return new Response(JSON.stringify({ device_auth_id: "d4", user_code: "u4", interval: 0 }));
+            if (calls === 2)
+              return new Response(JSON.stringify({ authorization_code: "a4", code_verifier: "v4" }));
+            return new Response('{"error":"server_error"}', { status: 500 });
+          }) as unknown as typeof fetch;
+          const store = new OAuthFlowStore(fakeRedis());
+          const client = new CodexOAuthClient(fetchFn, store);
+          const started = await client.startDeviceAuth();
+          await expect(client.pollDeviceAuth(started.deviceAuthId)).rejects.toThrow();
+          expect(await store.getDeviceState(started.deviceAuthId)).toBeDefined();
+        });
+
         test("parseCodexDeviceStart accepts valid persisted state and rejects malformed state", () => {
           expect(parseCodexDeviceStart({ deviceAuthId: "d", userCode: "u", intervalSeconds: 5 })).toEqual({
             deviceAuthId: "d",

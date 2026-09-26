@@ -27,6 +27,10 @@ bin
 *.swo
 *~
 .DS_Store
+
+# Agent working state: `.claude/worktrees/` holds full repository copies, so
+# excluding it keeps the build context from ballooning while an agent runs.
+.claude
 # Environment files and secrets
 .env*
 !.env.example
@@ -37,9 +41,8 @@ bin
 *.dump
 *.sql
 backups
-!drizzle/
-!drizzle/migrations/
-!drizzle/migrations/*.sql
+!migrations/
+!migrations/*.sql
 # Testing
 coverage
 .nyc_output

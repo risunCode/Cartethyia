@@ -693,7 +693,12 @@ export function createErrorNormalizationMiddleware(deps: {
   return app as unknown as Elysia;
 }
 
-interface AfterResponseApp {
+/**
+ * The minimal hook surface the telemetry/cleanup lifecycle needs. Exported so
+ * the pipeline owner can register the lifecycle at the root while keeping the
+ * real Elysia instance out of this signature.
+ */
+export interface AfterResponseApp {
   afterResponse(handler: (context: { request: Request }) => Promise<void>): AfterResponseApp;
 }
 

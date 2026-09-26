@@ -46,6 +46,22 @@ export interface ModelDefinition {
   readonly toolCall: boolean;
   readonly webSearch: boolean;
   readonly cost: ModelCostDefinition;
+  /**
+   * Whether the provider serves this row on a free plan tier.
+   *
+   * Deliberately not the same thing as `free` on the input row. `free` is a
+   * *billing* statement — bill zero per token — and a subscription roster also
+   * bills zero per token. This is a *catalog* statement: the row belongs to the
+   * tier the provider publishes as free. Discovery has to tell them apart
+   * because the free tier is a distinct group in the model list, and `cost`
+   * cannot answer it — a reseller may legitimately price a model at `$0.00`
+   * without it being the provider's free tier.
+   *
+   * Optional, and absence is the answer "not a free-tier row": the field is a
+   * marker only a discovery module that reads a provider's free tier can set,
+   * so a hand-built definition correctly says nothing. Read it as `=== true`.
+   */
+  readonly freeTier?: boolean;
 }
 
 /** Fields accepted by `defineModel`; every field except `id` falls back to the shared default. */
@@ -81,6 +97,16 @@ export interface ModelHelperRow {
    * regardless of what the base catalog charges for the underlying model.
    */
   readonly free?: boolean;
+  /**
+   * Marks a row that belongs to the tier the provider publishes as free.
+   *
+   * Separate from `free` because the two answer different questions: a
+   * subscription roster bills zero per token (`free`) without being the free
+   * tier. This one is what the model list groups on, so a provider's free-tier
+   * discovery can be labelled as such instead of mixed into ordinary fetched
+   * rows. Defaults to false — a row nobody marked is not a free-tier row.
+   */
+  readonly freeTier?: boolean;
 }
 
 function defaultEndpoint(wireFamily: ModelDefinition["wireFamily"]): string {
@@ -123,16 +149,35 @@ export function defineModel(row: ModelHelperRow): ModelDefinition {
   // it the lookup falls back to the bare id, which returns `undefined` when the
   // catalog disagrees about that id (428 bare keys disagree on context alone).
   const fallback = row.id ? modelsDevCatalog.resolve(row.providerId ?? "", row.id) : undefined;
+  // A provider the catalog does not file under our id (or files nowhere at
+  // all) leaves `resolve` undefined, which would fall through to the fixed
+  // default below. The majority vote is the honest middle tier: the model is
+  // known, the catalog merely disagrees about it, and the most-agreed row
+  // describes the model itself rather than one reseller's serving. Only the
+  // field the vote actually answered is taken; a model nobody records stays
+  // at the default.
+  const majority = fallback === undefined && row.id ? modelsDevCatalog.majorityFor(row.id) : undefined;
 
   const contextLimit =
     row.ctx !== undefined
       ? row.ctx
-      : (fallback?.contextLimit ?? 200_000);
+      : (fallback?.contextLimit ?? majority?.contextLimit ?? 200_000);
 
-  const outputLimit =
+  const declaredOutput =
     row.out !== undefined
       ? row.out
-      : (fallback?.outputLimit ?? 64_192);
+      : (fallback?.outputLimit ?? majority?.outputLimit ?? 64_192);
+
+  // A maximum output above the context window is unsatisfiable: no request can
+  // reserve more output tokens than the model accepts as input. The base
+  // catalog carries 1084 rows that state output === context and 69 that state
+  // output > context (a Kimi K2.6 row is filed as 262144/262144), so an
+  // unclamped cap would publish a limit the provider rejects and make the
+  // admission estimate reserve the whole window as output headroom.
+  const outputLimit =
+    contextLimit === null || declaredOutput === null
+      ? declaredOutput
+      : Math.min(declaredOutput, contextLimit);
 
   const cost = row.free ? FREE_TIER_COST : modelsDevCatalog.costFor(row.providerId ?? "", row.id);
 
@@ -156,6 +201,7 @@ export function defineModel(row: ModelHelperRow): ModelDefinition {
     toolCall: row.toolCall ?? true,
     webSearch: row.webSearch ?? false,
     cost,
+    ...(row.freeTier === undefined ? {} : { freeTier: row.freeTier }),
   };
 }
 

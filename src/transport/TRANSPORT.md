@@ -72,7 +72,12 @@ no telemetry buffer is configured):
   `explainGatewayError` / `publicGatewayErrorDetails`; stages throw and stay dumb. `registerTelemetryLifecycle` /
   `registerRequestCleanup` run `afterResponse` finalization (telemetry for dispatch routes only — `isProxyDispatchRoute`
   excludes `/v1/models` and friends) plus guaranteed cleanup; streaming requests defer finalization to stream completion
-  (`state.streaming`, `state.completed`).
+  (`state.streaming`, `state.completed`). **They are mounted at the root by `mountRoot`, never on the gateway plugin**: a
+  plugin-scoped `afterResponse` fires only for a request that matched a registered route, so an unregistered `/v1/*` path was
+  admitted by the root `request` hook (which does run for every inbound request) and never cleaned up — one unmatched request
+  left `proxy_in_flight` permanently one higher. The root hook runs for the unmatched path too, which makes the increment and
+  the decrement symmetric. A root `afterResponse` still runs after the matched handler returns, so a dispatch route finalizes
+  exactly as before; mounting it in both places would finalize twice.
 
 **Invariants.** No stage runs before its inputs exist on state. Single body read, single canonical parse, single route
 preparation. Non-dispatch gateway routes authenticate but never dispatch, never enqueue telemetry, and never appear as proxy
@@ -199,9 +204,17 @@ cannot fix, degrade the rest in a fixed least-impact order.
   search rides the `tools` requirement. `routeCapabilitiesFor()` projects a snapshot profile plus the wire family's
   `GENERATION_CONTROL_MATRIX` / `EXTENSION_MATRIX` rows; `candidateSupportsRequest()` is the one predicate shared by router
   and planner. The profile itself comes from `buildCapabilityProfile()` (`routing/route-catalog.ts`), which grants
-  image/document/audio to every non-`native` route: the codec wires can all carry those parts, so a catalog's silence about a
-  modality must not become a silent rewrite of the caller's attachment — an upstream that cannot accept the part degrades it
-  itself, while a `native` adapter (Cursor, Devin) needs an explicit modality because it has no generic rich-content path.
+  image/document/audio to every codec-backed route: a catalog's silence about a modality must not become a silent rewrite of
+  the caller's attachment — an upstream that cannot accept the part degrades it itself. A bespoke adapter
+  (`providerUsesBespokeWire`, Cursor and Devin) needs an explicit modality instead, because it frames its own protocol and has
+  no generic rich-content path.
+  The grant has one exception, and it is a wire fact rather than a metadata one: the Anthropic Messages request schema has no
+  audio content block, so `routeCapabilitiesFor()` narrows audio to `AUDIO_CAPABLE_WIRE_FAMILIES` (`chat`, `responses`) for
+  every codec route. A codec-backed `messages` route (Anthropic, Claude Code, Kimi) therefore never claims audio, and a
+  declared `audio` modality cannot override that — the flag describes the model, and no declaration adds a block the schema
+  does not define. Without the narrowing such a route passed the pre-lease gate and reached the builder to emit a block the
+  provider rejects, failing the whole request instead of degrading the attachment. Image and document are unaffected: every
+  codec wire defines those blocks.
   Reasoning and tools are never stripped either: a `false` in `reasoning` or `tool_call` — whether a discovered row recorded it
   for lack of metadata or a builtin/manual row set it explicitly — does not deny them. The profile always grants both, and the
   upstream answers if it cannot serve them.
@@ -224,6 +237,21 @@ cannot fix, degrade the rest in a fixed least-impact order.
   `sanitizeRequestToolIds()` rewrites tool ids outside `^[a-zA-Z0-9_-]+$` (splitting Responses `call_id|item_id` composites
   first) while keeping call/result pairs matched; fallback ids are deterministic positional values, so histories stay
   cache-friendly.
+-  **Cross-protocol media (image / document / audio)** — a canonical content part is an *opaque origin payload*: the surface
+  parser stores whatever the client sent, so the same image arrives as a Responses `{type:"input_image", image_url:"…"}`
+  string, a Chat `{image_url:{url}}` object, or an Anthropic `{source:{type:"base64"}}` object. Each wire builder therefore
+  must **re-encode** the part into its own vocabulary rather than forward the payload. Forwarding it is what produced two
+  classes of hard failure, both now pinned by
+  `test/protocol/provider-fidelity.test.ts` ("cross-protocol media survives every origin shape"):
+  a builder putting a foreign discriminator on the wire (an Anthropic block carrying `source.type: "input_image"`, which the
+  provider rejects), and a builder putting a non-string where the wire requires one (an object as `image_url`, which the
+  provider rejects with "expected an image URL, but got an object instead"). The single resolver is
+  `resolveImageSource()` in `protocol/primitives.ts` — it accepts a bare URL/`data:` string, the Chat nested object, the
+  Responses `image_url`/`file_id`, and Anthropic's `source` — and every builder routes through it. Chat has no `file_id` form
+  for images and no document-URL field, so those two shapes degrade to a text reference naming the id; they must never emit
+  an invalid block, because the provider rejects the *whole request* and the caller loses their text too. A new modality
+  builder is added by extending the resolver and the per-wire projection together, then adding its row to the cross-protocol
+  matrix test — not by adding a branch to one builder.
 -  **Normalization (before dispatch)** — `normalizeThinkingConfig()` drops native `thinking_type` / `budget_tokens` on
   non-user turns (upstream rejects them) unless thinking blocks are replayed, and clamps `effort` down the ladder
   (`resolveSupportedReasoningEfforts` per model/wire; synonyms `ultra→max`, `off→none`). `applyParamQuirks()` applies
@@ -241,8 +269,8 @@ passthrough hints, never route capabilities — gating them would strip `include
 friends. Max-token aliases (`max_tokens` / `max_output_tokens` / `max_completion_tokens`) satisfy each other in
 `routeSupports()`. No field is silently removed post-`projectForRoute`: every surviving field is supported by every candidate
 in the plan intersection. A new capability is derived in `deriveRequiredCapabilities()`, tested in `routeSupports()`, degraded
-in the preparer, and given `GENERATION_CONTROL_MATRIX` / `EXTENSION_MATRIX` rows per wire family (default sinks are `native`,
-so be explicit).
+in the preparer, and given `GENERATION_CONTROL_MATRIX` / `EXTENSION_MATRIX` rows per wire family (a bespoke route bypasses
+both matrices and receives `BESPOKE_GENERATION_CONTROLS`, so a codec-only control needs no bespoke entry).
 
 ## Routing (`routing/`)
 
@@ -254,7 +282,9 @@ reads as `least_loaded`); `createDatabaseSnapshotBuilder()` adapts it to the `Sn
 `InMemoryRouteSnapshotService`.
 
 **Key resolvers** (all tenant-over-global via `resolveTenantOverride`) — `buildCapabilityProfile()` fills the profile the
-router and planner filter on, defaulting `document`/`audio` to true on non-`native` wires (codec-backed rich content);
+router and planner filter on, defaulting `image`/`document`/`audio` to true on codec-backed wires (a bespoke adapter gates
+them on its declared modalities; `routeCapabilitiesFor()` then narrows audio to `AUDIO_CAPABLE_WIRE_FAMILIES`, since the
+Messages schema defines no audio block);
 `resolveBypassProxy()` decides per-(tenant, provider) direct-vs-pool, defaulting to `DEFAULT_PROXY_BYPASS_PROVIDER_IDS`;
 `resolveMaxInflight()` prefers the account value over the routing-panel default, where `undefined` means unlimited rather than
 the deployment ceiling; `resolveNetworkPools()` lists the account tenant's active pools (ids, limits, weights) plus the
@@ -461,7 +491,11 @@ cooldown), not only on a literal 429 — several retryable failures are 503, and
 when to come back. A 429 with no parsed evidence keeps the one-second floor; nothing is invented for a failure with no
 evidence at all. Cooldown evidence is read in priority order: `Retry-After`-family headers, then a duration quoted in the
 provider message (`parseProviderResetDuration`, relative *or* absolute — e.g. WorkBuddy `6004` states "your usage will
-reset at 2026-09-24 02:12:51 UTC+8"), then the per-category fallback. An absolute stamp the provider names always wins
+reset at 2026-09-24 02:12:51 UTC+8"), then the per-category fallback. A relative phrase is read as a **compound**
+duration: every `amount unit` pair that continues the phrase is summed, so "Try again in 4h 13m" is 4h13m and not 4h —
+reading only the first pair stored a deadline 13 minutes earlier than the window the provider stated, and the account
+re-entered rotation inside it. `m` never swallows `ms` or `mo`, so a millisecond backoff is not read as minutes. An
+absolute stamp the provider names always wins
 over the fallback: parking an account for 15 minutes when the provider said 10 hours meant it re-entered rotation and
 failed every request inside the stated window. Pool cooldown applies only on upstream 429 with provider scope; OAuth
 refresh only on evidence-based invalidation.

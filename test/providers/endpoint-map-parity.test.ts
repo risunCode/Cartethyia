@@ -34,9 +34,8 @@ describe("registry endpoint map ↔ model catalog parity", () => {
     test(`${providerId} registry paths match its catalog`, async () => {
       const models = cap.loadModels ? await cap.loadModels() : [];
       // A provider with no bundled catalog (ollamacloud discovers its models)
-      // declares its families in the adapter spec instead; the capability gate
-      // there rejects anything outside `supported_wire_families`, so there is
-      // no catalog row to compare against.
+      // has no static rows to compare against, so the pair this test guards
+      // does not exist for it.
       if (models.length === 0) return;
       for (const [wireFamily, registryPath] of Object.entries(cap.endpointPathsByWireFamily!)) {
         const served = models.filter((m) => m.wireFamily === wireFamily);

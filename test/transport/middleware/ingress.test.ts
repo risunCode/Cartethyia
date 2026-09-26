@@ -6,6 +6,7 @@ import { dbDescribe } from "../../helpers/db-gate";
 import { apiKeys, tenants } from "../../../src/persistence/schema";
 import { hashSecret } from "../../../src/security/crypto";
 import { ProxyRequestStateStore } from "../../../src/transport/request/state";
+import { createTransportPipeline } from "../../../src/transport/middleware/pipeline";
 import { GatewayError } from "../../../src/transport/gateway-error";
 import { getInFlightCount, resetInFlightForTests } from "../../../src/transport/request/inflight";
 import { getConsoleLogSnapshot, resetConsoleLogsForTests } from "../../../src/observability/log-ring";
@@ -129,6 +130,88 @@ describe("createRequestContextMiddleware — /v1 scoping", () => {
       expect(stateStore.get(req)).toBeUndefined();
     }
     expect(getInFlightCount()).toBe(0);
+  });
+
+  /**
+   * The lifecycle must be mounted at the ROOT, not on the `/v1` gateway
+   * plugin. A plugin-scoped `afterResponse` only fires for a request that
+   * matched a registered route, so an unregistered `/v1/*` path — the cheapest
+   * request an abuser can send — was admitted by the root `request` hook and
+   * never cleaned up. Measured before the fix: one unmatched request left
+   * `proxy_in_flight` permanently one higher for the life of the process.
+   *
+   * This drives the real pipeline (not a hand-built app) because the defect
+   * was precisely which app the lifecycle was registered on.
+   */
+  describe("in-flight accounting is symmetric for every /v1 path", () => {
+    beforeEach(() => resetInFlightForTests());
+
+    function buildPipelineApp(stateStore: ProxyRequestStateStore): Elysia {
+      const pipeline = createTransportPipeline({
+        db: {} as never,
+        stateStore,
+        surfaceRegistry: { detectOnce: () => ({ surface: "chat" }) } as never,
+        adapters: new Map(),
+        preparer: {} as never,
+        readiness: async () => ({ migrations: "applied" }) as never,
+        trustedProxyBoundary: { mode: "none" } as never,
+        telemetry: { enqueue: () => undefined } as never,
+      });
+      const app = new Elysia();
+      pipeline.mountRoot(app);
+      app.use(
+        pipeline.createGateway((routes) => {
+          routes.post("/chat/completions", () => ({ ok: true }));
+        }),
+      );
+      // Stands in for the root catch-all that answers an unmatched /v1 path.
+      app.all("/*", ({ request }) => {
+        const path = new URL(request.url).pathname;
+        if (path === "/v1" || path.startsWith("/v1/"))
+          return new Response(JSON.stringify({ error: { code: "not_found" } }), {
+            status: 404,
+            headers: { "content-type": "application/json" },
+          });
+        return { ok: true };
+      });
+      return app;
+    }
+
+    test("an unmatched /v1 path releases its flight", async () => {
+      const stateStore = new ProxyRequestStateStore();
+      const app = buildPipelineApp(stateStore);
+      for (const path of ["/v1/not-a-real-route", "/v1", "/v1/another-junk"]) {
+        const response = await app.handle(new Request(`http://localhost${path}`, { method: "POST" }));
+        expect(response.status).toBe(404);
+        expect(getInFlightCount()).toBe(0);
+        expect(stateStore.activeCount()).toBe(0);
+      }
+    });
+
+    test("a burst of unmatched paths cannot inflate the gauge", async () => {
+      const stateStore = new ProxyRequestStateStore();
+      const app = buildPipelineApp(stateStore);
+      for (let i = 0; i < 25; i += 1) {
+        await app.handle(new Request(`http://localhost/v1/probe-${i}`, { method: "POST" }));
+      }
+      // The whole point: the gauge returns to zero instead of climbing.
+      expect(getInFlightCount()).toBe(0);
+      expect(stateStore.activeCount()).toBe(0);
+    });
+
+    test("a matched dispatch route still finalizes and releases", async () => {
+      const stateStore = new ProxyRequestStateStore();
+      const app = buildPipelineApp(stateStore);
+      // The stage chain rejects an unauthenticated request before dispatch, so
+      // the handler does not run — what matters is that the flight is released
+      // rather than left behind by a route that *did* match.
+      const response = await app.handle(
+        new Request("http://localhost/v1/chat/completions", { method: "POST" }),
+      );
+      expect(response.status).toBeGreaterThanOrEqual(400);
+      expect(getInFlightCount()).toBe(0);
+      expect(stateStore.activeCount()).toBe(0);
+    });
   });
 });
 

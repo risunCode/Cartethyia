@@ -24,7 +24,6 @@ const TEXT_DECODER = new TextDecoder("utf-8", { fatal: false });
 /** Shared template-method lifecycle for HTTP-backed provider adapters. */
 export abstract class BaseProviderAdapter implements ProviderAdapter {
   abstract readonly provider_id: ProviderId;
-  protected abstract get supportedFamilies(): readonly WireFamily[];
 
   async *dispatch(
     request: CanonicalRequest,
@@ -34,15 +33,6 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
     if (request.model.includes("?")) {
       throw new GatewayError("invalid_request", 400, "model must not contain query string");
     }
-    if (this.supportedFamilies.length > 0 && !this.supportedFamilies.includes(target.wire_family)) {
-      throw new GatewayError(
-        "capability_unsupported",
-        400,
-        `${this.provider_id} supports only wire family "${this.supportedFamilies.join(", ")}", got "${target.wire_family}"`,
-        { provider: this.provider_id, wire_family: target.wire_family },
-      );
-    }
-
     const headers = await this.prepareHeaders(context, request, target);
     const payload = await this.preparePayload(request, target);
     const lifecycle = createUpstreamDeadlineLifecycle(context);
@@ -99,8 +89,6 @@ export interface OpenAICompatibleAdapterConfig {
   readonly structured_output?: { readonly mode: "json_object" | "json_schema"; readonly enabled: boolean; readonly schema?: Record<string, unknown> };
   /** Whether this provider accepts OpenAI prompt cache controls on its wire. */
   readonly supports_prompt_caching?: boolean;
-  /** Declared wire families this adapter serves; others reject with `capability_unsupported`. Required — adapters must declare their wire contract explicitly. */
-  readonly supported_wire_families: readonly WireFamily[];
   /** Final payload mutation hook — runs after canonical translation, before serialization. Lets a provider promote extension-namespaced `generation_controls` fields (e.g. Cerebras `extra_body`) without a fetch-wrapping hack. */
   /**
    * Per-dispatch dynamic header hook, applied after `extra_headers` (so it
@@ -193,10 +181,6 @@ export class OpenAICompatibleAdapter extends BaseProviderAdapter {
     super();
     this.config = config;
     this.provider_id = config.provider_id;
-  }
-
-  protected get supportedFamilies(): readonly WireFamily[] {
-    return this.config.supported_wire_families;
   }
 
   protected async prepareHeaders(

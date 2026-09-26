@@ -7,6 +7,7 @@ import { CURSOR_MODELS, buildCursorHeaders, buildCursorRunRequest, fetchCursorMo
 import { CONNECT_COMPRESSED_FLAG, frameConnectMessage } from "../../../../src/providers/integrations/connect";
 import type { CanonicalMessage } from "../../../../src/transport/canonical-model";
 import { jsonResponse } from "../../../helpers/sse-fixtures";
+import { providerUsesBespokeWire } from "../../../../src/providers/provider-metadata";
 
 describe("Cursor Integration", () => {
   describe("cursor-oauth.test.ts", () => {
@@ -212,9 +213,12 @@ describe("Cursor headers and catalog", () => {
       expect(ids).toContain(id);
     }
     for (const model of CURSOR_MODELS) {
-      expect(model.wireFamily).toBe("native");
+      // Cursor's adapter frames Connect+protobuf itself and ignores the wire
+      // family, so the row carries an inert canonical value; the RPC path and
+      // the provider's bespoke declaration are what the router acts on.
       expect(model.endpointPath).toBe("/agent.v1.AgentService/Run");
     }
+    expect(providerUsesBespokeWire("cursor")).toBe(true);
   });
 
   test("live discovery returns null for empty credentials without network", async () => {

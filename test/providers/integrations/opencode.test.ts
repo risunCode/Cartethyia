@@ -10,6 +10,8 @@ import {
   OPENCODE_GO_SPEC,
   OPENCODE_ZEN_MODELS,
   OPENCODE_ZEN_SPEC,
+  discoverOpenCodeFreeModels,
+  isFreeTierZenModel,
 } from "../../../src/providers/integrations/opencode";
 
 const TIERS: readonly {
@@ -253,6 +255,72 @@ describe("OpenCode bundled catalog", () => {
         });
       }
     }
+  });
+});
+
+describe("OpenCode Free tier discovery", () => {
+  /** One `/zen/v1/models` payload, as the shared Zen listing returns it. */
+  function zenListing(ids: readonly string[]): typeof fetch {
+    return (async () =>
+      new Response(JSON.stringify({ object: "list", data: ids.map((id) => ({ id, object: "model" })) }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof fetch;
+  }
+
+  test("keeps only the free tier out of the shared listing", async () => {
+    // The listing is the whole Zen catalog: 81 ids live, most of them billed and
+    // not routable without a credential. Discovery for this provider must not
+    // write them, or "Fetch models" fills the catalog with rows that can only
+    // 401.
+    const listed = ["claude-opus-5", "gpt-6-astra", "gemini-3.6-flash", "mimo-v2.5-free", "big-pickle"];
+    const discovered = await discoverOpenCodeFreeModels({
+      baseUrl: "https://opencode.ai/zen/v1",
+      fetcher: zenListing(listed),
+    });
+
+    // The fetcher returns rows sorted by id, so the expectation is in that
+    // order rather than listing order.
+    expect(discovered?.map((model) => model.modelId)).toEqual(["big-pickle", "mimo-v2.5-free"]);
+  });
+
+  test("marks every discovered row as a free-tier row", async () => {
+    // The marker is what `syncModels` turns into `source: "auto_free"`, which is
+    // the group the model list renders as "Free models (auto)". Without it a
+    // free-tier row is indistinguishable from an ordinary fetched one.
+    const discovered = await discoverOpenCodeFreeModels({
+      baseUrl: "https://opencode.ai/zen/v1",
+      fetcher: zenListing(["mimo-v2.5-free"]),
+    });
+
+    expect(discovered).toHaveLength(1);
+    expect(discovered?.[0]?.freeTier).toBe(true);
+  });
+
+  test("excludes a listing id upstream no longer serves", () => {
+    // Still advertised by `/zen/v1/models`, but a real free-tier dispatch with
+    // this adapter's own fingerprint headers answers 400 "Model is
+    // unavailable". Keeping it would re-add a row that can only fail a probe.
+    expect(isFreeTierZenModel("deepseek-v4-flash-free")).toBe(false);
+  });
+
+  test("keeps the free ids that do not use the suffix convention", () => {
+    expect(isFreeTierZenModel("big-pickle")).toBe(true);
+    expect(isFreeTierZenModel("mimo-v2.5-free")).toBe(true);
+    expect(isFreeTierZenModel("claude-opus-5")).toBe(false);
+  });
+
+  test("leaves the wire family the listing's own resolution chose", async () => {
+    // The generic fetcher infers `responses` from a Responses-native id. A
+    // filter that rebuilt each row would discard that and pin every free model
+    // to chat, which the upstream rejects.
+    const discovered = await discoverOpenCodeFreeModels({
+      baseUrl: "https://opencode.ai/zen/v1",
+      fetcher: zenListing(["gpt-5.6-free"]),
+    });
+
+    expect(discovered?.[0]?.wireFamily).toBe("responses");
+    expect(discovered?.[0]?.endpointPath).toBe("/v1/responses");
   });
 });
 

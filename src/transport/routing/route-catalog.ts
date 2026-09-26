@@ -26,6 +26,7 @@ import {
   type SnapshotBuilder,
 } from "./route-model";
 import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS } from "../../providers/provider-registry";
+import { providerUsesBespokeWire } from "../../providers/provider-metadata";
 import type { WireFamily } from "../canonical-model";
 
 const CLAUDE_MODEL_FAMILIES = new Set(["opus", "sonnet", "haiku", "fable", "mythos"]);
@@ -79,7 +80,7 @@ export function buildCapabilityProfile(row: {
   reasoning: boolean;
   toolCall: boolean;
   webSearch: boolean;
-  wireFamily: WireFamily;
+  providerId: string;
 }): Record<string, boolean> {
   const mods =
     row.modalities != null && typeof row.modalities === "object"
@@ -87,23 +88,28 @@ export function buildCapabilityProfile(row: {
       : {};
   const inputMods = Array.isArray(mods.input) ? mods.input : [];
   const outputMods = Array.isArray(mods.output) ? mods.output : [];
-  // The canonical chat / responses / messages request codecs all encode
-  // `image`, `document`/`file`, and `audio` parts, so every codec-backed route
-  // can carry them; only a bespoke `native` adapter (Cursor, Devin) has no
-  // generic rich-content path. Treating the codec families as capable by
-  // default keeps pass-through behavior instead of degrading a caller's
-  // attachment to text on the strength of a metadata guess. An explicit
-  // modality still wins, so a catalog can declare support for a native adapter
-  // too. Whether a given upstream model accepts the part is the upstream's
-  // call — a capability declared here only decides whether the router strips
-  // the part before it ever sees it.
-  const codecEncodesRichContent = row.wireFamily !== "native";
+  // The canonical chat and responses codecs encode `image`, `document`/`file`,
+  // and `audio` parts; the messages codec encodes the first two but has no
+  // audio block (see `AUDIO_CAPABLE_WIRE_FAMILIES`). A bespoke adapter (Cursor,
+  // Devin) frames its own protocol and has no generic rich-content path.
+  // Treating the codec routes as capable by default keeps pass-through behavior
+  // instead of degrading a caller's attachment to text on the strength of a
+  // metadata guess. An explicit modality still wins, so a catalog can declare
+  // support for a bespoke adapter too. Whether a given upstream model accepts
+  // the part is the upstream's call — a capability declared here only decides
+  // whether the router strips the part before it ever sees it, and the audio
+  // grant is narrowed per wire family at projection time.
+  const codecEncodesRichContent = !providerUsesBespokeWire(row.providerId);
   // Reasoning and tools are never stripped here. A `false` flag — whether a
   // discovered row recorded it for lack of metadata, or a catalog row set it
   // explicitly — must not become a silent rewrite of a request the caller
   // asked for. The upstream decides whether it can serve them and returns its
   // own error if it cannot.
   return {
+    // The route is not served by a canonical codec. Carried in the profile
+    // because the capability predicates downstream see only this snapshot, not
+    // the provider registry.
+    bespokeWire: !codecEncodesRichContent,
     image: inputMods.includes("image") || codecEncodesRichContent,
     document: inputMods.includes("document") || codecEncodesRichContent,
     audio: inputMods.includes("audio") || codecEncodesRichContent,

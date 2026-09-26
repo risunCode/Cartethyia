@@ -25,6 +25,41 @@ import { buildOpenCodeHeaders } from "./opencode-fingerprint";
 const ZEN_PATH_PREFIX = "/zen/v1";
 const GO_PATH_PREFIX = "/zen/go/v1";
 
+/**
+ * Free-tier ids that do not carry the `-free` suffix the rest of the tier uses.
+ *
+ * `/zen/v1/models` publishes the whole catalog — 81 ids, of which the billed
+ * ones (`claude-opus-5`, `gpt-6-astra`, …) are not routable for this provider.
+ * The tier marker is normally the suffix, but this one id has none, so a
+ * suffix-only rule would drop a served model. Kept as an explicit list rather
+ * than a guess from the listing, which states no tier field at all.
+ *
+ * One listing id is deliberately not served even though it carries the suffix:
+ * `deepseek-v4-flash-free` is still advertised but answers 400 "Model is
+ * unavailable" to a real free-tier dispatch (verified with this adapter's own
+ * fingerprint headers, stream + agent tools), so it is not a free model this
+ * provider can route to and is excluded by `isFreeTierZenModel`.
+ */
+const KNOWN_FREE_ZEN_IDS: readonly string[] = ["big-pickle"];
+
+/** Free-tier ids that the listing still advertises but upstream refuses. */
+const UNAVAILABLE_FREE_ZEN_IDS: readonly string[] = ["deepseek-v4-flash-free"];
+
+/**
+ * Whether a `/zen/v1/models` id belongs to the free tier this provider serves.
+ *
+ * The listing states no tier field, so the tier is read from the id convention
+ * the provider itself uses. Two failure directions are handled explicitly: an
+ * id outside the convention that is still free (`KNOWN_FREE_ZEN_IDS`), and an
+ * id inside it that upstream no longer serves (`UNAVAILABLE_FREE_ZEN_IDS`) —
+ * without the latter, "Fetch models" would keep re-adding a row that can only
+ * fail a probe.
+ */
+export function isFreeTierZenModel(modelId: string): boolean {
+  if (UNAVAILABLE_FREE_ZEN_IDS.includes(modelId)) return false;
+  return modelId.endsWith("-free") || KNOWN_FREE_ZEN_IDS.includes(modelId);
+}
+
 async function opencodeDesktopHeaders(): Promise<Record<string, string>> {
   // Await discovery so the true latest client version is stamped on every
   // dispatch; the pinned fallback only applies on a real network failure.
@@ -73,7 +108,6 @@ function opencodeSpec(providerId: "opencodeft" | "opencodezen" | "opencodego"): 
     endpoint_paths_by_wire_family: {
       ...PROVIDER_COMPATIBILITY_PROFILES[providerId]?.endpoint_paths_by_wire_family,
     },
-    supported_wire_families: ["chat", "responses"],
     promptCache: false,
     extra_headers: { accept: "application/json" },
     // Go is API-key-only: it never receives the desktop fingerprint.
@@ -104,6 +138,36 @@ export const OPENCODE_FREE_SPEC: ApiKeyProviderSpec = opencodeSpec("opencodeft")
 export const OPENCODE_ZEN_SPEC: ApiKeyProviderSpec = opencodeSpec("opencodezen");
 /** OpenCode Go — billed API-key route on the separate `/zen/go/v1` base. */
 export const OPENCODE_GO_SPEC: ApiKeyProviderSpec = opencodeSpec("opencodego");
+
+/**
+ * The free-tier subset of `/zen/v1/models`, as this provider's own discovery.
+ *
+ * The listing is the shared Zen catalog and states no tier: it returns all 81
+ * ids, most of which are billed and not routable without a credential. This
+ * provider serves the free tier only, so the listing is filtered to that tier
+ * and every surviving row is marked `freeTier`, which is what the model list
+ * groups as "Free models (auto)".
+ *
+ * The rows are the fetcher's own definitions, spread rather than rebuilt: it has
+ * already resolved limits, pricing, and the wire family from the id (a
+ * Responses-native id lands on `responses`, not pinned to chat), and
+ * re-deriving that here would discard the resolution and let the two drift.
+ */
+export async function discoverOpenCodeFreeModels(options: {
+  readonly baseUrl: string;
+  readonly fetcher?: typeof fetch;
+}): Promise<readonly ModelDefinition[] | null> {
+  const { fetchOpenAICompatibleModels } = await import("../discovery/openai-model-discovery");
+  const listed = await fetchOpenAICompatibleModels({
+    baseUrl: options.baseUrl,
+    providerId: "opencodeft",
+    ...(options.fetcher === undefined ? {} : { fetcher: options.fetcher }),
+  });
+  if (listed === null) return null;
+  return listed
+    .filter((model) => isFreeTierZenModel(model.modelId))
+    .map((model) => ({ ...model, freeTier: true }));
+}
 
 // Limits and pricing resolve from the committed models.dev snapshot
 // (`base-models.json`) via `providerId`; the snapshot is keyed per provider, so

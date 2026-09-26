@@ -64,7 +64,6 @@ export function codebuddyAdapterConfig(args: {
   return withBearerAuthentication({
     provider_id: args.providerId,
     base_url: args.baseUrl,
-    supported_wire_families: ["chat"],
     buildExtraHeaders: (context, request) => codebuddyHeaders(args.variant, context, request),
     prePayload: args.prePayload,
     ...(args.fetchImpl ? { fetchImpl: args.fetchImpl } : {}),

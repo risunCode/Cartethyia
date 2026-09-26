@@ -1,11 +1,16 @@
 /**
  * Aggregate line-coverage gate over hand-written backend `src/` (lcov).
  *
- * Offline baseline (no `CARTETHYIA_TEST_DATABASE_URL`) is ~75%: the DB-gated
- * console stores and integration suites are skipped, so `COVERAGE_MIN`
- * defaults to `75.0` to catch regressions from that real floor. In a
- * DB-backed CI environment, pass `COVERAGE_MIN=80.0` to enforce the full
- * target once the skipped suites actually run.
+ * `COVERAGE_MIN` defaults to `90.0`, the repository's committed floor. It is
+ * enforced in both environments: offline the DB-gated console and integration
+ * suites skip, but the non-DB surface (protocol codecs, adapters, routing,
+ * security) carries the bulk of `src/` and holds the floor on its own. CI runs
+ * the same suites with Postgres and Redis attached, so the number there is
+ * equal or higher.
+ *
+ * A caller may override the floor for a deliberate experiment
+ * (`COVERAGE_MIN=85 bun run check:coverage`); it is not a way to land a change
+ * that drops coverage, because the default is what CI enforces.
  */
 import { readFileSync, existsSync } from "node:fs";
 import { COVERAGE_LCOV_PATH } from "./ops-env-utils";
@@ -44,7 +49,7 @@ for (const record of records) {
 }
 
 const linePct = totalLinesFound === 0 ? 0 : (totalLinesHit / totalLinesFound) * 100;
-const minPct = Number.parseFloat(process.env.COVERAGE_MIN ?? "75.0");
+const minPct = Number.parseFloat(process.env.COVERAGE_MIN ?? "90.0");
 console.info(
   `[coverage-gate] src/ line coverage: ${linePct.toFixed(2)}% (${totalLinesHit}/${totalLinesFound} lines, required: ${minPct}%)`,
 );

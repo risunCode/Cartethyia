@@ -14,7 +14,7 @@ RUN bun install --frozen-lockfile
 # Copy application sources only after dependencies are installed.
 COPY src ./src
 COPY scripts ./scripts
-COPY drizzle ./drizzle
+COPY migrations ./migrations
 COPY dashboard ./dashboard
 
 # Build dashboard assets, then precompile and compile the backend.
@@ -44,7 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN groupadd -r cartethyia && useradd -r -g cartethyia cartethyia && \
     mkdir -p /app/data && chown -R cartethyia:cartethyia /app
 
-COPY --from=builder --chown=cartethyia:cartethyia /build/drizzle/migrations ./migrations
+COPY --from=builder --chown=cartethyia:cartethyia /build/migrations ./migrations
 COPY --from=builder --chown=cartethyia:cartethyia /build/dist/dashboard ./dist/dashboard
 COPY --chmod=755 docker-entrypoint.sh ./entrypoint.sh
 COPY --from=builder --chown=cartethyia:cartethyia /build/dist/cartethyia ./cartethyia

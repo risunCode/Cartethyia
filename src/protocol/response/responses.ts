@@ -62,12 +62,13 @@ function detailsCachedTokens(usage: Record<string, unknown>): number | undefined
  * let a later 0/128 wipe a prior hit.
  */
 export function mergeResponsesUsage(
-  current: Record<string, unknown> | undefined,
-  update: Record<string, unknown> | undefined,
+  current: Record<string, unknown> | null | undefined,
+  update: Record<string, unknown> | null | undefined,
 ): Record<string, unknown> | undefined {
   // Some bridges (CodeBuddy intl) emit `"usage": null` frames; a null update
-  // carries no counts and must not reach Object.entries.
-  if (update === undefined || update === null) return current;
+  // carries no counts and must not reach Object.entries. The parameter type
+  // says `null` because that is a real upstream shape, not a caller mistake.
+  if (update === undefined || update === null) return current ?? undefined;
   if (current === undefined || current === null) return { ...update };
   const merged: Record<string, unknown> = { ...current };
   for (const [key, value] of Object.entries(update)) {

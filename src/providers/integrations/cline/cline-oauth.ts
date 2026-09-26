@@ -123,8 +123,13 @@ export class ClineOAuthClient extends OAuthDeviceFlow {
     const expiresAtMs = Date.now() + start.expiresInSeconds * 1000;
     this.#sessions.set(start.deviceCode, { expiresAtMs });
     this.#boundSessions();
+    // WorkOS returns `verification_uri_complete`, which already carries the
+    // user code in its query string. Preferring it is what makes the flow
+    // one click: the operator opens the page and the code is entered for them.
+    // Publishing only `verification_uri` forced them to read the code here and
+    // type it into the form by hand.
     return {
-      verificationUri: start.verificationUri,
+      verificationUri: start.verificationUriComplete ?? start.verificationUri,
       userCode: start.userCode,
       deviceAuthId: start.deviceCode,
       intervalSeconds: start.intervalSeconds,

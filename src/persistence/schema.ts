@@ -75,7 +75,7 @@ export const credentialKind = pgEnum("credential_kind", ["api_key", "oauth", "no
 
 // Shared wire-family domain used by providers.wire_family_default and
 // models.wire_family.
-export const wireFamily = pgEnum("wire_family", ["chat", "responses", "messages", "native"]);
+export const wireFamily = pgEnum("wire_family", ["chat", "responses", "messages"]);
 
 export const networkPoolKind = pgEnum("network_pool_kind", ["http", "socks5"]);
 

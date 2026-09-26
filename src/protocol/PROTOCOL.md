@@ -48,7 +48,7 @@ src/protocol/
 `transformStream` → `decodeWireStream` / `decodeWireResponse`):
 
 - `encodeWireRequest(wireFamily, request, CodecContext)` → chat / responses /
-  messages builders. Throws on anything else — including `"native"`.
+  messages builders. Throws on any value outside those three.
 - `decodeWireResponse(wireFamily, json, request, context)` → per-family
   JSON parsers.
 - `decodeWireStream(wireFamily, body, request, context)` → per-family SSE
@@ -85,7 +85,11 @@ builders/parsers called directly by their adapters
   thinking is enabled; `stop_sequences` cap 4; `thinking{type,budget_tokens,
   display,block_binding}` + default `context_management`;
   `output_config{effort,task_budget}`; `container`, `inference_geo`,
-  `service_tier`, OAuth tool-name prefixing.
+  `service_tier`, OAuth tool-name prefixing. Rich content is re-encoded per
+  part (`image` → `source`, `file`/`document` → `document.source`); an `audio`
+  part degrades to a `[audio]` text placeholder because this schema defines no
+  audio block — see `AUDIO_CAPABLE_WIRE_FAMILIES`, which keeps such a request
+  off this wire in the first place.
 - `request/codex.ts` — `canonicalToCodexResponsesPayload(request,
   { responsesLite, concurrentReasoningSummaries })` +
   `applyCodexResponsesLiteShape`: owns orphan tool-exchange repair (synthesize
@@ -168,7 +172,11 @@ Codex ids/effort/session state, Harmony escaping (gpt-5/gpt-oss only),
 `normalizeBearerToken`, `filterProviderCustomHeaders` (RFC-token name, 4 KiB
 value cap, control-char reject, protected-name reject — protection list
 imported from `src/security/outbound-headers.ts`), `resolveImageSource` (Chat /
-Responses / Anthropic origin shapes), hash/JSON helpers.
+Responses / Anthropic origin shapes — read by every builder that puts an image
+on a wire where `image_url` must be a **string**, including the Codex and
+Responses computer-screenshot renderers; forwarding the canonical payload
+verbatim put an object on the wire and the provider rejected the request with
+"expected an image URL, but got an object instead"), hash/JSON helpers.
 
 ## Upstream executors
 

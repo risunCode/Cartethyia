@@ -98,6 +98,35 @@ describe("parseProviderResetDuration", () => {
     expect(parseProviderResetDuration("try again in 30s")).toBe(30_000);
   });
 
+  test("sums a compound duration instead of reading only the first unit", () => {
+    // The live Cline daily-limit 429 states "Try again in 4h 13m". Reading only
+    // the first pair dropped the 13 minutes, so the stored deadline was earlier
+    // than the window the provider stated and the account re-entered rotation
+    // before it. Every separator providers actually use is accepted.
+    const fourThirteen = 4 * 3600_000 + 13 * 60_000;
+    expect(
+      parseProviderResetDuration(
+        "Provider rate limit: Error 429: Daily free limit reached on model deepseek/deepseek-v4.1-flash. Try again in 4h 13m",
+      ),
+    ).toBe(fourThirteen);
+    expect(parseProviderResetDuration("resets in 1 hour and 30 minutes")).toBe(90 * 60_000);
+    expect(parseProviderResetDuration("resets in 1h, 15m")).toBe(75 * 60_000);
+    expect(parseProviderResetDuration("quota will reset in 2h30m")).toBe(150 * 60_000);
+  });
+
+  test("does not read milliseconds or months as a reset duration", () => {
+    // `m` must not swallow the first letter of `ms`/`mo`, or a backoff of
+    // milliseconds would be read as minutes and a month as a minute.
+    expect(parseProviderResetDuration("try again in 500ms")).toBeNull();
+    expect(parseProviderResetDuration("resets in 2 months")).toBeNull();
+  });
+
+  test("a trailing number in the sentence is not absorbed into the duration", () => {
+    // Only pairs that continue the phrase count, so a later number is ignored
+    // rather than added to the reset window.
+    expect(parseProviderResetDuration("try again in 30s. Request id 12345")).toBe(30_000);
+  });
+
   test("reads an absolute reset stamp with a UTC offset", () => {
     // The live WorkBuddy 429 shape: the provider states an absolute instant,
     // not a duration. A relative-only parser returned null, so the account

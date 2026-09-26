@@ -9,6 +9,7 @@ import {
   syncByokProvider,
 } from "../../../src/providers/operations/provider-catalog-service";
 import { defineModel } from "../../../src/providers/model-definition";
+import { resolveByokWireProfile } from "../../../src/providers/operations/byok-wire-profile";
 import { inArray } from "drizzle-orm";
 import { getDb } from "../../../src/persistence/postgres";
 import { providers } from "../../../src/persistence/schema";
@@ -161,16 +162,17 @@ describe("registerByokProviders", () => {
     const adapter = (await registry.resolve("acme-anthropic")) as unknown as {
       config: {
         authentication_header_shape: string;
-        supported_wire_families: readonly string[];
         endpoint_paths_by_wire_family: Record<string, string>;
       };
     };
     expect(adapter).toBeDefined();
     // The derived adapter contract is what dispatch uses: x-api-key for the
-    // Messages wire, `/v1/messages` for the endpoint, messages only.
+    // Messages wire, `/v1/messages` for the endpoint. The wire-family set is
+    // derived alongside it by `resolveByokWireProfile`, which the dashboard
+    // reads for its Add-Model selector — asserted at that source below.
     expect(adapter.config.authentication_header_shape).toBe("x_api_key");
-    expect(adapter.config.supported_wire_families).toEqual(["messages"]);
     expect(adapter.config.endpoint_paths_by_wire_family.messages).toBe("/v1/messages");
+    expect(resolveByokWireProfile("messages", null).supportedWireFamilies).toEqual(["messages"]);
   });
 });
 

@@ -3,6 +3,7 @@ import type { CartethyiaDatabase } from "../../persistence/postgres";
 import type { ApiKeyRecord } from "../../persistence/api-key-store";
 import { CachedPreferencesReader, DrizzlePreferencesReader } from "../../persistence/tenant-preferences";
 import { maskClientIp } from "../../observability/redaction";
+import { gatewayErrorSql } from "../../observability/telemetry-status";
 import { telemetryEvents, telemetryUsageTotals } from "../../persistence/schema";
 import { shouldMaskClientIp } from "../shared/ip-privacy";
 
@@ -101,7 +102,7 @@ export function createShareUsagePort(db: CartethyiaDatabase): ShareActivityPort 
           .select({
             apiKeyId: telemetryEvents.apiKeyId,
             requests: sql<number>`count(*)`,
-            errors: sql<number>`count(*) filter (where ${telemetryEvents.status} in ('failed', 'truncated'))`,
+            errors: sql<number>`count(*) filter (where ${gatewayErrorSql(telemetryEvents.status, telemetryEvents.httpStatus)})`,
             inputTokens: sql<number>`coalesce(sum(${telemetryEvents.inputTokens}), 0)`,
             outputTokens: sql<number>`coalesce(sum(${telemetryEvents.outputTokens}), 0)`,
           })
@@ -179,10 +180,10 @@ export function createShareUsagePort(db: CartethyiaDatabase): ShareActivityPort 
             providerId: telemetryEvents.providerId,
             modelId: telemetryEvents.requestedModel,
             retainedRequests: sql<number>`count(*)`,
-            retainedErrors: sql<number>`count(*) filter (where ${telemetryEvents.status} in ('failed', 'truncated'))`,
+            retainedErrors: sql<number>`count(*) filter (where ${gatewayErrorSql(telemetryEvents.status, telemetryEvents.httpStatus)})`,
             retainedTokens: sql<number>`coalesce(sum(coalesce(${telemetryEvents.inputTokens}, 0) + coalesce(${telemetryEvents.outputTokens}, 0)), 0)`,
             todayRequests: sql<number>`count(*) filter (where ${telemetryEvents.createdAt} >= ${todayStart})`,
-            todayErrors: sql<number>`count(*) filter (where ${telemetryEvents.createdAt} >= ${todayStart} and ${telemetryEvents.status} in ('failed', 'truncated'))`,
+            todayErrors: sql<number>`count(*) filter (where ${telemetryEvents.createdAt} >= ${todayStart} and ${gatewayErrorSql(telemetryEvents.status, telemetryEvents.httpStatus)})`,
             todayTokens: sql<number>`coalesce(sum(coalesce(${telemetryEvents.inputTokens}, 0) + coalesce(${telemetryEvents.outputTokens}, 0)) filter (where ${telemetryEvents.createdAt} >= ${todayStart}), 0)`,
           })
           .from(telemetryEvents)

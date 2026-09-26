@@ -187,17 +187,26 @@ export async function resolveProbeTarget(args: {
       }
     }
   }
-  // A stored row is a cache of the derivation, not an authority: a row written
-  // before the provider's contract was respected (or by a hand edit) names a
-  // wire the adapter refuses. The contract wins and the endpoint is recomputed
-  // for the family it selected, so the probe reports the provider's real shape
-  // instead of an opaque `capability_unsupported` 400. Re-sync to rewrite the row.
-  const contracted = constrainWireFamily(wireFamily, declaredFamilies);
-  if (contracted.corrected) {
-    wireFamily = contracted.wireFamily;
-    endpointPath = endpointForFamily(wireFamily);
+  // A stored row, a bundled catalog row, or a discovery guess is a cache of the
+  // derivation, not an authority: it can name a wire the provider's own
+  // declaration does not list, and dispatch would then answer
+  // `capability_unsupported` for a probe the operator never asked for. The
+  // contract wins for those derived sources and the endpoint is recomputed for
+  // the family it selected, so the probe reports the provider's real shape.
+  //
+  // An explicit `request.wireFamily` is deliberately exempt: that is the
+  // operator naming the wire themselves, not a derivation to be corrected. The
+  // wire selector exists to reach an upstream protocol this gateway carries no
+  // bundled knowledge of, so silently swapping the choice would probe a
+  // different wire than the one requested — the failure this exemption fixes.
+  if (!request.wireFamily) {
+    const contracted = constrainWireFamily(wireFamily, declaredFamilies);
+    if (contracted.corrected) {
+      wireFamily = contracted.wireFamily;
+      endpointPath = endpointForFamily(wireFamily);
+    }
   }
-  const sourceSurface: SourceSurface = wireFamily === "native" ? "chat" : wireFamily;
+  const sourceSurface: SourceSurface = wireFamily;
   return { wireFamily, endpointPath, sourceSurface };
 }
 
@@ -287,7 +296,6 @@ export async function resolveProbeAdapter(args: {
           base_url: providerWireRow.baseUrl,
           authentication_header_shape: wireProfile.authHeaderShape,
           endpoint_paths_by_wire_family: wireProfile.endpointPathsByWireFamily,
-          supported_wire_families: wireProfile.supportedWireFamilies,
         });
       }
     } catch {
@@ -324,6 +332,13 @@ export async function loadProbePreferences(args: {
   const { db, tenantId, wireFamily, request } = args;
   let probeReasoning: ProbeReasoning | undefined;
   let payloadCaptureEnabled = false;
+  // `auto` (and an omitted effort) means "send no reasoning intent": the probe
+  // must reflect what the route does by itself, and a model that does not
+  // support reasoning would otherwise fail a probe that should have passed.
+  const requestedEffort =
+    request.reasoningEffort === undefined || request.reasoningEffort === "auto"
+      ? undefined
+      : request.reasoningEffort;
   try {
     const rows = await db
       .select({ preferences: consoleSettings.preferences })
@@ -335,16 +350,16 @@ export async function loadProbePreferences(args: {
     const mode: "auto" | "concise" | "detailed" =
       raw === "auto" || raw === "concise" || raw === "detailed" ? raw : "detailed";
     payloadCaptureEnabled = preferences?.telemetryPayloads === "bounded";
-    if (wireFamily === "responses") {
+    if (wireFamily === "responses" && requestedEffort !== undefined) {
       probeReasoning = {
-        effort: request.reasoningEffort ?? "medium",
+        effort: requestedEffort,
         summary_mode: mode,
       };
     }
   } catch {
-    if (wireFamily === "responses") {
+    if (wireFamily === "responses" && requestedEffort !== undefined) {
       probeReasoning = {
-        effort: request.reasoningEffort ?? "medium",
+        effort: requestedEffort,
         summary_mode: "detailed",
       };
     }
@@ -387,7 +402,12 @@ export function buildProbeCanonicalRequest(args: {
       temperature: 0.2,
     },
     ...(probeReasoning ? { reasoning: probeReasoning as never } : {}),
-    stream: request.stream ?? false,
+    // Streaming by default. Every probe funnels through here, so one default
+    // gives all three entry points (single model, all models, all accounts) the
+    // same transport — and a streamed probe is the only one that observes
+    // time-to-first-byte, which is what the dashboard reports. A caller that
+    // explicitly asks for a non-streamed probe (`stream: false`) still gets one.
+    stream: request.stream ?? true,
     source_surface: sourceSurface,
   };
 }

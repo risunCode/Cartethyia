@@ -37,6 +37,11 @@ import {
   type ParsedCredentialEntry,
 } from "../../lib/credential-extract";
 import { formatResetDistance } from "../../lib/quota-formatters";
+import {
+  AccountStatusDetail,
+  activeModelCooldowns,
+  lastModelCooldownAt,
+} from "../../components/AccountCooldown";
 import { downloadTextFile } from "../../lib/download";
 import { toast } from "../../lib/toast";
 import type { ProviderAccountResponse } from "../../lib/contracts";
@@ -50,18 +55,6 @@ function accountStatusRank(status: string): number {
   if (status === "degraded") return 1;
   if (status === "cooldown") return 2;
   return 3;
-}
-
-/** Count of per-model backoffs still in force, and the soonest deadline. */
-function activeModelCooldowns(
-  account: ProviderAccountResponse,
-): { count: number; soonest: string } | undefined {
-  const entries = Object.entries(account.modelCooldowns ?? {}).filter(
-    ([, at]) => Number.isFinite(new Date(at).getTime()) && new Date(at).getTime() > Date.now(),
-  );
-  if (entries.length === 0) return undefined;
-  const soonest = entries.map(([, at]) => at).sort()[0];
-  return soonest === undefined ? undefined : { count: entries.length, soonest };
 }
 
 function AccountStatusBadge({
@@ -108,8 +101,13 @@ function AccountStatusBadge({
           Active
         </Badge>
         {modelCooldowns ? (
-          <Badge tone="warn" dot>
-            {modelCooldowns.count} model{modelCooldowns.count === 1 ? "" : "s"} cooling
+          <Badge
+            tone="warn"
+            dot
+            title={`Soonest: ${modelCooldowns.modelId} — ${formatResetDistance(modelCooldowns.until)}`}
+          >
+            {modelCooldowns.count} model{modelCooldowns.count === 1 ? "" : "s"} cooling ·{" "}
+            {formatResetDistance(modelCooldowns.until)}
           </Badge>
         ) : null}
       </Inline>
@@ -182,12 +180,21 @@ function AccountRow({
   const [renaming, setRenaming] = useState(false);
   const [draftLabel, setDraftLabel] = useState("");
   const label = account.label || account.id.slice(0, 8);
+  // The countdown re-renders on a timer. It must be armed by the per-model
+  // backoffs too, not only by `cooldownUntil`: a model-scoped 429 writes
+  // `modelCooldowns` and deliberately leaves `cooldownUntil` untouched (the
+  // account stays routable for every other model), so keying the timer on
+  // `cooldownUntil` alone left a per-model badge that never counted down.
+  const lastModelCooldownAtValue = lastModelCooldownAt(account);
+  const countdownTarget = Math.max(
+    hasActiveCooldown && account.cooldownUntil ? cooldownUntilMs : 0,
+    lastModelCooldownAtValue ?? 0,
+  );
   useEffect(() => {
-    if (!hasActiveCooldown || !account.cooldownUntil) return;
-    if (new Date(account.cooldownUntil).getTime() - Date.now() <= 0) return;
+    if (countdownTarget <= Date.now()) return;
     const timer = setInterval(() => setTick((tick) => tick + 1), 1000);
     return () => clearInterval(timer);
-  }, [account.cooldownUntil, hasActiveCooldown]);
+  }, [countdownTarget]);
 
   const saveLabel = () => {
     const next = draftLabel.trim();
@@ -383,11 +390,12 @@ function AccountRow({
             status: account.status,
             errorCategory: account.lastErrorCategory ?? undefined,
             errorMessage: account.lastError ?? undefined,
-            statusDetail: account.cooldownUntil ? (
-              <span style={{ fontSize: "11px", color: "var(--orange)" }}>
-                {formatResetDistance(account.cooldownUntil)}
-              </span>
-            ) : undefined,
+            statusDetail: (
+              <AccountStatusDetail
+                cooldownUntil={account.cooldownUntil}
+                modelCooldowns={account.modelCooldowns}
+              />
+            ),
             emptyMessage: "Status transitions, rate limits, and auto-recoveries will appear here.",
           }}
           onClose={() => setShowHistory(false)}

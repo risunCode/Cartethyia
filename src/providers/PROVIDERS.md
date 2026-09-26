@@ -39,6 +39,10 @@ Three layers combine in `default-registry.ts: BUNDLED_PROVIDER_MODULES`, then `c
    binding, so dispatch needs no second map. `DEFAULT_PROXY_BYPASS_PROVIDER_IDS` derives the one
    proxy-bypass default that console routing, provider detail, and domain registration all read.
    `PROVIDER_COMPATIBILITY_PROFILES` holds OpenAI-wire overrides only for the three `opencode*` hosts.
+   `opencodeft` is the one provider that serves a free tier of a shared catalog: its discovery filters
+   `/zen/v1/models` down to the free ids (`isFreeTierZenModel`, which keeps the `-free` convention plus the
+   explicit exceptions in both directions) and marks the survivors, so "Fetch models" writes only what this
+   provider can actually route rather than the 81-id billed catalog.
 2. **Capabilities** (`default-registry.ts: PROVIDER_CAPABILITIES`, keyed by every `BundledProviderId` with
    a `satisfies` check, so a missing key is a type error): `loadAdapter` (required) plus any of
    `loadModels`, `loadAuthentication`, `loadQuotaCollector`, `loadModelDiscovery`,
@@ -88,7 +92,10 @@ exclusive `gateway_user_agent` (boolean) instead stamps `user-agent: Cartethyia/
    the row and never inherited. A capability a row does not name is left to the routing ladder rather than
    guessed — `buildCapabilityProfile` treats the
    codec wires as able to carry image/document/audio parts, and an upstream that cannot accept one degrades
-   it itself. Reasoning and tools are never stripped: `buildCapabilityProfile` grants both regardless of the
+   it itself. Audio is the exception, because the Anthropic Messages request schema defines no audio block:
+   `routeCapabilitiesFor` narrows it to the wires that do (`chat`, `responses`), so a `messages` route never
+   claims it and a declared `audio` modality cannot override that. Reasoning and tools are never stripped:
+   `buildCapabilityProfile` grants both regardless of the
    row's recorded flags or its `source`. A `false` there — a discovered row with no metadata, or a catalog row
    set explicitly — must not silently rewrite a request the caller asked for. The upstream decides whether it
    can serve them and returns its own error if it cannot.
@@ -109,6 +116,21 @@ stay in `integrations/<name>/*-oauth.ts`.
 
 - **One login contract.** `OAuthLoginClient` declares device-code and browser-code support plus
   authorize/exchange/start/poll methods; each client implements only the flows its upstream offers.
+  `supportsBrowserCode` is authoritative when a client states it. The base `OAuthClient` always *defines*
+  `buildAuthorizeUrl` and `exchangeCode` — a device-only client overrides the latter to throw — so a
+  capability check that only tests for the methods reports browser support for every device-only provider
+  (Cline, Cursor, Grok, Kimi, Muse, Buddy). The console's `oauthFlows` derivation therefore treats an
+  explicit `false` as decisive and falls back to the method-shape test only when the flag is omitted.
+- **A device poll is one attempt.** `pollDeviceAuth` performs a single token-endpoint request and returns
+  `pending` while the user has not approved; the dashboard owns the cadence. A poll that loops internally
+  holds one console request open for the whole authorization window (Codex previously slept through up to
+  120 attempts, ~16 minutes) and makes the dialog's own interval meaningless. Device state is deleted only
+  *after* the exchange succeeds — an authorization code is single-use, so dropping it first strands a failed
+  exchange with no way to retry.
+- **Publish the complete verification URI when the provider sends one.** A device start returns
+  `verification_uri_complete` (WorkOS, Cline) or `verification_uri`. Preferring the complete form is what
+  makes the flow one click: it carries the user code in its query string, so opening the page enters the
+  code automatically instead of asking the operator to read it from the dialog and type it into the form.
 - **Base class and lifecycle.** `oauth-client.ts` encapsulates PKCE authorize-URL building, form token
   exchange, normalized token parsing, and refresh, with protected hooks for scopes, extras, and field
   mapping; its `FetchLike` seam keeps tests off the network. `oauth-device-flow.ts` owns the generic device
@@ -189,6 +211,32 @@ database. Per-provider entry points live in `integrations/`, registered as each 
   floors: `parsedContext ?? fallback?.contextLimit ?? 200_000` (and `64_192` for output), so a provider that
   states its own limits is never overridden by the catalog. models.dev is authoritative mainly for **pricing**
   — an upstream `/models` response rarely states a price — and its limits are a secondary source.
+  `defineModel` applies the same precedence to a static catalog row and then clamps: an output cap above the
+  context window is unsatisfiable, and the base catalog states `output === context` on 1084 rows and
+  `output > context` on 69 (a Kimi K2.6 row is filed `262144/262144`), so `outputLimit` is
+  `min(declared, context)`. A `null` limit stays `null` — "not stated" is not zero.
+  A provider models.dev does not file under our id leaves `resolve` undefined, and a fixed default is a worse
+  answer than the catalog's own majority view: `modelsDevCatalog.majorityFor(bareId)` votes per field across
+  every row for that bare id (ties resolve to the larger value — a limit stated too low truncates work, one
+  stated too high is caught by the provider). 18 of 19 rows file `claude-opus-5` as `1000000/128000`; the
+  single dissenter is a reseller's outlier, not the model. Only what the vote actually answers is taken: an
+  id nobody records keeps the documented default.
+  A **recommended-models** endpoint that reports no limits at all is the case this matters most for: Cline's
+  roster publishes only `id`/`name`/`description`/`tags`. Its limits come from Cline's own sibling catalog
+  (`/ai/cline/models`, which states `context_length` and `top_provider.max_completion_tokens`) when that
+  fetch succeeds, and from the tiers above when it does not. A hardcoded `200_000/64_192` was wrong for
+  most of that roster — the subscription entries are 1M-context. The two endpoints spell the same model
+  differently (`cline-pass/kimi-k3` vs `moonshotai/kimi-k3`), so the upstream index records each id and its
+  bare segment.
+  A discovery module may also mark its rows as a free plan tier, and that marker is what the model list
+  groups on. Cline's roster states the tier structurally — the `free` bucket is the tier, and membership of
+  that bucket is the whole rule: its ids are mostly `cline-free/…`, but a served free id need not carry the
+  prefix (`deepseek/deepseek-v4-flash` and `z-ai/glm-5.3-flash` are free-tier catalog models with none), so a
+  prefix test would drop served models while admitting retired ones. `syncModels` writes `source: "auto_free"`
+  for a marked row and `discovered` for the rest, which is the only point where the distinction still exists;
+  it prunes both sources on a superseded `(model, endpoint)` pair. Discovery for `cline` asks for the free
+  tier only, because this gateway carries Cline as one provider and the pass roster would land in the catalog
+  of an operator who may hold no pass.
   `resolve()` is fail-closed and provider-specific (right for metadata), while `costFor()` additionally
   falls back to the rate the catalog records for the model itself: a reseller that republishes a model
   without publishing its own rate is billed the model's global rate, never `$0.00`. Discovery callers pass
@@ -212,7 +260,8 @@ database. Per-provider entry points live in `integrations/`, registered as each 
   repository while sharing the provider catalog contract: `probeModel` runs a one-shot connectivity test
   (latency + TTFB + sample or typed error, honoring an optional `route`/`wireFamily` override),
   `probeAllModels` batches at `PROBE_CONCURRENCY = 5` after a sequential warm-up, and `syncModels`
-  reconciles into the `models` table. Every attempt resolves its credential via `resolveCredentialForAccount`,
+  reconciles into the `models` table. All three funnel through `probeModel`, so there is one probe path
+  rather than one per entry point. Every attempt resolves its credential via `resolveCredentialForAccount`,
   classifies failure with `classifyUpstreamFailure`, and reports health through `recordAccountFailure` /
   `recordAccountSuccess`. The phases `probeModel` orchestrates — target/endpoint resolution, account
   selection, adapter resolution, preference loading, request construction, health recording, verdict
@@ -222,6 +271,20 @@ database. Per-provider entry points live in `integrations/`, registered as each 
   the same frame as the binding. Probe dispatch carries `CARTETHYIA_PROBE_MARKER` in
   `ProviderDispatchContext` and telemetry; `createProbeFetch` strips any
   `User-Agent` before the validated fetch.
+  Two request defaults are shared by every entry point, both set in `buildProbeCanonicalRequest` /
+  `loadProbePreferences`:
+  - **Streaming by default** (`stream: request.stream ?? true`). A streamed probe is the only one that
+    observes time-to-first-byte, and it keeps the connection open while a reasoning model thinks instead of
+    waiting for a complete body. An explicit `stream: false` is still honoured.
+  - **No reasoning intent unless asked** (`reasoningEffort` omitted or `auto`). `auto` is the default
+    because the probe's job is to discover what a route does: forcing an effort onto a model that does not
+    support reasoning turns a working route into a failing probe. A specific effort
+    (`PROBE_REASONING_EFFORTS`, which includes `auto` so the request type and the route schema project one
+    list) is forwarded only when the operator picks one — which is what lets the dashboard's section-wide
+    Thinking selector, in the Models card header beside "Fetch models", make every test in that card follow
+    one setting.
+  The empty-content retry raises the output allowance and forces streaming, so a model that spends its
+  budget reasoning before emitting text still produces a sample.
 - **Wire reconciliation.** `applyDiscoveredWire` merges a discovered wire family/endpoint onto a registered
   model for probing without mutating the catalog; `staticEndpointForWire` maps a wire family to the
   provider's own bundled-catalog path and backs explicit-wire probes plus manual registration. Probing takes
@@ -241,6 +304,15 @@ Messages-only custom provider was discovered onto `chat` rows its adapter reject
 `gpt-5`/`o3`-style ids. A corrected wire family moves a model to a new `(model, endpoint)` row, so a sync
 also prunes that provider's superseded `discovered` rows for the ids it resolved.
 
+That gate corrects *derived* sources only — a stored row, a bundled catalog row, or a discovery guess. An
+explicit `ProbeModelRequest.wireFamily` is the operator naming the wire themselves and passes through
+untouched: a manually added provider may serve a protocol the gateway carries no bundled knowledge of, and
+silently rewriting the pick would probe a wire other than the one requested. Dispatch applies no
+wire-family gate of its own for the same reason — the upstream is the authority on which protocols it
+answers, and `supportedWireFamilies` is published metadata (the Add-Model selector's default order), not an
+enforcement boundary. A family the provider does not declare still reaches the upstream and fails there,
+which is the real answer.
+
 ## Operations: runtime glue
 
 Runtime glue between the static registry and the database: seeding, layered caches, client-version
@@ -251,7 +323,13 @@ deadlines. Routing, console, and discovery consume providers through these servi
 - **Catalog materialization.** `seedBundledProviders` idempotently inserts every `BUNDLED_PROVIDER_MODULES`
   row (`onConflictDoNothing`, then a compatibility-profile merge `UPDATE`). `seedBundledModels` persists the
   compiled `ModelDefinition` maps and deletes stale `builtin` rows by the `(model, endpoint)` composite key,
-  so a moved endpoint never leaves a duplicate dead route. `registerByokProviders` / `syncByokProvider` wire
+  so a moved endpoint never leaves a duplicate dead route. That deletion makes a static catalog list the
+  *owner* of its `builtin` rows: nothing else prunes one, so an id the upstream has retired keeps its
+  catalog card — and its route — until it is removed from the list. A seed row is only useful while the
+  provider still serves it, so a roster the provider publishes (Cline's `/ai/cline/recommended-models`,
+  read by `fetchClineRecommendedModels`) is the authority for what belongs there, and the static list is
+  the offline seed that makes a fresh install usable before the first fetch.
+  `registerByokProviders` / `syncByokProvider` wire
   tenant-supplied endpoints with SSRF validation.
 - **Three cache layers.** `getCachedModels` caches the loader *promise* per provider for the process lifetime
   (LRU-bounded, failures evicted so they retry). `getCachedModelDiscovery` caches only credential-free
@@ -296,7 +374,11 @@ deadlines. Routing, console, and discovery consume providers through these servi
   `reportAttemptOutcome` is the per-attempt hook, `recoverAccount` / `sweepExpiredCooldowns` run recovery, and
   every transition is journaled to `healthEvents`. A throttle (`rate_limit_transient` / `model_capacity`) with
   a `modelId` cools the **(account, model)** pair through `modelCooldowns` instead of the account, so the
-  account stays routable for every other model; the console reports those live backoffs beside the status.
+  account stays routable for every other model; the console reports those live backoffs beside the status,
+  including **when** the soonest one clears — a cooldown is detection-based, so the deadline is the part an
+  operator acts on, and a per-model throttle leaves `cooldownUntil` null, so a view reading only that field
+  showed a 429 reason with no time at all. Both health dialogs build that line from one shared component, and
+  the periodic `sweepExpiredCooldowns` pass prunes the elapsed keys.
   Recovery (`recoverAccount`, a consumed rate-limit reset) clears **every** routing exclusion — account status,
   `cooldownUntil`, and the per-model `modelCooldowns` map — because the routing catalog reads each of them
   independently: a recovery that left a per-model entry behind kept the account blocked for that model over the
@@ -356,7 +438,7 @@ and `loadModelDiscovery` is a dynamic import — so nothing here may run at star
 (`reasoning.ts` is likewise pure but sits one level up in `src/providers/`.)
 
 **Generic `ApiKeyProviderSpec` rows** (preferred for OpenAI-compatible, bearer-auth hosts) declare data only:
-`provider_id`, `endpoint_paths_by_wire_family`, `supported_wire_families`, `extra_headers` /
+`provider_id`, `endpoint_paths_by_wire_family`, `extra_headers` /
 `buildExtraHeaders`, `prePayload`, `prepareRequest`, `credential_forwarding`, `promptCache`,
 `gatewayUserAgent`.
 `createApiKeyAdapter(spec)` builds the `OpenAICompatibleAdapter`, and `base_url` defaults to
@@ -374,6 +456,25 @@ reason: `anthropic.ts` (Messages envelope + `x-api-key`), `gemini.ts` (per-model
 signing + enveloped SSE), `commandcode.ts` (NDJSON thread/config envelope), `agentrouter.ts`, `cloudflare.ts`
 (composite `{apiKey, accountId}` credential), `kimi/kimi.ts` (Messages envelope reusing the shared Claude
 pipeline).
+
+A bespoke adapter frames its own protocol, so no canonical wire codec serves its rows. That fact is
+declared once per provider as `bespokeWire` in `provider-metadata.ts` (Cursor and Devin are the bundled
+cases) and carried into the route snapshot as `capability_profile.bespokeWire`. Two consequences follow
+from it, and both used to be expressed by a fourth `native` wire-family value that is now retired:
+
+- **Rich content is gated, not assumed.** The chat/responses codecs encode `image`/`document`/`audio` parts and the messages
+  codec encodes `image`/`document`, so a codec-backed route carries them by default (audio is narrowed to the wires that
+  define an audio block — see the capability ladder above); a bespoke adapter
+  frames requests by hand and would drop a part it does not handle, so only an explicit modality in the
+  row's `modalities` grants the capability there.
+- **Generation controls are not filtered.** `GENERATION_CONTROL_MATRIX` describes what a *codec* can
+  re-encode. A bespoke adapter reads the fields it understands straight off `generation_controls`, so it
+  receives the permissive set instead of being narrowed by a wire matrix no codec is involved in.
+
+`native` never was a protocol — it was a marker for exactly this, sitting in the same enum as the real
+families, which made it an operator-selectable wire choice that died inside the codec with an untyped
+`unsupported wire family: native`. The marker now lives on the provider, where it describes the adapter
+rather than the wire, and the operator vocabulary is the three real protocols.
 
 Qoder's enveloped SSE status codes are normalized inside `qoder.ts` at the integration boundary through the shared
 `statusToGatewayErrorCode` table, tagged `origin: "upstream"` because the status came from the provider's own envelope.

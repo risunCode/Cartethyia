@@ -7,7 +7,7 @@ import type { RedisClient } from "../../src/persistence/redis";
 
 /** Migration ids discovered on disk — the ledger must contain every one of them. */
 const expectedMigrationIds = readdirSync(
-  resolve(import.meta.dir, "../../drizzle/migrations"),
+  resolve(import.meta.dir, "../../migrations"),
 ).filter((file) => /^\d{4}_.+\.sql$/.test(file));
 
 /** Drizzle-shaped `execute` result; the readiness ledger query reads `.rows`. */

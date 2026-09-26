@@ -230,7 +230,6 @@ export async function registerByokProviders(
           ...(compatibilityProfile?.structured_output
             ? { structured_output: compatibilityProfile.structured_output }
             : {}),
-          supported_wire_families: wireProfile.supportedWireFamilies,
         }),
     });
     byokRegistrationFingerprints.set(providerId, fingerprint);

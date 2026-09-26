@@ -40,14 +40,15 @@ function computerOutputForWire(content: unknown): Record<string, unknown> {
   if (typeof content === "string") return { type: "computer_screenshot", image_url: content };
   if (Array.isArray(content)) {
     const image = content.find((part) => isRecord(part) && part.kind === "image");
-    if (image !== undefined && isRecord(image) && isRecord(image.payload)) {
+    if (image !== undefined && isRecord(image)) {
+      // `image_url` must be a string on the wire; a canonical image part is an
+      // opaque origin payload (Anthropic `{type,source}`, Chat `{image_url:{url}}`,
+      // flat `{url}`), so resolve it rather than forwarding the object.
+      const source = resolveImageSource(image.payload);
       const output: Record<string, unknown> = { type: "computer_screenshot" };
-      const imageUrl = image.payload["image_url"] ?? image.payload["url"];
-      const fileId = image.payload["file_id"];
-      const detail = image.payload["detail"];
-      if (imageUrl !== undefined) output["image_url"] = imageUrl;
-      if (fileId !== undefined) output["file_id"] = fileId;
-      if (detail !== undefined) output["detail"] = detail;
+      if (source?.url !== undefined) output["image_url"] = source.url;
+      else if (source?.fileId !== undefined) output["file_id"] = source.fileId;
+      if (source?.detail !== undefined) output["detail"] = source.detail;
       return output;
     }
   }

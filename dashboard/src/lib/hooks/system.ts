@@ -2,7 +2,7 @@ import { consoleRequest, fetchSessionUser } from "../api";
 import type { ApiErrorShape } from "../api";
 import { queryKeys } from "../query-keys";
 import type { SessionUser, UsageDimension } from "../contracts";
-import { QUERY_OPTIONS, assertAuditListPage, assertSystemHealth, assertUsage, assertUsageBy, assertUsageChart, assertUsageRequestDetail, assertUsageRequests, assertUsageSummary, querySignal } from "./common";
+import { QUERY_OPTIONS, assertAuditListPage, assertSystemHealth, assertUsageBy, assertUsageChart, assertUsageRequestDetail, assertUsageRequests, assertUsageSummary, querySignal } from "./common";
 import { useQuery } from "@tanstack/react-query";
 
 
@@ -30,20 +30,6 @@ export function useSystemHealth() {
       ),
     ...QUERY_OPTIONS,
     refetchInterval: 15_000,
-  });
-}
-
-/** Loads tenant usage; the backend contract exposes one current-period summary. */
-export function useUsage(period?: string) {
-  return useQuery({
-    queryKey: period ? queryKeys.system.usageByPeriod(period) : queryKeys.system.usage,
-    queryFn: (context) =>
-      consoleRequest<unknown>(
-        period ? `/system/usage?period=${encodeURIComponent(period)}` : "/system/usage",
-        { signal: querySignal(context) },
-      ).then(assertUsage),
-    ...QUERY_OPTIONS,
-    refetchInterval: 30_000,
   });
 }
 

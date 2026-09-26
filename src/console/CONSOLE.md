@@ -34,7 +34,7 @@ src/console/
   quota/                  provider-account quota views + refresh orchestration
   domains/                api-keys, studio, live/logs, stats, audit, performance, sse
   cli-tools/              CLI-agent onboarding + host injectors (injectors/ holds the per-tool
-                          InjectorSpecs; CONTRACT.md is the spec contract)
+                          InjectorSpecs; the "Injector contract" section below is the spec contract)
   share/                  public enrollment and owner-side shared-key activity
   backup/                 export/restore of config + telemetry metadata, and the router-export
                           importer (nine-router.ts)
@@ -125,10 +125,17 @@ editable only through the `platform:admin` `/platform/global/:providerId` path, 
 accept enable/disable only. `POST /providers/:providerId/models/sync` is the one catalog
 operation that additionally requires `platform:admin` on a tenant-scoped provider, so a plain
 `dashboard:write` operator cannot resync their own provider's models. A provider response
-also carries `supportedWireFamilies` — the wires that provider may actually serve, derived
-by the backend from the registry (built-ins) or the BYOK profile (custom). The dashboard
-constrains its Add-Model wire selector to that set instead of re-deriving the rule, so a
-Messages-only custom provider can never be driven onto the chat wire. `setModelEnabled` is the hard routing invariant `route-catalog.ts`
+also carries `supportedWireFamilies` — the wires that provider declares, derived
+by the backend from the registry (built-ins) or the BYOK profile (custom). A model row's
+`source` column is the list's grouping key, and the dashboard renders four groups from it:
+`builtin` (and a pre-column `null`), `auto_free` (a discovered free-tier row), `manual`, and
+`discovered`. `syncModels` writes `auto_free` for a row whose discovery definition is marked as
+a free tier and `discovered` for the rest, so the group survives the write rather than being
+inferred from the id later. The dashboard
+uses it to order the Add-Model wire selector (the provider's own families first, so the
+sensible choice is the default) but never to restrict it: a manually added provider may
+serve a protocol this gateway carries no bundled knowledge of, so every wire family stays
+selectable and the upstream decides whether it answers. `setModelEnabled` is the hard routing invariant `route-catalog.ts`
 filters on: built-in models can be disabled per tenant (`tenantDisabledModels`) but never
 deleted (`builtin_model_immutable`). Accounts soft-revoke via `status: disabled` and export
 decrypted secrets as a downloaded file, never rendered. OAuth advertises the fixed loopback URI
@@ -230,7 +237,14 @@ prefix-length hints leave the store.
   audited delete, and an SSE stream. **Stats** (`stats/`) serves health, usage, the analytics
   surface, and telemetry events with payloads opt-in; periods are whitelisted by
   `isSupportedUsagePeriod` and client IPs are masked unless the tenant opts into `privacyMode:
-  full`. The breakdown is one parametric route (`/system/usage/by-:dimension`) over
+  full`. Error counts — summary, health window, breakdown, `/system/usage`, the provider-account
+  `errors` column, and the durable `telemetry_usage_totals` rollup — all read the one predicate in
+  `observability/telemetry-status.ts`, whose rule is that a request counts only when the gateway
+  failed at its own job: every `4xx` (a `401` from a bad key, a `404` probe, a `429` from the
+  caller's own quota) is the caller's outcome, `499` is a client abort, and `503` is capacity, so
+  none are counted — while `500`/`502`/`504` are. All of them are recorded, rendered and
+  filterable regardless. The breakdown is one parametric route
+  (`/system/usage/by-:dimension`) over
   `USAGE_DIMENSIONS` — the same tuple the operations validator and the dashboard's dimension
   union read — so a dimension cannot be added to one layer and missed in another. The
   `client_ip` dimension groups on the stored address and masks on read; because masking can
@@ -295,10 +309,41 @@ File-based tools declare an `InjectorSpec` built by `createFileInjector` into a 
 (guide-only tools share `guideInjectorFor`); `INJECTORS` is built exhaustively from the registry,
 so a non-guide tool without an injector fails loudly at import. Injectors merge Cartethyia fields
 into existing configs, reset only injected fields, and use `fs-ops.ts` as their only filesystem
-surface. `injectors/CONTRACT.md` pins the house rules for new specs (`import type` for types, no
-dynamic imports, merge-never-overwrite, provider name `cartethyia`), and the temp-HOME harness in
-`test/helpers/cli-injector.ts` proves the full status → apply → download → reset loop in an
-isolated home.
+surface. The temp-HOME harness in `test/helpers/cli-injector.ts` proves the full
+status → apply → download → reset loop in an isolated home.
+
+### Injector contract (`cli-tools/injectors/`)
+
+A file-based tool does not implement `ToolInjector` by hand: it declares an `InjectorSpec` in a
+co-located `./<tool>.ts` file and is built by `createFileInjector`. The only dispatch point is the
+`FILE_INJECTORS` map in `./driver`, keyed by tool id; do not export a per-tool injector constant.
+Guide-only tools (`configType: "guide"`) share `guideInjectorFor` in the same `./driver`.
+
+`InjectorSpec` methods mirror the `ToolInjector` lifecycle with the path threaded in —
+`readStatus(path)`, `apply(input, path)`, `reset(path)`, `download(input)` — and the driver
+synthesizes `getStatus()` on top of `readStatus`. Optional members the existing specs use:
+`displayName`, `binary`, `checkInstalled`, `keepSettingsPathOnMissing`, `resetEvenIfMissing`,
+`resolveDir`, and `messages`. The `InjectorSpec`, `ToolStatus`, and `ApplyInput` shapes are declared
+in `cli-tools/contracts.ts`; read them there rather than a second copy.
+
+`fs-ops.ts` is the injector's only filesystem surface, and it exports exactly:
+`homeDir`, `join`, `fileExists`, `readJsonFile`, `writeJsonFile`, `readTextFile`, `writeTextFile`,
+`ensureDir`, `removeFile`, `checkBinaryInstalled`, `ensureV1Suffix`, `stripV1Suffix`,
+`isLocalEndpoint`, `keyPrefix`, `textGet`, `textHas`, `textUpsert`, and `textRemove`. The `text*`
+helpers take a `TextSelector`: `{kind: "flat", key, format?: "toml"|"env", insertAtTop?}`,
+`{kind: "sectionKey", section, key}`, or `{kind: "section", section}`.
+
+House rules for a new spec:
+
+1. Use `import type` for type-only imports.
+2. No dynamic imports.
+3. No thin wrapper functions — inline trivial expressions.
+4. Merge config; never overwrite the user's existing settings.
+5. Reset removes only Cartethyia-injected fields and preserves everything else.
+6. `download` generates config text without writing to the filesystem.
+7. The provider name written into configs is `cartethyia`.
+8. Use `platform()` from `node:os` for OS-specific paths (`IS_WIN` in `fs-ops.ts` is
+   module-private, not exported).
 
 **Invariants.** Status paths never expose full secrets — only an 8-char prefix. There is no
 "reveal the key" endpoint: the plaintext is resolved inside the console, used to build a config
@@ -325,7 +370,13 @@ missing or older than `QUOTA_STALE_AFTER_MS` on a bounded background queue, repo
 <count>` and a per-account `pending` flag so the client can poll fast while the fill runs. Status
 flips (`active|degraded|cooldown|disabled`) invalidate the snapshot, `DELETE` also drops the
 cached entry and audits `provider_account.deleted`, and the `/global/accounts*` routes are
-`platform:admin`-only management of tenant-null shared accounts.
+`platform:admin`-only management of tenant-null shared accounts. Every health block is built by
+`toQuotaAccountHealth` in `account-quota-view.ts`, so the four call sites cannot drift: it carries the
+account-wide `cooldownUntil` *and* the live `modelCooldowns` entries. A model-scoped throttle writes
+only the latter (the account stays routable for its other models), so a view that carried only the
+error message left the health dialog showing why an account was throttled but not until when. Elapsed
+per-model entries are dropped at read time — the sweep prunes the column on a timer, so a read between
+a deadline passing and the sweep would otherwise report a cooldown that no longer applies.
 
 A `status` flip is dispatch eligibility, not a change in the upstream fact the cached quota
 describes, so it invalidates only the route snapshot — clearing the cache blanked the card the
@@ -540,8 +591,8 @@ enrollment. Public responses are `no-store` and carry the locked-down API CSP, f
   checked), a `deriveKind`/`splitEndpointConfig` mapping in `routing/pools/store.ts`, and
   `network/pool`
   agent support.
-- **New CLI tool:** a `ToolDef` in `TOOL_REGISTRY`; file-based tools add a spec per
-  `injectors/CONTRACT.md` and register in `FILE_INJECTORS` (module-private in
+- **New CLI tool:** a `ToolDef` in `TOOL_REGISTRY`; file-based tools add a spec per the
+  "Injector contract" above and register in `FILE_INJECTORS` (module-private in
   `injectors/driver.ts`, surfaced via the exported `INJECTORS` map; guide-only tools need no
   injector code, and the registry stays presentation metadata only).
 - **New quota action or share data:** reuse `refreshAccountQuota` (provider-specific parsing

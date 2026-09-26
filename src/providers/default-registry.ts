@@ -186,16 +186,26 @@ export const PROVIDER_CAPABILITIES = {
   nvidia: configuredProvider("nvidia"),
   gmi: configuredProvider("gmi"),
   opencodeft: {
-    // No `messages` path: the adapter declares `supported_wire_families`
-    // ["chat", "responses"] and no catalog row uses it, so a probe resolving
-    // `messages` would name a family dispatch rejects.
+    // Only the two families this provider's catalog actually serves. The
+    // registry map is what discovery and probing read, so listing `messages`
+    // here would resolve a probe onto a wire with no endpoint path and no
+    // catalog row behind it.
     endpointPathsByWireFamily: {
       chat: "/zen/v1/chat/completions",
       responses: "/zen/v1/responses",
     },
     loadAdapter: async () => createApiKeyAdapter((await import("./integrations/opencode")).OPENCODE_FREE_SPEC),
     loadModels: async () => (await import("./integrations/opencode")).OPENCODE_FREE_MODELS,
-    loadModelDiscovery: openAIModelDiscovery("opencodeft", { transformBaseUrl: (baseUrl) => `${baseUrl.replace(/\/+$/, "")}/zen/v1` }),
+    // Free-tier filtered, unlike the generic OpenAI discovery: this provider
+    // serves the free tier only, and the shared Zen listing publishes the whole
+    // billed catalog alongside it.
+    loadModelDiscovery: async () => async ({ baseUrl, fetcher }) => {
+      const { discoverOpenCodeFreeModels } = await import("./integrations/opencode");
+      return discoverOpenCodeFreeModels({
+        baseUrl: `${baseUrl.replace(/\/+$/, "")}/zen/v1`,
+        ...(fetcher === undefined ? {} : { fetcher }),
+      });
+    },
     modelDiscoveryRequiresCredential: false,
   },
   opencodezen: {
@@ -252,7 +262,14 @@ export const PROVIDER_CAPABILITIES = {
     loadQuotaCollector: quotaCapability(() => import("./integrations/cline/cline-quota"), "fetchClineQuota"),
     loadModelDiscovery: async () => async ({ fetcher }) => {
       const { fetchClineRecommendedModels } = await import("./integrations/cline/cline");
-      return fetchClineRecommendedModels(undefined, true, fetcher ?? globalThis.fetch);
+      // `pass: false` reads only `recommended` + `free`. This gateway carries
+      // Cline as one provider, and discovery persists whatever the resolver
+      // returns for every account of it, so asking for the pass roster wrote
+      // subscription rows into the catalog of an operator who may hold no pass
+      // — rows whose dispatch can only 401. The free tier is what this
+      // discovery is for; a pass account reconciles the rest through the same
+      // "Fetch models" action once the roster has a home of its own.
+      return fetchClineRecommendedModels(undefined, false, fetcher ?? globalThis.fetch);
     },
     modelDiscoveryRequiresCredential: false,
   },
@@ -313,10 +330,10 @@ export const PROVIDER_CAPABILITIES = {
     loadModels: async () => (await import("./integrations/perplexity")).PERPLEXITY_MODELS,
   },
   ollamacloud: {
-    // Only the two families its adapter spec declares. `native` and `messages`
-    // were listed here with no catalog row and no support in the adapter, so
-    // the probe resolved a wire family that would have been rejected with
-    // `capability_unsupported` had a request ever reached dispatch.
+    // Only the two families this provider's catalog actually serves. The
+    // registry map is what discovery and probing read, so listing `messages`
+    // here would resolve a probe onto a wire with no endpoint path and no
+    // catalog row behind it.
     endpointPathsByWireFamily: {
       chat: "/v1/chat/completions",
       responses: "/v1/responses",

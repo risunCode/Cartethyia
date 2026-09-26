@@ -12,7 +12,6 @@ export const OPENAI_SPEC: ApiKeyProviderSpec = {
     chat: "/v1/chat/completions",
     responses: "/v1/responses",
   },
-  supported_wire_families: ["chat", "responses"],
 };
 
 import { defineModel } from "../model-definition";

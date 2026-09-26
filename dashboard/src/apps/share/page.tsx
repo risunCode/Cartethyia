@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { Home, ShieldCheck } from "lucide-react";
 import { Button } from "../../components/ui/button";
-import { Card, CardBody, CardHeader } from "../../components/ui/card";
+import { Card, CardBody } from "../../components/ui/card";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/state";
 import { ClipboardButton } from "../../components/patterns/clipboard-button";
 import { readConsoleTheme, applyConsoleTheme } from "../../lib/theme";
@@ -116,29 +116,50 @@ export function SharePage(): ReactElement {
   };
   const visibleSecret = restoredSecret ?? secret;
   const data = state.data;
-  const canIssue = Boolean(data?.canIssue) && !data?.alreadyIssued && !issueConflict;
+  const canIssue = Boolean(data?.canIssue) && !data?.alreadyIssued && !issueConflict && !visibleSecret;
+  let statusLabel = "Enrollment unavailable";
+  let statusClass = "share-status-closed";
+  if (visibleSecret) {
+    statusLabel = "Key ready";
+    statusClass = "share-status-ready";
+  } else if (canIssue) {
+    statusLabel = "Ready to enroll";
+    statusClass = "share-status-open";
+  } else if (data?.alreadyIssued || issueConflict) {
+    statusLabel = "Already enrolled";
+  }
+  const modelGroups = new Map<string, string[]>();
+  for (const model of data?.modelAllowlist ?? []) {
+    const slash = model.indexOf("/");
+    const provider = slash > 0 ? model.slice(0, slash) : "Other";
+    const models = modelGroups.get(provider) ?? [];
+    models.push(model);
+    modelGroups.set(provider, models);
+  }
   return (
     <div className="share-page">
       <header className="share-topbar">
-        <a className="share-brand" href="/">
-          <span className="share-brand-mark" aria-hidden="true">
-            <ShieldCheck size={16} />
-          </span>
-          <b>Cartethyia</b>
-        </a>
-        <a href="/" className="share-home-link">
-          <Home size={12} aria-hidden="true" /> Home
-        </a>
+        <div className="share-topbar-inner">
+          <a className="share-brand" href="/">
+            <span className="share-brand-mark" aria-hidden="true">
+              <ShieldCheck size={17} />
+            </span>
+            <b>Cartethyia</b>
+          </a>
+          <a href="/" className="share-home-link">
+            <Home size={13} aria-hidden="true" /> Home
+          </a>
+        </div>
       </header>
       <main className="share-main">
         {state.loading ? (
-          <Card>
+          <Card className="share-hud-card">
             <CardBody>
               <LoadingState label="Loading enrollment policy…" />
             </CardBody>
           </Card>
         ) : state.error ? (
-          <Card>
+          <Card className="share-hud-card">
             <CardBody>
               <ErrorState
                 title="Link not available"
@@ -148,78 +169,32 @@ export function SharePage(): ReactElement {
             </CardBody>
           </Card>
         ) : data ? (
-          <Card>
-            <CardHeader
-              title={data.notes.title || data.name || "Shared API access"}
-              subtitle={data.notes.subtitle ?? `${data.keyPrefix ?? "API"} · share key`}
-              icon={<ShieldCheck size={16} />}
-            />
-            <CardBody>
-              {data.notes.body ? <p className="share-notes">{data.notes.body}</p> : null}
-
-              {/* Endpoint on the left, the single action on the right. */}
-              <div className="share-endpoint">
-                <div className="share-endpoint-field">
-                  <span className="share-endpoint-label">Base URL</span>
-                  <code>{baseUrl}/v1</code>
-                  <ClipboardButton
-                    value={`${baseUrl}/v1`}
-                    size="sm"
-                    variant="secondary"
-                    label="Copy"
-                    copiedLabel="Copied"
-                  />
-                </div>
-                {canIssue ? (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    loading={issueBusy}
-                    disabled={issueBusy}
-                    onClick={() => void issue()}
-                  >
-                    {issueBusy ? "Generating…" : "Generate API Key"}
-                  </Button>
+          <>
+            <Card className="share-hud-card share-hero">
+              <p className="share-eyebrow">SHARED ACCESS / ENROLLMENT</p>
+              <h1>{data.name || "Shared API access"}</h1>
+              <p className="share-hero-description">
+                A personal API key for this gateway, subject to the limits below.
+              </p>
+              <div className="share-hero-meta">
+                <span className={`share-status ${statusClass}`}>
+                  <span className="share-status-dot" aria-hidden="true" />
+                  {statusLabel}
+                </span>
+                {data.keyPrefix ? <span className="share-meta-pill">Prefix {data.keyPrefix}</span> : null}
+                {data.expiresAt ? (
+                  <span className="share-meta-pill">
+                    Link expires {new Date(data.expiresAt).toLocaleString()}
+                  </span>
                 ) : null}
               </div>
+            </Card>
 
-              {visibleSecret ? (
-                <div className="share-issued-secret" role="status">
-                  <p className="share-eyebrow">GENERATED ONCE · COPY AND KEEP IT</p>
-                  <h2>Your API key</h2>
-                  <code>{visibleSecret.key}</code>
-                  <div className="share-secret-actions">
-                    <ClipboardButton
-                      value={visibleSecret.key}
-                      size="sm"
-                      variant="primary"
-                      label="Copy key"
-                      copiedLabel="Copied"
-                    />
-                    <span>Key ID {visibleSecret.keyId.slice(0, 12)}…</span>
-                  </div>
-                  <p>
-                    Saved in this browser while this enrollment link remains valid. It is not
-                    shown again from another browser, and an expired, revoked, or unavailable
-                    link does not restore a local copy.
-                  </p>
-                  {storageWarning ? (
-                    <p role="alert" className="form-error">{storageWarning}</p>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {!canIssue && !visibleSecret ? (
-                <p role="status" className="share-warning">
-                  {data.alreadyIssued || issueConflict
-                    ? "An active key has already been issued from this IP."
-                    : issueError ?? "This enrollment link is not currently accepting key requests."}
-                </p>
-              ) : null}
-              {issueError && canIssue ? (
-                <p role="alert" className="form-error">{issueError}</p>
-              ) : null}
-
+            <Card className="share-hud-card">
+              <div className="share-section-heading">
+                <h2>Policy &amp; limits</h2>
+                <span className="share-section-caption">Your enrollment terms</span>
+              </div>
               <dl className="share-policy">
                 <div><dt>Requests / minute</dt><dd>{fmt(data.requestsPerMinute)}</dd></div>
                 <div><dt>Concurrent requests</dt><dd>{fmt(data.maxConcurrentRequests)}</dd></div>
@@ -231,28 +206,147 @@ export function SharePage(): ReactElement {
                   <dd>{data.providerAllowlist?.length ? data.providerAllowlist.join(", ") : "All allowed"}</dd>
                 </div>
               </dl>
-              <p className="share-model-policy">
-                {data.modelAllowlist.length
-                  ? `Allowed models: ${data.modelAllowlist.join(", ")}`
-                  : "Model access follows the share template policy."}
-                {data.modelDenylist?.length ? ` · Excluded: ${data.modelDenylist.join(", ")}` : ""}
-              </p>
+            </Card>
+
+            <div className="share-credentials">
+              <Card className="share-hud-card share-endpoint">
+                <h2 className="share-eyebrow">BASE URL</h2>
+                <div className="share-endpoint-field">
+                  <code>{baseUrl}/v1</code>
+                  <ClipboardButton
+                    value={`${baseUrl}/v1`}
+                    size="sm"
+                    variant="secondary"
+                    label="Copy URL"
+                    copiedLabel="Copied"
+                    aria-label="Copy Base URL"
+                  />
+                </div>
+                <p>Use this endpoint in your API client.</p>
+              </Card>
+              <Card className="share-hud-card share-key-panel">
+                <h2 className="share-eyebrow">YOUR API KEY</h2>
+                {visibleSecret ? (
+                  <div className="share-issued-secret" role="status">
+                    <p className="share-once-notice">GENERATED ONCE · COPY AND KEEP IT</p>
+                    <code>{visibleSecret.key}</code>
+                    <div className="share-secret-actions">
+                      <ClipboardButton
+                        value={visibleSecret.key}
+                        size="sm"
+                        variant="primary"
+                        label="Copy key"
+                        copiedLabel="Copied"
+                      />
+                      <span>Key ID {visibleSecret.keyId.slice(0, 12)}…</span>
+                    </div>
+                    <p>
+                      Saved in this browser while this enrollment link remains valid. It is not
+                      shown again from another browser, and an expired, revoked, or unavailable
+                      link does not restore a local copy.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <p className="share-key-placeholder">
+                      {canIssue
+                        ? "Issue a personal key to use the shared endpoint."
+                        : "No key is available in this browser."}
+                    </p>
+                    {canIssue ? (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        loading={issueBusy}
+                        disabled={issueBusy}
+                        onClick={() => void issue()}
+                      >
+                        {issueBusy ? "Generating…" : "Generate API Key"}
+                      </Button>
+                    ) : null}
+                  </>
+                )}
+                {!canIssue && !visibleSecret ? (
+                  <p role="status" className="share-warning">
+                    {data.alreadyIssued || issueConflict
+                      ? "An active key has already been issued from this IP."
+                      : issueError ?? "This enrollment link is not currently accepting key requests."}
+                  </p>
+                ) : null}
+                {issueError && canIssue ? <p role="alert" className="form-error">{issueError}</p> : null}
+                {storageWarning ? <p role="alert" className="form-error">{storageWarning}</p> : null}
+              </Card>
+            </div>
+
+            {data.notes.title || data.notes.subtitle || data.notes.body ? (
+              <Card className="share-hud-card share-notes">
+                <h2 className="share-eyebrow">NOTES</h2>
+                {data.notes.title ? <h3>{data.notes.title}</h3> : null}
+                {data.notes.subtitle ? <p className="share-notes-subtitle">{data.notes.subtitle}</p> : null}
+                {data.notes.body ? <p className="share-notes-body">{data.notes.body}</p> : null}
+              </Card>
+            ) : null}
+
+            <Card className="share-hud-card share-models">
+              <div className="share-section-heading">
+                <div>
+                  <p className="share-eyebrow">MODEL ACCESS</p>
+                  <h2>Allowed models</h2>
+                </div>
+                {data.modelAllowlist.length ? (
+                  <ClipboardButton
+                    value={data.modelAllowlist.join(", ")}
+                    size="sm"
+                    variant="secondary"
+                    label="Copy all"
+                    copiedLabel="Copied"
+                    aria-label="Copy all allowed models"
+                  />
+                ) : null}
+              </div>
+              {modelGroups.size ? (
+                <div className="share-model-groups">
+                  {[...modelGroups].sort(([a], [b]) => a.localeCompare(b)).map(([provider, models]) => (
+                    <section className="share-model-group" key={provider} aria-label={`${provider} models`}>
+                      <div className="share-model-group-heading">
+                        <h3>{provider}</h3>
+                        <span>{models.length}</span>
+                      </div>
+                      <ul className="share-model-list">
+                        {models.map((model) => (
+                          <li key={model}>
+                            <code title={model}>{provider === "Other" ? model : model.slice(provider.length + 1)}</code>
+                            <ClipboardButton
+                              value={model}
+                              size="sm"
+                              variant="secondary"
+                              label="Copy"
+                              copiedLabel="Copied"
+                              aria-label={`Copy ${model}`}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <p className="share-model-empty">Model access follows the share template policy.</p>
+              )}
+              {data.modelDenylist?.length ? (
+                <p className="share-model-policy">Excluded models: {data.modelDenylist.join(", ")}</p>
+              ) : null}
               {data.modelPrefix ? (
                 <p className="share-model-policy">Required model prefix: {data.modelPrefix}</p>
               ) : null}
-              {data.expiresAt ? (
-                <p className="share-expiry">
-                  Enrollment link expires {new Date(data.expiresAt).toLocaleString()}
-                </p>
-              ) : null}
-              <p className="share-trust-copy">
-                This page never displays a parent credential. One active key per canonical IP;
-                the browser copy is restored only while this link stays valid.
-              </p>
-            </CardBody>
-          </Card>
+            </Card>
+            <p className="share-trust-copy">
+              This page never displays a parent credential. One active key per canonical IP;
+              the browser copy is restored only while this link stays valid.
+            </p>
+          </>
         ) : (
-          <Card>
+          <Card className="share-hud-card">
             <CardBody>
               <EmptyState
                 title="No enrollment data"

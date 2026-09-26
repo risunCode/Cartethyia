@@ -113,7 +113,6 @@ export function workbuddyAdapterConfig(args: {
   return withBearerAuthentication({
     provider_id: args.providerId,
     base_url: args.baseUrl,
-    supported_wire_families: ["chat"],
     endpoint_paths_by_wire_family: { chat: WORKBUDDY_CHAT_PATH },
     buildExtraHeaders: (context, request) => workbuddyHeaders(context, request),
     prePayload: args.prePayload,

@@ -46,7 +46,6 @@ function baseConfig(
     provider_id: "openai",
     base_url: "https://api.example.com",
     authentication_header_shape: "authorization_bearer",
-    supported_wire_families: ["chat", "responses"],
     fetch: fetchFn,
     ...overrides,
   };
@@ -519,7 +518,6 @@ describe("streaming e2e — incremental delivery of upstream chunks", () => {
       provider_id: "openai",
       base_url: "https://api.example.com",
       authentication_header_shape: "authorization_bearer",
-      supported_wire_families: ["chat", "responses"],
       fetch: fakeFetch,
     });
 
@@ -557,7 +555,7 @@ describe("streaming e2e — incremental delivery of upstream chunks", () => {
         headers: { "content-type": "text/plain" },
       })) as unknown as typeof fetch;
     const adapter = new OpenAICompatibleAdapter(
-      baseConfig(fakeFetch, { supported_wire_families: ["chat"] }),
+      baseConfig(fakeFetch),
     );
     const request = { ...fakeCanonicalRequest(), stream: true } as CanonicalRequest;
     let caught: unknown;
@@ -587,7 +585,7 @@ describe("streaming e2e — incremental delivery of upstream chunks", () => {
         headers: { "content-type": "application/json" },
       })) as unknown as typeof fetch;
     const adapter = new OpenAICompatibleAdapter(
-      baseConfig(fakeFetch, { supported_wire_families: ["chat"] }),
+      baseConfig(fakeFetch),
     );
     let caught: unknown;
     try {

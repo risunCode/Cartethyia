@@ -280,6 +280,61 @@ export class ModelsDevCatalog {
   }
 
   /**
+   * The most widely agreed row for `bareId`, or `undefined` when nothing
+   * records it.
+   *
+   * `resolve`/`unambiguousBare` fail closed on any disagreement, which is right
+   * when the caller can leave a limit unstated. A caller that must publish a
+   * number for a model the catalog knows about but disagrees on — a roster
+   * whose own upstream reports nothing, where the alternative is a fixed
+   * default — is better served by the majority answer: 18 of 19 rows file
+   * `claude-opus-5` as 1000000/128000, and the single dissenter (a reseller's
+   * 64k output cap) is the outlier, not the model.
+   *
+   * The vote is per-field and only among rows that state the field, so a row
+   * omitting `output` cannot win that field by abstaining. Ties resolve to the
+   * larger value: a limit stated too low truncates a caller's work, while one
+   * stated too high is caught by the provider.
+   */
+  majorityFor(bareId: string): { contextLimit: number; outputLimit: number } | undefined {
+    const normalized = bareId.trim().toLowerCase();
+    const bare = normalized.includes("/")
+      ? normalized.slice(normalized.indexOf("/") + 1)
+      : normalized;
+    // The bare index is keyed by the id as filed, so a dated spelling needs its
+    // undated form tried too (the global cost index seeds both; this one does
+    // not). Merge rather than pick: both spellings name the same model.
+    const rows = [
+      ...(this.bareMap.get(bare) ?? []),
+      ...(stripDateSuffix(bare) === bare ? [] : (this.bareMap.get(stripDateSuffix(bare)) ?? [])),
+    ];
+    if (rows.length === 0) return undefined;
+    const vote = (values: ReadonlyArray<number | null>): number | undefined => {
+      const counts = new Map<number, number>();
+      for (const value of values) {
+        if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) continue;
+        counts.set(value, (counts.get(value) ?? 0) + 1);
+      }
+      let best: number | undefined;
+      let bestCount = 0;
+      for (const [value, count] of counts) {
+        if (count > bestCount || (count === bestCount && best !== undefined && value > best)) {
+          best = value;
+          bestCount = count;
+        }
+      }
+      return best;
+    };
+    const contextLimit = vote(rows.map((row) => row.contextLimit));
+    const outputLimit = vote(rows.map((row) => row.outputLimit));
+    if (contextLimit === undefined && outputLimit === undefined) return undefined;
+    return {
+      contextLimit: contextLimit ?? outputLimit ?? 0,
+      outputLimit: outputLimit ?? contextLimit ?? 0,
+    };
+  }
+
+  /**
    * The price to bill for `modelId`, preferring the routed provider's own row.
    *
    * Unlike {@link resolve}, this does **not** fail closed when the provider has

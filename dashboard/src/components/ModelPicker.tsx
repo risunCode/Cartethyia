@@ -48,7 +48,6 @@ function wireName(wireFamily: string): string {
   const lower = wireFamily.toLowerCase();
   if (lower === "responses") return "Responses";
   if (lower === "messages") return "Messages";
-  if (lower === "native") return "Native";
   return "Chat";
 }
 
@@ -56,7 +55,6 @@ function wireColor(wireFamily: string): string {
   const lower = wireFamily.toLowerCase();
   if (lower === "responses") return "var(--purple)";
   if (lower === "messages") return "var(--orange)";
-  if (lower === "native") return "var(--text-tertiary)";
   return "var(--teal)";
 }
 

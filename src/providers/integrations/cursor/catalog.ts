@@ -9,7 +9,9 @@ export const CURSOR_RUN_PATH = "/agent.v1.AgentService/Run" as const;
 function cursorModel(modelId: string, reasoning: boolean): ModelDefinition {
   return defineModel({
     id: modelId,
-    wireFamily: "native",
+    // Served by the bespoke Cursor adapter (Connect+protobuf), not a codec;
+    // the endpoint is the adapter's own RPC path, not a wire path.
+    wireFamily: "chat",
     endpoint: CURSOR_RUN_PATH,
     ctx: 200_000,
     out: 64_000,

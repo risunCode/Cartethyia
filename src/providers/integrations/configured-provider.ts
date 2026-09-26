@@ -38,8 +38,6 @@ export interface ApiKeyProviderSpec {
   readonly base_url?: string;
   /** Endpoint path per wire family; families absent here fall back to `BUILTIN_DEFAULT_ENDPOINTS`. */
   readonly endpoint_paths_by_wire_family?: Partial<Record<WireFamily, string>>;
-  /** Wire families this adapter serves; anything else rejects with `capability_unsupported`. */
-  readonly supported_wire_families?: readonly WireFamily[];
   /** Static headers applied to every dispatch, before `buildExtraHeaders`. */
   readonly extra_headers?: Readonly<Record<string, string>>;
   /** Per-dispatch header hook for providers needing fresh values (correlation IDs, credential-derived auth). */
@@ -82,7 +80,6 @@ export function createApiKeyAdapter(
       provider_id: spec.provider_id,
       base_url: spec.base_url ?? providerBaseUrl(spec.provider_id),
       endpoint_paths_by_wire_family: spec.endpoint_paths_by_wire_family ?? {},
-      supported_wire_families: spec.supported_wire_families ?? ["chat"],
       ...(spec.extra_headers ? { extra_headers: spec.extra_headers } : {}),
       ...(spec.buildExtraHeaders ? { buildExtraHeaders: spec.buildExtraHeaders } : {}),
       ...(spec.credential_forwarding ? { credential_forwarding: spec.credential_forwarding } : {}),

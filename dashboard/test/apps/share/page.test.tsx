@@ -31,23 +31,12 @@ describe("public share enrollment page", () => {
     expect(markup).not.toContain("Generate API Key");
   });
 
-  test("renders with the global console surface classes and no page-local theme", () => {
-    shareState = { data, error: null, loading: false };
-    const markup = render();
-    expect(markup).toContain("share-page");
-    expect(markup).toContain("card-solid");
-    expect(markup).toContain("share-policy");
-    expect(markup).not.toContain("data-share-theme");
-    expect(markup).not.toContain("share-enrollment-");
-  });
-
-  test("shows the /v1 endpoint on the left and the generate action on the right", () => {
+  test("offers the public endpoint and key generation action", () => {
     shareState = { data, error: null, loading: false };
     const markup = render();
     // The recipient is told to call the origin they reached this page by.
     expect(markup).toContain("https://gateway.example/v1");
     expect(markup).toContain("Base URL");
-    expect(markup).toContain("share-endpoint");
     expect(markup).toContain("Generate API Key");
   });
 
@@ -57,7 +46,8 @@ describe("public share enrollment page", () => {
     expect(markup).toContain("Team Access");
     expect(markup).toContain("Generate API Key");
     expect(markup).toContain("never displays a parent credential");
-    expect(markup).toContain("Allowed models: gpt-5");
+    expect(markup).toContain("Allowed models");
+    expect(markup).toContain("gpt-5");
     expect(markup).toContain("Required model prefix: gpt-");
     expect(markup).not.toContain("parentSecret");
     expect(markup).not.toContain("sk-parent-raw");

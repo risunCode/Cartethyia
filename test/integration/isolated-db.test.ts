@@ -344,7 +344,7 @@ dbDescribe("isolated PostgreSQL schema", () => {
       connectionTimeoutMillis: 5_000,
       idleTimeoutMillis: 30_000,
     });
-    await applySqlMigrations(pool, resolve(import.meta.dir, "../../drizzle/migrations"));
+    await applySqlMigrations(pool, resolve(import.meta.dir, "../../migrations"));
   });
 
   afterAll(async () => {

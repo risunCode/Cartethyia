@@ -150,10 +150,7 @@ declare global {
 export const MIGRATION_LEDGER_TABLE = "cartethyia_schema_migrations";
 
 function resolveMigrationsFolder(): string {
-  const folder =
-    process.env.NODE_ENV === "production"
-      ? resolve(process.cwd(), "migrations")
-      : resolve(import.meta.dir, "../../drizzle/migrations");
+  const folder = resolve(process.cwd(), "migrations");
   if (!existsSync(folder)) {
     throw new Error(`Migrations folder not found: ${folder}`);
   }

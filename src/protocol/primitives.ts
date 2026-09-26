@@ -501,7 +501,6 @@ export const BUILTIN_DEFAULT_ENDPOINTS: Record<WireFamily, string> = {
   chat: "/chat/completions",
   responses: "/v1/responses",
   messages: "/v1/messages",
-  native: "/v1/chat/completions",
 };
 
 /**
@@ -517,7 +516,6 @@ export const BARE_ROOT_ENDPOINTS: Partial<Record<WireFamily, string>> = {
   chat: "/v1/chat/completions",
   responses: "/v1/responses",
   messages: "/v1/messages",
-  native: "/v1/chat/completions",
 };
 
 /** An image part's provider-neutral source, resolved from any supported origin shape. */
@@ -533,6 +531,8 @@ export interface ResolvedImageSource {
 /**
  * Resolves an opaque canonical `image` content part into its URL/file-id/detail
  * triple, tolerating every origin shape this codebase produces:
+ * - a bare URL / `data:` URI string (an OpenAI Responses `input_image` payload
+ *   is a string, and a tolerant Chat parser keeps a string `image_url` as-is)
  * - OpenAI Chat `{image_url: {url, detail?}}` / `{url, detail?}`
  * - OpenAI Responses `{type:"input_image", image_url, detail?, file_id?}`
  * - Anthropic `{type:"image", source:{type:"base64"|"url"|"file", ...}}`
@@ -541,10 +541,24 @@ export interface ResolvedImageSource {
  * callers can degrade explicitly instead of silently dropping the image.
  */
 export function resolveImageSource(payload: unknown): ResolvedImageSource | undefined {
+  // A bare string is already the URL the wire wants. Accepting it here — rather
+  // than in each builder — is what keeps a string-payload image from being
+  // dropped on every surface at once.
+  if (typeof payload === "string") {
+    return payload.length > 0 ? { url: payload } : undefined;
+  }
   if (!payload || typeof payload !== "object") return undefined;
   const value = payload as Record<string, unknown>;
   const topDetail = typeof value["detail"] === "string" ? value["detail"] : undefined;
+  // A Responses `input_image` may reference the Files API with a top-level
+  // `file_id` and no `image_url` at all; check it before the `image_url` arms,
+  // which would otherwise fall through to the generic `url`/`file_id` scan and
+  // lose a payload that carries only the id.
+  const topFileId = typeof value["file_id"] === "string" ? value["file_id"] : undefined;
   const nested = value["image_url"];
+  if (nested === undefined && topFileId !== undefined) {
+    return { fileId: topFileId, ...(topDetail === undefined ? {} : { detail: topDetail }) };
+  }
   if (typeof nested === "string") {
     return { url: nested, ...(topDetail === undefined ? {} : { detail: topDetail }) };
   }

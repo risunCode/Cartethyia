@@ -1,9 +1,16 @@
-import { setTimeout as delay } from "node:timers/promises";
 import type { FetchLike } from "../../authentication/oauth-client";
 
 export const CODEX_DEVICE_USERCODE_URL = "https://auth.openai.com/api/accounts/deviceauth/usercode";
 export const CODEX_DEVICE_TOKEN_URL = "https://auth.openai.com/api/accounts/deviceauth/token";
-export const CODEX_DEVICE_MAX_POLLS = 120;
+
+/**
+ * Lifetime of one device authorization, in seconds.
+ *
+ * The Codex device endpoint states no expiry, so the flow bounds itself: this
+ * is both what `startDeviceAuth` reports to the dashboard (its own countdown)
+ * and what the poll checks before spending a request on a dead authorization.
+ */
+export const CODEX_DEVICE_TTL_SECONDS = 900;
 
 interface CodexDeviceStart {
   readonly deviceAuthId: string;
@@ -58,24 +65,30 @@ export async function startCodexDeviceAuth(
   return { deviceAuthId: body.device_auth_id, userCode: body.user_code, intervalSeconds: interval };
 }
 
+/**
+ * One device-token poll attempt.
+ *
+ * Returns `undefined` while the user has not approved yet (the endpoint answers
+ * 403/404) and the parsed PKCE pair once it has. Deliberately a single request:
+ * the dashboard owns the polling cadence, so the console route returns
+ * `pending` between attempts instead of holding one HTTP request open for the
+ * whole authorization window. A blocking loop here occupied a console worker
+ * for up to the full TTL and made the dialog's own interval meaningless.
+ */
 export async function pollCodexDeviceAuth(
   device: CodexDeviceStart,
   fetchFn: FetchLike = globalThis.fetch,
-  sleepFn: (milliseconds: number) => Promise<void> = (milliseconds) =>
-    delay(milliseconds).then(() => undefined),
-): Promise<CodexDeviceAuthorization> {
-  for (let poll = 0; poll < CODEX_DEVICE_MAX_POLLS; poll += 1) {
-    await sleepFn((device.intervalSeconds + 3) * 1000);
-    const response = await fetchFn(CODEX_DEVICE_TOKEN_URL, {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ device_auth_id: device.deviceAuthId, user_code: device.userCode }),
-    });
-    if (response.status === 403 || response.status === 404) continue;
-    if (!response.ok) throw new Error(`Codex device polling failed (${response.status})`);
-    const body = (await response.json()) as DeviceTokenResponse;
-    if (typeof body.authorization_code === "string" && typeof body.code_verifier === "string")
-      return { authorizationCode: body.authorization_code, codeVerifier: body.code_verifier };
-  }
-  throw new Error("Codex device authorization timed out after 120 polls");
+): Promise<CodexDeviceAuthorization | undefined> {
+  const response = await fetchFn(CODEX_DEVICE_TOKEN_URL, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ device_auth_id: device.deviceAuthId, user_code: device.userCode }),
+  });
+  // 403/404 are the endpoint's "not approved yet" answers, not failures.
+  if (response.status === 403 || response.status === 404) return undefined;
+  if (!response.ok) throw new Error(`Codex device polling failed (${response.status})`);
+  const body = (await response.json()) as DeviceTokenResponse;
+  if (typeof body.authorization_code === "string" && typeof body.code_verifier === "string")
+    return { authorizationCode: body.authorization_code, codeVerifier: body.code_verifier };
+  return undefined;
 }

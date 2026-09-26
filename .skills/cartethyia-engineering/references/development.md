@@ -40,8 +40,8 @@ Use when new to the repo or unsure which file owns a behavior; done when you can
    - Network: `src/network/ssrf.ts`, `src/network/outbound-fetch.ts`, `src/network/pool/`.
    - Observability: `src/observability/log-ring.ts`, `src/observability/payload-capture.ts`, `src/observability/telemetry-buffer.ts`.
    - Console: `src/console/providers/catalog/`, `src/console/providers/detail/` (`contracts.ts`, `store.ts`, `routes.ts` each), `src/console/domains/logs.ts`.
-   - Persistence: `src/persistence/schema.ts`, `src/persistence/postgres.ts` (`DATABASE_URL` only source, `MIGRATION_LEDGER_TABLE`), `drizzle/migrations/` (numbered `NNNN_*.sql` files, applied in order at boot; `0000_baseline.sql` is the whole schema for a database created today).
-   - Scripts are flat under `scripts/` (`ops-run-tests.ts`, `ops-migrate.ts`, `ops-setup.ts`, `ops-doctor.ts`, `build-aot.ts`, `ci-check-coverage.ts`); no `scripts/ops/` exists.
+   - Persistence: `src/persistence/schema.ts`, `src/persistence/postgres.ts` (`DATABASE_URL` only source, `MIGRATION_LEDGER_TABLE`), `migrations/` (tracked numbered `NNNN_*.sql` files, applied in order at boot; `0000_baseline.sql` is the whole schema for a database created today).
+   - Scripts are flat under `scripts/` (`ops-run-tests.ts`, `ops-setup.ts`, `ops-doctor.ts`, `build-aot.ts`, `ci-check-coverage.ts`); no `scripts/ops/` exists.
 
 ```bash
 git status --short
@@ -162,7 +162,7 @@ Use when adding a Postgres column or per-provider routing setting; done when the
 ### Procedure
 
 1. Fold the column into `0000_baseline.sql` at the same position/order as `src/persistence/schema.ts`, same commit. The baseline is the whole schema for a database created today; `test/contracts/migration-integrity.contract.test.ts` asserts it carries the folded-in shape, and `test/integration/isolated-db.test.ts` compares a freshly migrated database against `schema.ts` column by column. Nullable pattern: when null means inherit/unlimited (`max_inflight`, `tenant_id`), omit `.notNull()` and `.default()` — `maxInflight: integer("max_inflight")` on `providerRoutingSettings` is the template.
-2. Add the next numbered file beside it so an existing database converges — `drizzle/migrations/0001_…sql`, `0002_…sql`. `applySqlMigrations()` reads numbered `NNNN_*.sql` files from the top level (non-recursive) and applies each in order at boot, recording it in `cartethyia_schema_migrations`, so a deployment migrates itself with no hand-run step. Every such file must be idempotent (`IF NOT EXISTS` / `IF EXISTS` / `EXCEPTION WHEN`): a file that fails midway leaves no ledger row and is retried on the next boot.
+2. Add the next numbered file beside it so an existing database converges — `migrations/0001_…sql`, `0002_…sql`. `applySqlMigrations()` reads numbered `NNNN_*.sql` files from the top level (non-recursive) and applies each in order at boot, recording it in `cartethyia_schema_migrations`, so a deployment migrates itself with no hand-run step. Every such file must be idempotent (`IF NOT EXISTS` / `IF EXISTS` / `EXCEPTION WHEN`): a file that fails midway leaves no ledger row and is retried on the next boot.
    ```sql
    ALTER TABLE provider_routing_settings
      ADD COLUMN IF NOT EXISTS max_inflight integer;
@@ -231,7 +231,7 @@ Use when the change is ready to land; done when every gate passes from a clean t
 
 ### Procedure
 
-1. Gates from the root, escalating as needed: `bun run typecheck` → `bun run dashboard:typecheck` → `bun run test` → `bun run dashboard:test` → `bun run build` (`dashboard:build`, then `build:aot`, then `bun build --compile --minify --target bun src/main.ts --outfile dist/cartethyia`). Deeper: `bun run test:contracts`, `bun run test:integration` (needs `CARTETHYIA_TEST_DATABASE_URL`), `bun run check:coverage` (floor 75% via `scripts/ci-check-coverage.ts`; `COVERAGE_MIN=80.0` in DB-backed CI). Focused loop: `bun run scripts/ops-run-tests.ts <dir>` (thin `bun test --timeout 60000` wrapper pinning `CARTETHYIA_ENCRYPTION_KEY`).
+1. Gates from the root, escalating as needed: `bun run typecheck` → `bun run dashboard:typecheck` → `bun run test` → `bun run dashboard:test` → `bun run build` (`dashboard:build`, then `build:aot`, then `bun build --compile --minify --target bun src/main.ts --outfile dist/cartethyia`). Deeper: `bun run test:contracts`, `bun run test:integration` (needs `CARTETHYIA_TEST_DATABASE_URL`), `bun run check:coverage` (floor 90% via `scripts/ci-check-coverage.ts`, the same default CI enforces). Focused loop: `bun run scripts/ops-run-tests.ts <dir>` (thin `bun test --parallel --timeout 60000` wrapper pinning `CARTETHYIA_ENCRYPTION_KEY`).
 2. Changelog in the same change under `## Unreleased` in `CHANGELOG.md` — backend, provider, and dashboard bullets each.
 3. Split commits backend vs dashboard (`type(scope): …`), each ending with `Co-Authored-By: Claude Mythos 5 <noreply@anthropic.com>`. Never push to `origin` unasked. Restart the built binary after landing when runtime behavior changed.
 4. Strays: `git status --short` shows only intended paths; `.env*` stays untracked except `.env.example`.
@@ -253,7 +253,7 @@ git status --short
 
 ### Pitfalls
 
-- Zero-fail with no pinned counts: baseline BEFORE the change; a lone `1 fail` vanishing on re-run is parallel-load flake — second run, then bisect by directory.
+- Zero-fail with no pinned counts: baseline BEFORE the change. The suite runs `--parallel`, so a failure that only appears under load is a real defect, not noise: DB-gated suites share one isolated database and run as concurrent worker processes, so a suite that cleans up table-wide (or asserts on a table-wide read) will clobber another suite's fixtures. Find the suite that over-reaches and scope it by id or `tenant_id` — do not re-run until it passes.
 - DB-gated suites (`test/helpers/db-gate.ts`) skip without a database — report skips separately, never as green.
 - Build order: `dashboard:build` before `bun run build` (the server embeds `dist/`). Windows docs use POSIX `bun run …`; PowerShell env form is `$env:NAME="value"`. Never `find | xargs` in instructions.
 
@@ -410,4 +410,4 @@ bun run dashboard:test                # whenever dashboard/ touched
 bun run dashboard:build               # whenever dashboard/ touched, before bun run build
 ```
 
-0 fail always (never pin pass counts); diff against the pre-change baseline captured BEFORE the change. Lone `1 fail` vanishing on re-run is parallel-load flake — second run, then bisect by directory. DB-gated suites (`test/helpers/db-gate.ts`) skip without a database — report skips separately. Coverage floor 75% (`scripts/ci-check-coverage.ts`) via `check:coverage` when at risk.
+0 fail always (never pin pass counts); diff against the pre-change baseline captured BEFORE the change. The suite runs `--parallel`: a failure that appears only under load is a real defect, so find the suite that over-reaches (table-wide cleanup, or an assertion on a table-wide read) and scope it by id or `tenant_id` rather than re-running until it passes. DB-gated suites (`test/helpers/db-gate.ts`) skip without a database — report skips separately. Coverage floor 90% (`scripts/ci-check-coverage.ts`) via `check:coverage` when at risk.

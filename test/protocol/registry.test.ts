@@ -7,11 +7,16 @@ import {
 import type { CanonicalRequest } from "../../src/transport/canonical-model";
 
 describe("wire codec dispatch", () => {
-  test("rejects bespoke native wire families", () => {
+  test("covers exactly the canonical wire families and rejects anything else", () => {
+    // A bespoke adapter (Cursor, Devin) frames its own protocol and never
+    // reaches these codecs, so there is no "native" family to dispatch. The
+    // runtime guard still has to refuse an unknown value rather than fall
+    // through to a wrong codec.
     const request = {} as CanonicalRequest;
-    expect(() => encodeWireRequest("native", request)).toThrow("unsupported wire family");
-    expect(() => decodeWireResponse("native", {}, request)).toThrow("unsupported wire family");
-    expect(() => decodeWireStream("native", new ReadableStream(), request)).toThrow("unsupported wire family");
+    const unknown = "native" as unknown as Parameters<typeof encodeWireRequest>[0];
+    expect(() => encodeWireRequest(unknown, request)).toThrow("unsupported wire family");
+    expect(() => decodeWireResponse(unknown, {}, request)).toThrow("unsupported wire family");
+    expect(() => decodeWireStream(unknown, new ReadableStream(), request)).toThrow("unsupported wire family");
   });
 
   test("exposes static dispatch functions", () => {

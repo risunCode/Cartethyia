@@ -24,6 +24,9 @@ describe("Cline WorkOS device OAuth", () => {
             device_code: "device-1",
             user_code: "ABCD-EFGH",
             verification_uri: "https://app.workos.com/device",
+            // WorkOS returns a complete URI carrying the code; the flow must
+            // publish this one so the operator does not retype the code.
+            verification_uri_complete: "https://app.workos.com/device?user_code=ABCD-EFGH",
             interval: 7,
             expires_in: 240,
           });
@@ -67,7 +70,10 @@ describe("Cline WorkOS device OAuth", () => {
     expect(started).toMatchObject({
       deviceAuthId: "device-1",
       userCode: "ABCD-EFGH",
-      verificationUri: "https://app.workos.com/device",
+      // The complete URI, so opening the page enters the code automatically.
+      // Publishing the bare `verification_uri` made the operator read the code
+      // here and type it into the form by hand.
+      verificationUri: "https://app.workos.com/device?user_code=ABCD-EFGH",
       intervalSeconds: 7,
       expiresInSeconds: 240,
     });
@@ -183,10 +189,12 @@ describe("Cline adapter payload & quirk handling", () => {
 });
 
 describe("Cline model catalog", () => {
-  test("keeps the current free Cline roster in the builtin catalog", () => {
+  test("seeds only ids the free tier currently serves, and keeps them free", () => {
+    // This list owns the builtin rows: `seedBundledModels` deletes a builtin
+    // row the list no longer declares, so an id Cline has retired would
+    // otherwise stay in the catalog — and stay routable — forever. The live
+    // roster is the authority; this pins the seed against it.
     expect(CLINE_MODELS.map((model) => model.modelId)).toEqual([
-      "nvidia/nemotron-3-ultra-550b-a55b:free",
-      "google/gemma-4-31b-it:free",
       "deepseek/deepseek-v4-flash",
       "cline-free/deepseek-v4.1-flash",
       "z-ai/glm-5.3-flash",
@@ -195,25 +203,187 @@ describe("Cline model catalog", () => {
     expect(CLINE_MODELS.every((model) => model.cost.input === 0 && model.cost.output === 0)).toBe(true);
   });
 
+  test("does not seed the two ids Cline's free roster dropped", () => {
+    // Regression pin for the reported bug: both ids were seeded here while
+    // Cline served neither on the free tier, so each rendered as a builtin
+    // card whose every probe could only fail, and — because nothing prunes a
+    // builtin row the list still declares — neither could be deleted from the
+    // dashboard. Cline's live roster is the authority; a network check is not
+    // possible from a unit test, so this pins the removal itself.
+    for (const id of ["nvidia/nemotron-3-ultra-550b-a55b:free", "google/gemma-4-31b-it:free"]) {
+      expect(CLINE_MODELS.some((model) => model.modelId === id)).toBe(false);
+    }
+  });
+
+  test("marks the free bucket as the free tier, and only that bucket", async () => {
+    // The `free` bucket is the tier; `recommended` is not, even though a pass
+    // account receives both. The marker is what `syncModels` turns into
+    // `source: "auto_free"`, so a wrong bucket here misfiles rows in the model
+    // list rather than merely mislabelling a badge.
+    const models = await fetchClineRecommendedModels(undefined, true, async () =>
+      new Response(
+        JSON.stringify({
+          recommended: [{ id: "anthropic/claude-opus-5" }],
+          free: [{ id: "stealth/pixel-canary" }],
+          clinePass: [{ id: "cline-pass/kimi-k3" }],
+          clineCloud: [{ id: "cline-cloud/glm-5.3" }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const tierOf = (id: string) => models?.find((model) => model.modelId === id)?.freeTier === true;
+
+    expect(tierOf("stealth/pixel-canary")).toBe(true);
+    expect(tierOf("anthropic/claude-opus-5")).toBe(false);
+    expect(tierOf("cline-pass/kimi-k3")).toBe(false);
+    expect(tierOf("cline-cloud/glm-5.3")).toBe(false);
+  });
+
+  test("the free tier is the bucket, not the id prefix", async () => {
+    // Regression for a wrong rule: the `free` bucket serves ids with no
+    // `cline-free/` prefix (`deepseek/deepseek-v4-flash`), so a prefix test
+    // would drop a served model. The bucket decides, whatever the id looks
+    // like — here an unprefixed id in `free` and a prefixed one in `clinePass`.
+    const models = await fetchClineRecommendedModels(undefined, true, async () =>
+      new Response(
+        JSON.stringify({
+          free: [{ id: "deepseek/deepseek-v4-flash" }],
+          clinePass: [{ id: "cline-pass/deepseek-v4.1-flash" }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const tierOf = (id: string) => models?.find((model) => model.modelId === id)?.freeTier === true;
+
+    expect(tierOf("deepseek/deepseek-v4-flash")).toBe(true);
+    expect(tierOf("cline-pass/deepseek-v4.1-flash")).toBe(false);
+  });
+
   test("workosToken helper correctly applies prefix", () => {
     expect(workosToken("abc")).toBe("workos:abc");
     expect(workosToken("workos:abc")).toBe("workos:abc");
   });
 
-  test("fetches paid and free recommended models with separate wire namespaces", async () => {
+  test("keeps the endpoint's own id spelling instead of double-namespacing it", async () => {
+    // The live endpoint already namespaces its ids (`cline-pass/…`,
+    // `cline-cloud/…`, `cline-free/…`). Prefixing again produced
+    // `cline-pass/cline-pass/glm-5.3-flash`, which no upstream route resolves.
     const models = await fetchClineRecommendedModels(undefined, true, async () =>
       new Response(
         JSON.stringify({
-          clinePass: [{ id: "glm-5.3-flash" }],
-          free: [{ id: "z-ai/glm-5.3-flash" }],
+          recommended: [{ id: "spacexai/grok-4.7" }],
+          free: [{ id: "cline-free/gemini-3.8-flash" }],
+          clinePass: [{ id: "cline-pass/glm-5.3-flash" }],
+          clineCloud: [{ id: "cline-cloud/glm-5.3" }],
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       ),
     );
     expect(models?.map((model) => model.modelId)).toEqual([
+      "spacexai/grok-4.7",
+      "cline-free/gemini-3.8-flash",
       "cline-pass/glm-5.3-flash",
-      "z-ai/glm-5.3-flash",
+      "cline-cloud/glm-5.3",
     ]);
+  });
+
+  test("reads every bucket the endpoint publishes, and only for a pass account", async () => {
+    // `recommended` and `clineCloud` were dropped entirely: reading only
+    // `free`/`clinePass` hid both from the catalog.
+    const payload = {
+      recommended: [{ id: "spacexai/grok-4.7" }],
+      free: [{ id: "cline-free/gemini-3.8-flash" }],
+      clinePass: [{ id: "cline-pass/glm-5.3-flash" }],
+      clineCloud: [{ id: "cline-cloud/glm-5.3" }],
+    };
+    const fetcher = async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    const pass = await fetchClineRecommendedModels(undefined, true, fetcher);
+    expect(pass?.map((m) => m.modelId)).toEqual([
+      "spacexai/grok-4.7",
+      "cline-free/gemini-3.8-flash",
+      "cline-pass/glm-5.3-flash",
+      "cline-cloud/glm-5.3",
+    ]);
+    // A non-pass account sees the free tier only; the subscription and cloud
+    // rosters are not routable for it.
+    const free = await fetchClineRecommendedModels(undefined, false, fetcher);
+    expect(free?.map((m) => m.modelId)).toEqual([
+      "spacexai/grok-4.7",
+      "cline-free/gemini-3.8-flash",
+    ]);
+  });
+
+  test("takes limits from the base catalog rather than a fixed 200k/64k", async () => {
+    // The roster reports no limits (id/name/description/tags only), so a
+    // hardcoded 200_000/64_192 was wrong for most of the roster: the pass
+    // entries are 1M-context. `cline-pass/kimi-k3` is filed as 1048576/131072.
+    const models = await fetchClineRecommendedModels(undefined, true, async () =>
+      new Response(JSON.stringify({ clinePass: [{ id: "cline-pass/kimi-k3" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const kimi = models?.find((m) => m.modelId === "cline-pass/kimi-k3");
+    expect(kimi?.contextLimit).toBe(1_048_576);
+    expect(kimi?.outputLimit).toBe(131_072);
+    // Never above the context window: an output cap the model cannot satisfy.
+    expect(kimi!.outputLimit!).toBeLessThanOrEqual(kimi!.contextLimit!);
+  });
+
+  test("prefers Cline's own catalog limits over any guess", async () => {
+    // `/ai/cline/models` states `context_length` and
+    // `top_provider.max_completion_tokens` for the id it serves, and that is
+    // the serving provider's own answer. The two endpoints disagree on
+    // spelling, so the lookup also tries the bare segment: the roster calls it
+    // `cline-pass/kimi-k3` while the catalog files it as `moonshotai/kimi-k3`.
+    const models = await fetchClineRecommendedModels(undefined, true, async (input) => {
+      const url = String(input);
+      if (url.includes("/recommended-models"))
+        return new Response(JSON.stringify({ clinePass: [{ id: "cline-pass/kimi-k3" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "moonshotai/kimi-k3",
+              context_length: 262_144,
+              top_provider: { max_completion_tokens: 32_768 },
+              architecture: { input_modalities: ["text", "image"] },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    const kimi = models?.find((m) => m.modelId === "cline-pass/kimi-k3");
+    // Upstream's own numbers, not the base catalog's 1048576/131072.
+    expect(kimi?.contextLimit).toBe(262_144);
+    expect(kimi?.outputLimit).toBe(32_768);
+    // `input_modalities` is authoritative for vision when it lists the id.
+    expect(kimi?.modalities.input).toContain("image");
+  });
+
+  test("falls back to the base catalog when the upstream catalog is unavailable", async () => {
+    // The roster is still useful without limits, so a failed sibling fetch must
+    // not fail the roster; `defineModel` supplies the numbers instead.
+    const models = await fetchClineRecommendedModels(undefined, true, async (input) => {
+      const url = String(input);
+      if (url.includes("/recommended-models"))
+        return new Response(JSON.stringify({ clinePass: [{ id: "cline-pass/kimi-k3" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      return new Response("nope", { status: 503 });
+    });
+    const kimi = models?.find((m) => m.modelId === "cline-pass/kimi-k3");
+    expect(kimi?.contextLimit).toBe(1_048_576);
+    expect(kimi?.outputLimit).toBe(131_072);
   });
 });
   });

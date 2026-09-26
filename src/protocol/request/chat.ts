@@ -36,7 +36,15 @@ function resolveAudioFormat(mediaType: unknown): string {
   return "mp3";
 }
 
-/** Rebuilds an OpenAI `image_url` part, preserving `detail` when the caller set it. */
+/**
+ * Rebuilds an OpenAI `image_url` part, preserving `detail` when the caller set it.
+ *
+ * Chat Completions can only express an image as a URL — there is no `file_id`
+ * form for images (unlike `file` parts) — so an image that carries only a
+ * Files API reference has no valid Chat encoding. It degrades to a text
+ * reference naming the id, which keeps the attachment visible to the model and
+ * the request valid, instead of emitting an `image_url` the upstream rejects.
+ */
 function chatImagePart(payload: unknown): Record<string, unknown> | undefined {
   const source = resolveImageSource(payload);
   if (source?.url === undefined) return undefined;
@@ -47,6 +55,14 @@ function chatImagePart(payload: unknown): Record<string, unknown> | undefined {
       ...(source.detail === undefined ? {} : { detail: source.detail }),
     },
   };
+}
+
+/** Text fallback for an image the Chat wire cannot encode (a bare `file_id`). */
+function chatImageReferenceText(payload: unknown): string {
+  const source = resolveImageSource(payload);
+  return source?.fileId === undefined
+    ? "[image: unsupported source]"
+    : `[image: ${source.fileId}]`;
 }
 
 /**
@@ -242,7 +258,7 @@ export function canonicalToChatPayload(
             parts.push({ type: "text", text: p.text });
           } else if (p.kind === "image") {
             const imagePart = chatImagePart(p.payload);
-            parts.push(imagePart ?? { type: "text", text: "[image: unsupported source]" });
+            parts.push(imagePart ?? { type: "text", text: chatImageReferenceText(p.payload) });
           } else if (p.kind === "document") {
             // OpenAI Chat Completions has no `document` content part, so a
             // document is carried as a `file` part — the provider-neutral shape
@@ -254,6 +270,21 @@ export function canonicalToChatPayload(
                 url: p.url,
                 source_type: p.source_type,
                 ...(p.title === undefined ? {} : { filename: p.title }),
+              }),
+            );
+          } else if (p.kind === "file") {
+            // A canonical `file` part reaches here whenever the inbound surface
+            // was Responses or Messages (`document` covers Anthropic-origin
+            // documents, `file` covers Responses-origin ones). There was no
+            // branch for it, so the attachment was silently dropped on the
+            // Chat outbound path while `image`, `document` and `audio` all
+            // survived — a cross-protocol move lost the file with no error.
+            parts.push(
+              chatFilePart({
+                data: p.data,
+                ...(p.file_id === undefined ? {} : { file_id: p.file_id }),
+                ...(p.url === undefined ? {} : { url: p.url }),
+                ...(p.filename === undefined ? {} : { filename: p.filename }),
               }),
             );
           } else if (p.kind === "audio") {

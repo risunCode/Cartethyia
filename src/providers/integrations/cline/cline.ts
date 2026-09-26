@@ -6,14 +6,13 @@ import type { CanonicalRequest } from "../../../transport/canonical-model";
 import { isRecord } from "../../../protocol/primitives";
 import { providerBaseUrl } from "../../provider-metadata";
 import { getCachedModelDiscovery } from "../../operations/model-discovery-cache";
-import { defineModel, FREE_TIER_COST } from "../../model-definition";
+import { defineModel } from "../../model-definition";
 import {
   resolveClineClientVersion,
   resolveClineSdkVersion,
   getClineClientVersion,
   getClineSdkVersion,
 } from "../../operations/client-versions";
-import { modelsDevCatalog } from "../../discovery/models-dev-catalog";
 export {
   getClineClientVersion,
   getClineSdkVersion,
@@ -25,6 +24,11 @@ export const CLINE_BASE_URL = providerBaseUrl("cline");
 export const CLINE_PROVIDER_ID = "cline" as const;
 const CLINE_CHAT_PATH = "/chat/completions" as const;
 const CLINE_RECOMMENDED_MODELS_PATH = "/ai/cline/recommended-models" as const;
+/**
+ * Cline's own model catalog. Unlike the roster above it states `context_length`
+ * and `top_provider.max_completion_tokens`, so it is the authority for limits.
+ */
+const CLINE_MODELS_CATALOG_PATH = "/ai/cline/models" as const;
 
 
 
@@ -135,8 +139,10 @@ interface ClineRecommendedModel {
 }
 
 interface ClineRecommendedPayload {
+  readonly recommended?: unknown;
   readonly free?: unknown;
   readonly clinePass?: unknown;
+  readonly clineCloud?: unknown;
 }
 
 function modelEntries(value: unknown): readonly ClineRecommendedModel[] {
@@ -145,50 +151,177 @@ function modelEntries(value: unknown): readonly ClineRecommendedModel[] {
     : [];
 }
 
-function recommendedModels(value: unknown, pass: boolean): readonly ModelDefinition[] {
+function recommendedModels(
+  value: unknown,
+  pass: boolean,
+  upstream: ReadonlyMap<string, ClineUpstreamLimits> = new Map(),
+): readonly ModelDefinition[] {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
   const payload = value as ClineRecommendedPayload;
-  const entries = pass
+  // The endpoint publishes four buckets: `recommended` (the current picks),
+  // `free` (the zero-cost tier), `clinePass` (the subscription roster) and
+  // `clineCloud` (cloud-routed). A pass-enabled account may use every one of
+  // them, so all four are read; a free account sees the free tier only. Reading
+  // just `free`/`clinePass` silently dropped `recommended` and `clineCloud`
+  // from the catalog entirely.
+  //
+  // The third element marks the zero-cost tier — the `free` bucket alone, not
+  // `recommended`: a pass account receives `recommended` too, so calling it a
+  // free-tier row would mislabel a subscription catalog entry. The tier is what
+  // separates a "Free models (auto)" row from an ordinary fetched one.
+  //
+  // Membership of the bucket *is* the rule, deliberately not the id prefix. The
+  // `free` bucket's ids are mostly `cline-free/…`, but the prefix does not
+  // define the tier in either direction: a free id need not carry it (the
+  // catalog serves `deepseek/deepseek-v4-flash` and `z-ai/glm-5.3-flash` on the
+  // free tier with no prefix at all), and carrying it proves nothing on its own.
+  // A prefix test would therefore both miss served models and admit retired
+  // ones, so the bucket the endpoint already sorted them into is the authority.
+  const buckets: ReadonlyArray<readonly [unknown, boolean, boolean]> = pass
     ? [
-        ...modelEntries(payload.clinePass).map((entry) => [entry, true] as const),
-        ...modelEntries(payload.free).map((entry) => [entry, false] as const),
+        [payload.recommended, false, false],
+        [payload.free, false, true],
+        [payload.clinePass, true, false],
+        [payload.clineCloud, true, false],
       ]
-    : modelEntries(payload.free).map((entry) => [entry, false] as const);
+    : [
+        [payload.recommended, false, false],
+        [payload.free, false, true],
+      ];
   const seen = new Set<string>();
   const out: ModelDefinition[] = [];
-  for (const [entry, namespaceForWire] of entries) {
-    const rawId = typeof entry.id === "string" ? entry.id.trim() : "";
-    if (rawId.length === 0) continue;
-    const id =
-      namespaceForWire && !rawId.startsWith("cline-pass/")
-        ? `cline-pass/${rawId}`
-        : rawId;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const name = typeof entry.name === "string" && entry.name.trim().length > 0 ? entry.name.trim() : id;
-    const tags = Array.isArray(entry.tags)
-      ? entry.tags.filter((tag): tag is string => typeof tag === "string").map((tag) => tag.toLowerCase())
-      : [];
-    const images = tags.some((tag) => tag.includes("vision") || tag.includes("multimodal"));
-    out.push({
-      modelId: id,
-      wireFamily: "chat",
-      endpointPath: CLINE_CHAT_PATH,
-      contextLimit: 200_000,
-      outputLimit: 64_192,
-      modalities: { input: images ? ["text", "image"] : ["text"], output: ["text"] },
-      reasoning: true,
-      toolCall: true,
-      webSearch: false,
-      // The recommended-models buckets are the tier authority: `free` entries
-      // bill zero, while `clinePass` entries are the subscription roster priced
-      // by the base catalog's `cline-pass` provider.
-      cost: namespaceForWire ? modelsDevCatalog.costFor("cline-pass", id) : FREE_TIER_COST,
-    });
-    void name;
-    void images;
+  for (const [bucket, subscription, freeTier] of buckets) {
+    for (const entry of modelEntries(bucket)) {
+      const rawId = typeof entry.id === "string" ? entry.id.trim() : "";
+      if (rawId.length === 0) continue;
+      // The endpoint already namespaces its own ids (`cline-pass/…`,
+      // `cline-cloud/…`, `cline-free/…`), so the bucket decides only how the
+      // row is priced and which catalog entry answers for it — never how the id
+      // is spelled. Prefixing here double-namespaced every id the endpoint had
+      // already prefixed (`cline-pass/cline-pass/mimo-v2.6-flash`), which no
+      // upstream route resolves.
+      const id = rawId;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      // Limits, in authority order:
+      //   1. Cline's own `/ai/cline/models` catalog (`context_length`,
+      //      `top_provider.max_completion_tokens`) — the serving provider's
+      //      answer, and the only source that covers the whole roster.
+      //   2. `defineModel`'s fallback, which is the base catalog's exact row
+      //      when models.dev files the provider (`cline-pass`), else the
+      //      most-agreed row for the bare id, else the documented default.
+      // The recommended-models endpoint itself states no limits (only
+      // id/name/description/tags), so a fixed pair here was simply invented:
+      // the pass entries are 1M-context, and an output cap above the real
+      // window is unsatisfiable.
+      const providerId = subscription ? "cline-pass" : "cline";
+      const limits = upstreamLimitsFor(upstream, id);
+      const declaredVision = tagsOf(entry).some(
+        (tag) => tag.includes("vision") || tag.includes("multimodal"),
+      );
+      out.push(
+        defineModel({
+          id,
+          providerId,
+          wireFamily: "chat",
+          endpoint: CLINE_CHAT_PATH,
+          // The upstream catalog's `input_modalities` is authoritative when it
+          // lists the id; the roster's own tags are the fallback signal.
+          vision: limits?.vision ?? declaredVision,
+          ...(limits?.contextLimit === undefined ? {} : { ctx: limits.contextLimit }),
+          ...(limits?.outputLimit === undefined ? {} : { out: limits.outputLimit }),
+          reasoning: true,
+          // Two separate statements, so neither has to bend for the other: the
+          // free tier and the pass roster both bill zero per token, while only
+          // the free bucket is the tier the model list groups as free.
+          free: !subscription,
+          freeTier,
+        }),
+      );
+    }
   }
   return out;
+}
+
+/**
+ * Upstream limits for one model id, read from Cline's own catalog.
+ *
+ * The recommended-models roster states no limits at all, but Cline's
+ * `/ai/cline/models` catalog does: `context_length` plus
+ * `top_provider.max_completion_tokens`, and `architecture.input_modalities`.
+ * That is the serving provider's own answer, so it outranks any guess.
+ *
+ * The two endpoints do not share an id spelling. The roster names a
+ * subscription model `cline-pass/kimi-k3` while the catalog files it as
+ * `moonshotai/kimi-k3`, so a lookup tries the id as given and then its bare
+ * segment — the same bare-id rule `modelsDevCatalog` uses, and safe here
+ * because this is one provider's catalog rather than a shared global index.
+ */
+interface ClineUpstreamLimits {
+  readonly contextLimit?: number;
+  readonly outputLimit?: number;
+  readonly vision?: boolean;
+}
+
+function upstreamCatalogIndex(value: unknown): ReadonlyMap<string, ClineUpstreamLimits> {
+  const root = isRecord(value) ? value : undefined;
+  const rows = Array.isArray(root?.["data"]) ? root["data"] : Array.isArray(value) ? value : [];
+  const byId = new Map<string, ClineUpstreamLimits>();
+  for (const row of rows) {
+    if (!isRecord(row)) continue;
+    const id = typeof row["id"] === "string" ? row["id"].trim().toLowerCase() : "";
+    if (id.length === 0) continue;
+    const contextLimit = positiveCount(row["context_length"]);
+    const topProvider = isRecord(row["top_provider"]) ? row["top_provider"] : undefined;
+    const outputLimit = positiveCount(topProvider?.["max_completion_tokens"]);
+    const architecture = isRecord(row["architecture"]) ? row["architecture"] : undefined;
+    const modalities = Array.isArray(architecture?.["input_modalities"])
+      ? architecture["input_modalities"]
+      : [];
+    const limits: ClineUpstreamLimits = {
+      ...(contextLimit === undefined ? {} : { contextLimit }),
+      ...(outputLimit === undefined ? {} : { outputLimit }),
+      vision: modalities.some((m) => m === "image"),
+    };
+    byId.set(id, limits);
+    // The roster and this catalog spell the same model differently: the roster
+    // names a subscription model `cline-pass/kimi-k3` while this catalog files
+    // it as `moonshotai/kimi-k3`. Indexing the bare segment too is what lets
+    // `upstreamLimitsFor` resolve one to the other. An exact key already
+    // recorded stays authoritative, so a provider-prefixed row never shadows a
+    // row filed under the bare id itself.
+    const slash = id.indexOf("/");
+    if (slash >= 0) {
+      const bare = id.slice(slash + 1);
+      if (!byId.has(bare)) byId.set(bare, limits);
+    }
+  }
+  return byId;
+}
+
+function positiveCount(value: unknown): number | undefined {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+/** The catalog row for `id`, falling back to its bare segment. */
+function upstreamLimitsFor(
+  index: ReadonlyMap<string, ClineUpstreamLimits>,
+  id: string,
+): ClineUpstreamLimits | undefined {
+  const normalized = id.trim().toLowerCase();
+  const exact = index.get(normalized);
+  if (exact !== undefined) return exact;
+  const slash = normalized.indexOf("/");
+  return slash < 0 ? undefined : index.get(normalized.slice(slash + 1));
+}
+
+function tagsOf(entry: ClineRecommendedModel): readonly string[] {
+  return Array.isArray(entry.tags)
+    ? entry.tags
+        .filter((tag): tag is string => typeof tag === "string")
+        .map((tag) => tag.toLowerCase())
+    : [];
 }
 
 export async function fetchClineRecommendedModels(
@@ -204,7 +337,12 @@ export async function fetchClineRecommendedModels(
       const res = await fetcher(url, { headers: { accept: "application/json" }, signal: composed });
       if (!res.ok) return null;
       const json = (await res.json()) as unknown;
-      const models = recommendedModels(json, pass);
+      // The limits live in the sibling catalog, not in the roster. Fetch it
+      // alongside, and treat its absence as "no upstream limits" rather than a
+      // failure: the roster is still useful without them, and `defineModel`
+      // falls back to the base catalog.
+      const upstream = await fetchClineUpstreamCatalog(fetcher, composed);
+      const models = recommendedModels(json, pass, upstream);
       return models.length > 0 ? models : null;
     } catch {
       return null;
@@ -217,26 +355,40 @@ export async function fetchClineRecommendedModels(
   return getCachedModelDiscovery(`cline-recommended:${pass ? "pass" : "free"}`, load);
 }
 
-// Static Cline model catalog.
+/** Cline's model catalog, indexed for limit lookup. Empty when unavailable. */
+async function fetchClineUpstreamCatalog(
+  fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  signal: AbortSignal,
+): Promise<ReadonlyMap<string, ClineUpstreamLimits>> {
+  try {
+    const res = await fetcher(`${CLINE_BASE_URL}${CLINE_MODELS_CATALOG_PATH}`, {
+      headers: { accept: "application/json" },
+      signal,
+    });
+    if (!res.ok) return new Map();
+    return upstreamCatalogIndex(await res.json());
+  } catch {
+    return new Map();
+  }
+}
 
-
+/**
+ * Static seed for Cline's free tier.
+ *
+ * Every id here is materialized into the `models` table at boot with
+ * `source: "builtin"`, and `seedBundledModels` deletes any builtin row this
+ * list no longer declares. That makes the list the *owner* of these rows: an id
+ * Cline retires from its roster keeps its catalog card — and its route — until
+ * it is removed here, because nothing else prunes a builtin row. The seed is
+ * therefore kept to ids Cline currently serves on the free tier; a stale entry
+ * is a card that can only ever fail a probe.
+ *
+ * Cline's live roster (`/ai/cline/recommended-models`, read by
+ * `fetchClineRecommendedModels`) is the authority for what is routable right
+ * now, and "Fetch models" reconciles against it. This list is the offline seed
+ * that makes a fresh install usable before the first fetch.
+ */
 export const CLINE_MODELS: readonly ModelDefinition[] = [
-  defineModel({
-    id: "nvidia/nemotron-3-ultra-550b-a55b:free",
-    ctx: 1_048_576,
-    out: 384_000,
-    reasoning: true,
-    vision: false,
-    free: true,
-  }),
-  defineModel({
-    id: "google/gemma-4-31b-it:free",
-    ctx: 262_144,
-    out: 131_072,
-    reasoning: true,
-    vision: true,
-    free: true,
-  }),
   defineModel({
     id: "deepseek/deepseek-v4-flash",
     ctx: 1_048_576,
@@ -278,7 +430,6 @@ export function createClineAdapter(fetchImpl?: typeof fetch): ProviderAdapter {
       provider_id: CLINE_PROVIDER_ID,
       base_url: CLINE_BASE_URL,
       endpoint_paths_by_wire_family: { chat: CLINE_CHAT_PATH, responses: "/responses" },
-      supported_wire_families: ["chat", "responses"],
       buildExtraHeaders: (ctx) => clineExtraHeaders(ctx),
       prePayload: clinePrePayload,
     },

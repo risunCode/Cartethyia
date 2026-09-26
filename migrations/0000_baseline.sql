@@ -14,7 +14,7 @@ CREATE TYPE "public"."telemetry_source_surface" AS ENUM('chat', 'responses', 'me
 --> statement-breakpoint
 CREATE TYPE "public"."telemetry_status" AS ENUM('completed', 'failed', 'cancelled', 'truncated');
 --> statement-breakpoint
-CREATE TYPE "public"."wire_family" AS ENUM('chat', 'responses', 'messages', 'native');
+CREATE TYPE "public"."wire_family" AS ENUM('chat', 'responses', 'messages');
 --> statement-breakpoint
 CREATE TYPE "public"."model_combo_strategy" AS ENUM('fallback', 'round_robin');
 --> statement-breakpoint

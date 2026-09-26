@@ -2,13 +2,16 @@
 
 `dashboard/` is the React/Vite client for the landing page, authenticated
 `/console` surface, and public `/share/:token` enrollment app. One `index.html`
-dispatches by pathname. All three apps draw on one stylesheet: console styling
-stays token-consistent through ordered imports in `src/styles.css` — tokens,
-overlays, cards, shell, overview, layout, controls, console-log, accounts,
-states, model-lab, share, and share-public — and the public share page carries
-no theme of its own, resolving light/dark from the same `console-theme`
-preference the console uses. Production serves the built files from
-`dist/dashboard`.
+dispatches by pathname. Every app loads the same `src/styles/base.css`
+(Tailwind, theme tokens, resets, and shared UI primitives) followed by one
+direct, app-specific extension import: `console.css`, `landing.css`, or
+`share.css`. There is no CSS barrel or duplicate global theme source.
+Console-only shell and route styles stay in `console.css`; Landing's dark
+story and manual chapter navigation stay in `landing.css`; Share's public HUD
+stays in `share.css`, without a decorative background and with the same
+`console-theme` preference as Console. Landing's GitHub action sits immediately
+before All view; chapter auto-scroll is disabled.
+Production serves the built files from `dist/dashboard`.
 
 ## Test tree
 
@@ -49,6 +52,9 @@ chunks:
 | `/settings` | `Settings` | `console/settings` |
 | Overview `API Credentials` row → share | `ShareManagementDialog` | `console/domains/api-keys` and `console/share` |
 | `/share/:token` (public root route) | `apps/share/page.tsx` | public key enrollment (`/data`, `/issue`) and personal handoff (`/handoff`) via `src/console/share/share-router.ts` |
+Landing's Console links point to `/console`, not `/console/login`: that
+protected entry checks the same-origin session cookie and only routes to Login
+when the existing session is absent or expired.
 
 Unknown protected paths redirect to `/`. Session transitions clear the shared
 query cache and navigate to `/login` or `/banned` rather than rendering stale

@@ -16,7 +16,6 @@ const OPENROUTER_REQUIRED_HEADERS: Readonly<Record<string, string>> = {
 export const OPENROUTER_SPEC: ApiKeyProviderSpec = {
   provider_id: OPENROUTER_PROVIDER_ID,
   endpoint_paths_by_wire_family: {},
-  supported_wire_families: ["chat"],
   extra_headers: OPENROUTER_REQUIRED_HEADERS,
 };
 

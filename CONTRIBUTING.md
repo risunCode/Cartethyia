@@ -18,7 +18,7 @@ duplicated, below.
 bun install
 cp .env.example .env
 # Edit DATABASE_URL and CARTETHYIA_ENCRYPTION_KEY in .env.
-bun run setup     # copies .env if missing, probes Postgres/Redis, runs migrations
+bun run setup     # copies .env if missing, probes Postgres/Redis (the backend migrates at boot)
 bun run doctor    # re-checks the environment and /health/ready
 bun run dev       # supervisor proxy + backend (bun --hot) + dashboard (Vite); CTRL+R = restart in place
 ```
@@ -60,7 +60,7 @@ them separately from failures in your PR.
 bun run test                 # full backend suite (DB suites skip without the URL)
 bun run test:contracts       # cross-cutting contract suites
 bun run test:integration     # integration suites
-bun run check:coverage       # coverage gate: 75% offline, COVERAGE_MIN=80 with DB
+bun run check:coverage       # coverage gate: 90% line coverage over src/
 
 bun run scripts/ops-run-tests.ts test/console                     # one subtree
 bun run scripts/ops-run-tests.ts test/providers/integrations/codex
@@ -70,7 +70,7 @@ bun run dashboard:test        # dashboard (Vitest/bun) suite
 
 ## Verification gate (required before every PR)
 
-From `AGENTS.md` — backend change:
+From `AGENTS.md` §12 — backend change:
 
 ```bash
 bun run typecheck
@@ -87,8 +87,8 @@ bun run test:contracts
 ```
 
 CI (`.github/workflows/ci.yml`) runs exactly these gates with Postgres +
-Redis services and `COVERAGE_MIN=80`. Typecheck and build never require Buf,
-vendor protobuf sources, or network access.
+Redis services and the same `COVERAGE_MIN=90` floor. Typecheck and build never
+require Buf, vendor protobuf sources, or network access.
 
 ## Code conventions (short version)
 
@@ -115,7 +115,7 @@ contributors:
   beside it, named for the layer (`src/transport/TRANSPORT.md`) — subfolders do
   not carry their own; `ARCHITECTURE.md` is only the map linking to them. If your change adds a layer, route group, provider
   capability, env var, or DB table, update the corresponding top-level doc
-  (and `.env.example` for env vars, `drizzle/` + `src/persistence/schema.ts`
+  (and `.env.example` for env vars, `migrations/` + `src/persistence/schema.ts`
   for tables). Adding or renaming a top-level folder doc also updates the
   `ARCHITECTURE.md` table.
 - `README.md` + `.env.example` are product/runtime docs; `AGENTS.md` is
@@ -129,7 +129,7 @@ contributors:
 ## Pull requests
 
 - Branch from `main`, keep the change focused, remove callers in the same
-  change (no compatibility shims — see `AGENTS.md` cleanup rules).
+  change (no compatibility shims — see `AGENTS.md` §6 "Clean cutover").
 - Fill in `.github/pull_request_template.md`: what changed, which gates you
   ran, DB-gated skips vs failures, and which docs you updated.
 - Every privileged console mutation must end with audit + route-snapshot

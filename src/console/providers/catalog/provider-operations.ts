@@ -120,8 +120,21 @@ async function attachProviderCapabilities(
   // build: a client whose `buildAuthorizeUrl` can throw must still report the
   // browser flow it genuinely supports, otherwise the Login with browser button
   // disappears for a provider that has one.
+  //
+  // `supportsBrowserCode` is authoritative when the client states it. The base
+  // `OAuthClient` always defines `buildAuthorizeUrl` and `exchangeCode` — the
+  // device-only clients override the latter to throw — so testing only for the
+  // methods reports browser support for every device-only provider (Cline,
+  // Cursor, Grok, Kimi, Muse, Buddy). The dashboard then offered "Login with
+  // browser" on those rows and the click failed server-side with
+  // `browser_code_not_supported`. An explicit `false` suppresses the flow; an
+  // omitted flag keeps the method-shape test, since a client that does not
+  // state the capability is judged by what it can do.
   const hasBrowserFlow =
-    typeof client.buildAuthorizeUrl === "function" && typeof client.exchangeCode === "function";
+    client.supportsBrowserCode === false
+      ? false
+      : typeof client.buildAuthorizeUrl === "function" &&
+        typeof client.exchangeCode === "function";
   return {
     ...response,
     supportsModelDiscovery: supportsDiscovery,
@@ -189,7 +202,7 @@ export function createProviderCatalogOperations(config: ProviderCatalogConfig) {
           throw new ConsoleDomainError(
             "invalid_wire_family",
             400,
-            `wireFamily must be one of chat, responses, messages, native`,
+            `wireFamily must be one of chat, responses, messages`,
           );
         }
         const record: ProviderRecord = {

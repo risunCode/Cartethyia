@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-const migrationsDir = resolve(import.meta.dir, "../../drizzle/migrations");
+const migrationsDir = resolve(import.meta.dir, "../../migrations");
 
 async function numberedMigrations(): Promise<string[]> {
   return (await readdir(migrationsDir))
@@ -13,12 +13,8 @@ async function numberedMigrations(): Promise<string[]> {
 describe("SQL migration integrity", () => {
   test("the baseline is the first auto-applied migration", async () => {
     const files = await numberedMigrations();
-    // Every numbered file under `drizzle/migrations/` is applied at boot, in
-    // order, and recorded in the ledger. The baseline comes first and is the
-    // whole schema for a database created today; a later change is a new
-    // number beside it.
+    // The baseline comes first; future 0001+ migrations follow it.
     expect(files[0]).toBe("0000_baseline.sql");
-    expect(files.length).toBeGreaterThan(0);
     const migration = await readFile(resolve(migrationsDir, "0000_baseline.sql"), "utf8");
     expect(migration.trim().length).toBeGreaterThan(0);
   });
@@ -64,6 +60,20 @@ describe("SQL migration integrity", () => {
     expect(migration).not.toContain('CREATE TABLE "backup_status"');
   });
 
+  test("the wire_family enum carries no retired `native` label", async () => {
+    // `native` was never a protocol: it marked a row served by a bespoke
+    // adapter (Cursor, Devin) that frames its own wire. Sitting in the same
+    // enum as the real families made it an operator-selectable choice that
+    // died inside the codec with an untyped error. The fact it carried now
+    // lives on the provider declaration (`bespokeWire`), so the label must not
+    // return to the baseline or to any forward migration's target enum.
+    const baseline = await readFile(resolve(migrationsDir, "0000_baseline.sql"), "utf8");
+    expect(baseline).toContain(
+      `CREATE TYPE "public"."wire_family" AS ENUM('chat', 'responses', 'messages')`,
+    );
+    expect(baseline).not.toContain("'native'");
+  });
+
   test("baseline carries no unused network-pool health column", async () => {
     // `degraded_since` was never read or written; the health state machine
     // records transitions through `status`, `last_error_at`, `cooldown_until`,
@@ -86,14 +96,9 @@ describe("SQL migration integrity", () => {
   });
 
   test("baseline is self-contained: it declares every column the schema reads", async () => {
-    // The baseline is the whole schema for a database created today — the
-    // ledger records it as applied, so `bun run db:migrate` never re-runs it,
-    // and the hand-run files under `manual/` exist only to bring an *older*
-    // database up to it. A column that lives only in a manual file therefore
-    // reaches a pre-existing database and no fresh one, so a new deployment
-    // starts missing it. That is exactly how `network_pools.kind` and
-    // `telemetry_events.error_origin` went absent from a fresh install while
-    // every developer's long-lived database had them.
+    // The baseline is the complete schema for a new database. It must include
+    // every column the application reads, regardless of which forward migration
+    // added that column to an earlier installation.
     const migration = await readFile(resolve(migrationsDir, "0000_baseline.sql"), "utf8");
 
     const networkPools = migration.match(/CREATE TABLE "network_pools" \(([\s\S]*?)\n\);/)?.[1] ?? "";

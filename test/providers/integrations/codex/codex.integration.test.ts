@@ -2173,5 +2173,129 @@ describe("codex Responses Lite detail stripping", () => {
     expect(output[0] && "detail" in output[0]).toBe(false);
     expect(JSON.stringify(body).includes('"detail"')).toBe(false);
   });
+
+  /**
+   * `image_url` is a *string* on the Responses wire. The builder forwarded the
+   * canonical image part's opaque origin payload verbatim, so an Anthropic- or
+   * Chat-origin image put an object on the wire and Codex rejected the whole
+   * request with HTTP 400 ("expected an image URL, but got an object instead").
+   * Each origin shape must resolve to a URL or a file id.
+   */
+  describe("image parts are normalized to the wire shape", () => {
+    const imageMessage = (payload: unknown): CanonicalRequest =>
+      fakeCanonicalRequest({
+        messages: [{ role: "user", content: [{ kind: "image", payload }] } as never],
+      });
+
+    function imagePartOf(request: CanonicalRequest): Record<string, unknown> | undefined {
+      const payload = canonicalToCodexResponsesPayload(request);
+      const input = payload["input"] as Array<Record<string, unknown>>;
+      const message = input.find((item) => item["type"] === "message");
+      const content = message?.["content"] as Array<Record<string, unknown>> | undefined;
+      return content?.[0];
+    }
+
+    test("an Anthropic base64 image becomes a data URL, not an object", () => {
+      const part = imagePartOf(
+        imageMessage({
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: "AAAA" },
+        }),
+      );
+      expect(part?.["type"]).toBe("input_image");
+      expect(part?.["image_url"]).toBe("data:image/png;base64,AAAA");
+    });
+
+    test("an Anthropic url image becomes its URL", () => {
+      const part = imagePartOf(
+        imageMessage({ type: "image", source: { type: "url", url: "https://x/b.png" } }),
+      );
+      expect(part?.["image_url"]).toBe("https://x/b.png");
+    });
+
+    test("an Anthropic file image becomes a file_id", () => {
+      const part = imagePartOf(
+        imageMessage({ type: "image", source: { type: "file", file_id: "file-1" } }),
+      );
+      expect(part?.["file_id"]).toBe("file-1");
+      expect(part?.["image_url"]).toBeUndefined();
+    });
+
+    test("a nested Chat image_url object becomes its URL", () => {
+      const part = imagePartOf(imageMessage({ image_url: { url: "https://x/a.png" } }));
+      expect(part?.["image_url"]).toBe("https://x/a.png");
+    });
+
+    test("a flat url payload becomes its URL", () => {
+      const part = imagePartOf(imageMessage({ url: "https://x/a.png" }));
+      expect(part?.["image_url"]).toBe("https://x/a.png");
+    });
+
+    test("a detail hint is preserved alongside the resolved URL", () => {
+      const part = imagePartOf(
+        imageMessage({ image_url: { url: "https://x/d.png" }, detail: "high" }),
+      );
+      expect(part?.["image_url"]).toBe("https://x/d.png");
+      expect(part?.["detail"]).toBe("high");
+    });
+
+    test("no image part ever puts a non-string image_url on the wire", () => {
+      // The invariant the 400 came from, asserted across every origin shape.
+      const shapes: unknown[] = [
+        { image_url: { url: "https://x/a.png" } },
+        { url: "https://x/a.png" },
+        { type: "input_image", image_url: "https://x/a.png" },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+        { type: "image", source: { type: "url", url: "https://x/b.png" } },
+        { type: "image", source: { type: "file", file_id: "file-1" } },
+        "https://x/c.png",
+      ];
+      for (const payload of shapes) {
+        const payloadBody = canonicalToCodexResponsesPayload(imageMessage(payload));
+        const input = payloadBody["input"] as Array<Record<string, unknown>>;
+        const message = input.find((item) => item["type"] === "message");
+        const content = (message?.["content"] as Array<Record<string, unknown>>) ?? [];
+        for (const part of content) {
+          if (part["type"] !== "input_image") continue;
+          if (part["image_url"] !== undefined) {
+            expect({ payload, imageUrl: typeof part["image_url"] }).toEqual({
+              payload,
+              imageUrl: "string",
+            });
+          }
+        }
+      }
+    });
+
+    test("a computer screenshot resolves the image part rather than forwarding it", () => {
+      // The same wire constraint applies to a computer-use result's screenshot.
+      const payload = canonicalToCodexResponsesPayload(
+        fakeCanonicalRequest({
+          messages: [
+            {
+              role: "assistant",
+              content: [{ kind: "toolCall", call_id: "c1", name: "computer", call_kind: "computer" }],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  kind: "toolResult",
+                  call_id: "c1",
+                  call_kind: "computer",
+                  content: [{ kind: "image", payload: { image_url: { url: "https://x/shot.png" } } }],
+                },
+              ],
+            },
+          ] as never,
+        }),
+      );
+      const input = payload["input"] as Array<Record<string, unknown>>;
+      const screenshot = input.find((item) => item["type"] === "computer_call_output");
+      const output = screenshot?.["output"] as Record<string, unknown>;
+      expect(output["type"]).toBe("computer_screenshot");
+      expect(output["image_url"]).toBe("https://x/shot.png");
+    });
+  });
 });
 });

@@ -6,6 +6,7 @@ import {
   telemetryUsageTotals,
   type TelemetryUsageIdentityType,
 } from "./schema";
+import { isGatewayError } from "../observability/telemetry-status";
 
 interface UsageTotalDelta {
   readonly tenantId: string;
@@ -39,7 +40,10 @@ function addUsageDelta(
     deltas.set(key, delta);
   }
   delta.requests += 1;
-  if (row.status === "failed" || row.status === "truncated") delta.errors += 1;
+  // Same definition as every read-side error count, including the HTTP-status
+  // exclusions (404/499/503): this rollup is durable, so a request counted here
+  // stays counted after its raw row is pruned and cannot be corrected later.
+  if (isGatewayError(row.status, row.httpStatus)) delta.errors += 1;
   delta.inputTokens += row.inputTokens ?? 0;
   delta.outputTokens += row.outputTokens ?? 0;
 }

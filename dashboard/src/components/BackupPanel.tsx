@@ -149,16 +149,25 @@ export function BackupPanel(): ReactNode {
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="current-password"
           />
-          <Inline justify="flex-start">
-            <label>
-              <input type="checkbox" checked={includeConfig} onChange={(event) => setIncludeConfig(event.target.checked)} />
-              Account, proxy & settings
+          <fieldset className="backup-section-options">
+            <legend>Backup sections</legend>
+            <label className="backup-section-option">
+              <input
+                type="checkbox"
+                checked={includeConfig}
+                onChange={(event) => setIncludeConfig(event.target.checked)}
+              />
+              <span>Account, proxy &amp; settings</span>
             </label>
-            <label>
-              <input type="checkbox" checked={includeTelemetry} onChange={(event) => setIncludeTelemetry(event.target.checked)} />
-              Telemetry history
+            <label className="backup-section-option">
+              <input
+                type="checkbox"
+                checked={includeTelemetry}
+                onChange={(event) => setIncludeTelemetry(event.target.checked)}
+              />
+              <span>Telemetry history</span>
             </label>
-          </Inline>
+          </fieldset>
           <p style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
             Both actions re-authenticate with your console password. The export is plain JSON
             containing every provider credential and API-key hash — treat the file exactly as you

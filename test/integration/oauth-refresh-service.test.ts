@@ -26,6 +26,18 @@ import { dbDescribe, testDatabaseUrl } from "../helpers/db-gate";
 let pool: Pool | undefined;
 let db: NodePgDatabase<typeof schema> | undefined;
 
+/**
+ * Accounts this suite created, so cleanup removes exactly those.
+ *
+ * A table-wide `delete(providerAccounts)` is what this replaced: DB-gated
+ * suites share one isolated database and run as concurrent Bun worker
+ * processes, so wiping the whole table deleted other suites' fixtures
+ * mid-test and surfaced as unrelated failures elsewhere. These rows carry a
+ * null `tenant_id` — they are the shared catalog's accounts, not a tenant's —
+ * so the recorded account ids are the only correct ownership boundary.
+ */
+const createdAccountIds: string[] = [];
+
 function requireDb(): NodePgDatabase<typeof schema> {
   if (!db) throw new Error("test database was not initialized");
   return db;
@@ -54,6 +66,7 @@ async function insertAccount(opts: {
     })
     .returning({ id: providerAccounts.id });
   if (!row) throw new Error("failed to insert test account");
+  createdAccountIds.push(row.id);
   if (opts.refreshToken !== undefined && opts.expiresAt !== undefined) {
     await requireDb()
       .insert(providerOauthStates)
@@ -76,7 +89,7 @@ dbDescribe("OAuthRefreshService", () => {
     setCredentialEncryptionKeyForTesting(Buffer.alloc(32, 7));
     pool = new Pool({ connectionString: testDatabaseUrl, max: 4 });
     db = drizzle(pool, { schema });
-    await applySqlMigrations(pool, resolve(import.meta.dir, "../../drizzle/migrations"));
+    await applySqlMigrations(pool, resolve(import.meta.dir, "../../migrations"));
   });
 
   afterAll(async () => {
@@ -85,7 +98,12 @@ dbDescribe("OAuthRefreshService", () => {
   });
 
   afterEach(async () => {
-    await requireDb().delete(providerAccounts);
+    // Deleting the account cascades to its `provider_oauth_states` row, so the
+    // lease and refresh state go with it. Scoped to this suite's ids: see
+    // `createdAccountIds` for why a table-wide delete is not safe here.
+    for (const id of createdAccountIds.splice(0)) {
+      await requireDb().delete(providerAccounts).where(eq(providerAccounts.id, id));
+    }
   });
 
   test("does not refresh a token that is not yet within the skew window", async () => {
@@ -257,6 +275,10 @@ dbDescribe("OAuthRefreshService", () => {
     await insertAccount({ providerId: "claude", refreshToken: undefined, expiresAt: undefined });
 
     const rows = await loadDueOAuthAccounts(requireDb());
-    expect(rows.map((r) => r.id)).toEqual([due]);
+    // Filtered to this suite's accounts: the shared isolated database also
+    // holds other suites' OAuth accounts, and the query is deliberately
+    // table-wide. What this test pins is that among the three rows inserted
+    // above, only the due one is returned.
+    expect(rows.map((r) => r.id).filter((id) => createdAccountIds.includes(id))).toEqual([due]);
   });
 });

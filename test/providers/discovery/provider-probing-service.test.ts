@@ -4,6 +4,7 @@ import { encryptCredential } from "../../../src/security/crypto";
 import { models, providerAccounts, providers } from "../../../src/persistence/schema";
 import { createProviderProbingServiceForTests } from "../../../src/providers/discovery/probing-service";
 import { applyDiscoveredWire, constrainWireFamily, resolveDiscoveredWire, staticEndpointForWire, supportedWireFamiliesForProvider } from "../../../src/providers/discovery/probe-wire";
+import { buildProbeCanonicalRequest, loadProbePreferences } from "../../../src/providers/discovery/probe-phases";
 import { CLINE_MODELS } from "../../../src/providers/integrations/cline/cline";
 import { createDefaultProviderRegistry } from "../../../src/providers/default-registry";
 
@@ -835,6 +836,76 @@ describe("BYOK sync respects the provider's own wire contract", () => {
     // stale pair must be deleted or it stays a dead route forever.
     expect(deletes).toEqual([models]);
   });
+
+  test("a discovery that marks its rows free-tier persists them as auto_free", async () => {
+    // The source column is what the model list groups on, so a free-tier
+    // discovery must not be flattened into `discovered`: that is the only point
+    // where the distinction still exists.
+    const { db, inserted } = byokDb({
+      baseUrl: "https://api.openai-compatible.test/v1",
+      wireFamilyDefault: "chat",
+      compatibilityProfile: null,
+    });
+    const probing = probingService(db, {
+      outboundFetchFor: upstreamListing(["free-one"]),
+      providerRegistry: {
+        resolveModelDiscovery: async () =>
+          (async () => [
+            {
+              modelId: "free-one",
+              wireFamily: "chat",
+              endpointPath: "/v1/chat/completions",
+              contextLimit: 1000,
+              outputLimit: 100,
+              modalities: { input: ["text"], output: ["text"] },
+              reasoning: false,
+              toolCall: true,
+              webSearch: false,
+              cost: { input: 0, output: 0 },
+              freeTier: true,
+            },
+          ]) as never,
+        modelDiscoveryRequiresCredential: () => false,
+      } as never,
+    });
+    await probing.syncModels("tenant-1", "custom");
+
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]).toMatchObject({ modelId: "free-one", source: "auto_free" });
+  });
+
+  test("an ordinary discovery still persists as discovered", async () => {
+    const { db, inserted } = byokDb({
+      baseUrl: "https://api.openai-compatible.test/v1",
+      wireFamilyDefault: "chat",
+      compatibilityProfile: null,
+    });
+    const probing = probingService(db, {
+      outboundFetchFor: upstreamListing(["plain-one"]),
+      providerRegistry: {
+        resolveModelDiscovery: async () =>
+          (async () => [
+            {
+              modelId: "plain-one",
+              wireFamily: "chat",
+              endpointPath: "/v1/chat/completions",
+              contextLimit: 1000,
+              outputLimit: 100,
+              modalities: { input: ["text"], output: ["text"] },
+              reasoning: false,
+              toolCall: true,
+              webSearch: false,
+              cost: { input: 1, output: 2 },
+            },
+          ]) as never,
+        modelDiscoveryRequiresCredential: () => false,
+      } as never,
+    });
+    await probing.syncModels("tenant-1", "custom");
+
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]).toMatchObject({ modelId: "plain-one", source: "discovered" });
+  });
 });
 
 describe("probeModel respects the provider's wire contract", () => {
@@ -947,6 +1018,96 @@ describe("probeModel respects the provider's wire contract", () => {
       wireFamily: "messages",
       corrected: false,
     });
+  });
+
+  test("an explicitly chosen wire family is dialed even when the contract omits it", async () => {
+    // The operator's Add-Model wire selector exists to reach an upstream
+    // protocol this gateway carries no bundled knowledge of. Correcting the
+    // choice here would silently probe a different wire than the one requested
+    // — the gate is for derived sources (stored rows, catalog rows, discovery
+    // guesses), never for an explicit pick.
+    const dialed: string[] = [];
+    const probing = probingService(
+      probeDb({
+        provider: {
+          requiresAccount: true,
+          baseUrl: "https://api.howtofix.id/v1",
+          // Derived contract for this row is chat+responses; `messages` is not
+          // in it, so the gate would previously rewrite the request to `chat`.
+          wireFamilyDefault: "chat",
+          compatibilityProfile: null,
+        },
+      }),
+      { outboundFetchFor: dialingFetch(dialed) },
+    );
+
+    await probing.probeModel("tenant-1", "htf", {
+      modelId: "atria-dawn-preview",
+      wireFamily: "messages",
+    });
+
+    expect(dialed.length).toBeGreaterThan(0);
+    expect(dialed.every((url) => url === "https://api.howtofix.id/v1/messages")).toBe(true);
+  });
+});
+
+describe("probe request defaults", () => {
+  const base = {
+    modelId: "m",
+    probeReasoning: undefined,
+    sourceSurface: "chat" as const,
+  };
+
+  test("streams by default, so every probe entry point shares one transport", () => {
+    // All three entry points (one model, all models, all accounts) funnel
+    // through this builder, so one default gives them the same transport. A
+    // streamed probe is also the only one that observes time-to-first-byte.
+    expect(buildProbeCanonicalRequest({ ...base, request: { modelId: "m" } }).stream).toBe(true);
+    // An explicit opt-out is still honoured.
+    expect(
+      buildProbeCanonicalRequest({ ...base, request: { modelId: "m", stream: false } }).stream,
+    ).toBe(false);
+    expect(
+      buildProbeCanonicalRequest({ ...base, request: { modelId: "m", stream: true } }).stream,
+    ).toBe(true);
+  });
+
+  test("sends no reasoning intent when the effort is auto or omitted", () => {
+    // `auto` is the default because the probe's job is to discover what a route
+    // does. Forcing an effort onto a model that does not support reasoning
+    // turns a working route into a failing probe and hides what the route is.
+    const withoutReasoning = buildProbeCanonicalRequest({
+      ...base,
+      request: { modelId: "m" },
+    });
+    expect(withoutReasoning.reasoning).toBeUndefined();
+  });
+
+  test("carries a reasoning intent when the operator picks an effort", () => {
+    const withReasoning = buildProbeCanonicalRequest({
+      ...base,
+      request: { modelId: "m" },
+      probeReasoning: { effort: "high", summary_mode: "detailed" },
+    });
+    expect(withReasoning.reasoning).toMatchObject({ effort: "high" });
+  });
+
+  test("auto asks for no reasoning, but a chosen effort is forwarded", async () => {
+    // This is where `auto` is honoured: on the Responses wire the old code
+    // always built a `medium` intent, so a probe silently forced reasoning onto
+    // every model and a non-reasoning route failed a test that should pass.
+    const db = { select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }) } as never;
+    const run = (reasoningEffort?: "auto" | "high") =>
+      loadProbePreferences({
+        db,
+        tenantId: "tenant-1",
+        wireFamily: "responses",
+        request: { modelId: "m", ...(reasoningEffort === undefined ? {} : { reasoningEffort }) },
+      });
+
+    expect((await run("auto")).probeReasoning).toBeUndefined();
+    expect((await run(undefined)).probeReasoning).toBeUndefined();
+    expect((await run("high")).probeReasoning).toMatchObject({ effort: "high" });
   });
 });
 

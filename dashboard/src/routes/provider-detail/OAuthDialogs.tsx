@@ -309,11 +309,6 @@ export function DeviceCodeDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
-  useEffect(() => {
-    if (!session?.verificationUri) return;
-    window.open(session.verificationUri, "_blank", "noopener");
-  }, [session?.verificationUri]);
-
   return (
     <Dialog
       open={true}

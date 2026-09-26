@@ -28,6 +28,7 @@ import { splitEndpointConfig } from "../../../network/pool/agent";
 import { extractPayloadFileReference, readPayloadFrame } from "../../../observability/payload-store";
 import { ConsoleDomainError } from "../../shared/errors";
 import { shouldMaskClientIp } from "../../shared/ip-privacy";
+import { gatewayErrorSql } from "../../../observability/telemetry-status";
 
 function mapTelemetryEventRow(event: typeof telemetryEvents.$inferSelect): TelemetryEventView {
   return {
@@ -60,6 +61,18 @@ function effectiveHttpStatusExpression() {
       else 500
     end
   )`;
+}
+
+/**
+ * Counts gateway errors, not client outcomes.
+ *
+ * Delegates to the one shared predicate so the summary, health, breakdown and
+ * the durable rollup cannot drift apart: 404/499/503 are recorded and shown
+ * but never counted, because they are the caller's own outcome, a client
+ * abort, or the gateway correctly refusing work it cannot do.
+ */
+function gatewayErrors() {
+  return gatewayErrorSql(telemetryEvents.status, telemetryEvents.httpStatus);
 }
 
 /**
@@ -215,7 +228,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
       const rows = await this.db
         .select({
           total: sql<number>`count(*)`,
-          errors: sql<number>`count(*) filter (where ${telemetryEvents.status} in ('failed', 'truncated'))`,
+          errors: sql<number>`count(*) filter (where ${gatewayErrors()})`,
           avg: sql<number>`coalesce(avg(${telemetryEvents.latencyMs}), 0)`,
           p95: sql<number>`coalesce(percentile_cont(0.95) within group (order by ${telemetryEvents.latencyMs}), 0)`,
           p99: sql<number>`coalesce(percentile_cont(0.99) within group (order by ${telemetryEvents.latencyMs}), 0)`,
@@ -295,7 +308,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
       .select({
         requestsTotal: sql<number>`count(*)`,
         requestsSucceeded: sql<number>`count(*) filter (where ${telemetryEvents.status} = 'completed')`,
-        requestsFailed: sql<number>`count(*) filter (where ${telemetryEvents.status} in ('failed', 'truncated'))`,
+        requestsFailed: sql<number>`count(*) filter (where ${gatewayErrors()})`,
         tokensUsed: sql<number>`coalesce(sum(${telemetryEvents.inputTokens} + ${telemetryEvents.outputTokens}), 0)`,
         estimatedCost: sql<number>`coalesce(sum(${telemetryEvents.estimatedCostUsd}), 0)`,
       })
@@ -363,7 +376,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
         inputTokens: sql<number>`coalesce(sum(${telemetryEvents.inputTokens}), 0)`,
         cachedTokens: sql<number>`coalesce(sum(${telemetryEvents.inputTokens}) filter (where ${telemetryEvents.cachedInputTokens} > 0), 0)`,
         outputTokens: sql<number>`coalesce(sum(${telemetryEvents.outputTokens}), 0)`,
-        errors: sql<number>`count(*) filter (where ${telemetryEvents.status} in ('failed', 'truncated'))`,
+        errors: sql<number>`count(*) filter (where ${gatewayErrors()})`,
         cancelled: sql<number>`count(*) filter (where ${telemetryEvents.status} = 'cancelled')`,
         truncated: sql<number>`count(*) filter (where ${telemetryEvents.status} = 'truncated')`,
         avgDurationMs: sql<number>`coalesce(avg(${telemetryEvents.latencyMs}), 0)`,
@@ -472,7 +485,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
         input: sql<number>`coalesce(sum(${telemetryEvents.inputTokens}), 0)`,
         output: sql<number>`coalesce(sum(${telemetryEvents.outputTokens}), 0)`,
         cached: sql<number>`coalesce(sum(${telemetryEvents.inputTokens}) filter (where ${telemetryEvents.cachedInputTokens} > 0), 0)`,
-        errors: sql<number>`count(*) filter (where ${telemetryEvents.status} in ('failed', 'truncated'))`,
+        errors: sql<number>`count(*) filter (where ${gatewayErrors()})`,
         cost: sql<string | null>`sum(${telemetryEvents.estimatedCostUsd})`,
         avgTokensPerSec: sql<number>`coalesce(avg(${telemetryEvents.tokensPerSec}) filter (where ${telemetryEvents.tokensPerSec} is not null), 0)`,
       })

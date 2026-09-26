@@ -24,7 +24,6 @@ export type {
   UsageRequestDetail,
   UsageRequestItem,
   UsageRequestsResponse,
-  UsageResponse,
   UsageSummaryResponse,
   UsageSummaryTotals,
 } from "../../../src/console/domains/stats/contracts";
@@ -54,6 +53,15 @@ export type {
 } from "../../../src/console/providers/catalog/contracts";
 
 export type { AccountHealthEventRecord } from "../../../src/providers/operations/account-health-service";
+
+/**
+ * Reasoning efforts the probe accepts, as the backend declares them. Re-exported
+ * as a value (like `TENANT_KEY_SCOPES`) so the Thinking selector and the route
+ * schema cannot drift: `auto` is a member, and it means "send no reasoning
+ * intent" rather than a specific effort.
+ */
+export { PROBE_REASONING_EFFORTS } from "../../../src/providers/discovery/discovery-types";
+export type { ProbeReasoningEffort } from "../../../src/providers/discovery/discovery-types";
 
 export type {
   ComboStrategy,

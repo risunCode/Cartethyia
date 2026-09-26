@@ -41,8 +41,17 @@ export type ProviderModelDiscovery = (
  * nothing to probe and `max` is a provider-side ceiling the probe cannot
  * request usefully. Declared here beside `ProbeModelRequest` so the request
  * type and the route's Elysia schema project the same list.
+ *
+ * `auto` (the default) sends no reasoning intent at all, leaving the provider's
+ * own default in place. That is the honest choice for a probe: the operator is
+ * testing whether a route works, and the model may not support reasoning at all
+ * — forcing an effort onto an unsupported model turns a working route into a
+ * failure and hides what the route actually is.
  */
-export const PROBE_REASONING_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const;
+export const PROBE_REASONING_EFFORTS = ["auto", "minimal", "low", "medium", "high", "xhigh"] as const;
+
+/** One accepted probe reasoning effort. `auto` means "send no reasoning intent". */
+export type ProbeReasoningEffort = (typeof PROBE_REASONING_EFFORTS)[number];
 
 /** Request accepted for a one-shot model connectivity test. `route`
  * disambiguates when a model id is registered under multiple endpoint
@@ -54,7 +63,8 @@ export interface ProbeModelRequest {
   wireFamily?: string;
   accountId?: string;
   prompt?: string;
-  reasoningEffort?: (typeof PROBE_REASONING_EFFORTS)[number];
+  /** Omit or `auto` to probe without any reasoning intent. */
+  reasoningEffort?: ProbeReasoningEffort;
   maxOutputTokens?: number;
   stream?: boolean;
 }

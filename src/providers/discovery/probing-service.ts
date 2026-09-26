@@ -4,7 +4,7 @@
  * Network probes and `/v1/models` discovery stay separate from the Drizzle
  * catalog repository while sharing the provider catalog contract.
  */
-import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { models, providerAccounts, providers } from "../../persistence/schema";
 import type { CanonicalEvent, CanonicalRequest, WireFamily } from "../../transport/canonical-model";
@@ -109,7 +109,6 @@ export function createProviderProbingServiceForTests(deps: ProviderProbingTestDe
       chat: "/v1/chat/completions",
       responses: "/v1/responses",
       messages: "/v1/messages",
-      native: "/v1/chat/completions",
     },
     bundledModelCatalog: deps.bundledModelCatalog ?? new Map(),
     outboundFetchFor:
@@ -297,9 +296,11 @@ export class ProviderProbingService {
           if (!/empty\s+(?:response\s+)?content|response\s+content\s+empty/i.test(message)) {
             throw error;
           }
-          // Some reasoning models spend the short non-stream probe budget before
-          // producing visible text. Retry generically as a streamed probe with a
-          // larger output allowance; no provider/model id special case is needed.
+          // Some reasoning models spend the short probe budget before producing
+          // visible text. Retry with a larger output allowance, and stream when
+          // the first attempt did not — a streamed probe keeps the connection
+          // open while the model reasons instead of waiting for a complete body.
+          // Generic: no provider/model id special case is needed.
           events.length = 0;
           ttfbMs = undefined;
           await dispatchProbe({
@@ -655,7 +656,11 @@ export class ProviderProbingService {
         wireFamily,
         endpointPath,
         ...metadata,
-        source: "discovered",
+        // A discovery module that marks its rows as a free tier gets its own
+        // source, because the model list groups on it: a free-tier row is not
+        // an ordinary fetched one, and collapsing both into `discovered` lost
+        // that distinction at the only point where it is still known.
+        source: discDef?.freeTier === true ? "auto_free" : "discovered",
         sourceUpdatedAt,
         enabled: true,
       });
@@ -677,7 +682,11 @@ export class ProviderProbingService {
             toolCall: sql`excluded.tool_call`,
             webSearch: sql`excluded.web_search`,
             cost: sql`excluded.cost`,
-            source: sql`'discovered'`,
+            // The proposed row's own source, not a constant: a free-tier
+            // discovery and an ordinary one write the same upsert, and pinning
+            // this to `discovered` would relabel every free-tier row on the
+            // next sync.
+            source: sql`excluded.source`,
             sourceUpdatedAt: sql`excluded.source_updated_at`,
           },
         });
@@ -687,6 +696,9 @@ export class ProviderProbingService {
     // longer part of the resolved set — the stale `(model, endpoint)` pair left
     // behind when a corrected wire family moved a model to a new path. Rows the
     // operator added by hand (`manual`) and ids outside this run are untouched.
+    // `auto_free` is included: it is written by this same sync, so leaving it
+    // out would make a free-tier row the one kind of synced row that never gets
+    // pruned when its id moves.
     if (resolvedPairs.length > 0) {
       const pairs = resolvedPairs.map(
         (pair) => sql`(${pair.modelId}, ${pair.endpointPath})`,
@@ -697,7 +709,7 @@ export class ProviderProbingService {
         .where(
           and(
             eq(models.providerId, providerId),
-            eq(models.source, "discovered"),
+            inArray(models.source, ["discovered", "auto_free"]),
             sql`${models.modelId} IN (${sql.join(
               ids.map((id) => sql`${id}`),
               sql`, `,

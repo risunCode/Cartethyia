@@ -131,6 +131,12 @@ dbDescribe("createDatabaseSnapshotBuilder — automatic network pool selection",
       modelId,
       wireFamily: "chat",
       endpointPath: "/v1/chat/completions",
+      // `builtin` is the marker meaning "reproducible catalog data, not a
+      // tenant's own work". This provider is global (tenant_id IS NULL), so
+      // without it every tenant's backup would carry this model — and this
+      // suite deletes the provider in `afterAll`, leaving a payload that cannot
+      // be restored once it is gone.
+      source: "builtin",
       enabled: true,
     });
     await db.insert(providerAccounts).values({
@@ -274,6 +280,9 @@ dbDescribe("createDatabaseSnapshotBuilder — global vs tenant routing precedenc
       modelId,
       wireFamily: "chat",
       endpointPath: "/v1/chat/completions",
+      // Reproducible catalog data; see the pool fixture above for why this
+      // marker matters when a suite creates a global provider it later deletes.
+      source: "builtin",
       enabled: true,
     });
     await db.insert(providerAccounts).values([
@@ -395,6 +404,10 @@ dbDescribe("createDatabaseSnapshotBuilder — zero-account provider eligibility"
         modelId: publicModelId,
         wireFamily: "chat",
         endpointPath: "/v1/chat/completions",
+        // Reproducible catalog data; the provider is global and this suite
+        // deletes it in `afterAll`, so an unreproducible marker would leak the
+        // model into every tenant's backup.
+        source: "builtin",
         enabled: true,
       },
       {
@@ -402,6 +415,7 @@ dbDescribe("createDatabaseSnapshotBuilder — zero-account provider eligibility"
         modelId: gatedModelId,
         wireFamily: "chat",
         endpointPath: "/v1/chat/completions",
+        source: "builtin",
         enabled: true,
       },
     ]);

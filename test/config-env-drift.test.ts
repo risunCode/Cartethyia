@@ -46,6 +46,7 @@ const OS_ENV_WHITELIST = new Set([
  */
 const NON_SRC_ENV_KEYS = new Set([
   "CARTETHYIA_TEST_DATABASE_URL", // test/helpers/db-gate.ts + CI shards
+  "CARTETHYIA_TEST_REDIS_URL", // test/security/admission-ttl.test.ts (live TTL)
   "VITE_BACKEND_URL", // dashboard/Vite dev server
   "CARTETHYIA_SETUP_MODE", // scripts/ops-setup.ts
   "BUN_OPTIONS", // Bun runtime

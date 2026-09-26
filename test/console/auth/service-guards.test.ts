@@ -7,6 +7,7 @@ import {
   sessionRecord,
   userRecord,
 } from "../../../src/console/auth/service";
+import { readSessionCookie } from "../../../src/console/auth/session-resolver";
 
 describe("asDate", () => {
   test("passes valid dates through", () => {
@@ -107,5 +108,25 @@ describe("returningRows + assertMutationApplied", () => {
     expect(() => assertMutationApplied({ rows: [], supported: false, affectedRows: 0 }, "update")).toThrow(
       "update was not persisted",
     );
+  });
+});
+
+describe("readSessionCookie", () => {
+  // Elysia exposes a typed cookie jar on the route context; the session token
+  // is one entry in it. Anything that is not a non-empty string is "no
+  // session", never a crash — an unauthenticated request must fall through to
+  // the 401 path, not throw while reading the jar.
+  test("returns the token from a well-formed cookie jar", () => {
+    expect(readSessionCookie({ session_token: { value: "tok-1" } })).toBe("tok-1");
+  });
+
+  test("returns undefined for an absent or malformed jar", () => {
+    expect(readSessionCookie(undefined)).toBeUndefined();
+    expect(readSessionCookie(null)).toBeUndefined();
+    expect(readSessionCookie("not-a-record")).toBeUndefined();
+    expect(readSessionCookie({})).toBeUndefined();
+    expect(readSessionCookie({ session_token: "raw-string" })).toBeUndefined();
+    expect(readSessionCookie({ session_token: { value: 123 } })).toBeUndefined();
+    expect(readSessionCookie({ session_token: { value: "" } })).toBeUndefined();
   });
 });

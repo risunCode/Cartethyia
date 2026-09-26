@@ -10,8 +10,6 @@ export const queryKeys = {
   },
   system: {
     health: ["console", "system", "health"] as const,
-    usage: ["console", "system", "usage"] as const,
-    usageByPeriod: (period: string) => ["console", "system", "usage", period] as const,
   },
   usageAnalytics: {
     summary: (period: string) => ["console", "usage", "summary", period] as const,

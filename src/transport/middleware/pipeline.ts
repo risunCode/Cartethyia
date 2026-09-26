@@ -11,6 +11,7 @@ import {
   createRequestContextMiddleware,
   registerRequestCleanup,
   registerTelemetryLifecycle,
+  type AfterResponseApp,
   type CanonicalAdapter,
 } from "./ingress";
 import type { ReadinessCheckResult } from "../../persistence/readiness";
@@ -116,20 +117,46 @@ export function createTransportPipeline(context: TransportPipelineContext): Tran
         hsts: context.verifiedHttps === true,
       }),
     );
+    // Finalize + cleanup live at the ROOT, not on the gateway plugin.
+    //
+    // A plugin-scoped `afterResponse` only fires for a request that matched a
+    // registered route, so an unregistered `/v1/*` path — the cheapest thing a
+    // scanner can send — was admitted by the root `request` hook (which does
+    // run for every inbound request, that is why the in-flight count and the
+    // IP-abuse counter are there) but never cleaned up. Measured: one
+    // unmatched `/v1/*` request left `proxy_in_flight` permanently higher and
+    // `activeCount()` permanently one larger, so the gauge only ever climbed
+    // for the life of the process. The root hook runs for the unmatched path
+    // too, which is what makes the increment and the decrement symmetric.
+    //
+    // Ordering is safe because a root `afterResponse` still runs *after* the
+    // matched handler returns (measured: request -> handler -> root.afterResponse
+    // -> plugin.afterResponse), so a dispatch route is finalized exactly as
+    // before. Registering it only here — never also on the gateway — is what
+    // keeps a matched route from finalizing twice.
+    // `mountRoot` receives a fully-widened `Elysia<any, ...>`, whose overloaded
+    // `afterResponse` signature is not structurally assignable to the minimal
+    // `AfterResponseApp` hook interface even though the runtime shape matches
+    // (Elysia passes `{ request }`). The cast is confined to this one call.
+    const rootApp = app as unknown as AfterResponseApp;
+    if (context.telemetry) {
+      registerTelemetryLifecycle(rootApp, {
+        stateStore: context.stateStore,
+        telemetryBuffer: context.telemetry,
+      });
+    } else {
+      registerRequestCleanup(rootApp, { stateStore: context.stateStore });
+    }
   };
   const createGateway = (
     registerRoutes: (routes: Elysia<any, any, any, any, any, any, any, any>) => void,
   ): Elysia<any, any, any, any, any, any, any, any> => {
     const gateway = new Elysia({ prefix: "/v1" });
     for (const plugin of stages) gateway.use(plugin);
-    if (context.telemetry) {
-      registerTelemetryLifecycle(gateway, {
-        stateStore: context.stateStore,
-        telemetryBuffer: context.telemetry,
-      });
-    } else {
-      registerRequestCleanup(gateway, { stateStore: context.stateStore });
-    }
+    // No telemetry/cleanup registration here: the lifecycle is owned by
+    // `mountRoot`. Registering a second copy on this plugin would finalize a
+    // matched request twice, and relying on this copy alone would leak every
+    // unmatched `/v1/*` request (see `mountRoot`).
     registerRoutes(gateway);
     return gateway;
   };

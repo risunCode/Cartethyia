@@ -44,6 +44,53 @@ describe("defineModel", () => {
     expect(row.contextLimit).toBe(4096);
     expect(row.outputLimit).toBe(512);
   });
+
+  test("never publishes an output cap above the context window", () => {
+    // The base catalog carries 1084 rows stating output === context and 69
+    // stating output > context (a Kimi K2.6 row is filed as 262144/262144).
+    // An output cap the model cannot satisfy would be handed to the admission
+    // estimate as real headroom.
+    const clamped = defineModel({ id: "any-model", ctx: 4096, out: 8192 });
+    expect(clamped.contextLimit).toBe(4096);
+    expect(clamped.outputLimit).toBe(4096);
+
+    const equal = defineModel({ id: "any-model", ctx: 4096, out: 4096 });
+    expect(equal.outputLimit).toBe(4096);
+
+    // A cap already inside the window is untouched.
+    const inside = defineModel({ id: "any-model", ctx: 4096, out: 1024 });
+    expect(inside.outputLimit).toBe(1024);
+  });
+
+  test("keeps a null limit null rather than coercing it to zero", () => {
+    // `null` means "not stated", which the caller distinguishes from a real
+    // number; clamping must not turn it into 0.
+    const row = defineModel({ id: "any-model", ctx: null, out: null });
+    expect(row.contextLimit).toBeNull();
+    expect(row.outputLimit).toBeNull();
+  });
+
+  test("falls back to the most-agreed catalog row when the provider has none", () => {
+    // A provider models.dev does not file under our id (Cline is filed as
+    // `cline-pass`, never `cline`) leaves `resolve` undefined. Publishing the
+    // fixed default for a model the catalog knows well is worse than the
+    // majority answer: 18 of 19 rows file `claude-opus-5` as 1000000/128000.
+    const row = defineModel({ id: "claude-opus-5", providerId: "cline" });
+    expect(row.contextLimit).toBe(1_000_000);
+    expect(row.outputLimit).toBe(128_000);
+
+    // A model nobody records still gets the documented default — the vote
+    // answers only what it can.
+    const unknown = defineModel({ id: "pixel-canary", providerId: "cline" });
+    expect(unknown.contextLimit).toBe(200_000);
+    expect(unknown.outputLimit).toBe(64_192);
+  });
+
+  test("an explicit row value outranks the majority vote too", () => {
+    const row = defineModel({ id: "claude-opus-5", providerId: "cline", ctx: 4096, out: 512 });
+    expect(row.contextLimit).toBe(4096);
+    expect(row.outputLimit).toBe(512);
+  });
 });
 
 describe("isResponsesNativeModelId", () => {

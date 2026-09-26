@@ -38,7 +38,8 @@ import type { ProviderAccountResponse } from "../lib/contracts";
 import { RoutingStrategyCard } from "./provider-detail/RoutingStrategyCard";
 import { AccountsList, AddAccountModal } from "./provider-detail/Accounts";
 import { DeviceCodeDialog, OAuthBrowserDialog } from "./provider-detail/OAuthDialogs";
-import { AddModelModal, ModelGrid } from "./provider-detail/Models";
+import { AddModelModal, ModelGrid, ThinkingSelect } from "./provider-detail/Models";
+import type { ProbeReasoningEffort } from "../lib/contracts";
 
 export default function ProviderDetail(): ReactNode {
   const { providerId } = useParams<{ providerId: string }>();
@@ -54,6 +55,10 @@ export default function ProviderDetail(): ReactNode {
   const queryClient = useQueryClient();
   const [addAccountOpen, setAddAccountOpen] = useState(false);
   const [addModelOpen, setAddModelOpen] = useState(false);
+  // Section-wide reasoning effort for every test in the Models card. Defaults to
+  // `auto` — the probe sends no reasoning intent, because whether the model
+  // supports reasoning is often exactly what the test is trying to find out.
+  const [thinkingEffort, setThinkingEffort] = useState<ProbeReasoningEffort>("auto");
   const [deviceDialogOpen, setDeviceDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProviderAccountResponse | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -338,7 +343,12 @@ export default function ProviderDetail(): ReactNode {
           subtitle={`${models.length} model${models.length === 1 ? "" : "s"} registered`}
           icon={<Boxes size={16} />}
           action={
-            <Inline gap="6px" style={{ flexWrap: "wrap" }}>
+            <Inline gap="6px" style={{ flexWrap: "wrap", alignItems: "center" }}>
+              <ThinkingSelect
+                id="models-section-thinking-effort"
+                value={thinkingEffort}
+                onChange={setThinkingEffort}
+              />
               {provider?.supportsModelDiscovery !== false ? (
                 <Button
                   variant="secondary"
@@ -422,12 +432,7 @@ export default function ProviderDetail(): ReactNode {
               message="No models published by this provider yet. Sync or add a custom model above."
             />
           ) : (
-            <section style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-tertiary)" }}>
-                Models ({stableModels.length}) · disabled remain in place
-              </div>
-              <ModelGrid providerId={id} models={stableModels} />
-            </section>
+            <ModelGrid providerId={id} models={stableModels} thinkingEffort={thinkingEffort} />
           )}
         </CardBody>
       </Card>

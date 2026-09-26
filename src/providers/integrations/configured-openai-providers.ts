@@ -30,7 +30,6 @@ function genericApiKeySpec(providerId: GenericApiKeyProviderId): ApiKeyProviderS
       chat: BARE_ROOT_ENDPOINTS.chat!,
       responses: BARE_ROOT_ENDPOINTS.responses!,
     },
-    supported_wire_families: ["chat", "responses"],
   };
 }
 

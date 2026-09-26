@@ -655,3 +655,262 @@ describe("F2 chat emits Messages-homed tool results as role:tool", () => {
     expect(messages).toContainEqual({ role: "user", content: "done\n" });
   });
   });
+
+  /**
+   * Cross-protocol media compatibility.
+   *
+   * A session that moves between protocols — a client on Messages switching to
+   * a Chat model, a Responses client on a Claude route — must not lose or
+   * malform its images and documents. The failure this pins was structural: a
+   * canonical content part is an *opaque origin payload*, so the same image
+   * arrives as a Responses `{type:"input_image", image_url:"…"}` string, a Chat
+   * `{image_url:{url}}` object, or an Anthropic `{source:{type:"base64"}}`
+   * object. Builders that forwarded that payload verbatim put a vocabulary the
+   * target wire does not define onto the wire (`source.type: "input_image"`,
+   * or an object where `image_url` must be a string) and the provider rejected
+   * the whole request — taking the caller's text with it.
+   *
+   * These tests assert the *validity* of the outbound shape for every origin,
+   * not just that a part exists.
+   */
+  describe("cross-protocol media survives every origin shape", () => {
+    const PNG_B64 = "iVBORw0KGgo=";
+    const PNG = `data:image/png;base64,${PNG_B64}`;
+    const HTTP = "https://example.com/a.png";
+
+    const adapters = {
+      chat: new ChatAdapter(),
+      responses: new ResponsesAdapter(),
+      messages: new MessagesAdapter(),
+    } as const;
+    const builders = {
+      chat: (r: CanonicalRequest) => canonicalToChatPayload(r),
+      responses: (r: CanonicalRequest) => canonicalToResponsesPayload(r),
+      messages: (r: CanonicalRequest) => canonicalToClaudeMessagesPayload(r),
+    } as const;
+
+    /** Every image block in a body, validated against that wire's contract. */
+    function imageProblems(wire: keyof typeof builders, body: unknown): string[] {
+      const problems: string[] = [];
+      const walk = (value: unknown): void => {
+        if (Array.isArray(value)) {
+          for (const item of value) walk(item);
+          return;
+        }
+        if (value === null || typeof value !== "object") return;
+        const record = value as Record<string, unknown>;
+        const type = record["type"];
+        if (wire === "chat" && type === "image_url") {
+          const imageUrl = record["image_url"];
+          if (
+            typeof imageUrl !== "object" ||
+            imageUrl === null ||
+            typeof (imageUrl as Record<string, unknown>)["url"] !== "string"
+          )
+            problems.push("chat image_url is not {url:string}");
+        }
+        if (wire === "responses" && (type === "input_image" || type === "output_image")) {
+          if (typeof record["image_url"] !== "string" && typeof record["file_id"] !== "string")
+            problems.push("responses image_url is neither string nor file_id");
+        }
+        if (wire === "messages" && type === "image") {
+          const source = record["source"] as Record<string, unknown> | undefined;
+          if (source === undefined || typeof source !== "object") {
+            problems.push("messages source is not an object");
+          } else if (!["base64", "url", "file"].includes(String(source["type"]))) {
+            problems.push(`messages source.type is ${JSON.stringify(source["type"])}`);
+          } else if (source["type"] === "base64" && typeof source["data"] !== "string") {
+            problems.push("messages base64 source has no data");
+          } else if (source["type"] === "url" && typeof source["url"] !== "string") {
+            problems.push("messages url source has no url");
+          } else if (source["type"] === "file" && typeof source["file_id"] !== "string") {
+            problems.push("messages file source has no file_id");
+          }
+        }
+        for (const nested of Object.values(record)) walk(nested);
+      };
+      walk(body);
+      return problems;
+    }
+
+    const origins: Array<{
+      readonly label: string;
+      readonly owner: keyof typeof adapters;
+      readonly body: unknown;
+    }> = [
+      { label: "chat nested image_url object", owner: "chat", body: { model: "m", messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: PNG } }] }] } },
+      { label: "chat string image_url", owner: "chat", body: { model: "m", messages: [{ role: "user", content: [{ type: "image_url", image_url: PNG }] }] } },
+      { label: "responses data-url image", owner: "responses", body: { model: "m", input: [{ type: "message", role: "user", content: [{ type: "input_image", image_url: PNG }] }] } },
+      { label: "responses http image", owner: "responses", body: { model: "m", input: [{ type: "message", role: "user", content: [{ type: "input_image", image_url: HTTP }] }] } },
+      { label: "responses file_id image", owner: "responses", body: { model: "m", input: [{ type: "message", role: "user", content: [{ type: "input_image", file_id: "file-9" }] }] } },
+      { label: "anthropic base64 image", owner: "messages", body: { model: "m", max_tokens: 10, messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: PNG_B64 } }] }] } },
+      { label: "anthropic url image", owner: "messages", body: { model: "m", max_tokens: 10, messages: [{ role: "user", content: [{ type: "image", source: { type: "url", url: HTTP } }] }] } },
+    ];
+
+    for (const { label, owner, body } of origins) {
+      for (const wire of ["chat", "responses", "messages"] as const) {
+        test(`${label} -> ${wire} is a valid image block`, () => {
+          const canonical = adapters[owner].parse(body);
+          const outbound = builders[wire](canonical);
+          expect(imageProblems(wire, outbound)).toEqual([]);
+        });
+      }
+    }
+
+    test("an Anthropic-origin image reaches a Chat route as a nested url object", () => {
+      const canonical = adapters.messages.parse({
+        model: "m",
+        max_tokens: 10,
+        messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: PNG_B64 } }] }],
+      });
+      const payload = canonicalToChatPayload(canonical) as Record<string, unknown>;
+      const content = (payload["messages"] as Array<Record<string, unknown>>)[0]?.["content"];
+      expect(content).toEqual([{ type: "image_url", image_url: { url: PNG } }]);
+    });
+
+    test("a Responses-origin image reaches a Claude route as a base64 source", () => {
+      const canonical = adapters.responses.parse({
+        model: "m",
+        input: [{ type: "message", role: "user", content: [{ type: "input_image", image_url: PNG }] }],
+      });
+      const payload = canonicalToClaudeMessagesPayload(canonical) as Record<string, unknown>;
+      const content = (payload["messages"] as Array<Record<string, unknown>>)[0]?.["content"] as Array<Record<string, unknown>>;
+      // The data URL is split into Anthropic's base64 transport — never left as
+      // a URL string, and never carrying the Responses `input_image` type.
+      expect(content[0]).toMatchObject({
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: PNG_B64 },
+      });
+    });
+
+    test("a document reaches a Chat route as a file part instead of vanishing", () => {
+      // The Chat builder had no `file` branch at all, so a Responses-origin
+      // document was dropped silently on the way to a Chat model.
+      const canonical = adapters.responses.parse({
+        model: "m",
+        input: [
+          {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_file", filename: "d.pdf", file_data: `data:application/pdf;base64,JVBERi0=` }],
+          },
+        ],
+      });
+      const payload = canonicalToChatPayload(canonical) as Record<string, unknown>;
+      const content = (payload["messages"] as Array<Record<string, unknown>>)[0]?.["content"] as Array<Record<string, unknown>>;
+      expect(content[0]).toMatchObject({
+        type: "file",
+        file: { filename: "d.pdf" },
+      });
+      expect(String((content[0]?.["file"] as Record<string, unknown>)["file_data"])).toContain("JVBERi0=");
+    });
+
+    // Audio is the one modality whose encodability differs by wire. Chat and
+    // Responses both define an `input_audio` part; the Anthropic Messages
+    // request schema defines no audio block at all, so the builder must degrade
+    // it to text rather than put an undefined block type on the wire — the
+    // provider rejects the whole request, taking the caller's text with it.
+    const AUDIO_ORIGINS: Array<{
+      readonly label: string;
+      readonly owner: keyof typeof adapters;
+      readonly body: unknown;
+    }> = [
+      {
+        label: "chat nested input_audio",
+        owner: "chat",
+        body: {
+          model: "m",
+          messages: [{ role: "user", content: [{ type: "input_audio", input_audio: { data: "QUJD", format: "wav" } }] }],
+        },
+      },
+      {
+        label: "responses flat input_audio",
+        owner: "responses",
+        body: {
+          model: "m",
+          input: [
+            { type: "message", role: "user", content: [{ type: "input_audio", data: "QUJD", media_type: "audio/wav" }] },
+          ],
+        },
+      },
+      {
+        label: "anthropic audio",
+        owner: "messages",
+        body: {
+          model: "m",
+          max_tokens: 10,
+          messages: [{ role: "user", content: [{ type: "audio", source: { type: "base64", media_type: "audio/wav", data: "QUJD" } }] }],
+        },
+      },
+    ];
+
+    /** Every audio block in a body, validated against that wire's contract. */
+    function audioProblems(wire: keyof typeof builders, body: unknown): string[] {
+      const problems: string[] = [];
+      const walk = (value: unknown): void => {
+        if (Array.isArray(value)) {
+          for (const item of value) walk(item);
+          return;
+        }
+        if (value === null || typeof value !== "object") return;
+        const record = value as Record<string, unknown>;
+        if (record["type"] === "input_audio") {
+          if (wire === "chat") {
+            const nested = record["input_audio"];
+            if (typeof nested !== "object" || nested === null)
+              problems.push("chat input_audio is not an object");
+            else {
+              if (typeof (nested as Record<string, unknown>)["data"] !== "string")
+                problems.push("chat input_audio has no data");
+              // OpenAI accepts only the discrete ids, never a MIME type.
+              const format = (nested as Record<string, unknown>)["format"];
+              if (format !== "wav" && format !== "mp3")
+                problems.push(`chat input_audio.format is ${JSON.stringify(format)}`);
+            }
+          }
+          if (wire === "responses" && typeof record["data"] !== "string")
+            problems.push("responses input_audio has no data");
+          if (wire === "messages")
+            problems.push("messages wire emitted an input_audio block it does not define");
+        }
+        if (wire === "messages" && record["type"] === "audio")
+          problems.push("messages wire emitted an undefined audio block type");
+        for (const nested of Object.values(record)) walk(nested);
+      };
+      walk(body);
+      return problems;
+    }
+
+    for (const { label, owner, body } of AUDIO_ORIGINS) {
+      for (const wire of ["chat", "responses", "messages"] as const) {
+        test(`${label} -> ${wire} is a valid audio encoding`, () => {
+          const canonical = adapters[owner].parse(body);
+          const outbound = builders[wire](canonical);
+          expect(audioProblems(wire, outbound)).toEqual([]);
+        });
+      }
+    }
+
+    test("a Messages-route audio part degrades to text, keeping the caller's text", () => {
+      const canonical = adapters.chat.parse(AUDIO_ORIGINS[0]!.body);
+      const payload = canonicalToClaudeMessagesPayload(canonical) as Record<string, unknown>;
+      const content = (payload["messages"] as Array<Record<string, unknown>>)[0]?.["content"] as Array<
+        Record<string, unknown>
+      >;
+      expect(content.some((b) => b["text"] === "[audio]")).toBe(true);
+      expect(JSON.stringify(payload)).not.toContain("QUJD");
+    });
+
+    test("the same audio part keeps its payload on the wires that define it", () => {
+      const canonical = adapters.chat.parse(AUDIO_ORIGINS[0]!.body);
+      const chat = canonicalToChatPayload(canonical) as Record<string, unknown>;
+      const chatContent = (chat["messages"] as Array<Record<string, unknown>>)[0]?.["content"] as Array<
+        Record<string, unknown>
+      >;
+      expect(chatContent).toContainEqual({
+        type: "input_audio",
+        input_audio: { data: "QUJD", format: "wav" },
+      });
+      expect(JSON.stringify(chat)).toContain("QUJD");
+    });
+  });

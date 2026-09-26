@@ -5,7 +5,7 @@
  * and its compatibility-profile validator both project this list, so a new
  * family cannot land in one and be silently missing from the other.
  */
-export const WIRE_FAMILIES = ["chat", "responses", "messages", "native"] as const;
+export const WIRE_FAMILIES = ["chat", "responses", "messages"] as const;
 
 /** Wire protocol family selected by a provider route. */
 export type WireFamily = (typeof WIRE_FAMILIES)[number];

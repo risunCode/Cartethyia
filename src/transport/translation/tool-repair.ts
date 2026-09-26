@@ -140,9 +140,9 @@ export function dropIncompleteToolRounds(
 }
 /**
  * Repairs orphan tool calls on a canonical request when the target route maps
- * to a strict wire family (`messages`/`native` → Anthropic, Gemini). The check
- * is conservative: the repair is a structural no-op for compliant histories,
- * so applying it broadly is safe.
+ * to a strict wire family (`messages` → Anthropic, Gemini). The check is
+ * conservative: the repair is a structural no-op for compliant histories, so
+ * applying it broadly is safe.
  */
 export function repairRequestToolCalls(request: CanonicalRequest): CanonicalRequest {
   // Order matters. Orphans are dropped first so a synthesized result is never

@@ -1,13 +1,15 @@
 # Cartethyia CI: backend + dashboard verification gates.
 #
-# Mirrors AGENTS.md "Verification gate" using the repo's own runners:
+# Mirrors AGENTS.md §12 "Tests and verification" using the repo's own runners:
 # - backend job: typecheck -> test -> check:coverage (with Postgres + Redis
-#   services so DB-gated suites run and COVERAGE_MIN=80 applies).
+#   services so DB-gated suites run; COVERAGE_MIN=90 applies).
 # - dashboard job: dashboard:typecheck + dashboard:test + test:contracts.
 #
 # DB-gated suites skip gracefully without CARTETHYIA_TEST_DATABASE_URL
-# (see test/helpers/db-gate.ts); the services below exist so CI always
-# runs the full suites instead of the 75% offline floor.
+# (see test/helpers/db-gate.ts); the services below exist so CI always runs
+# the full suites rather than the offline subset. The 90% floor is enforced in
+# both environments — the default in scripts/ci-check-coverage.ts is the same
+# number, so a local `bun run check:coverage` gates identically.
 
 name: ci
 
@@ -57,6 +59,8 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/cartethyia_test
           CARTETHYIA_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/cartethyia_test
+          # A dedicated index so the live TTL suite cannot collide with REDIS_URL state.
+          CARTETHYIA_TEST_REDIS_URL: redis://localhost:6379/15
           CARTETHYIA_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
           REDIS_URL: redis://localhost:6379
           REDIS_MODE: normal
@@ -64,10 +68,12 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/cartethyia_test
           CARTETHYIA_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/cartethyia_test
+          # A dedicated index so the live TTL suite cannot collide with REDIS_URL state.
+          CARTETHYIA_TEST_REDIS_URL: redis://localhost:6379/15
           CARTETHYIA_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
           REDIS_URL: redis://localhost:6379
           REDIS_MODE: normal
-          COVERAGE_MIN: "80.0"
+          COVERAGE_MIN: "90.0"
 
   dashboard:
     runs-on: ubuntu-latest

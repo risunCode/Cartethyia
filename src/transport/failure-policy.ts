@@ -66,15 +66,59 @@ export function parseUpstreamBackoff(headers: {
  *     for the rest of the window — the account kept re-entering rotation and
  *     failing every request inside the stated reset window.
  */
+/**
+ * One `amount unit` pair of a duration phrase: `4h`, `13m`, `2 hours`, `30s`.
+ *
+ * The unit ends on `(?![a-z])`, not `\b`: a compact compound like `2h30m` puts
+ * a digit straight after `h`, which is a word character, so a `\b` would refuse
+ * to end the pair and the whole phrase would parse as null. `m(?!s|o)` is what
+ * stops a bare `m` from swallowing `ms` (milliseconds) or `mo` (months),
+ * neither of which is a reset duration.
+ */
+const DURATION_PAIR_SOURCE = String.raw`(\d+(?:\.\d+)?)[\s-]*(hours?|hrs?|h|minutes?|mins?|m(?!s|o)|seconds?|secs?|s)(?![a-z])`;
+
+function durationUnitMs(unit: string): number {
+  const first = unit.toLowerCase()[0];
+  return first === "h" ? 3600_000 : first === "m" ? 60_000 : 1_000;
+}
+
+/**
+ * Sums the `amount unit` pairs at the head of a duration phrase.
+ *
+ * Providers state a reset as one compound duration at least as often as a
+ * single unit: a daily-limit 429 reads "Try again in 4h 13m". A single-pair
+ * parser read only `4h` and dropped the 13 minutes, so the stored retry
+ * deadline was earlier than the window the provider had actually stated and the
+ * account re-entered rotation before it. Pairs are accepted only while they
+ * continue the phrase — separated by whitespace, a comma, or `and` — so a
+ * number that merely follows later in the sentence cannot be absorbed.
+ */
+function parseCompoundDuration(text: string): number | null {
+  const pairs = new RegExp(DURATION_PAIR_SOURCE, "gi");
+  let totalMs = 0;
+  let lastEnd = 0;
+  let matched = false;
+  for (let pair = pairs.exec(text); pair !== null; pair = pairs.exec(text)) {
+    const gap = text.slice(lastEnd, pair.index);
+    const continues = matched ? /^[\s,]*(?:and\s+)?$/i.test(gap) : /^\s*$/.test(gap);
+    if (!continues) break;
+    const amount = Number(pair[1]);
+    if (!Number.isFinite(amount) || amount <= 0) break;
+    totalMs += amount * durationUnitMs(pair[2] ?? "");
+    matched = true;
+    lastEnd = pair.index + pair[0].length;
+  }
+  return matched ? Math.round(totalMs) : null;
+}
+
 export function parseProviderResetDuration(message: string): number | null {
-  const relative = /(?:quota will reset|resets?|try again|retry(?:ing)?)\s+(?:in|after|over)\s+(?:a\s+)?(?:rolling\s+)?(\d+(?:\.\d+)?)\s*[- ]?(hours?|hrs?|h|minutes?|mins?|m(?!s|o)|seconds?|secs?|s)\b/i.exec(message);
-  if (relative?.[1] && relative[2]) {
-    const amount = Number(relative[1]);
-    if (Number.isFinite(amount) && amount > 0) {
-      const unit = relative[2].toLowerCase()[0];
-      const multiplier = unit === "h" ? 3600_000 : unit === "m" ? 60_000 : 1_000;
-      return Math.min(MAX_COOLDOWN_MS, Math.round(amount * multiplier));
-    }
+  const trigger =
+    /(?:quota will reset|resets?|try again|retry(?:ing)?)\s+(?:in|after|over)\s+(?:a\s+)?(?:rolling\s+)?/i.exec(
+      message,
+    );
+  if (trigger) {
+    const parsed = parseCompoundDuration(message.slice(trigger.index + trigger[0].length));
+    if (parsed !== null) return Math.min(MAX_COOLDOWN_MS, parsed);
   }
   return parseAbsoluteResetTimestamp(message);
 }

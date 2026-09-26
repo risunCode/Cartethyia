@@ -23,6 +23,7 @@ import { StatePanel, EmptyState, LoadingState, ErrorState } from "../components/
 import { ProviderIcon } from "../components/ProviderIcon";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { HealthEventsModal } from "../components/HealthEventsModal";
+import { AccountStatusDetail } from "../components/AccountCooldown";
 import { Select } from "../components/ui/select";
 import { Toolbar } from "../components/ui/toolbar";
 import { Stack } from "../components/ui/stack";
@@ -938,6 +939,15 @@ export default function Quota(): ReactNode {
             status: healthTarget.health?.status ?? "unknown",
             errorCategory: healthTarget.health?.lastErrorCategory ?? undefined,
             errorMessage: healthTarget.health?.sanitizedMessage ?? undefined,
+            // Without this the dialog showed the 429 message and no deadline:
+            // the account-wide cooldown and the per-model backoffs are separate
+            // fields, and a model-scoped throttle writes only the latter.
+            statusDetail: (
+              <AccountStatusDetail
+                cooldownUntil={healthTarget.health?.cooldownUntil}
+                modelCooldowns={healthTarget.health?.modelCooldowns}
+              />
+            ),
             emptyMessage:
               "Status transitions, rate limits, quota refreshes, check-ins, and auto-recoveries will appear here.",
           }}

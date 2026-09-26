@@ -11,7 +11,12 @@ import type { FetchLike } from "../../authentication/oauth-client";
 import { getRedis } from "../../../persistence/redis";
 import type { RedisClient } from "../../../persistence/redis";
 import { isRecord } from "../../../protocol/primitives";
-import { parseCodexDeviceStart, pollCodexDeviceAuth, startCodexDeviceAuth } from "./codex-device-code";
+import {
+  CODEX_DEVICE_TTL_SECONDS,
+  parseCodexDeviceStart,
+  pollCodexDeviceAuth,
+  startCodexDeviceAuth,
+} from "./codex-device-code";
 
 export const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 export const CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
@@ -159,7 +164,7 @@ export class CodexOAuthClient extends OAuthDeviceFlow {
       userCode: started.userCode,
       deviceAuthId: started.deviceAuthId,
       intervalSeconds: started.intervalSeconds,
-      expiresInSeconds: 900,
+      expiresInSeconds: CODEX_DEVICE_TTL_SECONDS,
     };
   }
 
@@ -168,14 +173,21 @@ export class CodexOAuthClient extends OAuthDeviceFlow {
     const stored = await store.getDeviceState(deviceAuthId);
     const device = stored === undefined ? undefined : parseCodexDeviceStart(stored);
     if (device === undefined) return { status: "failed", reason: "unknown device authorization" };
+    // One attempt per call: the dashboard polls on its own interval, so this
+    // returns `pending` between attempts rather than blocking the request.
     const authorization = await pollCodexDeviceAuth(device, this.fetchFn);
-    await store.deleteDeviceState(deviceAuthId);
+    if (authorization === undefined) return { status: "pending" };
     const result = await exchangeCodeForToken(
       authorization.authorizationCode,
       authorization.codeVerifier,
       CODEX_DEVICE_REDIRECT_URI,
       this.fetchFn,
     );
+    // Only after the exchange has succeeded: the authorization code is
+    // single-use, so dropping the state first would strand a failed exchange
+    // with no way to retry, forcing the operator through device authorization
+    // again.
+    await store.deleteDeviceState(deviceAuthId);
     return { status: "complete", result };
   }
 

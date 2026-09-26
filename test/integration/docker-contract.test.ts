@@ -369,11 +369,17 @@ describe("Docker Contract", () => {
     expect(installsLockedDeps).toBe(true);
   });
 
-  it("builder stage copies drizzle migrations", () => {
+  it("builder stage copies the migrations folder", () => {
     const builderStage = stages.find((s) => s.name === "builder");
     const copyInstructions = builderStage?.instructions.COPY || [];
 
-    const hasMigrationsCopy = copyInstructions.some((copy) => copy.includes("drizzle"));
+    // The builder must copy the tracked `migrations/` tree: `build-binary.ts`
+    // reads `<cwd>/migrations` under NODE_ENV=production, so a binary built
+    // without it boots into a "migrations not found" failure. The path is
+    // asserted by name rather than by a substring that any folder could match.
+    const hasMigrationsCopy = copyInstructions.some(
+      (copy) => copy.includes("migrations ./migrations") || copy.includes("migrations /build/migrations"),
+    );
     expect(hasMigrationsCopy).toBe(true);
   });
 

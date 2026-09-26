@@ -21,7 +21,6 @@
     "build:binary": "bun run scripts/build-binary.ts",
     "typecheck": "tsc --noEmit",
     "generate:usage-periods": "bun run scripts/ci-generate-usage-periods.ts",
-    "db:migrate": "bun run scripts/ops-migrate.ts",
     "dev:backend": "bun run --hot src/main.ts",
     "dashboard:dev": "bun run --cwd dashboard dev",
     "check:coverage": "bun test --coverage --coverage-reporter=lcov --coverage-dir=coverage && bun run scripts/ci-check-coverage.ts",

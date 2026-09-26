@@ -13,6 +13,7 @@ src/observability/
   metrics.ts             # hand-rolled Prometheus registry (singleton `metrics`)
   runtime-metrics.ts     # periodic memory + collection-size sampler
   token-speed.ts         # shared tokens/sec computation
+  telemetry-status.ts    # the one definition of "is this request a gateway error?"
   performance-metrics.ts # bounded console performance snapshot
   payload-capture.ts     # opt-in redacted request/response capture (Postgres)
   payload-store.ts       # append-only .jsonb file frames backing payload rows
@@ -56,6 +57,27 @@ batched `insertEvents` -> scheduled retention prune:
   (`attempt-loop.ts`), `completeAttempt` persists it, and the ingress fallback
   defaults to `cartethyia` when no GatewayError is present — so a failure reads
   as "ours" vs "theirs" without guessing from the category.
+- **What counts as a gateway error is defined once**, in `telemetry-status.ts`
+  (`isGatewayError` for rows, `gatewayErrorSql` for the aggregate queries), and
+  read by every site that reports an error count: the usage summary, the health
+  window, the usage breakdown, `telemetry_usage_totals` (the durable rollup),
+  the public share page, the client-IP breakdown, `/system/usage`, and the
+  provider-account `errors` column. The rule is a principle, not a list of
+  codes: **a request counts only when the gateway failed at its own job.**
+  `failed`/`truncated` plus a `5xx` counts — except `503`, which is capacity and
+  availability (the gateway correctly refusing work it cannot do). Every `4xx`
+  is the caller's outcome and never counts, as is `499` (a client abort). The
+  class rule matters because the enumerated version missed `401` and `429`, both
+  free for a caller to generate and neither reaching a provider, so counting
+  them handed out a way to inflate the error rate. Excluded requests are still
+  recorded, rendered, filterable and openable; "not an error" means "not counted
+  against the gateway". The rollup matters most: once a request is counted there
+  it stays counted after its raw row is pruned, so a wrong predicate is
+  uncorrectable in hindsight. Both encodings of the rule — the row predicate and
+  the SQL — are pinned to the same verdict for every `(status, httpStatus)`
+  combination, and the SQL form is rendered from the same constants rather than
+  restating them, because the two once disagreed on rows whose lifecycle status
+  was outside the enum.
 
 ## Logger, redaction, log ring
 

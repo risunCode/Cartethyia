@@ -38,6 +38,5 @@ export const HERMES_MODELS: readonly ModelDefinition[] = [
 export const HERMES_SPEC: ApiKeyProviderSpec = {
   provider_id: HERMES_PROVIDER_ID,
   endpoint_paths_by_wire_family: {},
-  supported_wire_families: ["chat"],
   prePayload: injectHermesTags,
 };

@@ -35,6 +35,5 @@ export const BAI_SPEC: ApiKeyProviderSpec = {
     chat: "/chat/completions",
     responses: "/responses",
   },
-  supported_wire_families: ["chat", "responses"],
   prePayload: baiPrePayload,
 };

@@ -19,7 +19,6 @@ export const DEFAULT_ENDPOINT_BY_WIRE_FAMILY: Record<WireFamily, string> = {
   chat: "/v1/chat/completions",
   responses: "/v1/responses",
   messages: "/v1/messages",
-  native: "/v1/chat/completions",
 };
 export function endpointPathForProviderModel(
   providerId: string,

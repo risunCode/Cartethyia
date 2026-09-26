@@ -443,14 +443,22 @@ function consumeCursorFrames(
 interface CursorAdapterOptions {
   readonly fetch?: typeof fetch;
   readonly baseUrl?: string;
+  /**
+   * Heartbeat interval for an open turn. Exposed so a test can observe the
+   * heartbeat without waiting the production interval; the wire shape of the
+   * frame is what matters, not the cadence.
+   */
+  readonly heartbeatIntervalMs?: number;
 }
 
 class CursorAdapter implements ProviderAdapter {
   readonly provider_id = CURSOR_PROVIDER_ID;
   readonly #baseUrl: string;
+  readonly #heartbeatIntervalMs: number;
 
   constructor(options: CursorAdapterOptions = {}) {
     this.#baseUrl = (options.baseUrl ?? CURSOR_BASE_URL).replace(/\/+$/, "");
+    this.#heartbeatIntervalMs = options.heartbeatIntervalMs ?? CURSOR_HEARTBEAT_MS;
     void options.fetch;
   }
 
@@ -582,7 +590,7 @@ class CursorAdapter implements ProviderAdapter {
           frameConnectMessage(toBinary(AgentClientMessageSchema, heartbeatMessage)),
         );
       }
-    }, CURSOR_HEARTBEAT_MS);
+    }, this.#heartbeatIntervalMs);
 
     let sequence = 0;
     yield { type: "response_start", sequence_number: sequence++, model: request.model };

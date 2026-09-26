@@ -5,6 +5,488 @@
 > All changes below are pre-release. Cartethyia has not been tagged or
 > released; this document reflects the current production codebase architecture and capabilities.
 
+### A cooldown states when it ends, and a compound duration is read in full
+
+A model-scoped throttle (a 429 for one model) writes `modelCooldowns` and
+deliberately leaves `cooldownUntil` untouched, because the account stays
+routable for every other model. The dashboard therefore had to read the
+per-model map to answer "when can this be retried?" — and it did not. The
+Accounts badge computed the soonest deadline and then discarded it, rendering
+only "1 model cooling", and the health dialog showed a deadline only from
+`cooldownUntil`, so a per-model 429 displayed a reason with no time at all. Both
+now show the deadline, the badge names the model that clears first, and the
+countdown timer is armed by the per-model deadlines too — it previously ran only
+for `cooldownUntil`, so a per-model badge never ticked.
+
+The reset duration itself was read incorrectly. `parseProviderResetDuration`
+matched a single `amount unit` pair, so Cline's "Try again in 4h 13m" became 4h
+and the stored deadline was 13 minutes earlier than the window the provider had
+stated — long enough for the account to re-enter rotation before the limit
+lifted. A relative phrase is now summed across every pair that continues it
+(`4h 13m`, `1 hour and 30 minutes`, `1h, 15m`, `2h30m`), and `m` no longer
+swallows the `ms` of a millisecond backoff or the `mo` of a month. The
+`sweepExpiredCooldowns` pass that prunes elapsed per-model keys and the manual
+recover that clears them were already correct and are unchanged.
+
+### A built-in seed row is only kept while the provider still serves it
+
+`seedBundledModels` deletes a `builtin` row its static catalog no longer
+declares, which makes the catalog list the owner of that row: nothing else
+prunes one, so an id the provider has retired stays in the catalog — and stays
+routable — forever. Cline's seed carried two ids
+(`nvidia/nemotron-3-ultra-550b-a55b:free`, `google/gemma-4-31b-it:free`) that
+its live free roster no longer publishes, so both rendered as built-in cards
+whose every probe could only fail. They are removed, and a test now pins the
+seed against the roster the adapter actually reads so a retired id cannot be
+re-seeded.
+
+### Free-tier discovery, and a model list grouped by where each row came from
+
+Two providers publish a free tier, and neither was reachable through "Fetch
+models". **OpenCode Free** shares its `/zen/v1/models` listing with the billed
+Zen catalog — 81 ids, of which only the free ones are routable without a
+credential — and its discovery applied no filter at all, so a fetch wrote
+`claude-opus-5`, `gpt-6-astra`, and every other billed id into the catalog as
+ordinary rows. It now filters to the free tier and marks what survives; one
+listed id (`deepseek-v4-flash-free`) is excluded because a real free-tier
+dispatch answers `400 Model is unavailable` even though the listing still
+advertises it. **Cline** discovery asked for the pass roster (`pass: true`) for
+every account, writing subscription rows into the catalog of an operator who may
+hold no pass — rows whose dispatch can only 401. It now asks for the free tier
+only.
+
+The model list is grouped into four labelled sections in reading order —
+**Built-in models**, **Free models (auto)**, **Manually added**, and **Fetched
+from provider** — replacing the previous two-way split that put the free tier
+and ordinary fetched rows in one group. A new `source: "auto_free"` records a
+discovered free-tier row, written by `syncModels` from a marker the discovery
+module sets on the definition, so the grouping survives the write instead of
+being re-derived from the id afterwards. Cline's tier comes from the roster's own
+`free` bucket, not the id prefix: the bucket serves ids with no `cline-free/`
+prefix (`deepseek/deepseek-v4-flash`), so a prefix test would drop served models.
+
+### The Models card separates built-in from fetched, and a probe follows a Thinking setting
+
+The provider detail page's model list rendered the compiled catalog and the
+operator's own fetched/manual rows as one undifferentiated grid, so a built-in
+entry (disable-only, immutable) and a row this deployment added (deletable)
+looked alike. The list is now grouped and labelled — see the section above for
+the four groups it settled into — with each group's count and a note on what may
+be done to it. A row whose `source` is `null` (written before that column
+existed) is treated as built-in, which is the conservative reading: disable, not
+delete.
+
+The Models card header now carries one **Thinking** selector, to the left of
+"Fetch models", offering `auto`, `minimal`, `low`, `medium`, `high`, `xhigh`.
+The list is derived from the backend's `PROBE_REASONING_EFFORTS` tuple, so the
+selector cannot offer a value the route schema rejects. The setting is
+section-wide and owned by the header, so every test in the card follows the one
+choice rather than each card needing its own — the Add-Model dialog keeps a
+selector too, for the test it runs before registering. `auto` — the default —
+sends no reasoning intent at all, and a specific effort is forwarded only when
+picked; that is what lets a test follow a setting. Previously the probe always
+built a `medium` Responses reasoning intent, so a model without reasoning support
+failed a probe that should have passed, and a test could not be made to exercise
+a particular effort.
+
+Probes now **stream by default** (`stream: request.stream ?? true`), set once in
+`buildProbeCanonicalRequest` so all three entry points — one model, all models,
+all accounts — share one transport. A streamed probe is the only one that
+observes time-to-first-byte, and it keeps the connection open while a reasoning
+model thinks instead of waiting for a complete body. The empty-content retry
+raises the output allowance and forces streaming for the same reason. An explicit
+`stream: false` is still honoured. The probe request resolves only after the
+stream is consumed, so the card's completion toast already reported a finished
+result rather than a queued one; "Fetch models", which was silent, now reports
+what it synced.
+
+### Provider limits come from the catalog, and three login flows stop misreporting themselves
+
+Four defects, all of which showed up as "the model list is wrong" or "login does not work":
+
+- **Cline's roster was published with invented limits.** The recommended-models endpoint
+  reports only `id`/`name`/`description`/`tags`, so the fetcher filled in a fixed
+  `200_000`/`64_192`. Most of the roster is larger — the subscription entries are
+  1M-context — so every Cline model advertised a window far below its real one. Limits now
+  come from Cline's own sibling catalog (`/ai/cline/models`, which states `context_length`
+  and `top_provider.max_completion_tokens`, and whose `input_modalities` is authoritative
+  for vision), falling back to the base catalog through `defineModel` when that fetch is
+  unavailable. Measured against the live endpoints, 35 of 37 published rows now carry the
+  provider's own limits; the remainder is one anonymous id no catalog records.
+- **A model the catalog knows but does not agree on fell to a fixed default.**
+  `modelsDevCatalog.resolve` fails closed on disagreement, which is right when a limit may
+  be left unstated — but Cline is filed as `cline-pass`, never `cline`, so every non-pass id
+  missed entirely. `majorityFor(bareId)` now votes per field across the rows for that id
+  (18 of 19 file `claude-opus-5` as `1000000/128000`; the dissenter is one reseller's 64k
+  output cap). Only what the vote answers is taken — an id nobody records keeps the
+  documented default — and an explicit row value still outranks it.
+- **Every Cline pass id was double-namespaced.** The endpoint already prefixes its own ids
+  (`cline-pass/…`, `cline-cloud/…`, `cline-free/…`), and the fetcher prefixed them again,
+  producing `cline-pass/cline-pass/glm-5.3-flash` — an id no route resolves. The endpoint's
+  spelling is now kept as given, and the `recommended` and `clineCloud` buckets, previously
+  dropped outright, are read.
+- **An output cap could exceed the context window.** `defineModel` published the catalog's
+  output figure unclamped. The base catalog states `output === context` on 1084 rows and
+  `output > context` on 69 (a Kimi K2.6 row is filed `262144/262144`), so a request could
+  reserve more output tokens than the model accepts as input. `outputLimit` is now
+  `min(declared, context)`; a `null` limit stays `null`.
+- **Codex's device poll blocked for the whole authorization window.** `pollDeviceAuth` slept
+  and retried up to 120 times inside a single console request (~16 minutes), so the
+  dashboard's poll interval never applied and one worker was occupied for the duration. It
+  now performs one attempt and returns `pending`, like every other provider. The device
+  state is also deleted only after the token exchange succeeds — the authorization code is
+  single-use, so deleting first stranded a failed exchange with no way to retry.
+- **Device-only providers advertised a browser login.** `oauthFlows.browser` tested only for
+  the *presence* of `buildAuthorizeUrl`/`exchangeCode`, but the base `OAuthClient` always
+  defines both (device-only clients override the exchange to throw). Cline, Cursor, Grok,
+  Kimi, Muse and Buddy therefore showed "Login with browser", and the click failed with
+  `browser_code_not_supported`. An explicit `supportsBrowserCode: false` now suppresses the
+  flow.
+- **Cline's device flow asked the operator to retype the code.** The client published the
+  bare `verification_uri` and ignored `verification_uri_complete`, which carries the user
+  code in its query string. Opening the page now enters the code automatically.
+- **The device dialog's auto-open was blocked.** It called `window.open` from an effect that
+  runs after an awaited request, outside the click's user gesture, so the browser blocked
+  the popup. The dialog keeps an explicit "Open" button and a link — both real gestures —
+  and leaves auto-opening to the browser flow, whose popup is created synchronously in the
+  click handler.
+
+### An audio attachment no longer fails a Claude request
+
+The Anthropic Messages request schema defines no audio content block — its
+content blocks are text, image, document, search_result, thinking,
+redacted_thinking, tool_use, tool_result, the server-tool result blocks, and
+container_upload, and no accepted `media_type` admits an audio MIME type. Three
+layers disagreed with that fact, and together they turned an audio attachment on
+a Claude route into a rejected request:
+
+- **The capability ladder claimed audio on every codec wire.**
+  `buildCapabilityProfile` granted `image`/`document`/`audio` to every
+  codec-backed route on the premise that "the codec wires can all carry those
+  parts". True for image and document; false for audio on `messages`. A Claude
+  (or Claude Code, or Kimi) route therefore passed the pre-lease gate for a
+  request it had no way to encode.
+- **The builder then emitted an invalid block.** `partToClaudeBlock` produced
+  `{type:"audio", media_type, data}` — a block type the schema does not define —
+  and the provider rejects the *whole request*, so the caller lost their text
+  along with the attachment.
+- **The response-direction encoder pinned a shape that cannot exist.**
+  `messages/encode.ts` emits `{type:"audio", source:{…}}`, and
+  `messages/parse.ts` reads it back, so an audio part appeared to round-trip on
+  a wire that has no audio block at all.
+
+`AUDIO_CAPABLE_WIRE_FAMILIES` (`chat`, `responses`) is now the single
+declaration of which codec can encode an audio part, and `routeCapabilitiesFor`
+narrows audio against it. A declared `audio` modality no longer overrides that
+narrowing: the flag describes the *model*, and no declaration adds a block the
+schema does not define. An audio request on a messages-only route now degrades
+through the existing capability path — the attachment becomes a visible
+`[audio]` placeholder and the text survives — instead of failing upstream. Image
+and document are untouched, because every codec wire defines those blocks. The
+builder degrades the part to the same placeholder rather than emitting an
+undefined block type, so an unexpected part costs only the attachment.
+
+### The agent contract cites real sections, and the last subfolder doc is gone
+
+`AGENTS.md` carried stable rules under unstable headings: other files cited it by
+section *name* (`"Verification gate"`, `"Documentation currency"`, `"cleanup
+rules"`), and none of those names existed — so every citation resolved to
+nothing. The contract now opens with a section index that maps each number to its
+exact title, and the three broken citations in `ci.yml`, the PR template, and
+`CONTRIBUTING.md` point at the numbered sections instead. The rule against fixing
+a symptom rather than its cause was stated in five sections; it is now stated
+once in §5 and applied by §6 and §7, with the test-specific prohibitions
+(mocking the defect, hardcoding success) kept where they belong in §7.
+
+A new §3 "Action gate and context budget" adds what the contract was missing for
+long tasks: when the CodeGraph index is present, a wide "where is X / what calls
+X" question is one explore call rather than a grep-then-read loop, and a search
+spanning many files belongs in a subagent that returns the conclusion instead of
+the file dumps. It also states the reasoning-effort guidance that previously
+applied only to one model, generalized to every model.
+
+`src/console/cli-tools/injectors/CONTRACT.md` was the last layer doc living in a
+subfolder, against the rule that each top-level `src/` folder owns exactly one
+doc for its whole subtree. Its content — the `InjectorSpec` lifecycle, the
+`fs-ops.ts` surface, and the eight house rules for a new spec — is folded into
+`CONSOLE.md` as an "Injector contract" subsection, verified against the source it
+describes, and the file is deleted.
+
+### Cross-protocol media no longer breaks the request
+
+Moving a session between protocols — a Messages client onto a Chat model, a
+Responses client onto a Claude route — could lose the caller's image or document,
+or send a shape the provider rejects outright. A canonical content part is an
+*opaque origin payload*, so the same image arrives as a Responses
+`{type:"input_image", image_url:"…"}` string, a Chat `{image_url:{url}}` object,
+or an Anthropic `{source:{type:"base64"}}` object, and the builder has to
+re-encode it into its own wire vocabulary. Three defects did not:
+
+- **A Responses- or Chat-origin image sent to a Claude model produced an invalid
+  block.** `normalizeImageBlock` only inferred `source.type` when it was
+  *missing*, so a Responses payload's `type: "input_image"` was forwarded
+  verbatim as `source.type` — a discriminator Anthropic does not define. The
+  provider rejects the block and the whole request fails.
+- **A canonical `file` part had no branch in the Chat builder at all.** `image`,
+  `document` and `audio` were all handled; `file` — which is how a
+  Responses-origin document arrives — was silently dropped on the way to a Chat
+  model, with no error and no log.
+- **A bare-string image payload, and a `file_id`-only image, degraded to
+  "[image: unsupported source]"** on every surface, because the shared
+  `resolveImageSource` did not recognize either shape.
+
+All three now route through the one resolver, which accepts every origin shape
+(a bare URL/`data:` string, the Chat nested object, the Responses
+`image_url`/`file_id`, and Anthropic's `source`) and is the single place a new
+shape is taught. A `data:` URL reaching Anthropic is split into its
+`{media_type, data}` base64 transport rather than embedded, since Anthropic has
+no data-URL field. Where a wire genuinely cannot express a shape — Chat has no
+`file_id` form for images and no document-URL field — it degrades to a text
+reference naming the id instead of emitting an invalid block, because the
+provider rejects the whole request and the caller loses their text with it.
+
+Verified by a cross-protocol matrix over seven origin shapes × three target
+wires, asserting the *validity* of the outbound block rather than its presence:
+21/21 wire-valid, up from 17/21.
+
+### An image no longer reaches the wire as an object
+
+`image_url` is a **string** on the Responses wire, and the Codex and Responses
+builders were forwarding the canonical image part's opaque origin payload
+verbatim. That payload is whatever the inbound surface used — Anthropic's
+`{type:"image",source:{type:"base64",...}}`, Chat's nested `{image_url:{url}}`, or
+a flat `{url}` — so an image originating from any surface other than a
+pre-formed Responses block put an **object** where the provider required a URL,
+and the provider rejected the whole request with HTTP 400:
+
+```
+Invalid type for 'input[114].content[1].image_url': expected an image URL, but got an object instead
+```
+
+Measured against the builder: four of six origin shapes failed, and the failure
+took the entire request with them — including the text the caller actually asked
+about. Three sites are fixed:
+
+- the Codex message image path (`canonicalToCodexResponsesPayload`),
+- the Codex `computer_call_output` screenshot (`output.image_url`),
+- the Responses `computerOutputForWire` screenshot.
+
+All three now resolve through the shared `resolveImageSource` normalizer that the
+Chat and Responses message builders already used — it was simply never wired into
+these three — so every origin shape collapses to a URL, a data URL, or a
+`file_id`. An image whose source cannot be resolved is dropped rather than sent
+as an object, because a rejected request loses the text too; a bare URL string
+payload is passed through unchanged. The one place a screenshot's payload could
+not be resolved still stringifies, so the wire type is never violated.
+
+### The in-flight gauge no longer counts requests that never finish
+
+`proxy_in_flight` (the live "in flight request" number on the Requests card, and
+the Prometheus gauge behind it) only ever went up. The request lifecycle was
+registered on the `/v1` gateway plugin, whose `afterResponse` fires only for a
+request that **matched a registered route** — while the counter is incremented by
+the root `request` hook, which runs for every inbound request. So an unregistered
+`/v1/*` path was counted and never released: measured, one `POST /v1/not-a-real-route`
+left the gauge permanently one higher, and a 25-request burst left it at 25,
+forever. That made the number meaningless for a real workload and handed an
+abuser a way to drive it upward with the cheapest possible request.
+
+The lifecycle (`registerTelemetryLifecycle` / `registerRequestCleanup`) now lives
+at the root, where the increment does, so the two are symmetric. A root
+`afterResponse` still runs after the matched handler returns, so a dispatch route
+finalizes exactly as before; it is registered in one place only, so a matched
+route cannot finalize twice. Unmatched `/v1/*` requests now release their state,
+their deadline timer, their live-controller entry and their in-flight count.
+
+### Only the gateway's own defects count as errors
+
+Six independent predicates answered "is this request an error?" with their own
+copy of `status in ('failed', 'truncated')` — the usage summary, the health
+window, the usage breakdown, the durable `telemetry_usage_totals` rollup, the
+public share page, and the client-IP breakdown. That let a `404` probe against an
+unregistered path, a `499` client abort, and a `503` capacity refusal all raise
+the reported error rate, and the rollup made the drift permanent: a request
+counted there stays counted after its raw row is pruned.
+
+There is now one definition, `src/observability/telemetry-status.ts`, read by
+every site that reports an error count. The rule is a principle, not a list of
+codes: **a request counts only when the gateway failed at its own job.**
+`failed`/`truncated` plus a `5xx` counts, except `503` (capacity — the gateway
+correctly refusing work it cannot do). Every `4xx` is the caller's outcome and
+does not count, nor does `499` (a client abort). Excluded requests are still
+recorded, still rendered in the Requests table, still filterable, and still
+openable in the detail drawer — "not an error" means "not counted against the
+gateway", never "not logged".
+
+> **Koreksi.** An earlier version of this entry stated the rule as an enumerated
+> list — "not `404`, `499` or `503`" — which was the implementation at the time.
+> That list was wrong in principle: it missed `401` and `429`, both free for a
+> caller to generate and neither reaching a provider, so a bogus API key could
+> still raise the reported error rate. The rule is now the class rule above, and
+> `401`/`429` (and every other `4xx`) are excluded.
+
+### The error-count rule is one rule, and the two encodings of it agree
+
+The shared predicate landed with a divergence in it. `isGatewayError` treated a
+row whose lifecycle status was outside the enum (`NULL`, or a future state) as an
+error, while the SQL form `status in ('failed','truncated')` evaluates to NULL —
+therefore *not* counted — for exactly those rows. The SQL form writes the durable
+`telemetry_usage_totals` rollup and the row form writes the read-side counts, so
+the two disagreed on those rows, and a rollup entry cannot be corrected after its
+raw row is pruned. Both now derive from the same constants and return the same
+verdict for every `(status, httpStatus)` combination; the SQL is rendered from
+those constants rather than restating them as literals. An unknown status is not
+counted — "we cannot claim this was the gateway's fault" — and is still recorded
+and shown.
+
+Two further sites were still carrying their own copy of the old predicate and are
+now on the shared rule: `UsageResponse.requestsFailed` (`/system/usage`) and the
+provider-account `errors` column, where the "today" arm reads `telemetry_events`
+and the "all time" arm reads the rollup — two different predicates for two numbers
+displayed side by side.
+
+### The Overview page no longer polls a usage endpoint it never read
+
+`Overview` called `useUsage()` and wired its `refetch`/`isFetching` into the
+refresh button and the spinner, but read none of its data — the page renders
+`health.error_count`, not usage. Every open Overview tab therefore issued
+`GET /console/api/system/usage` twice a minute, validated the response, and threw
+it away. The call is removed, along with the now-unreachable chain it was the only
+consumer of: `useUsage`, `assertUsage`, the dashboard's `UsageResponse` re-export,
+and the `system.usage` / `system.usageByPeriod` query keys. The backend endpoint
+`/system/usage` remains and is still covered — only the dead browser consumer is
+gone.
+
+### Removed a dead `data-status` attribute
+
+The Requests filter buttons carried `data-status` for a CSS selector list that the
+tone refactor replaced with `data-tone`. No stylesheet, test, or script read it.
+
+
+The filter buttons were a hardcoded three-entry array (`200 OK`, `499`, `503`)
+and the status cell hardcoded `"200 OK"` / `"500 ERR"`, so only `200` ever
+carried a reason phrase and every other code rendered as a bare number. The
+buttons now render whatever the backend actually reports, labelled
+`<code> <reason>` (`404 Not Found`, `503 Service Unavailable`,
+`499 Client Closed Request`), with the count after a `·`. The phrases come from
+one table in `dashboard/src/lib/http-status.ts` — asserted against the platform's
+own `STATUS_CODES` — and the colour tone is derived from the code rather than an
+enumerated status list, so a status the gateway newly returns renders and styles
+correctly without a CSS edit. An unknown code falls back to its bare digits
+instead of inventing a phrase.
+
+### The coverage floor is 90%, and the suite runs in parallel
+
+`scripts/ci-check-coverage.ts` now defaults to `90.0` line coverage over
+hand-written backend `src/`, and CI passes the same value rather than a lower
+one, so a local `bun run check:coverage` gates identically to the pipeline. The
+gap was closed with tests, not by lowering the number: protocol codecs, provider
+adapters, console route handlers, and store ownership boundaries gained direct
+coverage for the branches they actually decide.
+
+`scripts/ops-run-tests.ts` runs `bun test --parallel` by default. That is safe
+because the DB-gated suites were made parallel-correct first:
+
+- `test/integration/oauth-refresh-service.test.ts` ran a table-wide
+  `delete(providerAccounts)` in `afterEach`, which deleted every other suite's
+  fixtures on the shared isolated database. Cleanup is now scoped to the account
+  ids this suite created.
+- `test/transport/routing/route-catalog.test.ts` created global providers
+  (`tenant_id IS NULL`) whose models carried no `source`, so a backup taken by
+  any tenant legitimately included them — and the suite then deleted the
+  provider in `afterAll`, leaving a payload that could not be restored. Those
+  fixtures now carry the reproducible `source: "builtin"` marker.
+- `src/observability/logger.ts` enabled the `pino-pretty` transport whenever
+  `NODE_ENV=development`. That transport runs in a worker thread which can exit
+  mid-run and take the test worker with it. It is pure presentation, so it is
+  now enabled only for an interactive TTY.
+
+### A restore no longer reads another tenant's models
+
+`ownedByFilter`'s `authored` arm selected every `models` row whose `source` was
+not the build's marker, without checking who owned the provider. A probed model
+under *another tenant's* provider therefore travelled into this tenant's backup
+— a cross-tenant read of one tenant's catalog — and a restore of that payload
+inserted a `models` row whose `provider_id` the restoring tenant did not own,
+which is a foreign-key violation. Authorship now requires the provider to be
+shared (`tenant_id IS NULL`) or the tenant's own, matching what the ownership
+contract already documented.
+
+`mergeResponsesUsage` also declared its parameters as `Record | undefined` while
+its own comment documented `"usage": null` frames from some bridges. The type
+now says `null`, which is the shape the function already handled.
+
+### The `native` wire family is retired
+
+`native` was never a protocol. It marked a row served by a bespoke adapter —
+Cursor (Connect+protobuf) and Devin (gRPC) — that frames its own wire by hand
+and has no canonical codec. Sitting in the same enum as `chat`/`responses`/
+`messages` made it an operator-selectable choice, and a request on it died
+inside the codec with an untyped `unsupported wire family: native` rather than a
+typed gateway error.
+
+The fact it carried now lives where it belongs: `bespokeWire` on the provider
+declaration in `provider-metadata.ts`, surfaced into the route snapshot as
+`capability_profile.bespokeWire`. Two behaviours follow from it, both preserved
+exactly — a bespoke route gates rich content on its declared modalities instead
+of assuming codec coverage, and it receives generation controls unfiltered
+because no codec is involved to re-encode them. The operator vocabulary is now
+the three real protocols, and the selector no longer offers a wire that cannot
+work.
+
+`0001_retire_native_wire_family.sql` folds existing `native` rows onto `chat`
+and rebuilds the enum; it is retry-safe and a no-op once applied.
+
+### A manually added provider can be tested against any protocol
+
+> **Koreksi.** The wire-family gate used to be described here as a safety
+> boundary that stopped an operator from driving a provider onto a wire it does
+> not serve. That framing was wrong. A manually added provider exists precisely
+> so an operator can reach an upstream protocol this gateway carries no bundled
+> knowledge of, and the gate made that impossible: dispatch answered
+> `capability_unsupported` (`workbuddy supports only wire family "chat", got
+> "messages"`) before the request was ever sent, so the upstream never got to
+> answer for itself.
+
+Dispatch no longer gates on wire family. `supported_wire_families` is removed
+from the adapter config and every provider spec; `supportedWireFamilies` remains
+as published metadata (registry paths for built-ins, the BYOK profile for custom
+rows) and the Add-Model wire selector now uses it to order the choices rather
+than to lock them — every family stays selectable, with the provider's own
+families first, and a note explains when the chosen wire is outside the declared
+set. The dashboard no longer hides the selector when a provider declares a
+single family.
+
+The discovery gate is unchanged for derived sources and deliberately exempts an
+explicit pick. A stored row, a bundled catalog row, or a generic `/models` guess
+is a cache of the derivation, not an authority, so `constrainWireFamily` still
+corrects those to the provider's declared contract. But
+`ProbeModelRequest.wireFamily` is the operator naming the wire themselves, so it
+now passes through untouched — previously it was silently rewritten to the
+provider's first declared family, which is what made the selector look like it
+worked while probing a different wire than the one chosen.
+
+### Dashboard styling layers and session-aware console entry
+
+All dashboard apps share `dashboard/src/styles/base.css` for Tailwind, tokens,
+resets, and primitives, then load one extension (`console.css`, `landing.css`,
+or `share.css`) directly. Settings backup choices use consistent selectable
+panels. Landing offers All view, a GitHub link before it, and no auto-scroll;
+its Console links enter the session-aware `/console` route instead of forcing
+a fresh login.
+The public Share HUD retains the current enrollment and key-issuance flow
+without a decorative page background or a separate HTML document.
+
+### Tracked baseline is the only current migration
+
+> **Koreksi.** The earlier startup-migration note treated the root `migrations/`
+> directory as disposable; it contained hand-run SQL that startup never read.
+> That was wrong. The tracked root directory now contains only
+> `0000_baseline.sql`, the complete schema for a fresh database. Backend
+> initialization runs its numbered SQL from this directory; the separate
+> `db:migrate` command and setup-time migration invocation were removed.
+> Future changes add a numbered SQL migration here for existing databases.
+
 ### Claude Code tool results reach Codex
 
 When a Claude Code Messages session continued through Codex, the Messages

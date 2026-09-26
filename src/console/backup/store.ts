@@ -111,6 +111,14 @@ function columnIndex(table: Table): ReadonlyMap<string, { key: string; dataType:
  * own work even when it sits under a shared provider. A `NULL` owner — a
  * built-in provider, a pool-wide account — never satisfies `= tenantId`, which
  * is what keeps the shared catalog out of a tenant's restore.
+ *
+ * The second arm is scoped to a **shared** parent on purpose. "Not
+ * reproducible from the build" alone is not evidence of authorship: another
+ * tenant's provider can also carry a probed model, and reading it into this
+ * tenant's backup would both leak that tenant's catalog and produce a restore
+ * that inserts a `models` row whose `provider_id` this tenant does not own —
+ * a foreign-key violation. Authorship therefore requires that the row hangs
+ * off a provider nobody owns, or off this tenant's own provider.
  */
 function ownedByFilter(table: Table, tenantId: string): SQL {
   const ownership = ownershipOf(table);
@@ -120,7 +128,10 @@ function ownedByFilter(table: Table, tenantId: string): SQL {
   }
   if (ownership.kind === "authored") {
     const parentOwner = ownershipOwnerColumn(ownership.parent);
-    return sql`(${ownership.column} in (select ${ownership.parentColumn} from ${ownership.parent} where ${parentOwner} = ${tenantId}) or ${ownership.authoredColumn} is distinct from ${ownership.reproducibleValue})`;
+    const mine = sql`${ownership.column} in (select ${ownership.parentColumn} from ${ownership.parent} where ${parentOwner} = ${tenantId})`;
+    const shared = sql`${ownership.column} in (select ${ownership.parentColumn} from ${ownership.parent} where ${parentOwner} is null)`;
+    const unreproducible = sql`${ownership.authoredColumn} is distinct from ${ownership.reproducibleValue}`;
+    return sql`(${mine} or (${shared} and ${unreproducible}))`;
   }
   return eq(ownership.column, tenantId);
 }

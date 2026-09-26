@@ -36,8 +36,8 @@ export interface RouteCapabilities {
  * `max_tokens`, `parallel_tool_calls` (translated to `tool_choice`) —
  * everything else (`n`, `logprobs`, `top_logprobs`, `seed`, `service_tier`)
  * has no Messages equivalent.
- * Native (provider's own dialect, e.g. Ollama): treated permissively since
- * each native adapter reads only the fields it understands directly.
+ * A bespoke adapter is not in this matrix at all — see
+ * `BESPOKE_GENERATION_CONTROLS` for why it receives every control.
  */
 export const GENERATION_CONTROL_MATRIX: Readonly<
   Record<WireFamily, ReadonlySet<keyof GenerationControls>>
@@ -57,37 +57,72 @@ export const GENERATION_CONTROL_MATRIX: Readonly<
   ]),
   responses: new Set(["temperature", "top_p", "max_output_tokens", "parallel_tool_calls", "service_tier"]),
   messages: new Set(["temperature", "top_p", "top_k", "stop", "max_tokens", "parallel_tool_calls"]),
-  native: new Set([
-    "temperature",
-    "top_p",
-    "top_k",
-    "n",
-    "stop",
-    "max_tokens",
-    "max_completion_tokens",
-    "max_output_tokens",
-    "parallel_tool_calls",
-    "service_tier",
-    "logprobs",
-    "top_logprobs",
-    "seed",
-  ]),
 };
+
+/**
+ * Controls a bespoke adapter (Cursor, Devin) receives. These adapters read the
+ * fields they understand directly from `generation_controls`, so nothing is
+ * filtered out on their behalf: a wire matrix describes what a *codec* can
+ * re-encode, and no codec is involved here. Filtering would silently drop a
+ * control the adapter would have used.
+ */
+const BESPOKE_GENERATION_CONTROLS: ReadonlySet<keyof GenerationControls> = new Set([
+  "temperature",
+  "top_p",
+  "top_k",
+  "n",
+  "stop",
+  "max_tokens",
+  "max_completion_tokens",
+  "max_output_tokens",
+  "parallel_tool_calls",
+  "service_tier",
+  "logprobs",
+  "top_logprobs",
+  "seed",
+]);
 
 /**
  * Per-wire-family support for content-part `extension` names. Unlike
  * generation-control extensions (passthrough hints), a content part carries
  * semantics the upstream must understand. `server_tool_use` and `search_result`
  * are Anthropic Messages blocks, so only the Messages wire re-encodes them
- * (`protocol/request/messages.ts`); Chat and Responses drop extension parts,
- * and `native` adapters read only what their own codecs understand.
+ * (`protocol/request/messages.ts`); Chat and Responses drop extension parts.
+ * A bespoke adapter reads only what its own framing understands, so it
+ * re-encodes nothing here either.
  */
 export const EXTENSION_MATRIX: Readonly<Record<WireFamily, ReadonlySet<string>>> = {
   chat: new Set(),
   responses: new Set(),
   messages: new Set(["server_tool_use", "search_result"]),
-  native: new Set(),
 };
+
+/** No codec re-encodes extension parts, so a bespoke adapter's route carries none. */
+const EMPTY_EXTENSIONS: ReadonlySet<string> = new Set();
+
+/**
+ * Wire families whose codec can encode an audio input part.
+ *
+ * Chat (`input_audio`) and Responses (`input_audio`) both define one. The
+ * Anthropic Messages wire does not: its request content blocks are exactly
+ * text, image, document, search_result, thinking, redacted_thinking, tool_use,
+ * tool_result, the server-tool blocks, and container_upload — there is no audio
+ * variant, and no `media_type` in any accepted shape admits an audio MIME type.
+ * Every provider routed over this wire (Anthropic, Claude Code, Kimi) speaks
+ * that schema, so an audio part has no valid encoding on any of them.
+ *
+ * This is the one fact that separates audio from image/document: a codec-backed
+ * route can carry an image on every wire, but it cannot carry audio on
+ * `messages`. Audio is therefore the only modality whose capability is granted
+ * per wire family rather than to every codec-backed route.
+ */
+export const AUDIO_CAPABLE_WIRE_FAMILIES: ReadonlySet<WireFamily> = new Set<WireFamily>([
+  "chat",
+  "responses",
+]);
+
+/** Defensive fallback: a wire family with no matrix entry forwards no control. */
+const EMPTY_CONTROLS: ReadonlySet<keyof GenerationControls> = new Set();
 
 /** Picks only the generation-control keys a given wire family actually forwards. */
 export function pickWireSupportedControls(
@@ -124,7 +159,18 @@ export function routeCapabilitiesFor(candidate: CapabilityProfileHolder): RouteC
     text: true,
     image: profile.image === true,
     document: profile.document === true,
-    audio: profile.audio === true,
+    // A bespoke adapter frames its own protocol, so only an explicit modality
+    // declaration grants it audio. A codec route is decided by the wire's own
+    // vocabulary instead: a catalog's audio flag describes the *model*, and no
+    // declaration can add a block the schema does not define. Without this
+    // narrowing a codec-backed `messages` route claims audio it has no block
+    // for, passes the pre-lease gate, and reaches the builder to emit a block
+    // the provider rejects — failing the whole request, not just the
+    // attachment.
+    audio:
+      profile.bespokeWire === true
+        ? profile.audio === true
+        : AUDIO_CAPABLE_WIRE_FAMILIES.has(candidate.wire_family),
     webSearch: profile.webSearch === true,
     tools: profile.tools === true,
     parallelToolCalls: profile.parallelToolCalls === true,
@@ -133,12 +179,20 @@ export function routeCapabilitiesFor(candidate: CapabilityProfileHolder): RouteC
     responseJsonObject: profile.responseJsonObject !== false,
     responseJsonSchema: profile.responseJsonSchema !== false,
     promptCaching: profile.promptCaching !== false,
+    // A bespoke route has no codec, so no wire matrix applies: the adapter
+    // reads the controls it understands directly. Otherwise the route's wire
+    // family decides, because that is the codec that will re-encode them.
     generationControls:
-      GENERATION_CONTROL_MATRIX[candidate.wire_family] ?? GENERATION_CONTROL_MATRIX.native,
+      profile.bespokeWire === true
+        ? BESPOKE_GENERATION_CONTROLS
+        : GENERATION_CONTROL_MATRIX[candidate.wire_family] ?? EMPTY_CONTROLS,
     // Content-part `extension` names the route's wire codec actually re-encodes.
     // Generation-control `extension:*` keys are passthrough hints and are never
     // route capabilities (see `deriveRequiredCapabilities`).
-    extensions: EXTENSION_MATRIX[candidate.wire_family] ?? EXTENSION_MATRIX.native,
+    extensions:
+      profile.bespokeWire === true
+        ? EMPTY_EXTENSIONS
+        : EXTENSION_MATRIX[candidate.wire_family] ?? EMPTY_EXTENSIONS,
   };
 }
 
