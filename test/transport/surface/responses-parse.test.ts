@@ -8,6 +8,7 @@ import {
   unwrapBody,
 } from "../../../src/transport/surface/responses/parse";
 import type { ContentPart } from "../../../src/transport/canonical-model";
+import { canonicalToChatPayload } from "../../../src/protocol/request/chat";
 
 /**
  * Direct coverage for the Responses request parser.
@@ -301,5 +302,90 @@ describe("hasOwn", () => {
     expect(hasOwn({ a: 1 }, "a")).toBe(true);
     expect(hasOwn({ a: undefined }, "a")).toBe(true);
     expect(hasOwn({}, "toString")).toBe(false);
+  });
+});
+
+/**
+ * A `reasoning` item is its own entry in `input`, on either side of the
+ * assistant item it belongs to. Decoding one item at a time split a single
+ * provider turn in two and left the tool-call turn without its reasoning, which
+ * the upstream rejects with "the reasoning content from the previous turn must
+ * be passed back in thinking mode". The Chat encoder is where that shows up, so
+ * these assert on its output rather than on the canonical shape alone.
+ */
+describe("reasoning items fold into the assistant turn they belong to", () => {
+  function chatMessages(input: unknown[]): Array<Record<string, unknown>> {
+    const request = parseResponsesRequest({
+      model: "workbuddy/deepseek-v4.1-flash",
+      input,
+      stream: false,
+    });
+    return canonicalToChatPayload(request)["messages"] as Array<Record<string, unknown>>;
+  }
+
+  test("a reasoning item emitted BEFORE its function_call reaches that turn", () => {
+    const messages = chatMessages([
+      { role: "user", content: "go" },
+      { type: "reasoning", content: [{ type: "reasoning_text", text: "thinking first" }] },
+      { type: "function_call", call_id: "c1", name: "read", arguments: "{}" },
+      { type: "function_call_output", call_id: "c1", output: "ok" },
+    ]);
+    const toolTurn = messages.find((m) => Array.isArray(m["tool_calls"]));
+    expect(toolTurn?.["reasoning_content"]).toBe("thinking first");
+  });
+
+  test("a reasoning item emitted AFTER its function_call reaches that turn", () => {
+    // Both orders occur in the same conversation, so handling only the leading
+    // one leaves half the turns rejected.
+    const messages = chatMessages([
+      { role: "user", content: "go" },
+      { type: "function_call", call_id: "c1", name: "read", arguments: "{}" },
+      { type: "reasoning", content: [{ type: "reasoning_text", text: "thinking after" }] },
+      { type: "function_call_output", call_id: "c1", output: "ok" },
+    ]);
+    const toolTurn = messages.find((m) => Array.isArray(m["tool_calls"]));
+    expect(toolTurn?.["reasoning_content"]).toBe("thinking after");
+  });
+
+  test("reads reasoning text from `content`, not only from `summary`", () => {
+    // A replayed reasoning item states its text under `content` as
+    // `reasoning_text`, and reading only `summary` parsed it to nothing — which
+    // emitted `reasoning_content: ""`, the exact shape the upstream reads as
+    // "thinking mode with the reasoning stripped" and rejects.
+    const messages = chatMessages([
+      { role: "user", content: "go" },
+      { type: "function_call", call_id: "c1", name: "read", arguments: "{}" },
+      { type: "reasoning", summary: [], content: [{ type: "reasoning_text", text: "from content" }] },
+    ]);
+    const toolTurn = messages.find((m) => Array.isArray(m["tool_calls"]));
+    expect(toolTurn?.["reasoning_content"]).toBe("from content");
+  });
+
+  test("prefers `summary` when a reasoning item states both", () => {
+    const messages = chatMessages([
+      { role: "user", content: "go" },
+      { type: "function_call", call_id: "c1", name: "read", arguments: "{}" },
+      {
+        type: "reasoning",
+        summary: [{ type: "summary_text", text: "the summary" }],
+        content: [{ type: "reasoning_text", text: "the content" }],
+      },
+    ]);
+    const toolTurn = messages.find((m) => Array.isArray(m["tool_calls"]));
+    expect(toolTurn?.["reasoning_content"]).toBe("the summary");
+  });
+
+  test("folds the reasoning into one turn instead of adding a second message", () => {
+    // The regression was a split turn: a reasoning-only assistant message plus
+    // the tool-call message. The pair must stay one message.
+    const messages = chatMessages([
+      { role: "user", content: "go" },
+      { type: "reasoning", content: [{ type: "reasoning_text", text: "one" }] },
+      { type: "function_call", call_id: "c1", name: "read", arguments: "{}" },
+    ]);
+    const assistantTurns = messages.filter((m) => m["role"] === "assistant");
+    expect(assistantTurns).toHaveLength(1);
+    expect(assistantTurns[0]?.["reasoning_content"]).toBe("one");
+    expect(assistantTurns[0]?.["tool_calls"]).toHaveLength(1);
   });
 });

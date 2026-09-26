@@ -141,6 +141,15 @@ under `display: "omitted"` the block carries an empty text with a signature and 
 back, and a reasoning-only assistant turn must not be dropped either. Dropping either made the following request fail
 with "the reasoning content from the previous turn must be passed back in thinking mode" (WorkBuddy/CodeBuddy 400).
 `reasoning_content` is assistant-only, so a non-assistant turn never carries it.
+A Responses `reasoning` item is a **separate entry in `input`**, and providers emit it on either side of the
+assistant item it belongs to — `reasoning, function_call` and `function_call, reasoning` both occur in one
+conversation. Decoding item by item therefore split a single provider turn into a reasoning-only assistant
+message plus the tool-call message, so the Chat encoder attached `reasoning_content` to the wrong one and left
+the tool-call turn without it; the upstream answered the same 400. The two items are one turn and the Responses
+decoder folds them into one message, reasoning first, whether it arrived before or after. The reasoning text is
+read from `summary` (`summary_text`) **or** `content` (`reasoning_text`): a replayed item states it in `content`,
+and reading only `summary` parsed such an item to nothing, which emitted `reasoning_content: ""` — the exact
+shape the upstream reads as thinking-mode-with-the-reasoning-stripped.
 `backfillDeepSeekReasoningContent` only writes the field when a real trace exists, never as an empty string, which the
 upstream reads as thinking-mode-with-the-reasoning-stripped. A new surface is
 a `SurfaceDescriptor` plus an adapter (`surface`, `matchesBodyShape`, `parse`, `encode`) plus an encoder branch in

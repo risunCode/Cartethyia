@@ -86,6 +86,21 @@ export function unwrapBody(input: unknown): unknown {
   return parseJsonBody(input);
 }
 
+/**
+ * The readable text of a `reasoning` item, from either place a provider puts it.
+ *
+ * The Responses API states reasoning under `summary` (a list of
+ * `{type:"summary_text", text}`), and that is what a well-formed item carries.
+ * A reasoning item may instead carry `content` with `{type:"reasoning_text",
+ * text}` — the shape emitted when the reasoning is replayed rather than
+ * summarized — and reading only `summary` made such an item parse to no text at
+ * all. That is worse than dropping it: the Chat encoder then emitted
+ * `reasoning_content: ""`, which the provider reads as "thinking mode with the
+ * reasoning stripped" and rejects with the very error this is here to prevent
+ * ("the reasoning content from the previous turn must be passed back in thinking
+ * mode"). Both fields are read, in that order, because a provider that states
+ * both means the summary as the readable form.
+ */
 function responseReasoningSummary(value: unknown): string | undefined {
   if (typeof value === "string") return value;
   if (!Array.isArray(value)) return undefined;
@@ -95,6 +110,27 @@ function responseReasoningSummary(value: unknown): string | undefined {
     return typeof text === "string" ? [text] : [];
   });
   return summaries.length > 0 ? summaries.join("\n\n") : undefined;
+}
+
+/** The `reasoning_text` bodies of a reasoning item's `content` blocks. */
+function responseReasoningContent(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return undefined;
+  const texts = value.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    // `reasoning_text` is the documented block type; a bare `text` block is
+    // accepted because providers in the wild emit it for the same field.
+    const type = entry["type"];
+    if (type !== "reasoning_text" && type !== "text") return [];
+    const text = entry["text"];
+    return typeof text === "string" ? [text] : [];
+  });
+  return texts.length > 0 ? texts.join("\n\n") : undefined;
+}
+
+/** The readable text of one reasoning item, preferring its summary. */
+function reasoningItemText(item: ResponsesInputItem): string | undefined {
+  return responseReasoningSummary(item["summary"]) ?? responseReasoningContent(item["content"]);
 }
 
 function parseInputContent(value: unknown): { parts: ContentPart[]; contentTypes: string[] } {
@@ -413,7 +449,7 @@ function parseInputItem(item: ResponsesInputItem): {
   if (type === "reasoning") {
     const encryptedPresent = hasOwn(item, "encrypted_content");
     const encrypted = item["encrypted_content"];
-    const summary = responseReasoningSummary(item["summary"]);
+    const summary = reasoningItemText(item);
     if (encryptedPresent) {
       if (typeof encrypted !== "string")
         throw new ResponsesReasoningError(
@@ -479,6 +515,68 @@ export function parseResponsesRequest(input: unknown): CanonicalRequest {
     else if (entry.message.role === "developer") hoistedInstructionParts.push(...entry.message.content);
     else messages.push(entry.message);
   }
+  // A `reasoning` item is its own entry in `input`, and providers emit it on
+  // either side of the assistant item it produced: `reasoning, function_call`
+  // and `function_call, reasoning` both occur in the same conversation (the
+  // captured WorkBuddy history has both). Decoding one item at a time therefore
+  // split a single provider turn into two canonical messages — a reasoning-only
+  // assistant turn plus the `function_call` turn — and every consumer that
+  // carries reasoning as a field on the assistant turn (the Chat encoder's
+  // `reasoning_content`) attached it to the wrong message, leaving the tool-call
+  // turn without it. The provider then rejects the request with "the reasoning
+  // content from the previous turn must be passed back in thinking mode".
+  //
+  // The two items are one turn, so they are folded into one message. A trailing
+  // reasoning attaches to the assistant turn it follows; a leading one is held
+  // and attached to the assistant turn it precedes. Reasoning is placed first in
+  // the merged content either way, which is the order the provider emitted it in
+  // and the order it expects back.
+  const messagesWithReasoning: CanonicalMessage[] = [];
+  let pendingReasoning: ContentPart[] | undefined;
+  const isReasoningOnly = (message: CanonicalMessage): boolean =>
+    message.role === "assistant" &&
+    message.content.length > 0 &&
+    message.content.every((part) => part.kind === "reasoning");
+  // A type predicate, not a plain boolean: it narrows `previous` to a defined
+  // message so the merge below reads its `content` without a second check.
+  const isToolCallTurn = (message: CanonicalMessage | undefined): message is CanonicalMessage =>
+    message !== undefined &&
+    message.role === "assistant" &&
+    message.content.some((part) => part.kind === "toolCall");
+  for (const message of messages) {
+    if (isReasoningOnly(message)) {
+      const previous = messagesWithReasoning[messagesWithReasoning.length - 1];
+      // A reasoning item that *follows* the assistant turn it belongs to — the
+      // `function_call, reasoning` order — attaches back to that turn.
+      if (isToolCallTurn(previous)) {
+        messagesWithReasoning[messagesWithReasoning.length - 1] = {
+          ...previous,
+          content: [...message.content, ...previous.content],
+        };
+        continue;
+      }
+      // Otherwise it *precedes* its turn; hold it for the assistant turn next.
+      pendingReasoning = [...(pendingReasoning ?? []), ...message.content];
+      continue;
+    }
+    if (pendingReasoning !== undefined) {
+      if (message.role === "assistant") {
+        messagesWithReasoning.push({
+          ...message,
+          content: [...pendingReasoning, ...message.content],
+        });
+        pendingReasoning = undefined;
+        continue;
+      }
+      // Not adjacent to an assistant turn, so it is kept as its own turn
+      // rather than dropped.
+      messagesWithReasoning.push({ role: "assistant", content: pendingReasoning });
+      pendingReasoning = undefined;
+    }
+    messagesWithReasoning.push(message);
+  }
+  if (pendingReasoning !== undefined)
+    messagesWithReasoning.push({ role: "assistant", content: pendingReasoning });
   const metadata = parsedItems.map((entry) => entry.metadata);
   const controls: GenerationControls = {};
   const maxOutputTokens = readNumber(bodyValue, "max_output_tokens");
@@ -541,7 +639,7 @@ export function parseResponsesRequest(input: unknown): CanonicalRequest {
 
   const request: CanonicalRequest = {
     model,
-    messages,
+    messages: messagesWithReasoning,
     generation_controls: controls,
     stream: readBoolean(bodyValue, "stream") ?? false,
     source_surface: "responses",

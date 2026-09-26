@@ -5,6 +5,25 @@
 > All changes below are pre-release. Cartethyia has not been tagged or
 > released; this document reflects the current production codebase architecture and capabilities.
 
+### A replayed reasoning item is folded into the turn it belongs to
+
+A client replaying a conversation to the Responses surface hit `400 the reasoning
+content from the previous turn must be passed back in thinking mode` on
+WorkBuddy. The request carried six `reasoning` items, so the client was not
+omitting them; two decoding faults were. A `reasoning` item is its own entry in
+`input`, emitted on either side of the assistant item it belongs to — the
+captured history has `reasoning, function_call` in one turn and `function_call,
+reasoning` in another — and decoding item by item split each turn into a
+reasoning-only assistant message plus the tool-call message, so the Chat encoder
+attached `reasoning_content` to the wrong one and the tool-call turn went out
+without it. The pair is now folded into one message, reasoning first, whether the
+item arrived before or after its turn. The reasoning text was also read only from
+`summary`, while a replayed item states it in `content` as `reasoning_text`;
+those items parsed to no text and emitted `reasoning_content: ""`, which the
+upstream reads as thinking mode with the reasoning stripped — the same 400.
+Both fields are read now, summary first. Against the captured request, all five
+tool-call turns carry non-empty reasoning, where three previously carried none.
+
 ### Cooldown is a deprioritization, and the `degraded` status is retired
 
 A cooling account was excluded from routing outright, so a deployment whose only
