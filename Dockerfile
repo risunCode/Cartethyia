@@ -2,7 +2,16 @@
 # Build the backend and dashboard together so the runtime image always serves
 # a matched application/static-assets version.
 
-FROM oven/bun:1.4.2-debian@sha256:53710ce0f14eef8312521c586a7ae1d9aeab4011840f09f1966073b68fc2e2ab AS builder
+FROM oven/bun:1.4.2-debian@sha256:4f6e31d1a54d6a3dd312daef655fc998101b5043d52e12592ac293ef04b9bc73 AS builder
+
+# Bun bakes process.env.NODE_ENV into the binary at build time (scripts/build-aot.ts
+# and scripts/build-binary.ts), so the value has to arrive as a build argument:
+# a runtime ENV cannot change it afterwards. Default production keeps the shipped
+# image's logger free of the pino-pretty worker. Pass
+# --build-arg CARTETHYIA_BUILD_NODE_ENV=development for a plain-HTTP deploy, where
+# a Secure session cookie would never survive the browser.
+ARG CARTETHYIA_BUILD_NODE_ENV=production
+ENV CARTETHYIA_BUILD_NODE_ENV=${CARTETHYIA_BUILD_NODE_ENV}
 
 WORKDIR /build
 
@@ -33,6 +42,10 @@ RUN bun run build:binary --outfile /build/dist/cartethyia
 # the small health-check/entrypoint toolset are shipped.
 FROM debian:bookworm-slim
 
+# Mirrors the builder's choice so a runtime env read agrees with the baked one.
+ARG CARTETHYIA_BUILD_NODE_ENV=production
+ENV CARTETHYIA_BUILD_NODE_ENV=${CARTETHYIA_BUILD_NODE_ENV}
+
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -49,7 +62,8 @@ RUN groupadd -r -g 10001 cartethyia && useradd -r -u 10001 -g cartethyia carteth
 
 COPY --from=builder --chown=cartethyia:cartethyia /build/migrations ./migrations
 COPY --from=builder --chown=cartethyia:cartethyia /build/dist/dashboard ./dist/dashboard
-COPY --chmod=755 docker-entrypoint.sh ./entrypoint.sh
+COPY docker-entrypoint.sh ./entrypoint.sh
+RUN chmod 755 ./entrypoint.sh
 COPY --from=builder --chown=cartethyia:cartethyia /build/dist/cartethyia ./cartethyia
 
 # Railway supplies PORT at runtime; the binary uses 12800 only as its fallback.

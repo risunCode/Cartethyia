@@ -84,12 +84,19 @@ export async function buildAOT(
   // this module is imported by tests that run in the same process as everything
   // else — mutating the environment here would flip `NODE_ENV` for every later
   // suite in that process. `scripts/build-binary.ts` passes the same define.
+  // The baked value defaults to `production` so the shipped image keeps the
+  // pino-pretty-free logger. A build that targets plain-HTTP hosting (a
+  // Tailscale-served console, a LAN box with no TLS terminator) can opt out with
+  // `CARTETHYIA_BUILD_NODE_ENV=development`; the Secure cookie flag follows
+  // this value, and a non-Secure cookie is what lets an HTTP dashboard keep its
+  // session instead of bouncing back to the login form on every submit.
+  const buildNodeEnv = process.env.CARTETHYIA_BUILD_NODE_ENV ?? "production";
   try {
     const result = await buildFn({
       entrypoints: ["src/main.ts"],
       outdir: "dist",
       target: "bun",
-      define: { "process.env.NODE_ENV": JSON.stringify("production") },
+      define: { "process.env.NODE_ENV": JSON.stringify(buildNodeEnv) },
       plugins: [typeboxCompileBridge, aot("src/main.ts", { strip: false })],
       alias: { elysia: "elysia/dist/index.mjs" },
       // `strip: false` keeps the runtime handler JIT reachable. The default

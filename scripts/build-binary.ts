@@ -62,12 +62,14 @@ export async function buildBinary(
   // Baked into the output; see the note above before changing it. Substituted
   // through `define` rather than by assigning `process.env`, because this module
   // is imported by tests in the same process — mutating the environment would
-  // flip `NODE_ENV` for every later suite in that process.
+  // flip `NODE_ENV` for every later suite in that process. Kept in sync with
+  // `scripts/build-aot.ts`, which bakes the same value into `dist/main.js`.
+  const buildNodeEnv = process.env.CARTETHYIA_BUILD_NODE_ENV ?? "production";
   const result = await buildFn({
     entrypoints: ["dist/main.js"],
     minify: true,
     target: "bun",
-    define: { "process.env.NODE_ENV": JSON.stringify("production") },
+    define: { "process.env.NODE_ENV": JSON.stringify(buildNodeEnv) },
     compile: { outfile },
   });
 
