@@ -86,4 +86,73 @@ describe("router export conversion (smoke)", () => {
     expect(keys[0]?.key_hash).toBe(hashSecret("rk_router_key_123"));
     expect(JSON.stringify(keys[0])).not.toContain("rk_router_key_123");
   });
+
+  // A real 9router export nests every per-row payload in a `data` JSON string
+  // and stores a combo's members as a JSON-encoded string. Reading those
+  // columns off the top level silently imported zero providers.
+  test("reads credentials, node URLs and combo members out of the data JSON string", () => {
+    const { payload, report } = convert9RouterBackup(
+      {
+        providerConnections: [
+          {
+            id: "c1",
+            provider: "openai-compatible-chat-abc123",
+            name: "My node",
+            isActive: 1,
+            createdAt: "2026-01-02T03:04:05.000Z",
+            data: JSON.stringify({ apiKey: "sk-node-key", defaultModel: "some-model" }),
+          },
+        ],
+        providerNodes: [
+          {
+            id: "openai-compatible-chat-abc123",
+            type: "openai-compatible",
+            name: "My node",
+            data: JSON.stringify({ prefix: "oa2", apiType: "chat", baseUrl: "https://example.test/v1" }),
+          },
+        ],
+        combos: [
+          { id: "k1", name: "my-combo", models: JSON.stringify(["oa2/model-a", "oa2/model-b"]) },
+        ],
+      },
+      tenantId,
+    );
+    expect(report.skipped).toEqual([]);
+    const account = payload.sections.config?.provider_accounts?.find((a) => a.provider_id === "oa2");
+    expect(account?.label).toBe("My node");
+    const bytes = (account?.credential_ciphertext as { __bytes: string }).__bytes;
+    expect(decryptCredentialToString(Buffer.from(bytes, "base64"))).toBe("sk-node-key");
+    const provider = payload.sections.config?.providers?.find((p) => p.id === "oa2");
+    expect(provider?.base_url).toBe("https://example.test/v1");
+    const combo = payload.sections.config?.model_combos?.find((c) => c.name === "my-combo");
+    expect((combo?.members as string[]).length).toBe(2);
+    const modelIds = (payload.sections.config?.models ?? []).map((m) => m.model_id).sort();
+    expect(modelIds).toEqual(["model-a", "model-b"]);
+    // The base URL already ends in its version segment, so the endpoint must
+    // stay relative or the join produces `/api/v1/v1/chat/completions`.
+    expect(payload.sections.config?.models?.[0]?.endpoint_path).toBe("/chat/completions");
+  });
+
+  test("keeps the /v1 prefix when a node base URL is a bare host", () => {
+    // 9router never persists a node's model list, so the members have to come
+    // from a combo — and the endpoint from the node's own base URL.
+    const { payload } = convert9RouterBackup(
+      {
+        providerConnections: [],
+        providerNodes: [
+          {
+            id: "n1",
+            type: "openai-compatible",
+            name: "Bare",
+            data: JSON.stringify({ prefix: "bare", apiType: "chat", baseUrl: "https://bare.test" }),
+          },
+        ],
+        combos: [
+          { id: "cb", name: "bare-combo", kind: "fallback", models: JSON.stringify(["bare/m1", "bare/m2"]) },
+        ],
+      },
+      tenantId,
+    );
+    expect(payload.sections.config?.models?.[0]?.endpoint_path).toBe("/v1/chat/completions");
+  });
 });

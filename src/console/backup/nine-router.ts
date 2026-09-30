@@ -52,8 +52,8 @@ type Row = Record<string, unknown>;
  * spelling. Verified against the router's own OAuth provider registry and the
  * model ids its rows carry: `xai` and `grok-cli` both serve xAI's Grok models,
  * which we file under `grok`; `gemini-cli` serves Google's models, which we file
- * under `gemini`; `opencode`/`opencode-free` serve opencode.ai, which we call
- * `opencodeft`; `opencode-go` is the paid tier we call `opencodego`;
+ * under `gemini`; `opencode`/`opencode-free`/`oc` serve opencode.ai, which we
+ * call `opencodeft`; `opencode-go` is the paid tier we call `opencodego`;
  * `clinepass` is Cline's pass product, and we carry Cline as `cline`.
  */
 const PROVIDER_MAP: Readonly<Record<string, string>> = {
@@ -71,6 +71,12 @@ const PROVIDER_MAP: Readonly<Record<string, string>> = {
   xai: "grok",
   "grok-cli": "grok",
   "gemini-cli": "gemini",
+  // The router also files Google's AI Studio keys under the bare id.
+  gemini: "gemini",
+  "codebuddy-cn": "cbcn",
+  "codebuddy-intl": "cb",
+  // Shorthand the operator's own dashboard uses for OpenCode's free tier.
+  oc: "opencodeft",
 };
 
 /** Provider ids the router has that we have no counterpart for, with the reason. */
@@ -84,8 +90,6 @@ const UNSUPPORTED_PROVIDERS: Readonly<Record<string, string>> = {
   trae: "no matching provider",
   windsurf: "no matching provider",
   zed: "no matching provider",
-  "codebuddy-cn": "no matching provider",
-  "codebuddy-intl": "no matching provider",
 };
 
 function rows(value: unknown): Row[] {
@@ -96,6 +100,31 @@ function rows(value: unknown): Row[] {
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+/**
+ * The router serialises every per-row payload into a single `data` JSON string
+ * (credentials, node prefix/base URL, …) instead of top-level columns. Read a
+ * field from `data` first, then fall back to the top level so a hand-written
+ * or already-flattened export still imports.
+ */
+function field(entry: Row, name: string): unknown {
+  if (typeof entry.data === "string") {
+    try {
+      const parsed: unknown = JSON.parse(entry.data);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        const value = (parsed as Row)[name];
+        if (value !== undefined) return value;
+      }
+    } catch {
+      // fall through to the top-level read
+    }
+  }
+  return entry[name];
+}
+
+function fieldText(entry: Row, name: string): string | null {
+  return text(field(entry, name));
 }
 
 function bool(value: unknown, fallback: boolean): boolean {
@@ -113,19 +142,27 @@ function isoDate(value: unknown, fallback: string): string {
  * checked before the row is called credential-less.
  */
 function credentialOf(entry: Row): string | null {
-  return text(entry.apiKey) ?? text(entry.accessToken) ?? text(entry.credential) ?? text(entry.token);
+  return (
+    fieldText(entry, "apiKey") ??
+    fieldText(entry, "accessToken") ??
+    fieldText(entry, "credential") ??
+    fieldText(entry, "token")
+  );
 }
 
 /** OAuth-backed providers store a refresh token rather than a static key. */
 const OAUTH_PROVIDERS = new Set(["claude", "codex", "antigravity", "qoder", "kimi", "cline", "clinepass"]);
 
 /** Converts one model reference, honouring the provider map. `null` = unsupported. */
-function modelReference(value: unknown, remapped: Set<string>): string | null {
+function modelReference(value: unknown, remapped: Set<string>, nodePrefixes?: ReadonlySet<string>): string | null {
   const source = text(value);
   if (source === null) return null;
   const slash = source.indexOf("/");
   if (slash < 1) return source; // a bare model id is already what we store
   const providerPart = source.slice(0, slash);
+  // A custom-node prefix is an id we minted for the imported provider row, so
+  // it passes through untouched instead of being looked up in the map.
+  if (nodePrefixes?.has(providerPart) === true) return source;
   const mapped = PROVIDER_MAP[providerPart];
   if (mapped === undefined) return null;
   if (mapped !== providerPart) remapped.add(`${providerPart} → ${mapped}`);
@@ -159,18 +196,69 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
   // ── Provider connections → provider accounts ─────────────────────────────
   const accounts: BackupRow[] = [];
   const connectedProviders = new Set<string>();
+  // A custom-node connection carries the node's own id in its `provider`
+  // column (`openai-compatible-chat-<uuid>`). The node rows are processed
+  // further down, so resolve that id to the prefix the operator addresses the
+  // node by — otherwise every custom-node key is skipped as "unknown
+  // provider" and the node is imported with no credential at all.
+  const nodePrefixById = new Map<string, string>();
+  rows(source.providerNodes).forEach((entry) => {
+    const id = text(entry.id);
+    const prefix = fieldText(entry, "prefix");
+    if (id !== null && prefix !== null) nodePrefixById.set(id, prefix);
+  });
+  const nodePrefixes = new Set(nodePrefixById.values());
+  // The router never persists a node's model list — it discovers models live
+  // from each node's /v1/models at request time. An import is offline, so the
+  // only trustworthy source of the ids this install actually routes to is the
+  // combo member lists, which spell them `<prefix>/<model>`.
+  const nodeModels = new Map<string, Set<string>>();
+  const rememberNodeModel = (prefix: string, modelId: string): void => {
+    const existing = nodeModels.get(prefix);
+    if (existing === undefined) nodeModels.set(prefix, new Set([modelId]));
+    else existing.add(modelId);
+  };
+  rows(source.combos).forEach((entry) => {
+    const value = field(entry, "models");
+    let members: unknown[] = [];
+    if (Array.isArray(value)) members = value;
+    else if (typeof value === "string") {
+      try {
+        const parsed: unknown = JSON.parse(value);
+        if (Array.isArray(parsed)) members = parsed;
+      } catch {
+        members = [];
+      }
+    }
+    for (const member of members) {
+      const source = text(member);
+      if (source === null) continue;
+      const slash = source.indexOf("/");
+      if (slash < 1) continue;
+      const prefix = text(source.slice(0, slash));
+      const modelId = text(source.slice(slash + 1));
+      if (prefix !== null && modelId !== null && nodePrefixes.has(prefix)) {
+        rememberNodeModel(prefix, modelId);
+      }
+    }
+  });
   rows(source.providerConnections).forEach((entry, index) => {
-    const rawProvider = text(entry.provider);
+    const connectionProvider = text(entry.provider);
+    const nodePrefix = connectionProvider === null ? undefined : nodePrefixById.get(connectionProvider);
+    // A node prefix is already an id we mint below (`providers.push({id: prefix})`),
+    // so it is not one more router spelling to look up in PROVIDER_MAP.
+    const isNodePrefix = nodePrefix !== undefined;
+    const rawProvider = nodePrefix ?? connectionProvider;
     const label = text(entry.name) ?? `connection ${index + 1}`;
     if (rawProvider === null) {
       skipped.push(`${label}: no provider id`);
       return;
     }
-    if (rawProvider in UNSUPPORTED_PROVIDERS) {
+    if (!isNodePrefix && rawProvider in UNSUPPORTED_PROVIDERS) {
       skipped.push(`${label}: provider "${rawProvider}" (${UNSUPPORTED_PROVIDERS[rawProvider]})`);
       return;
     }
-    const provider = PROVIDER_MAP[rawProvider];
+    const provider = isNodePrefix ? rawProvider : PROVIDER_MAP[rawProvider];
     if (provider === undefined) {
       skipped.push(`${label}: unknown provider "${rawProvider}"`);
       return;
@@ -205,8 +293,8 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
   const models: BackupRow[] = [];
   rows(source.providerNodes).forEach((entry, index) => {
     const type = text(entry.type);
-    const prefix = text(entry.prefix) ?? text(entry.name);
-    const baseUrl = text(entry.baseUrl);
+    const prefix = fieldText(entry, "prefix") ?? text(entry.name);
+    const baseUrl = fieldText(entry, "baseUrl");
     if (prefix === null || baseUrl === null) {
       skipped.push(`provider node ${index + 1}: needs both a prefix and a base URL`);
       return;
@@ -225,16 +313,35 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
       wire_family_default: type === "anthropic-compatible" ? "messages" : "chat",
       compatibility_profile: { imported_from_router_node: true, node_type: type },
     });
-    // The router keeps a node's model list on the node; ours lives per model row.
-    for (const model of rows(entry.models)) {
+    // The router keeps a node's model list on the node when it has one, and
+    // otherwise discovers models live. Read both: an explicit list wins, and
+    // the combo members above backfill whatever the node did not carry.
+    const modelIds = new Set<string>();
+    for (const model of rows(field(entry, "models"))) {
       const id = text(model.id) ?? text(model.name);
-      if (id === null) continue;
+      if (id !== null) modelIds.add(id);
+    }
+    for (const id of nodeModels.get(prefix) ?? []) modelIds.add(id);
+    // The router's base URL already carries its version segment (`/api/v1`,
+    // `/v1`), and it appends only the method path to it. Ours is joined the
+    // same way, so emitting an absolute `/v1/...` here would request
+    // `/api/v1/v1/chat/completions` and 404.
+    const basePath = (() => {
+      try {
+        return new URL(baseUrl).pathname.replace(/\/+$/, "");
+      } catch {
+        return "";
+      }
+    })();
+    const methodPath = type === "anthropic-compatible" ? "/messages" : "/chat/completions";
+    const endpointPath = basePath === "" || basePath === "/" ? `/v1${methodPath}` : methodPath;
+    for (const id of modelIds) {
       models.push({
         id: crypto.randomUUID(),
         provider_id: prefix,
         model_id: id,
         wire_family: type === "anthropic-compatible" ? "messages" : "chat",
-        endpoint_path: type === "anthropic-compatible" ? "/v1/messages" : "/v1/chat/completions",
+        endpoint_path: endpointPath,
         enabled: true,
         reasoning: false,
         tool_call: true,
@@ -272,7 +379,7 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
     ? (source.modelAliases as Row)
     : {};
   for (const [alias, target] of Object.entries(aliasSource)) {
-    const mapped = modelReference(target, remapped);
+    const mapped = modelReference(target, remapped, nodePrefixes);
     if (mapped === null) {
       skipped.push(`alias "${alias}": target "${String(target)}" uses an unsupported provider`);
       continue;
@@ -289,8 +396,20 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
   const combos: BackupRow[] = [];
   rows(source.combos).forEach((entry, index) => {
     const name = text(entry.name) ?? `combo ${index + 1}`;
-    const members = (Array.isArray(entry.models) ? entry.models : [])
-      .map((member) => modelReference(member, remapped))
+    // The router stores a combo's member list as a JSON-encoded string.
+    const rawMembers = (() => {
+      const value = field(entry, "models");
+      if (Array.isArray(value)) return value;
+      if (typeof value !== "string") return [];
+      try {
+        const parsed: unknown = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    })();
+    const members = rawMembers
+      .map((member) => modelReference(member, remapped, nodePrefixes))
       .filter((member): member is string => member !== null);
     if (members.length < 2) {
       skipped.push(`combo "${name}": needs at least two resolvable members, found ${members.length}`);
