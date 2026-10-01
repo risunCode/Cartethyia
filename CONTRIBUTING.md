@@ -5,7 +5,7 @@ Setup, workflow, and PR checks. Human-facing companion to `AGENTS.md` (agent rul
 ## Prerequisites
 
 - Bun 1.4.2 (see `.bun-version`; Docker pins `oven/bun:1.4.2-debian`)
-- PostgreSQL (external in every mode — native and Docker alike)
+- PostgreSQL (external in native setups; the Compose stack supplies one for Docker)
 - Redis for `REDIS_MODE=normal`; optional for `REDIS_MODE=single_instance_local`
 - A Node-compatible environment for tooling
 

@@ -101,7 +101,8 @@ async function setup(): Promise<void> {
   const config = loadConfig();
 
   // Step 3: Resolve the cross-platform setup mode. Native/auto is the
-  // default; Docker is opt-in because PostgreSQL is external to this stack.
+  // default; Docker is opt-in for developers who want the Compose services
+  // instead of locally installed PostgreSQL/Redis.
   const setupMode = resolveSetupMode();
   const platform = getLocalPlatform();
   console.log(`🧭 Platform: ${platform}; setup mode: ${setupMode}`);
@@ -115,15 +116,17 @@ async function setup(): Promise<void> {
       );
     }
     console.log("✓ Docker Compose is available");
-    console.log("📦 Starting Docker Compose Redis service...");
-    const proc = Bun.spawn(["docker", "compose", "up", "-d", "redis"], {
+    console.log("📦 Starting Docker Compose PostgreSQL and Redis services...");
+    const proc = Bun.spawn(["docker", "compose", "up", "-d", "postgres", "redis"], {
       cwd: projectRoot,
       stdio: ["inherit", "inherit", "inherit"],
       timeout: 30_000,
     });
     const exitCode = await proc.exited;
     if (exitCode !== 0) throw new Error(`Docker Compose failed with exit code ${exitCode}`);
-    console.log("✓ Docker Compose Redis started; PostgreSQL remains external\n");
+    // The host app still connects through .env's DATABASE_URL/REDIS_URL, which
+    // must point at the published loopback ports, not the Compose hostnames.
+    console.log("✓ Docker Compose PostgreSQL and Redis started\n");
   } else {
     console.log("🌱 Native-first mode; using configured local or external services\n");
   }

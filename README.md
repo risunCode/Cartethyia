@@ -91,8 +91,8 @@ same path once they are canonical.
 - Redis for `REDIS_MODE=normal`
 - Node-compatible development environment for tooling
 
-PostgreSQL is external in native and Docker setups. Redis is optional when using
-`REDIS_MODE=single_instance_local`.
+PostgreSQL is external in native setups, or supplied by the Compose stack in
+Docker. Redis is optional when using `REDIS_MODE=single_instance_local`.
 
 ## Quick start
 
@@ -234,8 +234,10 @@ docker compose down
 
 The Docker image builds the dashboard and compiled backend, exposes port
 `12800`, and runs the application as a dedicated non-root user (uid/gid
-`10001`). PostgreSQL must be reachable through `DATABASE_URL`; Compose manages
-Redis only.
+`10001`). Compose also manages the PostgreSQL and Redis the app connects to:
+the app reaches both by service name on the Compose network, and a fresh
+`postgres` volume is migrated at first boot. To use an external database
+instead, override the app's `DATABASE_URL` or remove the `postgres` service.
 
 `docker compose up --build -d` recreates the container, which sends `SIGTERM`:
 the old process drains and answers callers `503 shutting_down` while the new one

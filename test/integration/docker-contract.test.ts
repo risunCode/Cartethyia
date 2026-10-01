@@ -96,12 +96,20 @@ describe("Docker Contract", () => {
     entrypointContent = readFileSync(entrypointPath, "utf-8");
     stages = parseDockerfile(dockerfileContent);
   });
-  it("runs only the gateway app and Redis; PostgreSQL stays external", () => {
+  it("runs the gateway app with Redis and PostgreSQL services", () => {
     expect(composeContent).toMatch(/^\s{2}app:/m);
     expect(composeContent).toMatch(/^\s{2}redis:/m);
-    expect(composeContent).not.toMatch(/^\s{2}postgres:/m);
-    expect(composeContent).toContain("DATABASE_URL");
+    expect(composeContent).toMatch(/^\s{2}postgres:/m);
+    // The app must reach the database by Compose service name, not through a
+    // host-oriented DATABASE_URL inherited from .env: inside the network the
+    // service name is the only host that resolves.
+    expect(composeContent).toContain("@postgres:5432/");
     expect(composeContent).toContain("REDIS_URL: redis://redis:6379");
+    // The app migrates at boot, so it must wait for Postgres to accept
+    // connections rather than crash-loop against a starting server.
+    expect(composeContent).toMatch(
+      /depends_on:[\s\S]*?postgres:[\s\S]*?condition:\s*service_healthy/,
+    );
   });
 
   // Helper to safely access the runtime stage (last stage)
