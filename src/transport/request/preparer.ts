@@ -1,5 +1,5 @@
 import { GatewayError } from "../gateway-error";
-import type { CanonicalRequest, ContentPart } from "../canonical-model";
+import type { CanonicalRequest, ContentPart, ServiceKind } from "../canonical-model";
 import type { ApiKeyAdmissionService } from "../../security/admission";
 import type { RouteCandidate as RouteCandidate, InMemoryRouteSnapshotService, RoutePlan } from "../routing/route-model";
 import { resolveAliasTarget, type RoutingEngine } from "../routing/router";
@@ -9,6 +9,8 @@ import { isModelAllowed, type ResolvedApiKey } from "../../security/api-key-auth
 import { allowsCliToolMappings } from "../../security/cli-client-fingerprint";
 import { dropIncompleteToolRounds, repairRequestToolCalls } from "../translation/tool-repair";
 import { sanitizeRequestToolIds } from "../translation/tool-id";
+import { parseThinkingSuffix, withThinkingSuffixIntent } from "../translation/thinking";
+import { nativeServicePathFor } from "../dispatch/native-services";
 import { log } from "../../observability/logger";
 import { BUDDY_PROVIDER_IDS } from "../../providers/provider-metadata";
 
@@ -381,7 +383,7 @@ export interface PreparedProxyRequest {
 }
 
 /** Routing and admission inputs for a native body that must not enter canonical translation. */
-export interface PreparedNativeCompactRequest {
+export interface PreparedNativeRequest {
   readonly authorization: ResolvedApiKey;
   readonly candidates: readonly RouteCandidate[];
   readonly plan: RoutePlan;
@@ -408,14 +410,29 @@ export class ProxyRequestPreparer {
     /** Inbound `User-Agent`; gates remote CLI remaps so short slots stay tool-local. */
     readonly clientUserAgent?: string;
   }): Promise<PreparedProxyRequest> {
-    const { canonicalRequest: request, authorization, signal } = input;
+    const { canonicalRequest: initialRequest, authorization, signal } = input;
     if (signal?.aborted)
       throw new GatewayError("transport_closed", 499, "request was cancelled");
-    if (!request.model || request.model.trim().length === 0) {
+    if (!initialRequest.model || initialRequest.model.trim().length === 0) {
       throw new GatewayError("invalid_request", 400, "Request requires a non-empty model identifier", {
         field: "model",
       });
     }
+    // A thinking suffix (`model(high)`) is stripped here, before anything reads
+    // the model name. Alias resolution, the allowlist, the prefix check, and
+    // routing all match against registered ids, so a name carrying `(high)`
+    // would fail every one of them — and alias resolution swallows its own
+    // failure, so the symptom would be a silent miss rather than an error.
+    //
+    // Doing it on the canonical request (rather than in a provider adapter) is
+    // what makes the syntax global: at this point the target provider is not
+    // chosen yet, and the level is a statement about the request, not about any
+    // one upstream. Each model's own ladder is applied later, after routing.
+    const { model: bareModel, intent: thinkingIntent } = parseThinkingSuffix(initialRequest.model);
+    const request =
+      thinkingIntent === null
+        ? initialRequest
+        : withThinkingSuffixIntent({ ...initialRequest, model: bareModel }, thinkingIntent);
     const snapshot = await this.deps.snapshotService.getSnapshot();
     // Scope opts the key into the mapping table; the User-Agent decides whether
     // *this* request may consume it. Without the UA gate, a Claude→DeepSeek
@@ -500,6 +517,30 @@ export class ProxyRequestPreparer {
         "no eligible route supports this request's capabilities",
         { model: request.model },
       );
+    // A canonical request is chat-shaped by definition, so only `llm` rows may
+    // serve it. A non-`llm` row (System One) is dispatched by its native route
+    // and its `wire_family` is an inert placeholder; without this filter the
+    // chat pipeline would route to it and send a chat body to a decision
+    // endpoint (upstream 400). The reverse direction is guarded by the native
+    // route's own kind filter.
+    const llmCandidates = plan.candidates.filter(
+      (candidate) => (candidate.service_kind ?? "llm") === "llm",
+    );
+    if (llmCandidates.length === 0) {
+      // Name the actual kind so the message stays correct as more native
+      // services are added, and point at the route that can serve it.
+      const kind = plan.candidates[0]?.service_kind ?? "native";
+      const route = nativeServicePathFor(kind);
+      throw new GatewayError(
+        "capability_unsupported",
+        400,
+        `this model is not served on a chat wire — it is a '${kind}' service model${route === undefined ? "" : `; call it at POST ${route}`}`,
+        { model: request.model, service_kind: kind, ...(route === undefined ? {} : { route }) },
+      );
+    }
+    if (llmCandidates.length !== plan.candidates.length) {
+      plan = { ...plan, candidates: llmCandidates };
+    }
     if (degraded.length > 0) {
       // Degradation is a last resort, never silent: the client asked for
       // semantics (tools/images/reasoning) the winning route cannot serve,
@@ -582,15 +623,19 @@ export class ProxyRequestPreparer {
   }
 
   /**
-   * Plans native Responses compaction without parsing, projecting, or mutating
-   * its opaque wire body. Estimates intentionally reserve a conservative fixed
-   * budget because native input items are not canonicalized for token counting.
+   * Plans a native (non-canonical) body without parsing, projecting, or
+   * mutating it. Shared by every native route: it applies the key's model-prefix
+   * gate, plans the model, and keeps only the candidates the route's own
+   * `eligible` predicate admits. Estimates intentionally reserve a conservative
+   * fixed budget because native input is not canonicalized for token counting.
    */
-  async prepareNativeCompact(input: {
+  async #planNative(input: {
     readonly model: string;
     readonly authorization: ResolvedApiKey;
     readonly signal?: AbortSignal;
-  }): Promise<PreparedNativeCompactRequest> {
+    readonly eligible: (candidate: RouteCandidate) => boolean;
+    readonly emptyMessage: string;
+  }): Promise<PreparedNativeRequest> {
     if (input.signal?.aborted)
       throw new GatewayError("transport_closed", 499, "request was cancelled");
     const snapshot = await this.deps.snapshotService.getSnapshot();
@@ -614,9 +659,9 @@ export class ProxyRequestPreparer {
     );
     if (input.signal?.aborted)
       throw new GatewayError("transport_closed", 499, "request was cancelled");
-    const candidates = plan.candidates.filter((candidate) => candidate.provider_id === "codex");
+    const candidates = plan.candidates.filter(input.eligible);
     if (candidates.length === 0)
-      throw new GatewayError("capability_unsupported", 400, "no eligible Codex route supports Responses compact", {
+      throw new GatewayError("capability_unsupported", 400, input.emptyMessage, {
         model: input.model,
       });
     return {
@@ -628,5 +673,45 @@ export class ProxyRequestPreparer {
       routingEngine: this.deps.routingEngine,
       admissionService: this.deps.admissionService,
     };
+  }
+
+  /**
+   * Plans native Responses compaction. Compact is a Codex-only operation, so
+   * the candidate set is filtered to the Codex provider.
+   */
+  async prepareNativeCompact(input: {
+    readonly model: string;
+    readonly authorization: ResolvedApiKey;
+    readonly signal?: AbortSignal;
+  }): Promise<PreparedNativeRequest> {
+    return this.#planNative({
+      model: input.model,
+      authorization: input.authorization,
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
+      eligible: (candidate) => candidate.provider_id === "codex",
+      emptyMessage: "no eligible Codex route supports Responses compact",
+    });
+  }
+
+  /**
+   * Plans a native service request (System One). Candidates are the routes whose
+   * catalog classifies the model as this service kind — the model's own row is
+   * what makes a provider eligible, so a chat model named on the systemone route
+   * (or vice versa) finds no candidate and fails closed here rather than
+   * dispatching a decision body to a chat endpoint.
+   */
+  async prepareNativeService(input: {
+    readonly model: string;
+    readonly serviceKind: Exclude<ServiceKind, "llm">;
+    readonly authorization: ResolvedApiKey;
+    readonly signal?: AbortSignal;
+  }): Promise<PreparedNativeRequest> {
+    return this.#planNative({
+      model: input.model,
+      authorization: input.authorization,
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
+      eligible: (candidate) => (candidate.service_kind ?? "llm") === input.serviceKind,
+      emptyMessage: `no eligible route serves the '${input.serviceKind}' service for this model`,
+    });
   }
 }

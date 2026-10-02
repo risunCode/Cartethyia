@@ -1,7 +1,7 @@
 import type { CanonicalMessage, ContentPart, GenerationControls } from "../../canonical-model";
 import type { SurfaceInput } from "../adapters";
 import { isRecord } from "../../../protocol/primitives";
-import { textPart } from "../content-parts";
+import { textPart, normalizeInlineFile } from "../content-parts";
 import { SERVICE_TIERS } from "../dialects";
 import { readNumber, readString } from "../../../protocol/primitives";
 import type { OpenAiUsage } from "../../../providers/usage";
@@ -124,12 +124,14 @@ export function parseContentPart(value: unknown): ContentPart {
     const filename = readString(nested, "filename");
     const fileId = readString(nested, "file_id");
     const url = readString(nested, "file_url") ?? readString(nested, "url");
-    const mediaType =
-      readString(nested, "mime_type") ?? readString(nested, "media_type") ?? "application/octet-stream";
+    const normalized = normalizeInlineFile({
+      data: nested.file_data ?? nested.data ?? url ?? "",
+      media_type: readString(nested, "mime_type") ?? readString(nested, "media_type"),
+    });
     return {
       kind: "file",
-      data: nested.file_data ?? nested.data ?? url ?? "",
-      media_type: mediaType,
+      data: normalized.data,
+      media_type: normalized.media_type,
       ...(filename === undefined ? {} : { filename }),
       ...(fileId === undefined ? {} : { file_id: fileId }),
       ...(url === undefined ? {} : { url }),
@@ -137,10 +139,17 @@ export function parseContentPart(value: unknown): ContentPart {
   }
   if (type === "document") {
     const source = isRecord(value.source) ? value.source : value;
+    const rawSource = isRecord(source) ? source : value;
+    const normalized = normalizeInlineFile({
+      data: rawSource.data ?? rawSource.file_id ?? rawSource.url ?? "",
+      media_type:
+        (typeof rawSource.media_type === "string" ? rawSource.media_type : undefined) ??
+        (typeof value.mime_type === "string" ? value.mime_type : undefined),
+    });
     return {
       kind: "document",
-      data: (isRecord(source) ? (source.data ?? source.file_id ?? source.url ?? "") : "") as string,
-      media_type: (isRecord(source) && typeof source.media_type === "string" ? source.media_type : typeof value.mime_type === "string" ? value.mime_type : "application/octet-stream") as string,
+      data: normalized.data,
+      media_type: normalized.media_type,
       ...(typeof value.title === "string" ? { title: value.title } : {}),
     };
   }

@@ -58,6 +58,17 @@ function wireColor(wireFamily: string): string {
   return "var(--teal)";
 }
 
+/** Explains why a non-chat service model cannot be used from a chat surface. */
+function NATIVE_SERVICE_TOOLTIP(serviceKind: string): string {
+  if (serviceKind === "systemone") {
+    return "System One decision model — not a chat model. Call it at POST /v1/systemone with {state, questions}; it answers {answers}. It cannot run in a chat playground.";
+  }
+  if (serviceKind === "websearch") {
+    return "Web-search model — not a chat model. Call it at POST /v1/search with {query, max_results}; it answers a normalized list of hits. It cannot run in a chat playground.";
+  }
+  return `This model is served by a native '${serviceKind}' route, not the chat wire.`;
+}
+
 export function ModelPickerModal({
   open,
   onClose,
@@ -356,6 +367,29 @@ export function ModelPickerModal({
                           }}
                         >
                           {e.modelId}
+                          {/* A non-chat service (System One) is not served on
+                              the chat wire, so a chat playground cannot run it.
+                              Label it here rather than let the operator pick it
+                              and hit `capability_unsupported` on send. */}
+                          {e.kind === "model" && e.entry.serviceKind !== "llm" && (
+                            <span
+                              title={NATIVE_SERVICE_TOOLTIP(e.entry.serviceKind)}
+                              style={{
+                                marginLeft: "6px",
+                                padding: "0 5px",
+                                borderRadius: "4px",
+                                fontSize: "9px",
+                                fontWeight: 700,
+                                textTransform: "uppercase",
+                                letterSpacing: "0.04em",
+                                color: "var(--orange)",
+                                border: "1px solid var(--orange)",
+                                cursor: "help",
+                              }}
+                            >
+                              {e.entry.serviceKind}
+                            </span>
+                          )}
                         </span>
                         <span
                           title={e.qualified}

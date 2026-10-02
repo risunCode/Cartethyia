@@ -28,17 +28,10 @@ import {
   useRegisterProviderModels,
   useSetModelEnabled,
 } from "../../hooks/providers";
-import { UNKNOWN_LIMITS_TOOLTIP } from "../../shared/model-limits";
+import { formatModelTokens, UNKNOWN_LIMITS_TOOLTIP } from "../../shared/model-limits";
 import { toast } from "../../shared/toast";
 import { useTrackedTimeout } from "../../hooks/use-timeout";
-import { PROBE_REASONING_EFFORTS, type ModelCatalogEntry, type ProbeReasoningEffort } from "../../data/contracts";
-
-function formatModelTokens(value: number | null): string {
-  if (value === null) return "\u2014";
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(0)}k`;
-  return String(value);
-}
+import { PROBE_REASONING_EFFORTS, formatThinkingSuffix, type ModelCatalogEntry, type ProbeReasoningEffort } from "../../data/contracts";
 
 
 function formatProbeDuration(ms: number): string {
@@ -412,6 +405,17 @@ function ModelCard({
   const [probeResult, setProbeResult] = useState<{ ok: boolean; latencyMs: number } | null>(null);
   const scheduleCopyReset = useTrackedTimeout();
 
+  // The routable id for this model under the section's thinking setting. The
+  // suffix is what a client writes to ask for that level (`model(high)`), and
+  // the backend parses it back off the name — so the copy button hands the
+  // operator exactly the id the probe just used. `auto` means "no reasoning
+  // intent", which is the bare id, not a `(auto)` suffix.
+  const qualifiedId = formatThinkingSuffix(
+    model.modelId,
+    thinkingEffort === "auto" ? null : thinkingEffort,
+  );
+  const copyId = `${providerId}/${qualifiedId}`;
+
 
   const runProbe = () => {
     probe.mutate(
@@ -423,19 +427,19 @@ function ModelCard({
         onSuccess: (result) => {
           setProbeResult({ ok: result.ok, latencyMs: result.latencyMs });
           if (!result.ok) {
-            toast.error(`${model.modelId} probe failed`, result.error ?? "Unknown error");
+            toast.error(`${qualifiedId} probe failed`, result.error ?? "Unknown error");
             return;
           }
           const sample = result.sample?.trim() ?? "";
           toast.success(
-            `${model.modelId} · END ${formatProbeDuration(result.latencyMs)}`,
+            `${qualifiedId} · END ${formatProbeDuration(result.latencyMs)}`,
             sample || "No sample text in the response.",
           );
         },
         onError: (err) => {
           setProbeResult({ ok: false, latencyMs: 0 });
           toast.error(
-            `${model.modelId} probe failed`,
+            `${qualifiedId} probe failed`,
             (err as { message?: string }).message ?? "Model probe failed",
           );
         },
@@ -496,7 +500,7 @@ function ModelCard({
           </span>
           <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
             <div
-              title={`${providerId}/${model.modelId}`}
+              title={copyId}
               style={{
                 minWidth: 0,
                 overflow: "hidden",
@@ -508,7 +512,7 @@ function ModelCard({
                 lineHeight: 1.35,
               }}
             >
-              {model.modelId}
+              {qualifiedId}
             </div>
             <div
               style={{
@@ -573,10 +577,10 @@ function ModelCard({
             variant="ghost"
             size="sm"
             icon={copied ? <Check size={12} /> : <Copy size={12} />}
-            aria-label={`Copy ${model.modelId}`}
-            title={`Copy ${providerId}/${model.modelId}`}
+            aria-label={`Copy ${copyId}`}
+            title={`Copy ${copyId}`}
             onClick={() => {
-              void navigator.clipboard?.writeText(`${providerId}/${model.modelId}`);
+              void navigator.clipboard?.writeText(copyId);
               setCopied(true);
               scheduleCopyReset(() => setCopied(false), 1500);
             }}
@@ -643,15 +647,15 @@ function ModelCard({
             size="sm"
             disabled={probe.isPending}
             onClick={runProbe}
-            aria-label={`Test ${model.modelId}`}
+            aria-label={`Test ${qualifiedId}`}
             title={
               probe.isPending
-                ? `Probing ${model.modelId}…`
+                ? `Probing ${qualifiedId}…`
                 : probeResult?.ok
                   ? `Last probe OK in ${formatProbeDuration(probeResult.latencyMs)} — click to re-test`
                   : probeResult
                     ? "Last probe failed — click to retry"
-                    : `Test ${model.modelId}`
+                    : `Test ${qualifiedId}`
             }
             style={{ flex: 1, justifyContent: "center" }}
             icon={

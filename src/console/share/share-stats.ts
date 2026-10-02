@@ -10,7 +10,7 @@
 // Everything here is read-only and payload-free: token counts, model slugs,
 // masked addresses. No request or response bodies cross this boundary.
 
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { maskClientIp } from "../../observability/redaction";
 import { gatewayErrorSql } from "../../observability/telemetry-status";
@@ -42,6 +42,10 @@ export interface ShareTopModel {
   readonly modelId: string;
   readonly requests: number;
   readonly tokens: number;
+  /** Mean tokens/sec across requests that reported a rate; null when none did. */
+  readonly avgTokensPerSec: number | null;
+  /** Mean time-to-first-byte in ms across requests that reported it; null when none did. */
+  readonly avgTtfbMs: number | null;
 }
 
 export interface ShareTopClientIp {
@@ -70,10 +74,19 @@ export interface ShareFamilyStats {
 
 /** Read-only family rollup for one share link. */
 export interface ShareStatsPort {
+  /**
+   * `allowedModels`, when supplied, restricts the top-models table to the names
+   * the link actually grants. A rejected request still writes a telemetry row
+   * (with the requested name), so without this the table would rank models the
+   * recipient can never use — every invalid name an abuser tries would show up
+   * as if it were traffic. `undefined` means "no restriction" (an unrestricted
+   * link); an empty array means "nothing allowed" and yields no rows.
+   */
   getFamilyStats(
     tenantId: string,
     keyIds: readonly string[],
     recipients: { readonly total: number; readonly active: number },
+    allowedModels?: readonly string[],
   ): Promise<ShareFamilyStats>;
 }
 
@@ -98,6 +111,11 @@ export function clientTypeFromUserAgent(userAgent: string | null | undefined): s
   const token = userAgent.trim().split(/[\s/]+/)[0]?.trim();
   if (!token) return null;
   return token.toLowerCase().slice(0, 32);
+}
+
+/** Escape LIKE metacharacters so a model id matches literally. */
+function escapeLike(value: string): string {
+  return value.replace(/[%_\\]/g, (char) => `\\${char}`);
 }
 
 /** Start of the current UTC day. */
@@ -143,14 +161,26 @@ function emptyStats(
   };
 }
 
-const TOP_MODELS_LIMIT = 8;
-const TOP_IPS_LIMIT = 8;
+/**
+ * Row ceilings for the two ranked tables. The share page shows a fixed window
+ * of rows and scrolls the rest, so the cap is a payload bound, not a display
+ * one: high enough that an ordinary link shows everything, low enough that a
+ * link with thousands of client addresses cannot return an unbounded payload.
+ */
+const TOP_MODELS_LIMIT = 50;
+const TOP_IPS_LIMIT = 50;
 const HOURS_WINDOW = 24;
 
 export function createShareStatsPort(db: CartethyiaDatabase): ShareStatsPort {
   return {
-    async getFamilyStats(tenantId, keyIds, recipients) {
+    async getFamilyStats(tenantId, keyIds, recipients, allowedModels) {
       if (keyIds.length === 0) return emptyStats(recipients);
+      // A share that grants a fixed set ranks only that set. Telemetry keeps the
+      // requested name even when the request was refused for naming a model the
+      // key may not use, so an unfiltered table would list exactly the invalid
+      // names an abuser probed. `null` means the link is unrestricted.
+      const allowedSet =
+        allowedModels === undefined ? null : new Set(allowedModels);
 
       const now = new Date();
       const dayStart = utcDayStart(now);
@@ -163,6 +193,25 @@ export function createShareStatsPort(db: CartethyiaDatabase): ShareStatsPort {
         eq(telemetryEvents.tenantId, tenantId),
         inArray(telemetryEvents.apiKeyId, [...keyIds]),
       );
+      // Rank only names the grant actually authorizes, mirroring
+      // `modelRejectionReason`: a bare entry (`deepseek-v4.1-flash`) covers
+      // itself and any provider-qualified spelling of it, while a qualified
+      // entry (`opencode-go/deepseek-v4.1-flash`) covers only itself — the bare
+      // name it ends with is a *different*, refused request. So a refused probe
+      // never ranks. Pushed into SQL (not applied after the query) so refused
+      // names cannot fill the top-50 window and hide a model the recipient may
+      // use.
+      const modelMatch =
+        allowedSet === null
+          ? null
+          : [...allowedSet].flatMap((name) =>
+              name.lastIndexOf("/") < 0
+                ? [
+                    sql`${telemetryEvents.requestedModel} = ${name}`,
+                    sql`${telemetryEvents.requestedModel} like ${`%/${escapeLike(name)}`} escape '\\'`,
+                  ]
+                : [sql`${telemetryEvents.requestedModel} = ${name}`],
+            );
       const tokenSum = sql<number>`coalesce(sum(coalesce(${telemetryEvents.inputTokens}, 0) + coalesce(${telemetryEvents.outputTokens}, 0)), 0)`;
       const tokenSumFiltered = (condition: ReturnType<typeof sql> | boolean) =>
         sql<number>`coalesce(sum(coalesce(${telemetryEvents.inputTokens}, 0) + coalesce(${telemetryEvents.outputTokens}, 0)) filter (where ${condition}), 0)`;
@@ -193,9 +242,23 @@ export function createShareStatsPort(db: CartethyiaDatabase): ShareStatsPort {
             modelId: telemetryEvents.requestedModel,
             requests: sql<number>`count(*)`,
             tokens: tokenSum,
+            // Averages over the rows that actually reported each metric, not
+            // over every request: a non-streaming request has no rate, and a
+            // failed one no first byte, so dividing by `count(*)` would drag a
+            // healthy model's averages down with unrelated rows.
+            avgTokensPerSec: sql<number | null>`avg(${telemetryEvents.tokensPerSec})`,
+            avgTtfbMs: sql<number | null>`avg(${telemetryEvents.ttfbMs})`,
           })
           .from(telemetryEvents)
-          .where(and(familyScope, sql`${telemetryEvents.requestedModel} is not null`))
+          .where(
+            and(
+              familyScope,
+              sql`${telemetryEvents.requestedModel} is not null`,
+              ...(modelMatch === null
+                ? []
+                : [modelMatch.length === 0 ? sql`false` : or(...modelMatch)]),
+            ),
+          )
           .groupBy(telemetryEvents.requestedModel)
           .orderBy(desc(sql`count(*)`))
           .limit(TOP_MODELS_LIMIT),
@@ -220,8 +283,7 @@ export function createShareStatsPort(db: CartethyiaDatabase): ShareStatsPort {
           .limit(TOP_IPS_LIMIT),
       ]);
 
-      const totals = totalsRows[0];
-      // Fill the 24 buckets in JS: SQL only returns hours that saw traffic, and
+      const totals = totalsRows[0];      // Fill the 24 buckets in JS: SQL only returns hours that saw traffic, and
       // a chart drawn from sparse rows would silently compress the axis.
       const byHour = new Map<string, number>();
       for (const row of hourlyRows) {
@@ -254,6 +316,8 @@ export function createShareStatsPort(db: CartethyiaDatabase): ShareStatsPort {
                   modelId: row.modelId,
                   requests: Number(row.requests ?? 0),
                   tokens: Number(row.tokens ?? 0),
+                  avgTokensPerSec: row.avgTokensPerSec === null ? null : Number(row.avgTokensPerSec),
+                  avgTtfbMs: row.avgTtfbMs === null ? null : Math.round(Number(row.avgTtfbMs)),
                 },
               ],
         ),

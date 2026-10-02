@@ -26,7 +26,7 @@ import {
   splitDataUrl,
 } from "../primitives";
 import { log } from "../../observability/logger";
-import { clampReasoningEffort, resolveSupportedReasoningEfforts } from "../../transport/translation/thinking";
+import { clampReasoningEffort, claudeUsesAdaptiveThinking, LEVEL_TO_BUDGET, resolveSupportedReasoningEfforts } from "../../transport/translation/thinking";
 
 export const OAUTH_MESSAGES_MAX_OUTPUT_TOKENS = WIRE_TOKEN_BOUNDS["messages"]?.oauthCeiling ?? 64_000;
 
@@ -239,12 +239,19 @@ function partToClaudeBlock(
       const idMap = ctx?.idMap ?? new Map<string, string>();
       const normalized = normalizeAnthropicToolCallId(part.call_id, seen);
       idMap.set(part.call_id, normalized);
+      // No `index`. It is a streaming field — the position of a `tool_use`
+      // delta inside an SSE stream — and the Messages request schema has no
+      // such key: Anthropic rejects the whole body with
+      // `messages.N.content.0.tool_use.index: Extra inputs are not permitted`.
+      // A canonical `toolCall` carries one because the Chat/Responses parsers
+      // stamp every call with its array position, so copying it here leaked a
+      // stream-only field into a request. The position is not lost: the block
+      // order in `content[]` already expresses it.
       return {
         type: "tool_use",
         id: normalized,
         name: prefixClaudeToolName(part.name, ctx?.isOAuth ?? false),
         input: toWellFormedDeep(parseArguments(part.arguments)),
-        ...(part.index === undefined ? {} : { index: part.index }),
       };
     }
     case "toolResult": {
@@ -378,15 +385,35 @@ export function canonicalToClaudeMessagesPayload(
       const block = partToClaudeBlock(p, ctx);
       return block === undefined ? [] : [block];
     });
-    // Stable-partition so all tool_use blocks trail non-tool content (S6)
-    // Anthropic rejects tool_use ids that don't immediately precede tool_results.
-    if (message.role === "assistant" && Array.isArray(content)) {
-      stablePartitionToolUse(content as ClaudeWireObject[]);
+    // Anthropic requires strictly alternating turns: the turn immediately
+    // after an assistant `tool_use` must be the user turn carrying its
+    // `tool_result`. A Responses-origin request can decode into two adjacent
+    // assistant turns — a `reasoning`+`function_call` item folded into one
+    // turn, followed by the `text` item that produced the same assistant
+    // reply — and the second turn then sits between the `tool_use` and its
+    // `tool_result`. The result is orphaned, the history effectively ends on
+    // an assistant turn, and the upstream rejects the whole request with
+    // "This model does not support assistant message prefills". Merging
+    // adjacent assistant turns into one restores the contract; the blocks
+    // keep their order, so the `tool_use` still precedes the trailing text.
+    const previous = messages[messages.length - 1];
+    if (previous !== undefined && previous["role"] === "assistant" && message.role === "assistant") {
+      (previous["content"] as ClaudeWireObject[]).push(...content);
+      continue;
     }
     messages.push({
       role: message.role === "tool" ? "user" : message.role,
       content,
     });
+  }
+  // Stable-partition so all tool_use blocks trail non-tool content (S6)
+  // Anthropic rejects tool_use ids that don't immediately precede tool_results.
+  // Applied after the merge above so a turn assembled from several canonical
+  // messages is partitioned once, on its final block order.
+  for (const message of messages) {
+    if (message["role"] === "assistant" && Array.isArray(message["content"])) {
+      stablePartitionToolUse(message["content"] as ClaudeWireObject[]);
+    }
   }
   // Caller-driven cache breakpoints only: no implicit TTL/scope is added,
   // so Anthropic's own 5m default applies unless the caller asked otherwise.
@@ -438,6 +465,35 @@ export function canonicalToClaudeMessagesPayload(
       request.reasoning.budget_tokens,
       Number.MAX_SAFE_INTEGER,
     );
+  }
+  // Whether this model speaks adaptive thinking (`type: "adaptive"` +
+  // `output_config.effort`) or budget thinking (`type: "enabled"` +
+  // `budget_tokens`). The two generations reject each other's shape, so the
+  // choice is made from the model id, not from the caller's canonical intent —
+  // a chat/responses caller states only an effort, and a budget-era model
+  // answers the adaptive shape with "adaptive thinking is not supported on this
+  // model" (verified live: opus-4-5/sonnet-4-5/haiku-4-5).
+  const adaptiveThinking = claudeUsesAdaptiveThinking(request.model);
+  let effectiveBudgetTokens = request.reasoning?.budget_tokens;
+  // Derive a budget from the level whenever a budget-era model is asked to
+  // reason by effort alone. The gate is NOT `isThinkingEnabled`: a chat/responses
+  // caller states reasoning as `reasoning_effort`/`reasoning.effort` with no
+  // `thinking_type`, so `isThinkingEnabled` is false for the exact requests that
+  // need a budget — and the upstream answers `thinking.enabled.budget_tokens:
+  // Field required` without one.
+  const wantsReasoning =
+    request.reasoning !== undefined && request.reasoning.thinking_type !== "disabled";
+  if (wantsReasoning && !adaptiveThinking && effectiveBudgetTokens === undefined) {
+    const level = request.reasoning?.effort;
+    // The upstream floors a thinking budget at 1024; `LEVEL_TO_BUDGET.minimal`
+    // is 512, so raise it rather than let the request 400.
+    if (level !== undefined && level !== "none")
+      effectiveBudgetTokens = Math.max(1024, LEVEL_TO_BUDGET[level]);
+  }
+  if (!adaptiveThinking && effectiveBudgetTokens !== undefined) {
+    // The upstream requires the budget to stay below `max_tokens`; raise
+    // max_tokens to leave room for the answer rather than let it 400.
+    maxTokens = ensureMaxTokensForThinking(maxTokens, effectiveBudgetTokens, Number.MAX_SAFE_INTEGER);
   }
   const payload: ClaudeWireObject = {
     model: request.model,
@@ -535,12 +591,35 @@ export function canonicalToClaudeMessagesPayload(
       .map((s) => toWellFormedString(String(s)));
   }
   if (request.reasoning) {
-    payload.thinking = buildAnthropicThinkingPayload(request.reasoning);
-    const thinkingType = request.reasoning.thinking_type ?? "adaptive";
-    if (thinkingType === "enabled" || thinkingType === "adaptive") {
-      // The reference client sends context_management by default on every
-      // thinking request (keeping the replayed thinking chain + KV cache);
-      // a caller-supplied policy wins over the default.
+    // The wire `thinking` shape is chosen by generation, not copied from the
+    // canonical intent: adaptive models take `type: "adaptive"` and express
+    // depth through `output_config.effort`; budget-era models take
+    // `type: "enabled"` with a `budget_tokens` derived from the level. A
+    // canonical `thinking_type` of `disabled` is honored as-is (reasoning off).
+    if (request.reasoning.thinking_type === "disabled") {
+      payload.thinking = buildAnthropicThinkingPayload(request.reasoning);
+    } else if (adaptiveThinking) {
+      // Adaptive thinking carries no budget; the effort below is the control.
+      // Starting with Opus 4.7 and the 5-series, adaptive thinking content is
+      // omitted from the response by default, so opt into `summarized` unless
+      // the caller chose a display policy — otherwise thinking deltas stop
+      // streaming human-readable text (verified live: opus-5 textLen 0 → 94).
+      const { budget_tokens: _dropBudget, ...adaptiveIntent } = request.reasoning;
+      payload.thinking = buildAnthropicThinkingPayload({
+        ...adaptiveIntent,
+        display: request.reasoning.display ?? "summarized",
+        thinking_type: "adaptive",
+      });
+      const supplied = controls["extension:context_management"];
+      payload.context_management = isRecord(supplied)
+        ? supplied
+        : { edits: [{ type: "clear_thinking_20251015", keep: "all" }] };
+    } else {
+      payload.thinking = buildAnthropicThinkingPayload({
+        ...request.reasoning,
+        thinking_type: "enabled",
+        ...(effectiveBudgetTokens === undefined ? {} : { budget_tokens: effectiveBudgetTokens }),
+      });
       const supplied = controls["extension:context_management"];
       payload.context_management = isRecord(supplied)
         ? supplied
@@ -555,6 +634,10 @@ export function canonicalToClaudeMessagesPayload(
       resolveSupportedReasoningEfforts(request.model, "messages"),
     );
     const taskBudget = request.reasoning.task_budget;
+    // `output_config.effort` rides every generation: budget-era models accept it
+    // alongside `thinking.enabled` + `budget_tokens` (verified live: opus-4-5 /
+    // sonnet-4-5 / haiku-4-5 all 200), and adaptive models take it as their only
+    // depth control. Only the *thinking* shape is generation-gated.
     if (effort !== undefined || taskBudget !== undefined) {
       const outputConfig: Record<string, unknown> = {};
       // "none" disables reasoning rather than selecting a tier: the clamp
@@ -588,10 +671,15 @@ export function canonicalToClaudeMessagesPayload(
     existingMetadata.user_id = metadataUserId;
     payload.metadata = existingMetadata;
   }
-  // Messages reports token counts only when asked. A streaming custom
-  // Anthropic-compatible provider otherwise ends with no usage frame, so the
-  // request records input 0 / output 0 even though the model ran.
-  if (request.stream) payload.stream_options = { include_usage: true };
+  // No `stream_options` here. That is an OpenAI field, and the native Anthropic
+  // API rejects the body outright (`stream_options: Extra inputs are not
+  // permitted`) — it was 400ing every streamed `claude`/`anthropic` request.
+  // Anthropic reports usage natively instead: `message_start.message.usage`
+  // carries the input/cache counts and `message_delta.usage` the final output
+  // count, both decoded by `protocol/response/messages.ts` with no opt-in
+  // needed. A custom Anthropic-compatible reseller that *does* want the OpenAI
+  // field gets it from `compatible-adapter.ts`, which owns that decision per
+  // provider (`streaming_usage_mode`, with `"none"` as the documented opt-out).
   return payload;
 }
 

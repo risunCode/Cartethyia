@@ -11,6 +11,7 @@ export type GatewayErrorCode =
   | "context_length_exceeded"
   | "request_too_large"
   | "accounts_unavailable"
+  | "accounts_rate_limited"
   | "capacity_exhausted"
   | "proxy_pool_capacity_exceeded"
   | "proxy_pool_cooldown"
@@ -23,6 +24,10 @@ export type GatewayErrorCode =
   | "authentication_failed"
   | "policy_rejected"
   | "invalid_request"
+  | "not_found"
+  | "link_not_found"
+  | "invalid_sequence"
+  | "invalid_lifecycle"
   | "unsupported_field"
   | "unsupported_media_type"
   | "upstream_conflict"
@@ -40,7 +45,9 @@ export type GatewayErrorCode =
   | "proxy_unreachable"
   | "tool_call_loop_detected"
   | "client_router_denied"
-  | "shutting_down";
+  | "model_abuse_banned"
+  | "shutting_down"
+  | "restart_for_update";
 
 /** Identifies which boundary produced a safe public error. */
 export type GatewayErrorOrigin = "cartethyia" | "upstream" | "network";
@@ -174,6 +181,26 @@ export function publicGatewayErrorDetails(
       ]),
   );
 }
+
+/** Serializes a GatewayError with the same public shape as transport errors. */
+export function publicGatewayErrorBody(error: GatewayError): {
+  readonly error: {
+    readonly origin: GatewayErrorOrigin;
+    readonly code: GatewayErrorCode;
+    readonly message: string;
+    readonly details: Readonly<Record<string, unknown>>;
+  };
+} {
+  return {
+    error: {
+      origin: error.origin,
+      code: error.code,
+      message: explainGatewayError(error),
+      details: publicGatewayErrorDetails(error),
+    },
+  };
+}
+
 /** Creates the typed rejection required when a semantic feature is unavailable. */
 export function capabilityUnsupported(
   capability: string,

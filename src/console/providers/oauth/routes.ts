@@ -92,6 +92,10 @@ export class DrizzleOAuthAccountStore implements OAuthAccountStore {
               lastErrorCategory: null,
               lastErrorAt: null,
               lastRecoveredAt: null,
+              // A fresh login supplies a refresh token, so the account returns
+              // to normal OAuth refresh handling — a static-token flag set on
+              // the previous (refresh-less) credential no longer applies.
+              staticToken: false,
               // Only what this login reported: a flow that learned no profile or
               // region leaves the stored configuration alone rather than blanking it.
               ...(input.auth_state === undefined ? {} : { authState: input.auth_state }),

@@ -17,13 +17,29 @@ export function parseRetryAfter(value: string | null | undefined): number | null
   return delay > 0 ? Math.min(MAX_COOLDOWN_MS, delay) : null;
 }
 
-/** Parses x-ratelimit-reset as epoch seconds or a relative delay. */
+/**
+ * Parses x-ratelimit-reset as epoch seconds or a relative delay.
+ *
+ * Returns `null` — not `0` — when the instant has already passed. This matters
+ * because `parseUpstreamBackoff` chains these parsers with `??`, which falls
+ * through only on null: a `0` from an elapsed `x-ratelimit-reset` (a cached error
+ * body, clock skew, a stale edge response) stopped the chain before the
+ * lower-priority headers that carried the real wait. The `0` was then written to
+ * `details.retryAfterMs` and read by `classifyAccountError` as `headerCooldown`,
+ * which outranks the provider's own message text — so both were discarded and the
+ * account fell back to the generic default cooldown while the provider had parked
+ * it for the rest of the window.
+ *
+ * `parseRetryAfter` above already returns `null` for an elapsed date; matching it
+ * is what removes the asymmetry.
+ */
 export function parseRateLimitReset(value: string | null | undefined): number | null {
   if (!value) return null;
   const numeric = Number(value.trim());
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
   const target = numeric >= 1_000_000_000 ? numeric * 1000 : Date.now() + numeric * 1000;
-  return Math.min(MAX_COOLDOWN_MS, Math.max(0, target - Date.now()));
+  const remaining = target - Date.now();
+  return remaining > 0 ? Math.min(MAX_COOLDOWN_MS, remaining) : null;
 }
 
 /** Parses a millisecond-denominated reset header (`retry-after-ms`, `x-ratelimit-reset-ms`). */
@@ -175,7 +191,15 @@ export function extractUpstreamMessage(body: unknown): string {
       const message = (envelope as Record<string, unknown>).message;
       const code = (envelope as Record<string, unknown>).code;
       if (typeof message === "string" && message.trim()) raw = message;
-      else if (typeof code === "string" && code.trim()) raw = code;
+      // A *symbolic* code (`"invalid_api_key"`, `"c"`) is readable on its own, so
+      // it still wins over a sibling. A bare-numeric code is an identifier, not a
+      // message: the WorkBuddy/CodeBuddy family sends
+      // `{"code":"6004","msg":"your usage will reset at <stamp> UTC+8"}`, and
+      // taking the digits discarded the only text the account-health machine can
+      // parse for a stated reset — so the account fell back to the generic default
+      // cooldown and failed every request inside the provider's real window.
+      // Skipping digits lets the `msg`/`message` branches below supply the text.
+      else if (typeof code === "string" && code.trim() && !/^\d+$/.test(code.trim())) raw = code;
       else if (typeof body.message === "string" && body.message.trim()) raw = body.message;
       // WorkBuddy/CodeBuddy put the human-readable text in a top-level `msg`
       // while `extError.message` repeats it; without this the operator saw an
@@ -185,6 +209,9 @@ export function extractUpstreamMessage(body: unknown): string {
         raw = String((envelope as Record<string, unknown>).msg);
       else if (typeof (envelope as Record<string, unknown>).error === "string" && String((envelope as Record<string, unknown>).error).trim())
         raw = String((envelope as Record<string, unknown>).error);
+      // Last resort: the numeric code is still better than an empty message, since
+      // it is what the operator would quote to the provider.
+      else if (typeof code === "string" && code.trim()) raw = code;
     }
   }
   return raw.replace(/[\r\n]+/g, " ").trim().slice(0, MAX_UPSTREAM_ERROR_BYTES);
@@ -216,9 +243,25 @@ export function upstreamProviderCode(body: unknown): string | undefined {
   return undefined;
 }
 
-/** Extracts the stable request ID header used in provider diagnostics. */
+/**
+ * Extracts the stable request ID header used in provider diagnostics.
+ *
+ * Each candidate is trimmed and treated as absent when empty. `Headers.get`
+ * returns `""` — not `null` — for a header that was sent with no value, and `??`
+ * falls through only on null, so a provider emitting a bare `x-request-id:` used
+ * to discard a perfectly good `request-id` or `cf-ray` on the same response. The
+ * id is the only handle an operator has for a provider support ticket
+ * (`probe-phases` appends it to the surfaced error text, `codex-errors` stores it
+ * in `details.upstreamRequestId`), so losing it makes the failing request
+ * uncorrelatable upstream.
+ */
 export function upstreamRequestId(headers: Headers | undefined): string | undefined {
-  return headers?.get("x-request-id") ?? headers?.get("request-id") ?? headers?.get("x-amzn-requestid") ?? headers?.get("cf-ray") ?? undefined;
+  if (!headers) return undefined;
+  for (const name of ["x-request-id", "request-id", "x-amzn-requestid", "cf-ray"]) {
+    const value = headers.get(name)?.trim();
+    if (value) return value;
+  }
+  return undefined;
 }
 
 /**
@@ -273,20 +316,37 @@ export function classifyUpstreamFailure(error: unknown): UpstreamFailurePolicy {
   else if (credentialEvidence || policyAccountEvidence) scope = "account";
   else scope = "provider";
   const retryAfterMs = typeof error.details.retryAfterMs === "number" ? error.details.retryAfterMs : undefined;
+  // The retry decision follows `statusToGatewayErrorCode` — the canonical
+  // status→code table above — rather than a hand-rolled range. The two disagreed:
+  // the table classifies the whole 500–599 band as `platform_unavailable`, while
+  // this predicate retried only 500–504. An upstream 505/507/520/522/524/530/599
+  // therefore produced a `platform_unavailable` error that this called terminal,
+  // and `runAttemptLoop` stopped on it (`!isRetryableFailure(error)` sets
+  // `terminalAttempt`) even with healthy candidates left.
+  //
+  // The reachable cases are exactly the ones failover exists for: Cloudflare
+  // answers 520/521/522/523/524 when the ORIGIN is down or timing out — a
+  // per-route condition a sibling candidate would survive — and 530 is an origin
+  // DNS failure. Failing the client request instead of failing over is the wrong
+  // outcome for a whole class the table already names as platform-wide.
+  const statusCode = error.status;
+  const retryableByStatus =
+    statusCode === 401 ||
+    statusCode === 403 ||
+    statusCode === 429 ||
+    (statusCode >= 500 && statusCode <= 599);
   const retryable =
     error.code === "capability_unsupported" ||
     error.code === "model_not_found" ||
     error.code === "admission_unavailable" ||
     error.code === "capacity_exhausted" ||
     error.code === "accounts_unavailable" ||
+    error.code === "accounts_rate_limited" ||
     error.code === "quota_exceeded" ||
     error.code === "authentication_failed" ||
     error.code === "proxy_auth_required" ||
     error.code === "deadline_exceeded" ||
-    error.status === 401 ||
-    error.status === 403 ||
-    error.status === 429 ||
-    (error.status >= 500 && error.status <= 504);
+    retryableByStatus;
   return {
     retryable,
     mutatesAccount: error.origin === "upstream" && scope === "account",
@@ -327,6 +387,73 @@ export function classifyTerminalCategory(
     return "transport_closed";
   }
   return "unknown_error";
+}
+
+/**
+ * Whether a failed attempt is a **client cancel** — the one case the console
+ * records as `cancelled` (499) rather than `failed`.
+ *
+ * The request controller aborts for three different reasons, and only one of
+ * them is the client's:
+ *
+ * - **Client disconnect** — the inbound signal bridges the client's
+ *   `AbortError`; the request truly has no client left.
+ * - **Deadline / stall watchdog** — our own timer aborts with a
+ *   `deadline_exceeded` `GatewayError` or a `TimeoutError`. The client is
+ *   still there and is owed the 504/502.
+ * - **Drain** — a shutdown `GatewayError`; the caller gets a 503.
+ *
+ * Reading `signal.aborted` alone conflated all three: a request that failed
+ * because the upstream ended without a terminal event (`transport_unavailable`,
+ * 502) was recorded `cancelled`/499 whenever the watchdog had also fired,
+ * producing a row whose status (499), error category (`transport_unavailable`)
+ * and http status (502) disagreed — the drawer could not be trusted. The
+ * decision must key on *why* the controller aborted, not that it did.
+ *
+ * A `transport_closed` `GatewayError` is our own "no client left" marker (the
+ * attempt loop raises it when the signal is already aborted at entry), so it
+ * counts as a cancel even without a signal reason. Every other abort —
+ * including a bare `AbortError` whose signal reason is a watchdog/drain
+ * `GatewayError` — is a failure, not a cancel.
+ */
+export function isClientCancellation(error: unknown, signal: AbortSignal): boolean {
+  // A typed error names the outcome directly: only our own "no client left"
+  // marker is a cancel, whatever the signal says.
+  if (error instanceof GatewayError) return error.code === "transport_closed";
+  // Otherwise the reader rejected with a bare abort and the signal reason says
+  // why. A watchdog (deadline/stall) or drain abort is a gateway-side outcome.
+  const reason: unknown = signal.reason;
+  if (reason instanceof GatewayError) return false;
+  if (reason instanceof DOMException && reason.name === "TimeoutError") return false;
+  return signal.aborted && reason instanceof DOMException && reason.name === "AbortError";
+}
+
+/** The three terminal fields that must never disagree about one failed attempt. */
+export interface TerminalOutcome {
+  readonly status: "cancelled" | "failed";
+  readonly errorCategory: GatewayErrorCode | "unknown_error";
+  readonly errorOrigin: GatewayErrorOrigin;
+}
+
+/**
+ * Derives a failed attempt's status, error category, and error origin **from
+ * one decision**, so the three can never contradict each other.
+ *
+ * They used to be computed independently at each dispatch call site, and they
+ * drifted: a request that failed on an upstream condition could be recorded
+ * `cancelled` (499) while its category said `transport_unavailable` and its
+ * http status said 502 — a row no operator could trust. Bundling them here
+ * makes the inconsistency unrepresentable: a cancel always carries
+ * `transport_closed` (the only category a cancel can produce), and any other
+ * outcome carries the real code and origin.
+ */
+export function classifyTerminalOutcome(error: unknown, signal: AbortSignal): TerminalOutcome {
+  return {
+    status: isClientCancellation(error, signal) ? "cancelled" : "failed",
+    errorCategory: classifyTerminalCategory(error, signal),
+    // A non-GatewayError outcome has no upstream origin to claim: it is ours.
+    errorOrigin: error instanceof GatewayError ? error.origin : "cartethyia",
+  };
 }
 
 /**

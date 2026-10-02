@@ -8,6 +8,8 @@ import type {
   PoolHealthEvent,
   PoolSpeedTestResult,
   PoolStrategySetting,
+  RelayDeployRequest,
+  RelayDeployResult,
 } from "../data/contracts";
 import { queryKeys } from "../data/query-keys";
 import { assertNetworkPools, assertPoolStrategy, querySignal } from "./common";
@@ -43,9 +45,24 @@ export function useCreateNetworkPool() {
   });
 }
 
-/** Ad-hoc probe of a network pool endpoint without saving. */
-export function useProbeAdHocNetworkPool() {
-  return useMutation<HealthCheckResult, ApiErrorShape, CreateNetworkPoolRequest>({
+/**
+ * Deploys a hosted relay (Cloudflare/Vercel/Deno) and registers its URL as a
+ * network pool. The provider API token is sent once and never persisted.
+ */
+export function useDeployRelay() {
+  const queryClient = useQueryClient();
+  return useMutation<RelayDeployResult, ApiErrorShape, RelayDeployRequest>({
+    mutationFn: (request) =>
+      consoleRequest<RelayDeployResult>("/network/pools/relay/deploy", {
+        method: "POST",
+        body: JSON.stringify(request),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.network.pools });
+    },
+  });
+}
+export function useProbeAdHocNetworkPool() {  return useMutation<HealthCheckResult, ApiErrorShape, CreateNetworkPoolRequest>({
     mutationFn: (request) =>
       consoleRequest<HealthCheckResult>("/network/pools/test", {
         method: "POST",

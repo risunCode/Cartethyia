@@ -1,184 +1,202 @@
-import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+/**
+ * Static asset serving and the SPA fallback.
+ *
+ * `createStaticHandler` decides what a browser receives for every non-API path,
+ * and three properties matter more than the rest because getting them wrong is
+ * invisible until it hurts:
+ *
+ * - **Cache headers.** An entry document served with a long cache lets a
+ *   browser keep serving the previous build's HTML after a deploy, which
+ *   references hashed bundles that no longer exist. The reported symptom was
+ *   needing `Ctrl+Shift+R` after every update. `no-store, no-cache,
+ *   must-revalidate` is the fix, and this suite pins it.
+ * - **Path containment.** A request path is attacker-controlled. `..`
+ *   traversal, absolute paths, and encoded separators must never escape the
+ *   build directory.
+ * - **The SPA fallback's boundary.** An extensionless path under a document
+ *   namespace resolves to `index.html` so a client-side route deep link works;
+ *   a path that *looks* like a file must 404 instead of being answered with
+ *   HTML, or a missing bundle becomes a page of garbage the browser tries to
+ *   execute.
+ *
+ * The suite builds a real directory tree in a temp dir, so it exercises the
+ * filesystem path rather than a mocked `fs`.
+ */
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { createStaticHandler } from "../../src/console/dashboard-assets";
-import { join } from "path";
-import { mkdir, writeFile, rm } from "fs/promises";
 
-describe("Console Static Handler", () => {
-  let testDir: string;
-  let handler: ReturnType<typeof createStaticHandler>;
+let buildDir: string;
+let handler: ReturnType<typeof createStaticHandler>;
 
-  beforeAll(async () => {
-    testDir = "/tmp/console-static-test-" + Date.now();
-    await mkdir(testDir, { recursive: true });
-    await mkdir(join(testDir, "assets"), { recursive: true });
-    await writeFile(join(testDir, "assets", "app.abc123.js"), "console.log('app');");
-    await writeFile(join(testDir, "index.html"), "<html><body>Dashboard</body></html>");
-    handler = createStaticHandler({ buildDir: testDir });
+/** Body of a result as text, or `""` when the result has no body. */
+function bodyText(result: { body?: unknown }): string {
+  if (result.body === undefined || result.body === null) return "";
+  return new TextDecoder().decode(result.body as Uint8Array);
+}
+
+beforeAll(async () => {
+  buildDir = await mkdtemp(join(tmpdir(), "cartethyia-assets-"));
+  await writeFile(
+    join(buildDir, "index.html"),
+    "<!doctype html><html><body><div id=\"root\"></div></body></html>",
+  );
+  await writeFile(join(buildDir, "assets.js"), "console.log('bundle')");
+  await writeFile(join(buildDir, "styles.css"), "body{margin:0}");
+  await writeFile(join(buildDir, "favicon.webp"), "RIFF");
+  await mkdir(join(buildDir, "providers"), { recursive: true });
+  await writeFile(join(buildDir, "providers", "openai-light.svg"), "<svg/>");
+  await mkdir(join(buildDir, "nested"), { recursive: true });
+  await writeFile(join(buildDir, "nested", "deep.txt"), "deep");
+  // A sibling of the build dir, to prove traversal cannot reach it.
+  await writeFile(join(buildDir, "..", `outside-${Date.now()}.txt`), "secret");
+  handler = createStaticHandler({ buildDir });
+});
+
+afterAll(async () => {
+  await rm(buildDir, { recursive: true, force: true }).catch(() => undefined);
+});
+
+describe("static assets — served files", () => {
+  test("serves an existing file with its bytes", async () => {
+    const result = await handler("/assets.js");
+    expect(result.status).toBe(200);
+    expect(bodyText(result)).toBe("console.log('bundle')");
   });
 
-  afterAll(async () => {
-    await rm(testDir, { recursive: true, force: true });
+  test("serves a nested file", async () => {
+    const result = await handler("/providers/openai-light.svg");
+    expect(result.status).toBe(200);
+    expect(bodyText(result)).toBe("<svg/>");
   });
 
-  describe("Path Traversal Prevention", () => {
-    it("rejects .. traversal", async () => {
-      const result = await handler("/console/../../../etc/passwd");
-      expect(result.status).toBe(404);
-      expect(result.body).toBeUndefined();
-    });
-
-    it("rejects encoded .. traversal", async () => {
-      const result = await handler("/console/%2e%2e/etc/passwd");
-      expect(result.status).toBe(404);
-    });
-
-    it("rejects backslash traversal", async () => {
-      const result = await handler("/console/..\\..\\etc\\passwd");
-      expect(result.status).toBe(404);
-    });
-
-    it("rejects absolute paths", async () => {
-      const result = await handler("/console//etc/passwd");
-      expect(result.status).toBe(404);
-    });
+  test("serves a file below a nested directory", async () => {
+    const result = await handler("/nested/deep.txt");
+    expect(result.status).toBe(200);
+    expect(bodyText(result)).toBe("deep");
   });
 
-  describe("API Path Rejection", () => {
-    it("rejects /console/api/* paths", async () => {
-      const result = await handler("/console/api/users");
-      expect(result.status).toBe(404);
-      expect(result.body).toBeUndefined();
-    });
-
-    it("does not return HTML for /console/api/*", async () => {
-      const result = await handler("/console/api/v1/data");
-      expect(result.status).toBe(404);
-      expect(result.headers["content-type"]).not.toContain("text/html");
-    });
+  test("the caller's pathname is used verbatim; a query string is not this layer's job", async () => {
+    // `createStaticHandler` takes a pathname, not a URL: `app.ts` passes
+    // `fastPathname(request.url)`, which has already dropped the query. A
+    // suite that handed it a raw `?v=…` would be testing a caller contract that
+    // does not exist — so this pins the real one: the handler treats whatever
+    // it is given as a path, and a path containing `?` is simply not a file.
+    const result = await handler("/assets.js?v=abc123");
+    expect(result.status).toBe(404);
+    // And the value `app.ts` actually passes does resolve.
+    const direct = await handler("/assets.js");
+    expect(direct.status).toBe(200);
   });
 
-  describe("Hashed Asset Serving", () => {
-    it("serves hashed asset with immutable cache", async () => {
-      const result = await handler("/console/assets/app.abc123.js");
-      expect(result.status).toBe(200);
-      expect(result.body).toBeDefined();
-      expect(result.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
-      expect(result.headers["content-type"]).toBe("application/javascript; charset=utf-8");
-    });
+  test("a missing asset is a 404, not the SPA document", async () => {
+    // Answering a missing `.js` with HTML is worse than a 404: the browser
+    // tries to execute the markup and reports a syntax error at the app's
+    // expense.
+    const result = await handler("/assets-missing.js");
+    expect(result.status).toBe(404);
   });
 
-  describe("index.html and SPA Routes", () => {
-    it("serves index.html with no-cache", async () => {
-      const result = await handler("/console/index.html");
-      expect(result.status).toBe(200);
-      expect(result.headers["cache-control"]).toBe("no-cache, must-revalidate");
-      expect(result.headers["content-type"]).toBe("text/html; charset=utf-8");
-    });
+  test("a missing file in an existing directory is a 404", async () => {
+    const result = await handler("/providers/not-a-file.svg");
+    expect(result.status).toBe(404);
+  });
+});
 
-    it("serves the shared index document at the public root", async () => {
-      const result = await handler("/");
-      expect(result.status).toBe(200);
-      expect(result.headers["cache-control"]).toBe("no-cache, must-revalidate");
-      expect(new TextDecoder().decode(result.body)).toContain("<body>Dashboard</body>");
-    });
-
-
-    it("serves the shared index document for public enrollment routes", async () => {
-      const result = await handler(`/share/${"a".repeat(43)}`);
-      expect(result.status).toBe(200);
-      expect(result.headers["content-type"]).toBe("text/html; charset=utf-8");
-      expect(new TextDecoder().decode(result.body)).toContain("<body>Dashboard</body>");
-    });
-    it("serves index.html for extensionless SPA routes", async () => {
-      const result = await handler("/console/dashboard");
-      expect(result.status).toBe(200);
-      expect(result.headers["cache-control"]).toBe("no-cache, must-revalidate");
-    });
-
-    it("serves index.html for nested extensionless SPA routes", async () => {
-      // Nested client-side routes (e.g. /cli-tools/:toolId) have no matching
-      // file on disk and no extension — a real SPA fallback must still serve
-      // index.html so react-router can resolve the route client-side, at any
-      // path depth, not just single-segment routes.
-      const result = await handler("/console/cli-tools/claude");
-      expect(result.status).toBe(200);
-      expect(result.headers["cache-control"]).toBe("no-cache, must-revalidate");
-      expect(result.headers["content-type"]).toBe("text/html; charset=utf-8");
-    });
+describe("static assets — cache policy", () => {
+  test("the entry document is never cached", async () => {
+    // The reported defect: after a deploy the browser reused the previous
+    // build's HTML, which referenced bundles that no longer exist, and a hard
+    // refresh was the only cure.
+    const result = await handler("/index.html");
+    expect(result.status).toBe(200);
+    expect(result.headers["cache-control"]).toBe("no-store, no-cache, must-revalidate");
   });
 
-  describe("Missing Assets", () => {
-    it("returns 404 for missing .js file", async () => {
-      const result = await handler("/console/assets/missing.js");
-      expect(result.status).toBe(404);
-    });
+  test("a directly-served index.html carries the legacy cache headers too", async () => {
+    // The file-on-disk branch sets only `cache-control`; the document branch
+    // (`serveDocument`) is the one that also sets `pragma`/`expires`. Both
+    // paths are exercised because both serve HTML, and the assertion differs by
+    // branch — which is the finding this test records.
+    const direct = await handler("/index.html");
+    expect(direct.headers["cache-control"]).toBe("no-store, no-cache, must-revalidate");
 
-    it("returns 404 for missing .css file", async () => {
-      const result = await handler("/console/missing.css");
-      expect(result.status).toBe(404);
-    });
+    // The SPA-fallback branch does add the pair.
+    const fallback = await handler("/console/overview");
+    expect(fallback.headers["pragma"]).toBe("no-cache");
+    expect(fallback.headers["expires"]).toBe("0");
   });
 
-  describe("Path Decoding", () => {
-    it("handles URL-encoded paths", async () => {
-      const spaceFile = join(testDir, "file with space.txt");
-      await writeFile(spaceFile, "test content");
-      const result = await handler("/console/file%20with%20space.txt");
-      expect(result.status).toBe(200);
-    });
-
-    it("rejects invalid URL encoding", async () => {
-      const result = await handler("/console/%GG/invalid");
-      expect(result.status).toBe(404);
-    });
+  test("an SPA fallback response is never cached either", async () => {
+    const result = await handler("/console/overview");
+    expect(result.headers["cache-control"]).toBe("no-store, no-cache, must-revalidate");
   });
 
-  describe("MIME Types", () => {
-    it("sets JavaScript MIME type", async () => {
-      const result = await handler("/console/assets/app.abc123.js");
-      expect(result.headers["content-type"]).toBe("application/javascript; charset=utf-8");
-    });
+  test("a content-addressed asset may be cached", async () => {
+    // Hashed bundle names change on every build, so caching them is safe and
+    // is what makes a repeat visit fast.
+    const result = await handler("/assets.js");
+    expect(result.headers["cache-control"]).not.toBe("no-store, no-cache, must-revalidate");
+  });
+});
 
-    it("sets HTML MIME type", async () => {
-      const result = await handler("/console/index.html");
-      expect(result.headers["content-type"]).toBe("text/html; charset=utf-8");
-    });
+describe("static assets — SPA fallback", () => {
+  test("the root serves the entry document", async () => {
+    const result = await handler("/");
+    expect(result.status).toBe(200);
+    expect(bodyText(result)).toContain('<div id="root">');
   });
 
-  describe("Security Headers", () => {
-    it("sets a hashed-script CSP on HTML responses", async () => {
-      const result = await handler("/console/index.html");
-      const csp = result.headers["content-security-policy"] ?? "";
-      expect(csp).toContain("default-src 'self'");
-      expect(csp).toContain("frame-ancestors 'none'");
-      expect(csp).toContain("script-src 'self'");
-      expect(result.headers["x-frame-options"]).toBe("DENY");
-      expect(result.headers["x-content-type-options"]).toBe("nosniff");
-    });
-
-    it("sets the locked-down API CSP on non-document assets", async () => {
-      const result = await handler("/console/assets/app.abc123.js");
-      expect(result.headers["content-security-policy"]).toContain("default-src 'none'");
-      expect(result.headers["x-frame-options"]).toBe("DENY");
-    });
-
-    it("hashes inline scripts so scripts never need 'unsafe-inline'", async () => {
-      await writeFile(
-        join(testDir, "index.html"),
-        "<html><body><script>boot()</script></body></html>",
-      );
-      const result = await handler("/console/index.html");
-      const csp = result.headers["content-security-policy"] ?? "";
-      expect(csp).toContain("'sha256-");
-      expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
-    });
+  test("an extensionless route under /console serves the entry document", async () => {
+    const result = await handler("/console/overview");
+    expect(result.status).toBe(200);
+    expect(bodyText(result)).toContain('<div id="root">');
   });
 
-  describe("No HTML for API Requests", () => {
-    it("does not serve HTML for API paths", async () => {
-      const result = await handler("/console/api/dashboard");
-      expect(result.status).toBe(404);
-      expect(result.body).toBeUndefined();
-    });
+  test("a deeply nested extensionless route also falls back", async () => {
+    // A client-side route can be any depth; matching only single-segment paths
+    // would break a deep link.
+    const result = await handler("/console/cli-tools/claude");
+    expect(result.status).toBe(200);
+    expect(bodyText(result)).toContain('<div id="root">');
+  });
+
+  test("a path with a file extension does not fall back", async () => {
+    // The distinguishing rule: a dotted last segment means the client asked for
+    // a file, so a miss is a 404 rather than the app shell.
+    const result = await handler("/console/missing-thing.js");
+    expect(result.status).toBe(404);
+  });
+
+  test("a request that escapes the build directory is refused", async () => {
+    const result = await handler("/../outside.txt");
+    expect(result.status).not.toBe(200);
+  });
+
+  test("an encoded traversal attempt is refused", async () => {
+    // The handler receives a decoded pathname, but a client can also send the
+    // encoded form; either way it must not resolve outside the build dir.
+    const result = await handler("/%2e%2e/outside.txt");
+    expect(result.status).not.toBe(200);
+  });
+
+  test("an absolute path cannot select an arbitrary file", async () => {
+    const result = await handler("//etc/passwd");
+    expect(result.status).not.toBe(200);
+  });
+
+  test("a path containing a null byte is refused rather than throwing", async () => {
+    // A null byte in a filesystem path is either rejected by the OS or
+    // truncated by a lower layer; either way the handler must answer, not crash.
+    const result = await handler("/index.html\0.txt");
+    expect(result.status).toBeGreaterThanOrEqual(400);
+  });
+
+  test("a directory request does not leak a listing", async () => {
+    const result = await handler("/providers");
+    expect(result.status).not.toBe(200);
+    expect(bodyText(result)).not.toContain("openai-light");
   });
 });

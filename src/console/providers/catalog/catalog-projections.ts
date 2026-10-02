@@ -9,6 +9,7 @@
  * segment. `mapProviderRow` is the single `providers` row projection.
  */
 import { isBundledProviderId, providerBaseUrl } from "../../../providers/provider-registry";
+import { providerDisplayName } from "../../../providers/provider-metadata";
 import type { CompatibilityProfile } from "../../../providers/provider-metadata";
 import { supportedWireFamiliesForProvider } from "../../../providers/discovery/probe-wire";
 import { providers } from "../../../persistence/schema";
@@ -60,6 +61,7 @@ export function mapProviderRow(row: typeof providers.$inferSelect): ProviderReco
   );
   return {
     providerId: row.id,
+    displayName: providerDisplayName(row.id),
     tenantId: row.tenantId,
     enabled: row.enabled,
     isBuiltIn: isBundledProviderId(row.id),

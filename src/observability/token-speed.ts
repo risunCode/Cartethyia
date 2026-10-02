@@ -50,15 +50,29 @@ export interface TokenSpeedInput {
  */
 export function computeTokensPerSec(input: TokenSpeedInput): number | undefined {
   const outputTokens = input.outputTokens;
-  if (outputTokens === undefined || outputTokens <= 0) return undefined;
+  // `!Number.isFinite` rather than `<= 0`: a NaN token count fails `NaN <= 0`
+  // (`false`), so it used to pass through and the division produced a NaN speed —
+  // which reaches the telemetry row and renders as a literal "NaN tok/s" in the
+  // Requests table. That is the case where a wrong number is least welcome, since
+  // the row that produced it is the one an operator is investigating.
+  if (outputTokens === undefined || !Number.isFinite(outputTokens) || outputTokens <= 0) {
+    return undefined;
+  }
   if (input.stream === true) {
     const first = input.firstContentDeltaAtMs;
     const last = input.lastEventAtMs;
     if (first !== undefined && last !== undefined) {
       const decodeMs = last - first;
-      if (decodeMs > 0) return (outputTokens / decodeMs) * 1000;
+      // Same reasoning for the window: an infinite span divides to 0, which reads
+      // as "the model produced nothing" — a different and more alarming claim than
+      // "the window was not measurable".
+      if (Number.isFinite(decodeMs) && decodeMs > 0) {
+        return (outputTokens / decodeMs) * 1000;
+      }
     }
   }
-  if (input.latencyMs > 0) return (outputTokens / input.latencyMs) * 1000;
+  if (Number.isFinite(input.latencyMs) && input.latencyMs > 0) {
+    return (outputTokens / input.latencyMs) * 1000;
+  }
   return undefined;
 }

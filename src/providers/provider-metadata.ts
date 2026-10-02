@@ -25,11 +25,11 @@ export interface CompatibilityProfile {
 
 /** Identity and routing defaults for every builtin provider. */
 const RAW_BUNDLED_PROVIDER_METADATA = [
-  { id: "openai", displayName: "[OI]", baseUrl: "https://api.openai.com", credentialUrl: "https://platform.openai.com/api-keys" },
+  { id: "openai", displayName: "OpenAI", baseUrl: "https://api.openai.com", credentialUrl: "https://platform.openai.com/api-keys" },
   { id: "anthropic", displayName: "Anthropic", baseUrl: "https://api.anthropic.com", wireFamilyDefault: "messages", credentialUrl: "https://console.anthropic.com/settings/keys" },
   {
     id: "claude",
-    displayName: "[CC]",
+    displayName: "Claude Code",
     baseUrl: "https://api.anthropic.com",
     wireFamilyDefault: "messages",
     hasAdapterUserAgent: true,
@@ -95,6 +95,19 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
   },
   { id: "muse", displayName: "Muse Code", baseUrl: "https://api.meta.ai" },
   {
+    // Meta's first-party Model API reached with a direct API key — distinct
+    // from `muse` (Muse Code), which is the same `api.meta.ai/v1` Responses
+    // wire behind a subscription-minted key from an OAuth device login. The
+    // Model API is authenticated with an operator-supplied key from the Meta
+    // developer dashboard, so it is an API-key provider, not an OAuth one.
+    id: "meta",
+    displayName: "Meta Model API",
+    baseUrl: "https://api.meta.ai",
+    wireFamilyDefault: "responses",
+    credentialUrl: "https://developer.meta.com/ai/",
+    credentialHint: "Create or copy a Model API key from the Meta developer dashboard.",
+  },
+  {
     // Kiro frames its own conversation ledger over an AWS EventStream wire and
     // has no chat-shaped endpoint to route through.
     id: "kiro",
@@ -110,10 +123,8 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
   { id: "opencodezen", displayName: "OpenCode Zen", baseUrl: "https://opencode.ai", hasAdapterUserAgent: true, credentialUrl: "https://opencode.ai/auth" },
   { id: "opencodego", displayName: "OpenCode Go", baseUrl: "https://opencode.ai", credentialUrl: "https://opencode.ai/auth" },
   { id: "cerebras", displayName: "Cerebras", baseUrl: "https://api.cerebras.ai/v1", credentialUrl: "https://cloud.cerebras.ai/platform" },
-  { id: "groq", displayName: "Groq", baseUrl: "https://api.groq.com/openai/v1", credentialUrl: "https://console.groq.com/keys" },
   { id: "openrouter", displayName: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", credentialUrl: "https://openrouter.ai/settings/keys" },
   { id: "mistral", displayName: "Mistral AI", baseUrl: "https://api.mistral.ai/v1", credentialUrl: "https://console.mistral.ai/api-keys" },
-  { id: "sifo", displayName: "SiliconFlow", baseUrl: "https://api.siliconflow.cn/v1", credentialUrl: "https://cloud.siliconflow.cn/account/ak" },
   { id: "fireworks", displayName: "Fireworks AI", baseUrl: "https://api.fireworks.ai/inference/v1", credentialUrl: "https://fireworks.ai/account/api-keys" },
   { id: "nvidia", displayName: "NVIDIA NIM", baseUrl: "https://integrate.api.nvidia.com/v1", credentialUrl: "https://build.nvidia.com/settings/api-keys" },
   { id: "deepseek", displayName: "DeepSeek", baseUrl: "https://api.deepseek.com", credentialUrl: "https://platform.deepseek.com/api_keys" },
@@ -172,6 +183,12 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     credentialUrl: "https://github.com/settings/copilot",
   },
   { id: "perplexity", displayName: "Perplexity", baseUrl: "https://api.perplexity.ai", credentialUrl: "https://www.perplexity.ai/settings/api" },
+  // Web-search providers: their catalog carries a single `serviceKind:
+  // "websearch"` model, served by the `/v1/search` native route rather than a
+  // chat wire. `baseUrl` is the API origin the search spec builds requests from.
+  { id: "exa", displayName: "Exa", baseUrl: "https://api.exa.ai", credentialUrl: "https://dashboard.exa.ai/api-keys", credentialHint: "Create an API key in the Exa dashboard." },
+  { id: "tavily", displayName: "Tavily", baseUrl: "https://api.tavily.com", credentialUrl: "https://app.tavily.com/home", credentialHint: "Copy the API key from the Tavily dashboard." },
+  { id: "brave", displayName: "Brave Search", baseUrl: "https://api.search.brave.com", credentialUrl: "https://api-dashboard.search.brave.com/app/keys", credentialHint: "Subscribe to the Search API and copy the subscription token." },
 ] as const;
 
 export type BundledProviderId = (typeof RAW_BUNDLED_PROVIDER_METADATA)[number]["id"];

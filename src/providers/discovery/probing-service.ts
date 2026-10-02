@@ -202,7 +202,7 @@ export class ProviderProbingService {
     const providerWireRow = await this.loadProviderWireRow(providerId);
     const requiresAccount = providerWireRow?.requiresAccount ?? true;
 
-    const { wireFamily, endpointPath, sourceSurface } = await resolveProbeTarget({
+    const { wireFamily, serviceKind, endpointPath, sourceSurface, capabilityProfile } = await resolveProbeTarget({
       db: this.db,
       bundledModelCatalog: this.bundledModelCatalog,
       defaultEndpoints: this.defaultEndpoints,
@@ -256,7 +256,11 @@ export class ProviderProbingService {
       model_id: modelId,
       wire_family: wireFamily,
       endpoint_path: endpointPath,
-      capabilities: {},
+      // The route's real profile, not `{}`. A probe runs the production adapter,
+      // which gates on capabilities — an empty profile made it reject the probe
+      // over capabilities the route actually has (`prompt_caching`, `tools`,
+      // `reasoning`), reporting a healthy provider as broken.
+      capabilities: capabilityProfile,
     };
 
     const probeSignal = AbortSignal.timeout(30_000);
@@ -274,6 +278,71 @@ export class ProviderProbingService {
       networkPoolId = outbound.networkPoolId;
       const probeFetch = createProbeFetch(outbound.fetch);
       try {
+        if (serviceKind === "systemone") {
+          // A native-service probe cannot speak the canonical pipeline: its
+          // request is a decision body, not messages, and its answer is
+          // `{answers}`, not events. Dispatch the provider's own native method
+          // and assert the decision shape — mirroring how live traffic reaches
+          // the model through the System One route.
+          if (typeof adapter.systemone !== "function") {
+            throw new GatewayError(
+              "capability_unsupported",
+              400,
+              `Provider ${providerId} has no System One transport`,
+            );
+          }
+          const response = await adapter.systemone(
+            {
+              model: modelId,
+              state: "Customer: I was charged twice for my order this morning.",
+              questions: {
+                probe: {
+                  type: "noul",
+                  instructions: "Is the customer reporting a billing problem?",
+                },
+              },
+            },
+            candidate,
+            {
+              credential,
+              deadline: startedAt + 30_000,
+              abort_signal: probeSignal,
+              outbound_fetch: probeFetch,
+            },
+          );
+          if (ttfbMs === undefined) ttfbMs = Date.now() - startedAt;
+          const raw = await response.text().catch(() => "");
+          if (!response.ok) {
+            dispatchError = new GatewayError(
+              response.status >= 500 ? "platform_unavailable" : "invalid_request",
+              response.status,
+              `System One upstream error: ${raw.slice(0, 240)}`,
+            );
+          } else {
+            let parsed: unknown;
+            try {
+              parsed = raw ? JSON.parse(raw) : null;
+            } catch {
+              dispatchError = new GatewayError("platform_unavailable", 502, "System One returned invalid JSON");
+            }
+            if (parsed !== null && parsed !== undefined) {
+              const answers =
+                typeof parsed === "object" ? (parsed as Record<string, unknown>).answers : undefined;
+              const hasAnswers =
+                answers !== undefined &&
+                answers !== null &&
+                typeof answers === "object" &&
+                Object.keys(answers as Record<string, unknown>).length > 0;
+              if (!hasAnswers) {
+                dispatchError = new GatewayError(
+                  "platform_unavailable",
+                  502,
+                  "System One returned no answers",
+                );
+              }
+            }
+          }
+        } else {
         const dispatchProbe = async (request: CanonicalRequest): Promise<void> => {
           capturedRequest = request;
           for await (const event of adapter.dispatch(request, candidate, {
@@ -311,6 +380,7 @@ export class ProviderProbingService {
             },
           });
         }
+        }
       } finally {
         outbound.release?.();
       }
@@ -332,14 +402,29 @@ export class ProviderProbingService {
     });
 
     const latencyMs = Date.now() - startedAt;
-    const { ok, errorMessage, usage } = computeProbeVerdict({
-      events,
-      dispatchError,
-      providerId,
-      modelId,
-      wireFamily,
-      endpointPath,
-    });
+    // A native-service probe carries no canonical events: its verdict is the
+    // decision response itself (no dispatch error + answers present), which the
+    // branch above already encoded into `dispatchError`.
+    const { ok, errorMessage, usage } =
+      serviceKind === "systemone"
+        ? {
+            ok: dispatchError === undefined,
+            errorMessage:
+              dispatchError === undefined
+                ? undefined
+                : dispatchError instanceof Error
+                  ? dispatchError.message
+                  : String(dispatchError),
+            usage: undefined,
+          }
+        : computeProbeVerdict({
+            events,
+            dispatchError,
+            providerId,
+            modelId,
+            wireFamily,
+            endpointPath,
+          });
 
     const requestId = crypto.randomUUID();
 
@@ -659,6 +744,10 @@ export class ProviderProbingService {
         providerId,
         modelId,
         wireFamily,
+        // A discovery module that classifies an id as a non-chat service (the
+        // System One decision API) states it on its own definition; otherwise the
+        // static catalog's classification wins, and an unclassified id is `llm`.
+        serviceKind: discDef?.serviceKind ?? knownDefinition?.serviceKind ?? "llm",
         endpointPath,
         ...metadata,
         // A discovery module that marks its rows as a free tier gets its own
@@ -680,6 +769,7 @@ export class ProviderProbingService {
         .onConflictDoUpdate({
           target: [models.providerId, models.modelId, models.endpointPath],
           set: {
+            serviceKind: sql`excluded.service_kind`,
             contextLimit: sql`excluded.context_limit`,
             outputLimit: sql`excluded.output_limit`,
             modalities: sql`excluded.modalities`,

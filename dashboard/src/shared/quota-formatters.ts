@@ -38,10 +38,18 @@ export function formatQuotaWindowLabel(label: string): string {
   if (hours === 168) return "Weekly";
   if (hours === 720) return "Monthly";
   if (hours === 8760) return "Yearly";
-  if (hours >= 8760)
-    return `${Math.floor(hours / 8760)}y${hours % 8760 > 0 ? ` ${Math.floor((hours % 8760) / 24)}d` : ""}`;
-  if (hours >= 720)
-    return `${Math.floor(hours / 720)}mo${hours % 720 > 0 ? ` ${Math.floor((hours % 720) / 24)}d` : ""}`;
+  // The guard must test the value that is actually emitted. The day remainder is
+  // `Math.floor(remainder / 24)`, a whole number of DAYS, so testing the raw hour
+  // remainder emitted a "0d" suffix for any remainder in 1..23 hours — a day count
+  // that reads as "less than a day", the opposite of a window just past a month.
+  if (hours >= 8760) {
+    const days = Math.floor((hours % 8760) / 24);
+    return `${Math.floor(hours / 8760)}y${days > 0 ? ` ${days}d` : ""}`;
+  }
+  if (hours >= 720) {
+    const days = Math.floor((hours % 720) / 24);
+    return `${Math.floor(hours / 720)}mo${days > 0 ? ` ${days}d` : ""}`;
+  }
   if (hours >= 24) return `${Math.floor(hours / 24)}d${hours % 24 > 0 ? ` ${hours % 24}h` : ""}`;
   return `${hours}h`;
 }

@@ -47,7 +47,7 @@ function PrivacyPanel(): ReactNode {
                   mutation.mutate(
                     {
                       telemetryPayloads:
-                        value === "bounded" || value === "metadata" ? value : "none",
+                        value === "full" || value === "metadata" ? value : "none",
                     },
                     {
                       onError: (error) =>
@@ -61,12 +61,29 @@ function PrivacyPanel(): ReactNode {
                     label: "Metadata — Proxy→Provider method + headers (default), pruned after 15 minutes",
                   },
                   {
-                    value: "bounded",
-                    label: "Bodies — temporary request/response capture, pruned after 15 minutes",
+                    value: "full",
+                    label: "Full — redacted bodies up to 32 MiB, pruned after 15 minutes",
                   },
                   { value: "none", label: "Off — no payload capture" },
                 ]}
               />
+              {settings.telemetryPayloads === "full" ? (
+                <div
+                  role="note"
+                  style={{
+                    marginTop: "8px",
+                    padding: "8px 10px",
+                    border: "1px solid color-mix(in srgb, var(--amber) 35%, var(--inner-border))",
+                    borderRadius: "8px",
+                    background: "color-mix(in srgb, var(--amber) 8%, var(--surface-2))",
+                    color: "var(--text-secondary)",
+                    fontSize: "11px",
+                  }}
+                >
+                  <strong style={{ color: "var(--amber)" }}>Full capture may reduce performance.</strong>{" "}
+                  Use it only while debugging, then switch back to Metadata.
+                </div>
+              ) : null}
               <p style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
                 Request-event metadata is always retained. Default drawer capture is metadata-only
                 (Proxy→Provider method + allowlisted headers). Bodies stay opt-in, redacted, and

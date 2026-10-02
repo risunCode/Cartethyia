@@ -22,6 +22,7 @@ import type { OAuthLoginField } from "../../../providers/authentication/oauth-fl
 import {
   providerCredentialHint,
   providerCredentialUrl,
+  providerDisplayName,
   providerHasAdapterUserAgent,
   type CompatibilityProfile,
 } from "../../../providers/provider-metadata";
@@ -62,6 +63,7 @@ export function sanitizeProviderResponse(
   const credentialHint = providerCredentialHint(p.providerId);
   const response: ProviderResponse = {
     providerId: p.providerId,
+    displayName: providerDisplayName(p.providerId),
     ...(typeof p.label === "string" && p.label.length > 0 ? { label: p.label } : {}),
     enabled: (p.enabled as boolean | undefined) ?? true,
     isBuiltIn: (p.isBuiltIn as boolean | undefined) ?? false,
@@ -246,6 +248,7 @@ export function createProviderCatalogOperations(config: ProviderCatalogConfig) {
         }
         const record: ProviderRecord = {
           providerId: request.providerId,
+          displayName: providerDisplayName(request.providerId),
           tenantId: a.tenantId,
           enabled: request.enabled ?? true,
           isBuiltIn: false,

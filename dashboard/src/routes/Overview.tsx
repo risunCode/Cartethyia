@@ -17,6 +17,7 @@ import { Switch } from "../components/ui/switch";
 import { Inline } from "../components/ui/inline";
 import { Stack } from "../components/ui/stack";
 import { ApiKeysPanel } from "../components/ApiKeysPanel";
+import { CompressionPanel } from "../components/CompressionPanel";
 import { useTrackedTimeout } from "../hooks/use-timeout";
 import { useNetworkPools } from "../hooks/network";
 import { useSystemHealth } from "../hooks/system";
@@ -558,6 +559,7 @@ export default function Overview(): ReactNode {
     <Stack gap="16px">
       <ApiEndpointCard />
       <SystemOverviewPanel onRefresh={refresh} refreshing={isFetching} />
+      <CompressionPanel />
       <ApiKeysPanel />
     </Stack>
   );

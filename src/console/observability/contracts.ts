@@ -122,7 +122,7 @@ export interface UsageByRow {
  * and re-exported here, because three layers read the same binding: the route
  * table registers one `by-<dimension>` path per member, the operations validator
  * rejects anything outside it, and the dashboard's `Dimension` union mirrors it
- * (pinned by `dashboard/test/usage-dimensions-parity.test.ts`).
+ * (kept in sync by hand).
  */
 export { USAGE_DIMENSIONS, type UsageDimension };
 

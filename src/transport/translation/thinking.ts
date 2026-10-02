@@ -5,7 +5,7 @@
 // so the native config (`thinking_type` + `budget_tokens`) is dropped while the
 // request-level effort intent (OpenAI `reasoning_effort`) survives — that field
 // is a property of the request, not of the turn.
-import type { CanonicalRequest, WireFamily } from "../canonical-model";
+import type { CanonicalRequest, ReasoningIntent, WireFamily } from "../canonical-model";
 
 /**
  * Canonical reasoning effort ladder, ordered least to most intensive.
@@ -21,6 +21,181 @@ export const REASONING_EFFORT_LADDER = [
 ] as const;
 
 export type ReasoningEffortLevel = (typeof REASONING_EFFORT_LADDER)[number];
+
+/**
+ * A client-requested thinking level written onto the model name as
+ * `model(level)` or `model(budget)`.
+ *
+ * `mode: "auto"` means "let the provider decide" and `mode: "none"` means
+ * "reasoning off" — both are distinct from an absent suffix, which means the
+ * caller expressed no opinion at all.
+ */
+export type ThinkingSuffixIntent =
+  | { readonly mode: "level"; readonly level: ReasoningEffortLevel }
+  | { readonly mode: "budget"; readonly budget: number }
+  | { readonly mode: "none" }
+  | { readonly mode: "auto" };
+
+/**
+ * A parsed model name: the bare id the router and upstream must see, plus the
+ * thinking level the caller asked for (or null when they asked for none).
+ */
+export interface ParsedThinkingSuffix {
+  readonly model: string;
+  readonly intent: ThinkingSuffixIntent | null;
+}
+
+/**
+ * Level → thinking budget in tokens.
+ *
+ * The ladder is the published Anthropic/Gemini scale, kept here as the single
+ * source of truth for both directions. `none` is 0 because "off" is the one
+ * value the ladder cannot express as a positive budget.
+ */
+export const LEVEL_TO_BUDGET: Readonly<Record<ReasoningEffortLevel | "none", number>> = {
+  none: 0,
+  minimal: 512,
+  low: 1_024,
+  medium: 8_192,
+  high: 24_576,
+  xhigh: 32_768,
+  max: 128_000,
+};
+
+/**
+ * Upper bound (inclusive) for each tier when reading a budget back as a level.
+ *
+ * These are the reference implementation's thresholds, kept verbatim so the two
+ * cannot drift. They are the midpoints between adjacent `LEVEL_TO_BUDGET`
+ * values, except `low`/`medium`, which the reference pins at the round 4_096
+ * rather than the midpoint 4_608.
+ */
+const BUDGET_LEVEL_CEILINGS: readonly (readonly [ReasoningEffortLevel, number])[] = [
+  ["minimal", 768],
+  ["low", 4_096],
+  ["medium", 16_384],
+  ["high", 28_672],
+  ["xhigh", 80_384],
+];
+
+/**
+ * Nearest ladder level for a token budget.
+ *
+ * The previous heuristic here bucketed everything from 4_096 up as `high`, so a
+ * deliberate 4_096-token budget read as a bigger ask than it was — the same
+ * input the reference calls `low`. Reading through one shared table keeps a
+ * budget expressed as tokens and the same request expressed as a level
+ * agreeing.
+ *
+ * Returns null for a non-positive budget (no reasoning).
+ */
+export function budgetToLevel(budget: number): ReasoningEffortLevel | null {
+  if (!Number.isFinite(budget) || budget <= 0) return null;
+  for (const [level, ceiling] of BUDGET_LEVEL_CEILINGS) {
+    if (budget <= ceiling) return level;
+  }
+  return "max";
+}
+
+/**
+ * Splits a thinking suffix off a model name.
+ *
+ * The syntax is `model(level)` — parentheses, deliberately, not a dash. A dash
+ * suffix would be ambiguous: this catalog contains 73 ids that end in a level
+ * word, and for 22 of them the truncated prefix is itself a real model
+ * (`gemini-3.1-pro-high` → `gemini-3.1-pro`, `gpt-5.1-codex-max` →
+ * `gpt-5.1-codex`, `o3-mini-high` → `o3-mini`). Stripping those would silently
+ * redirect a request to a different model. No model id in the catalog contains
+ * a parenthesis, so this form is unambiguous without consulting any catalog.
+ *
+ * An unrecognized or empty value leaves the model untouched: a typo must not
+ * fail an otherwise valid request.
+ */
+export function parseThinkingSuffix(model: string): ParsedThinkingSuffix {
+  const match = /^(.*)\(([^()]*)\)\s*$/.exec(model);
+  if (match === null) return { model, intent: null };
+  const bare = match[1]!.trim();
+  // A name that is nothing but a suffix (`(high)`) is not a model we can route;
+  // leave it alone so the caller gets a normal model-not-found rather than a
+  // confusing empty-name error.
+  if (bare.length === 0) return { model, intent: null };
+  const raw = match[2]!.trim().toLowerCase();
+  if (raw === "none" || raw === "off") return { model: bare, intent: { mode: "none" } };
+  if (raw === "auto") return { model: bare, intent: { mode: "auto" } };
+  // `ultra` is a vendor synonym for the top tier, matching `clampReasoningEffort`.
+  if (raw === "ultra") return { model: bare, intent: { mode: "level", level: "max" } };
+  if (/^\d+$/.test(raw)) {
+    const budget = Number(raw);
+    return budget > 0
+      ? { model: bare, intent: { mode: "budget", budget } }
+      : { model, intent: null };
+  }
+  if (REASONING_EFFORT_LADDER.includes(raw as ReasoningEffortLevel)) {
+    return { model: bare, intent: { mode: "level", level: raw as ReasoningEffortLevel } };
+  }
+  return { model, intent: null };
+}
+
+/**
+ * The model name a client would write to request `level`, i.e. the inverse of
+ * {@link parseThinkingSuffix}: `claude-sonnet-4-5` + `low` → `claude-sonnet-4-5(low)`.
+ *
+ * Exists so the naming rule lives in one place: the dashboard renders the
+ * routable id an operator should copy, and a hand-written `(level)` string there
+ * would drift from the parser the moment either side changes. `auto` and `none`
+ * are real suffix values the parser accepts, so they round-trip too; an absent
+ * level (no opinion) leaves the bare id.
+ */
+export function formatThinkingSuffix(model: string, level: ReasoningEffortLevel | "auto" | "none" | null): string {
+  if (level === null) return model;
+  return `${model}(${level})`;
+}
+
+/**
+ * Writes a parsed suffix intent onto a request's reasoning state.
+ *
+ * The suffix wins over whatever the body said: it is the more specific,
+ * per-request statement of intent, and a caller who writes both is asking for
+ * the model name to decide.
+ *
+ * A numeric budget is normalized to its nearest ladder tier rather than carried
+ * through as a token count. That is deliberate — the tier is what the per-model
+ * clamp understands, so `model(128000)` on a model that tops out at `high`
+ * lands on `high` instead of leaving a 128k budget next to a clamped effort.
+ * Normalizing to the tier is what makes one suffix mean the same thing on every
+ * model.
+ */
+export function withThinkingSuffixIntent(
+  request: CanonicalRequest,
+  intent: ThinkingSuffixIntent,
+): CanonicalRequest {
+  const reasoning: ReasoningIntent = { ...(request.reasoning ?? {}) };
+
+  if (intent.mode === "none") {
+    // `disabled` is the explicit switch: clearing `effort` alone leaves the
+    // upstream free to reason, because absence means "no opinion", not "off".
+    reasoning.thinking_type = "disabled";
+    delete reasoning.effort;
+    delete reasoning.budget_tokens;
+  } else if (intent.mode === "auto") {
+    delete reasoning.effort;
+    delete reasoning.budget_tokens;
+    if (reasoning.thinking_type === "disabled") delete reasoning.thinking_type;
+  } else {
+    const level = intent.mode === "budget" ? budgetToLevel(intent.budget) : intent.level;
+    if (level === null) return request;
+    reasoning.effort = level;
+    delete reasoning.budget_tokens;
+    if (reasoning.thinking_type === "disabled") delete reasoning.thinking_type;
+  }
+
+  if (Object.keys(reasoning).length === 0) {
+    const next = { ...request };
+    delete next.reasoning;
+    return next;
+  }
+  return { ...request, reasoning };
+}
 
 /** Standard OpenAI Responses wire supported efforts (OpenAI, OpenCode, Azure). Responses API has no 'max' tier. */
 export const RESPONSES_WIRE_SUPPORTED_EFFORTS: readonly ReasoningEffortLevel[] = [
@@ -179,6 +354,32 @@ export function resolveSupportedReasoningEfforts(
   }
 
   return EXTENDED_SUPPORTED_EFFORTS;
+}
+
+/**
+ * Whether a Claude model wants *adaptive* thinking (`thinking.type: "adaptive"`
+ * + `output_config.effort`) or *budget* thinking (`thinking.type: "enabled"` +
+ * `budget_tokens`).
+ *
+ * The two generations reject each other's shape: an adaptive-era model answers
+ * a budget block with `thinking.budget_tokens: Extra inputs are not permitted`,
+ * and a budget-era model answers an adaptive block with `adaptive thinking is
+ * not supported on this model` (verified live against the Anthropic OAuth
+ * route — opus-4-5/sonnet-4-5/haiku-4-5 400 on adaptive, while
+ * opus-4-6+/sonnet-4-6+/5-series accept it).
+ *
+ * Adaptive era, per the reference catalog: Opus 4.6+, Sonnet 4.6+, and the
+ * 5-series (fable/mythos/opus-5/sonnet-5). Everything older is budget era.
+ * The rule is stated once here so the Messages codec and the effort ladder
+ * cannot disagree about which generation a model belongs to.
+ */
+export function claudeUsesAdaptiveThinking(modelId: string): boolean {
+  const id = modelId.toLowerCase().replaceAll(".", "-");
+  if (id.includes("fable") || id.includes("mythos")) return true;
+  if (id.includes("opus-5") || id.includes("sonnet-5")) return true;
+  if (id.includes("opus-4-6") || id.includes("sonnet-4-6")) return true;
+  if (id.includes("opus-4-7") || id.includes("opus-4-8")) return true;
+  return false;
 }
 
 /**

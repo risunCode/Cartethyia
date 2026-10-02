@@ -1,6 +1,6 @@
 import { consoleRequest } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
-import type { AccountInflightReading, ModelAliasCreateInput, ModelAliasPatchInput, ModelAliasRow, ModelComboCreateInput, ModelComboPatchInput, ModelComboRow, ProviderRoutingResponse, UpdateProviderRoutingRequest } from "../data/contracts";
+import type { AccountInflightReading, ModelAliasCreateInput, ModelAliasPatchInput, ModelAliasRow, ModelComboCloneResult, ModelComboCreateInput, ModelComboPatchInput, ModelComboRow, ProviderRoutingResponse, UpdateProviderRoutingRequest } from "../data/contracts";
 import { queryKeys } from "../data/query-keys";
 import { assertModelAliases, assertModelCombos, assertProviderRouting, querySignal } from "./common";
 import { DASHBOARD_QUERY_OPTIONS } from "../data/query-policy";
@@ -151,6 +151,24 @@ export function useCreateModelCombo() {
       consoleRequest<ModelComboRow>("/routing/combos", {
         method: "POST",
         body: JSON.stringify(request),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.modelRouting.combos });
+    },
+  });
+}
+
+/**
+ * Clones a model combo server-side. The server names the copy (`-clone`, `-2`,
+ * …) so two concurrent clones cannot collide, and reports any members it had to
+ * drop because they no longer resolve.
+ */
+export function useCloneModelCombo() {
+  const queryClient = useQueryClient();
+  return useMutation<ModelComboCloneResult, ApiErrorShape, string>({
+    mutationFn: (id) =>
+      consoleRequest<ModelComboCloneResult>(`/routing/combos/${encodeURIComponent(id)}/clone`, {
+        method: "POST",
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.modelRouting.combos });

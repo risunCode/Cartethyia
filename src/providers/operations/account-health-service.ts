@@ -94,6 +94,14 @@ export interface AccountFailureEvidence {
   readonly origin?: AccountFailureOrigin;
   readonly scope?: AccountFailureScope;
   readonly credentialKind?: string;
+  /**
+   * The account's credential is a static bearer token used as issued and never
+   * refreshed. An auth rejection against a static token is not a refreshable
+   * fault: refreshing cannot help, and disabling the account discards a token
+   * that may still be valid for other requests. Such a failure cools the
+   * account down instead of parking it.
+   */
+  readonly staticToken?: boolean;
   readonly providerCode?: string;
   readonly credentialEvidence?: boolean;
   readonly retryAfterMs?: number;
@@ -281,16 +289,29 @@ export function classifyAccountError(
       lower.includes("account deactivated") ||
       ((statusCode === 401 || statusCode === 403) && accountEvidence));
   if (authSignal) {
+    // A static token has no refresh to run, so an auth rejection must not park
+    // the account: disabling it throws away a token that may still work (a
+    // single upstream 401 can be transient). A cooldown lets the next attempt
+    // retry the same token without losing the account.
+    const staticTokenRecovery = options?.staticToken === true;
     const oauthRecovery =
+      !staticTokenRecovery &&
       options?.credentialKind === "oauth" &&
       (lower.includes("expired") || lower.includes("refresh"));
-    const cooldownMs = oauthRecovery ? 5 * 60 * 1000 : 0;
+    const recoverable = staticTokenRecovery || oauthRecovery;
+    const cooldownMs = recoverable ? 5 * 60 * 1000 : 0;
     return result(
       "auth_invalidated",
-      oauthRecovery ? "cooldown" : "disabled",
+      recoverable ? "cooldown" : "disabled",
       cooldownMs,
-      oauthRecovery ? new Date(Date.now() + cooldownMs) : null,
-      reason(oauthRecovery ? "OAuth credential requires refresh" : "Provider credential rejected"),
+      recoverable ? new Date(Date.now() + cooldownMs) : null,
+      reason(
+        staticTokenRecovery
+          ? "Static token rejected; retrying without a refresh"
+          : oauthRecovery
+            ? "OAuth credential requires refresh"
+            : "Provider credential rejected",
+      ),
       canMutate,
     );
   }
@@ -442,20 +463,28 @@ async function persistAccountFailure(
     const account = accountRows[0];
     if (!account || account.status === "disabled") return null;
 
+    // Re-classify with the account's own static-token flag. The caller's
+    // evidence is request-scoped and does not carry it, but an auth rejection
+    // against a static token must cool the account down rather than park it —
+    // there is no refresh to run, and the token may still be valid.
+    const effective = account.staticToken
+      ? classifyAccountError(error, { ...options, staticToken: true })
+      : classification;
+
     const fromStatus = account.status;
     const now = new Date();
 
     const modelId = options?.modelId;
     const isThrottle =
-      classification.category === "rate_limit_transient" ||
-      classification.category === "model_capacity";
+      effective.category === "rate_limit_transient" ||
+      effective.category === "model_capacity";
     const shouldModelCooldown = modelId !== undefined && isThrottle;
 
     if (shouldModelCooldown) {
       const existing = (account.modelCooldowns as Record<string, string> | null) ?? {};
       const nextUntil =
-        classification.retryAt?.toISOString() ??
-        new Date(Date.now() + classification.cooldownMs).toISOString();
+        effective.retryAt?.toISOString() ??
+        new Date(Date.now() + effective.cooldownMs).toISOString();
       const previousUntil = existing[modelId];
       // A re-statement is not an event: what the audit row reports is the
       // *entry* into a cooling episode, and the deadline itself is not a
@@ -478,8 +507,8 @@ async function persistAccountFailure(
         .update(providerAccounts)
         .set({
           modelCooldowns: { ...existing, [modelId]: nextUntil },
-          lastError: classification.reason,
-          lastErrorCategory: classification.category,
+          lastError: effective.reason,
+          lastErrorCategory: effective.category,
           lastErrorAt: now,
         })
         .where(eq(providerAccounts.id, accountId));
@@ -488,15 +517,15 @@ async function persistAccountFailure(
           entityKind: "account",
           accountId,
           // The account's own status, on both sides: a model-scoped throttle
-          // never moved it, and writing `classification.status` here claimed an
-          // `active → cooldown` transition that never happened — the dialog
-          // showed "Account status: ACTIVE" above a list of transitions to
-          // `cooldown`. The row still names the model and the reason, which is
-          // what makes it worth keeping.
+          // never moved it, and writing the classification's status here
+          // claimed an `active → cooldown` transition that never happened — the
+          // dialog showed "Account status: ACTIVE" above a list of transitions
+          // to `cooldown`. The row still names the model and the reason, which
+          // is what makes it worth keeping.
           fromStatus: fromStatus as "active" | "cooldown" | "disabled",
           toStatus: fromStatus as "active" | "cooldown" | "disabled",
-          reason: classification.reason,
-          errorCategory: classification.category,
+          reason: effective.reason,
+          errorCategory: effective.category,
           modelId: modelId ?? null,
           createdAt: now,
         });
@@ -507,12 +536,12 @@ async function persistAccountFailure(
     await client
       .update(providerAccounts)
       .set({
-        status: classification.status,
+        status: effective.status,
         consecutiveFailures: sql`${providerAccounts.consecutiveFailures} + 1`,
-        lastError: classification.reason,
-        lastErrorCategory: classification.category,
+        lastError: effective.reason,
+        lastErrorCategory: effective.category,
         lastErrorAt: now,
-        cooldownUntil: classification.retryAt,
+        cooldownUntil: effective.retryAt,
       })
       .where(eq(providerAccounts.id, accountId));
 
@@ -521,9 +550,9 @@ async function persistAccountFailure(
         entityKind: "account",
         accountId,
         fromStatus: fromStatus as "active" | "cooldown" | "disabled",
-        toStatus: classification.status,
-        reason: classification.reason,
-        errorCategory: classification.category,
+        toStatus: effective.status,
+        reason: effective.reason,
+        errorCategory: effective.category,
         modelId: modelId ?? null,
         createdAt: now,
       });
@@ -803,6 +832,84 @@ export async function recoverAccount(
 export async function sweepExpiredCooldowns(db: CartethyiaDatabase): Promise<number> {
   return sweepExpiredCooldownsFor(db);
 }
+
+/**
+ * The operator's credit reserve is enforced here, not on the request path.
+ *
+ * The quota sweep already fetched this account's live credit figures; when the
+ * remaining credit on any credit window has reached the configured floor, the
+ * account is parked in a 24h `quota_exhausted` cooldown so routing fails over
+ * to a sibling instead of spending it to empty. Returns `true` when the account
+ * was parked (the caller invalidates the route snapshot).
+ *
+ * `remainingCredit` is the account's total remaining credit across its credit
+ * windows (`totalRemainingCredit`), the same figure the dashboard's Credit Pool
+ * card shows. `null` means the provider reports no credit
+ * — a rate-limit-only surface has nothing to reserve, so the floor never fires.
+ * A cooldown already in force (or a disabled account) is left untouched: the
+ * floor is a *park* decision, and re-parking would only churn the audit log.
+ */
+export async function enforceCreditFloor(
+  db: CartethyiaDatabase,
+  accountId: string,
+  remainingCredit: number | null,
+  floor: number | null,
+): Promise<boolean> {
+  if (remainingCredit === null || floor === null || floor < 0) return false;
+  if (remainingCredit > floor) return false;
+  const mutate = async (client: CartethyiaDatabase): Promise<boolean> => {
+    const rows = await client
+      .select()
+      .from(providerAccounts)
+      .where(eq(providerAccounts.id, accountId))
+      .limit(1);
+    const account = rows[0];
+    if (!account || account.status === "disabled") return false;
+    const now = new Date();
+    const alreadyCooling =
+      account.status === "cooldown" &&
+      account.cooldownUntil !== null &&
+      account.cooldownUntil.getTime() > now.getTime();
+    if (alreadyCooling) return false;
+    const cooldownUntil = new Date(now.getTime() + CREDIT_FLOOR_COOLDOWN_MS);
+    const reason = `Credit floor reached: ${Math.max(0, remainingCredit)} remaining (floor ${floor})`;
+    await client
+      .update(providerAccounts)
+      .set({
+        status: "cooldown",
+        lastError: reason,
+        lastErrorCategory: "quota_exhausted",
+        lastErrorAt: now,
+        cooldownUntil,
+      })
+      .where(eq(providerAccounts.id, accountId));
+    if (typeof client.insert === "function") {
+      await client.insert(healthEvents).values({
+        entityKind: "account",
+        accountId,
+        fromStatus: account.status as "active" | "cooldown" | "disabled",
+        toStatus: "cooldown",
+        reason,
+        errorCategory: "quota_exhausted",
+        modelId: null,
+        createdAt: now,
+      });
+    }
+    return true;
+  };
+  try {
+    if (typeof db.transaction === "function") {
+      return await db.transaction((tx) => mutate(tx as CartethyiaDatabase));
+    }
+    return await mutate(db);
+  } catch {
+    return false;
+  }
+}
+
+/** Park duration once an account's remaining credit reaches the operator floor. */
+export const CREDIT_FLOOR_COOLDOWN_MS = 24 * 3_600_000;
+
 export async function listAccountHealthEvents(
   db: CartethyiaDatabase,
   accountId: string,

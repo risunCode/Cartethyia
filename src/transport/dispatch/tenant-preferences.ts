@@ -11,6 +11,7 @@ import type { CartethyiaDatabase } from "../../persistence/postgres";
 import type { CanonicalRequest } from "../canonical-model";
 import type { PreparedProxyRequest } from "../request/preparer";
 import { normalizeThinkingConfig } from "../translation/thinking";
+import { compressRequest } from "../request/rtk/compress-request";
 import { preferencesReaderFor } from "./attempt-finalize";
 
 /**
@@ -51,6 +52,17 @@ export async function applyTenantPreferences(
             },
           };
         }
+      }
+      // Request compression runs last, after shaping: it prunes tool-result
+      // text and appends the PonyTail directive to whatever system content the
+      // shaping above settled on, so the directive is not itself reshaped.
+      if (prefs.rtkPruneEnabled === true || prefs.ponyTailEnabled === true) {
+        const { request } = compressRequest(canonicalRequest, {
+          rtkPrune: prefs.rtkPruneEnabled === true,
+          rtkLevel: prefs.rtkPruneLevel,
+          ponyTail: prefs.ponyTailEnabled === true ? prefs.ponyTailLevel : null,
+        });
+        canonicalRequest = request;
       }
     }
   } catch {

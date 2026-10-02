@@ -9,6 +9,7 @@ import {
   RotateCcw,
   Search,
   Trash2,
+  TriangleAlert,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -51,6 +52,42 @@ function accountStatusRank(status: string): number {
   if (status === "active") return 0;
   if (status === "cooldown") return 2;
   return 3;
+}
+
+/**
+ * What flipping the static-token flag costs, per direction.
+ *
+ * Both directions are consequential and must not be applied on a single click:
+ * turning it *on* stops refreshing, so the account dies at token expiry; turning
+ * it *off* hands the credential back to the OAuth sweep, which will try to
+ * refresh it on its next pass and — for a pasted token with no working refresh
+ * grant — fail and mark the account for re-auth. The operator should confirm
+ * either way, so the button never flips the mode silently.
+ *
+ * Exported so the confirmation copy is testable without a DOM: `Dialog` renders
+ * through `createPortal` behind a `mounted` effect, which never runs under
+ * `renderToStaticMarkup`, so the dialog's body cannot be asserted through a
+ * render.
+ */
+export function staticTokenWarning(
+  enabling: boolean,
+  label: string,
+): {
+  readonly title: string;
+  readonly message: string;
+  readonly confirmLabel: string;
+} {
+  if (enabling)
+    return {
+      title: "Mark as static token (no refresh)?",
+      message: `${label} will be used exactly as issued and the gateway will stop refreshing it. That is correct for a pasted JWT or access token with no working refresh grant — but the account will simply stop working once the token expires, and it will not recover on its own. You can re-enable refresh later.`,
+      confirmLabel: "Mark as static token",
+    };
+  return {
+    title: "Re-enable refresh?",
+    message: `${label} returns to normal OAuth refresh handling, and the gateway will try to refresh the credential on its next pass. If this is a pasted token with no working refresh grant, the refresh will fail and the account will be marked for re-auth. Turn it back on to keep using the credential as issued.`,
+    confirmLabel: "Re-enable refresh",
+  };
 }
 
 /**
@@ -115,11 +152,22 @@ export function AccountStatusBadge({
     // An account can be `active` and still have per-model backoffs: the router
     // skips those (account, model) pairs while the account stays usable for
     // every other model. Showing a bare "Active" hid that entirely.
+    //
+    // A static-token account is `active` and usable exactly as issued: it is
+    // never refreshed, so it carries an informational pill rather than the
+    // "Active" one — the operator needs to know it will stop at token expiry
+    // and that no refresh is being attempted.
+    const staticToken = account.staticToken === true;
     return (
       <Inline gap="4px">
-        <Badge tone="ok" dot>
-          Active
+        <Badge tone={staticToken ? "info" : "ok"} dot>
+          {staticToken ? "Static token" : "Active"}
         </Badge>
+        {staticToken ? (
+          <Badge tone="info" title="Used as issued and never refreshed; re-login before it expires.">
+            no refresh
+          </Badge>
+        ) : null}
         <ModelCooldownChip cooldowns={modelCooldowns} />
       </Inline>
     );
@@ -177,6 +225,9 @@ function AccountRow({
   const [, setTick] = useState(0);
   const [renaming, setRenaming] = useState(false);
   const [draftLabel, setDraftLabel] = useState("");
+  // Holds the direction awaiting confirmation: `true` = about to mark as a
+  // static token, `false` = about to re-enable refresh, `null` = no dialog.
+  const [staticConfirm, setStaticConfirm] = useState<boolean | null>(null);
   const label = account.label || account.id.slice(0, 8);
   // The countdown re-renders on a timer. It must be armed by the per-model
   // backoffs too, not only by `cooldownUntil`: a model-scoped 429 writes
@@ -229,6 +280,24 @@ function AccountRow({
       },
     );
   };
+
+  // Marks the credential as a static bearer token (used as issued, never
+  // refreshed) or returns it to normal OAuth refresh handling. This is the
+  // operator's escape hatch for a pasted JWT/access token whose refresh grant
+  // is absent or dead while the token itself is still valid.
+  //
+  // Both directions are consequential — turning it on stops refreshing (death
+  // at expiry), turning it off hands the credential back to the OAuth sweep,
+  // which fails for a token with no working grant — so each opens a
+  // confirmation explaining the cost rather than flipping the mode on one click.
+  const staticToken = account.staticToken === true;
+  const applyStaticToken = (): Promise<unknown> =>
+    update.mutateAsync({
+      providerId,
+      accountId: account.id,
+      request: { staticToken: !staticToken },
+    });
+  const toggleStaticToken = () => setStaticConfirm(!staticToken);
 
   const handleTest = () => {
     testQuota.mutate(undefined, {
@@ -323,6 +392,24 @@ function AccountRow({
         <div className="account-row-actions">
           <Button
             size="icon"
+            variant={staticToken ? "primary" : "secondary"}
+            icon={<TriangleAlert size={12} />}
+            label={staticToken ? "Static token" : "No refresh"}
+            aria-label={
+              staticToken
+                ? `Static token mode on for ${label}; click to re-enable refresh`
+                : `Mark ${label} as a static token (no refresh)`
+            }
+            disabled={update.isPending}
+            onClick={toggleStaticToken}
+            title={
+              staticToken
+                ? "Static token: used as issued, never refreshed. Click to re-enable refresh."
+                : "Mark as static token: use this credential as issued and never refresh it (for a pasted JWT/access token)."
+            }
+          />
+          <Button
+            size="icon"
             variant="secondary"
             icon={<Activity size={12} />}
             label="Health"
@@ -393,6 +480,22 @@ function AccountRow({
           onClose={() => setShowHistory(false)}
         />
       )}
+      <ConfirmDialog
+        open={staticConfirm !== null}
+        onClose={() => setStaticConfirm(null)}
+        onConfirm={() =>
+          applyStaticToken().then(() =>
+            toast.success(
+              staticConfirm ? "Marked as static token (no refresh)" : "Refresh re-enabled",
+              label,
+            ),
+          )
+        }
+        title={staticTokenWarning(staticConfirm === true, label).title}
+        message={staticTokenWarning(staticConfirm === true, label).message}
+        confirmLabel={staticTokenWarning(staticConfirm === true, label).confirmLabel}
+        cancelLabel="Cancel"
+      />
     </>
   );
 }
@@ -758,6 +861,10 @@ export function AccountsList({
 
 
 
+/** Cap on an imported credential file; a mis-picked file must not stall the tab. */
+const CREDENTIAL_FILE_MAX_BYTES = 2 * 1024 * 1024;
+const CREDENTIAL_FILE_MAX_MB = CREDENTIAL_FILE_MAX_BYTES / (1024 * 1024);
+
 export function AddAccountModal({
   providerId,
   accounts,
@@ -797,6 +904,42 @@ export function AddAccountModal({
     } catch {
       toast.error("Clipboard access denied");
     }
+  };
+
+  /**
+   * Reads a picked `.txt`/`.json` file into the same field the paste path fills.
+   *
+   * The parser already accepts a JSON array, one credential per line, and
+   * newline-delimited JSON exports, so the file only has to become text — the
+   * detection, labelling, and batch preview are the shared path, not a second
+   * implementation. Size is capped so a mis-picked file cannot freeze the tab
+   * building a preview it will never submit.
+   */
+  const handleFile = (file: File) => {
+    if (file.size > CREDENTIAL_FILE_MAX_BYTES) {
+      toast.error("File too large", `Credential files must be ${CREDENTIAL_FILE_MAX_MB} MB or smaller.`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = typeof reader.result === "string" ? reader.result : "";
+      setSecret(text);
+      const parsed = parseCredentialBatch(text);
+      if (parsed.length === 0) {
+        toast.error("Nothing to import", "That file held no credential the gateway recognises.");
+        return;
+      }
+      toast.success(
+        `Imported ${file.name}`,
+        parsed.length > 1
+          ? `Detected ${parsed.length} credentials`
+          : parsed[0]?.kind === "oauth"
+            ? "Detected: OAuth export"
+            : "Detected: API key",
+      );
+    };
+    reader.onerror = () => toast.error("Could not read that file");
+    reader.readAsText(file);
   };
 
   const handleSubmit = async () => {
@@ -931,6 +1074,26 @@ export function AddAccountModal({
             >
               Paste
             </Button>
+            {/* Same field, same parser — the file only replaces typing. Accepts
+                the JSON export this dialog produces, plus .txt/.jsonl carrying
+                one credential per line. */}
+            <label
+              className="btn btn-secondary"
+              style={{ flexShrink: 0, cursor: "pointer" }}
+            >
+              <input
+                type="file"
+                accept=".json,.txt,.jsonl,.ndjson,application/json,text/plain"
+                aria-label="Import credentials from a file"
+                style={{ display: "none" }}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) handleFile(file);
+                }}
+              />
+              Import file
+            </label>
           </Inline>
         </Stack>
         {isBatch && (

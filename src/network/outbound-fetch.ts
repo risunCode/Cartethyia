@@ -2,7 +2,8 @@
 import { GatewayError } from "../transport/gateway-error";
 import { Agent as HttpAgent, request as httpRequest, type RequestOptions } from "node:http";
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
-import { Readable } from "node:stream";
+import { Readable, type Transform } from "node:stream";
+import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { resolveAllAddresses, validateResolvedAddresses } from "./ssrf";
 import type { SsrfPolicy } from "../config";
 import { isProxyAgentPair, type ProxyAgentPair } from "./pool/agent";
@@ -58,8 +59,47 @@ function relayRequest(
   return { url: relayUrl, init: { ...init, headers } };
 }
 
-async function pinnedFetch(
-  url: URL,
+/**
+ * Decompresses an upstream body the way `fetch` would, because this path
+ * bypasses `fetch`.
+ *
+ * `node:http` hands back the raw body and does not decode `content-encoding`,
+ * while `fetch`/Undici transparently gunzips. Rebuilding a `Response` around the
+ * still-compressed stream therefore told every consumer the body was plain when
+ * it was not: `response.text()` returned binary garbage, and a JSON parse on it
+ * failed as `platform_unavailable: Claude response is not valid JSON`. That is
+ * why only the upstreams that actually compress (`br` for Anthropic) appeared
+ * broken while others worked — nothing here requested an encoding, but a server
+ * may compress anyway.
+ *
+ * Returns the stream untouched for `identity`, an unknown encoding, or when no
+ * `content-encoding` is present.
+ */
+function decompressBody(
+  body: Readable,
+  encoding: string | undefined,
+): { stream: Readable; encoding: string | undefined } {
+  const normalized = encoding?.trim().toLowerCase();
+  if (normalized === undefined || normalized === "" || normalized === "identity") {
+    return { stream: body, encoding: undefined };
+  }
+  const decoder: Transform | undefined =
+    normalized === "gzip" || normalized === "x-gzip"
+      ? createGunzip()
+      : normalized === "deflate"
+        ? createInflate()
+        : normalized === "br"
+          ? createBrotliDecompress()
+          : undefined;
+  // An encoding we cannot decode (e.g. zstd) is left alone: forwarding the
+  // header with the raw body keeps the caller's own decoder in charge, which is
+  // strictly better than claiming a plain body we never decoded.
+  if (decoder === undefined) return { stream: body, encoding: normalized };
+  body.on("error", (error) => decoder.destroy(error));
+  return { stream: body.pipe(decoder), encoding: undefined };
+}
+
+async function pinnedFetch(  url: URL,
   init: RequestInit,
   resolvedAddress: string | undefined,
   agent?: HttpAgent | HttpsAgent,
@@ -119,7 +159,15 @@ async function pinnedFetch(
       },
       (response) => {
         const responseHeaders = stripResponseHeaders(response.headers);
-        const webStream = Readable.toWeb(response) as unknown as ReadableStream<Uint8Array>;
+        const { stream, encoding } = decompressBody(response, response.headers["content-encoding"]);
+        if (encoding === undefined) {
+          // Body is plain (decoded here, or never compressed): the header must
+          // not survive, or the caller would try to decode a decoded body.
+          responseHeaders.delete("content-encoding");
+        }
+        // A compressed body this path cannot decode keeps its header so the
+        // caller's decoder still applies.
+        const webStream = Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>;
         resolve(
           new Response(webStream, {
             status: response.statusCode ?? 502,

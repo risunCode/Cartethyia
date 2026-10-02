@@ -16,6 +16,14 @@ export interface RuntimeSettingsResponse {
   readonly responsesReasoningSummary: ResponsesReasoningSummary;
   readonly telemetryPayloads: TelemetryPayloadMode;
   readonly privacyMode: PrivacyMode;
+  /** Compacts bulky tool-result text before dispatch (RTK prune). Default false. */
+  readonly rtkPruneEnabled: boolean;
+  /** RTK strength when enabled; `full` by default. */
+  readonly rtkPruneLevel: RtkLevel;
+  /** PonyTail directive appended to system content. Default false. */
+  readonly ponyTailEnabled: boolean;
+  /** PonyTail directive intensity; `full` by default. */
+  readonly ponyTailLevel: PonyTailLevel;
   readonly updatedAt: string;
 }
 
@@ -46,12 +54,18 @@ export interface RuntimeSettingsConfig {
 export const RESPONSES_REASONING_SUMMARIES = ["auto", "concise", "detailed"] as const;
 /** Reasoning-summary verbosity accepted for the Responses surface. */
 export type ResponsesReasoningSummary = (typeof RESPONSES_REASONING_SUMMARIES)[number];
-export const TELEMETRY_PAYLOAD_MODES = ["bounded", "metadata", "none"] as const;
+export const TELEMETRY_PAYLOAD_MODES = ["full", "metadata", "none"] as const;
 /** Telemetry payload capture mode accepted by the runtime-settings PATCH. */
 export type TelemetryPayloadMode = (typeof TELEMETRY_PAYLOAD_MODES)[number];
 export const PRIVACY_MODES = ["masked", "full"] as const;
 /** Provider/model label privacy accepted by the runtime-settings PATCH. */
 export type PrivacyMode = (typeof PRIVACY_MODES)[number];
+export const PONYTAIL_LEVELS = ["lite", "full", "ultra"] as const;
+/** PonyTail directive intensity accepted by the runtime-settings PATCH. */
+export type PonyTailLevel = (typeof PONYTAIL_LEVELS)[number];
+export const RTK_LEVELS = ["lite", "full", "ultra"] as const;
+/** RTK prune strength accepted by the runtime-settings PATCH. */
+export type RtkLevel = (typeof RTK_LEVELS)[number];
 
 export function createRuntimeSettingsOperations(deps: RuntimeSettingsConfig) {
   const operations = {
@@ -88,6 +102,16 @@ export function createRuntimeSettingsOperations(deps: RuntimeSettingsConfig) {
         if (patch.privacyMode !== undefined && !PRIVACY_MODES.includes(patch.privacyMode)) {
           throw new ConsoleDomainError("invalid_request", 400, "Invalid privacyMode");
         }
+        if (
+          patch.ponyTailLevel !== undefined &&
+          patch.ponyTailLevel !== null &&
+          !PONYTAIL_LEVELS.includes(patch.ponyTailLevel)
+        ) {
+          throw new ConsoleDomainError("invalid_request", 400, "Invalid ponyTailLevel");
+        }
+        if (patch.rtkPruneLevel !== undefined && !RTK_LEVELS.includes(patch.rtkPruneLevel)) {
+          throw new ConsoleDomainError("invalid_request", 400, "Invalid rtkPruneLevel");
+        }
         const updated = await deps.store.update(a.tenantId, patch);
         await deps.auditSink?.record({
           access: a,
@@ -113,6 +137,10 @@ const runtimeUpdateBody = t.Object({
   privacyMode: t.Optional(literalUnion(PRIVACY_MODES)),
   tenantConcurrencyLimit: t.Optional(t.Union([t.Null(), t.Number()])),
   thinkingNormalizationEnabled: t.Optional(t.Boolean()),
+  rtkPruneEnabled: t.Optional(t.Boolean()),
+  rtkPruneLevel: t.Optional(literalUnion(RTK_LEVELS)),
+  ponyTailEnabled: t.Optional(t.Boolean()),
+  ponyTailLevel: t.Optional(literalUnion(PONYTAIL_LEVELS)),
 });
 
 export function createRuntimeSettingsRoutes(config: RuntimeSettingsConfig): Elysia {

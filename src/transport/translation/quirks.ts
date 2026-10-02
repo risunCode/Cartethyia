@@ -18,8 +18,13 @@ import {
 export interface ParamQuirk {
   /** Provider id the quirk applies to (matches `candidate.provider_id`). */
   readonly provider: string;
-  /** Optional model-name matcher; when absent the quirk applies to every model. */
-  readonly matchModel?: RegExp;
+  /**
+   * Optional model matcher; when absent the quirk applies to every model.
+   * A predicate is allowed because some quirks turn on a model *generation*
+   * (`claude-opus-4-7` vs `claude-opus-4-6`), which no literal pattern can
+   * express without enumerating every future id.
+   */
+  readonly matchModel?: RegExp | ((modelId: string) => boolean);
   /** Canonical `generation_controls` keys to strip before dispatch. */
   readonly stripControls?: readonly (keyof GenerationControls)[];
   /** Upper bound applied to `generation_controls.max_tokens` when exceeded. */
@@ -69,11 +74,60 @@ export function resolveWireMaxTokens(
   return value;
 }
 /**
- * Confirmed quirks only. Currently confirmed: Anthropic rejects `temperature`
- * when extended thinking is active on Claude models.
+ * Model families whose newer generations reject non-default sampling
+ * parameters outright.
+ *
+ * `claude-opus-4-7` and later, plus every `claude-sonnet`/`claude-fable`/
+ * `claude-mythos` at generation 5 or later, answer
+ * `` `temperature` is deprecated for this model `` with a 400. Older
+ * generations accept sampling normally, so the strip cannot be applied to the
+ * whole family: `claude-opus-4-6` and `claude-sonnet-4-6` take `temperature`
+ * and must keep receiving it.
+ *
+ * Keyed on the generation rather than an id list so a new model id is covered
+ * the day it ships. A name with no parseable generation (a dated snapshot such
+ * as `claude-haiku-4-5-20251001`, or a reseller alias) reports no generation
+ * and is left untouched — the same conservative default the reference takes.
+ */
+const SAMPLING_REJECTING_FAMILIES: readonly string[] = ["opus", "sonnet", "fable", "mythos"];
+
+function modelGeneration(modelId: string): { family: string; major: number; minor: number } | undefined {
+  const match = /claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(modelId.toLowerCase());
+  if (match === null) return undefined;
+  const family = match[1]!;
+  if (!SAMPLING_REJECTING_FAMILIES.includes(family)) return undefined;
+  return { family, major: Number(match[2]), minor: Number(match[3] ?? 0) };
+}
+
+/** True when the model rejects `temperature`/`top_p`/`top_k` at any thinking setting. */
+export function rejectsSamplingParams(modelId: string): boolean {
+  const generation = modelGeneration(modelId);
+  if (generation === undefined) return false;
+  // Opus turns strict at 4.7; the other families at 5.0.
+  return generation.family === "opus"
+    ? generation.major > 4 || (generation.major === 4 && generation.minor >= 7)
+    : generation.major >= 5;
+}
+
+/**
+ * Confirmed quirks only.
+ *
+ * `anthropic`/`claude` carry the sampling-parameter row because both reach the
+ * same Messages wire; `claude` (OAuth) is a distinct provider id from
+ * `anthropic` (API key), and the deprecation is a model fact, not a
+ * credential fact, so it applies to both.
  */
 const PARAM_QUIRKS: readonly ParamQuirk[] = [
-  { provider: "anthropic", matchModel: /claude/, stripControls: ["temperature"] },
+  {
+    provider: "anthropic",
+    matchModel: rejectsSamplingParams,
+    stripControls: ["temperature", "top_p", "top_k"],
+  },
+  {
+    provider: "claude",
+    matchModel: rejectsSamplingParams,
+    stripControls: ["temperature", "top_p", "top_k"],
+  },
 ];
 
 /** Finds the first quirk matching the provider/model pair, or undefined. */
@@ -81,11 +135,12 @@ export function findParamQuirk(
   providerId: string,
   modelId: string,
 ): ParamQuirk | undefined {
-  return PARAM_QUIRKS.find(
-    (quirk) =>
-      quirk.provider === providerId &&
-      (quirk.matchModel === undefined || quirk.matchModel.test(modelId)),
-  );
+  return PARAM_QUIRKS.find((quirk) => {
+    if (quirk.provider !== providerId) return false;
+    const matcher = quirk.matchModel;
+    if (matcher === undefined) return true;
+    return typeof matcher === "function" ? matcher(modelId) : matcher.test(modelId);
+  });
 }
 
 /**

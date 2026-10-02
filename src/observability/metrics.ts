@@ -146,41 +146,91 @@ class Gauge extends ScalarMetric implements GaugeMetric {
   }
 }
 
+/** One histogram series: the accumulators for a single label set. */
+interface HistogramSeries {
+  labels: MetricLabels;
+  sum: number;
+  count: number;
+  bucketCounts: number[];
+}
+
 class Histogram implements HistogramMetric {
-  private sum = 0;
-  private count = 0;
-  private readonly bucketCounts: number[];
+  private readonly series = new Map<string, HistogramSeries>();
+  /**
+   * The label names this histogram emits, fixed by the first LABELLED
+   * observation. A Prometheus metric family must expose one consistent label set,
+   * so a later observation carrying different keys is normalized against this set
+   * rather than creating a second, incompatible series.
+   */
+  private labelNames: readonly string[] = [];
 
   constructor(
     readonly name: string,
     readonly help: string,
     readonly buckets: readonly number[],
-  ) {
-    this.bucketCounts = buckets.map(() => 0);
-  }
+  ) {}
 
-  observe(value: number): void {
-    this.sum += value;
-    this.count += 1;
+  observe(value: number, labels?: MetricLabels): void {
+    if (this.labelNames.length === 0 && labels !== undefined) {
+      // Sorting makes the exposition order deterministic, so two runs of the same
+      // code produce byte-identical output.
+      this.labelNames = Object.keys(labels).sort();
+    }
+    const normalized = normalizeLabels(labels, this.labelNames);
+    const key = serializeLabels(this.labelNames, normalized);
+    if (!canAddSeries(this.series, key)) return;
+    let sample = this.series.get(key);
+    if (sample === undefined) {
+      sample = { labels: normalized, sum: 0, count: 0, bucketCounts: this.buckets.map(() => 0) };
+      this.series.set(key, sample);
+    }
+    sample.sum += value;
+    sample.count += 1;
     for (let index = 0; index < this.buckets.length; index += 1) {
       const bucket = this.buckets[index];
-      if (bucket !== undefined && value <= bucket) this.bucketCounts[index]! += 1;
+      if (bucket !== undefined && value <= bucket) sample.bucketCounts[index]! += 1;
     }
   }
 
   render(): string[] {
     const lines = [`# HELP ${this.name} ${escapeHelp(this.help)}`, `# TYPE ${this.name} histogram`];
-    for (let index = 0; index < this.buckets.length; index += 1) {
-      const bucket = this.buckets[index];
-      if (bucket === undefined) continue;
+    // An unlabelled histogram that has never been observed still renders its
+    // zeroed buckets, so a scrape before the first request is not an absent
+    // metric. A labelled one renders one block per observed series.
+    const samples =
+      this.series.size > 0 ? [...this.series.values()] : [this.emptySeries()];
+    for (const sample of samples) {
+      const suffix = renderLabelSet(this.labelNames, sample.labels);
+      for (let index = 0; index < this.buckets.length; index += 1) {
+        const bucket = this.buckets[index];
+        if (bucket === undefined) continue;
+        const inner = this.bucketLabels(sample.labels, `le="${escapeLabelValue(bucket)}"`);
+        lines.push(`${this.name}_bucket{${inner}} ${sample.bucketCounts[index] ?? 0}`);
+      }
       lines.push(
-        `${this.name}_bucket{le="${escapeLabelValue(bucket)}"} ${this.bucketCounts[index] ?? 0}`,
+        `${this.name}_bucket{${this.bucketLabels(sample.labels, 'le="+Inf"')}} ${sample.count}`,
       );
+      lines.push(`${this.name}_sum${suffix} ${sample.sum}`);
+      lines.push(`${this.name}_count${suffix} ${sample.count}`);
     }
-    lines.push(`${this.name}_bucket{le="+Inf"} ${this.count}`);
-    lines.push(`${this.name}_sum ${this.sum}`);
-    lines.push(`${this.name}_count ${this.count}`);
     return lines;
+  }
+
+  /** A zeroed series, used only when nothing has been observed yet. */
+  private emptySeries(): HistogramSeries {
+    return { labels: {}, sum: 0, count: 0, bucketCounts: this.buckets.map(() => 0) };
+  }
+
+  /**
+   * The `{...}` body of a `_bucket` line: the declared labels plus the `le`
+   * bucket boundary. `le` is appended last so the label order matches what a
+   * Prometheus scraper expects to find.
+   */
+  private bucketLabels(labels: MetricLabels, le: string): string {
+    const declared = this.labelNames
+      .map((name) => `${name}="${escapeLabelValue(labels[name] ?? "")}"`)
+      .filter((part) => part.length > 0);
+    return [...declared, le].join(",");
   }
 }
 

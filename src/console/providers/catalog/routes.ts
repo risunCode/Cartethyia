@@ -75,6 +75,7 @@ const updateAccountBody = t.Object({
   label: t.Optional(t.String()),
   secret: t.Optional(t.String()),
   status: t.Optional(literalUnion(ACCOUNT_STATUSES)),
+  staticToken: t.Optional(t.Boolean()),
 });
 const registerModelsBody = t.Object({
   modelIds: t.Array(t.String()),

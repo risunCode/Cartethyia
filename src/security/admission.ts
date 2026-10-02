@@ -335,16 +335,25 @@ export class InMemoryAdmissionCounterStore implements AdmissionCounterStore {
       // A missing counter is the only path that seeds from the snapshot; on
       // that path prefer a fresh persisted read over the ≤3s-stale snapshot,
       // otherwise the counter is frozen at a low baseline for its whole TTL.
+      //
+      // The callback is consulted only when a lifetime budget is set, matching the
+      // Redis store (`request.lifetimeBudget != null && request.freshLifetimeConsumed`).
+      // Without that guard the store awaited the callback first and only afterwards
+      // found it had no key to write the value to — so every admitted request paid
+      // the callback's cost (the wired one runs `findActiveById` plus
+      // `sumChildrenConsumed`, two Postgres round trips) for a value it discarded.
       const cached = this.lifetime.get(request.apiKeyId);
       let lifetime: number;
       if (cached !== undefined) {
         lifetime = cached;
-      } else {
-        const fresh = await request.freshLifetimeConsumed?.();
+      } else if (request.lifetimeBudget != null && request.freshLifetimeConsumed) {
+        const fresh = await request.freshLifetimeConsumed();
         lifetime =
           typeof fresh === "number" && Number.isFinite(fresh) && fresh >= 0
             ? Math.floor(fresh)
             : request.lifetimeConsumed;
+      } else {
+        lifetime = request.lifetimeConsumed;
       }
       if (
         !finiteNonNegative(daily) ||

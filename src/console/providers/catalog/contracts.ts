@@ -3,7 +3,7 @@
 // routes and the Drizzle catalog store.
 
 import { GatewayError } from "../../../transport/gateway-error";
-import { type WireFamily, WIRE_FAMILIES } from "../../../transport/canonical-model";
+import { type ServiceKind, type WireFamily, SERVICE_KINDS, WIRE_FAMILIES } from "../../../transport/canonical-model";
 import { type ProviderRoutingSetting, type ProviderRoutingStrategy } from "../../../transport/routing/route-model";
 import { isProtectedHeader } from "../../../security/outbound-headers";
 import type { AccountHealthEventRecord } from "../../../providers/operations/account-health-service";
@@ -76,6 +76,24 @@ export function isWireFamily(value: unknown): value is WireFamily {
  */
 const _wireFamilyCoverage: Record<(typeof WIRE_FAMILIES)[number], true> = VALID_WIRE_FAMILIES;
 void _wireFamilyCoverage;
+
+const VALID_SERVICE_KINDS: Record<ServiceKind, true> = {
+  llm: true,
+  systemone: true,
+  websearch: true,
+};
+
+export function isServiceKind(value: unknown): value is ServiceKind {
+  return typeof value === "string" && value in VALID_SERVICE_KINDS;
+}
+
+/**
+ * Compile-time guard: `VALID_SERVICE_KINDS` above must cover `SERVICE_KINDS`
+ * exactly, so adding a kind to the canonical tuple cannot leave the validator
+ * silently rejecting it.
+ */
+const _serviceKindCoverage: Record<(typeof SERVICE_KINDS)[number], true> = VALID_SERVICE_KINDS;
+void _serviceKindCoverage;
 
 const TOKEN_REGEX = /^[a-z0-9!#$%&'*+\-.^_`|~]+$/;
 
@@ -281,6 +299,12 @@ export interface ModelCatalogEntry {
   route: string;
   provider: string;
   wireFamily: string;
+  /**
+   * Protocol shape at all (`llm` or a native service such as `systemone`).
+   * `llm` flows through the canonical chat pipeline; a non-`llm` row is served
+   * by its native route and its `route` points at that endpoint.
+   */
+  serviceKind: string;
   enabled: boolean;
   // Metadata (null = not yet enriched)
   contextLimit: number | null;
@@ -348,6 +372,13 @@ export interface UpdateProviderAccountRequest {
   label?: string;
   secret?: string;
   status?: AccountStatus;
+  /**
+   * Marks the credential as a static bearer token that must never be sent to a
+   * refresh endpoint (a pasted JWT/access token, or an account whose refresh
+   * grant is gone but whose token still works). `true` skips the account in the
+   * refresh sweep; `false` returns it to normal OAuth refresh handling.
+   */
+  staticToken?: boolean;
 }
 export interface ProviderAccountTokenUsage {
   readonly requests: number;
@@ -387,6 +418,12 @@ export interface ProviderAccountResponse {
   modelCooldowns?: Readonly<Record<string, string>>;
   lastRecoveredAt?: string;
   createdAt: string;
+  /**
+   * The credential is a static bearer token used as issued and never refreshed.
+   * Surfaced so the console shows an informational "static token" pill instead
+   * of treating the account as broken; the account stays dispatchable.
+   */
+  staticToken?: boolean;
   /** Stable list position within this provider; the console's "Added" order. */
   sortIndex: number;
 }
@@ -444,6 +481,8 @@ export interface ProviderLoginField {
 
 export interface ProviderResponse {
   providerId: string;
+  /** Canonical backend display name; custom providers fall back to providerId. */
+  displayName: string;
   label?: string;
   enabled: boolean;
   isBuiltIn: boolean;
@@ -607,6 +646,12 @@ export interface ProviderRoutingResponse {
   readonly rotateCount: number;
   /** Per-account inflight ceiling; `null` = unlimited concurrency. */
   readonly maxInflight: number | null;
+  /**
+   * Credit reserve for every account of this provider; `null` = no reserve.
+   * When an account's remaining credit reaches this floor the quota sweep parks
+   * it in a 24h cooldown so routing fails over instead of draining it.
+   */
+  readonly creditFloor: number | null;
   readonly enabled: boolean;
   /** When true, this provider's requests always dial direct. When false,
    * dispatch automatically picks the least-loaded, non-cooldown pool among

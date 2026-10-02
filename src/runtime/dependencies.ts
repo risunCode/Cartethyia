@@ -3,12 +3,19 @@ import { assertPoolFitsServerCapacity, ensureMigrated, getDb, poolMaxFromEnv } f
 import type { CartethyiaDatabase } from "../persistence/postgres";
 import { getRedis } from "../persistence/redis";
 import type { RedisClient } from "../persistence/redis";
-import { seedBundledProviders, registerByokProviders, liveProviderUpstreamHosts, bundledModelCatalog } from "../providers/operations/provider-catalog-service";
+import {
+  bundledModelCatalog,
+  liveProviderUpstreamHosts,
+  registerByokProviders,
+  retireUnbundledProviders,
+  seedBundledProviders,
+} from "../providers/operations/provider-catalog-service";
 import type { BundledProviderCatalog } from "../providers/operations/provider-catalog-service";
 import { createDefaultProviderRegistry } from "../providers/default-registry";
 import { OAuthRefreshService, loadDueOAuthAccounts } from "../providers/authentication/oauth-refresh-service";
 import type { OAuthTokenRefresher } from "../providers/authentication/oauth-refresh-service";
 import { oauthRefreshSweep } from "../workers/oauth-refresh-worker";
+import { pushStructuredConsoleLog } from "../observability/log-ring";
 import { seedBundledModels } from "../providers/operations/provider-catalog-seeder";
 import { createDatabaseSnapshotBuilder } from "../transport/routing/route-catalog";
 import { DrizzleProviderCatalogStore } from "../console/providers/catalog/store";
@@ -17,6 +24,11 @@ import { RedisAdmissionController, RoutingEngine } from "../transport/routing/ro
 import { ApiKeyAdmissionService, InMemoryAdmissionCounterStore, RedisAdmissionCounterStore, sweepLeases } from "../security/admission";
 import { DrizzleApiKeyStore } from "../persistence/api-key-store";
 import { InMemoryIpAbuseStore, IpAbuseProtectionService, RedisIpAbuseStore } from "../security/abuse";
+import {
+  InMemoryModelAbuseStore,
+  ModelStrikeService,
+  RedisModelAbuseStore,
+} from "../security/model-abuse";
 import { checkReadiness, resolveRedisMode } from "../persistence/readiness";
 import { ProxyRequestPreparer } from "../transport/request/preparer";
 import { DrizzleNetworkPoolLoader } from "../network/pool/loader";
@@ -30,6 +42,7 @@ import { quotaRefreshSweep } from "../workers/quota-refresh-worker";
 import { checkinEgressForPass } from "../workers/checkin-egress";
 import { createAccountSecretResolver } from "../providers/operations/provider-credential-service";
 import { quotaCacheSize } from "../console/quota/cache";
+import { createCreditFloorResolver } from "../console/quota/refresh";
 import { preferencesReaderFor } from "../transport/dispatch/attempt-finalize";
 import { sweepExpiredCooldowns } from "../providers/operations/account-health-service";
 import { DrizzleTelemetryStore } from "../persistence/telemetry-store";
@@ -39,6 +52,9 @@ import { TelemetryBatchBuffer } from "../observability/telemetry-buffer";
 import { RuntimeMetricsSampler } from "../observability/runtime-metrics";
 import {
   resolveIpRateLimit,
+  resolveModelBanTtlMs,
+  resolveModelStrikeThreshold,
+  resolveModelStrikeWindowMs,
   resolveSsrfPolicy,
   resolveTelemetryRetentionDays,
   resolveTrustedProxyBoundary,
@@ -80,7 +96,16 @@ export interface ProductionDeps {
   resolveOAuthRefresher: (providerId: string) => Promise<OAuthTokenRefresher | undefined>;
   oauthRefreshService: OAuthRefreshService;
   admissionService: ApiKeyAdmissionService;
+  /** Graduated strikes for repeated invalid-model requests. */
+  modelStrikes: ModelStrikeService;
 }
+
+/**
+ * Pause between accounts in the OAuth refresh sweep. The token endpoints
+ * rate-limit a burst of refreshes even at low concurrency, so the pass runs
+ * sequentially with this gap rather than in waves.
+ */
+const OAUTH_REFRESH_INTER_ITEM_DELAY_MS = 1_500;
 
 export async function buildProductionDeps(): Promise<ProductionDeps> {
   const db = getDb();
@@ -90,6 +115,11 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   await ensureMigrated();
   await assertPoolFitsServerCapacity(poolMaxFromEnv());
   await seedBundledProviders(db);
+  // Boot-only: retire global rows for providers the bundle has dropped, so a
+  // retired provider cannot linger as a card the console can no longer delete.
+  // Kept off the test harness path, which shares one database across suites and
+  // installs its own global fixtures.
+  await retireUnbundledProviders(db);
   const registry = createDefaultProviderRegistry();
   // Live view, not a snapshot: custom providers registered after boot (or
   // edited from the console) must resolve their SSRF binding immediately.
@@ -173,6 +203,16 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   const ipAbuseProtection = new IpAbuseProtectionService(ipStore, undefined, {
     maxRequestsPerWindow: resolveIpRateLimit(),
   });
+  // Graduated model-abuse strikes: a client that keeps requesting models
+  // outside its access is warned, then banned. Redis-backed when available so
+  // the ban survives a restart and is shared across instances; in-memory
+  // otherwise (single_instance_local), where a restart clears it.
+  const modelAbuseStore = redis ? new RedisModelAbuseStore(redis) : new InMemoryModelAbuseStore();
+  const modelStrikes = new ModelStrikeService(modelAbuseStore, {
+    threshold: resolveModelStrikeThreshold(),
+    windowMs: resolveModelStrikeWindowMs(),
+    banTtlMs: resolveModelBanTtlMs(),
+  });
   const readiness = () => checkReadiness(db, redis, redisMode);
   const scheduledTasks = new ScheduledTaskRegistry();
   if (redis) {
@@ -240,11 +280,23 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
         loadDueAccounts: () => loadDueOAuthAccounts(db),
         refreshService: oauthRefreshService,
         resolveRefresher: (providerId) => registry.resolveRefresher(providerId),
+        // Sequential with a pause between accounts: the OAuth token endpoints
+        // rate-limit a burst of refreshes, and a pass over a handful of
+        // accounts must not look like one. Per-account outcomes are already
+        // pushed to the Console Log ring by `OAuthRefreshService`; this only
+        // covers an error that escaped before reaching it.
+        interItemDelayMs: OAUTH_REFRESH_INTER_ITEM_DELAY_MS,
         onAccountError: (accountId, providerId, error) => {
           log.error(
             `[oauth-refresh] account=${accountId} provider=${providerId} failed:`,
             error as Error,
           );
+          pushStructuredConsoleLog("error", "OAuth refresh sweep: account failed", {
+            event: "token_refresh",
+            accountId,
+            providerId,
+            errorCode: "refresh_sweep_failed",
+          });
         },
       }),
   });
@@ -279,6 +331,13 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
           redis,
           providerRegistry: registry,
           resolveCredential: quotaResolveCredential,
+          // The credit reserve (Routing Strategy "credit floor") is enforced on
+          // this sweep: it is the path that fetches live credit, so a funded
+          // account is parked in a 24h cooldown the moment its remaining credit
+          // reaches the operator's floor, and the route snapshot is invalidated
+          // so the next plan fails over instead of draining it.
+          resolveCreditFloor: createCreditFloorResolver(db),
+          snapshotInvalidator: snapshotService,
           // The check-in ride-along rotates egress per account: each account
           // gets the next active pool in its tenant's rotation so check-ins
           // spread across IPs instead of sharing one direct egress. No pool
@@ -316,6 +375,7 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
     }),
     networkBindingFactory,
     ipAbuseProtection,
+    modelStrikes,
     readiness,
     scheduledTasks,
     poolAgentResolver,

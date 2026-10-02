@@ -205,6 +205,66 @@ export class DrizzleModelRoutingStore implements ModelRoutingStore {
     return rows.length > 0;
   }
 
+  /**
+   * Renames a combo and rewrites every reference to its old name in one
+   * transaction: an alias that targets the old name now targets the new one,
+   * and another combo that lists the old name as a member does too. A rename
+   * that skipped the rewrite would leave aliases and nested combos pointing at
+   * a name that no longer resolves.
+   */
+  async renameCombo(
+    tenantId: string,
+    id: string,
+    nextName: string,
+  ): Promise<ModelComboRow | undefined> {
+    return this.db.transaction(async (tx) => {
+      const currentRows = await tx
+        .select()
+        .from(modelCombos)
+        .where(and(eq(modelCombos.tenantId, tenantId), eq(modelCombos.id, id)))
+        .limit(1);
+      const current = currentRows[0];
+      if (!current) return undefined;
+      const oldName = current.name;
+      if (oldName === nextName) return mapComboRow(current);
+
+      const updatedRows = await tx
+        .update(modelCombos)
+        .set({ name: nextName, updatedAt: new Date() })
+        .where(and(eq(modelCombos.tenantId, tenantId), eq(modelCombos.id, id)))
+        .returning();
+      const updated = updatedRows[0];
+      if (!updated) return undefined;
+
+      // Alias targets are single values; a rename only matters when the alias
+      // pointed at this combo by name.
+      await tx
+        .update(modelAliases)
+        .set({ targetModel: nextName, updatedAt: new Date() })
+        .where(and(eq(modelAliases.tenantId, tenantId), eq(modelAliases.targetModel, oldName)));
+
+      // Other combos list members as a JSON array. Read the tenant's combos,
+      // rewrite any that name the old combo, and write back only those — a
+      // JSON array cannot be updated in place with a plain string replace.
+      const others = await tx
+        .select({ id: modelCombos.id, members: modelCombos.members })
+        .from(modelCombos)
+        .where(eq(modelCombos.tenantId, tenantId));
+      for (const other of others) {
+        if (other.id === id) continue;
+        if (!other.members.includes(oldName)) continue;
+        await tx
+          .update(modelCombos)
+          .set({
+            members: other.members.map((member) => (member === oldName ? nextName : member)),
+            updatedAt: new Date(),
+          })
+          .where(and(eq(modelCombos.tenantId, tenantId), eq(modelCombos.id, other.id)));
+      }
+      return mapComboRow(updated);
+    });
+  }
+
   async isKnownModel(tenantId: string, modelId: string): Promise<boolean> {
     const known = await this.areKnownModels(tenantId, [modelId]);
     return known.has(modelId);

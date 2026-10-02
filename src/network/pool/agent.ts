@@ -91,7 +91,11 @@ function isRelayHost(hostname: string): boolean {
   return (
     normalized.endsWith(".vercel.app") ||
     normalized.endsWith(".workers.dev") ||
-    normalized.endsWith(".netlify.app")
+    normalized.endsWith(".netlify.app") ||
+    // Deno Deploy project URLs. `*.deno.dev` is the project hostname Deno
+    // Deploy assigns, so a deployed relay answers there exactly like a
+    // Vercel/Workers front door.
+    normalized.endsWith(".deno.dev")
   );
 }
 

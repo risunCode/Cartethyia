@@ -30,6 +30,7 @@ export interface RoutingStrategyState {
   readonly rotateCount: number;
   readonly setRotateCount: (next: number) => void;
   readonly maxInflight: number | null;
+  readonly creditFloor: number | null;
   readonly bypassProxy: boolean;
   readonly userAgent: string;
   readonly setUserAgent: (next: string) => void;
@@ -39,6 +40,7 @@ export interface RoutingStrategyState {
   readonly saveFailed: boolean;
   readonly refetch: () => void;
   readonly setMaxInflight: (next: number | null) => void;
+  readonly setCreditFloor: (next: number | null) => void;
   readonly setBypassProxy: (next: boolean) => void;
 }
 
@@ -48,6 +50,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
   const [strategy, setStrategyState] = useState<RoutingStrategy>("fallback");
   const [rotateCount, setRotateCountState] = useState(1);
   const [maxInflight, setMaxInflightState] = useState<number | null>(null);
+  const [creditFloor, setCreditFloorState] = useState<number | null>(null);
   const [bypassProxy, setBypassProxyState] = useState(false);
   const [userAgent, setUserAgentState] = useState("codex_cli_rs/0.156.1");
 
@@ -56,6 +59,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
     setStrategyState(query.data.strategy);
     setRotateCountState(query.data.rotateCount);
     setMaxInflightState(query.data.maxInflight);
+    setCreditFloorState(query.data.creditFloor);
     setBypassProxyState(query.data.bypassProxy);
     setUserAgentState(query.data.userAgent);
   }, [query.data]);
@@ -64,6 +68,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
     strategy: RoutingStrategy;
     rotateCount: number;
     maxInflight: number | null;
+    creditFloor: number | null;
     bypassProxy: boolean;
     userAgent: string;
   }) => {
@@ -75,6 +80,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
           strategy: next.strategy,
           rotateCount: next.rotateCount,
           maxInflight: next.maxInflight,
+          creditFloor: next.creditFloor,
           bypassProxy: next.bypassProxy,
           ...(allowUserAgent ? { userAgent: next.userAgent } : {}),
         },
@@ -91,18 +97,22 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
     );
   };
   const scheduleMaxInflightSave = useDebouncedSave((next: number | null) =>
-    save({ strategy, rotateCount, maxInflight: next, bypassProxy, userAgent }),
+    save({ strategy, rotateCount, maxInflight: next, creditFloor, bypassProxy, userAgent }),
+  );
+  const scheduleCreditFloorSave = useDebouncedSave((next: number | null) =>
+    save({ strategy, rotateCount, maxInflight, creditFloor: next, bypassProxy, userAgent }),
   );
   const scheduleRotateCountSave = useDebouncedSave((next: number) =>
-    save({ strategy, rotateCount: next, maxInflight, bypassProxy, userAgent }),
+    save({ strategy, rotateCount: next, maxInflight, creditFloor, bypassProxy, userAgent }),
   );
   const scheduleUserAgentSave = useDebouncedSave((next: string) =>
-    save({ strategy, rotateCount, maxInflight, bypassProxy, userAgent: next }),
+    save({ strategy, rotateCount, maxInflight, creditFloor, bypassProxy, userAgent: next }),
   );
 
   return {
     strategy,
     maxInflight,
+    creditFloor,
     bypassProxy,
     userAgent,
     isLoading: query.isPending,
@@ -114,19 +124,23 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
       setMaxInflightState(next);
       scheduleMaxInflightSave(next);
     },
+    setCreditFloor: (next) => {
+      setCreditFloorState(next);
+      scheduleCreditFloorSave(next);
+    },
     setUserAgent: (next) => {
       setUserAgentState(next);
       scheduleUserAgentSave(next);
     },
     setBypassProxy: (next) => {
       setBypassProxyState(next);
-      save({ strategy, rotateCount, maxInflight, bypassProxy: next, userAgent });
+      save({ strategy, rotateCount, maxInflight, creditFloor, bypassProxy: next, userAgent });
     },
     roundRobinEnabled: strategy === "round_robin",
     setRoundRobinEnabled: (next) => {
       const resolved: RoutingStrategy = next ? "round_robin" : "fallback";
       setStrategyState(resolved);
-      save({ strategy: resolved, rotateCount, maxInflight, bypassProxy, userAgent });
+      save({ strategy: resolved, rotateCount, maxInflight, creditFloor, bypassProxy, userAgent });
     },
     rotateCount,
     setRotateCount: (next) => {

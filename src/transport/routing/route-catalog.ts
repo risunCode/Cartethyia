@@ -28,7 +28,7 @@ import {
   type SnapshotBuilder,
 } from "./route-model";
 import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS, isBundledProviderId } from "../../providers/provider-registry";
-import type { WireFamily } from "../canonical-model";
+import type { ServiceKind, WireFamily } from "../canonical-model";
 import { providerHasAdapterUserAgent, providerUsesBespokeWire } from "../../providers/provider-metadata";
 
 const CLAUDE_MODEL_FAMILIES = new Set(["opus", "sonnet", "haiku", "fable", "mythos"]);
@@ -143,6 +143,7 @@ interface MergedModelRow {
   providerId: string;
   modelId: string;
   wireFamily: WireFamily;
+  serviceKind: ServiceKind;
   endpointPath: string;
   modalities: unknown;
   reasoning: boolean;
@@ -164,6 +165,7 @@ function mergeModelCatalog(
       providerId: row.providerId,
       modelId: row.modelId,
       wireFamily: row.wireFamily as WireFamily,
+      serviceKind: row.serviceKind as ServiceKind,
       endpointPath: row.endpointPath,
       modalities: row.modalities,
       reasoning: row.reasoning,
@@ -200,6 +202,7 @@ const MODEL_COLUMNS = {
   providerId: models.providerId,
   modelId: models.modelId,
   wireFamily: models.wireFamily,
+  serviceKind: models.serviceKind,
   endpointPath: models.endpointPath,
   modalities: models.modalities,
   reasoning: models.reasoning,
@@ -237,6 +240,7 @@ const ROUTING_COLUMNS = {
   strategy: providerRoutingSettings.strategy,
   rotateCount: providerRoutingSettings.rotateCount,
   maxInflight: providerRoutingSettings.maxInflight,
+  creditFloor: providerRoutingSettings.creditFloor,
   enabled: providerRoutingSettings.enabled,
   bypassProxy: providerRoutingSettings.bypassProxy,
   userAgent: providerRoutingSettings.userAgent,
@@ -365,6 +369,7 @@ class RouteCatalogRepository {
         strategy: row.strategy as ProviderRoutingMap[string][string]["strategy"],
         rotateCount: row.rotateCount ?? 1,
         maxInflight: row.maxInflight,
+        creditFloor: row.creditFloor,
         enabled: row.enabled,
         bypassProxy: row.bypassProxy,
         userAgent: row.userAgent,
@@ -473,6 +478,7 @@ class RouteCatalogRepository {
                 provider_id: model.providerId,
                 model_id: model.modelId,
                 wire_family: model.wireFamily as WireFamily,
+                service_kind: model.serviceKind,
                 endpoint: model.endpointPath,
                 capability_profile: capabilityProfile,
                 tenant_id: tId,
@@ -496,6 +502,7 @@ class RouteCatalogRepository {
           provider_id: model.providerId,
           model_id: model.modelId,
           wire_family: model.wireFamily as WireFamily,
+          service_kind: model.serviceKind,
           endpoint: model.endpointPath,
           capability_profile: capabilityProfile,
           tenant_id: providerTenantId,
@@ -533,6 +540,7 @@ class RouteCatalogRepository {
           provider_id: model.providerId,
           model_id: model.modelId,
           wire_family: model.wireFamily as WireFamily,
+          service_kind: model.serviceKind,
           endpoint: model.endpointPath,
           capability_profile: capabilityProfile,
           ...(routeUserAgent === undefined ? {} : { user_agent: routeUserAgent }),

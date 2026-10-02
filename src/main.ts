@@ -1,7 +1,7 @@
 import { createGatewayApp, createGatewayShell } from "./app";
 import { bootstrap } from "./runtime/lifecycle";
 import type { CartethyiaBoot } from "./runtime/lifecycle";
-import { resolveIdleTimeout, resolveMaxBodyBytes, resolvePort } from "./config";
+import { resolveDrainToken, resolveIdleTimeout, resolveMaxBodyBytes, resolvePort } from "./config";
 import { Manifest } from "elysia";
 import { log } from "./observability/logger";
 
@@ -34,8 +34,15 @@ const app = boot
       telemetryBuffer: boot.deps.telemetryBuffer,
       resolveOAuthRefresher: boot.deps.resolveOAuthRefresher,
       oauthRefreshService: boot.deps.oauthRefreshService,
+      modelStrikes: boot.deps.modelStrikes,
       maxBodyBytes: resolveMaxBodyBytes(),
+      scheduledTasks: boot.deps.scheduledTasks,
       shutdownCoordinator: boot.shutdownCoordinator,
+      // Signal-free graceful stop for platforms where a catchable signal cannot
+      // be delivered (Windows). Off unless `CARTETHYIA_DRAIN_TOKEN` is set.
+      ...(resolveDrainToken() !== undefined
+        ? { drainToken: resolveDrainToken() as string, triggerDrain: () => shutdown("SIGTERM") }
+        : {}),
       // The console is Redis-backed, so `REDIS_MODE=single_instance_local`
       // (no Redis client) boots the data plane without it rather than
       // refusing to start.
@@ -53,6 +60,7 @@ const app = boot
               redis: boot.deps.redis,
               oauthRefreshService: boot.deps.oauthRefreshService,
               admissionService: boot.deps.admissionService,
+              modelStrikes: boot.deps.modelStrikes,
               readRoutingAccountInflight: boot.deps.readRoutingAccountInflight,
             },
           }
@@ -61,16 +69,20 @@ const app = boot
   : createGatewayShell();
 export { app };
 
-function shutdown(signal: "SIGINT" | "SIGTERM"): void {
+function shutdown(signal: "SIGINT" | "SIGTERM", reason: "SIGINT" | "SIGTERM" | "update" = signal): void {
   if (!boot) return;
   log.info(`[shutdown] ${signal} received, draining...`);
+  // Derived from the coordinator's own budget, not a hand-kept literal: a
+  // force-exit shorter than the drain would hard-kill a process that was about
+  // to finish gracefully, truncating the in-flight responses the drain exists
+  // to protect.
   const forceExit = setTimeout(() => {
-    log.error("[shutdown] forced exit after 10s");
+    log.error("[shutdown] forced exit after drain budget elapsed");
     process.exit(1);
-  }, 10_000);
+  }, boot.shutdownCoordinator.totalShutdownBudgetMs());
   forceExit.unref();
   boot.shutdownCoordinator
-    .begin(signal)
+    .begin(reason)
     .then(() => {
       log.info("[shutdown] complete");
       process.exit(0);
@@ -110,5 +122,15 @@ if (boot) {
     globalThis.__cartethyiaSignalsRegistered = true;
     process.on("SIGINT", () => shutdown("SIGINT"));
     process.on("SIGTERM", () => shutdown("SIGTERM"));
+    // An in-place update signals SIGUSR2 before swapping the image so the old
+    // process drains with the `update` reason and its callers are told the
+    // replacement is seconds away instead of seeing a generic shutdown. Not
+    // available on Windows, where the listener is simply never registered —
+    // production runs in Linux containers, which is where an update happens.
+    try {
+      process.on("SIGUSR2", () => shutdown("SIGTERM", "update"));
+    } catch {
+      // Platform without SIGUSR2: update drains fall back to the SIGTERM notice.
+    }
   }
 }

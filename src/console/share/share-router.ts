@@ -15,6 +15,7 @@ import { SHARED_CHILD_HINT_MAX_LENGTH, generateApiKeySecret } from "../domains/a
 import { popupImageBytes } from "../domains/api-keys/share-popup-image";
 import type { ShareFamilyStats, ShareStatsPort } from "./share-stats";
 import { consoleSseResponse, createConsoleSseStream } from "../observability/sse";
+import { GatewayError, publicGatewayErrorBody } from "../../transport/gateway-error";
 import {
   hashShareToken,
   type ShareLinkPolicy,
@@ -30,6 +31,20 @@ const MIN_TOKEN_LENGTH = 20;
  * interval is cheap next to the per-request telemetry insert it summarizes.
  */
 const SHARE_STATS_STREAM_INTERVAL_MS = 2_000;
+
+/**
+ * Context and capabilities for one allowed model, sourced from the public
+ * catalog. Every field is nullable/optional so the page can show what is known
+ * and omit the rest rather than invent a value.
+ */
+export interface ShareModelInfo {
+  readonly contextLength: number | null;
+  readonly maxOutputTokens: number | null;
+  readonly capabilities: { readonly input?: string[]; readonly output?: string[] } | null;
+  readonly reasoning: boolean;
+  readonly toolCall: boolean;
+  readonly webSearch: boolean;
+}
 
 export interface ShareRouterOptions {
   readonly db: CartethyiaDatabase;
@@ -56,7 +71,8 @@ function json(body: unknown, status = 200): Response {
 }
 
 function notFound(): Response {
-  return json({ error: { code: "link_not_found", message: "Share link is unavailable" } }, 404);
+  const error = new GatewayError("link_not_found", 404, "Share link is unavailable");
+  return json(publicGatewayErrorBody(error), error.status);
 }
 
 function providerOf(slug: string): string {
@@ -72,14 +88,94 @@ function modelPrefixAllows(
   return prefix === null || modelId.startsWith(prefix) || `${providerId}/${modelId}`.startsWith(prefix);
 }
 
-/** Resolves the models a share recipient may use. */
-async function modelsForShare(db: CartethyiaDatabase, row: ShareLinkPolicy): Promise<string[]> {
-  const snapshot: ApiKeyAuthorizationSnapshot = {
+/** The authorization snapshot a share link's own policy implies. */
+function snapshotForShare(row: ShareLinkPolicy): ApiKeyAuthorizationSnapshot {
+  return {
     api_key_id: row.id,
     tenant_id: row.tenantId,
     model_allowlist: row.modelAllowlist,
     model_denylist: row.modelDenylist,
   };
+}
+
+/**
+ * Context window and capabilities for each allowed model, keyed by the name as
+ * it appears in `modelAllowlist`.
+ *
+ * Read from the same `models` catalog `/v1/models` answers from, so the share
+ * page and the API never disagree about what a model can do. An entry may be
+ * bare (`glm-5.3-flash`) or provider-qualified (`openai/gpt-6-luna`); both match
+ * a catalog row by its model id. A name with no catalog row is simply absent —
+ * the page renders the id without a spec rather than inventing one.
+ */
+async function modelInfoForShare(
+  db: CartethyiaDatabase,
+  row: ShareLinkPolicy,
+  allowedModels: readonly string[],
+): Promise<Record<string, ShareModelInfo>> {
+  if (allowedModels.length === 0) return {};
+  const providerScope = or(isNull(providers.tenantId), eq(providers.tenantId, row.tenantId));
+  const rows = await db
+    .select({
+      providerId: models.providerId,
+      modelId: models.modelId,
+      contextLimit: models.contextLimit,
+      outputLimit: models.outputLimit,
+      modalities: models.modalities,
+      reasoning: models.reasoning,
+      toolCall: models.toolCall,
+      webSearch: models.webSearch,
+    })
+    .from(models)
+    .innerJoin(providers, eq(models.providerId, providers.id))
+    .where(and(eq(models.enabled, true), eq(providers.enabled, true), providerScope));
+  // Index every enabled catalog row by its qualified id and its bare model id,
+  // so an allowlist entry in either spelling resolves to the same row.
+  const byId = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) {
+    const qualified = `${row.providerId}/${row.modelId}`;
+    if (!byId.has(qualified)) byId.set(qualified, row);
+    if (!byId.has(row.modelId)) byId.set(row.modelId, row);
+  }
+  const info: Record<string, ShareModelInfo> = {};
+  for (const name of allowedModels) {
+    const bare = name.slice(name.lastIndexOf("/") + 1);
+    const entry = byId.get(name) ?? byId.get(bare);
+    if (!entry) continue;
+    info[name] = {
+      contextLength: entry.contextLimit ?? null,
+      maxOutputTokens: entry.outputLimit ?? null,
+      capabilities: normalizeShareCapabilities(entry.modalities),
+      reasoning: entry.reasoning,
+      toolCall: entry.toolCall,
+      webSearch: entry.webSearch,
+    };
+  }
+  return info;
+}
+
+/** Input/output modalities a model advertises, or null when it states none. */
+function normalizeShareCapabilities(
+  value: unknown,
+): { readonly input?: string[]; readonly output?: string[] } | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as { input?: unknown; output?: unknown };
+  const pick = (candidate: unknown): string[] | undefined =>
+    Array.isArray(candidate) && candidate.every((v) => typeof v === "string")
+      ? (candidate as string[])
+      : undefined;
+  const input = pick(record.input);
+  const output = pick(record.output);
+  if (input === undefined && output === undefined) return null;
+  return {
+    ...(input === undefined ? {} : { input }),
+    ...(output === undefined ? {} : { output }),
+  };
+}
+
+/** Resolves the models a share recipient may use. */
+async function modelsForShare(db: CartethyiaDatabase, row: ShareLinkPolicy): Promise<string[]> {
+  const snapshot = snapshotForShare(row);
   const configured = row.modelAllowlist;
   if (configured !== null && configured.length > 0) {
     return configured
@@ -132,7 +228,18 @@ async function resolveFamilyStats(
     .where(eq(apiKeys.parentKeyId, templateId));
   const active = children.filter((child) => child.revokedAt === null).length;
   const keyIds = [templateId, ...children.map((child) => child.id)];
-  return stats.getFamilyStats(tenantId, keyIds, { total: children.length, active });
+  // Rank only the models this link grants. A refused request still writes a
+  // telemetry row carrying the name the client asked for, so an unfiltered
+  // top-models table would list the very names the grant excludes. An
+  // unrestricted link (no allowlist) passes `undefined` and ranks everything —
+  // there is nothing to exclude, and filtering against the enabled catalog
+  // would hide real traffic for a model the catalog does not describe.
+  const configured = resolved.key.modelAllowlist;
+  const allowedModels =
+    configured !== null && configured.length > 0
+      ? await modelsForShare(db, resolved.key)
+      : undefined;
+  return stats.getFamilyStats(tenantId, keyIds, { total: children.length, active }, allowedModels);
 }
 
 /** Creates the public enrollment page and one-time shared-key issuance route. */
@@ -168,6 +275,7 @@ export function createShareRouter(options: ShareRouterOptions): Elysia {
           ? shareStore.hasActiveSharedKeyForIp(clientIpKey)
           : Promise.resolve(false),
       ]);
+      const modelInfo = await modelInfoForShare(db, row, modelAllowlist);
       void shareStore.touchView(tokenHash).catch(() => undefined);
       const policy = {
         name: row.name,
@@ -179,6 +287,7 @@ export function createShareRouter(options: ShareRouterOptions): Elysia {
         maxConcurrentRequests: row.maxConcurrentRequests,
         modelPrefix: row.modelPrefix,
         modelAllowlist,
+        modelInfo,
         modelDenylist: row.modelDenylist,
         notes: {
           title: row.notesTitle,

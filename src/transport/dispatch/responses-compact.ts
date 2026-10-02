@@ -11,6 +11,7 @@ import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer"
 import { ProxyRequestStateStore } from "../request/state";
 import { ProxyRequestPreparer } from "../request/preparer";
 import { isModelAllowed } from "../../security/api-key-auth";
+import { parseThinkingSuffix } from "../translation/thinking";
 import type { CodexCompactAdapter } from "../../providers/integrations/codex/codex";
 import { completeAttempt, estimatedUsage } from "./attempt-finalize";
 import { repriceUsage, usageFromProvider } from "../../providers/usage";
@@ -51,7 +52,18 @@ export function createResponsesCompactHandler(deps: ResponsesCompactHandlerDeps)
     const compact = body as Record<string, unknown>;
     if (typeof compact.model !== "string" || compact.model.trim().length === 0)
       throw new GatewayError("invalid_request", 400, "model is required");
-    if (!isModelAllowed(authorization.snapshot, compact.model))
+    // A thinking suffix (`model(high)`) is stripped here for the same reason the
+    // canonical preparer strips it: this route matches the model name against
+    // the allowlist and the route plan, and `(high)` is not part of any
+    // registered id. The level itself is dropped rather than applied —
+    // compaction is a context operation, not a generation, so there is no
+    // reasoning effort to shape, and the body is passed upstream verbatim.
+    // Stripping keeps a client that appends the suffix to every request working
+    // here instead of failing with a misleading model-not-found.
+    const { model: compactModel } = parseThinkingSuffix(compact.model);
+    const compactBody: Record<string, unknown> =
+      compactModel === compact.model ? compact : { ...compact, model: compactModel };
+    if (!isModelAllowed(authorization.snapshot, compactModel))
       throw new GatewayError("model_not_found", 404, "model is not allowed for this API key");
     if (!(typeof compact.input === "string" || Array.isArray(compact.input)))
       throw new GatewayError("invalid_request", 400, "input must be a string or array");
@@ -69,7 +81,7 @@ export function createResponsesCompactHandler(deps: ResponsesCompactHandlerDeps)
     if (!adapter || typeof adapter.compact !== "function")
       throw new GatewayError("admission_unavailable", 503, "Codex compact transport unavailable");
     const prepared = await deps.proxyPreparer.prepareNativeCompact({
-      model: compact.model,
+      model: compactModel,
       authorization,
       signal: state.abortController.signal,
     });
@@ -118,7 +130,7 @@ export function createResponsesCompactHandler(deps: ResponsesCompactHandlerDeps)
       },
       attempt: async (context) => {
         const { candidate, credential, leases, providerCapture } = context;
-        const response = await adapter.compact(compact, {
+        const response = await adapter.compact(compactBody, {
           credential,
           deadline: state.deadlineMs,
           abort_signal: state.abortController.signal,

@@ -9,6 +9,46 @@
 const DECODE_CACHE_MAX = 256;
 const decodeCache = new Map<string, unknown>();
 
+/**
+ * Maximum nesting depth a decoded cursor may have.
+ *
+ * `JSON.parse` accepts arbitrary nesting (it is iterative in this runtime), but
+ * every traversal of the result is not: `deepFreeze` used to recurse once per
+ * level, and `structuredClone` recurses again. A payload past the stack limit
+ * therefore threw `RangeError: Maximum call stack size exceeded` out of a function
+ * that documents returning `undefined` for a malformed value — failing OPEN into a
+ * 500 where the contract is "fall back to the first page", and leaving a partially
+ * frozen object in the decode cache so a retry of the identical cursor behaved
+ * differently from the first attempt.
+ *
+ * The bound is generous rather than tuned: the only cursors this gateway issues are
+ * `{ createdAt, id }` (depth 1) from the audit and telemetry listings. 32 leaves
+ * room for a future cursor to nest a small structure while keeping every traversal
+ * far below the stack limit.
+ */
+const MAX_CURSOR_DEPTH = 32;
+
+/** True when `value` nests no deeper than `MAX_CURSOR_DEPTH`. Iterative, so it cannot itself overflow. */
+function withinDepthLimit(value: unknown): boolean {
+  if (value === null || typeof value !== "object") return true;
+  // Breadth-first with an explicit stack: each entry carries its own depth, so no
+  // call frame is spent per level.
+  const stack: { node: unknown; depth: number }[] = [{ node: value, depth: 1 }];
+  while (stack.length > 0) {
+    const entry = stack.pop();
+    if (entry === undefined) break;
+    const node = entry.node;
+    if (node === null || typeof node !== "object") continue;
+    if (entry.depth > MAX_CURSOR_DEPTH) return false;
+    for (const child of Object.values(node as Record<string, unknown>)) {
+      if (child !== null && typeof child === "object") {
+        stack.push({ node: child, depth: entry.depth + 1 });
+      }
+    }
+  }
+  return true;
+}
+
 export function encodeCursor<T extends object>(row: T): string {
   return Buffer.from(JSON.stringify(row), "utf8").toString("base64url");
 }
@@ -35,6 +75,9 @@ export function decodeCursor<T>(cursor: string | undefined): T | undefined {
   } catch {
     return undefined;
   }
+  // Checked BEFORE the cache write, so a payload that fails the traversal below
+  // cannot leave a partially frozen entry behind for a later retry to find.
+  if (!withinDepthLimit(parsed)) return undefined;
   if (decodeCache.size >= DECODE_CACHE_MAX) {
     const oldest = decodeCache.keys().next().value;
     if (oldest !== undefined) decodeCache.delete(oldest);
@@ -43,11 +86,23 @@ export function decodeCursor<T>(cursor: string | undefined): T | undefined {
   return copyDecoded<T>(parsed);
 }
 
+/**
+ * Freezes `value` and every object reachable from it. Iterative rather than
+ * recursive: the depth limit above already bounds the input, but a traversal that
+ * cannot overflow is one less place for the bound to be forgotten.
+ */
 function deepFreeze(value: unknown): void {
   if (value === null || typeof value !== "object") return;
-  if (Object.isFrozen(value)) return;
-  Object.freeze(value);
-  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  const stack: unknown[] = [value];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === null || typeof node !== "object") continue;
+    if (Object.isFrozen(node)) continue;
+    Object.freeze(node);
+    for (const child of Object.values(node as Record<string, unknown>)) {
+      if (child !== null && typeof child === "object") stack.push(child);
+    }
+  }
 }
 
 function copyDecoded<T>(value: unknown): T {
@@ -55,7 +110,16 @@ function copyDecoded<T>(value: unknown): T {
   // the cached entry for later users of the same cursor string.
   if (value !== null && typeof value === "object") {
     deepFreeze(value);
-    return structuredClone(value) as T;
+    try {
+      return structuredClone(value) as T;
+    } catch {
+      // `structuredClone` recurses, so a value past its own budget throws. The
+      // depth limit makes this unreachable for anything `decodeCursor` accepts, but
+      // the documented contract is `undefined` for a value that cannot be decoded,
+      // and a cache hit on an entry written before the limit existed could still
+      // reach here.
+      return undefined as T;
+    }
   }
   return value as T;
 }

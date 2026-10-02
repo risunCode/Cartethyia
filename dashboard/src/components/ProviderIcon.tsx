@@ -20,7 +20,6 @@ const iconAssets: Record<string, { file: string; ext: "svg" | "webp" }> = {
   xai: { file: "grok-build", ext: "webp" },
   inferhub: { file: "inferhub", ext: "svg" },
   gemini: { file: "gemini", ext: "webp" },
-  groq: { file: "groq", ext: "webp" },
   alibaba: { file: "alibaba", ext: "svg" },
   alibabacp: { file: "alibaba-coding-plan", ext: "svg" },
   fireworks: { file: "fireworks", ext: "webp" },
@@ -61,10 +60,11 @@ const iconAssets: Record<string, { file: string; ext: "svg" | "webp" }> = {
   qoder: { file: "qoder", ext: "webp" },
   mistral: { file: "mistral", ext: "webp" },
   muse: { file: "muse", ext: "svg" },
+  // Meta Model API is the same Meta brand mark as Muse Code.
+  meta: { file: "muse", ext: "svg" },
   openrouter: { file: "openrouter", ext: "webp" },
   ollama: { file: "ollama", ext: "webp" },
   ollamacloud: { file: "ollama-cloud", ext: "webp" },
-  sifo: { file: "siliconflow", ext: "webp" },
   nvidia: { file: "nvidia", ext: "webp" },
   deepseek: { file: "deepseek", ext: "webp" },
   huggingface: { file: "huggingface", ext: "webp" },
@@ -82,6 +82,9 @@ const iconAssets: Record<string, { file: string; ext: "svg" | "webp" }> = {
   kiro: { file: "kiro", ext: "webp" },
   kimchi: { file: "kimchi", ext: "webp" },
   commandcode: { file: "commandcode", ext: "webp" },
+  // Web-search providers (exa already has an entry above).
+  tavily: { file: "tavily", ext: "svg" },
+  brave: { file: "brave", ext: "svg" },
 };
 
 function assetFor(icon: string): { file: string; ext: "svg" | "webp" } {

@@ -17,6 +17,12 @@ export interface OAuthRefreshSweepDeps {
   readonly skewMs?: number;
   /** Maximum accounts in one completed wave. Defaults to 5. */
   readonly maxConcurrency?: number;
+  /**
+   * Milliseconds to pause between accounts when running sequentially. Absent
+   * keeps the default wave behavior. Providers whose token endpoint rate-limits
+   * bursts (Google-backed) are the reason this exists.
+   */
+  readonly interItemDelayMs?: number;
   readonly onAccountError?: (accountId: string, providerId: string, error: unknown) => void;
   readonly onTick?: (result: { readonly due: number; readonly attempted: number }) => void;
 }
@@ -61,6 +67,9 @@ export async function oauthRefreshSweep(deps: OAuthRefreshSweepDeps): Promise<vo
       deps.onAccountError?.(account.id, account.providerId, error);
     },
     maxConcurrency: deps.maxConcurrency,
+    ...(deps.interItemDelayMs === undefined
+      ? {}
+      : { pace: { interItemDelayMs: deps.interItemDelayMs } }),
   });
 
   // A pass that could not even list its accounts reports no tick: an all-zero

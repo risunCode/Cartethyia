@@ -223,7 +223,10 @@ export function canonicalToCodexResponsesPayload(
         .map((p) => (p as { text: string }).text)
         .join("\n");
       const images = message.content.filter((p) => p.kind === "image");
-      if (text.length === 0 && images.length === 0) continue;
+      const files = message.content.filter(
+        (p) => p.kind === "file" || p.kind === "document",
+      );
+      if (text.length === 0 && images.length === 0 && files.length === 0) continue;
       const content: Array<Record<string, unknown>> = [];
       if (text.length > 0) content.push({ type: "input_text", text });
       for (const img of images) {
@@ -257,6 +260,35 @@ export function canonicalToCodexResponsesPayload(
         // Unrecognized source: the image is dropped rather than sent as an
         // object the backend rejects, which would fail the whole request —
         // including the text the user actually asked about.
+      }
+      // Attachments (PDF/documents) ride the same `input_file` block the
+      // Responses wire uses. The Codex backend rejects a separate `mime_type`
+      // field ("Unknown parameter: input[0].content[1].mime_type"), so the type
+      // must ride inside `file_data` as a `data:` URI instead. Without this arm
+      // a `file`/`document` part was silently dropped from the user turn, so the
+      // model answered as if no attachment had been sent at all (the observed
+      // "PDF-nya belum terlihat" reply, at ~25 input tokens).
+      for (const file of files) {
+        const part = file as Extract<typeof file, { kind: "file" } | { kind: "document" }>;
+        const block: Record<string, unknown> = { type: "input_file" };
+        if (part.file_id !== undefined) {
+          block.file_id = part.file_id;
+        } else if (
+          part.url !== undefined &&
+          (part.data === undefined || part.data === null || part.data === "" || part.data === part.url)
+        ) {
+          block.file_url = part.url;
+        } else if (part.data !== undefined) {
+          // Re-wrap bare base64 back into a `data:` URI: the backend accepts no
+          // sibling `mime_type`, so the media type has to be declared here.
+          block.file_data =
+            typeof part.data === "string" && part.data.length > 0 && !part.data.startsWith("data:")
+              ? `data:${part.media_type};base64,${part.data}`
+              : part.data;
+        }
+        const filename = part.kind === "file" ? part.filename : part.title;
+        if (filename !== undefined) block.filename = filename;
+        content.push(block);
       }
       input.push({ type: "message", role: message.role, content });
     } else if (message.role === "assistant") {

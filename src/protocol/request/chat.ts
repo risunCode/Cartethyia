@@ -90,9 +90,16 @@ function chatResponseFormat(format: ResponseFormat): Record<string, unknown> {
  * `file`). The Chat wire has no URL field, so a reference-only document
  * (`source_type: "url"` / `"file"` without an inline payload) degrades to a
  * text part carrying the reference instead of a malformed empty `file` block.
+ *
+ * `file_data` is re-wrapped into a `data:` URI when only bare base64 is known:
+ * the OpenAI-compatible backends this wire reaches reject a bare-base64
+ * `file_data` ("Invalid content") and require the media type to travel inside
+ * the URI, since the `file` block has no sibling `mime_type` field. The
+ * canonical part keeps bytes and media type separate, so the wrap happens here.
  */
 function chatFilePart(part: {
   data: unknown;
+  media_type?: string | undefined;
   filename?: string | undefined;
   file_id?: string | undefined;
   url?: string | undefined;
@@ -116,10 +123,21 @@ function chatFilePart(part: {
     };
   }
   if (inlineData !== undefined) {
+    let fileData: string;
+    if (typeof inlineData !== "string") {
+      fileData = JSON.stringify(inlineData);
+    } else if (inlineData.startsWith("data:")) {
+      fileData = inlineData;
+    } else {
+      const mediaType = part.media_type !== undefined && part.media_type.length > 0
+        ? part.media_type
+        : "application/octet-stream";
+      fileData = `data:${mediaType};base64,${inlineData}`;
+    }
     return {
       type: "file",
       file: {
-        file_data: typeof inlineData === "string" ? inlineData : JSON.stringify(inlineData),
+        file_data: fileData,
         ...(part.filename === undefined ? {} : { filename: part.filename }),
       },
     };
@@ -268,6 +286,7 @@ export function canonicalToChatPayload(
             parts.push(
               chatFilePart({
                 data: p.data,
+                media_type: p.media_type,
                 file_id: p.file_id,
                 url: p.url,
                 source_type: p.source_type,
@@ -284,6 +303,7 @@ export function canonicalToChatPayload(
             parts.push(
               chatFilePart({
                 data: p.data,
+                media_type: p.media_type,
                 ...(p.file_id === undefined ? {} : { file_id: p.file_id }),
                 ...(p.url === undefined ? {} : { url: p.url }),
                 ...(p.filename === undefined ? {} : { filename: p.filename }),

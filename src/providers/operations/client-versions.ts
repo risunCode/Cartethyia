@@ -117,7 +117,7 @@ const KIRO_NODE_VERSION = "24.18.0";
 export const VERSION_SOURCES = {
   qoder: {
     key: "qoder",
-    fallback: "1.1.64",
+    fallback: "1.1.65",
     sources: [
       {
         url: "https://registry.npmjs.org/@qoder-ai/qodercli/latest",
@@ -132,12 +132,12 @@ export const VERSION_SOURCES = {
   },
   commandcode: {
     key: "commandcode",
-    fallback: "1.66.0",
+    fallback: "1.73.0",
     sources: [{ url: "https://registry.npmjs.org/command-code/latest" }],
   },
   grok: {
     key: "grok",
-    fallback: "1.0.41",
+    fallback: "1.0.44",
     sources: [
       { url: "https://storage.googleapis.com/grok-build-public-artifacts/cli/stable" },
       { url: "https://registry.npmjs.org/@xai-official/grok/latest" },
@@ -145,8 +145,8 @@ export const VERSION_SOURCES = {
   },
   clineClient: {
     key: "cline-client",
-    fallback: "4.1.21",
-    minVersion: "4.1.21",
+    fallback: "4.1.22",
+    minVersion: "4.1.22",
     sources: [
       {
         url: "https://raw.githubusercontent.com/cline/cline/main/apps/vscode/package.json",
@@ -156,12 +156,12 @@ export const VERSION_SOURCES = {
   },
   clineSdk: {
     key: "cline-sdk",
-    fallback: "0.0.86",
+    fallback: "0.0.88",
     sources: [{ url: "https://registry.npmjs.org/@cline/sdk/latest", extract: clineSdkVersion }],
   },
   codex: {
     key: "codex",
-    fallback: "0.158.0",
+    fallback: "0.159.2",
     sources: [{ url: "https://registry.npmjs.org/@openai/codex/latest" }],
   },
   workbuddyClient: {
@@ -180,7 +180,7 @@ export const VERSION_SOURCES = {
   },
   workbuddyCli: {
     key: "workbuddy",
-    fallback: "2.159.0",
+    fallback: "2.161.0",
     sources: [
       { url: "https://registry.npmjs.org/@tencent-ai/codebuddy-code/latest" },
       { url: "https://registry.npmmirror.com/@tencent-ai/codebuddy-code/latest" },
@@ -193,12 +193,12 @@ export const VERSION_SOURCES = {
   },
   kiro: {
     key: "kiro",
-    fallback: "1.1.70",
+    fallback: "1.2.4",
     sources: [{ url: "https://kiro.dev/downloads/", extract: kiroVersion }],
   },
   codebuddy: {
     key: "codebuddy",
-    fallback: "2.159.0",
+    fallback: "2.161.0",
     sources: [
       { url: "https://registry.npmjs.org/@tencent-ai/codebuddy-code/latest" },
       { url: "https://registry.npmmirror.com/@tencent-ai/codebuddy-code/latest" },
@@ -209,7 +209,7 @@ export const VERSION_SOURCES = {
     // Current `@anthropic-ai/claude-code` release, so the billing
     // `cc_version=` suffix and the `claude-cli/` User-Agent stay on what
     // upstream ships.
-    fallback: "2.1.283",
+    fallback: "2.1.286",
     sources: [{ url: "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" }],
   },
   claudeSdk: {
@@ -219,8 +219,9 @@ export const VERSION_SOURCES = {
     // (`anthropic-sdk-typescript/{claude_code_sdk_version} userOAuthProvider`).
     // npm's standalone SDK is a different release line and is deliberately not
     // discovered: it would advertise a version Claude Code never bundled. Bump
-    // alongside the CLI.
-    fallback: "0.112.1",
+    // alongside the CLI. Read it from the shipped native binary, which defines
+    // the version string the template interpolates — never from guesswork.
+    fallback: "0.127.0",
     sources: [],
   },
 } as const;

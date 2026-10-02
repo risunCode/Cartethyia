@@ -11,9 +11,7 @@ import { BARE_ROOT_ENDPOINTS } from "../../protocol/primitives";
  * `base_url` is resolved per provider by `providerBaseUrl(provider_id)`.
  */
 export const GENERIC_API_KEY_PROVIDER_IDS = [
-  "groq",
   "mistral",
-  "sifo",
   "fireworks",
   "nvidia",
   "gmi",
@@ -36,9 +34,7 @@ function genericApiKeySpec(providerId: GenericApiKeyProviderId): ApiKeyProviderS
 }
 
 export const GENERIC_API_KEY_SPECS = {
-  groq: genericApiKeySpec("groq"),
   mistral: genericApiKeySpec("mistral"),
-  sifo: genericApiKeySpec("sifo"),
   fireworks: genericApiKeySpec("fireworks"),
   nvidia: genericApiKeySpec("nvidia"),
   gmi: genericApiKeySpec("gmi"),

@@ -291,7 +291,20 @@ export function ChildDetail({ parentId, childId }: { parentId: string; childId: 
  * is enabled, which section a key mode gets — is renderable without a DOM,
  * which the `Dialog`'s `createPortal` requires.
  */
-export function ShareManagementContent({ parent }: { parent: ApiKeyResponse }): ReactNode {
+export function ShareManagementContent({
+  parent,
+  onSecretRevealed,
+}: {
+  parent: ApiKeyResponse;
+  /**
+   * Called with the freshly generated plaintext when a personal key's
+   * credential is rotated. The owner needs to read the new secret, and the
+   * console returns it only once, so the host surfaces it in the one-time
+   * reveal dialog rather than leaving the rotate as a toast the operator cannot
+   * act on.
+   */
+  onSecretRevealed?: (secret: string) => void;
+}): ReactNode {
   const [expanded, setExpanded] = useState<string | null>(null);
   const share = useShareApiKey();
   const regenerate = useRegenerateApiKey();
@@ -325,8 +338,11 @@ export function ShareManagementContent({ parent }: { parent: ApiKeyResponse }): 
    */
   const onRegenerate = async (): Promise<void> => {
     if (isPersonal) {
-      await regenerate.mutateAsync({ keyId: parent.id });
-      toast.success("Key regenerated; the link now reveals the new key.");
+      const result = await regenerate.mutateAsync({ keyId: parent.id });
+      // The new secret is returned once: hand it to the host so it can be shown
+      // in the one-time reveal dialog. A toast alone would leave the operator
+      // unable to read the credential they just rotated to.
+      onSecretRevealed?.(result.secret);
       return;
     }
     await share.mutateAsync({ keyId: parent.id, regenerate: true });
@@ -546,9 +562,11 @@ export function ShareManagementContent({ parent }: { parent: ApiKeyResponse }): 
 export function ShareManagementDialog({
   parent,
   onClose,
+  onSecretRevealed,
 }: {
   parent: ApiKeyResponse;
   onClose: () => void;
+  onSecretRevealed: (secret: string) => void;
 }): ReactNode {
   const isPersonal = parent.keyMode !== "share";
   return (
@@ -563,7 +581,7 @@ export function ShareManagementDialog({
       }
       width={720}
     >
-      <ShareManagementContent parent={parent} />
+      <ShareManagementContent parent={parent} onSecretRevealed={onSecretRevealed} />
     </Dialog>
   );
 }

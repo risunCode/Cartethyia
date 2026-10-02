@@ -48,8 +48,21 @@ export interface ModelComboCreateInput {
 }
 
 export interface ModelComboPatchInput {
+  /** New combo name; references from aliases and other combos are rewritten. */
+  readonly name?: string;
   readonly members?: readonly string[];
   readonly strategy?: ComboStrategy;
+}
+
+/** Result of cloning a combo: the new row plus any members that were dropped. */
+export interface ModelComboCloneResult {
+  readonly combo: ModelComboRow;
+  /**
+   * Members of the source combo that no longer resolve to an alias, combo, or
+   * model and were therefore left out of the clone. Empty when the source was
+   * fully intact.
+   */
+  readonly skippedMembers: readonly string[];
 }
 
 export interface ModelRoutingStore {
@@ -68,6 +81,16 @@ export interface ModelRoutingStore {
     tenantId: string,
     id: string,
     patch: ModelComboPatchInput,
+  ): Promise<ModelComboRow | undefined>;
+  /**
+   * Renames a combo and rewrites every reference to its old name — aliases
+   * whose `targetModel` names it, and other combos that list it as a member —
+   * in one transaction, so no reference is left dangling.
+   */
+  renameCombo(
+    tenantId: string,
+    id: string,
+    nextName: string,
   ): Promise<ModelComboRow | undefined>;
   deleteCombo(tenantId: string, id: string): Promise<boolean>;
   reorderCombos(tenantId: string, ids: readonly string[]): Promise<void>;
@@ -127,6 +150,52 @@ async function targetResolves(
     current = next;
   }
   return false;
+}
+
+/**
+ * Partitions a combo's member list into the members that still resolve and the
+ * ones that do not, given the tenant's current aliases/combos/models.
+ *
+ * A combo stores its members as plain names, so a member that resolved when the
+ * combo was written can go dangling later — the model was renamed, removed, or
+ * disabled. Such a member is not an operator error to reject on every subsequent
+ * edit: it must be skippable so an unrelated change (rename, strategy, clone) is
+ * not blocked by a stale entry the operator cannot see. Members that name this
+ * same combo are treated as unresolvable too (self-reference).
+ */
+async function partitionResolvableMembers(
+  deps: ModelRoutingConfig,
+  tenantId: string,
+  members: readonly string[],
+  selfName: string,
+  aliases: readonly ModelAliasRow[],
+  combos: readonly ModelComboRow[],
+): Promise<{ readonly resolvable: readonly string[]; readonly dangling: readonly string[] }> {
+  const aliasSet = new Set(aliases.map((r) => r.alias));
+  const comboSet = new Set(combos.map((c) => c.name));
+  const needingDbCheck = [
+    ...new Set(
+      members.filter((m) => m !== selfName && !aliasSet.has(m) && !comboSet.has(m)),
+    ),
+  ];
+  const knownModels =
+    needingDbCheck.length > 0
+      ? await deps.store.areKnownModels(tenantId, needingDbCheck)
+      : new Set<string>();
+  const resolvable: string[] = [];
+  const dangling: string[] = [];
+  for (const member of members) {
+    if (member === selfName) {
+      dangling.push(member);
+      continue;
+    }
+    if (comboSet.has(member) || aliasSet.has(member) || knownModels.has(member)) {
+      resolvable.push(member);
+      continue;
+    }
+    dangling.push(member);
+  }
+  return { resolvable, dangling };
 }
 
 export function createModelRoutingOperations(deps: ModelRoutingConfig) {
@@ -343,6 +412,69 @@ export function createModelRoutingOperations(deps: ModelRoutingConfig) {
         await deps.snapshotInvalidator?.invalidate();
         return created;
       },
+    /**
+     * Clones a combo: same strategy, and every member that still resolves.
+     *
+     * A clone is a copy of the source, not a re-validation of it. A source combo
+     * can carry members that have since gone dangling (its model was renamed or
+     * removed) — those are dropped from the clone and reported in
+     * `skippedMembers` rather than failing the whole operation, because the
+     * operator asked to copy a combo, not to be blocked by a stale entry they
+     * cannot see. If every member is dangling the clone is refused: an empty
+     * combo serves nothing, so there is no useful copy to make.
+     *
+     * The name is `${source}-clone`, suffixed `-2`, `-3`, … until free, resolved
+     * here rather than in the client so two concurrent clones cannot pick the
+     * same name.
+     */
+    async cloneCombo(
+        access: AccessDecision | undefined,
+        id: string,
+      ): Promise<ModelComboCloneResult> {
+        const a = requireTenantScope(access, "dashboard:write");
+        const tenantId = a.tenantId;
+        const [existingAliases, existingCombos] = await Promise.all([
+          deps.store.listAliases(tenantId),
+          deps.store.listCombos(tenantId),
+        ]);
+        const source = existingCombos.find((c) => c.id === id);
+        if (!source) throw new ConsoleDomainError("combo_not_found", 404, `Combo ${id} not found`);
+
+        const { resolvable, dangling } = await partitionResolvableMembers(
+          deps,
+          tenantId,
+          source.members,
+          source.name,
+          existingAliases,
+          existingCombos,
+        );
+        if (resolvable.length === 0)
+          throw new ConsoleDomainError(
+            "unresolved_member",
+            422,
+            `Every member of ${source.name} is unresolvable; nothing to clone`,
+            { members: dangling },
+          );
+
+        const takenNames = new Set(existingCombos.map((c) => c.name));
+        let name = `${source.name}-clone`;
+        let suffix = 2;
+        while (takenNames.has(name)) name = `${source.name}-clone-${suffix++}`;
+
+        const created = await deps.store.createCombo(tenantId, {
+          name,
+          members: [...resolvable],
+          strategy: source.strategy,
+        });
+        await deps.auditSink?.record({
+          access: a,
+          action: "model_combo.cloned",
+          target: created.id,
+          detail: { from: source.name, name: created.name, skippedMembers: dangling },
+        });
+        await deps.snapshotInvalidator?.invalidate();
+        return { combo: created, skippedMembers: dangling };
+      },
     async updateCombo(
         access: AccessDecision | undefined,
         id: string,
@@ -353,6 +485,34 @@ export function createModelRoutingOperations(deps: ModelRoutingConfig) {
         const existing = await deps.store.listCombos(tenantId);
         const current = existing.find((c) => c.id === id);
         if (!current) throw new ConsoleDomainError("combo_not_found", 404, `Combo ${id} not found`);
+        // Renaming: validate uniqueness up front (the DB unique index would
+        // otherwise surface as an opaque 500) and cascade the reference rewrite
+        // through `renameCombo` so aliases and nested combos follow the name.
+        let nextName: string | undefined;
+        if (patch.name !== undefined) {
+          const trimmed = patch.name.trim();
+          if (!trimmed) throw new ConsoleDomainError("invalid_request", 422, "name cannot be empty");
+          if (trimmed !== current.name) {
+            if (existing.some((c) => c.name === trimmed))
+              throw new ConsoleDomainError(
+                "combo_conflict",
+                409,
+                `Combo ${trimmed} already exists for this tenant`,
+              );
+            nextName = trimmed;
+          }
+        }
+        if (nextName !== undefined) {
+          const renamed = await deps.store.renameCombo(tenantId, id, nextName);
+          if (!renamed) throw new ConsoleDomainError("combo_not_found", 404, `Combo ${id} not found`);
+        }
+        const renamedCurrent = nextName === undefined ? current : { ...current, name: nextName };
+        // Validation must see the post-rename view: `existing` still carries the
+        // old name, so a member naming the combo's new name would otherwise look
+        // unknown, and a nested-combo check would test the stale name.
+        const combosForValidation = nextName === undefined
+          ? existing
+          : existing.map((c) => (c.id === id ? { ...c, name: nextName } : c));
         let members: readonly string[] | undefined;
         if (patch.members !== undefined) {
           if (!Array.isArray(patch.members) || patch.members.length === 0)
@@ -363,10 +523,23 @@ export function createModelRoutingOperations(deps: ModelRoutingConfig) {
           members = trimmed;
           const existingAliases = await deps.store.listAliases(tenantId);
           const aliasSetUp = new Set(existingAliases.map((r) => r.alias));
-          const comboSetUp = new Set(existing.map((c) => c.name));
+          const comboSetUp = new Set(combosForValidation.map((c) => c.name));
+          // Grandfather the members the combo already had. A combo can carry a
+          // member that resolved when it was written but has since gone dangling
+          // (its model was renamed or removed). Re-validating the whole list on
+          // every edit would block an unrelated change — a rename, a strategy
+          // switch — behind a stale entry the operator never touched. Only the
+          // members being newly introduced are validated.
+          const alreadyMembers = new Set(current.members);
           const needingDbCheckUp = [
             ...new Set(
-              trimmed.filter((m) => m !== current.name && !aliasSetUp.has(m) && !comboSetUp.has(m)),
+              trimmed.filter(
+                (m) =>
+                  m !== renamedCurrent.name &&
+                  !alreadyMembers.has(m) &&
+                  !aliasSetUp.has(m) &&
+                  !comboSetUp.has(m),
+              ),
             ),
           ];
           const knownModelsUp =
@@ -374,15 +547,17 @@ export function createModelRoutingOperations(deps: ModelRoutingConfig) {
               ? await deps.store.areKnownModels(tenantId, needingDbCheckUp)
               : new Set<string>();
           for (const member of trimmed) {
-            if (member === current.name)
+            if (member === renamedCurrent.name)
               throw new ConsoleDomainError(
                 "unresolved_member",
                 422,
                 `member ${member} does not resolve to a known alias, combo, or model`,
                 { member },
               );
+            // An existing member is kept as-is even if it no longer resolves.
+            if (alreadyMembers.has(member)) continue;
             if (comboSetUp.has(member)) {
-              const nested = existing.find((c) => c.name === member);
+              const nested = combosForValidation.find((c) => c.name === member);
               if (nested?.members.some((nestedMember) => comboSetUp.has(nestedMember)))
                 throw new ConsoleDomainError(
                   "combo_nesting_too_deep",
@@ -437,8 +612,8 @@ function modelRoutingErrorResponse(error: unknown, set: { status?: number | stri
 // without updating these literals fails here.
 type ExpectComboParity<T extends true> = T;
 export type ComboSchemaParity = ExpectComboParity<
-  [ComboStrategy] extends ["fallback" | "round_robin"]
-    ? (["fallback" | "round_robin"] extends [ComboStrategy] ? true : false)
+  [ComboStrategy] extends ["fallback" | "round_robin" | "fusion"]
+    ? (["fallback" | "round_robin" | "fusion"] extends [ComboStrategy] ? true : false)
     : false
 >;
 
@@ -454,6 +629,7 @@ const createComboBody = t.Object({
   strategy: t.Optional(comboStrategySchema),
 });
 const updateComboBody = t.Object({
+  name: t.Optional(t.String()),
   members: t.Optional(t.Array(t.String(), { minItems: 1 })),
   strategy: t.Optional(comboStrategySchema),
 });
@@ -520,6 +696,14 @@ export function createModelRoutingRoutes(config: ModelRoutingConfig): Elysia {
       try {
         await factory.reorderCombos(config.accessResolver(request), body.ids);
         return { success: true };
+      } catch (e) {
+        return modelRoutingErrorResponse(e, set);
+      }
+    })
+    .post("/combos/:id/clone", async ({ request, params, set }) => {
+      try {
+        set.status = 201;
+        return await factory.cloneCombo(config.accessResolver(request), params.id);
       } catch (e) {
         return modelRoutingErrorResponse(e, set);
       }

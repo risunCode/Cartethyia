@@ -5,9 +5,13 @@ import { consoleSettings, type ConsoleSettingsPreferences } from "../../persiste
 import { resolveRedisMode } from "../../persistence/readiness";
 import { bumpSettingsRevision } from "../../persistence/tenant-preferences";
 import {
+  PONYTAIL_LEVELS,
   RESPONSES_REASONING_SUMMARIES,
+  RTK_LEVELS,
   TELEMETRY_PAYLOAD_MODES,
+  type PonyTailLevel,
   type ResponsesReasoningSummary,
+  type RtkLevel,
   type RuntimeSettingsResponse,
   type RuntimeSettingsStore,
   type TelemetryPayloadMode,
@@ -22,6 +26,25 @@ function isResponsesReasoningSummary(
   );
 }
 
+function normalizePonyTailLevel(value: unknown): PonyTailLevel {
+  return typeof value === "string" && (PONYTAIL_LEVELS as readonly string[]).includes(value)
+    ? (value as PonyTailLevel)
+    : "full";
+}
+
+/** The stored level, or `null` when absent/invalid — used to read a legacy bag. */
+function storedPonyTailLevel(value: unknown): PonyTailLevel | null {
+  return typeof value === "string" && (PONYTAIL_LEVELS as readonly string[]).includes(value)
+    ? (value as PonyTailLevel)
+    : null;
+}
+
+function normalizeRtkLevel(value: unknown): RtkLevel {
+  return typeof value === "string" && (RTK_LEVELS as readonly string[]).includes(value)
+    ? (value as RtkLevel)
+    : "full";
+}
+
 function normalizeTelemetryPayloadMode(value: unknown): TelemetryPayloadMode {
   if (
     typeof value === "string" &&
@@ -29,8 +52,7 @@ function normalizeTelemetryPayloadMode(value: unknown): TelemetryPayloadMode {
   ) {
     return value as TelemetryPayloadMode;
   }
-  // Unset / legacy preference bags default to metadata: Proxy→Provider
-  // request line only, never bodies. Operators still opt into `bounded`.
+  // Unset preference bags default to metadata: Proxy→Provider request line only.
   return "metadata";
 }
 
@@ -46,6 +68,15 @@ function mapRuntimeSettingsRow(row: typeof consoleSettings.$inferSelect | undefi
       : "detailed",
     telemetryPayloads: normalizeTelemetryPayloadMode(prefs.telemetryPayloads),
     privacyMode: prefs.privacyMode === "full" ? "full" : "masked",
+    rtkPruneEnabled: prefs.rtkPruneEnabled === true,
+    rtkPruneLevel: normalizeRtkLevel(prefs.rtkPruneLevel),
+    // A legacy bag stored `ponyTailLevel: "lite"|"full"|"ultra"` with no enable
+    // flag (null = off). Treat any non-null legacy level as enabled so an
+    // operator who had it on keeps it on; a missing level is off.
+    ponyTailEnabled:
+      prefs.ponyTailEnabled === true ||
+      (prefs.ponyTailEnabled === undefined && storedPonyTailLevel(prefs.ponyTailLevel) !== null),
+    ponyTailLevel: normalizePonyTailLevel(prefs.ponyTailLevel),
     updatedAt,
   };
 }
@@ -76,6 +107,10 @@ export class DrizzleRuntimeSettingsStore implements RuntimeSettingsStore {
       patchPrefs.responsesReasoningSummary = patch.responsesReasoningSummary;
     if (patch.telemetryPayloads !== undefined) patchPrefs.telemetryPayloads = patch.telemetryPayloads;
     if (patch.privacyMode !== undefined) patchPrefs.privacyMode = patch.privacyMode;
+    if (patch.rtkPruneEnabled !== undefined) patchPrefs.rtkPruneEnabled = patch.rtkPruneEnabled;
+    if (patch.rtkPruneLevel !== undefined) patchPrefs.rtkPruneLevel = patch.rtkPruneLevel;
+    if (patch.ponyTailEnabled !== undefined) patchPrefs.ponyTailEnabled = patch.ponyTailEnabled;
+    if (patch.ponyTailLevel !== undefined) patchPrefs.ponyTailLevel = patch.ponyTailLevel;
 
     const rows = await this.db
       .insert(consoleSettings)

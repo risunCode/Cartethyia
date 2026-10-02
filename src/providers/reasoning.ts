@@ -1,4 +1,5 @@
 import type { CanonicalRequest, ReasoningEffort, ReasoningIntent } from "../transport/canonical-model";
+import { budgetToLevel } from "../transport/translation/thinking";
 import { isRecord } from "../protocol/primitives";
 
 /**
@@ -18,10 +19,10 @@ export function reasoningEffortFromIntent(reasoning: ReasoningIntent | undefined
   if (reasoning.effort !== undefined) return reasoning.effort;
   if (reasoning.thinking_type !== "enabled" && reasoning.thinking_type !== "adaptive") return undefined;
   const budget = reasoning.budget_tokens;
+  // No budget means the caller enabled thinking without sizing it — the
+  // ladder's default ask. A sized budget maps to the nearest tier.
   if (budget === undefined) return "high";
-  if (budget >= 16_000) return "max";
-  if (budget >= 4_096) return "high";
-  return "low";
+  return budgetToLevel(budget) ?? "high";
 }
 
 /** Projects canonical reasoning intent onto OpenAI-style effort controls. */

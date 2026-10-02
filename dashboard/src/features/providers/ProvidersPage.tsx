@@ -34,7 +34,6 @@ import {
   useSyncProviderModels,
   useTestByokConnection,
 } from "../../hooks/providers";
-import { providerDisplayName } from "../../shared/provider-names";
 import { getErrorMessage } from "../../shared/helpers";
 
 const wireFamilies = ["chat", "responses", "messages"] as const;
@@ -407,11 +406,11 @@ function CustomProviderCard({ customProvider }: { customProvider: ProviderRespon
                 />
               ) : counts?.active > 0 ? (
                 <Badge tone="ok" dot>
-                  {counts.active} Connected
+                  {counts.active} Healthy
                 </Badge>
-              ) : counts !== undefined && counts.unhealthy + counts.cooling > 0 ? (
+              ) : counts?.disabled > 0 ? (
                 <Badge tone="warn" dot>
-                  {counts.unhealthy + counts.cooling} Unhealthy
+                  {counts.disabled} Unhealthy
                 </Badge>
               ) : (
                 <Badge>No connections</Badge>
@@ -678,24 +677,20 @@ function CustomProvidersSection({
 
 const FOUNDING_IDS = new Set(["inferhub"]);
 /** Free tiers that are metered (a few requests per day) rather than a standing
- * free allowance. They are listed in {@link FREE_AVAILABLE_IDS} too, but get
- * their own section instead of the general free-available one. */
-const FREE_LIMITED_IDS = new Set(["sifo", "cerebras", "groq", "opencodeft", "opencodezen", "opencodego", "bai", "tokenharbor"]);
+ * free allowance, so they get their own section instead of the general
+ * free-available one. */
+const FREE_LIMITED_IDS = new Set(["cerebras", "bai", "tokenharbor"]);
 const FREE_AVAILABLE_IDS = new Set([
   "qoder",
   "agentrouter",
   "mistral",
   "gemini",
   "openrouter",
-  "sifo",
   "cb",
   "cbcn",
-  "groq",
   "nvidia",
   "hermes",
   "opencodeft",
-  "opencodezen",
-  "opencodego",
   "tokenharbor",
   "bai",
   "gmi",
@@ -715,8 +710,9 @@ const FREE_AVAILABLE_IDS = new Set([
  * `active` and `cooling` are therefore separate counts over the same account,
  * and both are meant to show at once: a cooling account IS connected and
  * routable for its other models, it is just not being routed to for the models
- * named in `modelCooldowns`. `unhealthy` excludes `cooling` for the same
- * reason — that badge is the fallback for when nothing is connected at all.
+ * named in `modelCooldowns`. The card keeps every status in its own badge so
+ * one account is not counted as unhealthy merely because it is cooling or in
+ * cooldown.
  */
 function summarizeAccounts(accounts: readonly ProviderAccountResponse[]): {
   active: number;
@@ -724,14 +720,13 @@ function summarizeAccounts(accounts: readonly ProviderAccountResponse[]): {
   disabled: number;
   exhausted: number;
   cooling: number;
-  unhealthy: number;
 } {
   const active = accounts.filter((a) => a.status === "active").length;
   const cooldown = accounts.filter((a) => a.status === "cooldown").length;
   const disabled = accounts.filter((a) => a.status === "disabled").length;
   const exhausted = accounts.filter((a) => a.lastErrorCategory === "quota_exhausted").length;
   const cooling = modelCoolingCount(accounts);
-  return { active, cooldown, disabled, exhausted, cooling, unhealthy: cooldown + disabled + exhausted };
+  return { active, cooldown, disabled, exhausted, cooling };
 }
 
 function SecondaryQueryBadge({
@@ -760,7 +755,7 @@ const ProviderCard = memo(function ProviderCard({
   provider: ProviderResponse;
 }): ReactNode {
   const isFounding = FOUNDING_IDS.has(provider.providerId.toLowerCase());
-  const displayName = providerDisplayName(provider.providerId, provider.label);
+  const displayName = provider.label || provider.displayName;
   const modelsQuery = useProviderModels(provider.providerId);
   const modelCount = modelsQuery.data?.length;
   const accountsQuery = useProviderAccounts(provider.providerId);
@@ -838,11 +833,11 @@ const ProviderCard = memo(function ProviderCard({
                 />
               ) : counts?.active > 0 ? (
                 <Badge tone="ok" dot>
-                  {counts.active} Connected
+                  {counts.active} Healthy
                 </Badge>
-              ) : counts !== undefined && counts.unhealthy + counts.cooling > 0 ? (
+              ) : counts?.disabled > 0 ? (
                 <Badge tone="warn" dot>
-                  {counts.unhealthy + counts.cooling} Unhealthy
+                  {counts.disabled} Unhealthy
                 </Badge>
               ) : (
                 <Badge>No connections</Badge>
@@ -924,7 +919,7 @@ const ProviderCard = memo(function ProviderCard({
 function compareConfiguredProviders(a: ProviderResponse, b: ProviderResponse): number {
   const configuredRank = Number(Boolean(b.configured)) - Number(Boolean(a.configured));
   if (configuredRank !== 0) return configuredRank;
-  return providerDisplayName(a.providerId, a.label).localeCompare(providerDisplayName(b.providerId, b.label));
+  return (a.label || a.displayName).localeCompare(b.label || b.displayName);
 }
 
 // ── Sections Definition ───────────────────────────────────────────────────────

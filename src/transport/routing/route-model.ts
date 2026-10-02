@@ -1,6 +1,6 @@
 // Routing contracts and snapshots.
 import { GatewayError } from "../gateway-error";
-import { type WireFamily } from "../canonical-model";
+import { type ServiceKind, type WireFamily } from "../canonical-model";
 
 
 export type RoutingRevision = number;
@@ -11,6 +11,13 @@ export interface RouteCandidate {
   readonly provider_id: string;
   readonly model_id: string;
   readonly wire_family: WireFamily;
+  /**
+   * Protocol shape of the model. `llm` (the default) flows through the
+   * canonical surface pipeline; a non-`llm` model is dispatched by its native
+   * route handler, which reads `endpoint` directly and never encodes a
+   * canonical request. Absent means `llm` — every pre-existing row.
+   */
+  readonly service_kind?: ServiceKind;
   readonly endpoint: string;
   readonly capability_profile: CapabilityProfile;
   /** Route-selected User-Agent fallback; provider-supplied identities remain authoritative. */
@@ -66,6 +73,15 @@ export interface ProviderRoutingSetting {
   /** Per-account inflight ceiling from the routing panel; `null` = unlimited
    * concurrency per account. */
   readonly maxInflight: number | null;
+  /**
+   * Credit reserve for every account of this provider; `null` = no reserve.
+   * The quota sweep reads it (tenant-over-global) and parks an account whose
+   * remaining credit reaches the floor, so routing fails over instead of
+   * draining the account to empty. Optional like `userAgent`: a snapshot built
+   * before the column existed, or a caller that only cares about routing, omits
+   * it.
+   */
+  readonly creditFloor?: number | null;
   readonly enabled: boolean;
   /** Built-in API-key User-Agent; OAuth and custom providers retain their identities. */
   readonly userAgent?: string;
@@ -116,6 +132,20 @@ export interface RoutePlan {
   readonly requested_model: string;
   readonly resolved_model: string;
   readonly provider_id: string;
+  /**
+   * Present when the requested name resolved to a `fusion` combo. `panel` is
+   * every resolved member model (each answers the prompt in parallel) and
+   * `judge` is the first member, which additionally synthesizes the final
+   * answer from the panel responses — the same convention as a panel whose
+   * judge defaults to its first model. A fusion plan still carries the
+   * flattened member candidates (so admission and leases work if fusion is
+   * bypassed), but the proxy handler branches on this field and runs the
+   * panel/judge fan-out instead of a single dispatch.
+   */
+  readonly fusion?: {
+    readonly panel: readonly string[];
+    readonly judge: string;
+  };
 }
 
 import type { ComboStrategy, PoolRoutingStrategy } from "../../persistence/schema";
@@ -241,6 +271,31 @@ export function accountsUnavailableError(
     503,
     `Model '${requested}'${routeNote} has no available account (${reasons.length} candidate(s) unusable: ${distinct.join(", ")})`,
     { model: requested, routed_model: routed, reasons: distinct, candidate_count: reasons.length },
+  );
+}
+
+/**
+ * The model is routed, but every candidate that could serve it is currently
+ * cooling down (rate limited, quota exhausted, or transiently failed).
+ *
+ * Distinct from {@link accountsUnavailableError}: that 503 means *no usable
+ * account exists* (all disabled or model-cooling), where waiting does not help
+ * until an operator acts. This 429 means accounts exist but every one is inside
+ * a cooldown window — the correct answer is "rate limited, retry after the
+ * reset", and dialing a cooling account can only reproduce the same refusal.
+ * Returning 503 here told a client to keep retrying capacity that is merely
+ * resting, and 404 would blame the request.
+ */
+export function accountsRateLimitedError(
+  requested: string,
+  routed: string = requested,
+): GatewayError {
+  const routeNote = routed === requested ? "" : ` routed to '${routed}'`;
+  return new GatewayError(
+    "accounts_rate_limited",
+    429,
+    `Model '${requested}'${routeNote} has no healthy account: every account is rate limited or cooling down`,
+    { model: requested, routed_model: routed, reason: "all_accounts_cooling" },
   );
 }
 

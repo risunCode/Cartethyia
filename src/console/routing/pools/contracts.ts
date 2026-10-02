@@ -11,6 +11,12 @@ import type { SsrfPolicy } from "../../../config";
 import type { NetworkPoolSelector } from "../../../network/pool/selector";
 import type { PoolHealthEvent } from "../../../network/pool-health-machine";
 import { literalUnion } from "../../shared/elysia-schema";
+import {
+  deployRelay as deployRelayWorker,
+  isRelayTarget,
+  RELAY_TARGETS,
+  type RelayDeployRequest,
+} from "./relay-deploy";
 import { SPEED_TEST_DEFAULT_BYTES, SPEED_TEST_MAX_BYTES, SPEED_TEST_MIN_BYTES } from "./speed-test-sizes";
 export {
   SPEED_TEST_DEFAULT_BYTES,
@@ -296,6 +302,13 @@ export interface NetworkPoolConfig {
    * of the process lifetime after the pool's config has already changed. */
   readonly poolAgentReleaser?: NetworkPoolAgentReleaser;
   readonly snapshotInvalidator?: { invalidate(): Promise<number> };
+  /**
+   * SSRF-validated outbound fetch used by the hosted-relay deploy endpoint.
+   * Deploy calls reach provider APIs (Cloudflare/Vercel/Deno), so they must be
+   * checked like every other egress. Omitted in tests, where the deploy fetch
+   * is stubbed through the operation itself.
+   */
+  readonly relayFetch?: (url: string, init: RequestInit) => Promise<Response>;
 
 }
 
@@ -698,7 +711,36 @@ export function createNetworkPoolOperations(config: NetworkPoolConfig) {
       await Promise.all(workers);
       return results;
     },
-
+    /**
+     * Deploys a hosted relay (Cloudflare/Vercel/Deno) and registers its URL as
+     * an active HTTP pool. The provider API token is used for the deploy and
+     * never persisted; the relay URL is a public host, which is what the pool
+     * stores. The deploy fetch is the SSRF-validated one, so the provider API
+     * call is checked like every other egress.
+     */
+    async deployRelay(
+      access: AccessDecision | undefined,
+      request: RelayDeployRequest,
+    ): Promise<NetworkPoolResponse & { relayUrl: string }> {
+      const a = requireTenantScope(access, "dashboard:write");
+      if (!config.relayFetch)
+        throw new ConsoleDomainError("not_supported", 503, "Relay deployment is unavailable");
+      if (!isRelayTarget(request.target))
+        throw new ConsoleDomainError("invalid_request", 422, `Unsupported relay target: ${String(request.target)}`);
+      const result = await deployRelayWorker(config.relayFetch, request);
+      const created = await operations.createPool(access, {
+        kind: "http",
+        endpoint: result.relayUrl,
+        label: request.projectName?.trim() || `${result.target} relay`,
+      });
+      await config.auditSink?.record({
+        access: a,
+        action: "network_pool.relay_deployed",
+        target: created.id,
+        detail: { target: result.target, relayUrl: result.relayUrl },
+      });
+      return { ...created, relayUrl: result.relayUrl };
+    },
   };
   return operations;
 }
@@ -719,6 +761,13 @@ const createPoolBody = t.Object({
 
 /** How many proxy dials run at once during a batch probe. */
 const POOL_BATCH_PROBE_CONCURRENCY = 10;
+
+const deployRelayBody = t.Object({
+  target: literalUnion(RELAY_TARGETS),
+  token: t.String({ minLength: 1 }),
+  accountId: t.Optional(t.String()),
+  projectName: t.Optional(t.String()),
+});
 
 const testBatchBody = t.Object({
   targets: t.Array(createPoolBody, { minItems: 1, maxItems: MAX_BATCH_PROBE_TARGETS }),
@@ -797,6 +846,9 @@ export function createNetworkPoolRoutes(config: NetworkPoolConfig): Elysia {
         );
 },
     )
+    .post("/relay/deploy", { body: deployRelayBody }, async ({ request, body }) => {
+      return await factory.deployRelay(config.accessResolver(request), body as RelayDeployRequest);
+    })
     .get("/strategy", async ({ request }) => {
       return await factory.getStrategy(config.accessResolver(request));
 })

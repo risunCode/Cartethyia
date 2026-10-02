@@ -46,7 +46,7 @@ let antigravityVersionFetch: Promise<void> | null = null;
  * Manifest-discovered → pinned fallback. Discovery is the only source of a
  * live version; the pinned constant keeps dispatch working offline.
  */
-function getAntigravityVersion(): string {
+export function getAntigravityVersion(): string {
   return discoveredAntigravityVersion || DEFAULT_ANTIGRAVITY_VERSION;
 }
 

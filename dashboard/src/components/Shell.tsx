@@ -34,9 +34,9 @@ import { queryClient } from "../data/query-client";
 import { prefetchRouteIntent } from "../data/route-prefetch";
 import { usePullToRefresh } from "../hooks/use-pull-to-refresh";
 import { useSystemHealth } from "../hooks/system";
+import { useProviders } from "../hooks/providers";
 import { Atmosphere } from "./Atmosphere";
 import { DASHBOARD_RELEASE_LABEL } from "../shared/version";
-import { providerDisplayName } from "../shared/provider-names";
 import { useCustomizationAssetUrl, useCustomizationBranding } from "../shared/customization";
 import type { SessionUser } from "../data/contracts";
 import { formatUptime } from "../shared/format";
@@ -118,11 +118,15 @@ const CONSOLE_FALLBACK = { title: "Console", sub: "Cartethyia AI Gateway Adminis
  * carry their subject in the path, so a flat `titlesMap` lookup would drop them
  * onto the generic console fallback. They are matched by pattern instead.
  */
-function resolveRouteMeta(pathname: string): { title: string; sub: string } {
+function resolveRouteMeta(
+  pathname: string,
+  providers: readonly { readonly providerId: string; readonly displayName: string; readonly label?: string }[],
+): { title: string; sub: string } {
   const providerMatch = /^\/providers\/([^/]+)\/?$/.exec(pathname);
   if (providerMatch?.[1]) {
+    const provider = providers.find((candidate) => candidate.providerId === providerMatch[1]);
     return {
-      title: providerDisplayName(providerMatch[1]),
+      title: provider?.label || provider?.displayName || providerMatch[1],
       sub: "Routing, accounts, models, and health",
     };
   }
@@ -694,6 +698,7 @@ export function DashboardShell({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const healthQuery = useSafeSystemHealth();
+  const providersQuery = useProviders();
   const drawerPresence = usePresence(drawerOpen);
   const pull = usePullToRefresh(() => queryClient.invalidateQueries());
 
@@ -745,7 +750,7 @@ export function DashboardShell({
     }
   };
 
-  const meta = resolveRouteMeta(location.pathname);
+  const meta = resolveRouteMeta(location.pathname, providersQuery.data ?? []);
   const [branding] = useCustomizationBranding();
   const customBrandingUrl = useCustomizationAssetUrl(branding.asset);
   const defaultLogoUrl = `${import.meta.env.BASE_URL}favicon_love.webp`;

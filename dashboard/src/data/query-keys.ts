@@ -57,6 +57,9 @@ export const queryKeys = {
     sharedKeyActivity: (parentKeyId: string, childKeyId: string) =>
       ["console", "api-keys", parentKeyId, "shared-keys", childKeyId, "activity"] as const,
   },
+  modelBans: {
+    all: ["console", "model-bans"] as const,
+  },
   settings: {
 
     runtime: ["console", "settings", "runtime"] as const,

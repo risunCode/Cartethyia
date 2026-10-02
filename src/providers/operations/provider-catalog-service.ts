@@ -1,7 +1,7 @@
 // Provider assembly: builtin registry construction, BYOK wiring, and DB catalog materialization.
 import type { WireFamily } from "../../transport/canonical-model";
 
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, notInArray, sql } from "drizzle-orm";
 import { GatewayError } from "../../transport/gateway-error";
 import {
   isBundledProviderId,
@@ -26,6 +26,11 @@ import type { SsrfPolicy } from "../../config";
  * Idempotently materializes every shipped provider in the database catalog.
  * The canonical provider definition supplies identity and routing defaults;
  * this only creates rows that tenant/account routing needs.
+ *
+ * Additive on purpose: it never deletes. The test harness calls it to converge a
+ * shared database before any suite collects, so a destructive step here would
+ * race the fixtures other suites are mid-way through installing. Retirement is
+ * {@link retireUnbundledProviders}, run once on the boot path.
  */
 export async function seedBundledProviders(db: CartethyiaDatabase): Promise<void> {
   const rows = BUNDLED_PROVIDER_MODULES.map((provider) => ({
@@ -53,6 +58,41 @@ export async function seedBundledProviders(db: CartethyiaDatabase): Promise<void
         compatibilityProfile: sql`COALESCE(${providers.compatibilityProfile}, '{}'::jsonb) || COALESCE(excluded.compatibility_profile, '{}'::jsonb)`,
       },
     });
+}
+
+/**
+ * Retires the global (`tenant_id IS NULL`) provider rows the bundle no longer
+ * declares.
+ *
+ * Without this, dropping a provider from `provider-metadata.ts` left its
+ * `providers` row in place forever — the seed only ever adds. The row still
+ * satisfied `list()`'s `globalOrOwnedBy`, but `isBundledProviderId`, the
+ * predicate behind `isBuiltIn`, answered `false` for it, so the console drew it
+ * as a *custom* provider the operator could not remove: `DELETE
+ * /providers/:providerId` scopes to `tenant_id = <tenant>` and a global row is
+ * `NULL`, so it matched nothing and surfaced as `provider_not_found`. The
+ * `/platform/global/:providerId` route that can delete such a row has no
+ * dashboard control.
+ *
+ * Scoped to unowned rows because this is the only writer of them — every
+ * console-created provider carries a tenant — so an unowned id absent from the
+ * bundle is an orphan by construction, and a tenant-owned BYOK row is never in
+ * scope. The model seeder prunes its retired rows the same way; this is the
+ * provider-level half that was missing.
+ *
+ * Separate from {@link seedBundledProviders} rather than folded into it: the
+ * harness calls that seeder on import to converge a shared database, and a
+ * delete there would race the fixtures other suites are installing. This runs
+ * once on the boot path, where no such fixture exists.
+ */
+export async function retireUnbundledProviders(db: CartethyiaDatabase): Promise<number> {
+  const bundledIds = BUNDLED_PROVIDER_MODULES.map((provider) => provider.id);
+  if (bundledIds.length === 0) return 0;
+  const retired = await db
+    .delete(providers)
+    .where(and(isNull(providers.tenantId), notInArray(providers.id, bundledIds)))
+    .returning({ id: providers.id });
+  return retired.length;
 }
 
 export interface ByokUpstreamHost {
@@ -99,6 +139,10 @@ export async function bundledModelCatalog(
     // `ModelDefinition.endpointPath` via `candidate.endpoint_path`.
     const registeredPaths = registration.endpoint_paths_by_wire_family ?? {};
     for (const definition of definitions) {
+      // A native-service row (System One) is not served on a chat wire: its
+      // `wireFamily` is an inert placeholder and its endpoint belongs to the
+      // native route, so the wire-family path map does not describe it.
+      if ((definition.serviceKind ?? "llm") !== "llm") continue;
       const registered = registeredPaths[definition.wireFamily];
       if (registered !== undefined && registered !== definition.endpointPath) {
         throw new Error(

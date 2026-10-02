@@ -1,6 +1,7 @@
 import { Elysia } from "elysia";
 import { resolveDashboardDist, resolveElysiaPrecompile } from "./config";
 import { createConsoleRouter, type ConsoleApiCompositionDeps } from "./console/console-router";
+import type { ScheduledTaskRegistry } from "./workers/tasks";
 import { createStaticHandler } from "./console/dashboard-assets";
 import { createShareRouter } from "./console/share/share-router";
 import { createShareStatsPort } from "./console/share/share-stats";
@@ -10,7 +11,8 @@ import { responsesAdapter } from "./transport/surface/responses/adapter";
 import { messagesAdapter } from "./transport/surface/messages/adapter";
 import { completionAdapter } from "./transport/surface/completion";
 import { SurfaceAdapterRegistry } from "./transport/surface/adapters";
-import { GatewayError } from "./transport/gateway-error";
+import { GatewayError, publicGatewayErrorBody } from "./transport/gateway-error";
+import { shutdownError, shutdownNotice } from "./transport/shutdown-notice";
 import type { CanonicalAdapter } from "./transport/middleware/request-context";
 import type { ApiKeyAuthorizationSnapshot } from "./security/api-key-auth";
 import { getPool } from "./persistence/postgres";
@@ -29,8 +31,11 @@ import {
   type ProviderProxyHandlerDeps,
 } from "./transport/dispatch/proxy-request";
 import { createResponsesCompactHandler } from "./transport/dispatch/responses-compact";
+import { createSystemoneHandler } from "./transport/dispatch/systemone";
+import { createWebsearchHandler } from "./transport/dispatch/websearch";
 
 import { createTransportPipeline } from "./transport/middleware/pipeline";
+import { createDrainHandler } from "./transport/drain-endpoint";
 import { PublicModelCatalogStore, type AllowedModelEntry } from "./console/providers/catalog/public-model-store";
 import type { IpAbuseProtectionService } from "./security/abuse";
 import type { ReadinessCheckResult } from "./persistence/readiness";
@@ -40,6 +45,7 @@ import { resolveClientIdentity } from "./security/ip-boundary";
 import type { ValidatedNetworkBindingFactory } from "./network/pool/resolver";
 import { metrics } from "./observability/metrics";
 import { API_CONTENT_SECURITY_POLICY, X_FRAME_OPTIONS } from "./security/outbound-headers";
+import type { ModelStrikeService } from "./security/model-abuse";
 
 
 import type { TelemetryBatchBuffer } from "./observability/telemetry-buffer";
@@ -52,6 +58,8 @@ export interface ShutdownCoordinatorLike {
   track(id: string): void;
   untrack(id: string): void;
   isDraining(): boolean;
+  /** Why the drain began, so the termination notice can tell a stop from an update. */
+  shutdownReason?(): string;
   setAbortInflight?: (handler: (() => void) | undefined) => void;
 }
 
@@ -100,6 +108,8 @@ export interface ProductionAppDeps {
   readonly telemetryBuffer: TelemetryBatchBuffer;
   readonly resolveOAuthRefresher: (providerId: string) => Promise<OAuthTokenRefresher | undefined>;
   readonly oauthRefreshService: OAuthRefreshService;
+  /** Graduated strikes for repeated invalid-model requests. */
+  readonly modelStrikes?: ModelStrikeService;
   /**
    * The console control plane. Optional because the console needs Redis
    * (OAuth-flow state and the quota cache are Redis-backed; sessions live in
@@ -109,12 +119,26 @@ export interface ProductionAppDeps {
    * mount `/console/api/*`, which is exactly what that mode documents.
    */
   readonly consoleApi?: ConsoleApiCompositionDeps;
+  /**
+   * The shared maintenance scheduler. The in-flight backstop sweep registers
+   * here rather than owning a private timer, so every periodic task in the
+   * process is visible in one place. Absent in reduced compositions, where the
+   * backstop is not mounted.
+   */
+  readonly scheduledTasks?: ScheduledTaskRegistry;
   readonly shutdownCoordinator: ShutdownCoordinatorLike;
   readonly dashboardDist?: string;
   readonly resolvePeerAddress?: (request: Request) => string | null;
   readonly maxBodyBytes?: number;
   readonly requestDeadlineMs?: number;
   readonly verifiedHttps?: boolean;
+  /**
+   * Secret for the operator drain endpoint. When set (with `triggerDrain`),
+   * `POST /admin/drain` from loopback with a matching `x-drain-token` drains
+   * gracefully — the signal-free stop Windows needs.
+   */
+  readonly drainToken?: string;
+  readonly triggerDrain?: () => void;
 }
 
 /** Either app mode. The discriminant decides which builder path runs. */
@@ -179,19 +203,17 @@ export function createGatewayApp(deps: GatewayAppDeps) {
       (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
     );
     if (reserved) {
-      return new Response(
-        JSON.stringify({ error: { code: "not_found", message: "Route not found" } }),
-        {
-          status: 404,
-          headers: {
-            "content-type": "application/json; charset=utf-8",
-            "cache-control": "no-store",
-            "content-security-policy": API_CONTENT_SECURITY_POLICY,
-            "x-frame-options": X_FRAME_OPTIONS,
-            "x-content-type-options": "nosniff",
-          },
+      const notFound = new GatewayError("not_found", 404, "Route not found");
+      return new Response(JSON.stringify(publicGatewayErrorBody(notFound)), {
+        status: notFound.status,
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": "no-store",
+          "content-security-policy": API_CONTENT_SECURITY_POLICY,
+          "x-frame-options": X_FRAME_OPTIONS,
+          "x-content-type-options": "nosniff",
         },
-      );
+      });
     }
     return serveDashboard({ request });
   };
@@ -200,8 +222,31 @@ export function createGatewayApp(deps: GatewayAppDeps) {
   const requestStateStore = new ProxyRequestStateStore(deps.shutdownCoordinator);
   // Shutdown ordering: abort in-flight proxy controllers first so the
   // bounded drain observes cancellation and finalizers run before
-  // telemetry flush and pool close.
-  deps.shutdownCoordinator?.setAbortInflight?.(() => requestStateStore.abortAll());
+  // telemetry flush and pool close. The reason is threaded through so the
+  // streaming path emits a drain-aware terminal frame (`restart_for_update`
+  // vs `shutting_down`) instead of a bare abort that reads as a client drop.
+  deps.shutdownCoordinator?.setAbortInflight?.(() =>
+    requestStateStore.abortAll(shutdownError(deps.shutdownCoordinator?.shutdownReason?.())),
+  );
+  // Backstop: the gauge must settle even if an abort path never fires (a
+  // half-closed socket that neither pulls, cancels, nor aborts). This sweep
+  // force-releases any flight past its deadline plus a grace window, so a
+  // missed release cannot leave a permanently wrong number. The grace is a
+  // safety margin over the request deadline, not a deployment knob.
+  const INFLIGHT_BACKSTOP_INTERVAL_MS = 30_000;
+  const INFLIGHT_BACKSTOP_GRACE_MS = 30_000;
+  const INFLIGHT_BACKSTOP_HARD_GRACE_MS = 120_000;
+  if (deps.mode === "production") deps.scheduledTasks?.register({
+    name: "inflight-backstop",
+    intervalMs: INFLIGHT_BACKSTOP_INTERVAL_MS,
+    run: () => {
+      requestStateStore.sweepOverdueInFlight(
+        Date.now(),
+        INFLIGHT_BACKSTOP_GRACE_MS,
+        INFLIGHT_BACKSTOP_HARD_GRACE_MS,
+      );
+    },
+  });
   const app = new Elysia({ precompile: resolveElysiaPrecompile() })
     .beforeHandle(
       ({
@@ -221,8 +266,12 @@ export function createGatewayApp(deps: GatewayAppDeps) {
       // sending it traffic and the replacement takes over without the old
       // one crashing first: SIGTERM → draining → 503 here → Docker routes
       // to the new container → old one finishes in flight and exits 0.
+      // The reason distinguishes an ordinary stop from an in-place update,
+      // whose replacement is seconds away, so a probe consumer can back off
+      // briefly instead of treating the drain as a permanent outage.
       if (deps.shutdownCoordinator?.isDraining()) {
-        return new Response(JSON.stringify({ status: "not_ready" as const, reason: "shutting_down" }), {
+        const notice = shutdownNotice(deps.shutdownCoordinator.shutdownReason?.());
+        return new Response(JSON.stringify({ status: "not_ready" as const, reason: notice.code }), {
           status: 503,
           headers: { "content-type": "application/json" },
         });
@@ -298,6 +347,7 @@ export function createGatewayApp(deps: GatewayAppDeps) {
       ...(deps.verifiedHttps ? { verifiedHttps: true } : {}),
       shutdownCoordinator: deps.shutdownCoordinator,
       telemetry: deps.telemetryBuffer,
+      ...(deps.modelStrikes ? { modelStrikes: deps.modelStrikes } : {}),
     });
     transportPipeline.mountRoot(app);
     const proxyDeps: ProviderProxyHandlerDeps = {
@@ -305,6 +355,7 @@ export function createGatewayApp(deps: GatewayAppDeps) {
       providerAdapters: deps.providerAdapters ?? new Map(),
       resolveProviderAdapter: deps.resolveProviderAdapter,
       stateStore: requestStateStore,
+      proxyPreparer: deps.proxyPreparer,
       snapshotService: deps.snapshotService,
       networkBindingFactory: deps.networkBindingFactory,
       byokUpstreamHosts: deps.byokUpstreamHosts,
@@ -393,6 +444,36 @@ export function createGatewayApp(deps: GatewayAppDeps) {
       telemetryBuffer: deps.telemetryBuffer,
     });
 
+    const handleSystemone = createSystemoneHandler({
+      db: deps.db,
+      providerAdapters: deps.providerAdapters ?? new Map(),
+      resolveProviderAdapter: deps.resolveProviderAdapter,
+      proxyPreparer: deps.proxyPreparer,
+      stateStore: requestStateStore,
+      poolSelector: deps.poolSelector,
+      networkBindingFactory: deps.networkBindingFactory,
+      snapshotService: deps.snapshotService,
+      resolveOAuthRefresher: deps.resolveOAuthRefresher,
+      oauthRefreshService: deps.oauthRefreshService,
+      // Same reasoning as compact: the handler finalizes telemetry itself, so
+      // the buffer must be threaded here or the route emits no row.
+      telemetryBuffer: deps.telemetryBuffer,
+    });
+
+    const handleWebsearch = createWebsearchHandler({
+      db: deps.db,
+      providerAdapters: deps.providerAdapters ?? new Map(),
+      resolveProviderAdapter: deps.resolveProviderAdapter,
+      proxyPreparer: deps.proxyPreparer,
+      stateStore: requestStateStore,
+      poolSelector: deps.poolSelector,
+      networkBindingFactory: deps.networkBindingFactory,
+      snapshotService: deps.snapshotService,
+      resolveOAuthRefresher: deps.resolveOAuthRefresher,
+      oauthRefreshService: deps.oauthRefreshService,
+      telemetryBuffer: deps.telemetryBuffer,
+    });
+
     // Gateway mounting: the pipeline owner composes stages, telemetry, and
     // cleanup; app only registers the public route table.
     app.use(
@@ -402,6 +483,8 @@ export function createGatewayApp(deps: GatewayAppDeps) {
         routes.post("/responses/compact", handleResponsesCompact);
         routes.post("/messages", proxyHandler);
         routes.post("/completions", proxyHandler);
+        routes.post("/systemone", handleSystemone);
+        routes.post("/search", handleWebsearch);
         routes.get("/models", handleModelsList);
         routes.get("/models/info", handleModelsDetail);
         routes.get("/models/*", handleModelsDetail);
@@ -410,6 +493,19 @@ export function createGatewayApp(deps: GatewayAppDeps) {
   }
 
   if (deps.mode === "production") {
+    // Operator drain endpoint. Registered before the SPA catch-all and only
+    // when a token is configured, so an unconfigured gateway has no such route
+    // at all. It is a graceful stop for platforms where a catchable signal
+    // cannot be delivered (Windows), and a second signal-free path elsewhere.
+    if (deps.drainToken && deps.triggerDrain) {
+      const drainHandler = createDrainHandler({
+        token: deps.drainToken,
+        triggerDrain: deps.triggerDrain,
+        resolvePeerAddress: (request) => peerAddresses.get(request) ?? null,
+      });
+      app.post("/admin/drain", drainHandler);
+    }
+
     // `peerAddresses` is populated by the root `beforeHandle` above from
     // `server.requestIP`. The console login route needs it to key its lockout
     // bucket, and the trusted-proxy boundary decides whether an
@@ -419,6 +515,7 @@ export function createGatewayApp(deps: GatewayAppDeps) {
       app.use(
         createConsoleRouter({
           ...deps.consoleApi,
+          stateStore: requestStateStore,
           resolvePeerAddress: (request) => peerAddresses.get(request) ?? null,
           trustedProxyBoundary: deps.trustedProxyBoundary,
         }),

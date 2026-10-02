@@ -128,7 +128,5 @@ export const ANTHROPIC_MODELS: readonly ModelDefinition[] = [
   defineModel({ id: "claude-sonnet-4-6", wireFamily: "messages", endpoint: "/v1/messages", ctx: 1000000, out: 128000, vision: true, reasoning: true, webSearch: true }),
   defineModel({ id: "claude-opus-4-5", wireFamily: "messages", endpoint: "/v1/messages", ctx: 200000, out: 64000, vision: true, reasoning: true, webSearch: true }),
   defineModel({ id: "claude-haiku-4-5", wireFamily: "messages", endpoint: "/v1/messages", ctx: 200000, out: 64000, vision: true, reasoning: true, webSearch: true }),
-  defineModel({ id: "claude-3-5-haiku", wireFamily: "messages", endpoint: "/v1/messages", ctx: 200000, out: 64000, vision: true, reasoning: true, webSearch: true }),
-  defineModel({ id: "claude-3-7-sonnet", wireFamily: "messages", endpoint: "/v1/messages", ctx: 200000, out: 64000, vision: true, reasoning: true, webSearch: true }),
 ];
 

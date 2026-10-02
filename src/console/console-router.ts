@@ -18,10 +18,12 @@ import type { CartethyiaDatabase } from "../persistence/postgres";
 import { createAccessDecision, type AccessDecision } from "../security/access-control";
 import { resolveApiKeyAuthorization } from "../security/api-key-auth";
 import type { RouteSnapshotService } from "../transport/routing/route-model";
+import type { ProxyRequestStateStore } from "../transport/request/state";
 import type { NetworkPoolSelector } from "../network/pool/selector";
 import type { TelemetryBatchBuffer } from "../observability/telemetry-buffer";
 import type { OAuthRefreshService } from "../providers/authentication/oauth-refresh-service";
 import type { ApiKeyAdmissionService } from "../security/admission";
+import type { ModelStrikeService } from "../security/model-abuse";
 import type { RedisClient } from "../persistence/redis";
 import { CliToolMappingStore } from "./cli-tools/store";
 import { CliToolService } from "./cli-tools/service";
@@ -30,6 +32,7 @@ import type { ProviderRegistry } from "../providers/provider-registry";
 import type { BundledProviderCatalog } from "../providers/operations/provider-catalog-service";
 import type { ValidatedNetworkBindingFactory } from "../network/pool/resolver";
 import type { TrustedProxyBoundary } from "../config";
+import { gzipResponse } from "./response-compression";
 
 export interface ConsoleApiCompositionDeps {
   readonly db: CartethyiaDatabase;
@@ -37,12 +40,23 @@ export interface ConsoleApiCompositionDeps {
   readonly routeSnapshotService: RouteSnapshotService;
   readonly poolSelector: NetworkPoolSelector;
   readonly telemetryBuffer: TelemetryBatchBuffer;
+  /**
+   * The request state store owns the live in-flight gauge, so the console reads
+   * its snapshot/subscription from here rather than a free-standing module.
+   */
+  readonly stateStore?: ProxyRequestStateStore;
   readonly providerRegistry: ProviderRegistry;
   readonly bundledModelCatalog: BundledProviderCatalog;
   readonly networkBindingFactory: ValidatedNetworkBindingFactory;
   readonly redis: RedisClient;
   readonly oauthRefreshService: OAuthRefreshService;
   readonly admissionService: Pick<ApiKeyAdmissionService, "purgeKey">;
+  /**
+   * Graduated model-abuse strikes: list and lift bans from the console.
+   * Optional so reduced compositions (route-only shell, console stubs) stay
+   * valid; absent means the `/model-bans` routes are not mounted.
+   */
+  readonly modelStrikes?: Pick<ModelStrikeService, "listBans" | "unban">;
   readonly readRoutingAccountInflight?:
     | ((
         providerId: string,
@@ -148,10 +162,12 @@ export function createConsoleRouter(deps: ConsoleApiCompositionDeps): Elysia {
     routeSnapshotService,
     poolSelector,
     telemetryBuffer,
+    ...(deps.stateStore ? { stateStore: deps.stateStore } : {}),
     providerRegistry: deps.providerRegistry,
     bundledModelCatalog: deps.bundledModelCatalog,
     networkBindingFactory: deps.networkBindingFactory,
     admissionService: deps.admissionService,
+    ...(deps.modelStrikes ? { modelStrikes: deps.modelStrikes } : {}),
     readRoutingAccountInflight: deps.readRoutingAccountInflight,
     credentialService,
     // The backup surface re-authenticates the operator, so it needs the current
@@ -164,5 +180,24 @@ export function createConsoleRouter(deps: ConsoleApiCompositionDeps): Elysia {
     },
   };
   registerConsoleDomains(console as unknown as Elysia, ctx);
+  // Compress the JSON control plane on the way out.
+  //
+  // `wrap` is used rather than a lifecycle hook because this Elysia beta does
+  // not deliver the response body to them: measured, both `mapResponse` and
+  // `afterHandle` receive `responseValue`/`response` as `undefined` for a
+  // plain-object route, and Elysia sets no `content-length`, so a hook has
+  // nothing to compress and no size to judge. `wrap` sits outside the router
+  // and sees the finished `Response`, which is what this needs.
+  //
+  // Scoped to the console instance: `/v1/*` is a separate Elysia and is
+  // deliberately not covered, because a streaming completion must not be
+  // buffered and proxied bodies are the provider's own bytes. See
+  // `response-compression.ts` for the full reasoning and the measured win.
+  console.wrap(
+    (fetch) => (request: Request, ...rest: unknown[]) =>
+      Promise.resolve(fetch(request, ...rest)).then((response) =>
+        gzipResponse(request, response),
+      ),
+  );
   return console as unknown as Elysia;
 }

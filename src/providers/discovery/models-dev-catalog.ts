@@ -128,7 +128,6 @@ const MODELS_DEV_PROVIDER_IDS: Readonly<Record<string, string>> = {
   // under. Without these the exact lookup misses for every model, and each row
   // falls through to the bare lookup — which fails closed when providers
   // disagree about the id — so the catalog would publish invented defaults.
-  sifo: "siliconflow",
   github: "github-copilot",
 };
 

@@ -82,6 +82,14 @@ export type { AccountHealthEventRecord } from "../../../src/providers/operations
 export { PROBE_REASONING_EFFORTS } from "../../../src/providers/discovery/discovery-types";
 export type { ProbeReasoningEffort } from "../../../src/providers/discovery/discovery-types";
 
+/**
+ * The `model(level)` naming rule, re-exported from the backend parser so the
+ * dashboard renders exactly the id a client should send. A hand-written
+ * `(level)` string here would drift from `parseThinkingSuffix` the moment
+ * either side changes.
+ */
+export { formatThinkingSuffix } from "../../../src/transport/translation/thinking";
+
 export type {
   ComboStrategy,
   ModelAliasRow,
@@ -90,6 +98,7 @@ export type {
   ModelComboRow,
   ModelComboCreateInput,
   ModelComboPatchInput,
+  ModelComboCloneResult,
 } from "../../../src/console/routing/model/contracts";
 
 export type {
@@ -99,6 +108,11 @@ export type {
   UpdateApiKeyResponse,
   ShareKeyResponse,
 } from "../../../src/console/domains/api-keys/contracts";
+
+// Model-abuse bans are a platform-admin, cross-tenant list (`GET`/`DELETE
+// /model-bans`). The row shape is the backend's own, so the dashboard never
+// keeps a second copy of the fields the unban call is keyed on.
+export type { ModelAbuseBan } from "../../../src/security/model-abuse";
 export type {
   SharedKeySummary,
   SharedKeyActivityDetail,
@@ -168,6 +182,12 @@ export type {
   PoolStrategySetting,
   PoolBatchProbeResult,
 } from "../../../src/console/routing/pools/contracts";
+export type {
+  RelayDeployRequest,
+  RelayDeployResult,
+  RelayTarget,
+} from "../../../src/console/routing/pools/relay-deploy";
+export { RELAY_TARGETS } from "../../../src/console/routing/pools/relay-deploy";
 export type { PoolHealthEvent } from "../../../src/network/pool-health-machine";
 
 

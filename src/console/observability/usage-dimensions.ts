@@ -4,8 +4,7 @@
  *
  * One runtime tuple, because three layers read it: the route table registers
  * one path per member, the validator rejects anything outside it, and the
- * dashboard offers one breakdown tab per member (pinned by
- * `dashboard/test/usage-dimensions-parity.test.ts`).
+ * dashboard offers one breakdown tab per member (kept in sync by hand).
  *
  * This module is intentionally free of Elysia / node:crypto so the dashboard
  * can re-export the tuple as a value. The dashboard previously reached it

@@ -39,8 +39,8 @@ export function clearConsoleSettingsCacheForTests(): void {
 /**
  * Settings-gated payload capture mode. Request-event metadata is always
  * retained; tenants opt into drawer capture through Settings → Privacy:
- * `metadata` keeps only the Proxy→Provider request line, `bounded` keeps
- * redacted bodies for the short payload TTL. Fail-closed on error.
+ * `metadata` keeps only the Proxy→Provider request line, `full` keeps
+ * redacted bodies up to the configured capture limit. Fail-closed on error.
  */
 async function resolvePayloadCaptureMode(
   db: CartethyiaDatabase,
@@ -50,7 +50,7 @@ async function resolvePayloadCaptureMode(
   try {
     const prefs = await preferencesReaderFor(db).readPreferences(tenantId);
     const mode = prefs?.telemetryPayloads;
-    if (mode === "bounded" || mode === "metadata" || mode === "none") return mode;
+    if (mode === "full" || mode === "metadata" || mode === "none") return mode;
     // Unset preferences default to metadata (Proxy→Provider request line).
     return "metadata";
   } catch {

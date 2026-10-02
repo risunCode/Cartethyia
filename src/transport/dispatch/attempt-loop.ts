@@ -10,7 +10,7 @@
  */
 import { GatewayError } from "../gateway-error";
 import type { ResolvedCredential } from "../../providers/provider-registry";
-import { classifyTerminalCategory, fallbackRetryDelayMs, isRetryableFailure, sleep } from "../failure-policy";
+import { classifyTerminalOutcome, fallbackRetryDelayMs, isRetryableFailure, sleep } from "../failure-policy";
 import type { OAuthTokenRefresher } from "../../providers/authentication/oauth-refresh-service";
 import type { OAuthRefreshService } from "../../providers/authentication/oauth-refresh-service";
 import type { ValidatedNetworkBindingFactory } from "../../network/pool/resolver";
@@ -28,6 +28,7 @@ import { flagPoolCooldown } from "../../network/pool-health";
 import { completeAttempt, estimatedUsage, type ProviderExchangeCapture } from "./attempt-finalize";
 import { repriceUsage } from "../../providers/usage";
 import { shouldCooldownPool, isOAuthCredentialInvalidated } from "./retry-policy";
+import { drainAbortReason } from "../shutdown-notice";
 
 /** Route-specific preconditions resolved for one candidate before its leases are taken. */
 interface PreparedAttempt<TAdapter> {
@@ -143,20 +144,28 @@ export async function runAttemptLoop<TResult, TAdapter>(
         },
       });
     } catch (error) {
+      // A drain aborts the controller, so a mid-flight attempt unwinds here as
+      // an abort. Surface the typed shutdown error (503 shutting_down /
+      // restart_for_update) instead of an opaque `transport_closed`, so the
+      // client's JSON error — not just the SSE path — names the real cause.
+      const drain = drainAbortReason(state.abortController.signal.reason);
+      if (drain !== undefined) error = drain;
       lastError = error;
-      const cancelled =
-        state.abortController.signal.aborted ||
-        (error instanceof GatewayError && error.code === "transport_closed");
+      // A drain is a *server* close, not a client cancel: it must be recorded
+      // as a failure with the shutdown code, and it is never retryable.
+      // Status, category, and origin come from one classifier so they cannot
+      // disagree (a `cancelled` row used to carry `transport_unavailable`/502).
+      const terminal = classifyTerminalOutcome(error, state.abortController.signal);
+      const cancelled = terminal.status === "cancelled";
       const terminalAttempt =
         cancelled || !isRetryableFailure(error) || index === candidates.length - 1;
       await completeAttempt(state, {
-        status: cancelled ? "cancelled" : "failed",
+        status: terminal.status,
         providerId: candidate.provider_id,
         ...(candidate.provider_account_id ? { accountId: candidate.provider_account_id } : {}),
         ...(candidate.provider_account_label ? { accountLabel: candidate.provider_account_label } : {}),
-        errorCategory: classifyTerminalCategory(error, state.abortController.signal),
-        // Same split as the streaming path: a non-GatewayError outcome is ours.
-        errorOrigin: error instanceof GatewayError ? error.origin : "cartethyia",
+        errorCategory: terminal.errorCategory,
+        errorOrigin: terminal.errorOrigin,
         modelId: candidate.model_id,
         ...(networkPoolId ? { networkPoolId } : {}),
         error,

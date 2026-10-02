@@ -69,12 +69,18 @@ export function blockFromPart(part: ContentPart): MessagesWireObject | undefined
     case "refusal":
       return { type: "text", text: part.text };
     case "toolCall":
+      // No `index`: it is a streaming-position field, and the Anthropic
+      // `tool_use` block has no such key in either direction — the API answers
+      // `tool_use.index: Extra inputs are not permitted`. A canonical
+      // `toolCall` carries one because the Chat/Responses parsers stamp every
+      // call with its array position, so copying it here leaked a stream-only
+      // field into the block. The block's position in `content[]` already
+      // expresses the order, and the SSE writer assigns stream indices itself.
       return {
         type: "tool_use",
         id: part.call_id,
         name: part.name,
         input: parseArgs(part.arguments),
-        ...(part.index === undefined ? {} : { index: part.index }),
       };
     case "toolResult": {
       const content =
@@ -134,7 +140,7 @@ export function groupedBlocks(events: readonly CanonicalEvent[]): {
   let previousReasoningText: string | undefined;
   let droppedUnnamedToolCalls = 0;
   // Fragments per call; joined once at flush so N deltas cost O(N), not O(N²).
-  const toolArguments = new Map<string, { name?: string; chunks: string[]; index?: number }>();
+  const toolArguments = new Map<string, { name?: string; chunks: string[] }>();
   const flushTools = (): void => {
     for (const [callId, call] of toolArguments) {
       // Never a placeholder: see `requireMessagesToolName`. A call the
@@ -150,7 +156,6 @@ export function groupedBlocks(events: readonly CanonicalEvent[]): {
         id: callId,
         name: call.name,
         input: parseArgs(call.chunks.join("")),
-        ...(call.index === undefined ? {} : { index: call.index }),
       });
     }
     toolArguments.clear();

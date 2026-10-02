@@ -3,8 +3,9 @@ import { closeRedis } from "../persistence/redis";
 import { buildProductionDeps } from "./dependencies";
 import type { ProductionDeps } from "./dependencies";
 import { withTimeout } from "./timeout";
+import { resolveShutdownDrainWindowMs } from "../config";
 
-export type ShutdownReason = "SIGTERM" | "SIGINT" | "reload";
+export type ShutdownReason = "SIGTERM" | "SIGINT" | "reload" | "update";
 export type ShutdownState =
   "idle" | "stop_admitting" | "bounded_drain_wait" | "flush_telemetry" | "close_pools" | "done";
 
@@ -20,14 +21,31 @@ export class ShutdownCoordinator {
   private inflight = new Set<string>();
   private started = false;
   private beginPromise: Promise<void> | undefined;
+  private reason: ShutdownReason = "SIGTERM";
   private hooks: ShutdownHooks;
+  private drainWindowMs: number;
   private drainTimeoutMs: number;
   private flushTimeoutMs: number;
 
-  constructor(hooks?: ShutdownHooks, opts?: { drainTimeoutMs?: number; flushTimeoutMs?: number }) {
+  constructor(
+    hooks?: ShutdownHooks,
+    opts?: { drainWindowMs?: number; drainTimeoutMs?: number; flushTimeoutMs?: number },
+  ) {
     this.hooks = hooks ?? {};
-    this.drainTimeoutMs = opts?.drainTimeoutMs ?? 5000;
-    this.flushTimeoutMs = opts?.flushTimeoutMs ?? 2000;
+    this.drainWindowMs = opts?.drainWindowMs ?? 20_000;
+    this.drainTimeoutMs = opts?.drainTimeoutMs ?? 5_000;
+    this.flushTimeoutMs = opts?.flushTimeoutMs ?? 2_000;
+  }
+
+  /**
+   * Upper bound on how long `begin()` can take, so the process-level
+   * force-exit guard is derived from the same numbers the drain actually uses
+   * rather than a hand-kept literal. A force-exit shorter than the drain would
+   * hard-kill a process that was about to finish gracefully — the exact
+   * mid-response truncation the drain exists to prevent.
+   */
+  totalShutdownBudgetMs(): number {
+    return this.drainWindowMs + this.drainTimeoutMs + this.flushTimeoutMs + 5_000;
   }
 
   track(id: string): void {
@@ -43,6 +61,16 @@ export class ShutdownCoordinator {
     return this.draining;
   }
 
+  /**
+   * Why the process began draining, for the public termination notice. Defaults
+   * to `SIGTERM` (the orchestrator's ordinary stop) and is overwritten by
+   * `begin(reason)` — `update` is the in-place image swap, whose callers must
+   * see "back shortly" rather than a generic shutdown.
+   */
+  shutdownReason(): ShutdownReason {
+    return this.reason;
+  }
+
   stopAdmitting(): void {
     if (this.state === "idle") {
       this.state = "stop_admitting";
@@ -51,22 +79,34 @@ export class ShutdownCoordinator {
   }
 
   // idempotent begin
-  async begin(_reason: ShutdownReason = "SIGTERM"): Promise<void> {
+  async begin(reason: ShutdownReason = "SIGTERM"): Promise<void> {
+    this.reason = reason;
     if (this.started) return this.beginPromise;
     this.started = true;
     const { promise, resolve, reject } = Promise.withResolvers<void>();
     this.beginPromise = promise;
 
-    // ensure ordering: stop_admitting first, then abort in-flight so the
-    // bounded drain below observes cancellation and finalizes promptly.
+    // Ordering: stop admitting new work, give in-flight requests a grace window
+    // to finish *naturally*, then abort whatever remains so the bounded drain
+    // below observes cancellation and finalizers run before telemetry flush and
+    // pool close. The grace window matters because most requests complete in
+    // well under it: aborting immediately truncated every in-flight response —
+    // including long streams that would otherwise have finished — which is the
+    // mid-response cut a graceful stop must not cause.
     this.stopAdmitting();
-    try {
-      this.hooks.abortInflight?.();
-    } catch {
-    }
 
     (async () => {
       try {
+        await this.waitForDrain(Date.now() + this.drainWindowMs);
+        // Only now abort the stragglers. A draining stream that is aborted
+        // emits a terminal frame (see the dispatch stream path) rather than
+        // closing silently, so even the aborted requests end explicitly.
+        if (this.inflight.size > 0) {
+          try {
+            this.hooks.abortInflight?.();
+          } catch {
+          }
+        }
         await this.waitForDrain(Date.now() + this.drainTimeoutMs);
         await this.flushTelemetry(Date.now() + this.flushTimeoutMs);
         await this.closePools();
@@ -170,7 +210,11 @@ export async function bootstrap(): Promise<CartethyiaBoot> {
           ]);
         },
       },
-      { drainTimeoutMs: 8_000, flushTimeoutMs: 1_000 },
+      {
+        drainWindowMs: resolveShutdownDrainWindowMs(),
+        drainTimeoutMs: 8_000,
+        flushTimeoutMs: 1_000,
+      },
     ),
   };
   return boot;

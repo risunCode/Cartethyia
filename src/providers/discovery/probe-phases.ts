@@ -16,6 +16,7 @@ import { consoleSettings, models, providerAccounts } from "../../persistence/sch
 import type {
   CanonicalEvent,
   CanonicalRequest,
+  ServiceKind,
   SourceSurface,
   UsageRecord,
   WireFamily,
@@ -33,6 +34,7 @@ import {
 import { OpenAICompatibleAdapter } from "../compatible-adapter";
 import { resolveByokWireProfile, stripEndpointBasePath } from "../operations/byok-wire-profile";
 import { recordAccountFailure, recordAccountSuccess } from "../operations/account-health-service";
+import { buildCapabilityProfile } from "../../transport/routing/route-catalog";
 import { classifyUpstreamFailure } from "../../transport/failure-policy";
 import { GatewayError } from "../../transport/gateway-error";
 import type {
@@ -98,8 +100,26 @@ export function hasMeaningfulOutput(events: readonly CanonicalEvent[]): boolean 
 /** Resolved wire target for one probe: family, endpoint path, canonical surface. */
 export interface ProbeTarget {
   readonly wireFamily: WireFamily;
+  /**
+   * Protocol shape of the probed row. A non-`llm` row (System One) is probed
+   * through its native endpoint with a decision body, not the canonical chat
+   * pipeline — the same split routing uses.
+   */
+  readonly serviceKind: ServiceKind;
   readonly endpointPath: string;
   readonly sourceSurface: SourceSurface;
+  /**
+   * The capability profile the probe dispatches under.
+   *
+   * A probe runs the real adapter, and a real adapter gates on capabilities
+   * (`ClaudeAdapter` rejects every request whose required capabilities the
+   * target does not declare). An empty profile therefore rejected the probe on
+   * capabilities the route actually has — `prompt_caching`, `tools`,
+   * `reasoning` — reporting a provider as broken over a gate the provider
+   * passes for live traffic. Resolved from the same model row the router reads
+   * so the probe tests the route, not an empty stand-in.
+   */
+  readonly capabilityProfile: Readonly<Record<string, boolean>>;
 }
 
 /**
@@ -145,6 +165,18 @@ export async function resolveProbeTarget(args: {
 
   let wireFamily: WireFamily;
   let endpointPath: string;
+  // A native-service row (System One) probes through its native endpoint, not a
+  // chat wire. Read from the same row the wire came from; an explicit
+  // `request.wireFamily` never carries it (the operator is naming a chat wire).
+  let serviceKind: ServiceKind = "llm";
+  // Capability columns for the row the probe lands on. Resolved alongside the
+  // wire so the profile describes the same row the probe dispatches to.
+  let capabilitySource: {
+    modalities: unknown;
+    reasoning: boolean;
+    toolCall: boolean;
+    webSearch: boolean;
+  } = { modalities: null, reasoning: false, toolCall: false, webSearch: false };
   if (request.wireFamily) {
     wireFamily = request.wireFamily as WireFamily;
     endpointPath = endpointForFamily(wireFamily);
@@ -157,9 +189,24 @@ export async function resolveProbeTarget(args: {
     if (staticDef) {
       wireFamily = staticDef.wireFamily;
       endpointPath = staticDef.endpointPath;
+      serviceKind = staticDef.serviceKind ?? "llm";
+      capabilitySource = {
+        modalities: staticDef.modalities,
+        reasoning: staticDef.reasoning,
+        toolCall: staticDef.toolCall,
+        webSearch: staticDef.webSearch,
+      };
     } else {
       const existing = await db
-        .select({ wireFamily: models.wireFamily, endpointPath: models.endpointPath })
+        .select({
+          wireFamily: models.wireFamily,
+          serviceKind: models.serviceKind,
+          endpointPath: models.endpointPath,
+          modalities: models.modalities,
+          reasoning: models.reasoning,
+          toolCall: models.toolCall,
+          webSearch: models.webSearch,
+        })
         .from(models)
         .where(
           request.route
@@ -174,6 +221,13 @@ export async function resolveProbeTarget(args: {
       if (existing[0]) {
         wireFamily = existing[0].wireFamily as WireFamily;
         endpointPath = existing[0].endpointPath;
+        serviceKind = existing[0].serviceKind as ServiceKind;
+        capabilitySource = {
+          modalities: existing[0].modalities,
+          reasoning: existing[0].reasoning,
+          toolCall: existing[0].toolCall,
+          webSearch: existing[0].webSearch,
+        };
       } else {
         const ctx = wireContextFrom(providerWireRow);
         const resolved = resolveDiscoveredWire(
@@ -207,7 +261,18 @@ export async function resolveProbeTarget(args: {
     }
   }
   const sourceSurface: SourceSurface = wireFamily;
-  return { wireFamily, endpointPath, sourceSurface };
+  // Built from the row the probe resolves to, so the adapter's capability gate
+  // sees the same profile live traffic would. `providerId` is part of the
+  // profile because a bespoke-wire provider has no canonical codec and must not
+  // inherit a codec's modality grants.
+  const capabilityProfile = buildCapabilityProfile({
+    modalities: capabilitySource.modalities,
+    reasoning: capabilitySource.reasoning,
+    toolCall: capabilitySource.toolCall,
+    webSearch: capabilitySource.webSearch,
+    providerId,
+  });
+  return { wireFamily, serviceKind, endpointPath, sourceSurface, capabilityProfile };
 }
 
 /** The account a probe selected, or the operator-facing reason it could not. */
@@ -350,7 +415,7 @@ export async function loadProbePreferences(args: {
     const mode: "auto" | "concise" | "detailed" =
       raw === "auto" || raw === "concise" || raw === "detailed" ? raw : "detailed";
     payloadCaptureEnabled =
-      preferences?.telemetryPayloads === "bounded" ||
+      preferences?.telemetryPayloads === "full" ||
       preferences?.telemetryPayloads === "metadata";
     if (wireFamily === "responses" && requestedEffort !== undefined) {
       probeReasoning = {

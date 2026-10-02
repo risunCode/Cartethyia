@@ -191,12 +191,7 @@ export const CURATED_CLAUDE_MODELS: readonly string[] = [
   "claude-opus-5-5",
   "claude-mythos-5-1",
   "claude-mythos-5",
-  "claude-opus-4-1-20250805",
-  "claude-opus-4-20250514",
   "claude-sonnet-4-5-20250929",
-  "claude-sonnet-4-20250514",
-  "claude-3-7-sonnet-20250219",
-  "claude-3-5-haiku-20241022",
 ];
 
 interface ClaudeModelDiscoveryResult {

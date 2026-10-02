@@ -34,7 +34,6 @@ import {
   useUpdateGlobalProvider,
 } from "../hooks/providers";
 import { queryKeys } from "../data/query-keys";
-import { providerDisplayName } from "../shared/provider-names";
 import { toast } from "../shared/toast";
 import type { ProviderAccountResponse } from "../data/contracts";
 import { providerCanConfigureUserAgent } from "../shared/provider-user-agent";
@@ -268,18 +267,18 @@ export default function ProviderDetail(): ReactNode {
   return (
     <Stack gap="16px">
       <PageHeader
-        title={providerDisplayName(provider.providerId, provider.label)}
+        title={(provider.label || provider.displayName)}
         description={`${provider.providerId}/${provider.baseUrl ? ` · ${provider.baseUrl}` : ""}`}
         icon={
           <ProviderIcon
             icon={provider.providerId}
-            name={providerDisplayName(provider.providerId, provider.label)}
+            name={(provider.label || provider.displayName)}
             size={28}
           />
         }
         back={{ to: "/providers", label: "Back to Providers" }}
         actions={
-          <Inline gap="8px">
+          <Inline gap="8px" style={{ flexWrap: "wrap", width: "100%", maxWidth: "100%", minWidth: 0 }}>
             {provider.isBuiltIn ? (
               <Button
                 variant={provider.enabled ? "danger" : "secondary"}
@@ -292,7 +291,7 @@ export default function ProviderDetail(): ReactNode {
                       onSuccess: (updated) =>
                         toast.success(
                           updated.enabled ? "Provider enabled" : "Provider disabled",
-                          providerDisplayName(id, provider.label),
+                          (provider.label || provider.displayName),
                         ),
                       onError: (err) =>
                         toast.error(
@@ -603,7 +602,7 @@ export default function ProviderDetail(): ReactNode {
           <Stack gap="12px">
             <p className="oauth-hint">
               {flowPrompt === "browser"
-                ? `Choose how ${providerDisplayName(id)} should identify you, then continue to its sign-in page.`
+                ? `Choose how ${(provider.label || provider.displayName)} should identify you, then continue to its sign-in page.`
                 : "These decide which organization the device code is issued for."}
             </p>
             <LoginFieldsForm
@@ -622,7 +621,7 @@ export default function ProviderDetail(): ReactNode {
       {importDialogOpen && provider?.oauthFlows?.import === true && (
         <ImportCredentialDialog
           providerId={id}
-          providerName={providerDisplayName(id)}
+          providerName={(provider.label || provider.displayName)}
           fields={provider.oauthFlows.importFields}
           onClose={() => setImportDialogOpen(false)}
         />

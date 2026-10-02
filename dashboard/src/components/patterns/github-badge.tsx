@@ -9,10 +9,9 @@ export const GITHUB_REPO_URL = "https://github.com/risunCode/Cartethyia";
 /**
  * The badge host, declared here rather than imported from the backend CSP
  * module: that module reads `node:crypto` and browser code must not pull in a
- * Node-only runtime dependency. The two are kept in agreement by
- * `test/security/headers.test.ts`, which asserts the dashboard CSP names this
- * origin — so a change to either one fails the suite instead of silently
- * blocking the badge behind a CSP violation.
+ * Node-only runtime dependency. The two must be kept in agreement by hand —
+ * the dashboard CSP must name this origin, or the badge is silently blocked
+ * behind a CSP violation.
  */
 export const BADGE_IMAGE_ORIGIN = "https://img.shields.io";
 

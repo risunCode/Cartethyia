@@ -1,7 +1,20 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Scaling } from "lucide-react";
 import { Card } from "../../components/ui/card";
-import { createContext, useContext, useState, type ReactElement, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { useShareData, type ShareFamilyStatsData, type ShareLinkPolicyData } from "../../hooks/share-data";
+import {
+  RAW_TOKEN_SCALE,
+  TOKEN_SCALES,
+  TOKEN_SCALE_AUTO,
+  tokenScaleValue,
+} from "../../shared/format";
 
 /**
  * Live stats subscription shared by every consumer on the page.
@@ -13,11 +26,57 @@ import { useShareData, type ShareFamilyStatsData, type ShareLinkPolicyData } fro
  * that subtree referentially stable: a tick re-renders only the components
  * that actually read this context. One subscription, not one per consumer, so
  * the gateway sees a single stream per open page.
+ *
+ * The token unit lives here too, for the same reason: one reading governs every
+ * token figure on the page (quota rows, KPI tile, both tables), and splitting it
+ * per component would let the hero and the table disagree about the same number.
+ * The reading defaults to the exact count — a share recipient checking a quota
+ * wants the number, not a rounded `84K` — and `auto` is one click away for
+ * anyone who would rather see the compact unit each figure lands on.
  */
 const ShareStatsContext = createContext<{
   readonly data: ShareFamilyStatsData | null;
   readonly loading: boolean;
-}>({ data: null, loading: true });
+  /** `TOKEN_SCALE_AUTO`, a `TOKEN_SCALES` index, or `RAW_TOKEN_SCALE`. */
+  readonly unit: number;
+  readonly cycleUnit: () => void;
+}>({ data: null, loading: true, unit: RAW_TOKEN_SCALE, cycleUnit: () => undefined });
+
+/** The viewer's chosen token unit, remembered across reloads. */
+const TOKEN_UNIT_STORAGE_KEY = "cartethyia:share-token-unit";
+
+/**
+ * Reads the remembered unit. Every failure path answers the default — the exact
+ * count — because storage throws in a private window and a stale or hand-edited
+ * value must not put the page into a unit it cannot render.
+ */
+function readStoredUnit(): number {
+  try {
+    const raw = window.localStorage.getItem(TOKEN_UNIT_STORAGE_KEY);
+    if (raw === null) return RAW_TOKEN_SCALE;
+    if (raw === "auto") return TOKEN_SCALE_AUTO;
+    const parsed = Number(raw);
+    return Number.isInteger(parsed) && parsed >= 0 && parsed <= RAW_TOKEN_SCALE
+      ? parsed
+      : RAW_TOKEN_SCALE;
+  } catch {
+    return RAW_TOKEN_SCALE;
+  }
+}
+
+/** The unit one click past `unit`: raw → auto → coarsest → … → K → raw. */
+function nextTokenUnit(unit: number): number {
+  if (unit === TOKEN_SCALE_AUTO) return 0;
+  if (unit >= RAW_TOKEN_SCALE) return TOKEN_SCALE_AUTO;
+  return unit + 1;
+}
+
+/** The switch's label: a compact suffix, `raw`, or the default-unit marker. */
+function tokenUnitLabel(unit: number): string {
+  if (unit === TOKEN_SCALE_AUTO) return "auto";
+  if (unit >= RAW_TOKEN_SCALE) return "raw";
+  return TOKEN_SCALES[unit]?.suffix ?? "auto";
+}
 
 export function ShareStatsProvider({
   path,
@@ -27,10 +86,55 @@ export function ShareStatsProvider({
   readonly children: ReactNode;
 }): ReactElement {
   const state = useShareData<ShareFamilyStatsData>(path, { streamEvent: "stats" });
+  const [unit, setUnit] = useState<number>(() =>
+    typeof window === "undefined" ? RAW_TOKEN_SCALE : readStoredUnit(),
+  );
+  const cycleUnit = useCallback(() => {
+    setUnit((current) => {
+      const next = nextTokenUnit(current);
+      try {
+        window.localStorage.setItem(
+          TOKEN_UNIT_STORAGE_KEY,
+          next === TOKEN_SCALE_AUTO ? "auto" : String(next),
+        );
+      } catch {
+        // A private window or a full quota: the unit still applies for this
+        // view, it just is not remembered.
+      }
+      return next;
+    });
+  }, []);
   return (
-    <ShareStatsContext.Provider value={{ data: state.data, loading: state.loading }}>
+    <ShareStatsContext.Provider value={{ data: state.data, loading: state.loading, unit, cycleUnit }}>
       {children}
     </ShareStatsContext.Provider>
+  );
+}
+
+/**
+ * The token-unit switch.
+ *
+ * One control, not one per figure: the reading a viewer picks is a property of
+ * the page, and a recipient scanning the quota bar and the top-models table is
+ * comparing the same tokens. The page opens on the exact count, matching what
+ * the usage page does; the compact units are for lining figures up by eye, and
+ * `auto` picks the unit each value lands on.
+ */
+function TokenUnitSwitch(): ReactElement {
+  const { unit, cycleUnit } = useContext(ShareStatsContext);
+  const current = tokenUnitLabel(unit);
+  const next = tokenUnitLabel(nextTokenUnit(unit));
+  return (
+    <button
+      type="button"
+      className="share-unit-switch"
+      aria-label={`Token unit: currently ${current}, switch to ${next}`}
+      title={`Show ${next}`}
+      onClick={cycleUnit}
+    >
+      <Scaling size={11} aria-hidden="true" />
+      {current}
+    </button>
   );
 }
 
@@ -50,14 +154,34 @@ export function LiveShareStatsSection(): ReactElement {
   return <ShareStatsSection stats={data} loading={loading} />;
 }
 
-/** Compact token count: 1.2K / 84.2K / 3.4M. Matches the console's key cards. */
-function compact(value: number): string {
+/** A token figure in the viewer's chosen unit. */
+function useTokenFormat(): (value: number) => string {
+  const { unit } = useContext(ShareStatsContext);
+  return useCallback((value: number) => tokenScaleValue(value, unit), [unit]);
+}
+
+/**
+ * A whole-number count with thousands separators — requests, errors, and other
+ * tallies. Deliberately not compacted: "1.2K requests" hides the exact figure
+ * an operator checks against a limit, and a request count is small enough to
+ * read in full. Tokens keep the unit switch because their magnitudes are large.
+ */
+export function formatCount(value: number): string {
   if (!Number.isFinite(value)) return "—";
-  const amount = Math.max(0, value);
-  if (amount >= 1_000_000_000) return `${Number((amount / 1_000_000_000).toFixed(2))}B`;
-  if (amount >= 1_000_000) return `${Number((amount / 1_000_000).toFixed(2))}M`;
-  if (amount >= 1_000) return `${Number((amount / 1_000).toFixed(2))}K`;
-  return amount.toLocaleString();
+  return Math.max(0, Math.round(value)).toLocaleString();
+}
+
+/** Mean tokens/sec with one decimal, or an em dash when nothing reported a rate. */
+export function formatRate(value: number | null): string {
+  if (value === null || !Number.isFinite(value) || value <= 0) return "—";
+  return `${Number(value.toFixed(1))} t/s`;
+}
+
+/** Mean time-to-first-token: sub-second in ms, longer as seconds, else an em dash. */
+export function formatTtft(value: number | null): string {
+  if (value === null || !Number.isFinite(value) || value <= 0) return "—";
+  if (value >= 1000) return `${Number((value / 1000).toFixed(1))}s`;
+  return `${Math.round(value)}ms`;
 }
 
 /** "2 min ago" / "3 h ago" / a date once it is older than a day. */
@@ -94,6 +218,7 @@ export function ShareQuotaPanel({
   readonly policy: ShareLinkPolicyData;
   readonly stats: ShareFamilyStatsData | null;
 }): ReactElement {
+  const format = useTokenFormat();
   const rows: readonly { label: string; used: number; limit: number | null }[] = [
     { label: "Lifetime", used: stats?.totals?.totalTokens ?? 0, limit: policy.oneTimeLimit },
     { label: "Daily", used: stats?.totals?.todayTokens ?? 0, limit: policy.dailyLimit },
@@ -103,25 +228,36 @@ export function ShareQuotaPanel({
   return (
     <div className="share-quota">
       {rows.map((row) => {
-        const ratio = row.limit && row.limit > 0 ? Math.min(1, row.used / row.limit) : 0;
-        const over = row.limit !== null && row.limit > 0 && row.used > row.limit;
-        const tone = over ? "is-over" : ratio >= 0.8 ? "is-warn" : "";
+        const limited = row.limit !== null && row.limit > 0;
+        const ratio = limited ? Math.min(1, row.used / (row.limit as number)) : 1;
+        // A row with no limit is a full green bar: there is no ceiling, so the
+        // whole track reads as "unlimited". A limited row keeps the same green
+        // track as the allowance and lays a red "used" fill over it, growing
+        // left to right with the used fraction — so the red advances across the
+        // green as usage climbs and, at (or past) the limit, the green is gone
+        // and the bar is wholly red. Plenty of green means headroom; a bar that
+        // is mostly red means the allowance is nearly spent.
         return (
           <div className="share-quota-row" key={row.label}>
             <span className="share-quota-label">{row.label}</span>
             <div
-              className="share-quota-track"
+              className={`share-quota-track${limited ? " is-limited" : " is-unlimited"}`}
               title={
-                row.limit
-                  ? `${compact(row.used)} of ${compact(row.limit)} used`
-                  : `${compact(row.used)} used (no limit set)`
+                limited
+                  ? `${format(row.used)} of ${format(row.limit as number)} used`
+                  : `${format(row.used)} used (no limit set)`
               }
             >
-              <div className={`share-quota-fill ${tone}`} style={{ width: `${Math.round(ratio * 100)}%` }} />
+              {limited ? (
+                <div
+                  className="share-quota-used"
+                  style={{ width: `${Math.round(ratio * 100)}%` }}
+                />
+              ) : null}
             </div>
             <span className="share-quota-value">
-              <strong>{compact(row.used)}</strong>
-              {row.limit ? ` / ${compact(row.limit)}` : " used"}
+              <strong>{format(row.used)}</strong>
+              {limited ? ` / ${format(row.limit as number)}` : " used"}
             </span>
           </div>
         );
@@ -134,6 +270,7 @@ export function ShareQuotaPanel({
             {recipients.active} / {recipients.total} recipients active
           </span>
         ) : null}
+        <TokenUnitSwitch />
       </div>
     </div>
   );
@@ -218,6 +355,7 @@ export function ShareStatsSection({
   readonly loading: boolean;
 }): ReactElement {
   const [open, setOpen] = useState(false);
+  const format = useTokenFormat();
   const totals = stats?.totals;
   const models = stats?.models ?? [];
   const ips = stats?.clientIps ?? [];
@@ -243,7 +381,7 @@ export function ShareStatsSection({
           <span>·</span>
           <span>{models.length} models</span>
           <span>·</span>
-          <span>{compact(totals?.requests ?? 0)} req</span>
+          <span>{formatCount(totals?.requests ?? 0)} req</span>
         </span>
       </button>
 
@@ -258,19 +396,19 @@ export function ShareStatsSection({
               <div className="share-stats-kpis">
                 <div className="share-stat-tile">
                   <span className="share-stat-tile-label">Requests</span>
-                  <span className="share-stat-tile-value">{compact(totals?.requests ?? 0)}</span>
+                  <span className="share-stat-tile-value">{formatCount(totals?.requests ?? 0)}</span>
                   <span className="share-stat-tile-detail">
-                    {compact(totals?.errors ?? 0)} errors
+                    {formatCount(totals?.errors ?? 0)} errors
                   </span>
                 </div>
                 <div className="share-stat-tile">
                   <span className="share-stat-tile-label">Tokens</span>
-                  <span className="share-stat-tile-value">{compact(totals?.totalTokens ?? 0)}</span>
+                  <span className="share-stat-tile-value">{format(totals?.totalTokens ?? 0)}</span>
                   <span className="share-stat-tile-detail">all time</span>
                 </div>
                 <div className="share-stat-tile">
                   <span className="share-stat-tile-label">Last hour</span>
-                  <span className="share-stat-tile-value">{compact(totals?.lastHourRequests ?? 0)}</span>
+                  <span className="share-stat-tile-value">{formatCount(totals?.lastHourRequests ?? 0)}</span>
                   <span className="share-stat-tile-detail">requests in 60 min</span>
                 </div>
                 <div className="share-stat-tile">
@@ -289,7 +427,7 @@ export function ShareStatsSection({
                 {models.length === 0 ? (
                   <p className="share-stats-empty">No model traffic yet.</p>
                 ) : (
-                  <div className="share-stats-scroll">
+                  <div className="share-stats-scroll is-windowed">
                     <table className="share-stats-table">
                       <thead>
                         <tr>
@@ -297,6 +435,12 @@ export function ShareStatsSection({
                           <th scope="col">Model</th>
                           <th scope="col" className="is-numeric">
                             Req
+                          </th>
+                          <th scope="col" className="is-numeric" title="Average output tokens per second">
+                            Avg t/s
+                          </th>
+                          <th scope="col" className="is-numeric" title="Average time to first token">
+                            TTFT
                           </th>
                           <th scope="col">Tokens</th>
                         </tr>
@@ -310,12 +454,14 @@ export function ShareStatsSection({
                                 <code title={model.modelId}>{model.modelId}</code>
                               </span>
                             </td>
-                            <td className="is-numeric">{model.requests.toLocaleString()}</td>
+                            <td className="is-numeric">{formatCount(model.requests)}</td>
+                            <td className="is-numeric share-stats-metric">{formatRate(model.avgTokensPerSec)}</td>
+                            <td className="is-numeric share-stats-metric">{formatTtft(model.avgTtfbMs)}</td>
                             <td>
                               <BarCell
                                 value={model.tokens}
                                 max={maxModelTokens}
-                                label={compact(model.tokens)}
+                                label={format(model.tokens)}
                               />
                             </td>
                           </tr>
@@ -333,7 +479,7 @@ export function ShareStatsSection({
                 {ips.length === 0 ? (
                   <p className="share-stats-empty">No client addresses recorded yet.</p>
                 ) : (
-                  <div className="share-stats-scroll">
+                  <div className="share-stats-scroll is-windowed">
                     <table className="share-stats-table">
                       <thead>
                         <tr>
@@ -359,9 +505,9 @@ export function ShareStatsSection({
                                 <span className="share-stats-client is-unknown">unknown</span>
                               )}
                             </td>
-                            <td className="is-numeric">{ip.requests.toLocaleString()}</td>
+                            <td className="is-numeric">{formatCount(ip.requests)}</td>
                             <td>
-                              <BarCell value={ip.requests} max={maxIpRequests} label={compact(ip.tokens)} />
+                              <BarCell value={ip.requests} max={maxIpRequests} label={format(ip.tokens)} />
                             </td>
                             <td>{relativeTime(ip.lastSeenAt)}</td>
                           </tr>

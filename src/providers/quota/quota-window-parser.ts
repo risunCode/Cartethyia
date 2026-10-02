@@ -135,10 +135,31 @@ export function parseQuotaWindows(
 
   if (options.extraWindows) windows.push(...options.extraWindows(payload));
 
+  // Drop a window whose label a declarative mapping already produced.
+  //
+  // The two sources describe the same scopes in different vocabularies: the
+  // declarative keys (`five_hour`, `seven_day`) and the payload's own `limits[]`
+  // array (`kind: "session"`, `kind: "weekly_all"`). Nothing marked them as the
+  // same window, so a payload carrying both rendered each one twice — the quota
+  // card showed "5 Hour / 7 Day / 5 Hour / 7 Day". Identity is the label, not
+  // the kind, because the kinds deliberately differ between the two
+  // vocabularies; the label is also what the operator sees, and a per-model
+  // window keeps a distinct label (`7 Day (Opus)`), so a genuinely different
+  // window is never collapsed. Declarative windows come first, so they win —
+  // but a payload that reports *only* `limits[]` still shows its windows,
+  // because then there is no earlier label to match.
+  const seenLabels = new Set<string>();
+  const deduped: ProviderQuotaWindow[] = [];
+  for (const window of windows) {
+    if (seenLabels.has(window.label)) continue;
+    seenLabels.add(window.label);
+    deduped.push(window);
+  }
+
   return {
     source: options.source,
     plan: findText(payload, options.planPaths) ?? options.planFallback ?? null,
-    windows,
+    windows: deduped,
     error: null,
   };
 }

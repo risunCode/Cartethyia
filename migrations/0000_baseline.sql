@@ -16,7 +16,7 @@ CREATE TYPE "public"."telemetry_status" AS ENUM('completed', 'failed', 'cancelle
 --> statement-breakpoint
 CREATE TYPE "public"."wire_family" AS ENUM('chat', 'responses', 'messages');
 --> statement-breakpoint
-CREATE TYPE "public"."model_combo_strategy" AS ENUM('fallback', 'round_robin');
+CREATE TYPE "public"."model_combo_strategy" AS ENUM('fallback', 'round_robin', 'fusion');
 --> statement-breakpoint
 CREATE TYPE "public"."provider_routing_strategy" AS ENUM('fallback', 'round_robin');
 --> statement-breakpoint
@@ -59,6 +59,7 @@ CREATE TABLE "provider_accounts" (
   "model_cooldowns" jsonb DEFAULT '{}'::jsonb NOT NULL,
   "max_inflight" integer,
   "sort_index" integer DEFAULT 0 NOT NULL,
+  "static_token" boolean DEFAULT false NOT NULL,
   "created_at" timestamptz DEFAULT now() NOT NULL,
   CONSTRAINT "provider_accounts_provider_id_providers_id_fk" FOREIGN KEY ("provider_id") REFERENCES "providers"("id") ON DELETE cascade,
   CONSTRAINT "provider_accounts_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade
@@ -66,9 +67,9 @@ CREATE TABLE "provider_accounts" (
 --> statement-breakpoint
 CREATE TABLE "provider_oauth_states" (
   "provider_account_id" uuid PRIMARY KEY NOT NULL,
-  "refresh_ciphertext" bytea NOT NULL,
+  "refresh_ciphertext" bytea,
   "client_secret_ciphertext" bytea,
-  "expires_at" timestamptz NOT NULL,
+  "expires_at" timestamptz,
   "lease_owner" text,
   "lease_expires_at" timestamptz,
   CONSTRAINT "provider_oauth_states_provider_account_id_provider_accounts_id_fk" FOREIGN KEY ("provider_account_id") REFERENCES "provider_accounts"("id") ON DELETE cascade
@@ -79,6 +80,7 @@ CREATE TABLE "models" (
   "provider_id" text NOT NULL,
   "model_id" text NOT NULL,
   "wire_family" "wire_family" NOT NULL,
+  "service_kind" text DEFAULT 'llm' NOT NULL,
   "endpoint_path" text NOT NULL,
   "context_limit" integer,
   "output_limit" integer,
@@ -171,6 +173,7 @@ CREATE TABLE "provider_routing_settings" (
   "strategy" "provider_routing_strategy" DEFAULT 'fallback' NOT NULL,
   "rotate_count" integer DEFAULT 1 NOT NULL,
   "max_inflight" integer,
+  "credit_floor" integer,
   "enabled" boolean DEFAULT false NOT NULL,
   "user_agent" text DEFAULT 'codex_cli_rs/0.156.1' NOT NULL,
   "bypass_proxy" boolean DEFAULT false NOT NULL,

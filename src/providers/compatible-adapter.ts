@@ -93,6 +93,23 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
   ): AsyncIterable<CanonicalEvent>;
 }
 
+/**
+ * The subset of a canonical request a native-service header hook may read.
+ *
+ * `prepareHeaders` takes a full `CanonicalRequest`, but a native route has no
+ * canonical request — its body is opaque. The header hooks that run on that
+ * path (OpenCode's fingerprint builder, OpenRouter's static headers) read only
+ * `stream`, so a native call supplies this minimal stand-in rather than a
+ * fabricated chat request.
+ */
+const NATIVE_HEADER_REQUEST: CanonicalRequest = {
+  model: "",
+  messages: [],
+  generation_controls: {},
+  stream: false,
+  source_surface: "chat",
+};
+
 export interface OpenAICompatibleAdapterConfig {
   readonly provider_id: ProviderId;
   readonly base_url: string;
@@ -239,12 +256,22 @@ export class OpenAICompatibleAdapter extends BaseProviderAdapter {
     const payload = encodeWireRequest(wireFamily, effectiveRequest, {
       supportsPromptCaching: this.config.supports_prompt_caching !== false,
     });
-    if (this.config.streaming_usage_mode !== "none" && effectiveRequest.stream) {
+    if (
+      wireFamily !== "messages" &&
+      this.config.streaming_usage_mode !== "none" &&
+      effectiveRequest.stream
+    ) {
       // OpenAI-compatible bridges only report token usage on a stream when the
       // caller asks for it. Without this, a custom provider's streamed
       // requests record input 0 / output 0 because the upstream never sends a
       // usage frame. "none" is the explicit opt-out for bridges that reject
       // the field.
+      //
+      // Excluded for the `messages` wire: `stream_options` is an OpenAI field,
+      // and a strict Anthropic-compatible upstream rejects the whole body
+      // (`stream_options: Extra inputs are not permitted`). The native Messages
+      // protocol reports usage without an opt-in — `message_start.message.usage`
+      // plus `message_delta.usage` — so nothing is lost by omitting it.
       const existing = payload["stream_options"] as Record<string, unknown> | undefined;
       payload["stream_options"] = { ...(existing ?? {}), include_usage: true };
     }
@@ -301,6 +328,34 @@ export class OpenAICompatibleAdapter extends BaseProviderAdapter {
       context,
       outboundFetch,
     );
+    upstream.release();
+    return upstream.res;
+  }
+
+  /**
+   * Native System One dispatch: the caller's decision body is posted untouched
+   * to the candidate's own endpoint with this provider's auth/identity headers.
+   *
+   * Deliberately not routed through `preparePayload`/`transformStream`: those
+   * encode a `CanonicalRequest` and decode canonical events, and a decision
+   * payload is neither. The body arrives already-shaped from the caller (the
+   * route handler validates only the trust boundary — `model`, `state`,
+   * `questions` — and leaves question-level shape to upstream), so this method
+   * only stamps headers and posts.
+   */
+  async systemone(
+    body: Record<string, unknown>,
+    candidate: ProviderDispatchTarget,
+    context: ProviderDispatchContext,
+  ): Promise<Response> {
+    const headers = await this.prepareHeaders(context, NATIVE_HEADER_REQUEST, candidate);
+    const endpointPath =
+      candidate.endpoint_path && candidate.endpoint_path.length > 0
+        ? candidate.endpoint_path
+        : "/v1/systemone";
+    const fetchUrl = joinUrl(this.config.base_url, endpointPath);
+    const outboundFetch = context.outbound_fetch ?? this.config.fetch ?? globalThis.fetch;
+    const upstream = await postUpstreamJson(fetchUrl, headers, body, context, outboundFetch);
     upstream.release();
     return upstream.res;
   }

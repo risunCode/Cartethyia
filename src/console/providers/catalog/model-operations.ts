@@ -48,6 +48,7 @@ export function createModelCatalogOperations(config: ProviderCatalogConfig) {
         route: "",
         provider: "",
         wireFamily: "chat",
+        serviceKind: "llm",
         enabled: true,
         contextLimit: null,
         outputLimit: null,

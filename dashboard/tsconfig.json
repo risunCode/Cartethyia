@@ -14,6 +14,7 @@
     "noUnusedParameters": true,
     "noEmit": true,
     "skipLibCheck": true,
+    "incremental": true,
     "esModuleInterop": true,
     "isolatedModules": true,
     "useDefineForClassFields": true,

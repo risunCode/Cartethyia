@@ -8,13 +8,15 @@
 // "refreshed" means.
 import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
-import { providerAccounts } from "../../persistence/schema";
+import { providerAccounts, providerRoutingSettings } from "../../persistence/schema";
 import type { RedisClient } from "../../persistence/redis";
 import { log } from "../../observability/logger";
 import { fetchProviderQuota } from "../../providers/quota/quota-support";
-import type { FetchLike, ProviderQuotaResult } from "../../providers/quota/quota-contracts";
+import { totalRemainingCredit, type FetchLike, type ProviderQuotaResult } from "../../providers/quota/quota-contracts";
+import { enforceCreditFloor } from "../../providers/operations/account-health-service";
 import type { ProviderId, ProviderRegistry } from "../../providers/provider-registry";
 import { GLOBAL_QUOTA_LENS, setCachedQuota } from "./cache";
+import { resolveTenantOverride } from "../../persistence/tenant-scope";
 import { record } from "../../providers/authentication/oauth-flow-store";
 
 /** Why an account quota refresh failed; `null` means the fetch succeeded. */
@@ -43,6 +45,18 @@ export interface QuotaRefreshDeps {
   readonly resolveCredential: (providerId: ProviderId, accountId: string) => Promise<string>;
   /** Marks a stored api_key credential with the upstream-distinguishable envelope. */
   readonly markApiKeyCredential?: (providerId: string, credential: string) => string;
+  /**
+   * Resolves the operator's credit reserve for a provider account's owning
+   * tenant (tenant-over-global precedence). `null`/absent means no reserve, so
+   * the floor is never enforced. When present, a successful quota fetch that
+   * reports remaining credit at or below the floor parks the account in a 24h
+   * cooldown (`enforceCreditFloor`) and invalidates the route snapshot.
+   */
+  readonly resolveCreditFloor?:
+    | ((providerId: string, tenantId: string | null) => Promise<number | null>)
+    | undefined;
+  /** Invalidates the route snapshot when the floor parks an account. */
+  readonly snapshotInvalidator?: { invalidate(): unknown } | undefined;
 }
 
 /**
@@ -144,6 +158,44 @@ export interface QuotaRefreshTarget {
 export function targetLens(target: QuotaRefreshTarget): string {
   return target.tenantId ?? GLOBAL_QUOTA_LENS;
 }
+
+/**
+ * Resolves the operator's credit reserve for one provider account.
+ *
+ * Reads `provider_routing_settings.credit_floor` through the same
+ * tenant-wins-entirely-over-global precedence every other reader of that table
+ * uses (`resolveTenantOverride`): a tenant-scoped row's value wins outright, an
+ * absent row falls back to the global row, and neither present means no reserve.
+ * Returns `null` when no reserve is configured, so the caller skips enforcement.
+ */
+export function createCreditFloorResolver(
+  db: CartethyiaDatabase,
+): (providerId: string, tenantId: string | null) => Promise<number | null> {
+  return async (providerId, tenantId) => {
+    const rows = await db
+      .select({
+        tenantId: providerRoutingSettings.tenantId,
+        creditFloor: providerRoutingSettings.creditFloor,
+      })
+      .from(providerRoutingSettings)
+      .where(
+        and(
+          eq(providerRoutingSettings.providerId, providerId),
+          tenantId === null
+            ? isNull(providerRoutingSettings.tenantId)
+            : or(
+                isNull(providerRoutingSettings.tenantId),
+                eq(providerRoutingSettings.tenantId, tenantId),
+              ),
+        ),
+      );
+    const tenantRow = tenantId === null ? undefined : rows.find((r) => r.tenantId === tenantId);
+    const globalRow = rows.find((r) => r.tenantId === null);
+    const resolved = resolveTenantOverride(tenantRow?.creditFloor, globalRow?.creditFloor, null);
+    return resolved;
+  };
+}
+
 const TARGET_COLUMNS = {
   accountId: providerAccounts.id,
   providerId: providerAccounts.providerId,
@@ -310,6 +362,24 @@ async function runQuotaRefresh(
   } catch (error) {
     // A stamp failure must not lose the freshly fetched quota.
     log.warn(`[quota] failed to stamp check outcome for account=${target.accountId}`, error as Error);
+  }
+  // Credit reserve: only a *successful* fetch that actually reports credit can
+  // trip the floor — a failed or credit-less read has no remaining figure, and
+  // a transient fetch error must never park a funded account.
+  if (quota.error === null && deps.resolveCreditFloor) {
+    try {
+      const floor = await deps.resolveCreditFloor(target.providerId, target.tenantId);
+      const remaining = totalRemainingCredit(quota.windows);
+      if (await enforceCreditFloor(deps.db, target.accountId, remaining, floor)) {
+        await deps.snapshotInvalidator?.invalidate();
+        log.info(
+          `[quota] credit floor parked account=${target.accountId} provider=${target.providerId} remaining=${remaining} floor=${floor}`,
+        );
+      }
+    } catch (error) {
+      // The reserve is advisory: a failure here must not lose the fetched quota.
+      log.warn(`[quota] credit floor check failed for account=${target.accountId}`, error as Error);
+    }
   }
   return {
     quota,

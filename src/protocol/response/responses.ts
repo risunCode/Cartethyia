@@ -56,8 +56,7 @@ function detailsCachedTokens(usage: Record<string, unknown>): number | undefined
  * lifecycle frames: `response.created` / `response.in_progress` carry the
  * real `input_tokens_details.cached_tokens` (e.g. 145592), while
  * `response.completed` repeats totals with a truncated cached count
- * (commonly 128) — pinned by the grok streaming fixture
- * (`grok.test.ts`). Other OpenAI-compat aggregator bridges repeat the
+ * (commonly 128). Other OpenAI-compat aggregator bridges repeat the
  * same shape. Keep later totals, keep the largest cached count, and never
  * let a later 0/128 wipe a prior hit.
  */

@@ -1,0 +1,6 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' role='img'>
+  <defs><linearGradient id='brave-g' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='#fb542b'/><stop offset='100%' stop-color='#ff8a3d'/></linearGradient></defs>
+  <rect width='64' height='64' rx='14' fill='url(#brave-g)'/>
+  <text x='50%' y='54%' dominant-baseline='middle' text-anchor='middle' font-family='Inter, system-ui, sans-serif' font-size='24' font-weight='800' fill='white' letter-spacing='-0.5'>B</text>
+  <title>Brave Search</title>
+</svg>

@@ -67,7 +67,19 @@ function ipv6Bytes(address: string): Uint8Array {
 function cidrContains(address: string, cidr: string): boolean {
   const [network, prefixText] = cidr.split("/");
   if (!network || prefixText === undefined) return false;
-  const prefix = Number(prefixText);
+  // A present-but-blank prefix (`"10.0.0.0/"`) must be refused, not coerced.
+  // `Number("")` is 0 and `""` is not `undefined`, so the guard below used to fall
+  // through with `prefix = 0` — and a /0 admits every address of its family. An
+  // operator's typo therefore silently widened the allowlist to the whole IPv4
+  // space, including the link-local metadata endpoint this guard exists to refuse.
+  //
+  // Requiring a run of digits (after trimming) also refuses the exotic spellings
+  // `Number` accepts for zero — `-0`, `+0`, `0x0`, `0b0`, `0o0`, `0.0` — all of
+  // which are typos rather than a deliberate "allow everything". Only a written
+  // `0` means that, which is the next branch's business.
+  const prefixDigits = prefixText.trim();
+  if (!/^\d+$/.test(prefixDigits)) return false;
+  const prefix = Number(prefixDigits);
   const family = isIP(address);
   if (
     family !== isIP(network) ||

@@ -1,11 +1,14 @@
-# Cartethyia multi-stage production Dockerfile
-# Build the backend and dashboard together so the runtime image always serves
-# a matched application/static-assets version.
+# syntax=docker/dockerfile:1.7
+# Alpine is the default to keep the image small. The builder uses the same musl
+# family so the standalone binary matches the runtime libc.
+# To use the previous Debian slim setup, replace the builder with a pinned
+# `oven/bun:debian` and runtime with `debian:bookworm-slim`, then
+# replace apk/user commands with apt equivalents. Verify native modules and tools.
 
-FROM oven/bun:1.4.2-debian@sha256:4f6e31d1a54d6a3dd312daef655fc998101b5043d52e12592ac293ef04b9bc73 AS builder
+FROM oven/bun:alpine AS builder
 
-# Bun bakes process.env.NODE_ENV into the binary at build time (scripts/build-aot.ts
-# and scripts/build-binary.ts), so the value has to arrive as a build argument:
+# Bun bakes process.env.NODE_ENV into the binary at build time (scripts/build/aot.ts
+# and scripts/build/binary.ts), so the value has to arrive as a build argument:
 # a runtime ENV cannot change it afterwards. Default production keeps the shipped
 # image's logger free of the pino-pretty worker. Pass
 # --build-arg CARTETHYIA_BUILD_NODE_ENV=development for a plain-HTTP deploy, where
@@ -15,32 +18,26 @@ ENV CARTETHYIA_BUILD_NODE_ENV=${CARTETHYIA_BUILD_NODE_ENV}
 
 WORKDIR /build
 
-# Copy manifests first so dependency installation remains cacheable.
+# Dependency layer: source changes do not invalidate Bun installation.
+# Do not use BuildKit cache mounts here: Railway and other builders may not
+# provide cache-mount support. The image must build with a standard builder.
 COPY package.json bun.lock tsconfig.json ./
 COPY dashboard/package.json ./dashboard/package.json
 RUN bun install --frozen-lockfile
 
-# Copy application sources only after dependencies are installed.
+# Copy source contracts before dashboard typecheck: dashboard mirrors several
+# backend types from src/ and cannot build against dashboard alone.
 COPY src ./src
+COPY dashboard ./dashboard
+RUN bun run dashboard:build
+
+# Backend build layer: AOT output is required before standalone compilation.
 COPY scripts ./scripts
 COPY migrations ./migrations
-COPY dashboard ./dashboard
+RUN bun run build:aot && bun run build:binary --outfile /build/dist/cartethyia
 
-# Build dashboard assets, then precompile and compile the backend.
-# The compile reads `dist/main.js` (the AOT output), not `src/main.ts`: the AOT
-# plugin rewrites TypeBox into statically wired imports, and bundling the raw
-# source instead leaves Elysia's lazy `require("typebox/type")` unresolved in
-# the standalone binary. `scripts/build-binary.ts` also bakes `NODE_ENV` to
-# production, which the binary needs to avoid the development-only `pino-pretty`
-# transport whose worker cannot load in a standalone executable. `bun run build`
-# performs the same three steps.
-RUN bun run dashboard:build
-RUN bun run build:aot
-RUN bun run build:binary --outfile /build/dist/cartethyia
-
-# Runtime stage: only the compiled backend, dashboard output, migrations, and
-# the small health-check/entrypoint toolset are shipped.
-FROM debian:bookworm-slim
+# Runtime: only the binary, dashboard assets, migrations, and entrypoint ship.
+FROM alpine:latest
 
 # Mirrors the builder's choice so a runtime env read agrees with the baked one.
 ARG CARTETHYIA_BUILD_NODE_ENV=production
@@ -48,17 +45,12 @@ ENV CARTETHYIA_BUILD_NODE_ENV=${CARTETHYIA_BUILD_NODE_ENV}
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    util-linux \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create a dedicated non-root runtime identity. The UID/GID are pinned so the
-# entrypoint can drop privileges to a known id and an operator can chown a
-# bind-mounted data directory to the same numbers.
-RUN groupadd -r -g 10001 cartethyia && useradd -r -u 10001 -g cartethyia cartethyia && \
-    mkdir -p /app/data && chown -R cartethyia:cartethyia /app
+# curl powers HEALTHCHECK; util-linux provides setpriv for non-root startup.
+RUN apk add --no-cache ca-certificates curl libgcc libstdc++ util-linux \
+    && addgroup -S -g 10001 cartethyia \
+    && adduser -S -D -H -u 10001 -G cartethyia cartethyia \
+    && mkdir -p /app/data \
+    && chown -R cartethyia:cartethyia /app
 
 COPY --from=builder --chown=cartethyia:cartethyia /build/migrations ./migrations
 COPY --from=builder --chown=cartethyia:cartethyia /build/dist/dashboard ./dist/dashboard
@@ -66,21 +58,17 @@ COPY docker-entrypoint.sh ./entrypoint.sh
 RUN chmod 755 ./entrypoint.sh
 COPY --from=builder --chown=cartethyia:cartethyia /build/dist/cartethyia ./cartethyia
 
-# Railway supplies PORT at runtime; the binary uses 12800 only as its fallback.
-ENV CARTETHYIA_VERSION=2.0
-ENV NODE_ENV=production
-ENV DASHBOARD_DIST=/app/dist/dashboard
-# The runtime user (10001) does not own the image's default HOME, so provider
-# install ids go under the data directory the entrypoint already repairs.
-ENV CARTETHYIA_INSTALL_ID_DIR=/app/data/.cartethyia
+ENV CARTETHYIA_VERSION=2.0 \
+    NODE_ENV=production \
+    DASHBOARD_DIST=/app/dist/dashboard \
+    CARTETHYIA_INSTALL_ID_DIR=/app/data/.cartethyia
+
 EXPOSE 12800
 STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f "http://localhost:${PORT:-12800}/health/ready" || exit 1
-# The entrypoint starts as root, repairs the data-directory ownership, and
-# drops to `cartethyia` via setpriv before exec'ing the application, so the
-# process itself never runs as root. Setting USER here would skip that repair
-# on a mounted volume.
+
+# Start as root so mounted data ownership can be repaired, then drop to uid 10001.
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["./cartethyia"]

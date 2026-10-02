@@ -44,9 +44,9 @@ import {
   useUsageRequests,
   useUsageSummary,
 } from "../../hooks/system";
-import { providerDisplayName, requestProviderId } from "../../shared/provider-names";
+import { requestProviderId } from "../../shared/request-provider";
 
-import { useProviderAccounts } from "../../hooks/providers";
+import { useProviderAccounts, useProviders } from "../../hooks/providers";
 import { useInFlight, type InFlightState } from "../../hooks/live";
 import { useTrackedTimeout } from "../../hooks/use-timeout";
 import { USAGE_PERIODS, type UsagePeriod as Period } from "../../data/usage-periods";
@@ -58,6 +58,7 @@ import {
   TOKEN_SCALE_AUTO,
   TOKEN_SCALES,
   formatBytes,
+  formatCredits,
   formatDuration,
   formatNumber,
   formatTokens,
@@ -66,7 +67,7 @@ import {
 } from "../../shared/format";
 
 type Metric = "requests" | "tokens" | "cached";
-/** Mirrors the backend `USAGE_DIMENSIONS`; pinned by usage-dimensions-parity.test.ts. */
+/** Mirrors the backend `USAGE_DIMENSIONS`; keep in sync by hand. */
 type Dimension = UsageDimension;
 
 /** Breakdown rows visible before the list scrolls; the rest scrolls inside. */
@@ -83,7 +84,7 @@ const BREAKDOWN_ROW_HEIGHT = 49;
  * Provider internals stay redacted and bounded at the source
  * (`completeAttempt` capture), never raw secrets.
  */
-type PayloadKind = "request" | "response" | "clientResponse" | "providerRequest" | "providerResponse";
+type PayloadKind = "request" | "clientResponse" | "providerRequest" | "providerResponse";
 
 const PERIOD_LABELS: Record<Period, string> = {
   "1h": "Last 1 Hour",
@@ -94,10 +95,13 @@ const PERIOD_LABELS: Record<Period, string> = {
   "30d": "Last 30 Days",
   all: "All retained",
 };
-const PERIOD_OPTIONS = USAGE_PERIODS.map((value) => ({ value, label: PERIOD_LABELS[value] }));
+const PERIOD_OPTIONS = USAGE_PERIODS.map((value) => ({
+  value,
+  label: PERIOD_LABELS[value as Period] ?? value,
+}));
 
 function periodLabel(period: Period): string {
-  return PERIOD_LABELS[period];
+  return PERIOD_LABELS[period] ?? period;
 }
 
 function asPeriod(value: string | null): Period {
@@ -134,12 +138,15 @@ function formatUsd(value: number | null | undefined): string {
   return `$${value.toFixed(2)}`;
 }
 /**
- * Provider-billed credits (Tencent buddy-meter `credit`): two decimals like
- * the live probe reported (`1.01`), `—` when the upstream sent no credit.
+ * Provider-billed credits (Tencent buddy-meter `credit`) with the unit label:
+ * two decimals like the live probe reported (`1.01`), `—` when the upstream
+ * sent no credit. The numeric formatting delegates to the shared
+ * `formatCredits`, so this page and the provider-detail credit pool round the
+ * same way; only the ` CR` suffix is local here.
  */
 export function formatCredit(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  return `${Number(value.toFixed(2)).toLocaleString("en-US")} CR`;
+  return `${formatCredits(value)} CR`;
 }
 function formatSpeed(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) return "—";
@@ -365,6 +372,7 @@ function errorMessageFor(errorKind: string | undefined): string {
     // Codes that previously had no entry and fell through to a mechanical
     // underscore-to-space rendering of the raw code.
     accounts_unavailable: "no account for this route was available",
+    accounts_rate_limited: "every account for this route is rate limited or cooling down",
     ambiguous_model: "the model id matched more than one route",
     invalid_pool_limits: "the network pool limits were rejected",
     max_connections_exceeded: "the connection ceiling was reached",
@@ -378,6 +386,8 @@ function errorMessageFor(errorKind: string | undefined): string {
     tool_call_loop_detected: "the request looped on the same tool call",
     tunnel_setup_failed: "the tunnel could not be established",
     unsupported_field: "the request carried a field this route rejects",
+    shutting_down: "the gateway was draining for a restart",
+    restart_for_update: "the gateway was restarting for an update; retry shortly",
   };
   if (errorKind && messages[errorKind]) return messages[errorKind];
   if (errorKind) return errorKind.replaceAll("_", " ");
@@ -439,7 +449,11 @@ function PillTabs<T extends string>({
   readonly ariaLabel: string;
 }): ReactNode {
   return (
-    <div role="tablist" aria-label={ariaLabel} style={{ display: "flex", gap: "4px" }}>
+    <div
+      role="tablist"
+      aria-label={ariaLabel}
+      style={{ display: "flex", flexWrap: "wrap", gap: "4px", minWidth: 0 }}
+    >
       {options.map((option) => (
         <Button
           key={option.id}
@@ -576,6 +590,11 @@ function BreakdownSnapshot({
   readonly onToggleWide: () => void;
 }): ReactNode {
   const byQuery = useUsageBy(period, dimension);
+  const providersQuery = useProviders();
+  const providerNames = useMemo(
+    () => new Map((providersQuery.data ?? []).map((provider) => [provider.providerId, provider.label || provider.displayName])),
+    [providersQuery.data],
+  );
   const rows = byQuery.data?.rows ?? [];
   const maxTotal = rows.length > 0 ? Math.max(...rows.map((row) => row.total)) : 1;
   const totalRequests = rows.reduce((sum, row) => sum + row.requests, 0);
@@ -634,7 +653,7 @@ function BreakdownSnapshot({
               const pct = maxTotal > 0 ? Math.max(2, (row.total / maxTotal) * 100) : 2;
               const displayName =
                 dimension === "provider"
-                  ? providerDisplayName(row.name)
+                  ? (providerNames.get(row.name) ?? row.name)
                   : dimension === "key"
                     ? (row.label ?? `${row.name.slice(0, 8)}…`)
                     : row.name;
@@ -785,7 +804,7 @@ function RequestDetailDrawer({
   // Serialize once per payload instead of every 5s poll render: the byte
   // count and the pretty-printed <pre> both re-encode multi-MB bodies today.
   const payloadViews = useMemo(
-    () => (["request", "response", "clientResponse", "providerRequest", "providerResponse"] as const).map((kind) => {
+    () => (["request", "clientResponse", "providerRequest", "providerResponse"] as const).map((kind) => {
         const payload = detail?.payloads?.[kind];
         if (payload === undefined) return { kind, text: null, bytes: null };
         let text: string | null = null;
@@ -886,7 +905,7 @@ function RequestDetailDrawer({
               <FlowNode
                 last
                 title="Response out"
-                meta={`${statusCode(detail.status, detail.httpStatus).code}${payloadView("response").bytes !== null ? ` · ${formatBytes(payloadView("response").bytes)}` : ""}${detail.estimatedCost ? ` · ${formatUsd(detail.estimatedCost)}` : ""}`}
+                meta={`${statusCode(detail.status, detail.httpStatus).code}${payloadView("clientResponse").bytes !== null ? ` · ${formatBytes(payloadView("clientResponse").bytes)}` : ""}${detail.estimatedCost ? ` · ${formatUsd(detail.estimatedCost)}` : ""}`}
                 tone={STATUS_TONE_COLOR[statusCode(detail.status, detail.httpStatus).tone]}
               />
             </div>
@@ -895,11 +914,10 @@ function RequestDetailDrawer({
 
           {(
             [
-              ["request", "Client Request", detail.payloads?.request, ArrowUpFromLine],
-              ["response", "Proxy → Server Response", detail.payloads?.response, ArrowDownToLine],
-              ["clientResponse", "Server → Client Response", detail.payloads?.clientResponse, ArrowDownToLine],
-              ["providerRequest", "Proxy → Provider Request", detail.payloads?.providerRequest, ArrowUp],
-              ["providerResponse", "Provider → Proxy Response", detail.payloads?.providerResponse, ArrowDown],
+              ["request", "1. Client Request (Input)", detail.payloads?.request, ArrowUpFromLine],
+              ["providerRequest", "2. Provider Request (Translated)", detail.payloads?.providerRequest, ArrowUp],
+              ["providerResponse", "3. Provider Response (Raw)", detail.payloads?.providerResponse, ArrowDown],
+              ["clientResponse", "4. Client Response (Final)", detail.payloads?.clientResponse, ArrowDownToLine],
             ] as const
           ).map(([kind, label, payload, Icon]) => (
             <details
@@ -1229,6 +1247,13 @@ export default function Usage(): ReactNode {
       return false;
     }
   });
+  const [hideApiKey, setHideApiKey] = useState(() => {
+    try {
+      return localStorage.getItem("cartethyia:usage:hide-api-key") === "true";
+    } catch {
+      return false;
+    }
+  });
 
   const toggleHideProviderName = () => {
     setHideProviderName((prev) => {
@@ -1239,7 +1264,21 @@ export default function Usage(): ReactNode {
       return next;
     });
   };
+  const toggleHideApiKey = () => {
+    setHideApiKey((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("cartethyia:usage:hide-api-key", String(next));
+      } catch {}
+      return next;
+    });
+  };
   const summaryQuery = useUsageSummary(period);
+  const providersQuery = useProviders();
+  const providerNames = useMemo(
+    () => new Map((providersQuery.data ?? []).map((provider) => [provider.providerId, provider.label || provider.displayName])),
+    [providersQuery.data],
+  );
   const [requestLimit, setRequestLimit] = useState(50);
   const [requestStatusFilter, setRequestStatusFilter] = useState<number | null>(null);
   const requestsQuery = useUsageRequests(period, requestLimit, requestStatusFilter);
@@ -1501,7 +1540,7 @@ export default function Usage(): ReactNode {
           }
           icon={<Activity size={16} />}
           action={
-            <Inline gap="12px" align="center">
+            <Inline gap="12px" align="center" style={{ flexWrap: "wrap" }}>
               <Button
                 variant="ghost"
                 size="sm"
@@ -1510,7 +1549,17 @@ export default function Usage(): ReactNode {
                 title={hideProviderName ? "Show real provider names" : "Mask provider names as Mysterious"}
                 style={{ fontSize: "11px", height: "26px", padding: "0 8px", color: "var(--text-secondary)" }}
               >
-                {hideProviderName ? "Masked" : "Mask"}
+                {hideProviderName ? "Provider masked" : "Mask provider"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={hideApiKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                onClick={toggleHideApiKey}
+                title={hideApiKey ? "Show API key labels" : "Hide API key labels"}
+                style={{ fontSize: "11px", height: "26px", padding: "0 8px", color: "var(--text-secondary)" }}
+              >
+                {hideApiKey ? "API key hidden" : "Hide API key"}
               </Button>
               <LiveInFlightPill />
             </Inline>
@@ -1580,7 +1629,7 @@ export default function Usage(): ReactNode {
                           title={rowProviderId ?? "—"}
                           style={{ fontSize: "12px", fontWeight: 600 }}
                         >
-                          {hideProviderName ? "Mysterious" : rowProviderId ? providerDisplayName(rowProviderId) : "—"}
+                          {hideProviderName ? "Mysterious" : rowProviderId ? (providerNames.get(rowProviderId) ?? rowProviderId) : "—"}
                         </span>
                       </div>
                       <div

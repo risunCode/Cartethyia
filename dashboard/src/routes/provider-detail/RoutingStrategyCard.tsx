@@ -1,4 +1,4 @@
-import { Cable, Fingerprint, Gauge, Info, Layers, RefreshCw, Repeat } from "lucide-react";
+import { Cable, Coins, Fingerprint, Gauge, Info, Layers, RefreshCw, Repeat } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
@@ -264,6 +264,50 @@ export function RoutingStrategyCard({
               </div>
             ) : null}
           </div>
+
+          <Row>
+            <div style={{ minWidth: 0 }}>
+              <label htmlFor="routing-credit-floor">
+                <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
+                  <Coins
+                    size={15}
+                    aria-hidden="true"
+                    style={{
+                      color: routing.creditFloor !== null ? "var(--accent)" : "var(--text-tertiary)",
+                      flexShrink: 0,
+                    }}
+                  />
+                  Credit floor / account
+                </Inline>
+              </label>
+              <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                Keep this many credits unused. When an account reaches it, it cools down 24h and
+                routing fails over. Blank = no reserve. Credit-metered providers only.
+              </div>
+            </div>
+            <input
+              id="routing-credit-floor"
+              type="number"
+              aria-label="Credit floor per account"
+              min={0}
+              max={1_000_000_000}
+              placeholder="None"
+              value={routing.creditFloor ?? ""}
+              onChange={(event) => {
+                const raw = event.target.value.trim();
+                if (raw === "") {
+                  routing.setCreditFloor(null);
+                  return;
+                }
+                const value = Number(raw);
+                if (Number.isFinite(value)) {
+                  routing.setCreditFloor(Math.max(0, Math.min(1_000_000_000, Math.round(value))));
+                }
+              }}
+              className="form-input"
+              style={{ width: "110px", textAlign: "center", padding: "6px 8px", flexShrink: 0 }}
+            />
+          </Row>
 
           <Row>
             <div style={{ minWidth: 0 }}>

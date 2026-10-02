@@ -20,6 +20,9 @@ import { ROUTING_STRATEGIES } from "../../../transport/routing/route-model";
 const ROUTING_BOUNDS = {
   rotateCount: { min: 1, max: 1000 },
   maxInflight: PROVIDER_ROUTING_MAX_INFLIGHT_BOUNDS,
+  // Credits are whole units; a floor is an absolute count of credits to keep
+  // unused, so it is bounded the same way the inflight ceiling is.
+  creditFloor: { min: 0, max: 1_000_000_000 },
 } as const;
 
 export function createProviderDetailOperations(deps: ProviderDetailConfig) {
@@ -72,6 +75,19 @@ export function createProviderDetailOperations(deps: ProviderDetailConfig) {
       ) {
         throw new ConsoleDomainError("invalid_request", 400, "userAgent must be a non-empty header value up to 4096 characters");
       }
+      if (patch.creditFloor !== undefined && patch.creditFloor !== null) {
+        const { creditFloor } = ROUTING_BOUNDS;
+        if (
+          !Number.isInteger(patch.creditFloor) ||
+          patch.creditFloor < creditFloor.min ||
+          patch.creditFloor > creditFloor.max
+        )
+          throw new ConsoleDomainError(
+            "invalid_credit_floor",
+            400,
+            `creditFloor must be an integer between ${creditFloor.min} and ${creditFloor.max}, or null`,
+          );
+      }
       const updated = await deps.store.updateRouting(providerId, a.tenantId, patch);
       await deps.auditSink?.record({
         access: a,
@@ -119,6 +135,11 @@ const updateRoutingBody = t.Object({
   ),
   bypassProxy: t.Optional(t.Boolean()),
   userAgent: t.Optional(t.String({ minLength: 1, maxLength: 4096 })),
+  creditFloor: t.Optional(
+    t.Nullable(
+      t.Integer({ minimum: ROUTING_BOUNDS.creditFloor.min, maximum: ROUTING_BOUNDS.creditFloor.max }),
+    ),
+  ),
 });
 
 

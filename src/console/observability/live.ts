@@ -10,7 +10,8 @@
 import { Elysia } from "elysia";
 import { errorResponse, requireScope } from "../shared/errors";
 import type { ConsoleAccessResolver } from "../auth/access";
-import { getInFlightSnapshot, subscribeInFlight } from "../../transport/request/inflight";
+import type { ProxyRequestStateStore } from "../../transport/request/state";
+import type { InFlightSnapshot } from "../../transport/request/inflight";
 import type { NetworkPoolSelector } from "../../network/pool/selector";
 import { eq } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
@@ -23,7 +24,15 @@ export interface LiveConfig {
   readonly accessResolver: ConsoleAccessResolver;
   readonly poolSelector?: NetworkPoolSelector;
   readonly db?: CartethyiaDatabase;
+  /**
+   * Owns the live in-flight gauge. Optional so reduced compositions (route-only
+   * shell, console stubs) mount the pool/health endpoints without the gauge;
+   * absent means the in-flight endpoints report zero rather than failing.
+   */
+  readonly stateStore?: ProxyRequestStateStore;
 }
+
+const EMPTY_IN_FLIGHT: InFlightSnapshot = { inFlight: 0, uniqueIps: 0 };
 
 async function tenantPoolIds(
   db: CartethyiaDatabase | undefined,
@@ -57,7 +66,7 @@ export function createLiveRoutes(config: LiveConfig): Elysia {
     .get("/live/in-flight", ({ request, set }) => {
       try {
         requireScope(config.accessResolver(request), "dashboard:read");
-        return getInFlightSnapshot();
+        return config.stateStore?.inFlightSnapshot() ?? EMPTY_IN_FLIGHT;
       } catch (e) {
         return errorResponse(e, set, "Live operation failed");
       }
@@ -70,8 +79,13 @@ export function createLiveRoutes(config: LiveConfig): Elysia {
       }
       return consoleSseResponse(
         createConsoleSseStream(request.signal, ({ send }) => {
-          const unsubscribe = subscribeInFlight((snapshot) => send("count", snapshot));
-          send("count", getInFlightSnapshot());
+          const store = config.stateStore;
+          if (!store) {
+            send("count", EMPTY_IN_FLIGHT);
+            return () => {};
+          }
+          const unsubscribe = store.subscribeInFlight((snapshot) => send("count", snapshot));
+          send("count", store.inFlightSnapshot());
           return unsubscribe;
         }),
       );

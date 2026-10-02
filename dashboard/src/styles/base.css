@@ -476,7 +476,10 @@ html[data-glass-enabled="true"] .card-solid {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
+  flex-shrink: 1;
+  flex-wrap: wrap;
 }
 
 .card-header-icon {

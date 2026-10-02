@@ -25,6 +25,13 @@ export interface AllowedModelEntry {
   tool_call?: boolean;
   web_search?: boolean;
   cost?: unknown;
+  /**
+   * Protocol shape of the model. Absent means `llm` (the canonical chat wire);
+   * a non-`llm` value (System One) tells a chat client that this id is served
+   * by a native route, not by `/v1/chat/completions` — so a picker can label it
+   * instead of offering a route that only answers `capability_unsupported`.
+   */
+  service_kind?: string;
 }
 
 /**
@@ -284,6 +291,7 @@ export class PublicModelCatalogStore {
         providerId: models.providerId,
         contextLimit: models.contextLimit,
         modelId: models.modelId,
+        serviceKind: models.serviceKind,
         outputLimit: models.outputLimit,
         modalities: models.modalities,
         reasoning: models.reasoning,
@@ -369,6 +377,10 @@ export class PublicModelCatalogStore {
           ...(m.toolCall ? { tool_call: true } : {}),
           ...(m.webSearch ? { web_search: true } : {}),
           ...(m.cost != null ? { cost: m.cost } : {}),
+          // Only a non-`llm` row is labelled: absence already means "chat wire".
+          ...(m.serviceKind && m.serviceKind !== "llm"
+            ? { service_kind: m.serviceKind }
+            : {}),
         };
       });
 

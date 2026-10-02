@@ -17,7 +17,90 @@ import { ProviderProbingService, type ProbeOutboundResolver } from "../../../pro
 import { resolveManualModelMetadata } from "../../../providers/model-definition";
 import { isUniqueViolation } from "../../../persistence/postgres";
 import { DEFAULT_ENDPOINT_BY_WIRE_FAMILY, endpointPathForProviderModel, mapProviderRow } from "./catalog-projections";
+import { pushStructuredConsoleLog } from "../../../observability/log-ring";
+
 /** Real Drizzle-backed provider and model catalog repository. */
+
+/** Field names a pasted OAuth credential may carry its access token under. */
+const OAUTH_ACCESS_FIELDS = ["accessToken", "access_token", "access", "token"] as const;
+/** Field names a pasted OAuth credential may carry its refresh token under. */
+const OAUTH_REFRESH_FIELDS = ["refreshToken", "refresh_token", "refresh"] as const;
+
+function firstString(record: Record<string, unknown>, fields: readonly string[]): string | undefined {
+  for (const field of fields) {
+    const value = record[field];
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
+/** Parses an expiry field that may be an ISO string, an epoch ms, or epoch seconds. */
+function parseExpiry(value: unknown): Date | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    // Heuristic: a 10-digit value is epoch seconds, a 13-digit value is ms.
+    const ms = value < 1e12 ? value * 1000 : value;
+    const date = new Date(ms);
+    return Number.isFinite(date.getTime()) ? date : undefined;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber)) return parseExpiry(asNumber);
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Splits a pasted OAuth credential into its access token, refresh token, and
+ * expiry.
+ *
+ * The console accepts either a bare access token or the JSON export a client
+ * produces (`{accessToken, refreshToken, expiresAt, …}`, possibly nested under
+ * `data`). A bare token has no refresh token — the account can be dispatched
+ * with it but cannot be refreshed, which the caller records so the operator is
+ * told to re-authenticate instead of discovering it at first expiry.
+ */
+export function parsePastedOAuthCredential(raw: string): {
+  readonly accessToken: string;
+  readonly refreshToken: string;
+  readonly expiresAt: Date | undefined;
+} {
+  let record: Record<string, unknown> | undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      record = parsed as Record<string, unknown>;
+    }
+  } catch {
+    record = undefined;
+  }
+  if (record === undefined) {
+    // Bare token: it is the access token, and there is no refresh token.
+    return { accessToken: raw, refreshToken: raw, expiresAt: undefined };
+  }
+  // A nested `data` object is unwrapped the same way the dashboard's parser does.
+  const nested =
+    record["data"] !== null && typeof record["data"] === "object" && !Array.isArray(record["data"])
+      ? (record["data"] as Record<string, unknown>)
+      : undefined;
+  const accessToken =
+    firstString(record, OAUTH_ACCESS_FIELDS) ??
+    (nested ? firstString(nested, OAUTH_ACCESS_FIELDS) : undefined) ??
+    raw;
+  const refreshToken =
+    firstString(record, OAUTH_REFRESH_FIELDS) ??
+    (nested ? firstString(nested, OAUTH_REFRESH_FIELDS) : undefined) ??
+    accessToken;
+  const expiresAt = parseExpiry(
+    record["expiresAt"] ??
+      record["expires_at"] ??
+      (nested ? (nested["expiresAt"] ?? nested["expires_at"]) : undefined) ??
+      record["expires"] ??
+      (nested ? nested["expires"] : undefined),
+  );
+  return { accessToken, refreshToken, expiresAt };
+}
 
 /**
  * The account's still-active per-model backoffs, or `undefined` when none are.
@@ -64,6 +147,7 @@ function mapModelRow(
     route: row.endpointPath,
     provider: row.providerId,
     wireFamily: row.wireFamily,
+    serviceKind: row.serviceKind,
     enabled: disabled ? false : row.enabled,
     contextLimit: row.contextLimit,
     outputLimit: row.outputLimit,
@@ -756,6 +840,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
         let effectiveSecret = request.secret;
         let oauthRefreshCiphertext: Buffer | undefined;
         let oauthExpiresAt: Date | undefined;
+        let oauthHasRefreshToken = false;
 
         if (request.credentialKind === "oauth" && request.secret.trim().length > 0) {
           const trimmed = request.secret.trim();
@@ -767,6 +852,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
             oauthRefreshCiphertext = encryptCredential(creds.passToken);
             oauthExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
             effectiveSecret = encodeMimoCredential(creds);
+            oauthHasRefreshToken = true;
           } else if (providerId === "mimostudio") {
             const { parseMimoStudioCredential, encodeMimoStudioCredential } = await import(
               "../../../providers/integrations/xiaomi-mimo/mimostudio-auth"
@@ -775,6 +861,27 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
             oauthRefreshCiphertext = encryptCredential(encodeMimoStudioCredential(creds));
             oauthExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
             effectiveSecret = encodeMimoStudioCredential(creds);
+            oauthHasRefreshToken = true;
+          } else {
+            // A pasted OAuth credential is either an access token or a JSON
+            // export (`{accessToken, refreshToken, expiresAt, …}`). Split it so
+            // the refresh token is stored where the refresh service reads it
+            // (`provider_oauth_states.refresh_ciphertext`); without this split
+            // the whole blob sat in the access slot and the account had no
+            // refresh token at all, so it died silently at first expiry.
+            const parts = parsePastedOAuthCredential(trimmed);
+            effectiveSecret = parts.accessToken;
+            // Only store a refresh token when the credential actually carried
+            // one. A bare access token parsed to itself as the "refresh" token,
+            // and storing that would make the refresh path POST an access token
+            // to the token endpoint — a guaranteed failure that looks like a
+            // revoked credential. Absent here, the account is flagged for
+            // re-auth instead.
+            if (parts.refreshToken !== parts.accessToken) {
+              oauthRefreshCiphertext = encryptCredential(parts.refreshToken);
+              oauthHasRefreshToken = true;
+            }
+            oauthExpiresAt = parts.expiresAt;
           }
         }
 
@@ -794,17 +901,45 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
             maxInflight: null,
             status: "active",
             ...(request.authState === undefined ? {} : { authState: request.authState }),
+            // An OAuth account pasted without a refresh token is a *static*
+            // token: the pasted value is a bearer token used exactly as issued
+            // and there is no refresh grant to run. Flag it as static so the
+            // console reads it as an informational "static token" rather than
+            // "re-login required" — the token is still valid and dispatchable —
+            // and so the refresh sweep skips it instead of retrying a refresh
+            // that can never succeed.
+            ...(request.credentialKind === "oauth" && !oauthHasRefreshToken
+              ? { staticToken: true }
+              : {}),
           })
           .returning();
         const row = rows[0];
         if (!row) throw new Error("failed to create provider account");
 
-        if (oauthRefreshCiphertext && oauthExpiresAt) {
+        // An OAuth account always gets a state row — even with no refresh token
+        // — so the proactive refresh sweep can see it. Without the row the
+        // account is invisible to `loadDueOAuthAccounts` (an inner join) and its
+        // token dies with no operator signal. A null refresh token marks a
+        // static account the sweep skips (see `loadDueOAuthAccounts`); the row
+        // still carries any expiry so a future re-login can reuse it.
+        if (request.credentialKind === "oauth") {
           await tx.insert(providerOauthStates).values({
             providerAccountId: row.id,
-            refreshCiphertext: oauthRefreshCiphertext,
-            expiresAt: oauthExpiresAt,
+            ...(oauthRefreshCiphertext ? { refreshCiphertext: oauthRefreshCiphertext } : {}),
+            expiresAt: oauthExpiresAt ?? null,
           });
+          if (!oauthHasRefreshToken) {
+            pushStructuredConsoleLog(
+              "info",
+              "OAuth account created as a static token; it will not be refreshed",
+              {
+                event: "token_refresh",
+                providerId,
+                accountId: row.id,
+                errorCode: "static_token",
+              },
+            );
+          }
         }
 
         const [account] = await this.accountsWithUsage(tenantId, [row]);
@@ -837,6 +972,19 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
         patch.secret.length === 0 ? null : hashSecret(patch.secret);
     }
     if (patch.status !== undefined) set.status = patch.status;
+    // Toggling the static-token flag: turning it on declares the credential is
+    // used as issued and never refreshed, so any stale re-auth flag is cleared —
+    // the operator has said the account is fine, and the pill must stop reading
+    // "Re-login required". Turning it off returns the account to normal OAuth
+    // refresh handling; the sweep picks it up again on its next pass.
+    if (patch.staticToken !== undefined) {
+      set.staticToken = patch.staticToken;
+      if (patch.staticToken) {
+        set.lastError = null;
+        set.lastErrorCategory = null;
+        set.lastErrorAt = null;
+      }
+    }
     // Status toggles are not recovery: preserve the health machine's evidence
     // until the operator uses Recover or replaces the rejected credential.
     const clearsFailureState = patch.secret !== undefined && patch.secret.length > 0;
@@ -907,6 +1055,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
       ...(row.lastRecoveredAt ? { lastRecoveredAt: row.lastRecoveredAt.toISOString() } : {}),
       createdAt: row.createdAt.toISOString(),
       sortIndex: row.sortIndex,
+      ...(row.staticToken ? { staticToken: true } : {}),
     };
   }
 

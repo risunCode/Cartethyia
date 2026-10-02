@@ -98,13 +98,28 @@ export function parseAnthropicBeta(value: AnthropicBetaInput | null): readonly s
   return parsed;
 }
 
+/**
+ * Folds a capability name to its comparison form.
+ *
+ * The route profile this is matched against is built by
+ * `buildCapabilityProfile`, which spells its keys in camelCase
+ * (`promptCaching`, `parallelToolCalls`), while this module's beta alias table
+ * is snake_case (`prompt_caching`, `prompt_caching_scope`). Comparing them
+ * literally matched nothing, so a route that *explicitly disabled* a capability
+ * still had its beta forwarded — the declaration was silently ignored. Case and
+ * separators carry no meaning here, so both sides drop them before comparing.
+ */
+function canonicalCapabilityName(name: string): string {
+  return name.toLowerCase().replace(/[_-]/g, "");
+}
+
 function capabilityLookup(
   capabilities: Readonly<Record<string, boolean>> | undefined,
 ): Map<string, boolean> {
   const normalized = new Map<string, boolean>();
   if (!capabilities) return normalized;
   for (const [name, enabled] of Object.entries(capabilities)) {
-    normalized.set(name.toLowerCase(), enabled === true);
+    normalized.set(canonicalCapabilityName(name), enabled === true);
   }
   return normalized;
 }
@@ -152,8 +167,8 @@ function targetSupports(
   capabilities: Map<string, boolean>,
 ): boolean {
   const keys = [beta, `anthropic-beta:${beta}`, ...aliasesFor(beta)];
-  const declaredKey = keys.find((key) => capabilities.has(key.toLowerCase()));
-  if (declaredKey !== undefined) return capabilities.get(declaredKey.toLowerCase()) === true;
+  const declaredKey = keys.find((key) => capabilities.has(canonicalCapabilityName(key)));
+  if (declaredKey !== undefined) return capabilities.get(canonicalCapabilityName(declaredKey)) === true;
   return baselineSupports(beta, options);
 }
 

@@ -1,6 +1,6 @@
 import type { CanonicalMessage, CanonicalRequest, ContentPart, GenerationControls, ToolDefinition } from "../../canonical-model";
 import { isRecord } from "../../../protocol/primitives";
-import { textPart } from "../content-parts";
+import { textPart, normalizeInlineFile } from "../content-parts";
 import {
   isServiceTier,
   parseReasoningIntent,
@@ -158,13 +158,14 @@ function parseInputContent(value: unknown): { parts: ContentPart[]; contentTypes
       const filename = readString(rawPart, "filename");
       const fileId = readString(rawPart, "file_id");
       const url = readString(rawPart, "file_url") ?? readString(rawPart, "url");
+      const normalized = normalizeInlineFile({
+        data: rawPart["file_data"] ?? url ?? "",
+        media_type: readString(rawPart, "mime_type") ?? readString(rawPart, "media_type"),
+      });
       parts.push({
         kind: "file",
-        data: rawPart["file_data"] ?? url ?? "",
-        media_type:
-          readString(rawPart, "mime_type") ??
-          readString(rawPart, "media_type") ??
-          "application/octet-stream",
+        data: normalized.data,
+        media_type: normalized.media_type,
         ...(filename === undefined ? {} : { filename }),
         ...(fileId === undefined ? {} : { file_id: fileId }),
         ...(url === undefined ? {} : { url }),
@@ -177,10 +178,16 @@ function parseInputContent(value: unknown): { parts: ContentPart[]; contentTypes
       const sourceType = isRecord(source) ? readString(source, "type") : undefined;
       const fileId = isRecord(source) ? readString(source, "file_id") : undefined;
       const url = isRecord(source) ? readString(source, "url") : undefined;
+      const normalized = normalizeInlineFile({
+        data: isRecord(source) ? (source.data ?? fileId ?? url ?? "") : "",
+        media_type:
+          (isRecord(source) && typeof source.media_type === "string" ? source.media_type : undefined) ??
+          (typeof rawPart.mime_type === "string" ? rawPart.mime_type : undefined),
+      });
       parts.push({
         kind: "document",
-        data: (isRecord(source) ? (source.data ?? fileId ?? url ?? "") : "") as string,
-        media_type: (isRecord(source) && typeof source.media_type === "string" ? source.media_type : typeof rawPart.mime_type === "string" ? rawPart.mime_type : "application/octet-stream") as string,
+        data: normalized.data,
+        media_type: normalized.media_type,
         ...(typeof rawPart.title === "string" ? { title: rawPart.title } : {}),
         ...(sourceType === "base64" ||
         sourceType === "url" ||

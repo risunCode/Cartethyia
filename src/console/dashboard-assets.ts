@@ -161,7 +161,9 @@ export function createStaticHandler(
       body: new TextEncoder().encode(html),
       headers: {
         "content-type": "text/html; charset=utf-8",
-        "cache-control": "no-cache, must-revalidate",
+        "cache-control": "no-store, no-cache, must-revalidate",
+        pragma: "no-cache",
+        expires: "0",
       },
     };
   };
@@ -222,13 +224,13 @@ export function createStaticHandler(
           // Determine cache headers based on file type
           let cacheControl: string;
           if (relativePath === "index.html" || relativePath.endsWith("/index.html")) {
-            cacheControl = "no-cache, must-revalidate";
+            cacheControl = "no-store, no-cache, must-revalidate";
           } else if (hasHashInFilename(fullPath)) {
             // Hashed assets (e.g., app.abc123.js) are immutable
             cacheControl = "public, max-age=31536000, immutable";
           } else if (!relativePath.includes(".")) {
             // Extensionless paths (SPA routes)
-            cacheControl = "no-cache, must-revalidate";
+            cacheControl = "no-store, no-cache, must-revalidate";
           } else {
             // Regular assets without hash
             cacheControl = "public, max-age=3600";

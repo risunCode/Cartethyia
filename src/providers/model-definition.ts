@@ -8,7 +8,7 @@
  * edit cannot silently drift from the shared defaults. Limits and pricing fall
  * back to the prebuilt base catalog; capability does not — see `defineModel`.
  */
-import type { WireFamily } from "../transport/canonical-model";
+import type { ServiceKind, WireFamily } from "../transport/canonical-model";
 import { modelsDevCatalog } from "./discovery/models-dev-catalog";
 
 /** Billing metadata for one provider model. */
@@ -36,6 +36,16 @@ export const FREE_TIER_COST: ModelCostDefinition = {
 export interface ModelDefinition {
   readonly modelId: string;
   readonly wireFamily: WireFamily;
+  /**
+   * Which protocol shape this model speaks. Absent means `"llm"` (the canonical
+   * chat pipeline). A non-`llm` row is served by its native passthrough route,
+   * not by the surface codecs, and `wireFamily`/`endpointPath` describe that
+   * native route's transport rather than a chat wire.
+   *
+   * Optional so the hand-built catalog literals that predate this dimension
+   * stay valid unchanged; read it as `definition.serviceKind ?? "llm"`.
+   */
+  readonly serviceKind?: ServiceKind;
   readonly endpointPath: string;
   readonly contextLimit: number | null;
   readonly outputLimit: number | null;
@@ -75,6 +85,8 @@ export interface ModelHelperRow {
   readonly providerId?: string;
   /** Defaults to `"chat"`. */
   readonly wireFamily?: ModelDefinition["wireFamily"];
+  /** Defaults to `"llm"`. A non-`llm` row is served by its native route. */
+  readonly serviceKind?: ServiceKind;
   /** Defaults to the family's conventional path (`/chat/completions`, `/responses`, `/messages`). */
   readonly endpoint?: string;
   /** Defaults to 128k. */
@@ -184,6 +196,7 @@ export function defineModel(row: ModelHelperRow): ModelDefinition {
   return {
     modelId: row.id,
     wireFamily,
+    serviceKind: row.serviceKind ?? "llm",
     endpointPath: row.endpoint ?? defaultEndpoint(wireFamily),
     contextLimit,
     outputLimit,

@@ -1,4 +1,4 @@
-import { ArrowRight, Copy, Layers, Pencil, Plus, Route, Search, Trash2, X } from "lucide-react";
+import { ArrowRight, Copy, CopyPlus, Layers, Pencil, Plus, Route, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { Button } from "../components/ui/button";
 import { Card, CardBody, CardHeader } from "../components/ui/card";
@@ -10,6 +10,7 @@ import { Inline } from "../components/ui/inline";
 import { Stack } from "../components/ui/stack";
 import { ModelPickerModal } from "../components/ModelPicker";
 import { SortableList } from "../components/SortableList";
+import { WebSearchPanel } from "../components/WebSearchPanel";
 import { getErrorMessage } from "../shared/helpers";
 import { useTrackedTimeout } from "../hooks/use-timeout";
 import { useClipboard } from "../hooks/use-clipboard";
@@ -17,6 +18,7 @@ import { toast } from "../shared/toast";
 import type { ComboStrategy, ModelAliasRow, ModelComboRow } from "../data/contracts";
 import { COMBO_STRATEGY_OPTIONS } from "../shared/combo-strategy";
 import {
+  useCloneModelCombo,
   useCreateModelAlias,
   useCreateModelCombo,
   useDeleteModelAlias,
@@ -322,9 +324,13 @@ function AliasesSection(): ReactNode {
 
 // ── Combos Section ───────────────────────────────────────────────────────────
 
+/** Member chips shown per combo row before collapsing to a "+N more" note. */
+const COMBO_MEMBER_CHIP_MAX = 4;
+
 function CombosSection(): ReactNode {
   const combosQuery = useModelCombos();
   const createMutation = useCreateModelCombo();
+  const cloneMutation = useCloneModelCombo();
   const updateMutation = useUpdateModelCombo();
   const deleteMutation = useDeleteModelCombo();
   const reorderMutation = useReorderModelCombos();
@@ -372,6 +378,27 @@ function CombosSection(): ReactNode {
     setDialogOpen(true);
   };
 
+  /**
+   * Clones a combo server-side: same members and strategy, named `${name}-clone`
+   * (suffixed when taken). The server resolves the name so concurrent clones
+   * cannot collide, and drops members that no longer resolve to a model, alias,
+   * or combo — the clone still lands, and the toast names what was left out.
+   */
+  const handleClone = (c: ModelComboRow) => {
+    cloneMutation.mutate(c.id, {
+      onSuccess: (result) => {
+        const skipped = result.skippedMembers;
+        if (skipped.length > 0)
+          toast.success(
+            "Combo cloned",
+            `${result.combo.name} — skipped unresolvable member${skipped.length > 1 ? "s" : ""}: ${skipped.join(", ")}`,
+          );
+        else toast.success("Combo cloned", result.combo.name);
+      },
+      onError: (error) => toast.error(getErrorMessage(error, "Could not clone the combo.")),
+    });
+  };
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     const members = membersText
@@ -382,13 +409,23 @@ function CombosSection(): ReactNode {
     if (!comboName.trim() || members.length === 0) return;
 
     if (editingCombo) {
+      // Rename rides along with the member/strategy edit; the backend cascades
+      // the name change through aliases and nested combos.
       updateMutation.mutate(
-        { id: editingCombo.id, request: { members, strategy } },
+        {
+          id: editingCombo.id,
+          request: {
+            name: comboName.trim(),
+            members,
+            strategy,
+          },
+        },
         {
           onSuccess: () => {
             setDialogOpen(false);
             setEditingCombo(null);
           },
+          onError: (error) => toast.error(getErrorMessage(error, "Could not save the combo.")),
         },
       );
     } else {
@@ -400,6 +437,7 @@ function CombosSection(): ReactNode {
             setComboName("");
             setMembersText("");
           },
+          onError: (error) => toast.error(getErrorMessage(error, "Could not create the combo.")),
         },
       );
     }
@@ -427,7 +465,7 @@ function CombosSection(): ReactNode {
     <Card>
       <CardHeader
         title="Combos"
-        subtitle="Combine multiple models with fallback or round-robin rotation"
+        subtitle="Combine multiple models with fallback, round-robin rotation, or fusion"
         icon={<Layers size={16} />}
         action={
           <Button variant="primary" size="sm" icon={<Plus size={13} />} onClick={openCreate}>
@@ -500,6 +538,14 @@ function CombosSection(): ReactNode {
                       <Button
                         variant="ghost"
                         size="sm"
+                        icon={<CopyPlus size={13} />}
+                        onClick={() => handleClone(c)}
+                        disabled={cloneMutation.isPending}
+                        title="Clone combo (same members and strategy)"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         icon={<Pencil size={13} />}
                         onClick={() => openEdit(c)}
                         title="Edit combo"
@@ -517,7 +563,7 @@ function CombosSection(): ReactNode {
                 </div>
 
                 <Inline gap="6px" style={{ flexWrap: "wrap" }}>
-                  {c.members.map((m) => (
+                  {c.members.slice(0, COMBO_MEMBER_CHIP_MAX).map((m) => (
                     <code
                       key={m}
                       style={{
@@ -533,6 +579,19 @@ function CombosSection(): ReactNode {
                       {m}
                     </code>
                   ))}
+                  {c.members.length > COMBO_MEMBER_CHIP_MAX ? (
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        color: "var(--text-tertiary)",
+                        fontFamily: "var(--font-mono)",
+                        alignSelf: "center",
+                      }}
+                      title={c.members.slice(COMBO_MEMBER_CHIP_MAX).join(", ")}
+                    >
+                      +{c.members.length - COMBO_MEMBER_CHIP_MAX} more models
+                    </span>
+                  ) : null}
                 </Inline>
               </div>
             )}
@@ -555,7 +614,6 @@ function CombosSection(): ReactNode {
             value={comboName}
             onChange={(e) => setComboName(e.target.value)}
             placeholder="e.g. smart-combo, fast-pool"
-            disabled={Boolean(editingCombo)}
             required
           />
           <Select
@@ -565,6 +623,13 @@ function CombosSection(): ReactNode {
             onValueChange={(v) => setStrategy(v as ComboStrategy)}
             options={COMBO_STRATEGY_OPTIONS}
           />
+          {strategy === "fusion" ? (
+            <p style={{ fontSize: "11px", color: "var(--text-tertiary)", margin: 0 }}>
+              Fusion runs every member as a panel in parallel, then the first member (the judge)
+              synthesizes one final answer from the panel responses. The judge keeps the client's
+              stream and tools; panel models answer non-streaming with tools stripped.
+            </p>
+          ) : null}
           <Stack gap="4px">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)" }}>
@@ -706,6 +771,7 @@ export default function Combos(): ReactNode {
     <Stack gap="16px">
       <CombosSection />
       <AliasesSection />
+      <WebSearchPanel />
     </Stack>
   );
 }

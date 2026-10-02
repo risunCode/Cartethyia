@@ -44,6 +44,7 @@ export async function seedBundledModels(
           providerId,
           modelId: definition.modelId,
           wireFamily: definition.wireFamily,
+          serviceKind: definition.serviceKind ?? "llm",
           endpointPath: definition.endpointPath,
           contextLimit: definition.contextLimit,
           outputLimit: definition.outputLimit,
@@ -71,6 +72,7 @@ export async function seedBundledModels(
     target: [models.providerId, models.modelId, models.endpointPath],
     set: {
       wireFamily: sql`excluded.wire_family`,
+      serviceKind: sql`excluded.service_kind`,
       endpointPath: sql`excluded.endpoint_path`,
       contextLimit: sql`excluded.context_limit`,
       outputLimit: sql`excluded.output_limit`,

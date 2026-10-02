@@ -20,6 +20,7 @@
     "verbatimModuleSyntax": true,
     "allowJs": false,
     "noEmit": true,
+    "incremental": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]

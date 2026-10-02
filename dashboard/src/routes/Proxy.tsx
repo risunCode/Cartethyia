@@ -1,6 +1,7 @@
 import {
   Activity,
   Clock,
+  Cloud,
   Download,
   FlaskConical,
   Gauge,
@@ -18,6 +19,7 @@ import { Badge, type BadgeTone } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardBody, CardHeader } from "../components/ui/card";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { RelayDeployModal } from "../components/RelayDeployPanel";
 import { Dialog } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { DataTable, StatCard } from "../components/ui/layout";
@@ -1122,6 +1124,7 @@ export default function Proxy(): ReactNode {
   const updatePool = useUpdateNetworkPool();
   const healthCheck = useHealthCheckNetworkPool();
   const [showProxyForm, setShowProxyForm] = useState(false);
+  const [showRelayDeploy, setShowRelayDeploy] = useState(false);
   const [editingPool, setEditingPool] = useState<NetworkPoolResponse | null>(null);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
   const [testingIds, setTestingIds] = useState<ReadonlySet<string>>(new Set());
@@ -1429,14 +1432,24 @@ export default function Proxy(): ReactNode {
           subtitle="Outbound proxy servers — HTTP, HTTPS, and SOCKS5"
           icon={<ShieldCheck size={16} />}
           action={
-            <Button
-              variant="primary"
-              size="sm"
-              icon={<Plus size={13} />}
-              onClick={() => setShowProxyForm(true)}
-            >
-              Add proxies
-            </Button>
+            <Inline gap="8px">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Cloud size={13} />}
+                onClick={() => setShowRelayDeploy(true)}
+              >
+                Deploy relay
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<Plus size={13} />}
+                onClick={() => setShowProxyForm(true)}
+              >
+                Add proxies
+              </Button>
+            </Inline>
           }
         />
         <CardBody>
@@ -1662,6 +1675,7 @@ export default function Proxy(): ReactNode {
       {activityPool ? (
         <PoolHealthDialog pool={activityPool} onClose={() => setActivityPool(null)} />
       ) : null}
+      {showRelayDeploy ? <RelayDeployModal onClose={() => setShowRelayDeploy(false)} /> : null}
       </Stack>
     </ProxyLiveProvider>
   );

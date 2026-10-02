@@ -13,8 +13,9 @@ import {
   number,
   isoDate,
 } from "../../quota/quota-contracts";
-import { getAntigravityUserAgent, collapseAntigravityVariant } from "./antigravity-protocol";
+import { getAntigravityUserAgent, getAntigravityVersion, collapseAntigravityVariant, loadAntigravityProject } from "./antigravity-protocol";
 import { ANTIGRAVITY_MODELS } from "./antigravity";
+import { log } from "../../../observability/logger";
 
 interface AntigravityQuotaFamily {
   readonly key: string;
@@ -53,16 +54,44 @@ const FAMILY_LABELS: Readonly<Record<string, string>> = Object.freeze({
 });
 
 /**
- * Display names for the weekly summary groups.
- *
- * The upstream groups buckets by family rather than by model, so the label
- * names both families that share the window — a row labelled only "Claude"
- * would hide that GPT-OSS draws on the same weekly allowance.
+ * Display names for the summary groups, matched by the upstream's own group
+ * display name. The upstream groups buckets by family rather than by model, so
+ * the label names both families that share the window — a row labelled only
+ * "Claude" would hide that GPT-OSS draws on the same allowance.
  */
-const WEEKLY_LABELS: readonly { readonly pattern: RegExp; readonly label: string }[] = [
-  { pattern: /gemini/i, label: "Gemini (Weekly)" },
-  { pattern: /claude|gpt/i, label: "Claude & GPT (Weekly)" },
+const SUMMARY_FAMILIES: readonly { readonly pattern: RegExp; readonly label: string }[] = [
+  { pattern: /gemini/i, label: "Gemini" },
+  { pattern: /claude|gpt/i, label: "Claude & GPT" },
 ];
+
+/**
+ * The two window kinds the summary reports. A free-tier account's only quota
+ * lives here, and it carries both: a rolling 5-hour session window and a weekly
+ * window. The dashboard shows both rows for each family — the 5-hour one has the
+ * same shape as the weekly one, just a shorter window.
+ */
+type SummaryWindowKind = "session" | "weekly";
+
+const SUMMARY_WINDOW_LABELS: Readonly<Record<SummaryWindowKind, string>> = Object.freeze({
+  session: "5 Hour",
+  weekly: "Weekly",
+});
+
+/** Classifies a summary bucket as the session (5-hour) or weekly window. */
+function summaryWindowKind(bucket: Record<string, unknown>): SummaryWindowKind | undefined {
+  const windowType = (text(bucket.window) ?? "").toLowerCase();
+  const bucketText = `${text(bucket.bucketId) ?? ""} ${text(bucket.displayName) ?? ""}`.toLowerCase();
+  if (windowType === "weekly" || bucketText.includes("weekly")) return "weekly";
+  if (
+    windowType === "5h" ||
+    windowType === "daily" ||
+    bucketText.includes("five hour") ||
+    bucketText.includes("5h") ||
+    bucketText.includes("daily")
+  )
+    return "session";
+  return undefined;
+}
 
 function isQuotaModel(modelId: string): boolean {
   return CATALOG_MODEL_IDS.has(collapseAntigravityVariant(modelId));
@@ -136,15 +165,18 @@ function parseModelQuotas(payload: Record<string, unknown>): ProviderQuotaWindow
 }
 
 /**
- * Weekly quotas from `v1internal:retrieveUserQuotaSummary`.
+ * Session (5-hour) and weekly quotas from `v1internal:retrieveUserQuotaSummary`.
  *
  * This is the *only* quota a free-tier account has: the upstream omits
  * per-model quota for it, so a parser that reads only `models` reports no
  * windows at all on a free account. The groups are matched to a family by
- * display name and only weekly buckets are read — the same response also
- * carries shorter buckets, which are not the weekly allowance this row means.
+ * display name, and each group carries both windows — a rolling 5-hour session
+ * and a weekly allowance — so both are read. A session bucket the upstream
+ * marked disabled (because the weekly was hit) is kept at 0% rather than
+ * dropped: the operator needs to see that the 5-hour lane is blocked too. A
+ * disabled weekly bucket is genuinely gone and is skipped.
  */
-function parseWeeklyQuotas(payload: Record<string, unknown>): ProviderQuotaWindow[] {
+function parseSummaryQuotas(payload: Record<string, unknown>): ProviderQuotaWindow[] {
   const summary = record(payload.quotaSummary) ?? payload;
   const groups = Array.isArray(summary.groups) ? summary.groups : [];
   const found = new Map<string, ProviderQuotaWindow>();
@@ -152,27 +184,29 @@ function parseWeeklyQuotas(payload: Record<string, unknown>): ProviderQuotaWindo
     const group = record(rawGroup);
     if (!group) continue;
     const groupName = text(group.displayName) ?? "";
-    const match = WEEKLY_LABELS.find((candidate) => candidate.pattern.test(groupName));
-    if (match === undefined) continue;
+    const family = SUMMARY_FAMILIES.find((candidate) => candidate.pattern.test(groupName));
+    if (family === undefined) continue;
     const buckets = Array.isArray(group.buckets) ? group.buckets : [];
     for (const rawBucket of buckets) {
       const bucket = record(rawBucket);
       if (!bucket) continue;
-      // Identify the weekly bucket by its own id/label; a group can carry
-      // several windows and only the weekly one is this row's meaning.
-      const bucketText = `${text(bucket.bucketId) ?? ""} ${text(bucket.displayName) ?? ""}`;
-      if (!/weekly/i.test(bucketText)) continue;
-      if (bucket.disabled === true) continue;
-      const fraction = number(bucket.remainingFraction);
+      const kind = summaryWindowKind(bucket);
+      if (kind === undefined) continue;
+      // A disabled weekly bucket is truly gone; a disabled session bucket is
+      // kept at 0 so the row still shows the 5-hour lane is blocked.
+      if (bucket.disabled === true && kind === "weekly") continue;
+      const fraction =
+        bucket.disabled === true ? 0 : number(bucket.remainingFraction);
       if (fraction === null) continue;
+      const key = `${family.label}:${kind}`;
+      if (found.has(key)) continue; // first bucket of each kind per family wins
       const window = fractionWindow(
-        `weekly:${match.label}`,
-        match.label,
+        `${kind}:${family.label}`,
+        `${family.label} (${SUMMARY_WINDOW_LABELS[kind]})`,
         fraction,
         isoDate(bucket.resetTime),
       );
-      found.set(match.label, keepWorse(found.get(match.label), window));
-      break;
+      found.set(key, window);
     }
   }
   return [...found.values()];
@@ -186,11 +220,18 @@ export async function fetchAntigravityQuota(
   const access = text(fields.accessToken) ?? credential;
   const headers = {
     authorization: `Bearer ${access}`,
-    // Discovered client UA, never a stale pinned version or invented
-    // x-client-* headers the reference client does not send.
+    "content-type": "application/json",
+    // Discovered client UA, never a stale pinned version. The `x-client-*`
+    // pair is what the desktop client sends alongside it, and
+    // `retrieveUserQuotaSummary` answers 403 without them (verified: the same
+    // token that reaches `fetchAvailableModels` is refused on the summary
+    // endpoint when the pair is missing).
     "user-agent": getAntigravityUserAgent(),
+    "x-client-name": "antigravity",
+    "x-client-version": getAntigravityVersion(),
   };
-  const project = fields.projectId ?? fields.providerAccountId;
+  const project =
+    fields.projectId ?? fields.providerAccountId ?? (await loadAntigravityProject(access, { fetcher }));
   const hosts = [
     "https://daily-cloudcode-pa.googleapis.com",
     "https://daily-cloudcode-pa.sandbox.googleapis.com",
@@ -209,11 +250,14 @@ export async function fetchAntigravityQuota(
           ...(project === undefined ? {} : { project }),
         }),
       );
-      windows.push(...parseWeeklyQuotas(summary));
+      windows.push(...parseSummaryQuotas(summary));
       plan = plan ?? text(summary.tier) ?? text(summary.plan);
       if (windows.length > 0) break;
-    } catch {
-      // Fall through to the next host.
+    } catch (error) {
+      // The summary endpoint can be unreachable or refuse the token; the
+      // per-model endpoint below still answers, so this is a downgrade, not a
+      // failure. Logged so a summary that never lands is visible.
+      log.warn("antigravity: quota summary fetch failed", { error: String(error) });
     }
   }
   for (const host of hosts) {

@@ -29,6 +29,7 @@ import { DrizzleObservabilityStore } from "./observability/store";
 import { createLiveRoutes } from "./observability/live";
 import { createLogRoutes } from "./observability/logs";
 import { createAuditRoutes } from "./domains/audit/contracts";
+import { createModelAbuseRoutes } from "./domains/model-abuse/contracts";
 import { DrizzleAuditReadStore } from "./domains/audit/store";
 import { createStudioRoutes } from "./domains/studio/routes";
 import { DrizzleStudioSessionStore } from "./domains/studio/store";
@@ -48,11 +49,14 @@ import { DrizzleApiKeyStore } from "../persistence/api-key-store";
 import { DrizzleShareLinkStore } from "../persistence/share-store";
 import { createShareUsagePort } from "./share/share-usage";
 import { resolveSsrfPolicy } from "../config";
+import { createValidatedFetch } from "../network/outbound-fetch";
 import type { AuditRecorder } from "./auth/service";
 import type { CliToolService } from "./cli-tools/service";
 import type { NetworkPoolSelector } from "../network/pool/selector";
+import type { ProxyRequestStateStore } from "../transport/request/state";
 import type { RouteSnapshotService } from "../transport/routing/route-model";
 import type { ApiKeyAdmissionService } from "../security/admission";
+import type { ModelStrikeService } from "../security/model-abuse";
 import type { TelemetryBatchBuffer } from "../observability/telemetry-buffer";
 import type { OAuthRefreshService } from "../providers/authentication/oauth-refresh-service";
 import type { RedisClient } from "../persistence/redis";
@@ -75,7 +79,11 @@ export interface ConsoleDomainContext {
   readonly routeSnapshotService: RouteSnapshotService;
   readonly poolSelector: NetworkPoolSelector;
   readonly telemetryBuffer: TelemetryBatchBuffer;
+  /** Owns the live in-flight gauge the console surfaces. */
+  readonly stateStore?: ProxyRequestStateStore;
   readonly admissionService: Pick<ApiKeyAdmissionService, "purgeKey">;
+  /** Graduated model-abuse strikes: list and lift bans from the console. */
+  readonly modelStrikes?: Pick<ModelStrikeService, "listBans" | "unban">;
   readonly readRoutingAccountInflight?:
     | ((
         providerId: string,
@@ -206,6 +214,7 @@ export function registerConsoleDomains(
     accessResolver: ctx.accessResolver,
     poolSelector: ctx.poolSelector,
     db: ctx.db,
+    ...(ctx.stateStore ? { stateStore: ctx.stateStore } : {}),
   }));
   console.use(createStudioRoutes({
     sessionStore: new DrizzleStudioSessionStore(ctx.db),
@@ -217,6 +226,12 @@ export function registerConsoleDomains(
   console.use(createLogRoutes({ accessResolver: ctx.accessResolver, auditSink: ctx.auditRecorder }));
   console.use(createPerformanceRoutes({ accessResolver: ctx.accessResolver }));
   console.use(createAuditRoutes({ store: auditReadStore, accessResolver: ctx.accessResolver }));
+  if (ctx.modelStrikes) {
+    console.use(createModelAbuseRoutes({
+      strikes: ctx.modelStrikes,
+      accessResolver: ctx.accessResolver,
+    }));
+  }
   console.use(createProviderCatalogRoutes({
     store: providerCatalogStore,
     accessResolver: ctx.accessResolver,
@@ -246,6 +261,9 @@ export function registerConsoleDomains(
     auditSink: ctx.auditRecorder,
     poolSelector: ctx.poolSelector,
     snapshotInvalidator: ctx.routeSnapshotService,
+    // Hosted-relay deploys reach Cloudflare/Vercel/Deno APIs, so they use the
+    // same SSRF-validated fetch as every other egress.
+    relayFetch: createValidatedFetch({ policy: resolveSsrfPolicy() }),
   }));
   console.use(createRuntimeSettingsRoutes({ store: runtimeSettingsStore, accessResolver: ctx.accessResolver, auditSink: ctx.auditRecorder }));
   console.use(

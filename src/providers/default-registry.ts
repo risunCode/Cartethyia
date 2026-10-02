@@ -4,7 +4,7 @@ import { ProviderRegistry, toRegistration, type ProviderAuthentication, type Pro
 import type { OAuthLoginClient } from "./authentication/oauth-flow-store";
 import type { QuotaFetcher } from "./quota/quota-support";
 import { BUNDLED_PROVIDER_METADATA, PROVIDER_COMPATIBILITY_PROFILES, providerRequiresAccount, providerUpstreamHost, providerDefaultWireFamily, type BundledProviderId } from "./provider-metadata";
-import { modelsDevCatalog } from "./discovery/models-dev-catalog";
+import { defineModel } from "./model-definition";
 import type { ProviderModelDiscovery } from "./discovery/discovery-types";
 
 /**
@@ -98,18 +98,24 @@ export const PROVIDER_CAPABILITIES = {
     loadModelDiscovery: async () => async ({ credential, fetcher }) => {
       const { discoverClaudeModels } = await import("./integrations/claude/claude-oauth");
       const { modelIds } = await discoverClaudeModels(credential, ...(fetcher ? [fetcher] : []));
-      return modelIds.map((modelId) => ({
-        modelId,
-        wireFamily: "messages",
-        endpointPath: "/v1/messages",
-        contextLimit: null,
-        outputLimit: null,
-        modalities: { input: ["text"], output: ["text"] },
-        reasoning: true,
-        toolCall: true,
-        webSearch: true,
-        cost: modelsDevCatalog.costFor("claude", modelId),
-      }));
+      // `defineModel` resolves limits/pricing by model name: an exact catalog
+      // row first, then the bare id, then the most-agreed row for that name
+      // (date suffixes stripped). The live listing carries dated ids
+      // (`claude-sonnet-4-5-20250929`) the catalog files undated, so a name
+      // match is what fills their limits — a hardcoded `null` here is what
+      // rendered "n/a ctx · n/a out".
+      return modelIds.map((modelId) =>
+        defineModel({
+          id: modelId,
+          providerId: "claude",
+          wireFamily: "messages",
+          endpoint: "/v1/messages",
+          vision: true,
+          reasoning: true,
+          toolCall: true,
+          webSearch: true,
+        }),
+      );
     },
   },
   codex: {
@@ -171,6 +177,13 @@ export const PROVIDER_CAPABILITIES = {
     loadAuthentication: oauthCapability(() => import("./integrations/muse/muse-oauth"), "museCodeOAuthClient", { withRefresher: true }),
     loadQuotaCollector: quotaCapability(() => import("./integrations/muse/muse-quota"), "fetchMuseQuota"),
   },
+  meta: {
+    loadAdapter: async () => (await import("./integrations/meta/meta")).metaAdapter,
+    loadModels: async () => (await import("./integrations/meta/meta")).META_MODELS,
+    // No `loadAuthentication`: the Model API is a plain API key pasted from the
+    // Meta developer dashboard, so the default key-only credential path applies
+    // and `probeApiKeyConnectivity` is the account test.
+  },
   kiro: {
     loadAdapter: async () => (await import("./integrations/kiro/kiro")).kiroAdapter,
     loadModels: async () => (await import("./integrations/kiro/kiro-catalog")).KIRO_MODELS,
@@ -202,9 +215,7 @@ export const PROVIDER_CAPABILITIES = {
     loadQuotaCollector: quotaCapability(() => import("./integrations/cerebras"), "fetchCerebrasQuota"),
     loadModelDiscovery: openAIModelDiscovery("cerebras", { headers: (credential) => ({ authorization: `Bearer ${credential}` }) }),
   },
-  groq: configuredProvider("groq"),
   mistral: configuredProvider("mistral"),
-  sifo: configuredProvider("sifo"),
   fireworks: configuredProvider("fireworks"),
   nvidia: configuredProvider("nvidia"),
   deepseek: {
@@ -366,6 +377,7 @@ export const PROVIDER_CAPABILITIES = {
   },
   openrouter: {
     loadAdapter: async () => createApiKeyAdapter((await import("./integrations/openrouter")).OPENROUTER_SPEC),
+    loadModels: async () => (await import("./integrations/openrouter")).OPENROUTER_MODELS,
     loadModelDiscovery: async () => async ({ credential }) => (await import("./integrations/openrouter")).discoverOpenrouterModels({ credential }),
     // No `withRefresher`: the PKCE exchange returns a durable API key rather
     // than an access token, so there is no refresh grant to register. The key
@@ -413,6 +425,29 @@ export const PROVIDER_CAPABILITIES = {
   perplexity: {
     loadAdapter: async () => (await import("./integrations/perplexity")).createPerplexityAdapter(),
     loadModels: async () => (await import("./integrations/perplexity")).PERPLEXITY_MODELS,
+  },
+  // Web-search providers: a `createSearchAdapter` over their spec, and a single
+  // `serviceKind: "websearch"` catalog row served by the `/v1/search` route.
+  exa: {
+    loadAdapter: async () =>
+      (await import("./search/search-provider")).createSearchAdapter(
+        (await import("./search/search-providers")).SEARCH_PROVIDER_SPECS.exa,
+      ),
+    loadModels: async () => (await import("./search/search-catalog")).EXA_SEARCH_MODELS,
+  },
+  tavily: {
+    loadAdapter: async () =>
+      (await import("./search/search-provider")).createSearchAdapter(
+        (await import("./search/search-providers")).SEARCH_PROVIDER_SPECS.tavily,
+      ),
+    loadModels: async () => (await import("./search/search-catalog")).TAVILY_SEARCH_MODELS,
+  },
+  brave: {
+    loadAdapter: async () =>
+      (await import("./search/search-provider")).createSearchAdapter(
+        (await import("./search/search-providers")).SEARCH_PROVIDER_SPECS.brave,
+      ),
+    loadModels: async () => (await import("./search/search-catalog")).BRAVE_SEARCH_MODELS,
   },
   "github": {
     // Chat only. Copilot also serves some SKUs on `/responses`, but those arrive

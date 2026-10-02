@@ -11,6 +11,27 @@ export const WIRE_FAMILIES = ["chat", "responses", "messages"] as const;
 export type WireFamily = (typeof WIRE_FAMILIES)[number];
 
 /**
+ * Provider service kinds, as a runtime tuple.
+ *
+ * `wire_family` says *which chat-shaped wire* a model speaks; `service_kind`
+ * says *which protocol shape at all*. Every model that flows through the
+ * canonical chat pipeline is `llm`. A protocol that is not chat-shaped — the
+ * System One decision API, and any future embeddings/tts/image endpoint —
+ * carries its own kind and is served by a native passthrough route instead of
+ * the canonical surface codecs, because `CanonicalRequest`/`CanonicalEvent` are
+ * chat-shaped and cannot represent a decision payload without inventing fields
+ * used by exactly one protocol.
+ *
+ * Declared beside `WIRE_FAMILIES` for the same reason it is a runtime tuple:
+ * the console's Elysia body schema and its validator both project this list, so
+ * a new kind cannot reach one and miss the other.
+ */
+export const SERVICE_KINDS = ["llm", "systemone", "websearch"] as const;
+
+/** Provider service kind selected by a model's catalog row. */
+export type ServiceKind = (typeof SERVICE_KINDS)[number];
+
+/**
  * Canonical reasoning efforts, as a runtime tuple. The surface dialects derive
  * their membership set from it, and the probe route's accepted subset is
  * declared separately because it is deliberately narrower.

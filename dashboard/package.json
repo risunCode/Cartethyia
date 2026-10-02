@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "codegen": "bun ../scripts/ci-generate-usage-periods.ts",
-    "dev": "bun run codegen && vite",
+    "dev": "vite",
+    "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "test": "bun test test",
-    "build": "bun run codegen && tsc --noEmit && vite build",
+    "test:watch": "bun test --watch",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -28,6 +28,7 @@
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
     "@vitejs/plugin-react": "6.1.1",
+    "happy-dom": "^20.14.5",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.2",
     "vite": "8.2.2"

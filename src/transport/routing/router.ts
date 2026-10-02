@@ -3,6 +3,7 @@ import { redisEvalNumber, type RedisClient } from "../../persistence/redis";
 import { resolveInflightTtlSeconds } from "../../config";
 import { metrics } from "../../observability/metrics";
 import {
+  accountsRateLimitedError,
   accountsUnavailableError,
   ambiguousModelError,
   capacityExhaustedError,
@@ -301,8 +302,16 @@ function resolveAlias(
  * `accounts_unavailable` while a usable credential sat idle — reported as
  * "cooldown blocks the account completely". Ordering is what carries the
  * intent instead: `plan()` sorts cooling candidates after every healthy one,
- * so they are reached only when nothing better is left, and a single-account
- * deployment still routes through its own cooling account rather than failing.
+ * so they are reached only when nothing better is left.
+ *
+ * That ordering only helps while a healthy sibling exists. Once *every* eligible
+ * candidate is cooling there is nothing to fail over to, and dialing a cooling
+ * account can only reproduce the refusal that cooled it — the operator's "still
+ * hit a cooled-down account, never failed over" report. `plan()` therefore
+ * answers `accountsRateLimitedError` (429) in that end state instead of
+ * planning a cooling account; the evaluator itself still returns `cooldown`
+ * candidates eligible, because the ordering above is what the plan needs to
+ * build the healthy-first list.
  *
  * `model_cooldown` is the exception, and a hard exclusion. It is the snapshot's
  * marker for an *unexpired per-model* entry on the candidate whose model is
@@ -547,7 +556,7 @@ export class RoutingEngine {
     keyId?: string,
   ): Promise<RoutePlan> {
     const tid = tenantId ?? null;
-    const { resolved, matching } = this.resolveMatchingCandidates(
+    const { resolved, matching, fusion } = this.resolveMatchingCandidates(
       requestedModel,
       snapshot,
       tid,
@@ -565,6 +574,20 @@ export class RoutingEngine {
         decisions.map((d) => d.reason),
         resolved.model,
       );
+    }
+    // Every eligible candidate is account-wide cooling: no healthy account is
+    // left to serve this request. Cooling accounts stay eligible so the ORDER
+    // below can deprioritize them behind healthy siblings, but once nothing but
+    // cooling remains there is no sibling to fail over to — dialing a cooling
+    // account can only reproduce the refusal that cooled it, and doing so made
+    // the gateway "still hit a cooled-down account" instead of answering the
+    // client honestly. Answer 429 (rate limited) so the client retries after
+    // the reset rather than 503 capacity that is merely resting.
+    const healthyCount = decisions.filter(
+      (d) => d.eligible && d.reason !== "cooldown",
+    ).length;
+    if (healthyCount === 0) {
+      throw accountsRateLimitedError(requestedModel, resolved.model);
     }
     // Cooling accounts are eligible but tried last: a healthy candidate that
     // can serve the request must win, while a deployment whose only account is
@@ -618,6 +641,7 @@ export class RoutingEngine {
       requested_model: requestedModel,
       resolved_model: resolved.model,
       provider_id: chosen.provider_id,
+      ...(fusion === undefined ? {} : { fusion }),
     };
   }
 
@@ -641,6 +665,7 @@ export class RoutingEngine {
     resolved: ReturnType<typeof resolveAlias>;
     combo: ComboDefinition | undefined;
     matching: RouteCandidate[];
+    fusion?: { readonly panel: readonly string[]; readonly judge: string };
   } {
     const safeResolve = (name: string) => {
       try {
@@ -683,7 +708,17 @@ export class RoutingEngine {
     const owners = [...new Set(matching.map((candidate) => candidate.provider_id))];
     if (owners.length > 1 && !resolved.model.includes("/") && !combo)
       throw ambiguousModelError(requestedModel, owners);
-    return { resolved, combo, matching };
+    // A fusion combo runs every resolved member as a panel and uses the first
+    // member as the judge. The plan still carries the flattened candidates (so
+    // admission/leases are unchanged), but the proxy handler reads this field
+    // and runs the panel/judge fan-out instead of a single dispatch. A
+    // single-member fusion has nothing to fuse; leave it as a plain plan so it
+    // degrades to a normal dispatch rather than a one-model panel.
+    const fusion =
+      combo?.strategy === "fusion" && modelIds.length > 1
+        ? { panel: [...modelIds], judge: modelIds[0]! }
+        : undefined;
+    return { resolved, combo, matching, ...(fusion === undefined ? {} : { fusion }) };
   }
 
   async reserve(plan: RoutePlan): Promise<Reservation> {

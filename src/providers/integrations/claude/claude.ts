@@ -36,6 +36,7 @@ import {
 import { resolveClaudeCliVersion, resolveClaudeSdkVersion } from "../../operations/client-versions";
 import { getOrCreateInstallId } from "../install-id";
 import { canonicalToClaudeMessagesPayload } from "../../../protocol/request/messages";
+import { applyParamQuirks } from "../../../transport/translation/quirks";
 import { CLAUDE_BILLING_HEADER_PREFIX, endpointUrl } from "../../../protocol/primitives";
 import { sendClaudeMessagesRequest } from "../../../protocol/transport/messages";
 import type {
@@ -74,13 +75,12 @@ export const CLAUDE_MODELS: readonly ModelDefinition[] = [
   claudeMessagesModel("claude-opus-4-8", 1_000_000, 128_000, true),
   claudeMessagesModel("claude-opus-4-7", 1_000_000, 128_000, true),
   claudeMessagesModel("claude-opus-4-6", 1_000_000, 128_000, true),
+  claudeMessagesModel("claude-sonnet-5-5", 1_000_000, 128_000, true),
   claudeMessagesModel("claude-sonnet-5", 1_000_000, 128_000, true),
   claudeMessagesModel("claude-sonnet-4-6", 1_000_000, 128_000, true),
   claudeMessagesModel("claude-opus-4-5", 200_000, 64_000, true),
   claudeMessagesModel("claude-sonnet-4-5", 1_000_000, 64_000, true),
   claudeMessagesModel("claude-haiku-4-5", 200_000, 64_000, true),
-  claudeMessagesModel("claude-opus-4-1", 200_000, 32_000, true),
-  claudeMessagesModel("claude-3-7-sonnet", 200_000, 64_000, false),
 ];
 
 
@@ -231,9 +231,16 @@ export class ClaudeAdapter implements ProviderAdapter {
     if (typeof profileId === "string" && profileId.length > 0)
       ensureAnthropicBeta(headers, "user-profiles");
     const sessionId = headers["X-Claude-Code-Session-Id"] ?? resolvePromptCacheKey(request);
-    const payload = canonicalToClaudeMessagesPayload(request, {
-      isOAuth: isClaudeCodeOAuth,
-    });
+    // Provider/model parameter quirks run before translation, exactly as they do
+    // on the API-key (`anthropic`) path. Without this call the Claude Code
+    // adapter never reached the table, so a model that rejects `temperature`
+    // (`claude-opus-4-7` and later, `claude-sonnet-5`, `claude-fable-5`) got a
+    // 400 on every request that carried one — including the probe, which sets
+    // `temperature: 0.2` itself.
+    const payload = canonicalToClaudeMessagesPayload(
+      applyParamQuirks(request, candidate.provider_id),
+      { isOAuth: isClaudeCodeOAuth },
+    );
     if (isClaudeCodeOAuth) {
       // Session attribution follows the reference rules: a valid caller id
       // travels verbatim; otherwise a JSON envelope is generated from the

@@ -13,4 +13,5 @@ import type { ComboStrategy } from "../data/contracts";
 export const COMBO_STRATEGY_OPTIONS: ReadonlyArray<SelectOption & { value: ComboStrategy }> = [
   { value: "fallback", label: "Fallback (try in order)" },
   { value: "round_robin", label: "Round Robin (rotate)" },
+  { value: "fusion", label: "Fusion (panel + judge)" },
 ];

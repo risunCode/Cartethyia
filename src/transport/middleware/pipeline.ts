@@ -26,6 +26,7 @@ import type { SurfaceAdapterRegistry } from "../surface/adapters";
 import type { TrustedProxyBoundary } from "../../config";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
+import type { ModelStrikeService } from "../../security/model-abuse";
 
 /** Shared state/context carried by every ordered transport stage. */
 export interface TransportPipelineContext {
@@ -41,8 +42,12 @@ export interface TransportPipelineContext {
   readonly maxBodyBytes?: number;
   readonly requestDeadlineMs?: number;
   readonly verifiedHttps?: boolean;
+  /** Graduated strikes for repeated invalid-model requests. */
+  readonly modelStrikes?: ModelStrikeService;
   readonly shutdownCoordinator?: {
     isDraining(): boolean;
+    /** Why the drain began, so the termination notice can tell a stop from an update. */
+    shutdownReason?(): string;
   };
   readonly telemetry?: TelemetryBatchBuffer;
 }
@@ -81,7 +86,11 @@ export function createTransportPipeline(context: TransportPipelineContext): Tran
       trustedProxyBoundary: context.trustedProxyBoundary,
       ...(context.resolvePeerAddress ? { resolvePeerAddress: context.resolvePeerAddress } : {}),
     }),
-    createApiKeyAuthenticationMiddleware({ db: context.db, stateStore: context.stateStore }),
+    createApiKeyAuthenticationMiddleware({
+      db: context.db,
+      stateStore: context.stateStore,
+      ...(context.modelStrikes ? { modelStrikes: context.modelStrikes } : {}),
+    }),
     createCanonicalRequestMiddleware({
       stateStore: context.stateStore,
       surfaceRegistry: context.surfaceRegistry,
@@ -90,6 +99,7 @@ export function createTransportPipeline(context: TransportPipelineContext): Tran
     createProxyRoutePreparationMiddleware({
       stateStore: context.stateStore,
       preparer: context.preparer,
+      ...(context.modelStrikes ? { modelStrikes: context.modelStrikes } : {}),
     }),
   ];
   const mountRoot = (app: Elysia<any, any, any, any, any, any, any, any>): void => {

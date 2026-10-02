@@ -43,7 +43,31 @@ const GO_PATH_PREFIX = "/zen/go/v1";
 const KNOWN_FREE_ZEN_IDS: readonly string[] = ["big-pickle"];
 
 /** Free-tier ids that the listing still advertises but upstream refuses. */
-const UNAVAILABLE_FREE_ZEN_IDS: readonly string[] = ["deepseek-v4-flash-free"];
+const UNAVAILABLE_FREE_ZEN_IDS: readonly string[] = [
+  "deepseek-v4-flash-free",
+  // Advertised by `/zen/v1/models` and carrying the free-tier suffix, but a
+  // real free-tier dispatch (this adapter's own fingerprint headers, agent
+  // tools) answers 400 "Endpoint is unavailable". Keeping it would re-add a row
+  // that can only fail a probe.
+  "ling-3.0-flash-fin-free",
+];
+
+/**
+ * Zen ids served by the native System One decision endpoint, not the chat wire.
+ *
+ * These are the `kind: "systemone"` models of the Zen catalog. They carry the
+ * `-free` suffix convention (or the bare `jev-1.13`), so the free-tier filter
+ * would otherwise admit them as chat models — and a decision body sent to
+ * `/zen/v1/chat/completions` answers `500 Internal server error`, while a chat
+ * body sent to `/zen/v1/systemone` is meaningless. Classifying them here keeps
+ * them out of the chat surface and onto the native route.
+ */
+const SYSTEMONE_ZEN_IDS: readonly string[] = ["jev-1.13", "jev-1.13-free"];
+
+/** Whether a Zen id is served by the System One decision endpoint. */
+export function isSystemoneZenModel(modelId: string): boolean {
+  return SYSTEMONE_ZEN_IDS.includes(modelId);
+}
 
 /**
  * Whether a `/zen/v1/models` id belongs to the free tier this provider serves.
@@ -166,7 +190,16 @@ export async function discoverOpenCodeFreeModels(options: {
   if (listed === null) return null;
   return listed
     .filter((model) => isFreeTierZenModel(model.modelId))
-    .map((model) => ({ ...model, freeTier: true }));
+    .map((model) => ({
+      ...model,
+      freeTier: true,
+      // A System One id survives the free-tier filter (it carries the `-free`
+      // suffix) but is not a chat model: reclassify it onto the native decision
+      // endpoint so the chat surface never sees it.
+      ...(isSystemoneZenModel(model.modelId)
+        ? { serviceKind: "systemone" as const, endpointPath: `${ZEN_PATH_PREFIX}/systemone` }
+        : {}),
+    }));
 }
 
 // Limits and pricing resolve from the committed models.dev snapshot
@@ -195,10 +228,43 @@ const sharedZenChat: readonly ModelDefinition[] = [
 
 const MUSE_SPARK_REASONING_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const;
 
+/**
+ * System One decision models served from the Zen `/systemone` endpoint.
+ *
+ * Not chat models: a `serviceKind: "systemone"` row is dispatched by the native
+ * System One route, which posts the caller's `{state, questions}` body untouched
+ * and returns `{answers}`. Both the free and billed Zen tiers front the same
+ * endpoint; `jev-1.13-free` is the free-tier spelling.
+ */
+const systemoneZen = (id: string, free: boolean): ModelDefinition =>
+  defineModel({
+    id,
+    providerId: "opencode",
+    serviceKind: "systemone",
+    wireFamily: "chat",
+    endpoint: `${ZEN_PATH_PREFIX}/systemone`,
+    ctx: 200_000,
+    out: 8_192,
+    toolCall: false,
+    ...(free ? { free: true } : {}),
+  });
+
 export const OPENCODE_FREE_MODELS: readonly ModelDefinition[] = [
   ...sharedZenChat,
   defineModel({ id: "muse-spark-1.2-contributor-free", providerId: "opencode", wireFamily: "responses", endpoint: `${ZEN_PATH_PREFIX}/responses`, vision: true, reasoning: true, reasoningEfforts: MUSE_SPARK_REASONING_EFFORTS }),
   defineModel({ id: "muse-spark-1.3-contributor-free", providerId: "opencode", wireFamily: "responses", endpoint: `${ZEN_PATH_PREFIX}/responses`, vision: true, reasoning: true, reasoningEfforts: MUSE_SPARK_REASONING_EFFORTS }),
+  // Free-tier chat models the shared Zen listing advertises with the `-free`
+  // convention. Each was dispatched through this adapter (its own fingerprint
+  // headers, agent tools) and answered, so the row is routable, not merely
+  // listed. Limits come from the models.dev snapshot under `opencode`; a row
+  // the snapshot does not file keeps an explicit limit rather than the generic
+  // default.
+  defineModel({ id: "space-bunny-free", providerId: "opencode", wireFamily: "chat", endpoint: `${ZEN_PATH_PREFIX}/chat/completions`, ctx: 1_048_576, out: 524_288, vision: true, reasoning: true, free: true }),
+  defineModel({ id: "nemotron-3-ultra-free", providerId: "opencode", wireFamily: "chat", endpoint: `${ZEN_PATH_PREFIX}/chat/completions`, reasoning: true, free: true }),
+  defineModel({ id: "nemotron-3.5-lightning-free", providerId: "opencode", wireFamily: "chat", endpoint: `${ZEN_PATH_PREFIX}/chat/completions`, reasoning: true, free: true }),
+  // Absent from the snapshot: keep declared limits rather than the generic default.
+  defineModel({ id: "longcat-2.5-preview-free", providerId: "opencode", wireFamily: "chat", endpoint: `${ZEN_PATH_PREFIX}/chat/completions`, ctx: 1_000_000, out: 131_072, reasoning: true, free: true }),
+  systemoneZen("jev-1.13-free", true),
 ];
 
 export const OPENCODE_ZEN_MODELS: readonly ModelDefinition[] = [
@@ -211,6 +277,7 @@ export const OPENCODE_ZEN_MODELS: readonly ModelDefinition[] = [
   defineModel({ id: "muse-spark-1.2-contributor-free", providerId: "opencode", wireFamily: "responses", endpoint: `${ZEN_PATH_PREFIX}/responses`, vision: true, reasoning: true, reasoningEfforts: MUSE_SPARK_REASONING_EFFORTS }),
   defineModel({ id: "muse-spark-1.3", providerId: "opencode", wireFamily: "responses", endpoint: `${ZEN_PATH_PREFIX}/responses`, vision: true, reasoning: true, reasoningEfforts: MUSE_SPARK_REASONING_EFFORTS }),
   defineModel({ id: "ling-3.0-flash-free", providerId: "opencode", wireFamily: "chat", endpoint: `${ZEN_PATH_PREFIX}/chat/completions`, vision: true, reasoning: true }),
+  systemoneZen("jev-1.13", false),
 ];
 
 export const OPENCODE_GO_MODELS: readonly ModelDefinition[] = [

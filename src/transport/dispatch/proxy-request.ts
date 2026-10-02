@@ -1,8 +1,8 @@
 import { isBundledProviderId } from "../../providers/provider-registry";
 import type { ProviderDispatchContext, ProviderId, ProviderAdapter } from "../../providers/provider-registry";
 import { GatewayError, explainGatewayError, formatPublicErrorMessage, publicGatewayErrorDetails } from "../gateway-error";
-import { classifyTerminalCategory } from "../failure-policy";
-import type { CanonicalEvent, UsageRecord } from "../canonical-model";
+import { classifyTerminalOutcome } from "../failure-policy";
+import type { CanonicalEvent, CanonicalRequest, UsageRecord } from "../canonical-model";
 import { resolveCredentialForAccount } from "../../providers/operations/provider-credential-service";
 import type { OAuthTokenRefresher } from "../../providers/authentication/oauth-refresh-service";
 import type { OAuthRefreshService } from "../../providers/authentication/oauth-refresh-service";
@@ -26,6 +26,8 @@ import type { NetworkPoolSelector } from "../../network/pool/selector";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
 import { resolveStreamFirstChunkTimeoutMs, resolveStreamStallTimeoutMs, resolveUpstreamTimeoutMs } from "../../config";
 import { ProxyRequestStateStore } from "../request/state";
+import type { ProxyRequestState } from "../request/state";
+import type { ProxyRequestPreparer } from "../request/preparer";
 import { repriceUsage } from "../../providers/usage";
 import { finalizeRequestTelemetry } from "../middleware/error-lifecycle";
 import {
@@ -37,7 +39,9 @@ import {
   terminalFailure,
 } from "./attempt-finalize";
 import { runAttemptLoop } from "./attempt-loop";
+import { dispatchFusionRequest } from "./fusion-dispatch";
 import { projectForRoute, routeCapabilitiesFor } from "../translation/capabilities";
+import { drainAbortReason } from "../shutdown-notice";
 
 export interface ProviderProxyHandlerDeps {
   readonly db: CartethyiaDatabase;
@@ -45,6 +49,8 @@ export interface ProviderProxyHandlerDeps {
   /** Preferred over `providerAdapters`: resolves an adapter on demand and caches it. */
   readonly resolveProviderAdapter?: (providerId: string) => Promise<ProviderAdapter | undefined>;
   readonly stateStore: ProxyRequestStateStore;
+  /** Used by the fusion branch to plan and dispatch each panel/judge model. */
+  readonly proxyPreparer?: ProxyRequestPreparer;
   readonly networkBindingFactory?: ValidatedNetworkBindingFactory;
   /** Live lookup of a provider's SSRF-validated upstream host. */
   readonly byokUpstreamHosts?: { readonly get: (providerId: string) => ByokUpstreamHost | undefined };
@@ -70,6 +76,41 @@ function ttfbFields(
   const firstAt = firstByteAt ?? firstContentDeltaAtMs;
   if (firstAt === undefined || startedAtMs === undefined) return {};
   return { ttfbMs: Math.max(0, firstAt - startedAtMs) };
+}
+
+/**
+ * Encodes a completed canonical event list onto the client's own surface and
+ * returns the wire `Response`. Used by the fusion branch, whose final answer is
+ * produced by a nested dispatch rather than by the attempt loop; the surface
+ * mapping is identical to the attempt loop's own non-streaming encode, so the
+ * two cannot drift. Fusion always answers non-streaming (the panel/judge
+ * synthesis is a single completed answer), so only the JSON encoders are used.
+ */
+function encodeCanonicalResponse(
+  canonicalRequest: CanonicalRequest,
+  events: readonly CanonicalEvent[],
+  state: ProxyRequestState,
+): Response {
+  const options = {
+    created: Date.now() / 1000,
+    include_usage: canonicalRequest.generation_controls["extension:include_usage"] === true,
+  };
+  const output =
+    canonicalRequest.source_surface === "chat"
+      ? chatAdapter.encode([...events], options)
+      : canonicalRequest.source_surface === "responses"
+        ? responsesAdapter.encodeOutput([...events], { ...options, model: canonicalRequest.model })
+        : canonicalRequest.source_surface === "messages"
+          ? messagesAdapter.encodeOutput([...events], options as never)
+          : completionAdapter.encodeOutput([...events], {
+              ...options,
+              prompt: canonicalRequest.generation_controls["extension:completion.prompt"],
+              echo: canonicalRequest.generation_controls["extension:completion.echo"] === true,
+              suffix: canonicalRequest.generation_controls["extension:completion.suffix"],
+            });
+  return new Response(output.bytes as unknown as BodyInit, {
+    headers: { "content-type": output.content_type, ...proxySuccessHeaders(state) },
+  });
 }
 
 /**
@@ -120,6 +161,38 @@ export async function handleProviderProxyRequest(
   const conversationAffinity = resolvePromptCacheKey(canonicalRequest, {
     request_headers: inboundHeaders,
   } as ProviderDispatchContext);
+  // A `fusion` combo runs its members as a panel and a judge, not as a single
+  // failover chain, so it takes its own path. Everything else — aliases, plain
+  // combos, single models — falls through to the attempt loop below. Without a
+  // preparer the fusion branch cannot plan its members, so it fails closed
+  // rather than silently running a fusion combo as a plain failover chain.
+  if (prepared.plan.fusion) {
+    if (!deps.proxyPreparer)
+      throw new GatewayError(
+        "admission_unavailable",
+        503,
+        "fusion routing is unavailable: no request preparer configured",
+      );
+    return dispatchFusionRequest({
+      state,
+      deps: {
+        db: deps.db,
+        providerAdapters: deps.providerAdapters,
+        ...(deps.resolveProviderAdapter ? { resolveProviderAdapter: deps.resolveProviderAdapter } : {}),
+        proxyPreparer: deps.proxyPreparer,
+        ...(deps.networkBindingFactory ? { networkBindingFactory: deps.networkBindingFactory } : {}),
+        ...(deps.poolSelector ? { poolSelector: deps.poolSelector } : {}),
+        ...(deps.snapshotService ? { snapshotService: deps.snapshotService } : {}),
+        ...(deps.telemetryBuffer ? { telemetryBuffer: deps.telemetryBuffer } : {}),
+        ...(deps.resolveOAuthRefresher ? { resolveOAuthRefresher: deps.resolveOAuthRefresher } : {}),
+        ...(deps.oauthRefreshService ? { oauthRefreshService: deps.oauthRefreshService } : {}),
+      },
+      prepared,
+      canonicalRequest,
+      inboundHeaders,
+      fusion: prepared.plan.fusion,
+    }).then(({ events }) => encodeCanonicalResponse(canonicalRequest, events, state));
+  }
   return runAttemptLoop<Response, ProviderAdapter>({
     state,
     deps,
@@ -443,6 +516,12 @@ export async function handleProviderProxyRequest(
         // second resource release) for one request.
         let streamSettled = false;
         let streamReleased = false;
+        // True only while a `pull()` is awaiting the upstream iterator. A
+        // watchdog abort that lands during a pull is caught by that pull's own
+        // handler; one that lands while the stream is paused (the client
+        // stopped reading, so no pull is pending) has no reader to catch it and
+        // must be released by the abort listener instead.
+        let pullActive = false;
         let clientKeepaliveTimer: ReturnType<typeof setInterval> | undefined;
         const clearClientKeepaliveTimer = () => {
           if (clientKeepaliveTimer !== undefined) clearInterval(clientKeepaliveTimer);
@@ -450,22 +529,45 @@ export async function handleProviderProxyRequest(
         };
 
         /**
-         * Fires when the request controller aborts for a *client disconnect*
-         * (bridged from the inbound signal as an `AbortError`). `pull()` is only
-         * invoked when the consumer asks for more, so a client that drops the
-         * connection while the stream is paused would never reach `pull()`'s
-         * release branch and the routing reservation, pool slot, and in-flight
-         * count would leak for the life of the process. Deadline/stall aborts
-         * are deliberately excluded: they only fire from inside `pull()`'s
-         * watchdog, which already releases and records the terminal outcome.
+         * Fires when the request controller aborts. Every abort here must end in
+         * a release, because the alternative is a flight that never leaves the
+         * gauge:
+         *
+         * - **Client disconnect** (an `AbortError` bridged from the inbound
+         *   signal). The client is gone, so no frame would reach it: release
+         *   here.
+         * - **Drain** (a typed shutdown `GatewayError`). The client is still
+         *   reading, so the terminal frame matters — let `pull()` emit it and
+         *   release; releasing here would finalize telemetry before the frame
+         *   and could double-finalize.
+         * - **Deadline / stall watchdog** (`deadline_exceeded`, `TimeoutError`).
+         *   These *usually* fire from inside `pull()`'s watchdog, which already
+         *   records the terminal outcome and releases — but `pull()` runs only
+         *   when the consumer asks for more data. A client that half-closes
+         *   (stops reading, keeps the socket) leaves no pending `pull()`, so the
+         *   watchdog abort lands with nothing to catch it and the flight leaked
+         *   for the life of the process. That is why the release cannot be
+         *   skipped on the *assumption* that a pull is watching: gate it on
+         *   whether a pull is actually in flight.
          */
         function onStreamAbort(): void {
           const reason = state.abortController.signal.reason;
-          if (!(reason instanceof DOMException && reason.name === "AbortError")) return;
-          // Record the client-cancel outcome before the release finalizes
-          // telemetry: without it the fallback status would be "failed"/500,
-          // disagreeing with the `pull()` cancel path for the same event.
-          if (!state.outcome) {
+          const drain = drainAbortReason(reason);
+          const clientDisconnect =
+            drain === undefined && reason instanceof DOMException && reason.name === "AbortError";
+          // A drain always defers to `pull()`: the client is still reading, so
+          // the terminal frame matters and releasing here would finalize
+          // telemetry before it (and could double-finalize).
+          if (drain !== undefined) return;
+          // A deadline/stall abort fired from inside `pull()`'s watchdog is
+          // recorded and released by that pull — defer to it. But a pull only
+          // exists while the consumer asks for data, so the same abort with no
+          // pending pull (a half-closed client) has nothing to catch it and must
+          // be released here. A client disconnect always releases: the consumer
+          // is gone, the frame would go nowhere, and the upstream iterator may
+          // ignore the abort entirely (never rejecting the pending `next()`).
+          if (pullActive && !clientDisconnect) return;
+          if (clientDisconnect && !state.outcome) {
             state.outcome = { status: "cancelled", httpStatus: 499 };
           }
           void (async () => {
@@ -520,81 +622,97 @@ export async function handleProviderProxyRequest(
             if (!first.done) enqueueEvent(first.value, controller);
           },
           async pull(controller) {
-            if (state.abortController.signal.aborted) {
-              const reason = state.abortController.signal.reason;
-              const deadlineFailure =
-                reason instanceof GatewayError && reason.code === "deadline_exceeded"
-                  ? reason
-                  : reason instanceof DOMException && reason.name === "TimeoutError"
-                    ? new GatewayError(
-                        "deadline_exceeded",
-                        504,
-                        "request deadline exceeded",
-                        {},
-                        "cartethyia",
-                      )
-                    : undefined;
-              if (deadlineFailure) {
-                // Hard deadline / stall watchdog: emit an SSE error so the
-                // client sees the failure instead of a silent socket close
-                // that Usage records as a generic streaming 500.
+            pullActive = true;
+            try {
+              if (state.abortController.signal.aborted) {
+                const reason = state.abortController.signal.reason;
+                // A drain is a *server* close while the client is still reading:
+                // emit the terminal frame so it is not seen as a truncation.
+                const drainFailure = drainAbortReason(reason);
+                const deadlineFailure =
+                  reason instanceof GatewayError && reason.code === "deadline_exceeded"
+                    ? reason
+                    : reason instanceof DOMException && reason.name === "TimeoutError"
+                      ? new GatewayError(
+                          "deadline_exceeded",
+                          504,
+                          "request deadline exceeded",
+                          {},
+                          "cartethyia",
+                        )
+                      : undefined;
+                const closeFailure = drainFailure ?? deadlineFailure;
+                if (closeFailure) {
+                  // Hard deadline / stall watchdog / server drain: emit an SSE
+                  // error so the client sees the failure instead of a silent
+                  // socket close that Usage records as a generic streaming 500.
+                  try {
+                    await emitStreamErrorAndClose(closeFailure, controller);
+                  } finally {
+                    void releaseStreamResources();
+                  }
+                } else {
+                  try {
+                    await iterator.return?.();
+                  } catch {
+                    // Upstream iterator cleanup on abort is best-effort.
+                  }
+                  await releaseStreamResources();
+                  controller.close();
+                }
+                return;
+              }
+              try {
+                // A canonical event may be intentionally invisible on the
+                // selected client surface (for example xAI's encrypted
+                // reasoning item when the client is Chat Completions). Keep
+                // pulling until at least one wire chunk is enqueued; returning
+                // from pull with an empty queue can leave Web Streams waiting
+                // forever, which is why real clients previously saw one
+                // assistant header and then a 60s socket reset.
+                for (;;) {
+                  // Re-arm on every upstream read: the watchdog fires only
+                  // when the provider stays silent longer than the bound.
+                  armStallWatchdog();
+                  let result: IteratorResult<CanonicalEvent>;
+                  try {
+                    result = await iterator.next();
+                  } catch (err) {
+                    clearStallWatchdog();
+                    if (await retryUncommittedResponsesPrelude()) continue;
+                    throw err;
+                  }
+                  clearStallWatchdog();
+                  if (result.done) {
+                    if (await retryUncommittedResponsesPrelude()) continue;
+                    await finalizeStream(controller);
+                    return;
+                  }
+                  sawUpstreamActivity = true;
+                  if (enqueueEvent(result.value, controller)) return;
+                }
+              } catch (err) {
+                clearStallWatchdog();
+                // A drain that landed mid-read aborts the pending `next()`, which
+                // rejects here. Emit the shutdown terminal frame rather than
+                // synthesizing a truncation terminal and a generic 502.
+                const drain = drainAbortReason(state.abortController.signal.reason);
                 try {
-                  await emitStreamErrorAndClose(deadlineFailure, controller);
+                  await emitStreamErrorAndClose(drain ?? err, controller);
                 } finally {
+                  // The release must not depend on the error path completing:
+                  // anything that throws above it (a bookkeeping call, a dead
+                  // controller) would otherwise skip it, and `afterResponse`
+                  // cannot rescue a request whose `state.streaming` is set. The
+                  // `streamReleased` guard makes this safe to reach twice.
                   void releaseStreamResources();
                 }
-              } else {
-                try {
-                  await iterator.return?.();
-                } catch {
-                  // Upstream iterator cleanup on abort is best-effort.
-                }
-                await releaseStreamResources();
-                controller.close();
               }
-              return;
-            }
-            try {
-              // A canonical event may be intentionally invisible on the
-              // selected client surface (for example xAI's encrypted
-              // reasoning item when the client is Chat Completions). Keep
-              // pulling until at least one wire chunk is enqueued; returning
-              // from pull with an empty queue can leave Web Streams waiting
-              // forever, which is why real clients previously saw one
-              // assistant header and then a 60s socket reset.
-              for (;;) {
-                // Re-arm on every upstream read: the watchdog fires only
-                // when the provider stays silent longer than the bound.
-                armStallWatchdog();
-                let result: IteratorResult<CanonicalEvent>;
-                try {
-                  result = await iterator.next();
-                } catch (err) {
-                  clearStallWatchdog();
-                  if (await retryUncommittedResponsesPrelude()) continue;
-                  throw err;
-                }
-                clearStallWatchdog();
-                if (result.done) {
-                  if (await retryUncommittedResponsesPrelude()) continue;
-                  await finalizeStream(controller);
-                  return;
-                }
-                sawUpstreamActivity = true;
-                if (enqueueEvent(result.value, controller)) return;
-              }
-            } catch (err) {
-              clearStallWatchdog();
-              try {
-                await emitStreamErrorAndClose(err, controller);
-              } finally {
-                // The release must not depend on the error path completing:
-                // anything that throws above it (a bookkeeping call, a dead
-                // controller) would otherwise skip it, and `afterResponse`
-                // cannot rescue a request whose `state.streaming` is set. The
-                // `streamReleased` guard makes this safe to reach twice.
-                void releaseStreamResources();
-              }
+            } finally {
+              // The watchdog abort and the abort listener coordinate through
+              // this flag: while a pull is pending it owns the release; once
+              // pull returns, an abort with no reader must release itself.
+              pullActive = false;
             }
           },
           async cancel() {
@@ -706,13 +824,20 @@ export async function handleProviderProxyRequest(
                     "cartethyia",
                   )
                 : undefined;
-          const streamError = watchdogFailure ?? err;
-          const cancelled =
-            watchdogFailure === undefined &&
-            (state.abortController.signal.aborted ||
-              (err instanceof GatewayError && err.code === "transport_closed"));
+          // A drain aborts the controller too. When it races the upstream
+          // read's own rejection, the shutdown error must win the frame: the
+          // client is being told "we are restarting", not "the upstream
+          // failed".
+          const drainFailure = drainAbortReason(abortReason);
+          const streamError = watchdogFailure ?? drainFailure ?? err;
+          // A drain is not a client cancel: the client is still reading and
+          // gets the terminal frame below. The record must say `failed` with
+          // the shutdown code, not `cancelled`. Status, category, and origin
+          // come from one classifier so they cannot disagree.
+          const terminal = classifyTerminalOutcome(streamError, state.abortController.signal);
+          const cancelled = terminal.status === "cancelled";
           await completeAttempt(state, {
-            status: cancelled ? "cancelled" : "failed",
+            status: terminal.status,
             ...completionContext({
               providerId: streamProviderId,
               modelId: streamRouteCandidate.model_id,
@@ -727,12 +852,12 @@ export async function handleProviderProxyRequest(
               ...(deps.snapshotService ? { snapshotService: deps.snapshotService } : {}),
             }),
             ...ttfbFields(firstByteAt, firstContentDeltaAtMs, state.upstreamDispatchStartedAtMs),
-            errorCategory: classifyTerminalCategory(streamError, state.abortController.signal),
+            errorCategory: terminal.errorCategory,
             // Every fallback category the classifier returns (client close,
             // deadline, genuine unknown) is a gateway-side lifecycle outcome,
             // never an upstream-reported error — the upstream path is already
             // covered by the `GatewayError` branch keeping its own origin.
-            errorOrigin: streamError instanceof GatewayError ? streamError.origin : "cartethyia",
+            errorOrigin: terminal.errorOrigin,
             ...(!cancelled ? { error: streamError } : {}),
             ...(!cancelled
               ? {
@@ -874,7 +999,7 @@ export async function handleProviderProxyRequest(
         canonicalRequest.source_surface === "chat"
           ? chatAdapter.encode(events, options)
           : canonicalRequest.source_surface === "responses"
-            ? responsesAdapter.encodeOutput(events, options as never)
+            ? responsesAdapter.encodeOutput(events, { ...options, model: canonicalRequest.model })
             : canonicalRequest.source_surface === "messages"
               ? messagesAdapter.encodeOutput(events, options as never)
               : completionAdapter.encodeOutput(events, {

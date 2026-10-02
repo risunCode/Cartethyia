@@ -30,6 +30,24 @@ interface ClaudeCompatibilityAssessment {
   readonly betas: AnthropicBetaNegotiation;
 }
 
+/**
+ * Folds a capability name to its comparison form.
+ *
+ * The route profile this is matched against is built by
+ * `buildCapabilityProfile`, which spells its keys in camelCase
+ * (`promptCaching`, `parallelToolCalls`, `reasoningEncryptedContent`,
+ * `responseJsonObject`), while this module's vocabulary is snake_case
+ * (`prompt_caching`, `parallel_tool_calls`) and the Anthropic beta map mixes
+ * both. Comparing them literally matched nothing — `promptcaching` never
+ * equals `prompt_caching` — so `prompt_caching`, `response_format`,
+ * `redacted_thinking`, and `server_tool_use` were rejected on *every* Claude
+ * route, live traffic included, not just probes. Case and separators carry no
+ * meaning here, so both sides drop them before comparing.
+ */
+function canonicalCapabilityName(name: string): string {
+  return name.toLowerCase().replace(/[_-]/g, "");
+}
+
 function capabilityAliases(
   capability: ClaudeRequestCapability,
 ): readonly string[] {
@@ -37,14 +55,25 @@ function capabilityAliases(
     {
       tools: ["tools", "tool_use"],
       reasoning: ["reasoning", "thinking"],
-      redacted_thinking: ["redacted_thinking", "thinking.redacted"],
+      // `reasoningEncryptedContent` is the profile's spelling of the same
+      // capability (an opaque/redacted thinking block the route can carry).
+      redacted_thinking: [
+        "redacted_thinking",
+        "thinking.redacted",
+        "reasoningEncryptedContent",
+      ],
       server_tool_use: ["server_tool_use", "web_search", "server_tools"],
       image: ["image", "vision"],
       prompt_caching: ["prompt_caching", "prompt-caching", "cache"],
+      // The profile declares structured output per shape
+      // (`responseJsonObject` / `responseJsonSchema`), so either satisfies the
+      // single `response_format` requirement.
       response_format: [
         "response_format",
         "structured_outputs",
         "response_format.json_schema",
+        "responseJsonObject",
+        "responseJsonSchema",
       ],
       parallel_tool_calls: ["parallel_tool_calls", "parallelToolCalls"],
     };
@@ -58,9 +87,9 @@ function supportsCapability(
   if (!capabilities) return false;
   const normalized = new Map<string, boolean>();
   for (const [key, enabled] of Object.entries(capabilities))
-    normalized.set(key.toLowerCase(), enabled === true);
+    normalized.set(canonicalCapabilityName(key), enabled === true);
   return capabilityAliases(capability).some(
-    (key) => normalized.get(key.toLowerCase()) === true,
+    (key) => normalized.get(canonicalCapabilityName(key)) === true,
   );
 }
 

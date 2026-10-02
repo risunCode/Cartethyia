@@ -15,7 +15,9 @@ import {
 import { createAccessDecision } from "../../security/access-control";
 import { parseCookieValue, SESSION_COOKIE_NAME, isCsrfValid } from "../../security/csrf";
 import type { IpAbuseProtectionService } from "../../security/abuse";
+import { modelAbuseBannedError, type ModelStrikeService } from "../../security/model-abuse";
 import type { ReadinessCheckResult } from "../../persistence/readiness";
+import { shutdownNotice } from "../shutdown-notice";
 
 /**
  * Stateless Elysia `beforeHandle` gateway checks: API-key authentication,
@@ -26,6 +28,13 @@ import type { ReadinessCheckResult } from "../../persistence/readiness";
 export function createApiKeyAuthenticationMiddleware(deps: {
   readonly db: CartethyiaDatabase;
   readonly stateStore: ProxyRequestStateStore;
+  /**
+   * Model-abuse ban gate. A banned IP or key is refused here, before the
+   * canonical parse and route preparation, and before `state.authorization` is
+   * assigned — so a banned caller's attempts produce no telemetry row and no
+   * console error, which is exactly the noise this layer exists to stop.
+   */
+  readonly modelStrikes?: Pick<ModelStrikeService, "check">;
 }): Elysia {
   // Single policy for every `/v1/*` gateway route: authenticated, scoped to
   // `routing:invoke`, and tenant-bound (the snapshot's tenant is the only
@@ -63,6 +72,19 @@ export function createApiKeyAuthenticationMiddleware(deps: {
           "No API invocation access for this client.",
           { reason: "client_router_denied", clientRouter: denied },
         );
+      // Abuse ban: refuse before parse/prepare and before authorization is
+      // recorded, so a banned caller cannot keep producing failed rows. The ban
+      // is keyed on the client address, not the key: one key can be shared by
+      // every recipient of a share link, so refusing the key would punish
+      // callers that did nothing.
+      if (deps.modelStrikes) {
+        const state = deps.stateStore.get(request);
+        const ip = state?.clientIdentity?.address;
+        if (ip !== undefined) {
+          const banned = await deps.modelStrikes.check({ ip }).catch(() => false);
+          if (banned) throw modelAbuseBannedError();
+        }
+      }
       deps.stateStore.require(request).authorization = authorization;
     })
     .as("plugin");
@@ -169,6 +191,8 @@ export function createConsoleMutationLimiterMiddleware(): Elysia {
 
 export interface ShutdownDrainSource {
   isDraining(): boolean;
+  /** Why the drain began, so the notice can tell a stop from an update. */
+  shutdownReason?(): string;
 }
 
 export interface ReadinessMiddlewareDeps {
@@ -185,8 +209,10 @@ export function createDependencyReadinessMiddleware(deps: ReadinessMiddlewareDep
         (!path.startsWith("/v1/") && !path.startsWith("/console/api/"))
       )
         return;
-      if (deps.shutdownCoordinator?.isDraining())
-        throw new GatewayError("shutting_down", 503, "Service is shutting down");
+      if (deps.shutdownCoordinator?.isDraining()) {
+        const notice = shutdownNotice(deps.shutdownCoordinator.shutdownReason?.());
+        throw new GatewayError(notice.code, 503, notice.message);
+      }
       const readiness = await deps.readiness();
       if (readiness.status !== "ready")
         throw new GatewayError("platform_unavailable", 503, "Service dependencies are unavailable");

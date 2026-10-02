@@ -232,6 +232,31 @@ export function modelRejectionReason(
   const allowlist = snapshot.model_allowlist;
   if (allowlist == null || listSize(allowlist) === 0) return null;
   if (names.some((name) => listIncludes(allowlist, name))) return null;
+  // The reverse direction: a QUALIFIED allowlist entry must authorize a bare
+  // request — but ONLY while the provider is still unknown.
+  //
+  // The preparer is the first enforcement point and runs before routing, so it
+  // cannot supply `targetProvider`: the provider has not been chosen. The `names`
+  // list above therefore has no qualified form to compare against, and the miss is
+  // final because the preparer throws before admission ever runs. The dashboard's
+  // `ModelPicker` writes the qualified form (`e.qualified`) into `modelAllowlist`,
+  // so that is the shape an operator actually produces, and a client naming the
+  // bare model was refused a model the operator explicitly allowed.
+  //
+  // Scoping this to `targetProvider === undefined` is what keeps it from becoming
+  // an over-permission: once admission runs it DOES know the provider, and there
+  // the comparison must stay precise. A blanket bare-name match would let
+  // `providerA/model-x` authorize `providerB/model-x` — a different upstream
+  // entirely, which is exactly what a qualified allowlist entry exists to pin.
+  //
+  // The denylist deliberately gets no equivalent: a qualified deny entry
+  // (`providerA/model-x`) must not refuse a bare request that could route to a
+  // different provider. Admission re-checks the denylist with the provider
+  // supplied, so a qualified deny entry still matches once the provider is known.
+  if (targetProvider === undefined) {
+    const bareCandidates = new Set(names.map((name) => bareModelId(name)));
+    if ([...allowlist].some((entry) => bareCandidates.has(bareModelId(entry)))) return null;
+  }
   // Operator-configured CLI route: remapped destination is allowed even when
   // neither the Claude family id nor the WorkBuddy target is on the allowlist.
   if (

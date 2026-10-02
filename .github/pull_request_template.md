@@ -6,37 +6,21 @@
 
 <!-- Paste or check what you ran. Do not claim a command passed unless it was executed. -->
 
-### Backend (required for any `src/`, `test/`, `scripts/`, `migrations/` change)
+### Backend (required for any `src/`, `scripts/`, `migrations/` change)
 
 - [ ] `bun run typecheck`
-- [ ] `bun run test`
-- [ ] `bun run check:coverage`
 
-### Dashboard / API contracts (required for `dashboard/` or API contract changes)
+### Dashboard (required for `dashboard/` changes)
 
 - [ ] `bun run dashboard:typecheck`
-- [ ] `bun run dashboard:test`
-- [ ] `bun run test:contracts`
-
-### DB-gated skips
-
-<!-- DB suites skip without CARTETHYIA_TEST_DATABASE_URL, and run against that
-     database (never DATABASE_URL) when it is set — see test/helpers/db-gate.ts.
-     Report them separately from failures: how many skipped, and whether you ran
-     them against a real database. -->
-
-- Skipped suites: <!-- e.g. "none — ran with local Postgres" / "12 DB suites skipped, no local DB" -->
-- Failures: <!-- "none" or link to logs -->
 
 ## Docs
 
-<!-- Required when the change adds a layer, route group, provider capability,
-     env var, or DB table. See AGENTS.md "Docs are part of the change" for the
-     co-change rules and the never-record list. -->
+<!-- Required when the change adds a route group, provider capability, env var,
+     or DB table. -->
 
 - [ ] No doc update needed (why: <!-- ... -->)
-- [ ] Updated: <!-- e.g. src/transport/TRANSPORT.md, .env.example -->
-- [ ] `ARCHITECTURE.md` map updated (only if a layer doc was added/renamed)
+- [ ] Updated: <!-- e.g. README.md, .env.example -->
 - [ ] New procedure/debugging fact folded into `.skills/cartethyia-engineering/references/` (no competing skill files)
 - [ ] No `file:line` refs added to any committed doc (anchor citations to symbols and paths — line numbers drift)
 

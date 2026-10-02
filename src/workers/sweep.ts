@@ -75,6 +75,21 @@ export interface SweepPlan<T> {
   readonly onItemError?: ((item: T, error: unknown) => void) | undefined;
   /** Maximum accounts in one completed wave. Defaults to 5. */
   readonly maxConcurrency?: number | undefined;
+  /**
+   * Run the batch one item at a time with a pause between items, instead of
+   * in growing waves.
+   *
+   * Some upstreams (Google-backed OAuth token endpoints, notably) rate-limit a
+   * burst of refreshes even at a low concurrency, so a wave is still too much
+   * at once. Sequential + a delay spreads the pass out. The delay is skipped
+   * after the last item. Absent means the default wave behavior.
+   */
+  readonly pace?:
+    | {
+        readonly interItemDelayMs: number;
+        readonly sleep?: (ms: number) => Promise<void>;
+      }
+    | undefined;
   /** Wall-clock cap for the whole pass; the next wave does not start past it. */
   readonly budgetMs?: number | undefined;
   readonly now?: (() => number) | undefined;
@@ -133,19 +148,34 @@ export async function runSweep<T>(plan: SweepPlan<T>): Promise<SweepResult> {
   let attempted = 0;
   let failed = 0;
 
-  await runGrowingWaves(batch, {
-    maxConcurrency: Math.max(1, plan.maxConcurrency ?? DEFAULT_SWEEP_CONCURRENCY),
-    ...(deadline === null ? {} : { shouldStop: () => now() >= (deadline as number) }),
-    onItem: async (item) => {
-      attempted += 1;
-      try {
-        await plan.run(item);
-      } catch (error) {
-        failed += 1;
-        plan.onItemError?.(item, error);
+  const runOne = async (item: T): Promise<void> => {
+    attempted += 1;
+    try {
+      await plan.run(item);
+    } catch (error) {
+      failed += 1;
+      plan.onItemError?.(item, error);
+    }
+  };
+
+  if (plan.pace !== undefined) {
+    const sleep = plan.pace.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+    for (const [index, item] of batch.entries()) {
+      if (deadline !== null && now() >= deadline) break;
+      await runOne(item);
+      // Pause between items, never after the last: the delay exists to spread
+      // load on the upstream, and trailing it only delays the pass's end.
+      if (index < batch.length - 1 && plan.pace.interItemDelayMs > 0) {
+        await sleep(plan.pace.interItemDelayMs);
       }
-    },
-  });
+    }
+  } else {
+    await runGrowingWaves(batch, {
+      maxConcurrency: Math.max(1, plan.maxConcurrency ?? DEFAULT_SWEEP_CONCURRENCY),
+      ...(deadline === null ? {} : { shouldStop: () => now() >= (deadline as number) }),
+      onItem: runOne,
+    });
+  }
 
   return { listed: targets.length, skipped, attempted, failed, aborted: false };
 }

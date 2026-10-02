@@ -435,14 +435,6 @@ export const CLINE_MODELS: readonly ModelDefinition[] = [
     free: true,
   }),
   defineModel({
-    id: "cline-free/gemini-3.8-flash",
-    ctx: 1_048_576,
-    out: 65_536,
-    reasoning: true,
-    vision: true,
-    free: true,
-  }),
-  defineModel({
     id: "cline-free/muse-spark-1.3-contributor",
     ctx: 1_048_576,
     out: 943_718,
