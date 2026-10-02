@@ -187,8 +187,15 @@ export interface SessionCookiePolicy {
 const SESSION_MAX_AGE_SECONDS = 48 * 60 * 60;
 
 function shouldUseSecureSessionCookie(): boolean {
-  if (process.env.NODE_ENV === "production") return true;
-  return process.env.CARTETHYIA_PUBLIC_ORIGIN?.startsWith("https://") === true;
+  // The public origin is the authority on how clients actually reach the
+  // console: a deployment served over plain HTTP (a LAN address, a
+  // container port) must not set `Secure`, or the browser silently drops
+  // the session cookie and every login bounces back to the form. NODE_ENV
+  // only answers when no origin is configured. `securePolicyForRequest`
+  // still upgrades per-request when the client leg is genuinely https.
+  const origin = process.env.CARTETHYIA_PUBLIC_ORIGIN?.trim();
+  if (origin) return origin.startsWith("https://");
+  return process.env.NODE_ENV === "production";
 }
 
 export const defaultSessionCookiePolicy: SessionCookiePolicy = {

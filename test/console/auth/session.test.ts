@@ -382,9 +382,13 @@ describe("ConsoleSessionService", () => {
   it("uses a 48-hour environment-aware default cookie policy", () => {
     expect(defaultSessionCookiePolicy.maxAge).toBe(48 * 60 * 60);
     expect(defaultSessionCookiePolicy.httpOnly).toBe(true);
+    // The configured public origin decides, because it describes how clients
+    // actually reach the console; NODE_ENV is only the fallback when the
+    // origin is unset. A production build served over plain HTTP on a LAN
+    // must not set `Secure`, or the browser drops the session cookie.
+    const origin = process.env.CARTETHYIA_PUBLIC_ORIGIN?.trim();
     expect(defaultSessionCookiePolicy.secure).toBe(
-      process.env.NODE_ENV === "production" ||
-        process.env.CARTETHYIA_PUBLIC_ORIGIN?.startsWith("https://") === true,
+      origin ? origin.startsWith("https://") : process.env.NODE_ENV === "production",
     );
     expect(defaultSessionCookiePolicy.sameSite).toBe("Lax");
   });
