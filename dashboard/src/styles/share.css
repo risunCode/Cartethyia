@@ -36,6 +36,17 @@ html[data-app="share"][data-theme="dark"] body {
   --share-backdrop-veil: 0.6;
 }
 
+.toast-surface {
+  background: var(--glass-bg-2) !important;
+  border-color: var(--glass-border-2) !important;
+  color: var(--text-primary) !important;
+}
+
+.toast-surface [data-content],
+.toast-surface [data-description] {
+  color: var(--text-primary) !important;
+}
+
 .share-page {
   min-height: 100vh;
   min-height: 100dvh;
@@ -450,7 +461,7 @@ html[data-app="share"] .share-hud-card {
 
 .share-model-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
   gap: 8px;
   margin-top: 16px;
 }
@@ -507,15 +518,38 @@ html[data-app="share"] .share-hud-card {
   opacity: 0.7;
 }
 
-.share-model-card-actions {
+.share-model-card-result {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.share-model-card-result strong {
+  color: var(--green);
+  font-family: var(--font-sans);
+}
+
+.share-model-card-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   margin-top: auto;
 }
 
+.share-model-card-actions > * {
+  min-width: 0;
+  width: 100%;
+}
+
 .share-model-card-actions .btn {
-  min-width: 160px;
+  min-width: 0;
+  width: 100%;
 }
 
 .share-model-card-meta {

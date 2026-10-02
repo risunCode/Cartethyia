@@ -25,6 +25,7 @@ import {
 
 interface IssueResult { key: string; keyId: string; keyPrefix: string; createdAt: string }
 interface ApiError { error?: string | { code?: string; message?: string }; message?: string }
+interface ProbeResult { readonly ttftMs: number; readonly totalMs: number }
 
 function message(payload: ApiError): string {
   if (typeof payload.error === "string") return payload.error;
@@ -60,6 +61,7 @@ function ModelCard({
   canProbe,
   probing,
   onProbe,
+  result,
 }: {
   /** The id as a client must send it. */
   readonly id: string;
@@ -69,6 +71,7 @@ function ModelCard({
   readonly canProbe: boolean;
   readonly probing: boolean;
   readonly onProbe: (model: string) => void;
+  readonly result: ProbeResult | undefined;
 }): ReactElement {
   const vision = (info?.capabilities?.input ?? []).some(
     (modality) => modality === "image" || modality === "vision",
@@ -124,6 +127,13 @@ function ModelCard({
           )}
         </span>
       </div>
+      {result ? (
+        <div className="share-model-card-result" role="status">
+          <strong>OK</strong>
+          <span>TTFT {(result.ttftMs / 1000).toFixed(2)}s</span>
+          <span>Done {(result.totalMs / 1000).toFixed(2)}s</span>
+        </div>
+      ) : null}
       <div className="share-model-card-actions">
         {canProbe ? (
           <Button
@@ -141,9 +151,9 @@ function ModelCard({
         <ClipboardButton
           value={id}
           size="sm"
-          variant="ghost"
-          label=""
-          copiedLabel=""
+          variant="secondary"
+          label="Copy"
+          copiedLabel="Copied"
           aria-label={`Copy ${id}`}
           title={`Copy ${id}`}
         />
@@ -175,6 +185,7 @@ export function SharePage(): ReactElement {
   const [issueBusy, setIssueBusy] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
   const [probingModels, setProbingModels] = useState<ReadonlySet<string>>(() => new Set());
+  const [probeResults, setProbeResults] = useState<ReadonlyMap<string, ProbeResult>>(() => new Map());
   const probeAbortRef = useRef<Map<string, AbortController>>(new Map());
   const [issueConflict, setIssueConflict] = useState(false);
   const [sharePopupOpen, setSharePopupOpen] = useState(false);
@@ -309,7 +320,8 @@ export function SharePage(): ReactElement {
       }
       const totalMs = Math.round(performance.now() - startedAt);
       const ttftMs = Math.round((firstByteAt ?? performance.now()) - startedAt);
-      toast.success("Model probe complete", `${model} · TTFT ${ttftMs} ms · Total ${totalMs} ms`);
+      setProbeResults((current) => new Map(current).set(model, { ttftMs, totalMs }));
+      toast.success("Model test complete", `${model} · TTFT ${ttftMs} ms · Done ${totalMs} ms`);
     } catch (error: unknown) {
       toast.error("Model probe failed", error instanceof Error ? error.message : "The request could not be completed.");
     } finally {
@@ -671,7 +683,7 @@ export function SharePage(): ReactElement {
                 modelView === "raw" ? (
                   <div className="share-model-grid">
                     {data.modelAllowlist.map((model) => (
-                      <ModelCard key={model} id={model} label={model} info={data.modelInfo?.[model]} canProbe={canProbe} probing={probingModels.has(model)} onProbe={probeModel} />
+                      <ModelCard key={model} id={model} label={model} info={data.modelInfo?.[model]} canProbe={canProbe} probing={probingModels.has(model)} onProbe={probeModel} result={probeResults.get(model)} />
                     ))}
                   </div>
                 ) : (
@@ -692,6 +704,7 @@ export function SharePage(): ReactElement {
                               canProbe={canProbe}
                               probing={probingModels.has(model)}
                               onProbe={probeModel}
+                              result={probeResults.get(model)}
                             />
                           ))}
                         </div>
