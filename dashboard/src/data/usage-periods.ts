@@ -1,5 +1,4 @@
-import type { UsagePeriod as BackendUsagePeriod } from "../../../src/console/observability/usage-periods";
-import generated from "./generated/usage-periods.json";
+import periods from "./usage-periods.json";
 
-export const USAGE_PERIODS: readonly BackendUsagePeriod[] = generated as readonly BackendUsagePeriod[];
-export type UsagePeriod = BackendUsagePeriod;
+export type UsagePeriod = (typeof periods)[number];
+export const USAGE_PERIODS: readonly UsagePeriod[] = periods;

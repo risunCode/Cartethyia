@@ -10,7 +10,7 @@
  */
 import { GatewayError } from "../gateway-error";
 import type { ResolvedCredential } from "../../providers/provider-registry";
-import { classifyTerminalCategory, fallbackRetryDelayMs, isRetryableFailure, sleep } from "../failure-policy";
+import { classifyTerminalOutcome, fallbackRetryDelayMs, isRetryableFailure, sleep } from "../failure-policy";
 import type { OAuthTokenRefresher } from "../../providers/authentication/oauth-refresh-service";
 import type { OAuthRefreshService } from "../../providers/authentication/oauth-refresh-service";
 import type { ValidatedNetworkBindingFactory } from "../../network/pool/resolver";
@@ -153,20 +153,19 @@ export async function runAttemptLoop<TResult, TAdapter>(
       lastError = error;
       // A drain is a *server* close, not a client cancel: it must be recorded
       // as a failure with the shutdown code, and it is never retryable.
-      const cancelled =
-        drain === undefined &&
-        (state.abortController.signal.aborted ||
-          (error instanceof GatewayError && error.code === "transport_closed"));
+      // Status, category, and origin come from one classifier so they cannot
+      // disagree (a `cancelled` row used to carry `transport_unavailable`/502).
+      const terminal = classifyTerminalOutcome(error, state.abortController.signal);
+      const cancelled = terminal.status === "cancelled";
       const terminalAttempt =
         cancelled || !isRetryableFailure(error) || index === candidates.length - 1;
       await completeAttempt(state, {
-        status: cancelled ? "cancelled" : "failed",
+        status: terminal.status,
         providerId: candidate.provider_id,
         ...(candidate.provider_account_id ? { accountId: candidate.provider_account_id } : {}),
         ...(candidate.provider_account_label ? { accountLabel: candidate.provider_account_label } : {}),
-        errorCategory: classifyTerminalCategory(error, state.abortController.signal),
-        // Same split as the streaming path: a non-GatewayError outcome is ours.
-        errorOrigin: error instanceof GatewayError ? error.origin : "cartethyia",
+        errorCategory: terminal.errorCategory,
+        errorOrigin: terminal.errorOrigin,
         modelId: candidate.model_id,
         ...(networkPoolId ? { networkPoolId } : {}),
         error,

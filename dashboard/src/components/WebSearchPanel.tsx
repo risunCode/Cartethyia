@@ -10,7 +10,6 @@ import { EmptyState, ErrorState, LoadingState } from "./ui/state";
 import { ProviderIcon } from "./ProviderIcon";
 import { useAllModelsCatalog } from "./ModelPicker";
 import { useCreateProviderAccount, useProviders } from "../hooks/providers";
-import { providerDisplayName } from "../shared/provider-names";
 import { getErrorMessage } from "../shared/helpers";
 import { toast } from "../shared/toast";
 
@@ -27,10 +26,12 @@ import { toast } from "../shared/toast";
  */
 function SearchProviderRow({
   providerId,
+  displayName,
   modelIds,
   initiallyConnected,
 }: {
   readonly providerId: string;
+  readonly displayName: string;
   readonly modelIds: readonly string[];
   readonly initiallyConnected: boolean;
 }) {
@@ -47,7 +48,7 @@ function SearchProviderRow({
         onSuccess: () => {
           setConnected(true);
           setSecret("");
-          toast.success(`${providerDisplayName(providerId)} connected.`);
+          toast.success(`${displayName} connected.`);
         },
         onError: (error) => toast.error(getErrorMessage(error, "Could not save the search key.")),
       },
@@ -66,11 +67,11 @@ function SearchProviderRow({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-        <ProviderIcon icon={providerId} name={providerDisplayName(providerId)} size={28} />
+        <ProviderIcon icon={providerId} name={displayName} size={28} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <Inline gap="8px">
             <span style={{ fontSize: "13px", fontWeight: 600 }}>
-              {providerDisplayName(providerId)}
+              {displayName}
             </span>
             {connected ? <Badge tone="green">Connected</Badge> : null}
           </Inline>
@@ -167,6 +168,7 @@ export function WebSearchPanel(): ReactNode {
               <SearchProviderRow
                 key={providerId}
                 providerId={providerId}
+                displayName={providersQuery.data.find((provider) => provider.providerId === providerId)?.displayName ?? providerId}
                 modelIds={modelIds}
                 initiallyConnected={connected.has(providerId.toLowerCase())}
               />

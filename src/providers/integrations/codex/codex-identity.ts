@@ -94,9 +94,6 @@ export function getCodexResidency(options: CodexResidencyOptions): string | unde
   return undefined;
 }
 
-// Verified: no production importer — sole importer was adapter.test.ts,
-// now updated to ./residency.
-
 /**
  * Codex credential-store selection.
  *

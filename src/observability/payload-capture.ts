@@ -2,6 +2,7 @@ import { redactTelemetryValue } from "./redaction";
 import type { CartethyiaDatabase } from "../persistence/postgres";
 import { DrizzleTelemetryStore } from "../persistence/telemetry-store";
 import { prunePayloadFrames, writePayloadFrame } from "./payload-store";
+import { resolveTelemetryPayloadMaxBytes } from "../config";
 export type CaptureScope = "tenant" | "debug_session" | "operator_flag";
 
 export interface PayloadCaptureInput {
@@ -79,7 +80,7 @@ export function buildPayloadRecord(
   let storedClientResponseBody: unknown = clientResponseBody;
   let storedProviderRequestBody: unknown = providerRequestBody;
   let storedProviderResponseBody: unknown = providerResponseBody;
-  if (approxSize > 1024 * 1024) {
+  if (approxSize > resolveTelemetryPayloadMaxBytes()) {
     const truncated = (): { _truncated: true; _original_bytes: number } => ({
       _truncated: true,
       _original_bytes: approxSize,

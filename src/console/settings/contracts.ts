@@ -54,7 +54,7 @@ export interface RuntimeSettingsConfig {
 export const RESPONSES_REASONING_SUMMARIES = ["auto", "concise", "detailed"] as const;
 /** Reasoning-summary verbosity accepted for the Responses surface. */
 export type ResponsesReasoningSummary = (typeof RESPONSES_REASONING_SUMMARIES)[number];
-export const TELEMETRY_PAYLOAD_MODES = ["bounded", "metadata", "none"] as const;
+export const TELEMETRY_PAYLOAD_MODES = ["full", "metadata", "none"] as const;
 /** Telemetry payload capture mode accepted by the runtime-settings PATCH. */
 export type TelemetryPayloadMode = (typeof TELEMETRY_PAYLOAD_MODES)[number];
 export const PRIVACY_MODES = ["masked", "full"] as const;

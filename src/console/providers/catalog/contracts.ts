@@ -481,6 +481,8 @@ export interface ProviderLoginField {
 
 export interface ProviderResponse {
   providerId: string;
+  /** Canonical backend display name; custom providers fall back to providerId. */
+  displayName: string;
   label?: string;
   enabled: boolean;
   isBuiltIn: boolean;

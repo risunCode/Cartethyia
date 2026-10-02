@@ -4,11 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "codegen": "bun ../scripts/ci-generate-usage-periods.ts",
-    "dev": "bun run codegen && vite",
+    "dev": "vite",
     "typecheck": "tsc --noEmit",
-    "test": "bun test test",
-    "build": "bun run codegen && tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

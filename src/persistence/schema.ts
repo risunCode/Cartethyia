@@ -764,10 +764,10 @@ export interface ConsoleSettingsPreferences {
   /**
    * Payload capture mode (default `metadata` when unset):
    * - `metadata` — Proxy→Provider method + allowlisted headers only
-   * - `bounded` — full redacted bodies for the short payload TTL
+   * - `full` — full redacted bodies up to the configured capture limit
    * - `none` — no drawer capture (request metadata events still retained)
    */
-  telemetryPayloads?: "bounded" | "metadata" | "none";
+  telemetryPayloads?: "full" | "metadata" | "none";
   privacyMode?: "masked" | "full";
 }
 

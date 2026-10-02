@@ -507,6 +507,17 @@ html[data-app="share"] .share-hud-card {
   opacity: 0.7;
 }
 
+.share-model-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.share-model-card-actions .btn {
+  min-width: 160px;
+}
+
 .share-model-card-meta {
   display: flex;
   align-items: center;

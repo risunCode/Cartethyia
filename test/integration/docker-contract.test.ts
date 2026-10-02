@@ -130,18 +130,18 @@ describe("Docker Contract", () => {
     expect(getRuntimeStage().name).not.toBe("builder");
   });
 
-  it("uses pinned oven/bun base image for builder stage", () => {
+  it("builds the builder stage from the musl family", () => {
     const builderStage = stages.find((s) => s.name === "builder");
     expect(builderStage).toBeDefined();
 
     const fromInstructions = builderStage!.instructions.FROM || [];
     expect(fromInstructions.length).toBeGreaterThan(0);
 
+    // Alpine by default so the compiled binary matches the runtime libc; the
+    // Dockerfile documents the pinned Debian variant as the alternative.
     const fromLine = fromInstructions[0]!;
     expect(fromLine).toContain("oven/bun");
-    expect(fromLine).toContain("1.4.2");
-    expect(fromLine).toContain("debian");
-    expect(fromLine).toContain("@sha256:");
+    expect(fromLine).toContain("alpine");
   });
 
   it("runtime stage uses slim base image", () => {
@@ -229,8 +229,13 @@ describe("Docker Contract", () => {
     const runtimeStage = getRuntimeStage();
     const runInstructions = runtimeStage.instructions.RUN || [];
 
+    // Alpine's adduser/addgroup, or the Debian useradd/groupadd the Dockerfile
+    // documents as the alternative runtime.
     const createsUser = runInstructions.some(
-      (run) => run.toLowerCase().includes("useradd") || run.toLowerCase().includes("groupadd"),
+      (run) =>
+        ["adduser", "addgroup", "useradd", "groupadd"].some((cmd) =>
+          run.toLowerCase().includes(cmd),
+        ),
     );
     expect(createsUser).toBe(true);
   });

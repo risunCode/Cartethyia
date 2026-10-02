@@ -59,7 +59,20 @@ export function PageHeader({
             {description ? <p style={{ marginTop: "2px", fontSize: "11.5px", color: "var(--text-tertiary)" }}>{description}</p> : null}
           </div>
         </div>
-        {actions ? <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>{actions}</div> : null}
+        {actions ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              flexWrap: "wrap",
+              minWidth: 0,
+              maxWidth: "100%",
+            }}
+          >
+            {actions}
+          </div>
+        ) : null}
       </div>
     </div>
   );

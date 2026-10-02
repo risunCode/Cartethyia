@@ -36,6 +36,7 @@ const app = boot
       oauthRefreshService: boot.deps.oauthRefreshService,
       modelStrikes: boot.deps.modelStrikes,
       maxBodyBytes: resolveMaxBodyBytes(),
+      scheduledTasks: boot.deps.scheduledTasks,
       shutdownCoordinator: boot.shutdownCoordinator,
       // Signal-free graceful stop for platforms where a catchable signal cannot
       // be delivered (Windows). Off unless `CARTETHYIA_DRAIN_TOKEN` is set.

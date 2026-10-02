@@ -15,7 +15,7 @@ import { hashSecret, encryptCredential } from "../../security/crypto";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { DEFAULT_API_KEY_LABEL } from "../domains/api-keys/contracts";
 import { resolveDefaultGatewayApiKey } from "../../config";
-import type { AccessDecision } from "../../security/access-control";
+import { TENANT_KEY_SCOPES, type AccessDecision } from "../../security/access-control";
 import { isRecord } from "../../protocol/primitives";
 
 // ---- auth-core.ts ----
@@ -562,7 +562,7 @@ export class FirstBootSetupService {
             tenantId,
             keyHash,
             label: DEFAULT_API_KEY_LABEL,
-            scopes: ["routing:invoke"],
+            scopes: TENANT_KEY_SCOPES,
             keyPrefix: prefix,
             keyEncrypted: encryptCredential(defaultApiKey),
             requestsPerMinute: 240,

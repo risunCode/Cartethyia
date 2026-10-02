@@ -116,12 +116,9 @@ export function isGatewayError(
  *
  * Derived from the same constants `isGatewayError` reads — the status list from
  * `GATEWAY_ERROR_STATUSES`, the floor from `GATEWAY_ERROR_HTTP_MIN`, the
- * exceptions from `CAPACITY_HTTP_STATUSES` — so the two forms cannot drift.
- * They are pinned to the same verdict for every `(status, httpStatus)`
- * combination by `test/observability/telemetry-status.test.ts` and against real
- * Postgres by `test/persistence/telemetry-usage-totals.test.ts`; before that pin
- * existed, an unknown status was an error row-level but not in SQL, which made
- * the durable rollup disagree with every read-side count.
+ * exceptions from `CAPACITY_HTTP_STATUSES` — so the two forms cannot drift:
+ * an unknown status must be classified the same way row-level and in SQL, or
+ * the durable rollup disagrees with every read-side count.
  */
 export function gatewayErrorSql(status: AnyColumn, httpStatus: AnyColumn): SQL {
   const included = sql.join(

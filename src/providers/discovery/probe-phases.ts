@@ -415,7 +415,7 @@ export async function loadProbePreferences(args: {
     const mode: "auto" | "concise" | "detailed" =
       raw === "auto" || raw === "concise" || raw === "detailed" ? raw : "detailed";
     payloadCaptureEnabled =
-      preferences?.telemetryPayloads === "bounded" ||
+      preferences?.telemetryPayloads === "full" ||
       preferences?.telemetryPayloads === "metadata";
     if (wireFamily === "responses" && requestedEffort !== undefined) {
       probeReasoning = {

@@ -2,13 +2,11 @@
  * Core runtime configuration read from `process.env`.
  *
  * HTTP listener, outbound network policy, and secret resolvers live here so
- * callers depend on one module and tests have one boundary to stub.
+ * callers depend on one module.
  *
  * `CONFIG_SPEC` is the canonical declaration of every variable this module
  * owns: name, kind, default, and bounds in one place. Resolvers below are thin
- * readers over it, and `test/config-env-drift.test.ts` derives the documented
- * variable set from the spec instead of grepping, so a new knob cannot be added
- * without declaring it here.
+ * readers over it, so a new knob cannot be added without declaring it here.
  *
  * Module-specific environment reads that only affect a single subsystem (e.g.
  * logger level, telemetry payload storage, Postgres pool tuning) still live
@@ -133,6 +131,12 @@ export const CONFIG_SPEC = {
 
   // Durable, metadata-only request telemetry retention.
   CARTETHYIA_TELEMETRY_RETENTION_DAYS: { kind: "int", default: 30, min: 3, max: 365 },
+  CARTETHYIA_TELEMETRY_PAYLOAD_MAX_BYTES: {
+    kind: "int",
+    default: 32 * 1024 * 1024,
+    min: 1 * 1024 * 1024,
+    max: 256 * 1024 * 1024,
+  },
 
   // Upstream request timeout + retry backoff
   CARTETHYIA_UPSTREAM_TIMEOUT_MS: { kind: "int", default: 120_000, min: 5_000, max: 600_000 },
@@ -664,5 +668,13 @@ export function resolveTelemetryRetentionDays(): number {
   return readInt(
     "CARTETHYIA_TELEMETRY_RETENTION_DAYS",
     CONFIG_SPEC.CARTETHYIA_TELEMETRY_RETENTION_DAYS,
+  );
+}
+
+/** Combined redacted payload capture limit for the five stored body surfaces. */
+export function resolveTelemetryPayloadMaxBytes(): number {
+  return readInt(
+    "CARTETHYIA_TELEMETRY_PAYLOAD_MAX_BYTES",
+    CONFIG_SPEC.CARTETHYIA_TELEMETRY_PAYLOAD_MAX_BYTES,
   );
 }

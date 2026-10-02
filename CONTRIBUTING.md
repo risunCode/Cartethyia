@@ -1,100 +1,71 @@
 # Contributing to Cartethyia
 
-Setup, workflow, and PR checks. Human-facing companion to `AGENTS.md` (agent rules) and `ARCHITECTURE.md` (code map) — authoritative for their topics, linked not duplicated.
+This page covers contribution workflow, code conventions, and pull requests.
 
-## Prerequisites
+For requirements, PostgreSQL/Redis setup, local development, Docker, commands,
+migrations, and verification, use the single source of truth:
 
-- Bun 1.4.2 (see `.bun-version`; Docker pins `oven/bun:1.4.2-debian`)
-- PostgreSQL (external in native setups; the Compose stack supplies one for Docker)
-- Redis for `REDIS_MODE=normal`; optional for `REDIS_MODE=single_instance_local`
-- A Node-compatible environment for tooling
+- [Getting started](documentation/getting-started.md)
 
-## Local setup
+## Before changing code
 
-```bash
-bun install
-cp .env.example .env
-# Edit DATABASE_URL and CARTETHYIA_ENCRYPTION_KEY in .env.
-bun run setup     # copies .env if missing, probes Postgres/Redis (the backend migrates at boot)
-bun run doctor    # re-checks the environment and /health/ready
-bun run dev       # backend (bun --hot) + dashboard (Vite) under concurrently
-```
+1. Read the relevant part of `README.md` and
+   `documentation/getting-started.md` when the change affects user-facing behavior
+   or runtime setup.
+2. State the goal, acceptance criteria, and hard constraints.
+3. Use CodeGraph first for blast search when available. Otherwise use the available
+   search tools and inspect the same callers, contracts, and boundaries.
+4. Reproduce the issue, or clearly mark it unverified before editing.
+5. Find the canonical owner and read every affected caller before changing it.
 
-Useful endpoints once running (`http://localhost:12800` by default):
+## Code conventions
 
-```text
-/health        liveness
-/health/ready  readiness (DB + migrations + Redis)
-/metrics       Prometheus metrics
-/v1/*          gateway APIs
-/console       dashboard
-```
+- `src/` is production backend code; `dashboard/src/` is browser code only.
+- Dashboard code must not import Elysia, database drivers, filesystem modules,
+  secrets, or Node-only runtime dependencies.
+- Keep one source of truth for provider metadata, persisted contracts, environment
+  names, routing policy, and dashboard mirrors.
+- Use concrete role filenames such as `contracts.ts`, `routes.ts`, `store.ts`,
+  `service.ts`, and `errors.ts`. Avoid `index.ts` barrels.
+- Keep scripts organized by purpose under `scripts/commands`, `scripts/build`,
+  `scripts/generate`, `scripts/dev`, and `scripts/internal`.
+- Use strict TypeScript: no `any`, suppressions, needless assertions, or weakened
+  compiler settings. Narrow `unknown` at boundaries and use `import type` for types.
+- Comments explain policy, security, protocol behavior, or non-obvious tradeoffs;
+  they should not narrate the next line.
+- Treat network responses, environment variables, database rows, request bodies,
+  and user values as untrusted. Fail closed at security boundaries.
+- Never expose credentials, tokens, keys, or sensitive payloads in logs or reports.
 
-`bun run dev:backend` and `bun run dashboard:dev` run each half separately.
-`bun run dev` runs both under `concurrently`: backend `bun run --hot src/main.ts` on `PORT` (default 12800), dashboard Vite dev server on 5173. No supervisor, no in-place restart — a client hitting the backend mid-restart sees a refused connection. **CTRL+C** stops both.
-`VITE_BACKEND_URL` (see `.env.example`) points Vite at the backend. Production serving: `README.md` (Docker Compose).
+## Implementation rules
 
-## Running tests
+- Fix the cause, not the symptom. Do not disguise a workaround as a bug fix.
+- No overengineering unless the task explicitly asks for it.
+- Every issue must be reproduced or explicitly reported as unverified.
+- Every feature or fix must update the proper logic and handlers across the affected
+  path, not only the first visible caller.
+- For renames, removals, and contract changes: migrate every caller, remove the old
+  path, and search the old name again. Do not leave aliases or compatibility shims.
+- Prove deadness before deleting a symbol: check imports, re-exports, dynamic
+  imports, callbacks, scripts, dashboard usage, and docs.
+- Do not hand-edit generated output; update its source or generator.
+- Update active docs and configuration when the change makes them inaccurate.
 
-DB suites gate on `CARTETHYIA_TEST_DATABASE_URL` at an **isolated** Postgres DB (`test/helpers/db-gate.ts`): set → they run; unset → they skip with `[db-gate] skipped`. The same helper repoints the process at that database (`getDb()` resolves `DATABASE_URL`, the gate overwrites it before any pool opens) — a DB suite never touches your working database, no manual URL alignment needed. Skips are expected locally; report them separately from failures.
+## Verification
 
-```bash
-bun run test:fast            # backend without integration trees (local iteration)
-bun run test                 # full backend suite (DB suites skip without the URL)
-bun run test:contracts       # cross-cutting contract suites
-bun run test:integration     # integration suites
-bun run check:coverage       # coverage gate: 85% line coverage over src/
+The repository does not currently carry an active test suite. Use the gates in
+`documentation/getting-started.md`, then exercise the real boundary for behavior
+changes: a gateway request, browser surface, provider flow, or isolated database
+migration.
 
-bun run scripts/ops-run-tests.ts test/console                     # one subtree
-bun run scripts/ops-run-tests.ts test/providers/integrations/codex
-
-bun run dashboard:test        # generate usage-periods once, then dashboard suite
-```
-
-## Verification gate (before every PR)
-
-Backend change (from `AGENTS.md`):
-
-```bash
-bun run typecheck
-bun run test
-bun run check:coverage
-```
-
-Dashboard or API-contract change, additionally:
-
-```bash
-bun run dashboard:typecheck
-bun run dashboard:test
-bun run test:contracts
-```
-
-CI (`.github/workflows/ci.yml`) runs exactly these gates with Postgres +
-Redis services and the same `COVERAGE_MIN=85` floor. Typecheck and build never
-require Buf, vendor protobuf sources, or network access.
-
-## Code conventions (short version)
-
-Full rules in `AGENTS.md`. What bites new contributors most:
-
-- `src/` production only — no `*.test.ts`; tests in `test/` mirroring `src/`.
-- No `index.ts` barrels; concrete files. `import type` for types. Strict TS: no `any`, no suppressions, no needless assertions; `unknown` + narrowing at boundaries.
-- Entity dirs use role filenames: `contracts.ts` (types + validation + operations + routes), `routes.ts`, `store.ts`, `service.ts`, `errors.ts`.
-- `scripts/` flat, `ops-*` / `build-*` / `ci-*` prefixes.
-- Comments explain policy, security, non-obvious tradeoffs — not the next line.
-- Tests assert observable behavior, boundaries, errors, transitions, security invariants — never implementation details or source text (except layout/config contracts like `test/architecture/`).
-- Never delete a test for being old or moved; replace lost contract coverage when you remove one.
-
-- One layer doc per top-level `src/` folder beside it, named for the layer (`src/transport/TRANSPORT.md`) — subfolders carry none; `ARCHITECTURE.md` is only the map. A new layer, route group, provider capability, env var, or DB table updates the matching top-level doc (plus `.env.example` for env vars, `migrations/` + `schema.ts` for tables). Adding/renaming a top-level folder doc also updates the `ARCHITECTURE.md` table.
-- `README.md` + `.env.example` product/runtime; `AGENTS.md` agent rules; `CHANGELOG.md` entries under `Unreleased` stay historical once written. Keep all four in sync with the source you change.
-- Doc-drift rules (what changes together, what never goes in docs, code-vs-docs conflicts) live in `AGENTS.md` "Docs are part of the change" — read it before touching any doc. Update docs your change made wrong; don't rewrite a layer doc you weren't working in.
+A typecheck is not runtime proof. Report the exact command, result, reproduction,
+real-boundary evidence, skipped checks, and remaining blockers.
 
 ## Pull requests
 
-- Branch from `main`, keep the change focused, remove callers in the same
-  change (no compat shims — see `AGENTS.md` "Clean cutover, no aliases").
-- Fill in `.github/pull_request_template.md`: what changed, gates run, DB-gated skips vs failures, docs updated.
-- Every privileged console mutation ends with audit + route-snapshot
-  invalidation; every security layer stays fail-closed; telemetry stays
-  metadata-only and best-effort. Layer docs (via the `ARCHITECTURE.md` map)
-  state each invariant where it applies.
+- Branch from `main` and keep the change focused.
+- Fill in `.github/pull_request_template.md` with the change, gates, and docs status.
+- Keep security boundaries fail-closed.
+- Preserve intentional provider wire bytes, headers, and user-agent behavior.
+- Do not commit, push, deploy, alter production data, or discard unrelated working
+  tree changes unless explicitly asked.

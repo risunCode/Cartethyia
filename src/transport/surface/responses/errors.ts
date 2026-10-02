@@ -1,32 +1,28 @@
-/** Typed failures for the OpenAI Responses surface. */
+import { GatewayError } from "../../gateway-error";
 
-export class ResponsesReasoningError extends Error {
-  readonly code = "capability_unsupported" as const;
+/** Typed failures for the OpenAI Responses surface. */
+export class ResponsesReasoningError extends GatewayError {
   readonly field: "include" | "store" | "reasoning.encrypted_content";
 
   constructor(field: "include" | "store" | "reasoning.encrypted_content", message: string) {
-    super(message);
+    super("capability_unsupported", 400, message, { field });
     this.name = "ResponsesReasoningError";
     this.field = field;
   }
 }
 
 /** Stable typed failure for malformed canonical sequence numbers. */
-export class ResponsesSequenceError extends Error {
-  readonly code = "invalid_sequence" as const;
-
+export class ResponsesSequenceError extends GatewayError {
   constructor(message: string) {
-    super(message);
+    super("invalid_sequence", 500, message);
     this.name = "ResponsesSequenceError";
   }
 }
 
 /** Stable typed failure for invalid lifecycle transitions. */
-export class ResponsesLifecycleError extends Error {
-  readonly code = "invalid_lifecycle" as const;
-
+export class ResponsesLifecycleError extends GatewayError {
   constructor(message: string) {
-    super(message);
+    super("invalid_lifecycle", 500, message);
     this.name = "ResponsesLifecycleError";
   }
 }

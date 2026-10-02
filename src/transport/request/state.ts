@@ -3,7 +3,8 @@ import type { CanonicalRequest, UsageRecord } from "../canonical-model";
 import type { ClientIdentity } from "../../security/abuse";
 import type { ResolvedApiKey } from "../../security/api-key-auth";
 import type { PreparedProxyRequest } from "./preparer";
-import { trackInFlight, untrackInFlight } from "./inflight";
+import { createInFlightRegistry, type InFlightSnapshot } from "./inflight";
+import { log } from "../../observability/logger";
 import { fastPathname } from "./pathname";
 
 export interface ProxyRequestOutcome {
@@ -111,11 +112,75 @@ export interface RequestTracker {
 export class ProxyRequestStateStore {
   private readonly states = new WeakMap<Request, ProxyRequestState>();
   private readonly liveControllers = new Map<string, AbortController>();
+  /**
+   * The in-flight gauge lives here, not in a free-standing module: this store
+   * is the one place that owns a request's lifetime and evicts it, so the
+   * gauge can never count a request the store has already torn down.
+   */
+  private readonly inFlight = createInFlightRegistry();
 
   constructor(private readonly tracker?: RequestTracker) {}
 
   activeCount(): number {
     return this.liveControllers.size;
+  }
+
+  inFlightSnapshot(): InFlightSnapshot {
+    return this.inFlight.snapshot();
+  }
+
+  /** Live flight count for this store. */
+  inFlightCount(): number {
+    return this.inFlight.count();
+  }
+
+  subscribeInFlight(listener: (snapshot: InFlightSnapshot) => void): () => void {
+    return this.inFlight.subscribe(listener);
+  }
+
+  /**
+   * Backstop worklist: ids whose hard deadline plus `graceMs` has elapsed while
+   * still tracked. A correctly-released request never appears here — this is
+   * the safety net for an abort path that did not fire (a half-closed socket
+   * that neither pulls, cancels, nor aborts).
+   */
+  overdueInFlight(nowMs: number, graceMs: number): readonly string[] {
+    return this.inFlight.overdue(nowMs, graceMs);
+  }
+
+  /**
+   * Releases every flight past its deadline. Two tiers, because aborting the
+   * controller unwinds the fetch but only *releases* the flight if some path
+   * observes the abort:
+   *
+   * - Past `expiresAtMs + graceMs`: abort the controller, which unblocks a
+   *   paused read and fires the release in `dispatch/proxy-request`.
+   * - Past `expiresAtMs + hardGraceMs`: the abort did not release it, so
+   *   force-drop the gauge entry. The fetch is already torn down by the abort,
+   *   so leaving the entry would only mean a permanently wrong number — the
+   *   exact defect this backstop exists to end. Logged, never silent.
+   */
+  sweepOverdueInFlight(nowMs: number, graceMs: number, hardGraceMs: number): number {
+    const released = this.inFlight.overdue(nowMs, graceMs);
+    for (const requestId of released) {
+      const controller = this.liveControllers.get(requestId);
+      try {
+        if (controller && !controller.signal.aborted) {
+          controller.abort(
+            new GatewayError("deadline_exceeded", 504, "in-flight request exceeded its deadline"),
+          );
+        }
+      } catch {
+      }
+    }
+    const stuck = this.inFlight.overdue(nowMs, hardGraceMs);
+    for (const requestId of stuck) {
+      log.error(
+        `[inflight-backstop] force-releasing request ${requestId}: abort did not release it within ${hardGraceMs}ms`,
+      );
+      this.inFlight.untrack(requestId);
+    }
+    return stuck.length > 0 ? stuck.length : released.length;
   }
 
   abortAll(reason?: unknown): void {
@@ -187,7 +252,7 @@ export class ProxyRequestStateStore {
       startProviderFlight: () => {
         if (cleaned || providerFlightStarted) return;
         providerFlightStarted = true;
-        trackInFlight(requestId, state.clientIdentity?.address ?? "unknown");
+        this.inFlight.track(requestId, state.clientIdentity?.address ?? "unknown", state.deadlineMs);
       },
       ingressMethod: request.method,
       ingressPath: fastPathname(request.url),
@@ -197,6 +262,11 @@ export class ProxyRequestStateStore {
         // from `state.deadlineMs`, so a re-armed timer with a stale field let
         // the upstream fetch time out earlier than the stall budget.
         state.deadlineMs = Date.now() + Math.max(0, ms);
+        // The backstop sweep keys off the flight's own deadline, so a streaming
+        // request that legitimately extends its budget must move the flight's
+        // deadline too — otherwise the sweep would force-release a healthy
+        // long stream the moment the pre-stream budget elapsed.
+        this.inFlight.extend(requestId, state.deadlineMs);
         armDeadline(ms);
       },
       cleanup: () => {
@@ -205,7 +275,7 @@ export class ProxyRequestStateStore {
         // Every step is guarded: one throwing cleanup must not skip the
         // remaining cleanups, the abort, or the map eviction (leak).
         try {
-          if (providerFlightStarted) untrackInFlight(state.requestId);
+          if (providerFlightStarted) this.inFlight.untrack(state.requestId);
         } catch {
         }
         try {

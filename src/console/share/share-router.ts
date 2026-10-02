@@ -15,6 +15,7 @@ import { SHARED_CHILD_HINT_MAX_LENGTH, generateApiKeySecret } from "../domains/a
 import { popupImageBytes } from "../domains/api-keys/share-popup-image";
 import type { ShareFamilyStats, ShareStatsPort } from "./share-stats";
 import { consoleSseResponse, createConsoleSseStream } from "../observability/sse";
+import { GatewayError, publicGatewayErrorBody } from "../../transport/gateway-error";
 import {
   hashShareToken,
   type ShareLinkPolicy,
@@ -70,7 +71,8 @@ function json(body: unknown, status = 200): Response {
 }
 
 function notFound(): Response {
-  return json({ error: { code: "link_not_found", message: "Share link is unavailable" } }, 404);
+  const error = new GatewayError("link_not_found", 404, "Share link is unavailable");
+  return json(publicGatewayErrorBody(error), error.status);
 }
 
 function providerOf(slug: string): string {

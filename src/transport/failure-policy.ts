@@ -331,6 +331,73 @@ export function classifyTerminalCategory(
 }
 
 /**
+ * Whether a failed attempt is a **client cancel** — the one case the console
+ * records as `cancelled` (499) rather than `failed`.
+ *
+ * The request controller aborts for three different reasons, and only one of
+ * them is the client's:
+ *
+ * - **Client disconnect** — the inbound signal bridges the client's
+ *   `AbortError`; the request truly has no client left.
+ * - **Deadline / stall watchdog** — our own timer aborts with a
+ *   `deadline_exceeded` `GatewayError` or a `TimeoutError`. The client is
+ *   still there and is owed the 504/502.
+ * - **Drain** — a shutdown `GatewayError`; the caller gets a 503.
+ *
+ * Reading `signal.aborted` alone conflated all three: a request that failed
+ * because the upstream ended without a terminal event (`transport_unavailable`,
+ * 502) was recorded `cancelled`/499 whenever the watchdog had also fired,
+ * producing a row whose status (499), error category (`transport_unavailable`)
+ * and http status (502) disagreed — the drawer could not be trusted. The
+ * decision must key on *why* the controller aborted, not that it did.
+ *
+ * A `transport_closed` `GatewayError` is our own "no client left" marker (the
+ * attempt loop raises it when the signal is already aborted at entry), so it
+ * counts as a cancel even without a signal reason. Every other abort —
+ * including a bare `AbortError` whose signal reason is a watchdog/drain
+ * `GatewayError` — is a failure, not a cancel.
+ */
+export function isClientCancellation(error: unknown, signal: AbortSignal): boolean {
+  // A typed error names the outcome directly: only our own "no client left"
+  // marker is a cancel, whatever the signal says.
+  if (error instanceof GatewayError) return error.code === "transport_closed";
+  // Otherwise the reader rejected with a bare abort and the signal reason says
+  // why. A watchdog (deadline/stall) or drain abort is a gateway-side outcome.
+  const reason: unknown = signal.reason;
+  if (reason instanceof GatewayError) return false;
+  if (reason instanceof DOMException && reason.name === "TimeoutError") return false;
+  return signal.aborted && reason instanceof DOMException && reason.name === "AbortError";
+}
+
+/** The three terminal fields that must never disagree about one failed attempt. */
+export interface TerminalOutcome {
+  readonly status: "cancelled" | "failed";
+  readonly errorCategory: GatewayErrorCode | "unknown_error";
+  readonly errorOrigin: GatewayErrorOrigin;
+}
+
+/**
+ * Derives a failed attempt's status, error category, and error origin **from
+ * one decision**, so the three can never contradict each other.
+ *
+ * They used to be computed independently at each dispatch call site, and they
+ * drifted: a request that failed on an upstream condition could be recorded
+ * `cancelled` (499) while its category said `transport_unavailable` and its
+ * http status said 502 — a row no operator could trust. Bundling them here
+ * makes the inconsistency unrepresentable: a cancel always carries
+ * `transport_closed` (the only category a cancel can produce), and any other
+ * outcome carries the real code and origin.
+ */
+export function classifyTerminalOutcome(error: unknown, signal: AbortSignal): TerminalOutcome {
+  return {
+    status: isClientCancellation(error, signal) ? "cancelled" : "failed",
+    errorCategory: classifyTerminalCategory(error, signal),
+    // A non-GatewayError outcome has no upstream origin to claim: it is ours.
+    errorOrigin: error instanceof GatewayError ? error.origin : "cartethyia",
+  };
+}
+
+/**
  * Structured upstream identifiers meaning "the request exceeded the model's
  * context window".
  *

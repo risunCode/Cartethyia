@@ -1,6 +1,5 @@
 // Tunables for request-history compression (RTK). Constants beside the code,
 // not env knobs: these are safety margins, not deployment settings.
-// See `src/transport/TRANSPORT.md` ("Request compression") for the contract.
 
 /** Skip blobs smaller than this — compressing tiny tool results only adds noise. */
 export const RTK_MIN_COMPRESS_SIZE = 500;

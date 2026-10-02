@@ -52,8 +52,7 @@ function normalizeTelemetryPayloadMode(value: unknown): TelemetryPayloadMode {
   ) {
     return value as TelemetryPayloadMode;
   }
-  // Unset / legacy preference bags default to metadata: Proxy→Provider
-  // request line only, never bodies. Operators still opt into `bounded`.
+  // Unset preference bags default to metadata: Proxy→Provider request line only.
   return "metadata";
 }
 

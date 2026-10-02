@@ -18,6 +18,7 @@ import type { CartethyiaDatabase } from "../persistence/postgres";
 import { createAccessDecision, type AccessDecision } from "../security/access-control";
 import { resolveApiKeyAuthorization } from "../security/api-key-auth";
 import type { RouteSnapshotService } from "../transport/routing/route-model";
+import type { ProxyRequestStateStore } from "../transport/request/state";
 import type { NetworkPoolSelector } from "../network/pool/selector";
 import type { TelemetryBatchBuffer } from "../observability/telemetry-buffer";
 import type { OAuthRefreshService } from "../providers/authentication/oauth-refresh-service";
@@ -38,6 +39,11 @@ export interface ConsoleApiCompositionDeps {
   readonly routeSnapshotService: RouteSnapshotService;
   readonly poolSelector: NetworkPoolSelector;
   readonly telemetryBuffer: TelemetryBatchBuffer;
+  /**
+   * The request state store owns the live in-flight gauge, so the console reads
+   * its snapshot/subscription from here rather than a free-standing module.
+   */
+  readonly stateStore?: ProxyRequestStateStore;
   readonly providerRegistry: ProviderRegistry;
   readonly bundledModelCatalog: BundledProviderCatalog;
   readonly networkBindingFactory: ValidatedNetworkBindingFactory;
@@ -155,6 +161,7 @@ export function createConsoleRouter(deps: ConsoleApiCompositionDeps): Elysia {
     routeSnapshotService,
     poolSelector,
     telemetryBuffer,
+    ...(deps.stateStore ? { stateStore: deps.stateStore } : {}),
     providerRegistry: deps.providerRegistry,
     bundledModelCatalog: deps.bundledModelCatalog,
     networkBindingFactory: deps.networkBindingFactory,

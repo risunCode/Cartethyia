@@ -208,6 +208,7 @@ export function assertProviders(value: unknown): ProviderResponse[] {
     if (
       !isRecord(provider) ||
       typeof provider.providerId !== "string" ||
+      typeof provider.displayName !== "string" ||
       typeof provider.enabled !== "boolean" ||
       typeof provider.isBuiltIn !== "boolean"
     ) {

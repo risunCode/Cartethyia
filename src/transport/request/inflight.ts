@@ -1,17 +1,21 @@
 /**
- * In-flight provider dispatch registry — one entry per live request, keyed by
- * `requestId`, carrying the client IP captured at ingress. The entry is added
- * once after a request acquires its dispatch leases, and removed exactly once
- * when request state is cleaned up (success, error, or client abort all funnel
- * through the idempotent cleanup). Pub/sub lets the console push the live
- * snapshot over SSE instead of polling.
+ * In-flight provider-dispatch registry — the single source of truth for the
+ * live "in flight" gauge. One entry per request that has actually acquired
+ * provider-dispatch leases, keyed by `requestId`, carrying the client IP
+ * captured at ingress and the hard deadline the flight must not outlive.
  *
- * A plain counter used to serve here, but the Usage pill needs the *shape* of
- * the load, not just its size: "50 in flight from 40 unique IPs" reads
- * instantly, while a bare "50" leaves the operator guessing whether it is one
- * client hammering or the whole fleet. The per-request entry is one Map row
- * for the life of the flight — bounded by the live concurrency itself.
+ * This used to be a process-global module that kept its own counter alongside
+ * the request state store's `liveControllers` map — two registries that could
+ * disagree, and did: a flight the store had already torn down could stay
+ * counted here forever because nothing tied the two together. The registry is
+ * now *owned* by the `ProxyRequestStateStore` (`state.ts`), which is also the
+ * one place that evicts a request, so a flight can no longer outlive its state.
  *
+ * The store hands each entry an `expiresAtMs` (the request's hard deadline). A
+ * periodic backstop sweep reads `overdue()` and force-releases any flight whose
+ * deadline has passed, so the gauge settles even if an abort path never fires.
+ *
+ * Pub/sub lets the console push the live snapshot over SSE instead of polling.
  * Process-local: each gateway instance reports its own flights.
  */
 import { metrics } from "../../observability/metrics";
@@ -21,46 +25,78 @@ export interface InFlightSnapshot {
   readonly uniqueIps: number;
 }
 
-const flights = new Map<string, string>();
-const listeners = new Set<(snapshot: InFlightSnapshot) => void>();
-
-function snapshot(): InFlightSnapshot {
-  return { inFlight: flights.size, uniqueIps: new Set(flights.values()).size };
+interface Flight {
+  readonly clientIp: string;
+  /** Hard deadline after which the backstop sweep releases this flight. */
+  expiresAtMs: number;
 }
 
-function publish(): void {
-  const current = snapshot();
-  metrics.proxy_in_flight.set(current.inFlight);
-  for (const listener of listeners) listener(current);
+export interface InFlightRegistry {
+  /** Register a flight once its dispatch leases are acquired. Idempotent per id. */
+  track(requestId: string, clientIp: string, expiresAtMs: number): void;
+  /** Release a flight. Idempotent; an unknown id is a no-op. */
+  untrack(requestId: string): void;
+  /** Re-arm a flight's hard deadline (streaming swaps the pre-stream budget). */
+  extend(requestId: string, expiresAtMs: number): void;
+  snapshot(): InFlightSnapshot;
+  count(): number;
+  /** Ids whose deadline plus the sweep grace has elapsed — the backstop's worklist. */
+  overdue(nowMs: number, graceMs: number): readonly string[];
+  subscribe(listener: (snapshot: InFlightSnapshot) => void): () => void;
 }
 
-export function trackInFlight(requestId: string, clientIp: string): void {
-  flights.set(requestId, clientIp.length > 0 ? clientIp : "unknown");
-  publish();
-}
+export function createInFlightRegistry(): InFlightRegistry {
+  const flights = new Map<string, Flight>();
+  const listeners = new Set<(snapshot: InFlightSnapshot) => void>();
 
-export function untrackInFlight(requestId: string): void {
-  flights.delete(requestId);
-  publish();
-}
-
-export function getInFlightCount(): number {
-  return flights.size;
-}
-
-export function getInFlightSnapshot(): InFlightSnapshot {
-  return snapshot();
-}
-
-export function subscribeInFlight(listener: (snapshot: InFlightSnapshot) => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
+  const snapshot = (): InFlightSnapshot => {
+    let uniqueIps = 0;
+    const seen = new Set<string>();
+    for (const flight of flights.values()) {
+      if (!seen.has(flight.clientIp)) {
+        seen.add(flight.clientIp);
+        uniqueIps += 1;
+      }
+    }
+    return { inFlight: flights.size, uniqueIps };
   };
-}
 
-/** Test-only: reset the shared registry and drop all subscribers between tests. */
-export function resetInFlightForTests(): void {
-  flights.clear();
-  listeners.clear();
+  const publish = (): void => {
+    const current = snapshot();
+    metrics.proxy_in_flight.set(current.inFlight);
+    for (const listener of listeners) listener(current);
+  };
+
+  return {
+    track(requestId, clientIp, expiresAtMs) {
+      flights.set(requestId, { clientIp: clientIp.length > 0 ? clientIp : "unknown", expiresAtMs });
+      publish();
+    },
+    untrack(requestId) {
+      if (!flights.delete(requestId)) return;
+      publish();
+    },
+    extend(requestId, expiresAtMs) {
+      const flight = flights.get(requestId);
+      if (flight === undefined) return;
+      flight.expiresAtMs = expiresAtMs;
+    },
+    snapshot,
+    count() {
+      return flights.size;
+    },
+    overdue(nowMs, graceMs) {
+      const ids: string[] = [];
+      for (const [requestId, flight] of flights) {
+        if (nowMs >= flight.expiresAtMs + graceMs) ids.push(requestId);
+      }
+      return ids;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
 }

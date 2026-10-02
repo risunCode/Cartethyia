@@ -24,6 +24,10 @@ export type GatewayErrorCode =
   | "authentication_failed"
   | "policy_rejected"
   | "invalid_request"
+  | "not_found"
+  | "link_not_found"
+  | "invalid_sequence"
+  | "invalid_lifecycle"
   | "unsupported_field"
   | "unsupported_media_type"
   | "upstream_conflict"
@@ -177,6 +181,26 @@ export function publicGatewayErrorDetails(
       ]),
   );
 }
+
+/** Serializes a GatewayError with the same public shape as transport errors. */
+export function publicGatewayErrorBody(error: GatewayError): {
+  readonly error: {
+    readonly origin: GatewayErrorOrigin;
+    readonly code: GatewayErrorCode;
+    readonly message: string;
+    readonly details: Readonly<Record<string, unknown>>;
+  };
+} {
+  return {
+    error: {
+      origin: error.origin,
+      code: error.code,
+      message: explainGatewayError(error),
+      details: publicGatewayErrorDetails(error),
+    },
+  };
+}
+
 /** Creates the typed rejection required when a semantic feature is unavailable. */
 export function capabilityUnsupported(
   capability: string,

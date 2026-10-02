@@ -53,6 +53,7 @@ import { createValidatedFetch } from "../network/outbound-fetch";
 import type { AuditRecorder } from "./auth/service";
 import type { CliToolService } from "./cli-tools/service";
 import type { NetworkPoolSelector } from "../network/pool/selector";
+import type { ProxyRequestStateStore } from "../transport/request/state";
 import type { RouteSnapshotService } from "../transport/routing/route-model";
 import type { ApiKeyAdmissionService } from "../security/admission";
 import type { ModelStrikeService } from "../security/model-abuse";
@@ -78,6 +79,8 @@ export interface ConsoleDomainContext {
   readonly routeSnapshotService: RouteSnapshotService;
   readonly poolSelector: NetworkPoolSelector;
   readonly telemetryBuffer: TelemetryBatchBuffer;
+  /** Owns the live in-flight gauge the console surfaces. */
+  readonly stateStore?: ProxyRequestStateStore;
   readonly admissionService: Pick<ApiKeyAdmissionService, "purgeKey">;
   /** Graduated model-abuse strikes: list and lift bans from the console. */
   readonly modelStrikes?: Pick<ModelStrikeService, "listBans" | "unban">;
@@ -211,6 +214,7 @@ export function registerConsoleDomains(
     accessResolver: ctx.accessResolver,
     poolSelector: ctx.poolSelector,
     db: ctx.db,
+    ...(ctx.stateStore ? { stateStore: ctx.stateStore } : {}),
   }));
   console.use(createStudioRoutes({
     sessionStore: new DrizzleStudioSessionStore(ctx.db),

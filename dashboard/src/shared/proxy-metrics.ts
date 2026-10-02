@@ -5,7 +5,7 @@ import type { NetworkPoolResponse } from "../data/contracts";
  *
  * Deliberately duplicated rather than imported: the server constant lives in a
  * module that reaches Node-only code, and importing the value would pull that
- * into the browser bundle (see `test/architecture/conventions.test.ts`). The
+ * into the browser bundle. The
  * server still enforces the real cap; this only keeps the UI from offering a
  * batch it would reject.
  */
