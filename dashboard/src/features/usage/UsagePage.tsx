@@ -58,6 +58,8 @@ import {
   TOKEN_SCALE_AUTO,
   TOKEN_SCALES,
   formatBytes,
+  formatChartTick,
+  formatChartTooltip,
   formatCredits,
   formatDuration,
   formatNumber,
@@ -158,12 +160,6 @@ function formatTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
 }
 /**
  * Wire surface mapped to its protocol family name for the status cell.
@@ -538,7 +534,7 @@ function ChartPanel({ period, metric }: { readonly period: Period; readonly metr
           <XAxis
             dataKey="t"
             tick={{ fontSize: 10, fill: "var(--text-tertiary)" }}
-            tickFormatter={(value: string) => value.slice(5, 16)}
+            tickFormatter={(value: string) => formatChartTick(value)}
             axisLine={false}
             tickLine={false}
             minTickGap={28}
@@ -559,7 +555,7 @@ function ChartPanel({ period, metric }: { readonly period: Period; readonly metr
               color: "var(--text-primary)",
             }}
             formatter={(value) => [formatNumber(Number(value)), metric]}
-            labelFormatter={(label) => formatDateTime(String(label))}
+            labelFormatter={(label) => formatChartTooltip(String(label))}
           />
           <Area
             type="monotone"

@@ -124,3 +124,77 @@ export function tokenScaleValue(value: number | null | undefined, scale: number,
   if (scale === RAW_TOKEN_SCALE) return Math.round(value).toLocaleString(locale);
   return formatScaled(value, scale, locale);
 }
+
+/**
+ * An instant's clock fields, read in `timeZone`, keyed by `formatToParts` type.
+ * `formatToParts` is used instead of `format` because a plain `format()` reorders
+ * the fields per locale (`01/10, 23:00` for en-GB) and a chart needs one fixed
+ * shape. `hourCycle: "h23"` keeps local midnight at `00:00`, not `24:00`.
+ */
+function instantParts(
+  date: Date,
+  locale: string | undefined,
+  timeZone: string | undefined,
+  named: boolean,
+): Record<string, string> {
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone,
+    hourCycle: "h23",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  };
+  if (named) {
+    options.year = "numeric";
+    options.timeZoneName = "shortOffset";
+  }
+  const byType: Record<string, string> = {};
+  for (const part of new Intl.DateTimeFormat(locale, options).formatToParts(date)) {
+    byType[part.type] = part.value;
+  }
+  return byType;
+}
+
+/**
+ * The chart's default display zone. Usage -> Traffic is always read in WIB, so
+ * the axis is pinned here rather than to the browser's zone: an operator in
+ * UTC+1 would otherwise see each bucket an hour off, and a UTC reader seven.
+ */
+export const CHART_TIME_ZONE = "Asia/Jakarta";
+
+/**
+ * The chart's X-axis tick: `MM-DD HH:mm`, in `timeZone`, defaulting to
+ * `CHART_TIME_ZONE` (Asia/Jakarta, WIB, UTC+7) because Usage -> Traffic is read
+ * in WIB, not the browser's zone.
+ *
+ * Buckets arrive as ISO-8601 UTC strings and stay that way on the wire — a
+ * stored timestamp carries no zone of its own — so the conversion belongs at
+ * render time. Without it a UTC+7 operator reads an axis seven hours behind
+ * their wall clock; a `slice()` on the ISO string also leaves the literal `T`
+ * in the label. An explicit `timeZone` overrides the default for a test that
+ * pins one reading, mirroring `locale` above.
+ */
+export function formatChartTick(value: string, locale?: string, timeZone: string = CHART_TIME_ZONE): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const parts = instantParts(date, locale, timeZone, false);
+  return `${parts.month ?? ""}-${parts.day ?? ""} ${parts.hour ?? ""}:${parts.minute ?? ""}`;
+}
+
+/**
+ * The chart tooltip's label: `YYYY-MM-DD HH:mm GMT+X`, in `timeZone`,
+ * defaulting to `CHART_TIME_ZONE` (Asia/Jakarta, WIB, UTC+7) for the same
+ * reason as the tick: Usage -> Traffic is read in WIB, not the browser's zone.
+ * An explicit `timeZone` overrides the default for a test that pins one reading.
+ *
+ * The tick is compact and carries no zone, so the tooltip names the offset —
+ * otherwise a bare `23:00` is unreadable as either local or UTC, and the tick
+ * and tooltip could silently disagree about which clock they show.
+ */
+export function formatChartTooltip(value: string, locale?: string, timeZone: string = CHART_TIME_ZONE): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const parts = instantParts(date, locale, timeZone, true);
+  return `${parts.year ?? ""}-${parts.month ?? ""}-${parts.day ?? ""} ${parts.hour ?? ""}:${parts.minute ?? ""} ${parts.timeZoneName ?? ""}`;
+}

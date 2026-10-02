@@ -13,10 +13,12 @@
  *   pins an explicit locale, because a test that followed the machine's locale
  *   would pass in one CI image and fail in another.
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
   DEFAULT_TOKEN_SCALE,
   formatBytes,
+  formatChartTick,
+  formatChartTooltip,
   formatCredits,
   formatDuration,
   formatNumber,
@@ -291,5 +293,95 @@ describe("TOKEN_SCALES ordering", () => {
     for (const scale of TOKEN_SCALES) {
       expect(scale.divisor).toBe(scale.threshold);
     }
+  });
+});
+
+/**
+ * The chart reads UTC bucket timestamps and must show the Asia/Jakarta (WIB)
+ * clock, pinned rather than following the browser. Every case here passes an
+ * explicit `timeZone` for the same reason the locale tests pin a locale: a test
+ * that followed the CI machine's zone would pass on one runner and fail on
+ * another. The regression case is the Jakarta reading — it must not stay
+ * `16:00`, which is what the old `slice(5, 16)` produced.
+ */
+describe("formatChartTick", () => {
+  test("renders the UTC instant in the given zone as MM-DD HH:mm", () => {
+    expect(formatChartTick("2026-10-01T16:00:00.000Z", EN, "Asia/Jakarta")).toBe("10-01 23:00");
+  });
+
+  test("the label carries neither the ISO T nor the UTC Z", () => {
+    const tick = formatChartTick("2026-10-01T16:00:00.000Z", EN, "Asia/Jakarta");
+    expect(tick).not.toContain("T");
+    expect(tick).not.toContain("Z");
+  });
+
+  test("rolls the date with the zone and reads local midnight as 00:00", () => {
+    // 17:00Z is midnight in Jakarta: the day must advance to the 2nd, and the
+    // hour must be `00` rather than the h24 `24`.
+    expect(formatChartTick("2026-10-01T17:00:00.000Z", EN, "Asia/Jakarta")).toBe("10-02 00:00");
+  });
+
+  test("keeps the half-hour offset of a non-whole-hour zone", () => {
+    expect(formatChartTick("2026-10-01T16:00:00.000Z", EN, "Asia/Kolkata")).toBe("10-01 21:30");
+  });
+
+  test("an unparseable input is returned unchanged", () => {
+    expect(formatChartTick("not-a-timestamp", EN, "Asia/Jakarta")).toBe("not-a-timestamp");
+  });
+});
+
+describe("formatChartTooltip", () => {
+  test("names the zone offset beside the local time", () => {
+    expect(formatChartTooltip("2026-10-01T16:00:00.000Z", EN, "Asia/Jakarta")).toBe(
+      "2026-10-01 23:00 GMT+7",
+    );
+  });
+
+  test("the same instant at UTC keeps its raw value, now labelled", () => {
+    expect(formatChartTooltip("2026-10-01T16:00:00.000Z", EN, "UTC")).toBe("2026-10-01 16:00 GMT+0");
+  });
+
+  test("renders a negative offset for a western zone", () => {
+    expect(formatChartTooltip("2026-10-01T16:00:00.000Z", EN, "America/New_York")).toBe(
+      "2026-10-01 12:00 GMT-4",
+    );
+  });
+
+  test("an unparseable input is returned unchanged", () => {
+    expect(formatChartTooltip("not-a-timestamp", EN, "Asia/Jakarta")).toBe("not-a-timestamp");
+  });
+});
+
+/**
+ * The default zone: Usage -> Traffic is read in WIB, so an unqualified call must
+ * ignore the browser's clock. The machine running this suite happens to be
+ * TZ=Asia/Jakarta, so these cases set `process.env.TZ` to the reporter's zone
+ * (Europe/London, UTC+1 in October) to catch a regression back to the browser.
+ */
+describe("formatChartTick / formatChartTooltip default zone", () => {
+  const BUCKET = "2026-10-01T16:00:00.000Z";
+  const originalTz = process.env.TZ;
+
+  afterAll(() => {
+    if (originalTz === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTz;
+  });
+
+  test("the tick defaults to WIB, not the browser's zone", () => {
+    process.env.TZ = "Europe/London";
+    expect(formatChartTick(BUCKET)).toBe("10-01 23:00");
+  });
+
+  test("the tooltip defaults to WIB, not the browser's zone", () => {
+    process.env.TZ = "Europe/London";
+    expect(formatChartTooltip(BUCKET)).toBe("2026-10-01 23:00 GMT+7");
+  });
+
+  test("the default is identical to passing Asia/Jakarta explicitly", () => {
+    expect(formatChartTick(BUCKET)).toBe(formatChartTick(BUCKET, EN, "Asia/Jakarta"));
+  });
+
+  test("an explicit timeZone still overrides the default", () => {
+    expect(formatChartTooltip(BUCKET, EN, "UTC")).toBe("2026-10-01 16:00 GMT+0");
   });
 });
