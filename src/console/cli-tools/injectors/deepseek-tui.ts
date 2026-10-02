@@ -17,8 +17,16 @@ export const deepseekTuiSpec: InjectorSpec = {
       return { configured: false, currentEndpoint: null, rawApiKey: null, currentModels: null };
     }
     const provider = textGet(text, { kind: "flat", key: "provider" });
-    const baseUrl = textGet(text, { kind: "flat", key: "base_url" });
-    const model = textGet(text, { kind: "flat", key: "model" });
+    // `base_url`, `api_key` and `model` are written inside `[providers.openai]`
+    // by `apply` below, so they must be read from that section. Reading them as
+    // root keys returned null for a config this injector had just written,
+    // leaving the dashboard's endpoint and key fields blank.
+    const baseUrl = textGet(text, {
+      kind: "sectionKey",
+      section: "providers.openai",
+      key: "base_url",
+    });
+    const model = textGet(text, { kind: "sectionKey", section: "providers.openai", key: "model" });
     const configured =
       provider === "openai" &&
       textHas(text, { kind: "section", section: "providers.openai" }) &&
@@ -26,7 +34,7 @@ export const deepseekTuiSpec: InjectorSpec = {
     return {
       configured,
       currentEndpoint: baseUrl,
-      rawApiKey: textGet(text, { kind: "flat", key: "api_key" }),
+      rawApiKey: textGet(text, { kind: "sectionKey", section: "providers.openai", key: "api_key" }),
       currentModels: model ? [model] : null,
     };
   },

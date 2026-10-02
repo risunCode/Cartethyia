@@ -99,11 +99,28 @@ function fallbackAnthropicToolCallId(original: string): string {
   return `toolu_${hashId(original)}`;
 }
 
+/** Appends `_dupN`, carving the suffix out of the 64-char budget. */
+function withDuplicateSuffix(canonical: string, index: number): string {
+  const suffix = `_dup${index}`;
+  return `${canonical.slice(0, 64 - suffix.length)}${suffix}`;
+}
+
 /**
  * Normalizes a tool-call ID for Anthropic's strict 64-char `^[a-zA-Z0-9_-]+$` requirement.
  * - Handles OpenAI Responses composite `callId|itemId` by taking the first segment.
  * - Replaces invalid chars with `_`, truncates to 64, and falls back to `toolu_<hash>` if empty.
- * - Dedup is handled by the caller via a `seen` map.
+ *
+ * `seen` is the per-request uniqueness ledger: one map for a whole request, passed
+ * in so every id in that request is distinct. It counts how many times each id has
+ * been emitted (or reserved as a base), and this function is its only writer.
+ *
+ * The ledger is keyed on the CANONICAL form — the value after replacement,
+ * truncation, and the hash fallback — not on the raw id. Keying on the raw was the
+ * bug: two raws that canonicalize to the same base (`call!x` and `call@x` both
+ * become `call_x`) have to share one counter, or the second one re-derives a
+ * suffix the first already handed out. Both ends of the ledger are therefore
+ * reserved: the base, and any generated `_dupN` result, so a later id that
+ * naturally equals a generated one does not collide with it.
  */
 export function normalizeAnthropicToolCallId(
   raw: string,
@@ -111,29 +128,29 @@ export function normalizeAnthropicToolCallId(
 ): string {
   // Handle composite IDs from Responses API: `call_id|item_id`
   const base = raw.includes("|") ? (raw.split("|")[0] ?? raw) : raw;
-  let normalized = base.replace(/[^a-zA-Z0-9_-]/g, "_");
-  if (normalized.length === 0) normalized = fallbackAnthropicToolCallId(raw);
-  if (normalized.length > 64) {
+  let canonical = base.replace(/[^a-zA-Z0-9_-]/g, "_");
+  if (canonical.length === 0) canonical = fallbackAnthropicToolCallId(raw);
+  if (canonical.length > 64) {
     // Keep prefix + hash suffix to avoid collisions
     const hash = hashId(raw);
-    normalized = `${normalized.slice(0, 55)}_${hash.slice(0, 8)}`;
-    normalized = normalized.slice(0, 64);
+    canonical = `${canonical.slice(0, 55)}_${hash.slice(0, 8)}`.slice(0, 64);
   }
-  if (!isValidAnthropicToolCallId(normalized)) {
-    normalized = fallbackAnthropicToolCallId(raw);
+  if (!isValidAnthropicToolCallId(canonical)) {
+    canonical = fallbackAnthropicToolCallId(raw);
   }
-  // Dedup: if we've seen this normalized ID, append _dupN
-  const count = seen.get(normalized) ?? 0;
-  if (count > 0) {
-    const suffix = `_dup${count}`;
-    const baseTrunc = normalized.slice(0, 64 - suffix.length);
-    normalized = `${baseTrunc}${suffix}`;
+  // Walk forward from this base's next free index until an id nobody holds is
+  // found. The first candidate is the canonical form itself, which is free
+  // exactly when the base has never been emitted.
+  let index = seen.get(canonical) ?? 0;
+  let normalized = index === 0 ? canonical : withDuplicateSuffix(canonical, index);
+  while (seen.has(normalized)) {
+    index += 1;
+    normalized = withDuplicateSuffix(canonical, index);
   }
-  seen.set(normalized, (seen.get(normalized) ?? 0) + 1);
-  // Also track original base to avoid double-counting same raw
-  if (base !== normalized) {
-    seen.set(base, (seen.get(base) ?? 0) + 1);
-  }
+  // Reserve both ends: the base so the next call starts past this index, and the
+  // generated id so a later raw that canonicalizes to it is forced to a new one.
+  seen.set(canonical, index + 1);
+  if (normalized !== canonical) seen.set(normalized, (seen.get(normalized) ?? 0) + 1);
   return normalized;
 }
 

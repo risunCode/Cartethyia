@@ -17,13 +17,29 @@ export function parseRetryAfter(value: string | null | undefined): number | null
   return delay > 0 ? Math.min(MAX_COOLDOWN_MS, delay) : null;
 }
 
-/** Parses x-ratelimit-reset as epoch seconds or a relative delay. */
+/**
+ * Parses x-ratelimit-reset as epoch seconds or a relative delay.
+ *
+ * Returns `null` — not `0` — when the instant has already passed. This matters
+ * because `parseUpstreamBackoff` chains these parsers with `??`, which falls
+ * through only on null: a `0` from an elapsed `x-ratelimit-reset` (a cached error
+ * body, clock skew, a stale edge response) stopped the chain before the
+ * lower-priority headers that carried the real wait. The `0` was then written to
+ * `details.retryAfterMs` and read by `classifyAccountError` as `headerCooldown`,
+ * which outranks the provider's own message text — so both were discarded and the
+ * account fell back to the generic default cooldown while the provider had parked
+ * it for the rest of the window.
+ *
+ * `parseRetryAfter` above already returns `null` for an elapsed date; matching it
+ * is what removes the asymmetry.
+ */
 export function parseRateLimitReset(value: string | null | undefined): number | null {
   if (!value) return null;
   const numeric = Number(value.trim());
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
   const target = numeric >= 1_000_000_000 ? numeric * 1000 : Date.now() + numeric * 1000;
-  return Math.min(MAX_COOLDOWN_MS, Math.max(0, target - Date.now()));
+  const remaining = target - Date.now();
+  return remaining > 0 ? Math.min(MAX_COOLDOWN_MS, remaining) : null;
 }
 
 /** Parses a millisecond-denominated reset header (`retry-after-ms`, `x-ratelimit-reset-ms`). */
@@ -175,7 +191,15 @@ export function extractUpstreamMessage(body: unknown): string {
       const message = (envelope as Record<string, unknown>).message;
       const code = (envelope as Record<string, unknown>).code;
       if (typeof message === "string" && message.trim()) raw = message;
-      else if (typeof code === "string" && code.trim()) raw = code;
+      // A *symbolic* code (`"invalid_api_key"`, `"c"`) is readable on its own, so
+      // it still wins over a sibling. A bare-numeric code is an identifier, not a
+      // message: the WorkBuddy/CodeBuddy family sends
+      // `{"code":"6004","msg":"your usage will reset at <stamp> UTC+8"}`, and
+      // taking the digits discarded the only text the account-health machine can
+      // parse for a stated reset — so the account fell back to the generic default
+      // cooldown and failed every request inside the provider's real window.
+      // Skipping digits lets the `msg`/`message` branches below supply the text.
+      else if (typeof code === "string" && code.trim() && !/^\d+$/.test(code.trim())) raw = code;
       else if (typeof body.message === "string" && body.message.trim()) raw = body.message;
       // WorkBuddy/CodeBuddy put the human-readable text in a top-level `msg`
       // while `extError.message` repeats it; without this the operator saw an
@@ -185,6 +209,9 @@ export function extractUpstreamMessage(body: unknown): string {
         raw = String((envelope as Record<string, unknown>).msg);
       else if (typeof (envelope as Record<string, unknown>).error === "string" && String((envelope as Record<string, unknown>).error).trim())
         raw = String((envelope as Record<string, unknown>).error);
+      // Last resort: the numeric code is still better than an empty message, since
+      // it is what the operator would quote to the provider.
+      else if (typeof code === "string" && code.trim()) raw = code;
     }
   }
   return raw.replace(/[\r\n]+/g, " ").trim().slice(0, MAX_UPSTREAM_ERROR_BYTES);
@@ -216,9 +243,25 @@ export function upstreamProviderCode(body: unknown): string | undefined {
   return undefined;
 }
 
-/** Extracts the stable request ID header used in provider diagnostics. */
+/**
+ * Extracts the stable request ID header used in provider diagnostics.
+ *
+ * Each candidate is trimmed and treated as absent when empty. `Headers.get`
+ * returns `""` — not `null` — for a header that was sent with no value, and `??`
+ * falls through only on null, so a provider emitting a bare `x-request-id:` used
+ * to discard a perfectly good `request-id` or `cf-ray` on the same response. The
+ * id is the only handle an operator has for a provider support ticket
+ * (`probe-phases` appends it to the surfaced error text, `codex-errors` stores it
+ * in `details.upstreamRequestId`), so losing it makes the failing request
+ * uncorrelatable upstream.
+ */
 export function upstreamRequestId(headers: Headers | undefined): string | undefined {
-  return headers?.get("x-request-id") ?? headers?.get("request-id") ?? headers?.get("x-amzn-requestid") ?? headers?.get("cf-ray") ?? undefined;
+  if (!headers) return undefined;
+  for (const name of ["x-request-id", "request-id", "x-amzn-requestid", "cf-ray"]) {
+    const value = headers.get(name)?.trim();
+    if (value) return value;
+  }
+  return undefined;
 }
 
 /**
@@ -273,6 +316,25 @@ export function classifyUpstreamFailure(error: unknown): UpstreamFailurePolicy {
   else if (credentialEvidence || policyAccountEvidence) scope = "account";
   else scope = "provider";
   const retryAfterMs = typeof error.details.retryAfterMs === "number" ? error.details.retryAfterMs : undefined;
+  // The retry decision follows `statusToGatewayErrorCode` — the canonical
+  // status→code table above — rather than a hand-rolled range. The two disagreed:
+  // the table classifies the whole 500–599 band as `platform_unavailable`, while
+  // this predicate retried only 500–504. An upstream 505/507/520/522/524/530/599
+  // therefore produced a `platform_unavailable` error that this called terminal,
+  // and `runAttemptLoop` stopped on it (`!isRetryableFailure(error)` sets
+  // `terminalAttempt`) even with healthy candidates left.
+  //
+  // The reachable cases are exactly the ones failover exists for: Cloudflare
+  // answers 520/521/522/523/524 when the ORIGIN is down or timing out — a
+  // per-route condition a sibling candidate would survive — and 530 is an origin
+  // DNS failure. Failing the client request instead of failing over is the wrong
+  // outcome for a whole class the table already names as platform-wide.
+  const statusCode = error.status;
+  const retryableByStatus =
+    statusCode === 401 ||
+    statusCode === 403 ||
+    statusCode === 429 ||
+    (statusCode >= 500 && statusCode <= 599);
   const retryable =
     error.code === "capability_unsupported" ||
     error.code === "model_not_found" ||
@@ -284,10 +346,7 @@ export function classifyUpstreamFailure(error: unknown): UpstreamFailurePolicy {
     error.code === "authentication_failed" ||
     error.code === "proxy_auth_required" ||
     error.code === "deadline_exceeded" ||
-    error.status === 401 ||
-    error.status === 403 ||
-    error.status === 429 ||
-    (error.status >= 500 && error.status <= 504);
+    retryableByStatus;
   return {
     retryable,
     mutatesAccount: error.origin === "upstream" && scope === "account",

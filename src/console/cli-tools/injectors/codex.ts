@@ -33,7 +33,15 @@ export const codexSpec: InjectorSpec = {
     if (!text) {
       return { configured: false, currentEndpoint: null, rawApiKey: null, currentModels: null };
     }
-    const baseUrl = textGet(text, { kind: "flat", key: "base_url" });
+    // `base_url` is written inside `[model_providers.cartethyia]` (see `apply`
+    // below), so it must be read from that section. Reading it as a root key
+    // returned null for a config this very injector had just written, leaving
+    // the dashboard's endpoint field blank while the status said "configured".
+    const baseUrl = textGet(text, {
+      kind: "sectionKey",
+      section: `model_providers.${CODEX_PROVIDER}`,
+      key: "base_url",
+    });
     const model = textGet(text, { kind: "flat", key: "model" });
     const auth = (await readJsonFile(codexAuthPath())) as Record<string, string> | null;
     const apiKey = auth?.[CODEX_PROVIDER] ?? null;

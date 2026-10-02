@@ -3,6 +3,7 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.test
 !.env.test.example
 *.log
 .codegraph/

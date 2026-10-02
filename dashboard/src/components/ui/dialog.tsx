@@ -61,6 +61,11 @@ export function Dialog({
             ? undefined
             : { ["--dialog-width" as string]: `${width}px` }
         }
+        // `role="dialog"` is what makes the `aria-modal` and `aria-labelledby`
+        // below meaningful — both are inert on a plain `div`, so without it a
+        // screen-reader user gets no announcement that focus moved into a modal.
+        // `drawer.tsx`, the sibling primitive, already declares the role.
+        role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}

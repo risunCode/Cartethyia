@@ -25,7 +25,15 @@ export const jcodeSpec: InjectorSpec = {
       return { configured: false, currentEndpoint: null, rawApiKey: null, currentModels: null };
     }
     const configured = textHas(text, { kind: "section", section: "providers.cartethyia" });
-    const baseUrl = textGet(text, { kind: "flat", key: "base_url" });
+    // `base_url` is written inside `[providers.cartethyia]` by `apply` below, so
+    // it must be read from that section. Reading it as a root key returned null
+    // for a config this injector had just written, so a configured tool
+    // reported no endpoint.
+    const baseUrl = textGet(text, {
+      kind: "sectionKey",
+      section: "providers.cartethyia",
+      key: "base_url",
+    });
     const envText = await readTextFile(jcodeEnvFilePath());
     const apiKey = envText
       ? textGet(envText, { kind: "flat", key: "OPENAI_API_KEY", format: "env" })

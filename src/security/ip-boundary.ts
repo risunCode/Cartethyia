@@ -44,9 +44,20 @@ function ipv6ToBigInt(address: string): bigint | undefined {
  */
 function unwrapMappedIpv4(address: string): string {
   const value = address.toLowerCase().split("%", 1)[0] ?? "";
-  if (!value.startsWith("::ffff:")) return address;
-  const tail = value.slice("::ffff:".length);
-  if (isIP(tail) === 4) return tail;
+  // Recognize the mapped range STRUCTURALLY, not by its compressed spelling. The
+  // old `startsWith("::ffff:")` test missed any form that writes the leading zero
+  // groups out — `0:0:0:0:0:ffff:7f00:1` is the same host as `::ffff:127.0.0.1`,
+  // but it failed the prefix test, fell through to `ipv6ToBigInt`, and was treated
+  // as an unrelated IPv6 address. The trust check then refused a peer the allowlist
+  // covered, and `canonicalClientIpKey` minted a second key for one host — which is
+  // what the one-active-key-per-IP rule deduplicates on.
+  //
+  // A mapped address is `::ffff:<32 bits>`, i.e. the first 80 bits are zero and the
+  // next 16 are `0xffff`. Matching that is the same test `isIP` uses internally.
+  const tail = mappedIpv4Tail(value);
+  if (tail === undefined) return address;
+  // `mappedIpv4Tail` always returns two hex groups, so the dotted and hex
+  // spellings have already converged by here.
   const groups = tail.split(":");
   if (groups.length !== 2) return address;
   const high = Number.parseInt(groups[0] ?? "", 16);
@@ -56,9 +67,99 @@ function unwrapMappedIpv4(address: string): string {
   return `${(high >> 8) & 0xff}.${high & 0xff}.${(low >> 8) & 0xff}.${low & 0xff}`;
 }
 
+/**
+ * The 32-bit tail of an IPv4-mapped IPv6 address, or `undefined` when `value` is
+ * not one. Accepts every spelling of the same address: `::ffff:1.2.3.4`,
+ * `::ffff:102:304`, `0:0:0:0:0:ffff:102:304`, and `::ffff:0:102:304`.
+ *
+ * Works by normalizing to exactly eight 16-bit groups first. That is the only way
+ * to compare spellings: a dotted tail is written as ONE colon-separated token but
+ * occupies TWO group slots, so any check that counts `split(":")` entries gets the
+ * position of the `ffff` marker wrong.
+ */
+function mappedIpv4Tail(value: string): string | undefined {
+  const groups = normalizeIpv6Groups(value);
+  if (groups === undefined) return undefined;
+  // The first five groups (80 bits) must be zero, and the sixth must be `ffff`.
+  for (let index = 0; index < 5; index += 1) {
+    if (groups[index] !== "0") return undefined;
+  }
+  if (groups[5] !== "ffff") return undefined;
+  const high = groups[6];
+  const low = groups[7];
+  if (high === undefined || low === undefined) return undefined;
+  return `${high}:${low}`;
+}
+
+/**
+ * An IPv6 literal as exactly eight lowercase 16-bit hex groups, or `undefined`
+ * when it is not one. Expands a `::` run and converts a trailing dotted quad into
+ * the two groups it represents.
+ */
+function normalizeIpv6Groups(value: string): string[] | undefined {
+  const text = value.trim();
+  if (text.length === 0) return undefined;
+  const doubleIndex = text.indexOf("::");
+  // More than one `::` is invalid, as is a `::` inside a group.
+  if (doubleIndex !== text.lastIndexOf("::")) return undefined;
+
+  const headText = doubleIndex >= 0 ? text.slice(0, doubleIndex) : text;
+  const tailText = doubleIndex >= 0 ? text.slice(doubleIndex + 2) : "";
+  const head = headText.length > 0 ? headText.split(":") : [];
+  const tail = tailText.length > 0 ? tailText.split(":") : [];
+
+  // A dotted quad is a single token that fills two groups.
+  const expandDotted = (tokens: string[]): string[] | undefined => {
+    const last = tokens[tokens.length - 1];
+    if (last === undefined || !last.includes(".")) return tokens;
+    const quad = last.split(".");
+    if (quad.length !== 4) return undefined;
+    const octets = quad.map((part) => Number(part));
+    if (octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return undefined;
+    const [a, b, c, d] = octets;
+    if (a === undefined || b === undefined || c === undefined || d === undefined) return undefined;
+    const high = ((a << 8) | b).toString(16);
+    const low = ((c << 8) | d).toString(16);
+    return [...tokens.slice(0, -1), high, low];
+  };
+
+  const expandedHead = expandDotted(head);
+  const expandedTail = expandDotted(tail);
+  if (expandedHead === undefined || expandedTail === undefined) return undefined;
+
+  let full: string[];
+  if (doubleIndex >= 0) {
+    const missing = 8 - expandedHead.length - expandedTail.length;
+    // `::` must stand for at least one group, so exactly-8 without it is invalid.
+    if (missing < 1) return undefined;
+    full = [...expandedHead, ...Array.from({ length: missing }, () => "0"), ...expandedTail];
+  } else {
+    full = expandedHead;
+  }
+  if (full.length !== 8) return undefined;
+  const normalized: string[] = [];
+  for (const group of full) {
+    if (!/^[0-9a-f]{1,4}$/.test(group)) return undefined;
+    normalized.push(Number.parseInt(group, 16).toString(16));
+  }
+  return normalized;
+}
+
 function matchesCidr(address: string, cidr: string): boolean {
-  const [network, prefixText] = cidr.split("/");
+  const [network, rawPrefix] = cidr.split("/");
   if (!network) return false;
+  // A bare address (`"127.0.0.1"`) has no prefix and means "this exact host". A
+  // present-but-blank prefix (`"10.0.0.0/"`) must NOT be treated as /0: `Number("")`
+  // is 0, and /0 matches every address — which made `isTrustedProxyPeer` true for
+  // ANY peer, so the gateway believed a caller's own `X-Forwarded-For` and every
+  // per-address decision downstream (abuse throttling, model bans, the audit
+  // trail) read a forged value.
+  //
+  // Requiring a run of digits also refuses the exotic spellings `Number` accepts
+  // for zero (`-0`, `+0`, `0x0`, `0b0`, `0o0`, `0.0`), all of which are typos
+  // rather than a deliberate "trust everyone".
+  const prefixText = rawPrefix === undefined ? undefined : rawPrefix.trim();
+  if (prefixText !== undefined && !/^\d+$/.test(prefixText)) return false;
   // A mapped peer and a plain-IPv4 allowlist entry describe the same host.
   const subject = unwrapMappedIpv4(address);
   const base = unwrapMappedIpv4(network);
@@ -116,7 +217,18 @@ export function resolveClientIdentity(
   peer: string,
 ): string {
   const fallback = unwrapMappedIpv4(peer);
-  if (!isTrustedPeer(peer, boundary)) return fallback;
+  // `isTrustedProxyPeer`, not `isTrustedPeer`: the two differ by exactly the
+  // `mode !== "disabled"` term, and gating on the latter meant a boundary carrying
+  // BOTH `disabled` and an allowlist honored forwarded headers here while
+  // `isTrustedProxyPeer` refused the same peer. The module then held two
+  // contradictory answers to "is this peer trusted?" for one request, and
+  // `securePolicyForRequest` — which uses the correct predicate — disagreed with
+  // this function about the same peer.
+  //
+  // The consequence was the spoofing property: `{ mode: "disabled", allowlist:
+  // [...] }` ignored `mode` entirely, so a caller able to reach the port named its
+  // own client address — the dimension the per-IP abuse limits are counted on.
+  if (!isTrustedProxyPeer(peer, boundary)) return fallback;
   const headerNames = ["cf-connecting-ip", "true-client-ip", "x-forwarded-for", "x-real-ip"];
   for (const name of headerNames) {
     const values = (request.headers.get(name) ?? "")

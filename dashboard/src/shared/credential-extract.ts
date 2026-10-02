@@ -337,10 +337,26 @@ export function parseCredentialBatch(raw: string): ParsedCredentialEntry[] {
   if (lines.length === 0) return [];
   if (lines.length === 1) return parseSingleLine(lines[0] as string);
 
-  // Every line matches `key: value` → one structured credential, not a batch.
+  // A `key: value` block is ONE structured credential, not a batch — and that
+  // holds even when some of its lines do not parse as `key: value`. A comment
+  // header, an indented continuation, or a repeated key all made the old
+  // `keys.length === lines.length` guard fail, which dropped the whole block into
+  // the per-line path. There, `parseSingleLine` cannot parse `apiKey: sk-...` as
+  // JSON, so it returned the LINE'S LITERAL TEXT as the secret: the operator got
+  // an account whose stored credential was the string `"apiKey: sk-..."`, and the
+  // real key was discarded or demoted to a sibling entry.
+  //
+  // The single-credential path (`extractCredentialFromPaste`) already resolved
+  // these inputs correctly by consulting `parseKeyValueLines` first. Matching it
+  // here is what makes the two exported parsers agree.
   const asKeyValue = parseKeyValueLines(trimmed);
-  if (asKeyValue && Object.keys(asKeyValue).length === lines.length) {
-    return [entryFromObject(asKeyValue)];
+  if (asKeyValue) {
+    // A block that names a credential field is one credential, however many of
+    // its other lines failed to parse.
+    if (extractFromObject(asKeyValue)) return [entryFromObject(asKeyValue)];
+    // No credential field, but every line was `key: value` — still one
+    // structured blob rather than one entry per field.
+    if (Object.keys(asKeyValue).length === lines.length) return [entryFromObject(asKeyValue)];
   }
 
   return lines.flatMap(parseSingleLine);

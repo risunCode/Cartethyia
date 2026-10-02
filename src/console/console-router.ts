@@ -32,6 +32,7 @@ import type { ProviderRegistry } from "../providers/provider-registry";
 import type { BundledProviderCatalog } from "../providers/operations/provider-catalog-service";
 import type { ValidatedNetworkBindingFactory } from "../network/pool/resolver";
 import type { TrustedProxyBoundary } from "../config";
+import { gzipResponse } from "./response-compression";
 
 export interface ConsoleApiCompositionDeps {
   readonly db: CartethyiaDatabase;
@@ -179,5 +180,24 @@ export function createConsoleRouter(deps: ConsoleApiCompositionDeps): Elysia {
     },
   };
   registerConsoleDomains(console as unknown as Elysia, ctx);
+  // Compress the JSON control plane on the way out.
+  //
+  // `wrap` is used rather than a lifecycle hook because this Elysia beta does
+  // not deliver the response body to them: measured, both `mapResponse` and
+  // `afterHandle` receive `responseValue`/`response` as `undefined` for a
+  // plain-object route, and Elysia sets no `content-length`, so a hook has
+  // nothing to compress and no size to judge. `wrap` sits outside the router
+  // and sees the finished `Response`, which is what this needs.
+  //
+  // Scoped to the console instance: `/v1/*` is a separate Elysia and is
+  // deliberately not covered, because a streaming completion must not be
+  // buffered and proxied bodies are the provider's own bytes. See
+  // `response-compression.ts` for the full reasoning and the measured win.
+  console.wrap(
+    (fetch) => (request: Request, ...rest: unknown[]) =>
+      Promise.resolve(fetch(request, ...rest)).then((response) =>
+        gzipResponse(request, response),
+      ),
+  );
   return console as unknown as Elysia;
 }
