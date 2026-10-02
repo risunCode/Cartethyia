@@ -11,11 +11,21 @@ import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { mkdir, rm } from "node:fs/promises";
 
-/** Home directory — shared contract used by all injectors. */
-export { homedir as homeDir };
-export { join };
-
 const IS_WIN: boolean = platform() === "win32";
+
+/**
+ * Home directory — shared contract used by all injectors.
+ *
+ * Reads `HOME` (or `USERPROFILE` on Windows) at call time rather than
+ * delegating to `os.homedir()`, which caches the value from process start on
+ * some runtimes (Bun) and therefore ignores a `HOME` reassignment. Falling
+ * back to `os.homedir()` keeps production behaviour identical.
+ */
+export function homeDir(): string {
+  const fromEnv = IS_WIN ? process.env.USERPROFILE ?? process.env.HOME : process.env.HOME;
+  return fromEnv && fromEnv.length > 0 ? fromEnv : homedir();
+}
+export { join };
 
 /** Check if a file exists. */
 export async function fileExists(path: string): Promise<boolean> {
