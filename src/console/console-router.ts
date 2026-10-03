@@ -22,7 +22,7 @@ import type { ProxyRequestStateStore } from "../transport/request/state";
 import type { NetworkPoolSelector } from "../network/pool/selector";
 import type { TelemetryBatchBuffer } from "../observability/telemetry-buffer";
 import type { OAuthRefreshService } from "../providers/authentication/oauth-refresh-service";
-import type { ApiKeyAdmissionService } from "../security/admission";
+import type { ApiKeyAdmissionService } from "../security/admission/service";
 import type { ModelStrikeService } from "../security/model-abuse";
 import type { RedisClient } from "../persistence/redis";
 import { CliToolMappingStore } from "./cli-tools/store";

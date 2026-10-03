@@ -14,7 +14,7 @@ import { normalizeClientRouterId } from "../../../security/client-router-fingerp
 import type { ShareActivityPort } from "../../share/share-usage";
 import { ConsoleDomainError } from "../../shared/errors";
 import type { ConsoleAccessResolver } from "../../auth/access";
-import type { ApiKeyAdmissionService } from "../../../security/admission";
+import type { ApiKeyAdmissionService } from "../../../security/admission/service";
 import {
   SHARE_POPUP_IMAGE_MAX_BYTES,
   SHARE_POPUP_IMAGE_MIMES,

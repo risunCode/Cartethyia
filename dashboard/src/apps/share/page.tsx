@@ -190,6 +190,7 @@ export function SharePage(): ReactElement {
   const [issueConflict, setIssueConflict] = useState(false);
   const [sharePopupOpen, setSharePopupOpen] = useState(false);
   const sharePopupRef = useRef<HTMLElement>(null);
+  const apiKeyPanelRef = useRef<HTMLDivElement>(null);
   useModalFocus({ open: sharePopupOpen, mounted: sharePopupOpen, panelRef: sharePopupRef, onClose: () => setSharePopupOpen(false) });
   // Dark is the default reading of the share HUD; the toggle beside Home flips
   // the same `console-theme` preference the console uses.
@@ -277,9 +278,20 @@ export function SharePage(): ReactElement {
   const visibleSecret = restoredSecret ?? secret;
   const data = state.data;
   const canProbe = data?.kind === "handoff" ? Boolean(data.key) : Boolean(visibleSecret?.key);
+  const focusApiKeyPanel = () => {
+    const panel = apiKeyPanelRef.current;
+    if (!panel) return;
+    panel.scrollIntoView({ behavior: "smooth", block: "center" });
+    panel.focus({ preventScroll: true });
+  };
   const probeModel = async (model: string): Promise<void> => {
     const key = data?.kind === "handoff" ? data.key : (restoredSecret ?? secret)?.key;
-    if (!key || probingModels.has(model)) return;
+    if (probingModels.has(model)) return;
+    if (!key) {
+      toast.error("Create your API key first", "Generate a key in the API key panel before testing a model.");
+      focusApiKeyPanel();
+      return;
+    }
     const controller = new AbortController();
     probeAbortRef.current.set(model, controller);
     setProbingModels((current) => new Set(current).add(model));
@@ -457,6 +469,7 @@ export function SharePage(): ReactElement {
                   </button>
                 ) : null}
               </Card>
+              <div ref={apiKeyPanelRef} tabIndex={-1}>
               <Card className="share-hud-card share-key-panel">
                 <h2 className="share-eyebrow">YOUR API KEY</h2>
                 {data.kind === "handoff" ? (
@@ -577,6 +590,7 @@ export function SharePage(): ReactElement {
                 {issueError && canIssue ? <p role="alert" className="form-error">{issueError}</p> : null}
                 {storageWarning ? <p role="alert" className="form-error">{storageWarning}</p> : null}
               </Card>
+              </div>
             </div>
 
             {sharePopupOpen && data.sharePopup.enabled ? (

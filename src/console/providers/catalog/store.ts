@@ -898,7 +898,6 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
             credentialCiphertext: encryptCredential(effectiveSecret),
             ...(credentialFingerprint ? { credentialFingerprint } : {}),
             credentialKind: request.credentialKind,
-            maxInflight: null,
             status: "active",
             ...(request.authState === undefined ? {} : { authState: request.authState }),
             // An OAuth account pasted without a refresh token is a *static*

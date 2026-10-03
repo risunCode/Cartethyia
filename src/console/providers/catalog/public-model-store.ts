@@ -113,7 +113,7 @@ function matchesModelPrefix(
 }
 
 /** Catalog metadata mirrored onto an alias or combo entry. */
-interface ModelMetadata {
+export interface ModelMetadata {
   readonly contextLimit: number | null;
   readonly outputLimit: number | null;
   readonly modalities: unknown;
@@ -140,7 +140,7 @@ const MAX_TARGET_DEPTH = 16;
  * name that resolves to nothing concrete is returned as-is so the lookup can
  * still match a bare catalog id.
  */
-function resolveTargetIds(
+export function resolveTargetIds(
   name: string,
   aliasTargets: ReadonlyMap<string, string>,
   comboMembers: ReadonlyMap<string, readonly string[]>,
@@ -162,7 +162,7 @@ function resolveTargetIds(
  * across them and only the modalities every member shares. `null` limits mean
  * "no catalog row described this id"; the caller substitutes the defaults.
  */
-function advertisedMetadata(
+export function advertisedMetadata(
   ids: readonly string[],
   meta: ReadonlyMap<string, ModelMetadata>,
 ): ModelMetadata {
@@ -276,6 +276,30 @@ export function shadowsAliasOrCombo(
 
 export class PublicModelCatalogStore {
   constructor(private readonly db: CartethyiaDatabase) {}
+
+  async metadataForNames(
+    tenantId: string,
+    names: readonly string[],
+  ): Promise<Map<string, ModelMetadata>> {
+    const [aliasRows, comboRows] = await Promise.all([
+      this.db.select().from(modelAliases).where(eq(modelAliases.tenantId, tenantId)),
+      this.db.select().from(modelCombos).where(eq(modelCombos.tenantId, tenantId)),
+    ]);
+    const aliases = new Map(aliasRows.map((row) => [row.alias, row.targetModel]));
+    const combos = new Map(
+      comboRows.map((row) => [
+        row.name,
+        Array.isArray(row.members) ? row.members.filter((member): member is string => typeof member === "string") : [],
+      ]),
+    );
+    const targetIds = names.flatMap((name) => resolveTargetIds(name, aliases, combos));
+    const targetMeta = await this.modelMetadataById(tenantId, targetIds);
+    const result = new Map<string, ModelMetadata>();
+    for (const name of names) {
+      result.set(name, advertisedMetadata(resolveTargetIds(name, aliases, combos), targetMeta));
+    }
+    return result;
+  }
 
   async listPublicModels(
     tenantId: string | null,
@@ -456,22 +480,21 @@ export class PublicModelCatalogStore {
    * the key's allowlist so capabilities mirror even when only the alias is
    * allowed.
    */
-  private async modelMetadataById(
+  async modelMetadataById(
     tenantId: string,
     ids: readonly string[],
   ): Promise<Map<string, ModelMetadata>> {
-    const wanted = new Map<string, string>();
+    const qualified = new Set<string>();
+    const bare = new Set<string>();
     for (const id of ids) {
-      const slash = id.indexOf("/");
-      if (slash <= 0) continue;
-      wanted.set(id, id);
+      const normalized = id.trim();
+      const slash = normalized.indexOf("/");
+      if (slash > 0) qualified.add(normalized);
+      else if (normalized.length > 0) bare.add(normalized);
     }
     const out = new Map<string, ModelMetadata>();
-    if (wanted.size === 0) return out;
-    const pairs = [...wanted.keys()].map((id) => {
-      const slash = id.indexOf("/");
-      return { provider: id.slice(0, slash), model: id.slice(slash + 1) };
-    });
+    if (qualified.size === 0 && bare.size === 0) return out;
+    const providerScope = or(isNull(providers.tenantId), eq(providers.tenantId, tenantId));
     const rows = await this.db
       .select({
         providerId: models.providerId,
@@ -485,16 +508,25 @@ export class PublicModelCatalogStore {
         cost: models.cost,
       })
       .from(models)
+      .innerJoin(providers, eq(models.providerId, providers.id))
       .where(
         and(
           eq(models.enabled, true),
+          eq(providers.enabled, true),
+          providerScope,
           or(
-            ...pairs.map((p) => and(eq(models.providerId, p.provider), eq(models.modelId, p.model))),
+            ...(qualified.size > 0
+              ? [...qualified].map((id) => {
+                  const slash = id.indexOf("/");
+                  return and(eq(models.providerId, id.slice(0, slash)), eq(models.modelId, id.slice(slash + 1)));
+                })
+              : []),
+            ...(bare.size > 0 ? [...bare].map((id) => eq(models.modelId, id)) : []),
           ),
         ),
       );
     for (const row of rows) {
-      out.set(`${row.providerId}/${row.modelId}`, {
+      const metadata = {
         contextLimit: row.contextLimit,
         outputLimit: row.outputLimit,
         modalities: row.modalities,
@@ -502,9 +534,24 @@ export class PublicModelCatalogStore {
         toolCall: row.toolCall,
         webSearch: row.webSearch,
         cost: row.cost,
-      });
+      } satisfies ModelMetadata;
+      out.set(`${row.providerId}/${row.modelId}`, metadata);
     }
-    void tenantId;
+    for (const id of bare) {
+      const matches = rows.filter((row) => row.modelId === id).map((row) => out.get(`${row.providerId}/${row.modelId}`));
+      if (matches.length > 0 && matches.every((entry) => entry !== undefined)) {
+        const found = matches.filter((entry): entry is ModelMetadata => entry !== undefined);
+        out.set(id, {
+          contextLimit: Math.min(...found.map((entry) => entry.contextLimit ?? DEFAULT_CONTEXT_LIMIT)),
+          outputLimit: Math.min(...found.map((entry) => entry.outputLimit ?? DEFAULT_OUTPUT_LIMIT)),
+          modalities: intersectModalities(found.map((entry) => entry.modalities).filter((value) => value != null)),
+          reasoning: found.every((entry) => entry.reasoning),
+          toolCall: found.every((entry) => entry.toolCall),
+          webSearch: found.every((entry) => entry.webSearch),
+          cost: commonCost(found.map((entry) => entry.cost)),
+        });
+      }
+    }
     return out;
   }
 

@@ -13,6 +13,7 @@
   },
   "scripts": {
     "dev": "bun run dev:stack",
+    "dev:watch": "bun run scripts/dev/supervisor.ts",
     "test": "bun run scripts/ci-run-tests.ts",
     "build": "bun run dashboard:build && bun run build:aot && bun run build:binary",
     "setup": "bun run scripts/commands/setup.ts",

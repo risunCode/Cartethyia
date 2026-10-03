@@ -85,7 +85,9 @@ export const credentialKind = pgEnum("credential_kind", ["api_key", "oauth", "no
 // models.wire_family.
 export const wireFamily = pgEnum("wire_family", ["chat", "responses", "messages"]);
 
-export const networkPoolKind = pgEnum("network_pool_kind", ["http", "socks5"]);
+// `bridge` is a carte-bridge instance dialed as an application relay (or a
+// CONNECT tunnel where the runtime holds a socket) rather than an RFC proxy.
+export const networkPoolKind = pgEnum("network_pool_kind", ["http", "socks5", "bridge"]);
 
 //  health_events.entity_kind — distinguishes which owning
 // table entity_id/account_id/network_pool_id references.
@@ -142,9 +144,10 @@ export type Provider = typeof providers.$inferSelect;
 
 // Upstream account credentials plus the full health state machine.
 // `tenant_id` null means the account is shared pool-wide; populated means
-// tenant-owned/BYOK. Provider routing supplies the concurrency ceiling and
-// network-pool policy; the legacy per-account `max_inflight` column is inert
-// and must not be repurposed as an override.
+// tenant-owned/BYOK. The concurrency ceiling lives in provider routing
+// (`provider_routing_settings.max_inflight`) and network pools
+// (`network_pools.max_inflight`); the per-account override that once sat here
+// was retired by `0029_retire_per_account_max_inflight.sql`.
 export const providerAccounts = pgTable("provider_accounts", {
   id: uuid("id").primaryKey().defaultRandom(),
   providerId: text("provider_id")
@@ -180,8 +183,6 @@ export const providerAccounts = pgTable("provider_accounts", {
   cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
   lastRecoveredAt: timestamp("last_recovered_at", { withTimezone: true }),
   modelCooldowns: jsonb("model_cooldowns").notNull().default({}),
-  /** Legacy per-account ceiling retained for stored rows only. Routing ignores it. */
-  maxInflight: integer("max_inflight"),
   /**
    * Stable list position within (tenant, provider). Accounts were ordered by
    * `created_at`, which let two same-millisecond rows swap between loads; this

@@ -23,6 +23,7 @@ import {
   TELEMETRY_TABLES,
   TENANT_TABLE,
   columnNames,
+  droppedColumns,
   findTable,
   tableName,
   type BackupRow,
@@ -149,12 +150,19 @@ export function validateRestorePayload(payload: unknown, tenantId: string): Rest
       }
 
       const allowed = columnNames(table);
+      const dropped = droppedColumns(table);
       const types = columnTypes(table);
       const rows: BackupRow[] = [];
       for (let i = 0; i < value.length; i++) {
         const row = value[i];
         if (!isPlainObject(row)) return { ok: false, error: `${name}[${i}] must be a row object` };
-        for (const [column, cell] of Object.entries(row)) {
+        // A stale backup may still carry columns the schema has since dropped.
+        // Those are accepted but removed here, so they never reach the store
+        // (which would reject them as unknown) and the rest of the row restores.
+        const sanitizedRow = dropped.size > 0 && Object.keys(row).some((column) => dropped.has(column))
+          ? Object.fromEntries(Object.entries(row).filter(([column]) => !dropped.has(column)))
+          : row;
+        for (const [column, cell] of Object.entries(sanitizedRow)) {
           if (!allowed.has(column)) {
             return { ok: false, error: `${name}.${column} is not a column of ${tableName(table)}` };
           }
@@ -182,8 +190,8 @@ export function validateRestorePayload(payload: unknown, tenantId: string): Rest
         // remapped here.
         const tenantScopedRow =
           table === TENANT_TABLE || !types.has("tenant_id")
-            ? (row as BackupRow)
-            : { ...(row as BackupRow), tenant_id: tenantId };
+            ? (sanitizedRow as BackupRow)
+            : { ...(sanitizedRow as BackupRow), tenant_id: tenantId };
         // Version-1 backups can carry the retired monitor/setup link kinds.
         // Import them as inactive enrollment links so their old tokens never
         // regain a usable public endpoint.

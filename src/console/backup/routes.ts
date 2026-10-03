@@ -20,7 +20,9 @@ import { invalidateApiKeyCache } from "../../security/api-key-auth";
 import { ConsoleDomainError, errorResponse, requireAnyScope } from "../shared/errors";
 import { MAX_BACKUP_BYTES } from "./contracts";
 import type { BackupSection } from "./contracts";
+import { DELETE_ALL_SCOPES } from "./store";
 import type { BackupService } from "./service";
+import type { AuditSink } from "../domains/audit/contracts";
 
 export interface BackupRoutesConfig {
   readonly accessResolver: ConsoleAccessResolver;
@@ -56,6 +58,7 @@ export interface BackupRoutesConfig {
    * reservation/counter state. Paired with {@link apiKeyStore} on restore.
    */
   readonly admissionService?: { purgeKey(apiKeyId: string): Promise<void> };
+  readonly auditSink?: AuditSink;
 }
 
 /**
@@ -79,6 +82,11 @@ const importBody = t.Object({
 const exportQuery = t.Object({
   password: t.String(),
   sections: t.Optional(t.String()),
+});
+
+const deleteAllBody = t.Object({
+  password: t.String(),
+  scopes: t.Array(t.Union(DELETE_ALL_SCOPES.map((scope) => t.Literal(scope))), { minItems: 1 }),
 });
 
 function parseSections(raw: string | undefined): readonly BackupSection[] | undefined {
@@ -163,6 +171,32 @@ export function createBackupRoutes(config: BackupRoutesConfig): Elysia {
         return result;
       } catch (error) {
         return errorResponse(error, set, "Backup import failed");
+      }
+    })
+    .post("/delete-all", { body: deleteAllBody }, async ({ request, body, set }) => {
+      try {
+        const access = requireAnyScope(config.accessResolver(request), BACKUP_SCOPES);
+        if (access.tenantId === null) {
+          throw new ConsoleDomainError("tenant_required", 403, "Tenant isolation required");
+        }
+        const result = await config.backupFor(request).deleteAll(body.password, body.scopes, access.tenantId);
+        await config.auditSink?.record({
+          access,
+          action: "backup.delete_all",
+          target: access.tenantId,
+          detail: { scopes: [...new Set(body.scopes)], deleted: result.deleted },
+        });
+        invalidateApiKeyCache();
+        await Promise.allSettled([
+          config.snapshotInvalidator?.invalidate(),
+          ...(config.admissionService
+            ? result.apiKeyIds.map((id) => config.admissionService?.purgeKey(id))
+            : []),
+        ]);
+        set.status = 200;
+        return { deleted: result.deleted };
+      } catch (error) {
+        return errorResponse(error, set, "Delete all failed");
       }
     }) as unknown as Elysia;
 }

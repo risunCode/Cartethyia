@@ -18,6 +18,67 @@ import { BASE_PROTECTED_HEADERS, HEADER_CONTROL, HEADER_TOKEN } from "../securit
 import { unwrapProviderToken } from "../providers/credential-envelope";
 
 const TEXT_ENCODER = new TextEncoder();
+
+/**
+ * Deepest nesting the recursive rewriters below will descend into.
+ *
+ * Those helpers walk values that came from a request — tool schemas, tool
+ * arguments, thinking payloads — and a plain recursion over request-supplied
+ * data overflows the call stack at roughly 10,000 levels (measured: a 400 KB
+ * body whose JSON nests 20,000 deep parses fine and then throws
+ * `RangeError: Maximum call stack size exceeded`). The ingress guard's
+ * `MAX_JSON_DEPTH = 64` does not cover this: it measures the envelope, and a
+ * value carried as a JSON **string** inside that envelope (`function.arguments`
+ * on the Chat wire, a schema in a string field) is parsed by a decoder *after*
+ * the guard has passed.
+ *
+ * 256 is far above any real schema — a hand-written tool schema nests a
+ * handful of levels — and far below the ~10,000 frames that overflow V8. A
+ * value past the bound is forwarded **unchanged**, not dropped: these helpers
+ * exist to make a value safe to forward, and discarding a caller's schema
+ * would be worse than forwarding a shape the upstream may reject on its own.
+ */
+export const MAX_REWRITE_DEPTH = 256;
+
+/**
+ * Whether a walk is already inside `value` — i.e. the input contains a cycle.
+ *
+ * A depth bound cannot stop a cycle: a two-node loop overflows at any bound.
+ * The check is per-walk rather than global, so the same node may legitimately
+ * appear twice in a tree (a shared subschema) without being mistaken for one.
+ */
+function createsCycle(path: readonly object[], value: object): boolean {
+  return path.includes(value);
+}
+
+/**
+ * The recursion state every rewriter below threads through its walk.
+ *
+ * Kept in a private worker rather than as optional parameters on the exported
+ * function. `Array.prototype.map` passes the element *index* as the second
+ * argument, so an exported `(value, depth = 0)` would let a bare
+ * `.map(toWellFormedDeep)` hand the index to `depth` — and past the bound the
+ * guard would forward the value **unrewritten** instead of failing loudly. A
+ * one-parameter export makes that call a type error.
+ */
+export interface RewriteWalk {
+  readonly depth: number;
+  readonly path: readonly object[];
+}
+
+/** The walk one level down, descending into `value`. */
+export function descend(walk: RewriteWalk, value: object): RewriteWalk {
+  return { depth: walk.depth + 1, path: [...walk.path, value] };
+}
+
+/** The walk state every rewrite starts from. */
+export const ROOT_WALK: RewriteWalk = { depth: 0, path: [] };
+
+/** True when this node must be forwarded as-is rather than rewritten. */
+export function shouldStop(walk: RewriteWalk, value: object): boolean {
+  return walk.depth >= MAX_REWRITE_DEPTH || createsCycle(walk.path, value);
+}
+
 /**
  * Shared 32-bit string hash (`hash * 31` accumulation, unsigned).
  */
@@ -187,15 +248,25 @@ const SUPPORTED_SCHEMA_KEYS: Readonly<Record<string, true>> = Object.freeze({
 });
 
 export function sanitizeSchemaForAnthropic(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sanitizeSchemaForAnthropic);
+  return sanitizeSchemaWalk(value, ROOT_WALK);
+}
+
+function sanitizeSchemaWalk(value: unknown, walk: RewriteWalk): unknown {
+  if (Array.isArray(value)) {
+    if (shouldStop(walk, value)) return value;
+    const inner = descend(walk, value);
+    return value.map((entry) => sanitizeSchemaWalk(entry, inner));
+  }
   if (!isRecord(value)) return value;
+  if (shouldStop(walk, value)) return value;
+  const inner = descend(walk, value);
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
     // Property names are user-defined schema keys, not JSON-Schema keywords;
     // preserve them while sanitizing each property's schema recursively.
     if (key === "properties" && isRecord(child)) {
       out.properties = Object.fromEntries(
-        Object.entries(child).map(([name, schema]) => [name, sanitizeSchemaForAnthropic(schema)]),
+        Object.entries(child).map(([name, schema]) => [name, sanitizeSchemaWalk(schema, inner)]),
       );
       continue;
     }
@@ -203,7 +274,7 @@ export function sanitizeSchemaForAnthropic(value: unknown): unknown {
     // them — but never invent caller text to say so. The dropped names are
     // debug-logged by the caller-facing builder when that matters.
     if (!SUPPORTED_SCHEMA_KEYS[key]) continue;
-    out[key] = sanitizeSchemaForAnthropic(child);
+    out[key] = sanitizeSchemaWalk(child, inner);
   }
   const properties = out.properties;
   if (isRecord(properties)) {
@@ -271,21 +342,29 @@ export function toWellFormedString(value: string): string {
 }
 
 export function toWellFormedDeep(value: unknown): unknown {
+  return toWellFormedWalk(value, ROOT_WALK);
+}
+
+function toWellFormedWalk(value: unknown, walk: RewriteWalk): unknown {
   if (typeof value === "string") return toWellFormedString(value);
   if (Array.isArray(value)) {
+    if (shouldStop(walk, value)) return value;
+    const inner = descend(walk, value);
     let changed = false;
     const next = value.map((entry) => {
-      const sanitized = toWellFormedDeep(entry);
+      const sanitized = toWellFormedWalk(entry, inner);
       if (sanitized !== entry) changed = true;
       return sanitized;
     });
     return changed ? next : value;
   }
   if (value !== null && typeof value === "object") {
+    if (shouldStop(walk, value)) return value;
+    const inner = descend(walk, value);
     let changed = false;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      const sanitized = toWellFormedDeep(v);
+      const sanitized = toWellFormedWalk(v, inner);
       if (sanitized !== v) changed = true;
       out[k] = sanitized;
     }
@@ -296,6 +375,48 @@ export function toWellFormedDeep(value: unknown): unknown {
 
 // Argument-string JSON coercion
 
+/**
+ * Deepest nesting accepted for a JSON document carried by a request.
+ *
+ * One bound for both transports of the same content. A body may carry a
+ * structure as nested JSON **objects** or as a JSON **string** in a field
+ * (`function.arguments` on the Chat wire), and a limit applied to only one of
+ * them is not a limit: the string form sidesteps it entirely. Measured before
+ * this existed, an arguments string nesting 20,000 deep returned HTTP 200
+ * through the real encoder and then threw `RangeError` inside the request
+ * builder, and one at 50,000 threw from `JSON.stringify` on the outbound body.
+ *
+ * The ingress middleware (`body-policy.ts`) imports this constant for the
+ * envelope check, so the two enforcement points cannot drift apart.
+ */
+export const MAX_JSON_DEPTH = 64;
+
+/**
+ * Rejects a value nested deeper than {@link MAX_JSON_DEPTH}.
+ *
+ * Fails fast — it throws *before* recursing past the bound — so it spends at
+ * most 65 frames and cannot overflow the stack it is protecting. `JSON.parse`
+ * never returns a cyclic graph, so a cycle cannot reach here.
+ */
+export function assertBoundedJsonDepth(value: unknown): void {
+  assertBoundedDepthWalk(value, 0);
+}
+
+function assertBoundedDepthWalk(value: unknown, depth: number): void {
+  if (depth > MAX_JSON_DEPTH)
+    throw new GatewayError("invalid_request", 400, "request body nesting exceeds the allowed depth");
+  if (Array.isArray(value)) {
+    for (const item of value) assertBoundedDepthWalk(item, depth + 1);
+    return;
+  }
+  if (value !== null && typeof value === "object") {
+    // for...in avoids allocating the Object.values() array per node.
+    for (const key in value as Record<string, unknown>) {
+      assertBoundedDepthWalk((value as Record<string, unknown>)[key], depth + 1);
+    }
+  }
+}
+
 export function parseArguments(value: unknown): unknown {
   // A zero-arg tool call carries "" (or absent) arguments. Callers on the
   // Messages wire need an object (`input`), so an empty string coerces to {}
@@ -303,8 +424,16 @@ export function parseArguments(value: unknown): unknown {
   if (typeof value === "string") {
     if (value.trim().length === 0) return {};
     try {
-      return JSON.parse(value) as unknown;
-    } catch {
+      const parsed = JSON.parse(value) as unknown;
+      // The envelope guard measured only the string, so this is the first
+      // place the nesting inside it becomes visible. Reject it here, exactly
+      // as the envelope guard would have rejected the same content sent as
+      // nested objects — the alternative is forwarding a value the outbound
+      // serializer cannot handle.
+      assertBoundedJsonDepth(parsed);
+      return parsed;
+    } catch (error) {
+      if (error instanceof GatewayError) throw error;
       return value;
     }
   }
@@ -454,13 +583,22 @@ export function escapeHarmonyControlTokens(text: string): string {
 
 /** Recursively escapes every string leaf of a JSON-like value. */
 export function escapeHarmonyControlTokensDeep(value: unknown): unknown {
+  return escapeHarmonyWalk(value, ROOT_WALK);
+}
+
+function escapeHarmonyWalk(value: unknown, walk: RewriteWalk): unknown {
   if (typeof value === "string") return escapeHarmonyControlTokens(value);
-  if (Array.isArray(value))
-    return value.map((v) => escapeHarmonyControlTokensDeep(v));
+  if (Array.isArray(value)) {
+    if (shouldStop(walk, value)) return value;
+    const inner = descend(walk, value);
+    return value.map((v) => escapeHarmonyWalk(v, inner));
+  }
   if (value !== null && typeof value === "object") {
+    if (shouldStop(walk, value)) return value;
+    const inner = descend(walk, value);
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = escapeHarmonyControlTokensDeep(v);
+      out[k] = escapeHarmonyWalk(v, inner);
     }
     return out;
   }
@@ -522,17 +660,27 @@ export function canonicalTerminal(input: {
 }
 
 export function completeRequiredSchema(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(completeRequiredSchema);
+  return completeRequiredWalk(value, ROOT_WALK);
+}
+
+function completeRequiredWalk(value: unknown, walk: RewriteWalk): unknown {
+  if (Array.isArray(value)) {
+    if (shouldStop(walk, value)) return value;
+    const inner = descend(walk, value);
+    return value.map((entry) => completeRequiredWalk(entry, inner));
+  }
   if (!isRecord(value)) return value;
+  if (shouldStop(walk, value)) return value;
+  const inner = descend(walk, value);
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
     if (key === "properties" && isRecord(child)) {
       out.properties = Object.fromEntries(
-        Object.entries(child).map(([name, schema]) => [name, completeRequiredSchema(schema)]),
+        Object.entries(child).map(([name, schema]) => [name, completeRequiredWalk(schema, inner)]),
       );
       continue;
     }
-    out[key] = completeRequiredSchema(child);
+    out[key] = completeRequiredWalk(child, inner);
   }
   if (isRecord(out.properties)) out.required = Object.keys(out.properties);
   return out;

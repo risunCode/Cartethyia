@@ -1,6 +1,7 @@
 // Single-read ingress body policy: route table, size/media enforcement, depth cap.
 import { Elysia } from "elysia";
 import { GatewayError } from "../gateway-error";
+import { assertBoundedJsonDepth } from "../../protocol/primitives";
 import type { ProxyRequestStateStore } from "../request/state";
 import { fastPathname } from "../request/pathname";
 import { NATIVE_SERVICE_PATHS } from "../dispatch/native-services";
@@ -116,24 +117,6 @@ export async function readIngressBody(
   } catch (error) {
     if (error instanceof GatewayError) throw error;
     throw new GatewayError("invalid_request", 400, "malformed JSON request body");
-  }
-}
-
-/** Maximum nesting depth accepted for an ingress JSON body. */
-const MAX_JSON_DEPTH = 64;
-
-function assertBoundedJsonDepth(value: unknown, depth = 0): void {
-  if (depth > MAX_JSON_DEPTH)
-    throw new GatewayError("invalid_request", 400, "request body nesting exceeds the allowed depth");
-  if (Array.isArray(value)) {
-    for (const item of value) assertBoundedJsonDepth(item, depth + 1);
-    return;
-  }
-  if (value !== null && typeof value === "object") {
-    // for...in avoids allocating the Object.values() array per node.
-    for (const key in value as Record<string, unknown>) {
-      assertBoundedJsonDepth((value as Record<string, unknown>)[key], depth + 1);
-    }
   }
 }
 

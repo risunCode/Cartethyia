@@ -153,6 +153,7 @@ export function usePoolUsage(): PoolUsageState {
   const queryClient = useQueryClient();
   const [pools, setPools] = useState<readonly PoolUsageRow[] | null>(null);
   const [live, setLive] = useState(false);
+  const maxBytesByPool = useState(() => new Map<string, PoolUsageRow>())[0];
 
   useEffect(() => {
     let stopped = false;
@@ -164,8 +165,30 @@ export function usePoolUsage(): PoolUsageState {
       source.addEventListener("pools", (event) => {
         if (stopped) return;
         try {
-          const next = readPools(JSON.parse((event as MessageEvent).data as string));
-          if (next !== null) {
+          const parsed = readPools(JSON.parse((event as MessageEvent).data as string));
+          if (parsed !== null) {
+            // Keep the highest bytesSent/received seen per pool so a reconnect
+            // that temporarily yields an empty snapshot does not snap the bar to 0B.
+            const next: PoolUsageRow[] = [];
+            for (const row of parsed) {
+              const prev = maxBytesByPool.get(row.poolId);
+              const merged: PoolUsageRow = prev
+                ? {
+                    poolId: row.poolId,
+                    currentInflight: row.currentInflight,
+                    bytesSent: Math.max(prev.bytesSent, row.bytesSent),
+                    bytesReceived: Math.max(prev.bytesReceived, row.bytesReceived),
+                  }
+                : row;
+              maxBytesByPool.set(row.poolId, merged);
+              next.push(merged);
+            }
+            // Pools that dropped out of this snapshot keep their last max (union is backend-driven; this is the frontend guard).
+            for (const [poolId, prev] of maxBytesByPool) {
+              if (!parsed.some((r) => r.poolId === poolId)) {
+                next.push(prev);
+              }
+            }
             setPools(next);
             setLive(true);
           }
@@ -190,8 +213,27 @@ export function usePoolUsage(): PoolUsageState {
       try {
         const snapshot = await consoleRequest<unknown>("/live/pools");
         if (stopped) return;
-        const next = readPools(snapshot);
-        if (next !== null) setPools(next);
+        const parsed2 = readPools(snapshot);
+        if (parsed2 !== null) {
+          const next2: PoolUsageRow[] = [];
+          for (const row of parsed2) {
+            const prev = maxBytesByPool.get(row.poolId);
+            const merged: PoolUsageRow = prev
+              ? {
+                  poolId: row.poolId,
+                  currentInflight: row.currentInflight,
+                  bytesSent: Math.max(prev.bytesSent, row.bytesSent),
+                  bytesReceived: Math.max(prev.bytesReceived, row.bytesReceived),
+                }
+              : row;
+            maxBytesByPool.set(row.poolId, merged);
+            next2.push(merged);
+          }
+          for (const [poolId, prev] of maxBytesByPool) {
+            if (!parsed2.some((r) => r.poolId === poolId)) next2.push(prev);
+          }
+          setPools(next2);
+        }
         openStream();
       } catch {
         // Unauthenticated (shell handles the transition) or offline: stay stale.

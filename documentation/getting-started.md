@@ -77,6 +77,11 @@ After the installer completes:
 bun run dev
 ```
 
+For auto-restart on migrations or dependency changes, run `bun run dev:watch`
+instead: source edits still hot-reload, and the supervisor reinstalls deps
+(`bun install --frozen-lockfile`) and restarts in place when `migrations/*.sql`,
+`package.json`, or `bun.lock` change, so it never needs to be re-run.
+
 Open `http://localhost:12800/console`. Useful endpoints:
 
 | Endpoint | Purpose |

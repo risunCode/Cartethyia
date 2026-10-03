@@ -21,7 +21,10 @@ import { createDatabaseSnapshotBuilder } from "../transport/routing/route-catalo
 import { DrizzleProviderCatalogStore } from "../console/providers/catalog/store";
 import { InMemoryRouteSnapshotService } from "../transport/routing/route-model";
 import { RedisAdmissionController, RoutingEngine } from "../transport/routing/router";
-import { ApiKeyAdmissionService, InMemoryAdmissionCounterStore, RedisAdmissionCounterStore, sweepLeases } from "../security/admission";
+import { ApiKeyAdmissionService } from "../security/admission/service";
+import { InMemoryAdmissionCounterStore } from "../security/admission/in-memory-store";
+import { RedisAdmissionCounterStore } from "../security/admission/redis-store";
+import { sweepLeases } from "../security/admission/lease-sweep";
 import { DrizzleApiKeyStore } from "../persistence/api-key-store";
 import { InMemoryIpAbuseStore, IpAbuseProtectionService, RedisIpAbuseStore } from "../security/abuse";
 import {

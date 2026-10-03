@@ -23,9 +23,14 @@ const KIRO_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 /**
  * One Kiro model row.
  *
- * `ctx` and `out` are separate ceilings here: the upstream advertises a
- * 500k-token context window for the whole family while the newest model accepts
- * a 1M-token completion, and collapsing them would understate the output cap.
+ * `ctx` and `out` are the model's real limits — Opus-5/4.8/4.7 and Sonnet-5
+ * carry 1M context per the Anthropic catalog (`claude.ts`) and models.dev; the
+ * 4.5-era rows and Haiku 200k. The old uniform 500k overstated older Claude
+ * models and understated the newest.
+ *
+ * The non-Anthropic rows use the upstream family defaults: DeepSeek V3.2
+ * 128k/64k, Qwen3 Coder Next 1M, GLM 5 204.8k/131k, MiniMax M2.5 204.8k/131k. GPT
+ * 5.6's 272k/128k is unchanged.
  */
 function kiroModel(options: {
   readonly id: string;
@@ -60,21 +65,21 @@ function kiroModel(options: {
  * guessing at what an individual account's plan reaches.
  */
 export const KIRO_MODELS: readonly ModelDefinition[] = [
-  kiroModel({ id: "claude-opus-5", ctx: 500_000, out: 64_000, vision: true, reasoning: true, toolCall: true, webSearch: true }),
-  kiroModel({ id: "claude-opus-4.8", ctx: 500_000, out: 64_000, vision: true, reasoning: true, toolCall: true, webSearch: true }),
-  kiroModel({ id: "claude-opus-4.7", ctx: 500_000, out: 64_000, vision: true, reasoning: true, toolCall: true, webSearch: true }),
-  kiroModel({ id: "claude-opus-4.5", ctx: 500_000, out: 64_000, vision: true, reasoning: true, toolCall: true, webSearch: true }),
-  kiroModel({ id: "claude-sonnet-5", ctx: 500_000, out: 64_000, vision: true, reasoning: true, toolCall: true, webSearch: true }),
-  kiroModel({ id: "claude-sonnet-4.5", ctx: 500_000, out: 64_000, vision: true, reasoning: true, toolCall: true, webSearch: true }),
-  kiroModel({ id: "claude-haiku-4.5", ctx: 500_000, out: 64_000, vision: true, reasoning: true, toolCall: true, webSearch: true }),
+  kiroModel({ id: "claude-opus-5", ctx: 1_000_000, out: 128_000, vision: true, reasoning: true, toolCall: true, webSearch: true }),
+  kiroModel({ id: "claude-opus-4.8", ctx: 1_000_000, out: 128_000, vision: true, reasoning: true, toolCall: true, webSearch: true }),
+  kiroModel({ id: "claude-opus-4.7", ctx: 1_000_000, out: 128_000, vision: true, reasoning: true, toolCall: true, webSearch: true }),
+  kiroModel({ id: "claude-opus-4.5", ctx: 200_000, out: 64_000, vision: true, reasoning: true, toolCall: true, webSearch: true }),
+  kiroModel({ id: "claude-sonnet-5", ctx: 1_000_000, out: 128_000, vision: true, reasoning: true, toolCall: true, webSearch: true }),
+  kiroModel({ id: "claude-sonnet-4.5", ctx: 1_000_000, out: 64_000, vision: true, reasoning: true, toolCall: true, webSearch: true }),
+  kiroModel({ id: "claude-haiku-4.5", ctx: 200_000, out: 64_000, vision: true, reasoning: true, toolCall: true, webSearch: true }),
   kiroModel({ id: "gpt-5.6-sol", ctx: 272_000, out: 128_000, reasoning: true, toolCall: true }),
   kiroModel({ id: "gpt-5.6-terra", ctx: 272_000, out: 128_000, reasoning: true, toolCall: true }),
   kiroModel({ id: "gpt-5.6-luna", ctx: 272_000, out: 128_000, reasoning: true, toolCall: true }),
   // The non-Anthropic rows reject image and audio input upstream.
-  kiroModel({ id: "deepseek-3.2", ctx: 500_000, out: 64_000, reasoning: true, toolCall: true }),
-  kiroModel({ id: "qwen3-coder-next", ctx: 500_000, out: 64_000, reasoning: true, toolCall: true }),
-  kiroModel({ id: "glm-5", ctx: 500_000, out: 64_000, reasoning: true, toolCall: true }),
-  kiroModel({ id: "MiniMax-M2.5", ctx: 500_000, out: 64_000, reasoning: true, toolCall: true }),
+  kiroModel({ id: "deepseek-3.2", ctx: 128_000, out: 64_000, reasoning: true, toolCall: true }),
+  kiroModel({ id: "qwen3-coder-next", ctx: 1_000_000, out: 64_000, reasoning: true, toolCall: true }),
+  kiroModel({ id: "glm-5", ctx: 204_800, out: 131_072, reasoning: true, toolCall: true }),
+  kiroModel({ id: "MiniMax-M2.5", ctx: 204_800, out: 131_072, reasoning: true, toolCall: true }),
 ];
 
 /**
@@ -98,4 +103,4 @@ export function kiroContextWindow(modelId: string): number {
 }
 
 /** Window used for a model this catalog does not name; the Anthropic rows' value. */
-export const KIRO_DEFAULT_CONTEXT_WINDOW = 500_000;
+export const KIRO_DEFAULT_CONTEXT_WINDOW = 200_000;

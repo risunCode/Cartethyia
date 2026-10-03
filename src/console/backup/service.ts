@@ -20,7 +20,7 @@ import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { ConsoleDomainError } from "../shared/errors";
 import { tablesForSection } from "./contracts";
 import type { BackupSection } from "./contracts";
-import { exportBackup, applyRestore } from "./store";
+import { deleteAll, exportBackup, applyRestore, type DeleteAllResult, type DeleteAllScope } from "./store";
 import { detectFormat, restoreOrder, validateRestorePayload } from "./validate";
 import { convert9RouterBackup, type ImportReport } from "./nine-router";
 
@@ -130,7 +130,26 @@ export class BackupService {
     }
   }
 
-  /** Counts a section would export, without building the payload. */
+  /** Permanently deletes selected tenant configuration after re-authentication. */
+  async deleteAll(password: unknown, scopes: readonly DeleteAllScope[], tenantId: string): Promise<DeleteAllResult> {
+    if (typeof password !== "string" || !(await this.options.verifyPassword(password))) {
+      throw new ConsoleDomainError("unauthorized", 401, "password is incorrect");
+    }
+    if (scopes.length === 0) {
+      throw new ConsoleDomainError("invalid_request", 400, "select at least one delete scope");
+    }
+    try {
+      return await deleteAll(this.options.db, scopes, tenantId);
+    } catch (error) {
+      throw new ConsoleDomainError(
+        "delete_failed",
+        500,
+        `delete failed and was rolled back: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+    }
+  }
+
+  /** Counts a section without building its payload. */
   async preview(
     sections: readonly BackupSection[] | undefined,
     tenantId: string,

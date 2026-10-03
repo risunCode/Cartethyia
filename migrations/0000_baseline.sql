@@ -6,7 +6,7 @@ CREATE TYPE "public"."health_entity_kind" AS ENUM('account', 'pool');
 --> statement-breakpoint
 CREATE TYPE "public"."health_status" AS ENUM('active', 'cooldown', 'disabled');
 --> statement-breakpoint
-CREATE TYPE "public"."network_pool_kind" AS ENUM('http', 'socks5');
+CREATE TYPE "public"."network_pool_kind" AS ENUM('http', 'socks5', 'bridge');
 --> statement-breakpoint
 CREATE TYPE "public"."pool_routing_strategy" AS ENUM('least_loaded', 'round_robin');
 --> statement-breakpoint
@@ -57,7 +57,6 @@ CREATE TABLE "provider_accounts" (
   "cooldown_until" timestamptz,
   "last_recovered_at" timestamptz,
   "model_cooldowns" jsonb DEFAULT '{}'::jsonb NOT NULL,
-  "max_inflight" integer,
   "sort_index" integer DEFAULT 0 NOT NULL,
   "static_token" boolean DEFAULT false NOT NULL,
   "created_at" timestamptz DEFAULT now() NOT NULL,

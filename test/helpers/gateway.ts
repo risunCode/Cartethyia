@@ -38,7 +38,8 @@ import type {
 import { parseProviderId } from "../../src/providers/provider-registry";
 import { ProxyRequestPreparer } from "../../src/transport/request/preparer";
 import { RoutingEngine } from "../../src/transport/routing/router";
-import { ApiKeyAdmissionService, InMemoryAdmissionCounterStore } from "../../src/security/admission";
+import { ApiKeyAdmissionService } from "../../src/security/admission/service";
+import { InMemoryAdmissionCounterStore } from "../../src/security/admission/in-memory-store";
 import { ProxyRequestStateStore } from "../../src/transport/request/state";
 import { InMemoryRouteSnapshotService } from "../../src/transport/routing/route-model";
 import type { RouteCandidate, RouteSnapshot } from "../../src/transport/routing/route-model";

@@ -20,14 +20,13 @@
  * observe (a counter value, a rejection reason, a released flag).
  */
 import { describe, expect, test } from "bun:test";
-import {
-  ApiKeyAdmissionService,
-  InMemoryAdmissionCounterStore,
-  LEASE_KEY_TTL_SECONDS,
-  LEASE_REAP_HORIZON_SECONDS,
-  type AdmissionCounterStore,
-  type AdmissionReserveRequest,
-} from "../../src/security/admission";
+import { ApiKeyAdmissionService } from "../../src/security/admission/service";
+import { InMemoryAdmissionCounterStore } from "../../src/security/admission/in-memory-store";
+import { LEASE_KEY_TTL_SECONDS, LEASE_REAP_HORIZON_SECONDS } from "../../src/security/admission/ttl";
+import type {
+  AdmissionCounterStore,
+  AdmissionReserveRequest,
+} from "../../src/security/admission/contracts";
 import type { ApiKeyAuthorizationSnapshot } from "../../src/security/api-key-auth";
 import { GatewayError } from "../../src/transport/gateway-error";
 import type { UsageRecord } from "../../src/transport/canonical-model";

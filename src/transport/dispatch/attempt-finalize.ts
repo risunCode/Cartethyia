@@ -4,7 +4,7 @@ import type { ValidatedOutboundFetch } from "../../providers/provider-registry";
 import { reportAttemptOutcome } from "../../providers/operations/account-health-service";
 import type { UsageRecord } from "../canonical-model";
 import { classifyUpstreamFailure } from "../failure-policy";
-import type { AdmissionLease } from "../../security/admission";
+import type { AdmissionLease } from "../../security/admission/contracts";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { TelemetryPayloadCapture } from "../../observability/payload-capture";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";

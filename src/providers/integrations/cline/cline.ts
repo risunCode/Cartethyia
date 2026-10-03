@@ -3,7 +3,7 @@ import type { ProviderDispatchTarget, ModelDefinition, ProviderAdapter, Provider
 import { unwrapProviderToken } from "../../credential-envelope";
 import { GatewayError } from "../../../transport/gateway-error";
 import type { CanonicalRequest } from "../../../transport/canonical-model";
-import { isRecord } from "../../../protocol/primitives";
+import { completeRequiredSchema, isRecord } from "../../../protocol/primitives";
 import { providerBaseUrl } from "../../provider-metadata";
 import { getCachedModelDiscovery } from "../../operations/model-discovery-cache";
 import { defineModel } from "../../model-definition";
@@ -83,11 +83,28 @@ async function clineExtraHeaders(context: ProviderDispatchContext): Promise<Reco
 // Cline requires a system/developer message for compatibility; its upstream
 // free models also reject empty system content, so the fallback is concise.
 
+function completeClineToolSchemas(payload: Record<string, unknown>): void {
+  if (!Array.isArray(payload.tools)) return;
+  payload.tools = payload.tools.map((tool) => {
+    if (!isRecord(tool)) return tool;
+    const functionValue = tool.function;
+    if (isRecord(functionValue) && "parameters" in functionValue) {
+      return {
+        ...tool,
+        function: { ...functionValue, parameters: completeRequiredSchema(functionValue.parameters) },
+      };
+    }
+    if ("parameters" in tool) return { ...tool, parameters: completeRequiredSchema(tool.parameters) };
+    return tool;
+  });
+}
+
 function clinePrePayload(
   payload: Record<string, unknown>,
   request: CanonicalRequest,
   candidate: ProviderDispatchTarget,
 ): void {
+  completeClineToolSchemas(payload);
   // 1) Ensure system/developer messages always carry non-empty content.
   const rawMessages = payload["messages"];
   const messages: Record<string, unknown>[] = Array.isArray(rawMessages)

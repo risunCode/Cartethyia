@@ -589,22 +589,38 @@ export function computeProbeVerdict(args: {
         // Malformed or non-standard JSON error payloads safely retain original error message.
       }
     }
+    const details =
+      dispatchError instanceof GatewayError
+        ? (dispatchError.details as Record<string, unknown>)
+        : undefined;
     const status =
       dispatchError instanceof GatewayError && typeof dispatchError.status === "number"
         ? dispatchError.status
         : undefined;
+    const providerCode =
+      typeof details?.providerCode === "string" ? String(details.providerCode) : undefined;
+    const providerStatus =
+      typeof details?.providerStatus === "number" ? Number(details.providerStatus) : undefined;
+    const upstreamReq =
+      typeof details?.upstreamRequestId === "string"
+        ? String(details.upstreamRequestId)
+        : undefined;
     const wireLabel = `${wireFamily} ${endpointPath}`;
+    const statusTag =
+      providerCode !== undefined && providerStatus !== undefined
+        ? `${providerCode} (upstream ${status ?? providerStatus})`
+        : providerCode !== undefined
+          ? providerCode
+          : status !== undefined
+            ? `upstream ${status}`
+            : undefined;
     errorMessage =
-      status !== undefined
-        ? `${providerId}/${modelId} via ${wireLabel} — ${pretty} (upstream ${status})`
-        : `${providerId}/${modelId} via ${wireLabel} — ${pretty}`;
-    // Surface the upstream request id when present for quick log correlation.
-    if (
-      dispatchError instanceof GatewayError &&
-      typeof dispatchError.details.upstreamRequestId === "string"
-    ) {
-      errorMessage += ` [req ${dispatchError.details.upstreamRequestId}]`;
-    }
+      statusTag !== undefined
+        ? `${providerId}/${modelId} via ${wireLabel} — ${pretty} (${statusTag})${upstreamReq ? ` [req ${upstreamReq}]` : ""}`
+        : upstreamReq !== undefined
+          ? `${providerId}/${modelId} via ${wireLabel} — ${pretty} [req ${upstreamReq}]`
+          : `${providerId}/${modelId} via ${wireLabel} — ${pretty}`;
+
   } else if (terminal?.type === "terminal" && terminal.state !== "complete") {
     errorMessage = terminal.stop_reason ?? "Model probe failed";
   } else {

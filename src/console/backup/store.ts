@@ -32,7 +32,27 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getTableColumns, type Column, type SQL, type Table } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
-import { apiKeys, telemetryEvents, telemetryUsageTotals } from "../../persistence/schema";
+import {
+  apiKeys,
+  cliToolMappings,
+  cliToolSettings,
+  consoleSettings,
+  healthEvents,
+  modelAliases,
+  modelCombos,
+  models,
+  networkPools,
+  poolRoutingSettings,
+  providerAccounts,
+  providerOauthStates,
+  providerRoutingSettings,
+  providers,
+  shareLinks,
+  studioSessions,
+  tenantDisabledModels,
+  telemetryEvents,
+  telemetryUsageTotals,
+} from "../../persistence/schema";
 import {
   BACKUP_APP,
   BACKUP_VERSION,
@@ -494,6 +514,81 @@ export async function applyRestore(
   });
 
   return { restored, skipped };
+}
+
+export const DELETE_ALL_SCOPES = ["providers", "proxies", "configuration"] as const;
+export type DeleteAllScope = (typeof DELETE_ALL_SCOPES)[number];
+
+export interface DeleteAllResult {
+  readonly deleted: Record<string, number>;
+  readonly apiKeyIds: readonly string[];
+}
+
+/**
+ * Deletes selected tenant configuration scopes in one transaction. The lists
+ * are explicit and ordered child-first; no table-wide delete is permitted.
+ */
+export async function deleteAll(
+  db: CartethyiaDatabase,
+  scopes: readonly DeleteAllScope[],
+  tenantId: string,
+): Promise<DeleteAllResult> {
+  const selected = new Set(scopes);
+  if (selected.size === 0) throw new Error("at least one delete scope is required");
+  for (const scope of selected) {
+    if (scope !== "providers" && scope !== "proxies" && scope !== "configuration") {
+      throw new Error(`unknown delete scope ${scope}`);
+    }
+  }
+  const all = selected.has("configuration");
+  // `configuration` is the destructive superset: it includes provider and proxy
+  // routing because those are configuration, not runtime history.
+  const providersSelected = all || selected.has("providers");
+  const proxiesSelected = all || selected.has("proxies");
+  const deleted: Record<string, number> = {};
+  const apiKeyIds: string[] = [];
+
+  await db.transaction(async (tx) => {
+    const scoped = tx as unknown as CartethyiaDatabase;
+    const remove = async (table: Table, filter: SQL, name = tableName(table)): Promise<void> => {
+      const rows = await scoped.delete(table).where(filter).returning();
+      if (rows.length > 0) deleted[name] = (deleted[name] ?? 0) + rows.length;
+    };
+    const direct = (table: Table): SQL => ownedByFilter(table, tenantId);
+
+    if (proxiesSelected) {
+      await remove(healthEvents, sql`${healthEvents.networkPoolId} in (select ${networkPools.id} from ${networkPools} where ${networkPools.tenantId} = ${tenantId})`);
+      await remove(networkPools, direct(networkPools));
+      await remove(poolRoutingSettings, direct(poolRoutingSettings));
+    }
+
+    if (providersSelected) {
+      await remove(healthEvents, sql`${healthEvents.accountId} in (select ${providerAccounts.id} from ${providerAccounts} where ${providerAccounts.tenantId} = ${tenantId})`);
+      await remove(providerOauthStates, sql`${providerOauthStates.providerAccountId} in (select ${providerAccounts.id} from ${providerAccounts} where ${providerAccounts.tenantId} = ${tenantId})`);
+      await remove(providerAccounts, direct(providerAccounts));
+      await remove(tenantDisabledModels, direct(tenantDisabledModels));
+      await remove(models, sql`${models.providerId} in (select ${providers.id} from ${providers} where ${providers.tenantId} = ${tenantId})`);
+      await remove(providerRoutingSettings, direct(providerRoutingSettings));
+      await remove(providers, direct(providers));
+    }
+
+    if (all || selected.has("configuration")) {
+      await remove(cliToolMappings, direct(cliToolMappings));
+      await remove(cliToolSettings, direct(cliToolSettings));
+      await remove(shareLinks, sql`${shareLinks.apiKeyId} in (select ${apiKeys.id} from ${apiKeys} where ${apiKeys.tenantId} = ${tenantId})`);
+      const keys = await scoped.delete(apiKeys).where(direct(apiKeys)).returning({ id: apiKeys.id });
+      if (keys.length > 0) {
+        apiKeyIds.push(...keys.map((row) => row.id));
+        deleted["api_keys"] = (deleted["api_keys"] ?? 0) + keys.length;
+      }
+      await remove(modelAliases, direct(modelAliases));
+      await remove(modelCombos, direct(modelCombos));
+      await remove(consoleSettings, direct(consoleSettings));
+      await remove(studioSessions, direct(studioSessions));
+    }
+  });
+
+  return { deleted, apiKeyIds };
 }
 
 export { and, eq };

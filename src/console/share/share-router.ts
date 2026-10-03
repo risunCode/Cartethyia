@@ -7,6 +7,7 @@ import { Elysia } from "elysia";
 import { and, eq, isNull, or } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { apiKeys, models, providers } from "../../persistence/schema";
+import { PublicModelCatalogStore } from "../providers/catalog/public-model-store";
 import { canonicalClientIpKey } from "../../security/ip-boundary";
 import { decryptCredentialToString } from "../../security/crypto";
 import { isModelAllowed, type ApiKeyAuthorizationSnapshot } from "../../security/api-key-auth";
@@ -114,33 +115,11 @@ async function modelInfoForShare(
   allowedModels: readonly string[],
 ): Promise<Record<string, ShareModelInfo>> {
   if (allowedModels.length === 0) return {};
-  const providerScope = or(isNull(providers.tenantId), eq(providers.tenantId, row.tenantId));
-  const rows = await db
-    .select({
-      providerId: models.providerId,
-      modelId: models.modelId,
-      contextLimit: models.contextLimit,
-      outputLimit: models.outputLimit,
-      modalities: models.modalities,
-      reasoning: models.reasoning,
-      toolCall: models.toolCall,
-      webSearch: models.webSearch,
-    })
-    .from(models)
-    .innerJoin(providers, eq(models.providerId, providers.id))
-    .where(and(eq(models.enabled, true), eq(providers.enabled, true), providerScope));
-  // Index every enabled catalog row by its qualified id and its bare model id,
-  // so an allowlist entry in either spelling resolves to the same row.
-  const byId = new Map<string, (typeof rows)[number]>();
-  for (const row of rows) {
-    const qualified = `${row.providerId}/${row.modelId}`;
-    if (!byId.has(qualified)) byId.set(qualified, row);
-    if (!byId.has(row.modelId)) byId.set(row.modelId, row);
-  }
+  const catalog = new PublicModelCatalogStore(db);
+  const metadata = await catalog.metadataForNames(row.tenantId, allowedModels);
   const info: Record<string, ShareModelInfo> = {};
   for (const name of allowedModels) {
-    const bare = name.slice(name.lastIndexOf("/") + 1);
-    const entry = byId.get(name) ?? byId.get(bare);
+    const entry = metadata.get(name);
     if (!entry) continue;
     info[name] = {
       contextLength: entry.contextLimit ?? null,

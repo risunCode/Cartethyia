@@ -75,6 +75,7 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   "console_logs.cleared": "Console logs cleared",
   "security.ip_banned": "IP banned",
   "backup.reset": "Backup reset",
+  "backup.delete_all": "Delete all configuration",
 };
 
 const ACRONYMS: Readonly<Record<string, string>> = {

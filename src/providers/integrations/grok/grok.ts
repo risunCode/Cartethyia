@@ -418,6 +418,10 @@ function normalizeTools(payload: Record<string, unknown>): void {
     const value = choice as Record<string, unknown>;
     const type = typeof value.type === "string" ? value.type : "";
     if (type === "function" || type === "custom") {
+      // Unlike `tools`, `tool_choice` genuinely arrives nested: the chat
+      // encoder writes `{type:"function", function:{name}}` and
+      // `{type:"custom", custom:{name}}`, so these reads are not a legacy
+      // leftover even though the tools loop above dropped its own nested path.
       const fn = value.function;
       const nested = fn && typeof fn === "object" && !Array.isArray(fn) ? fn as Record<string, unknown> : undefined;
       const custom = value.custom;

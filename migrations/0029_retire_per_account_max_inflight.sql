@@ -1,0 +1,24 @@
+-- Retire the per-account concurrency ceiling.
+--
+-- `provider_accounts.max_inflight` was the original place to cap how many
+-- requests one account could carry. Concurrency policy has since moved to two
+-- places that each state it once, per scope:
+--
+--   * `provider_routing_settings.max_inflight` — the ceiling applied to every
+--     account of a provider, sitting next to the failover/round-robin strategy
+--     that decides which account a request goes to.
+--   * `network_pools.max_inflight` — the ceiling of an egress proxy pool.
+--
+-- The per-account column was left behind as "retained for stored rows only",
+-- and routing stopped reading it, so it has been inert: a value an operator
+-- wrote there changed nothing, and nothing could tell them so. Measured before
+-- dropping it, the test database held 2706 `provider_accounts` rows and **zero**
+-- non-null values, and no code path in `src/`, `dashboard/src/`, `test/`, or
+-- `scripts/` reads or writes the column.
+--
+-- Dropped rather than kept as a deprecated field: a column that looks
+-- configurable but is not is worse than no column, because the next reader has
+-- to rediscover that it does nothing. Concurrency is still capped — by the two
+-- columns above.
+ALTER TABLE "public"."provider_accounts"
+  DROP COLUMN IF EXISTS "max_inflight";

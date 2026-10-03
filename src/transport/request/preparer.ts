@@ -1,6 +1,6 @@
 import { GatewayError } from "../gateway-error";
 import type { CanonicalRequest, ContentPart, ServiceKind } from "../canonical-model";
-import type { ApiKeyAdmissionService } from "../../security/admission";
+import type { ApiKeyAdmissionService } from "../../security/admission/service";
 import type { RouteCandidate as RouteCandidate, InMemoryRouteSnapshotService, RoutePlan } from "../routing/route-model";
 import { resolveAliasTarget, type RoutingEngine } from "../routing/router";
 import { deriveRequiredCapabilities, projectForRoute, routeCapabilitiesFor } from "../translation/capabilities";

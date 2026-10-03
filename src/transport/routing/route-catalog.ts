@@ -399,9 +399,9 @@ class RouteCatalogRepository {
     /** Provider-wide concurrency ceiling shared by every account of the provider.
      * Tenant setting wins over global, mirroring bypassProxy. `undefined`
      * means UNLIMITED — an empty field never falls back to the deployment
-     * ceiling. Per-account overrides are intentionally unsupported: legacy
-     * stored account values are ignored so a stale manual cap cannot survive
-     * the Routing Strategy cutover. */
+     * ceiling. Per-account overrides are intentionally unsupported: the only
+     * per-account column ever to hold one was `provider_accounts.max_inflight`,
+     * dropped by `0029_retire_per_account_max_inflight.sql`. */
     function resolveMaxInflight(
       providerId: string,
       rowTenantId: string | null,

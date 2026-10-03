@@ -15,7 +15,7 @@ import type { OAuthTokenRefresher } from "../../providers/authentication/oauth-r
 import type { OAuthRefreshService } from "../../providers/authentication/oauth-refresh-service";
 import type { ValidatedNetworkBindingFactory } from "../../network/pool/resolver";
 import type { ByokUpstreamHost } from "../../providers/operations/provider-catalog-service";
-import type { AdmissionLease } from "../../security/admission";
+import type { AdmissionLease } from "../../security/admission/contracts";
 import type { RouteCandidate, Reservation, RouteSnapshotService } from "../routing/route-model";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { acquireAttemptLeases, releaseAttemptLeases } from "./leases";

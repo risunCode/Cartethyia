@@ -11,14 +11,25 @@
  *
  * Keys (TTY): CTRL+R = restart the stack in place · CTRL+C = quit everything.
  *
+ * Watch (new `dev:watch` mode): source changes hot-reload as usual, but two
+ * changes cannot be hot-applied — a new/edited SQL migration (runs only at
+ * boot) and a dependency manifest change (bun.lock/package.json). This
+ * supervisor polls both cheaply (DEV_WATCH_MS, default 3000) and, when it
+ * detects one, reinstalls deps (`bun install --frozen-lockfile`) and restarts
+ * the stack in place, so `bun run dev:watch` is the only command you ever
+ * re-run. Set DEV_WATCH_MS=0 to disable polling and keep CTRL+R-only behavior.
+ *
  * Env:
  *   DEV_PROXY_PORT     public port the proxy binds   (default PORT env or 12800)
  *   DEV_BACKEND_PORT   internal backend port         (default 12801)
  *   DEV_SUPERVISOR_CMD child command, shell-split    (default `bun run dev:stack`)
  *   DEV_HOLD_MS        max hold per request in ms    (default 60000)
+ *   DEV_WATCH_MS       file-change poll interval     (default 3000; 0 disables)
  */
 
 import type { Subprocess } from "bun";
+import { readdir, stat } from "node:fs/promises";
+import { join } from "node:path";
 
 function intEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -42,6 +53,94 @@ type DevChild = Subprocess<"ignore", "inherit", "inherit">;
 let child: DevChild | undefined;
 let busy = false;
 let holdAnnounced = false;
+
+// ---- dependency / migration watch ---------------------------------------
+
+// Unlike `intEnv`, 0 is meaningful here: it disables polling entirely. Read
+// directly so `DEV_WATCH_MS=0` turns the watcher off instead of falling back.
+function watchMsEnv(): number {
+  const raw = process.env.DEV_WATCH_MS;
+  if (raw === undefined || raw.trim() === "") return 3000;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? Math.trunc(value) : 3000;
+}
+
+const WATCH_MS = watchMsEnv();
+const MIGRATIONS_DIR = join(process.cwd(), "migrations");
+const DEPENDENCY_FILES = ["package.json", "bun.lock"] as const;
+
+/** Latest mtime (ms) across the two load-bearing manifests, or 0 if none. */
+async function manifestStamp(): Promise<number> {
+  let latest = 0;
+  for (const name of DEPENDENCY_FILES) {
+    try {
+      const mtime = (await stat(join(process.cwd(), name))).mtimeMs;
+      if (mtime > latest) latest = mtime;
+    } catch {
+      // Missing manifest is not our concern; the child build will report it.
+    }
+  }
+  return latest;
+}
+
+/** Latest mtime (ms) across the numbered SQL files in `migrations/`. */
+async function migrationStamp(): Promise<number> {
+  let latest = 0;
+  try {
+    const entries = await readdir(MIGRATIONS_DIR, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".sql")) continue;
+      const mtime = (await stat(join(MIGRATIONS_DIR, entry.name))).mtimeMs;
+      if (mtime > latest) latest = mtime;
+    }
+  } catch {
+    // No migrations dir yet; nothing to watch.
+  }
+  return latest;
+}
+
+/**
+ * Reinstalls with the lockfile frozen so a manifest edit can only pull the
+ * versions already pinned; an out-of-sync lock is a developer error to fix,
+ * not something the supervisor silently rewrites.
+ */
+async function reinstallDependencies(): Promise<void> {
+  console.log("[dev] dependency manifest changed — reinstalling…");
+  const proc = Bun.spawn(["bun", "install", "--frozen-lockfile"], {
+    stdin: "ignore",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const code = await proc.exited;
+  if (code !== 0) {
+    console.log(`[dev] bun install exited (code ${code}) — restart skipped; fix the lockfile first`);
+    return;
+  }
+  await restart();
+}
+
+/**
+ * Baseline-only diff: a migration is a boot-time event, so the supervisor
+ * restarts whenever the newest file changes. Backdating a migration (renumbering
+ * it earlier) is intentionally not detected — the applied ledger already ran it.
+ */
+async function watchOnce(): Promise<void> {
+  const manifest = await manifestStamp();
+  const migrations = await migrationStamp();
+  if (manifest > manifestBaseline) {
+    manifestBaseline = manifest;
+    await reinstallDependencies();
+    return;
+  }
+  if (migrations > migrationBaseline) {
+    migrationBaseline = migrations;
+    console.log("[dev] migration files changed — restarting to re-run them…");
+    await restart();
+  }
+}
+
+let manifestBaseline = 0;
+let migrationBaseline = 0;
 
 function childArgv(): string[] {
   const override = process.env.DEV_SUPERVISOR_CMD;
@@ -200,6 +299,20 @@ async function shutdown(): Promise<void> {
 
 launch();
 console.log(`[dev] proxy listening :${PUBLIC_PORT} → ${UPSTREAM} · CTRL+R restart · CTRL+C quit`);
+
+// Baselines snapshotted after the initial launch so the very first poll never
+// treats a pre-existing manifest/migration as a fresh change.
+if (WATCH_MS > 0) {
+  void (async () => {
+    manifestBaseline = await manifestStamp();
+    migrationBaseline = await migrationStamp();
+    console.log(`[dev] watching deps + migrations every ${WATCH_MS}ms`);
+    for (;;) {
+      await Bun.sleep(WATCH_MS);
+      await watchOnce();
+    }
+  })();
+}
 
 // The data listener runs for pipes too (testable: `printf '\022' | …` sends
 // the same byte as CTRL+R); raw mode is only meaningful on a TTY.

@@ -49,7 +49,7 @@ import {
   missingRequiredFields,
 } from "./provider-detail/ImportCredentialDialog";
 import { AddModelModal, ModelGrid, ThinkingSelect } from "./provider-detail/Models";
-import type { ProbeReasoningEffort } from "../data/contracts";
+import { PROBE_REASONING_EFFORTS, type ProbeReasoningEffort } from "../data/contracts";
 
 export default function ProviderDetail(): ReactNode {
   const { providerId } = useParams<{ providerId: string }>();
@@ -68,7 +68,27 @@ export default function ProviderDetail(): ReactNode {
   // Section-wide reasoning effort for every test in the Models card. Defaults to
   // `auto` — the probe sends no reasoning intent, because whether the model
   // supports reasoning is often exactly what the test is trying to find out.
-  const [thinkingEffort, setThinkingEffort] = useState<ProbeReasoningEffort>("auto");
+  // Persisted per provider so navigating away and back restores the last
+  // choice, while different providers keep their own preference.
+  const CARTETHYIA_PROVIDER_THINKING_KEY = (pid: string) => `cartethyia:provider:${pid}:thinking-effort`;
+  const readThinkingEffort = (pid: string): ProbeReasoningEffort => {
+    if (typeof window === "undefined" || !window.localStorage) return "auto";
+    const raw = window.localStorage.getItem(CARTETHYIA_PROVIDER_THINKING_KEY(pid));
+    if (raw === null) return "auto";
+    const trimmed = raw.trim().toLowerCase();
+    const allowed: readonly string[] = PROBE_REASONING_EFFORTS;
+    return (allowed as readonly string[]).includes(trimmed) ? (trimmed as ProbeReasoningEffort) : "auto";
+  };
+  const [thinkingEffort, setThinkingEffort] = useState<ProbeReasoningEffort>(() => readThinkingEffort(id));
+  useEffect(() => {
+    if (!id) return;
+    const next = readThinkingEffort(id);
+    if (next !== thinkingEffort) setThinkingEffort(next);
+  }, [id]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.localStorage || !id) return;
+    window.localStorage.setItem(CARTETHYIA_PROVIDER_THINKING_KEY(id), thinkingEffort);
+  }, [id, thinkingEffort]);
   const [deviceDialogOpen, setDeviceDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   // Which flow is collecting its declared fields before it starts. `null` means

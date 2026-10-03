@@ -1,6 +1,7 @@
 import { consoleRequest } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
 import type { BackupExportResponse, BackupImportResponse } from "../data/contracts";
+import type { DeleteAllScope } from "../../../src/console/backup/store";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 /**
@@ -32,6 +33,24 @@ export function useExportBackup() {
  * A successful restore rewrites configuration, so every cached read of it is
  * invalidated rather than left serving the pre-restore state.
  */
+export interface DeleteAllResponse {
+  readonly deleted: Record<string, number>;
+}
+
+export function useDeleteAllBackup() {
+  const queryClient = useQueryClient();
+  return useMutation<DeleteAllResponse, ApiErrorShape, { password: string; scopes: readonly DeleteAllScope[] }>({
+    mutationFn: ({ password, scopes }) =>
+      consoleRequest<DeleteAllResponse>("/backup/delete-all", {
+        method: "POST",
+        body: JSON.stringify({ password, scopes }),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries();
+    },
+  });
+}
+
 export function useRestoreBackup() {
   const queryClient = useQueryClient();
   return useMutation<BackupImportResponse, ApiErrorShape, { password: string; backup: unknown }>({
