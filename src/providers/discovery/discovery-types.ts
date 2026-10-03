@@ -43,18 +43,31 @@ export type ProviderModelDiscovery = (
 /**
  * Reasoning efforts a probe accepts, as a runtime tuple.
  *
- * Deliberately narrower than the canonical `REASONING_EFFORTS`: `none` says
- * nothing to probe and `max` is a provider-side ceiling the probe cannot
- * request usefully. Declared here beside `ProbeModelRequest` so the request
- * type and the route's Elysia schema project the same list.
+ * Narrower than the canonical `REASONING_EFFORTS` by exactly one member:
+ * `none` says nothing to probe, so it is absent. Every other level is offered,
+ * `max` included — it is a real tier on the models that declare it (the Chat
+ * ladder reaches it), and withholding it here made the probe vocabulary
+ * disagree with the Model Lab, which does offer `Max`. Declared here beside
+ * `ProbeModelRequest` so the request type and the route's Elysia schema project
+ * the same list.
  *
- * `auto` (the default) sends no reasoning intent at all, leaving the provider's
- * own default in place. That is the honest choice for a probe: the operator is
- * testing whether a route works, and the model may not support reasoning at all
- * — forcing an effort onto an unsupported model turns a working route into a
- * failure and hides what the route actually is.
+ * A level a given model does not support is not rejected by the schema; the
+ * dispatch path clamps it to the model's own ladder. `auto` (the default) sends
+ * no reasoning intent at all, leaving the provider's own default in place. That
+ * is the honest choice for a probe: the operator is testing whether a route
+ * works, and the model may not support reasoning at all — forcing an effort
+ * onto an unsupported model turns a working route into a failure and hides what
+ * the route actually is.
  */
-export const PROBE_REASONING_EFFORTS = ["auto", "minimal", "low", "medium", "high", "xhigh"] as const;
+export const PROBE_REASONING_EFFORTS = [
+  "auto",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
 
 /** One accepted probe reasoning effort. `auto` means "send no reasoning intent". */
 export type ProbeReasoningEffort = (typeof PROBE_REASONING_EFFORTS)[number];

@@ -21,6 +21,7 @@ import type {
   UsageRecord,
   WireFamily,
 } from "../../transport/canonical-model";
+import type { ReasoningEffortLevel } from "../../transport/translation/thinking";
 import type { CompatibilityProfile } from "../provider-metadata";
 import type { ProbeModelRequest } from "./discovery-types";
 import {
@@ -378,7 +379,7 @@ export async function resolveProbeAdapter(args: {
  * sent as a field the wire codec would silently drop.
  */
 export interface ProbeReasoning {
-  effort: "minimal" | "low" | "medium" | "high" | "xhigh";
+  effort: ReasoningEffortLevel;
   summary_mode?: "auto" | "concise" | "detailed";
 }
 

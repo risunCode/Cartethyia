@@ -23,7 +23,10 @@ import {
   buildProbeCanonicalRequest,
   loadProbePreferences,
 } from "../../src/providers/discovery/probe-phases";
-import type { ProbeModelRequest } from "../../src/providers/discovery/discovery-types";
+import {
+  PROBE_REASONING_EFFORTS,
+  type ProbeModelRequest,
+} from "../../src/providers/discovery/discovery-types";
 
 /** A chainable stand-in for the one `select().from().where().limit()` read. */
 function fakeDb(rows: readonly unknown[]): CartethyiaDatabase {
@@ -75,12 +78,25 @@ describe("loadProbePreferences — effort reaches the wire", () => {
   });
 
   test("every documented effort survives on every wire", async () => {
-    const efforts = ["minimal", "low", "medium", "high", "xhigh"] as const;
+    // Derived from the tuple, not a hand-written copy: the vocabulary and this
+    // assertion cannot drift apart, and a newly offered level is covered the
+    // moment it is added.
+    const efforts = PROBE_REASONING_EFFORTS.filter((effort) => effort !== "auto");
     for (const wireFamily of ["chat", "responses", "messages"] as const) {
       for (const effort of efforts) {
         const { probeReasoning } = await load(wireFamily, { modelId: "m", reasoningEffort: effort });
         expect(probeReasoning?.effort).toBe(effort);
       }
+    }
+  });
+
+  test("`max` is offered and reaches the wire", async () => {
+    // The Model Lab offers `Max`; the probe vocabulary used to stop at `xhigh`,
+    // so the two dropdowns disagreed about the same scale.
+    expect(PROBE_REASONING_EFFORTS).toContain("max");
+    for (const wireFamily of ["chat", "responses", "messages"] as const) {
+      const { probeReasoning } = await load(wireFamily, { modelId: "m", reasoningEffort: "max" });
+      expect(probeReasoning?.effort).toBe("max");
     }
   });
 });
