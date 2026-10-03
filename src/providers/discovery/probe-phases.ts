@@ -370,10 +370,16 @@ export async function resolveProbeAdapter(args: {
   return adapter;
 }
 
-/** The reasoning shape a Responses-wire probe carries. */
+/**
+ * The reasoning shape a probe carries. `effort` is the level every reasoning
+ * wire honors, so an explicit operator choice must reach the wire that serves
+ * the model — not only the Responses one. `summary_mode` is Responses-only
+ * (Chat and Messages have no summary knob), so it is omitted there rather than
+ * sent as a field the wire codec would silently drop.
+ */
 export interface ProbeReasoning {
   effort: "minimal" | "low" | "medium" | "high" | "xhigh";
-  summary_mode: "auto" | "concise" | "detailed";
+  summary_mode?: "auto" | "concise" | "detailed";
 }
 
 /** Tenant probe preferences that shape the request and telemetry. */
@@ -417,17 +423,19 @@ export async function loadProbePreferences(args: {
     payloadCaptureEnabled =
       preferences?.telemetryPayloads === "full" ||
       preferences?.telemetryPayloads === "metadata";
-    if (wireFamily === "responses" && requestedEffort !== undefined) {
+    if (requestedEffort !== undefined) {
       probeReasoning = {
         effort: requestedEffort,
-        summary_mode: mode,
+        // Only the Responses wire has a summary knob; Chat/Messages probes carry
+        // the effort alone.
+        ...(wireFamily === "responses" ? { summary_mode: mode } : {}),
       };
     }
   } catch {
-    if (wireFamily === "responses" && requestedEffort !== undefined) {
+    if (requestedEffort !== undefined) {
       probeReasoning = {
         effort: requestedEffort,
-        summary_mode: "detailed",
+        ...(wireFamily === "responses" ? { summary_mode: "detailed" as const } : {}),
       };
     }
   }

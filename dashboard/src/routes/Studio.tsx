@@ -47,7 +47,10 @@ import {
   ACTIVE_KEY,
   STUDIO_KEY_STORAGE,
   STUDIO_PREFIX_STORAGE,
+  STUDIO_THINK_STORAGE,
+  readEnumStorage,
   readStorage,
+  writeEnumStorage,
   writeLocal,
   writeSession,
 } from "../shared/studio-session-storage";
@@ -80,6 +83,9 @@ const THINK_LEVELS = [
   { value: "max", label: "Max" },
 ] as const;
 type ThinkLevel = (typeof THINK_LEVELS)[number]["value"];
+/** The closed set a persisted level is validated against. */
+const THINK_LEVEL_VALUES = THINK_LEVELS.map((level) => level.value);
+const THINK_LEVEL_DEFAULT: ThinkLevel = "high";
 
 
 const SUGGESTIONS = [
@@ -359,7 +365,17 @@ export default function ModelLab(): ReactNode {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [model, setModel] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
-  const [think, setThink] = useState<ThinkLevel>("high");
+  // Seeded from storage so the operator's level survives a page change and a
+  // reload instead of snapping back to the default on every mount.
+  const [think, setThink] = useState<ThinkLevel>(() =>
+    readEnumStorage(STUDIO_THINK_STORAGE, THINK_LEVEL_VALUES, THINK_LEVEL_DEFAULT),
+  );
+  // Every mutation goes through here so the stored copy can never drift from
+  // the rendered one.
+  const changeThink = (level: ThinkLevel) => {
+    setThink(level);
+    writeEnumStorage(STUDIO_THINK_STORAGE, level);
+  };
   // Every sampling knob has its own enable switch; the master switch gates
   // the whole group. Off = the field is never sent, so the wire stays
   // byte-identical to a client that never knew the knob existed.
@@ -488,7 +504,7 @@ export default function ModelLab(): ReactNode {
     systemPrompt.trim().length > 0;
 
   function resetTune(): void {
-    setThink("high");
+    changeThink(THINK_LEVEL_DEFAULT);
     setAdvancedOn(false);
     setTemperatureOn(true);
     setTemperature("0.7");
@@ -1623,7 +1639,7 @@ export default function ModelLab(): ReactNode {
                       value={think}
                       onValueChange={(value) => {
                         const option = THINK_LEVELS.find((level) => level.value === value);
-                        if (option !== undefined) setThink(option.value);
+                        if (option !== undefined) changeThink(option.value);
                       }}
                       options={THINK_LEVELS}
                       aria-label="Thinking level"
