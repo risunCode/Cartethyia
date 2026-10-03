@@ -5,7 +5,7 @@
 import { GatewayError } from "../../../transport/gateway-error";
 import { type ServiceKind, type WireFamily, SERVICE_KINDS, WIRE_FAMILIES } from "../../../transport/canonical-model";
 import { type ProviderRoutingSetting, type ProviderRoutingStrategy } from "../../../transport/routing/route-model";
-import type { ReasoningEffort } from "../../../transport/canonical-model";
+import type { ReasoningEffortLevel } from "../../../transport/translation/thinking";
 import { isProtectedHeader } from "../../../security/outbound-headers";
 import type { AccountHealthEventRecord } from "../../../providers/operations/account-health-service";
 import type { CompatibilityProfile } from "../../../providers/provider-metadata";
@@ -666,7 +666,7 @@ export interface ProviderRoutingResponse {
   /** Reasoning effort applied at dispatch when the request states none.
    * `null` = auto (send nothing — the pre-column behavior). Validated against
    * the canonical ladder minus `none` by the routing routes. */
-  readonly defaultReasoningEffort: ReasoningEffort | null;
+  readonly defaultReasoningEffort: ReasoningEffortLevel | null;
 }
 
 /**
@@ -680,5 +680,5 @@ export interface ProviderRoutingResponse {
  * response setting whose field is non-null.
  */
 export type UpdateProviderRoutingRequest = Partial<Omit<ProviderRoutingSetting, "defaultReasoningEffort"> & {
-  defaultReasoningEffort?: ReasoningEffort | null;
+  defaultReasoningEffort?: ReasoningEffortLevel | null;
 }>;
