@@ -25,6 +25,11 @@ import { Button } from "../components/ui/button";
 import { Input, Textarea } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { ModelPickerModal, useAllModelsCatalog } from "../components/ModelPicker";
+import {
+  appliedThinkingLevel,
+  thinkingLadder,
+  type ThinkingWireFamily,
+} from "../shared/thinking-ladder";
 import type {
   StudioAttachment,
   StudioMessage,
@@ -618,6 +623,34 @@ export default function ModelLab(): ReactNode {
     () => catalog.items.find((e) => e.qualified === model),
     [catalog.items, model],
   );
+  // The ladder of the model actually selected. `undefined` when the selection is
+  // a combo/alias (kind !== "model") or simply not in the catalog — a combo
+  // resolves to *many* models at dispatch, so there is no single ladder to
+  // enforce and the picker stays permissive. `thinkingLadder` only annotates;
+  // the backend still clamps per wire at dispatch time.
+  const studioLadder = useMemo(() => {
+    if (activeEntry === undefined || activeEntry.kind !== "model") return undefined;
+    return thinkingLadder({
+      modelId: activeEntry.entry.modelId,
+      wireFamily: activeEntry.entry.wireFamily as ThinkingWireFamily,
+      reasoning: activeEntry.entry.reasoning,
+    });
+  }, [activeEntry]);
+  // Options annotated for the selected model: a level this model cannot honor is
+  // shown disabled instead of being offered and then silently downgraded.
+  const thinkOptions = useMemo(
+    () =>
+      studioLadder === undefined
+        ? THINK_LEVELS.map((level) => ({ ...level }))
+        : THINK_LEVELS.map((level) => ({
+            ...level,
+            disabled:
+              level.value !== "auto" && !studioLadder.supported.includes(level.value),
+          })),
+    [studioLadder],
+  );
+  // What the turn will actually run at, for the hint next to the picker.
+  const thinkApplied = studioLadder === undefined ? undefined : appliedThinkingLevel(think, studioLadder);
   // Permissive when the model isn't in the catalog (alias/combo strings):
   // the route degrades unsupported parts instead of failing the turn.
   const caps = {
@@ -1641,10 +1674,39 @@ export default function ModelLab(): ReactNode {
                         const option = THINK_LEVELS.find((level) => level.value === value);
                         if (option !== undefined) changeThink(option.value);
                       }}
-                      options={THINK_LEVELS}
+                      options={thinkOptions}
                       aria-label="Thinking level"
                     />
                   </div>
+                  {studioLadder !== undefined && think !== "auto" && thinkApplied !== think ? (
+                    // The picker offers levels the selected model can honor; this
+                    // covers the other two ways a mismatch shows up — a level
+                    // persisted from a previous model, and a combo/alias that
+                    // resolves per-member at dispatch. Without it the turn would
+                    // run at a lower level than the dropdown claims, silently.
+                    <span
+                      title={
+                        studioLadder.supported.length === 0
+                          ? `${model || "This model"} has no reasoning support; “${think}” is dropped for this model.`
+                          : `${model || "This model"} tops out below “${think}”; the turn runs at “${thinkApplied}”.`
+                      }
+                      style={{
+                        flexShrink: 0,
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        letterSpacing: "0.03em",
+                        padding: "2px 8px",
+                        borderRadius: "9999px",
+                        color: "var(--orange)",
+                        border: "1px solid color-mix(in srgb, var(--orange) 45%, transparent)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {studioLadder.supported.length === 0
+                        ? "thinking: off"
+                        : `thinking → ${thinkApplied}`}
+                    </span>
+                  ) : null}
                   <div ref={sessionRef} style={{ position: "relative" }}>
                     <button
                       type="button"

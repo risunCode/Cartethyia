@@ -32,6 +32,13 @@ import { formatModelTokens, UNKNOWN_LIMITS_TOOLTIP } from "../../shared/model-li
 import { toast } from "../../shared/toast";
 import { useTrackedTimeout } from "../../hooks/use-timeout";
 import { PROBE_REASONING_EFFORTS, formatThinkingSuffix, type ModelCatalogEntry, type ProbeReasoningEffort } from "../../data/contracts";
+import {
+  appliedThinkingLevel,
+  thinkingLadder,
+  thinkingLevelSupported,
+  type ThinkingLadder,
+  type ThinkingWireFamily,
+} from "../../shared/thinking-ladder";
 
 
 function formatProbeDuration(ms: number): string {
@@ -116,17 +123,28 @@ export const MODEL_GROUPS: ReadonlyArray<{
  * route schema rejects.
  */
 /**
- * The options the thinking selector offers.
+ * The options the thinking selector offers, annotated for one model.
  *
  * Derived from the backend tuple (`PROBE_REASONING_EFFORTS`) rather than a
  * hand-written copy, so the selector cannot offer a value the route schema
  * rejects — a hand-written list drifts the moment the backend vocabulary does.
+ *
+ * `ladder` (when given) marks every level the model does not honor as
+ * `disabled`. The list keeps its full shape so the dropdown does not resize or
+ * reorder under the operator; the point is that an unsupported level is visibly
+ * unselectable here instead of being silently clamped at dispatch, which is what
+ * made the old section-wide picker look wired while changing nothing.
  * Exported so a test can pin the vocabulary without opening the Radix portal.
  */
-export function probeThinkingOptions(): { value: ProbeReasoningEffort; label: string }[] {
+export function probeThinkingOptions(ladder?: ThinkingLadder): {
+  value: ProbeReasoningEffort;
+  label: string;
+  disabled: boolean;
+}[] {
   return PROBE_REASONING_EFFORTS.map((effort) => ({
     value: effort,
     label: effort === "auto" ? "Thinking: auto" : effort.charAt(0).toUpperCase() + effort.slice(1),
+    disabled: ladder !== undefined && !thinkingLevelSupported(ladder, effort),
   }));
 }
 
@@ -134,18 +152,23 @@ export function ThinkingSelect({
   value,
   onChange,
   disabled,
+  ladder,
   id = "probe-thinking-effort",
 }: {
   readonly value: ProbeReasoningEffort;
   readonly onChange: (value: ProbeReasoningEffort) => void;
   readonly disabled?: boolean;
+  /** The ladder of the model this selector currently governs. When the section
+   * holds several models this is the union of their ladders, so a level is
+   * offered only when *every* card can honor it. */
+  readonly ladder?: ThinkingLadder;
   /** Distinct per call site: the section header and the Add-Model dialog can be
    * mounted at once, and two triggers sharing one DOM id is invalid. */
   readonly id?: string;
 }): ReactNode {
   return (
     <div
-      title="Reasoning effort every test in this section sends. Auto leaves the model's own reasoning default in place."
+      title="Reasoning effort every test in this section sends. Auto leaves the model's own reasoning default in place. Levels a model does not support are greyed out."
       style={{ minWidth: "148px", flexShrink: 0 }}
     >
       <Select
@@ -154,7 +177,7 @@ export function ThinkingSelect({
         value={value}
         disabled={disabled}
         onValueChange={(next) => onChange(next as ProbeReasoningEffort)}
-        options={probeThinkingOptions()}
+        options={probeThinkingOptions(ladder)}
       />
     </div>
   );
@@ -405,15 +428,20 @@ function ModelCard({
   const [probeResult, setProbeResult] = useState<{ ok: boolean; latencyMs: number } | null>(null);
   const scheduleCopyReset = useTrackedTimeout();
 
-  // The routable id for this model under the section's thinking setting. The
-  // suffix is what a client writes to ask for that level (`model(high)`), and
-  // the backend parses it back off the name — so the copy button hands the
-  // operator exactly the id the probe just used. `auto` means "no reasoning
-  // intent", which is the bare id, not a `(auto)` suffix.
-  const qualifiedId = formatThinkingSuffix(
-    model.modelId,
-    thinkingEffort === "auto" ? null : thinkingEffort,
-  );
+  // This model's own ladder — not the section's dropdown value. The section
+  // setting is a *request*; the ladder decides what the model can honor, so the
+  // suffix and the copy button must be built from the ladder or the operator
+  // gets handed an id (`mimo-v2.6(max)`) that dispatch will silently downgrade.
+  const ladder = thinkingLadder({
+    modelId: model.modelId,
+    wireFamily: model.wireFamily as ThinkingWireFamily,
+    reasoning: model.reasoning,
+  });
+  // What the request will actually run at. `undefined` = no reasoning intent:
+  // either `auto`, or a model with no ladder at all (where a suffix would just
+  // be stripped downstream). In both cases the bare id is the honest answer.
+  const applied = appliedThinkingLevel(thinkingEffort, ladder);
+  const qualifiedId = formatThinkingSuffix(model.modelId, applied ?? null);
   const copyId = `${providerId}/${qualifiedId}`;
 
 
@@ -569,6 +597,33 @@ function ModelCard({
                   }}
                 >
                   Off
+                </span>
+              )}
+              {thinkingEffort === "auto" || applied === thinkingEffort ? null : (
+                // The section dropdown is one value for every card. When this
+                // model cannot honor it the request is silently downgraded (or
+                // dropped entirely), so say so on the card instead of letting
+                // the operator trust a level that will never reach the wire.
+                <span
+                  title={
+                    ladder.supported.length === 0
+                      ? `${model.modelId} has no reasoning support; the section's “${thinkingEffort}” setting is dropped for this model.`
+                      : `${model.modelId} tops out below “${thinkingEffort}”; the request runs at “${applied}”.`
+                  }
+                  style={{
+                    flexShrink: 0,
+                    fontSize: "9px",
+                    fontWeight: 700,
+                    letterSpacing: "0.04em",
+                    padding: "1px 6px",
+                    borderRadius: "999px",
+                    color: "var(--orange)",
+                    border: "1px solid color-mix(in srgb, var(--orange) 45%, transparent)",
+                  }}
+                >
+                  {ladder.supported.length === 0
+                    ? "thinking: off"
+                    : `thinking → ${applied}`}
                 </span>
               )}
             </div>

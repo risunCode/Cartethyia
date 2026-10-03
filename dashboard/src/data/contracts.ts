@@ -87,8 +87,19 @@ export type { ProbeReasoningEffort } from "../../../src/providers/discovery/disc
  * dashboard renders exactly the id a client should send. A hand-written
  * `(level)` string here would drift from `parseThinkingSuffix` the moment
  * either side changes.
+ *
+ * `resolveSupportedReasoningEfforts` and `clampReasoningEffort` ride along for
+ * the same reason: the picker has to show the ladder a model will actually
+ * honor and the level a request will actually land on, and the only way to
+ * guarantee that is to ask the functions dispatch asks. A hand-rolled ladder in
+ * the dashboard would disagree with the router the first time a model is added.
  */
-export { formatThinkingSuffix } from "../../../src/transport/translation/thinking";
+export {
+  clampReasoningEffort,
+  formatThinkingSuffix,
+  resolveSupportedReasoningEfforts,
+} from "../../../src/transport/translation/thinking";
+export type { ReasoningEffortLevel } from "../../../src/transport/translation/thinking";
 
 export type {
   ComboStrategy,

@@ -50,6 +50,7 @@ import {
 } from "./provider-detail/ImportCredentialDialog";
 import { AddModelModal, ModelGrid, ThinkingSelect } from "./provider-detail/Models";
 import { PROBE_REASONING_EFFORTS, type ProbeReasoningEffort } from "../data/contracts";
+import { unionThinkingLadder } from "../shared/thinking-ladder";
 
 export default function ProviderDetail(): ReactNode {
   const { providerId } = useParams<{ providerId: string }>();
@@ -135,6 +136,11 @@ export default function ProviderDetail(): ReactNode {
     return [...seen.values()].sort((a, b) => a.modelId.localeCompare(b.modelId));
   })();
   const stableModels = deduped;
+  // The section picker is one value for every card, so it may only offer a level
+  // the whole section can honor — otherwise a card silently clamps and the
+  // operator reads the dropdown as authoritative when it is not. Per-card badges
+  // in `ModelGrid` name the models that fell out and why.
+  const sectionLadder = unionThinkingLadder(stableModels);
 
   if (providersQuery.isPending) return <LoadingState label="Loading provider..." />;
   // A failed catalog load is NOT a missing provider. Without this branch a 500
@@ -442,6 +448,7 @@ export default function ProviderDetail(): ReactNode {
                 id="models-section-thinking-effort"
                 value={thinkingEffort}
                 onChange={setThinkingEffort}
+                ladder={sectionLadder}
               />
               {provider?.supportsModelDiscovery !== false ? (
                 <Button
