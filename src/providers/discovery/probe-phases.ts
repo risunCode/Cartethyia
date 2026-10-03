@@ -438,6 +438,26 @@ export interface ProbePreferences {
 }
 
 /**
+ * Phase 6 — the effort a probe should report to telemetry.
+ *
+ * Returns `undefined` when the probe carried no reasoning intent (`auto`, or a
+ * model with no ladder), so the caller omits the field and `requested_effort`
+ * stays NULL. The Usage panel renders NULL as `(default)`, which is the honest
+ * reading of "no effort was resolved" — as opposed to recording an effort the
+ * probe never actually sent.
+ *
+ * Kept pure and exported so the probe→telemetry contract is unit-testable
+ * without standing up the dispatcher: the bug this pins is that a probe sent
+ * `medium` upstream while its telemetry row stayed NULL, so Usage showed
+ * `(default)` for a level the operator had explicitly selected.
+ */
+export function probeTelemetryEffort(
+  probeReasoning: ProbeReasoning | undefined,
+): ReasoningEffortLevel | undefined {
+  return probeReasoning?.effort;
+}
+
+/**
  * Phase 4 — load the tenant's probe preferences. Global Responses reasoning
  * mode defaults to `detailed` (not hard-coded probe/v1). When the probed model
  * is a Responses wire (muse-spark etc) the summary is forced to the tenant's

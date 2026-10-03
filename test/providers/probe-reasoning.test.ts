@@ -22,6 +22,7 @@ import type { CartethyiaDatabase } from "../../src/persistence/postgres";
 import {
   buildProbeCanonicalRequest,
   loadProbePreferences,
+  probeTelemetryEffort,
   reasoningEffortRejection,
 } from "../../src/providers/discovery/probe-phases";
 import {
@@ -258,5 +259,65 @@ describe("buildProbeCanonicalRequest", () => {
       sourceSurface: "chat",
     });
     expect(canonical.reasoning).toBeUndefined();
+  });
+});
+
+describe("probeTelemetryEffort — the effort Usage records for a probe", () => {
+  test("a probe that carried an effort reports that same effort", async () => {
+    // The bug this pins: the probe dispatched `medium` upstream, but its
+    // telemetry row was written without `requestedEffort`, so `Usage → request`
+    // showed `gpt-5.6-terra (default)` for a level the operator had selected.
+    // The reported effort must be the one that actually went out.
+    const { probeReasoning } = await load("chat", { modelId: "m", reasoningEffort: "medium" });
+    expect(probeReasoning?.effort).toBe("medium");
+    expect(probeTelemetryEffort(probeReasoning)).toBe("medium");
+  });
+
+  test("the recorded effort matches the dispatched one on every wire", async () => {
+    // Telemetry must not diverge from dispatch: whatever
+    // `buildProbeCanonicalRequest` puts on the wire is what Usage reports.
+    for (const wireFamily of ["chat", "responses", "messages"] as const) {
+      const { probeReasoning } = await load(wireFamily, {
+        modelId: "m",
+        reasoningEffort: "high",
+      });
+      const canonical = buildProbeCanonicalRequest({
+        modelId: "m",
+        request: { modelId: "m", reasoningEffort: "high" },
+        probeReasoning,
+        sourceSurface: wireFamily,
+      });
+      expect(canonical.reasoning?.effort).toBe("high");
+      // Compared as strings: the canonical intent's effort type also admits
+      // `none`, which the probe ladder never produces.
+      expect(String(probeTelemetryEffort(probeReasoning))).toBe(
+        String(canonical.reasoning?.effort),
+      );
+    }
+  });
+
+  test("`auto` records nothing, so Usage keeps showing `(default)`", async () => {
+    // `auto` deliberately sends no intent. Recording an effort here would
+    // fabricate a level the probe never asked for — worse than showing
+    // `(default)`, because the operator could not tell the two apart.
+    const { probeReasoning } = await load("chat", { modelId: "m", reasoningEffort: "auto" });
+    expect(probeTelemetryEffort(probeReasoning)).toBeUndefined();
+  });
+
+  test("an omitted effort records nothing", () => {
+    expect(probeTelemetryEffort(undefined)).toBeUndefined();
+  });
+
+  test("every probe ladder level round-trips to telemetry", async () => {
+    // Guards the whole vocabulary, not just the levels seen in production so
+    // far: a level that dispatches but does not record is the original bug.
+    for (const level of PROBE_REASONING_EFFORTS) {
+      const { probeReasoning } = await load("chat", { modelId: "m", reasoningEffort: level });
+      if (level === "auto") {
+        expect(probeTelemetryEffort(probeReasoning)).toBeUndefined();
+      } else {
+        expect(probeTelemetryEffort(probeReasoning)).toBe(level);
+      }
+    }
   });
 });

@@ -34,6 +34,7 @@ import {
   extractSample,
   hasMeaningfulOutput,
   loadProbePreferences,
+  probeTelemetryEffort,
   reasoningEffortRejection,
   recordProbeHealth,
   resolveProbeAdapter,
@@ -457,11 +458,17 @@ export class ProviderProbingService {
     // Probe telemetry rides the same batch buffer as live traffic. Keep the
     // probe bodies linked by request_id so the console can inspect the exact
     // canonical request and provider event stream that produced the result.
+    const telemetryEffort = probeTelemetryEffort(probeReasoning);
     this.telemetryBuffer?.enqueue({
       tenantId,
       requestId,
       sourceSurface,
       requestedModel: modelId,
+      // The effort the probe actually asked for, so Usage shows
+      // `gpt-5.6-terra (medium)` for a probe the same way it does for live
+      // traffic. Absent for `auto` (no intent was sent), which leaves
+      // `requested_effort` NULL and renders as `(default)`.
+      ...(telemetryEffort === undefined ? {} : { requestedEffort: telemetryEffort }),
       endpoint: endpointPath,
       providerId,
       ...(accountId ? { accountId } : {}),
