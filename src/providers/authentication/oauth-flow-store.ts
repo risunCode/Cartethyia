@@ -19,6 +19,19 @@ export interface OAuthAuthorizeRequest {
   readonly parameters?: Readonly<Record<string, string>>;
 }
 
+/**
+ * Everything a browser code exchange is told beyond the code itself.
+ *
+ * `state` is the correlation key; `parameters` is what `prepareAuthorize`
+ * learned while building the URL and the console filed with the pending flow —
+ * for AWS SSO OIDC that is the client registration the token endpoint requires
+ * and the social providers never need.
+ */
+export interface OAuthCodeExchangeContext {
+  readonly state?: string;
+  readonly parameters?: Readonly<Record<string, string>>;
+}
+
 export interface OAuthExchangeResult {
   readonly access: string;
   readonly refresh: string;
@@ -102,6 +115,20 @@ export interface OAuthLoginClient {
    * compares it against the one the authorize step sent.
    */
   readonly browserRedirectUri?: string;
+  /**
+   * Async pre-step that runs before the authorize URL is built, when a client
+   * cannot produce its URL from the request alone.
+   *
+   * AWS SSO OIDC is the reason this exists: its authorize URL embeds a client
+   * registration that must be minted by a network call first, and the URL
+   * builder is synchronous. The returned request replaces the original — a
+   * client may rewrite `redirectUri` (AWS requires a literal loopback with no
+   * path) and stash provider-private values under `parameters`, which the
+   * console then files with the pending flow so the code exchange can replay
+   * them. Clients whose URL is a pure function of the request omit this and are
+   * left untouched.
+   */
+  prepareAuthorize?(request: OAuthAuthorizeRequest): Promise<OAuthAuthorizeRequest>;
   /** Browser-code clients only; device-only clients omit both. */
   buildAuthorizeUrl?(request: OAuthAuthorizeRequest): string;
   exchangeCode?(
@@ -109,6 +136,7 @@ export interface OAuthLoginClient {
     codeVerifier: string,
     redirectUri: string,
     state?: string,
+    context?: OAuthCodeExchangeContext,
   ): Promise<OAuthExchangeResult>;
   startDeviceAuth?(context?: OAuthDeviceFlowContext): Promise<OAuthDeviceStartResult>;
   pollDeviceAuth?(
@@ -485,6 +513,13 @@ export interface PendingOAuthFlow {
   readonly redirectUri: string;
   /** Provider-specific start inputs, kept so the callback can rebuild its request. */
   readonly parameters?: Readonly<Record<string, string>>;
+  /**
+   * Provider-private state the authorize pre-step produced, kept so the code
+   * exchange can replay it. For AWS SSO OIDC this is the client registration
+   * the token endpoint requires; it is stored server-side and never returned to
+   * the browser.
+   */
+  readonly providerState?: string;
 }
 
 export interface DeviceFlowCorrelation {

@@ -2,7 +2,7 @@ import { providerAccounts, providerOauthStates } from "../../../persistence/sche
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { encryptCredential, hashSecret } from "../../../security/crypto";
 import type { CartethyiaDatabase } from "../../../persistence/postgres";
-import type { OAuthExchangeResult, OAuthLoginClient } from "../../../providers/authentication/oauth-flow-store";
+import type { OAuthAuthorizeRequest, OAuthCodeExchangeContext, OAuthExchangeResult, OAuthLoginClient } from "../../../providers/authentication/oauth-flow-store";
 import type { OAuthDevicePollResponse } from "../catalog/contracts";
 import { providerJwtVerification, type ProviderRegistry } from "../../../providers/provider-registry";
 import { browserAuthorizeRedirectUri } from "../../../config";
@@ -35,6 +35,36 @@ import type { ConsoleAccessResolver } from "../../auth/access";
  */
 function oauthIdentityFingerprint(input: { readonly label: string } & OAuthExchangeResult): string {
   return hashSecret(input.label.trim().length > 0 ? input.label.trim() : input.refresh);
+}
+
+/**
+ * Reads the provider-private state an authorize pre-step filed back into the
+ * context a code exchange expects.
+ *
+ * `beginAuthorize` stores `{parameters, redirectUri}` for any client that
+ * declares `prepareAuthorize`; for AWS SSO OIDC the parameters carry the client
+ * registration the token endpoint requires. A missing or malformed value yields
+ * `undefined`: the social providers accept that and the OIDC exchange rejects it
+ * with its own "missing its client registration" error, which is the correct
+ * failure for a flow whose registration was never recorded.
+ */
+function parsePendingProviderState(
+  raw: string | undefined,
+): OAuthCodeExchangeContext | undefined {
+  if (raw === undefined) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const root = parsed as Record<string, unknown>;
+  const parameters = root["parameters"];
+  if (parameters === null || typeof parameters !== "object" || Array.isArray(parameters)) {
+    return undefined;
+  }
+  return { parameters: parameters as Readonly<Record<string, string>> };
 }
 
 export class DrizzleOAuthAccountStore implements OAuthAccountStore {
@@ -248,7 +278,17 @@ export async function completeLogin(
     return { ok: false, message: "provider does not support browser authorization" };
   }
   try {
-    const result = await client.exchangeCode(code, flow.codeVerifier, flow.redirectUri, state);
+    // The pre-step's provider-private values are replayed here: an AWS SSO OIDC
+    // exchange needs the client registration minted while the authorize URL was
+    // built, and the social providers need nothing beyond the code and verifier.
+    const exchangeContext = parsePendingProviderState(flow.providerState);
+    const result = await client.exchangeCode(
+      code,
+      flow.codeVerifier,
+      flow.redirectUri,
+      state,
+      exchangeContext,
+    );
     const tokenCheck = await validateIssuedAccessToken(
       result.access,
       providerJwtVerification(providerId),
@@ -380,6 +420,18 @@ export function createOAuthLoginOperations(config: OAuthLoginConfig) {
         // `invalid_request` before consent, so the shared default cannot serve
         // every provider.
         const redirectUri = client.browserRedirectUri ?? browserAuthorizeRedirectUri();
+        // A client whose authorize URL is a pure function of the request needs no
+        // pre-step. One that cannot — AWS SSO OIDC embeds a client registration
+        // minted by a network call — is given the chance to rewrite the request
+        // here, before anything is bound or filed, so the redirect URI it chooses
+        // is the one registered, the one filed, and the one replayed at exchange.
+        const prepared: OAuthAuthorizeRequest = {
+          state,
+          codeChallenge,
+          redirectUri,
+          ...(parameters === undefined ? {} : { parameters }),
+        };
+        const request = (await client.prepareAuthorize?.(prepared)) ?? prepared;
         // Bind the redirect's loopback port before the flow is recorded. The
         // advertised URI names the operator's own machine, so a login that only
         // advertises it leaves the browser on a dead page and the code stranded
@@ -387,14 +439,26 @@ export function createOAuthLoginOperations(config: OAuthLoginConfig) {
         // here — with no pending flow saved — rather than leaving a flow whose
         // callback can never arrive. A non-loopback redirect (a custom scheme, a
         // remote host) returns false and keeps the manual paste path.
-        config.callbackListener.register(redirectUri, providerId, state);
+        config.callbackListener.register(request.redirectUri, providerId, state);
+        // Values the pre-step produced are provider-private: for AWS SSO OIDC the
+        // registration's client secret rides here and is never returned to the
+        // browser. They are filed with the flow so the code exchange can replay
+        // them, which is the only other place they are needed.
+        const privateState =
+          client.prepareAuthorize === undefined
+            ? undefined
+            : JSON.stringify({
+                parameters: request.parameters ?? {},
+                redirectUri: request.redirectUri,
+              });
         await config.oauthFlowStore.savePending(state, {
           providerId,
           codeVerifier,
           accountLabel,
           tenantId: a.tenantId,
-          redirectUri,
-          ...(parameters === undefined ? {} : { parameters }),
+          redirectUri: request.redirectUri,
+          ...(request.parameters === undefined ? {} : { parameters: request.parameters }),
+          ...(privateState === undefined ? {} : { providerState: privateState }),
         });
         // Bind the redirect's loopback port before handing the URL out. The
         // advertised URI names the operator's own machine, so a login that only
@@ -403,12 +467,7 @@ export function createOAuthLoginOperations(config: OAuthLoginConfig) {
         // deliver itself; a non-loopback redirect (a custom scheme, a remote
         // host) returns false and keeps the manual path.
         return {
-          authorizeUrl: client.buildAuthorizeUrl({
-            state,
-            codeChallenge,
-            redirectUri,
-            ...(parameters === undefined ? {} : { parameters }),
-          }),
+          authorizeUrl: client.buildAuthorizeUrl(request),
           state,
         };
       },
