@@ -45,6 +45,7 @@ import {
   useUsageSummary,
 } from "../../hooks/system";
 import { requestProviderId } from "../../shared/request-provider";
+import { usageApiKeyLabel, usageClientLabel } from "../../shared/usage-labels";
 
 import { useProviderAccounts, useProviders } from "../../hooks/providers";
 import { useInFlight, type InFlightState } from "../../hooks/live";
@@ -781,9 +782,7 @@ function RequestDetailDrawer({
     const found = (providerAccounts.data ?? []).find((account) => account.id === accountId);
     return found?.label || `${accountId.slice(0, 8)}…`;
   };
-  const apiKeyName = detail?.apiKeyLabel ?? (detail?.apiKeyId ? `${detail.apiKeyId.slice(0, 8)}…` : "—");
-  const isProbe = detail?.userAgent === "Cartethyia Probe";
-  const displayApiKeyName = isProbe ? "Probe" : apiKeyName;
+  const displayApiKeyName = usageApiKeyLabel(detail);
   const [copiedRequestId, setCopiedRequestId] = useState(false);
   const [copiedPayload, setCopiedPayload] = useState<PayloadKind | null>(null);
   const scheduleReset = useTrackedTimeout();
@@ -1619,14 +1618,14 @@ export default function Usage(): ReactNode {
                     <td style={{ maxWidth: "140px" }}>
                       <div
                         className="truncate"
-                        title={row.apiKeyLabel ?? row.apiKeyId ?? "—"}
+                        title={usageApiKeyLabel(row)}
                         style={{ fontSize: "12px", fontWeight: 600 }}
                       >
-                        {row.apiKeyLabel ?? "—"}
+                        {usageApiKeyLabel(row)}
                       </div>
                       <div
                         className="truncate"
-                        title={row.clientName ?? row.userAgent ?? "—"}
+                        title={usageClientLabel(row)}
                         style={{
                           fontFamily: "var(--font-mono)",
                           fontSize: "11px",
@@ -1634,7 +1633,7 @@ export default function Usage(): ReactNode {
                           marginTop: "1px",
                         }}
                       >
-                        {row.clientName ?? row.userAgent ?? "—"}
+                        {usageClientLabel(row)}
                       </div>
                     </td>
                     <td style={{ whiteSpace: "nowrap", fontSize: "11px" }}>
