@@ -1,6 +1,6 @@
 // Routing contracts and snapshots.
 import { GatewayError } from "../gateway-error";
-import { type ServiceKind, type WireFamily } from "../canonical-model";
+import { type ReasoningEffort, type ServiceKind, type WireFamily } from "../canonical-model";
 
 
 export type RoutingRevision = number;
@@ -22,6 +22,16 @@ export interface RouteCandidate {
   readonly capability_profile: CapabilityProfile;
   /** Route-selected User-Agent fallback; provider-supplied identities remain authoritative. */
   readonly user_agent?: string;
+  /**
+   * Routed provider's default reasoning effort, stamped by the snapshot
+   * builder (tenant-over-global). Read at the per-attempt injection point:
+   * when the request states no reasoning intent, this effort is applied to
+   * the payload sent to THIS candidate — so a combo failover that lands on a
+   * different provider carries that provider's own default, and the operator's
+   * picker on the provider page finally governs real dispatch. Never affects
+   * which candidate is chosen.
+   */
+  readonly provider_reasoning_effort?: ReasoningEffort;
   readonly max_inflight?: number;
   readonly provider_account_id?: string;
   /** Operator-facing label of `provider_account_id` (never the secret), for
@@ -85,6 +95,15 @@ export interface ProviderRoutingSetting {
   readonly enabled: boolean;
   /** Built-in API-key User-Agent; OAuth and custom providers retain their identities. */
   readonly userAgent?: string;
+  /**
+   * Reasoning effort applied at dispatch when the request states no reasoning
+   * intent of its own. Absent = "auto": dispatch sends nothing, matching the
+   * pre-column behavior. Stamped onto each candidate by the snapshot builder
+   * (tenant setting wins over global) so the per-attempt injection point can
+   * read it off `candidate.provider_reasoning_effort` without another lookup.
+   * Never influences member selection — only what is sent to the chosen one.
+   */
+  readonly defaultReasoningEffort?: ReasoningEffort;
   /** When true, this (tenant, provider) dispatches direct — candidates
    * never carry `network_pool_ids` regardless of pool availability. */
   readonly bypassProxy: boolean;

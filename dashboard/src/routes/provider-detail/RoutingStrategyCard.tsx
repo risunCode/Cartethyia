@@ -1,4 +1,4 @@
-import { Cable, Coins, Fingerprint, Gauge, Info, Layers, RefreshCw, Repeat } from "lucide-react";
+import { Cable, Brain, Coins, Fingerprint, Gauge, Info, Layers, RefreshCw, Repeat } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
@@ -7,11 +7,24 @@ import { Select } from "../../components/ui/select";
 import { ErrorState, LoadingState } from "../../components/ui/state";
 import { Switch } from "../../components/ui/switch";
 import { toast } from "../../shared/toast";
+import type { ReasoningEffortLevel } from "../../../../src/transport/translation/thinking";
 import {
   PROXY_UNSUPPORTED_HINT_PROVIDERS,
   ROUTING_ACTIVE_LABEL,
   useRoutingStrategy,
 } from "../../hooks/use-routing-strategy";
+
+/** Auto (send nothing) + the canonical ladder, minus `none` — a provider default
+ * that forces reasoning off is not an option this page offers. */
+const DEFAULT_REASONING_EFFORT_OPTIONS = [
+  { value: "auto", label: "Auto (send nothing)" },
+  { value: "minimal", label: "Minimal" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "xhigh", label: "X-high" },
+  { value: "max", label: "Max" },
+] as const;
 
 const USER_AGENT_PRESETS = [
   { value: "codex_cli_rs/0.156.1", label: "Codex" },
@@ -332,6 +345,37 @@ export function RoutingStrategyCard({
               checked={routing.bypassProxy}
               onChange={routing.setBypassProxy}
               id="routing-bypass-proxy"
+            />
+          </Row>
+
+          <Row>
+            <div style={{ minWidth: 0 }}>
+              <label htmlFor="routing-default-reasoning-effort">
+                <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
+                  <Brain
+                    size={15}
+                    aria-hidden="true"
+                    style={{
+                      color:
+                        routing.defaultReasoningEffort !== null ? "var(--accent)" : "var(--text-tertiary)",
+                      flexShrink: 0,
+                    }}
+                  />
+                  Default thinking effort
+                </Inline>
+              </label>
+              <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                Applied to real requests through this provider when the client doesn't ask for a level
+                itself. Requests carrying their own effort always win; combo member order is never
+                affected. Auto = send nothing (previous behavior).
+              </div>
+            </div>
+            <Select
+              id="routing-default-reasoning-effort"
+              aria-label="Default reasoning effort"
+              value={routing.defaultReasoningEffort ?? "auto"}
+              options={DEFAULT_REASONING_EFFORT_OPTIONS}
+              onValueChange={(next) => routing.setDefaultReasoningEffort(next === "auto" ? null : (next as ReasoningEffortLevel))}
             />
           </Row>
 

@@ -9,6 +9,7 @@ import {
 } from "../catalog/contracts";
 import type { AccountInflightReading, ProviderDetailConfig } from "./contracts";
 import { ROUTING_STRATEGIES } from "../../../transport/routing/route-model";
+import { REASONING_EFFORT_LADDER } from "../../../transport/translation/thinking";
 
 /**
  * Routing-tuning bounds, declared once because two layers enforce them: the
@@ -88,6 +89,17 @@ export function createProviderDetailOperations(deps: ProviderDetailConfig) {
             `creditFloor must be an integer between ${creditFloor.min} and ${creditFloor.max}, or null`,
           );
       }
+      if (
+        patch.defaultReasoningEffort !== undefined &&
+        patch.defaultReasoningEffort !== null &&
+        !(REASONING_EFFORT_LADDER as readonly string[]).includes(patch.defaultReasoningEffort)
+      ) {
+        throw new ConsoleDomainError(
+          "invalid_request",
+          400,
+          "defaultReasoningEffort must be one of " + REASONING_EFFORT_LADDER.join(", ") + " or null",
+        );
+      }
       const updated = await deps.store.updateRouting(providerId, a.tenantId, patch);
       await deps.auditSink?.record({
         access: a,
@@ -140,6 +152,16 @@ const updateRoutingBody = t.Object({
       t.Integer({ minimum: ROUTING_BOUNDS.creditFloor.min, maximum: ROUTING_BOUNDS.creditFloor.max }),
     ),
   ),
+  // `null` resets to auto (send nothing); each listed value is a canonical
+  // ladder tier. "none" is accepted as a *default* meaning "force reasoning
+  // off" — the value the payload-level clamp would have produced for it.
+  defaultReasoningEffort: t.Optional(
+    t.Union([
+      t.Null(),
+      ...REASONING_EFFORT_LADDER.map((level) => t.Literal(level)),
+      t.Literal("none"),
+    ]),
+  ),
 });
 
 
@@ -168,7 +190,7 @@ export function createProviderDetailRoutes(config: ProviderDetailConfig): Elysia
           return await factory.updateRouting(
             config.accessResolver(request),
             params.providerId,
-            body as UpdateProviderRoutingRequest,
+            body as unknown as UpdateProviderRoutingRequest,
           );
         } catch (e) {
           return providerDetailErrorResponse(e, set);

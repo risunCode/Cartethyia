@@ -173,6 +173,7 @@ CREATE TABLE "provider_routing_settings" (
   "rotate_count" integer DEFAULT 1 NOT NULL,
   "max_inflight" integer,
   "credit_floor" integer,
+  "default_reasoning_effort" text,
   "enabled" boolean DEFAULT false NOT NULL,
   "user_agent" text DEFAULT 'codex_cli_rs/0.156.1' NOT NULL,
   "bypass_proxy" boolean DEFAULT false NOT NULL,

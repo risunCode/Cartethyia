@@ -28,7 +28,7 @@ import {
   type SnapshotBuilder,
 } from "./route-model";
 import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS, isBundledProviderId } from "../../providers/provider-registry";
-import type { ServiceKind, WireFamily } from "../canonical-model";
+import type { ReasoningEffort, ServiceKind, WireFamily } from "../canonical-model";
 import { providerHasAdapterUserAgent, providerUsesBespokeWire } from "../../providers/provider-metadata";
 
 const CLAUDE_MODEL_FAMILIES = new Set(["opus", "sonnet", "haiku", "fable", "mythos"]);
@@ -241,6 +241,7 @@ const ROUTING_COLUMNS = {
   rotateCount: providerRoutingSettings.rotateCount,
   maxInflight: providerRoutingSettings.maxInflight,
   creditFloor: providerRoutingSettings.creditFloor,
+  defaultReasoningEffort: providerRoutingSettings.defaultReasoningEffort,
   enabled: providerRoutingSettings.enabled,
   bypassProxy: providerRoutingSettings.bypassProxy,
   userAgent: providerRoutingSettings.userAgent,
@@ -373,6 +374,9 @@ class RouteCatalogRepository {
         enabled: row.enabled,
         bypassProxy: row.bypassProxy,
         userAgent: row.userAgent,
+        ...(row.defaultReasoningEffort
+          ? { defaultReasoningEffort: row.defaultReasoningEffort as ReasoningEffort }
+          : {}),
       };
     }
     /** Tenant-specific setting wins over global; an unconfigured provider
@@ -394,6 +398,20 @@ class RouteCatalogRepository {
       const tenantSetting = rowTenantId ? providerRouting[rowTenantId]?.[providerId]?.userAgent : undefined;
       const globalSetting = providerRouting.__global__?.[providerId]?.userAgent;
       return resolveRouteUserAgent(providerId, tenantSetting, globalSetting);
+    }
+    /** Routed provider's default reasoning effort (tenant setting wins over
+     * global, mirroring bypassProxy/userAgent). `undefined` = auto: dispatch
+     * injects nothing. Read per candidate at dispatch time so a combo that
+     * fails over carries each provider's own default. */
+    function resolveDefaultReasoningEffort(
+      providerId: string,
+      rowTenantId: string | null,
+    ): ReasoningEffort | undefined {
+      const tenantSetting = rowTenantId
+        ? providerRouting[rowTenantId]?.[providerId]?.defaultReasoningEffort
+        : undefined;
+      const globalSetting = providerRouting.__global__?.[providerId]?.defaultReasoningEffort;
+      return tenantSetting ?? globalSetting;
     }
 
     /** Provider-wide concurrency ceiling shared by every account of the provider.
@@ -498,6 +516,7 @@ class RouteCatalogRepository {
         const networkPools = providerRequiresAccount
           ? undefined
           : resolveNetworkPools(model.providerId, providerTenantId);
+        const routeEffort = resolveDefaultReasoningEffort(model.providerId, providerTenantId);
         const candidate: RouteCandidateWithHealth = {
           provider_id: model.providerId,
           model_id: model.modelId,
@@ -519,6 +538,9 @@ class RouteCatalogRepository {
               }
             : {}),
         };
+        if (routeEffort !== undefined)
+          (candidate as { -readonly [K in keyof RouteCandidate]: RouteCandidate[K] }).provider_reasoning_effort =
+            routeEffort;
         if (tenantId === undefined || candidate.tenant_id === null || candidate.tenant_id === tenantId) {
           candidates.push(candidate);
         }
@@ -536,6 +558,7 @@ class RouteCatalogRepository {
         }
         const networkPools = resolveNetworkPools(model.providerId, rowTenantId);
         const routeUserAgent = resolveUserAgent(model.providerId, rowTenantId);
+        const routeReasoningEffort = resolveDefaultReasoningEffort(model.providerId, rowTenantId);
         const candidate: RouteCandidateWithHealth = {
           provider_id: model.providerId,
           model_id: model.modelId,
@@ -544,6 +567,7 @@ class RouteCatalogRepository {
           endpoint: model.endpointPath,
           capability_profile: capabilityProfile,
           ...(routeUserAgent === undefined ? {} : { user_agent: routeUserAgent }),
+          ...(routeReasoningEffort === undefined ? {} : { provider_reasoning_effort: routeReasoningEffort }),
           tenant_id: rowTenantId,
           provider_account_id: account.id,
           ...(account.label ? { provider_account_label: account.label } : {}),

@@ -18,6 +18,7 @@ function mapRow(row: typeof providerRoutingSettings.$inferSelect): ProviderRouti
     enabled: row.enabled,
     bypassProxy: row.bypassProxy,
     userAgent: row.userAgent,
+    defaultReasoningEffort: (row.defaultReasoningEffort ?? null) as ProviderRoutingResponse["defaultReasoningEffort"],
   };
 }
 
@@ -69,6 +70,7 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
       enabled: false,
       bypassProxy: DEFAULT_PROXY_BYPASS_PROVIDER_IDS.has(providerId),
       userAgent: DEFAULT_PROVIDER_USER_AGENT,
+      defaultReasoningEffort: null,
     };
   }
   async updateRouting(
@@ -89,6 +91,7 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
       enabled: patch.enabled ?? false,
       bypassProxy: patch.bypassProxy ?? DEFAULT_PROXY_BYPASS_PROVIDER_IDS.has(providerId),
       userAgent: patch.userAgent ?? DEFAULT_PROVIDER_USER_AGENT,
+      defaultReasoningEffort: patch.defaultReasoningEffort ?? null,
     };
     const setClause: Record<string, unknown> = {};
     if (patch.strategy !== undefined) setClause.strategy = patch.strategy;
@@ -98,6 +101,8 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
     if (patch.enabled !== undefined) setClause.enabled = patch.enabled;
     if (patch.bypassProxy !== undefined) setClause.bypassProxy = patch.bypassProxy;
     if (patch.userAgent !== undefined) setClause.userAgent = patch.userAgent;
+    if (patch.defaultReasoningEffort !== undefined)
+      setClause.defaultReasoningEffort = patch.defaultReasoningEffort;
     const upserted = await this.db
       .insert(providerRoutingSettings)
       .values(values)

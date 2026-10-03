@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useProviderRouting, useUpdateProviderRouting } from "./routing";
 import { useDebouncedSave } from "./use-debounced-save";
 import type { ProviderRoutingResponse } from "../data/contracts";
+import type { ReasoningEffortLevel } from "../../../src/transport/translation/thinking";
 
 export type RoutingStrategy = ProviderRoutingResponse["strategy"];
 
@@ -34,6 +35,9 @@ export interface RoutingStrategyState {
   readonly bypassProxy: boolean;
   readonly userAgent: string;
   readonly setUserAgent: (next: string) => void;
+  /** Provider default reasoning effort; `null` = auto (send nothing). */
+  readonly defaultReasoningEffort: ReasoningEffortLevel | null;
+  readonly setDefaultReasoningEffort: (next: ReasoningEffortLevel | null) => void;
   readonly isLoading: boolean;
   readonly isError: boolean;
   readonly isSaving: boolean;
@@ -53,6 +57,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
   const [creditFloor, setCreditFloorState] = useState<number | null>(null);
   const [bypassProxy, setBypassProxyState] = useState(false);
   const [userAgent, setUserAgentState] = useState("codex_cli_rs/0.156.1");
+  const [defaultReasoningEffort, setDefaultReasoningEffortState] = useState<ReasoningEffortLevel | null>(null);
 
   useEffect(() => {
     if (!query.data) return;
@@ -62,6 +67,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
     setCreditFloorState(query.data.creditFloor);
     setBypassProxyState(query.data.bypassProxy);
     setUserAgentState(query.data.userAgent);
+    setDefaultReasoningEffortState(query.data.defaultReasoningEffort ?? null);
   }, [query.data]);
 
   const save = (next: {
@@ -71,6 +77,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
     creditFloor: number | null;
     bypassProxy: boolean;
     userAgent: string;
+    defaultReasoningEffort: ReasoningEffortLevel | null;
   }) => {
     mutation.mutate(
       {
@@ -82,6 +89,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
           maxInflight: next.maxInflight,
           creditFloor: next.creditFloor,
           bypassProxy: next.bypassProxy,
+          defaultReasoningEffort: next.defaultReasoningEffort,
           ...(allowUserAgent ? { userAgent: next.userAgent } : {}),
         },
       },
@@ -92,21 +100,25 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
           setRotateCountState(query.data.rotateCount);
           setBypassProxyState(query.data.bypassProxy);
           setUserAgentState(query.data.userAgent);
+          setDefaultReasoningEffortState(query.data.defaultReasoningEffort ?? null);
         },
       },
     );
   };
   const scheduleMaxInflightSave = useDebouncedSave((next: number | null) =>
-    save({ strategy, rotateCount, maxInflight: next, creditFloor, bypassProxy, userAgent }),
+    save({ strategy, rotateCount, maxInflight: next, creditFloor, bypassProxy, userAgent, defaultReasoningEffort }),
   );
   const scheduleCreditFloorSave = useDebouncedSave((next: number | null) =>
-    save({ strategy, rotateCount, maxInflight, creditFloor: next, bypassProxy, userAgent }),
+    save({ strategy, rotateCount, maxInflight, creditFloor: next, bypassProxy, userAgent, defaultReasoningEffort }),
   );
   const scheduleRotateCountSave = useDebouncedSave((next: number) =>
-    save({ strategy, rotateCount: next, maxInflight, creditFloor, bypassProxy, userAgent }),
+    save({ strategy, rotateCount: next, maxInflight, creditFloor, bypassProxy, userAgent, defaultReasoningEffort }),
   );
   const scheduleUserAgentSave = useDebouncedSave((next: string) =>
-    save({ strategy, rotateCount, maxInflight, creditFloor, bypassProxy, userAgent: next }),
+    save({ strategy, rotateCount, maxInflight, creditFloor, bypassProxy, userAgent: next, defaultReasoningEffort }),
+  );
+  const scheduleEffortSave = useDebouncedSave((next: ReasoningEffortLevel | null) =>
+    save({ strategy, rotateCount, maxInflight, creditFloor, bypassProxy, userAgent, defaultReasoningEffort: next }),
   );
 
   return {
@@ -115,6 +127,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
     creditFloor,
     bypassProxy,
     userAgent,
+    defaultReasoningEffort,
     isLoading: query.isPending,
     isError: query.isError,
     isSaving: mutation.isPending,
@@ -132,15 +145,19 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
       setUserAgentState(next);
       scheduleUserAgentSave(next);
     },
+    setDefaultReasoningEffort: (next) => {
+      setDefaultReasoningEffortState(next);
+      scheduleEffortSave(next);
+    },
     setBypassProxy: (next) => {
       setBypassProxyState(next);
-      save({ strategy, rotateCount, maxInflight, creditFloor, bypassProxy: next, userAgent });
+      save({ strategy, rotateCount, maxInflight, creditFloor, bypassProxy: next, userAgent, defaultReasoningEffort });
     },
     roundRobinEnabled: strategy === "round_robin",
     setRoundRobinEnabled: (next) => {
       const resolved: RoutingStrategy = next ? "round_robin" : "fallback";
       setStrategyState(resolved);
-      save({ strategy: resolved, rotateCount, maxInflight, creditFloor, bypassProxy, userAgent });
+      save({ strategy: resolved, rotateCount, maxInflight, creditFloor, bypassProxy, userAgent, defaultReasoningEffort });
     },
     rotateCount,
     setRotateCount: (next) => {

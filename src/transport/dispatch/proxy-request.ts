@@ -256,8 +256,31 @@ export async function handleProviderProxyRequest(
         candidate.model_id === canonicalRequest.model
           ? canonicalRequest
           : { ...canonicalRequest, model: candidate.model_id };
+      // Provider-default reasoning effort: when the caller stated no reasoning
+      // intent AND the candidate actually serves reasoning, apply the routed
+      // provider's configured effort. The caller's own effort always wins, a
+      // route without reasoning capability receives nothing (injecting one
+      // would make `projectForRoute` below reject the attempt), and the value
+      // never influences which candidate the router picks — only what is sent
+      // to the chosen one. Per-attempt on purpose: a combo that fails over to
+      // another provider carries that provider's own default.
+      const injectedEffort =
+        candidateRequest.reasoning === undefined
+          ? candidate.provider_reasoning_effort
+          : undefined;
+      const effortRequest =
+        injectedEffort === undefined
+          ? candidateRequest
+          : { ...candidateRequest, reasoning: { effort: injectedEffort } };
+      if (injectedEffort !== undefined) {
+        // Telemetry reads the canonical request to report the effective
+        // reasoning effort; reflect the injected default so the Usage label
+        // shows the level actually sent upstream (the pre-existing "(default)"
+        // rows were requests with no intent at all).
+        state.canonicalRequest = effortRequest;
+      }
       const dispatchRequest = projectForRoute(
-        candidateRequest,
+        effortRequest,
         routeCapabilitiesFor(candidate),
       );
       if (canonicalRequest.stream) {

@@ -463,6 +463,15 @@ export const providerRoutingSettings = pgTable(
      * window.
      */
     creditFloor: integer("credit_floor"),
+    /**
+     * Reasoning effort applied at dispatch when the inbound request states no
+     * reasoning intent of its own. `null` = "auto": nothing is injected and
+     * the request runs exactly as before. One of the canonical ladder strings
+     * minus `none` (the API layer validates membership); requests that carry
+     * their own effort always win, and the value never influences combo
+     * member selection — only what is sent to whichever member is chosen.
+     */
+    defaultReasoningEffort: text("default_reasoning_effort"),
     enabled: boolean("enabled").notNull().default(false),
     // Route-selected User-Agent for built-in API-key providers; OAuth and BYOK identities stay native.
     userAgent: text("user_agent").notNull().default("codex_cli_rs/0.156.1"),

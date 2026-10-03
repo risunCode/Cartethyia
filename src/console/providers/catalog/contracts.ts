@@ -5,6 +5,7 @@
 import { GatewayError } from "../../../transport/gateway-error";
 import { type ServiceKind, type WireFamily, SERVICE_KINDS, WIRE_FAMILIES } from "../../../transport/canonical-model";
 import { type ProviderRoutingSetting, type ProviderRoutingStrategy } from "../../../transport/routing/route-model";
+import type { ReasoningEffort } from "../../../transport/canonical-model";
 import { isProtectedHeader } from "../../../security/outbound-headers";
 import type { AccountHealthEventRecord } from "../../../providers/operations/account-health-service";
 import type { CompatibilityProfile } from "../../../providers/provider-metadata";
@@ -660,8 +661,12 @@ export interface ProviderRoutingResponse {
    * default to bypass because their transport can't route through an HTTP
    * CONNECT proxy; it stays a real, per-tenant-overridable setting. */
   readonly bypassProxy: boolean;
-  /** Built-in API-key upstream User-Agent; OAuth and custom providers retain their own identity. */
+  /** Built-in API-key User-Agent; OAuth and custom providers retain their own identity. */
   readonly userAgent: string;
+  /** Reasoning effort applied at dispatch when the request states none.
+   * `null` = auto (send nothing — the pre-column behavior). Validated against
+   * the canonical ladder minus `none` by the routing routes. */
+  readonly defaultReasoningEffort: ReasoningEffort | null;
 }
 
 /**
@@ -669,5 +674,11 @@ export interface ProviderRoutingResponse {
  * optional and the types are the runtime's own: restating the six fields here
  * let the request drift from `ProviderRoutingSetting` (and from the Elysia body
  * schema that validates it) without a compile error.
+ *
+ * `defaultReasoningEffort` is widened to allow `null` — resetting to auto is a
+ * valid patch, and `UpdateProviderRoutingRequest` rides `Partial<>` of the
+ * response setting whose field is non-null.
  */
-export type UpdateProviderRoutingRequest = Partial<ProviderRoutingSetting>;
+export type UpdateProviderRoutingRequest = Partial<Omit<ProviderRoutingSetting, "defaultReasoningEffort"> & {
+  defaultReasoningEffort?: ReasoningEffort | null;
+}>;
