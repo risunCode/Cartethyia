@@ -34,6 +34,7 @@ import {
   extractSample,
   hasMeaningfulOutput,
   loadProbePreferences,
+  reasoningEffortRejection,
   recordProbeHealth,
   resolveProbeAdapter,
   resolveProbeTarget,
@@ -202,7 +203,13 @@ export class ProviderProbingService {
     const providerWireRow = await this.loadProviderWireRow(providerId);
     const requiresAccount = providerWireRow?.requiresAccount ?? true;
 
-    const { wireFamily, serviceKind, endpointPath, sourceSurface, capabilityProfile } = await resolveProbeTarget({
+    const {
+      wireFamily,
+      serviceKind,
+      endpointPath,
+      sourceSurface,
+      capabilityProfile,
+    } = await resolveProbeTarget({
       db: this.db,
       bundledModelCatalog: this.bundledModelCatalog,
       defaultEndpoints: this.defaultEndpoints,
@@ -211,6 +218,18 @@ export class ProviderProbingService {
       request,
       providerWireRow,
     });
+
+    // Gate the requested effort before anything is dispatched. Clamping it down
+    // would report a green probe for a level the operator never got to observe;
+    // refusing names the model's real scale instead.
+    const effortRejection = reasoningEffortRejection({
+      requested: request.reasoningEffort,
+      modelId,
+      wireFamily,
+    });
+    if (effortRejection !== undefined) {
+      return { ok: false, latencyMs: Date.now() - startedAt, error: effortRejection };
+    }
 
     const account = await selectProbeAccount({
       db: this.db,

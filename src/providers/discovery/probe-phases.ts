@@ -21,7 +21,10 @@ import type {
   UsageRecord,
   WireFamily,
 } from "../../transport/canonical-model";
-import type { ReasoningEffortLevel } from "../../transport/translation/thinking";
+import {
+  resolveSupportedReasoningEfforts,
+  type ReasoningEffortLevel,
+} from "../../transport/translation/thinking";
 import type { CompatibilityProfile } from "../provider-metadata";
 import type { ProbeModelRequest } from "./discovery-types";
 import {
@@ -229,6 +232,9 @@ export async function resolveProbeTarget(args: {
           toolCall: existing[0].toolCall,
           webSearch: existing[0].webSearch,
         };
+        // A stored row carries no effort scale of its own (the `models` table has
+        // no such column), so the ladder is derived from the id — exactly what
+        // the dispatch path does for live traffic on the same row.
       } else {
         const ctx = wireContextFrom(providerWireRow);
         const resolved = resolveDiscoveredWire(
@@ -273,7 +279,49 @@ export async function resolveProbeTarget(args: {
     webSearch: capabilitySource.webSearch,
     providerId,
   });
-  return { wireFamily, serviceKind, endpointPath, sourceSurface, capabilityProfile };
+  return {
+    wireFamily,
+    serviceKind,
+    endpointPath,
+    sourceSurface,
+    capabilityProfile,
+  };
+}
+
+/**
+ * Refuse a probe whose requested effort the model's own ladder does not contain.
+ *
+ * Dispatch clamps an out-of-ladder effort down to the model's ceiling, which is
+ * the right call for live traffic (a caller asking for `max` on a model that
+ * stops at `xhigh` should still get an answer) but the wrong one for a probe:
+ * the operator picked a level specifically to observe how the route behaves at
+ * it, and a silently downgraded probe reports success for a request that was
+ * never made.
+ *
+ * The ladder is resolved exactly as the dispatch codecs resolve it —
+ * `resolveSupportedReasoningEfforts(modelId, wireFamily)` with no declared-scale
+ * override — because that is what a live request through this same route would
+ * be clamped against. Reading the catalog's declared scale here instead would
+ * make the gate stricter than the wire it is gating: it would refuse a level
+ * that dispatch would in fact have carried through.
+ *
+ * Returns `undefined` when the request is fine (including every `auto`/omitted
+ * probe, which carries no intent to contradict), or the operator-facing reason
+ * when it is not.
+ */
+export function reasoningEffortRejection(args: {
+  readonly requested: ProbeModelRequest["reasoningEffort"];
+  readonly modelId: string;
+  readonly wireFamily: WireFamily;
+}): string | undefined {
+  const { requested, modelId, wireFamily } = args;
+  if (requested === undefined || requested === "auto") return undefined;
+  const supported = resolveSupportedReasoningEfforts(modelId, wireFamily);
+  if (supported.includes(requested as ReasoningEffortLevel)) return undefined;
+  return (
+    `Model ${modelId} does not support reasoning effort '${requested}' on the ` +
+    `${wireFamily} wire. Supported: ${supported.join(", ")}.`
+  );
 }
 
 /** The account a probe selected, or the operator-facing reason it could not. */

@@ -22,11 +22,16 @@ import type { CartethyiaDatabase } from "../../src/persistence/postgres";
 import {
   buildProbeCanonicalRequest,
   loadProbePreferences,
+  reasoningEffortRejection,
 } from "../../src/providers/discovery/probe-phases";
 import {
   PROBE_REASONING_EFFORTS,
   type ProbeModelRequest,
 } from "../../src/providers/discovery/discovery-types";
+import {
+  clampReasoningEffort,
+  resolveSupportedReasoningEfforts,
+} from "../../src/transport/translation/thinking";
 
 /** A chainable stand-in for the one `select().from().where().limit()` read. */
 function fakeDb(rows: readonly unknown[]): CartethyiaDatabase {
@@ -97,6 +102,82 @@ describe("loadProbePreferences — effort reaches the wire", () => {
     for (const wireFamily of ["chat", "responses", "messages"] as const) {
       const { probeReasoning } = await load(wireFamily, { modelId: "m", reasoningEffort: "max" });
       expect(probeReasoning?.effort).toBe("max");
+    }
+  });
+});
+
+describe("reasoningEffortRejection — an unsupported level is refused, not clamped", () => {
+  const args = (over: Partial<Parameters<typeof reasoningEffortRejection>[0]> = {}) => ({
+    requested: "max" as ProbeModelRequest["reasoningEffort"],
+    modelId: "m",
+    wireFamily: "chat" as const,
+    ...over,
+  });
+
+  test("an omitted effort is never refused", () => {
+    expect(reasoningEffortRejection(args({ requested: undefined }))).toBeUndefined();
+  });
+
+  test("`auto` is never refused, on any wire", () => {
+    for (const wireFamily of ["chat", "responses", "messages"] as const) {
+      expect(reasoningEffortRejection(args({ requested: "auto", wireFamily }))).toBeUndefined();
+    }
+  });
+
+  test("a level the model supports is allowed", () => {
+    // The Responses wire stops at `xhigh`; the Chat wire reaches `max`.
+    expect(reasoningEffortRejection(args({ requested: "xhigh", wireFamily: "responses" }))).toBeUndefined();
+    expect(reasoningEffortRejection(args({ requested: "max", wireFamily: "chat" }))).toBeUndefined();
+  });
+
+  test("`max` on a Responses-wire model is refused, naming the real scale", () => {
+    const rejection = reasoningEffortRejection(args({ requested: "max", wireFamily: "responses" }));
+    expect(rejection).toBeDefined();
+    // The message has to name the model, the level, the wire and what IS
+    // supported — otherwise the operator cannot tell a typo from a real ceiling.
+    expect(rejection).toContain("m");
+    expect(rejection).toContain("max");
+    expect(rejection).toContain("responses");
+    expect(rejection).toContain("xhigh");
+    expect(rejection).not.toContain("max,");
+  });
+
+  test("a narrower id-derived ladder narrows the gate", () => {
+    // `claude-opus-4-6` is the adaptive pair: `low..high`, no `xhigh`/`max`.
+    expect(reasoningEffortRejection(args({ requested: "high", modelId: "claude-opus-4-6" }))).toBeUndefined();
+    expect(reasoningEffortRejection(args({ requested: "xhigh", modelId: "claude-opus-4-6" }))).toBeDefined();
+    expect(reasoningEffortRejection(args({ requested: "max", modelId: "claude-opus-4-6" }))).toBeDefined();
+  });
+
+  test("a model whose id declares no ladder falls back to the extended scale", () => {
+    // `m` matches no id-specific branch, so it takes EXTENDED (which has `max`).
+    expect(reasoningEffortRejection(args({ requested: "max" }))).toBeUndefined();
+  });
+
+  test("the gate and the dispatch clamp agree on the same ladder", () => {
+    // The invariant that makes the gate safe: it refuses exactly the levels the
+    // clamp would have silently downgraded, so no probe is ever refused that
+    // dispatch would have honored as requested.
+    for (const modelId of ["m", "gpt-5.5", "claude-opus-4-6", "gemini-3-pro", "mimo-v2.6"]) {
+      for (const wireFamily of ["chat", "responses", "messages"] as const) {
+        const supported = resolveSupportedReasoningEfforts(modelId, wireFamily);
+        for (const requested of PROBE_REASONING_EFFORTS) {
+          if (requested === "auto") continue;
+          const refused = reasoningEffortRejection({
+            requested,
+            modelId,
+            wireFamily,
+          });
+          const clamped = clampReasoningEffort(requested, supported);
+          if (refused === undefined) {
+            // Allowed ⇒ dispatch must carry it through unchanged, never downgrade.
+            expect(clamped).toBe(requested);
+          } else {
+            // Refused ⇒ dispatch would have changed it, which is why we refuse.
+            expect(clamped).not.toBe(requested);
+          }
+        }
+      }
     }
   });
 });
