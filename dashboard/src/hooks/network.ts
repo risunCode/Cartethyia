@@ -1,4 +1,6 @@
 import { consoleRequest } from "../data/api";
+import { getErrorMessage } from "../shared/helpers";
+import { toast } from "../shared/toast";
 import type { ApiErrorShape } from "../data/api";
 import type {
   CreateNetworkPoolRequest,
@@ -41,6 +43,10 @@ export function useCreateNetworkPool() {
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.network.pools });
+      toast.success("Proxy pool created");
+    },
+    onError: (error) => {
+      toast.error("Could not create the proxy pool.", getErrorMessage(error));
     },
   });
 }
@@ -106,6 +112,10 @@ export function useUpdateNetworkPool() {
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.network.pools });
+      toast.success("Proxy updated");
+    },
+    onError: (error) => {
+      toast.error("Could not update the proxy pool.", getErrorMessage(error));
     },
   });
 }
@@ -141,6 +151,10 @@ export function useRecoverNetworkPool() {
           queryKey: [...queryKeys.network.pools, poolId, "health-events"],
         }),
       ]);
+      toast.success("Proxy pool recovered");
+    },
+    onError: (error) => {
+      toast.error("Could not recover the proxy pool.", getErrorMessage(error));
     },
   });
 }
@@ -155,6 +169,10 @@ export function useDeleteNetworkPool() {
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.network.pools });
+      toast.success("Proxy pool deleted");
+    },
+    onError: (error) => {
+      toast.error("Could not delete the proxy pool.", getErrorMessage(error));
     },
   });
 }
@@ -172,6 +190,10 @@ export function useHealthCheckNetworkPool() {
       ),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.network.pools });
+      toast.success("Health check complete");
+    },
+    onError: (error) => {
+      toast.error("Health check failed.", getErrorMessage(error));
     },
   });
 }
@@ -209,6 +231,10 @@ export function useClearNetworkPoolCooldown() {
       ),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.network.pools });
+      toast.success("Provider cooldowns cleared");
+    },
+    onError: (error) => {
+      toast.error("Could not clear provider cooldowns.", getErrorMessage(error));
     },
   });
 }

@@ -85,7 +85,9 @@ export const credentialKind = pgEnum("credential_kind", ["api_key", "oauth", "no
 // models.wire_family.
 export const wireFamily = pgEnum("wire_family", ["chat", "responses", "messages"]);
 
-export const networkPoolKind = pgEnum("network_pool_kind", ["http", "socks5"]);
+// `bridge` is a carte-bridge instance dialed as an application relay (or a
+// CONNECT tunnel where the runtime holds a socket) rather than an RFC proxy.
+export const networkPoolKind = pgEnum("network_pool_kind", ["http", "socks5", "bridge"]);
 
 //  health_events.entity_kind — distinguishes which owning
 // table entity_id/account_id/network_pool_id references.
@@ -142,9 +144,10 @@ export type Provider = typeof providers.$inferSelect;
 
 // Upstream account credentials plus the full health state machine.
 // `tenant_id` null means the account is shared pool-wide; populated means
-// tenant-owned/BYOK. Provider routing supplies the concurrency ceiling and
-// network-pool policy; the legacy per-account `max_inflight` column is inert
-// and must not be repurposed as an override.
+// tenant-owned/BYOK. The concurrency ceiling lives in provider routing
+// (`provider_routing_settings.max_inflight`) and network pools
+// (`network_pools.max_inflight`); the per-account override that once sat here
+// was retired by `0029_retire_per_account_max_inflight.sql`.
 export const providerAccounts = pgTable("provider_accounts", {
   id: uuid("id").primaryKey().defaultRandom(),
   providerId: text("provider_id")
@@ -180,8 +183,6 @@ export const providerAccounts = pgTable("provider_accounts", {
   cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
   lastRecoveredAt: timestamp("last_recovered_at", { withTimezone: true }),
   modelCooldowns: jsonb("model_cooldowns").notNull().default({}),
-  /** Legacy per-account ceiling retained for stored rows only. Routing ignores it. */
-  maxInflight: integer("max_inflight"),
   /**
    * Stable list position within (tenant, provider). Accounts were ordered by
    * `created_at`, which let two same-millisecond rows swap between loads; this
@@ -199,6 +200,13 @@ export const providerAccounts = pgTable("provider_accounts", {
    * failure, because there is no refresh to run.
    */
   staticToken: boolean("static_token").notNull().default(false),
+  /**
+   * Last remaining credit fetched by the quota sweep, cached on the row so the
+   * request path can compare it against the provider's global credit limit
+   * without a live provider round trip. `null` means no credit figure has ever
+   * been fetched.
+   */
+  lastRemainingCredit: numeric("last_remaining_credit", { precision: 16, scale: 4 }),
 
   },
   (table) => [
@@ -453,15 +461,13 @@ export const providerRoutingSettings = pgTable(
      * `null` = UNLIMITED concurrency per account. */
     maxInflight: integer("max_inflight"),
     /**
-     * Credit reserve: the minimum credits that must stay unused on every
-     * account of this provider. `null` = no reserve (an account may be spent
-     * down to zero). When an account's remaining credit drops to or below this
-     * floor, the quota sweep parks it in a 24h cooldown so routing fails over to
-     * a sibling instead of draining the account to empty. Only meaningful for
-     * credit-metered providers; ignored for providers that report no credit
-     * window.
+     * Global credit protection for every account of this provider/tenant:
+     * when enabled, routing skips any account whose last fetched remaining
+     * credit is at or below `creditLimit`.
      */
-    creditFloor: integer("credit_floor"),
+    creditLimitEnabled: boolean("credit_limit_enabled").notNull().default(true),
+    /** Minimum credits to keep unused on every account; default 200. */
+    creditLimit: integer("credit_limit").notNull().default(200),
     enabled: boolean("enabled").notNull().default(false),
     // Route-selected User-Agent for built-in API-key providers; OAuth and BYOK identities stay native.
     userAgent: text("user_agent").notNull().default("codex_cli_rs/0.156.1"),
@@ -509,6 +515,16 @@ export const API_KEY_MODES = ["personal", "share"] as const;
 export type ApiKeyMode = (typeof API_KEY_MODES)[number];
 
 /**
+ * How a key's `modelList` is interpreted. Exactly two modes, never a
+ * combination: `whitelist` allows only the listed names (an empty list allows
+ * everything), `blacklist` refuses the listed names (an empty list refuses
+ * nothing). Every model-authorization surface — the request path, admission,
+ * `/v1/models`, and the share page — reads this one pair.
+ */
+export const API_KEY_MODEL_ACCESS_MODES = ["whitelist", "blacklist"] as const;
+export type ApiKeyModelAccessMode = (typeof API_KEY_MODEL_ACCESS_MODES)[number];
+
+/**
  * Inbound `/v1/*` keys never store plaintext secrets. Personal keys carry an
  * authentication hash; share templates carry policy and child keys point back
  * to the template that issued them.
@@ -554,8 +570,16 @@ export const apiKeys = pgTable(
       .notNull()
       .default(0),
     maxConcurrentRequests: integer("max_concurrent_requests"),
-    modelAllowlist: jsonb("model_allowlist").$type<readonly string[]>(),
-    modelDenylist: jsonb("model_denylist").$type<readonly string[]>(),
+    /**
+     * `whitelist` = only the names in `modelList` may be used (empty = all);
+     * `blacklist` = the names in `modelList` are refused (empty = none). One
+     * list, one mode — the old separate allow/deny columns are retired.
+     */
+    modelAccessMode: text("model_access_mode")
+      .$type<ApiKeyModelAccessMode>()
+      .notNull()
+      .default("whitelist"),
+    modelList: jsonb("model_list").$type<readonly string[]>(),
     /**
      * Client-router ids this key refuses. A request whose fingerprint names one
      * of these is rejected before routing, so an operator can stop a downstream
@@ -568,6 +592,7 @@ export const apiKeys = pgTable(
     clientRouterDenylist: jsonb("client_router_denylist").$type<readonly string[]>(),
     modelPrefix: text("model_prefix"),
     createdAt: createdAtColumn(),
+    enabled: boolean("enabled").notNull().default(true),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
   (table) => [
@@ -769,6 +794,7 @@ export interface ConsoleSettingsPreferences {
    */
   telemetryPayloads?: "full" | "metadata" | "none";
   privacyMode?: "masked" | "full";
+  webSearchOrder?: readonly string[];
 }
 
 export const consoleSettings = pgTable("console_settings", {

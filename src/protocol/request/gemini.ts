@@ -4,7 +4,16 @@
  * schema-sanitization helpers shared with the Antigravity adapter.
  */
 import type { CanonicalRequest } from "../../transport/canonical-model";
-import { isClaudeBillingHeaderText, isRecord, resolveImageSource, splitDataUrl } from "../primitives";
+import {
+  descend,
+  isClaudeBillingHeaderText,
+  isRecord,
+  resolveImageSource,
+  ROOT_WALK,
+  shouldStop,
+  splitDataUrl,
+  type RewriteWalk,
+} from "../primitives";
 import { geminiThinkingOutputFloor } from "../../providers/reasoning";
 
 export function geminiModelUrl(base: string, model: string, action: string): string {
@@ -32,7 +41,13 @@ const GEMINI_SCHEMA_KEYS = new Set([
 ]);
 
 function sanitizeGeminiSchema(value: unknown): Record<string, unknown> {
+  return sanitizeGeminiWalk(value, ROOT_WALK);
+}
+
+function sanitizeGeminiWalk(value: unknown, walk: RewriteWalk): Record<string, unknown> {
   if (!isRecord(value)) return {};
+  if (shouldStop(walk, value)) return value;
+  const inner = descend(walk, value);
   const schema: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
     if (!GEMINI_SCHEMA_KEYS.has(key)) continue;
@@ -51,11 +66,13 @@ function sanitizeGeminiSchema(value: unknown): Record<string, unknown> {
       // Gemini has no `const`: express it as a single-value enum.
       schema["enum"] = [child];
     } else if (key === "properties" && isRecord(child)) {
-      schema["properties"] = Object.fromEntries(Object.entries(child).map(([n, p]) => [n, sanitizeGeminiSchema(p)]));
+      schema["properties"] = Object.fromEntries(
+        Object.entries(child).map(([n, p]) => [n, sanitizeGeminiWalk(p, inner)]),
+      );
     } else if (key === "items" && isRecord(child)) {
-      schema["items"] = sanitizeGeminiSchema(child);
+      schema["items"] = sanitizeGeminiWalk(child, inner);
     } else if ((key === "anyOf" || key === "oneOf") && Array.isArray(child)) {
-      schema["anyOf"] = child.map(sanitizeGeminiSchema);
+      schema["anyOf"] = child.map((entry) => sanitizeGeminiWalk(entry, inner));
     } else if (key === "required" && Array.isArray(child)) {
       schema["required"] = child.filter((n): n is string => typeof n === "string");
     } else {

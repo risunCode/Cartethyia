@@ -54,8 +54,7 @@ export type ProviderModelDiscovery = (
  * — forcing an effort onto an unsupported model turns a working route into a
  * failure and hides what the route actually is.
  */
-export const PROBE_REASONING_EFFORTS = ["auto", "minimal", "low", "medium", "high", "xhigh"] as const;
-
+export const PROBE_REASONING_EFFORTS = ["auto", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 /** One accepted probe reasoning effort. `auto` means "send no reasoning intent". */
 export type ProbeReasoningEffort = (typeof PROBE_REASONING_EFFORTS)[number];
 

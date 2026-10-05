@@ -477,8 +477,8 @@ describe("modelWarningMessage", () => {
       10,
     );
     expect(message).toContain("gpt-5");
-    expect(message).toContain("Warning 3 of 10");
-    expect(message).toContain("ban this client");
+    expect(message).toContain("Warning 3/10");
+    expect(message).toContain("ban this IP");
   });
 
   test("a one-strike warning reads as a warning, not as a ban", () => {
@@ -487,7 +487,7 @@ describe("modelWarningMessage", () => {
       { banned: false, strikes: 1, bannedNow: false },
       10,
     );
-    expect(message).toContain("Warning 1 of 10");
+    expect(message).toContain("Warning 1/10");
     expect(message).not.toContain("is banned");
   });
 
@@ -499,8 +499,9 @@ describe("modelWarningMessage", () => {
       { banned: true, strikes: 10, bannedNow: true },
       10,
     );
-    expect(message).toContain("Warning 10 of 10");
+    expect(message).toContain("Warning 10/10");
   });
+
 
   test("the model name is quoted so a name with spaces stays readable", () => {
     const message = modelWarningMessage(

@@ -6,7 +6,7 @@ CREATE TYPE "public"."health_entity_kind" AS ENUM('account', 'pool');
 --> statement-breakpoint
 CREATE TYPE "public"."health_status" AS ENUM('active', 'cooldown', 'disabled');
 --> statement-breakpoint
-CREATE TYPE "public"."network_pool_kind" AS ENUM('http', 'socks5');
+CREATE TYPE "public"."network_pool_kind" AS ENUM('http', 'socks5', 'bridge');
 --> statement-breakpoint
 CREATE TYPE "public"."pool_routing_strategy" AS ENUM('least_loaded', 'round_robin');
 --> statement-breakpoint
@@ -57,9 +57,9 @@ CREATE TABLE "provider_accounts" (
   "cooldown_until" timestamptz,
   "last_recovered_at" timestamptz,
   "model_cooldowns" jsonb DEFAULT '{}'::jsonb NOT NULL,
-  "max_inflight" integer,
   "sort_index" integer DEFAULT 0 NOT NULL,
   "static_token" boolean DEFAULT false NOT NULL,
+  "last_remaining_credit" numeric(16, 4),
   "created_at" timestamptz DEFAULT now() NOT NULL,
   CONSTRAINT "provider_accounts_provider_id_providers_id_fk" FOREIGN KEY ("provider_id") REFERENCES "providers"("id") ON DELETE cascade,
   CONSTRAINT "provider_accounts_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade
@@ -173,7 +173,8 @@ CREATE TABLE "provider_routing_settings" (
   "strategy" "provider_routing_strategy" DEFAULT 'fallback' NOT NULL,
   "rotate_count" integer DEFAULT 1 NOT NULL,
   "max_inflight" integer,
-  "credit_floor" integer,
+  "credit_limit_enabled" boolean DEFAULT true NOT NULL,
+  "credit_limit" integer DEFAULT 200 NOT NULL,
   "enabled" boolean DEFAULT false NOT NULL,
   "user_agent" text DEFAULT 'codex_cli_rs/0.156.1' NOT NULL,
   "bypass_proxy" boolean DEFAULT false NOT NULL,
@@ -205,11 +206,12 @@ CREATE TABLE "api_keys" (
   "lifetime_token_budget" bigint,
   "lifetime_tokens_consumed" bigint DEFAULT 0 NOT NULL,
   "max_concurrent_requests" integer,
-  "model_allowlist" jsonb,
-  "model_denylist" jsonb,
+  "model_access_mode" text DEFAULT 'whitelist' NOT NULL,
+  "model_list" jsonb,
   "client_router_denylist" jsonb,
   "model_prefix" text,
   "created_at" timestamptz DEFAULT now() NOT NULL,
+  "enabled" boolean DEFAULT true NOT NULL,
   "revoked_at" timestamptz,
   "key_prefix" text,
   "key_encrypted" bytea,

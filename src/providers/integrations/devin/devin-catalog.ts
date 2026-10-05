@@ -18,7 +18,5 @@ export const DEVIN_MODELS: readonly ModelDefinition[] = [
     out: 64_000,
     vision: true,
     reasoning: true,
-    toolCall: true,
-    webSearch: true,
-  }),
+    toolCall: true,}),
 ];

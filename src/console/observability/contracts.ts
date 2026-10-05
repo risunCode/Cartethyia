@@ -192,6 +192,11 @@ export interface UsageRequestDetail extends UsageRequestItem {
     providerRequest?: unknown;
     providerResponse?: unknown;
   } | null;
+  payloadSignals?: {
+    toolCalls: number;
+    images: number;
+    attachments: number;
+  };
 }
 export interface TelemetryEventView {
   id: string;
@@ -206,7 +211,6 @@ export interface TelemetryEventView {
   inputTokens?: number;
   outputTokens?: number;
   estimatedCost?: number;
-  tokensPerSec?: number;
   firstContentDeltaAtMs?: number;
   lastEventAtMs?: number;
 }

@@ -15,8 +15,8 @@ import { defineModel } from "../model-definition";
 
 
 export const BAI_FALLBACK_MODELS: readonly ModelDefinition[] = [
-  defineModel({ id: "gpt-5", providerId: "bai", wireFamily: "chat", reasoning: true, vision: true, webSearch: true }),
-  defineModel({ id: "gemini-3-pro", providerId: "bai", wireFamily: "chat", reasoning: true, vision: true, webSearch: true }),
+  defineModel({ id: "gpt-5", providerId: "bai", wireFamily: "chat", reasoning: true, vision: true,}),
+  defineModel({ id: "gemini-3-pro", providerId: "bai", wireFamily: "chat", reasoning: true, vision: true,}),
 ];
 
 

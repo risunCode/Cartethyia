@@ -1,5 +1,6 @@
 import type { HealthCheckResult } from "./contracts";
 import { isIP } from "node:net";
+import { ProxyConnectRefusalError } from "../../../network/pool/agent";
 
 /**
  * Pulls the egress address out of a Cloudflare trace response.
@@ -50,9 +51,9 @@ export function classifyPoolConnectError(
   error: unknown,
   latencyMs: number,
 ): HealthCheckResult | undefined {
-  if (!(error instanceof Error)) return undefined;
-  const match = /^Proxy CONNECT failed: (402|407)\b/.exec(error.message);
-  if (!match) return undefined;
-  const status = match[1] === "402" ? 402 : 407;
-  return classifyPoolProbeResponse(poolId, { ok: false, status }, latencyMs);
+  // The agent throws a typed refusal carrying the status, so this no longer
+  // re-parses the message text (which a wording change would silently break).
+  if (!(error instanceof ProxyConnectRefusalError)) return undefined;
+  if (error.statusCode !== 402 && error.statusCode !== 407) return undefined;
+  return classifyPoolProbeResponse(poolId, { ok: false, status: error.statusCode }, latencyMs);
 }

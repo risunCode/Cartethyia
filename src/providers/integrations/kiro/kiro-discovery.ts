@@ -136,9 +136,7 @@ export async function fetchKiroModels(
         vision: true,
         reasoning: true,
         reasoningEfforts: KIRO_EFFORTS,
-        toolCall: true,
-        webSearch: true,
-      }),
+        toolCall: true,}),
     );
   }
   return definitions.length > 0 ? definitions : null;

@@ -10,7 +10,6 @@ import type { NetworkPoolSelector } from "../../network/pool/selector";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
 import { ProxyRequestStateStore } from "../request/state";
 import { ProxyRequestPreparer } from "../request/preparer";
-import { isModelAllowed } from "../../security/api-key-auth";
 import { parseThinkingSuffix } from "../translation/thinking";
 import type { CodexCompactAdapter } from "../../providers/integrations/codex/codex";
 import { completeAttempt, estimatedUsage } from "./attempt-finalize";
@@ -63,8 +62,6 @@ export function createResponsesCompactHandler(deps: ResponsesCompactHandlerDeps)
     const { model: compactModel } = parseThinkingSuffix(compact.model);
     const compactBody: Record<string, unknown> =
       compactModel === compact.model ? compact : { ...compact, model: compactModel };
-    if (!isModelAllowed(authorization.snapshot, compactModel))
-      throw new GatewayError("model_not_found", 404, "model is not allowed for this API key");
     if (!(typeof compact.input === "string" || Array.isArray(compact.input)))
       throw new GatewayError("invalid_request", 400, "input must be a string or array");
     if ("instructions" in compact && typeof compact.instructions !== "string")
@@ -84,6 +81,7 @@ export function createResponsesCompactHandler(deps: ResponsesCompactHandlerDeps)
       model: compactModel,
       authorization,
       signal: state.abortController.signal,
+      ...(state.clientUserAgent === undefined ? {} : { clientUserAgent: state.clientUserAgent }),
     });
     return runAttemptLoop<Response, CodexCompactAdapter>({
       state,

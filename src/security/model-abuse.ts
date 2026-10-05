@@ -313,7 +313,7 @@ export interface ModelStrikeOptions {
 export class ModelStrikeService {
   private readonly threshold: number;
   private readonly windowMs: number;
-  private readonly banTtlMs: number;
+  private readonly _banTtlMs: number;
   /**
    * Addresses this process has recorded a strike for, so `noteValid` can skip
    * the reset write for a client that was never struck. Process-local on
@@ -325,13 +325,18 @@ export class ModelStrikeService {
   constructor(private readonly store: ModelAbuseStore, opts: ModelStrikeOptions = {}) {
     this.threshold = Math.max(1, opts.threshold ?? 10);
     this.windowMs = Math.max(1, opts.windowMs ?? 5 * 60_000);
-    this.banTtlMs = Math.max(1, opts.banTtlMs ?? 60 * 60_000);
+    this._banTtlMs = Math.max(1, opts.banTtlMs ?? 60 * 60_000);
   }
 
   /** The ban threshold, for an operator-facing warning message. */
   get limit(): number {
     return this.threshold;
   }
+
+  get banTtlMs(): number {
+    return this._banTtlMs;
+  }
+
 
   /** Read-only ban lookup for the pre-parse gate. Throws only on store outage. */
   async check(input: { readonly ip: string }): Promise<boolean> {
@@ -398,9 +403,16 @@ export function modelWarningMessage(
   model: string,
   outcome: ModelAbuseOutcome,
   limit: number,
+  banTtlMs?: number,
 ): string {
-  return (
-    `Model '${model}' is not available to this API key. ` +
-    `Warning ${outcome.strikes} of ${limit} — repeatedly requesting models outside your access will ban this client.`
-  );
+  const remaining = Math.max(0, limit - outcome.strikes);
+  const banMinutes = banTtlMs ? Math.max(1, Math.ceil(banTtlMs / 60_000)) : undefined;
+  const banClause = banMinutes ? ` for ~${banMinutes} min` : "";
+  const tail =
+    remaining === 0
+      ? `The next invalid request will temporarily ban this IP${banClause}. Use /v1/models to see allowed models.`
+      : remaining === 1
+        ? `1 more invalid request will temporarily ban this IP${banClause}. Use /v1/models to see allowed models.`
+        : `${remaining} more invalid requests will temporarily ban this IP${banClause}. Use /v1/models to see allowed models.`;
+  return `Model '${model}' is not available to this API key. Warning ${outcome.strikes}/${limit} — ${tail}`;
 }

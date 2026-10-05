@@ -51,18 +51,20 @@ No alias or forwarding shim to keep old imports compiling. Deletion needs proof,
 bun run typecheck                # always
 bun run dashboard:typecheck      # when dashboard/ touched
 bun run build                    # when contracts/entry change (dashboard → AOT → binary)
+bun run test                     # or scoped: test:backend, dashboard:test; test:watch
 ```
 
-The repository does not currently carry a test suite, so typecheck is the gate.
-Typecheck never proves a behavior change: exercise the affected path at its real
-boundary — a live request against the running gateway, the browser, or a
-`.tmp-<topic>.ts` calling the real function — and report what you observed.
-State the limitation plainly when a surface is unavailable.
+Backend suites live in `test/`, dashboard suites in `dashboard/test/`, run via
+`scripts/ci-run-tests.ts` against the isolated `.env.test` database — never the
+dev database. Typecheck never proves a behavior change: exercise the affected
+path at its real boundary — a live request against the running gateway, the
+browser, or a `.tmp-<topic>.ts` calling the real function — and report what you
+observed. State the limitation plainly when a surface is unavailable.
 
 ## Boundaries
 
 - `src/` = production backend. `dashboard/` stays browser-safe: no Elysia, DB, filesystem, secret, or Node-only imports.
-- `scripts/` flat, `ops-*` / `build-*` / `ci-*` prefixes. No `index.ts` barrels; role filenames.
+- `scripts/` is grouped by purpose (`commands/`, `build/`, `dev/`, `generate/`, `internal/`). No `index.ts` barrels; role filenames like `contracts.ts`, `routes.ts`, `store.ts`.
 - Never hand-edit generated output; change its source/generator.
 - Typecheck/build must not need Buf, network, or external generators.
 - Preserve security boundaries and intentional provider wire bytes.

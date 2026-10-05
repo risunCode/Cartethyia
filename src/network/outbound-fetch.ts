@@ -6,7 +6,7 @@ import { Readable, type Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { resolveAllAddresses, validateResolvedAddresses } from "./ssrf";
 import type { SsrfPolicy } from "../config";
-import { isProxyAgentPair, type ProxyAgentPair } from "./pool/agent";
+import { isProxyAgentPair, shouldFallbackToBridgeRelay, type ProxyAgentPair } from "./pool/agent";
 import { metrics } from "../observability/metrics";
 import { trackNetworkCall } from "../observability/performance-metrics";
 import { stripResponseHeaders } from "./response-headers";
@@ -57,6 +57,36 @@ function relayRequest(
     relayUrl.password = "";
   }
   return { url: relayUrl, init: { ...init, headers } };
+}
+
+/**
+ * Builds the request a `bridge` pool sends when the front door refused
+ * CONNECT. A carte-bridge accepts its target origin and origin-form path in
+ * bridge-specific headers, so the target never appears in a query string or
+ * access-log URL.
+ *
+ * The caller's `Host` is dropped: it names the bridge, and the bridge rewrites
+ * Host for the upstream itself. If the endpoint has userinfo credentials, they
+ * are moved into `x-bridge-auth` and removed from the request URL; the
+ * provider's `Authorization` header remains untouched.
+ */
+function bridgeRequest(
+  bridgeEndpoint: URL,
+  target: URL,
+  init: RequestInit,
+): { url: URL; init: RequestInit } {
+  const bridgeUrl = new URL(bridgeEndpoint.toString());
+  const headers = new Headers(init.headers);
+  headers.delete("host");
+  headers.set("x-bridge-target", target.origin);
+  headers.set("x-bridge-path", `${target.pathname}${target.search}`);
+  if (bridgeUrl.username || bridgeUrl.password) {
+    const credentials = `${decodeURIComponent(bridgeUrl.username)}:${decodeURIComponent(bridgeUrl.password)}`;
+    headers.set("x-bridge-auth", `Basic ${Buffer.from(credentials).toString("base64")}`);
+    bridgeUrl.username = "";
+    bridgeUrl.password = "";
+  }
+  return { url: bridgeUrl, init: { ...init, headers } };
 }
 
 /**
@@ -200,6 +230,9 @@ export function createValidatedFetch(options: ValidatedFetchOptions = {}): Valid
   const relayEndpoint = isProxyAgentPair(configuredAgent)
     ? configuredAgent.relayEndpoint
     : undefined;
+  const bridgeEndpoint = isProxyAgentPair(configuredAgent)
+    ? configuredAgent.bridgeEndpoint
+    : undefined;
   return async (input, init = {}) => {
     const startedAt = performance.now();
     let url = input instanceof Request ? new URL(input.url) : new URL(input.toString());
@@ -223,6 +256,7 @@ export function createValidatedFetch(options: ValidatedFetchOptions = {}): Valid
       const poolDialsTarget = Boolean(configuredAgent || relayEndpoint);
       let resolvedAddress: string | undefined;
       let relayResolvedAddress: string | undefined;
+      let bridgeResolvedAddress: string | undefined;
       if (poolDialsTarget) {
         // The egress dials the pool/relay, which resolves the target itself.
         // Counting these lets ops confirm how much traffic depends on
@@ -242,10 +276,20 @@ export function createValidatedFetch(options: ValidatedFetchOptions = {}): Valid
           if (!relayResolvedAddress)
             throw new TypeError(`no validated address for ${relayEndpoint.hostname}`);
         }
+        // The bridge's relay fallback dials the bridge itself, so its host must
+        // resolve locally even though the CONNECT attempt does not need it.
+        if (bridgeEndpoint) {
+          const bridgeAddresses = await resolveFn(bridgeEndpoint.hostname, signal);
+          validateResolvedAddresses(bridgeAddresses, policy);
+          bridgeResolvedAddress = bridgeAddresses[0];
+          if (!bridgeResolvedAddress)
+            throw new TypeError(`no validated address for ${bridgeEndpoint.hostname}`);
+        }
       } catch (error) {
         // A pool/relay-owned dial still needs its egress host locally; only
         // the advisory target lookup may degrade.
         if (relayEndpoint && !relayResolvedAddress) throw error;
+        if (bridgeEndpoint && !bridgeResolvedAddress) throw error;
         if (!poolDialsTarget) throw new TypeError(`no validated address for ${url.hostname}`);
       }
       if (!poolDialsTarget && !resolvedAddress)
@@ -256,6 +300,26 @@ export function createValidatedFetch(options: ValidatedFetchOptions = {}): Valid
         response = options.fetchFn
           ? await options.fetchFn(relay.url, relay.init)
           : await pinnedFetch(relay.url, relay.init, relayResolvedAddress!);
+      } else if (bridgeEndpoint) {
+        // Prefer CONNECT: where the bridge's runtime holds a raw socket it
+        // answers the handshake and this pool tunnels like any HTTP proxy, which
+        // keeps the target's own TLS end-to-end. A serverless front door cannot,
+        // and its refusal is the signal to retry through the bridge-specific
+        // x-bridge-target/x-bridge-path relay contract. An injected `fetchFn`
+        // has no agent machinery, so it can only exercise that relay form.
+        if (options.fetchFn) {
+          const bridge = bridgeRequest(bridgeEndpoint, url, requestInit);
+          response = await options.fetchFn(bridge.url, bridge.init);
+        } else {
+          try {
+            const agent = agentForTarget(configuredAgent, url.protocol);
+            response = await pinnedFetch(url, requestInit, resolvedAddress!, agent);
+          } catch (error) {
+            if (!shouldFallbackToBridgeRelay(error)) throw error;
+            const bridge = bridgeRequest(bridgeEndpoint, url, requestInit);
+            response = await pinnedFetch(bridge.url, bridge.init, bridgeResolvedAddress!);
+          }
+        }
       } else if (options.fetchFn) {
         response = await options.fetchFn(url, requestInit);
       } else {

@@ -35,6 +35,8 @@ export interface ParamQuirk {
 export interface WireTokenBound {
   /** Default when the caller sent no limit (undefined = leave absent). */
   readonly defaultMaxTokens?: number;
+  /** Floor applied to any positive caller value below it (wire minimum). */
+  readonly minTokens?: number;
   /** Floor applied when tools are present and the value is narrower. */
   readonly toolCallFloor?: number;
   /** Hard ceiling; values above are clamped down. */
@@ -51,9 +53,9 @@ export interface WireTokenBound {
  * with tools, and clamps OAuth to 64k; responses passes through.
  */
 export const WIRE_TOKEN_BOUNDS: Readonly<Record<string, WireTokenBound>> = {
-  chat: { ceiling: 32_000 },
-  messages: { defaultMaxTokens: 4_096, toolCallFloor: 32_000, oauthCeiling: 64_000 },
-  responses: {},
+  chat: { minTokens: 16, ceiling: 32_000 },
+  messages: { minTokens: 16, defaultMaxTokens: 4_096, toolCallFloor: 32_000, oauthCeiling: 64_000 },
+  responses: { minTokens: 16 },
 };
 
 /** Resolves the output-token value for one wire from caller controls. */
@@ -66,6 +68,8 @@ export function resolveWireMaxTokens(
   if (bound === undefined) return controls.max_tokens;
   let value = controls.max_tokens;
   if (value === undefined && bound.defaultMaxTokens !== undefined) value = bound.defaultMaxTokens;
+  if (value !== undefined && bound.minTokens !== undefined && value < bound.minTokens)
+    value = bound.minTokens;
   if (value !== undefined && bound.toolCallFloor !== undefined && options.hasTools === true && value < bound.toolCallFloor)
     value = bound.toolCallFloor;
   if (value !== undefined && bound.oauthCeiling !== undefined && options.isOAuth === true && value > bound.oauthCeiling)

@@ -160,7 +160,7 @@ export function ImportCredentialDialog({
       open={true}
       onClose={onClose}
       title={`Import a ${providerName} credential`}
-      width={460}
+      size="sm"
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose} disabled={importCredential.isPending}>

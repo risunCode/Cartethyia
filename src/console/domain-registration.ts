@@ -18,8 +18,8 @@ import {
   DrizzleProviderCatalogStore,
 } from "./providers/catalog/store";
 import { DrizzleProviderDetailStore } from "./providers/detail/store";
-import { createModelRoutingRoutes } from "./routing/model/contracts";
-import { createNetworkPoolRoutes } from "./routing/pools/contracts";
+import { createModelRoutingRoutes } from "./routing/model/routes";
+import { createNetworkPoolRoutes } from "./routing/pools/routes";
 import { DrizzleModelRoutingStore } from "./routing/model/store";
 import { DrizzleNetworkPoolStore } from "./routing/pools/store";
 import { createRuntimeSettingsRoutes } from "./settings/contracts";
@@ -55,7 +55,7 @@ import type { CliToolService } from "./cli-tools/service";
 import type { NetworkPoolSelector } from "../network/pool/selector";
 import type { ProxyRequestStateStore } from "../transport/request/state";
 import type { RouteSnapshotService } from "../transport/routing/route-model";
-import type { ApiKeyAdmissionService } from "../security/admission";
+import type { ApiKeyAdmissionService } from "../security/admission/service";
 import type { ModelStrikeService } from "../security/model-abuse";
 import type { TelemetryBatchBuffer } from "../observability/telemetry-buffer";
 import type { OAuthRefreshService } from "../providers/authentication/oauth-refresh-service";
@@ -284,6 +284,7 @@ export function registerConsoleDomains(
       snapshotInvalidator: ctx.routeSnapshotService,
       apiKeyStore,
       admissionService: ctx.admissionService,
+      auditSink: ctx.auditRecorder,
     }),
   );
   console.use(createModelRoutingRoutes({ store: modelRoutingStore, accessResolver: ctx.accessResolver, auditSink: ctx.auditRecorder, snapshotInvalidator: ctx.routeSnapshotService }));

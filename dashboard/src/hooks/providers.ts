@@ -11,13 +11,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 
 
-/** Loads the tenant provider catalog. */
+/** Loads the tenant provider catalog and observes background metadata refreshes. */
 export function useProviders() {
   return useQuery({
     queryKey: queryKeys.providers.all,
     queryFn: (context) =>
       consoleRequest<unknown>("/providers", { signal: querySignal(context) }).then(assertProviders),
     ...DASHBOARD_QUERY_OPTIONS,
+    refetchInterval: 60_000,
   });
 }
 
@@ -306,6 +307,10 @@ export function useRecoverAccount() {
         }),
         queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
       ]);
+      toast.success("Account recovered");
+    },
+    onError: (error) => {
+      toast.error("Could not recover the account.", getErrorMessage(error));
     },
   });
 }
@@ -558,7 +563,7 @@ export function useUpdateGlobalProvider() {
 }
 
 /** Synchronizes one provider's model catalog when the session has platform admin scope. */
-export function useSyncProviderModels() {
+export function useSyncProviderModels(options: { readonly silent?: boolean } = {}) {
   const queryClient = useQueryClient();
   return useMutation<{ synced: number }, ApiErrorShape, string>({
     mutationFn: (providerId) =>
@@ -567,19 +572,21 @@ export function useSyncProviderModels() {
         { method: "POST", body: "{}" },
       ),
     // The request resolves only once the fetch has finished, so this toast
-    // reports the real outcome. It was silent before, which made a completed
-    // fetch indistinguishable from one that never ran.
+    // reports the real outcome. Automatic free-tier syncs suppress the toast
+    // but still invalidate the model query with the same result.
     onSuccess: async (result, providerId) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.providers.models(providerId) });
-      toast.success(
-        "Models fetched",
-        result.synced > 0
-          ? `${result.synced} new model${result.synced === 1 ? "" : "s"} added`
-          : "No new models found",
-      );
+      if (!options.silent) {
+        toast.success(
+          "Models fetched",
+          result.synced > 0
+            ? `${result.synced} new model${result.synced === 1 ? "" : "s"} added`
+            : "No new models found",
+        );
+      }
     },
     onError: (error) => {
-      toast.error("Failed to fetch models", getErrorMessage(error));
+      if (!options.silent) toast.error("Failed to fetch models", getErrorMessage(error));
     },
   });
 }

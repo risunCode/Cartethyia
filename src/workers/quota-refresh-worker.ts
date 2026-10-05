@@ -12,7 +12,7 @@
 import { log } from "../observability/logger";
 import {
   QUOTA_REFRESH_TIMEOUT_MS,
-  listOAuthQuotaRefreshTargets,
+  listQuotaRefreshTargets,
   refreshAccountQuota,
   signalFetch,
   targetLens,
@@ -32,7 +32,7 @@ import {
 } from "./daily-checkin";
 
 export interface QuotaRefreshSweepDeps extends QuotaRefreshDeps {
-  /** Lists OAuth accounts to consider; the default excludes API-key accounts. */
+  /** Lists credential-bearing accounts; the default excludes credential-less rows. */
   readonly listTargets?: () => Promise<readonly QuotaRefreshTarget[]>;
   /** Maximum accounts in one completed wave. Defaults to 5. */
   readonly maxConcurrency?: number;
@@ -267,7 +267,7 @@ export async function quotaRefreshSweep(deps: QuotaRefreshSweepDeps): Promise<vo
     list: async () => {
       const targets = deps.listTargets
         ? await deps.listTargets()
-        : await listOAuthQuotaRefreshTargets(deps.db);
+        : await listQuotaRefreshTargets(deps.db);
       // Read cache ages in one batched pass per lens: the sweep runs over
       // dozens of accounts each minute, so a `get` per account made the age
       // scan's latency scale with the account count. `getCachedQuotaEntries`
@@ -311,7 +311,17 @@ export async function quotaRefreshSweep(deps: QuotaRefreshSweepDeps): Promise<vo
       });
     },
     eligible: async (entry) => {
-      // A provider with no registered refresher cannot have its quota read.
+      // Collectorless providers intentionally have no quota surface; do not
+      // turn their key-only accounts into recurring quota failures.
+      try {
+        const collector = await deps.providerRegistry.resolveQuotaCollector(entry.target.providerId);
+        if (collector === undefined) return false;
+      } catch {
+        return false;
+      }
+      // API-key/JWT accounts use the stored credential directly; OAuth
+      // accounts need a provider refresher before their quota can be read.
+      if (entry.target.credentialKind === "api_key") return true;
       try {
         return (await deps.providerRegistry.resolveRefresher(entry.target.providerId)) !== undefined;
       } catch {

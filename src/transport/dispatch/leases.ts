@@ -1,5 +1,6 @@
 import { GatewayError } from "../gateway-error";
-import type { AdmissionLease, ApiKeyAdmissionService } from "../../security/admission";
+import type { AdmissionLease } from "../../security/admission/contracts";
+import type { ApiKeyAdmissionService } from "../../security/admission/service";
 import type { ApiKeyAuthorizationSnapshot } from "../../security/api-key-auth";
 import type { ByokUpstreamHost } from "../../providers/operations/provider-catalog-service";
 import type { PoolRotation, PoolSelectionFailure } from "../../network/pool/selector";

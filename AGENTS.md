@@ -83,13 +83,16 @@ For a rename, move, replacement, feature removal, or contract change:
 bun run typecheck
 bun run dashboard:typecheck  # when dashboard/ changes
 bun run build                # when entry points or build contracts change
+bun run test:backend         # or bun run test / dashboard:test / test:watch
 ```
 
-The repository does not currently carry an active test suite. Typecheck is not
-behavioral proof. Exercise the real boundary: a live gateway request, headless
-browser/CDP surface when available, database migration in an isolated environment,
-or a temporary script calling production code. If a browser/CDP runtime is
-available, UI claims require that automation evidence; if unavailable, say exactly why.
+The repository carries an active test suite (`test/`, `dashboard/test/`, run via
+`scripts/ci-run-tests.ts` against the isolated `.env.test` database). Typecheck
+is not behavioral proof. Exercise the real boundary: a live gateway request,
+headless browser/CDP surface when available, database migration in an isolated
+environment, or a temporary script calling production code. If a browser/CDP
+runtime is available, UI claims require that automation evidence; if unavailable,
+say exactly why.
 
 ## Safety and git
 

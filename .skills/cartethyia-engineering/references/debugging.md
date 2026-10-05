@@ -27,6 +27,14 @@ For duplicate tools, inspect request history, tool-call ids, retry boundaries, a
 whether the adapter emitted or replayed the same call. For image failures, verify
 media type, encoding, and the provider's accepted field shape.
 
+Wire normalization lives in `src/transport/translation/quirks.ts`
+(`resolveWireMaxTokens`): a positive caller value below `minTokens: 16` is
+lifted to 16 for chat/responses/messages before tool-floor/ceiling clamps, and
+the responses builder bounds `max_output_tokens` through the same resolver.
+Tool schemas are normalized at canonical decode — `parseToolObject` in
+`src/transport/surface/dialects.ts` runs `completeRequiredSchema`, so every
+codec (chat/responses/messages) emits `required` matching `properties`.
+
 ## Live verification
 
 Use the real running gateway and the same full user-agent/client headers as the
@@ -39,8 +47,9 @@ removed afterward.
 
 ## Database reset
 
-Never reset production data. Verify the target environment first; use an isolated
-or disposable database and a transaction/backup when a reset is genuinely required.
+Never reset production data. Verify the target environment first; use the
+isolated `.env.test` database (`bun run test-db:up/check/down`) and a
+transaction/backup when a reset is genuinely required.
 
 ## Verification
 

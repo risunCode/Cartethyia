@@ -18,6 +18,7 @@ import {
 } from "../../shared/errors";
 import type { AccessDecision } from "../../../security/access-control";
 import { isBundledProviderId, type ProviderRegistry } from "../../../providers/provider-registry";
+import { getProviderClientVersion } from "../../../providers/operations/client-versions";
 import type { OAuthLoginField } from "../../../providers/authentication/oauth-flow-store";
 import {
   providerCredentialHint,
@@ -27,7 +28,7 @@ import {
   type CompatibilityProfile,
 } from "../../../providers/provider-metadata";
 import type { AccountHealthEventRecord } from "../../../providers/operations/account-health-service";
-import { PROVIDER_READ_SCOPES, PROVIDER_WRITE_SCOPES } from "./contracts";
+import { CREDENTIAL_MODES, PROVIDER_READ_SCOPES, PROVIDER_WRITE_SCOPES } from "./contracts";
 import {
   isWireFamily,
   validateCompatibilityProfile,
@@ -61,6 +62,7 @@ export function sanitizeProviderResponse(
   // always reports the current canonical values.
   const credentialUrl = providerCredentialUrl(p.providerId);
   const credentialHint = providerCredentialHint(p.providerId);
+  const clientVersion = getProviderClientVersion(p.providerId);
   const response: ProviderResponse = {
     providerId: p.providerId,
     displayName: providerDisplayName(p.providerId),
@@ -71,6 +73,7 @@ export function sanitizeProviderResponse(
     hasAdapterUserAgent: providerHasAdapterUserAgent(p.providerId),
     ...(credentialUrl === undefined ? {} : { credentialUrl }),
     ...(credentialHint === undefined ? {} : { credentialHint }),
+    ...(clientVersion === undefined ? {} : { clientVersion }),
     supportsModelDiscovery: (p.supportsModelDiscovery as boolean | undefined) ?? !p.isBuiltIn,
     ...(typeof p.createdAt === "string" ? { createdAt: p.createdAt } : {}),
     ...(typeof p.updatedAt === "string" ? { updatedAt: p.updatedAt } : {}),
@@ -397,6 +400,16 @@ export function createProviderCatalogOperations(config: ProviderCatalogConfig) {
             "invalid_request",
             400,
             "credentialKind must be api_key, oauth, or none",
+          );
+        }
+        if (
+          request.credentialMode !== undefined &&
+          !(CREDENTIAL_MODES as readonly string[]).includes(request.credentialMode)
+        ) {
+          throw new ConsoleDomainError(
+            "invalid_request",
+            400,
+            "credentialMode must be auto, jwt, or api_key",
           );
         }
         const created = await config.store.createAccount(

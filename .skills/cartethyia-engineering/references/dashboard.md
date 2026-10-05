@@ -28,6 +28,20 @@ Keep share data and token units sourced from one provider. Public recipients may
 model ids but must not receive admin controls such as probe, enable, disable, or delete.
 Treat theme, backdrop, responsive layout, and model grouping as UI behavior to verify.
 
+## UI feedback and modal scale
+
+- Every console mutation toasts on both arms: `toast.success(...)` on success
+  (short outcome, e.g. "Proxy pool created"), `toast.error(...)` with
+  `getErrorMessage(error, ...)` on failure. Never ship a silent `mutate`.
+- `Dialog` sizes come from `DialogSize` (`sm 420 / md 640 / lg 880 / xl 1160`);
+  arbitrary `width={...}` px is legacy. `expanded` caps at 1160; on
+  `max-width: 640px` panels become near-full-viewport bottom sheets.
+- `localStorage` keys are namespaced `cartethyia:<area>:<name>`
+  (`cartethyia:provider:<id>:thinking-effort`, `cartethyia:overview:low-stress`).
+  Read defensively (`typeof window` guard, vocabulary check, typed fallback);
+  never throw on stored junk.
+
+
 ## Verification choice
 
 - Markup/layout structure only: use a throwaway SSR script with every query seeded;

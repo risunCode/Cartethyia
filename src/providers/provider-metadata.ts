@@ -128,15 +128,11 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
   { id: "fireworks", displayName: "Fireworks AI", baseUrl: "https://api.fireworks.ai/inference/v1", credentialUrl: "https://fireworks.ai/account/api-keys" },
   { id: "nvidia", displayName: "NVIDIA NIM", baseUrl: "https://integrate.api.nvidia.com/v1", credentialUrl: "https://build.nvidia.com/settings/api-keys" },
   { id: "deepseek", displayName: "DeepSeek", baseUrl: "https://api.deepseek.com", credentialUrl: "https://platform.deepseek.com/api_keys" },
-  // The base URL carries `/v1`: the Hugging Face router serves `/v1/models` and
-  // `/v1/chat/completions`, and the bare host answers 404 on both.
-  { id: "huggingface", displayName: "Hugging Face", baseUrl: "https://router.huggingface.co/v1", credentialUrl: "https://huggingface.co/settings/tokens" },
   { id: "gmi", displayName: "GMI Cloud", baseUrl: "https://api.gmi-serving.com/v1", credentialUrl: "https://console.gmicloud.ai" },
-  { id: "zai", displayName: "Z.AI", baseUrl: "https://api.z.ai/api/paas/v4", credentialUrl: "https://z.ai/manage-apikey/apikey-list" },
   {
-    // The Z.AI Coding Plan subscription endpoint, distinct from the `zai`
-    // pay-as-you-go host above: different base path, a durable key minted by
-    // the sign-in flow, and a different catalog.
+    // The Z.AI Coding Plan subscription endpoint is a dedicated coding-plan
+    // surface: different base path, a durable key minted by the sign-in flow,
+    // and a different catalog.
     id: "zcode",
     displayName: "Z.AI Coding Plan",
     baseUrl: "https://api.z.ai/api/coding/paas/v4",
@@ -163,7 +159,18 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     baseUrl: "https://api.kilo.ai/api/openrouter",
     credentialUrl: "https://app.kilo.ai/device-auth",
   },
-  { id: "commandcode", displayName: "Command Code", baseUrl: "https://api.commandcode.ai/alpha/generate", credentialUrl: "https://commandcode.ai/studio", credentialHint: "Use the API key from the Command Code CLI, or create one in the studio." },
+  {
+    // Command Code's adapter stamps its own client identity headers
+    // (`x-command-code-version`, `x-cli-environment`, `x-session-id`) and never
+    // reads the route User-Agent, so the Routing Strategy panel must not offer
+    // a custom User-Agent for it — the field would be silently ignored.
+    id: "commandcode",
+    displayName: "Command Code",
+    baseUrl: "https://api.commandcode.ai/alpha/generate",
+    hasAdapterUserAgent: true,
+    credentialUrl: "https://commandcode.ai/studio",
+    credentialHint: "Use the API key from the Command Code CLI, or create one in the studio.",
+  },
   { id: "qoder", displayName: "Qoder", baseUrl: "https://api2.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1", hasAdapterUserAgent: true, credentialUrl: "https://qoder.com", credentialHint: "Signed in with a Qoder account; there is no key to paste." },
   { id: "ollamacloud", displayName: "Ollama Cloud", baseUrl: "https://ollama.com/v1", credentialUrl: "https://ollama.com/settings/keys" },
   { id: "gemini", displayName: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", credentialUrl: "https://aistudio.google.com/app/apikey" },

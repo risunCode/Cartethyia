@@ -73,6 +73,53 @@ export function wireContextFrom(
   };
 }
 
+/** Grok's account feature probe intentionally uses the same Responses request as live traffic. */
+export const GROK_407_PROBE_PROMPT = "reply my message with exact number 407";
+
+/**
+ * Converts a failed/mismatched Grok feature probe into a quota-shaped upstream
+ * error. The account health machine supplies the 24-hour Grok fallback while
+ * retaining any reset duration already present in the provider detail.
+ */
+export function grok407ProbeFailure(args: {
+  readonly providerId: string;
+  readonly prompt: string | undefined;
+  readonly events: readonly CanonicalEvent[];
+  readonly dispatchError: unknown;
+}): GatewayError | undefined {
+  if (args.providerId !== "grok" || args.prompt !== GROK_407_PROBE_PROMPT) return undefined;
+  const sample = extractSample(args.events);
+  const normalizedSample = sample?.replace(/\\confidence\{\d+\}\s*$/i, "").trim();
+  // A valid Grok answer may carry the provider's confidence annotation after
+  // the numeric result, and a terminal metadata error may arrive after text.
+  if (normalizedSample === "407") return undefined;
+  const priorDetails = args.dispatchError instanceof GatewayError ? args.dispatchError.details : {};
+  const providerStatus =
+    typeof priorDetails.providerStatus === "number" ? priorDetails.providerStatus : undefined;
+  const returned202 = normalizedSample === "202" || providerStatus === 202;
+  const detail =
+    returned202
+      ? "Grok 407 feature probe returned 202 instead of 407"
+      : args.dispatchError instanceof Error
+        ? `Grok 407 feature probe failed: ${args.dispatchError.message}`
+        : sample === undefined
+          ? "Grok 407 feature probe returned no exact 407 response"
+          : `Grok 407 feature probe returned ${sample}`;
+  return new GatewayError(
+    "quota_exceeded",
+    429,
+    detail,
+    {
+      ...priorDetails,
+      providerCode: "subscription:free-usage-exhausted",
+      ...(providerStatus === undefined && returned202
+        ? { providerStatus: 202, upstreamStatus: 202 }
+        : {}),
+    },
+    "upstream",
+  );
+}
+
 /** Best-effort visible text extracted from a probe's streamed content deltas, capped for display. */
 export function extractSample(events: readonly CanonicalEvent[]): string | undefined {
   let text = "";
@@ -291,8 +338,17 @@ export async function selectProbeAccount(args: {
   readonly providerId: string;
   readonly requestedAccountId: string | undefined;
   readonly requiresAccount: boolean;
+  /** Explicit Grok 407 feature tests may verify a cooling account to recover it. */
+  readonly allowCoolingAccount?: boolean;
 }): Promise<ProbeAccountSelection> {
-  const { db, tenantId, providerId, requestedAccountId, requiresAccount } = args;
+  const {
+    db,
+    tenantId,
+    providerId,
+    requestedAccountId,
+    requiresAccount,
+    allowCoolingAccount = false,
+  } = args;
   const accountRows = requiresAccount
     ? await db
         .select({
@@ -316,7 +372,7 @@ export async function selectProbeAccount(args: {
     .filter(
       (row) =>
         row.status !== "disabled" &&
-        (row.cooldownUntil === null || row.cooldownUntil.getTime() <= now),
+        (allowCoolingAccount || row.cooldownUntil === null || row.cooldownUntil.getTime() <= now),
     )
     .sort((left, right) => Number(right.tenantId !== null) - Number(left.tenantId !== null));
   const accountId = requestedAccountId ?? usableAccounts[0]?.id;
@@ -372,7 +428,7 @@ export async function resolveProbeAdapter(args: {
 
 /** The reasoning shape a Responses-wire probe carries. */
 export interface ProbeReasoning {
-  effort: "minimal" | "low" | "medium" | "high" | "xhigh";
+  effort: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   summary_mode: "auto" | "concise" | "detailed";
 }
 
@@ -589,22 +645,38 @@ export function computeProbeVerdict(args: {
         // Malformed or non-standard JSON error payloads safely retain original error message.
       }
     }
+    const details =
+      dispatchError instanceof GatewayError
+        ? (dispatchError.details as Record<string, unknown>)
+        : undefined;
     const status =
       dispatchError instanceof GatewayError && typeof dispatchError.status === "number"
         ? dispatchError.status
         : undefined;
+    const providerCode =
+      typeof details?.providerCode === "string" ? String(details.providerCode) : undefined;
+    const providerStatus =
+      typeof details?.providerStatus === "number" ? Number(details.providerStatus) : undefined;
+    const upstreamReq =
+      typeof details?.upstreamRequestId === "string"
+        ? String(details.upstreamRequestId)
+        : undefined;
     const wireLabel = `${wireFamily} ${endpointPath}`;
+    const statusTag =
+      providerCode !== undefined && providerStatus !== undefined
+        ? `${providerCode} (upstream ${status ?? providerStatus})`
+        : providerCode !== undefined
+          ? providerCode
+          : status !== undefined
+            ? `upstream ${status}`
+            : undefined;
     errorMessage =
-      status !== undefined
-        ? `${providerId}/${modelId} via ${wireLabel} — ${pretty} (upstream ${status})`
-        : `${providerId}/${modelId} via ${wireLabel} — ${pretty}`;
-    // Surface the upstream request id when present for quick log correlation.
-    if (
-      dispatchError instanceof GatewayError &&
-      typeof dispatchError.details.upstreamRequestId === "string"
-    ) {
-      errorMessage += ` [req ${dispatchError.details.upstreamRequestId}]`;
-    }
+      statusTag !== undefined
+        ? `${providerId}/${modelId} via ${wireLabel} — ${pretty} (${statusTag})${upstreamReq ? ` [req ${upstreamReq}]` : ""}`
+        : upstreamReq !== undefined
+          ? `${providerId}/${modelId} via ${wireLabel} — ${pretty} [req ${upstreamReq}]`
+          : `${providerId}/${modelId} via ${wireLabel} — ${pretty}`;
+
   } else if (terminal?.type === "terminal" && terminal.state !== "complete") {
     errorMessage = terminal.stop_reason ?? "Model probe failed";
   } else {

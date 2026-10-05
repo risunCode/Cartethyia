@@ -1,5 +1,5 @@
 import type { CanonicalEvent, CanonicalStopReason, ContentPart, UsageRecord } from "../../canonical-model";
-import { isRecord } from "../../../protocol/primitives";
+import { assertBoundedJsonDepth, isRecord } from "../../../protocol/primitives";
 import {
   reasoningSummaryHasBoundary,
   reasoningSummaryIdentity,
@@ -37,8 +37,14 @@ export function parseArgs(value: unknown): unknown {
   // whitespace) must become {}, never be forwarded as a bare string.
   if (value.trim().length === 0) return {};
   try {
-    return JSON.parse(value) as unknown;
-  } catch {
+    const parsed = JSON.parse(value) as unknown;
+    // Same reasoning as `primitives.parseArguments`: the ingress depth guard
+    // measured the envelope, not this string's contents, so the nesting has to
+    // be bounded the moment it becomes visible.
+    assertBoundedJsonDepth(parsed);
+    return parsed;
+  } catch (error) {
+    if (error instanceof GatewayError) throw error;
     return value;
   }
 }

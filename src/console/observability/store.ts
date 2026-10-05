@@ -121,21 +121,12 @@ function chartBucketSeconds(period: string): number {
 
 /**
  * The model id with the client's requested reasoning effort as a display
- * suffix, or `default` when the request carried none.
- *
- * The model id is the routing key, so the effort rides as a suffix — grouping,
- * routing, and cost joins keep reading the bare id. `requested_effort` is NULL
- * both when the client stated no effort and when it stated one the canonical
- * model does not carry (`auto`): `parseReasoningIntent` keeps only a value in
- * `REASONING_EFFORTS`, so an `auto` effort is dropped before it is recorded. In
- * both cases no effort was resolved for the request, so the row reads `default`
- * rather than leaving the column bare and inviting the reader to guess whether
- * the effort was unset or merely undisplayed.
+ * suffix — only when the request actually carried one.
  */
 function modelWithEffort(event: typeof telemetryEvents.$inferSelect): string | undefined {
   const model = event.requestedModel;
   if (!model) return undefined;
-  return `${model} (${event.requestedEffort ?? "default"})`;
+  return event.requestedEffort ? `${model} (${event.requestedEffort})` : model;
 }
 
 function mapUsageRequestItem(
@@ -706,6 +697,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
           ? { providerResponse: captured.providerResponse }
           : {}),
       },
+      ...(captured.signals === undefined ? {} : { payloadSignals: captured.signals }),
     };
   }
 
@@ -811,21 +803,35 @@ async function readCapturedBodies(
       clientResponse: unknown;
       providerRequest: unknown;
       providerResponse: unknown;
+      signals?: { toolCalls: number; images: number; attachments: number };
     }
   | undefined
 > {
   if (!row) return undefined;
   const reference = payloadReferenceFromRow(row);
   if (!reference) return undefined;
-  const stored = await readPayloadFrame(reference);
-  if (!stored || typeof stored !== "object") return undefined;
-  const record = stored as Record<string, unknown>;
-  const bodies = {
-    request: record["request_body"] ?? undefined,
-    response: record["response_body"] ?? undefined,
-    clientResponse: record["client_response_body"] ?? undefined,
-    providerRequest: record["provider_request_body"] ?? undefined,
-    providerResponse: record["provider_response_body"] ?? undefined,
-  };
-  return Object.values(bodies).some((body) => body !== undefined) ? bodies : undefined;
+  try {
+    const stored = await readPayloadFrame(reference);
+    if (!stored || typeof stored !== "object") return undefined;
+    const record = stored as Record<string, unknown>;
+    const bodies = {
+      request: record["request_body"] ?? undefined,
+      response: record["response_body"] ?? undefined,
+      clientResponse: record["client_response_body"] ?? undefined,
+      providerRequest: record["provider_request_body"] ?? undefined,
+      providerResponse: record["provider_response_body"] ?? undefined,
+    };
+    const signals =
+      typeof record["signals"] === "object" &&
+      record["signals"] !== null &&
+      !Array.isArray(record["signals"])
+        ? (record["signals"] as { toolCalls: number; images: number; attachments: number })
+        : undefined;
+    return {
+      ...bodies,
+      ...(signals === undefined ? {} : { signals }),
+    };
+  } catch {
+    return undefined;
+  }
 }

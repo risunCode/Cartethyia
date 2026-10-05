@@ -6,7 +6,7 @@ import { createHash, randomInt } from "node:crypto";
 
 import { and, desc, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "./postgres";
-import { apiKeys, shareLinks, type ShareLinkKind } from "./schema";
+import { apiKeys, shareLinks, type ShareLinkKind, type ApiKeyModelAccessMode } from "./schema";
 
 /** Hashes a share bearer token for storage and lookup. */
 export function hashShareToken(token: string): string {
@@ -60,8 +60,8 @@ export interface ShareLinkPolicy {
   readonly monthlyTokenLimit: number | null;
   readonly lifetimeTokenBudget: number | null;
   readonly maxConcurrentRequests: number | null;
-  readonly modelAllowlist: readonly string[] | null;
-  readonly modelDenylist: readonly string[] | null;
+  readonly modelAccessMode: ApiKeyModelAccessMode | null;
+  readonly modelList: readonly string[] | null;
   readonly modelPrefix: string | null;
   readonly notesTitle: string | null;
   readonly notesSubtitle: string | null;
@@ -133,8 +133,8 @@ function mapShareRow(key: ApiKeyRow, link: ShareLinkRow): ShareApiKeyRow {
     monthlyTokenLimit: key.monthlyTokenLimit,
     lifetimeTokenBudget: key.lifetimeTokenBudget,
     maxConcurrentRequests: key.maxConcurrentRequests,
-    modelAllowlist: key.modelAllowlist as readonly string[] | null,
-    modelDenylist: key.modelDenylist as readonly string[] | null,
+    modelAccessMode: key.modelAccessMode as ApiKeyModelAccessMode | null,
+    modelList: key.modelList as readonly string[] | null,
     modelPrefix: key.modelPrefix,
     notesTitle: key.notesTitle,
     notesSubtitle: key.notesSubtitle,
@@ -161,8 +161,8 @@ function mapHandoffRow(key: ApiKeyRow, link: ShareLinkRow): ShareHandoffRow {
     monthlyTokenLimit: key.monthlyTokenLimit,
     lifetimeTokenBudget: key.lifetimeTokenBudget,
     maxConcurrentRequests: key.maxConcurrentRequests,
-    modelAllowlist: key.modelAllowlist as readonly string[] | null,
-    modelDenylist: key.modelDenylist as readonly string[] | null,
+    modelAccessMode: key.modelAccessMode as ApiKeyModelAccessMode | null,
+    modelList: key.modelList as readonly string[] | null,
     modelPrefix: key.modelPrefix,
     notesTitle: key.notesTitle,
     notesSubtitle: key.notesSubtitle,
@@ -456,8 +456,8 @@ export class DrizzleShareLinkStore implements ShareLinkStore {
             lifetimeTokenBudget: parent.lifetimeTokenBudget,
             maxConcurrentRequests: parent.maxConcurrentRequests,
             modelPrefix: parent.modelPrefix,
-            modelAllowlist: parent.modelAllowlist,
-            modelDenylist: parent.modelDenylist,
+            modelAccessMode: parent.modelAccessMode,
+            modelList: parent.modelList,
             clientRouterDenylist: parent.clientRouterDenylist,
             lifetimeTokensConsumed: 0,
           })

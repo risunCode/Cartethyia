@@ -3,20 +3,25 @@ import { useSearchParams } from "react-router-dom";
 import {
   Activity,
   ArrowDown,
-  ArrowDownToLine,
   ArrowUp,
   ArrowUpFromLine,
   Check,
+  CheckCircle2,
   Coins,
   Copy,
   Database,
   DollarSign,
   Eye,
   EyeOff,
+  Image as ImageIcon,
+  LogIn,
   Maximize2,
   Minimize2,
+  Paperclip,
   Radio,
+  Route,
   Scaling,
+  Server,
   Wrench,
 } from "lucide-react";
 import {
@@ -45,6 +50,7 @@ import {
   useUsageSummary,
 } from "../../hooks/system";
 import { requestProviderId } from "../../shared/request-provider";
+import { usageApiKeyLabel, usageClientLabel } from "../../shared/usage-labels";
 
 import { useProviderAccounts, useProviders } from "../../hooks/providers";
 import { useInFlight, type InFlightState } from "../../hooks/live";
@@ -58,6 +64,8 @@ import {
   TOKEN_SCALE_AUTO,
   TOKEN_SCALES,
   formatBytes,
+  formatChartTick,
+  formatChartTooltip,
   formatCredits,
   formatDuration,
   formatNumber,
@@ -85,6 +93,24 @@ const BREAKDOWN_ROW_HEIGHT = 49;
  * (`completeAttempt` capture), never raw secrets.
  */
 type PayloadKind = "request" | "clientResponse" | "providerRequest" | "providerResponse";
+
+function formatPayload(value: unknown): { readonly text: string; readonly bytes: number } {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(value) as unknown;
+        const text = JSON.stringify(parsed, null, 2);
+        return { text, bytes: new TextEncoder().encode(value).byteLength };
+      } catch {
+        return { text: value, bytes: new TextEncoder().encode(value).byteLength };
+      }
+    }
+    return { text: value, bytes: new TextEncoder().encode(value).byteLength };
+  }
+  const text = JSON.stringify(value, null, 2);
+  return { text, bytes: new TextEncoder().encode(JSON.stringify(value)).byteLength };
+}
 
 const PERIOD_LABELS: Record<Period, string> = {
   "1h": "Last 1 Hour",
@@ -160,11 +186,7 @@ function formatTime(value: string): string {
   return date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
+
 /**
  * Wire surface mapped to its protocol family name for the status cell.
  * The `API KEY` column already identifies the client, so the status cell
@@ -538,7 +560,7 @@ function ChartPanel({ period, metric }: { readonly period: Period; readonly metr
           <XAxis
             dataKey="t"
             tick={{ fontSize: 10, fill: "var(--text-tertiary)" }}
-            tickFormatter={(value: string) => value.slice(5, 16)}
+            tickFormatter={(value: string) => formatChartTick(value)}
             axisLine={false}
             tickLine={false}
             minTickGap={28}
@@ -559,7 +581,7 @@ function ChartPanel({ period, metric }: { readonly period: Period; readonly metr
               color: "var(--text-primary)",
             }}
             formatter={(value) => [formatNumber(Number(value)), metric]}
-            labelFormatter={(label) => formatDateTime(String(label))}
+            labelFormatter={(label) => formatChartTooltip(String(label))}
           />
           <Area
             type="monotone"
@@ -730,11 +752,13 @@ function BreakdownSnapshot({
 function FlowNode({
   title,
   meta,
+  icon,
   tone,
   last,
 }: {
   readonly title: string;
   readonly meta: string;
+  readonly icon: ReactNode;
   readonly tone?: string;
   readonly last?: boolean;
 }): ReactNode {
@@ -744,14 +768,17 @@ function FlowNode({
         <span
           aria-hidden="true"
           style={{
-            width: "9px",
-            height: "9px",
+            display: "grid",
+            placeItems: "center",
+            width: "22px",
+            height: "22px",
             borderRadius: "999px",
-            marginTop: "4px",
-            background: tone ?? "var(--accent)",
-            boxShadow: `0 0 0 3px color-mix(in srgb, ${tone ?? "var(--accent)"} 18%, transparent)`,
+            color: tone ?? "var(--accent)",
+            background: `color-mix(in srgb, ${tone ?? "var(--accent)"} 16%, var(--surface-2))`,
           }}
-        />
+        >
+          {icon}
+        </span>
         {last ? null : (
           <span aria-hidden="true" style={{ width: "2px", flex: 1, minHeight: "14px", background: "var(--inner-border)" }} />
         )}
@@ -797,26 +824,22 @@ function RequestDetailDrawer({
     scheduleReset(() => setCopiedRequestId(false), 1500);
   };
   const copyPayload = (kind: PayloadKind, payload: unknown) => {
-    void navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
+    const text = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+    void navigator.clipboard?.writeText(text);
     setCopiedPayload(kind);
     scheduleReset(() => setCopiedPayload(null), 1500);
   };
-  // Serialize once per payload instead of every 5s poll render: the byte
-  // count and the pretty-printed <pre> both re-encode multi-MB bodies today.
   const payloadViews = useMemo(
-    () => (["request", "clientResponse", "providerRequest", "providerResponse"] as const).map((kind) => {
+    () =>
+      (["request", "clientResponse", "providerRequest", "providerResponse"] as const).map((kind) => {
         const payload = detail?.payloads?.[kind];
         if (payload === undefined) return { kind, text: null, bytes: null };
-        let text: string | null = null;
-        let bytes: number | null = null;
         try {
-          text = JSON.stringify(payload, null, 2);
-          bytes = new TextEncoder().encode(JSON.stringify(payload)).length;
+          const formatted = formatPayload(payload);
+          return { kind, text: formatted.text, bytes: formatted.bytes };
         } catch {
-          text = null;
-          bytes = null;
+          return { kind, text: null, bytes: null };
         }
-        return { kind, text, bytes };
       }),
     [detail?.payloads],
   );
@@ -891,18 +914,22 @@ function RequestDetailDrawer({
             </div>
             <div style={{ display: "flex", flexDirection: "column", padding: "12px" }}>
               <FlowNode
+                icon={<LogIn size={13} />}
                 title="Client request in"
                 meta={`Client IP : ${detail.clientIp ?? "—"}\n${detail.clientName ?? "—"} · ${detail.userAgent ?? "—"} · ${detail.surface ?? "—"} · ${detail.mode === "stream" ? "streaming" : "non-streaming"}`}
               />
               <FlowNode
+                icon={<Route size={13} />}
                 title="Gateway"
                 meta={`${formatDuration(detail.durationMs)} total · TTFT ${formatDuration(detail.ttfbMs)} · ${formatSpeed(detail.tokensPerSec)} · ${detail.cachedTokens !== undefined ? formatNumber(detail.cachedTokens) : "—"} from cache`}
               />
               <FlowNode
+                icon={<Server size={13} />}
                 title={`Upstream · ${detail.providerId ?? "—"}`}
                 meta={`${[accountLabel(detail), detail.model ?? "—"].filter((part) => part !== "—").join(" · ") || "—"}\nApi Key : ${displayApiKeyName}\nProxy : ${detail.proxy ?? "direct"}`}
               />
               <FlowNode
+                icon={<CheckCircle2 size={13} />}
                 last
                 title="Response out"
                 meta={`${statusCode(detail.status, detail.httpStatus).code}${payloadView("clientResponse").bytes !== null ? ` · ${formatBytes(payloadView("clientResponse").bytes)}` : ""}${detail.estimatedCost ? ` · ${formatUsd(detail.estimatedCost)}` : ""}`}
@@ -910,14 +937,54 @@ function RequestDetailDrawer({
               />
             </div>
           </section>
+          {(() => {
+            const signals = detail.payloadSignals;
+            const signalItems = [
+              { label: "Tool calls", value: signals?.toolCalls ?? "—", icon: Wrench },
+              { label: "Images", value: signals?.images ?? "—", icon: ImageIcon },
+              { label: "Attachments", value: signals?.attachments ?? "—", icon: Paperclip },
+            ] as const;
+            return (
+              <section
+                aria-label="Session signals"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
+                  gap: "8px",
+                  border: "1px solid var(--inner-border)",
+                  borderRadius: "10px",
+                  padding: "10px",
+                  background: "var(--surface-2)",
+                }}
+              >
+                {signalItems.map(({ label, value, icon: Icon }) => (
+                  <div
+                    key={label}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "7px",
+                      minWidth: 0,
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    <Icon size={14} aria-hidden="true" style={{ flexShrink: 0, color: "var(--accent)" }} />
+                    <span style={{ minWidth: 0, overflowWrap: "anywhere", fontSize: "11px" }}>
+                      {label}: <strong style={{ color: "var(--text-primary)" }}>{value}</strong>
+                    </span>
+                  </div>
+                ))}
+              </section>
+            );
+          })()}
 
 
           {(
             [
-              ["request", "1. Client Request (Input)", detail.payloads?.request, ArrowUpFromLine],
-              ["providerRequest", "2. Provider Request (Translated)", detail.payloads?.providerRequest, ArrowUp],
-              ["providerResponse", "3. Provider Response (Raw)", detail.payloads?.providerResponse, ArrowDown],
-              ["clientResponse", "4. Client Response (Final)", detail.payloads?.clientResponse, ArrowDownToLine],
+              ["request", "1. Client Request (Input)", detail.payloads?.request, LogIn],
+              ["providerRequest", "2. Provider Request (Translated)", detail.payloads?.providerRequest, Route],
+              ["providerResponse", "3. Provider Response (Raw)", detail.payloads?.providerResponse, Server],
+              ["clientResponse", "4. Client Response (Final)", detail.payloads?.clientResponse, CheckCircle2],
             ] as const
           ).map(([kind, label, payload, Icon]) => (
             <details
@@ -1247,28 +1314,11 @@ export default function Usage(): ReactNode {
       return false;
     }
   });
-  const [hideApiKey, setHideApiKey] = useState(() => {
-    try {
-      return localStorage.getItem("cartethyia:usage:hide-api-key") === "true";
-    } catch {
-      return false;
-    }
-  });
-
   const toggleHideProviderName = () => {
     setHideProviderName((prev) => {
       const next = !prev;
       try {
         localStorage.setItem("cartethyia:usage:hide-provider", String(next));
-      } catch {}
-      return next;
-    });
-  };
-  const toggleHideApiKey = () => {
-    setHideApiKey((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem("cartethyia:usage:hide-api-key", String(next));
       } catch {}
       return next;
     });
@@ -1551,16 +1601,6 @@ export default function Usage(): ReactNode {
               >
                 {hideProviderName ? "Provider masked" : "Mask provider"}
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={hideApiKey ? <EyeOff size={13} /> : <Eye size={13} />}
-                onClick={toggleHideApiKey}
-                title={hideApiKey ? "Show API key labels" : "Hide API key labels"}
-                style={{ fontSize: "11px", height: "26px", padding: "0 8px", color: "var(--text-secondary)" }}
-              >
-                {hideApiKey ? "API key hidden" : "Hide API key"}
-              </Button>
               <LiveInFlightPill />
             </Inline>
           }
@@ -1650,14 +1690,14 @@ export default function Usage(): ReactNode {
                     <td style={{ maxWidth: "140px" }}>
                       <div
                         className="truncate"
-                        title={row.apiKeyLabel ?? row.apiKeyId ?? "—"}
+                        title={usageApiKeyLabel(row)}
                         style={{ fontSize: "12px", fontWeight: 600 }}
                       >
-                        {row.apiKeyLabel ?? "—"}
+                        {usageApiKeyLabel(row)}
                       </div>
                       <div
                         className="truncate"
-                        title={row.clientName ?? row.userAgent ?? "—"}
+                        title={usageClientLabel(row)}
                         style={{
                           fontFamily: "var(--font-mono)",
                           fontSize: "11px",
@@ -1665,7 +1705,7 @@ export default function Usage(): ReactNode {
                           marginTop: "1px",
                         }}
                       >
-                        {row.clientName ?? row.userAgent ?? "—"}
+                        {usageClientLabel(row)}
                       </div>
                     </td>
                     <td style={{ whiteSpace: "nowrap", fontSize: "11px" }}>

@@ -43,12 +43,19 @@ function withModelWarning(
   error: unknown,
   outcome: ModelAbuseOutcome,
   limit: number,
+  opts?: { banTtlMs?: number; allowedModels?: readonly string[] | undefined },
 ): GatewayError {
   if (!(error instanceof GatewayError)) return error as GatewayError;
-  return new GatewayError(error.code, error.status, modelWarningMessage(String(error.details.model ?? ""), outcome, limit), {
+  const model = String(error.details.model ?? "");
+  const message = modelWarningMessage(model, outcome, limit, opts?.banTtlMs);
+  const hint = opts?.allowedModels?.slice(0, 8);
+  return new GatewayError(error.code, error.status, message, {
     ...error.details,
     strikes: outcome.strikes,
     strike_limit: limit,
+    ...(opts?.banTtlMs ? { ban_ttl_ms: opts.banTtlMs } : {}),
+    remaining_before_ban: Math.max(0, limit - outcome.strikes),
+    ...(hint && hint.length > 0 ? { allowed_models_hint: hint } : {}),
   }, error.origin);
 }
 
@@ -270,7 +277,15 @@ export function createProxyRoutePreparationMiddleware(deps: {
             .noteInvalid({ ip: strikeIdentity.ip })
             .catch(() => null);
           if (outcome?.banned === true) throw modelAbuseBannedError();
-          if (outcome) throw withModelWarning(error, outcome, strikeIdentity.strikes.limit);
+          if (outcome) {
+            const snap = state.authorization?.snapshot;
+            const raw = snap?.model_list;
+            const hint = Array.isArray(raw) ? (raw as readonly string[]) : raw instanceof Set ? [...raw] : undefined;
+            throw withModelWarning(error, outcome, strikeIdentity.strikes.limit, {
+              banTtlMs: strikeIdentity.strikes.banTtlMs,
+              allowedModels: hint,
+            });
+          }
         }
         throw error;
       }

@@ -90,7 +90,7 @@ export function RelayDeployModal({
       onClose={onClose}
       title="Deploy Relay"
       description="Run outbound traffic through a hosted relay (Cloudflare, Vercel, Deno)."
-      width={560}
+      size="md"
     >
       <Stack gap="12px">
         <p style={{ fontSize: "11px", color: "var(--text-tertiary)", margin: 0, display: "flex", gap: "6px" }}>

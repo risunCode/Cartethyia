@@ -32,13 +32,6 @@ function normalizePonyTailLevel(value: unknown): PonyTailLevel {
     : "full";
 }
 
-/** The stored level, or `null` when absent/invalid — used to read a legacy bag. */
-function storedPonyTailLevel(value: unknown): PonyTailLevel | null {
-  return typeof value === "string" && (PONYTAIL_LEVELS as readonly string[]).includes(value)
-    ? (value as PonyTailLevel)
-    : null;
-}
-
 function normalizeRtkLevel(value: unknown): RtkLevel {
   return typeof value === "string" && (RTK_LEVELS as readonly string[]).includes(value)
     ? (value as RtkLevel)
@@ -70,12 +63,14 @@ function mapRuntimeSettingsRow(row: typeof consoleSettings.$inferSelect | undefi
     privacyMode: prefs.privacyMode === "full" ? "full" : "masked",
     rtkPruneEnabled: prefs.rtkPruneEnabled === true,
     rtkPruneLevel: normalizeRtkLevel(prefs.rtkPruneLevel),
-    // A legacy bag stored `ponyTailLevel: "lite"|"full"|"ultra"` with no enable
-    // flag (null = off). Treat any non-null legacy level as enabled so an
-    // operator who had it on keeps it on; a missing level is off.
-    ponyTailEnabled:
-      prefs.ponyTailEnabled === true ||
-      (prefs.ponyTailEnabled === undefined && storedPonyTailLevel(prefs.ponyTailLevel) !== null),
+    // The enable flag is the only thing that turns the directive on, exactly as
+    // RTK above works. `ponyTailLevel` selects the intensity and is kept while
+    // the feature is off so a re-enable restores it, but a stored level is NOT
+    // consent: the dashboard lets an operator choose a strength with the toggle
+    // still off, which writes a level and no flag. Reading that as enabled made
+    // the console report the directive as on while the dispatch gate — which
+    // requires the flag — never injected it.
+    ponyTailEnabled: prefs.ponyTailEnabled === true,
     ponyTailLevel: normalizePonyTailLevel(prefs.ponyTailLevel),
     updatedAt,
   };

@@ -1,7 +1,4 @@
-import {
-  getOpenCodeVersion,
-  refreshOpenCodeVersion,
-} from "../operations/client-versions";
+import { getOpenCodeVersion } from "../operations/client-versions";
 
 let lastTimestamp = 0;
 let sequenceCounter = 0;
@@ -37,7 +34,6 @@ export function buildOpenCodeHeaders(
   version = getOpenCodeVersion(),
   affinity?: string,
 ): Record<string, string> {
-  refreshOpenCodeVersion();
   return {
     "x-opencode-client": "cli",
     "x-opencode-session": affinity ?? generateOpenCodeSessionId(),

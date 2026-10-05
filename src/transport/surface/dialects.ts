@@ -2,6 +2,7 @@ import type { ReasoningIntent, ResponseFormat, ToolChoice } from "../canonical-m
 import { REASONING_EFFORTS } from "../canonical-model";
 import { readString, readBoolean, readNumber } from "../../protocol/primitives";
 import { isRecord } from "../../protocol/primitives";
+import { completeRequiredSchema } from "../../protocol/primitives";
 import type { ToolDefinition } from "../canonical-model";
 
 /** Tool-definition dialects preserve each surface's distinct wire fields. */
@@ -75,7 +76,9 @@ function parseToolObject(item: Record<string, unknown>, dialect: ToolDialect): T
     readBoolean(item, "strict");
   const result: ToolDefinition = {
     name,
-    jsonSchema: isRecord(schema) ? schema : {},
+    jsonSchema: isRecord(schema)
+      ? (completeRequiredSchema(schema) as Record<string, unknown>)
+      : {},
   };
 
   if (description !== undefined) result.description = description;

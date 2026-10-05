@@ -57,7 +57,7 @@ export function payloadReferenceFromRow(row: {
 }
 
 const FRAME_HEADER_BYTES = 4;
-const MAX_FRAME_BYTES = 1_048_576;
+const MAX_FRAME_BYTES = 256 * 1024 * 1024;
 const DEFAULT_MAX_FILE_BYTES = 64 * 1024 * 1024;
 const DEFAULT_DIRECTORY = "./data/telemetry-payloads";
 let writeTail: Promise<void> = Promise.resolve();

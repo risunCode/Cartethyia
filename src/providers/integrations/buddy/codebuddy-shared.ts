@@ -6,7 +6,7 @@ import type {
   ProviderId,
 } from "../../provider-registry";
 import { resolveInboundSessionId } from "../../operations/session-resolution";
-import { buildCodeBuddyUserAgent, resolveCodeBuddyVersion } from "../../operations/client-versions";
+import { buildCodeBuddyUserAgent } from "../../operations/client-versions";
 
 /** Client identity variant behind the per-request CodeBuddy headers. */
 export type CodeBuddyVariant = "IDE" | "CLI";
@@ -27,9 +27,6 @@ export async function codebuddyHeaders(
   request?: CanonicalRequest,
 ): Promise<Record<string, string>> {
   const identity = variant === "IDE" ? "IDE" : "CLI";
-  // Await discovery so the true latest client version is stamped on every
-  // dispatch; the pinned fallback only applies on a real network failure.
-  await resolveCodeBuddyVersion();
   const ua = buildCodeBuddyUserAgent(identity);
   return {
     accept: "text/event-stream",

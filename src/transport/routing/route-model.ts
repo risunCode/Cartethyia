@@ -24,6 +24,14 @@ export interface RouteCandidate {
   readonly user_agent?: string;
   readonly max_inflight?: number;
   readonly provider_account_id?: string;
+  /** Cooldown class: `hard` = excluded until the deadline; `soft` = deprioritized. */
+  readonly cooldown_kind?: "hard" | "soft";
+  /** Global credit protection toggle for this candidate's provider/tenant. */
+  readonly credit_limit_enabled?: boolean;
+  /** Global minimum remaining credits; candidate excluded when balance ≤ it. */
+  readonly credit_limit?: number;
+  /** Last remaining credit the quota sweep fetched; absent = never fetched. */
+  readonly last_remaining_credit?: number | null;
   /** Operator-facing label of `provider_account_id` (never the secret), for
    * the Console Log detail line — logs must show a name, not a bare id. */
   readonly provider_account_label?: string;
@@ -73,15 +81,10 @@ export interface ProviderRoutingSetting {
   /** Per-account inflight ceiling from the routing panel; `null` = unlimited
    * concurrency per account. */
   readonly maxInflight: number | null;
-  /**
-   * Credit reserve for every account of this provider; `null` = no reserve.
-   * The quota sweep reads it (tenant-over-global) and parks an account whose
-   * remaining credit reaches the floor, so routing fails over instead of
-   * draining the account to empty. Optional like `userAgent`: a snapshot built
-   * before the column existed, or a caller that only cares about routing, omits
-   * it.
-   */
-  readonly creditFloor?: number | null;
+  /** Global minimum credit protection for every account of this provider/tenant. */
+  readonly creditLimitEnabled?: boolean;
+  /** Minimum remaining credits to keep on every account of this provider/tenant. */
+  readonly creditLimit?: number;
   readonly enabled: boolean;
   /** Built-in API-key User-Agent; OAuth and custom providers retain their identities. */
   readonly userAgent?: string;
@@ -172,6 +175,8 @@ export interface RouteSnapshot {
 export type EligibilityReason =
   | "healthy"
   | "cooldown"
+  | "cooldown_hard"
+  | "credit_floor_reached"
   | "model_cooldown"
   | "quota_exhausted"
   | "locked"

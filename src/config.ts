@@ -154,6 +154,7 @@ export const CONFIG_SPEC = {
   },
   CARTETHYIA_FALLBACK_RETRY_BASE_MS: { kind: "int", default: 100, min: 0, max: 60_000 },
   CARTETHYIA_FALLBACK_RETRY_CAP_MS: { kind: "int", default: 2_000, min: 0, max: 300_000 },
+  CARTETHYIA_ROUTE_MAX_ATTEMPTS: { kind: "int", default: 8, min: 1, max: 64 },
 
   // Account/pool health cooldown delays. Each is the fallback used when the
   // upstream error states no explicit reset window; an upstream
@@ -477,6 +478,11 @@ export function resolveFallbackRetryBaseMs(): number {
 /** Cap for candidate-failover backoff. Default 2000ms. */
 export function resolveFallbackRetryCapMs(): number {
   return readInt("CARTETHYIA_FALLBACK_RETRY_CAP_MS", CONFIG_SPEC.CARTETHYIA_FALLBACK_RETRY_CAP_MS);
+}
+
+/** Per-request upper bound on candidate dispatch attempts. Default 8. */
+export function resolveRouteMaxAttempts(): number {
+  return readInt("CARTETHYIA_ROUTE_MAX_ATTEMPTS", CONFIG_SPEC.CARTETHYIA_ROUTE_MAX_ATTEMPTS);
 }
 
 // ─── Account/pool health cooldown delays ────────────────────────────────────

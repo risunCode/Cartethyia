@@ -33,7 +33,7 @@ import {
   createClaudeBillingText,
   patchClaudeCchBody,
 } from "./claude-cch";
-import { resolveClaudeCliVersion, resolveClaudeSdkVersion } from "../../operations/client-versions";
+import { getClaudeCliVersion, getClaudeSdkVersion } from "../../operations/client-versions";
 import { getOrCreateInstallId } from "../install-id";
 import { canonicalToClaudeMessagesPayload } from "../../../protocol/request/messages";
 import { applyParamQuirks } from "../../../transport/translation/quirks";
@@ -61,9 +61,7 @@ const claudeMessagesModel = (
     out: outputLimit,
     vision: true,
     reasoning,
-    toolCall: true,
-    webSearch: true,
-  });
+    toolCall: true,});
 
 export const CLAUDE_MODELS: readonly ModelDefinition[] = [
   claudeMessagesModel("claude-fable-5", 1_000_000, 128_000, true),
@@ -202,10 +200,8 @@ export class ClaudeAdapter implements ProviderAdapter {
       request.reasoning !== undefined &&
       request.reasoning.thinking_type !== "disabled";
     const hasTools = requestHasClaudeTools(request);
-    const [cliVersion, sdkVersion] = await Promise.all([
-      resolveClaudeCliVersion(),
-      resolveClaudeSdkVersion(),
-    ]);
+    const cliVersion = getClaudeCliVersion();
+    const sdkVersion = getClaudeSdkVersion();
     const headerOptions: ClaudeHeaderOptions = {
       credential_kind: context.credential.credential_kind,
       custom_headers: customHeaders,

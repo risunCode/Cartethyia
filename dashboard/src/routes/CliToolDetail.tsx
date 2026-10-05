@@ -25,6 +25,8 @@ import {
 import type { ApiKeyResponse, ApplyInput, CliMappingInput, ToolRegistryEntry, ToolStatus } from "../data/contracts";
 import { ToolIcon } from "./cli-tools/ToolIcon";
 import { getErrorMessage } from "../shared/helpers";
+import { isModelAllowed } from "../../../src/security/model-access-rule";
+import type { ApiKeyModelAccessMode } from "../../../src/persistence/schema";
 
 export default function CliToolDetail(): ReactNode {
   const { toolId } = useParams();
@@ -124,6 +126,55 @@ function CliToolDetailBody({
   const cliEligible = selectedKey?.scopes?.includes("routing:cli_mapping") === true;
   // Only a personal key can supply the secret written into a CLI config.
   const canAct = selectedKey?.keyMode === "personal";
+
+  // The selected key's model-access policy, evaluated locally so a mapping that
+  // the key may not reach is flagged before it silently 404s at request time.
+  // `modelRejectionReason` (via `isModelAllowed`) is the exact rule the gateway
+  // enforces, imported from the shared pure module — a preview can never
+  // disagree with enforcement.
+  const accessMode: ApiKeyModelAccessMode = selectedKey?.modelAccessMode ?? "whitelist";
+  const accessList = selectedKey?.modelList;
+  const modelAllowed = (name: string): boolean =>
+    isModelAllowed({ model_access_mode: accessMode, model_list: accessList }, name);
+
+  /** Aliases whose resolved target the selected key may not use. */
+  const blockedMappings = useMemo(() => {
+    const out = new Set<string>();
+    if (!tool.mappingSupported) return out;
+    for (const model of tool.defaultModels) {
+      const target = mappingTargets[model.alias] ?? "";
+      if (target.length === 0) continue;
+      // The caller asks for the source name, so authorization is judged on both
+      // the requested (source) and the resolved (target) name, as dispatch does.
+      const source = slotModels[model.alias] ?? model.defaultValue ?? model.id;
+      if (!modelAllowed(target) && !modelAllowed(source)) out.add(model.alias);
+    }
+    return out;
+    // `modelAllowed` closes over `selectedKey`, so the key's identity is the
+    // stable dependency; the list itself is re-read from it on each run.
+  }, [tool.defaultModels, tool.mappingSupported, mappingTargets, slotModels, selectedKey]);
+
+  // One-click repair: allow the model on the key (append in whitelist mode,
+  // remove in blacklist mode) so the operator need not leave for the API-key
+  // page. The write goes through the same PATCH the key editor uses.
+  const allowModelForKey = (target: string) => {
+    if (!selectedKey) return;
+    const current = accessList ?? [];
+    const next =
+      accessMode === "blacklist"
+        ? current.filter((entry) => entry !== target)
+        : [...new Set([...current, target])];
+    updateApiKey.mutate(
+      { keyId: selectedKey.id, request: { modelAccessMode: accessMode, modelList: next } },
+      {
+        onSuccess: () =>
+          toast.success(
+            accessMode === "blacklist" ? "Model unblocked for this key" : "Model allowed for this key",
+          ),
+        onError: (error) => toast.error(getErrorMessage(error, "Could not update the API key.")),
+      },
+    );
+  };
 
   useEffect(() => {
     // When switching tool or key: reset local draft to tool defaults.
@@ -610,6 +661,41 @@ function CliToolDetailBody({
                           </button>
                         ) : null}
                       </span>
+                      {blockedMappings.has(model.alias) ? (
+                        <span
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            marginTop: "2px",
+                            fontSize: "10px",
+                            color: "var(--warn, #d97706)",
+                          }}
+                        >
+                          <span>
+                            {accessMode === "blacklist"
+                              ? "This key blocks the target model."
+                              : "This key does not allow the target model."}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={updateApiKey.isPending}
+                            onClick={() => allowModelForKey(targetValue)}
+                            style={{
+                              border: "none",
+                              background: "none",
+                              padding: 0,
+                              fontSize: "10px",
+                              fontWeight: 600,
+                              color: "var(--accent)",
+                              cursor: updateApiKey.isPending ? "not-allowed" : "pointer",
+                              textDecoration: "underline",
+                            }}
+                          >
+                            {accessMode === "blacklist" ? "Unblock" : "Allow this model"}
+                          </button>
+                        </span>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

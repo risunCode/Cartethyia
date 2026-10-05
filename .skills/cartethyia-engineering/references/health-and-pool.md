@@ -14,10 +14,23 @@ Before changing a status or timeout, trace every reader and branch that uses it.
 ## Rules
 
 - A cooldown is not automatically an unhealthy account.
+- Account-wide cooldowns carry a class: `hard` (`quota_exhausted`,
+  `policy_blocked`, `auth_invalidated` last-error categories) excludes the
+  account until the deadline; `soft` keeps it eligible but ordered after every
+  healthy sibling. `model_cooldown` stays a hard exclusion per (account, model).
+  The class lives in `route-catalog.ts` (`HARD_COOLDOWN_CATEGORIES`) and is
+  projected as `RouteCandidate.cooldown_kind`.
+- When nothing eligible remains, `plan()` answers 429 `accounts_rate_limited`
+  if any candidate is hard-cooled, else 503 `accounts_unavailable`.
 - An active account may still have model-level cooling entries.
 - Quota exhaustion, disabled state, cooldown, and model cooling must remain
   distinguishable in API and UI; do not sum them into a misleading total.
 - Retry only when the failure policy says the same account or request is safe to retry.
+- An account-scoped upstream failure is retryable regardless of HTTP status —
+  that evidence is exactly what failover exists for. Provider-scoped failures
+  still follow the status/code allowlist.
+- One request dials at most `CARTETHYIA_ROUTE_MAX_ATTEMPTS` candidates
+  (default 8, range 1–64, resolved by `resolveRouteMaxAttempts()`).
 - Provider-specific exceptions must be explicit, narrow, and documented at the owner.
 
 ## Debugging

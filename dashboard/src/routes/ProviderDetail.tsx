@@ -49,7 +49,7 @@ import {
   missingRequiredFields,
 } from "./provider-detail/ImportCredentialDialog";
 import { AddModelModal, ModelGrid, ThinkingSelect } from "./provider-detail/Models";
-import type { ProbeReasoningEffort } from "../data/contracts";
+import { PROBE_REASONING_EFFORTS, type ProbeReasoningEffort } from "../data/contracts";
 
 export default function ProviderDetail(): ReactNode {
   const { providerId } = useParams<{ providerId: string }>();
@@ -58,6 +58,7 @@ export default function ProviderDetail(): ReactNode {
   const modelsQuery = useProviderModels(id);
   const accountsQuery = useProviderAccounts(id);
   const syncModels = useSyncProviderModels();
+  const autoSyncModels = useSyncProviderModels({ silent: true });
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const probeAllAccounts = useProbeAllProviderAccounts();
   const updateGlobalProvider = useUpdateGlobalProvider();
@@ -68,7 +69,27 @@ export default function ProviderDetail(): ReactNode {
   // Section-wide reasoning effort for every test in the Models card. Defaults to
   // `auto` — the probe sends no reasoning intent, because whether the model
   // supports reasoning is often exactly what the test is trying to find out.
-  const [thinkingEffort, setThinkingEffort] = useState<ProbeReasoningEffort>("auto");
+  // Persisted per provider so navigating away and back restores the last
+  // choice, while different providers keep their own preference.
+  const CARTETHYIA_PROVIDER_THINKING_KEY = (pid: string) => `cartethyia:provider:${pid}:thinking-effort`;
+  const readThinkingEffort = (pid: string): ProbeReasoningEffort => {
+    if (typeof window === "undefined" || !window.localStorage) return "auto";
+    const raw = window.localStorage.getItem(CARTETHYIA_PROVIDER_THINKING_KEY(pid));
+    if (raw === null) return "auto";
+    const trimmed = raw.trim().toLowerCase();
+    const allowed: readonly string[] = PROBE_REASONING_EFFORTS;
+    return (allowed as readonly string[]).includes(trimmed) ? (trimmed as ProbeReasoningEffort) : "auto";
+  };
+  const [thinkingEffort, setThinkingEffort] = useState<ProbeReasoningEffort>(() => readThinkingEffort(id));
+  useEffect(() => {
+    if (!id) return;
+    const next = readThinkingEffort(id);
+    if (next !== thinkingEffort) setThinkingEffort(next);
+  }, [id]);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.localStorage || !id) return;
+    window.localStorage.setItem(CARTETHYIA_PROVIDER_THINKING_KEY(id), thinkingEffort);
+  }, [id, thinkingEffort]);
   const [deviceDialogOpen, setDeviceDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   // Which flow is collecting its declared fields before it starts. `null` means
@@ -86,6 +107,7 @@ export default function ProviderDetail(): ReactNode {
   // Tracks the OAuth popup outside React state so it can be closed on
   // authorize error or component unmount even if the session never sets.
   const oauthPopupRef = useRef<Window | null>(null);
+  const autoModelSyncProviderRef = useRef<string | null>(null);
 
   useEffect(
     () => () => {
@@ -97,6 +119,19 @@ export default function ProviderDetail(): ReactNode {
   );
 
   const provider = (providersQuery.data ?? []).find((item) => item.providerId === id);
+  const autoModelSyncProvider = id === "opencodeft" || id === "cline";
+  useEffect(() => {
+    if (
+      !autoModelSyncProvider ||
+      provider === undefined ||
+      provider.supportsModelDiscovery === false ||
+      autoModelSyncProviderRef.current === id
+    ) {
+      return;
+    }
+    autoModelSyncProviderRef.current = id;
+    autoSyncModels.mutate(id);
+  }, [autoModelSyncProvider, autoSyncModels, id, provider?.supportsModelDiscovery]);
   const accounts = accountsQuery.data ?? [];
   const models = modelsQuery.data ?? [];
   // and sort alphabetically so enable/disable doesn't jump the layout.
@@ -239,10 +274,7 @@ export default function ProviderDetail(): ReactNode {
         providerId: id,
         request: {
           modelId: "grok-4.6",
-          wireFamily: "responses",
-          prompt: "Reply with exactly: 407",
-          reasoningEffort: "high",
-          maxOutputTokens: 1024,
+          prompt: "reply my message with exact number 407",
           stream: true,
         },
       },
@@ -383,7 +415,7 @@ export default function ProviderDetail(): ReactNode {
             }
           />
           <CardBody style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            <CreditPoolCard providerId={id} />
+            <CreditPoolCard providerId={id} accountCount={accounts.length} />
             {accountsQuery.isPending ? (
               <LoadingState label="Loading accounts..." />
             ) : accountsQuery.isError ? (
@@ -428,12 +460,15 @@ export default function ProviderDetail(): ReactNode {
                   variant="secondary"
                   size="sm"
                   icon={
-                    <RefreshCw size={13} className={syncModels.isPending ? "animate-spin" : ""} />
+                    <RefreshCw
+                      size={13}
+                      className={syncModels.isPending || autoSyncModels.isPending ? "animate-spin" : ""}
+                    />
                   }
-                  disabled={syncModels.isPending}
+                  disabled={syncModels.isPending || autoSyncModels.isPending}
                   onClick={() => syncModels.mutate(id)}
                 >
-                  {syncModels.isPending ? "Fetching..." : "Fetch models"}
+                  {syncModels.isPending || autoSyncModels.isPending ? "Fetching..." : "Fetch models"}
                 </Button>
               ) : null}
               <Button
@@ -442,6 +477,7 @@ export default function ProviderDetail(): ReactNode {
                 icon={<Trash2 size={13} className={bulkDeleting ? "animate-spin" : ""} />}
                 disabled={
                   syncModels.isPending ||
+                  autoSyncModels.isPending ||
                   bulkDeleting ||
                   models.filter((m) => m.source !== "builtin" && m.source !== null).length === 0
                 }
@@ -587,7 +623,7 @@ export default function ProviderDetail(): ReactNode {
           open={true}
           onClose={() => setFlowPrompt(null)}
           title={flowPrompt === "browser" ? "Sign in with" : "Device sign-in details"}
-          width={420}
+          size="sm"
           footer={
             <>
               <Button variant="secondary" size="sm" onClick={() => setFlowPrompt(null)}>

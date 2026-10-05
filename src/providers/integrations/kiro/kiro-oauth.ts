@@ -31,6 +31,7 @@ import {
 } from "../../authentication/oauth-flow-store";
 import type {
   OAuthAuthorizeRequest,
+  OAuthCodeExchangeContext,
   OAuthDeviceFlowContext,
   OAuthDevicePollResult,
   OAuthDeviceStartResult,
@@ -49,7 +50,6 @@ import {
   buildKiroSsoUserAgent,
   buildKiroUserAgent,
   getKiroVersion,
-  resolveKiroVersion,
 } from "../../operations/client-versions";
 import { deriveApiKeyMachineId, deriveOAuthMachineId, normalizeMachineId } from "./kiro-machine-id";
 
@@ -102,6 +102,10 @@ const KIRO_OIDC_CLIENT_NAME = "Kiro IDE" as const;
 
 /** Organization entry point the device flow starts from by default. */
 export const KIRO_DEFAULT_START_URL = "https://view.awsapps.com/start" as const;
+
+export const KIRO_BUILDER_ID_ISSUER = "https://view.awsapps.com/start" as const;
+
+const KIRO_BROWSER_GRANT_TYPES = ["authorization_code", "refresh_token"] as const;
 
 /** Microsoft login hosts an enterprise token endpoint may point at. */
 const MICROSOFT_TOKEN_HOSTS = new Set([
@@ -353,6 +357,7 @@ export class KiroOAuthClient extends OAuthDeviceFlow {
       options: [
         { value: "google", label: "Google" },
         { value: "github", label: "GitHub" },
+        { value: "builder-id", label: "AWS Builder ID" },
       ],
     },
   ];
@@ -550,7 +555,32 @@ export class KiroOAuthClient extends OAuthDeviceFlow {
    * operator completes consent in a browser and pastes the resulting URL back —
    * there is no loopback listener to register.
    */
+  async prepareAuthorize(request: OAuthAuthorizeRequest): Promise<OAuthAuthorizeRequest> {
+    if (readAuthorizeIdp(request) !== "builder-id") return request;
+    const region = normalizeRegion((request.parameters?.["region"] as string | undefined) ?? DEFAULT_REGION);
+    assertAwsRegion(region);
+    const redirectUri = builderIdLoopbackRedirect(request.redirectUri);
+    const registration = await this.#registerBrowserClient(region, redirectUri);
+    return {
+      ...request,
+      redirectUri,
+      parameters: {
+        ...(request.parameters ?? {}),
+        idp: "builder-id",
+        region,
+        startUrl: KIRO_BUILDER_ID_ISSUER,
+        builderIdClientId: registration.clientId,
+        builderIdClientSecret: registration.clientSecret,
+      },
+    };
+  }
+
   override buildAuthorizeUrl(request: OAuthAuthorizeRequest): string {
+    if (readAuthorizeIdp(request) === "builder-id") return this.#buildBuilderIdAuthorizeUrl(request);
+    return this.#buildSocialAuthorizeUrl(request);
+  }
+
+  #buildSocialAuthorizeUrl(request: OAuthAuthorizeRequest): string {
     const idp = readAuthorizeIdp(request);
     const params = new URLSearchParams({
       idp: idp === "github" ? "Github" : "Google",
@@ -563,6 +593,23 @@ export class KiroOAuthClient extends OAuthDeviceFlow {
     return `${KIRO_AUTH_SERVICE}/login?${params.toString()}`;
   }
 
+  #buildBuilderIdAuthorizeUrl(request: OAuthAuthorizeRequest): string {
+    const parameters = request.parameters ?? {};
+    const clientId = nonEmptyTrimmedString(parameters["builderIdClientId"] as string | undefined);
+    if (clientId === undefined) throw new Error("Kiro Builder ID authorize is missing its client registration");
+    const region = assertAwsRegion(normalizeRegion(parameters["region"] as string | undefined));
+    const query = new URLSearchParams({
+      client_id: clientId,
+      response_type: "code",
+      redirect_uri: request.redirectUri,
+      state: request.state,
+      code_challenge: request.codeChallenge,
+      code_challenge_method: "S256",
+    });
+    for (const scope of KIRO_SCOPES) query.append("scope", scope);
+    return `https://oidc.${region}.amazonaws.com/authorize?${query.toString()}`;
+  }
+
   /**
    * Exchanges the pasted social authorization code.
    *
@@ -572,9 +619,11 @@ export class KiroOAuthClient extends OAuthDeviceFlow {
   override async exchangeCode(
     code: string,
     codeVerifier: string,
-    _redirectUri: string,
+    redirectUri: string,
     _state?: string,
+    context?: OAuthCodeExchangeContext,
   ): Promise<OAuthExchangeResult> {
+    if (readExchangeIdp(context) === "builder-id") return this.#exchangeBuilderIdCode(code, codeVerifier, redirectUri, context);
     return this.exchangeSocialCode(code, codeVerifier);
   }
 
@@ -776,7 +825,7 @@ export class KiroOAuthClient extends OAuthDeviceFlow {
     const trimmed = apiKey.trim();
     if (trimmed.length === 0) throw new Error("API key is required");
     const safeRegion = assertAwsRegion(normalizeRegion(region));
-    const version = await resolveKiroVersion(this.fetchFn);
+    const version = getKiroVersion();
     const machineId = deriveApiKeyMachineId(trimmed);
     const response = await this.fetchFn(
       `https://q.${safeRegion}.amazonaws.com/ListAvailableModels?origin=AI_EDITOR`,
@@ -985,6 +1034,57 @@ export class KiroOAuthClient extends OAuthDeviceFlow {
    * especially naming an Identity Center instance that belongs to someone else —
    * declares an organization the account is not part of.
    */
+  async #registerBrowserClient(region: string, redirectUri: string): Promise<{ readonly clientId: string; readonly clientSecret: string }> {
+    const response = await this.fetchFn(`https://oidc.${region}.amazonaws.com/client/register`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        "user-agent": buildKiroSsoUserAgent(),
+        "x-amz-user-agent": buildKiroSsoAmzUserAgent(),
+        "amz-sdk-request": "attempt=1; max=4",
+        "amz-sdk-invocation-id": crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        clientName: KIRO_OIDC_CLIENT_NAME,
+        clientType: "public",
+        scopes: [...KIRO_SCOPES],
+        grantTypes: [...KIRO_BROWSER_GRANT_TYPES],
+        issuerUrl: KIRO_BUILDER_ID_ISSUER,
+        redirectUris: [redirectUri],
+      }),
+    });
+    const payload = await readJsonResponse(response, "kiro browser client registration") as Record<string, unknown>;
+    const clientId = nonEmptyString(payload["clientId"] as string);
+    const clientSecret = nonEmptyString(payload["clientSecret"] as string);
+    if (clientId === undefined || clientSecret === undefined) throw new Error("Kiro browser client registration omitted credentials");
+    return { clientId, clientSecret };
+  }
+
+  async #exchangeBuilderIdCode(code: string, codeVerifier: string, redirectUri: string, context: OAuthCodeExchangeContext | undefined): Promise<OAuthExchangeResult> {
+    const parameters = context?.parameters ?? {};
+    const clientId = nonEmptyTrimmedString(parameters["builderIdClientId"] as string | undefined);
+    const clientSecret = nonEmptyTrimmedString(parameters["builderIdClientSecret"] as string | undefined);
+    if (clientId === undefined || clientSecret === undefined) throw new Error("Kiro Builder ID exchange is missing its client registration");
+    const region = assertAwsRegion(normalizeRegion(parameters["region"] as string | undefined));
+    const response = await this.fetchFn(`https://oidc.${region}.amazonaws.com/token`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json", "user-agent": buildKiroSsoUserAgent() },
+      body: JSON.stringify({ clientId, clientSecret, grantType: "authorization_code", code, redirectUri, codeVerifier }),
+    });
+    const payload = await readJsonResponse(response, "kiro Builder ID token exchange") as Record<string, unknown>;
+    const access = nonEmptyString(payload["accessToken"] as string);
+    if (access === undefined) {
+      const detail = nonEmptyString(payload["error_description"] as string) ?? nonEmptyString(payload["error"] as string);
+      throw new Error(`Kiro Builder ID token exchange omitted accessToken${detail === undefined ? "" : `: ${detail}`}`);
+    }
+    const refresh = nonEmptyString(payload["refreshToken"] as string) ?? "";
+    const profileArn = nonEmptyString(payload["profileArn"] as string);
+    const authState: KiroAuthState = { authMethod: "builder-id", region, startUrl: KIRO_BUILDER_ID_ISSUER, clientId, ...(profileArn === undefined ? {} : { profileArn }), machineId: deriveOAuthMachineId(refresh) };
+    const label = kiroAccountLabel(access);
+    return { access, refresh, expiresAt: this.#expiry(payload["expiresIn"]), ...(label === undefined ? {} : { accountLabel: label }), auth_state: authStateOf(authState), client_secret: clientSecret };
+  }
+
   async #registerClient(region: string): Promise<{ readonly clientId: string; readonly clientSecret: string }> {
     const response = await this.fetchFn(`https://oidc.${region}.amazonaws.com/client/register`, {
       method: "POST",
@@ -1131,9 +1231,20 @@ function readExpiry(raw: Record<string, unknown>): Date | undefined {
  * The vendor selects the provider by name rather than by client id, and the
  * console passes the operator's choice through the start parameters.
  */
-function readAuthorizeIdp(request: OAuthAuthorizeRequest): "google" | "github" {
+function readAuthorizeIdp(request: OAuthAuthorizeRequest): "google" | "github" | "builder-id" {
   const idp = request.parameters?.["idp"] ?? request.parameters?.["provider"];
+  if (idp === "builder-id") return "builder-id";
   return idp === "github" ? "github" : "google";
+}
+
+function readExchangeIdp(context: OAuthCodeExchangeContext | undefined): "builder-id" | "social" {
+  return context?.parameters?.["idp"] === "builder-id" ? "builder-id" : "social";
+}
+
+function builderIdLoopbackRedirect(redirectUri: string): string {
+  const url = new URL(redirectUri);
+  const port = url.port.length > 0 ? url.port : "80";
+  return `http://127.0.0.1:${port}`;
 }
 
 export const kiroOAuthClient = new KiroOAuthClient();

@@ -12,7 +12,7 @@ import {
 } from "../providers/operations/provider-catalog-service";
 import type { BundledProviderCatalog } from "../providers/operations/provider-catalog-service";
 import { createDefaultProviderRegistry } from "../providers/default-registry";
-import { OAuthRefreshService, loadDueOAuthAccounts } from "../providers/authentication/oauth-refresh-service";
+import { OAuthRefreshService, loadDueOAuthAccounts, reconcileStaticTokenAccounts } from "../providers/authentication/oauth-refresh-service";
 import type { OAuthTokenRefresher } from "../providers/authentication/oauth-refresh-service";
 import { oauthRefreshSweep } from "../workers/oauth-refresh-worker";
 import { pushStructuredConsoleLog } from "../observability/log-ring";
@@ -21,7 +21,10 @@ import { createDatabaseSnapshotBuilder } from "../transport/routing/route-catalo
 import { DrizzleProviderCatalogStore } from "../console/providers/catalog/store";
 import { InMemoryRouteSnapshotService } from "../transport/routing/route-model";
 import { RedisAdmissionController, RoutingEngine } from "../transport/routing/router";
-import { ApiKeyAdmissionService, InMemoryAdmissionCounterStore, RedisAdmissionCounterStore, sweepLeases } from "../security/admission";
+import { ApiKeyAdmissionService } from "../security/admission/service";
+import { InMemoryAdmissionCounterStore } from "../security/admission/in-memory-store";
+import { RedisAdmissionCounterStore } from "../security/admission/redis-store";
+import { sweepLeases } from "../security/admission/lease-sweep";
 import { DrizzleApiKeyStore } from "../persistence/api-key-store";
 import { InMemoryIpAbuseStore, IpAbuseProtectionService, RedisIpAbuseStore } from "../security/abuse";
 import {
@@ -42,7 +45,6 @@ import { quotaRefreshSweep } from "../workers/quota-refresh-worker";
 import { checkinEgressForPass } from "../workers/checkin-egress";
 import { createAccountSecretResolver } from "../providers/operations/provider-credential-service";
 import { quotaCacheSize } from "../console/quota/cache";
-import { createCreditFloorResolver } from "../console/quota/refresh";
 import { preferencesReaderFor } from "../transport/dispatch/attempt-finalize";
 import { sweepExpiredCooldowns } from "../providers/operations/account-health-service";
 import { DrizzleTelemetryStore } from "../persistence/telemetry-store";
@@ -66,7 +68,7 @@ import type { ReadinessCheckResult } from "../persistence/readiness";
 import { eq, sql } from "drizzle-orm";
 import { apiKeys } from "../persistence/schema";
 import { log } from "../observability/logger";
-import { refreshClineClientVersion } from "../providers/operations/client-versions";
+import { refreshProviderClientVersions } from "../providers/operations/client-versions";
 
 
 export interface ProductionDeps {
@@ -102,10 +104,15 @@ export interface ProductionDeps {
 
 /**
  * Pause between accounts in the OAuth refresh sweep. The token endpoints
- * rate-limit a burst of refreshes even at low concurrency, so the pass runs
- * sequentially with this gap rather than in waves.
+ * rate-limit a burst of refreshes even at low concurrency.
  */
 const OAUTH_REFRESH_INTER_ITEM_DELAY_MS = 1_500;
+
+/**
+ * Client identities are refreshed out of band so provider dispatch never waits
+ * on npm/provider version endpoints. Resolver TTLs deduplicate the sources.
+ */
+const CLIENT_VERSION_MONITOR_INTERVAL_MS = 15 * 60_000;
 
 export async function buildProductionDeps(): Promise<ProductionDeps> {
   const db = getDb();
@@ -272,6 +279,10 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
     run: () => runtimeMetricsSampler.sample(),
   });
   const oauthRefreshService = new OAuthRefreshService(db);
+  // Converge accounts an earlier build parked on a dead refresh grant: an
+  // account whose stored access token is still usable becomes a static token
+  // (and returns to rotation) instead of staying disabled for re-auth.
+  await reconcileStaticTokenAccounts(db);
   scheduledTasks.register({
     name: "oauth-refresh-sweep",
     intervalMs: 60_000,
@@ -300,6 +311,15 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
         },
       }),
   });
+
+  // Client versions are monitor-only metadata. The first refresh is best-effort
+  // at startup; the scheduled task keeps the same resolver cache warm later.
+  scheduledTasks.register({
+    name: "client-version-monitor",
+    intervalMs: CLIENT_VERSION_MONITOR_INTERVAL_MS,
+    run: refreshProviderClientVersions,
+  });
+  void refreshProviderClientVersions();
 
   // Keeps every account's cached quota warm so opening the Quota page is a
   // cache read. Without this the only refreshes are user-triggered, so the
@@ -331,12 +351,10 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
           redis,
           providerRegistry: registry,
           resolveCredential: quotaResolveCredential,
-          // The credit reserve (Routing Strategy "credit floor") is enforced on
-          // this sweep: it is the path that fetches live credit, so a funded
-          // account is parked in a 24h cooldown the moment its remaining credit
-          // reaches the operator's floor, and the route snapshot is invalidated
-          // so the next plan fails over instead of draining it.
-          resolveCreditFloor: createCreditFloorResolver(db),
+          // The sweep stamps the last fetched remaining credit onto the account
+          // row (`stampRemainingCredit`) and invalidates the route snapshot when
+          // it changes, so the next plan sees the fresh figure and the request
+          // path can enforce per-account floors from the last cached balance.
           snapshotInvalidator: snapshotService,
           // The check-in ride-along rotates egress per account: each account
           // gets the next active pool in its tenant's rotation so check-ins
@@ -354,12 +372,6 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   // listener is actually serving (`main.ts`). Starting them inside this builder
   // would let the first tick — the lease sweep, the health sweep — run against
   // a process that has not begun accepting traffic yet.
-  // Warm the Cline version cache *after* the listener can serve traffic. The
-  // resolvers are TTL-cached and each dispatch path awaits its own `ensure()`,
-  // so discovery here is a pure optimization: awaiting it during boot used to
-  // block the listener for up to the 4s fetch timeout on a blackholed network,
-  // while the pinned fallback was already serving requests correctly.
-  refreshClineClientVersion();
   return {
     db,
     redis,

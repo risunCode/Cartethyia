@@ -192,16 +192,22 @@ export function classifyAccountError(
     lower.includes("max-per-mtok") ||
     lower.includes("no provider's ask") ||
     (lower.includes("ask") && lower.includes("bid"));
-
+  // Deployment/proxy infrastructure errors (DEPLOYMENT_DISABLED, etc.) are
+  // transport-level proxy pool failures, not account quota exhaustion.
+  // Mutating the account parks it for an hour while the pool itself stays
+  // healthy — the next request picks the same dying pool and the same error
+  // repeats. These must not cooldown the account.
+  const deploymentInfraError =
+    lower.includes("deployment_disabled") ||
+    lower.includes("deployment disabled") ||
+    (lower.includes("sin1::") && lower.includes("deployment"));
+  if (deploymentInfraError) {
+    return result("server_error", "cooldown", 60_000, null, `Proxy deployment error: ${message.slice(0, 160)}`, false);
+  }
   // Quota-shaped provider codes/messages (e.g. xAI's
-  // `subscription:free-usage-exhausted`) must win over the 401/403 auth
-  // branch below: an exhausted free tier is quota exhaustion with a
-  // cooldown, never a dead credential. A bare 402 stays here: `Payment
-  // Required` conventionally means the account cannot pay, and a cooldown is
-  // recoverable and — since cooling accounts are deprioritized rather than
-  // excluded — no longer blocks the account from serving a request.
   const quotaSignal =
     !priceRefusal &&
+    !deploymentInfraError &&
     (statusCode === 402 ||
       providerCode === "insufficient_quota" ||
       providerCode === "quota_exceeded" ||
@@ -333,11 +339,9 @@ export function classifyAccountError(
   }
 
   if (quotaSignal) {
-    // xAI Grok Build's free tier resets on a rolling 24-hour window. Its
-    // exhaustion is a full-day cooldown even when the provider states no
-    // duration (the live 429 carries only the provider code), so it must not
-    // fall back to the generic 1h default — a shorter park would let the
-    // account back into rotation inside the window.
+    // xAI Grok Build's free tier resets on a rolling window. Use a duration
+    // stated by the provider when present; otherwise park for the conservative
+    // 24-hour fallback.
     const grokFreeTier =
       providerCode === "subscription:free-usage-exhausted" ||
       providerCode.startsWith("subscription:") ||
@@ -348,7 +352,7 @@ export function classifyAccountError(
       lower.includes("rolling 24 hour");
     const statedCooldown = messageCooldown ?? headerCooldown;
     const cooldownMs = grokFreeTier
-      ? Math.max(statedCooldown ?? 0, GROK_QUOTA_COOLDOWN_MS)
+      ? (statedCooldown ?? GROK_QUOTA_COOLDOWN_MS)
       : (statedCooldown ?? DEFAULT_QUOTA_COOLDOWN_MS());
     // The caller records against the concrete account that just failed
     // upstream, so a provider-scoped quota error still cools THAT account
@@ -832,83 +836,6 @@ export async function recoverAccount(
 export async function sweepExpiredCooldowns(db: CartethyiaDatabase): Promise<number> {
   return sweepExpiredCooldownsFor(db);
 }
-
-/**
- * The operator's credit reserve is enforced here, not on the request path.
- *
- * The quota sweep already fetched this account's live credit figures; when the
- * remaining credit on any credit window has reached the configured floor, the
- * account is parked in a 24h `quota_exhausted` cooldown so routing fails over
- * to a sibling instead of spending it to empty. Returns `true` when the account
- * was parked (the caller invalidates the route snapshot).
- *
- * `remainingCredit` is the account's total remaining credit across its credit
- * windows (`totalRemainingCredit`), the same figure the dashboard's Credit Pool
- * card shows. `null` means the provider reports no credit
- * — a rate-limit-only surface has nothing to reserve, so the floor never fires.
- * A cooldown already in force (or a disabled account) is left untouched: the
- * floor is a *park* decision, and re-parking would only churn the audit log.
- */
-export async function enforceCreditFloor(
-  db: CartethyiaDatabase,
-  accountId: string,
-  remainingCredit: number | null,
-  floor: number | null,
-): Promise<boolean> {
-  if (remainingCredit === null || floor === null || floor < 0) return false;
-  if (remainingCredit > floor) return false;
-  const mutate = async (client: CartethyiaDatabase): Promise<boolean> => {
-    const rows = await client
-      .select()
-      .from(providerAccounts)
-      .where(eq(providerAccounts.id, accountId))
-      .limit(1);
-    const account = rows[0];
-    if (!account || account.status === "disabled") return false;
-    const now = new Date();
-    const alreadyCooling =
-      account.status === "cooldown" &&
-      account.cooldownUntil !== null &&
-      account.cooldownUntil.getTime() > now.getTime();
-    if (alreadyCooling) return false;
-    const cooldownUntil = new Date(now.getTime() + CREDIT_FLOOR_COOLDOWN_MS);
-    const reason = `Credit floor reached: ${Math.max(0, remainingCredit)} remaining (floor ${floor})`;
-    await client
-      .update(providerAccounts)
-      .set({
-        status: "cooldown",
-        lastError: reason,
-        lastErrorCategory: "quota_exhausted",
-        lastErrorAt: now,
-        cooldownUntil,
-      })
-      .where(eq(providerAccounts.id, accountId));
-    if (typeof client.insert === "function") {
-      await client.insert(healthEvents).values({
-        entityKind: "account",
-        accountId,
-        fromStatus: account.status as "active" | "cooldown" | "disabled",
-        toStatus: "cooldown",
-        reason,
-        errorCategory: "quota_exhausted",
-        modelId: null,
-        createdAt: now,
-      });
-    }
-    return true;
-  };
-  try {
-    if (typeof db.transaction === "function") {
-      return await db.transaction((tx) => mutate(tx as CartethyiaDatabase));
-    }
-    return await mutate(db);
-  } catch {
-    return false;
-  }
-}
-
-/** Park duration once an account's remaining credit reaches the operator floor. */
-export const CREDIT_FLOOR_COOLDOWN_MS = 24 * 3_600_000;
 
 export async function listAccountHealthEvents(
   db: CartethyiaDatabase,

@@ -50,7 +50,6 @@ const Settings = lazyWithRetry(() => import("./routes/Settings"), "settings");
 const CliTools = lazyWithRetry(() => import("./routes/CliTools"), "cli-tools");
 const CliToolDetail = lazyWithRetry(() => import("./routes/CliToolDetail"), "cli-tool-detail");
 const ConsoleLogPage = lazyWithRetry(() => import("./features/logs/ConsoleLogPage"), "console-log");
-const Customization = lazyWithRetry(() => import("./routes/Customization"), "customization");
 const Studio = lazyWithRetry(() => import("./routes/Studio"), "studio");
 
 /**
@@ -181,11 +180,10 @@ function ProtectedRoutes(): ReactNode {
           <Route path="/combos" element={<Combos />} />
           <Route path="/quota" element={<Quota />} />
           <Route path="/proxy" element={<Proxy />} />
-          <Route path="/customization" element={<Customization />} />
+          <Route path="/console-log" element={<ConsoleLogPage />} />
           <Route path="/model-lab" element={<Studio />} />
           <Route path="/cli-tools" element={<CliTools />} />
           <Route path="/cli-tools/:toolId" element={<CliToolDetail />} />
-          <Route path="/console-log" element={<ConsoleLogPage />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

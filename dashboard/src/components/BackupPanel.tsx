@@ -1,4 +1,4 @@
-import { DatabaseBackup, Download, Upload } from "lucide-react";
+import { DatabaseBackup, Download, Trash2, Upload } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { Button } from "./ui/button";
 import { Card, CardBody, CardHeader } from "./ui/card";
@@ -8,8 +8,10 @@ import { Stack } from "./ui/stack";
 import { toast } from "../shared/toast";
 import { downloadTextFile } from "../shared/download";
 import { getErrorMessage } from "../shared/helpers";
-import { useExportBackup, useRestoreBackup } from "../hooks/backup";
+import { useDeleteAllBackup, useExportBackup, useRestoreBackup } from "../hooks/backup";
+import { ConfirmDialog } from "./ConfirmDialog";
 import type { BackupImportReport } from "../data/contracts";
+import type { DeleteAllScope } from "../../../src/console/backup/store";
 
 /**
  * Backup and restore, as a Settings panel.
@@ -72,9 +74,36 @@ export function BackupPanel(): ReactNode {
   const [restored, setRestored] = useState<Record<string, number> | null>(null);
   const [report, setReport] = useState<BackupImportReport | null>(null);
   const [format, setFormat] = useState<string | null>(null);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteScopes, setDeleteScopes] = useState<ReadonlySet<DeleteAllScope>>(new Set());
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [pendingRestoreFile, setPendingRestoreFile] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const exportBackup = useExportBackup();
   const restoreBackup = useRestoreBackup();
+  const deleteAllBackup = useDeleteAllBackup();
+  const toggleDeleteScope = (scope: DeleteAllScope) => {
+    setDeleteScopes((current) => {
+      const next = new Set(current);
+      if (next.has(scope)) next.delete(scope);
+      else next.add(scope);
+      return next;
+    });
+  };
+  const deleteSelected = () => {
+    if (deleteScopes.size === 0 || deletePassword.length === 0) return;
+    setConfirmDelete(true);
+  };
+  const performDelete = async () => {
+    const result = await deleteAllBackup.mutateAsync({
+      password: deletePassword,
+      scopes: [...deleteScopes],
+    });
+    setDeletePassword("");
+    setDeleteScopes(new Set());
+    setConfirmDelete(false);
+    toast.success("Selected configuration deleted.", Object.entries(result.deleted).map(([table, count]) => `${table}: ${count}`).join(" · "));
+  };
   const download = () => {
     const sections = [
       ...(includeConfig ? ["config"] : []),
@@ -103,31 +132,30 @@ export function BackupPanel(): ReactNode {
   };
 
   const upload = (file: File) => {
-    void file
-      .text()
-      .then((text) => {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(text);
-        } catch {
-          toast.error("That file is not valid JSON.");
-          return;
-        }
-        restoreBackup.mutate(
-          { password, backup: parsed },
-          {
-            onSuccess: (result) => {
-              setRestored(result.restored);
-              setReport(result.report ?? null);
-              setFormat(result.format);
-              setPassword("");
-              toast.success("Restore complete.");
-            },
-            onError: (error) => toast.error(getErrorMessage(error, "Restore failed.")),
-          },
-        );
-      })
-      .catch(() => toast.error("Could not read that file."));
+    setPendingRestoreFile(file);
+  };
+  const performRestore = async () => {
+    const file = pendingRestoreFile;
+    if (file === null) return;
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      throw new Error("Could not read that file.");
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw new Error("That file is not valid JSON.");
+    }
+    const result = await restoreBackup.mutateAsync({ password, backup: parsed });
+    setRestored(result.restored);
+    setReport(result.report ?? null);
+    setFormat(result.format);
+    setPassword("");
+    setPendingRestoreFile(null);
+    toast.success("Restore complete.");
   };
 
   const restoreRows = restored === null ? [] : Object.entries(restored);
@@ -170,8 +198,9 @@ export function BackupPanel(): ReactNode {
           </fieldset>
           <p style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
             Both actions re-authenticate with your console password. The export is plain JSON
-            containing every provider credential and API-key hash — treat the file exactly as you
-            would the database.
+            containing provider credentials, API-key hashes, routing configuration, and Studio sessions.
+            Telemetry is optional; prompt/response payload files, health-event history, and console
+            identity/session data are intentionally excluded from the config backup. Treat the file exactly as you would the database.
           </p>
 
           <Inline justify="flex-start">
@@ -232,6 +261,61 @@ export function BackupPanel(): ReactNode {
           ) : null}
 
           {report !== null ? <ImportReportPanel report={report} /> : null}
+
+          <div style={{ borderTop: "1px solid var(--inner-border)", paddingTop: "14px", marginTop: "4px" }}>
+            <Stack gap="10px">
+              <div>
+                <strong style={{ color: "var(--red)" }}>Delete all</strong>
+                <p style={{ fontSize: "11px", color: "var(--text-tertiary)", margin: "4px 0 0" }}>
+                  Destructive action. Select exactly what should be removed. Console users, sessions, audit history, and telemetry are preserved.
+                </p>
+              </div>
+              {([
+                ["providers", "Provider", "Provider accounts, credentials, tenant models, provider routing, and account health events"],
+                ["proxies", "Proxy", "Network pools, pool settings, and pool health events"],
+                ["configuration", "All configuration", "Includes Provider + Proxy, plus aliases, combos, API keys, CLI tools, settings, and Studio sessions"],
+              ] as const).map(([scope, label, description]) => (
+                <label key={scope} style={{ display: "flex", gap: "8px", alignItems: "flex-start", fontSize: "12px" }}>
+                  <input type="checkbox" checked={deleteScopes.has(scope)} onChange={() => toggleDeleteScope(scope)} />
+                  <span><strong>{label}</strong><br /><span style={{ color: "var(--text-tertiary)", fontSize: "11px" }}>{description}</span></span>
+                </label>
+              ))}
+              <Input
+                label="Password required for Delete all"
+                type="password"
+                value={deletePassword}
+                onChange={(event) => setDeletePassword(event.target.value)}
+                autoComplete="current-password"
+              />
+              <Button
+                variant="danger"
+                size="sm"
+                icon={<Trash2 size={14} />}
+                disabled={deleteScopes.size === 0 || deletePassword.length === 0 || deleteAllBackup.isPending}
+                onClick={deleteSelected}
+              >
+                {deleteAllBackup.isPending ? "Deleting…" : "Delete selected"}
+              </Button>
+            </Stack>
+          </div>
+          <ConfirmDialog
+            open={pendingRestoreFile !== null}
+            onClose={() => setPendingRestoreFile(null)}
+            onConfirm={performRestore}
+            title="Restore backup?"
+            message="Restore replaces the selected tenant configuration described by the file. Existing provider credentials and routing data may be replaced. Continue only if this file is trusted."
+            confirmLabel="Restore backup"
+            danger
+          />
+          <ConfirmDialog
+            open={confirmDelete}
+            onClose={() => setConfirmDelete(false)}
+            onConfirm={performDelete}
+            title="Delete selected configuration?"
+            message={`This cannot be undone. ${deleteScopes.has("configuration") ? "All configuration includes Provider and Proxy. " : ""}Selected scopes: ${[...deleteScopes].join(", ")}. The password will be verified again before deletion.`}
+            confirmLabel="Delete permanently"
+            danger
+          />
         </Stack>
       </CardBody>
     </Card>

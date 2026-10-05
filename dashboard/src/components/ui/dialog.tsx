@@ -4,6 +4,17 @@ import { createPortal } from "react-dom";
 import { usePresence } from "../../hooks/use-presence";
 import { useModalFocus } from "../../hooks/use-modal-focus";
 
+/** Named panel size. One of the four scale steps; arbitrary px is legacy. */
+export type DialogSize = "sm" | "md" | "lg" | "xl";
+
+const DIALOG_SIZE_WIDTH: Record<DialogSize, number> = {
+  sm: 420,
+  md: 640,
+  lg: 880,
+  /** Wide data/workspace dialogs; expanded mode remains the explicit full-width escape hatch. */
+  xl: 960,
+};
+
 export interface DialogProps {
   open: boolean;
   onClose: () => void;
@@ -13,6 +24,8 @@ export interface DialogProps {
   description?: string;
   /** Preferred panel width in px; the panel never exceeds the viewport. Defaults to 520. */
   width?: number;
+  /** Named size step from the modal scale. Wins over width when both are set. */
+  size?: DialogSize;
   /** Optional action row pinned below the scrollable body (buttons stay put). */
   footer?: ReactNode;
 }
@@ -24,6 +37,7 @@ export function Dialog({
   description,
   children,
   width = 520,
+  size,
   footer,
 }: DialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -59,7 +73,7 @@ export function Dialog({
         style={
           expanded
             ? undefined
-            : { ["--dialog-width" as string]: `${width}px` }
+            : { ["--dialog-width" as string]: `${size !== undefined ? DIALOG_SIZE_WIDTH[size] : width}px` }
         }
         // `role="dialog"` is what makes the `aria-modal` and `aria-labelledby`
         // below meaningful — both are inert on a plain `div`, so without it a

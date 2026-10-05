@@ -2,9 +2,8 @@
  * Z.AI Coding Plan (ZCode) provider.
  *
  * A subscription plan served over Z.AI's OpenAI-compatible coding endpoint,
- * distinct from the `zai` pay-as-you-go provider that already exists: different
- * base URL, different credential (a durable `<apiKey>.<secretKey>` minted by
- * the sign-in flow rather than a dashboard key), and a different catalog.
+ * with a dedicated base URL, a durable credential minted by the sign-in flow,
+ * and a separate model catalog.
  *
  * The credential is a plain bearer string, so the shared factory forwards it
  * as-is and no credential codec is needed here — the sign-in client is what

@@ -159,17 +159,17 @@ dbDescribe("model authorization", () => {
   const chat = (model: string, token: string) =>
     gateway.json("/v1/chat/completions", { ...CHAT_BODY, model }, { token });
 
-  describe("allowlist", () => {
-    test("a model on the allowlist routes", async () => {
+  describe("whitelist mode", () => {
+    test("a model on the whitelist routes", async () => {
       const key = await world.createKey({
-        modelAllowlist: [`${world.providerId}/model-allowed`],
+        modelList: [`${world.providerId}/model-allowed`],
       });
       expect((await chat(`${world.providerId}/model-allowed`, key.token)).status).toBe(200);
     });
 
-    test("a model absent from the allowlist is refused", async () => {
+    test("a model absent from the whitelist is refused", async () => {
       const key = await world.createKey({
-        modelAllowlist: [`${world.providerId}/model-allowed`],
+        modelList: [`${world.providerId}/model-allowed`],
       });
       const response = await chat(`${world.providerId}/model-other`, key.token);
       // The model exists and is routable; the key simply may not use it. That is
@@ -180,93 +180,65 @@ dbDescribe("model authorization", () => {
       expect(error.code).toBe("model_not_found");
     });
 
-    test("an allowlist entry matches its bare form and vice versa", async () => {
-      // Dual-form matching, as `modelRejectionReason` documents: "a bare entry
-      // matches its provider-qualified use and vice versa, so neither allow nor
-      // deny silently misses a qualified form."
-      //
-      // A bare entry does match a qualified request. The reverse does not — see
-      // the `test.failing` case below, which pins the half that is broken.
-      const bareEntry = await world.createKey({ modelAllowlist: ["model-allowed"] });
+    test("a whitelist entry matches its bare form and vice versa", async () => {
+      // Bare entry authorizes a qualified use; a qualified entry only
+      // authorizes the same-provider qualified use. The reverse (qualified
+      // allow bare with no provider) is intentionally isolated so
+      // `providerA/model-x` never authorizes `providerB/model-x` — see
+      // `src/security/model-access-rule.ts` and `test/unit/api-key-auth.test.ts`.
+      const bareEntry = await world.createKey({ modelList: ["model-allowed"] });
       expect((await chat(`${world.providerId}/model-allowed`, bareEntry.token)).status).toBe(200);
-    });
 
-    /**
-     * KNOWN DEFECT — the documented "vice versa" half of dual-form matching.
-     *
-     * `modelRejectionReason` builds its candidate names from the *resolved
-     * target*, and the preparer calls it with `targetProvider` omitted
-     * (`preparer.ts`: `isModelAllowed(snapshot, resolvedTarget, undefined, request.model)`).
-     * With no provider, the function cannot construct the qualified form, so a
-     * qualified allowlist entry never matches a bare request:
-     *
-     *     names = [targetModel, bareModelId(targetModel)]   // no qualified form
-     *
-     * The denylist does not share the defect because it is checked a second
-     * time in `admission.ts` with `targetProvider` supplied, and that call
-     * constructs the qualified name. The allowlist has no second check — the
-     * preparer throws first — so the miss is final.
-     *
-     * Reachable in practice: the dashboard's `ModelPicker` writes the
-     * *qualified* form (`e.qualified`) into `modelAllowlist`, and a client that
-     * sends the bare model name is then refused a model the operator explicitly
-     * allowed. The share page happens to avoid it only because it replays the
-     * allowlist entries verbatim.
-     *
-     * Written with `test.failing` so the suite stays green while the defect is
-     * tracked: this test is expected to fail, and it starts failing loudly (as
-     * an unexpected pass) the moment the behavior is corrected — which is the
-     * signal to delete the marker and keep the assertion.
-     */
-    test("a qualified allowlist entry matches a bare request", async () => {
       const qualifiedEntry = await world.createKey({
-        modelAllowlist: [`${world.providerId}/model-allowed`],
+        modelList: [`${world.providerId}/model-allowed`],
       });
-      expect((await chat("model-allowed", qualifiedEntry.token)).status).toBe(200);
+      expect((await chat(`${world.providerId}/model-allowed`, qualifiedEntry.token)).status).toBe(200);
+      expect((await chat("model-allowed", qualifiedEntry.token)).status).toBe(404);
     });
 
-    test("an empty allowlist means no restriction, not no access", async () => {
-      // `null` and `[]` both mean "the operator set no allowlist". Treating an
-      // empty array as a deny-all would lock a key out the moment a UI wrote an
-      // empty selection.
-      const key = await world.createKey({ modelAllowlist: [] });
+    test("an empty whitelist means no restriction, not no access", async () => {
+      // `null` and `[]` both mean "the operator set no list". Treating an empty
+      // array as deny-all would lock a key out the moment a UI wrote an empty
+      // selection.
+      const key = await world.createKey({ modelList: [] });
       expect((await chat(world.qualifiedModel, key.token)).status).toBe(200);
     });
   });
 
-  describe("denylist", () => {
+  describe("blacklist mode", () => {
     test("a denied model is refused", async () => {
-      const key = await world.createKey({ modelDenylist: [`${world.providerId}/model-denied`] });
+      const key = await world.createKey({
+        modelAccessMode: "blacklist",
+        modelList: [`${world.providerId}/model-denied`],
+      });
       const response = await chat(`${world.providerId}/model-denied`, key.token);
       expect(response.status).toBe(404);
       expect((await errorBody(response)).code).toBe("model_not_found");
     });
 
-    test("a model not on the denylist still routes", async () => {
-      const key = await world.createKey({ modelDenylist: [`${world.providerId}/model-denied`] });
+    test("a model not on the blacklist still routes", async () => {
+      const key = await world.createKey({
+        modelAccessMode: "blacklist",
+        modelList: [`${world.providerId}/model-denied`],
+      });
       expect((await chat(`${world.providerId}/model-allowed`, key.token)).status).toBe(200);
     });
 
     test("a deny entry matches its bare form too", async () => {
-      const key = await world.createKey({ modelDenylist: ["model-denied"] });
-      expect((await chat(`${world.providerId}/model-denied`, key.token)).status).toBe(404);
-    });
-
-    test("the denylist wins over the allowlist", async () => {
-      // A model named on both lists must be refused. If the allowlist won, an
-      // operator could not revoke access without also editing the allowlist.
       const key = await world.createKey({
-        modelAllowlist: [`${world.providerId}/model-denied`],
-        modelDenylist: [`${world.providerId}/model-denied`],
+        modelAccessMode: "blacklist",
+        modelList: ["model-denied"],
       });
-      const response = await chat(`${world.providerId}/model-denied`, key.token);
-      expect(response.status).toBe(404);
+      expect((await chat(`${world.providerId}/model-denied`, key.token)).status).toBe(404);
     });
   });
 
   describe("authorization is per key", () => {
-    test("a second key in the same tenant is unaffected by the first key's lists", async () => {
-      const restricted = await world.createKey({ modelDenylist: [world.modelId] });
+    test("a second key in the same tenant is unaffected by the first key's list", async () => {
+      const restricted = await world.createKey({
+        modelAccessMode: "blacklist",
+        modelList: [world.modelId],
+      });
       const unrestricted = await world.createKey();
       expect((await chat(world.qualifiedModel, restricted.token)).status).toBe(404);
       expect((await chat(world.qualifiedModel, unrestricted.token)).status).toBe(200);

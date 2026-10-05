@@ -1,13 +1,15 @@
 import { Activity, RotateCcw } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import type { CredentialKind, CredentialMode } from "../data/contracts";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
 import { DataTable } from "./ui/layout";
 import { Inline } from "./ui/inline";
 import { EmptyState, ErrorState, LoadingState } from "./ui/state";
-import { useAccountHealthEvents, useRecoverAccount } from "../hooks/providers";
-
+import { useAccountHealthEvents, useRecoverAccount, useUpdateProviderAccount } from "../hooks/providers";
+import { toast } from "../shared/toast";
 /**
  * The account health & error log dialog shared by the Quota page and provider detail.
  */
@@ -23,6 +25,9 @@ export interface AccountHealthSummary {
   readonly errorMessage?: string | undefined;
   /** Empty-state copy differs by page: the Quota view also lists check-ins. */
   readonly emptyMessage: string;
+  readonly staticToken?: boolean;
+  readonly credentialKind?: CredentialKind;
+  readonly credentialMode?: CredentialMode;
 }
 
 /** Recovery is offered for the one transient state the backend can recover. */
@@ -34,6 +39,23 @@ function statusTone(status: string): "ok" | "disabled" | "warn" {
   if (status === "active") return "ok";
   if (status === "disabled") return "disabled";
   return "warn";
+}
+function staticModeCopy(enabling: boolean, title: string): {
+  readonly title: string;
+  readonly message: string;
+  readonly confirmLabel: string;
+} {
+  return enabling
+    ? {
+        title: "Enable static-token mode?",
+        message: `${title} will be used exactly as issued and will not be refreshed. Re-enable refresh before this token expires.`,
+        confirmLabel: "Enable static mode",
+      }
+    : {
+        title: "Re-enable credential refresh?",
+        message: `${title} will return to the OAuth refresh sweep. Use this only when a refresh token is available.`,
+        confirmLabel: "Re-enable refresh",
+      };
 }
 
 export function HealthEventsModal({
@@ -47,9 +69,17 @@ export function HealthEventsModal({
   const query = useAccountHealthEvents(providerId, accountId);
   const recover = useRecoverAccount();
   const events = query.data ?? [];
+  const update = useUpdateProviderAccount();
+  const canManageStaticMode =
+    summary.credentialKind === "oauth" ||
+    summary.credentialMode === "jwt" ||
+    summary.staticToken === true;
+  const [staticMode, setStaticMode] = useState(summary.staticToken === true);
+  const [staticConfirm, setStaticConfirm] = useState<boolean | null>(null);
+  useEffect(() => setStaticMode(summary.staticToken === true), [summary.staticToken]);
 
   return (
-    <Dialog open={true} onClose={onClose} title={`Health & Error Log — ${title}`} width={1040}>
+    <Dialog open={true} onClose={onClose} title={`Health & Error Log — ${title}`} size="lg">
       <div style={{ display: "flex", flexDirection: "column", gap: "14px", minWidth: 0 }}>
         <div
           style={{
@@ -91,6 +121,35 @@ export function HealthEventsModal({
           ) : null}
         </div>
 
+        {canManageStaticMode ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "12px",
+              padding: "10px 14px",
+              borderRadius: "10px",
+              background: "var(--surface-2)",
+              border: "1px solid var(--inner-border)",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: "12px", fontWeight: 600 }}>Credential management</div>
+              <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                {staticMode ? "Static mode: no refresh request will be sent." : "OAuth refresh is enabled for this account."}
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant={staticMode ? "primary" : "secondary"}
+              disabled={update.isPending}
+              onClick={() => setStaticConfirm(!staticMode)}
+            >
+              {staticMode ? "Static JWT · no refresh" : "Enable static mode"}
+            </Button>
+          </div>
+        ) : null}
         <div style={{ minWidth: 0 }}>
           <h4
             style={{
@@ -145,6 +204,30 @@ export function HealthEventsModal({
           )}
         </div>
 
+        <ConfirmDialog
+          open={staticConfirm !== null}
+          onClose={() => setStaticConfirm(null)}
+          onConfirm={() => {
+            const next = staticConfirm === true;
+            update.mutate(
+              { providerId, accountId, request: { staticToken: next } },
+              {
+                onSuccess: () => {
+                  setStaticMode(next);
+                  setStaticConfirm(null);
+                  toast.success(next ? "Static mode enabled" : "Credential refresh re-enabled", title);
+                  void query.refetch();
+                },
+                onError: (error) =>
+                  toast.error("Credential update failed", error instanceof Error ? error.message : "Unable to update credential mode"),
+              },
+            );
+          }}
+          title={staticModeCopy(staticConfirm === true, title).title}
+          message={staticModeCopy(staticConfirm === true, title).message}
+          confirmLabel={staticModeCopy(staticConfirm === true, title).confirmLabel}
+          cancelLabel="Cancel"
+        />
         <Inline justify="flex-end" gap="0px">
           <Button variant="secondary" size="sm" onClick={onClose}>Close</Button>
         </Inline>

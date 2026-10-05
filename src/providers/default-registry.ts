@@ -113,7 +113,6 @@ export const PROVIDER_CAPABILITIES = {
           vision: true,
           reasoning: true,
           toolCall: true,
-          webSearch: true,
         }),
       );
     },
@@ -226,17 +225,6 @@ export const PROVIDER_CAPABILITIES = {
     loadModelDiscovery: openAIModelDiscovery("deepseek", {
       headers: (credential) => ({ authorization: `Bearer ${credential}` }),
     }),
-  },
-  huggingface: {
-    endpointPathsByWireFamily: { chat: "/chat/completions" },
-    loadAdapter: async () => createApiKeyAdapter((await import("./integrations/huggingface")).HUGGINGFACE_SPEC),
-    // The router listing nests limits and capability under `providers[]`, so it
-    // cannot go through the shared OpenAI `/models` fetcher.
-    loadModelDiscovery: async () => async ({ credential, fetcher }) =>
-      (await import("./integrations/huggingface")).discoverHuggingfaceModels({
-        credential,
-        ...(fetcher === undefined ? {} : { fetcher }),
-      }),
   },
   gmi: configuredProvider("gmi"),
   opencodeft: {
@@ -404,11 +392,6 @@ export const PROVIDER_CAPABILITIES = {
     loadModels: async () => (await import("./integrations/xiaomi-mimo/mimostudio")).MIMOSTUDIO_MODELS,
     loadAuthentication: oauthCapability(() => import("./integrations/xiaomi-mimo/mimostudio-oauth"), "mimoStudioOAuthClient", { withRefresher: true }),
     loadQuotaCollector: quotaCapability(() => import("./integrations/xiaomi-mimo/mimostudio-quota"), "fetchMimoStudioQuota"),
-  },
-  zai: {
-    loadAdapter: async () => createApiKeyAdapter((await import("./integrations/zai/zai")).ZAI_SPEC),
-    loadQuotaCollector: quotaCapability(() => import("./integrations/zai/zai-quota"), "fetchZaiQuota"),
-    loadModelDiscovery: async () => async ({ credential }) => (await import("./integrations/zai/zai")).discoverZaiModels({ credential }),
   },
   zcode: {
     loadAdapter: async () => createApiKeyAdapter((await import("./integrations/zcode")).ZCODE_SPEC),

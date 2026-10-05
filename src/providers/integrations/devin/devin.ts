@@ -183,7 +183,7 @@ function devinModelFromConfig(config: {
     },
     reasoning: features?.supportsThinking ?? false,
     toolCall: features?.supportsToolCalls ?? true,
-    webSearch: true,
+    webSearch: false,
     cost: modelsDevCatalog.costFor(DEVIN_PROVIDER_ID, id),
   };
 }
@@ -773,7 +773,7 @@ class DevinAdapter implements ProviderAdapter {
         ...(request.conversation?.conversation_id === undefined
           ? {}
           : { conversationId: request.conversation.conversation_id }),
-        ...(Boolean(request.provider_options?.["web_search"]) ? { webSearch: true } : {}),
+        ...(Boolean(request.provider_options?.["web_search"]) ? {} : {}),
       },
       apiKey,
       userJwt,

@@ -16,7 +16,7 @@ import {
   type ProviderId,
   type ProviderDispatchContext,
 } from "./provider-registry";
-import { createUpstreamDeadlineLifecycle } from "./operations/upstream-deadline";
+import { abortGatewayError, createUpstreamDeadlineLifecycle } from "./operations/upstream-deadline";
 import { encodeWireRequest, decodeWireResponse, decodeWireStream } from "../protocol/registry";
 import { postUpstreamJson } from "../protocol/transport/openai";
 import { GATEWAY_USER_AGENT } from "./operations/gateway-user-agent";
@@ -59,10 +59,9 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
         ...transportContext,
         abort_signal: context.abort_signal,
       });
-    } catch (error: unknown) {
-      if (lifecycle.signal.aborted || (error instanceof Error && error.name === "AbortError")) {
-        throw new GatewayError("transport_closed", 499, "request was cancelled");
-      }
+    } catch (error) {
+      const abortError = abortGatewayError(lifecycle, error, context.abort_signal);
+      if (abortError) throw abortError;
       throw error;
     } finally {
       lifecycle.release();

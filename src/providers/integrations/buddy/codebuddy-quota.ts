@@ -1,6 +1,6 @@
 import type { FetchLike, ProviderQuotaResult } from "../../quota/quota-contracts";
 import { providerBaseUrl } from "../../provider-metadata";
-import { buildCodeBuddyUserAgent, resolveCodeBuddyVersion } from "../../operations/client-versions";
+import { buildCodeBuddyUserAgent } from "../../operations/client-versions";
 import { codebuddyDomain } from "./codebuddy-shared";
 import { fetchTencentBillingQuota } from "./buddy-quota-shared";
 
@@ -27,7 +27,6 @@ export const CODEBUDDY_INTL_USAGE_URL =
 type CodeBuddyProviderId = "cb" | "cbcn";
 
 async function cnHeaders(enterpriseId?: string): Promise<Record<string, string>> {
-  await resolveCodeBuddyVersion();
   return {
     "User-Agent": buildCodeBuddyUserAgent("CLI"),
     "X-Product": "SaaS",
@@ -43,7 +42,6 @@ async function cnHeaders(enterpriseId?: string): Promise<Record<string, string>>
 }
 
 async function intlHeaders(enterpriseId?: string): Promise<Record<string, string>> {
-  await resolveCodeBuddyVersion();
   return {
     "User-Agent": buildCodeBuddyUserAgent("IDE"),
     "X-Product": "SaaS",

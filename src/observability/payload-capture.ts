@@ -21,6 +21,12 @@ export interface PayloadCaptureInput {
   operatorFlagOptIn?: boolean;
 }
 
+export interface PayloadSignals {
+  readonly toolCalls: number;
+  readonly images: number;
+  readonly attachments: number;
+}
+
 export interface StoredPayload {
   id: string;
   request_id: string | null;
@@ -31,6 +37,7 @@ export interface StoredPayload {
   client_response_body: unknown;
   provider_request_body: unknown;
   provider_response_body: unknown;
+  signals: PayloadSignals;
 }
 
 function payloadRetentionMs(): number {
@@ -47,6 +54,45 @@ function isCaptureAllowed(input: PayloadCaptureInput): boolean {
   if (input.scope === "debug_session") return input.debugSessionOptIn === true;
   if (input.scope === "operator_flag") return input.operatorFlagOptIn === true;
   return false;
+}
+
+function payloadSignals(values: readonly unknown[]): PayloadSignals {
+  let toolCalls = 0;
+  let images = 0;
+  let attachments = 0;
+  const seen = new Set<object>();
+  const visit = (value: unknown, depth: number): void => {
+    if (depth > 8 || value === null || typeof value !== "object") return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (const entry of value) visit(entry, depth + 1);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    const type = typeof record["type"] === "string" ? record["type"].toLowerCase() : "";
+    if (type === "tool_call" || type === "tool_use" || type === "function_call") toolCalls += 1;
+    if (type === "image" || type === "input_image" || type === "output_image") images += 1;
+    if (type === "file" || type === "document" || type === "attachment") attachments += 1;
+    for (const [key, child] of Object.entries(record)) {
+      const normalizedKey = key.toLowerCase();
+      if (normalizedKey === "tool_calls" || normalizedKey === "toolcalls") {
+        if (Array.isArray(child)) toolCalls += child.length;
+      } else if (normalizedKey === "attachments" || normalizedKey === "files") {
+        if (Array.isArray(child)) attachments += child.length;
+      } else if (
+        (normalizedKey === "image_url" ||
+          normalizedKey === "input_image" ||
+          normalizedKey === "output_image") &&
+        !type.includes("image")
+      ) {
+        images += 1;
+      }
+      visit(child, depth + 1);
+    }
+  };
+  for (const value of values) visit(value, 0);
+  return { toolCalls, images, attachments };
 }
 
 /**
@@ -100,6 +146,13 @@ export function buildPayloadRecord(
     client_response_body: storedClientResponseBody,
     provider_request_body: storedProviderRequestBody,
     provider_response_body: storedProviderResponseBody,
+    signals: payloadSignals([
+      requestBody,
+      responseBody,
+      clientResponseBody,
+      providerRequestBody,
+      providerResponseBody,
+    ]),
   };
 }
 

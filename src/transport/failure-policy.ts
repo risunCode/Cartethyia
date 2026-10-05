@@ -335,7 +335,9 @@ export function classifyUpstreamFailure(error: unknown): UpstreamFailurePolicy {
     statusCode === 403 ||
     statusCode === 429 ||
     (statusCode >= 500 && statusCode <= 599);
+  const mutatesAccount = error.origin === "upstream" && scope === "account";
   const retryable =
+    mutatesAccount || // account-scoped failure: try a sibling regardless of status
     error.code === "capability_unsupported" ||
     error.code === "model_not_found" ||
     error.code === "admission_unavailable" ||
@@ -349,7 +351,7 @@ export function classifyUpstreamFailure(error: unknown): UpstreamFailurePolicy {
     retryableByStatus;
   return {
     retryable,
-    mutatesAccount: error.origin === "upstream" && scope === "account",
+    mutatesAccount,
     category: error.code,
     scope,
     origin: error.origin,

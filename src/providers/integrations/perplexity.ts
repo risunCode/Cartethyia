@@ -4,7 +4,7 @@ import { usageFromProvider } from "../usage";
 import type { CanonicalEvent, CanonicalRequest } from "../../transport/canonical-model";
 import type { ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext } from "../provider-registry";
 import { providerBaseUrl } from "../provider-metadata";
-import { createUpstreamDeadlineLifecycle } from "../operations/upstream-deadline";
+import { abortGatewayError, createUpstreamDeadlineLifecycle } from "../operations/upstream-deadline";
 import { normalizeBearerToken } from "../../protocol/primitives";
 
 export const PERPLEXITY_BASE_URL = providerBaseUrl("perplexity");
@@ -23,9 +23,7 @@ export const PERPLEXITY_MODELS: readonly ModelDefinition[] = [
     endpoint: "/search",
     ctx: null,
     out: null,
-    toolCall: false,
-    webSearch: true,
-  }),
+    toolCall: false,}),
   defineModel({
     id: "perplexity-deep-research",
     wireFamily: "chat",
@@ -33,9 +31,7 @@ export const PERPLEXITY_MODELS: readonly ModelDefinition[] = [
     ctx: null,
     out: null,
     reasoning: true,
-    toolCall: false,
-    webSearch: true,
-  }),
+    toolCall: false,}),
 ];
 
 
@@ -106,9 +102,8 @@ export function createPerplexityAdapter(fetchImpl?: typeof fetch): ProviderAdapt
           signal: lifecycle.signal,
         });
       } catch (error: unknown) {
-        if (lifecycle.signal.aborted || (error instanceof Error && error.name === "AbortError")) {
-          throw new GatewayError("transport_closed", 499, "request was cancelled");
-        }
+        const abortError = abortGatewayError(lifecycle, error, context.abort_signal);
+        if (abortError) throw abortError;
         throw error;
       } finally {
         lifecycle.release();

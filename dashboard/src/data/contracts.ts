@@ -59,6 +59,8 @@ export type {
   ProviderRoutingResponse,
   UpdateProviderRoutingRequest,
   CreateProviderAccountRequest,
+  CredentialKind,
+  CredentialMode,
   UpdateProviderAccountRequest,
   ProviderAccountResponse,
   ProviderAccountExport,
@@ -167,8 +169,8 @@ export interface SessionUser {
 
 // Speed-test payload bounds are re-exported as values (like `TENANT_KEY_SCOPES`)
 // so the size picker offers exactly what the backend accepts. They come from a
-// pure module: `pools/contracts` imports Elysia and reaches `node:crypto`, which
-// must not enter the browser bundle.
+// pure module; the pool type contracts are Elysia-free too (routes.ts is the
+// only pool module that touches the HTTP layer).
 export {
   SPEED_TEST_DEFAULT_BYTES,
   SPEED_TEST_MAX_BYTES,

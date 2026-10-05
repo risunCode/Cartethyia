@@ -26,6 +26,9 @@ export const CREDENTIAL_KINDS = ["api_key", "oauth", "none"] as const;
 
 /** One credential kind. */
 export type CredentialKind = (typeof CREDENTIAL_KINDS)[number];
+/** Operator-facing credential detection override. */
+export const CREDENTIAL_MODES = ["auto", "jwt", "api_key"] as const;
+export type CredentialMode = (typeof CREDENTIAL_MODES)[number];
 export const PROVIDER_ROUTING_MAX_INFLIGHT_BOUNDS = { min: 1, max: 10_000 } as const;
 
 /**
@@ -359,6 +362,7 @@ export interface SetModelEnabledRequest {
 export interface CreateProviderAccountRequest {
   label?: string;
   credentialKind: CredentialKind;
+  credentialMode?: CredentialMode;
   secret: string;
   /**
    * Non-secret upstream auth configuration for this account — auth method,
@@ -403,6 +407,8 @@ export interface ProviderAccountResponse {
   tenantId: string | null;
   label: string;
   credentialKind: CredentialKind;
+  credentialMode?: CredentialMode;
+  tokenExpiresAt?: string;
   status: string;
   /** Live routing admission count for this request path; absent when unavailable. */
   inflight?: number;
@@ -424,6 +430,8 @@ export interface ProviderAccountResponse {
    * of treating the account as broken; the account stays dispatchable.
    */
   staticToken?: boolean;
+  /** Last remaining credit the quota sweep fetched; `null` = never fetched. */
+  lastRemainingCredit: number | null;
   /** Stable list position within this provider; the console's "Added" order. */
   sortIndex: number;
 }
@@ -479,6 +487,11 @@ export interface ProviderLoginField {
   readonly defaultValue?: string;
 }
 
+export interface ProviderClientVersion {
+  readonly version: string;
+  readonly source: "latest" | "fallback";
+}
+
 export interface ProviderResponse {
   providerId: string;
   /** Canonical backend display name; custom providers fall back to providerId. */
@@ -502,7 +515,8 @@ export interface ProviderResponse {
   compatibilityProfile?: CompatibilityProfile;
   createdAt?: string;
   updatedAt?: string;
-  /** Populated from the registered OAuth login clients — undefined means no live OAuth client. */
+  /** Latest known client version; `fallback` means upstream discovery has not succeeded. */
+  clientVersion?: ProviderClientVersion;
   oauthFlows?: {
     readonly browser: boolean;
     readonly device: boolean;
@@ -646,12 +660,10 @@ export interface ProviderRoutingResponse {
   readonly rotateCount: number;
   /** Per-account inflight ceiling; `null` = unlimited concurrency. */
   readonly maxInflight: number | null;
-  /**
-   * Credit reserve for every account of this provider; `null` = no reserve.
-   * When an account's remaining credit reaches this floor the quota sweep parks
-   * it in a 24h cooldown so routing fails over instead of draining it.
-   */
-  readonly creditFloor: number | null;
+  /** Global minimum credit protection for every account of this provider/tenant. */
+  readonly creditLimitEnabled: boolean;
+  /** Minimum remaining credits to keep globally; default 200. */
+  readonly creditLimit: number;
   readonly enabled: boolean;
   /** When true, this provider's requests always dial direct. When false,
    * dispatch automatically picks the least-loaded, non-cooldown pool among

@@ -1,7 +1,7 @@
 // CodeBuddy OAuth — browser-assisted state polling (non-PKCE) plus bespoke refresh.
 // Canonical provider IDs: cb and cbcn.
 import { providerBaseUrl } from "../../provider-metadata";
-import { buildCodeBuddyUserAgent, resolveCodeBuddyVersion } from "../../operations/client-versions";
+import { buildCodeBuddyUserAgent } from "../../operations/client-versions";
 import {
   BuddyOAuthClient,
   strictResponseCode,
@@ -21,7 +21,6 @@ export const CODEBUDDY_INTL_VARIANT: BuddyOAuthVariant = {
   domain: "www.codebuddy.ai",
   platform: "ide",
   userAgent: async () => {
-    await resolveCodeBuddyVersion();
     return buildCodeBuddyUserAgent("IDE");
   },
   deviceStartUrl: CODEBUDDY_INTL_DEVICE_START_URL,
@@ -36,7 +35,6 @@ export const CODEBUDDY_CN_VARIANT: BuddyOAuthVariant = {
   domain: "copilot.tencent.com",
   platform: "CLI",
   userAgent: async () => {
-    await resolveCodeBuddyVersion();
     return buildCodeBuddyUserAgent("CLI");
   },
   deviceStartUrl: CODEBUDDY_CN_DEVICE_START_URL,

@@ -10,9 +10,12 @@ bun run dashboard:typecheck  # when dashboard/ changes
 bun run build                # when an entry point or build contract changes
 ```
 
-The repository does not currently carry an active test suite. Typecheck proves
-code shape, not behavior. Exercise the real boundary: browser, gateway request,
-or a `.tmp-<topic>.ts` calling production code. Delete temporary files afterward.
+The repository carries an active test suite (`test/`, `dashboard/test/`, run via
+`bun run test` / `test:backend` / `dashboard:test` / `test:watch` against the isolated
+`.env.test` database). Typecheck proves code shape, not behavior; run the
+affected scope alongside the gates. Exercise the real boundary: browser,
+gateway request, or a `.tmp-<topic>.ts` calling production code. Delete
+temporary files afterward.
 
 ## Bug-fix loop
 
@@ -20,7 +23,7 @@ or a `.tmp-<topic>.ts` calling production code. Delete temporary files afterward
 2. Find the canonical owner and callers with CodeGraph/Grep.
 3. State the mechanism, not the symptom.
 4. Change the owner; migrate callers; do not add a fallback to hide the failure.
-5. Re-run the reproduction, then the affected gates.
+5. Re-run the reproduction, then the affected gates and test scope.
 6. Report what was proven and what could not be verified.
 
 ## Rename or removal

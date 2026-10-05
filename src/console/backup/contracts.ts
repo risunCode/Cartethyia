@@ -11,7 +11,8 @@
  * it holds captured prompt/response bodies. The user asked for metadata-only
  * history, and a backup is a file that gets copied around, so bodies stay out
  * of it. A backup is therefore not a substitute for a database dump, and the
- * layer doc says so.
+ * layer doc says so. Studio sessions are included in config because they are
+ * tenant-owned saved work; health events remain derived runtime history.
  *
  * A backup carries provider credentials and API-key hashes because that *is*
  * the configuration — the same secret material the dashboard already hands the
@@ -34,6 +35,7 @@ import {
   providerRoutingSettings,
   providers,
   shareLinks,
+  studioSessions,
   tenantDisabledModels,
   tenants,
   telemetryEvents,
@@ -79,6 +81,7 @@ export const CONFIG_TABLES = [
   cliToolMappings,
   cliToolSettings,
   consoleSettings,
+  studioSessions,
   apiKeys,
 ] as const satisfies readonly Table[];
 
@@ -88,8 +91,8 @@ export const CONFIG_TABLES = [
  * Every tenant-scoped table cascades from `tenants`, and several of those are
  * **not** part of a config backup: `telemetry_events`,
  * `telemetry_usage_totals`, `telemetry_payloads`, `console_users`,
- * `console_sessions`, `studio_sessions`. Deleting the tenant
- * to re-insert it would therefore destroy the usage history this feature exists
+ * `console_sessions`. Deleting the tenant
+ * to re-insert it would therefore destroy usage history and Studio data this feature exists
  * to preserve — and log out every console user as a side effect. A restore
  * ensures the tenant exists (needed when importing into a fresh database) and
  * leaves its identity alone.
@@ -323,6 +326,44 @@ export function columnNames(table: Table): ReadonlySet<string> {
   if (cached) return cached;
   const names = new Set(Object.values(getTableColumns(table)).map((column) => column.name));
   COLUMN_CACHE.set(table, names);
+  return names;
+}
+
+/**
+ * Columns a backup may still name even though the schema dropped them.
+ *
+ * A backup is versioned, but a column can be dropped without bumping
+ * {@link BACKUP_VERSION}: migrations apply forward over the same table, and the
+ * export/restore round-trip is expected to survive across them. An older export
+ * therefore legitimately carries columns that no longer exist — the per-account
+ * `provider_accounts.max_inflight` (0029) and several retired `api_keys.*`
+ * fields (0005/0016/0017/0018). Validation must not reject those: it skips them,
+ * so a stale backup still restores rather than failing on a column that is, by
+ * definition, no longer read. The value is dropped, not migrated — each retired
+ * column's replacement lives elsewhere in the schema, and importing a dead
+ * number back would be worse than omitting it.
+ */
+const LEGACY_DROPPED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  provider_accounts: ["max_inflight"],
+  api_keys: [
+    "model_allowlist",
+    "model_denylist",
+    "provider_allowlist",
+    "share_popup_image_url",
+    "share_popup_mode",
+    "share_popup_action_label",
+    "share_popup_action_url",
+  ],
+};
+
+const DROPPED_CACHE = new WeakMap<Table, ReadonlySet<string>>();
+
+/** Column names a table once carried and has since dropped, still accepted on restore. */
+export function droppedColumns(table: Table): ReadonlySet<string> {
+  const cached = DROPPED_CACHE.get(table);
+  if (cached) return cached;
+  const names = new Set(LEGACY_DROPPED_COLUMNS[tableName(table)] ?? []);
+  DROPPED_CACHE.set(table, names);
   return names;
 }
 

@@ -39,10 +39,9 @@ chunks:
 | `/combos` | `Combos` | `console/routing/model` |
 | `/quota` | `features/quota/QuotaPage` | `console/quota` |
 | `/proxy` | `Proxy` | `network/pool` and routing |
-| `/customization` | `Customization` | none (browser-local: `dashboard/src/shared/customization`) |
 | `/model-lab` | `Studio` | `console/domains/studio` |
 | `/cli-tools`, `/cli-tools/:toolId` | `CliTools`, `CliToolDetail` | `console/cli-tools` |
-| `/console-log` | `features/logs/ConsoleLogPage` | `console/observability/logs` and SSE |
+| `/console-log` | `features/logs/ConsoleLogPage` | `console/observability` and SSE |
 | `/settings` | `Settings` | `console/settings` |
 | Overview `API Credentials` row → share | `ShareManagementDialog` | `console/domains/api-keys` and `console/share` |
 | Overview `API Credentials` header → `Banned Users` (platform admin only) | `ModelBansDialog` | `console/domains/model-abuse` |

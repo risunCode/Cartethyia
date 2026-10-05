@@ -25,7 +25,6 @@ import { resolveInboundSessionId, resolvePromptCacheKey } from "../../operations
 import {
   buildGrokUserAgent,
   getGrokVersion,
-  resolveGrokVersion,
 } from "../../operations/client-versions";
 import { resolveGrokTurnIndex } from "./grok-turn-index";
 import { getGrokInstallId } from "./grok-install-id";
@@ -92,7 +91,7 @@ const grokModel = (
   reasoning,
   ...(reasoningEfforts === undefined ? {} : { reasoningEfforts }),
   toolCall: true,
-  webSearch: true,
+  webSearch: false,
   cost: modelsDevCatalog.costFor(GROK_PROVIDER_ID, modelId),
 });
 
@@ -215,9 +214,7 @@ export async function fetchGrokModels(
         reasoning,
         ...(menu.efforts.length === 0 ? {} : { reasoningEfforts: menu.efforts }),
         toolCall: true,
-        webSearch:
-          (entry.supports_backend_search ?? entry.supportsBackendSearch) === true ||
-          reference?.webSearch === true,
+        webSearch: false,
         cost: modelsDevCatalog.costFor(GROK_PROVIDER_ID, id),
       };
       models.set(id, model);
@@ -296,9 +293,6 @@ async function grokHeaders(
     (typeof request?.conversation?.conversation_id === "string" && request.conversation.conversation_id.trim()
       ? request.conversation.conversation_id.trim()
       : undefined) ?? resolveInboundSessionId(context, request);
-  // Await discovery so the true latest client version is stamped on every
-  // dispatch; the pinned fallback only applies on a real network failure.
-  await resolveGrokVersion();
   const version = getGrokVersion();
   const agentId = await getGrokInstallId();
   const headers: Record<string, string> = {
@@ -418,6 +412,10 @@ function normalizeTools(payload: Record<string, unknown>): void {
     const value = choice as Record<string, unknown>;
     const type = typeof value.type === "string" ? value.type : "";
     if (type === "function" || type === "custom") {
+      // Unlike `tools`, `tool_choice` genuinely arrives nested: the chat
+      // encoder writes `{type:"function", function:{name}}` and
+      // `{type:"custom", custom:{name}}`, so these reads are not a legacy
+      // leftover even though the tools loop above dropped its own nested path.
       const fn = value.function;
       const nested = fn && typeof fn === "object" && !Array.isArray(fn) ? fn as Record<string, unknown> : undefined;
       const custom = value.custom;

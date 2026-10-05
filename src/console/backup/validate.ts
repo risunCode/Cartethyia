@@ -23,6 +23,7 @@ import {
   TELEMETRY_TABLES,
   TENANT_TABLE,
   columnNames,
+  droppedColumns,
   findTable,
   tableName,
   type BackupRow,
@@ -31,7 +32,24 @@ import {
   type ValidatedRestore,
   type ValidatedTable,
 } from "./contracts";
-import { shareLinks } from "../../persistence/schema";
+import { apiKeys, shareLinks } from "../../persistence/schema";
+function legacyModelList(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) return undefined;
+  return value;
+}
+
+function normalizeLegacyApiKeyPolicy(row: Record<string, unknown>): Record<string, unknown> {
+  const allowlist = legacyModelList(row["model_allowlist"]);
+  const denylist = legacyModelList(row["model_denylist"]);
+  if (row["model_access_mode"] !== undefined || row["model_list"] !== undefined) return row;
+  if (denylist !== undefined && denylist.length > 0) {
+    return { ...row, model_access_mode: "blacklist", model_list: denylist };
+  }
+  if (allowlist !== undefined) {
+    return { ...row, model_access_mode: "whitelist", model_list: allowlist };
+  }
+  return row;
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -149,12 +167,22 @@ export function validateRestorePayload(payload: unknown, tenantId: string): Rest
       }
 
       const allowed = columnNames(table);
+      const dropped = droppedColumns(table);
       const types = columnTypes(table);
       const rows: BackupRow[] = [];
       for (let i = 0; i < value.length; i++) {
         const row = value[i];
         if (!isPlainObject(row)) return { ok: false, error: `${name}[${i}] must be a row object` };
-        for (const [column, cell] of Object.entries(row)) {
+        // Older v1 backups used separate allow/deny columns. Convert them to
+        // the current single policy before dropping retired column names.
+        const sourceRow = table === apiKeys ? normalizeLegacyApiKeyPolicy(row) : row;
+        // A stale backup may still carry columns the schema has since dropped.
+        // Those are accepted but removed here, so they never reach the store
+        // (which would reject them as unknown) and the rest of the row restores.
+        const sanitizedRow = dropped.size > 0 && Object.keys(sourceRow).some((column) => dropped.has(column))
+          ? Object.fromEntries(Object.entries(sourceRow).filter(([column]) => !dropped.has(column)))
+          : sourceRow;
+        for (const [column, cell] of Object.entries(sanitizedRow)) {
           if (!allowed.has(column)) {
             return { ok: false, error: `${name}.${column} is not a column of ${tableName(table)}` };
           }
@@ -182,8 +210,8 @@ export function validateRestorePayload(payload: unknown, tenantId: string): Rest
         // remapped here.
         const tenantScopedRow =
           table === TENANT_TABLE || !types.has("tenant_id")
-            ? (row as BackupRow)
-            : { ...(row as BackupRow), tenant_id: tenantId };
+            ? (sanitizedRow as BackupRow)
+            : { ...(sanitizedRow as BackupRow), tenant_id: tenantId };
         // Version-1 backups can carry the retired monitor/setup link kinds.
         // Import them as inactive enrollment links so their old tokens never
         // regain a usable public endpoint.

@@ -40,7 +40,6 @@ import {
 import {
   antigravityWireModelId,
   applySkipThoughtSignatureBypass,
-  ensureAntigravityVersion,
   getAntigravityModelWireProfile,
   getAntigravityUserAgent,
   loadAntigravityProject,
@@ -51,7 +50,7 @@ import type {
   ProviderDispatchContext,
 } from "../../provider-registry";
 import { providerBaseUrl } from "../../provider-metadata";
-import { createUpstreamDeadlineLifecycle } from "../../operations/upstream-deadline";
+import { abortGatewayError, createUpstreamDeadlineLifecycle } from "../../operations/upstream-deadline";
 
 export const ANTIGRAVITY_PROVIDER_ID = "antigravity" as const;
 export const ANTIGRAVITY_BASE_URL = providerBaseUrl("antigravity");
@@ -204,10 +203,6 @@ class AntigravityAdapter implements ProviderAdapter {
     const outboundFetch: typeof fetch =
       (context.outbound_fetch as unknown as typeof fetch) ?? this.fetchFn;
 
-    // Kick a background client-version discovery (best-effort; the pinned
-    // fallback ships in the user-agent immediately). Not awaited: the
-    // dispatch does not block on the update-manifest fetch.
-    void ensureAntigravityVersion(outboundFetch);
     // Best-effort project-id: CloudCode accepts requests without one for
     // free-tier accounts; enterprise/subscribed accounts need it. Cached
     // per access-token hash, so this is a single background call at first
@@ -422,10 +417,8 @@ class AntigravityAdapter implements ProviderAdapter {
         } as CanonicalEvent;
       }
     } catch (err: unknown) {
-      if (err instanceof GatewayError) throw err;
-      if (lifecycle.signal.aborted || (err as Error).name === "AbortError") {
-        throw new GatewayError("transport_closed", 499, "request was cancelled");
-      }
+      const abortError = abortGatewayError(lifecycle, err, context.abort_signal);
+      if (abortError) throw abortError;
       throw err;
     } finally {
       lifecycle.release();

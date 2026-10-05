@@ -7,10 +7,9 @@ import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { EmptyState, ErrorState, LoadingState } from "../components/ui/state";
 import { Inline } from "../components/ui/inline";
-import { Stack } from "../components/ui/stack";
 import { ModelPickerModal } from "../components/ModelPicker";
 import { SortableList } from "../components/SortableList";
-import { WebSearchPanel } from "../components/WebSearchPanel";
+import { Stack } from "../components/ui/stack";
 import { getErrorMessage } from "../shared/helpers";
 import { useTrackedTimeout } from "../hooks/use-timeout";
 import { useClipboard } from "../hooks/use-clipboard";
@@ -76,7 +75,9 @@ function AliasesSection(): ReactNode {
           onSuccess: () => {
             setDialogOpen(false);
             setEditingAlias(null);
+            toast.success("Alias updated");
           },
+          onError: (error) => toast.error(getErrorMessage(error, "Could not save the alias.")),
         },
       );
     } else {
@@ -87,7 +88,9 @@ function AliasesSection(): ReactNode {
             setDialogOpen(false);
             setAliasName("");
             setTargetModel("");
+            toast.success("Alias created");
           },
+          onError: (error) => toast.error(getErrorMessage(error, "Could not create the alias.")),
         },
       );
     }
@@ -424,6 +427,7 @@ function CombosSection(): ReactNode {
           onSuccess: () => {
             setDialogOpen(false);
             setEditingCombo(null);
+            toast.success("Combo saved");
           },
           onError: (error) => toast.error(getErrorMessage(error, "Could not save the combo.")),
         },
@@ -436,6 +440,7 @@ function CombosSection(): ReactNode {
             setDialogOpen(false);
             setComboName("");
             setMembersText("");
+            toast.success("Combo created");
           },
           onError: (error) => toast.error(getErrorMessage(error, "Could not create the combo.")),
         },
@@ -444,10 +449,16 @@ function CombosSection(): ReactNode {
   };
 
   const handleStrategyChange = (combo: ModelComboRow, nextStrategy: ComboStrategy) => {
-    updateMutation.mutate({
-      id: combo.id,
-      request: { strategy: nextStrategy },
-    });
+    updateMutation.mutate(
+      {
+        id: combo.id,
+        request: { strategy: nextStrategy },
+      },
+      {
+        onSuccess: () => toast.success("Combo strategy updated"),
+        onError: (error) => toast.error(getErrorMessage(error, "Could not update the combo strategy.")),
+      },
+    );
   };
 
   const handleCopy = (text: string, id: string) => {
@@ -765,13 +776,11 @@ function CombosSection(): ReactNode {
 }
 
 // ── Main Page ────────────────────────────────────────────────────────────────
-
 export default function Combos(): ReactNode {
   return (
     <Stack gap="16px">
       <CombosSection />
       <AliasesSection />
-      <WebSearchPanel />
     </Stack>
   );
 }

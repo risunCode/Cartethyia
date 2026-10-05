@@ -6,6 +6,7 @@ import { PROBE_REASONING_EFFORTS } from "../../../providers/discovery/discovery-
 import {
   ACCOUNT_STATUSES,
   CREDENTIAL_KINDS,
+  CREDENTIAL_MODES,
 } from "./contracts";
 import { createModelCatalogOperations } from "./model-operations";
 import {
@@ -68,6 +69,7 @@ const updateProviderBody = t.Partial(
 const createAccountBody = t.Object({
   label: t.Optional(t.String()),
   credentialKind: literalUnion(CREDENTIAL_KINDS),
+  credentialMode: t.Optional(literalUnion(CREDENTIAL_MODES)),
   secret: t.String(),
   authState: t.Optional(t.Record(t.String(), t.Unknown())),
 });

@@ -330,15 +330,37 @@ export class EligibilityEvaluator {
   evaluate(candidate: RouteCandidate): EligibilityDecision {
     const state = candidate as RouteCandidate & {
       readonly health_status?: string;
+      readonly cooldown_kind?: "hard" | "soft";
       readonly account_locked?: boolean;
       readonly locked?: boolean;
+      readonly credit_limit_enabled?: boolean;
+      readonly credit_limit?: number;
+      readonly last_remaining_credit?: number | null;
     };
     if (state.account_locked || state.locked)
       return { eligible: false, reason: "locked", candidate };
     if (state.health_status === "disabled")
       return { eligible: false, reason: "disabled", candidate };
+    // Global credit limit: an account whose last fetched remaining credit is at
+    // or below the provider/tenant-wide minimum is excluded until the next
+    // quota sweep reports a healthier balance. Skipped entirely when the global
+    // toggle is off or no balance has ever been fetched.
+    if (
+      state.credit_limit_enabled !== false &&
+      state.credit_limit !== undefined &&
+      state.credit_limit !== null &&
+      state.last_remaining_credit !== undefined &&
+      state.last_remaining_credit !== null &&
+      Number.isFinite(state.last_remaining_credit) &&
+      state.last_remaining_credit <= state.credit_limit
+    )
+      return { eligible: false, reason: "credit_floor_reached", candidate };
     if (state.health_status === "model_cooldown")
       return { eligible: false, reason: "model_cooldown", candidate };
+    if (state.health_status === "credit_floor_reached")
+      return { eligible: false, reason: "credit_floor_reached", candidate };
+    if (state.health_status === "cooldown" && state.cooldown_kind === "hard")
+      return { eligible: false, reason: "cooldown_hard", candidate };
     if (state.health_status === "cooldown")
       return { eligible: true, reason: "cooldown", candidate };
     return { eligible: true, reason: "healthy", candidate };
@@ -569,6 +591,10 @@ export class RoutingEngine {
     const decisions = matching.map((candidate) => this.eligibility.evaluate(candidate));
     let eligible = decisions.filter((d) => d.eligible).map((d) => d.candidate);
     if (eligible.length === 0) {
+      const hardCooling = decisions.some((d) => d.reason === "cooldown_hard");
+      if (hardCooling) {
+        throw accountsRateLimitedError(requestedModel, resolved.model);
+      }
       throw accountsUnavailableError(
         requestedModel,
         decisions.map((d) => d.reason),

@@ -53,29 +53,69 @@ From the repository root:
 
 ```bash
 bun install
-cp .env.example .env
 ```
 
-Set `DATABASE_URL`, `CARTETHYIA_ENCRYPTION_KEY`, and `CARTETHYIA_PUBLIC_ORIGIN`.
-Set `REDIS_URL` when using normal coordination. Keep the encryption key safe: it
-protects stored provider credentials. Do not paste it into issues, logs, or screenshots.
+Cartethyia creates `.env` automatically on the next command. `bun run setup`
+(non-interactive) and `bun run setup:interactive` both:
+
+- detect whether `.env` exists — if not, create it from `.env.example` keeping
+  **only mandatory rows** (`KEY=value` without `#`); commented hashtag defaults
+  stay commented because the config layer already applies them,
+- auto-generate `CARTETHYIA_ENCRYPTION_KEY` when it is missing or still the
+  placeholder in an existing `.env` — no other value is ever overwritten,
+- create `.env.test` from `.env.test.example` when the test-database url is
+  missing (so `bun run test:backend` has an isolated database).
+
+Check or edit the few mandatory entries:
+
+```bash
+cat .env  # contains PORT, DATABASE_URL, CARTETHYIA_ENCRYPTION_KEY, CARTETHYIA_PUBLIC_ORIGIN
+```
+
+### CARTETHYIA_ENCRYPTION_KEY
+
+Required 256-bit secret. It encrypts every stored provider credential and API
+key at rest — treat it like a password.
+
+Generation (choose ONE; 32 bytes = 256 bits, either encoding is accepted):
+
+```bash
+# macOS / Linux:
+openssl rand -hex 32
+
+# Windows (PowerShell):
+[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+
+# Bun / Node (any platform):
+bun -e "import { randomBytes } from 'node:crypto'; console.log(randomBytes(32).toString('base64'))"
+```
+
+Paste the output as `CARTETHYIA_ENCRYPTION_KEY` in `.env`. Either 64-char hex
+or base64 that decodes to 32 bytes is valid; the helpers (`scripts/internal/env.ts`,
+`src/config.ts:decodeEncryptionKey`) validate the length on load. The setup/
+install helpers generate one automatically — manual generation is only needed
+when you want to rotate the key (use a backup/restore cycle when you do).
+
+`DATABASE_URL` and `CARTETHYIA_PUBLIC_ORIGIN` contain example values — replace
+them when your PostgreSQL host/port/database differs; `CARTETHYIA_PUBLIC_ORIGIN`
+should be the externally reachable URL for OAuth callbacks/links. `REDIS_URL`
+(and the other tunable counters/ceilings) stay commented until you need them;
+defaults are commented defaults — deleting the comment would clobber the real
+default with an example literal.
 
 ## Run the installer
 
-```bash
-bun run setup:interactive
-```
-
-It checks Bun, `.env`, placeholder secrets, PostgreSQL, and Redis when required.
-The installer is safe to run again after fixing the reported requirement.
-
 ## Start Cartethyia
-
 After the installer completes:
 
 ```bash
 bun run dev
 ```
+
+For auto-restart on migrations or dependency changes, run `bun run dev:watch`
+instead: source edits still hot-reload, and the supervisor reinstalls deps
+(`bun install --frozen-lockfile`) and restarts in place when `migrations/*.sql`,
+`package.json`, or `bun.lock` change, so it never needs to be re-run.
 
 Open `http://localhost:12800/console`. Useful endpoints:
 
@@ -142,15 +182,14 @@ Backups can contain provider credentials and API-key data. Treat them like passw
 ## Test database
 
 PostgreSQL is also the required database for integration and contract checks. Keep it
-separate from your development database. If PostgreSQL is already running locally
-(for example through Laragon), create `.env.test` with a dedicated database and run:
+separate from your development database. The installer creates `.env.test` from
+`.env.test.example` when it is missing, so most local setups never have to touch
+it. If it already exists it is kept as-is. The suite never falls back to
+`DATABASE_URL` — `TEST_DATABASE_URL` is the only URL it reads.
 
 ```bash
 bun run test-db:check
 ```
-
-The check reads only `TEST_DATABASE_URL`; it refuses to fall back to `DATABASE_URL`.
-Apply migrations before database-backed checks. Never use production data for tests.
 
 If local PostgreSQL is not available, use the disposable Compose database only as an
 optional fallback:
@@ -162,8 +201,9 @@ bun run test-db:check
 bun run test-db:down
 ```
 
-The current checkout does not carry an active test suite, but this isolated database
-is the target for restoring or adding integration/contract tests.
+The repository carries an active test suite (`test/`, `dashboard/test/`, run via
+`scripts/ci-run-tests.ts` against the isolated `.env.test` database). Apply
+migrations before database-backed checks. Never use production data for tests.
 
 ## Verification
 
@@ -173,11 +213,9 @@ Run the relevant gates:
 bun run typecheck
 bun run dashboard:typecheck  # when dashboard/ changes
 bun run build                # when build or entry contracts change
+bun run test:backend         # or: bun run test / dashboard:test / test:watch
 ```
 
 For behavior changes, exercise the real boundary too: a gateway request, browser
 surface, provider flow, or isolated database migration. Typecheck alone does not
 prove runtime behavior.
-
-For database-backed checks, start the disposable test database first and confirm its
-health before running the check.

@@ -21,11 +21,8 @@
 import { providerBaseUrl } from "../../provider-metadata";
 import { WORKBUDDY_DOMAIN } from "./workbuddy-shared";
 import { BUDDY_PROVIDER_IDS } from "../../provider-metadata";
-import { buildWorkBuddyUserAgent, resolveWorkBuddyVersion } from "../../operations/client-versions";
-import {
-  buildCodeBuddyUserAgent,
-  resolveCodeBuddyVersion,
-} from "../../operations/client-versions";
+import { buildWorkBuddyUserAgent } from "../../operations/client-versions";
+import { buildCodeBuddyUserAgent } from "../../operations/client-versions";
 import { codebuddyDomain, type CodeBuddyVariant } from "./codebuddy-shared";
 /** Providers whose billing facade exposes the daily check-in routes. */
 /**
@@ -286,7 +283,6 @@ async function checkinHeaders(providerId: string): Promise<Record<string, string
   };
   if (providerId === "cb" || providerId === "cbcn") {
     const variant: CodeBuddyVariant = providerId === "cb" ? "IDE" : "CLI";
-    await resolveCodeBuddyVersion();
     return {
       ...common,
       "User-Agent": buildCodeBuddyUserAgent(variant),
@@ -295,7 +291,6 @@ async function checkinHeaders(providerId: string): Promise<Record<string, string
       "X-Domain": codebuddyDomain(variant),
     };
   }
-  await resolveWorkBuddyVersion();
   return {
     ...common,
     "User-Agent": buildWorkBuddyUserAgent(),

@@ -8,13 +8,13 @@ import { randomBytes } from "node:crypto";
 import type { ApiKeyRecord, ApiKeyStore } from "../../../persistence/api-key-store";
 import { hashSecret } from "../../../security/crypto";
 import { type ShareLinkStore, type ShareLinkSummary } from "../../../persistence/share-store";
-import { API_KEY_MODES, type ApiKeyMode, type ShareLinkKind } from "../../../persistence/schema";
+import { API_KEY_MODES, type ApiKeyMode, type ApiKeyModelAccessMode, type ShareLinkKind } from "../../../persistence/schema";
 import { isValidTenantKeyScope, type AccessScope } from "../../../security/access-control";
 import { normalizeClientRouterId } from "../../../security/client-router-fingerprint";
 import type { ShareActivityPort } from "../../share/share-usage";
 import { ConsoleDomainError } from "../../shared/errors";
 import type { ConsoleAccessResolver } from "../../auth/access";
-import type { ApiKeyAdmissionService } from "../../../security/admission";
+import type { ApiKeyAdmissionService } from "../../../security/admission/service";
 import {
   SHARE_POPUP_IMAGE_MAX_BYTES,
   SHARE_POPUP_IMAGE_MIMES,
@@ -36,6 +36,7 @@ export type {
 } from "../../share/share-usage";
 /** Input accepted when creating or editing a key. Null limits mean unlimited. */
 export interface CreateApiKeyRequest {
+  enabled?: boolean;
   label?: string;
   keyMode?: ApiKeyMode;
   scopes?: readonly string[];
@@ -49,8 +50,8 @@ export interface CreateApiKeyRequest {
   lifetimeTokenBudget?: number | null;
   maxConcurrentRequests?: number | null;
   modelPrefix?: string;
-  modelAllowlist?: readonly string[];
-  modelDenylist?: readonly string[];
+  modelAccessMode?: ApiKeyModelAccessMode;
+  modelList?: readonly string[];
   /** Client-router ids this key refuses; see `client-router-fingerprint.ts`. */
   clientRouterDenylist?: readonly string[];
   notesTitle?: string;
@@ -71,6 +72,7 @@ export interface CreateApiKeyRequest {
 export interface ApiKeyResponse {
   readonly id: string;
   readonly label: string;
+  readonly enabled: boolean;
   readonly keyMode: ApiKeyMode;
   readonly scopes: readonly AccessScope[];
   readonly keyPrefix?: string;
@@ -80,8 +82,8 @@ export interface ApiKeyResponse {
   readonly monthlyTokenLimit?: number;
   readonly lifetimeTokenBudget?: number;
   readonly modelPrefix?: string;
-  readonly modelAllowlist?: readonly string[];
-  readonly modelDenylist?: readonly string[];
+  readonly modelAccessMode?: ApiKeyModelAccessMode;
+  readonly modelList?: readonly string[];
   readonly clientRouterDenylist?: readonly string[];
   readonly maxConcurrentRequests?: number;
   readonly notesTitle?: string;
@@ -244,7 +246,7 @@ export function validateApiKeyRequest(request: CreateApiKeyRequest): readonly Ac
   if (keyMode === "share" && request.key !== undefined) {
     throw new ConsoleDomainError("invalid_key_mode", 400, "Share templates cannot carry a personal key");
   }
-  const scopes = request.scopes ?? ["routing:invoke"];
+  const scopes = request.scopes ?? ["routing:invoke", "search:invoke"];
   for (const scope of scopes) {
     if (!isValidTenantKeyScope(scope as AccessScope)) {
       throw new ConsoleDomainError("invalid_scope", 400, `Scope is not allowed: ${scope}`);
@@ -311,6 +313,7 @@ export function sanitizeApiKeyResponse(record: ApiKeyRecord): ApiKeyResponse {
   return {
     id: record.id,
     label: record.label,
+    enabled: record.enabled,
     keyMode: record.keyMode,
     scopes: record.scopes,
     ...(record.keyPrefix === undefined ? {} : { keyPrefix: record.keyPrefix }),
@@ -330,8 +333,8 @@ export function sanitizeApiKeyResponse(record: ApiKeyRecord): ApiKeyResponse {
     ...(record.lifetimeTokenBudget === undefined ? {} : { lifetimeTokenBudget: record.lifetimeTokenBudget }),
     ...(record.maxConcurrentRequests === undefined ? {} : { maxConcurrentRequests: record.maxConcurrentRequests }),
     ...(record.modelPrefix === undefined ? {} : { modelPrefix: record.modelPrefix }),
-    ...(record.modelAllowlist === undefined ? {} : { modelAllowlist: record.modelAllowlist }),
-    ...(record.modelDenylist === undefined ? {} : { modelDenylist: record.modelDenylist }),
+    ...(record.modelAccessMode === undefined ? {} : { modelAccessMode: record.modelAccessMode }),
+    ...(record.modelList === undefined ? {} : { modelList: record.modelList }),
     ...(record.clientRouterDenylist === undefined
       ? {}
       : { clientRouterDenylist: record.clientRouterDenylist }),

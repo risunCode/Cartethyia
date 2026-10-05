@@ -9,7 +9,7 @@ import type { OAuthDeviceFlowContext, OAuthDevicePollResult, OAuthDeviceStartRes
 import type { OAuthTokenRefreshResult } from "../../authentication/oauth-refresh-service";
 import { OAuthDeviceFlow } from "../../authentication/oauth-device-flow";
 import type { FetchLike } from "../../authentication/oauth-client";
-import { getKimiCliVersion, refreshKimiCliVersion } from "../../operations/client-versions";
+import { getKimiCliVersion } from "../../operations/client-versions";
 import { resolveKimiOAuthHost } from "../../../config";
 
 const KIMI_CODE_CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098";
@@ -93,7 +93,6 @@ function deviceIdForScope(scope: string): string {
 }
 
 export function getKimiCommonHeaders(deviceId = deviceIdForScope("process-default")): Readonly<Record<string, string>> {
-  refreshKimiCliVersion();
   const version = getKimiCliVersion();
   return Object.freeze({
     "user-agent": `KimiCLI/${version}`,

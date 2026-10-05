@@ -20,9 +20,7 @@ import { ROUTING_STRATEGIES } from "../../../transport/routing/route-model";
 const ROUTING_BOUNDS = {
   rotateCount: { min: 1, max: 1000 },
   maxInflight: PROVIDER_ROUTING_MAX_INFLIGHT_BOUNDS,
-  // Credits are whole units; a floor is an absolute count of credits to keep
-  // unused, so it is bounded the same way the inflight ceiling is.
-  creditFloor: { min: 0, max: 1_000_000_000 },
+  creditLimit: { min: 0, max: 1_000_000_000 },
 } as const;
 
 export function createProviderDetailOperations(deps: ProviderDetailConfig) {
@@ -75,18 +73,19 @@ export function createProviderDetailOperations(deps: ProviderDetailConfig) {
       ) {
         throw new ConsoleDomainError("invalid_request", 400, "userAgent must be a non-empty header value up to 4096 characters");
       }
-      if (patch.creditFloor !== undefined && patch.creditFloor !== null) {
-        const { creditFloor } = ROUTING_BOUNDS;
+      if (patch.creditLimit !== undefined) {
+        const { creditLimit } = ROUTING_BOUNDS;
         if (
-          !Number.isInteger(patch.creditFloor) ||
-          patch.creditFloor < creditFloor.min ||
-          patch.creditFloor > creditFloor.max
-        )
+          !Number.isInteger(patch.creditLimit) ||
+          patch.creditLimit < creditLimit.min ||
+          patch.creditLimit > creditLimit.max
+        ) {
           throw new ConsoleDomainError(
-            "invalid_credit_floor",
+            "invalid_credit_limit",
             400,
-            `creditFloor must be an integer between ${creditFloor.min} and ${creditFloor.max}, or null`,
+            `creditLimit must be an integer between ${creditLimit.min} and ${creditLimit.max}`,
           );
+        }
       }
       const updated = await deps.store.updateRouting(providerId, a.tenantId, patch);
       await deps.auditSink?.record({
@@ -135,10 +134,9 @@ const updateRoutingBody = t.Object({
   ),
   bypassProxy: t.Optional(t.Boolean()),
   userAgent: t.Optional(t.String({ minLength: 1, maxLength: 4096 })),
-  creditFloor: t.Optional(
-    t.Nullable(
-      t.Integer({ minimum: ROUTING_BOUNDS.creditFloor.min, maximum: ROUTING_BOUNDS.creditFloor.max }),
-    ),
+  creditLimitEnabled: t.Optional(t.Boolean()),
+  creditLimit: t.Optional(
+    t.Integer({ minimum: ROUTING_BOUNDS.creditLimit.min, maximum: ROUTING_BOUNDS.creditLimit.max }),
   ),
 });
 

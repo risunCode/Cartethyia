@@ -1,10 +1,10 @@
 /**
  * Single source of truth for the `console-theme` preference.
  *
- * Shared by the pre-bundle bootstrap in `dashboard/index.html`, the topbar
- * `ThemeToggle` in `components/Shell.tsx`, and the richer appearance store in
- * `lib/customization.ts`. Every read, write, and DOM application of the theme
- * value must flow through this module so the three callsites cannot drift.
+ * Shared by the pre-bundle bootstrap in `dashboard/index.html` and the
+ * topbar `ThemeToggle` in `components/Shell.tsx`. Every read, write, and DOM
+ * application of the theme value must flow through this module so those
+ * callsites cannot drift.
  *
  * The inline script in `index.html` necessarily duplicates the parse/apply
  * logic (it runs before the bundle loads); it is annotated to point here and

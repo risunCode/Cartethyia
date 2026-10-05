@@ -43,7 +43,6 @@ import {
   buildKiroAmzUserAgent,
   buildKiroUserAgent,
   getKiroVersion,
-  resolveKiroVersion,
 } from "../../operations/client-versions";
 import { FrameBuffer } from "../connect";
 import { decodeEventStreamMessages } from "./aws-event-stream";
@@ -357,7 +356,6 @@ class KiroAdapter implements ProviderAdapter {
     }
 
     const fetchFn = (context.outbound_fetch as unknown as typeof fetch | undefined) ?? this.#fetch;
-    await resolveKiroVersion(fetchFn, context.abort_signal);
     const body = JSON.stringify(built.value.payload);
     const machineId = resolveAccountMachineId(context);
     const response = await this.#send(

@@ -200,11 +200,32 @@ export async function* decodeChatSseStream(
         // reasoning deltas fragments one answer into alternating
         // text/thinking blocks.
         if (typeof delta?.["content"] === "string" && delta["content"].length > 0) {
-          yield {
-            type: "content_delta",
-            sequence_number: seq++,
-            content: { kind: "text", text: delta["content"] },
-          } as CanonicalEvent;
+          const raw = delta["content"] as string;
+          // Generic thinking models (mimo/minimax/kiro) embed <think> in content
+          if (raw.includes("<think")) {
+            const stripped = raw.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/g, "");
+            const thinkMatch = raw.match(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/);
+            if (thinkMatch?.[1]) {
+              yield {
+                type: "content_delta",
+                sequence_number: seq++,
+                content: { kind: "reasoning", payload: null, summary: thinkMatch[1] },
+              } as CanonicalEvent;
+            }
+            if (stripped.length > 0) {
+              yield {
+                type: "content_delta",
+                sequence_number: seq++,
+                content: { kind: "text", text: stripped },
+              } as CanonicalEvent;
+            }
+          } else {
+            yield {
+              type: "content_delta",
+              sequence_number: seq++,
+              content: { kind: "text", text: raw },
+            } as CanonicalEvent;
+          }
         }
         const reasoningText = delta ? readReasoningText(delta) : undefined;
         if (typeof reasoningText === "string" && reasoningText.length > 0) {

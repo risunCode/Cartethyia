@@ -17,7 +17,7 @@ import { OpenAICompatibleAdapter, withBearerAuthentication } from "../../compati
 import type { CanonicalRequest } from "../../../transport/canonical-model";
 import type { ProviderAdapter, ProviderDispatchContext } from "../../provider-registry";
 import { providerBaseUrl } from "../../provider-metadata";
-import { getGrokVersion, refreshGrokVersion } from "../../operations/client-versions";
+import { getGrokVersion } from "../../operations/client-versions";
 import { defineModel } from "../../model-definition";
 import type { ModelDefinition } from "../../provider-registry";
 
@@ -72,9 +72,7 @@ const xaiModel = (
     out: outputLimit,
     vision: options.vision ?? true,
     reasoning: options.reasoning ?? true,
-    toolCall: true,
-    webSearch: true,
-  });
+    toolCall: true,});
 
 /**
  * Static fallback catalog.
@@ -99,7 +97,6 @@ const xaiConfig = withBearerAuthentication({
   // xAI gates on the CLI client identity the same way the Grok Build surface
   // does; the version is resolved from its published client, not invented.
   buildExtraHeaders: (_context: ProviderDispatchContext, _request?: CanonicalRequest) => {
-    refreshGrokVersion();
     const version = getGrokVersion();
     return {
       "x-xai-token-auth": "xai-grok-cli",

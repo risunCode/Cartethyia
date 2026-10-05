@@ -40,7 +40,7 @@ export function ApiKeySecretDialog({
       onClose={onClose}
       title="New API key"
       description="The secret is shown once. Copy or save it before closing."
-      width={640}
+      size="md"
     >
       <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
         <p style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.5, margin: 0 }}>

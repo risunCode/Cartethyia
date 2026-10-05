@@ -1,6 +1,6 @@
 import type { FetchLike, ProviderQuotaResult, ProviderQuotaWindow } from "../../quota/quota-contracts";
 import { isoDate, number, percentWindow, record, text } from "../../quota/quota-contracts";
-import { getGrokVersion, buildGrokAuthUserAgent, refreshGrokVersion } from "../../operations/client-versions";
+import { buildGrokAuthUserAgent, getGrokVersion } from "../../operations/client-versions";
 import { decodeGrokCreditsFrame } from "./grok-quota-frame";
 
 const BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
@@ -145,7 +145,6 @@ export async function fetchGrokQuota(
 ): Promise<ProviderQuotaResult> {
   const accessToken = credential.trim();
   if (!accessToken) throw new Error("grok quota requires an OAuth access token");
-  refreshGrokVersion();
   const response = await fetcher(BILLING_URL, {
     headers: { ...xaiHeaders(accessToken), accept: "application/json" },
     signal: AbortSignal.timeout(15_000),

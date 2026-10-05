@@ -1,7 +1,7 @@
 import type { ConsoleAccessResolver } from "../auth/access";
 import type { AuditRecorder } from "../auth/service";
 import { markClineApiKeyCredential } from "../../providers/integrations/cline/cline-quota";
-import { createCreditFloorResolver, type QuotaRefreshDeps } from "./refresh";
+import { type QuotaRefreshDeps } from "./refresh";
 
 /**
  * Dependencies shared by the tenant-scoped and global-admin account/quota route
@@ -29,7 +29,6 @@ export function createQuotaRefreshDeps(deps: AccountQuotaRoutesDeps): QuotaRefre
     redis: deps.redis,
     providerRegistry: deps.providerRegistry,
     resolveCredential: deps.resolveCredential,
-    resolveCreditFloor: createCreditFloorResolver(deps.db),
     ...(deps.snapshotInvalidator ? { snapshotInvalidator: deps.snapshotInvalidator } : {}),
     markApiKeyCredential: (providerId, credential) =>
       providerId === "cline" ? markClineApiKeyCredential(credential) : credential,

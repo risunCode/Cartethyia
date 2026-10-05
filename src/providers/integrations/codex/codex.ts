@@ -23,11 +23,7 @@
  */
 import type { CanonicalEvent, CanonicalRequest } from "../../../transport/canonical-model";
 import { GatewayError, capabilityUnsupported } from "../../../transport/gateway-error";
-import {
-  getCodexVersion,
-  refreshCodexVersion,
-  resolveCodexVersion,
-} from "../../operations/client-versions";
+import { getCodexVersion } from "../../operations/client-versions";
 import { randomUUID } from "node:crypto";
 import { resolvePromptCacheKey } from "../../operations/session-resolution";
 import { decodeSseEvents } from "../../../transport/streaming";
@@ -80,9 +76,7 @@ function codexResponsesModel(
     out: outputLimit,
     vision: true,
     reasoning: true,
-    toolCall: true,
-    webSearch: true,
-  });
+    toolCall: true,});
 }
 
 export const CODEX_MODELS: readonly ModelDefinition[] = [
@@ -243,16 +237,6 @@ export function createCodexAdapter(
 ): CodexCompactAdapter {
   const fetchFn = config.fetch ?? globalThis.fetch;
   const chatgptBase = config.chatgpt_base_url ?? DEFAULT_CHATGPT_BASE_URL;
-  // Warm through the adapter's own fetch: refreshing via `globalThis.fetch`
-  // would race an injected test transport against a real npm probe and pin
-  // the live registry's version into the shared cache.
-  refreshCodexVersion(fetchFn);
-  // Resolve at each dispatch. The shared resolver deduplicates and caches
-  // successful probes, while still refreshing after its TTL.
-  const ensureVersion = (): Promise<void> =>
-    config.codex_cli_version === undefined
-      ? resolveCodexVersion(fetchFn).then(() => undefined)
-      : Promise.resolve();
   const version = (): string => config.codex_cli_version ?? getCodexVersion();
   const attestation = config.attestation;
   const responsesLite = config.responses_lite ?? false;
@@ -399,7 +383,6 @@ export function createCodexAdapter(
         turnId: identity.turn_id,
         requestKind: "compaction",
       });
-      await ensureVersion();
       const headers: Record<string, string> = {
         "content-type": "application/json",
         accept: "application/json",
@@ -565,7 +548,6 @@ export function createCodexAdapter(
         ? `model=${request.model};tier=${serviceTier}`
         : `model=${request.model}`;
 
-      await ensureVersion();
       const headers: Record<string, string> = {
         "content-type": "application/json",
         accept: "text/event-stream",

@@ -19,7 +19,7 @@ import type { TransportKind, PoolAgent } from "./agent";
 import { isIP } from "node:net";
 import * as tls from "node:tls";
 import WebSocket, { type ClientOptions, type RawData } from "ws";
-import { isProxyAgentPair, createHttpProxyAgent, createSocks5Agent, PoolBindingError } from "./agent";
+import { isProxyAgentPair, createHttpProxyAgent, createSocks5Agent, createBridgeAgent, normalizeBridgeEndpoint, PoolBindingError } from "./agent";
 import { Agent as HttpsAgent } from "node:https";
 import { parseAgentConfig, ProxyConfigError, type AgentConfig } from "../types";
 import type { ProviderWebSocketSession, ValidatedOutboundWebSocket } from "../../providers/provider-registry";
@@ -89,6 +89,13 @@ function endpointHostname(kind: TransportKind, endpoint: string): string | undef
     if (kind === "socks5") {
       const authority = endpoint.includes("://") ? endpoint : `socks5://${endpoint}`;
       const url = new URL(authority);
+      return url.hostname || undefined;
+    }
+    if (kind === "bridge") {
+      // A bridge endpoint may be written bare (`relay.example.com`) or with the
+      // explicit `bridge://` marker; `normalizeBridgeEndpoint` folds both to the
+      // http(s) URL the pool dials, so this reads the same host the agent will.
+      const url = new URL(normalizeBridgeEndpoint(endpoint));
       return url.hostname || undefined;
     }
   } catch {
@@ -252,7 +259,8 @@ export class PoolAgentResolver {
     switch (row.kind) {
       case "http":
       case "https":
-      case "socks5": {
+      case "socks5":
+      case "bridge": {
         const hostname = endpointHostname(row.kind, row.endpoint);
         if (hostname) await validateDialHost(hostname, this.ssrfPolicy, this.resolveFn);
         // The policy is handed to the agent too: both flavors re-resolve and
@@ -262,6 +270,8 @@ export class PoolAgentResolver {
         // pool that carried them.
         if (row.kind === "socks5")
           return createSocks5Agent(row.endpoint, row.credential, this.ssrfPolicy, agentConfig, poolId);
+        if (row.kind === "bridge")
+          return createBridgeAgent(row.endpoint, row.credential, this.ssrfPolicy, agentConfig, poolId);
         return createHttpProxyAgent(row.endpoint, row.credential, this.ssrfPolicy, agentConfig, poolId);
       }
       default:

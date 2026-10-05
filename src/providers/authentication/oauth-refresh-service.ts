@@ -32,6 +32,7 @@ import {
   type AccountWithFreshnessRow,
 } from "../operations/provider-credential-service";
 import { refreshLeadMs } from "../operations/oauth-refresh-lead";
+import { classifyAccessTokenUsability } from "./static-token-detection";
 import { pushStructuredConsoleLog } from "../../observability/log-ring";
 
 /**
@@ -261,7 +262,12 @@ async function disableAccount(
       .set({
         status: "disabled",
         lastError: message.slice(0, 500),
-        lastErrorCategory: "oauth_revoked",
+        // `auth_invalidated` is the category the console reads to render the
+        // "Re-login required" pill, and the one the quota sweep excludes so it
+        // stops re-probing a credential that cannot repair itself. The refresh
+        // grant was definitively rejected and the stored access token could not
+        // be shown to still work, so this is exactly that state.
+        lastErrorCategory: "auth_invalidated",
         lastErrorAt: new Date(),
       })
       .where(eq(providerAccounts.id, accountId));
@@ -280,7 +286,18 @@ async function disableAccount(
 async function markStaticToken(db: CartethyiaDatabase, accountId: string): Promise<void> {
   await db
     .update(providerAccounts)
-    .set({ staticToken: true })
+    .set({
+      staticToken: true,
+      // A static token is a normal, usable credential, not an error state: the
+      // account is `active` and dispatchable, so any error left by the failed
+      // refresh would otherwise keep the row reading "Re-login required" while
+      // it is in fact serving. Mirrors the console's static-token toggle.
+      status: "active",
+      cooldownUntil: null,
+      lastError: null,
+      lastErrorCategory: null,
+      lastErrorAt: null,
+    })
     .where(eq(providerAccounts.id, accountId));
 }
 
@@ -291,6 +308,20 @@ function sleep(ms: number): Promise<void> {
 function failureMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+/**
+ * Decrypts a stored credential, returning `undefined` when the ciphertext
+ * cannot be decrypted. A corrupt row is not evidence about token expiry, so the
+ * caller treats it the same as a missing token rather than throwing inside the
+ * refresh failure path.
+ */
+function safeDecryptCredential(ciphertext: Buffer): string | undefined {
+  try {
+    return decryptCredentialToString(ciphertext);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Best-effort HTTP status extraction from an OAuth refresh error. Most
@@ -308,6 +339,70 @@ function failureStatus(error: unknown): number | undefined {
     if (status >= 400 && status < 600) return status;
   }
   return undefined;
+}
+
+/**
+ * Boot-time convergence for OAuth accounts already parked by an earlier
+ * refresh failure.
+ *
+ * Before automatic detection existed, a definitive refresh failure disabled the
+ * account outright (`oauth_revoked`) even when the stored access token was
+ * still perfectly usable. This pass re-reads those rows once at startup and
+ * moves each to where it now belongs:
+ *
+ *  - access token still usable ⇒ static token, back to `active`;
+ *  - otherwise ⇒ the `auth_invalidated` category the console renders as
+ *    "Re-login required" and the quota sweep excludes.
+ *
+ * Idempotent and cheap: it only inspects OAuth rows that are `disabled` with a
+ * credential-failure category, so a healthy deployment scans nothing. The
+ * credential is decoded, never verified — the same structural-only trust the
+ * dispatch path already places in the stored token.
+ */
+export async function reconcileStaticTokenAccounts(db: CartethyiaDatabase): Promise<number> {
+  const candidates = await db
+    .select({
+      id: providerAccounts.id,
+      credentialCiphertext: providerAccounts.credentialCiphertext,
+      staticToken: providerAccounts.staticToken,
+    })
+    .from(providerAccounts)
+    .where(
+      and(
+        eq(providerAccounts.credentialKind, "oauth"),
+        eq(providerAccounts.status, "disabled"),
+        or(
+          eq(providerAccounts.lastErrorCategory, "oauth_revoked"),
+          eq(providerAccounts.lastErrorCategory, "auth_invalidated"),
+        ),
+      ),
+    );
+  let changed = 0;
+  for (const row of candidates) {
+    if (row.staticToken) continue;
+    const usability = classifyAccessTokenUsability(
+      row.credentialCiphertext ? safeDecryptCredential(row.credentialCiphertext) : undefined,
+    );
+    if (usability === "usable") {
+      await markStaticToken(db, row.id);
+      invalidateCredentialCache(row.id);
+      pushStructuredConsoleLog("info", "OAuth account recovered as a static token at boot", {
+        event: "token_refresh",
+        accountId: row.id,
+        errorCode: "static_token",
+      });
+      changed += 1;
+      continue;
+    }
+    // Converge the legacy category name so the console and the quota sweep see
+    // one spelling of "credential rejected, operator must re-login".
+    await db
+      .update(providerAccounts)
+      .set({ lastErrorCategory: "auth_invalidated" })
+      .where(eq(providerAccounts.id, row.id));
+    changed += 1;
+  }
+  return changed;
 }
 
 /**
@@ -491,7 +586,28 @@ export class OAuthRefreshService {
         errorCode: classification,
       });
       if (classification === "definitive") {
-        await disableAccount(this.#db, row.id, owner, failureMessage(error));
+        // A definitive refresh failure means the refresh grant is dead — but
+        // the access token already on the row may still be usable as issued.
+        // That is exactly the static-token case: stop refreshing, keep serving.
+        // Only when the token cannot be shown to work (expired or opaque) does
+        // the account need the operator, and it is parked for re-auth.
+        const accessUsability = classifyAccessTokenUsability(
+          row.credentialCiphertext
+            ? safeDecryptCredential(row.credentialCiphertext)
+            : undefined,
+        );
+        if (accessUsability === "usable") {
+          await releaseLease(this.#db, row.id, owner);
+          await markStaticToken(this.#db, row.id);
+          pushStructuredConsoleLog("info", "OAuth refresh failed; access token still valid, marking static", {
+            event: "token_refresh",
+            accountId: row.id,
+            providerId: row.providerId,
+            errorCode: "static_token",
+          });
+        } else {
+          await disableAccount(this.#db, row.id, owner, failureMessage(error));
+        }
       } else {
         await releaseLease(this.#db, row.id, owner);
       }

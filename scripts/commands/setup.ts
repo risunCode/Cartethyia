@@ -1,8 +1,12 @@
-import { existsSync, copyFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
+  generateCartethyiaEncryptionKey,
   getLocalPlatform,
   getOsHints,
+  hasPlaceholderSecrets,
+  mandatoryEnvBody,
   parseServiceUrl,
   probeTcpService,
   readEnvFile,
@@ -11,7 +15,6 @@ import type { ProbeResult } from "../internal/env";
 import { resolveRedisMode } from "../../src/persistence/readiness";
 
 const projectRoot = resolve(import.meta.dir, "..", "..");
-
 type SetupMode = "auto" | "native" | "docker";
 
 export function resolveSetupMode(): SetupMode {
@@ -21,7 +24,6 @@ export function resolveSetupMode(): SetupMode {
     `CARTETHYIA_SETUP_MODE must be auto, native, or docker (got "${raw}")`,
   );
 }
-
 
 interface SetupConfig {
   envPath: string;
@@ -41,10 +43,27 @@ function loadConfig(): SetupConfig {
   };
 }
 
-function setupEnvFile(config: SetupConfig): boolean {
+async function setupEnvFile(config: SetupConfig): Promise<boolean> {
   const examplePath = resolve(projectRoot, ".env.example");
 
   if (existsSync(config.envPath)) {
+    const fileEnv: Record<string, string> = await readEnvFile(config.envPath).catch(() => ({}) as Record<string, string>);
+    const key = fileEnv.CARTETHYIA_ENCRYPTION_KEY?.trim();
+    if (!key || hasPlaceholderSecrets(key)) {
+      const generated = generateCartethyiaEncryptionKey();
+      const raw = await readFile(config.envPath, "utf8");
+      const lines = raw.split(/\r?\n/);
+      let patched = false;
+      const out = lines.map((line) => {
+        const m = /^(\s*)(CARTETHYIA_ENCRYPTION_KEY)\s*=/.exec(line);
+        if (!m) return line;
+        patched = true;
+        return `${m[1]}${m[2]}=${generated}`;
+      });
+      if (!patched) out.push(`CARTETHYIA_ENCRYPTION_KEY=${generated}`);
+      await writeFile(config.envPath, `${out.join("\n")}\n`, "utf8");
+      console.warn("🔑 Generated CARTETHYIA_ENCRYPTION_KEY and patched .env (key was placeholder/empty)");
+    }
     return false;
   }
 
@@ -52,34 +71,45 @@ function setupEnvFile(config: SetupConfig): boolean {
     throw new Error(`${examplePath} not found`);
   }
 
-  copyFileSync(examplePath, config.envPath);
-  console.warn("⚠️  Created .env from .env.example");
-  console.warn("⚠️  IMPORTANT: Replace placeholder secrets in .env before running the application");
+  const generated = generateCartethyiaEncryptionKey();
+  const body = await mandatoryEnvBody(examplePath, {
+    CARTETHYIA_ENCRYPTION_KEY: generated,
+  });
+  await writeFile(config.envPath, body, "utf8");
+  console.warn("✨ Created .env from .env.example (mandatory entries only)");
+  console.warn("🔑 Auto-generated CARTETHYIA_ENCRYPTION_KEY in .env — keep it safe");
+  if (!body.includes("DATABASE_URL")) {
+    console.warn("⚠️  DATABASE_URL is not set — update it to point at your PostgreSQL");
+  }
 
   return true;
 }
 
 async function probeDocker(timeoutMs: number): Promise<ProbeResult> {
-  try {
-    const proc = Bun.spawn(["docker", "compose", "version"], {
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: timeoutMs,
-    });
-
-    const exitCode = await proc.exited;
-    return { success: exitCode === 0 };
-  } catch (err) {
-    return { success: false, error: String(err) };
-  }
+  const proc = Bun.spawn(["docker", "compose", "version"], { stdout: "ignore", stderr: "ignore" });
+  const exited = await Promise.race([
+    proc.exited,
+    new Promise<number>((_, rej) =>
+      setTimeout(() => {
+        try {
+          proc.kill();
+        } catch {
+          // already exited by the time we try to kill it
+        }
+        rej(new Error("probe timeout"));
+      }, timeoutMs),
+    ),
+  ] as const);
+  if (typeof exited === "number" && exited === 0) return { success: true };
+  return { success: false, error: "unavailable" };
 }
 
 async function setup(): Promise<void> {
   console.log("🚀 Setting up Cartethyia local environment...\n");
 
-
   // Step 1: Setup .env file
   const envPath = resolve(projectRoot, ".env");
-  const envCreated = setupEnvFile({
+  const envCreated = await setupEnvFile({
     envPath,
     dbUrl: "",
     redisUrl: "",
@@ -97,7 +127,6 @@ async function setup(): Promise<void> {
   for (const [key, value] of Object.entries(fileEnv)) {
     if (!process.env[key]) process.env[key] = value;
   }
-
   const config = loadConfig();
 
   // Step 3: Resolve the cross-platform setup mode. Native/auto is the

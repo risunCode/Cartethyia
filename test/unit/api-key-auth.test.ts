@@ -23,16 +23,19 @@ import { GatewayError } from "../../src/transport/gateway-error";
 function snapshot(input: {
   allow?: readonly string[] | null;
   deny?: readonly string[] | null;
+  mode?: "whitelist" | "blacklist";
   scopes?: readonly string[];
   admissionIdentity?: string;
 }) {
+  // `allow`/`deny` are shorthands for the two modes so each case reads as the
+  // policy it exercises; `mode` sets it explicitly when neither list is given.
+  const mode = input.mode ?? (input.deny != null ? "blacklist" : "whitelist");
+  const list = input.deny != null ? input.deny : input.allow;
   return createAuthorizationSnapshot({
     api_key_id: "key-1",
     tenant_id: "tenant-1",
-    ...(input.allow === undefined || input.allow === null
-      ? {}
-      : { model_allowlist: input.allow }),
-    ...(input.deny === undefined || input.deny === null ? {} : { model_denylist: input.deny }),
+    model_access_mode: mode,
+    ...(list === undefined || list === null ? {} : { model_list: list }),
     ...(input.scopes === undefined ? {} : { scopes: input.scopes }),
     ...(input.admissionIdentity === undefined
       ? {}
@@ -169,9 +172,9 @@ describe("modelRejectionReason", () => {
     expect(modelRejectionReason(snap, "gpt-4o")).toBeNull();
   });
 
-  test("the denylist wins when a model is on both lists", () => {
-    const snap = snapshot({ allow: ["gpt-4"], deny: ["gpt-4"] });
-    expect(modelRejectionReason(snap, "gpt-4")).toBe("model-denied");
+  test("a whitelist permits a qualified target when the bare entry matches", () => {
+    const snap = snapshot({ allow: ["gpt-4"] });
+    expect(modelRejectionReason(snap, "openai/gpt-4", "openai")).toBeNull();
   });
 
   test("a bare entry matches a qualified target", () => {
@@ -184,32 +187,26 @@ describe("modelRejectionReason", () => {
     expect(modelRejectionReason(snap, "mimo-chat", "xiaomi")).toBeNull();
   });
 
-  test("a qualified entry authorizes a bare target when no provider is supplied", () => {
-    // Was "a qualified target is refused when no provider is supplied", pinning the
-    // defect: without `targetProvider` the function could not build the qualified
-    // candidate name, so a qualified allowlist entry missed a bare target.
-    //
-    // That mattered because the preparer is the FIRST enforcement point and runs
-    // before routing, so it cannot supply `targetProvider` — the provider is not
-    // chosen yet. The miss was therefore final, and the dashboard's `ModelPicker`
-    // writes exactly the qualified form into `modelAllowlist`, so a client naming
-    // the bare model was refused a model the operator explicitly allowed.
-    //
-    // The reverse direction now applies while the provider is unknown. It is scoped
-    // to `targetProvider === undefined` so the comparison stays precise once
-    // admission runs with the provider known — see the next test.
+  test("a qualified entry does not authorize an unqualified target by bare name", () => {
     const snap = snapshot({ allow: ["xiaomi/mimo-chat"] });
-    expect(modelRejectionReason(snap, "mimo-chat", undefined)).toBeNull();
+    expect(modelRejectionReason(snap, "mimo-chat", undefined)).toBe("model-not-allowed");
+    expect(modelRejectionReason(snap, "mimo-chat", "xiaomi")).toBeNull();
   });
 
-  test("a qualified entry does not authorize a DIFFERENT provider's model", () => {
-    // The over-permission the fix must not introduce: once the provider is known,
-    // `providerA/model-x` must not authorize `providerB/model-x`. They are different
-    // upstreams, which is exactly what a qualified allowlist entry pins.
+  test("an alias request authorizes only its resolved provider target", () => {
+    const snap = snapshot({ allow: ["bansos/model-x"] });
+    expect(modelRejectionReason(snap, "model-x", "providerA")).toBe("model-not-allowed");
+    expect(modelRejectionReason(snap, "providerA/model-x", "providerA")).toBe("model-not-allowed");
+    expect(modelRejectionReason(snap, "model-x", "providerA", "bansos/model-x")).toBeNull();
+    expect(modelRejectionReason(snap, "providerA/model-x", "providerA", "bansos/model-x")).toBeNull();
+  });
+
+  test("a qualified provider entry only matches that provider", () => {
     const snap = snapshot({ allow: ["providerA/model-x"] });
     expect(modelRejectionReason(snap, "model-x", "providerA")).toBeNull();
     expect(modelRejectionReason(snap, "model-x", "providerB")).toBe("model-not-allowed");
   });
+
 
   test("a qualified entry still refuses an unlisted model", () => {
     // The other half of the boundary: the new reverse direction must not become a
@@ -257,21 +254,30 @@ describe("modelRejectionReason", () => {
     expect(modelRejectionReason(snap, "gpt-4", "openai", "fast")).toBeNull();
   });
 
-  test("a CLI remapping authorizes its target only with the cli_mapping scope", () => {
-    // The remap exists for Claude Code specifically, and the operator granted
-    // the scope deliberately. Without it, the remapped target is not allowed.
-    const withScope = snapshot({ allow: ["claude-only"], scopes: ["routing:cli_mapping"] });
-    expect(modelRejectionReason(withScope, "deepseek-chat", "deepseek", "opus")).toBeNull();
-
-    const withoutScope = snapshot({ allow: ["claude-only"], scopes: ["routing:invoke"] });
-    expect(modelRejectionReason(withoutScope, "deepseek-chat", "deepseek", "opus")).toBe(
+  test("a CLI remapping does NOT authorize an unlisted target", () => {
+    // The leak this replaced: the `routing:cli_mapping` scope used to let any
+    // remap reach a model the key's list never allowed. There is no longer an
+    // escape hatch — a remap is authorized only when the caller's requested
+    // name or the resolved target is itself allowed.
+    const snap = snapshot({ allow: ["claude-only"], scopes: ["routing:cli_mapping"] });
+    expect(modelRejectionReason(snap, "deepseek-chat", "deepseek", "opus")).toBe(
+      "model-not-allowed",
+    );
+    // Same answer with or without the scope: the scope no longer grants access.
+    const noScope = snapshot({ allow: ["claude-only"], scopes: ["routing:invoke"] });
+    expect(modelRejectionReason(noScope, "deepseek-chat", "deepseek", "opus")).toBe(
       "model-not-allowed",
     );
   });
 
-  test("the denylist still wins over a CLI remapping", () => {
+  test("a CLI remapping is authorized when the requested name is allowed", () => {
+    // A listed CLI slot still remaps: the caller asked for an allowed name.
+    const snap = snapshot({ allow: ["opus"], scopes: ["routing:cli_mapping"] });
+    expect(modelRejectionReason(snap, "deepseek-chat", "deepseek", "opus")).toBeNull();
+  });
+
+  test("a blacklist refuses a remapped target that is denied", () => {
     const snap = snapshot({
-      allow: ["claude-only"],
       deny: ["deepseek-chat"],
       scopes: ["routing:cli_mapping"],
     });
@@ -317,19 +323,19 @@ describe("createAuthorizationSnapshot", () => {
     // `listSize`, which treats both `null` and `undefined` as "no list", so the
     // distinction never reaches a policy decision.
     const snap = snapshot({});
-    expect(snap.model_allowlist).toBeUndefined();
-    expect(snap.model_denylist).toBeUndefined();
+    expect(snap.model_list).toBeUndefined();
+    expect(snap.model_access_mode).toBe("whitelist");
   });
 
   test("keeps an empty array as an explicit empty list", () => {
     const snap = snapshot({ allow: [] });
-    expect(snap.model_allowlist).toEqual([]);
+    expect(snap.model_list).toEqual([]);
   });
 
   test("freezes the snapshot so a caller cannot widen it after the fact", () => {
     const snap = snapshot({ allow: ["a"] });
     expect(Object.isFrozen(snap)).toBe(true);
-    expect(Object.isFrozen(snap.model_allowlist)).toBe(true);
+    expect(Object.isFrozen(snap.model_list)).toBe(true);
   });
 
   test("defaults the identity fields to empty strings rather than null", () => {

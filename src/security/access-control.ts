@@ -19,6 +19,7 @@
 export type AccessScope =
   | "routing:invoke"
   | "routing:cli_mapping"
+  | "search:invoke"
   | "dashboard:read"
   | "dashboard:write"
   | "providers:read"
@@ -94,6 +95,7 @@ export interface AccessDecision {
 export const TENANT_KEY_SCOPES = [
   "routing:invoke",
   "routing:cli_mapping",
+  "search:invoke",
   "dashboard:read",
   "dashboard:write",
   "providers:read",
@@ -101,7 +103,6 @@ export const TENANT_KEY_SCOPES = [
   "models:read",
   "models:write",
 ] as const satisfies readonly TenantScope[];
-
 /**
  * Determine if a scope is valid for a tenant API key.
  *
@@ -121,14 +122,17 @@ export function createAccessDecision(input: {
   readonly scopes: readonly AccessScope[];
   readonly admissionIdentity?: string;
 }): AccessDecision {
+  const baseScopes =
+    input.scopes.length === 0 && input.tenantId !== null ? (["routing:invoke"] as readonly AccessScope[]) : Array.from(input.scopes);
+  // Legacy keys with routing:invoke implicitly get search:invoke until explicitly revoked — new keys get it explicitly from the form.
+  const scopes =
+    baseScopes.includes("routing:invoke" as AccessScope) && !baseScopes.includes("search:invoke" as AccessScope)
+      ? ([...baseScopes, "search:invoke" as AccessScope] as readonly AccessScope[])
+      : (baseScopes as readonly AccessScope[]);
   const decision: AccessDecision = {
     id: input.id,
     tenantId: input.tenantId,
-    scopes:
-      input.scopes.length === 0 && input.tenantId !== null
-        ? // Default tenant keys to routing:invoke
-          ["routing:invoke"]
-        : Array.from(input.scopes),
+    scopes,
     admissionIdentity: input.admissionIdentity ?? input.id,
   };
 

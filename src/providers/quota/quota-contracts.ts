@@ -26,23 +26,16 @@ export interface ProviderQuotaResult {
 export type FetchLike = typeof fetch;
 
 /**
- * The account's total remaining credit across its credit windows, or `null`
- * when the provider reports no credit (a rate-limit-only surface).
+ * The account's total remaining absolute credit across its credit windows, or
+ * `null` when the provider reports no credit (a rate-limit-only or
+ * percentage-only surface).
  *
- * A "credit window" is one that carries a positive `limit` — a rate limit is
- * not a credit. Per window, `remaining` is preferred when the upstream states
- * it; otherwise it is derived from `used`/`usedPercent` against the window's own
- * limit, and clamped to `[0, limit]`. The figures are then **summed**, because a
- * provider's credit windows are one spendable pool, not independent budgets: the
- * buddy family reports a recurring monthly allowance plus several bonus packs,
- * and a spent bonus pack is not the account running out while the others still
- * hold credit.
- *
- * Summing also keeps this figure identical to the dashboard's Credit Pool card,
- * which sums the same windows — so the reserve an operator sets and the number
- * the card shows cannot disagree about how much the account has left. A per-window
- * minimum did exactly that: it read a spent sub-bucket as "0 remaining" and
- * parked an account holding hundreds of credits.
+ * A "credit window" carries a positive absolute `limit` plus either an absolute
+ * `remaining` or `used` value. Percentage-only windows are deliberately
+ * ignored: 0–100 is utilization, not a credit balance, and treating it as an
+ * absolute pool can park or display a provider that never reported credits.
+ * The figures are summed because a provider's credit windows are one spendable
+ * pool, not independent budgets.
  */
 export function totalRemainingCredit(
   windows: readonly ProviderQuotaWindow[],
@@ -59,11 +52,6 @@ export function totalRemainingCredit(
       remaining = window.remaining;
     } else if (typeof window.used === "number" && Number.isFinite(window.used)) {
       remaining = limit - window.used;
-    } else if (
-      typeof window.usedPercent === "number" &&
-      Number.isFinite(window.usedPercent)
-    ) {
-      remaining = (limit * (100 - window.usedPercent)) / 100;
     }
     if (remaining === null) continue;
     const clamped = Math.min(limit, Math.max(0, remaining));

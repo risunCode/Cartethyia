@@ -1,7 +1,7 @@
 // WorkBuddy OAuth — browser-assisted state polling (non-PKCE) plus refresh.
 // Canonical provider ID: workbuddy (international / WorkBuddy AI).
 import { providerBaseUrl } from "../../provider-metadata";
-import { buildWorkBuddyUserAgent, resolveWorkBuddyVersion } from "../../operations/client-versions";
+import { buildWorkBuddyUserAgent } from "../../operations/client-versions";
 import {
   BuddyOAuthClient,
   coercingResponseCode,
@@ -20,7 +20,6 @@ export const WORKBUDDY_OAUTH_VARIANT: BuddyOAuthVariant = {
   domain: WORKBUDDY_DOMAIN,
   platform: "CLI",
   userAgent: async () => {
-    await resolveWorkBuddyVersion();
     return buildWorkBuddyUserAgent();
   },
   deviceStartUrl: WORKBUDDY_DEVICE_START_URL,

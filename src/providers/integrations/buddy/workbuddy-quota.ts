@@ -1,7 +1,7 @@
 import type { FetchLike, ProviderQuotaResult } from "../../quota/quota-contracts";
 import type { QuotaCollectionContext } from "../../quota/quota-support";
 import { providerBaseUrl } from "../../provider-metadata";
-import { buildWorkBuddyUserAgent, resolveWorkBuddyVersion } from "../../operations/client-versions";
+import { buildWorkBuddyUserAgent } from "../../operations/client-versions";
 import { WORKBUDDY_DOMAIN } from "./workbuddy-shared";
 import { fetchTencentBillingQuota } from "./buddy-quota-shared";
 import { buddyAccountUid } from "./buddy-oauth-shared";
@@ -24,7 +24,6 @@ export const WORKBUDDY_USAGE_URL =
   `${providerBaseUrl("workbuddy")}/v2/billing/meter/get-user-resource`;
 
 async function billingHeaders(enterpriseId?: string): Promise<Record<string, string>> {
-  await resolveWorkBuddyVersion();
   return {
     "User-Agent": buildWorkBuddyUserAgent(),
     "X-Product": "SaaS",

@@ -8,6 +8,7 @@ import {
   normalizeGenerationControls,
   pickWireSupportedControls,
 } from "../../transport/translation/capabilities";
+import { resolveWireMaxTokens } from "../../transport/translation/quirks";
 import {
   clampReasoningEffort,
   resolveSupportedReasoningEfforts,
@@ -303,10 +304,13 @@ export function canonicalToResponsesPayload(
     else if (request.reasoning.summary !== undefined) reasoning.summary = request.reasoning.summary;
     if (Object.keys(reasoning).length > 0) payload.reasoning = reasoning;
   }
-  Object.assign(
-    payload,
-    pickWireSupportedControls(normalizeGenerationControls(request.generation_controls), "responses"),
-  );
+  const picked = pickWireSupportedControls(normalizeGenerationControls(request.generation_controls), "responses");
+  const requested = picked["max_output_tokens"];
+  if (typeof requested === "number" && Number.isFinite(requested)) {
+    const bounded = resolveWireMaxTokens("responses", { max_tokens: requested });
+    if (bounded !== undefined) picked["max_output_tokens"] = bounded;
+  }
+  Object.assign(payload, picked);
   // Responses top-level params carried as `extension:responses.<field>` and
   // forwarded verbatim. Fields with a canonical slot (prompt_cache_key,
   // previous_response_id, conversation, metadata, stream, reasoning) and

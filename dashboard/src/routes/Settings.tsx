@@ -50,6 +50,7 @@ function PrivacyPanel(): ReactNode {
                         value === "full" || value === "metadata" ? value : "none",
                     },
                     {
+                      onSuccess: () => toast.success("Payload capture updated"),
                       onError: (error) =>
                         toast.error(getErrorMessage(error, "Could not update payload capture.")),
                     },
@@ -99,6 +100,7 @@ function PrivacyPanel(): ReactNode {
                   mutation.mutate(
                     { privacyMode: value === "full" ? "full" : "masked" },
                     {
+                      onSuccess: () => toast.success("IP display updated"),
                       onError: (error) =>
                         toast.error(getErrorMessage(error, "Could not update IP display.")),
                     },

@@ -177,6 +177,15 @@ export function assertUsageRequestDetail(value: unknown): UsageRequestDetail {
   if (value.payloads !== undefined && value.payloads !== null && !isRecord(value.payloads)) {
     throw invalidResponse("Invalid usage request response");
   }
+  if (value.payloadSignals !== undefined) {
+    if (!isRecord(value.payloadSignals)) throw invalidResponse("Invalid usage request response");
+    for (const field of ["toolCalls", "images", "attachments"]) {
+      const count = value.payloadSignals[field];
+      if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+        throw invalidResponse("Invalid usage request response");
+      }
+    }
+  }
   return value as unknown as UsageRequestDetail;
 }
 
@@ -281,6 +290,9 @@ export function assertProviderRouting(value: unknown): ProviderRoutingResponse {
     typeof value.enabled !== "boolean" ||
     (value.maxInflight !== null && typeof value.maxInflight !== "number") ||
     typeof value.bypassProxy !== "boolean" ||
+    typeof value.creditLimitEnabled !== "boolean" ||
+    typeof value.creditLimit !== "number" ||
+    value.creditLimit < 0 ||
     typeof value.userAgent !== "string" ||
     value.userAgent.length === 0 ||
     value.userAgent.length > 4096

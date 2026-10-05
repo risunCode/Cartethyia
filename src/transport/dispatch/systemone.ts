@@ -10,7 +10,6 @@ import type { NetworkPoolSelector } from "../../network/pool/selector";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
 import { ProxyRequestStateStore } from "../request/state";
 import { ProxyRequestPreparer } from "../request/preparer";
-import { isModelAllowed } from "../../security/api-key-auth";
 import { parseThinkingSuffix } from "../translation/thinking";
 import { completeAttempt, estimatedUsage } from "./attempt-finalize";
 import { repriceUsage, usageFromProvider } from "../../providers/usage";
@@ -65,8 +64,6 @@ export function createSystemoneHandler(deps: SystemoneHandlerDeps) {
     const { model: bareModel } = parseThinkingSuffix(decision.model);
     const decisionBody: Record<string, unknown> =
       bareModel === decision.model ? decision : { ...decision, model: bareModel };
-    if (!isModelAllowed(authorization.snapshot, bareModel))
-      throw new GatewayError("model_not_found", 404, "model is not allowed for this API key");
     // Trust boundary only: the decision model's own question shapes are
     // upstream's to validate. `state` and a `questions` object are what make a
     // System One request a System One request at all.
@@ -84,6 +81,7 @@ export function createSystemoneHandler(deps: SystemoneHandlerDeps) {
       serviceKind: "systemone",
       authorization,
       ...(state.abortController.signal ? { signal: state.abortController.signal } : {}),
+      ...(state.clientUserAgent === undefined ? {} : { clientUserAgent: state.clientUserAgent }),
     });
     return runAttemptLoop<Response, SystemoneAdapter>({
       state,

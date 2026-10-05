@@ -26,6 +26,7 @@ import {
   assignAccountNames,
   detectCredentialKind,
   extractCredentialFromPaste,
+  jwtExpiresAt,
   parseCredentialBatch,
 } from "../../src/shared/credential-extract";
 
@@ -158,10 +159,15 @@ describe("extractCredentialFromPaste", () => {
 
 describe("detectCredentialKind", () => {
   test("a plain API key is detected as api_key", () => {
-    // The default for anything that is not a recognisable OAuth shape.
     expect(detectCredentialKind("sk-ant-EXAMPLE")).toBe("api_key");
     expect(detectCredentialKind("")).toBe("api_key");
     expect(detectCredentialKind("eyJhbGciOiJIUzI1NiJ9.payload.sig")).toBe("api_key");
+  });
+
+  test("a decodable JWT is detected separately and exposes exp", () => {
+    const jwt = "eyJhbGciOiJIUzUxMiJ9.eyJleHAiOjE4MjIyMzEwMzZ9.signature";
+    expect(detectCredentialKind(jwt)).toBe("jwt");
+    expect(jwtExpiresAt(jwt)).toBe("2027-09-29T15:17:16.000Z");
   });
 
   test("an OAuth shape is detected from a refresh field", () => {
@@ -172,22 +178,13 @@ describe("detectCredentialKind", () => {
     expect(detectCredentialKind('{"refresh":"rt"}')).toBe("oauth");
   });
 
-  test("an OAuth shape is detected from an expiry field", () => {
-    expect(detectCredentialKind('{"expires":1735689600}')).toBe("oauth");
-    expect(detectCredentialKind('{"expiresAt":"2026-01-01T00:00:00Z"}')).toBe("oauth");
-    expect(detectCredentialKind('{"expires_at":1735689600}')).toBe("oauth");
-  });
-
-  test("an OAuth shape is detected from an id_token field", () => {
-    expect(detectCredentialKind('{"id_token":"jwt"}')).toBe("oauth");
-    expect(detectCredentialKind('{"idToken":"jwt"}')).toBe("oauth");
-  });
-
-  test("a numeric expiry counts as an OAuth shape", () => {
-    // The check is `typeof === "string" || typeof === "number"`, so an epoch
-    // number is accepted. Pinned because a string-only check would miss the
-    // common export shape.
-    expect(detectCredentialKind('{"expires_at":1735689600}')).toBe("oauth");
+  test("access-only exports with expiry or id tokens stay static", () => {
+    expect(detectCredentialKind('{"accessToken":"jwt","expires":1735689600}')).toBe("api_key");
+    expect(detectCredentialKind('{"accessToken":"jwt","expiresAt":"2026-01-01T00:00:00Z"}')).toBe(
+      "api_key",
+    );
+    expect(detectCredentialKind('{"accessToken":"jwt","id_token":"jwt"}')).toBe("api_key");
+    expect(detectCredentialKind('{"accessToken":"jwt","idToken":"jwt"}')).toBe("api_key");
   });
 
   test("a JSON object with only a token field is an api_key", () => {
@@ -323,9 +320,18 @@ describe("parseCredentialBatch — Cartethyia's own export row", () => {
     expect(entries[0]?.identity).toBe("Work");
   });
 
-  test("the export row's kind comes from its own field, not from shape detection", () => {
-    // An `api_key` export row whose accessToken happens to be OAuth-shaped must
-    // still be an api_key: the row's declaration is authoritative.
+  test("an OAuth-labeled export without a refresh token is static", () => {
+    const row = {
+      credentialKind: "oauth",
+      providerId: "claude",
+      accessToken: "eyJhbGciOiJIUzI1NiJ9.payload.sig",
+    };
+    expect(parseCredentialBatch(JSON.stringify(row))[0]?.kind).toBe("api_key");
+  });
+
+  test("an api_key export remains static even when its value is OAuth-shaped", () => {
+    // An `api_key` export whose accessToken happens to contain a refresh field
+    // must not be upgraded by shape detection.
     const row = {
       credentialKind: "api_key",
       providerId: "openai",

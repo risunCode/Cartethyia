@@ -20,14 +20,14 @@ export interface ShareLinkPolicyData {
   readonly oneTimeLimit: number | null;
   readonly requestsPerMinute: number | null;
   readonly maxConcurrentRequests: number | null;
-  readonly modelAllowlist: string[];
+  /** Models this link grants, in the order the policy resolved them. */
+  readonly models: string[];
   /**
-   * Context window and capabilities per allowed model, keyed by the name in
-   * `modelAllowlist`. A model with no catalog row is absent; the whole map is
+   * Context window and capabilities per granted model, keyed by the name in
+   * `models`. A model with no catalog row is absent; the whole map is
    * absent when the link grants no specific models.
    */
   readonly modelInfo?: Record<string, ShareModelInfoData>;
-  readonly modelDenylist: string[] | null;
   readonly modelPrefix: string | null;
   readonly notes: { readonly title: string | null; readonly subtitle: string | null; readonly body: string | null };
   readonly sharePopup: {

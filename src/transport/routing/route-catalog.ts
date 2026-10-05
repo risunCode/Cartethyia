@@ -70,8 +70,19 @@ export function cliMappingSourceKeys(toolId: string, sourceModel: string): reado
  */
 
 type RouteCandidateWithHealth = RouteCandidate & {
-  health_status?: "cooldown" | "model_cooldown" | "disabled";
+  health_status?: "cooldown" | "model_cooldown" | "credit_floor_reached" | "disabled";
+  cooldown_kind?: "hard" | "soft";
 };
+
+const HARD_COOLDOWN_CATEGORIES: Readonly<Record<string, true>> = {
+  quota_exhausted: true,
+  policy_blocked: true,
+  auth_invalidated: true,
+};
+
+function hardCooldownCategory(category: string | null): boolean {
+  return category !== null && HARD_COOLDOWN_CATEGORIES[category] === true;
+}
 
 /**
  * Projects one model row's metadata into the capability gates the router
@@ -219,6 +230,8 @@ const ACCOUNT_COLUMNS = {
   status: providerAccounts.status,
   cooldownUntil: providerAccounts.cooldownUntil,
   modelCooldowns: providerAccounts.modelCooldowns,
+  lastErrorCategory: providerAccounts.lastErrorCategory,
+  lastRemainingCredit: providerAccounts.lastRemainingCredit,
 } as const;
 
 const ALIAS_COLUMNS = {
@@ -240,7 +253,8 @@ const ROUTING_COLUMNS = {
   strategy: providerRoutingSettings.strategy,
   rotateCount: providerRoutingSettings.rotateCount,
   maxInflight: providerRoutingSettings.maxInflight,
-  creditFloor: providerRoutingSettings.creditFloor,
+  creditLimitEnabled: providerRoutingSettings.creditLimitEnabled,
+  creditLimit: providerRoutingSettings.creditLimit,
   enabled: providerRoutingSettings.enabled,
   bypassProxy: providerRoutingSettings.bypassProxy,
   userAgent: providerRoutingSettings.userAgent,
@@ -369,7 +383,8 @@ class RouteCatalogRepository {
         strategy: row.strategy as ProviderRoutingMap[string][string]["strategy"],
         rotateCount: row.rotateCount ?? 1,
         maxInflight: row.maxInflight,
-        creditFloor: row.creditFloor,
+        creditLimitEnabled: row.creditLimitEnabled,
+        creditLimit: row.creditLimit,
         enabled: row.enabled,
         bypassProxy: row.bypassProxy,
         userAgent: row.userAgent,
@@ -399,9 +414,9 @@ class RouteCatalogRepository {
     /** Provider-wide concurrency ceiling shared by every account of the provider.
      * Tenant setting wins over global, mirroring bypassProxy. `undefined`
      * means UNLIMITED — an empty field never falls back to the deployment
-     * ceiling. Per-account overrides are intentionally unsupported: legacy
-     * stored account values are ignored so a stale manual cap cannot survive
-     * the Routing Strategy cutover. */
+     * ceiling. Per-account overrides are intentionally unsupported: the only
+     * per-account column ever to hold one was `provider_accounts.max_inflight`,
+     * dropped by `0029_retire_per_account_max_inflight.sql`. */
     function resolveMaxInflight(
       providerId: string,
       rowTenantId: string | null,
@@ -412,6 +427,22 @@ class RouteCatalogRepository {
       const globalSetting = providerRouting.__global__?.[providerId]?.maxInflight;
       const resolved = tenantSetting ?? globalSetting;
       return resolved === null || resolved === undefined ? undefined : resolved;
+    }
+
+    /**
+     * Global credit protection for every account of this provider/tenant.
+     * Tenant setting wins over global; an unconfigured provider still gets the
+     * documented default (enabled, 200) so the feature is on out of the box.
+     */
+    function resolveCreditProtection(
+      providerId: string,
+      rowTenantId: string | null,
+    ): { readonly enabled: boolean; readonly limit: number } {
+      const tenantSetting = rowTenantId ? providerRouting[rowTenantId]?.[providerId] : undefined;
+      const globalSetting = providerRouting.__global__?.[providerId];
+      const enabled = tenantSetting?.creditLimitEnabled ?? globalSetting?.creditLimitEnabled;
+      const limit = tenantSetting?.creditLimit ?? globalSetting?.creditLimit;
+      return { enabled: enabled ?? true, limit: limit ?? 200 };
     }
 
     /** Every active pool the account's tenant owns — dispatch picks the
@@ -546,7 +577,18 @@ class RouteCatalogRepository {
           ...(routeUserAgent === undefined ? {} : { user_agent: routeUserAgent }),
           tenant_id: rowTenantId,
           provider_account_id: account.id,
-          ...(account.label ? { provider_account_label: account.label } : {}),
+          ...(() => {
+            const credit = resolveCreditProtection(model.providerId, rowTenantId);
+            return {
+              credit_limit_enabled: credit.enabled,
+              credit_limit: credit.limit,
+            };
+          })(),
+          ...(typeof account.lastRemainingCredit === "string"
+            ? { last_remaining_credit: Number(account.lastRemainingCredit) }
+            : account.lastRemainingCredit === null || account.lastRemainingCredit === undefined
+              ? {}
+              : { last_remaining_credit: account.lastRemainingCredit }),
           // Provider-wide concurrency ceiling from Routing Strategy; legacy
           // account overrides are never read here.
           ...(() => {
@@ -569,6 +611,9 @@ class RouteCatalogRepository {
           // so the builder stays a pure read (no UPDATE racing the request).
           if (account.cooldownUntil && account.cooldownUntil.getTime() > Date.now()) {
             candidate.health_status = "cooldown";
+            candidate.cooldown_kind = hardCooldownCategory(account.lastErrorCategory)
+              ? "hard"
+              : "soft";
           }
         }
 
@@ -592,6 +637,9 @@ class RouteCatalogRepository {
         if (modelCooldownUntil && new Date(modelCooldownUntil).getTime() > Date.now()) {
           candidate.health_status = "model_cooldown";
         }
+        // Credit protection is evaluated at plan time from the candidate's
+        // global `credit_limit` / `last_remaining_credit` pair, so no health
+        // stamp is materialized here.
         if (tenantId === undefined || candidate.tenant_id === null || candidate.tenant_id === tenantId) {
           candidates.push(candidate);
         }

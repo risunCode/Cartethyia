@@ -131,6 +131,14 @@ dbDescribe("gateway authentication", () => {
       invalidateApiKeyCache(key.id);
       expect((await chat({ token: key.token })).status).toBe(401);
     });
+    test("a disabled key is refused without revoking or deleting it", async () => {
+      const key = await world.createKey();
+      expect((await chat({ token: key.token })).status).toBe(200);
+      const pool = await getTestPool();
+      await pool.query("update api_keys set enabled = false where id = $1", [key.id]);
+      invalidateApiKeyCache(key.id);
+      expect((await chat({ token: key.token })).status).toBe(401);
+    });
   });
 
   describe("scope enforcement", () => {

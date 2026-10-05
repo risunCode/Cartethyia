@@ -19,6 +19,11 @@ export interface OAuthAuthorizeRequest {
   readonly parameters?: Readonly<Record<string, string>>;
 }
 
+export interface OAuthCodeExchangeContext {
+  readonly state?: string;
+  readonly parameters?: Readonly<Record<string, string>>;
+}
+
 export interface OAuthExchangeResult {
   readonly access: string;
   readonly refresh: string;
@@ -102,6 +107,7 @@ export interface OAuthLoginClient {
    * compares it against the one the authorize step sent.
    */
   readonly browserRedirectUri?: string;
+  prepareAuthorize?(request: OAuthAuthorizeRequest): Promise<OAuthAuthorizeRequest>;
   /** Browser-code clients only; device-only clients omit both. */
   buildAuthorizeUrl?(request: OAuthAuthorizeRequest): string;
   exchangeCode?(
@@ -109,6 +115,7 @@ export interface OAuthLoginClient {
     codeVerifier: string,
     redirectUri: string,
     state?: string,
+    context?: OAuthCodeExchangeContext,
   ): Promise<OAuthExchangeResult>;
   startDeviceAuth?(context?: OAuthDeviceFlowContext): Promise<OAuthDeviceStartResult>;
   pollDeviceAuth?(
@@ -485,6 +492,7 @@ export interface PendingOAuthFlow {
   readonly redirectUri: string;
   /** Provider-specific start inputs, kept so the callback can rebuild its request. */
   readonly parameters?: Readonly<Record<string, string>>;
+  readonly providerState?: string;
 }
 
 export interface DeviceFlowCorrelation {

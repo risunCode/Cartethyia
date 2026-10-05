@@ -124,3 +124,39 @@ export function tokenScaleValue(value: number | null | undefined, scale: number,
   if (scale === RAW_TOKEN_SCALE) return Math.round(value).toLocaleString(locale);
   return formatScaled(value, scale, locale);
 }
+function instantParts(date: Date, locale: string | undefined, timeZone: string | undefined, named: boolean): Record<string, string> {
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone,
+    hourCycle: "h23",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  };
+  if (named) {
+    options.year = "numeric";
+    options.timeZoneName = "shortOffset";
+  }
+  const byType: Record<string, string> = {};
+  for (const part of new Intl.DateTimeFormat(locale, options).formatToParts(date)) {
+    byType[part.type] = part.value;
+  }
+  return byType;
+}
+
+export const CHART_TIME_ZONE = "Asia/Jakarta";
+
+export function formatChartTick(value: string, locale?: string, timeZone: string = CHART_TIME_ZONE): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const parts = instantParts(date, locale, timeZone, false);
+  return `${parts.month ?? ""}-${parts.day ?? ""} ${parts.hour ?? ""}:${parts.minute ?? ""}`;
+}
+
+export function formatChartTooltip(value: string, locale?: string, timeZone: string = CHART_TIME_ZONE): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const parts = instantParts(date, locale, timeZone, true);
+  return `${parts.year ?? ""}-${parts.month ?? ""}-${parts.day ?? ""} ${parts.hour ?? ""}:${parts.minute ?? ""} ${parts.timeZoneName ?? ""}`;
+}
+

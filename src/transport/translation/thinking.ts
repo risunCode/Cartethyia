@@ -400,10 +400,10 @@ export function clampReasoningEffort(
   if (normalized === "none") return undefined;
 
   const reqLevel = normalized as ReasoningEffortLevel;
-  if (supported.includes(reqLevel)) {
-    return reqLevel;
-  }
-
+  // Don't clamp if provider declares it supports the level but we haven't updated constants yet.
+  // Fall through to direct return for any ladder member the caller asked for.
+  if (supported.includes(reqLevel)) return reqLevel;
+  // Unknown string → drop, don't invent a fallback.
   const requestedIndex = REASONING_EFFORT_LADDER.indexOf(reqLevel);
   if (requestedIndex === -1) return undefined;
 
@@ -412,6 +412,7 @@ export function clampReasoningEffort(
     if (REASONING_EFFORT_LADDER.indexOf(level) > requestedIndex) break;
     clamped = level;
   }
+  // No smaller supported level exists (caller asked below floor): use floor rather than max.
   return clamped ?? supported[0];
 }
 
@@ -481,8 +482,9 @@ export function normalizeThinkingConfig(
     }
   }
 
-  // Step 2: Normalize effort against model/wire capabilities if effort is present
-  if (reasoning?.effort !== undefined) {
+  // Only clamp when caller actually set an effort AND provider declares a ladder.
+  // If provider doesn't declare supportedEfforts, don't invent a 32k clamp — pass through.
+  if (reasoning?.effort !== undefined && options?.supportedEfforts !== undefined && options.supportedEfforts.length > 0) {
     const supported = resolveSupportedReasoningEfforts(
       options?.modelId ?? request.model,
       options?.wireFamily,

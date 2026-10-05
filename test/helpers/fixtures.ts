@@ -180,8 +180,8 @@ export interface ApiKeyFixtureOptions {
   readonly scopes?: readonly string[];
   /** Restricts the key to models whose id starts with this prefix. */
   readonly modelPrefix?: string;
-  readonly modelAllowlist?: readonly string[];
-  readonly modelDenylist?: readonly string[];
+  readonly modelAccessMode?: "whitelist" | "blacklist";
+  readonly modelList?: readonly string[];
   readonly clientRouterDenylist?: readonly string[];
   readonly requestsPerMinute?: number;
   readonly dailyTokenLimit?: number;
@@ -217,7 +217,7 @@ export async function createApiKey(
     `insert into api_keys
        (tenant_id, key_hash, key_mode, parent_key_id, issued_client_ip, label, scopes,
         requests_per_minute, daily_token_limit, monthly_token_limit, lifetime_token_budget,
-        max_concurrent_requests, model_allowlist, model_denylist, client_router_denylist,
+        max_concurrent_requests, model_access_mode, model_list, client_router_denylist,
         revoked_at)
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
      returning id`,
@@ -234,8 +234,8 @@ export async function createApiKey(
       options.monthlyTokenLimit ?? null,
       options.lifetimeTokenBudget ?? null,
       options.maxConcurrentRequests ?? null,
-      options.modelAllowlist === undefined ? null : JSON.stringify(options.modelAllowlist),
-      options.modelDenylist === undefined ? null : JSON.stringify(options.modelDenylist),
+      options.modelAccessMode ?? "whitelist",
+      options.modelList === undefined ? null : JSON.stringify(options.modelList),
       options.clientRouterDenylist === undefined
         ? null
         : JSON.stringify(options.clientRouterDenylist),

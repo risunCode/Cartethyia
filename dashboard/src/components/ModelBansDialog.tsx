@@ -46,7 +46,7 @@ export function ModelBansDialog({ onClose }: { readonly onClose: () => void }): 
         onClose={onClose}
         title="Banned Users"
         description="Client addresses banned for repeated invalid-model requests. Lifting a ban lets the address reach the gateway again."
-        width={880}
+        size="lg"
       >
         <div style={{ display: "flex", flexDirection: "column", gap: "14px", minWidth: 0 }}>
           <div style={{ minWidth: 0 }}>

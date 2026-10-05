@@ -89,9 +89,11 @@ describe("formatPublicErrorMessage", () => {
   });
 
   test("strips every legacy origin brand prefix", () => {
-    // Older builds stamped the brand into the public message. A client must
-    // never see product branding in the error text, and blame lives in the
-    // structured `origin` field instead.
+    // Not hypothetical: before 4f0c6a1a `labelGatewayMessage` stamped these
+    // into the public message, and `gatewayErrorFromStreamError` still embeds
+    // raw upstream text, so a chained gateway on an older build emits exactly
+    // this shape into our error path. A client must never see the brand, and
+    // blame lives in the structured `origin` field instead.
     expect(formatPublicErrorMessage("internal_error", "Cartethyia Error: something broke")).toBe(
       "internal_error: something broke",
     );
@@ -163,7 +165,11 @@ describe("explainGatewayError", () => {
 describe("publicGatewayErrorDetails — the allowlist", () => {
   test("keeps every allowlisted key it is given", () => {
     // The allowlist is deliberate: provider, pool, account scope, and routing
-    // reasons are what a client needs to act on a rejection.
+    // reasons are what a client needs to act on a rejection. `maxInflight` and
+    // `weight` are the pool-capacity pair `leases.ts` publishes with
+    // `proxy_pool_capacity_exceeded` — the retired per-account column was
+    // `provider_accounts.max_inflight`, but this key comes from the pool limit,
+    // not from that column, and must not be pruned as dead with it.
     const details = {
       providerId: "anthropic",
       poolId: "pool-1",
@@ -172,6 +178,8 @@ describe("publicGatewayErrorDetails — the allowlist", () => {
       retryAfterMs: 1_500,
       upstreamStatus: 429,
       requestId: "req-1",
+      maxInflight: 10,
+      weight: 100,
     };
     expect(publicGatewayErrorDetails(new GatewayError("quota_exceeded", 429, "x", details))).toEqual(
       details,

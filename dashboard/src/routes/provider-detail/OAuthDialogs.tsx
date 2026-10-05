@@ -162,7 +162,7 @@ export function OAuthBrowserDialog({
       open={true}
       onClose={cancel}
       title="Connect via OAuth"
-      width={420}
+      size="sm"
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={cancel} disabled={complete.isPending}>
@@ -441,7 +441,7 @@ export function DeviceCodeDialog({
       open={true}
       onClose={onClose}
       title="Login with OAuth (device code)"
-      width={420}
+      size="sm"
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose}>

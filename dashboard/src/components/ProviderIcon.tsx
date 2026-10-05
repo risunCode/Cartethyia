@@ -27,8 +27,6 @@ const iconAssets: Record<string, { file: string; ext: "svg" | "webp" }> = {
   perplexity: { file: "perplexity", ext: "webp" },
   tokenharbor: { file: "tokenharbor", ext: "svg" },
   aihubmix: { file: "aihubmix", ext: "svg" },
-  zai: { file: "zai", ext: "svg" },
-  zaicp: { file: "zai-coding-plan", ext: "svg" },
   // The Coding Plan is a Z.AI product, so it reuses the coding-plan mark.
   zcode: { file: "zai-coding-plan", ext: "svg" },
   "kimi-code": { file: "kimi-code", ext: "webp" },
@@ -67,7 +65,6 @@ const iconAssets: Record<string, { file: string; ext: "svg" | "webp" }> = {
   ollamacloud: { file: "ollama-cloud", ext: "webp" },
   nvidia: { file: "nvidia", ext: "webp" },
   deepseek: { file: "deepseek", ext: "webp" },
-  huggingface: { file: "huggingface", ext: "webp" },
   "deepseek-tui": { file: "deepseek-tui", ext: "webp" },
   droid: { file: "droid", ext: "webp" },
   jcode: { file: "jcode", ext: "webp" },

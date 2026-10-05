@@ -1,22 +1,19 @@
 /**
  * Antigravity wire-level helpers:
- *
- * - `getAntigravityVersion()` / `ensureAntigravityVersion()`: version-manifest
- *   discovery for the `antigravity/hub` `User-Agent` header. The backend
- *   gates newer models on the client version, so we fetch the latest
- *   release from the update manifest lazily (best-effort; a pinned
- *   fallback keeps the flow working offline).
+ * - `getAntigravityVersion()`: monitor-owned version snapshot used by the
+ *   `antigravity/hub` `User-Agent` header.
  * - `getAntigravityUserAgent()`: full `antigravity/hub/<version>` string.
  * - `ANTIGRAVITY_MODEL_WIRE_PROFILES` / `getAntigravityModelWireProfile()`:
- *   per-wire-id `maxOutputTokens` (and optional `labels.model_enum`)
- *   the backend enforces. Claude SKUs cap at 64000 regardless of the
- *   thinking budget; Gemini SKUs accept the discovered cap.
+ *   per-wire-id `maxOutputTokens` (and optional `labels.model_enum`) the
+ *   backend enforces.
  * - `applySkipThoughtSignatureBypass()`: on Gemini 3+ turns, the first
  *   unsigned `functionCall` in a `model`-role content block gets the
- *   `skip_thought_signature_validator` sentinel; unsigned secondary
- *   calls in the same turn stay bare (mirrors provider behavior).
+ *   `skip_thought_signature_validator` sentinel.
  * - `loadAntigravityProject()`: best-effort `loadCodeAssist` lookup for
  *   the caller's Cloud Code project id, cached by access-token hash.
+ *
+ * The global client-version monitor refreshes the version. Request paths only
+ * read the current snapshot and never fetch the update manifest.
  */
 import { createHash } from "node:crypto";
 import { providerBaseUrl } from "../../provider-metadata";
@@ -24,89 +21,14 @@ import type { ModelDefinition } from "../../provider-registry";
 import { isRecord } from "../../../protocol/primitives";
 import { modelsDevCatalog } from "../../discovery/models-dev-catalog";
 import type { FetchLike } from "../../authentication/oauth-client";
+import { getAntigravityVersion } from "../../operations/client-versions";
+export { getAntigravityVersion };
 
-// User-Agent + version discovery
-
-/** Pinned Antigravity client version used when live discovery has not run yet. */
-const DEFAULT_ANTIGRAVITY_VERSION = "2.17.0";
 
 /** Desktop-client fingerprint fields stamped into the Antigravity User-Agent. */
 const ANTIGRAVITY_OS_TYPE = "darwin";
 const ANTIGRAVITY_ARCH = "arm64";
 const ANTIGRAVITY_CL = "963137146";
-
-const ANTIGRAVITY_VERSION_MANIFEST_URL =
-  "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml";
-const ANTIGRAVITY_VERSION_FETCH_TIMEOUT_MS = 5_000;
-
-let discoveredAntigravityVersion: string | null = null;
-let antigravityVersionFetch: Promise<void> | null = null;
-
-/**
- * Manifest-discovered → pinned fallback. Discovery is the only source of a
- * live version; the pinned constant keeps dispatch working offline.
- */
-export function getAntigravityVersion(): string {
-  return discoveredAntigravityVersion || DEFAULT_ANTIGRAVITY_VERSION;
-}
-
-/**
- * Extracts the client version from an electron-builder update manifest.
- * Returns null when no well-formed `version:` line is present.
- */
-function parseAntigravityManifestVersion(
-  yamlText: string,
-): string | null {
-  for (const line of yamlText.split(/\r?\n/)) {
-    const match = /^\s*version\s*:\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))\s*(?:#.*)?$/.exec(
-      line,
-    );
-    if (!match) continue;
-    const version = (match[1] ?? match[2] ?? match[3] ?? "").trim();
-    return /^\d+\.\d+\.\d+$/.test(version) ? version : null;
-  }
-  return null;
-}
-
-/**
- * Resolves the latest Antigravity release from the official update manifest.
- * Success is cached for the process lifetime; failures are silent (the pinned
- * fallback stays valid) and clear the in-flight cache so a later call retries.
- */
-export function ensureAntigravityVersion(
-  fetcher: typeof fetch = fetch,
-  signal?: AbortSignal,
-): Promise<void> {
-  if (discoveredAntigravityVersion) {
-    return Promise.resolve();
-  }
-  if (antigravityVersionFetch) return antigravityVersionFetch;
-
-  antigravityVersionFetch = (async () => {
-    try {
-      const timeoutSignal = AbortSignal.timeout(
-        ANTIGRAVITY_VERSION_FETCH_TIMEOUT_MS,
-      );
-      const response = await fetcher(ANTIGRAVITY_VERSION_MANIFEST_URL, {
-        headers: {
-          "Cache-Control": "no-cache",
-          "User-Agent": "electron-builder",
-        },
-        signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
-      });
-      if (response.ok) {
-        discoveredAntigravityVersion = parseAntigravityManifestVersion(
-          await response.text(),
-        );
-      }
-    } catch {
-      // Silent: the pinned fallback remains valid when discovery fails.
-    } finally {
-      if (!discoveredAntigravityVersion) antigravityVersionFetch = null;
-    }
-  })();
-  return antigravityVersionFetch;
-}
 
 /**
  * Antigravity `User-Agent` header value; rebuilt when the discovered version

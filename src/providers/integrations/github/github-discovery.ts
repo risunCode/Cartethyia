@@ -93,14 +93,9 @@ function toModelDefinition(entry: Record<string, unknown>): ModelDefinition | un
     contextLimit,
     outputLimit,
     modalities: { input: vision ? ["text", "image"] : ["text"], output: ["text"] },
-    // Reasoning and tool support are left on unconditionally. The upstream
-    // decides whether it can serve them and returns its own error if it cannot,
-    // whereas a `false` here is not advisory: the preflight reads `toolCall`
-    // and silently strips `tools` from a request the caller asked for, turning
-    // a working call into a degraded one on the strength of a metadata guess.
     reasoning: true,
     toolCall: true,
-    webSearch: supports(entry, "web_search"),
+    webSearch: false,
     cost: modelsDevCatalog.costFor(GITHUB_PROVIDER_ID, modelId),
   };
 }

@@ -264,7 +264,6 @@ export class PrometheusRegistry {
   readonly proxy_provider_adapter_load_ms: HistogramMetric;
   readonly pool_cooldown_record_failed: CounterMetric;
   readonly quota_cache_invalidate_failed: CounterMetric;
-  readonly version_discovery_failed: CounterMetric;
 
   private readonly all: RenderableMetric[] = [];
 
@@ -358,11 +357,6 @@ export class PrometheusRegistry {
     this.quota_cache_invalidate_failed = this.counter(
       "quota_cache_invalidate_failed",
       "Quota cache invalidations that failed",
-    );
-    this.version_discovery_failed = this.counter(
-      "version_discovery_failed",
-      "Client version discoveries that failed, leaving the pinned fallback in use",
-      ["provider"],
     );
   }
 

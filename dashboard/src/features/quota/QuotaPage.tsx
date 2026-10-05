@@ -103,7 +103,7 @@ function QuotaAccountResetModal({
     <Dialog
       open={true}
       onClose={onClose}
-      width={720}
+      size="lg"
       title={`Saved Rate-Limit Resets — ${account.name}`}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -615,63 +615,58 @@ function QuotaCard({
             padding: "9px 14px",
           }}
         >
+          <div
+            className="quota-window-section-label"
+            style={{
+              fontSize: "10px",
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              color: "var(--text-tertiary)",
+            }}
+          >
+            QUOTA WINDOWS
+          </div>
           {pagination.items.map((window, index) => {
             const remaining = window.remainingPercent ?? null;
-            const limit = window.limit ?? null;
+            const limit =
+              typeof window.limit === "number" && Number.isFinite(window.limit) ? window.limit : null;
             const usedCredits =
               typeof window.used === "number" && Number.isFinite(window.used)
                 ? window.used
                 : limit !== null && window.usedPercent !== null && window.usedPercent !== undefined
                   ? (limit * window.usedPercent) / 100
                   : null;
-            const remainingCredits =
-              typeof window.remaining === "number" && Number.isFinite(window.remaining)
-                ? window.remaining
-                : null;
             const colors = quotaBarTone(remaining);
             const quotaFillPct = remaining !== null ? Math.max(0, Math.min(100, remaining)) : 0;
+            const formatAmount = (value: number): string =>
+              value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+            const formatPercent = (value: number): string => {
+              const rounded = Math.round(value * 10) / 10;
+              if (rounded > 0 && rounded < 0.1) return "<0.1";
+              return rounded.toLocaleString(undefined, { maximumFractionDigits: 1 });
+            };
+            const label = formatQuotaWindowLabel(window.label);
             return (
               <div
                 className="quota-window-row"
                 key={`${window.kind ?? window.label}:${window.resetsAt ?? "none"}:${index}`}
               >
-                <div
-                  className="flex items-center justify-between"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: "4px",
-                  }}
-                >
+                <div className="quota-window-heading">
                   <span
                     className="text-[11px] font-semibold text-[var(--text-primary)]"
                     style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}
                   >
-                    {formatQuotaWindowLabel(window.label)}
+                    {label}
                   </span>
-                  {remaining !== null && (
-                    <span
-                      className="text-[11px] font-bold tabular-nums"
-                      style={{
-                        fontSize: "11px",
-                        fontWeight: 700,
-                        color: colors.text,
-                        fontVariantNumeric: "tabular-nums",
-                      }}
-                    >
-                      {remaining}%
-                    </span>
-                  )}
                 </div>
                 <div
-                  className="quota-bar-track"
+                  className="quota-bar-track quota-window-bar"
                   role="progressbar"
-                  aria-label={`${formatQuotaWindowLabel(window.label)} remaining quota`}
+                  aria-label={`${label} remaining quota`}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={remaining === null ? undefined : quotaFillPct}
-                  aria-valuetext={remaining === null ? "Quota amount not reported" : `${remaining}% remaining`}
+                  aria-valuetext={remaining === null ? "Quota only" : `${formatPercent(remaining)}% remaining`}
                   style={{
                     height: "10px",
                     borderRadius: "4px",
@@ -690,35 +685,31 @@ function QuotaCard({
                     }}
                   />
                 </div>
-                <div
-                  className="flex items-center justify-between text-[10px] text-[var(--text-tertiary)]"
+                <span
+                  className="quota-window-remaining text-[11px] font-bold tabular-nums"
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "8px",
-                    fontSize: "10px",
-                    color: "var(--text-tertiary)",
-                    marginTop: "3px",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    color: colors.text,
+                    fontVariantNumeric: "tabular-nums",
                   }}
                 >
-                  {(usedCredits !== null || limit !== null) && (
-                    <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                      {usedCredits !== null
-                        ? `${usedCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })} used`
-                        : ""}
-                      {limit !== null
-                        ? `${usedCredits !== null ? " · " : ""}limit ${limit.toLocaleString()}`
-                        : ""}
-                    </span>
-                  )}
-                  {remainingCredits !== null && (
-                    <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                      {remainingCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })} available
-                    </span>
-                  )}
+                  {remaining === null ? "—" : `${formatPercent(remaining)}%`}
+                </span>
+                <div className="quota-window-details">
+                  <span
+                    className="quota-window-usage"
+                    style={{ fontVariantNumeric: "tabular-nums" }}
+                  >
+                    {usedCredits !== null && limit !== null
+                      ? `${formatAmount(usedCredits)} / ${formatAmount(limit)} Credits`
+                      : "Quota only"}
+                  </span>
                   {window.resetsAt && (
-                    <span style={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>
+                    <span
+                      className="quota-window-reset"
+                      style={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}
+                    >
                       {formatResetDistance(window.resetsAt, window.recurring)}
                     </span>
                   )}

@@ -579,7 +579,7 @@ export function ShareManagementDialog({
           ? "One stable handoff link for this key. Regenerating rotates the key itself."
           : "One stable enrollment link. Regenerating replaces the URL; recipients keep the keys they already generated."
       }
-      width={720}
+      size="lg"
     >
       <ShareManagementContent parent={parent} onSecretRevealed={onSecretRevealed} />
     </Dialog>

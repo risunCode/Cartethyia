@@ -3,22 +3,13 @@ import type { ProviderDispatchTarget, ModelDefinition, ProviderAdapter, Provider
 import { unwrapProviderToken } from "../../credential-envelope";
 import { GatewayError } from "../../../transport/gateway-error";
 import type { CanonicalRequest } from "../../../transport/canonical-model";
-import { isRecord } from "../../../protocol/primitives";
+import { completeRequiredSchema, isRecord } from "../../../protocol/primitives";
 import { providerBaseUrl } from "../../provider-metadata";
 import { getCachedModelDiscovery } from "../../operations/model-discovery-cache";
 import { defineModel } from "../../model-definition";
 import {
-  resolveClineClientVersion,
-  resolveClineSdkVersion,
   getClineClientVersion,
   getClineSdkVersion,
-} from "../../operations/client-versions";
-export {
-  getClineClientVersion,
-  getClineSdkVersion,
-  refreshClineClientVersion,
-  resolveClineClientVersion,
-  resolveClineSdkVersion,
 } from "../../operations/client-versions";
 export const CLINE_BASE_URL = providerBaseUrl("cline");
 export const CLINE_PROVIDER_ID = "cline" as const;
@@ -54,10 +45,6 @@ async function clineExtraHeaders(context: ProviderDispatchContext): Promise<Reco
       authOverride = { authorization: `Bearer ${token}` };
     }
   }
-  // Await discovery so the true latest client/SDK version is stamped on every
-  // dispatch; the pinned fallback only applies on a real network failure. The
-  // underlying fetch is deduped and TTL-cached (see provider-version-cache).
-  await Promise.all([resolveClineClientVersion(), resolveClineSdkVersion()]);
   const clientVersion = getClineClientVersion();
   const sdkVersion = getClineSdkVersion();
 
@@ -83,11 +70,28 @@ async function clineExtraHeaders(context: ProviderDispatchContext): Promise<Reco
 // Cline requires a system/developer message for compatibility; its upstream
 // free models also reject empty system content, so the fallback is concise.
 
+function completeClineToolSchemas(payload: Record<string, unknown>): void {
+  if (!Array.isArray(payload.tools)) return;
+  payload.tools = payload.tools.map((tool) => {
+    if (!isRecord(tool)) return tool;
+    const functionValue = tool.function;
+    if (isRecord(functionValue) && "parameters" in functionValue) {
+      return {
+        ...tool,
+        function: { ...functionValue, parameters: completeRequiredSchema(functionValue.parameters) },
+      };
+    }
+    if ("parameters" in tool) return { ...tool, parameters: completeRequiredSchema(tool.parameters) };
+    return tool;
+  });
+}
+
 function clinePrePayload(
   payload: Record<string, unknown>,
   request: CanonicalRequest,
   candidate: ProviderDispatchTarget,
 ): void {
+  completeClineToolSchemas(payload);
   // 1) Ensure system/developer messages always carry non-empty content.
   const rawMessages = payload["messages"];
   const messages: Record<string, unknown>[] = Array.isArray(rawMessages)
@@ -400,16 +404,8 @@ export const CLINE_MODELS: readonly ModelDefinition[] = [
     vision: true,
     free: true,
   }),
-  // The `free` bucket's own ids, as `/ai/cline/recommended-models` publishes
-  // them. Two of the bucket's ids carry no `cline-free/` prefix — the bucket is
-  // the tier, the id prefix never was.
-  defineModel({
-    id: "stealth/pixel-canary",
-    ctx: 200_000,
-    out: 64_192,
-    reasoning: true,
-    free: true,
-  }),
+  // The `free` bucket's published ids are the tier; the upstream id prefixes
+  // are retained verbatim because they are part of Cline's model contract.
   defineModel({
     id: "stealth/space-bunny-alpha",
     ctx: 1_000_000,
@@ -420,14 +416,6 @@ export const CLINE_MODELS: readonly ModelDefinition[] = [
   }),
   defineModel({
     id: "cline-free/mimo-v2.6-flash",
-    ctx: 1_048_576,
-    out: 131_072,
-    reasoning: true,
-    vision: true,
-    free: true,
-  }),
-  defineModel({
-    id: "cline-free/deepseek-v4.1-flash",
     ctx: 1_048_576,
     out: 131_072,
     reasoning: true,

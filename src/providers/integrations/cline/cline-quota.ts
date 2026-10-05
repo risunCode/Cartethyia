@@ -2,11 +2,10 @@ import type { FetchLike, ProviderQuotaResult, ProviderQuotaWindow } from "../../
 import { authCredential, getJson, record, text } from "../../quota/quota-contracts";
 import { parseLimitWindows } from "../../quota/quota-limit-windows";
 import { probeApiKeyConnectivity } from "../../quota/quota-support";
-import { getClineClientVersion, refreshClineClientVersion } from "../../operations/client-versions";
+import { getClineClientVersion } from "../../operations/client-versions";
 
 /** Quota headers always carry the currently resolved CLI version. */
 function clineQuotaHeaders(): Record<string, string> {
-  refreshClineClientVersion();
   const version = getClineClientVersion();
   return {
     accept: "application/json",

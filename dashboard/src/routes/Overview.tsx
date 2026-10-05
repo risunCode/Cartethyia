@@ -10,7 +10,7 @@ import {
   Server,
   Timer,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "../components/ui/button";
 import { Card, CardBody, CardHeader } from "../components/ui/card";
 import { Switch } from "../components/ui/switch";
@@ -34,7 +34,17 @@ function SystemOverviewPanel({
 }) {
   const healthQuery = useSystemHealth();
   const poolsQuery = useNetworkPools();
-  const [lowStress, setLowStress] = useState(true);
+  const CARTETHYIA_OVERVIEW_LOW_STRESS_KEY = "cartethyia:overview:low-stress";
+  const readLowStress = (): boolean => {
+    if (typeof window === "undefined" || !window.localStorage) return true;
+    const raw = window.localStorage.getItem(CARTETHYIA_OVERVIEW_LOW_STRESS_KEY);
+    return raw === null ? true : raw === "1" || raw === "true";
+  };
+  const [lowStress, setLowStress] = useState<boolean>(() => readLowStress());
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    window.localStorage.setItem(CARTETHYIA_OVERVIEW_LOW_STRESS_KEY, lowStress ? "1" : "0");
+  }, [lowStress]);
   const health = healthQuery.data;
   const pools = poolsQuery.data ?? [];
 

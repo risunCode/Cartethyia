@@ -13,6 +13,7 @@ import { Button } from "./ui/button";
 import { Card, CardBody, CardHeader } from "./ui/card";
 import { Dialog } from "./ui/dialog";
 import { EmptyState, ErrorState, LoadingState } from "./ui/state";
+import { Switch } from "./ui/switch";
 import { ApiKeyForm, oneTimeSecretForMode, type KeyFormInput } from "./ApiKeyForm";
 import { ApiKeySecretDialog } from "./ApiKeySecretDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -164,8 +165,8 @@ export function ApiKeysPanel(): ReactNode {
                     <strong style={{ fontSize: "13px" }}>
                       {key.label || "Unnamed credential"}
                     </strong>
-                    <Badge tone={key.revokedAt ? "err" : "ok"}>
-                      {key.revokedAt ? "revoked" : "active"}
+                    <Badge tone={key.revokedAt ? "err" : key.enabled ? "ok" : "warn"}>
+                      {key.revokedAt ? "revoked" : key.enabled ? "enabled" : "disabled"}
                     </Badge>
                     <Badge tone={key.keyMode === "share" ? "accent" : "default"}>
                       {key.keyMode === "share" ? "share template" : "personal"}
@@ -207,10 +208,36 @@ export function ApiKeysPanel(): ReactNode {
                     <span>Monthly {limitLabel(key.monthlyTokenLimit)}</span>
                     <span>One-time {limitLabel(key.lifetimeTokenBudget)}</span>
                     <span>Concurrent {limitLabel(key.maxConcurrentRequests)}</span>
-                    <span>Models {key.modelAllowlist?.length ? key.modelAllowlist.length : "All"}</span>
+                    <span>
+                      {key.modelAccessMode === "blacklist"
+                        ? `Blocked ${key.modelList?.length ?? 0}`
+                        : `Models ${key.modelList?.length ? key.modelList.length : "All"}`}
+                    </span>
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "6px", flexShrink: 0, flexWrap: "wrap" }}>
+                  {!key.revokedAt ? (
+                    <Switch
+                      checked={key.enabled}
+                      disabled={updateKey.isPending}
+                      id={`api-key-enabled-${key.id}`}
+                      label=""
+                      aria-label={`${key.enabled ? "Disable" : "Enable"} ${key.label || "API credential"}`}
+                      onChange={(enabled) =>
+                        updateKey.mutate(
+                          { keyId: key.id, request: { enabled } },
+                          {
+                            onSuccess: () =>
+                              toast.success(
+                                `${key.label || "API credential"} ${enabled ? "enabled" : "disabled"}`,
+                              ),
+                            onError: (error) =>
+                              toast.error(getErrorMessage(error, "Could not update credential state.")),
+                          },
+                        )
+                      }
+                    />
+                  ) : null}
                   <Button
                     variant="secondary"
                     size="sm"
@@ -260,7 +287,7 @@ export function ApiKeysPanel(): ReactNode {
         onClose={() => setCreateOpen(false)}
         title="Create API Key"
         description="Create a tenant-scoped credential. Choose model access, permissions, limits, and optional blocked client routers."
-        width={880}
+        size="lg"
       >
         <ApiKeyForm
           mode="create"
@@ -272,6 +299,7 @@ export function ApiKeysPanel(): ReactNode {
               onSuccess: (res) => {
                 setCreateOpen(false);
                 setRevealedSecret(oneTimeSecretForMode(input.keyMode, res.secret));
+                toast.success("API key created");
               },
               onError: (error) => toast.error(getErrorMessage(error, "Could not create API key.")),
             });
@@ -284,7 +312,7 @@ export function ApiKeysPanel(): ReactNode {
         onClose={() => setEditTarget(null)}
         title="Edit API Key"
         description="Update the key's model access, permissions, limits, share notes, and optional public popup."
-        width={880}
+        size="lg"
       >
         <ApiKeyForm
           mode="edit"
@@ -299,6 +327,7 @@ export function ApiKeysPanel(): ReactNode {
                 onSuccess: (res) => {
                   setEditTarget(null);
                   setRevealedSecret(oneTimeSecretForMode(input.keyMode, res.secret));
+                  toast.success("API key updated");
                 },
                 onError: (error) => toast.error(getErrorMessage(error, "Could not update API key.")),
               },

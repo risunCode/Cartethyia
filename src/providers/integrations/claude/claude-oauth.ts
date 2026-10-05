@@ -3,7 +3,7 @@ import { postJsonTokenRequest } from "../../authentication/oauth-flow-store";
 import type { OAuthExchangeResult } from "../../authentication/oauth-flow-store";
 import type { OAuthTokenRefreshResult } from "../../authentication/oauth-refresh-service";
 import { OAuthClient, type FetchLike } from "../../authentication/oauth-client";
-import { resolveClaudeCliVersion, resolveClaudeSdkVersion } from "../../operations/client-versions";
+import { getClaudeCliVersion, getClaudeSdkVersion } from "../../operations/client-versions";
 
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
@@ -42,7 +42,7 @@ async function bootstrapLabel(access: string, fetchFn: FetchLike): Promise<strin
       Accept: "application/json, text/plain, */*",
       Authorization: `Bearer ${access}`,
       "Content-Type": "application/json",
-      "User-Agent": `claude-code/${await resolveClaudeCliVersion()}`,
+      "User-Agent": `claude-code/${getClaudeCliVersion()}`,
       "anthropic-beta": "oauth-2025-04-20",
     },
     signal: AbortSignal.timeout(30_000),
@@ -161,7 +161,7 @@ export class ClaudeOAuthClient extends OAuthClient {
         client_id: CLIENT_ID,
       },
       headers: {
-        "User-Agent": `anthropic-sdk-typescript/${await resolveClaudeSdkVersion()} userOAuthProvider`,
+        "User-Agent": `anthropic-sdk-typescript/${getClaudeSdkVersion()} userOAuthProvider`,
         "anthropic-beta": "oauth-2025-04-20",
       },
       signal,

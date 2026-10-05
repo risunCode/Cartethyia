@@ -12,6 +12,7 @@ import {
 } from "./oauth-flow-store";
 import type {
   OAuthAuthorizeRequest,
+  OAuthCodeExchangeContext,
   OAuthExchangeResult,
   OAuthLoginClient,
 } from "./oauth-flow-store";
@@ -104,6 +105,7 @@ export abstract class OAuthClient implements OAuthLoginClient, OAuthTokenRefresh
     codeVerifier: string,
     redirectUri: string,
     _state?: string,
+    _context?: OAuthCodeExchangeContext,
   ): Promise<OAuthExchangeResult> {
     if (!this.supportsBrowserCode) {
       throw new Error(`${this.providerLabel} does not support browser code exchange`);

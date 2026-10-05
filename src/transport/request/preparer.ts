@@ -1,6 +1,6 @@
 import { GatewayError } from "../gateway-error";
 import type { CanonicalRequest, ContentPart, ServiceKind } from "../canonical-model";
-import type { ApiKeyAdmissionService } from "../../security/admission";
+import type { ApiKeyAdmissionService } from "../../security/admission/service";
 import type { RouteCandidate as RouteCandidate, InMemoryRouteSnapshotService, RoutePlan } from "../routing/route-model";
 import { resolveAliasTarget, type RoutingEngine } from "../routing/router";
 import { deriveRequiredCapabilities, projectForRoute, routeCapabilitiesFor } from "../translation/capabilities";
@@ -517,6 +517,20 @@ export class ProxyRequestPreparer {
         "no eligible route supports this request's capabilities",
         { model: request.model },
       );
+    const policyCandidates = plan.candidates.filter((candidate) =>
+      isModelAllowed(
+        authorization.snapshot,
+        candidate.model_id,
+        candidate.provider_id,
+        request.model,
+      ),
+    );
+    if (policyCandidates.length === 0)
+      throw new GatewayError("model_not_found", 404, "model is not allowed for this API key", {
+        model: request.model,
+      });
+    if (policyCandidates.length !== plan.candidates.length)
+      plan = { ...plan, candidates: policyCandidates };
     // A canonical request is chat-shaped by definition, so only `llm` rows may
     // serve it. A non-`llm` row (System One) is dispatched by its native route
     // and its `wire_family` is an inert placeholder; without this filter the
@@ -633,16 +647,35 @@ export class ProxyRequestPreparer {
     readonly model: string;
     readonly authorization: ResolvedApiKey;
     readonly signal?: AbortSignal;
+    /** Inbound `User-Agent`; gates remote CLI remaps to the matching tool. */
+    readonly clientUserAgent?: string;
     readonly eligible: (candidate: RouteCandidate) => boolean;
     readonly emptyMessage: string;
   }): Promise<PreparedNativeRequest> {
     if (input.signal?.aborted)
       throw new GatewayError("transport_closed", 499, "request was cancelled");
     const snapshot = await this.deps.snapshotService.getSnapshot();
+    const allowCliMappings = allowsCliToolMappings(input.authorization.scopes, {
+      ...(input.clientUserAgent === undefined ? {} : { userAgent: input.clientUserAgent }),
+    });
+    const resolvedTarget = resolveAliasTarget(
+      snapshot,
+      input.authorization.tenantId,
+      input.model,
+      allowCliMappings,
+      input.authorization.cliMappingOwnerId ?? input.authorization.id,
+    );
+    const allowedForKey = isModelAllowed(
+      input.authorization.snapshot,
+      resolvedTarget,
+      undefined,
+      input.model,
+    );
     if (
       input.authorization.modelPrefix &&
       !input.model.startsWith(input.authorization.modelPrefix) &&
-      !isModelAllowed(input.authorization.snapshot, input.model)
+      !resolvedTarget.startsWith(input.authorization.modelPrefix) &&
+      !allowedForKey
     )
       throw new GatewayError(
         "model_not_found",
@@ -650,16 +683,33 @@ export class ProxyRequestPreparer {
         "model does not match the key's required prefix",
         { model: input.model, required_prefix: input.authorization.modelPrefix },
       );
+    if (!allowedForKey)
+      throw new GatewayError("model_not_found", 404, "model is not allowed for this API key", {
+        model: input.model,
+      });
     const plan = await this.deps.routingEngine.plan(
       input.model,
       snapshot,
       input.authorization.tenantId,
       undefined,
-      input.authorization.scopes.includes("routing:cli_mapping"),
+      allowCliMappings,
+      input.authorization.cliMappingOwnerId ?? input.authorization.id,
     );
     if (input.signal?.aborted)
       throw new GatewayError("transport_closed", 499, "request was cancelled");
-    const candidates = plan.candidates.filter(input.eligible);
+    const policyCandidates = plan.candidates.filter((candidate) =>
+      isModelAllowed(
+        input.authorization.snapshot,
+        candidate.model_id,
+        candidate.provider_id,
+        input.model,
+      ),
+    );
+    if (policyCandidates.length === 0)
+      throw new GatewayError("model_not_found", 404, "model is not allowed for this API key", {
+        model: input.model,
+      });
+    const candidates = policyCandidates.filter(input.eligible);
     if (candidates.length === 0)
       throw new GatewayError("capability_unsupported", 400, input.emptyMessage, {
         model: input.model,
@@ -683,11 +733,13 @@ export class ProxyRequestPreparer {
     readonly model: string;
     readonly authorization: ResolvedApiKey;
     readonly signal?: AbortSignal;
+    readonly clientUserAgent?: string;
   }): Promise<PreparedNativeRequest> {
     return this.#planNative({
       model: input.model,
       authorization: input.authorization,
       ...(input.signal === undefined ? {} : { signal: input.signal }),
+      ...(input.clientUserAgent === undefined ? {} : { clientUserAgent: input.clientUserAgent }),
       eligible: (candidate) => candidate.provider_id === "codex",
       emptyMessage: "no eligible Codex route supports Responses compact",
     });
@@ -705,11 +757,13 @@ export class ProxyRequestPreparer {
     readonly serviceKind: Exclude<ServiceKind, "llm">;
     readonly authorization: ResolvedApiKey;
     readonly signal?: AbortSignal;
+    readonly clientUserAgent?: string;
   }): Promise<PreparedNativeRequest> {
     return this.#planNative({
       model: input.model,
       authorization: input.authorization,
       ...(input.signal === undefined ? {} : { signal: input.signal }),
+      ...(input.clientUserAgent === undefined ? {} : { clientUserAgent: input.clientUserAgent }),
       eligible: (candidate) => (candidate.service_kind ?? "llm") === input.serviceKind,
       emptyMessage: `no eligible route serves the '${input.serviceKind}' service for this model`,
     });

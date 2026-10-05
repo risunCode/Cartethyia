@@ -51,11 +51,22 @@ async function tenantPoolIds(
  * at the edge. Pools that have carried no traffic yet are absent from the byte
  * snapshot and read as zero.
  */
-function withPoolBytes<T extends { poolId: string }>(
+function withPoolBytes<T extends { poolId: string; currentInflight?: number }>(
   pools: readonly T[],
 ): ReadonlyArray<T & { bytesSent: number; bytesReceived: number }> {
   const bytes = new Map(poolByteSnapshot().map((row) => [row.poolId, row]));
-  return pools.map((pool) => {
+  // `snapshotPoolUsage()` only rows pools that currently hold a slot; an idle
+  // pool therefore drops out of the map and would read as 0B even though it
+  // already carried traffic this process. Union the byte snapshot so a pool
+  // that has bytes but no inflight still appears with its running total.
+  const merged = new Map<string, T>();
+  for (const pool of pools) merged.set(pool.poolId, pool);
+  for (const [poolId] of bytes) {
+    if (!merged.has(poolId)) {
+      merged.set(poolId, { poolId, currentInflight: 0 } as unknown as T);
+    }
+  }
+  return [...merged.values()].map((pool) => {
     const row = bytes.get(pool.poolId);
     return { ...pool, bytesSent: row?.sent ?? 0, bytesReceived: row?.received ?? 0 };
   });

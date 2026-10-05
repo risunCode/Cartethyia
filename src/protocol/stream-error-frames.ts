@@ -24,7 +24,11 @@ import { isRecord } from "./primitives";
 
 function numericStatus(...candidates: unknown[]): number | undefined {
   for (const candidate of candidates) {
-    if (typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 400 && candidate < 600)
+    if (
+      typeof candidate === "number" &&
+      Number.isFinite(candidate) &&
+      (candidate === 202 || (candidate >= 400 && candidate < 600))
+    )
       return candidate;
   }
   return undefined;

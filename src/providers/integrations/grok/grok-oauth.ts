@@ -34,7 +34,6 @@ export const GROK_SCOPE = [
 import {
   buildGrokAuthUserAgent,
   getGrokVersion,
-  refreshGrokVersion,
 } from "../../operations/client-versions";
 
 interface TokenPayload {
@@ -52,7 +51,6 @@ interface UserPayload {
 }
 
 function authHeaders(): Record<string, string> {
-  refreshGrokVersion();
   const version = getGrokVersion();
   return {
     "content-type": "application/x-www-form-urlencoded",
@@ -65,7 +63,6 @@ function authHeaders(): Record<string, string> {
 
 async function fetchUserLabel(accessToken: string, fetcher: FetchLike): Promise<string | undefined> {
   try {
-    refreshGrokVersion();
     const version = getGrokVersion();
     const response = await fetcher(GROK_USER_URL, {
       headers: {

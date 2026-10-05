@@ -9,7 +9,6 @@ import {
   RotateCcw,
   Search,
   Trash2,
-  TriangleAlert,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -34,6 +33,7 @@ import { useRefreshAccountQuota, type AccountTestResult } from "../../hooks/quot
 import { queryKeys } from "../../data/query-keys";
 import {
   assignAccountNames,
+  jwtExpiresAt,
   parseCredentialBatch,
   type ParsedCredentialEntry,
 } from "../../shared/credential-extract";
@@ -44,7 +44,7 @@ import {
 } from "../../components/AccountCooldown";
 import { downloadTextFile } from "../../shared/download";
 import { toast } from "../../shared/toast";
-import type { ProviderAccountResponse } from "../../data/contracts";
+import type { CredentialMode, ProviderAccountResponse } from "../../data/contracts";
 
 
 
@@ -53,42 +53,22 @@ function accountStatusRank(status: string): number {
   if (status === "cooldown") return 2;
   return 3;
 }
-
-/**
- * What flipping the static-token flag costs, per direction.
- *
- * Both directions are consequential and must not be applied on a single click:
- * turning it *on* stops refreshing, so the account dies at token expiry; turning
- * it *off* hands the credential back to the OAuth sweep, which will try to
- * refresh it on its next pass and — for a pasted token with no working refresh
- * grant — fail and mark the account for re-auth. The operator should confirm
- * either way, so the button never flips the mode silently.
- *
- * Exported so the confirmation copy is testable without a DOM: `Dialog` renders
- * through `createPortal` behind a `mounted` effect, which never runs under
- * `renderToStaticMarkup`, so the dialog's body cannot be asserted through a
- * render.
- */
-export function staticTokenWarning(
-  enabling: boolean,
-  label: string,
-): {
-  readonly title: string;
-  readonly message: string;
-  readonly confirmLabel: string;
-} {
-  if (enabling)
-    return {
-      title: "Mark as static token (no refresh)?",
-      message: `${label} will be used exactly as issued and the gateway will stop refreshing it. That is correct for a pasted JWT or access token with no working refresh grant — but the account will simply stop working once the token expires, and it will not recover on its own. You can re-enable refresh later.`,
-      confirmLabel: "Mark as static token",
-    };
-  return {
-    title: "Re-enable refresh?",
-    message: `${label} returns to normal OAuth refresh handling, and the gateway will try to refresh the credential on its next pass. If this is a pasted token with no working refresh grant, the refresh will fail and the account will be marked for re-auth. Turn it back on to keep using the credential as issued.`,
-    confirmLabel: "Re-enable refresh",
-  };
+function credentialLabel(account: ProviderAccountResponse): string {
+  if (account.credentialMode === "jwt") return "Static JWT";
+  if (account.credentialKind === "oauth") {
+    return account.staticToken ? "Static OAuth token" : "Refreshable OAuth";
+  }
+  return "API key";
 }
+
+function credentialExpiryLabel(expiresAt: string | undefined): string | undefined {
+  if (expiresAt === undefined) return undefined;
+  const timestamp = new Date(expiresAt).getTime();
+  if (!Number.isFinite(timestamp)) return undefined;
+  if (timestamp <= Date.now()) return `Expired ${new Date(expiresAt).toLocaleDateString()}`;
+  return `Expires ${formatResetDistance(expiresAt)}`;
+}
+
 
 /**
  * The per-model backoff chip, shared by every status arm of the badge.
@@ -161,7 +141,7 @@ export function AccountStatusBadge({
     return (
       <Inline gap="4px">
         <Badge tone={staticToken ? "info" : "ok"} dot>
-          {staticToken ? "Static token" : "Active"}
+          {staticToken ? (account.credentialMode === "jwt" ? "Static JWT" : "Static token") : "Active"}
         </Badge>
         {staticToken ? (
           <Badge tone="info" title="Used as issued and never refreshed; re-login before it expires.">
@@ -190,13 +170,18 @@ export function AccountStatusBadge({
   return <Badge tone="disabled">Disabled</Badge>;
 }
 
-/** Compact account-card detail: status is shown in the badge, not raw errors. */
+/**
+ * The credential line under an account's label. Status is shown in the badge,
+ * while this line identifies the credential family without calling API keys
+ * static.
+ */
 function accountDetail(account: ProviderAccountResponse): string {
-  return account.credentialKind === "oauth"
-    ? "OAuth"
-    : account.credentialKind === "api_key"
-      ? "API key"
-      : "No credential";
+  if (account.credentialMode === "jwt") return "Static JWT";
+  if (account.credentialKind === "oauth") {
+    return account.staticToken ? "Static OAuth" : "OAuth";
+  }
+  if (account.credentialKind === "api_key") return "API key";
+  return "No credential";
 }
 
 function AccountRow({
@@ -225,9 +210,6 @@ function AccountRow({
   const [, setTick] = useState(0);
   const [renaming, setRenaming] = useState(false);
   const [draftLabel, setDraftLabel] = useState("");
-  // Holds the direction awaiting confirmation: `true` = about to mark as a
-  // static token, `false` = about to re-enable refresh, `null` = no dialog.
-  const [staticConfirm, setStaticConfirm] = useState<boolean | null>(null);
   const label = account.label || account.id.slice(0, 8);
   // The countdown re-renders on a timer. It must be armed by the per-model
   // backoffs too, not only by `cooldownUntil`: a model-scoped 429 writes
@@ -281,23 +263,6 @@ function AccountRow({
     );
   };
 
-  // Marks the credential as a static bearer token (used as issued, never
-  // refreshed) or returns it to normal OAuth refresh handling. This is the
-  // operator's escape hatch for a pasted JWT/access token whose refresh grant
-  // is absent or dead while the token itself is still valid.
-  //
-  // Both directions are consequential — turning it on stops refreshing (death
-  // at expiry), turning it off hands the credential back to the OAuth sweep,
-  // which fails for a token with no working grant — so each opens a
-  // confirmation explaining the cost rather than flipping the mode on one click.
-  const staticToken = account.staticToken === true;
-  const applyStaticToken = (): Promise<unknown> =>
-    update.mutateAsync({
-      providerId,
-      accountId: account.id,
-      request: { staticToken: !staticToken },
-    });
-  const toggleStaticToken = () => setStaticConfirm(!staticToken);
 
   const handleTest = () => {
     testQuota.mutate(undefined, {
@@ -372,6 +337,17 @@ function AccountRow({
           </div>
           <div
             className="account-row-detail"
+            style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px" }}
+          >
+            <Badge tone={account.credentialMode === "jwt" || account.credentialKind === "oauth" ? "accent" : "default"}>
+              {credentialLabel(account)}
+            </Badge>
+            {credentialExpiryLabel(account.tokenExpiresAt) ? (
+              <span>{credentialExpiryLabel(account.tokenExpiresAt)}</span>
+            ) : null}
+          </div>
+          <div
+            className="account-row-detail"
             aria-label={`Usage for ${label}`}
             style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px" }}
           >
@@ -386,28 +362,15 @@ function AccountRow({
             <span title="Concurrency comes from this provider’s Routing Strategy; accounts no longer carry manual ceilings.">
               In flight: {inflight?.toLocaleString() ?? "—"}
             </span>
+            {typeof account.lastRemainingCredit === "number" ? (
+              <span title="Last remaining credit the quota sweep fetched. Routing skips this account while the balance is at or below the provider's global credit limit.">
+                Credits left: {account.lastRemainingCredit.toLocaleString()}
+              </span>
+            ) : null}
           </div>
         </div>
 
         <div className="account-row-actions">
-          <Button
-            size="icon"
-            variant={staticToken ? "primary" : "secondary"}
-            icon={<TriangleAlert size={12} />}
-            label={staticToken ? "Static token" : "No refresh"}
-            aria-label={
-              staticToken
-                ? `Static token mode on for ${label}; click to re-enable refresh`
-                : `Mark ${label} as a static token (no refresh)`
-            }
-            disabled={update.isPending}
-            onClick={toggleStaticToken}
-            title={
-              staticToken
-                ? "Static token: used as issued, never refreshed. Click to re-enable refresh."
-                : "Mark as static token: use this credential as issued and never refresh it (for a pasted JWT/access token)."
-            }
-          />
           <Button
             size="icon"
             variant="secondary"
@@ -476,26 +439,13 @@ function AccountRow({
             errorCategory: account.lastErrorCategory ?? undefined,
             errorMessage: account.lastError ?? undefined,
             emptyMessage: "Status transitions, rate limits, and auto-recoveries will appear here.",
+            staticToken: account.staticToken === true,
+            credentialKind: account.credentialKind,
+            credentialMode: account.credentialMode,
           }}
           onClose={() => setShowHistory(false)}
         />
       )}
-      <ConfirmDialog
-        open={staticConfirm !== null}
-        onClose={() => setStaticConfirm(null)}
-        onConfirm={() =>
-          applyStaticToken().then(() =>
-            toast.success(
-              staticConfirm ? "Marked as static token (no refresh)" : "Refresh re-enabled",
-              label,
-            ),
-          )
-        }
-        title={staticTokenWarning(staticConfirm === true, label).title}
-        message={staticTokenWarning(staticConfirm === true, label).message}
-        confirmLabel={staticTokenWarning(staticConfirm === true, label).confirmLabel}
-        cancelLabel="Cancel"
-      />
     </>
   );
 }
@@ -768,7 +718,7 @@ export function AccountsList({
             icon={<FlaskConical size={12} className={grokProbePending ? "animate-spin" : ""} />}
             disabled={grokProbePending || accounts.length === 0}
             onClick={onGrokProbe}
-            title="Probe every Grok account with 4.6 high reasoning"
+            title="Probe every Grok account with the live 407 streaming request"
           >
             {grokProbePending ? "Testing…" : "Test 407"}
           </Button>
@@ -878,13 +828,25 @@ export function AddAccountModal({
   const [label, setLabel] = useState("");
   const [secret, setSecret] = useState("");
   const [batchSubmitting, setBatchSubmitting] = useState(false);
+  const [credentialMode, setCredentialMode] = useState<CredentialMode>("auto");
 
   const entries = parseCredentialBatch(secret);
   const isBatch = entries.length > 1;
   const singleEntry = entries.length === 1 ? entries[0] : undefined;
-  const isOAuthDetected = singleEntry?.kind === "oauth";
+  const detectedKind = credentialMode === "auto" ? singleEntry?.kind : credentialMode;
+  const detectedExpiry =
+    singleEntry && detectedKind === "jwt" ? jwtExpiresAt(singleEntry.value) : undefined;
   const existingNames = accounts.map((account) => account.label);
   const batchNames = isBatch ? assignAccountNames(entries, providerId, existingNames) : [];
+  const requestForEntry = (entry: ParsedCredentialEntry) => {
+    const mode: CredentialMode =
+      credentialMode === "auto" ? (entry.kind === "jwt" ? "jwt" : "auto") : credentialMode;
+    return {
+      credentialKind: mode === "auto" && entry.kind === "oauth" ? ("oauth" as const) : ("api_key" as const),
+      credentialMode: mode,
+      secret: entry.value,
+    };
+  };
   const submitting = create.isPending || batchSubmitting;
 
   const handlePaste = async () => {
@@ -896,10 +858,9 @@ export function AddAccountModal({
         toast.success("Pasted from clipboard", `Detected ${parsed.length} credentials`);
       } else {
         const kind = parsed[0]?.kind ?? "api_key";
-        toast.success(
-          "Pasted from clipboard",
-          kind === "oauth" ? "Detected: OAuth export" : "Detected: API key",
-        );
+        const detectedLabel =
+          kind === "oauth" ? "OAuth export" : kind === "jwt" ? "Static JWT" : "API key";
+        toast.success("Pasted from clipboard", `Detected: ${detectedLabel}`);
       }
     } catch {
       toast.error("Clipboard access denied");
@@ -951,15 +912,16 @@ export function AddAccountModal({
           providerId,
           request: {
             label: (label.trim() || entry.identity) ?? undefined,
-            credentialKind: entry.kind,
-            secret: entry.value,
+            ...requestForEntry(entry),
           },
         },
         {
           onSuccess: () => {
             toast.success(
               "Account connected",
-              `New ${entry.kind === "oauth" ? "OAuth" : "API key"} account registered successfully`,
+              `New ${
+                entry.kind === "oauth" ? "OAuth" : entry.kind === "jwt" ? "Static JWT" : "API key"
+              } account registered successfully`,
             );
             onClose();
           },
@@ -981,7 +943,7 @@ export function AddAccountModal({
       try {
         await create.mutateAsync({
           providerId,
-          request: { label: name, credentialKind: entry.kind, secret: entry.value },
+          request: { label: name, ...requestForEntry(entry) },
         });
         created += 1;
       } catch (err) {
@@ -1021,6 +983,19 @@ export function AddAccountModal({
             placeholder={singleEntry?.identity ?? `${providerId} account`}
           />
         )}
+        <Select
+          label="Credential type"
+          id="credential-mode"
+          value={credentialMode}
+          onValueChange={(value) =>
+            setCredentialMode(value === "jwt" || value === "api_key" ? value : "auto")
+          }
+          options={[
+            { value: "auto", label: "Auto — detect JWT, OAuth, or API key" },
+            { value: "jwt", label: "JWT — static, no refresh" },
+            { value: "api_key", label: "API key — do not decode as JWT" },
+          ]}
+        />
         <Stack gap="6px" style={{ minWidth: 0 }}>
           <div
             style={{
@@ -1035,14 +1010,23 @@ export function AddAccountModal({
             </label>
             {isBatch ? (
               <Badge tone="accent">Detected: {entries.length} accounts</Badge>
-            ) : (
-              singleEntry && (
-                <Badge tone={isOAuthDetected ? "accent" : "default"}>
-                  Detected: {isOAuthDetected ? "OAuth" : "API key"}
-                  {singleEntry.identity ? ` · ${singleEntry.identity}` : ""}
-                </Badge>
-              )
-            )}
+            ) : singleEntry ? (
+              <Badge tone={detectedKind === "oauth" || detectedKind === "jwt" ? "accent" : "default"}>
+                Detected:{" "}
+                {detectedKind === "oauth"
+                  ? "OAuth"
+                  : detectedKind === "jwt"
+                    ? "Static JWT"
+                    : "API key"}
+                {singleEntry.identity ? ` · ${singleEntry.identity}` : ""}
+              </Badge>
+            ) : null}
+              {singleEntry && detectedKind === "jwt" ? (
+                <p style={{ fontSize: "10.5px", color: "var(--text-tertiary)" }}>
+                  Static JWT · no refresh token
+                  {detectedExpiry ? ` · expires ${new Date(detectedExpiry).toLocaleString()}` : " · no expiry claim"}
+                </p>
+              ) : null}
           </div>
           <Inline gap="8px" align="flex-start" style={{ minWidth: 0 }}>
             <textarea

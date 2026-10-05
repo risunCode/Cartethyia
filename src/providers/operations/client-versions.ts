@@ -8,8 +8,8 @@
 import {
   createClientVersionResolver,
   isSemverish,
-  type ClientVersionFetcher,
   type ClientVersionResolver,
+  type ClientVersionSnapshot,
 } from "./client-version-resolver";
 
 async function qoderVersion(response: Response): Promise<string | null> {
@@ -58,6 +58,16 @@ async function kiroVersion(response: Response): Promise<string | null> {
     /currentVersion["\\]*\s*:\s*["\\]*([\d.]+)/.exec(body)?.[1] ??
     /\bIDE\s+([\d.]+)[^<]*Latest/.exec(body)?.[1];
   return isSemverish(version) ? version : null;
+}
+async function antigravityVersion(response: Response): Promise<string | null> {
+  const body = await response.text();
+  for (const line of body.split(/\r?\n/)) {
+    const match = /^\s*version\s*:\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))\s*(?:#.*)?$/.exec(line);
+    if (!match) continue;
+    const version = (match[1] ?? match[2] ?? match[3] ?? "").trim();
+    return isSemverish(version) ? version : null;
+  }
+  return null;
 }
 
 /**
@@ -115,6 +125,16 @@ const KIRO_NODE_VERSION = "24.18.0";
 
 /** Ordered upstream sources and pinned fallbacks for every client version. */
 export const VERSION_SOURCES = {
+  antigravity: {
+    key: "antigravity",
+    fallback: "2.17.0",
+    sources: [
+      {
+        url: "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml",
+        extract: antigravityVersion,
+      },
+    ],
+  },
   qoder: {
     key: "qoder",
     fallback: "1.1.65",
@@ -227,6 +247,7 @@ export const VERSION_SOURCES = {
 } as const;
 
 const resolvers = {
+  antigravity: createClientVersionResolver(VERSION_SOURCES.antigravity),
   qoder: createClientVersionResolver(VERSION_SOURCES.qoder),
   opencode: createClientVersionResolver(VERSION_SOURCES.opencode),
   commandcode: createClientVersionResolver(VERSION_SOURCES.commandcode),
@@ -242,36 +263,51 @@ const resolvers = {
   claudeSdk: createClientVersionResolver(VERSION_SOURCES.claudeSdk),
   kiro: createClientVersionResolver(VERSION_SOURCES.kiro),
 } satisfies Record<keyof typeof VERSION_SOURCES, ClientVersionResolver>;
+const PROVIDER_VERSION_RESOLVERS: Readonly<Record<string, ClientVersionResolver>> = {
+  antigravity: resolvers.antigravity,
+  grok: resolvers.grok,
+  opencode: resolvers.opencode,
+  opencodeft: resolvers.opencode,
+  opencodezen: resolvers.opencode,
+  opencodego: resolvers.opencode,
+  cline: resolvers.clineClient,
+  codex: resolvers.codex,
+  qoder: resolvers.qoder,
+  commandcode: resolvers.commandcode,
+  workbuddy: resolvers.workbuddyClient,
+  cb: resolvers.codebuddy,
+  cbcn: resolvers.codebuddy,
+  kimi: resolvers.kimiCli,
+  kiro: resolvers.kiro,
+  anthropic: resolvers.claudeCli,
+  claude: resolvers.claudeCli,
+};
+
+/** Returns the current client version without performing network I/O. */
+export function getProviderClientVersion(providerId: string): ClientVersionSnapshot | undefined {
+  return PROVIDER_VERSION_RESOLVERS[providerId.trim().toLowerCase()]?.snapshot();
+}
+
+/** Refreshes every provider version resolver in parallel; failures keep fallbacks. */
+export async function refreshProviderClientVersions(): Promise<void> {
+  const resolversToRefresh = [...new Set(Object.values(PROVIDER_VERSION_RESOLVERS))];
+  await Promise.allSettled(resolversToRefresh.map((resolver) => resolver.ensure()));
+}
 
 /**
  * The accessors every table entry needs, generated from its resolver.
  *
- * Each entry used to ship a hand-written `getX` / `resolveX` / `refreshX` /
- * `_resetX` quadruple that all did exactly this — four bodies per entry, which
- * is how a new entry could forget one or drift on which resolver it reads.
- * `accessor(name)` is the one place the shape is decided.
- *
- * A named export is still declared beside the table when callers read better
- * with it (`getCodexVersion`), or when the accessor seeds more than one
- * resolver (`_resetClaudeVersionCache`). Both are one line against a resolver,
- * not a second implementation.
+ * Request paths only use the synchronous getter. Network discovery belongs to
+ * `refreshProviderClientVersions`, so dispatch and OAuth flows never wait on a
+ * version endpoint.
  */
 function accessor<K extends keyof typeof resolvers>(name: K): {
   readonly get: () => string;
-  readonly resolve: (fetcher?: typeof fetch, signal?: AbortSignal) => Promise<string>;
-  readonly refresh: (fetcher?: typeof fetch) => void;
   readonly reset: (version?: string | null) => void;
 } {
   const resolver = resolvers[name];
   return {
     get: () => resolver.get(),
-    resolve: async (fetcher?: typeof fetch, signal?: AbortSignal) => {
-      await resolver.ensure(fetcher, signal);
-      return resolver.get();
-    },
-    refresh: (fetcher?: typeof fetch) => {
-      resolver.refresh(fetcher);
-    },
     reset: (version?: string | null) => {
       resolver.reset(version);
     },
@@ -279,21 +315,18 @@ function accessor<K extends keyof typeof resolvers>(name: K): {
 }
 
 export const getQoderVersion = accessor("qoder").get;
-export const resolveQoderVersion = accessor("qoder").resolve;
 export const _resetQoderVersion = accessor("qoder").reset;
+export const getAntigravityVersion = accessor("antigravity").get;
+export const _resetAntigravityVersion = accessor("antigravity").reset;
 
 export const getOpenCodeVersion = accessor("opencode").get;
-export const resolveOpenCodeVersion = accessor("opencode").resolve;
-export const refreshOpenCodeVersion = accessor("opencode").refresh;
 export const _resetOpenCodeVersion = accessor("opencode").reset;
 
 export const getCommandCodeVersion = accessor("commandcode").get;
-export const resolveCommandCodeVersion = accessor("commandcode").resolve;
 export const _resetCommandCodeVersion = accessor("commandcode").reset;
 
 export const getGrokVersion = accessor("grok").get;
-export const resolveGrokVersion = accessor("grok").resolve;
-export const refreshGrokVersion = accessor("grok").refresh;
+export const _resetGrokVersionCache = accessor("grok").reset;
 
 export function buildGrokUserAgent(version = getGrokVersion()): string {
   return `grok-shell/${version} (linux; x86_64)`;
@@ -303,32 +336,17 @@ export function buildGrokAuthUserAgent(version = getGrokVersion()): string {
   return `grok-pager/${version} grok-shell/${version} (linux; x86_64)`;
 }
 
-export const _resetGrokVersionCache = accessor("grok").reset;
 
 export const getClineClientVersion = accessor("clineClient").get;
 export const getClineSdkVersion = accessor("clineSdk").get;
-export const resolveClineClientVersion = accessor("clineClient").resolve;
-export const resolveClineSdkVersion = accessor("clineSdk").resolve;
-export const refreshClineClientVersion = accessor("clineClient").refresh;
 
-export const resolveWorkBuddyClientVersion = accessor("workbuddyClient").resolve;
 export const _resetWorkBuddyClientVersionCache = accessor("workbuddyClient").reset;
 
 export const getCodexVersion = accessor("codex").get;
-export const resolveCodexVersion = accessor("codex").resolve;
-export const refreshCodexVersion = accessor("codex").refresh;
 export const _resetCodexVersion = accessor("codex").reset;
 
 export const getWorkBuddyClientVersion = accessor("workbuddyClient").get;
 export const getWorkBuddyCliVersion = accessor("workbuddyCli").get;
-
-export async function resolveWorkBuddyVersion(fetcher?: typeof fetch, signal?: AbortSignal): Promise<string> {
-  await Promise.all([
-    resolvers.workbuddyClient.ensure(fetcher, signal),
-    resolvers.workbuddyCli.ensure(fetcher, signal),
-  ]);
-  return getWorkBuddyCliVersion();
-}
 
 export function buildWorkBuddyUserAgent(
   clientVersion = getWorkBuddyClientVersion(),
@@ -340,13 +358,9 @@ export function buildWorkBuddyUserAgent(
 export const _resetWorkBuddyVersionCache = accessor("workbuddyCli").reset;
 
 export const getKimiCliVersion = accessor("kimiCli").get;
-export const resolveKimiCliVersion = accessor("kimiCli").resolve;
-export const refreshKimiCliVersion = accessor("kimiCli").refresh;
 export const _resetKimiCliVersion = accessor("kimiCli").reset;
 
 export const getCodeBuddyVersion = accessor("codebuddy").get;
-export const resolveCodeBuddyVersion = accessor("codebuddy").resolve;
-
 export function buildCodeBuddyUserAgent(
   identity: "IDE" | "CLI",
   version = getCodeBuddyVersion(),
@@ -357,9 +371,7 @@ export function buildCodeBuddyUserAgent(
 export const _resetCodeBuddyVersionCache = accessor("codebuddy").reset;
 
 export const getClaudeCliVersion = accessor("claudeCli").get;
-export const resolveClaudeCliVersion = accessor("claudeCli").resolve;
 export const getClaudeSdkVersion = accessor("claudeSdk").get;
-export const resolveClaudeSdkVersion = accessor("claudeSdk").resolve;
 
 export function _resetClaudeVersionCache(version: string | null = null): void {
   resolvers.claudeCli.reset(version);
@@ -367,12 +379,6 @@ export function _resetClaudeVersionCache(version: string | null = null): void {
 }
 
 export const getKiroVersion = accessor("kiro").get;
-// Kiro's callers pass its own `FetchLike` (a narrower fetch surface), so the
-// generated signature is widened here rather than at the factory.
-export const resolveKiroVersion = accessor("kiro").resolve as (
-  fetcher?: ClientVersionFetcher,
-  signal?: AbortSignal,
-) => Promise<string>;
 export const _resetKiroVersion = accessor("kiro").reset;
 
 /**

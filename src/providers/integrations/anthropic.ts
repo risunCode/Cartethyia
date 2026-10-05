@@ -121,12 +121,12 @@ import { defineModel } from "../model-definition";
 export const ANTHROPIC_MODELS: readonly ModelDefinition[] = [
   // Current-generation SKUs and limits: the 5-series ships at 1M/128k,
   // opus-4-5 is a 200k/64k budget-era row, and haiku-4-5 keeps its 200k window.
-  defineModel({ id: "claude-mythos-5", wireFamily: "messages", endpoint: "/v1/messages", ctx: 1000000, out: 128000, vision: true, reasoning: true, webSearch: true }),
-  defineModel({ id: "claude-mythos-5-1", wireFamily: "messages", endpoint: "/v1/messages", ctx: 1000000, out: 128000, vision: true, reasoning: true, webSearch: true }),
-  defineModel({ id: "claude-opus-5-5", wireFamily: "messages", endpoint: "/v1/messages", ctx: 1000000, out: 128000, vision: true, reasoning: true, webSearch: true }),
-  defineModel({ id: "claude-opus-4-6", wireFamily: "messages", endpoint: "/v1/messages", ctx: 1000000, out: 128000, vision: true, reasoning: true, webSearch: true }),
-  defineModel({ id: "claude-sonnet-4-6", wireFamily: "messages", endpoint: "/v1/messages", ctx: 1000000, out: 128000, vision: true, reasoning: true, webSearch: true }),
-  defineModel({ id: "claude-opus-4-5", wireFamily: "messages", endpoint: "/v1/messages", ctx: 200000, out: 64000, vision: true, reasoning: true, webSearch: true }),
-  defineModel({ id: "claude-haiku-4-5", wireFamily: "messages", endpoint: "/v1/messages", ctx: 200000, out: 64000, vision: true, reasoning: true, webSearch: true }),
+  defineModel({ id: "claude-mythos-5", wireFamily: "messages", endpoint: "/v1/messages", ctx: 1000000, out: 128000, vision: true, reasoning: true,}),
+  defineModel({ id: "claude-mythos-5-1", wireFamily: "messages", endpoint: "/v1/messages", ctx: 1000000, out: 128000, vision: true, reasoning: true,}),
+  defineModel({ id: "claude-opus-5-5", wireFamily: "messages", endpoint: "/v1/messages", ctx: 1000000, out: 128000, vision: true, reasoning: true,}),
+  defineModel({ id: "claude-opus-4-6", wireFamily: "messages", endpoint: "/v1/messages", ctx: 1000000, out: 128000, vision: true, reasoning: true,}),
+  defineModel({ id: "claude-sonnet-4-6", wireFamily: "messages", endpoint: "/v1/messages", ctx: 1000000, out: 128000, vision: true, reasoning: true,}),
+  defineModel({ id: "claude-opus-4-5", wireFamily: "messages", endpoint: "/v1/messages", ctx: 200000, out: 64000, vision: true, reasoning: true,}),
+  defineModel({ id: "claude-haiku-4-5", wireFamily: "messages", endpoint: "/v1/messages", ctx: 200000, out: 64000, vision: true, reasoning: true,}),
 ];
 

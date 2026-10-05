@@ -44,5 +44,7 @@ bun run dashboard:typecheck  # when dashboard/ changes
 bun run build                # when a build entry/contract changes
 ```
 
-Then exercise the real boundary described by `verification.md`. There is no
-active test suite; do not claim behavioral coverage from typecheck alone.
+Then exercise the real boundary described by `verification.md`, plus the
+affected test scope (`bun run test:backend`, `bun run dashboard:test`).
+
+

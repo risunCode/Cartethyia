@@ -25,8 +25,8 @@ import { metrics } from "../../observability/metrics";
 import type { NetworkPoolSelector } from "../../network/pool/selector";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
 import { ProxyRequestStateStore } from "../request/state";
+import { preferencesReaderFor } from "./attempt-finalize";
 import { ProxyRequestPreparer } from "../request/preparer";
-import { isModelAllowed } from "../../security/api-key-auth";
 import { parseThinkingSuffix } from "../translation/thinking";
 import { completeAttempt, estimatedUsage } from "./attempt-finalize";
 import { runAttemptLoop } from "./attempt-loop";
@@ -77,8 +77,9 @@ export function createWebsearchHandler(deps: WebsearchHandlerDeps) {
     const { model: bareModel } = parseThinkingSuffix(search.model);
     const searchBody: Record<string, unknown> =
       bareModel === search.model ? search : { ...search, model: bareModel };
-    if (!isModelAllowed(authorization.snapshot, bareModel))
-      throw new GatewayError("model_not_found", 404, "model is not allowed for this API key");
+    if (!authorization.snapshot.scopes?.includes("search:invoke" as never)) {
+      throw new GatewayError("invalid_request", 403, "search not allowed for this key — enable search:invoke on the API key");
+    }
     // Trust boundary only: the query must be a non-empty string. The adapter
     // validates the remaining shape when it maps the body onto its provider.
     if (typeof search.query !== "string" || search.query.trim().length === 0)
@@ -89,7 +90,17 @@ export function createWebsearchHandler(deps: WebsearchHandlerDeps) {
       serviceKind: "websearch",
       authorization,
       ...(state.abortController.signal ? { signal: state.abortController.signal } : {}),
+      ...(state.clientUserAgent === undefined ? {} : { clientUserAgent: state.clientUserAgent }),
     });
+    // Order search candidates by tenant preference (drag order in Providers > Search)
+    try {
+      const prefs = await preferencesReaderFor(deps.db).readPreferences(prepared.authorization.tenantId);
+      const order = prefs?.webSearchOrder as readonly string[] | undefined;
+      if (order && order.length) {
+        const idx = new Map(order.map((id, i) => [id.toLowerCase(), i] as const));
+        (prepared.candidates as unknown as { provider_id: string }[]).sort((a: { provider_id: string }, b: { provider_id: string }) => (idx.get(a.provider_id.toLowerCase()) ?? 999) - (idx.get(b.provider_id.toLowerCase()) ?? 999));
+      }
+    } catch {}
     return runAttemptLoop<Response, WebsearchAdapter>({
       state,
       deps,

@@ -4,7 +4,7 @@ import type { ValidatedOutboundFetch } from "../../providers/provider-registry";
 import { reportAttemptOutcome } from "../../providers/operations/account-health-service";
 import type { UsageRecord } from "../canonical-model";
 import { classifyUpstreamFailure } from "../failure-policy";
-import type { AdmissionLease } from "../../security/admission";
+import type { AdmissionLease } from "../../security/admission/contracts";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { TelemetryPayloadCapture } from "../../observability/payload-capture";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
@@ -215,62 +215,53 @@ async function resolvedProviderResponse(
 }
 
 /**
- * Fire-and-forget terminal payload capture. Never throws, never blocks the
- * response path — telemetry must not fail requests.
- *
- * A failure here is *not* silent: capture is an operator-visible switch, so an
- * opted-in tenant whose bodies never appear is a defect they cannot diagnose
- * from the UI. The usual cause is a deployment one — the payload directory is
- * not writable by the runtime user, which a bind-mounted `/app/data` produces
- * when the host directory is owned by root. The error is reported once per
- * process so a broken directory cannot flood the log per request, and the
- * message names the directory and the fix.
+ * Captures terminal payloads before telemetry finalization. It never throws into
+ * the request path, but awaiting the bounded storage operation ensures the
+ * request-detail endpoint cannot race the payload row and report a false miss.
  */
-function captureTerminalPayload(
+async function captureTerminalPayload(
   db: CartethyiaDatabase,
   tenantId: string | null,
   requestId: string,
   requestBody: unknown,
   responseBody: unknown,
-  clientResponseBody?: unknown,
+  clientResponseBody?: string,
   providerCapture?: ProviderExchangeCapture,
-): void {
+): Promise<void> {
   if (!tenantId) return;
-  void (async () => {
-    try {
-      const mode = await resolvePayloadCaptureMode(db, tenantId);
-      if (mode === "none") return;
-      if (mode === "metadata") {
-        const providerRequest = providerRequestMetadataOnly(providerCapture?.request ?? null);
-        if (providerRequest === null) return;
-        await new TelemetryPayloadCapture(db).capture({
-          tenantId,
-          requestId,
-          requestBody: null,
-          responseBody: null,
-          providerRequestBody: providerRequest,
-          scope: "tenant",
-          tenantOptIn: true,
-        });
-        return;
-      }
-      const providerRequest = providerCapture?.request ?? null;
-      const providerResponse = await resolvedProviderResponse(providerCapture);
+  try {
+    const mode = await resolvePayloadCaptureMode(db, tenantId);
+    if (mode === "none") return;
+    if (mode === "metadata") {
+      const providerRequest = providerRequestMetadataOnly(providerCapture?.request ?? null);
+      if (providerRequest === null) return;
       await new TelemetryPayloadCapture(db).capture({
         tenantId,
         requestId,
-        requestBody: requestBody ?? null,
-        responseBody: responseBody ?? null,
-        ...(clientResponseBody === undefined ? {} : { clientResponseBody: clientResponseBody ?? null }),
-        ...(providerRequest === null ? {} : { providerRequestBody: providerRequest }),
-        ...(providerResponse === null ? {} : { providerResponseBody: providerResponse }),
+        requestBody: null,
+        responseBody: null,
+        providerRequestBody: providerRequest,
         scope: "tenant",
         tenantOptIn: true,
       });
-    } catch (error) {
-      reportCaptureFailure(error);
+      return;
     }
-  })();
+    const providerRequest = providerCapture?.request ?? null;
+    const providerResponse = await resolvedProviderResponse(providerCapture);
+    await new TelemetryPayloadCapture(db).capture({
+      tenantId,
+      requestId,
+      requestBody: requestBody ?? null,
+      responseBody: responseBody ?? null,
+      ...(clientResponseBody === undefined ? {} : { clientResponseBody: clientResponseBody ?? null }),
+      ...(providerRequest === null ? {} : { providerRequestBody: providerRequest }),
+      ...(providerResponse === null ? {} : { providerResponseBody: providerResponse }),
+      scope: "tenant",
+      tenantOptIn: true,
+    });
+  } catch (error) {
+    reportCaptureFailure(error);
+  }
 }
 
 let captureFailureReported = false;
@@ -521,6 +512,13 @@ export async function completeAttempt(
   // advisory: a failed report must never re-enter the retry path (a retry
   // would see `completed` and skip completion entirely), so it is swallowed.
   if (completion.status !== "cancelled" && !disableProxy) {
+    // DEPLOYMENT_DISABLED and similar infra errors are proxy pool failures,
+    // not account quota. Classify with scope pool so account stays healthy.
+    const msg = completion.error instanceof Error ? completion.error.message.toLowerCase() : "";
+    const isProxyDeploymentError = msg.includes("deployment_disabled") || (msg.includes("sin1::") && msg.includes("deployment"));
+    const evidence = isProxyDeploymentError
+      ? { scope: "pool" as const, origin: "network" as const }
+      : { ...classifyUpstreamFailure(completion.error) };
     try {
       await reportAttemptOutcome(completion.db, {
         accountId: completion.accountId,
@@ -528,7 +526,7 @@ export async function completeAttempt(
         ...(completion.status === "failed"
           ? {
               error: completion.error,
-              evidence: { ...classifyUpstreamFailure(completion.error) },
+              evidence,
             }
           : {}),
         ...(completion.snapshotService ? { snapshotService: completion.snapshotService } : {}),
@@ -561,7 +559,7 @@ export async function completeAttempt(
     }
   }
   if (!completion.terminal) return;
-  captureTerminalPayload(
+  await captureTerminalPayload(
     completion.db,
     completion.tenantId,
     state.requestId,
