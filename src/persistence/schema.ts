@@ -214,21 +214,6 @@ export const providerAccounts = pgTable("provider_accounts", {
    * failure, because there is no refresh to run.
    */
   staticToken: boolean("static_token").notNull().default(false),
-  /**
-   * Last remaining credit fetched by the quota sweep, cached on the row so the
-   * request path can compare it against the provider's minimum balance
-   * without a live provider round trip. `null` means no credit figure has ever
-   * been fetched.
-   */
-  lastRemainingCredit: numeric("last_remaining_credit", { precision: 16, scale: 4 }),
-  /**
-   * Lowest remaining quota percent fetched by the quota sweep (Codex weekly,
-   * Muse rolling/weekly), for providers that report percent windows instead
-   * of absolute credits. The minimum-balance floor compares in whichever unit
-   * the account reported — credits when present, otherwise this percent.
-   * `null` means no percent figure has ever been fetched.
-   */
-  lastRemainingPercent: numeric("last_remaining_percent", { precision: 8, scale: 3 }),
 
   },
   (table) => [
@@ -425,11 +410,10 @@ export const healthEvents = pgTable(
 // Model aliasing & combos: replaces the dormant, disconnected
 // `routing_policies` scaffolding. Aliases resolve a client-facing name to a
 // real model; combos back a client-facing name with >=1 real models,
-// auto-selected via `fallback`, `round_robin`, or `fusion`.
+// auto-selected via `fallback` or `round_robin`.
 export const modelComboStrategy = pgEnum("model_combo_strategy", [
   "fallback",
   "round_robin",
-  "fusion",
 ]);
 
 /** Canonical `ComboStrategy` union, derived from the enum above. Console
@@ -505,16 +489,6 @@ export const providerRoutingSettings = pgTable(
      * (the field sits next to the failover/round-robin strategy in the UI).
      * `null` = UNLIMITED concurrency per account. */
     maxInflight: integer("max_inflight"),
-    /**
-     * Minimum-balance protection for every account of this provider/tenant:
-     * when enabled, routing skips any account whose last fetched remaining
-     * balance is at or below `creditLimit` — credits for credit providers,
-     * percent for quota-percent providers. Opt-in per provider; off unless the
-     * operator enables it.
-     */
-    creditLimitEnabled: boolean("credit_limit_enabled").notNull().default(false),
-    /** Minimum balance to keep unused on every account; credits or percent. */
-    creditLimit: integer("credit_limit").notNull().default(50),
     enabled: boolean("enabled").notNull().default(false),
     // Route-selected User-Agent for built-in API-key providers; OAuth and BYOK identities stay native.
     userAgent: text("user_agent").notNull().default("codex_cli_rs/0.156.1"),

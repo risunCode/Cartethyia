@@ -429,10 +429,6 @@ export interface ProviderAccountResponse {
    * of treating the account as broken; the account stays dispatchable.
    */
   staticToken?: boolean;
-  /** Last remaining credit the quota sweep fetched; `null` = never fetched. */
-  lastRemainingCredit: number | null;
-  /** Lowest remaining quota percent the sweep fetched; `null` = never fetched. */
-  lastRemainingPercent: number | null;
   /** Stable list position within this provider; the console's "Added" order. */
   sortIndex: number;
 }
@@ -672,10 +668,6 @@ export interface ProviderRoutingResponse {
   readonly rotateCount: number;
   /** Per-account inflight ceiling; `null` = unlimited concurrency. */
   readonly maxInflight: number | null;
-  /** Minimum-balance protection for every account of this provider/tenant. */
-  readonly creditLimitEnabled: boolean;
-  /** Minimum remaining balance to keep; credits or percent, default 50. */
-  readonly creditLimit: number;
   readonly enabled: boolean;
   /** When true, this provider's requests always dial direct. When false,
    * dispatch automatically picks the least-loaded, non-cooldown pool among
@@ -707,10 +699,6 @@ export interface UpdateProviderRoutingRequest {
   readonly rotateCount?: number;
   /** Per-account inflight ceiling; `null` = unlimited concurrency. */
   readonly maxInflight?: number | null;
-  /** Minimum-balance protection for every account of this provider/tenant. */
-  readonly creditLimitEnabled?: boolean;
-  /** Minimum remaining balance to keep; credits or percent. */
-  readonly creditLimit?: number;
   readonly enabled?: boolean;
   /** When true, this provider's requests always dial direct. */
   readonly bypassProxy?: boolean;

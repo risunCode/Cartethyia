@@ -347,7 +347,8 @@ export function columnNames(table: Table): ReadonlySet<string> {
  * number back would be worse than omitting it.
  */
 const LEGACY_DROPPED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  provider_accounts: ["max_inflight"],
+  provider_accounts: ["max_inflight", "min_credit_balance", "last_remaining_credit", "last_remaining_percent"],
+  provider_routing_settings: ["credit_floor", "credit_limit", "credit_limit_enabled"],
   share_links: ["used_at"],
   api_keys: [
     "share_popup_enabled",

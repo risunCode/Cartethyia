@@ -18,8 +18,8 @@ function modelRoutingErrorResponse(error: unknown, set: { status?: number | stri
 // without updating these literals fails here.
 type ExpectComboParity<T extends true> = T;
 export type ComboSchemaParity = ExpectComboParity<
-  [ComboStrategy] extends ["fallback" | "round_robin" | "fusion"]
-    ? (["fallback" | "round_robin" | "fusion"] extends [ComboStrategy] ? true : false)
+  [ComboStrategy] extends ["fallback" | "round_robin"]
+    ? (["fallback" | "round_robin"] extends [ComboStrategy] ? true : false)
     : false
 >;
 const createAliasBody = t.Object({ alias: t.String(), targetModel: t.String() });

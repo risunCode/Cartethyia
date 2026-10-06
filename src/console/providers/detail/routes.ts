@@ -24,7 +24,6 @@ const ROUTING_STRATEGIES = providerRoutingStrategy.enumValues;
 const ROUTING_BOUNDS = {
   rotateCount: { min: 1, max: 1000 },
   maxInflight: PROVIDER_ROUTING_MAX_INFLIGHT_BOUNDS,
-  creditLimit: { min: 0, max: 1_000_000_000 },
 } as const;
 
 export function createProviderDetailOperations(deps: ProviderDetailConfig) {
@@ -77,20 +76,6 @@ export function createProviderDetailOperations(deps: ProviderDetailConfig) {
       ) {
         throw new ConsoleDomainError("invalid_request", 400, "userAgent must be a non-empty header value up to 4096 characters");
       }
-      if (patch.creditLimit !== undefined) {
-        const { creditLimit } = ROUTING_BOUNDS;
-        if (
-          !Number.isInteger(patch.creditLimit) ||
-          patch.creditLimit < creditLimit.min ||
-          patch.creditLimit > creditLimit.max
-        ) {
-          throw new ConsoleDomainError(
-            "invalid_credit_limit",
-            400,
-            `creditLimit must be an integer between ${creditLimit.min} and ${creditLimit.max}`,
-          );
-        }
-      }
       const updated = await deps.store.updateRouting(providerId, a.tenantId, patch);
       await deps.auditSink?.record({
         access: a,
@@ -138,10 +123,6 @@ const updateRoutingBody = t.Object({
   ),
   bypassProxy: t.Optional(t.Boolean()),
   userAgent: t.Optional(t.String({ minLength: 1, maxLength: 4096 })),
-  creditLimitEnabled: t.Optional(t.Boolean()),
-  creditLimit: t.Optional(
-    t.Integer({ minimum: ROUTING_BOUNDS.creditLimit.min, maximum: ROUTING_BOUNDS.creditLimit.max }),
-  ),
 });
 
 

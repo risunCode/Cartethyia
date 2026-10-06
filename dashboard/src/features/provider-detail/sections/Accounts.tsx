@@ -362,11 +362,6 @@ function AccountRow({
             <span title="Concurrency comes from this provider’s Routing Strategy; accounts no longer carry manual ceilings.">
               In flight: {inflight?.toLocaleString() ?? "—"}
             </span>
-            {typeof account.lastRemainingCredit === "number" ? (
-              <span title="Last remaining credit the quota sweep fetched. Routing skips this account while the balance is at or below the provider's global credit limit.">
-                Credits left: {account.lastRemainingCredit.toLocaleString()}
-              </span>
-            ) : null}
           </div>
         </div>
 

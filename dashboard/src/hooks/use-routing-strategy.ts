@@ -33,12 +33,6 @@ export interface RoutingStrategyState {
   readonly bypassProxy: boolean;
   readonly userAgent: string;
   readonly setUserAgent: (next: string) => void;
-  /** Minimum-balance toggle for every account of this provider/tenant. */
-  readonly creditLimitEnabled: boolean;
-  readonly setCreditLimitEnabled: (next: boolean) => void;
-  /** Minimum remaining balance to keep on every account; credits or percent, default 50. */
-  readonly creditLimit: number;
-  readonly setCreditLimit: (next: number) => void;
   readonly isLoading: boolean;
   readonly isError: boolean;
   readonly isSaving: boolean;
@@ -56,8 +50,6 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
   const [maxInflight, setMaxInflightState] = useState<number | null>(null);
   const [bypassProxy, setBypassProxyState] = useState(false);
   const [userAgent, setUserAgentState] = useState("codex_cli_rs/0.156.1");
-  const [creditLimitEnabled, setCreditLimitEnabledState] = useState(false);
-  const [creditLimit, setCreditLimitState] = useState(50);
 
   useEffect(() => {
     if (!query.data) return;
@@ -66,8 +58,6 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
     setMaxInflightState(query.data.maxInflight);
     setBypassProxyState(query.data.bypassProxy);
     setUserAgentState(query.data.userAgent);
-    setCreditLimitEnabledState(query.data.creditLimitEnabled);
-    setCreditLimitState(query.data.creditLimit);
   }, [query.data]);
 
   const save = (next: {
@@ -76,8 +66,6 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
     maxInflight: number | null;
     bypassProxy: boolean;
     userAgent: string;
-    creditLimitEnabled: boolean;
-    creditLimit: number;
   }) => {
     mutation.mutate(
       {
@@ -88,8 +76,6 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
           rotateCount: next.rotateCount,
           maxInflight: next.maxInflight,
           bypassProxy: next.bypassProxy,
-          creditLimitEnabled: next.creditLimitEnabled,
-          creditLimit: next.creditLimit,
           ...(allowUserAgent ? { userAgent: next.userAgent } : {}),
         },
       },
@@ -100,8 +86,6 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
           setRotateCountState(query.data.rotateCount);
           setBypassProxyState(query.data.bypassProxy);
           setUserAgentState(query.data.userAgent);
-          setCreditLimitEnabledState(query.data.creditLimitEnabled);
-          setCreditLimitState(query.data.creditLimit);
         },
       },
     );
@@ -113,8 +97,6 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
       maxInflight: next,
       bypassProxy,
       userAgent,
-      creditLimitEnabled,
-      creditLimit,
     }),
   );
   const scheduleRotateCountSave = useDebouncedSave((next: number) =>
@@ -124,8 +106,6 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
       maxInflight,
       bypassProxy,
       userAgent,
-      creditLimitEnabled,
-      creditLimit,
     }),
   );
   const scheduleUserAgentSave = useDebouncedSave((next: string) =>
@@ -135,19 +115,6 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
       maxInflight,
       bypassProxy,
       userAgent: next,
-      creditLimitEnabled,
-      creditLimit,
-    }),
-  );
-  const scheduleCreditLimitSave = useDebouncedSave((next: number) =>
-    save({
-      strategy,
-      rotateCount,
-      maxInflight,
-      bypassProxy,
-      userAgent,
-      creditLimitEnabled,
-      creditLimit: next,
     }),
   );
 
@@ -156,8 +123,6 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
     maxInflight,
     bypassProxy,
     userAgent,
-    creditLimitEnabled,
-    creditLimit,
     isLoading: query.isPending,
     isError: query.isError,
     isSaving: mutation.isPending,
@@ -179,25 +144,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
         maxInflight,
         bypassProxy: next,
         userAgent,
-        creditLimitEnabled,
-        creditLimit,
       });
-    },
-    setCreditLimitEnabled: (next) => {
-      setCreditLimitEnabledState(next);
-      save({
-        strategy,
-        rotateCount,
-        maxInflight,
-        bypassProxy,
-        userAgent,
-        creditLimitEnabled: next,
-        creditLimit,
-      });
-    },
-    setCreditLimit: (next) => {
-      setCreditLimitState(next);
-      scheduleCreditLimitSave(next);
     },
     roundRobinEnabled: strategy === "round_robin",
     setRoundRobinEnabled: (next) => {
@@ -209,8 +156,6 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
         maxInflight,
         bypassProxy,
         userAgent,
-        creditLimitEnabled,
-        creditLimit,
       });
     },
     rotateCount,

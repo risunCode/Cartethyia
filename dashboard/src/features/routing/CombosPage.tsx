@@ -489,7 +489,7 @@ function CombosSection(): ReactNode {
     <Card>
       <CardHeader
         title="Combos"
-        subtitle="Combine multiple models with fallback, round-robin rotation, or fusion"
+        subtitle="Combine multiple models with fallback or round-robin rotation"
         icon={<Layers size={16} />}
         action={
           <Button variant="primary" size="sm" icon={<Plus size={13} />} onClick={openCreate}>
@@ -647,13 +647,6 @@ function CombosSection(): ReactNode {
             onValueChange={(v) => setStrategy(v as ComboStrategy)}
             options={COMBO_STRATEGY_OPTIONS}
           />
-          {strategy === "fusion" ? (
-            <p style={{ fontSize: "11px", color: "var(--text-tertiary)", margin: 0 }}>
-              Fusion runs every member as a panel in parallel, then the first member (the judge)
-              synthesizes one final answer from the panel responses. The judge keeps the client's
-              stream and tools; panel models answer non-streaming with tools stripped.
-            </p>
-          ) : null}
           <Stack gap="6px">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)" }}>

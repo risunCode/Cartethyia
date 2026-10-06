@@ -1104,14 +1104,6 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
       createdAt: row.createdAt.toISOString(),
       sortIndex: row.sortIndex,
       ...(row.staticToken ? { staticToken: true } : {}),
-      lastRemainingCredit:
-        row.lastRemainingCredit === null || row.lastRemainingCredit === undefined
-          ? null
-          : Number(row.lastRemainingCredit),
-      lastRemainingPercent:
-        row.lastRemainingPercent === null || row.lastRemainingPercent === undefined
-          ? null
-          : Number(row.lastRemainingPercent),
     };
   }
 

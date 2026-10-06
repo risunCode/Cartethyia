@@ -18,15 +18,15 @@
  *   bun run scripts/commands/grok-health-sweep.ts --provider grok --batch 10
  */
 import { asc, eq } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../src/persistence/postgres";
-import { closeDb, getDb } from "../../src/persistence/postgres";
+import type { CartethyiaDatabase } from "../../src/persistence/db-handle";
+import { closeDb, getDb } from "../../src/persistence/boot";
 import { providerAccounts } from "../../src/persistence/schema";
 import type { ProbeModelResult } from "../../src/providers/discovery/discovery-types";
 import { GROK_407_PROBE_PROMPT } from "../../src/providers/discovery/probe-phases";
 import { ProviderProbingService } from "../../src/providers/discovery/probing-service";
 import { createDefaultProviderRegistry } from "../../src/providers/default-registry";
 import type { ProbeOutboundBinding } from "../../src/providers/discovery/probing-service";
-import type { ValidatedOutboundFetch } from "../../src/providers/provider-registry";
+import type { ValidatedOutboundFetch } from "../../src/providers/contracts";
 import { ENV_PATH, readEnvFile } from "../internal/env";
 
 /** Accounts per batch. Batches are separated by a randomized pause. */

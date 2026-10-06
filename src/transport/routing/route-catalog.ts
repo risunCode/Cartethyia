@@ -71,7 +71,7 @@ export function cliMappingSourceKeys(toolId: string, sourceModel: string): reado
  */
 
 type RouteCandidateWithHealth = RouteCandidate & {
-  health_status?: "cooldown" | "model_cooldown" | "credit_floor_reached" | "disabled";
+  health_status?: "cooldown" | "model_cooldown" | "disabled";
   cooldown_kind?: "hard" | "soft";
 };
 
@@ -231,8 +231,6 @@ const ACCOUNT_COLUMNS = {
   cooldownUntil: providerAccounts.cooldownUntil,
   modelCooldowns: providerAccounts.modelCooldowns,
   lastErrorCategory: providerAccounts.lastErrorCategory,
-  lastRemainingCredit: providerAccounts.lastRemainingCredit,
-  lastRemainingPercent: providerAccounts.lastRemainingPercent,
 } as const;
 
 const ALIAS_COLUMNS = {
@@ -254,8 +252,6 @@ const ROUTING_COLUMNS = {
   strategy: providerRoutingSettings.strategy,
   rotateCount: providerRoutingSettings.rotateCount,
   maxInflight: providerRoutingSettings.maxInflight,
-  creditLimitEnabled: providerRoutingSettings.creditLimitEnabled,
-  creditLimit: providerRoutingSettings.creditLimit,
   enabled: providerRoutingSettings.enabled,
   bypassProxy: providerRoutingSettings.bypassProxy,
   userAgent: providerRoutingSettings.userAgent,
@@ -384,8 +380,6 @@ class RouteCatalogRepository {
         strategy: row.strategy as ProviderRoutingMap[string][string]["strategy"],
         rotateCount: row.rotateCount ?? 1,
         maxInflight: row.maxInflight,
-        creditLimitEnabled: row.creditLimitEnabled,
-        creditLimit: row.creditLimit,
         enabled: row.enabled,
         bypassProxy: row.bypassProxy,
         userAgent: row.userAgent,
@@ -428,23 +422,6 @@ class RouteCatalogRepository {
       const globalSetting = providerRouting.__global__?.[providerId]?.maxInflight;
       const resolved = tenantSetting ?? globalSetting;
       return resolved === null || resolved === undefined ? undefined : resolved;
-    }
-
-    /**
-     * Minimum-balance protection for every account of this provider/tenant.
-     * Tenant setting wins over global; an unconfigured provider resolves to
-     * the documented default (disabled, 50) so the floor is opt-in and the
-     * value fits both units — 50 credits or 50%.
-     */
-    function resolveCreditProtection(
-      providerId: string,
-      rowTenantId: string | null,
-    ): { readonly enabled: boolean; readonly limit: number } {
-      const tenantSetting = rowTenantId ? providerRouting[rowTenantId]?.[providerId] : undefined;
-      const globalSetting = providerRouting.__global__?.[providerId];
-      const enabled = tenantSetting?.creditLimitEnabled ?? globalSetting?.creditLimitEnabled;
-      const limit = tenantSetting?.creditLimit ?? globalSetting?.creditLimit;
-      return { enabled: enabled ?? false, limit: limit ?? 50 };
     }
 
     /** Every active pool the account's tenant owns — dispatch picks the
@@ -579,23 +556,6 @@ class RouteCatalogRepository {
           ...(routeUserAgent === undefined ? {} : { user_agent: routeUserAgent }),
           tenant_id: rowTenantId,
           provider_account_id: account.id,
-          ...(() => {
-            const credit = resolveCreditProtection(model.providerId, rowTenantId);
-            return {
-              credit_limit_enabled: credit.enabled,
-              credit_limit: credit.limit,
-            };
-          })(),
-          ...(typeof account.lastRemainingCredit === "string"
-            ? { last_remaining_credit: Number(account.lastRemainingCredit) }
-            : account.lastRemainingCredit === null || account.lastRemainingCredit === undefined
-              ? {}
-              : { last_remaining_credit: account.lastRemainingCredit }),
-          ...(typeof account.lastRemainingPercent === "string"
-            ? { last_remaining_percent: Number(account.lastRemainingPercent) }
-            : account.lastRemainingPercent === null || account.lastRemainingPercent === undefined
-              ? {}
-              : { last_remaining_percent: account.lastRemainingPercent }),
           // Provider-wide concurrency ceiling from Routing Strategy; legacy
           // account overrides are never read here.
           ...(() => {
@@ -644,9 +604,6 @@ class RouteCatalogRepository {
         if (modelCooldownUntil && new Date(modelCooldownUntil).getTime() > Date.now()) {
           candidate.health_status = "model_cooldown";
         }
-        // Credit protection is evaluated at plan time from the candidate's
-        // global `credit_limit` / `last_remaining_credit` pair, so no health
-        // stamp is materialized here.
         if (tenantId === undefined || candidate.tenant_id === null || candidate.tenant_id === tenantId) {
           candidates.push(candidate);
         }

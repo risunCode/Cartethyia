@@ -182,50 +182,13 @@ export class EligibilityEvaluator {
       readonly cooldown_kind?: "hard" | "soft";
       readonly account_locked?: boolean;
       readonly locked?: boolean;
-      readonly credit_limit_enabled?: boolean;
-      readonly credit_limit?: number;
-      readonly last_remaining_credit?: number | null;
-      readonly last_remaining_percent?: number | null;
     };
     if (state.account_locked || state.locked)
       return { eligible: false, reason: "locked", candidate };
     if (state.health_status === "disabled")
       return { eligible: false, reason: "disabled", candidate };
-    // Minimum balance: an account whose last fetched remaining balance is at
-    // or below the provider/tenant-wide floor is excluded until the next
-    // quota sweep reports a healthier figure, and failover moves to the next
-    // account. Compared in the unit the account reported — absolute credits
-    // when present, otherwise remaining percent — so one floor value serves
-    // both CodeBuddy-style credit pools and Codex-style percent quotas.
-    // Skipped entirely when the toggle is off or no balance has ever been
-    // fetched in either unit.
-    if (
-      state.credit_limit_enabled !== false &&
-      state.credit_limit !== undefined &&
-      state.credit_limit !== null
-    ) {
-      const credit = state.last_remaining_credit;
-      if (
-        credit !== undefined &&
-        credit !== null &&
-        Number.isFinite(credit) &&
-        credit <= state.credit_limit
-      )
-        return { eligible: false, reason: "credit_floor_reached", candidate };
-      const percent = state.last_remaining_percent;
-      if (
-        (credit === undefined || credit === null) &&
-        percent !== undefined &&
-        percent !== null &&
-        Number.isFinite(percent) &&
-        percent <= state.credit_limit
-      )
-        return { eligible: false, reason: "credit_floor_reached", candidate };
-    }
     if (state.health_status === "model_cooldown")
       return { eligible: false, reason: "model_cooldown", candidate };
-    if (state.health_status === "credit_floor_reached")
-      return { eligible: false, reason: "credit_floor_reached", candidate };
     if (state.health_status === "cooldown" && state.cooldown_kind === "hard")
       return { eligible: false, reason: "cooldown_hard", candidate };
     if (state.health_status === "cooldown")
@@ -379,7 +342,7 @@ export class RoutingEngine {
     webSearch = false,
   ): Promise<RoutePlan> {
     const tid = tenantId ?? null;
-    const { resolved, matching, unmatchedMembers, fusion } = this.resolveMatchingCandidates(
+    const { resolved, matching, unmatchedMembers } = this.resolveMatchingCandidates(
       requestedModel,
       snapshot,
       tid,
@@ -449,7 +412,7 @@ export class RoutingEngine {
       eligible = eligible.filter((candidate) =>
         candidateSupportsRequest(candidate, requiredCapabilities),
       );
-      // No fusion and no silent model switch. The requested model cannot serve
+      // No silent model switch. The requested model cannot serve
       // this requirement set, so the planner degrades it in place (media becomes
       // a placeholder, controls are dropped) and re-plans. When nothing
       // degradable remains, the request fails as `capability_unsupported`
@@ -489,7 +452,6 @@ export class RoutingEngine {
       requested_model: requestedModel,
       resolved_model: resolved.model,
       provider_id: chosen.provider_id,
-      ...(fusion === undefined ? {} : { fusion }),
     };
   }
 
@@ -517,7 +479,6 @@ export class RoutingEngine {
      * connection-less members the operator should fix, surfaced on errors
      * instead of failing opaquely on whichever member happened to route. */
     unmatchedMembers: readonly string[];
-    fusion?: { readonly panel: readonly string[]; readonly judge: string };
   } {
     const safeResolve = (name: string) => {
       try {
@@ -573,17 +534,7 @@ export class RoutingEngine {
     const owners = [...new Set(matching.map((candidate) => candidate.provider_id))];
     if (owners.length > 1 && !resolved.model.includes("/") && !combo)
       throw ambiguousModelError(requestedModel, owners);
-    // A fusion combo runs every resolved member as a panel and uses the first
-    // member as the judge. The plan still carries the flattened candidates (so
-    // admission/leases are unchanged), but the proxy handler reads this field
-    // and runs the panel/judge fan-out instead of a single dispatch. A
-    // single-member fusion has nothing to fuse; leave it as a plain plan so it
-    // degrades to a normal dispatch rather than a one-model panel.
-    const fusion =
-      combo?.strategy === "fusion" && modelIds.length > 1
-        ? { panel: [...modelIds], judge: modelIds[0]! }
-        : undefined;
-    return { resolved, combo, matching, unmatchedMembers, ...(fusion === undefined ? {} : { fusion }) };
+    return { resolved, combo, matching, unmatchedMembers };
   }
 
   async reserve(plan: RoutePlan): Promise<Reservation> {

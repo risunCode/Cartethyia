@@ -12,7 +12,7 @@ import { providerAccounts } from "../../persistence/schema";
 import type { RedisClient } from "../../persistence/redis";
 import { log } from "../../observability/logger";
 import { fetchProviderQuota } from "../../providers/quota/quota-support";
-import { totalRemainingCredit, totalRemainingPercent, type FetchLike, type ProviderQuotaResult } from "../../providers/quota/quota-contracts";
+import { type FetchLike, type ProviderQuotaResult } from "../../providers/quota/quota-contracts";
 import type { ProviderId } from "../../providers/contracts";
 import type { ProviderRegistry } from "../../providers/registry";
 import { GLOBAL_QUOTA_LENS, setCachedQuota } from "./cache";
@@ -149,72 +149,6 @@ export interface QuotaRefreshTarget {
 /** Cache lens an account's quota belongs under. */
 export function targetLens(target: QuotaRefreshTarget): string {
   return target.tenantId ?? GLOBAL_QUOTA_LENS;
-}
-
-/**
- * Stamps the fresh remaining credit onto the account row so the request path
- * can enforce the per-account floor from the last cached read — no live
- * provider round trip per request. Writes only when the fetch reported a
- * figure; a credit-less read leaves the previous stamp untouched. Returns
- * `true` when the row changed so the caller can invalidate the route snapshot.
- */
-export async function stampRemainingCredit(
-  db: CartethyiaDatabase,
-  accountId: string,
-  remaining: number | null,
-): Promise<boolean> {
-  if (remaining === null || !Number.isFinite(remaining)) return false;
-  try {
-    const updated = await db
-      .update(providerAccounts)
-      .set({ lastRemainingCredit: String(Math.max(0, remaining)) })
-      .where(
-        and(
-          eq(providerAccounts.id, accountId),
-          or(
-            isNull(providerAccounts.lastRemainingCredit),
-            ne(providerAccounts.lastRemainingCredit, String(Math.max(0, remaining))),
-          ),
-        ),
-      )
-      .returning({ id: providerAccounts.id });
-    return updated.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Percent twin of `stampRemainingCredit`: the lowest remaining quota percent
- * across the account's percent windows (Codex weekly, Muse rolling/weekly).
- * A percent-only read leaves the credit stamp alone and vice versa, so an
- * account that reports both keeps both figures fresh independently.
- */
-export async function stampRemainingPercent(
-  db: CartethyiaDatabase,
-  accountId: string,
-  remainingPercent: number | null,
-): Promise<boolean> {
-  if (remainingPercent === null || !Number.isFinite(remainingPercent)) return false;
-  const clamped = String(Math.min(100, Math.max(0, remainingPercent)));
-  try {
-    const updated = await db
-      .update(providerAccounts)
-      .set({ lastRemainingPercent: clamped })
-      .where(
-        and(
-          eq(providerAccounts.id, accountId),
-          or(
-            isNull(providerAccounts.lastRemainingPercent),
-            ne(providerAccounts.lastRemainingPercent, clamped),
-          ),
-        ),
-      )
-      .returning({ id: providerAccounts.id });
-    return updated.length > 0;
-  } catch {
-    return false;
-  }
 }
 
 const TARGET_COLUMNS = {
@@ -396,28 +330,6 @@ async function runQuotaRefresh(
   } catch (error) {
     // A stamp failure must not lose the freshly fetched quota.
     log.warn(`[quota] failed to stamp check outcome for account=${target.accountId}`, error as Error);
-  }
-  // Stamp the last fetched remaining balances: only a *successful* fetch that
-  // actually reports a figure carries one — a failed or figure-less read must
-  // never overwrite a real stamp. The request path enforces the per-account
-  // floor from these stamps, and the route snapshot is invalidated when either
-  // changes so the next plan sees the fresh figures.
-  if (quota.error === null) {
-    try {
-      const remaining = totalRemainingCredit(quota.windows);
-      const remainingPercent = totalRemainingPercent(quota.windows);
-      const creditChanged = await stampRemainingCredit(deps.db, target.accountId, remaining);
-      const percentChanged = await stampRemainingPercent(deps.db, target.accountId, remainingPercent);
-      if (creditChanged || percentChanged) {
-        await deps.snapshotInvalidator?.invalidate();
-        log.info(
-          `[quota] remaining stamped account=${target.accountId} provider=${target.providerId} remaining=${remaining} remainingPercent=${remainingPercent}`,
-        );
-      }
-    } catch (error) {
-      // The stamp is advisory: a failure here must not lose the fetched quota.
-      log.warn(`[quota] remaining stamp failed for account=${target.accountId}`, error as Error);
-    }
   }
   return {
     quota,

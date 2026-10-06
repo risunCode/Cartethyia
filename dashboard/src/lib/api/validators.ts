@@ -298,9 +298,6 @@ export function assertProviderRouting(value: unknown): ProviderRoutingResponse {
     typeof value.enabled !== "boolean" ||
     (value.maxInflight !== null && typeof value.maxInflight !== "number") ||
     typeof value.bypassProxy !== "boolean" ||
-    typeof value.creditLimitEnabled !== "boolean" ||
-    typeof value.creditLimit !== "number" ||
-    value.creditLimit < 0 ||
     typeof value.userAgent !== "string" ||
     value.userAgent.length === 0 ||
     value.userAgent.length > 4096

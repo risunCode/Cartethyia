@@ -300,12 +300,12 @@ describe("COMBO_STRATEGY_OPTIONS", () => {
     expect(new Set(values).size).toBe(values.length);
   });
 
-  test("the three combo strategies are all offered", () => {
+  test("the combo strategies are all offered", () => {
     // The list is typed as `SelectOption & { value: ComboStrategy }`, so the
     // canonical union drives it. Pinning the current membership means removing a
     // strategy from the UI is a deliberate change.
     const values = COMBO_STRATEGY_OPTIONS.map((option) => option.value).sort();
-    expect(values).toEqual(["fallback", "fusion", "round_robin"]);
+    expect(values).toEqual(["fallback", "round_robin"]);
   });
 });
 

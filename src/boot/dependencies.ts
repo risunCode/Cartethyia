@@ -357,10 +357,6 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
           redis,
           providerRegistry: registry,
           resolveCredential: quotaResolveCredential,
-          // The sweep stamps the last fetched remaining credit onto the account
-          // row (`stampRemainingCredit`) and invalidates the route snapshot when
-          // it changes, so the next plan sees the fresh figure and the request
-          // path can enforce per-account floors from the last cached balance.
           snapshotInvalidator: snapshotService,
           // The check-in ride-along rotates egress per account: each account
           // gets the next active pool in its tenant's rotation so check-ins

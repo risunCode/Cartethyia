@@ -20,7 +20,6 @@ import { metrics } from "../../observability/metrics";
 import type { NetworkPoolSelector } from "../../network/pool/selector";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
 import { ProxyRequestStateStore } from "../request/state";
-import type { ProxyRequestState } from "../request/state";
 import type { ProxyRequestPreparer } from "../request/preparer";
 import { repriceUsage } from "../../providers/usage";
 import {
@@ -32,7 +31,6 @@ import {
   terminalFailure,
 } from "./attempt-finalize";
 import { runAttemptLoop } from "./attempt-loop";
-import { dispatchFusionRequest } from "./fusion-dispatch";
 import { responseShowsWebSearch } from "../translation/search";
 import { projectForRoute, routeCapabilitiesFor } from "../translation/capabilities";
 import { dispatchStreamingAttempt } from "./streaming/stream";
@@ -44,7 +42,6 @@ export interface ProviderProxyHandlerDeps {
   /** Preferred over `providerAdapters`: resolves an adapter on demand and caches it. */
   readonly resolveProviderAdapter?: (providerId: string) => Promise<ProviderAdapter | undefined>;
   readonly stateStore: ProxyRequestStateStore;
-  /** Used by the fusion branch to plan and dispatch each panel/judge model. */
   readonly proxyPreparer?: ProxyRequestPreparer;
   readonly networkBindingFactory?: ValidatedNetworkBindingFactory;
   /** Live lookup of a provider's SSRF-validated upstream host. */
@@ -71,41 +68,6 @@ function ttfbFields(
   const firstAt = firstByteAt ?? firstContentDeltaAtMs;
   if (firstAt === undefined || startedAtMs === undefined) return {};
   return { ttfbMs: Math.max(0, firstAt - startedAtMs) };
-}
-
-/**
- * Encodes a completed canonical event list onto the client's own surface and
- * returns the wire `Response`. Used by the fusion branch, whose final answer is
- * produced by a nested dispatch rather than by the attempt loop; the surface
- * mapping is identical to the attempt loop's own non-streaming encode, so the
- * two cannot drift. Fusion always answers non-streaming (the panel/judge
- * synthesis is a single completed answer), so only the JSON encoders are used.
- */
-function encodeCanonicalResponse(
-  canonicalRequest: CanonicalRequest,
-  events: readonly CanonicalEvent[],
-  state: ProxyRequestState,
-): Response {
-  const options = {
-    created: Date.now() / 1000,
-    include_usage: canonicalRequest.generation_controls["extension:include_usage"] === true,
-  };
-  const output =
-    canonicalRequest.source_surface === "chat"
-      ? chatAdapter.encode([...events], options)
-      : canonicalRequest.source_surface === "responses"
-        ? responsesAdapter.encodeOutput([...events], { ...options, model: canonicalRequest.model })
-        : canonicalRequest.source_surface === "messages"
-          ? messagesAdapter.encodeOutput([...events], options as never)
-          : completionAdapter.encodeOutput([...events], {
-              ...options,
-              prompt: canonicalRequest.generation_controls["extension:completion.prompt"],
-              echo: canonicalRequest.generation_controls["extension:completion.echo"] === true,
-              suffix: canonicalRequest.generation_controls["extension:completion.suffix"],
-            });
-  return new Response(output.bytes as unknown as BodyInit, {
-    headers: { "content-type": output.content_type, ...proxySuccessHeaders(state) },
-  });
 }
 
 /**
@@ -203,38 +165,6 @@ export async function handleProviderProxyRequest(
   const conversationAffinity = resolvePromptCacheKey(canonicalRequest, {
     request_headers: inboundHeaders,
   } as ProviderDispatchContext);
-  // A `fusion` combo runs its members as a panel and a judge, not as a single
-  // failover chain, so it takes its own path. Everything else — aliases, plain
-  // combos, single models — falls through to the attempt loop below. Without a
-  // preparer the fusion branch cannot plan its members, so it fails closed
-  // rather than silently running a fusion combo as a plain failover chain.
-  if (prepared.plan.fusion) {
-    if (!deps.proxyPreparer)
-      throw new GatewayError(
-        "admission_unavailable",
-        503,
-        "fusion routing is unavailable: no request preparer configured",
-      );
-    return dispatchFusionRequest({
-      state,
-      deps: {
-        db: deps.db,
-        providerAdapters: deps.providerAdapters,
-        ...(deps.resolveProviderAdapter ? { resolveProviderAdapter: deps.resolveProviderAdapter } : {}),
-        proxyPreparer: deps.proxyPreparer,
-        ...(deps.networkBindingFactory ? { networkBindingFactory: deps.networkBindingFactory } : {}),
-        ...(deps.poolSelector ? { poolSelector: deps.poolSelector } : {}),
-        ...(deps.snapshotService ? { snapshotService: deps.snapshotService } : {}),
-        ...(deps.telemetryBuffer ? { telemetryBuffer: deps.telemetryBuffer } : {}),
-        ...(deps.resolveOAuthRefresher ? { resolveOAuthRefresher: deps.resolveOAuthRefresher } : {}),
-        ...(deps.oauthRefreshService ? { oauthRefreshService: deps.oauthRefreshService } : {}),
-      },
-      prepared,
-      canonicalRequest,
-      inboundHeaders,
-      fusion: prepared.plan.fusion,
-    }).then(({ events }) => encodeCanonicalResponse(canonicalRequest, events, state));
-  }
   return runAttemptLoop<Response, ProviderAdapter>({
     state,
     deps,

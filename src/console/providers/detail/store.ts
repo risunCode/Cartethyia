@@ -14,8 +14,6 @@ function mapRow(row: typeof providerRoutingSettings.$inferSelect): ProviderRouti
     strategy: row.strategy as ProviderRoutingResponse["strategy"],
     rotateCount: row.rotateCount ?? 1,
     maxInflight: row.maxInflight,
-    creditLimitEnabled: row.creditLimitEnabled,
-    creditLimit: row.creditLimit,
     enabled: row.enabled,
     bypassProxy: row.bypassProxy,
     userAgent: row.userAgent,
@@ -66,8 +64,6 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
       strategy: "fallback",
       rotateCount: 1,
       maxInflight: null,
-      creditLimitEnabled: false,
-      creditLimit: 50,
       enabled: false,
       bypassProxy: DEFAULT_PROXY_BYPASS_PROVIDER_IDS.has(providerId),
       userAgent: DEFAULT_PROVIDER_USER_AGENT,
@@ -87,8 +83,6 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
       strategy: patch.strategy ?? "fallback",
       rotateCount: patch.rotateCount ?? 1,
       maxInflight: patch.maxInflight ?? null,
-      creditLimitEnabled: patch.creditLimitEnabled ?? false,
-      creditLimit: patch.creditLimit ?? 50,
       enabled: patch.enabled ?? false,
       bypassProxy: patch.bypassProxy ?? DEFAULT_PROXY_BYPASS_PROVIDER_IDS.has(providerId),
       userAgent: patch.userAgent ?? DEFAULT_PROVIDER_USER_AGENT,
@@ -97,8 +91,6 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
     if (patch.strategy !== undefined) setClause.strategy = patch.strategy;
     if (patch.rotateCount !== undefined) setClause.rotateCount = patch.rotateCount;
     if (patch.maxInflight !== undefined) setClause.maxInflight = patch.maxInflight;
-    if (patch.creditLimitEnabled !== undefined) setClause.creditLimitEnabled = patch.creditLimitEnabled;
-    if (patch.creditLimit !== undefined) setClause.creditLimit = patch.creditLimit;
     if (patch.enabled !== undefined) setClause.enabled = patch.enabled;
     if (patch.bypassProxy !== undefined) setClause.bypassProxy = patch.bypassProxy;
     if (patch.userAgent !== undefined) setClause.userAgent = patch.userAgent;
