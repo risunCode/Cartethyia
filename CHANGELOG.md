@@ -5,10 +5,23 @@
   they serve was absent from the console and unavailable to routing until a
   discovery run happened to fetch them. Mistral gets its current
   large/medium/small families plus the two Magistral reasoning rows; DeepSeek
-  gets `deepseek-v4-flash` and `deepseek-v4-pro`, which is the spelling the
-  base catalog files under `deepseek` itself (the `v4.1` ids are filed under
-  other providers). Limits and pricing resolve from the base catalog via
-  `providerId`, so no number is restated in the catalogs to drift.
+  gets its six V4 families (`v4-pro`, `v4-pro-max`, `v4-pro-none`,
+  `v4.1-flash`, `v4-flash`, `v4-flash-vision-exp`), taken from 9router's
+  provider registry because the base catalog files only four of them under
+  `deepseek`. `v4-pro-max` and `v4-pro-none` are upstream aliases of
+  `deepseek-v4-pro` with no catalog row of their own, so their limits are
+  stated explicitly instead of falling back to the generic 200k/64k default;
+  their price stays `unknown` rather than borrowing `v4-pro`'s rate. The V3.2
+  families (`deepseek-chat`, `deepseek-reasoner`) are deliberately excluded.
+  Limits and pricing otherwise resolve from the base catalog via `providerId`,
+  so no number is restated in the catalogs to drift.
+- Fireworks, GMI, and B.AI intentionally carry no static catalog. The base
+  catalog has zero rows for all three, and 9router — the other reference — has
+  none for `gmi` and gives `bai` no ids either (it serves `bai` by fetching
+  `api.b.ai/v1/models` live and accepting any id). Listing ids here would mean
+  inventing them, and listing them without any catalog row would publish the
+  generic 200k/64k default as if it were measured. Add ids for these providers
+  when a real source for them exists.
 - A reseller suffix on a model id no longer hides its limits. OpenRouter lists
   `deepseek/deepseek-v4.1-flash:free`, and the `:free` — its own billing tier,
   not a different model — made the id match nothing, so a discovered free model

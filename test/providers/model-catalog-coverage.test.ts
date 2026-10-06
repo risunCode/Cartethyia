@@ -87,26 +87,51 @@ describe("mistral catalog", () => {
 });
 
 describe("deepseek catalog", () => {
-  test("carries v4-flash and v4-pro", async () => {
+  test("carries the V4 families", async () => {
     const ids = (await catalogFor("deepseek")).map((m) => m.modelId);
-    expect(ids).toContain("deepseek-v4-flash");
     expect(ids).toContain("deepseek-v4-pro");
+    expect(ids).toContain("deepseek-v4-flash");
+    expect(ids).toContain("deepseek-v4.1-flash");
+  });
+
+  test("excludes the V3.2 families", async () => {
+    const ids = (await catalogFor("deepseek")).map((m) => m.modelId);
+    expect(ids).not.toContain("deepseek-chat");
+    expect(ids).not.toContain("deepseek-reasoner");
+  });
+
+  test("no row falls back to the generic default limits", async () => {
+    // 200k/64k is `defineModel`'s fallback for an id the catalog cannot resolve.
+    // Two of these rows are upstream aliases with no catalog row of their own,
+    // so they state their limits explicitly rather than publishing a default
+    // that reads as measured but is not DeepSeek's.
+    for (const model of await catalogFor("deepseek")) {
+      expect(model.contextLimit).toBeGreaterThan(200_000);
+    }
   });
 
   test("resolves limits from the provider's own rows", async () => {
     for (const model of await catalogFor("deepseek")) {
-      expect(model.contextLimit).toBe(1_000_000);
       expect(model.outputLimit).toBe(384_000);
-      expect(model.reasoning).toBe(true);
       expect(model.toolCall).toBe(true);
     }
   });
 
-  test("v4-flash takes vision and v4-pro does not, as the catalog files them", async () => {
+  test("the flash families take vision and pro does not", async () => {
     const models = await catalogFor("deepseek");
-    const flash = models.find((m) => m.modelId === "deepseek-v4-flash");
-    const pro = models.find((m) => m.modelId === "deepseek-v4-pro");
-    expect(flash?.modalities.input).toContain("image");
-    expect(pro?.modalities.input).not.toContain("image");
+    const byId = new Map(models.map((m) => [m.modelId, m]));
+    expect(byId.get("deepseek-v4-flash")?.modalities.input).toContain("image");
+    expect(byId.get("deepseek-v4.1-flash")?.modalities.input).toContain("image");
+    expect(byId.get("deepseek-v4-pro")?.modalities.input).not.toContain("image");
+  });
+
+  test("v4-pro-none is the non-thinking alias", async () => {
+    const models = await catalogFor("deepseek");
+    const none = models.find((m) => m.modelId === "deepseek-v4-pro-none");
+    expect(none).toBeDefined();
+    expect(none?.reasoning).toBe(false);
+    // Same limits as the model it aliases.
+    expect(none?.contextLimit).toBe(1_000_000);
+    expect(none?.outputLimit).toBe(384_000);
   });
 });
