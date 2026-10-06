@@ -18,8 +18,21 @@ Entry point for repo work. Pick the row, read that reference, act.
 | Schema migration, telemetry column, rename, model metadata, availability | `references/schema-telemetry-catalog.md` |
 | Repo invariants: aliases, drift, wire bytes, naming, dead code, docs sync | `references/guards.md` |
 | How to write the change: shape, names, comments, errors | `references/taste.md` |
+| A failing request you need to attribute to a field (Request Detail, error envelope, trace dump) | the separate `cartethyia-trace-replay` skill |
 
 Load only the reference the task needs. It holds the procedure, pitfalls, and commands.
+
+## Skills are discovered from `.claude/skills/`
+
+`.skills/` is the committed source; `.claude/` is gitignored, so a fresh clone
+has no wiring. Point the discovery dir at the committed one (junction, because
+`ln -s` materializes as a copy here):
+
+```bash
+mkdir -p .claude/skills
+cmd //c 'mklink /J .claude\skills\cartethyia-engineering .skills\cartethyia-engineering'
+cmd //c 'mklink /J .claude\skills\cartethyia-trace-replay .skills\cartethyia-trace-replay'
+```
 
 ## Fast path
 
