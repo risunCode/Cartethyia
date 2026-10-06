@@ -20,8 +20,8 @@
 
 ## Add a provider
 
-Follow `provider-lifecycle.md`. Do not copy metadata into a second place
-without naming which one is the authority. Wire bytes, auth, catalog, account
+Follow the `cartethyia-provider-catalog` skill. Do not copy metadata into a
+second place without naming which one is the authority. Wire bytes, auth, catalog, account
 state, and availability each have their own owner.
 
 ## Contract or schema
@@ -66,13 +66,7 @@ the tenant it created. Sessions are not in the backup. An export taken before
 `console_users` was included cannot use this path. A signed-in restore stays
 on `/console/api/backup/import` and still requires the operator password.
 
-## Verification
+## Verify
 
-```bash
-bun run typecheck
-bun run dashboard:typecheck  # when dashboard/ changes
-bun run build                # when a build entry or contract changes
-```
-
-Then the boundary in `verification.md`, and the affected suite
-(`bun run test:backend` or `bun run dashboard:test`).
+Gates and the real boundary are in `verification.md`. Run the affected suite
+(`bun run test:backend` or `bun run dashboard:test`) alongside them.

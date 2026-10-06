@@ -45,18 +45,26 @@ or full payloads containing secrets.
 A temporary reproduction must call the real pipeline, state its cleanup, and be
 removed afterward.
 
-## Database reset
+## In-flight requests
 
-Never reset production data. Verify the target environment first; use the
-isolated `.env.test` database (`bun run test-db:up/check/down`) and a
-transaction/backup when a reset is genuinely required.
+The registry is owned by `ProxyRequestStateStore`; `state.cleanup()` is the single
+idempotent release point. Streaming cleanup must cover normal completion, errors,
+cancel, client abort, deadline/stall abort, and iterator return. A pending pull owns
+its terminal outcome; do not release twice. The periodic backstop releases overdue
+state that a disconnect shape failed to tear down.
 
-## Verification
+Diagnose with the live in-flight endpoint and a real streaming reproduction that stops
+reading before aborting. Confirm the gauge returns to zero and leases/slots release.
 
-```bash
-bun run typecheck
-bun run dashboard:typecheck  # when dashboard/ changes
-bun run build                # when entry/contract changes
-```
+## Reasoning replay
 
-Report exact evidence and any unavailable live surface.
+Messages thinking blocks, chat `reasoning_content`, and Responses reasoning items are
+one canonical reasoning part. Preserve presence even when text is empty; never
+fabricate an empty field. Keep reasoning on assistant/tool-call turns, and handle
+both Responses summary/content text fields and both streaming delta event names.
+
+Read the captured request shape before editing. Re-run the same real pipeline shape
+after the fix; delete temporary diagnostics.
+
+Report exact evidence and any unavailable live surface. Gates are in
+`cartethyia-engineering/references/verification.md`.
