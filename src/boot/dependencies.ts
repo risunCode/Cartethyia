@@ -28,6 +28,7 @@ import { InMemoryAdmissionCounterStore } from "../security/admission/in-memory-s
 import { RedisAdmissionCounterStore } from "../security/admission/redis-store";
 import { sweepLeases } from "../security/admission/lease-sweep";
 import { DrizzleApiKeyStore } from "../persistence/stores/api-key-store";
+import { UsageFlushBuffer } from "../persistence/usage-flush";
 import { InMemoryIpAbuseStore, IpAbuseProtectionService, RedisIpAbuseStore } from "../security/abuse";
 import {
   InMemoryModelAbuseStore,
@@ -67,8 +68,6 @@ import type { ProviderAdapter } from "../providers/contracts";
 import type { ProviderRegistry } from "../providers/registry";
 import type { ByokUpstreamHost } from "../providers/operations/provider-catalog-service";
 import type { ReadinessCheckResult } from "../persistence/readiness";
-import { eq, sql } from "drizzle-orm";
-import { apiKeys } from "../persistence/schema";
 import { log } from "../observability/logger";
 import { refreshProviderClientVersions } from "../providers/operations/client-versions";
 
@@ -95,6 +94,7 @@ export interface ProductionDeps {
   poolAgentResolver: PoolAgentResolver;
   poolSelector: NetworkPoolSelector;
   telemetryBuffer: TelemetryBatchBuffer;
+  usageFlush: UsageFlushBuffer;
   trustedProxyBoundary: TrustedProxyBoundary;
   providerRegistry: ProviderRegistry;
   resolveOAuthRefresher: (providerId: string) => Promise<OAuthTokenRefresher | undefined>;
@@ -169,6 +169,7 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
     }
     return [...totals].map(([accountId, inflight]) => ({ accountId, inflight }));
   };
+  const usageFlush = new UsageFlushBuffer(db);
   const admissionStore = redis
     ? new RedisAdmissionCounterStore(redis)
     : new InMemoryAdmissionCounterStore();
@@ -185,17 +186,11 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
       preferencesReaderFor(db)
         .readPreferences(tenantId)
         .then((prefs) => prefs?.tenantConcurrencyLimit ?? null),
-    async ({ apiKeyId, delta }) => {
-      // Persist reconciled lifetime token consumption so budgets survive a
-      // Redis flush. Uses an incremental UPDATE (COALESCE) so concurrent
-      // reconciliations compose additively.
-      if (!Number.isFinite(delta) || delta <= 0) return;
-      await db
-        .update(apiKeys)
-        .set({
-          lifetimeTokensConsumed: sql`COALESCE(${apiKeys.lifetimeTokensConsumed}, 0) + ${delta}`,
-        })
-        .where(eq(apiKeys.id, apiKeyId));
+    ({ apiKeyId, delta }) => {
+      // Coalesced: one UPDATE per key per flush instead of one per request.
+      // The admission counter is the live total; this only persists it.
+      usageFlush.enqueue(apiKeyId, delta);
+      return Promise.resolve();
     },
     // Fresh lifetime reader — invoked by the store only when it is about to
     // seed a missing `admission:lifetime:<id>` counter, so the ≤3s-stale auth
@@ -397,6 +392,7 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
     scheduledTasks,
     poolAgentResolver,
     telemetryBuffer,
+    usageFlush,
     poolSelector,
     admissionService,
     trustedProxyBoundary: resolveTrustedProxyBoundary(),
