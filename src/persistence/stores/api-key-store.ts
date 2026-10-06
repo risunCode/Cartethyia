@@ -1,9 +1,9 @@
 // Persisted API-key store: the console API-key domain and gateway authentication both consume this boundary.
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { nextSortIndex, reorderSortIndex } from "../../lib/sort-order";
 import type { CartethyiaDatabase } from "../db-handle";
-import { apiKeys, shareLinks, type ApiKeyMode, type ApiKeyModelAccessMode } from "../schema";
+import { apiKeys, shareLinks, sharePopups, type ApiKeyMode, type ApiKeyModelAccessMode } from "../schema";
 import type { AccessScope } from "../../security/access-control";
 
 /** Persisted API key. Only its one-way hash authenticates; plaintext is never stored. */
@@ -98,6 +98,81 @@ export interface ApiKeyPatch
   readonly maxConcurrentRequests?: number | null;
 }
 
+interface PopupFields {
+  readonly sharePopupEnabled?: boolean | null;
+  readonly sharePopupImage?: Buffer | null;
+  readonly sharePopupImageMime?: string | null;
+  readonly sharePopupTitle?: string | null;
+  readonly sharePopupBody?: string | null;
+}
+
+function popupPatchTouched(patch: PopupFields): boolean {
+  return (
+    patch.sharePopupEnabled !== undefined ||
+    patch.sharePopupImage !== undefined ||
+    patch.sharePopupImageMime !== undefined ||
+    patch.sharePopupTitle !== undefined ||
+    patch.sharePopupBody !== undefined
+  );
+}
+
+/** Merges a partial popup patch onto the stored row, so an omitted field is kept. */
+async function mergeSharePopup(
+  db: CartethyiaDatabase,
+  apiKeyId: string,
+  patch: PopupFields,
+): Promise<void> {
+  const existing = await db
+    .select()
+    .from(sharePopups)
+    .where(eq(sharePopups.apiKeyId, apiKeyId))
+    .limit(1);
+  const row = existing[0];
+  await writeSharePopup(db, apiKeyId, {
+    sharePopupEnabled: patch.sharePopupEnabled !== undefined ? patch.sharePopupEnabled : (row?.enabled ?? false),
+    sharePopupImage: patch.sharePopupImage !== undefined ? patch.sharePopupImage : (row?.image ?? null),
+    sharePopupImageMime: patch.sharePopupImageMime !== undefined ? patch.sharePopupImageMime : (row?.imageMime ?? null),
+    sharePopupTitle: patch.sharePopupTitle !== undefined ? patch.sharePopupTitle : (row?.title ?? null),
+    sharePopupBody: patch.sharePopupBody !== undefined ? patch.sharePopupBody : (row?.body ?? null),
+  });
+}
+
+/** Writes the popup row, or removes it when the owner cleared every field. */
+async function writeSharePopup(
+  db: CartethyiaDatabase,
+  apiKeyId: string,
+  fields: PopupFields,
+): Promise<void> {
+  const enabled = fields.sharePopupEnabled ?? false;
+  const image = fields.sharePopupImage ?? null;
+  const title = fields.sharePopupTitle ?? null;
+  const body = fields.sharePopupBody ?? null;
+  if (!enabled && image === null && title === null && body === null) {
+    await db.delete(sharePopups).where(eq(sharePopups.apiKeyId, apiKeyId));
+    return;
+  }
+  await db
+    .insert(sharePopups)
+    .values({
+      apiKeyId,
+      enabled,
+      image,
+      imageMime: fields.sharePopupImageMime ?? null,
+      title,
+      body,
+    })
+    .onConflictDoUpdate({
+      target: sharePopups.apiKeyId,
+      set: {
+        enabled,
+        image,
+        imageMime: fields.sharePopupImageMime ?? null,
+        title,
+        body,
+      },
+    });
+}
+
 /** Explicit persistence boundary. Production must provide this; there is no fallback store. */
 export interface ApiKeyStore {
   list(tenantId: string): Promise<readonly ApiKeyRecord[]>;
@@ -116,7 +191,21 @@ export interface ApiKeyStore {
 export class DrizzleApiKeyStore implements ApiKeyStore {
   constructor(private readonly db: CartethyiaDatabase) {}
 
-  private map(row: typeof apiKeys.$inferSelect): ApiKeyRecord {
+  /** Attaches the popup, which lives in its own table so the auth read never loads it. */
+  private async withPopups(rows: readonly (typeof apiKeys.$inferSelect)[]): Promise<ApiKeyRecord[]> {
+    if (rows.length === 0) return [];
+    const popups = await this.db
+      .select()
+      .from(sharePopups)
+      .where(inArray(sharePopups.apiKeyId, rows.map((row) => row.id)));
+    const byKey = new Map(popups.map((popup) => [popup.apiKeyId, popup]));
+    return rows.map((row) => this.map(row, byKey.get(row.id)));
+  }
+
+  private map(
+    row: typeof apiKeys.$inferSelect,
+    popup?: typeof sharePopups.$inferSelect,
+  ): ApiKeyRecord {
     return {
       id: row.id,
       tenantId: row.tenantId,
@@ -135,11 +224,11 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
       ...(row.notesTitle === null ? {} : { notesTitle: row.notesTitle }),
       ...(row.notesSubtitle === null ? {} : { notesSubtitle: row.notesSubtitle }),
       ...(row.notesBody === null ? {} : { notesBody: row.notesBody }),
-      ...(row.sharePopupEnabled ? { sharePopupEnabled: row.sharePopupEnabled } : {}),
-      ...(row.sharePopupImage === null ? {} : { sharePopupImage: row.sharePopupImage }),
-      ...(row.sharePopupImageMime === null ? {} : { sharePopupImageMime: row.sharePopupImageMime }),
-      ...(row.sharePopupTitle === null ? {} : { sharePopupTitle: row.sharePopupTitle }),
-      ...(row.sharePopupBody === null ? {} : { sharePopupBody: row.sharePopupBody }),
+      ...(popup?.enabled ? { sharePopupEnabled: popup.enabled } : {}),
+      ...(popup?.image == null ? {} : { sharePopupImage: popup.image }),
+      ...(popup?.imageMime == null ? {} : { sharePopupImageMime: popup.imageMime }),
+      ...(popup?.title == null ? {} : { sharePopupTitle: popup.title }),
+      ...(popup?.body == null ? {} : { sharePopupBody: popup.body }),
       ...(row.requestsPerMinute === null ? {} : { requestsPerMinute: row.requestsPerMinute }),
       ...(row.dailyTokenLimit === null ? {} : { dailyTokenLimit: row.dailyTokenLimit }),
       ...(row.monthlyTokenLimit === null ? {} : { monthlyTokenLimit: row.monthlyTokenLimit }),
@@ -169,7 +258,7 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
       .where(eq(apiKeys.tenantId, tenantId))
       .orderBy(apiKeys.sortIndex, apiKeys.createdAt, apiKeys.id)
       .limit(1000);
-    return rows.map((row) => this.map(row));
+    return this.withPopups(rows);
   }
 
   /** Rewrites the list order for one tenant; `keyIds` is the full order. */
@@ -196,7 +285,7 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
       .from(apiKeys)
       .where(and(eq(apiKeys.tenantId, tenantId), eq(apiKeys.id, keyId)))
       .limit(1);
-    return rows[0] ? this.map(rows[0]) : undefined;
+    return rows[0] ? (await this.withPopups(rows))[0] : undefined;
   }
   async listChildren(tenantId: string, parentKeyId: string): Promise<readonly ApiKeyRecord[]> {
     const rows = await this.db
@@ -209,7 +298,7 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
         ),
       )
       .orderBy(apiKeys.createdAt, apiKeys.id);
-    return rows.map((row) => this.map(row));
+    return this.withPopups(rows);
   }
   async create(record: ApiKeyRecord): Promise<void> {
     // Append to the end of the tenant's list rather than relying on creation
@@ -232,11 +321,6 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
       notesTitle: record.notesTitle ?? null,
       notesSubtitle: record.notesSubtitle ?? null,
       notesBody: record.notesBody ?? null,
-      sharePopupEnabled: record.sharePopupEnabled ?? false,
-      sharePopupImage: record.sharePopupImage ?? null,
-      sharePopupImageMime: record.sharePopupImageMime ?? null,
-      sharePopupTitle: record.sharePopupTitle ?? null,
-      sharePopupBody: record.sharePopupBody ?? null,
       requestsPerMinute: record.requestsPerMinute ?? null,
       dailyTokenLimit: record.dailyTokenLimit ?? null,
       monthlyTokenLimit: record.monthlyTokenLimit ?? null,
@@ -248,6 +332,7 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
       clientRouterDenylist: record.clientRouterDenylist ?? null,
       lifetimeTokensConsumed: record.tokensConsumed,
     });
+    await writeSharePopup(this.db, record.id, record);
   }
   async update(
     tenantId: string,
@@ -294,15 +379,6 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
           ...(patch.notesTitle !== undefined ? { notesTitle: patch.notesTitle } : {}),
           ...(patch.notesSubtitle !== undefined ? { notesSubtitle: patch.notesSubtitle } : {}),
           ...(patch.notesBody !== undefined ? { notesBody: patch.notesBody } : {}),
-          ...(patch.sharePopupEnabled !== undefined ? { sharePopupEnabled: patch.sharePopupEnabled ?? false } : {}),
-          ...(patch.sharePopupImage !== undefined
-            ? { sharePopupImage: patch.sharePopupImage }
-            : {}),
-          ...(patch.sharePopupImageMime !== undefined
-            ? { sharePopupImageMime: patch.sharePopupImageMime }
-            : {}),
-          ...(patch.sharePopupTitle !== undefined ? { sharePopupTitle: patch.sharePopupTitle } : {}),
-          ...(patch.sharePopupBody !== undefined ? { sharePopupBody: patch.sharePopupBody } : {}),
           ...(patch.requestsPerMinute !== undefined
             ? { requestsPerMinute: patch.requestsPerMinute }
             : {}),
@@ -325,7 +401,9 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
         })
         .where(and(eq(apiKeys.tenantId, tenantId), eq(apiKeys.id, keyId)))
         .returning();
-      return rows[0] ? this.map(rows[0]) : undefined;
+      if (!rows[0]) return undefined;
+      if (popupPatchTouched(patch)) await mergeSharePopup(tx, keyId, patch);
+      return (await this.withPopups(rows))[0];
     });
   }
   async revoke(tenantId: string, keyId: string, revokedAt: Date): Promise<boolean> {

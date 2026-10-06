@@ -228,15 +228,8 @@ CREATE TABLE "api_keys" (
   "notes_subtitle" text,
   "notes_body" text,
   "sort_index" integer DEFAULT 0 NOT NULL,
-  "share_popup_enabled" boolean DEFAULT false NOT NULL,
-  "share_popup_image" bytea,
-  "share_popup_image_mime" text,
-  "share_popup_title" text,
-  "share_popup_body" text,
   CONSTRAINT "api_keys_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade,
   CONSTRAINT "api_keys_parent_key_id_api_keys_id_fk" FOREIGN KEY ("parent_key_id") REFERENCES "api_keys"("id") ON DELETE cascade,
-  CONSTRAINT "api_keys_share_popup_image_mime_check" CHECK ("share_popup_image_mime" IS NULL OR "share_popup_image_mime" IN ('image/png', 'image/jpeg', 'image/webp', 'image/gif')),
-  CONSTRAINT "api_keys_share_popup_image_size_check" CHECK ("share_popup_image" IS NULL OR octet_length("share_popup_image") <= 2097152),
   CONSTRAINT "api_keys_mode_shape_check" CHECK (
     ("key_mode" = 'personal' AND "key_hash" IS NOT NULL AND "parent_key_id" IS NULL
       AND "issued_client_ip" IS NULL AND "issued_client_ip_key" IS NULL)
@@ -445,7 +438,7 @@ CREATE INDEX "console_sessions_user_id_idx" ON "console_sessions" USING btree ("
 --> statement-breakpoint
 CREATE INDEX "console_users_tenant_id_idx" ON "console_users" USING btree ("tenant_id");
 --> statement-breakpoint
-CREATE UNIQUE INDEX "idx_console_users_username" ON "console_users" USING btree ("username");
+CREATE UNIQUE INDEX "console_users_tenant_username_uidx" ON "console_users" USING btree ("tenant_id", "username");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "cli_tool_mappings_key" ON "cli_tool_mappings" USING btree ("tenant_id", "tool_id", "slot_key");
 --> statement-breakpoint
@@ -466,6 +459,17 @@ CREATE INDEX "telemetry_payloads_request_id_idx" ON "telemetry_payloads" USING b
 CREATE INDEX "telemetry_payloads_tenant_request_idx" ON "telemetry_payloads" USING btree ("tenant_id", "request_id");
 --> statement-breakpoint
 CREATE INDEX "telemetry_payloads_expires_idx" ON "telemetry_payloads" USING btree ("expires_at");
+--> statement-breakpoint
+CREATE TABLE "share_popups" (
+  "api_key_id" uuid PRIMARY KEY REFERENCES "api_keys" ("id") ON DELETE CASCADE,
+  "enabled" boolean NOT NULL DEFAULT false,
+  "image" bytea,
+  "image_mime" text,
+  "title" text,
+  "body" text,
+  CONSTRAINT "share_popups_image_mime_check" CHECK ("image_mime" IS NULL OR "image_mime" IN ('image/png', 'image/jpeg', 'image/webp', 'image/gif')),
+  CONSTRAINT "share_popups_image_size_check" CHECK ("image" IS NULL OR octet_length("image") <= 2097152)
+);
 --> statement-breakpoint
 CREATE TABLE "share_links" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),

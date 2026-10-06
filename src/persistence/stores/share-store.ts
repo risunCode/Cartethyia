@@ -6,7 +6,7 @@ import { createHash, randomInt } from "node:crypto";
 
 import { and, desc, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../db-handle";
-import { apiKeys, shareLinks, type ShareLinkKind, type ApiKeyModelAccessMode } from "../schema";
+import { apiKeys, shareLinks, sharePopups, type ShareLinkKind, type ApiKeyModelAccessMode } from "../schema";
 
 /** Hashes a share bearer token for storage and lookup. */
 export function hashShareToken(token: string): string {
@@ -135,7 +135,9 @@ export type SharedApiKeyIssueResult =
 type ApiKeyRow = typeof apiKeys.$inferSelect;
 type ShareLinkRow = typeof shareLinks.$inferSelect;
 
-function mapShareRow(key: ApiKeyRow, link: ShareLinkRow): ShareApiKeyRow {
+type PopupRow = typeof sharePopups.$inferSelect;
+
+function mapShareRow(key: ApiKeyRow, link: ShareLinkRow, popup?: PopupRow): ShareApiKeyRow {
   return {
     id: key.id,
     tenantId: key.tenantId,
@@ -153,17 +155,17 @@ function mapShareRow(key: ApiKeyRow, link: ShareLinkRow): ShareApiKeyRow {
     notesTitle: key.notesTitle,
     notesSubtitle: key.notesSubtitle,
     notesBody: key.notesBody,
-    sharePopupEnabled: key.sharePopupEnabled,
-    sharePopupImage: key.sharePopupImage,
-    sharePopupImageMime: key.sharePopupImageMime,
-    sharePopupTitle: key.sharePopupTitle,
-    sharePopupBody: key.sharePopupBody,
+    sharePopupEnabled: popup?.enabled ?? false,
+    sharePopupImage: popup?.image ?? null,
+    sharePopupImageMime: popup?.imageMime ?? null,
+    sharePopupTitle: popup?.title ?? null,
+    sharePopupBody: popup?.body ?? null,
     createdAt: key.createdAt.toISOString(),
     expiresAt: link.expiresAt?.toISOString() ?? null,
   };
 }
 
-function mapHandoffRow(key: ApiKeyRow, link: ShareLinkRow): ShareHandoffRow {
+function mapHandoffRow(key: ApiKeyRow, link: ShareLinkRow, popup?: PopupRow): ShareHandoffRow {
   return {
     id: key.id,
     tenantId: key.tenantId,
@@ -181,11 +183,11 @@ function mapHandoffRow(key: ApiKeyRow, link: ShareLinkRow): ShareHandoffRow {
     notesTitle: key.notesTitle,
     notesSubtitle: key.notesSubtitle,
     notesBody: key.notesBody,
-    sharePopupEnabled: key.sharePopupEnabled,
-    sharePopupImage: key.sharePopupImage,
-    sharePopupImageMime: key.sharePopupImageMime,
-    sharePopupTitle: key.sharePopupTitle,
-    sharePopupBody: key.sharePopupBody,
+    sharePopupEnabled: popup?.enabled ?? false,
+    sharePopupImage: popup?.image ?? null,
+    sharePopupImageMime: popup?.imageMime ?? null,
+    sharePopupTitle: popup?.title ?? null,
+    sharePopupBody: popup?.body ?? null,
     expiresAt: link.expiresAt?.toISOString() ?? null,
   };
 }
@@ -336,9 +338,10 @@ export class DrizzleShareLinkStore implements ShareLinkStore {
    */
   async resolveShareLinkOutcome(tokenHash: string): Promise<ShareLinkOutcome> {
     const rows = await this.db
-      .select({ key: apiKeys, link: shareLinks })
+      .select({ key: apiKeys, link: shareLinks, popup: sharePopups })
       .from(shareLinks)
       .innerJoin(apiKeys, eq(shareLinks.apiKeyId, apiKeys.id))
+      .leftJoin(sharePopups, eq(sharePopups.apiKeyId, apiKeys.id))
       .where(and(eq(shareLinks.tokenHash, tokenHash), isNull(apiKeys.parentKeyId)))
       .limit(1);
     const row = rows[0];
@@ -359,11 +362,11 @@ export class DrizzleShareLinkStore implements ShareLinkStore {
     // two disagree is a mismatched pair, not a link to serve.
     if (row.link.kind === "enroll") {
       return row.key.keyMode === "share"
-        ? { ok: true, resolution: { kind: "enroll", key: mapShareRow(row.key, row.link) } }
+        ? { ok: true, resolution: { kind: "enroll", key: mapShareRow(row.key, row.link, row.popup ?? undefined) } }
         : { ok: false, refusal: "not_found" };
     }
     return row.key.keyMode === "personal"
-      ? { ok: true, resolution: { kind: "handoff", key: mapHandoffRow(row.key, row.link) } }
+      ? { ok: true, resolution: { kind: "handoff", key: mapHandoffRow(row.key, row.link, row.popup ?? undefined) } }
       : { ok: false, refusal: "not_found" };
   }
 

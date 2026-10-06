@@ -50,6 +50,7 @@ import {
   providerRoutingSettings,
   providers,
   shareLinks,
+  sharePopups,
   studioSessions,
   tenantDisabledModels,
   telemetryEvents,
@@ -599,6 +600,7 @@ export async function deleteAll(
     if (all || selected.has("configuration")) {
       await remove(cliToolMappings, direct(cliToolMappings));
       await remove(cliToolSettings, direct(cliToolSettings));
+      await remove(sharePopups, sql`${sharePopups.apiKeyId} in (select ${apiKeys.id} from ${apiKeys} where ${apiKeys.tenantId} = ${tenantId})`);
       await remove(shareLinks, sql`${shareLinks.apiKeyId} in (select ${apiKeys.id} from ${apiKeys} where ${apiKeys.tenantId} = ${tenantId})`);
       const keys = await scoped.delete(apiKeys).where(direct(apiKeys)).returning({ id: apiKeys.id });
       if (keys.length > 0) {

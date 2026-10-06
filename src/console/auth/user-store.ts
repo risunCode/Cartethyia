@@ -10,7 +10,11 @@ export class ConsoleUserStore {
   constructor(private readonly db: CartethyiaDatabase) {}
 
   async findByUsername(username: string): Promise<unknown | undefined> {
-    const rows = await this.db.select().from(consoleUsers).where(eq(consoleUsers.username, username)).limit(1);
+    // Usernames are unique per tenant, not globally. Login carries no tenant, so
+    // a name that matches exactly one user still resolves; a name shared by two
+    // tenants is refused rather than guessed.
+    const rows = await this.db.select().from(consoleUsers).where(eq(consoleUsers.username, username)).limit(2);
+    if (rows.length !== 1) return undefined;
     return rows[0];
   }
 

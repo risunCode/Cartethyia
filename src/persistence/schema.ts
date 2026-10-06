@@ -600,14 +600,6 @@ export const apiKeys = pgTable(
     notesBody: text("notes_body"),
     /** Explicit list position; see `0019_list_sort_index.sql`. */
     sortIndex: integer("sort_index").notNull().default(0),
-    // One popup, no donation/information type: the owner edits its copy freely.
-    sharePopupEnabled: boolean("share_popup_enabled").notNull().default(false),
-    // The popup art is uploaded and served from this row; a remote URL would
-    // leak the visitor's IP to a third party and rot when the host moves.
-    sharePopupImage: bytea("share_popup_image"),
-    sharePopupImageMime: text("share_popup_image_mime"),
-    sharePopupTitle: text("share_popup_title"),
-    sharePopupBody: text("share_popup_body"),
     requestsPerMinute: integer("requests_per_minute"),
     dailyTokenLimit: bigint("daily_token_limit", { mode: "number" }),
     monthlyTokenLimit: bigint("monthly_token_limit", { mode: "number" }),
@@ -650,14 +642,6 @@ export const apiKeys = pgTable(
     index("api_keys_enabled_tenant_idx").on(table.tenantId).where(sql`${table.enabled} = true`),
     index("api_keys_parent_key_id_idx").on(table.parentKeyId),
     check(
-      "api_keys_share_popup_image_mime_check",
-      sql`${table.sharePopupImageMime} IS NULL OR ${table.sharePopupImageMime} IN ('image/png', 'image/jpeg', 'image/webp', 'image/gif')`,
-    ),
-    check(
-      "api_keys_share_popup_image_size_check",
-      sql`${table.sharePopupImage} IS NULL OR octet_length(${table.sharePopupImage}) <= 2097152`,
-    ),
-    check(
       "api_keys_mode_shape_check",
       sql`(
         (${table.keyMode} = 'personal' AND ${table.keyHash} IS NOT NULL
@@ -679,6 +663,36 @@ export const apiKeys = pgTable(
 );
 
 export type ApiKey = typeof apiKeys.$inferSelect;
+
+/**
+ * The optional popup a share link shows its recipient. Kept off `api_keys`
+ * because the auth path reads that row on every request and the popup is
+ * absent for nearly all of them. One row per key, present only when the owner
+ * configured one.
+ */
+export const sharePopups = pgTable(
+  "share_popups",
+  {
+    apiKeyId: uuid("api_key_id")
+      .primaryKey()
+      .references(() => apiKeys.id, { onDelete: "cascade" }),
+    enabled: boolean("enabled").notNull().default(false),
+    image: bytea("image"),
+    imageMime: text("image_mime"),
+    title: text("title"),
+    body: text("body"),
+  },
+  (table) => [
+    check(
+      "share_popups_image_mime_check",
+      sql`${table.imageMime} IS NULL OR ${table.imageMime} IN ('image/png', 'image/jpeg', 'image/webp', 'image/gif')`,
+    ),
+    check(
+      "share_popups_image_size_check",
+      sql`${table.image} IS NULL OR octet_length(${table.image}) <= 2097152`,
+    ),
+  ],
+);
 
 
 // Public bearer links for enrolling one shared key per resolved client IP, and
@@ -741,7 +755,7 @@ export const consoleUsers = pgTable(
   },
   (table) => [
     index("console_users_tenant_id_idx").on(table.tenantId),
-    uniqueIndex("idx_console_users_username").on(table.username),
+    uniqueIndex("console_users_tenant_username_uidx").on(table.tenantId, table.username),
   ],
 );
 

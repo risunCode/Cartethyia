@@ -35,6 +35,7 @@ import {
   providerRoutingSettings,
   providers,
   shareLinks,
+  sharePopups,
   studioSessions,
   tenantDisabledModels,
   tenants,
@@ -67,6 +68,7 @@ export const MAX_ROWS_PER_TABLE = 500_000;
  * `tenants` is deliberately NOT here. See {@link TENANT_TABLE}.
  */
 export const CONFIG_TABLES = [
+  sharePopups,
   shareLinks,
   providerOauthStates,
   tenantDisabledModels,
@@ -171,6 +173,7 @@ const INHERITED_OWNERSHIP: ReadonlyMap<
       replace: "delete",
     },
   ],
+  [sharePopups, { column: "api_key_id", parent: apiKeys, parentColumn: "id", replace: "delete" }],
   [shareLinks, { column: "api_key_id", parent: apiKeys, parentColumn: "id", replace: "delete" }],
 ]);
 
@@ -347,6 +350,11 @@ const LEGACY_DROPPED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   provider_accounts: ["max_inflight"],
   share_links: ["used_at"],
   api_keys: [
+    "share_popup_enabled",
+    "share_popup_image",
+    "share_popup_image_mime",
+    "share_popup_title",
+    "share_popup_body",
     "model_allowlist",
     "model_denylist",
     "provider_allowlist",
