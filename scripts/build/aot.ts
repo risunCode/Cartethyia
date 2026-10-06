@@ -123,18 +123,6 @@ export async function buildAOT(
       exitFn(1);
     }
 
-    // PGlite resolves its WASM runtime relative to the bundle, and the bundler
-    // does not emit it. Without these files Lite mode dies at boot with
-    // "ENOENT ... dist/pglite.data" (bug 4).
-    const pgliteAssets = ["pglite.data", "pglite.wasm", "initdb.wasm"];
-    for (const asset of pgliteAssets) {
-      const source = Bun.file("node_modules/@electric-sql/pglite/dist/" + asset);
-      if (!(await source.exists())) {
-        console.error("[AOT] missing PGlite runtime asset: " + asset);
-        exitFn(1);
-      }
-      await Bun.write("dist/" + asset, source);
-    }
     console.log("[AOT] Build succeeded; precompiled manifest ready");
   } catch (error) {
     console.error("[AOT] Build failed:", error);
