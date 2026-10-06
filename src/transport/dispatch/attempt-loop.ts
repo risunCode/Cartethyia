@@ -18,7 +18,7 @@ import type { ValidatedNetworkBindingFactory } from "../../network/pool/resolver
 import type { ByokUpstreamHost } from "../../providers/operations/provider-catalog-service";
 import type { AdmissionLease } from "../../security/admission/contracts";
 import type { RouteCandidate, Reservation, RouteSnapshotService } from "../routing/route-model";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { acquireAttemptLeases, releaseAttemptLeases } from "./leases";
 import type { AttemptLeaseSource, AttemptLeases } from "./leases";
 import { metrics } from "../../observability/metrics";

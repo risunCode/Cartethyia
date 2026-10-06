@@ -213,7 +213,7 @@ describe("auditActionLabel", () => {
   test("every action the backend emits has a curated label", () => {
     // The invariant the module's doc comment claims, and the one that keeps the
     // table readable. The backend's `action` field is a plain string with no enum
-    // behind it (`src/console/domains/audit/contracts.ts`), so nothing fails when a
+    // behind it (`src/console/audit/contracts.ts`), so nothing fails when a
     // new emit site appears — this test is the only thing that catches the two
     // lists drifting.
     const unlabelled = BACKEND_ACTIONS.filter(

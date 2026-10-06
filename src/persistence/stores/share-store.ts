@@ -5,8 +5,8 @@ import { createHash, randomInt } from "node:crypto";
 // stable link, and is never selected by a public lookup.
 
 import { and, desc, eq, isNull, isNotNull, sql } from "drizzle-orm";
-import type { CartethyiaDatabase } from "./postgres";
-import { apiKeys, shareLinks, type ShareLinkKind, type ApiKeyModelAccessMode } from "./schema";
+import type { CartethyiaDatabase } from "../db-handle";
+import { apiKeys, shareLinks, type ShareLinkKind, type ApiKeyModelAccessMode } from "../schema";
 
 /** Hashes a share bearer token for storage and lookup. */
 export function hashShareToken(token: string): string {

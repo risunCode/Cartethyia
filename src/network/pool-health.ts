@@ -1,4 +1,4 @@
-import type { CartethyiaDatabase } from "../persistence/postgres";
+import type { CartethyiaDatabase } from "../persistence/db-handle";
 import { healthEvents } from "../persistence/schema";
 import type { NetworkPoolSelector } from "./pool/selector";
 import type { GatewayError } from "../protocol/gateway-error";

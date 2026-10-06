@@ -5,14 +5,20 @@
  * is the single place that knows them.
  */
 import { Elysia } from "elysia";
+import { log } from "../observability/logger";
 import { resolveConsoleAccess, resolveConsoleUser } from "./auth/session-resolver";
-import { ConsoleCredentialService, FirstBootSetupService, ConsoleSessionService, defaultSessionCookiePolicy, ConsoleLockoutService, AuditRecorder } from "./auth/service";
+import { ConsoleCredentialService } from "./auth/credentials";
+import { resolveDefaultGatewayApiKey } from "../config/runtime";
+import { FirstBootSetupService } from "./auth/setup-service";
+import { ConsoleSessionService, defaultSessionCookiePolicy } from "./auth/session-service";
+import { ConsoleLockoutService } from "./auth/lockout";
+import { AuditRecorder } from "./auth/audit-recorder";
 import { createConsoleAuthRoutes } from "./auth/session";
 import { createConsoleCsrfMiddleware } from "./console-router-guards";
 import { createConsoleMutationLimiterMiddleware } from "./console-router-guards";
 import { registerConsoleDomains, type ConsoleDomainContext } from "./domain-registration";
 import type { ConsoleAccessResolver } from "./auth/access";
-import type { CartethyiaDatabase } from "../persistence/postgres";
+import type { CartethyiaDatabase } from "../persistence/db-handle";
 import { createAccessDecision, type AccessDecision } from "../security/access-control";
 import { resolveApiKeyAuthorization } from "../security/api-key-auth";
 import type { LiveInFlightSource } from "./observability/live";
@@ -101,6 +107,18 @@ export function createConsoleRouter(deps: ConsoleApiCompositionDeps): Elysia {
   const sessionService = new ConsoleSessionService(db, cookiePolicy);
   const lockoutService = new ConsoleLockoutService(db);
   const setupService = new FirstBootSetupService(db, credentialService);
+  // The default gateway key is seeded only when the first-boot wizard runs, so a
+  // key set in the environment does nothing until an operator completes setup.
+  // Fire and forget: a failed check must not stop the console from mounting.
+  void setupService.requiresSetup().then((needsSetup) => {
+    if (needsSetup && resolveDefaultGatewayApiKey() !== undefined) {
+      log.warn(
+        "[setup] CARTETHYIA_API_KEY is set but no console user exists yet; complete the first-boot wizard at /console so the key is seeded",
+      );
+    }
+  }).catch((error: unknown) => {
+    log.warn("[setup] could not check first-boot state", error);
+  });
   const auditRecorder = new AuditRecorder(db);
   const cliToolService = new CliToolService(
     new CliToolMappingStore(db),

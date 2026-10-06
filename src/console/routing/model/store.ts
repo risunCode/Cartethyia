@@ -2,7 +2,7 @@
 import { and, eq, inArray, or } from "drizzle-orm";
 import { nextSortIndex, reorderSortIndex } from "../../../lib/sort-order";
 import { globalOrOwnedBy } from "../../../persistence/tenant-scope";
-import type { CartethyiaDatabase } from "../../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../../persistence/db-handle";
 import {
   modelAliases,
   modelCombos,

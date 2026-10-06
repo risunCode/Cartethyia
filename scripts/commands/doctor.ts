@@ -52,7 +52,7 @@ async function resetLockout(args: readonly string[]): Promise<void> {
   }
   process.env.DATABASE_URL = databaseUrl;
 
-  const { getDb, closeDb } = await import("../../src/persistence/postgres");
+  const { getDb, closeDb } = await import("../../src/persistence/boot");
   const { consoleLockouts } = await import("../../src/persistence/schema");
   const { eq, or } = await import("drizzle-orm");
 

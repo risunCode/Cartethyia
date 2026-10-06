@@ -2,8 +2,8 @@ import { Elysia } from "elysia";
 import { ConsoleDomainError } from "./shared/errors";
 import { createCliToolsRoutes } from "./cli-tools/routes";
 import { createAccountQuotaRoutes } from "./quota/account-quota";
-import { createApiKeyRoutes } from "./domains/api-keys/routes";
-import { familyBucketSpend } from "./domains/api-keys/bucket-spend";
+import { createApiKeyRoutes } from "./api-keys/routes";
+import { familyBucketSpend } from "./api-keys/bucket-spend";
 import { createProviderCatalogRoutes } from "./providers/catalog/routes";
 import {
   createProviderDetailRoutes,
@@ -22,21 +22,21 @@ import { createModelRoutingRoutes } from "./routing/model/routes";
 import { createNetworkPoolRoutes } from "./routing/pools/routes";
 import { DrizzleModelRoutingStore } from "./routing/model/store";
 import { DrizzleNetworkPoolStore } from "./routing/pools/store";
-import { createRuntimeSettingsRoutes } from "./settings/contracts";
+import { createRuntimeSettingsRoutes } from "./settings/routes";
 import { DrizzleRuntimeSettingsStore } from "./settings/store";
-import { createObservabilityRoutes } from "./observability/contracts";
+import { createObservabilityRoutes } from "./observability/routes";
 import { DrizzleObservabilityStore } from "./observability/store";
 import { createLiveRoutes } from "./observability/live";
 import { createLogRoutes } from "./observability/logs";
-import { createAuditRoutes } from "./domains/audit/contracts";
-import { createModelAbuseRoutes } from "./domains/model-abuse/contracts";
-import { DrizzleAuditReadStore } from "./domains/audit/store";
-import { createStudioRoutes } from "./domains/studio/routes";
-import { DrizzleStudioSessionStore } from "./domains/studio/store";
+import { createAuditRoutes } from "./audit/routes";
+import { createModelAbuseRoutes } from "./admin/model-abuse/routes";
+import { DrizzleAuditReadStore } from "./audit/store";
+import { createStudioRoutes } from "./studio/routes";
+import { DrizzleStudioSessionStore } from "./studio/store";
 import { createPerformanceRoutes } from "./observability/performance";
 import { createBackupRoutes } from "./backup/routes";
 import { BackupService } from "./backup/service";
-import type { ConsoleCredentialService } from "./auth/service";
+import type { ConsoleCredentialService } from "./auth/credentials";
 
 import { InMemoryOAuthFlowStore, OAuthFlowStore } from "../providers/authentication/oauth-flow-store";
 import { OAuthCallbackListener } from "./providers/oauth/callback-listener";
@@ -45,12 +45,12 @@ import {
   createAccountSecretResolver,
 } from "../providers/operations/provider-credential-service";
 import { syncByokProvider } from "../providers/operations/provider-catalog-service";
-import { DrizzleApiKeyStore } from "../persistence/api-key-store";
-import { DrizzleShareLinkStore } from "../persistence/share-store";
+import { DrizzleApiKeyStore } from "../persistence/stores/api-key-store";
+import { DrizzleShareLinkStore } from "../persistence/stores/share-store";
 import { createShareUsagePort } from "./share/share-usage";
 import { resolveSsrfPolicy } from "../config/network";
 import { createValidatedFetch } from "../network/outbound-fetch";
-import type { AuditRecorder } from "./auth/service";
+import type { AuditRecorder } from "./auth/audit-recorder";
 import type { CliToolService } from "./cli-tools/service";
 import type { NetworkPoolSelector } from "../network/pool/selector";
 import type { LiveInFlightSource } from "./observability/live";
@@ -63,7 +63,7 @@ import type { RedisClient } from "../persistence/redis";
 import type { ProviderRegistry } from "../providers/registry";
 import type { BundledProviderCatalog } from "../providers/operations/provider-catalog-service";
 import type { ValidatedNetworkBindingFactory } from "../network/pool/resolver";
-import type { CartethyiaDatabase } from "../persistence/postgres";
+import type { CartethyiaDatabase } from "../persistence/db-handle";
 import type { ConsoleAccessResolver } from "./auth/access";
 
 export interface ConsoleDomainContext {

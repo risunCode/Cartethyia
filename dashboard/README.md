@@ -39,13 +39,13 @@ chunks:
 | `/combos` | `Combos` | `console/routing/model` |
 | `/quota` | `features/quota/QuotaPage` | `console/quota` |
 | `/proxy` | `Proxy` | `network/pool` and routing |
-| `/model-lab` | `Studio` | `console/domains/studio` |
+| `/model-lab` | `Studio` | `console/studio` |
 | `/cli-tools`, `/cli-tools/:toolId` | `CliTools`, `CliToolDetail` | `console/cli-tools` |
 | `/console-log` | `features/logs/ConsoleLogPage` | `console/observability` and SSE |
 | `/settings` | `Settings` | `console/settings` |
-| Overview `API Credentials` row → share | `ShareManagementDialog` | `console/domains/api-keys` and `console/share` |
-| Overview `API Credentials` header → `Banned Users` (platform admin only) | `ModelBansDialog` | `console/domains/model-abuse` |
-| Overview `API Credentials` create / rotate / share-regenerate | `ApiKeySecretDialog` | `console/domains/api-keys` (one-time secret reveal) |
+| Overview `API Credentials` row → share | `ShareManagementDialog` | `console/api-keys` and `console/share` |
+| Overview `API Credentials` header → `Banned Users` (platform admin only) | `ModelBansDialog` | `console/admin/model-abuse` |
+| Overview `API Credentials` create / rotate / share-regenerate | `ApiKeySecretDialog` | `console/api-keys` (one-time secret reveal) |
 | `/share/:token` (public root route) | `apps/share/page.tsx` | public key enrollment (`/data`, `/issue`) and personal handoff (`/handoff`) via `src/console/share/share-router.ts` |
 Landing's Console links point to `/console`, not `/console/login`: that
 protected entry checks the same-origin session cookie and only routes to Login

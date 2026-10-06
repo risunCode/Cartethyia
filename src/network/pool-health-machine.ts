@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../persistence/postgres";
+import type { CartethyiaDatabase } from "../persistence/db-handle";
 import { healthEvents, networkPools } from "../persistence/schema";
 import { drainPoolByteDelta } from "./pool/byte-accounting";
 import { resolvePoolCooldownMs } from "../config/cooldowns";

@@ -3,7 +3,7 @@
 // Elysia-free on purpose: the dashboard imports these types, and `routes.ts`
 // is the only module allowed to touch the HTTP layer.
 import type { ConsoleAccessResolver } from "../../auth/access";
-import type { AuditSink } from "../../domains/audit/contracts";
+import type { AuditSink } from "../../audit/contracts";
 import { ConsoleDomainError } from "../../shared/errors";
 import { isIP } from "node:net";
 import { isAddressAllowed } from "../../../network/ssrf";

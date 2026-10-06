@@ -22,7 +22,7 @@ import type { ProxyRequestPreparer } from "../request/preparer";
 import { ProxyRequestStateStore } from "../request/state";
 import type { SurfaceAdapterRegistry } from "../surface/adapters";
 import type { TrustedProxyBoundary } from "../../config/network";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
 import type { ModelStrikeService } from "../../security/model-abuse";
 

@@ -1,20 +1,7 @@
-// Console surface for model-abuse bans: list active bans and lift one.
-//
-// The strike layer (security/model-abuse.ts) bans a client address after
-// repeated invalid-model requests. A ban lapses on its own after its TTL, and
-// this is the escape hatch for lifting one early — a false positive (a shared
-// NAT, a client that genuinely mistyped) must be fixable without SQL. It is a
-// platform-admin surface: a ban is a security decision and the identity values
-// are cross-tenant.
 import { Elysia, t } from "elysia";
-import type { AccessDecision } from "../../../security/access-control";
-import type { ModelAbuseBan, ModelStrikeService } from "../../../security/model-abuse";
+import type { ModelAbuseBan } from "../../../security/model-abuse";
 import { ConsoleDomainError, errorResponse, requireGlobalAdmin } from "../../shared/errors";
-
-export interface ModelAbuseRoutesConfig {
-  readonly strikes: Pick<ModelStrikeService, "listBans" | "unban">;
-  readonly accessResolver: (request: Request) => AccessDecision | undefined;
-}
+import type { ModelAbuseRoutesConfig } from "./contracts";
 
 const unbanBody = t.Object({
   identity: t.String({ minLength: 1 }),

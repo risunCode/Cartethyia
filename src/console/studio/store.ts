@@ -3,8 +3,8 @@
 // Owns persistence and the row-to-view mapping; routes never touch Drizzle.
 
 import { and, desc, eq } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../../persistence/postgres";
-import { studioSessions } from "../../../persistence/schema";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
+import { studioSessions } from "../../persistence/schema";
 import {
   type StudioSessionRow,
   type StudioSessionStore,

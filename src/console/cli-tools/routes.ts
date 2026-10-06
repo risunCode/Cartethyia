@@ -1,5 +1,5 @@
 import type { ConsoleAccessResolver } from "../auth/access";
-import type { AuditSink } from "../domains/audit/contracts";
+import type { AuditSink } from "../audit/contracts";
 import { Elysia, t } from "elysia";
 import { errorResponse, requireTenantScope } from "../shared/errors";
 import type { CliToolService } from "./service";

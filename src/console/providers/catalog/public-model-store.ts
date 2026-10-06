@@ -1,3 +1,4 @@
+import { globalOrOwnedBy } from "../../../persistence/tenant-scope";
 /**
  * Public model catalog: the read-only `/v1/models` surface an API key sees.
  *
@@ -9,7 +10,7 @@
  * authorization snapshot.
  */
 import { and, eq, isNull, or } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../../persistence/db-handle";
 import { modelAliases, modelCombos, models, providerAccounts, providers } from "../../../persistence/schema";
 import { isModelAllowed, listIncludes, type ApiKeyAuthorizationSnapshot } from "../../../security/api-key-auth";
 import { providerSupportsWebSearch } from "../../../providers/metadata";
@@ -314,7 +315,7 @@ export class PublicModelCatalogStore {
     const providerScope =
       tenantId === null
         ? isNull(providers.tenantId)
-        : or(isNull(providers.tenantId), eq(providers.tenantId, tenantId));
+        : globalOrOwnedBy(providers.tenantId, tenantId);
     const rows = await this.db
       .select({
         providerId: models.providerId,
@@ -490,7 +491,7 @@ export class PublicModelCatalogStore {
     }
     const out = new Map<string, ModelMetadata>();
     if (qualified.size === 0 && bare.size === 0) return out;
-    const providerScope = or(isNull(providers.tenantId), eq(providers.tenantId, tenantId));
+    const providerScope = globalOrOwnedBy(providers.tenantId, tenantId);
     const rows = await this.db
       .select({
         providerId: models.providerId,

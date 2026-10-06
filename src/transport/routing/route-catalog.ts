@@ -1,7 +1,7 @@
 // Routing snapshot: builds the RouteSnapshot from the persisted model catalog.
 
 import { asc, eq, ne } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import {
   models,
   modelAliases,

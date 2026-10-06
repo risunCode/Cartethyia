@@ -16,7 +16,7 @@
  * database: the layer doc and the dashboard copy say so, and export requires
  * password re-authentication.
  */
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { ConsoleDomainError } from "../shared/errors";
 import { tablesForSection } from "./contracts";
 import type { BackupSection } from "./contracts";

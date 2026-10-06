@@ -1,6 +1,7 @@
+import { globalOrOwnedBy } from "../../persistence/tenant-scope";
 import { t } from "elysia";
 import type { Elysia } from "elysia";
-import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { providerAccounts, providers } from "../../persistence/schema";
 import { providerDisplayName } from "../../providers/metadata";
 import { invalidateCredentialCache } from "../../providers/operations/provider-credential-service";
@@ -154,8 +155,8 @@ export function registerAccountQuotaTenantRoutes(
         .innerJoin(providers, eq(providerAccounts.providerId, providers.id))
         .where(
           and(
-            or(isNull(providerAccounts.tenantId), eq(providerAccounts.tenantId, access.tenantId)),
-            or(isNull(providers.tenantId), eq(providers.tenantId, access.tenantId)),
+            globalOrOwnedBy(providerAccounts.tenantId, access.tenantId),
+            globalOrOwnedBy(providers.tenantId, access.tenantId),
           ),
         );
 
@@ -380,7 +381,7 @@ export function registerAccountQuotaTenantRoutes(
           .where(
             and(
               inArray(providerAccounts.id, ids),
-              or(isNull(providerAccounts.tenantId), eq(providerAccounts.tenantId, access.tenantId)),
+              globalOrOwnedBy(providerAccounts.tenantId, access.tenantId),
             ),
           );
         // Collectorless accounts are done without a fetch: counted as

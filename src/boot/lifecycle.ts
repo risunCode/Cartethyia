@@ -1,4 +1,4 @@
-import { closeDb } from "../persistence/postgres";
+import { closeDb } from "../persistence/boot";
 import { closeRedis } from "../persistence/redis";
 import { buildProductionDeps } from "./dependencies";
 import type { ProductionDeps } from "./dependencies";

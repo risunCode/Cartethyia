@@ -27,7 +27,7 @@ export interface InFlightSnapshot {
 }
 import type { NetworkPoolSelector } from "../../network/pool/selector";
 import { eq } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { networkPools } from "../../persistence/schema";
 import { subscribePoolHealth } from "../../network/pool-health-machine";
 import { poolByteSnapshot } from "../../network/pool/byte-accounting";

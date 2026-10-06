@@ -7,7 +7,7 @@
 // A drift between them would mean the page and the worker disagree about what
 // "refreshed" means.
 import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { providerAccounts } from "../../persistence/schema";
 import type { RedisClient } from "../../persistence/redis";
 import { log } from "../../observability/logger";

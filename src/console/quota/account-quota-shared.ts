@@ -1,5 +1,5 @@
 import type { ConsoleAccessResolver } from "../auth/access";
-import type { AuditRecorder } from "../auth/service";
+import type { AuditRecorder } from "../auth/audit-recorder";
 import { markClineApiKeyCredential } from "../../providers/integrations/cline/cline-quota";
 import { type QuotaRefreshDeps } from "./refresh";
 

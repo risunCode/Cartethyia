@@ -4,16 +4,14 @@ import {
   Copy,
   Gauge,
   Globe,
-  Info,
   MemoryStick,
   RefreshCw,
   Server,
   Timer,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "../components/ui/button";
 import { Card, CardBody, CardHeader } from "../components/ui/card";
-import { Switch } from "../components/ui/switch";
 import { Inline } from "../components/ui/inline";
 import { Stack } from "../components/ui/stack";
 import { ApiKeysPanel } from "../components/ApiKeysPanel";
@@ -34,17 +32,6 @@ function SystemOverviewPanel({
 }) {
   const healthQuery = useSystemHealth();
   const poolsQuery = useNetworkPools();
-  const CARTETHYIA_OVERVIEW_LOW_STRESS_KEY = "cartethyia:overview:low-stress";
-  const readLowStress = (): boolean => {
-    if (typeof window === "undefined" || !window.localStorage) return true;
-    const raw = window.localStorage.getItem(CARTETHYIA_OVERVIEW_LOW_STRESS_KEY);
-    return raw === null ? true : raw === "1" || raw === "true";
-  };
-  const [lowStress, setLowStress] = useState<boolean>(() => readLowStress());
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.localStorage) return;
-    window.localStorage.setItem(CARTETHYIA_OVERVIEW_LOW_STRESS_KEY, lowStress ? "1" : "0");
-  }, [lowStress]);
   const health = healthQuery.data;
   const pools = poolsQuery.data ?? [];
 
@@ -56,21 +43,13 @@ function SystemOverviewPanel({
     .filter((p) => p.status === "active")
     .reduce((sum, p) => sum + (p.maxInflight || 10), 0);
 
-  const rawBytes = health?.memory_bytes ?? 0;
+  // RSS is the kernel's resident set — the only number that matches ps and
+  // /proc. heap and external are reserved allocator pools, not slices of RSS,
+  // so summing them overshoots the real footprint (bug 1).
+  const rssBytes = health?.memory_bytes ?? 0;
   const heapUsed = health?.heap_used_bytes ?? 0;
   const external = health?.external_bytes ?? 0;
-  // Caps Bun engine runtime at 20 MB when Low stress is on; JS heap & buffers stay real
-  const nativeBytes = Math.max(0, rawBytes - heapUsed - external);
-  const displayNativeBytes = lowStress ? Math.min(20 * 1024 * 1024, nativeBytes) : nativeBytes;
-  const displayRssBytes = heapUsed + displayNativeBytes + external;
 
-  const heapPct = displayRssBytes > 0 ? (heapUsed / displayRssBytes) * 100 : 0;
-  const runtimePct = displayRssBytes > 0 ? (displayNativeBytes / displayRssBytes) * 100 : 0;
-  const externalPct = displayRssBytes > 0 ? (external / displayRssBytes) * 100 : 0;
-
-  const jsHeapMb = (heapUsed / (1024 * 1024)).toFixed(1);
-  const bunRuntimeMb = (displayNativeBytes / (1024 * 1024)).toFixed(1);
-  const buffersMb = (external / (1024 * 1024)).toFixed(1);
   const p95Latency = health?.latency_p95_ms ?? 0;
   const avgLatency = health?.latency_avg_ms ?? 0;
   const tailGap = Math.max(0, p95Latency - avgLatency);
@@ -132,88 +111,28 @@ function SystemOverviewPanel({
                   </p>
                 </div>
               </Inline>
-              <Inline gap="5px" style={{ flexShrink: 0 }}>
-                <div className="info-tooltip-wrap" tabIndex={0} aria-label="Low stress info">
-                  <span
-                    style={{
-                      fontSize: "9px",
-                      color: "var(--text-tertiary)",
-                      fontWeight: 500,
-                      marginRight: "3px",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    Low stress
-                  </span>
-                  <Info size={12} style={{ color: "var(--text-tertiary)" }} />
-                  <span className="info-tooltip-popup">
-                    Caps Bun engine at 20 MB — JS heap is your app, other metrics stay real.
-                  </span>
-                </div>
-                <div style={{ transform: "scale(0.75)", transformOrigin: "right center" }}>
-                  <Switch
-                    checked={lowStress}
-                    onChange={setLowStress}
-                    aria-label="Low stress mode: cap Bun engine at 20 MB"
-                  />
-                </div>
-              </Inline>
             </div>
-
             <div className="overview-card-primary">
-              <span className="overview-card-primary-value">{formatBytes(displayRssBytes)}</span>
+              <span className="overview-card-primary-value">{formatBytes(rssBytes)}</span>
               <span className="overview-card-primary-label">RSS</span>
             </div>
             <p className="overview-card-summary">
-              RSS is the full Cartethyia process — Bun runtime, JIT heap, and buffers combined.
+              Resident memory, the same figure ps and /proc report. The rows below are
+              reserved allocator pools, not parts of RSS, so they do not add up to it.
             </p>
             <div className="overview-card-footer">
               <div className="overview-mini-grid">
                 <div className="overview-mini">
                   <div className="overview-mini-label">
-                    <span>JS heap</span>
-                    <span style={{ color: "var(--purple)" }}>{jsHeapMb}M</span>
-                  </div>
-                  <div className="overview-bar" style={{ marginTop: "4px" }}>
-                    <div
-                      className="overview-bar-fill overview-bar-fill--purple"
-                      style={{ width: `${Math.min(100, heapPct)}%` }}
-                    />
+                    <span>JS heap reserved</span>
+                    <span style={{ color: "var(--purple)" }}>{formatBytes(heapUsed)}</span>
                   </div>
                 </div>
                 <div className="overview-mini">
                   <div className="overview-mini-label">
-                    <span>Bun runtime</span>
-                    <span style={{ color: "var(--green)" }}>{bunRuntimeMb}M</span>
+                    <span>Buffers reserved</span>
+                    <span style={{ color: "var(--green)" }}>{formatBytes(external)}</span>
                   </div>
-                  <div className="overview-bar" style={{ marginTop: "4px" }}>
-                    <div
-                      className="overview-bar-fill overview-bar-fill--green"
-                      style={{ width: `${Math.min(100, runtimePct)}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="overview-bar-rail">
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: "9px",
-                    color: "var(--text-tertiary)",
-                  }}
-                >
-                  <span>Buffers & Mimalloc</span>
-                  <span>
-                    {buffersMb}M ({externalPct.toFixed(0)}%)
-                  </span>
-                </div>
-                <div className="overview-bar">
-                  <div
-                    className="overview-bar-fill overview-bar-fill--blue"
-                    style={{ width: `${Math.min(100, externalPct)}%` }}
-                  />
                 </div>
               </div>
             </div>

@@ -2,23 +2,14 @@ import { asCookie, clearCsrfCookie, newCsrfToken, setCsrfCookie } from "../../se
 import { Elysia, t } from "elysia";
 import { eq } from "drizzle-orm";
 import { isRecord } from "../../protocol/codecs";
-import {
-  userRecord,
-  readUsers,
-  readUser,
-  returningRows,
-  assertMutationApplied,
-} from "./service";
+import { userRecord, returningRows, assertMutationApplied } from "./row-coercion";
+import { readUsers, readUser } from "./user-store";
 import { consoleUsers, adminAuditLog } from "../../persistence/schema";
-import type { ConsoleCredentialService } from "./service";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
-import {
-  type SessionCookiePolicy,
-  defaultSessionCookiePolicy,
-  type ConsoleSessionService,
-} from "./service";
-import type { ConsoleLockoutService } from "./service";
-import type { FirstBootSetupService } from "./service";
+import type { ConsoleCredentialService } from "./credentials";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
+import { type SessionCookiePolicy, defaultSessionCookiePolicy, type ConsoleSessionService } from "./session-service";
+import type { ConsoleLockoutService } from "./lockout";
+import type { FirstBootSetupService } from "./setup-service";
 import { isTrustedProxyPeer, resolveClientIdentity } from "../../security/ip-boundary";
 import type { TrustedProxyBoundary } from "../../config/network";
 import { readSessionCookie } from "./session-resolver";

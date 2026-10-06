@@ -10,8 +10,9 @@
  * `hasMeaningfulOutput`) and the provider-row → wire-context mapping live here
  * too; the mapping is shared with `syncModels`.
  */
-import { and, eq, isNull, or } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import { and, eq } from "drizzle-orm";
+import { globalOrOwnedBy } from "../../persistence/tenant-scope";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { consoleSettings, models, providerAccounts } from "../../persistence/schema";
 import type {
   CanonicalEvent,
@@ -370,7 +371,7 @@ export async function selectProbeAccount(args: {
         .where(
           and(
             eq(providerAccounts.providerId, providerId),
-            or(isNull(providerAccounts.tenantId), eq(providerAccounts.tenantId, tenantId)),
+            globalOrOwnedBy(providerAccounts.tenantId, tenantId),
             ...(requestedAccountId ? [eq(providerAccounts.id, requestedAccountId)] : []),
           ),
         )

@@ -1,7 +1,7 @@
 // Provider credentials: decrypts stored account rows into dispatchable ResolvedCredentials.
 import { eq } from "drizzle-orm";
 
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { providerAccounts, providerOauthStates } from "../../persistence/schema";
 import { decryptCredentialToString } from "../../security/crypto";
 import { GatewayError } from "../../protocol/gateway-error";

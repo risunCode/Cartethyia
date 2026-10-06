@@ -4,8 +4,8 @@
 // normalization bounds, and the key-issuance rule; store and routes consume
 // it, they do not redeclare it.
 
-import { isRecord } from "../../../protocol/codecs";
-import type { studioSessions } from "../../../persistence/schema";
+import { isRecord } from "../../protocol/codecs";
+import type { studioSessions } from "../../persistence/schema";
 
 export interface StudioMessageUsage {
   readonly input?: number;

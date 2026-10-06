@@ -1,10 +1,10 @@
 // Persisted API-key store: the console API-key domain and gateway authentication both consume this boundary.
 
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { nextSortIndex, reorderSortIndex } from "../lib/sort-order";
-import type { CartethyiaDatabase } from "./postgres";
-import { apiKeys, shareLinks, type ApiKeyMode, type ApiKeyModelAccessMode } from "./schema";
-import type { AccessScope } from "../security/access-control";
+import { nextSortIndex, reorderSortIndex } from "../../lib/sort-order";
+import type { CartethyiaDatabase } from "../db-handle";
+import { apiKeys, shareLinks, type ApiKeyMode, type ApiKeyModelAccessMode } from "../schema";
+import type { AccessScope } from "../../security/access-control";
 
 /** Persisted API key. Only its one-way hash authenticates; plaintext is never stored. */
 export interface ApiKeyRecord {

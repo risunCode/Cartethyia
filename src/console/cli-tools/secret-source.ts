@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { apiKeys } from "../../persistence/schema";
 import { decryptCredentialToString, hashSecret } from "../../security/crypto";
 import type { CliToolSecretSource, ResolvedApiKeySecret } from "./service";

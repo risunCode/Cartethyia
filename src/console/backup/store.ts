@@ -31,7 +31,7 @@
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getTableColumns, type Column, type SQL, type Table } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import {
   apiKeys,
   cliToolMappings,

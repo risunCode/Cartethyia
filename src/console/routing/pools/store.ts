@@ -1,6 +1,6 @@
 // Drizzle-backed console persistence for network pools.
 import { and, asc, eq, sql } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../../persistence/db-handle";
 import { networkPools, poolRoutingSettings } from "../../../persistence/schema";
 import {
   DEFAULT_POOL_STRATEGY,

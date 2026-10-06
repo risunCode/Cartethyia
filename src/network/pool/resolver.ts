@@ -4,7 +4,7 @@
  * names once through the SSRF policy and hands dispatch a validated fetch
  * (direct or pool-bound).
  */
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import {
   isAddressAllowed,
   resolveAllAddresses,

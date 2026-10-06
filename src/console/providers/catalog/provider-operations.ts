@@ -10,7 +10,7 @@
  * `routes.ts`.
  */
 import type { ConsoleAccessResolver } from "../../auth/access";
-import type { AuditSink } from "../../domains/audit/contracts";
+import type { AuditSink } from "../../audit/contracts";
 import {
   ConsoleDomainError,
   requireGlobalAdmin,

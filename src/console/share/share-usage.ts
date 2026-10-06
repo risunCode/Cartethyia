@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
-import type { ApiKeyRecord } from "../../persistence/api-key-store";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
+import type { ApiKeyRecord } from "../../persistence/stores/api-key-store";
 import { CachedPreferencesReader, DrizzlePreferencesReader } from "../../persistence/tenant-preferences";
 import { maskClientIp } from "../../observability/redaction";
 import { gatewayErrorSql } from "../../observability/telemetry-status";

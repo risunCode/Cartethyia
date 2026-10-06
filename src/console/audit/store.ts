@@ -1,8 +1,8 @@
 import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
-import { globalOrOwnedBy, ownedByOnly } from "../../../persistence/tenant-scope";
-import type { CartethyiaDatabase } from "../../../persistence/postgres";
-import { adminAuditLog, consoleUsers } from "../../../persistence/schema";
-import { decodeDatedCursor, encodeCursor } from "../../../persistence/page-cursor";
+import { globalOrOwnedBy, ownedByOnly } from "../../persistence/tenant-scope";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
+import { adminAuditLog, consoleUsers } from "../../persistence/schema";
+import { decodeDatedCursor, encodeCursor } from "../../console/shared/cursor";
 import type { AuditEntry, AuditListPage, AuditReadStore } from "./contracts";
 
 /**

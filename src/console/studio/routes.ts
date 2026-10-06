@@ -5,13 +5,13 @@
 
 import { randomUUID } from "node:crypto";
 import { Elysia } from "elysia";
-import type { AccessDecision } from "../../../security/access-control";
-import { ConsoleDomainError, errorResponse, requireTenantScope } from "../../shared/errors";
-import type { ConsoleAccessResolver } from "../../auth/access";
+import type { AccessDecision } from "../../security/access-control";
+import { ConsoleDomainError, errorResponse, requireTenantScope } from "../shared/errors";
+import type { ConsoleAccessResolver } from "../auth/access";
 import type { AuditSink } from "../audit/contracts";
-import { isRecord } from "../../../protocol/codecs";
-import type { ValidatedFetch } from "../../../network/outbound-fetch";
-import { decryptCredentialToString } from "../../../security/crypto";
+import { isRecord } from "../../protocol/codecs";
+import type { ValidatedFetch } from "../../network/outbound-fetch";
+import { decryptCredentialToString } from "../../security/crypto";
 import { DEFAULT_API_KEY_LABEL } from "../api-keys/contracts";
 import {
   boundedString,
@@ -27,7 +27,7 @@ import {
   type StudioSessionRow,
   type StudioSessionSummary,
 } from "./contracts";
-import type { ApiKeyStore } from "../../../persistence/api-key-store";
+import type { ApiKeyStore } from "../../persistence/stores/api-key-store";
 import type { StudioSessionStore } from "./contracts";
 
 export interface StudioConfig {

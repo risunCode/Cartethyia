@@ -1,7 +1,7 @@
 import { providerAccounts, providerOauthStates } from "../../../persistence/schema";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { encryptCredential, hashSecret } from "../../../security/crypto";
-import type { CartethyiaDatabase } from "../../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../../persistence/db-handle";
 import type { OAuthExchangeResult, OAuthLoginClient } from "../../../providers/authentication/oauth-flow-store";
 import type { OAuthDevicePollResponse } from "../catalog/contracts";
 import { providerJwtVerification } from "../../../providers/metadata";
@@ -17,7 +17,7 @@ import type { OAuthCallbackListener } from "./callback-listener";
 import { validateIssuedAccessToken } from "../../../providers/authentication/jwt-validator";
 import { inlineScriptContentSecurityPolicy } from "../../../security/outbound-headers";
 import type { AccessDecision } from "../../../security/access-control";
-import { isUniqueViolation } from "../../../persistence/postgres";
+import { isUniqueViolation } from "../../../persistence/boot";
 import type { ConsoleAccessResolver } from "../../auth/access";
 /**
  * The identity a repeated OAuth login is matched on.

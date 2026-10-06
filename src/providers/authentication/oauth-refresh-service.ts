@@ -22,7 +22,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { providerAccounts, providerOauthStates } from "../../persistence/schema";
 import { decryptCredentialToString, encryptCredential } from "../../security/crypto";
 import { invalidateCredentialCache } from "../operations/provider-credential-service";

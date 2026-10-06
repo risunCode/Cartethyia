@@ -14,7 +14,7 @@
 import { GatewayError, explainGatewayError, formatPublicErrorMessage, publicGatewayErrorDetails } from "../../../protocol/gateway-error";
 import { classifyTerminalOutcome } from "../../failure-policy";
 import type { CanonicalEvent } from "../../../protocol/canonical-model";
-import type { CartethyiaDatabase } from "../../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../../persistence/db-handle";
 import type { NetworkPoolSelector } from "../../../network/pool/selector";
 import type { TelemetryBatchBuffer } from "../../../observability/telemetry-buffer";
 import type { ProxyRequestState } from "../../request/state";

@@ -1,5 +1,5 @@
 import type { ConsoleAccessResolver } from "../../auth/access";
-import type { AuditSink } from "../../domains/audit/contracts";
+import type { AuditSink } from "../../audit/contracts";
 import type { ProviderRoutingResponse, UpdateProviderRoutingRequest } from "../catalog/contracts";
 
 export interface AccountInflightReading {

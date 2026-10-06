@@ -1,9 +1,9 @@
-import { loadavg, cpus } from "node:os";
+import { loadavg, cpus, totalmem } from "node:os";
 import { and, desc, eq, gte, inArray, isNotNull, ne, sql } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import type { RedisClient } from "../../persistence/redis";
 import { apiKeys, networkPools, telemetryEvents, telemetryPayloads } from "../../persistence/schema";
-import { decodeDatedCursor, encodeCursor } from "../../persistence/page-cursor";
+import { decodeDatedCursor, encodeCursor } from "../../console/shared/cursor";
 import { CARTETHYIA_VERSION } from "../../version";
 import { CachedPreferencesReader, DrizzlePreferencesReader, type PreferencesReader } from "../../persistence/tenant-preferences";
 import type {
@@ -294,7 +294,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
       database_healthy: databaseHealthy,
       redis_healthy: redisHealthy,
       memory_bytes: memory.rss,
-      memory_percent: Math.round((memory.rss / Math.max(memory.heapTotal, 1)) * 10000) / 100,
+      memory_percent: Math.round((memory.rss / Math.max(totalmem(), 1)) * 10000) / 100,
       heap_used_bytes: memory.heapUsed,
       heap_total_bytes: memory.heapTotal,
       external_bytes: memory.external,

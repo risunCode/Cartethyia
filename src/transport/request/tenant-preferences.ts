@@ -7,7 +7,7 @@
  * non-fatal — a settings read outage must not fail an otherwise dispatchable
  * request.
  */
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import type { CanonicalRequest } from "../../protocol/canonical-model";
 import type { PreparedProxyRequest } from "./preparer";
 import { normalizeThinkingConfig } from "../translation/thinking";

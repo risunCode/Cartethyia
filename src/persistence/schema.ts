@@ -1046,7 +1046,7 @@ export const telemetryPayloads = pgTable(
 
 // Studio playground sessions: per-tenant saved chats (+ generated-media refs)
 // for the console Studio page. Message/media shapes are validated at the API
-// boundary (console/domains/studio.ts), not in Postgres — rows stay opaque
+// boundary (console/studio.ts), not in Postgres — rows stay opaque
 // JSONB so the playground can evolve without migrations.
 export const studioSessions = pgTable(
   "studio_sessions",

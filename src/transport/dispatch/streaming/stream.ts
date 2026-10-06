@@ -37,7 +37,7 @@ import { GatewayError } from "../../../protocol/gateway-error";
 import type { CanonicalEvent, CanonicalRequest } from "../../../protocol/canonical-model";
 import type { ProviderAdapter, ResolvedCredential } from "../../../providers/contracts";
 import type { ValidatedNetworkBindingFactory } from "../../../network/pool/resolver";
-import type { CartethyiaDatabase } from "../../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../../persistence/db-handle";
 import type { Reservation, RouteCandidate, RouteSnapshotService } from "../../routing/route-model";
 import type { AdmissionLease } from "../../../security/admission/contracts";
 import type { NetworkPoolSelector } from "../../../network/pool/selector";

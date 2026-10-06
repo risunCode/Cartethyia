@@ -6,7 +6,7 @@
  * owner instead of silently changing the egress policy.
  */
 import { eq } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { networkPools } from "../../persistence/schema";
 import { decryptCredentialToString } from "../../security/crypto";
 import { deriveKind, PoolBindingError, splitEndpointConfig } from "./agent";

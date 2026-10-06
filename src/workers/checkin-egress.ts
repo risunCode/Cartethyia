@@ -14,7 +14,7 @@
  * belongs to its tenant and is never borrowed across tenants.
  */
 import { eq } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../persistence/postgres";
+import type { CartethyiaDatabase } from "../persistence/db-handle";
 import { networkPools } from "../persistence/schema";
 import type { ValidatedFetch } from "../network/outbound-fetch";
 import type { ValidatedNetworkBindingFactory } from "../network/pool/resolver";

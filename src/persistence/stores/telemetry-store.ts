@@ -1,12 +1,12 @@
 import { sql } from "drizzle-orm";
-import type { CartethyiaDatabase } from "./postgres";
+import type { CartethyiaDatabase } from "../db-handle";
 import {
   telemetryEvents,
   telemetryPayloads,
   telemetryUsageTotals,
   type TelemetryUsageIdentityType,
-} from "./schema";
-import { isGatewayError } from "../observability/telemetry-status";
+} from "../schema";
+import { isGatewayError } from "../../observability/telemetry-status";
 
 interface UsageTotalDelta {
   readonly tenantId: string;

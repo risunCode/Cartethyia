@@ -1,6 +1,6 @@
 // Telemetry buffer: coalesces per-request telemetry into batched multi-row inserts.
-import { DrizzleTelemetryStore } from "../persistence/telemetry-store";
-import type { CartethyiaDatabase } from "../persistence/postgres";
+import { DrizzleTelemetryStore } from "../persistence/stores/telemetry-store";
+import type { CartethyiaDatabase } from "../persistence/db-handle";
 import { metrics } from "./metrics";
 import { DEFAULT_BOUNDS } from "../config/network";
 import { type SourceSurface, type UsageRecord } from "../protocol/canonical-model";

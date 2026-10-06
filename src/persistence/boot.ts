@@ -1,45 +1,14 @@
 /**
- * Persistence facade: every store imports the database from here and never
- * knows which backend is active. `full` (external PostgreSQL) behaves exactly
- * as before; `lite` (embedded PGlite) is built by the same seam.
+ * Database boot: builds the active backend handle once per process, migrates it,
+ * and owns the process-wide handle. Stores never import this — they take a
+ * database handle from their caller.
  */
 import { log } from "../observability/logger";
 import { join } from "node:path";
-import { fullSchema } from "./db-handle";
 import type { CartethyiaDatabase, DatabaseHandle } from "./db-handle";
 import { resolveDataDir, resolveDbMode } from "./db-mode";
-import {
-  applySqlMigrations,
-  createPgHandle,
-  getPool,
-  isPgHandle,
-  poolMaxFromEnv,
-  requireDatabaseUrl,
-  setPoolForTesting,
-} from "./db-pg";
-import {
-  applyPgliteMigrations,
-  buildPgliteHandle,
-  createPgliteClient,
-} from "./db-pglite";
-import {
-  MIGRATION_LEDGER_TABLE,
-  readMigrationLedgerStatus,
-} from "./migrate";
-import type { MigrationLedgerStatus } from "./migrate";
-
-export { fullSchema };
-export type { CartethyiaDatabase, DatabaseHandle, MigrationLedgerStatus };
-export {
-  MIGRATION_LEDGER_TABLE,
-  applySqlMigrations,
-  getPool,
-  isPgHandle,
-  poolMaxFromEnv,
-  readMigrationLedgerStatus,
-  requireDatabaseUrl,
-  setPoolForTesting,
-};
+import { applySqlMigrations, createPgHandle, getPool, isPgHandle } from "./db-pg";
+import { applyPgliteMigrations, buildPgliteHandle, createPgliteClient } from "./db-pglite";
 
 /**
  * True when `error` is a Postgres unique-violation (SQLSTATE 23505).

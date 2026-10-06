@@ -1,19 +1,20 @@
+import { globalOrOwnedBy } from "../../persistence/tenant-scope";
 // Public enrollment routes for shared API-key templates.
 //
 // Share URLs reveal policy and allow one child key to be created per canonical
 // client IP. The child bearer is returned only by the successful issue call.
 
 import { Elysia } from "elysia";
-import { and, eq, isNull, or } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import { and, eq } from "drizzle-orm";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { apiKeys, models, providers } from "../../persistence/schema";
 import { PublicModelCatalogStore } from "../providers/catalog/public-model-store";
 import { canonicalClientIpKey } from "../../security/ip-boundary";
 import { decryptCredentialToString } from "../../security/crypto";
 import { isModelAllowed, type ApiKeyAuthorizationSnapshot } from "../../security/api-key-auth";
 import { API_CONTENT_SECURITY_POLICY, X_FRAME_OPTIONS } from "../../security/outbound-headers";
-import { SHARED_CHILD_HINT_MAX_LENGTH, generateApiKeySecret } from "../domains/api-keys/contracts";
-import { popupImageBytes } from "../domains/api-keys/share-popup-image";
+import { SHARED_CHILD_HINT_MAX_LENGTH, generateApiKeySecret } from "../api-keys/contracts";
+import { popupImageBytes } from "../api-keys/share-popup-image";
 import type { ShareFamilyStats, ShareStatsPort } from "./share-stats";
 import { consoleSseResponse, createConsoleSseStream } from "../observability/sse";
 import { GatewayError, publicGatewayErrorBody } from "../../protocol/gateway-error";
@@ -22,7 +23,7 @@ import {
   type ShareLinkPolicy,
   type ShareLinkRefusal,
   type ShareLinkStore,
-} from "../../persistence/share-store";
+} from "../../persistence/stores/share-store";
 
 /** Minimum accepted token length; generated tokens are 43 base64url chars. */
 const MIN_TOKEN_LENGTH = 20;
@@ -187,7 +188,7 @@ async function modelsForShare(db: CartethyiaDatabase, row: ShareLinkPolicy): Pro
       })
       .sort((left, right) => left.localeCompare(right));
   }
-  const providerScope = or(isNull(providers.tenantId), eq(providers.tenantId, row.tenantId));
+  const providerScope = globalOrOwnedBy(providers.tenantId, row.tenantId);
   const rows = await db
     .select({ providerId: models.providerId, modelId: models.modelId })
     .from(models)

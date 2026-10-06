@@ -5,16 +5,16 @@
 
 import type { AuditSink } from "../audit/contracts";
 import { randomBytes } from "node:crypto";
-import type { ApiKeyRecord, ApiKeyStore } from "../../../persistence/api-key-store";
-import { hashSecret } from "../../../security/crypto";
-import { type ShareLinkStore, type ShareLinkSummary } from "../../../persistence/share-store";
-import { API_KEY_MODES, type ApiKeyMode, type ApiKeyModelAccessMode, type ShareLinkKind } from "../../../persistence/schema";
-import { isValidTenantKeyScope, type AccessScope } from "../../../security/access-control";
-import { normalizeClientRouterId } from "../../../security/client-router-fingerprint";
-import type { ShareActivityPort } from "../../share/share-usage";
-import { ConsoleDomainError } from "../../shared/errors";
-import type { ConsoleAccessResolver } from "../../auth/access";
-import type { ApiKeyAdmissionService } from "../../../security/admission/service";
+import type { ApiKeyRecord, ApiKeyStore } from "../../persistence/stores/api-key-store";
+import { hashSecret } from "../../security/crypto";
+import { type ShareLinkStore, type ShareLinkSummary } from "../../persistence/stores/share-store";
+import { API_KEY_MODES, type ApiKeyMode, type ApiKeyModelAccessMode, type ShareLinkKind } from "../../persistence/schema";
+import { isValidTenantKeyScope, type AccessScope } from "../../security/access-control";
+import { normalizeClientRouterId } from "../../security/client-router-fingerprint";
+import type { ShareActivityPort } from "../share/share-usage";
+import { ConsoleDomainError } from "../shared/errors";
+import type { ConsoleAccessResolver } from "../auth/access";
+import type { ApiKeyAdmissionService } from "../../security/admission/service";
 import {
   SHARE_POPUP_IMAGE_MAX_BYTES,
   SHARE_POPUP_IMAGE_MIMES,
@@ -33,7 +33,7 @@ export {
 export type {
   SharedKeySummary,
   SharedKeyActivityDetail,
-} from "../../share/share-usage";
+} from "../share/share-usage";
 /** Input accepted when creating or editing a key. Null limits mean unlimited. */
 export interface CreateApiKeyRequest {
   enabled?: boolean;

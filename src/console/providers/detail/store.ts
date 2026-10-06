@@ -1,6 +1,6 @@
 // Drizzle-backed persistence for provider routing (detail) settings.
 import { and, eq, isNull, sql } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../../persistence/db-handle";
 import { providerRoutingSettings } from "../../../persistence/schema";
 import { resolveTenantOverride } from "../../../persistence/tenant-scope";
 import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS } from "../../../providers/metadata";

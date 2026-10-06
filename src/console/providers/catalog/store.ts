@@ -6,7 +6,7 @@ import type { ModelDefinition } from "../../../providers/model-definition";
 import type { ProviderRegistry } from "../../../providers/registry";
 import { globalOrOwnedBy, ownedByOnly } from "../../../persistence/tenant-scope";
 import { nextSortIndex, reorderSortIndex } from "../../../lib/sort-order";
-import type { CartethyiaDatabase } from "../../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../../persistence/db-handle";
 import { models, providerAccounts, providerOauthStates, providers, telemetryEvents, telemetryUsageTotals, tenantDisabledModels } from "../../../persistence/schema";
 import type { WireFamily } from "../../../protocol/canonical-model";
 import { listAccountHealthEvents, recoverAccount, type AccountHealthEventRecord } from "../../../providers/operations/account-health-service";
@@ -19,7 +19,7 @@ import type { AccountInflightReading, ByokConnectionTestRequest, ByokConnectionT
 import { isServiceKind, validateCompatibilityProfile } from "./contracts";
 import { ProviderProbingService, type ProbeOutboundResolver } from "../../../providers/discovery/probing-service";
 import { resolveManualModelMetadata } from "../../../providers/model-definition";
-import { isUniqueViolation } from "../../../persistence/postgres";
+import { isUniqueViolation } from "../../../persistence/boot";
 import { DEFAULT_ENDPOINT_BY_WIRE_FAMILY, endpointPathForProviderModel, mapProviderRow } from "./catalog-projections";
 import { pushStructuredConsoleLog } from "../../../observability/log-ring";
 import { decodeJwtPayload } from "../../../providers/authentication/oauth-flow-store";

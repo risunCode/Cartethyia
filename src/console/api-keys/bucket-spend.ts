@@ -1,7 +1,7 @@
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
 
-import type { CartethyiaDatabase } from "../../../persistence/postgres";
-import { apiKeys, telemetryEvents } from "../../../persistence/schema";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
+import { apiKeys, telemetryEvents } from "../../persistence/schema";
 
 /**
  * Tokens already recorded for the current daily and monthly admission buckets.

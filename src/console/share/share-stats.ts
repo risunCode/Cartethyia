@@ -11,7 +11,7 @@
 // masked addresses. No request or response bodies cross this boundary.
 
 import { and, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { maskClientIp } from "../../observability/redaction";
 import { gatewayErrorSql } from "../../observability/telemetry-status";
 import { telemetryEvents } from "../../persistence/schema";

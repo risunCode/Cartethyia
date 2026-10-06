@@ -13,7 +13,7 @@ import { ConsoleDomainError, errorResponse, requireScope } from "../shared/error
 import { parseQueryLimit } from "../shared/query";
 import type { ConsoleAccessResolver } from "../auth/access";
 import type { AccessDecision } from "../../security/access-control";
-import type { AuditSink } from "../domains/audit/contracts";
+import type { AuditSink } from "../audit/contracts";
 import {
   CONSOLE_LOG_LEVELS,
   clearConsoleLogs,

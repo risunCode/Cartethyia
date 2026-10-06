@@ -1,6 +1,6 @@
 // Account health: error classification, failure/success recording, recovery and cooldown sweeps.
 import { and, desc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { isRecord } from "../../protocol/codecs";
 import { BUDDY_PROVIDER_IDS } from "../metadata";
 import { healthEvents, providerAccounts } from "../../persistence/schema";

@@ -1,7 +1,7 @@
 // API-key authentication and authorization snapshots: token extraction, hashing, lookup, and admission identity.
 
-import type { CartethyiaDatabase } from "../persistence/postgres";
-import { DrizzleApiKeyStore } from "../persistence/api-key-store";
+import type { CartethyiaDatabase } from "../persistence/db-handle";
+import { DrizzleApiKeyStore } from "../persistence/stores/api-key-store";
 import { GatewayError } from "../protocol/gateway-error";
 import { hashSecret } from "./crypto";
 import type { AccessScope } from "./access-control";

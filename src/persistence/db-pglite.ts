@@ -1,7 +1,9 @@
 /** Embedded-PostgreSQL backend: PGlite in the gateway's data dir. */
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { fullSchema, type CartethyiaDatabase, type DatabaseHandle } from "./db-handle";
 import {
   isToleratedMissingExtension,
@@ -35,6 +37,15 @@ function hasTransaction(client: unknown): client is PgliteWithTransaction {
 /** Opens the embedded database at `dataDir`. Filesystem paths are created; URI backends (`memory://`) are used as-is. The caller owns `close()`. */
 export async function createPgliteClient(dataDir: string): Promise<PGlite> {
   if (!dataDir.includes("://")) mkdirSync(dataDir, { recursive: true });
+  // PGlite loads its WASM runtime relative to this module. A bundle that forgot
+  // to copy it fails here with a path, not a raw ENOENT from inside the driver.
+  const runtimeAsset = join(dirname(fileURLToPath(import.meta.url)), "pglite.data");
+  if (import.meta.url.includes("/dist/") && !existsSync(runtimeAsset)) {
+    throw new Error(
+      "PGlite runtime asset missing: " + runtimeAsset +
+        '. Rebuild with "bun run build:aot" so dist/ receives pglite.data, pglite.wasm, and initdb.wasm.',
+    );
+  }
   return PGlite.create({ dataDir });
 }
 

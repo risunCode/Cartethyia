@@ -1,6 +1,7 @@
 
-import { assertPoolFitsServerCapacity, bootDatabase, ensureMigrated, poolMaxFromEnv } from "../persistence/postgres";
-import type { CartethyiaDatabase } from "../persistence/postgres";
+import { assertPoolFitsServerCapacity, bootDatabase, ensureMigrated } from "../persistence/boot";
+import { poolMaxFromEnv } from "../persistence/db-pg";
+import type { CartethyiaDatabase } from "../persistence/db-handle";
 import { resolveRedisBackend, resolveRedisClient } from "../persistence/redis";
 import type { RedisClient } from "../persistence/redis";
 import {
@@ -26,7 +27,7 @@ import { ApiKeyAdmissionService } from "../security/admission/service";
 import { InMemoryAdmissionCounterStore } from "../security/admission/in-memory-store";
 import { RedisAdmissionCounterStore } from "../security/admission/redis-store";
 import { sweepLeases } from "../security/admission/lease-sweep";
-import { DrizzleApiKeyStore } from "../persistence/api-key-store";
+import { DrizzleApiKeyStore } from "../persistence/stores/api-key-store";
 import { InMemoryIpAbuseStore, IpAbuseProtectionService, RedisIpAbuseStore } from "../security/abuse";
 import {
   InMemoryModelAbuseStore,
@@ -48,7 +49,7 @@ import { createAccountSecretResolver } from "../providers/operations/provider-cr
 import { quotaCacheSize } from "../console/quota/cache";
 import { preferencesReaderFor } from "../persistence/tenant-preferences";
 import { sweepExpiredCooldowns } from "../providers/operations/account-health-service";
-import { DrizzleTelemetryStore } from "../persistence/telemetry-store";
+import { DrizzleTelemetryStore } from "../persistence/stores/telemetry-store";
 import { TelemetryPayloadCapture } from "../observability/payload-capture";
 import { sweepExpiredPoolCooldowns } from "../network/pool-health-machine";
 import { TelemetryBatchBuffer } from "../observability/telemetry-buffer";

@@ -7,7 +7,7 @@ import type { OAuthTokenRefresher } from "../../providers/authentication/oauth-r
 import type { OAuthRefreshService } from "../../providers/authentication/oauth-refresh-service";
 import type { ValidatedNetworkBindingFactory } from "../../network/pool/resolver";
 import type { ByokUpstreamHost } from "../../providers/operations/provider-catalog-service";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import type { RouteSnapshotService } from "../routing/route-model";
 import { chatAdapter } from "../surface/chat/adapter";
 import { responsesAdapter } from "../surface/responses/adapter";

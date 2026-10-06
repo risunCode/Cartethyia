@@ -19,7 +19,7 @@ import type { CanonicalRequest } from "../../protocol/canonical-model";
 import type { RouteCandidate } from "../routing/route-model";
 import { extractWebSearchInvocation, isWebSearchTool } from "../translation/search";
 import type { ProviderAdapter, ProviderDispatchTarget, WebSearchOutcome } from "../../providers/contracts";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import type { ValidatedNetworkBindingFactory } from "../../network/pool/resolver";
 import { resolveCredentialForAccount } from "../../providers/operations/provider-credential-service";
 import type { ProxyRequestState } from "../request/state";

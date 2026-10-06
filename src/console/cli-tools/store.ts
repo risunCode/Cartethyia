@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { cliToolMappings, cliToolSettings } from "../../persistence/schema";
 import type {
   CliMappingMode,

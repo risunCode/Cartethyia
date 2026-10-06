@@ -1,9 +1,9 @@
 // Drizzle-backed console persistence for runtime settings.
 import { eq, sql } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { consoleSettings, type ConsoleSettingsPreferences } from "../../persistence/schema";
 import type { RedisBackend } from "../../persistence/redis";
-import { bumpSettingsRevision } from "../../persistence/tenant-preferences";
+import { bumpSettingsRevision } from "../../persistence/settings-revision";
 import {
   PONYTAIL_LEVELS,
   RESPONSES_REASONING_SUMMARIES,

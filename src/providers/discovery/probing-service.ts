@@ -1,11 +1,12 @@
+import { globalOrOwnedBy } from "../../persistence/tenant-scope";
 /**
  * Provider probing and model-discovery orchestration.
  *
  * Network probes and `/v1/models` discovery stay separate from the Drizzle
  * catalog repository while sharing the provider catalog contract.
  */
-import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { models, providerAccounts, providers } from "../../persistence/schema";
 import type { CanonicalEvent, CanonicalRequest, WireFamily } from "../../protocol/canonical-model";
 import { WIRE_FAMILIES } from "../../protocol/canonical-model";
@@ -879,7 +880,7 @@ export class ProviderProbingService {
       .where(
         and(
           eq(providerAccounts.providerId, providerId),
-          or(isNull(providerAccounts.tenantId), eq(providerAccounts.tenantId, tenantId)),
+          globalOrOwnedBy(providerAccounts.tenantId, tenantId),
         ),
       );
     const now = Date.now();
@@ -942,7 +943,7 @@ export class ProviderProbingService {
       .where(
         and(
           eq(providerAccounts.providerId, providerId),
-          or(isNull(providerAccounts.tenantId), eq(providerAccounts.tenantId, tenantId)),
+          globalOrOwnedBy(providerAccounts.tenantId, tenantId),
         ),
       );
     const results: ProbeAllAccountsResult["results"][number][] = [];

@@ -1,9 +1,9 @@
 import type { ConsoleAccessResolver } from "../auth/access";
-import type { AuditSink } from "../domains/audit/contracts";
+import type { AuditSink } from "../audit/contracts";
 // Runtime-settings control-plane contracts and routes.
 import { ConsoleDomainError, errorResponse, requireTenantScope } from "../shared/errors";
 import { literalUnion } from "../shared/elysia-schema";
-import { Elysia, t } from "elysia";
+import { t } from "elysia";
 import type { AccessDecision } from "../../security/access-control";
 import type { RedisBackend } from "../../persistence/redis";
 import type { ConsoleSettingsPreferences } from "../../persistence/schema";
@@ -133,13 +133,13 @@ export function createRuntimeSettingsOperations(deps: RuntimeSettingsConfig) {
   return operations;
 }
 
-function runtimeSettingsErrorResponse(error: unknown, set: { status?: number | string }) {
+export function runtimeSettingsErrorResponse(error: unknown, set: { status?: number | string }) {
   return errorResponse(error, set, "Runtime settings operation failed", {
     detailsPolicy: "omit",
   });
 }
 
-const runtimeUpdateBody = t.Object({
+export const runtimeUpdateBody = t.Object({
   responsesReasoningSummary: t.Optional(literalUnion(RESPONSES_REASONING_SUMMARIES)),
   telemetryPayloads: t.Optional(literalUnion(TELEMETRY_PAYLOAD_MODES)),
   telemetryPayloadDepth: t.Optional(literalUnion(TELEMETRY_PAYLOAD_DEPTHS)),
@@ -152,24 +152,3 @@ const runtimeUpdateBody = t.Object({
   ponyTailLevel: t.Optional(literalUnion(PONYTAIL_LEVELS)),
 });
 
-export function createRuntimeSettingsRoutes(config: RuntimeSettingsConfig): Elysia {
-  const factory = createRuntimeSettingsOperations(config);
-  return new Elysia({ prefix: "/settings/runtime" })
-    .get("/", async ({ request, set }) => {
-      try {
-        return await factory.get(config.accessResolver(request));
-      } catch (e) {
-        return runtimeSettingsErrorResponse(e, set);
-      }
-    })
-    .patch("/", { body: runtimeUpdateBody }, async ({ request, body, set }) => {
-      try {
-        return await factory.update(
-          config.accessResolver(request),
-          body as UpdateRuntimeSettingsRequest,
-        );
-      } catch (e) {
-        return runtimeSettingsErrorResponse(e, set);
-      }
-    }) as unknown as Elysia;
-}

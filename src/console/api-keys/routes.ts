@@ -4,15 +4,15 @@
 
 import { Elysia, t } from "elysia";
 import { randomBytes, randomUUID } from "node:crypto";
-import { decryptCredentialToString, encryptCredential } from "../../../security/crypto";
-import { invalidateApiKeyCache } from "../../../security/api-key-auth";
-import { hashShareToken } from "../../../persistence/share-store";
-import type { AccessDecision } from "../../../security/access-control";
-import { ConsoleDomainError, errorResponse, requireTenantScope } from "../../shared/errors";
-import { literalUnion } from "../../shared/elysia-schema";
-import { API_KEY_MODES, API_KEY_MODEL_ACCESS_MODES, type ShareLinkKind } from "../../../persistence/schema";
+import { decryptCredentialToString, encryptCredential } from "../../security/crypto";
+import { invalidateApiKeyCache } from "../../security/api-key-auth";
+import { hashShareToken } from "../../persistence/stores/share-store";
+import type { AccessDecision } from "../../security/access-control";
+import { ConsoleDomainError, errorResponse, requireTenantScope } from "../shared/errors";
+import { literalUnion } from "../shared/elysia-schema";
+import { API_KEY_MODES, API_KEY_MODEL_ACCESS_MODES, type ShareLinkKind } from "../../persistence/schema";
 import type { ApiKeyConfig, ApiKeyResponse, UpdateApiKeyResponse } from "./contracts";
-import type { ApiKeyPatch, ApiKeyRecord } from "../../../persistence/api-key-store";
+import type { ApiKeyPatch, ApiKeyRecord } from "../../persistence/stores/api-key-store";
 import {
   generateApiKeySecret,
   parseSharePopupImage,
@@ -28,7 +28,7 @@ import {
   type ShareKeyResponse,
   type ShareLinkResponse,
 } from "./contracts";
-import type { SharedKeyActivityDetail, SharedKeySummary } from "../../share/share-usage";
+import type { SharedKeyActivityDetail, SharedKeySummary } from "../share/share-usage";
 import { popupImageBytes } from "./share-popup-image";
 
 export function createApiKeyOperations(config: ApiKeyConfig) {

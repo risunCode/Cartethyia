@@ -1,6 +1,6 @@
 /** Durable materialization of bundled provider model metadata. */
 import { and, eq, sql } from "drizzle-orm";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { models } from "../../persistence/schema";
 import type { ModelDefinition } from "../model-definition";
 

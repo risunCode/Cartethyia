@@ -22,7 +22,7 @@ import { MAX_BACKUP_BYTES } from "./contracts";
 import type { BackupSection } from "./contracts";
 import { DELETE_ALL_SCOPES } from "./store";
 import type { BackupService } from "./service";
-import type { AuditSink } from "../domains/audit/contracts";
+import type { AuditSink } from "../audit/contracts";
 
 export interface BackupRoutesConfig {
   readonly accessResolver: ConsoleAccessResolver;

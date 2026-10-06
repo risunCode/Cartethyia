@@ -4,11 +4,11 @@
  */
 import { eq } from "drizzle-orm";
 import { parseCookieValue, SESSION_COOKIE_NAME } from "../../security/csrf";
-import type { CartethyiaDatabase } from "../../persistence/postgres";
+import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { consoleUsers } from "../../persistence/schema";
 import { createAccessDecision, consoleSessionScopes, type AccessDecision } from "../../security/access-control";
 import { isRecord } from "../../protocol/codecs";
-import type { ConsoleSessionService } from "./service";
+import type { ConsoleSessionService } from "./session-service";
 
 interface CookieLike {
   readonly value?: unknown;
