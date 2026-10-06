@@ -65,7 +65,7 @@ observed. State the limitation plainly when a surface is unavailable.
 ## Boundaries
 
 - `src/` = production backend. `dashboard/` stays browser-safe: no Elysia, DB, filesystem, secret, or Node-only imports.
-- `scripts/` is grouped by purpose (`commands/`, `build/`, `dev/`, `generate/`, `internal/`). No `index.ts` barrels; role filenames like `contracts.ts`, `routes.ts`, `store.ts`.
+- `scripts/` is grouped by purpose (`commands/`, `build/`, `dev/`, `generate/`, `internal/`). Names, comments, and error types are `references/taste.md`.
 - Never hand-edit generated output; change its source/generator.
 - Typecheck/build must not need Buf, network, or external generators.
 - Preserve security boundaries and intentional provider wire bytes.

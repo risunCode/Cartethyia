@@ -17,10 +17,10 @@
 ## Naming and structure
 
 - Keep `scripts/` grouped by purpose (`commands/`, `build/`, `dev/`, `generate/`,
-  `internal/`).
-- Avoid `index.ts` barrels; use role names such as `contracts.ts`, `routes.ts`,
-  `store.ts`, `service.ts`, and `errors.ts`.
-- Exported APIs need explicit types; do not use `any` or suppressions.
+  `internal/`). `scripts/install-lite.sh` and `scripts/ci-run-tests.ts` stay at
+  the root of `scripts/`.
+- How a change should read — names, comments, types, errors — is `taste.md`.
+  Do not restate it here.
 
 ## Fix, do not hide
 
