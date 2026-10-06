@@ -46,6 +46,14 @@ encryption key, the Lite/Full choice, the listen port, and the database probe.
 for Full, a reachable `DATABASE_URL`. Do not add a second installer that copies
 `.env.example` itself; `scripts/install-lite.sh` calls the wizard.
 
+The first console boot is `/console/setup`. It can create an administrator, or
+restore a Cartethyia backup through `POST /console/api/auth/setup/restore`.
+Restore runs only while no console user exists. The file's `console_users`
+become the accounts that sign in; the path creates none. A file with no users
+is refused. A failed restore deletes the tenant it created. Sessions are not
+in the backup. An export taken before `console_users` was included cannot use
+this path.
+
 ## Verification
 
 ```bash

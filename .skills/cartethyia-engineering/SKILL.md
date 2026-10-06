@@ -17,6 +17,7 @@ Entry point for repo work. Pick the row, read that reference, act.
 | Add / remove / BYOK / OAuth / live-verify provider, catalog gap | `references/provider-lifecycle.md` |
 | Schema migration, telemetry column, rename, model metadata, availability | `references/schema-telemetry-catalog.md` |
 | Repo invariants: aliases, drift, wire bytes, naming, dead code, docs sync | `references/guards.md` |
+| How to write the change: shape, names, comments, errors | `references/taste.md` |
 
 Load only the reference the task needs. It holds the procedure, pitfalls, and commands.
 
