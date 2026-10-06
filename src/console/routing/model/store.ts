@@ -1,5 +1,6 @@
 // Drizzle-backed console persistence for model routing (aliases + combos).
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
+import { nextSortIndex, reorderSortIndex } from "../../../lib/sort-order";
 import { globalOrOwnedBy } from "../../../persistence/tenant-scope";
 import type { CartethyiaDatabase } from "../../../persistence/postgres";
 import {
@@ -79,23 +80,21 @@ export class DrizzleModelRoutingStore implements ModelRoutingStore {
 
   /** Rewrites alias order for one tenant; `ids` is the full desired order. */
   async reorderAliases(tenantId: string, ids: readonly string[]): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      for (const [index, id] of ids.entries()) {
-        await tx
-          .update(modelAliases)
-          .set({ sortIndex: index })
-          .where(and(eq(modelAliases.tenantId, tenantId), eq(modelAliases.id, id)));
-      }
-    });
+    await reorderSortIndex(
+      this.db,
+      { table: modelAliases, idColumn: modelAliases.id, sortIndexColumn: modelAliases.sortIndex },
+      eq(modelAliases.tenantId, tenantId),
+      ids,
+    );
   }
 
   /** Next free list position for a new alias in this tenant. */
   private async nextAliasSortIndex(tenantId: string): Promise<number> {
-    const rows = await this.db
-      .select({ max: sql<number>`coalesce(max(${modelAliases.sortIndex}), -1)` })
-      .from(modelAliases)
-      .where(eq(modelAliases.tenantId, tenantId));
-    return Number(rows[0]?.max ?? -1) + 1;
+    return nextSortIndex(
+      this.db,
+      { table: modelAliases, idColumn: modelAliases.id, sortIndexColumn: modelAliases.sortIndex },
+      eq(modelAliases.tenantId, tenantId),
+    );
   }
 
   async createAlias(tenantId: string, input: ModelAliasCreateInput): Promise<ModelAliasRow> {
@@ -204,23 +203,21 @@ export class DrizzleModelRoutingStore implements ModelRoutingStore {
 
   /** Rewrites combo order for one tenant; `ids` is the full desired order. */
   async reorderCombos(tenantId: string, ids: readonly string[]): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      for (const [index, id] of ids.entries()) {
-        await tx
-          .update(modelCombos)
-          .set({ sortIndex: index })
-          .where(and(eq(modelCombos.tenantId, tenantId), eq(modelCombos.id, id)));
-      }
-    });
+    await reorderSortIndex(
+      this.db,
+      { table: modelCombos, idColumn: modelCombos.id, sortIndexColumn: modelCombos.sortIndex },
+      eq(modelCombos.tenantId, tenantId),
+      ids,
+    );
   }
 
   /** Next free list position for a new combo in this tenant. */
   private async nextComboSortIndex(tenantId: string): Promise<number> {
-    const rows = await this.db
-      .select({ max: sql<number>`coalesce(max(${modelCombos.sortIndex}), -1)` })
-      .from(modelCombos)
-      .where(eq(modelCombos.tenantId, tenantId));
-    return Number(rows[0]?.max ?? -1) + 1;
+    return nextSortIndex(
+      this.db,
+      { table: modelCombos, idColumn: modelCombos.id, sortIndexColumn: modelCombos.sortIndex },
+      eq(modelCombos.tenantId, tenantId),
+    );
   }
 
   async createCombo(tenantId: string, input: ModelComboCreateInput): Promise<ModelComboRow> {

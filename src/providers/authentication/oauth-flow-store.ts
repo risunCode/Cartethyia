@@ -2,7 +2,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import type { RedisClient } from "../../persistence/redis";
-import { TtlCache } from "../../runtime/ttl-cache";
+import { TtlCache } from "../../lib/ttl-cache";
 
 // Shared OAuth client-protocol kit: the provider-agnostic `OAuthLoginClient`
 // generic token-response parsing helpers, and tenant-scoped device-flow correlation.

@@ -4,7 +4,7 @@
 import { GatewayError } from "../../transport/gateway-error";
 import { mapUpstreamHttpError } from "../../transport/failure-policy";
 import type { CanonicalEvent, CanonicalRequest, CanonicalStopReason } from "../../transport/canonical-model";
-import { decodeSseEvents } from "../../transport/streaming";
+import { decodeSseEvents } from "../../lib/sse-decoder";
 import { usageFromProvider } from "../usage";
 import { readCredentialSecret, type ProviderDispatchTarget, type ModelDefinition, type ProviderAdapter, type ProviderDispatchContext, type WebSearchOutcome, type WebSearchResult } from "../provider-registry";
 import { fetchOpenAICompatibleModels } from "../discovery/openai-model-discovery";

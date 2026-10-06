@@ -2,7 +2,7 @@
  * Kimi Code (Moonshot) device-code OAuth flow.
  */
 import * as crypto from "node:crypto";
-import { isRecord } from "../../../protocol/primitives";
+import { parseEnvelopeRecord } from "../../../lib/credential-codec";
 import { devicePollBackoff, expiryFromSeconds, parseDeviceAuthStart, postFormTokenRequest, readJsonResponse } from "../../authentication/oauth-flow-store";
 import type { OAuthDeviceFlowContext, OAuthDevicePollResult, OAuthDeviceStartResult } from "../../authentication/oauth-flow-store";
 import type { OAuthTokenRefreshResult } from "../../authentication/oauth-refresh-service";
@@ -37,16 +37,13 @@ function encodeKimiCredential(accessToken: string, deviceId: string): string {
 export function parseKimiCredential(value: string): KimiOAuthCredential {
   const trimmed = value.trim();
   if (!trimmed) throw new Error("Kimi credential is empty");
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (isRecord(parsed)) {
-      const accessToken = typeof parsed.accessToken === "string" ? parsed.accessToken.trim() : "";
-      const deviceId = typeof parsed.deviceId === "string" ? parsed.deviceId.trim() : "";
-      if (accessToken && deviceId) return { accessToken, deviceId };
-    }
-  } catch {
-    // Legacy installations may hold a raw access token; fall through.
+  const record = parseEnvelopeRecord(trimmed);
+  if (record !== undefined) {
+    const accessToken = typeof record.accessToken === "string" ? record.accessToken.trim() : "";
+    const deviceId = typeof record.deviceId === "string" ? record.deviceId.trim() : "";
+    if (accessToken && deviceId) return { accessToken, deviceId };
   }
+  // Legacy installations may hold a raw access token; derive a stable device id.
   return { accessToken: trimmed, deviceId: deviceIdForScope(trimmed) };
 }
 
@@ -57,16 +54,13 @@ function encodeRefreshCredential(refreshToken: string, deviceId: string): string
 function parseRefreshCredential(value: string): KimiRefreshCredential {
   const trimmed = value.trim();
   if (!trimmed) throw new Error("Kimi refresh credential is empty");
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (isRecord(parsed)) {
-      const refreshToken = typeof parsed.refreshToken === "string" ? parsed.refreshToken.trim() : "";
-      const deviceId = typeof parsed.deviceId === "string" ? parsed.deviceId.trim() : "";
-      if (refreshToken && deviceId) return { refreshToken, deviceId };
-    }
-  } catch {
-    // Legacy installations may hold a raw refresh token; derive a stable id.
+  const record = parseEnvelopeRecord(trimmed);
+  if (record !== undefined) {
+    const refreshToken = typeof record.refreshToken === "string" ? record.refreshToken.trim() : "";
+    const deviceId = typeof record.deviceId === "string" ? record.deviceId.trim() : "";
+    if (refreshToken && deviceId) return { refreshToken, deviceId };
   }
+  // Legacy installations may hold a raw refresh token; derive a stable id.
   return { refreshToken: trimmed, deviceId: deviceIdForScope(trimmed) };
 }
 

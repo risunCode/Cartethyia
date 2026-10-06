@@ -26,7 +26,7 @@ import { GatewayError, capabilityUnsupported } from "../../../transport/gateway-
 import { getCodexVersion } from "../../operations/client-versions";
 import { randomUUID } from "node:crypto";
 import { resolvePromptCacheKey } from "../../operations/session-resolution";
-import { decodeSseEvents } from "../../../transport/streaming";
+import { decodeSseEvents } from "../../../lib/sse-decoder";
 
 import { joinUrl } from "../../../protocol/primitives";
 import { postUpstreamJson } from "../../../protocol/transport/openai";

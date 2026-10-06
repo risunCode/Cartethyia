@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { TtlCache } from "../../../runtime/ttl-cache";
+import { TtlCache } from "../../../lib/ttl-cache";
 import type { FetchLike, ProviderQuotaResult, ProviderQuotaWindow } from "../../quota/quota-contracts";
 import { authCredential, getJson, percentWindow, record, text, number } from "../../quota/quota-contracts";
 import { parseQuotaWindows } from "../../quota/quota-window-parser";

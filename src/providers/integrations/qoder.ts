@@ -6,7 +6,7 @@ import { classifyUpstreamError, extractUpstreamMessage, mapUpstreamHttpError, up
 import { GatewayError } from "../../transport/gateway-error";
 import type { CanonicalEvent, CanonicalRequest, CanonicalStopReason, ContentPart } from "../../transport/canonical-model";
 import { toolResultParts } from "../../transport/canonical-model";
-import { decodeSseEvents } from "../../transport/streaming";
+import { decodeSseEvents } from "../../lib/sse-decoder";
 import { usageFromProvider, readReasoningText } from "../usage";
 import { readCredentialSecret, type ProviderDispatchTarget, type ModelDefinition, type ProviderAdapter, type ProviderDispatchContext } from "../provider-registry";
 import { parseQoderOAuthState } from "./qoder-oauth";

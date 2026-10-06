@@ -6,6 +6,7 @@ import type { ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext }
 import { providerBaseUrl } from "../provider-metadata";
 import { abortGatewayError, createUpstreamDeadlineLifecycle } from "../operations/upstream-deadline";
 import { normalizeBearerToken } from "../../protocol/primitives";
+import { accessTokenFromSecret } from "../../lib/credential-codec";
 
 export const PERPLEXITY_BASE_URL = providerBaseUrl("perplexity");
 export const PERPLEXITY_PROVIDER_ID = "perplexity" as const;
@@ -53,17 +54,7 @@ function extractSearchQuery(request: CanonicalRequest): string {
 function tokenFromContext(context: ProviderDispatchContext): string {
   const secret = context.credential.secret;
   if (!secret || secret.length === 0) return "";
-  const raw = new TextDecoder().decode(secret).trim();
-  if (raw.startsWith("{")) {
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      const v = parsed["accessToken"] ?? parsed["api_key"] ?? parsed["apiKey"];
-      if (typeof v === "string" && v.length > 0) return v.trim();
-    } catch {
-      // fall through
-    }
-  }
-  return normalizeBearerToken(raw);
+  return normalizeBearerToken(accessTokenFromSecret(secret));
 }
 
 

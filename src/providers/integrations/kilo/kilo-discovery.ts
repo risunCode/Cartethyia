@@ -24,7 +24,7 @@ import {
 import { modelsDevCatalog } from "../../discovery/models-dev-catalog";
 import type { DiscoveryInput } from "../../discovery/discovery-types";
 import { KILO_ENDPOINT_PATH, KILO_PROVIDER_ID } from "./kilo";
-import { parseKiloCredential } from "./kilo-oauth";
+import { decodeKiloCredential } from "../../../lib/credential-codec";
 
 /** Kilo Code's published model directory. */
 export const KILO_MODELS_URL = "https://api.kilo.ai/api/gateway/models" as const;
@@ -114,7 +114,7 @@ function toModelDefinition(entry: Record<string, unknown>): ModelDefinition | un
 export async function discoverKiloModels(
   input: DiscoveryInput,
 ): Promise<readonly ModelDefinition[] | null> {
-  const { accessToken } = parseKiloCredential(input.credential);
+  const { accessToken } = decodeKiloCredential(input.credential);
   const fetcher = input.fetcher ?? fetch;
   const timeoutSignal = AbortSignal.timeout(15_000);
   const signal =

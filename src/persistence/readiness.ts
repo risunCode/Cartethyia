@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { readMigrationLedgerStatus } from "./postgres";
 import type { CartethyiaDatabase } from "./postgres";
 import type { RedisBackend, RedisClient } from "./redis";
-import { withTimeout } from "../runtime/timeout";
+import { withTimeout } from "../lib/timeout";
 
 // ===== readiness memo =====
 /**

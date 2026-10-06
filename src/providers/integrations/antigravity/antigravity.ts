@@ -25,7 +25,7 @@
 import type { CanonicalEvent, CanonicalRequest, CanonicalStopReason } from "../../../transport/canonical-model";
 import { GatewayError } from "../../../transport/gateway-error";
 import { firstUserText } from "../../../transport/canonical-model";
-import { decodeSseEvents } from "../../../transport/streaming";
+import { decodeSseEvents } from "../../../lib/sse-decoder";
 import { mapUpstreamHttpError } from "../../../transport/failure-policy";
 import { usageFromProvider } from "../../usage";
 import { isRecord } from "../../../protocol/primitives";

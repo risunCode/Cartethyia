@@ -1,6 +1,6 @@
 import Redis from "ioredis";
 import { log } from "../observability/logger";
-import { timeoutAfter } from "../runtime/timeout";
+import { timeoutAfter } from "../lib/timeout";
 import { encodeConnectionComponent, formatConnectionHost, requireConnectionUrl } from "./connection-url";
 
 export type RedisClient = InstanceType<typeof Redis>;

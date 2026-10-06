@@ -2,7 +2,7 @@ import { closeDb } from "../persistence/postgres";
 import { closeRedis } from "../persistence/redis";
 import { buildProductionDeps } from "./dependencies";
 import type { ProductionDeps } from "./dependencies";
-import { withTimeout } from "./timeout";
+import { withTimeout } from "../lib/timeout";
 import { resolveShutdownDrainWindowMs } from "../config";
 
 export type ShutdownReason = "SIGTERM" | "SIGINT" | "reload" | "update";

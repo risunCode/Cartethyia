@@ -1,6 +1,7 @@
 // Persisted API-key store: the console API-key domain and gateway authentication both consume this boundary.
 
 import { and, eq, isNull, sql } from "drizzle-orm";
+import { nextSortIndex, reorderSortIndex } from "../lib/sort-order";
 import type { CartethyiaDatabase } from "./postgres";
 import { apiKeys, shareLinks, type ApiKeyMode, type ApiKeyModelAccessMode } from "./schema";
 import type { AccessScope } from "../security/access-control";
@@ -173,23 +174,21 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
 
   /** Rewrites the list order for one tenant; `keyIds` is the full order. */
   async reorder(tenantId: string, keyIds: readonly string[]): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      for (const [index, keyId] of keyIds.entries()) {
-        await tx
-          .update(apiKeys)
-          .set({ sortIndex: index })
-          .where(and(eq(apiKeys.tenantId, tenantId), eq(apiKeys.id, keyId)));
-      }
-    });
+    await reorderSortIndex(
+      this.db,
+      { table: apiKeys, idColumn: apiKeys.id, sortIndexColumn: apiKeys.sortIndex },
+      eq(apiKeys.tenantId, tenantId),
+      keyIds,
+    );
   }
 
   /** Next free list position for a new key in this tenant. */
   private async nextSortIndex(tenantId: string): Promise<number> {
-    const rows = await this.db
-      .select({ max: sql<number>`coalesce(max(${apiKeys.sortIndex}), -1)` })
-      .from(apiKeys)
-      .where(eq(apiKeys.tenantId, tenantId));
-    return Number(rows[0]?.max ?? -1) + 1;
+    return nextSortIndex(
+      this.db,
+      { table: apiKeys, idColumn: apiKeys.id, sortIndexColumn: apiKeys.sortIndex },
+      eq(apiKeys.tenantId, tenantId),
+    );
   }
   async get(tenantId: string, keyId: string): Promise<ApiKeyRecord | undefined> {
     const rows = await this.db

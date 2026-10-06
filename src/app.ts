@@ -20,7 +20,7 @@ import { resolveRedisClient } from "./persistence/redis";
 import type { CartethyiaDatabase } from "./persistence/postgres";
 import type { ProviderAdapter } from "./providers/provider-registry";
 import type { OAuthTokenRefresher, OAuthRefreshService } from "./providers/authentication/oauth-refresh-service";
-import { withTimeout } from "./runtime/timeout";
+import { withTimeout } from "./lib/timeout";
 import type { ByokUpstreamHost } from "./providers/operations/provider-catalog-service";
 import type { NetworkPoolSelector } from "./network/pool/selector";
 import type { ProxyRequestPreparer } from "./transport/request/preparer";

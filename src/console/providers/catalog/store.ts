@@ -3,6 +3,7 @@ import { and, asc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { ConsoleDomainError } from "../../shared/errors";
 import { parseCustomProviderId, isBundledProviderId, type ModelDefinition, type ProviderRegistry } from "../../../providers/provider-registry";
 import { globalOrOwnedBy, ownedByOnly } from "../../../persistence/tenant-scope";
+import { nextSortIndex, reorderSortIndex } from "../../../lib/sort-order";
 import type { CartethyiaDatabase } from "../../../persistence/postgres";
 import { models, providerAccounts, providerOauthStates, providers, telemetryEvents, telemetryUsageTotals, tenantDisabledModels } from "../../../persistence/schema";
 import type { WireFamily } from "../../../transport/canonical-model";
@@ -791,13 +792,14 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
     providerId: string,
     tenantId: string,
   ): Promise<number> {
-    const rows = await db
-      .select({ max: sql<number>`coalesce(max(${providerAccounts.sortIndex}), -1)` })
-      .from(providerAccounts)
-      .where(
-        and(eq(providerAccounts.providerId, providerId), globalOrOwnedBy(providerAccounts.tenantId, tenantId)),
-      );
-    return Number(rows[0]?.max ?? -1) + 1;
+    return nextSortIndex(
+      db,
+      { table: providerAccounts, idColumn: providerAccounts.id, sortIndexColumn: providerAccounts.sortIndex },
+      and(
+        eq(providerAccounts.providerId, providerId),
+        globalOrOwnedBy(providerAccounts.tenantId, tenantId),
+      ),
+    );
   }
 
   /** Rewrites one provider's account order; `accountIds` is the full order. */
@@ -806,20 +808,15 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
     providerId: string,
     accountIds: readonly string[],
   ): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      for (const [index, accountId] of accountIds.entries()) {
-        await tx
-          .update(providerAccounts)
-          .set({ sortIndex: index })
-          .where(
-            and(
-              eq(providerAccounts.providerId, providerId),
-              eq(providerAccounts.id, accountId),
-              globalOrOwnedBy(providerAccounts.tenantId, tenantId),
-            ),
-          );
-      }
-    });
+    await reorderSortIndex(
+      this.db,
+      { table: providerAccounts, idColumn: providerAccounts.id, sortIndexColumn: providerAccounts.sortIndex },
+      and(
+        eq(providerAccounts.providerId, providerId),
+        globalOrOwnedBy(providerAccounts.tenantId, tenantId),
+      ),
+      accountIds,
+    );
   }
 
   async listAccounts(
