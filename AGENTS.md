@@ -1,8 +1,7 @@
 # Cartethyia Agent Guide
 
 The goal is to leave the repository trustworthy for the next reader. Keep this
-file concise; detailed subsystem guidance lives in
-`.skills/cartethyia-engineering/`.
+file concise; detailed subsystem guidance lives in `.skills/`.
 
 ## Core rule
 
@@ -13,6 +12,23 @@ across the affected code path. Do not ship a workaround disguised as a fix.
 No overengineering unless the task explicitly asks for it. Prefer the smallest
 complete change that fixes the owning layer, migrates its callers, and proves the
 acceptance criteria.
+
+## Pick the skill first
+
+Most tasks belong to one skill in `.skills/`. Read its `SKILL.md` before
+starting — it holds the procedure, the pitfalls, and the owner of the layer.
+
+| Work | Skill |
+|---|---|
+| A failing request to attribute to a field; payload/wire bytes; remote debugging | `cartethyia-trace-replay` |
+| Schema change, migration, new usage/telemetry field | `cartethyia-schema-telemetry` |
+| Add/remove/authenticate a provider; catalog, `/v1/models`, capabilities | `cartethyia-provider-catalog` |
+| Account health, cooldown class, pool selection, retries, leases | `cartethyia-health-routing` |
+| `dashboard/` React, layout, social metadata, browser verification | `cartethyia-dashboard` |
+| Orientation, invariants/deadness, house style, gates | `cartethyia-engineering` |
+
+Do not add a competing file when a skill already owns the topic. Extend the
+closest owner instead — one folder, one skill.
 
 ## Working agreement
 
@@ -31,6 +47,9 @@ acceptance criteria.
   absent. Full uses external PostgreSQL; Redis remains optional unless shared
   coordination is required. Do not reintroduce `REDIS_MODE` or
   `single_instance_local`.
+- Development is local-first: use an available local PostgreSQL (including Laragon
+  on Windows) and local Redis/in-memory mode before considering Docker. Docker is
+  an optional deployment/test fallback, never a default development prerequisite.
 
 ## Start here
 
@@ -39,9 +58,9 @@ acceptance criteria.
    dynamic paths. Use `codegraph_explore` when available.
 3. If CodeGraph is unavailable or stale, use the available search tools (`Read`,
    `Grep`, `Glob`, or a targeted command) and obtain the same context manually.
-4. Read the relevant skill reference before subsystem work.
-5. Inspect the target, callers, contracts, config, and docs before editing.
-6. When a browser/CDP runtime is available, use it headlessly for dashboard/UI
+4. Read the skill for the subsystem, then the target's callers, contracts,
+   config, and docs.
+5. When a browser/CDP runtime is available, use it headlessly for dashboard/UI
    verification; do not replace measurable browser evidence with markup guesses.
 
 Do not spend a turn only restating a plan. The first useful action should read,
@@ -69,18 +88,16 @@ removal condition.
 
 - `src/` is the production backend; `dashboard/src/` is browser code.
 - Dashboard code must not import Elysia, database drivers, filesystem modules,
-  secrets, or Node-only runtime dependencies.
+  secrets, or Node-only runtime dependencies. It calls `/console/api`.
 - Treat network responses, environment variables, database rows, request bodies,
   and user values as untrusted. Validate at boundaries and fail closed.
 - Preserve intentional provider wire bytes, headers, and user-agent behavior.
 - Keep one source of truth for provider metadata, persisted contracts, environment
   names, routing policy, and dashboard mirrors.
-- Development is local-first: use an available local PostgreSQL (including Laragon
-  on Windows) and local Redis/in-memory mode before considering Docker. Docker is
-  an optional deployment/test fallback, never a default development prerequisite.
-- Keep scripts flat with `ops-`, `build-`, or `ci-` prefixes. Avoid barrel files;
-  use role names such as `contracts.ts`, `routes.ts`, `store.ts`, `service.ts`,
-  and `errors.ts`.
+- `scripts/` is grouped by purpose (`commands/`, `build/`, `dev/`, `generate/`,
+  `internal/`); `scripts/ci-run-tests.ts` and `scripts/install-lite.sh` sit at
+  its root. Avoid barrel files; use role names such as `contracts.ts`,
+  `routes.ts`, `store.ts`, `service.ts`, and `errors.ts`.
 - Do not hand-edit generated output. Change its source or generator.
 - Use strict TypeScript conventions already configured by the repository: no `any`,
   suppressions, needless assertions, or weakened compiler settings.
@@ -98,27 +115,32 @@ For a rename, move, replacement, feature removal, or contract change:
 ## Verification gates
 
 ```bash
-bun run typecheck
-bun run dashboard:typecheck  # when dashboard/ changes
-bun run build                # when entry points or build contracts change
-bun run test:backend         # or bun run test / dashboard:test / test:watch
+bun run typecheck                # always
+bun run dashboard:typecheck      # when dashboard/ changes
+bun run build                    # when entry points or build contracts change
+bun run test:backend             # or bun run test / dashboard:test / test:watch
 ```
 
 The repository carries an active test suite (`test/`, `dashboard/test/`, run via
-`scripts/ci-run-tests.ts` against the isolated `.env.test` database). Typecheck
-is not behavioral proof. Exercise the real boundary: a live gateway request,
-headless browser/CDP surface when available, database migration in an isolated
-environment, or a temporary script calling production code. If a browser/CDP
-runtime is available, UI claims require that automation evidence; if unavailable,
-say exactly why.
+`scripts/ci-run-tests.ts` against the isolated `.env.test` database — never the
+dev database). Typecheck is not behavioral proof. Exercise the real boundary: a
+live gateway request, headless browser/CDP surface when available, database
+migration in an isolated environment, or a temporary script calling production
+code. If a browser/CDP runtime is available, UI claims require that automation
+evidence; if unavailable, say exactly why.
+
+Prove a new test actually locks the fix: revert the change, see it fail, restore
+it, see it pass. A test that passes both ways proves nothing.
 
 ## Safety and git
 
 Never use destructive git commands such as `reset --hard`, `checkout --`, or
 `clean`. Do not commit, push, deploy, touch production data, delete user data, or
 discard unrelated working-tree changes unless explicitly asked. Never expose
-credentials, tokens, keys, or sensitive payloads in output. Verify the environment
-before database/production operations and prefer reversible, transactional steps.
+credentials, tokens, keys, or sensitive payloads in output. Credentials come from
+the environment — never from a message, never echoed into output. Verify the
+environment before database/production operations and prefer reversible,
+transactional steps.
 
 ## Completion report
 

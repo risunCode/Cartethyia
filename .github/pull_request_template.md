@@ -21,7 +21,7 @@
 
 - [ ] No doc update needed (why: <!-- ... -->)
 - [ ] Updated: <!-- e.g. README.md, .env.example -->
-- [ ] New procedure/debugging fact folded into `.skills/cartethyia-engineering/references/` (no competing skill files)
+- [ ] New procedure/debugging fact folded into the owning `.skills/<skill>/` (no competing skill files)
 - [ ] No `file:line` refs added to any committed doc (anchor citations to symbols and paths — line numbers drift)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
