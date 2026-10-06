@@ -7,6 +7,7 @@ import { classifyUpstreamFailure } from "../failure-policy";
 import type { AdmissionLease } from "../../security/admission/contracts";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { TelemetryPayloadCapture } from "../../observability/payload-capture";
+import { payloadDirectory } from "../../observability/payload-store";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
 import { CachedPreferencesReader, DrizzlePreferencesReader } from "../../persistence/tenant-preferences";
 import type { TelemetryPayloadDepth, TelemetryPayloadMode } from "../../console/settings/contracts";
@@ -30,10 +31,6 @@ export function preferencesReaderFor(db: CartethyiaDatabase): CachedPreferencesR
     };
   }
   return preferencesCache.reader;
-}
-
-export function clearConsoleSettingsCacheForTests(): void {
-  preferencesCache?.reader.clear();
 }
 
 /**
@@ -319,18 +316,13 @@ let captureFailureReported = false;
 export function reportCaptureFailure(error: unknown): void {
   if (captureFailureReported) return;
   captureFailureReported = true;
-  const directory = process.env.CARTETHYIA_TELEMETRY_PAYLOAD_DIR?.trim() || "./data/telemetry-payloads";
+  const directory = payloadDirectory();
   const reason = error instanceof Error ? error.message : String(error);
   log.warn(
     `[telemetry] payload capture is enabled for this tenant but the body was not stored ` +
       `(${reason}). Check that "${directory}" exists and is writable by the runtime user; ` +
       `a bind-mounted data directory is often owned by root while the container runs unprivileged.`,
   );
-}
-
-/** Test-only: allow a later failure to be reported again. */
-export function resetCaptureFailureReportForTests(): void {
-  captureFailureReported = false;
 }
 
 /**

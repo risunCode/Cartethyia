@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { consoleRequest, isRecord } from "../data/api";
 import { queryKeys } from "../data/query-keys";
+import { STREAM_RETRY_MS } from "../shared/constants";
 
 export interface InFlightState {
   /** Latest live count, or null before the first snapshot arrives. */
@@ -24,8 +25,6 @@ function readSnapshot(payload: unknown): { count: number; uniqueIps: number } | 
       : count;
   return { count, uniqueIps };
 }
-
-const STREAM_RETRY_MS = 5_000;
 
 /**
  * Live in-flight proxy request count over the console SSE stream
@@ -139,8 +138,6 @@ function readPools(payload: unknown): readonly PoolUsageRow[] | null {
   return rows;
 }
 
-const POOL_STREAM_RETRY_MS = 5_000;
-
 /**
  * Hard bound on remembered per-pool byte peaks.
  *
@@ -241,7 +238,7 @@ export function usePoolUsage(): PoolUsageState {
         setLive(false);
         retryTimer = setTimeout(() => {
           if (!stopped) void snapshotThenStream();
-        }, POOL_STREAM_RETRY_MS);
+        }, STREAM_RETRY_MS);
       };
     };
 

@@ -137,8 +137,3 @@ export async function getOrCreateInstallId(name: string, path?: string): Promise
   return fallbackId(`${name}:${candidates.join("|")}`, candidates[0] ?? name, lastError);
 }
 
-/** Test-only: drop memoized fallbacks and one-time warnings between cases. */
-export function resetInstallIdStateForTests(): void {
-  inMemoryIds.clear();
-  warnedPaths.clear();
-}

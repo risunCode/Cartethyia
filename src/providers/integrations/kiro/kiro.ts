@@ -38,7 +38,6 @@ import type {
   ProviderDispatchContext,
   ProviderDispatchTarget,
 } from "../../provider-registry";
-import { providerBaseUrl } from "../../provider-metadata";
 import {
   buildKiroAmzUserAgent,
   buildKiroUserAgent,
@@ -629,6 +628,3 @@ export function createKiroAdapter(options: KiroAdapterOptions = {}): ProviderAda
 }
 
 export const kiroAdapter: ProviderAdapter = createKiroAdapter();
-
-/** Base URL this provider registers, used by the metadata layer. */
-export const KIRO_BASE_URL = providerBaseUrl(KIRO_PROVIDER_ID);

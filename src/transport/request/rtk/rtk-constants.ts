@@ -42,8 +42,6 @@ export function rtkProfile(level: RtkLevel | null | undefined): RtkProfile {
   return RTK_PROFILES[level ?? "full"] ?? RTK_PROFILES.full;
 }
 
-/** git-diff: context lines kept around each change. */
-export const GIT_DIFF_CONTEXT_KEEP = 3;
 /** git-diff: per-hunk line cap before truncating the middle. */
 export const GIT_DIFF_HUNK_MAX_LINES = 100;
 /** git-log: total line cap. */
@@ -61,9 +59,6 @@ export const FIND_TOTAL_DIR_MAX = 20;
 export const LS_EXT_SUMMARY_TOP = 5;
 /** tree: total line cap. */
 export const TREE_MAX_LINES = 200;
-/** Cursor-style search list: entries per directory / total directories. */
-export const SEARCH_LIST_PER_DIR_MAX = 10;
-export const SEARCH_LIST_TOTAL_DIR_MAX = 20;
 /** smart-truncate: lines kept from the head and tail. */
 export const SMART_TRUNCATE_HEAD = 120;
 export const SMART_TRUNCATE_TAIL = 60;

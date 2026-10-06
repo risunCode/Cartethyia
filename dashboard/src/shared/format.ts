@@ -16,12 +16,27 @@
  * callers omit it and follow the browser.
  */
 
-/** Bytes, scaled to B / KB / MB. One decimal above the base unit. */
+/** Bytes, scaled to B / KB / MB / GB / TB. One decimal above the base unit. */
 export function formatBytes(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return "—";
-  if (bytes < 1024) return `${Math.round(bytes)} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  // A negative count means the accounting is wrong upstream; keep it visible in
+  // the base unit rather than clamping it to zero or rescaling it.
+  if (bytes < 0) return `${Math.round(bytes)} B`;
+  const units = ["B", "KB", "MB", "GB", "TB"] as const;
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const digits = unit === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unit]}`;
+}
+
+/** A probe/latency duration: `ms` below a second, `s` above, no space. */
+export function formatProbeDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 /** A millisecond duration: `ms` below a second, `s` above. */

@@ -9,6 +9,7 @@ import { downloadTextFile } from "../../shared/download";
 import { GithubBadge } from "../../components/patterns/github-badge";
 import { toast } from "../../shared/toast";
 import { formatModelTokens, UNKNOWN_LIMITS_TOOLTIP } from "../../shared/model-limits";
+import { formatProbeDuration } from "../../shared/format";
 import { readConsoleTheme, applyConsoleTheme, isDarkEffective, writeConsoleTheme, type ConsoleThemeChoice } from "../../shared/theme";
 import { useShareData, type ShareLinkData, type ShareModelInfoData } from "../../hooks/share-data";
 import {
@@ -26,10 +27,6 @@ import {
 interface IssueResult { key: string; keyId: string; keyPrefix: string; createdAt: string }
 interface ApiError { error?: string | { code?: string; message?: string }; message?: string }
 interface ProbeResult { readonly ttftMs: number; readonly totalMs: number }
-function formatProbeDuration(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
 
 function message(payload: ApiError): string {
   if (typeof payload.error === "string") return payload.error;

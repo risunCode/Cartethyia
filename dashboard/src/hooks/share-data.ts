@@ -1,4 +1,5 @@
 import { shareCodeMessage } from "../shared/helpers";
+import { STREAM_RETRY_MS } from "../shared/constants";
 import { useEffect, useState } from "react";
 
 /** Context and capabilities for one allowed model, from the model catalog. */
@@ -113,9 +114,6 @@ function errorCode(payload: ShareErrorResponse): string | null {
   const rawError = payload.error;
   return (typeof rawError === "string" ? rawError : rawError?.code) ?? null;
 }
-
-/** Delay before re-opening a dropped share stats stream. */
-const STREAM_RETRY_MS = 5_000;
 
 /**
  * Loads the public enrollment contract without caching response bodies.

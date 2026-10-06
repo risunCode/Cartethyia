@@ -206,9 +206,6 @@ export const CONFIG_SPEC = {
   CARTETHYIA_GITHUB_ENTERPRISE_DOMAIN: { kind: "text", default: "" },
 } as const satisfies Readonly<Record<string, ConfigEntry>>;
 
-/** Every variable declared in {@link CONFIG_SPEC}, for documentation checks. */
-export const CONFIG_SPEC_KEYS: readonly string[] = Object.freeze(Object.keys(CONFIG_SPEC));
-
 // ─── Spec readers ───────────────────────────────────────────────────────────
 
 /** Reads a bounded integer, throwing on a malformed or out-of-range value. */

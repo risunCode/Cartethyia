@@ -32,13 +32,10 @@ import { formatModelTokens, UNKNOWN_LIMITS_TOOLTIP } from "../../shared/model-li
 import { toast } from "../../shared/toast";
 import { useTrackedTimeout } from "../../hooks/use-timeout";
 import { PROBE_REASONING_EFFORTS, formatThinkingSuffix, type ModelCatalogEntry, type ProbeReasoningEffort } from "../../data/contracts";
+import { formatProbeDuration } from "../../shared/format";
 
 
 
-function formatProbeDuration(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
 /**
  * The badge shown on a non-builtin card, naming where the row came from.
  *

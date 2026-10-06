@@ -32,7 +32,6 @@ import { resolveGithubEnterpriseDomain } from "../../../config";
 
 /** Public GitHub OAuth app id the Copilot clients use; not a secret. */
 export const GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98" as const;
-export const GITHUB_DEVICE_CODE_URL = "https://github.com/login/device/code" as const;
 export const GITHUB_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token" as const;
 /** Default API host when a token carries no `proxy-ep` claim. */
 export const GITHUB_DEFAULT_API_HOST = "api.individual.githubcopilot.com" as const;
@@ -128,11 +127,6 @@ export function apiHostFromGithubToken(token: string): string {
   if (!proxyHost) return GITHUB_DEFAULT_API_HOST;
   const apiHost = proxyHost.replace(/^proxy\./, "api.");
   return apiHost.length > 0 ? apiHost : GITHUB_DEFAULT_API_HOST;
-}
-
-/** Absolute inference base URL for a Copilot token. */
-export function copilotBaseUrlFromToken(token: string): string {
-  return `https://${apiHostFromGithubToken(token)}`;
 }
 
 interface CopilotTokenResponse {

@@ -15,6 +15,7 @@ import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { maskClientIp } from "../../observability/redaction";
 import { gatewayErrorSql } from "../../observability/telemetry-status";
 import { telemetryEvents } from "../../persistence/schema";
+import { utcDayStart } from "./day";
 
 /** Totals for the whole share family, all-time plus the windows the UI draws. */
 export interface ShareFamilyTotals {
@@ -116,13 +117,6 @@ export function clientTypeFromUserAgent(userAgent: string | null | undefined): s
 /** Escape LIKE metacharacters so a model id matches literally. */
 function escapeLike(value: string): string {
   return value.replace(/[%_\\]/g, (char) => `\\${char}`);
-}
-
-/** Start of the current UTC day. */
-function utcDayStart(now: Date): Date {
-  const start = new Date(now);
-  start.setUTCHours(0, 0, 0, 0);
-  return start;
 }
 
 /** Start of the current UTC month. */

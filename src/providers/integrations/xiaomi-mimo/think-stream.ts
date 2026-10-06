@@ -116,10 +116,3 @@ export class MimoThinkSplitter {
   }
 }
 
-/** Non-streaming helper: strips reasoning spans and returns answer text only. */
-export function stripMimoThinking(raw: string): string {
-  const splitter = new MimoThinkSplitter();
-  const first = splitter.push(raw);
-  const rest = splitter.flush();
-  return first.text + rest.text;
-}

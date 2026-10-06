@@ -318,11 +318,6 @@ function cacheKey(apiKey: string): string {
   return createHash("sha256").update(apiKey).digest("hex");
 }
 
-/** Test hook: forgets cached GetUserJwt results. */
-export function _resetDevinAuthCache(): void {
-  userJwtCache.clear();
-}
-
 async function fetchUserJwt(
   apiKey: string,
   baseUrl: string,

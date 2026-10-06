@@ -85,11 +85,6 @@ export function recordGithubLongContextModels(models: readonly ModelDefinition[]
   }
 }
 
-/** Drops recorded ids. Test-only: keeps isolated tests from sharing state. */
-export function resetGithubLongContextModelsForTesting(): void {
-  longContextModelIds.clear();
-}
-
 interface CopilotModelOptions {
   readonly vision?: boolean;
   readonly reasoning?: boolean;
@@ -266,8 +261,3 @@ class GithubAdapter extends OpenAICompatibleAdapter {
 export const githubAdapter: ProviderAdapter = new GithubAdapter(
   providerBaseUrl(GITHUB_PROVIDER_ID),
 );
-
-/** Factory for tests and custom egress. */
-export function createGithubAdapter(fetchImpl?: typeof fetch): ProviderAdapter {
-  return new GithubAdapter(providerBaseUrl(GITHUB_PROVIDER_ID), fetchImpl);
-}

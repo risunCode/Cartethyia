@@ -6,6 +6,7 @@ import { maskClientIp } from "../../observability/redaction";
 import { gatewayErrorSql } from "../../observability/telemetry-status";
 import { telemetryEvents, telemetryUsageTotals } from "../../persistence/schema";
 import { shouldMaskClientIp } from "../shared/ip-privacy";
+import { utcDayStart } from "./day";
 
 export interface SharedKeyTokenUsage {
   readonly requests: number;
@@ -65,12 +66,6 @@ export interface ShareActivityPort {
     children: readonly ApiKeyRecord[],
   ): Promise<readonly SharedKeySummary[]>;
   getSharedKeyDetail(tenantId: string, childKeyId: string): Promise<SharedKeyActivityDetail>;
-}
-
-function utcDayStart(now: Date): Date {
-  const start = new Date(now);
-  start.setUTCHours(0, 0, 0, 0);
-  return start;
 }
 
 function tokenUsage(row: {

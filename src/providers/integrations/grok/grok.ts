@@ -528,24 +528,3 @@ export const GrokAdapter: ProviderAdapter = {
   },
 };
 
-/** Factory for tests and custom egress. */
-export function createGrokAdapter(
-  options: { readonly fetch?: typeof fetch } = {},
-): ProviderAdapter {
-  if (!options.fetch) return GrokAdapter;
-  const config = withBearerAuthentication({ ...GrokConfig, fetchImpl: options.fetch });
-  const adapter = new OpenAICompatibleAdapter(config);
-  return {
-    provider_id: GROK_PROVIDER_ID,
-    async *dispatch(request, candidate, context) {
-      if (context.credential.credential_kind !== "oauth") {
-        throw new GatewayError(
-          "invalid_request",
-          400,
-          "grok requires an xAI OAuth device credential",
-        );
-      }
-      yield* adapter.dispatch(request, candidate, context);
-    },
-  };
-}

@@ -16,8 +16,6 @@ export const tenants = pgTable("tenants", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export type Tenant = typeof tenants.$inferSelect;
-
 // Canonical tenant/timestamp column definitions shared by every table.
 
 export function tenantRefNullable() {
@@ -139,8 +137,6 @@ export const providers = pgTable(
     requiresAccount: boolean("requires_account").notNull().default(true),
   },
 );
-
-export type Provider = typeof providers.$inferSelect;
 
 // Upstream account credentials plus the full health state machine.
 // `tenant_id` null means the account is shared pool-wide; populated means
@@ -307,8 +303,6 @@ export const models = pgTable(
     index("models_provider_enabled_idx").on(table.providerId, table.enabled),
   ],
 );
-
-export type Model = typeof models.$inferSelect;
 
 // Tenant-scoped suppression of a GLOBAL/built-in model. Tenants cannot mutate
 // the shared `models` row (see `DrizzleProviderCatalogStore.setModelEnabled`),
@@ -532,7 +526,6 @@ export const poolRoutingSettings = pgTable("pool_routing_settings", {
   /** Requests served by one pool before round robin advances. */
   rotateCount: integer("rotate_count").notNull().default(1),
 });
-export type PoolRoutingSettings = typeof poolRoutingSettings.$inferSelect;
 
 
 export const API_KEY_MODES = ["personal", "share"] as const;

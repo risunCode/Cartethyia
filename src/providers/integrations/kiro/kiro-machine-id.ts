@@ -105,27 +105,3 @@ export function machineIdForAuthState(
   const startUrl = typeof raw["startUrl"] === "string" ? raw["startUrl"].trim() : "";
   return fallbackMachineId(accountId || clientId || profileArn || startUrl);
 }
-
-/**
- * Resolves the machine id for one credential.
- *
- * Resolution order is frozen value → derivable material → stable fallback. A
- * frozen value wins so that a token rotation cannot move the account to a new
- * device; the fallback exists so the function never returns a constant.
- */
-export function resolveMachineId(input: {
-  readonly frozen: unknown;
-  readonly authMethod: string;
-  readonly refreshToken: string;
-  readonly apiKey: string;
-  readonly accountId: string;
-}): string {
-  const frozen = normalizeMachineId(input.frozen);
-  if (frozen !== undefined) return frozen;
-  if (input.authMethod === "api_key") {
-    if (input.apiKey.length > 0) return deriveApiKeyMachineId(input.apiKey);
-  } else if (input.refreshToken.length > 0) {
-    return deriveOAuthMachineId(input.refreshToken);
-  }
-  return fallbackMachineId(input.accountId);
-}

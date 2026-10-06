@@ -416,18 +416,13 @@ function accessor<K extends keyof typeof resolvers>(name: K): {
 }
 
 export const getQoderVersion = accessor("qoder").get;
-export const _resetQoderVersion = accessor("qoder").reset;
 export const getAntigravityVersion = accessor("antigravity").get;
-export const _resetAntigravityVersion = accessor("antigravity").reset;
 
 export const getOpenCodeVersion = accessor("opencode").get;
-export const _resetOpenCodeVersion = accessor("opencode").reset;
 
 export const getCommandCodeVersion = accessor("commandcode").get;
-export const _resetCommandCodeVersion = accessor("commandcode").reset;
 
 export const getGrokVersion = accessor("grok").get;
-export const _resetGrokVersionCache = accessor("grok").reset;
 
 export function buildGrokUserAgent(version = getGrokVersion()): string {
   return buildGrokShellUserAgent(version);
@@ -441,10 +436,7 @@ export function buildGrokAuthUserAgent(version = getGrokVersion()): string {
 export const getClineClientVersion = accessor("clineClient").get;
 export const getClineSdkVersion = accessor("clineSdk").get;
 
-export const _resetWorkBuddyClientVersionCache = accessor("workbuddyClient").reset;
-
 export const getCodexVersion = accessor("codex").get;
-export const _resetCodexVersion = accessor("codex").reset;
 
 export const getWorkBuddyClientVersion = accessor("workbuddyClient").get;
 export const getWorkBuddyCliVersion = accessor("workbuddyCli").get;
@@ -456,10 +448,7 @@ export function buildWorkBuddyUserAgent(
   return `WorkBuddy/${clientVersion} WorkBuddy AI/${clientVersion} CLI/${cliVersion}`;
 }
 
-export const _resetWorkBuddyVersionCache = accessor("workbuddyCli").reset;
-
 export const getKimiCliVersion = accessor("kimiCli").get;
-export const _resetKimiCliVersion = accessor("kimiCli").reset;
 
 export const getCodeBuddyVersion = accessor("codebuddy").get;
 export const getCodeBuddyCnVersion = accessor("codebuddyCn").get;
@@ -476,13 +465,7 @@ export const _resetCodeBuddyCnVersionCache = accessor("codebuddyCn").reset;
 export const getClaudeCliVersion = accessor("claudeCli").get;
 export const getClaudeSdkVersion = accessor("claudeSdk").get;
 
-export function _resetClaudeVersionCache(version: string | null = null): void {
-  resolvers.claudeCli.reset(version);
-  resolvers.claudeSdk.reset(version);
-}
-
 export const getKiroVersion = accessor("kiro").get;
-export const _resetKiroVersion = accessor("kiro").reset;
 
 /**
  * Builds the `x-amz-user-agent` companion header for the generation surface.

@@ -25,8 +25,8 @@ import {
   candidateSupportsRequest,
   type RequiredCapability,
 } from "../translation/capabilities";
+import { SEARCH_PROVIDER_ORDER } from "../dispatch/websearch";
 
-const SEARCH_PROVIDER_ORDER = ["exa", "gemini", "codex"] as const;
 const SEARCH_PROVIDER_RANK = new Map<string, number>(
   SEARCH_PROVIDER_ORDER.map((provider, index) => [provider, index]),
 );

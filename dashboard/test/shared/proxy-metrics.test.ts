@@ -21,7 +21,6 @@
 import { describe, expect, test } from "bun:test";
 import type { NetworkPoolResponse } from "../../src/data/contracts";
 import {
-  formatBytes,
   MAX_BATCH_PROBE_TARGETS,
   type PoolSortDirection,
   type PoolSortKey,
@@ -202,70 +201,6 @@ describe("sortPools", () => {
         expect(sorted).toHaveLength(pools.length);
         expect(new Set(sorted.map((p) => p.id))).toEqual(new Set(pools.map((p) => p.id)));
       }
-    }
-  });
-});
-
-describe("formatBytes", () => {
-  test("zero and negative report as zero", () => {
-    // The bar's floor: a pool with no allowance yet, or a counter that
-    // overshot, must not render "-1.0 KB".
-    expect(formatBytes(0)).toBe("0 B");
-    expect(formatBytes(-1)).toBe("0 B");
-    expect(formatBytes(-1024 * 1024)).toBe("0 B");
-  });
-
-  test("a non-finite value reports as zero rather than NaN", () => {
-    expect(formatBytes(Number.NaN)).toBe("0 B");
-    expect(formatBytes(Number.POSITIVE_INFINITY)).toBe("0 B");
-    expect(formatBytes(Number.NEGATIVE_INFINITY)).toBe("0 B");
-  });
-
-  test("bytes below a kibibyte print as whole bytes", () => {
-    expect(formatBytes(1)).toBe("1 B");
-    expect(formatBytes(512)).toBe("512 B");
-    expect(formatBytes(1023)).toBe("1023 B");
-  });
-
-  test("the kibibyte boundary switches unit", () => {
-    // 1024 is the first value that divides; the label stays "KB" (binary
-    // quantity, familiar label — documented in the module).
-    expect(formatBytes(1024)).toBe("1 KB");
-    expect(formatBytes(1536)).toBe("2 KB");
-  });
-
-  test("KB prints no decimal", () => {
-    // `unit <= 1 ? 0 : ...` — whole numbers for bytes and KB.
-    expect(formatBytes(10 * 1024)).toBe("10 KB");
-    expect(formatBytes(1024 * 1024 - 1)).toBe("1024 KB");
-  });
-
-  test("MB and above get one decimal below ten and none at ten or more", () => {
-    // The `value < 10 ? 1 : 0` rule, so the column stays a consistent width.
-    expect(formatBytes(1024 * 1024)).toBe("1.0 MB");
-    expect(formatBytes(1024 * 1024 * 5)).toBe("5.0 MB");
-    expect(formatBytes(1024 * 1024 * 10)).toBe("10 MB");
-    expect(formatBytes(1024 * 1024 * 512)).toBe("512 MB");
-  });
-
-  test("the unit ladder reaches TB and stops there", () => {
-    // `unit < units.length - 1` caps the division, so a value past a terabyte is
-    // reported in TB rather than running off the end of the label array.
-    expect(formatBytes(1024 ** 4)).toBe("1.0 TB");
-    expect(formatBytes(1024 ** 5)).toBe("1024 TB");
-    expect(formatBytes(1024 ** 6)).toBe("1048576 TB");
-  });
-
-  test("the output always carries a unit label and no NaN", () => {
-    // A sweep across magnitudes, including the exact boundaries.
-    const inputs = [
-      0, 1, 1023, 1024, 1025, 1024 ** 2, 1024 ** 2 + 1, 1024 ** 3, 1024 ** 4, 1024 ** 5,
-      Number.MAX_SAFE_INTEGER,
-    ];
-    for (const bytes of inputs) {
-      const rendered = formatBytes(bytes);
-      expect(rendered).toMatch(/^\d+(\.\d)? (B|KB|MB|GB|TB)$/);
-      expect(rendered).not.toContain("NaN");
     }
   });
 });

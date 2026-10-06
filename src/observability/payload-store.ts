@@ -62,7 +62,13 @@ const DEFAULT_MAX_FILE_BYTES = 64 * 1024 * 1024;
 const DEFAULT_DIRECTORY = "./data/telemetry-payloads";
 let writeTail: Promise<void> = Promise.resolve();
 
-function payloadDirectory(): string {
+/**
+ * Single source of truth for the telemetry payload directory: the
+ * `CARTETHYIA_TELEMETRY_PAYLOAD_DIR` override when set, otherwise the
+ * default `./data/telemetry-payloads`. Every writer and reader must resolve
+ * the directory through this function so the two can never drift.
+ */
+export function payloadDirectory(): string {
   return process.env.CARTETHYIA_TELEMETRY_PAYLOAD_DIR?.trim() || DEFAULT_DIRECTORY;
 }
 

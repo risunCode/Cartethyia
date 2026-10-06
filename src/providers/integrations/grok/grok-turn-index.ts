@@ -80,7 +80,3 @@ export function resolveGrokTurnIndex(
   return turn;
 }
 
-/** Test-only: forget every remembered session index. */
-export function _resetGrokTurnIndexForTests(): void {
-  turns.clear();
-}

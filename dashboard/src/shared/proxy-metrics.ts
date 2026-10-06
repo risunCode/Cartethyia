@@ -55,24 +55,6 @@ export function sortPools(
   });
 }
 
-/**
- * Compact byte size for the usage bar. Uses binary units (KiB/MiB/GiB) because
- * that is how proxy providers bill, but prints the familiar short labels.
- */
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"] as const;
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  // Whole numbers for bytes and KB read cleaner; larger units get one decimal.
-  const digits = unit <= 1 ? 0 : value < 10 ? 1 : 0;
-  return `${value.toFixed(digits)} ${units[unit]}`;
-}
-
 export interface ProxyPoolSummary {
   readonly totalPools: number;
   readonly active: number;

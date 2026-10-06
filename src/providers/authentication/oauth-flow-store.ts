@@ -415,22 +415,6 @@ export function decodeJwtPayload(token: string): Record<string, unknown> | undef
 }
 
 /**
- * JWT `exp` (seconds) as epoch millis minus `skewMs`; tokens without a
- * finite numeric `exp` fall back to `Date.now() + fallbackMs`. A non-finite
- * `exp` (e.g. `Infinity`) yields the fallback instead of an Invalid Date.
- */
-export function expiryFromJwt(token: string, fallbackMs: number, skewMs = 0): number {
-  try {
-    const decoded = decodeJwtPayload(token);
-    if (decoded && typeof decoded.exp === "number" && Number.isFinite(decoded.exp)) {
-      return decoded.exp * 1000 - skewMs;
-    }
-  } catch {
-    // Malformed token payloads safely degrade to caller fallback TTL.
-  }
-  return Date.now() + fallbackMs;
-}
-/**
  * Builds a PKCE authorization URL with the canonical parameter order
  * (`client_id`, `response_type`, `redirect_uri`, `scope`, `state`,
  * `code_challenge`, `code_challenge_method`, then provider extras).

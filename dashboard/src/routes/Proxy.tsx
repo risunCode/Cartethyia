@@ -49,13 +49,13 @@ import {
 } from "../hooks/network";
 import { usePoolUsage, type PoolUsageRow } from "../hooks/live";
 import {
-  formatBytes,
   MAX_BATCH_PROBE_TARGETS,
   sortPools,
   summarizePools,
   type PoolSortKey,
   type ProxyPoolSummary,
 } from "../shared/proxy-metrics";
+import { formatBytes } from "../shared/format";
 import { downloadTextFile } from "../shared/download";
 import { toast } from "../shared/toast";
 import { getErrorMessage } from "../shared/helpers";

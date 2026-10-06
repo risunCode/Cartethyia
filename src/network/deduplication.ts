@@ -26,13 +26,3 @@ export function dedupeRequest<T>(key: string, fn: () => Promise<T>): Promise<T> 
   inFlight.set(key, task);
   return task;
 }
-
-/** Number of keys currently in flight. Test/observability helper. */
-export function inFlightRequestCount(): number {
-  return inFlight.size;
-}
-
-/** Clears all in-flight keys. Test-only. */
-export function resetDeduplicationForTesting(): void {
-  inFlight.clear();
-}

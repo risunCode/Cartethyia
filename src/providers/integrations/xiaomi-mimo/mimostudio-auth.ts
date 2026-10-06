@@ -1,7 +1,5 @@
 import { GatewayError } from "../../../transport/gateway-error";
 
-export const MIMO_STUDIO_API_URL = "https://aistudio.xiaomimimo.com/open-apis/bot/chat" as const;
-export const MIMO_STUDIO_CONFIG_URL = "https://aistudio.xiaomimimo.com/open-apis/bot/config" as const;
 export const MIMO_STUDIO_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 

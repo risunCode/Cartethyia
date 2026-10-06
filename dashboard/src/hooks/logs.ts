@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { consoleRequest, isRecord } from "../data/api";
+import { STREAM_RETRY_MS } from "../shared/constants";
 
 export type ConsoleLogLevel = "debug" | "info" | "warn" | "error";
 
@@ -33,7 +34,6 @@ export interface ConsoleLogEntry extends ConsoleLogLine {
 }
 
 const MAX_LINES = 500;
-const STREAM_RETRY_MS = 5_000;
 /** How long a freshly streamed line keeps its highlight before fading. */
 const NEW_LINE_HIGHLIGHT_MS = 1_500;
 

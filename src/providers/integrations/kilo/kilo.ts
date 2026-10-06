@@ -148,7 +148,3 @@ class KiloAdapter extends OpenAICompatibleAdapter {
 /** Kilo Code provider adapter. */
 export const kiloAdapter: ProviderAdapter = new KiloAdapter();
 
-/** Factory for tests and custom egress. */
-export function createKiloAdapter(fetchImpl?: typeof fetch): ProviderAdapter {
-  return fetchImpl ? new KiloAdapter(fetchImpl) : kiloAdapter;
-}

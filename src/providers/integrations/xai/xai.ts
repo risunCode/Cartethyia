@@ -25,7 +25,6 @@ export const XAI_PROVIDER_ID = "xai" as const;
 export const XAI_BASE_URL = providerBaseUrl("xai");
 /** Endpoint paths on the versioned `api.x.ai/v1` root. */
 export const XAI_RESPONSES_PATH = "/responses" as const;
-export const XAI_MODELS_PATH = "/models" as const;
 
 /**
  * xAI's own reasoning-effort scale is `low`/`medium`/`high`.
@@ -107,11 +106,3 @@ const xaiConfig = withBearerAuthentication({
 
 /** xAI Grok subscription adapter. */
 export const xaiAdapter: ProviderAdapter = new OpenAICompatibleAdapter(xaiConfig);
-
-/** Factory for tests and custom egress. */
-export function createXaiAdapter(fetchImpl?: typeof fetch): ProviderAdapter {
-  if (!fetchImpl) return xaiAdapter;
-  return new OpenAICompatibleAdapter(
-    withBearerAuthentication({ ...xaiConfig, fetchImpl }),
-  );
-}

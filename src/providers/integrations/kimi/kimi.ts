@@ -86,10 +86,6 @@ const KIMI_MODEL_BOOTSTRAP: Readonly<Record<string, KimiModelBootstrap>> = {
     maxOutputTokens: 65_536,
   },
 };
-/** Returns the reference tokenizer family for a Kimi model, when one is declared. */
-export function lookupKimiTokenizer(modelId: string): "kimi-k2" | undefined {
-  return lookupKimiModelBootstrap(modelId)?.tokenizer;
-}
 /** Looks up Kimi's bootstrap tokenizer/cache metadata by model id. */
 export function lookupKimiModelBootstrap(
   modelId: string,

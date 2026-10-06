@@ -20,6 +20,7 @@ import {
   formatCredits,
   formatDuration,
   formatNumber,
+  formatProbeDuration,
   formatTokens,
   formatUptime,
   RAW_TOKEN_SCALE,
@@ -39,6 +40,13 @@ describe("formatBytes", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(1536)).toBe("1.5 KB");
     expect(formatBytes(1024 * 1024 * 2.5)).toBe("2.5 MB");
+  });
+
+  test("the unit ladder reaches GB and TB", () => {
+    expect(formatBytes(1024 ** 3)).toBe("1.0 GB");
+    expect(formatBytes(1024 ** 4)).toBe("1.0 TB");
+    // Past a terabyte the ladder stops dividing rather than running off its end.
+    expect(formatBytes(1024 ** 5)).toBe("1024.0 TB");
   });
 
   test("rounds below the base unit rather than showing a fraction of a byte", () => {
@@ -86,6 +94,16 @@ describe("formatDuration", () => {
     expect(formatDuration(null)).toBe("—");
     expect(formatDuration(Number.NaN)).toBe("—");
     expect(formatDuration(0)).toBe("0 ms");
+  });
+});
+
+describe("formatProbeDuration", () => {
+  test("uses compact ms below a second and s above, with no space", () => {
+    // Probe badges sit inline next to model ids, so they carry no unit space.
+    expect(formatProbeDuration(250)).toBe("250ms");
+    expect(formatProbeDuration(999.4)).toBe("999ms");
+    expect(formatProbeDuration(1000)).toBe("1.0s");
+    expect(formatProbeDuration(1234)).toBe("1.2s");
   });
 });
 

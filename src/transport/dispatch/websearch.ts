@@ -45,7 +45,7 @@ export interface WebsearchHandlerDeps {
 }
 
 /** Stable failover order for the built-in web-search surfaces. */
-const SEARCH_PROVIDER_ORDER = ["exa", "gemini", "codex"] as const;
+export const SEARCH_PROVIDER_ORDER = ["exa", "gemini", "codex"] as const;
 
 /** Adapter that can serve a web-search request. */
 type WebsearchAdapter = ProviderAdapter & {
