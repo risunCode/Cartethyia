@@ -58,6 +58,25 @@ function stripDateSuffix(modelId: string): string {
   return modelId.replace(/-\d{4}-\d{2}-\d{2}$/, "").replace(/-\d{8}$/, "");
 }
 
+/**
+ * Suffixes a reseller appends to a model id it republishes unchanged.
+ *
+ * OpenRouter lists `deepseek/deepseek-v4.1-flash:free` and
+ * `qwen/qwen3-coder:free` — the `:free` marks its own billing tier, not a
+ * different model, so the underlying row is the one that carries the real
+ * context and output limits. Left on, the id matched nothing and the discovered
+ * model published `n/a` limits while the same id without the suffix resolved.
+ *
+ * `@variant` is the same idea (a pinned quantization or provider route). Open-
+ * Router's leading `~` ("this id tracks the vendor's latest") needs no case
+ * here: it sits before the `/`, so the bare-id lookup below already drops it.
+ *
+ * Stripped for *lookup only* — the id sent upstream is always the caller's.
+ */
+function stripVariantSuffix(modelId: string): string {
+  return modelId.replace(/[:@][^/@:]*$/, "");
+}
+
 function pricingModel(cost: BaseModelRow["cost"]): ModelsDevModelCost["pricing_model"] {
   return cost.input !== null || cost.output !== null ? "pay-per-use" : "unknown";
 }
@@ -255,13 +274,36 @@ export class ModelsDevCatalog {
       this.exactMap.get(`${provider}:${normalizedModel}`) ??
       this.exactMap.get(`${MODELS_DEV_PROVIDER_IDS[provider] ?? ""}:${normalizedModel}`);
     if (exact) return exact;
+    // A reseller suffix (`:free`, `@variant`) is the reseller's, not the
+    // model's: retry the exact lookup without it before falling through to the
+    // bare id. Doing this here rather than in `stripVariantSuffix` alone keeps
+    // the *provider-scoped* match — `openrouter:deepseek/deepseek-v4.1-flash`
+    // resolves to OpenRouter's own row instead of whichever reseller happens to
+    // file that bare id.
+    const unsuffixed = stripVariantSuffix(normalizedModel);
+    if (unsuffixed !== normalizedModel) {
+      const unsuffixedExact =
+        this.exactMap.get(`${provider}:${unsuffixed}`) ??
+        this.exactMap.get(`${MODELS_DEV_PROVIDER_IDS[provider] ?? ""}:${unsuffixed}`);
+      if (unsuffixedExact) return unsuffixedExact;
+    }
     const bareId = normalizedModel.includes("/")
       ? normalizedModel.slice(normalizedModel.indexOf("/") + 1)
       : normalizedModel;
     const bare = this.unambiguousBare(bareId);
     if (bare) return bare;
     const strippedDate = stripDateSuffix(bareId);
-    return strippedDate === bareId ? undefined : this.unambiguousBare(strippedDate);
+    if (strippedDate !== bareId) {
+      const dated = this.unambiguousBare(strippedDate);
+      if (dated) return dated;
+    }
+    // Last chance: the bare id may carry a reseller suffix of its own
+    // (`provider/model:free` → bare `model:free`).
+    const unsuffixedBare = stripVariantSuffix(bareId);
+    if (unsuffixedBare !== bareId && unsuffixedBare !== strippedDate) {
+      return this.unambiguousBare(unsuffixedBare);
+    }
+    return undefined;
   }
 
   /**

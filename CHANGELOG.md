@@ -1,5 +1,21 @@
 ## Unreleased
 
+- Mistral and DeepSeek now carry a model catalog. Both were registered as
+  generic OpenAI-compatible providers with no catalog at all, so every model
+  they serve was absent from the console and unavailable to routing until a
+  discovery run happened to fetch them. Mistral gets its current
+  large/medium/small families plus the two Magistral reasoning rows; DeepSeek
+  gets `deepseek-v4-flash` and `deepseek-v4-pro`, which is the spelling the
+  base catalog files under `deepseek` itself (the `v4.1` ids are filed under
+  other providers). Limits and pricing resolve from the base catalog via
+  `providerId`, so no number is restated in the catalogs to drift.
+- A reseller suffix on a model id no longer hides its limits. OpenRouter lists
+  `deepseek/deepseek-v4.1-flash:free`, and the `:free` — its own billing tier,
+  not a different model — made the id match nothing, so a discovered free model
+  published `n/a` context and output while the same id unsuffixed resolved.
+  `:free` and `@variant` are now stripped before the lookup, provider-scoped
+  first so OpenRouter's own row still wins over another reseller's. An id the
+  catalog genuinely disagrees about still fails closed.
 - A context-window overflow that an upstream reports only in prose is now
   classified as `context_length_exceeded` (413) instead of a generic
   `invalid_request` (400). WorkBuddy reports it as `code: 11115` with

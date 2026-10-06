@@ -43,9 +43,11 @@ type ProviderModuleCapabilities = Partial<Omit<ProviderModule, "loadAdapter">> &
 
 function configuredProvider(
   providerId: keyof typeof GENERIC_API_KEY_SPECS,
+  loadModels?: ProviderModuleCapabilities["loadModels"],
 ): ProviderModuleCapabilities {
   return {
     loadAdapter: async () => createApiKeyAdapter(GENERIC_API_KEY_SPECS[providerId]),
+    ...(loadModels === undefined ? {} : { loadModels }),
   };
 }
 
@@ -217,14 +219,21 @@ export const PROVIDER_CAPABILITIES = {
     loadQuotaCollector: quotaCapability(() => import("./specs/cerebras"), "fetchCerebrasQuota"),
     loadModelDiscovery: openAIModelDiscovery("cerebras", { headers: (credential) => ({ authorization: `Bearer ${credential}` }) }),
   },
-  mistral: configuredProvider("mistral"),
+  mistral: configuredProvider(
+    "mistral",
+    async () => (await import("./specs/mistral")).MISTRAL_MODELS,
+  ),
   fireworks: configuredProvider("fireworks"),
   nvidia: configuredProvider("nvidia"),
   deepseek: {
-    ...configuredProvider("deepseek"),
+    ...configuredProvider(
+      "deepseek",
+      async () => (await import("./specs/deepseek")).DEEPSEEK_MODELS,
+    ),
     // The host serves a standard `/v1/models`, verified live, so the shared
     // fetcher reads it as-is and the base catalog supplies limits and pricing
-    // for the ids it already files under `deepseek`.
+    // for the ids it already files under `deepseek`. The static catalog above is
+    // the floor, not a rival: discovery adds to it rather than replacing it.
     loadModelDiscovery: openAIModelDiscovery("deepseek", {
       headers: (credential) => ({ authorization: `Bearer ${credential}` }),
     }),
