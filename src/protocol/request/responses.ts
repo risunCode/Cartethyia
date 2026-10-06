@@ -309,11 +309,15 @@ export function canonicalToResponsesPayload(
     if (Object.keys(reasoning).length > 0) payload.reasoning = reasoning;
   }
   const picked = pickWireSupportedControls(normalizeGenerationControls(request.generation_controls), "responses");
-  const requested = picked["max_output_tokens"];
-  if (typeof requested === "number" && Number.isFinite(requested)) {
-    const bounded = resolveWireMaxTokens("responses", { max_tokens: requested });
-    if (bounded !== undefined) picked["max_output_tokens"] = bounded;
-  }
+  const requested =
+    typeof picked["max_output_tokens"] === "number" && Number.isFinite(picked["max_output_tokens"])
+      ? (picked["max_output_tokens"] as number)
+      : undefined;
+  // Resolved unconditionally so the wire's `defaultMaxTokens` applies: an
+  // omitted limit must reach the upstream as a real number, not as an absent
+  // field (see the worked "wkwk" case in the WIRE_TOKEN_BOUNDS comment).
+  const bounded = resolveWireMaxTokens("responses", { max_tokens: requested });
+  if (bounded !== undefined) picked["max_output_tokens"] = bounded;
   Object.assign(payload, picked);
   // Responses top-level params carried as `extension:responses.<field>` and
   // forwarded verbatim. Fields with a canonical slot (prompt_cache_key,

@@ -506,10 +506,16 @@ export function canonicalToChatPayload(
   // pick forwards the caller's max_tokens verbatim, so clamping before it
   // would be overwritten. Free-tier Chat backends reject unbounded values
   // (e.g. 128000) with a generic invalid-argument 400.
-  const requestedMaxTokens = payload["max_tokens"];
-  if (typeof requestedMaxTokens === "number" && Number.isFinite(requestedMaxTokens)) {
-    const bounded = resolveWireMaxTokens("chat", { max_tokens: requestedMaxTokens });
-    if (bounded !== undefined) payload["max_tokens"] = bounded;
-  }
+  const requestedMaxTokens =
+    typeof payload["max_tokens"] === "number" && Number.isFinite(payload["max_tokens"])
+      ? (payload["max_tokens"] as number)
+      : undefined;
+  // Resolved unconditionally, not only when the caller sent a value: the bound
+  // table now carries a `defaultMaxTokens` for this wire, and an omitted limit
+  // must reach the upstream as a real number. Upstreams that require the field
+  // reject a large prompt whose `max_tokens` is absent outright (WorkBuddy
+  // `400 model_param_invalid`, reproduced through the gateway).
+  const bounded = resolveWireMaxTokens("chat", { max_tokens: requestedMaxTokens });
+  if (bounded !== undefined) payload["max_tokens"] = bounded;
   return payload;
 }

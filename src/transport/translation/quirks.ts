@@ -46,16 +46,37 @@ export interface WireTokenBound {
 }
 
 /**
+ * The output limit assumed when the caller states none, for wires that need
+ * the field present.
+ *
+ * PROVEN, not assumed: a 3.16M-char prompt to WorkBuddy/CodeBuddy
+ * (`bansos/deepseek-v4.1-flash`) answered `400 model_param_invalid` whenever
+ * `max_tokens` was absent, and answered 200 with the *same* body plus any
+ * explicit value — `1`, `16`, `1000`, `8000`, `64000`, `384000` all passed.
+ * So the upstream rejects the *absence* of the field, not its magnitude, and
+ * the default only has to be a real limit the wire already permits.
+ *
+ * It equals the chat wire's existing ceiling, so it introduces no number the
+ * wire did not already clamp to: "the caller set no limit" now means "the most
+ * this wire allows", which is what an omitted limit is asking for.
+ */
+const DEFAULT_OUTPUT_TOKENS = 32_000;
+
+/**
  * Output-token bounds per wire family. Values below are the current
  * per-builder behavior, centralized so the three codecs cannot drift:
  * chat clamps to 32k (free-tier backends 400 on unbounded values);
  * messages defaults to 4096 (Anthropic requires the field), floors to 32k
  * with tools, and clamps OAuth to 64k; responses passes through.
+ *
+ * `chat` and `responses` also carry a default, for the reason proven above:
+ * an omitted limit used to be forwarded as *absent*, and an upstream that
+ * requires the field rejected the request outright.
  */
 export const WIRE_TOKEN_BOUNDS: Readonly<Record<string, WireTokenBound>> = {
-  chat: { minTokens: 16, ceiling: 32_000 },
+  chat: { minTokens: 16, ceiling: 32_000, defaultMaxTokens: DEFAULT_OUTPUT_TOKENS },
   messages: { minTokens: 16, defaultMaxTokens: 4_096, toolCallFloor: 32_000, oauthCeiling: 64_000 },
-  responses: { minTokens: 16 },
+  responses: { minTokens: 16, defaultMaxTokens: DEFAULT_OUTPUT_TOKENS },
 };
 
 /** Resolves the output-token value for one wire from caller controls. */
