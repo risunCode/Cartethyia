@@ -20,8 +20,8 @@ Production serves the built files from `dist/dashboard`.
 ## Verification
 
 `src/` is production browser code only. `bun run dashboard:typecheck` typechecks
-it (and the root `bun run typecheck` covers the backend); the repository does not
-currently carry a test suite.
+it (and the root `bun run typecheck` covers the backend). Dashboard suites live
+in `dashboard/test/` and run with `bun run dashboard:test`.
 
 ## Route map
 

@@ -90,6 +90,47 @@ export async function probeTcpService(
  * Parses a service URL and requires an explicit host and port.
  * Returns null if the URL is invalid or incomplete.
  */
+/** Minimum Bun the repository declares in `package.json` `engines`. */
+export const MINIMUM_BUN_VERSION = "1.4.0";
+
+/**
+ * True when `actual` is at least `minimum`, compared as dotted integers.
+ * A non-numeric segment reads as 0, so a malformed version fails closed
+ * against a real minimum instead of passing.
+ */
+export function bunVersionAtLeast(actual: string, minimum: string): boolean {
+  const left = actual.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const right = minimum.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const length = Math.max(left.length, right.length);
+  for (let i = 0; i < length; i += 1) {
+    const a = left[i] ?? 0;
+    const b = right[i] ?? 0;
+    if (a !== b) return a > b;
+  }
+  return true;
+}
+
+/**
+ * Local PostgreSQL ports worth probing before asking for a URL. 5432 is the
+ * server default (Laragon, Homebrew, systemd); 5433 is the usual second
+ * instance when 5432 is already taken.
+ */
+export const LOCAL_POSTGRES_CANDIDATES = [
+  { host: "127.0.0.1", port: 5432 },
+  { host: "127.0.0.1", port: 5433 },
+] as const;
+
+/** First local PostgreSQL that accepts a TCP connection, or null. */
+export async function detectLocalPostgres(
+  timeoutMs: number,
+): Promise<{ host: string; port: number } | null> {
+  for (const candidate of LOCAL_POSTGRES_CANDIDATES) {
+    const probe = await probeTcpService(candidate.host, candidate.port, timeoutMs);
+    if (probe.success) return candidate;
+  }
+  return null;
+}
+
 export function parseServiceUrl(url: string): { host: string; port: number } | null {
   try {
     const urlObj = new URL(url);

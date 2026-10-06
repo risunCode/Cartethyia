@@ -43,6 +43,9 @@ BUN=$(command -v bun || echo "$HOME/.bun/bin/bun")
 [ -x "$BUN" ] || die "bun not found after install"
 export PATH="$(dirname "$BUN"):$PATH"
 say "bun $($BUN --version)"
+case "$($BUN --version)" in
+  0.*|1.[0-3].*) die "Bun 1.4.0 or newer is required (this is $($BUN --version))" ;;
+esac
 
 # --- 3. source -------------------------------------------------------------
 mkdir -p "$ROOT/data"
@@ -94,7 +97,7 @@ say "bun install"
 bun install --frozen-lockfile || die "bun install failed"
 
 say "bun setup"
-bun setup --non-interactive || die "bun setup failed"
+bun run setup --non-interactive || die "bun setup failed"
 
 say "bun run build (a few minutes on 1 vCPU)"
 bun run build || die "build failed"

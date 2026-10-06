@@ -4,9 +4,9 @@ This directory is the **tracked source of truth for executable SQL migrations**.
 
 ```mermaid
 flowchart TD
-    A[Start backend] --> B[buildProductionDeps]
-    B --> C[ensureMigrated]
-    C --> D[applySqlMigrations]
+    A[Start backend] --> B["buildProductionDeps (src/boot/dependencies.ts)"]
+    B --> C["ensureMigrated (src/persistence/boot.ts)"]
+    C --> D["applySqlMigrations (src/persistence/db-pg.ts)"]
     D --> E[Read numbered SQL files in migrations/]
     E --> F[Acquire PostgreSQL advisory lock]
     F --> G{File recorded in cartethyia_schema_migrations?}
@@ -20,8 +20,8 @@ flowchart TD
 
 - `0000_baseline.sql` declares the complete current schema for a new database, including types, tables, constraints, and indexes. Keep it aligned with `src/persistence/schema.ts`. It is the baseline a fresh install starts from, so it always describes the *current* shape — a schema change edits it and adds a forward migration beside it.
 - `0001_*.sql` and later are **forward migrations**: the change needed by a database that already recorded an earlier file. They are applied in filename order after the baseline, so a fresh database runs the baseline and then converges through them.
-- `src/persistence/postgres.ts` resolves this directory relative to the process working directory, reads only top-level `NNNN_*.sql` files in filename order, and applies each file transactionally under a cross-process advisory lock. Successful filenames are stored in `cartethyia_schema_migrations`. A migration failure aborts startup; a failed transaction does not record its filename.
-- `src/runtime/dependencies.ts` calls `ensureMigrated()` before provider/catalog seeding. `src/persistence/readiness.ts` checks that every shipped filename is recorded before reporting ready.
+- `src/persistence/db-pg.ts` (`applySqlMigrations`) resolves this directory relative to the process working directory, reads only top-level `NNNN_*.sql` files in filename order, and applies each file transactionally under a cross-process advisory lock. Successful filenames are stored in `cartethyia_schema_migrations`. A migration failure aborts startup; a failed transaction does not record its filename.
+- `src/boot/dependencies.ts` calls `ensureMigrated()` (`src/persistence/boot.ts`) before provider/catalog seeding. `src/persistence/readiness.ts` checks that every shipped filename is recorded before reporting ready.
 - The Docker image copies this directory to `/app/migrations` (`Dockerfile`); `bun run start` spawns the compiled binary with no `cwd` override (`scripts/commands/start-production.ts`), so it inherits the caller's working directory and the folder resolves there. Both read the same committed SQL, with no generated staging copy.
 
 ## Next schema change

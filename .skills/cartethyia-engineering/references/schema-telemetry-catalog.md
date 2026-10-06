@@ -17,15 +17,27 @@ report them separately.
 
 ## Persisted telemetry fields
 
-A new usage field must pass through canonical usage, normalization, schema/baseline/
-forward migration, telemetry writer, console contract/store, dashboard validator,
-and Usage UI. Reject invalid upstream values; do not silently clamp them.
+Per-request events are hourly JSONL under `./data/telemetry-events`
+(`src/observability/event-log.ts`). The database keeps aggregates in
+`telemetry_usage_totals` only; do not add a reader back onto `telemetry_events`.
+Payload capture stays a separate append-only file under `data/telemetry-payloads/`.
+
+A new usage field must pass through canonical usage, normalization, the file
+writer, console contract/store, dashboard validator, and Usage UI. Reject invalid
+upstream values; do not silently clamp them. An aggregate that must survive
+retention also needs the schema, baseline, and a forward migration.
 
 ## Renames and strategy removal
 
 Change the canonical enum/model, router, console contract/store, validation, catalog
 snapshot, schema, baseline, migration, dashboard contract/hook/card, and docs. Apply
 manual database changes only after verifying the target environment. No alias fields.
+
+Combo strategies are `fallback` and `round_robin`. There is no fusion strategy and
+no minimum-balance floor: do not reintroduce `model_combo_strategy.fusion`,
+`credit_limit`, or the account remaining-balance stamps. Postgres cannot drop one
+enum value, so removing a strategy means converting existing rows and rebuilding
+the type in the forward migration.
 
 ## Model catalog
 

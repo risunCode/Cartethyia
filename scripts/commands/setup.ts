@@ -4,6 +4,9 @@ import { existsSync, mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
+  MINIMUM_BUN_VERSION,
+  bunVersionAtLeast,
+  detectLocalPostgres,
   generateCartethyiaEncryptionKey,
   getLocalPlatform,
   getOsHints,
@@ -108,9 +111,6 @@ async function setupEnvFile(config: SetupConfig): Promise<boolean> {
   await writeFile(config.envPath, body, "utf8");
   console.warn("✨ Created .env from .env.example (mandatory entries only)");
   console.warn("🔑 Auto-generated CARTETHYIA_ENCRYPTION_KEY in .env — keep it safe");
-  if (!body.includes("DATABASE_URL")) {
-    console.warn("⚠️  DATABASE_URL is not set — update it to point at your PostgreSQL");
-  }
 
   return true;
 }
@@ -134,8 +134,129 @@ async function probeDocker(timeoutMs: number): Promise<ProbeResult> {
   return { success: false, error: "unavailable" };
 }
 
+/** True when the operator asked the wizard not to prompt. */
+function nonInteractive(): boolean {
+  return process.argv.includes("--non-interactive") || !process.stdin.isTTY;
+}
+
+/**
+ * Refuses to continue on a Bun older than the repository declares. Printed as
+ * one sentence: a stack trace here tells a first-time installer nothing.
+ */
+function assertBunVersion(): void {
+  const actual = Bun.version;
+  if (bunVersionAtLeast(actual, MINIMUM_BUN_VERSION)) return;
+  throw new Error(
+    `Bun ${MINIMUM_BUN_VERSION} or newer is required (this is ${actual}). Install it from https://bun.sh and run this again.`,
+  );
+}
+
+/**
+ * Asks for the database mode on a fresh install even when `.env` already
+ * carries the example default. An existing choice (the variable was set before
+ * this run, or the file predates the example default) is kept. Non-interactive
+ * runs never prompt and keep whatever the file says.
+ */
+async function chooseDbMode(envExisted: boolean): Promise<void> {
+  const alreadyChosen = envExisted && Boolean(process.env.CARTETHYIA_DB_MODE?.trim());
+  if (alreadyChosen || nonInteractive()) return;
+  console.log("Lite needs nothing else installed. Full needs a PostgreSQL server that is already running.");
+  const answer = (await ask(
+    "Database mode? lite / full",
+    "lite",
+  )).toLowerCase();
+  if (answer !== "lite" && answer !== "full") {
+    throw new Error(`Database mode must be lite or full (got "${answer}")`);
+  }
+  await updateEnv({ CARTETHYIA_DB_MODE: answer });
+  process.env.CARTETHYIA_DB_MODE = answer;
+  console.log(`✓ Database mode: ${answer}\n`);
+}
+
+/** Port the example ships with. A VPS NAT often does not forward it. */
+const DEFAULT_PORT = "12800";
+
+/**
+ * Asks which port the gateway should listen on. Enter keeps 12800. A VPS whose
+ * forwarded range does not include 12800 should pick one that is open, commonly
+ * 8080. The same PORT serves `bun dev` and the production build; the dashboard
+ * dev server stays on 5173 and proxies to it.
+ */
+async function choosePort(envExisted: boolean): Promise<void> {
+  const alreadyChosen = envExisted && Boolean(process.env.PORT?.trim());
+  if (alreadyChosen || nonInteractive()) return;
+  console.log("The gateway listens on this port for both bun dev and the production build.");
+  console.log("12800 is the default. Pick 8080, or any open port, when a VPS does not forward 12800.");
+  const answer = await ask("Port", DEFAULT_PORT);
+  if (!/^[1-9][0-9]{0,4}$/.test(answer) || Number(answer) > 65535) {
+    throw new Error(`Port must be a number from 1 to 65535 (got "${answer}")`);
+  }
+  const values: Record<string, string> = { PORT: answer };
+  const origin = process.env.CARTETHYIA_PUBLIC_ORIGIN?.trim() ?? "";
+  if (origin === `http://localhost:${DEFAULT_PORT}`) {
+    values.CARTETHYIA_PUBLIC_ORIGIN = `http://localhost:${answer}`;
+  }
+  await updateEnv(values);
+  process.env.PORT = answer;
+  if (values.CARTETHYIA_PUBLIC_ORIGIN) {
+    process.env.CARTETHYIA_PUBLIC_ORIGIN = values.CARTETHYIA_PUBLIC_ORIGIN;
+  }
+  console.log(`✓ Port: ${answer}\n`);
+}
+
+/**
+ * Makes sure Full mode has a reachable DATABASE_URL. An existing reachable URL
+ * is kept. Otherwise a local server on 5432/5433 is offered, and a typed URL is
+ * accepted only after it answers. Never installs PostgreSQL.
+ */
+async function ensureFullDatabase(timeoutMs: number): Promise<void> {
+  const existing = process.env.DATABASE_URL?.trim() ?? "";
+  const parsed = existing ? parseServiceUrl(existing) : null;
+  if (parsed) {
+    const probe = await probeTcpService(parsed.host, parsed.port, timeoutMs);
+    if (probe.success) {
+      console.log(`✓ PostgreSQL is reachable at ${parsed.host}:${parsed.port}\n`);
+      return;
+    }
+    console.log(`✗ PostgreSQL at ${parsed.host}:${parsed.port} did not answer.`);
+  }
+  const detected = await detectLocalPostgres(timeoutMs);
+  if (nonInteractive()) {
+    if (!parsed) {
+      throw new Error(
+        "Full mode needs DATABASE_URL. Set it in .env and run again, or run without --non-interactive.",
+      );
+    }
+    for (const hint of getOsHints("postgres")) console.log(`  ${hint}`);
+    throw new Error("Configured PostgreSQL is not reachable");
+  }
+  if (detected) {
+    console.log(`Found a PostgreSQL server at ${detected.host}:${detected.port}.`);
+  } else {
+    console.log("No local PostgreSQL answered on port 5432 or 5433.");
+    for (const hint of getOsHints("postgres")) console.log(`  ${hint}`);
+  }
+  const suggestion = detected
+    ? `postgres://postgres@${detected.host}:${detected.port}/cartethyia`
+    : "";
+  const typed = await ask("DATABASE_URL", suggestion);
+  const chosen = parseServiceUrl(typed);
+  if (!chosen) {
+    throw new Error("DATABASE_URL must include a host and a port, for example postgres://postgres@127.0.0.1:5432/cartethyia");
+  }
+  const confirmed = await probeTcpService(chosen.host, chosen.port, timeoutMs);
+  if (!confirmed.success) {
+    for (const hint of getOsHints("postgres")) console.log(`  ${hint}`);
+    throw new Error(`PostgreSQL at ${chosen.host}:${chosen.port} did not answer. Start it, then run bun setup again.`);
+  }
+  await updateEnv({ DATABASE_URL: typed });
+  process.env.DATABASE_URL = typed;
+  console.log(`✓ PostgreSQL is reachable at ${chosen.host}:${chosen.port}\n`);
+}
+
 async function setup(): Promise<void> {
-  console.log("🚀 Setting up Cartethyia local environment...\n");
+  console.log("🚀 Setting up Cartethyia...\n");
+  assertBunVersion();
 
   // Step 1: Setup .env file
   const envPath = resolve(projectRoot, ".env");
@@ -147,32 +268,19 @@ async function setup(): Promise<void> {
     dockerProbeTimeoutMs: 2000,
   });
   if (envCreated) {
-    console.log("✓ .env file created\n");
+    console.log("✓ .env created\n");
   } else {
-    console.log("✓ .env file already exists\n");
+    console.log("✓ .env already exists\n");
   }
 
-  // Step 2: Load environment and choose the database mode in the same command.
+  // Step 2: Load the file, then choose the mode. A fresh file carries the
+  // example default, which is not a choice the operator made, so it is asked.
   const fileEnv = await readEnvFile(envPath);
   for (const [key, value] of Object.entries(fileEnv)) {
     if (!process.env[key]) process.env[key] = value;
   }
-  if (
-    !process.env.CARTETHYIA_DB_MODE &&
-    process.stdin.isTTY &&
-    !process.argv.includes("--non-interactive")
-  ) {
-    const answer = (await ask(
-      "Database mode? lite (embedded) / full (external PostgreSQL)",
-      "lite",
-    )).toLowerCase();
-    if (answer !== "lite" && answer !== "full") {
-      throw new Error(`Database mode must be lite or full (got "${answer}")`);
-    }
-    await updateEnv({ CARTETHYIA_DB_MODE: answer });
-    process.env.CARTETHYIA_DB_MODE = answer;
-    console.log(`✓ Database mode selected: ${answer}\n`);
-  }
+  await chooseDbMode(!envCreated);
+  await choosePort(!envCreated);
   const config = loadConfig();
 
   // Step 3: Resolve the cross-platform setup mode. Native/auto is the
@@ -211,41 +319,20 @@ async function setup(): Promise<void> {
   // Step 4: Probe Postgres in full mode; lite verifies the data dir instead.
   const dbMode = resolveDbMode();
   if (dbMode === "lite") {
-    console.log("🗂️  Lite mode: PostgreSQL is not needed");
+    console.log("🗂️  Lite mode: no PostgreSQL to install");
     const pgliteDir = join(resolveDataDir(), "pglite");
     mkdirSync(pgliteDir, { recursive: true });
-    console.log(`✓ Data dir ready at ${pgliteDir}\n`);
+    console.log(`✓ Data directory ready at ${pgliteDir}\n`);
   } else {
-    console.log("🐘 Probing PostgreSQL...");
-    const parsed = parseServiceUrl(config.dbUrl);
-    if (!parsed) {
-      throw new Error("Invalid DATABASE_URL");
-    }
-
-    const dbResult = await probeTcpService(parsed.host, parsed.port, config.probeTimeoutMs);
-
-    if (dbResult.success) {
-      console.log("✓ PostgreSQL is reachable\n");
-    } else {
-      console.log("✗ Configured PostgreSQL is not reachable");
-      console.log(
-        "  Start the local service (Laragon/Homebrew/systemd) or verify the external DATABASE_URL\n",
-      );
-
-      for (const hint of getOsHints("postgres")) {
-        console.log("  " + hint);
-      }
-      console.log();
-
-      throw new Error("Configured PostgreSQL is not reachable");
-    }
+    console.log("🐘 Checking PostgreSQL...");
+    await ensureFullDatabase(config.probeTimeoutMs);
   }
 
   // Step 5: Probe Redis when a URL is configured; otherwise the in-memory
   // backend applies and there is nothing to check.
   console.log("🔴 Probing Redis...");
   if (config.redisUrl.trim() === "") {
-    console.warn("⚠️  REDIS_URL unset — the in-memory backend is used\n");
+    console.log("✓ Redis not configured — one process uses in-memory coordination\n");
   } else {
     const redisParsed = parseServiceUrl(config.redisUrl);
     if (!redisParsed) {
@@ -265,11 +352,11 @@ async function setup(): Promise<void> {
     }
   }
 
-  console.log("✅ Setup complete!");
+  console.log("✅ Setup complete.");
   console.log("");
-  console.log("Next steps:");
-  console.log("  bun doctor       - Check readiness");
-  console.log("  bun dev          - Start development servers");
+  const port = process.env.PORT?.trim() || DEFAULT_PORT;
+  console.log("Next: bun dev");
+  console.log(`Then open http://localhost:${port}/console — the first visit asks you to create the admin user.`);
 }
 
 if (import.meta.main) {

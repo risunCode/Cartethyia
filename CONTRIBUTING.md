@@ -53,10 +53,11 @@ migrations, and verification, use the single source of truth:
 
 ## Verification
 
-The repository does not currently carry an active test suite. Use the gates in
-`documentation/getting-started.md`, then exercise the real boundary for behavior
-changes: a gateway request, browser surface, provider flow, or isolated database
-migration.
+The repository carries an active test suite (`test/`, `dashboard/test/`, run via
+`bun run test` / `test:backend` / `dashboard:test` against the isolated
+`.env.test` database). Use the gates in `documentation/getting-started.md`, then
+exercise the real boundary for behavior changes: a gateway request, browser
+surface, provider flow, or isolated database migration.
 
 A typecheck is not runtime proof. Report the exact command, result, reproduction,
 real-boundary evidence, skipped checks, and remaining blockers.

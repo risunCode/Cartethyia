@@ -6,8 +6,6 @@ Start here if you are installing or running Cartethyia:
   one-shot install script, systemd, auto-deploy.
 - [Getting started](getting-started.md) — requirements, setup, OS guidance, Docker,
   commands, migrations, and verification.
-- [Bug reports and fixes](bug-reports-and-fixes.md) — known defects, root causes,
-  suggested fixes, and Lite performance limits.
 
 For the product overview, supported clients, and Cartethyia's main benefits, see
 [`README.md`](../README.md).

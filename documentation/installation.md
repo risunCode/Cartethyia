@@ -24,8 +24,8 @@ what backs the database and how coordination is shared.
 Lite is not a reduced feature edition. Moving Lite → Full later is a JSON
 backup export + import; configuration does not need to be rebuilt.
 
-See [`bug-reports-and-fixes.md`](bug-reports-and-fixes.md) for known Lite
-performance limits before choosing.
+Lite is single-process and single-writer. Read the concurrency ceiling in the
+table above before choosing it for a shared or sustained workload.
 
 ---
 
@@ -158,8 +158,7 @@ Re-copy after **every** build — `bun run build` overwrites `dist/`.
 
 `bun run build` also emits `dist/cartethyia`, but **PGlite does not work in a
 `bun build --compile` binary** — it resolves its data path to `/$bunfs/root`,
-which is read-only. Run `dist/main.js` instead. See
-[`bug-reports-and-fixes.md`](bug-reports-and-fixes.md#bug-3).
+which is read-only. Run `dist/main.js` instead.
 
 ### systemd
 
@@ -275,9 +274,17 @@ what keeps a small VPS alive.
 
 ### Port note
 
-If the VPS sits behind NAT with a limited forwarded port range, set `PORT` to a
-forwarded port. The app binds `0.0.0.0`, so a host-level proxy reaching the
-container's internal IP works without extra configuration.
+`PORT` is the one public port. `bun dev` and the production build both listen
+on it; there is no separate production port. The default is 12800. A VPS whose
+NAT only forwards part of the range should set `PORT` to a forwarded port —
+8080 is the usual choice — and set `CARTETHYIA_PUBLIC_ORIGIN` to the same port,
+or OAuth callbacks miss. `bun setup` asks on a fresh install and rewrites the
+origin when it is still the default. The dashboard dev server on 5173 is local
+only and does not need to be forwarded.
+
+The app binds `0.0.0.0`, so a host-level proxy reaching the container's
+internal IP works without extra configuration. Docker maps `${PORT:-12800}` to
+the container's 12800, so changing `PORT` changes the host side only.
 
 ---
 
@@ -378,10 +385,10 @@ database.**
 
 > [!IMPORTANT]
 > The image is built on Alpine and runs `dist/cartethyia` (the compiled
-> binary). Lite mode in that binary is affected by
-> [Bug 3](bug-reports-and-fixes.md#bug-3) — PGlite cannot initialize inside a
-> `bun build --compile` binary. Until that is fixed, **use the native path
-> (section 3) for Lite**, or use Docker in Full mode.
+> binary). PGlite cannot initialize inside a `bun build --compile` binary: it
+> resolves its data path to `/$bunfs/root`, which is read-only. Until that is
+> fixed, **use the native path (section 3) for Lite**, or use Docker in Full
+> mode.
 
 ---
 
@@ -438,32 +445,28 @@ fi
 # --- 4. .env --------------------------------------------------------------
 cd "$REPO"
 if [ ! -f .env ]; then
-  say "creating .env"
-  cp .env.example .env
-  KEY=$(openssl rand -hex 32)
-  set_kv() {
-    grep -q "^$1=" .env && sed -i "s|^$1=.*|$1=$2|" .env || printf '%s=%s\n' "$1" "$2" >> .env
-  }
-  set_kv CARTETHYIA_DB_MODE lite
-  set_kv NODE_ENV production
-  set_kv LOG_LEVEL warn
-  set_kv PORT "$PORT"
-  set_kv DASHBOARD_DIST "$REPO/dist/dashboard"
-  set_kv CARTETHYIA_ENCRYPTION_KEY "$KEY"
-  set_kv CARTETHYIA_PUBLIC_ORIGIN "$ORIGIN"
-  set_kv CARTETHYIA_DATA_DIR "$ROOT/data"
-  set_kv CARTETHYIA_TELEMETRY_PAYLOAD_DIR "$ROOT/data/telemetry-payloads"
-  set_kv CARTETHYIA_INSTALL_ID_DIR "$ROOT/data/.cartethyia"
+  say "creating .env through bun setup"
 else
-  say ".env already exists, leaving it alone"
+  say ".env already exists; bun setup will keep it"
 fi
+# The wizard owns .env creation, the encryption key, and the Lite data dir.
+# These overrides are read by that run; they are not written by this guide.
 
 # --- 5. install + build ---------------------------------------------------
 say "bun install"
 bun install --frozen-lockfile || die "bun install failed"
 
 say "bun setup"
-bun setup --non-interactive || die "bun setup failed"
+CARTETHYIA_DB_MODE=lite \
+NODE_ENV=production \
+LOG_LEVEL=warn \
+PORT="$PORT" \
+DASHBOARD_DIST="$REPO/dist/dashboard" \
+CARTETHYIA_PUBLIC_ORIGIN="$ORIGIN" \
+CARTETHYIA_DATA_DIR="$ROOT/data" \
+CARTETHYIA_TELEMETRY_PAYLOAD_DIR="$ROOT/data/telemetry-payloads" \
+CARTETHYIA_INSTALL_ID_DIR="$ROOT/data/.cartethyia" \
+  bun run setup --non-interactive || die "bun setup failed"
 
 say "bun run build (this takes a few minutes on 1 vCPU)"
 bun run build || die "build failed"
@@ -586,5 +589,3 @@ configuration does not need to be rebuilt.
 ## See also
 
 - [`getting-started.md`](getting-started.md) — first-run walkthrough
-- [`bug-reports-and-fixes.md`](bug-reports-and-fixes.md) — known bugs, Lite
-  performance limits

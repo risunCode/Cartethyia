@@ -36,6 +36,16 @@ Dashboard contracts must remain browser-safe.
 - Do not preserve compatibility through aliases.
 - If two implementations have different policy, unify the policy before moving code.
 
+## First install
+
+`bun install` then `bun setup`. The wizard owns environment creation, the
+encryption key, the Lite/Full choice, the listen port, and the database probe.
+`PORT` (default 12800) is what both `bun dev` and the production build bind;
+5173 is only the dashboard dev server. Automation uses
+`bun setup --non-interactive` and must already have `CARTETHYIA_DB_MODE` plus,
+for Full, a reachable `DATABASE_URL`. Do not add a second installer that copies
+`.env.example` itself; `scripts/install-lite.sh` calls the wizard.
+
 ## Verification
 
 ```bash

@@ -92,15 +92,23 @@ bun setup
 
 `bun setup` does the following:
 
-1. creates `.env` from `.env.example` when it does not exist;
-2. generates `CARTETHYIA_ENCRYPTION_KEY` when it is missing or still a placeholder;
-3. creates `.env.test` from `.env.test.example` when needed;
-4. prepares the Lite data directory, or checks PostgreSQL in Full mode;
-5. checks Redis only when `REDIS_URL` is configured;
-6. checks Docker Compose when `CARTETHYIA_SETUP_MODE=docker` is selected.
+1. refuses to continue when Bun is older than 1.4.0;
+2. creates `.env` from the mandatory rows of `.env.example` when it does not exist;
+3. generates `CARTETHYIA_ENCRYPTION_KEY` when it is missing or still a placeholder;
+4. asks Lite or Full on a fresh install (press Enter for Lite);
+5. asks which port to listen on (press Enter for 12800; use 8080 or another
+   open port when a VPS does not forward 12800);
+6. prepares the Lite data directory, or finds a local PostgreSQL and asks for
+   `DATABASE_URL` in Full mode;
+7. checks Redis only when `REDIS_URL` is configured — leaving it empty is normal;
+8. checks Docker Compose when `CARTETHYIA_SETUP_MODE=docker` is selected.
 
-The generated local `.env` defaults to Lite. To use Full, edit `.env` and set
-`CARTETHYIA_DB_MODE=full` together with a reachable `DATABASE_URL`, then run:
+It does not install PostgreSQL. Full mode needs a server that is already
+running. When setup finishes, run `bun dev` and open the console; the first
+visit creates the admin user.
+
+To choose Full without the prompt, set `CARTETHYIA_DB_MODE=full` and a reachable
+`DATABASE_URL` in `.env`, then run:
 
 ```bash
 bun setup --non-interactive
@@ -155,11 +163,15 @@ After setup succeeds, start the development stack:
 bun dev
 ```
 
-Open the dashboard at:
+Open the dashboard at `http://localhost:<PORT>/console`. `PORT` comes from
+`.env`; 12800 unless setup was told otherwise.
 
-```text
-http://localhost:12800/console
-```
+`bun dev` and the production build (`bun run build` then `bun run start`)
+listen on that same `PORT`. They are not two ports. The only separate one is
+the dashboard's own dev server, which stays on 5173 and proxies API calls to
+`PORT` — that 5173 never needs to be opened on a VPS. When `PORT` changes,
+`CARTETHYIA_PUBLIC_ORIGIN` must use it too, or OAuth callbacks point at the
+wrong place. Setup rewrites the origin when it is still the default.
 
 For backend and dashboard processes separately:
 

@@ -54,7 +54,7 @@ on the details that make a multi-provider setup dependable in daily use:
 | **Client-faithful upstream identity** | Provider adapters can reproduce the client identity, headers, billing signals, and wire behavior expected by the upstream service instead of treating every request as a generic API call. |
 | **Legitimate request impersonation boundaries** | OAuth/client-specific request behavior is isolated to the matching adapter and credential path; ordinary API-key traffic is not silently mixed with an OAuth client profile. |
 | **Continuously refreshed client versions** | Client-version metadata is discovered in the background and reflected in provider-specific headers when required, instead of pinning an old version forever. |
-| **Provider-aware routing** | Routing understands model capability, endpoint family, account health, cooldown, quota, minimum balance, aliases, combos, and proxy-pool availability. |
+| **Provider-aware routing** | Routing understands model capability, endpoint family, account health, cooldown, quota, aliases, combos, and proxy-pool availability. |
 | **Failover that preserves state** | Retries do not bypass admission, usage accounting, quota metering, telemetry, or terminal error semantics. |
 | **Four-stage request visibility** | Inspect the client request, translated provider request, raw provider response, and final client response with bounded, redacted capture. |
 | **Honest failure semantics** | A disabled account, exhausted quota, unavailable provider, missing model, and network/pool failure remain different operational states. |
