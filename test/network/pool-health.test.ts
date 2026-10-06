@@ -23,7 +23,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { getDb } from "../../src/persistence/postgres";
+import { getDb } from "../../src/persistence/boot";
 import { networkPools } from "../../src/persistence/schema";
 import { recordPoolDispatchOutcome } from "../../src/network/pool-health-machine";
 import { getTestPool, dbDescribe } from "../helpers/database";

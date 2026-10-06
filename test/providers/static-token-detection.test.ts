@@ -13,7 +13,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { getDb } from "../../src/persistence/postgres";
+import { getDb } from "../../src/persistence/boot";
 import { providerAccounts, providerOauthStates } from "../../src/persistence/schema";
 import { encryptCredential, decryptCredentialToString } from "../../src/security/crypto";
 import {

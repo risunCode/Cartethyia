@@ -23,7 +23,7 @@
 import { afterAll, beforeAll, describe } from "bun:test";
 import { Pool, type PoolClient } from "pg";
 import { randomUUID } from "node:crypto";
-import { applySqlMigrations } from "../../src/persistence/postgres";
+import { applySqlMigrations } from "../../src/persistence/db-pg";
 
 /** Isolated PostgreSQL URL, or `undefined` when the suite must skip. */
 export const testDatabaseUrl = process.env.CARTETHYIA_TEST_DATABASE_URL?.trim() || undefined;

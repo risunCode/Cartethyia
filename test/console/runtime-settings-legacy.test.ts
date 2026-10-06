@@ -24,7 +24,7 @@
  * thing that turns the directive on, and a stored level is not consent.
  */
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { getDb } from "../../src/persistence/postgres";
+import { getDb } from "../../src/persistence/boot";
 import { consoleSettings } from "../../src/persistence/schema";
 import { DrizzleRuntimeSettingsStore } from "../../src/console/settings/store";
 import { DrizzlePreferencesReader } from "../../src/persistence/tenant-preferences";

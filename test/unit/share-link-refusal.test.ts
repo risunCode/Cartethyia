@@ -18,9 +18,9 @@
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { DrizzleShareLinkStore, type ShareLinkRefusal } from "../../src/persistence/share-store";
+import { DrizzleShareLinkStore, type ShareLinkRefusal } from "../../src/persistence/stores/share-store";
 import { hashSecret } from "../../src/security/crypto";
-import { getDb } from "../../src/persistence/postgres";
+import { getDb } from "../../src/persistence/boot";
 import { getTestPool, requireDatabase } from "../helpers/database";
 
 requireDatabase();

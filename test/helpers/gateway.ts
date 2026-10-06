@@ -22,8 +22,8 @@
 import { createGatewayApp } from "../../src/boot/app";
 import type { App } from "../../src/boot/app";
 import { createDefaultProviderRegistry } from "../../src/providers/default-registry";
-import type { CartethyiaDatabase } from "../../src/persistence/postgres";
-import { getDb } from "../../src/persistence/postgres";
+import type { CartethyiaDatabase } from "../../src/persistence/db-handle";
+import { getDb } from "../../src/persistence/boot";
 import type { ReadinessCheckResult } from "../../src/persistence/readiness";
 import type {
   CanonicalEvent,

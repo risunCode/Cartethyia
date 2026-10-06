@@ -32,7 +32,8 @@ import {
   type TelemetryEventInput,
 } from "../../src/observability/telemetry-buffer";
 import { metrics } from "../../src/observability/metrics";
-import { getDb, type CartethyiaDatabase } from "../../src/persistence/postgres";
+import { getDb } from "../../src/persistence/boot";
+import { type CartethyiaDatabase } from "../../src/persistence/db-handle";
 import { telemetryEvents } from "../../src/persistence/schema";
 import { createRunId, getTestPool, requireDatabase } from "../helpers/database";
 import { createTenant } from "../helpers/fixtures";

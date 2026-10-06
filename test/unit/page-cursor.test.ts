@@ -1,7 +1,7 @@
 /**
  * Cursor encoding and decoding, as units.
  *
- * `src/persistence/page-cursor.ts` owns the opaque `(createdAt, id)` page
+ * `src/console/shared/cursor.ts` owns the opaque `(createdAt, id)` page
  * boundary for both console listings — the audit log and the telemetry event
  * stream. A cursor is caller-supplied, arrives in a query string, and is handed
  * straight to `new Date(cursor.createdAt)` inside a SQL keyset comparison, so
@@ -22,12 +22,12 @@
  * the consolidation only holds if both listings accept and reject the same set.
  */
 import { describe, expect, test } from "bun:test";
-import type { DatedCursor } from "../../src/persistence/page-cursor";
+import type { DatedCursor } from "../../src/console/shared/cursor";
 import {
   decodeCursor,
   decodeDatedCursor,
   encodeCursor,
-} from "../../src/persistence/page-cursor";
+} from "../../src/console/shared/cursor";
 
 /** Builds a cursor from raw JSON the way a caller with a hand-made string would. */
 function cursorOf(payload: string): string {

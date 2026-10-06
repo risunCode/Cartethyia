@@ -25,7 +25,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { createShareStatsPort, clientTypeFromUserAgent } from "../../src/console/share/share-stats";
-import { getDb } from "../../src/persistence/postgres";
+import { getDb } from "../../src/persistence/boot";
 import { telemetryEvents } from "../../src/persistence/schema";
 import { createRunId, getTestPool, requireDatabase } from "../helpers/database";
 import { createTenant } from "../helpers/fixtures";
