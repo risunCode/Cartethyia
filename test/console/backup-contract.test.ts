@@ -8,6 +8,10 @@ describe("backup contract coverage", () => {
     expect(tablesForSection("config").map(tableName)).toContain("studio_sessions");
   });
 
+  test("includes console users so a first boot can restore its accounts", () => {
+    expect(tablesForSection("config").map(tableName)).toContain("console_users");
+  });
+
   test("every config table has an ownership rule", () => {
     for (const table of CONFIG_TABLES) expect(() => ownershipOf(table)).not.toThrow();
   });

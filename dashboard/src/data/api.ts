@@ -131,6 +131,7 @@ export type SessionTransitionKind = "expired" | "banned";
 const SESSION_TRANSITION_EXEMPT_PATHS = new Set([
   "/auth/login",
   "/auth/setup",
+  "/auth/setup/restore",
   "/auth/session",
   "/auth/first-boot",
 ]);

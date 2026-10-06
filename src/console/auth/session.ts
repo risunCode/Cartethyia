@@ -330,6 +330,33 @@ export function createConsoleAuthRoutes(
   );
 
   app.post(
+    "/setup/restore",
+    {
+      body: t.Object({
+        backup: t.Unknown(),
+      }),
+    },
+    async ({ body, set }) => {
+      if (!(await setupService.requiresSetup())) {
+        set.status = 400;
+        return { status: "failed", message: "Setup already completed" } satisfies SetupResponse;
+      }
+      try {
+        await setupService.restoreBackup(body.backup);
+      } catch (error) {
+        if (error instanceof Error && error.message === "Setup already completed") {
+          set.status = 400;
+          return { status: "failed", message: error.message } satisfies SetupResponse;
+        }
+        const message = error instanceof Error ? error.message : "Restore failed";
+        set.status = 400;
+        return { status: "failed", message } satisfies SetupResponse;
+      }
+      return { status: "success", message: "Backup restored" } satisfies SetupResponse;
+    },
+  );
+
+  app.post(
     "/change-password",
     {
       body: t.Object({

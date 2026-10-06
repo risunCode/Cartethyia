@@ -20,6 +20,7 @@ export default function Setup(): ReactNode {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [mode, setMode] = useState<"create" | "restore">("create");
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -68,6 +69,40 @@ export default function Setup(): ReactNode {
     }
   };
 
+  const restore = async (file: File) => {
+    setPending(true);
+    setError(null);
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text) as unknown;
+      const result = await consoleRequest<SetupResult>("/auth/setup/restore", {
+        method: "POST",
+        body: JSON.stringify({ backup }),
+      });
+      if (result.status !== "success") {
+        setError(result.message ?? "Restore failed. Please try again.");
+        return;
+      }
+      queryClient.removeQueries({ queryKey: queryKeys.session.current });
+      navigate("/login", { replace: true });
+    } catch (reason: unknown) {
+      if (reason instanceof SyntaxError) {
+        setError("That file is not a JSON backup.");
+        return;
+      }
+      if (reason && typeof reason === "object" && "message" in reason) {
+        const msg = (reason as { message: unknown }).message;
+        if (typeof msg === "string") {
+          setError(msg);
+          return;
+        }
+      }
+      setError("An unexpected network error occurred.");
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
     <main className="auth-viewport">
       <div className="card-solid auth-window">
@@ -76,9 +111,40 @@ export default function Setup(): ReactNode {
             C
           </div>
           <h1 className="auth-title">Cartethyia Console Setup</h1>
-          <p className="auth-desc">Configure the administrator account for Cartethyia AI Gateway</p>
+          <p className="auth-desc">
+            {mode === "create"
+              ? "Configure the administrator account for Cartethyia AI Gateway"
+              : "Restore a backup. Its accounts sign in; no new account is created."}
+          </p>
         </div>
 
+        <div style={{ display: "flex", gap: "8px", marginBottom: "14px" }}>
+          <Button type="button" variant={mode === "create" ? "primary" : "secondary"} onClick={() => setMode("create")}>
+            New account
+          </Button>
+          <Button type="button" variant={mode === "restore" ? "primary" : "secondary"} onClick={() => setMode("restore")}>
+            Restore backup
+          </Button>
+        </div>
+
+        {mode === "restore" ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            <label htmlFor="setup-backup" style={{ fontSize: "12.5px", fontWeight: 600 }}>
+              Cartethyia backup
+            </label>
+            <input
+              id="setup-backup"
+              type="file"
+              accept="application/json,.json"
+              disabled={pending}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void restore(file);
+              }}
+            />
+            {error ? <SetupError message={error} /> : null}
+          </div>
+        ) : (
         <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
           <Input
             label="Administrator Username"
@@ -123,21 +189,7 @@ export default function Setup(): ReactNode {
             autoComplete="new-password"
           />
 
-          {error ? (
-            <div
-              style={{
-                padding: "10px 14px",
-                borderRadius: "10px",
-                background: "var(--red-soft)",
-                color: "var(--red)",
-                fontSize: "12.5px",
-                fontWeight: 500,
-              }}
-              role="alert"
-            >
-              {error}
-            </div>
-          ) : null}
+          {error ? <SetupError message={error} /> : null}
 
           <Button
             variant="primary"
@@ -149,7 +201,26 @@ export default function Setup(): ReactNode {
             {pending ? "Initializing…" : "Complete Setup"}
           </Button>
         </form>
+        )}
       </div>
     </main>
+  );
+}
+
+function SetupError({ message }: { readonly message: string }): ReactNode {
+  return (
+    <div
+      style={{
+        padding: "10px 14px",
+        borderRadius: "10px",
+        background: "var(--red-soft)",
+        color: "var(--red)",
+        fontSize: "12.5px",
+        fontWeight: 500,
+      }}
+      role="alert"
+    >
+      {message}
+    </div>
   );
 }

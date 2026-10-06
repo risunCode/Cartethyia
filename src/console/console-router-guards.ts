@@ -19,7 +19,7 @@ import { parseCookieValue, SESSION_COOKIE_NAME, isCsrfValid } from "../security/
  * store whose outage could masquerade as an auth failure.
  */
 export function createConsoleCsrfMiddleware(): Elysia {
-  const excluded = ["/auth/login", "/auth/setup", "/auth/session"];
+  const excluded = ["/auth/login", "/auth/setup", "/auth/setup/restore", "/auth/session"];
   return new Elysia()
     .beforeHandle(async ({ request }) => {
       const path = fastPathname(request.url);
@@ -75,7 +75,7 @@ function pruneConsoleMutationHits(now: number): void {
 }
 
 export function createConsoleMutationLimiterMiddleware(): Elysia {
-  const excluded = ["/auth/login", "/auth/setup", "/auth/session"];
+  const excluded = ["/auth/login", "/auth/setup", "/auth/setup/restore", "/auth/session"];
   return new Elysia()
     .beforeHandle(async ({ request, set }) => {
       const path = fastPathname(request.url);

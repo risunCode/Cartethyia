@@ -16,6 +16,7 @@ import { DEFAULT_API_KEY_LABEL } from "../api-keys/contracts";
 import { resolveDefaultGatewayApiKey } from "../../config/runtime";
 import { TENANT_KEY_SCOPES } from "../../security/access-control";
 import { isRecord } from "../../protocol/codecs";
+import { BackupService } from "../backup/service";
 
 const FIRST_BOOT_SETUP_LOCK = sql`SELECT pg_advisory_xact_lock(hashtext('cartethyia:first_boot_setup'))`;
 
@@ -141,6 +142,43 @@ export class FirstBootSetupService {
       await transaction.execute(FIRST_BOOT_SETUP_LOCK);
       await create(transaction as unknown as CartethyiaDatabase);
     });
+  }
+
+  /**
+   * First boot from a backup. Creates an empty tenant, then restores the file
+   * into it. The file's console users are the accounts that can sign in; this
+   * path creates none of its own. Refuses once any user exists, same as setup.
+   */
+  async restoreBackup(payload: unknown): Promise<void> {
+    const previous = this.setupInFlight;
+    if (previous) await previous.catch(() => undefined);
+    const operation = this.restoreBackupOnce(payload);
+    this.setupInFlight = operation;
+    try {
+      await operation;
+    } finally {
+      if (this.setupInFlight === operation) this.setupInFlight = undefined;
+    }
+  }
+
+  private async restoreBackupOnce(payload: unknown): Promise<void> {
+    if (!(await this.requiresSetup())) throw new Error("Setup already completed");
+    const tenantId = randomUUID();
+    await this.db.insert(tenants).values({ id: tenantId, name: "Default", status: "active" });
+    try {
+      const backup = new BackupService({
+        db: this.db,
+        verifyPassword: async () => false,
+      });
+      await backup.restoreFirstBoot(payload, tenantId);
+    } catch (error) {
+      await this.db.delete(tenants).where(eq(tenants.id, tenantId));
+      throw error;
+    }
+    if (await this.requiresSetup()) {
+      await this.db.delete(tenants).where(eq(tenants.id, tenantId));
+      throw new Error("Backup did not restore a console user");
+    }
   }
 }
 

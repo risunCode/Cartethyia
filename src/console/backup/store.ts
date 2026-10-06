@@ -39,6 +39,7 @@ import {
   cliToolMappings,
   cliToolSettings,
   consoleSettings,
+  consoleUsers,
   healthEvents,
   modelAliases,
   modelCombos,
@@ -609,6 +610,7 @@ export async function deleteAll(
       }
       await remove(modelAliases, direct(modelAliases));
       await remove(modelCombos, direct(modelCombos));
+      await remove(consoleUsers, direct(consoleUsers));
       await remove(consoleSettings, direct(consoleSettings));
       await remove(studioSessions, direct(studioSessions));
     }

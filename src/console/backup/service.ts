@@ -23,6 +23,14 @@ import type { BackupSection } from "./contracts";
 import { deleteAll, exportBackup, applyRestore, type DeleteAllResult, type DeleteAllScope } from "./store";
 import { detectFormat, restoreOrder, validateRestorePayload } from "./validate";
 import { convert9RouterBackup, type ImportReport } from "./nine-router";
+import { isRecord } from "../../protocol/codecs";
+
+/** Console user rows carried by a native payload, if the section names them. */
+function consoleUsersIn(payload: unknown): readonly unknown[] {
+  if (!isRecord(payload) || !isRecord(payload.sections) || !isRecord(payload.sections.config)) return [];
+  const users = payload.sections.config.console_users;
+  return Array.isArray(users) ? users : [];
+}
 
 export interface BackupServiceOptions {
   readonly db: CartethyiaDatabase;
@@ -103,6 +111,35 @@ export class BackupService {
       return { ...result, report, format: "nine_router" };
     }
 
+    const result = await this.apply(detected.payload, tenantId);
+    return { ...result, format: "native" };
+  }
+
+  /**
+   * Restores a native backup onto a brand-new tenant during first boot.
+   *
+   * There is no operator to re-authenticate, and no tenant to scope the write
+   * to. The caller has already proven that no console user exists and holds
+   * the setup lock. The file's own users become the accounts that can sign in,
+   * so this path does not create one.
+   */
+  async restoreFirstBoot(payload: unknown, tenantId: string): Promise<ImportResult> {
+    const detected = detectFormat(payload);
+    if (detected.kind !== "native") {
+      throw new ConsoleDomainError(
+        "invalid_request",
+        400,
+        detected.kind === "unknown" ? detected.reason : "first-boot restore accepts a Cartethyia backup only",
+      );
+    }
+    const users = consoleUsersIn(detected.payload);
+    if (users.length === 0) {
+      throw new ConsoleDomainError(
+        "invalid_request",
+        400,
+        "backup has no console users; create an administrator instead",
+      );
+    }
     const result = await this.apply(detected.payload, tenantId);
     return { ...result, format: "native" };
   }

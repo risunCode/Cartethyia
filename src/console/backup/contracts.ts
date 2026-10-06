@@ -25,6 +25,7 @@ import {
   cliToolMappings,
   cliToolSettings,
   consoleSettings,
+  consoleUsers,
   modelAliases,
   modelCombos,
   models,
@@ -59,6 +60,8 @@ export const MAX_ROWS_PER_TABLE = 500_000;
  * reverse, so a foreign key never points at a row that is not there yet. Tables
  * holding session/audit/runtime state are absent on purpose — a config restore
  * must not log everyone out, and audit history is not configuration.
+ * `console_users` is the exception: a first-boot restore has no operator yet,
+ * so the file has to carry the accounts that will sign in. Sessions stay out.
  *
  * Every table here must also declare its owner in {@link ownershipOf}. A
  * restore replaces rows; it may only replace rows the restoring tenant owns, and
@@ -85,6 +88,7 @@ export const CONFIG_TABLES = [
   consoleSettings,
   studioSessions,
   apiKeys,
+  consoleUsers,
 ] as const satisfies readonly Table[];
 
 /**
@@ -92,8 +96,8 @@ export const CONFIG_TABLES = [
  *
  * Every tenant-scoped table cascades from `tenants`, and several of those are
  * **not** part of a config backup: `telemetry_events`,
- * `telemetry_usage_totals`, `telemetry_payloads`, `console_users`,
- * `console_sessions`. Deleting the tenant
+ * `telemetry_usage_totals`, `telemetry_payloads`, and `console_sessions`.
+ * Deleting the tenant
  * to re-insert it would therefore destroy usage history and Studio data this feature exists
  * to preserve — and log out every console user as a side effect. A restore
  * ensures the tenant exists (needed when importing into a fresh database) and
