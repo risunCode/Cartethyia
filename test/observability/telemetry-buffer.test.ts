@@ -337,8 +337,11 @@ describe("telemetry row mapping, read back from Postgres", () => {
       expect(row?.outputTokens).toBe(120);
       expect(row?.reasoningTokens).toBe(40);
       expect(row?.estimatedCostUsd).toBe("0.012345");
-      expect(row?.creditUsed).toBe("1.0100");
-      expect(row?.tokensPerSec).toBe("42.50");
+      // The file keeps the value as written. Postgres used to reformat numeric
+      // columns to their declared scale on read-back; that padding was a driver
+      // artifact, not data.
+      expect(row?.creditUsed).toBe("1.01");
+      expect(row?.tokensPerSec).toBe("42.5");
       // Epoch millis exceed int4, which is why these columns are bigint: a
       // completed request carrying stream timings used to fail its insert and
       // vanish from the console.
@@ -412,14 +415,14 @@ describe("telemetry row mapping, read back from Postgres", () => {
       expect(row?.ttfbMs).toBe(0);
       expect(row?.httpStatus).toBe(200);
       expect(row?.resolveMs).toBe(0);
-      expect(row?.tokensPerSec).toBe("0.00");
+      expect(row?.tokensPerSec).toBe("0");
       expect(row?.firstContentDeltaAtMs).toBe(0);
       expect(row?.lastEventAtMs).toBe(0);
       // Zero credit is a reported measurement, not a missing field.
-      expect(row?.creditUsed).toBe("0.0000");
+      expect(row?.creditUsed).toBe("0");
       // Zero cost is a real answer (a free tier); it must not become NULL,
       // which is reserved for "the catalog had no rate to apply".
-      expect(row?.estimatedCostUsd).toBe("0.000000");
+      expect(row?.estimatedCostUsd).toBe("0");
     } finally {
       await scope.cleanup();
     }

@@ -25,7 +25,6 @@ import {
   modelCombos,
   providers,
   tenants,
-  telemetryEvents,
 } from "../../src/persistence/schema";
 import { dbDescribe } from "../helpers/database";
 import { createWorld, type GatewayWorld } from "../helpers/fixtures";
@@ -98,11 +97,14 @@ dbDescribe("backup portability across backends", () => {
     if (!liteDb || !world) throw new Error("pg→lite test must run first");
     const createdAt = new Date("2026-10-05T00:00:00.000Z");
     const requestId = "11111111-1111-4111-8111-111111111111";
-    await liteDb.insert(telemetryEvents).values({
-      tenantId: world.tenantId,
-      requestId,
-      createdAt,
-    });
+    const fs = await import("node:fs/promises");
+    const eventLog = await import("../../src/observability/event-log");
+    await fs.mkdir(eventLog.TELEMETRY_EVENT_DIR, { recursive: true });
+    await fs.appendFile(
+      `${eventLog.TELEMETRY_EVENT_DIR}/portability-test.jsonl`,
+      `${JSON.stringify({ tenantId: world.tenantId, requestId, id: requestId, createdAt: createdAt.toISOString() })}\n`,
+      "utf8",
+    );
 
     const tables = [...tablesForSection("config"), ...tablesForSection("telemetry")];
     const { payload } = await exportBackup(liteDb, tables, world.tenantId);
@@ -117,8 +119,10 @@ dbDescribe("backup portability across backends", () => {
     const repeated = await applyRestore(liteDb, second.value, restoreOrder(), world.tenantId);
     expect(repeated.skipped["telemetry_events"]).toBe(1);
 
-    const rows = await liteDb.select().from(telemetryEvents);
+    const rows = await eventLog.readTelemetryEvents();
     expect(rows.filter((row) => row.requestId === requestId)).toHaveLength(1);
+    await fs.rm(`${eventLog.TELEMETRY_EVENT_DIR}/portability-test.jsonl`, { force: true });
+    await fs.rm(`${eventLog.TELEMETRY_EVENT_DIR}/restored.jsonl`, { force: true });
   });
 
   test("PGlite export restores into pg without touching other tenants", async () => {

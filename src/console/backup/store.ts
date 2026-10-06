@@ -29,7 +29,9 @@
  *   idempotent. There is no unique constraint to lean on: `telemetry_events`
  *   has a random PK, so the natural key is checked explicitly.
  */
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import { readTelemetryEvents, TELEMETRY_EVENT_DIR } from "../../observability/event-log";
+import { appendFile, mkdir } from "node:fs/promises";
 import { getTableColumns, type Column, type SQL, type Table } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import {
@@ -207,7 +209,9 @@ export async function exportBackup(
   const telemetrySet = new Set<Table>(TELEMETRY_TABLES);
 
   for (const table of tables) {
-    const rows = await exportTable(db, table, tenantId);
+    const rows = table === telemetryEvents
+      ? await exportEventFile(tenantId)
+      : await exportTable(db, table, tenantId);
     const name = tableName(table);
     counts[name] = rows.length;
     if (configSet.has(table)) config[name] = rows;
@@ -224,6 +228,30 @@ export async function exportBackup(
     },
   };
   return { counts, payload };
+}
+
+/**
+ * Exports per-request events from the file log, shaped like the table the
+ * backup contract still names. The table is no longer written, so reading it
+ * would export nothing.
+ */
+async function exportEventFile(tenantId: string): Promise<readonly BackupRow[]> {
+  const events = await readTelemetryEvents();
+  return events
+    .filter((event) => event.tenantId === tenantId)
+    .slice(0, MAX_ROWS_PER_TABLE)
+    .map((event) => {
+      const row: BackupRow = {};
+      for (const [key, value] of Object.entries(event)) {
+        if (value === null || value === undefined) continue;
+        row[camelToSnake(key)] = key === "createdAt" ? { __date: String(value) } : value;
+      }
+      return row;
+    });
+}
+
+function camelToSnake(name: string): string {
+  return name.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`);
 }
 
 /** Builds a Drizzle row object from a payload row, coercing each cell. */
@@ -271,38 +299,37 @@ function createdAtIso(value: unknown): string {
  * timestamps are normalised in SQL to the same ISO spelling the payload uses,
  * so the two sides are comparable regardless of how the driver types them.
  */
-async function existingTelemetryKeys(
-  db: CartethyiaDatabase,
-  rows: readonly BackupRow[],
-): Promise<Set<string>> {
-  const requestIds = [
-    ...new Set(
-      rows.map((row) => row.request_id).filter((id): id is string => typeof id === "string"),
-    ),
-  ];
-  if (requestIds.length === 0) return new Set();
-  // Scope the read to the rows being restored instead of loading the tenant's
-  // whole retained history. An unfiltered read grows with the tenant's
-  // telemetry, so a restore into a long-lived database fetched far more than it
-  // compared — and the request ids are what identify the rows anyway. Chunked
-  // to stay under the protocol's bind-parameter limit; served by
-  // `telemetry_events_request_id_idx`.
-  const CHUNK = 1000;
-  const existing: Array<{ tenantId: string; requestId: string; createdAt: string }> = [];
-  for (let offset = 0; offset < requestIds.length; offset += CHUNK) {
-    const chunk = requestIds.slice(offset, offset + CHUNK);
-    existing.push(
-      ...(await db
-        .select({
-          tenantId: telemetryEvents.tenantId,
-          requestId: telemetryEvents.requestId,
-          createdAt: sql<string>`to_char(${telemetryEvents.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
-        })
-        .from(telemetryEvents)
-        .where(inArray(telemetryEvents.requestId, chunk))),
-    );
+/** Natural keys already present in the event file, so a re-import skips them. */
+async function existingEventFileKeys(rows: readonly BackupRow[]): Promise<Set<string>> {
+  const wanted = new Set(rows.map((row) => row.request_id).filter((id): id is string => typeof id === "string"));
+  if (wanted.size === 0) return new Set();
+  const events = await readTelemetryEvents();
+  return new Set(
+    events
+      .filter((event) => wanted.has(event.requestId))
+      .map((event) => `${event.tenantId ?? ""}\u0000${event.requestId}\u0000${event.createdAt}`),
+  );
+}
+
+/** Appends restored events to the file log, in the shape the writer uses. */
+async function appendRestoredEvents(rows: readonly BackupRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  await mkdir(TELEMETRY_EVENT_DIR, { recursive: true });
+  const lines = rows.map((row) => JSON.stringify(snakeToCamelRecord(row)));
+  await appendFile(`${TELEMETRY_EVENT_DIR}/restored.jsonl`, `${lines.join("\n")}\n`, "utf8");
+}
+
+function snakeToCamelRecord(row: BackupRow): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row)) {
+    const camel = key.replace(/_([a-z])/g, (_match, char: string) => char.toUpperCase());
+    out[camel] = isDateCell(value) ? value.__date : value;
   }
-  return new Set(existing.map((row) => `${row.tenantId}\u0000${row.requestId}\u0000${row.createdAt}`));
+  return out;
+}
+
+function isDateCell(value: unknown): value is BackupDate {
+  return typeof value === "object" && value !== null && "__date" in value;
 }
 
 /**
@@ -488,14 +515,11 @@ export async function applyRestore(
       const entry = validation.tables.get(table);
       if (entry === undefined) continue;
       if (table === telemetryEvents) {
-        const existing = await existingTelemetryKeys(scoped, entry.rows);
-        restored[tableName(table)] = await insertRows(scoped, table, entry.rows, {
-          skipKeys: existing,
-          keyOf: telemetryKey,
-        });
-        skipped[tableName(table)] = entry.rows.filter((row) =>
-          existing.has(telemetryKey(row)),
-        ).length;
+        const existing = await existingEventFileKeys(entry.rows);
+        const fresh = entry.rows.filter((row) => !existing.has(telemetryKey(row)));
+        await appendRestoredEvents(fresh);
+        restored[tableName(table)] = fresh.length;
+        skipped[tableName(table)] = entry.rows.length - fresh.length;
       } else if (table === telemetryUsageTotals) {
         const restoredCount = await insertRows(scoped, table, entry.rows, {
           conflictTarget: [

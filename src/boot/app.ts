@@ -531,7 +531,7 @@ export function createGatewayApp(deps: GatewayAppDeps) {
       createShareRouter({
         db: deps.db,
         shareStore: new DrizzleShareLinkStore(deps.db),
-        stats: createShareStatsPort(deps.db),
+        stats: createShareStatsPort(),
         resolveClientIp: (request) => {
           const peer = peerAddresses.get(request);
           return peer

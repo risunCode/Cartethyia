@@ -1,7 +1,8 @@
-import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
-import { apiKeys, telemetryEvents } from "../../persistence/schema";
+import { apiKeys } from "../../persistence/schema";
+import { queryTelemetryEvents } from "../../observability/event-log";
 
 /**
  * Tokens already recorded for the current daily and monthly admission buckets.
@@ -38,16 +39,14 @@ export async function familyBucketSpend(
     .from(apiKeys)
     .where(eq(apiKeys.parentKeyId, keyId));
   const keyIds = [keyId, ...children.map((child) => child.id)];
-  const tokens = sql<number>`coalesce(sum(coalesce(${telemetryEvents.inputTokens}, 0) + coalesce(${telemetryEvents.outputTokens}, 0)), 0)`;
-  const since = (start: Date) =>
-    and(inArray(telemetryEvents.apiKeyId, keyIds), gte(telemetryEvents.createdAt, start));
-
-  const [dailyRows, monthlyRows] = await Promise.all([
-    db.select({ total: tokens }).from(telemetryEvents).where(since(utcDayStart(now))),
-    db.select({ total: tokens }).from(telemetryEvents).where(since(utcMonthStart(now))),
-  ]);
-  return {
-    daily: Number(dailyRows[0]?.total ?? 0),
-    monthly: Number(monthlyRows[0]?.total ?? 0),
+  const spentSince = async (start: Date): Promise<number> => {
+    const events = await queryTelemetryEvents({ apiKeyIds: keyIds, since: start });
+    return events
+      .reduce((sum, event) => sum + (event.inputTokens ?? 0) + (event.outputTokens ?? 0), 0);
   };
+  const [daily, monthly] = await Promise.all([
+    spentSince(utcDayStart(now)),
+    spentSince(utcMonthStart(now)),
+  ]);
+  return { daily, monthly };
 }

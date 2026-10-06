@@ -1,5 +1,5 @@
 // Drizzle-backed provider, account, model, routing, and API-key repositories.
-import { and, asc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { ConsoleDomainError } from "../../shared/errors";
 import { parseCustomProviderId, isBundledProviderId } from "../../../providers/contracts";
 import type { ModelDefinition } from "../../../providers/model-definition";
@@ -7,13 +7,14 @@ import type { ProviderRegistry } from "../../../providers/registry";
 import { globalOrOwnedBy, ownedByOnly } from "../../../persistence/tenant-scope";
 import { nextSortIndex, reorderSortIndex } from "../../../lib/sort-order";
 import type { CartethyiaDatabase } from "../../../persistence/db-handle";
-import { models, providerAccounts, providerOauthStates, providers, telemetryEvents, telemetryUsageTotals, tenantDisabledModels } from "../../../persistence/schema";
+import { models, providerAccounts, providerOauthStates, providers, telemetryUsageTotals, tenantDisabledModels } from "../../../persistence/schema";
+import { queryTelemetryEvents } from "../../../observability/event-log";
+import { isGatewayError } from "../../../observability/telemetry-status";
 import type { WireFamily } from "../../../protocol/canonical-model";
 import { listAccountHealthEvents, recoverAccount, type AccountHealthEventRecord } from "../../../providers/operations/account-health-service";
 import { invalidateCredentialCache } from "../../../providers/operations/provider-credential-service";
 import { encryptCredential, hashSecret } from "../../../security/crypto";
 import type { TelemetryBatchBuffer } from "../../../observability/telemetry-buffer";
-import { gatewayErrorSql } from "../../../observability/telemetry-status";
 import type { BundledProviderCatalog } from "../../../providers/operations/provider-catalog-service";
 import type { AccountInflightReading, ByokConnectionTestRequest, ByokConnectionTestResult, CreateProviderAccountRequest, CredentialMode, ModelCatalogEntry, ProbeAllAccountsResult, ProbeAllModelsResult, ProbeModelRequest, ProbeModelResult, ProviderAccountResponse, ProviderAccountTokenUsage, ProviderCatalogStore, ProviderRecord, SetModelEnabledRequest, UpdateProviderAccountRequest } from "./contracts";
 import { isServiceKind, validateCompatibilityProfile } from "./contracts";
@@ -703,27 +704,18 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
     const accountIds = rows.map((row) => row.id);
-    const [todayRows, lifetimeRows] = await Promise.all([
-      this.db
-        .select({
-          accountId: telemetryEvents.accountId,
-          requests: sql<number>`count(*)`,
-          // The same predicate the lifetime arm reads out of
-          // `telemetry_usage_totals`, so the "today" and "all time" error
-          // counts shown side by side cannot disagree about what an error is.
-          errors: sql<number>`count(*) filter (where ${gatewayErrorSql(telemetryEvents.status, telemetryEvents.httpStatus)})`,
-          inputTokens: sql<number>`coalesce(sum(${telemetryEvents.inputTokens}), 0)`,
-          outputTokens: sql<number>`coalesce(sum(${telemetryEvents.outputTokens}), 0)`,
-        })
-        .from(telemetryEvents)
-        .where(
-          and(
-            eq(telemetryEvents.tenantId, tenantId),
-            inArray(telemetryEvents.accountId, accountIds),
-            gte(telemetryEvents.createdAt, todayStart),
-          ),
-        )
-        .groupBy(telemetryEvents.accountId),
+    const todayEvents = await queryTelemetryEvents({ tenantId, accountIds, since: todayStart });
+    const todayByAccount = new Map<string, { requests: number; errors: number; inputTokens: number; outputTokens: number }>();
+    for (const event of todayEvents) {
+      if (!event.accountId) continue;
+      const bucket = todayByAccount.get(event.accountId) ?? { requests: 0, errors: 0, inputTokens: 0, outputTokens: 0 };
+      bucket.requests += 1;
+      if (isGatewayError(event.status, event.httpStatus)) bucket.errors += 1;
+      bucket.inputTokens += event.inputTokens ?? 0;
+      bucket.outputTokens += event.outputTokens ?? 0;
+      todayByAccount.set(event.accountId, bucket);
+    }
+    const [lifetimeRows] = await Promise.all([
       this.db
         .select()
         .from(telemetryUsageTotals)
@@ -735,10 +727,6 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
           ),
         ),
     ]);
-    const todayByAccount = new Map<string, (typeof todayRows)[number]>();
-    for (const row of todayRows) {
-      if (row.accountId !== null) todayByAccount.set(row.accountId, row);
-    }
     const lifetimeByAccount = new Map(lifetimeRows.map((row) => [row.entityId, row]));
     const mapUsage = (row: {
       readonly requests: number | string | null;

@@ -1,4 +1,4 @@
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../db-handle";
@@ -66,6 +66,21 @@ function aggregateUsage(rows: readonly (typeof telemetryEvents.$inferInsert)[]) 
  */
 
 const EVENT_DIR = "./data/telemetry-events";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Deletes hourly event files whose whole hour is older than the retention
+ * cutoff. The current hour's file is never touched: it is still being appended.
+ */
+async function pruneEventFiles(before: Date): Promise<void> {
+  const files = await readdir(EVENT_DIR).catch(() => [] as string[]);
+  const cutoff = before.toISOString().slice(0, 13).replaceAll(":", "-");
+  for (const file of files) {
+    if (!file.endsWith(".jsonl")) continue;
+    const hour = file.slice(0, 13);
+    if (hour < cutoff) await rm(join(EVENT_DIR, file), { force: true });
+  }
+}
 
 /** Appends one JSON line per event. One file per hour, so retention is a file delete. */
 async function appendEvents(rows: readonly (typeof telemetryEvents.$inferInsert)[]): Promise<void> {
@@ -82,12 +97,19 @@ export class DrizzleTelemetryStore {
   /** Inserts events and their durable identity aggregates atomically. */
   async insertEvents(rows: Array<typeof telemetryEvents.$inferInsert>): Promise<void> {
     if (rows.length === 0) return;
+    // The file accepts anything, so a malformed row would be written and then
+    // retried forever without ever failing. Rejecting it here keeps the buffer's
+    // drop-and-count contract: one bad row fails the batch, once.
+    for (const row of rows) {
+      if (!UUID_RE.test(row.tenantId)) {
+        throw new Error("telemetry event rejected: tenantId is not a uuid");
+      }
+    }
     const deltas = aggregateUsage(rows);
     // The per-request row goes to an append-only file, not to Postgres. The
     // database keeps only the durable aggregate below, so a request never
     // adds a row to the largest table. Readers of recent requests read the
     // file; readers of long-term totals read the aggregate.
-    await appendEvents(rows);
     await this.db.transaction(async (tx) => {
       if (deltas.length === 0) return;
       const now = new Date();
@@ -110,6 +132,10 @@ export class DrizzleTelemetryStore {
           },
         });
     });
+    // After the aggregate commits, so a rejected batch is retried once, not
+    // appended once per attempt. The file is the record of requests whose
+    // totals were actually counted.
+    await appendEvents(rows);
   }
 
   /** Inserts one redacted payload and returns its generated identity. */
@@ -176,6 +202,7 @@ export class DrizzleTelemetryStore {
    * the payload sweeper's `cleanupExpired`.
    */
   async pruneTelemetry(before: Date): Promise<void> {
+    await pruneEventFiles(before);
     const MAX_BATCHES_PER_SWEEP = 40;
     for (let batch = 0; batch < MAX_BATCHES_PER_SWEEP; batch += 1) {
       const deleted = await this.deleteExpiredEvents(5000, before);

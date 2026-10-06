@@ -13,7 +13,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
-import { getTestPool, createRunId, withRollback } from "./database";
+import { getTestPool, createRunId } from "./database";
 import { encryptCredential, hashSecret } from "../../src/security/crypto";
 import { TENANT_KEY_SCOPES } from "../../src/security/access-control";
 import { invalidateApiKeyCache } from "../../src/security/api-key-auth";
@@ -456,11 +456,10 @@ export async function createWorld(options: CreateWorldOptions = {}): Promise<Gat
 export async function readTelemetry(
   tenantId: string,
 ): Promise<readonly Record<string, unknown>[]> {
-  return withRollback(async (client) => {
-    const result = await client.query(
-      "select * from telemetry_events where tenant_id = $1 order by created_at desc",
-      [tenantId],
-    );
-    return result.rows;
-  });
+  // Per-request events are written to the file log, not the table.
+  const { readTelemetryEvents } = await import("../../src/observability/event-log");
+  const events = await readTelemetryEvents();
+  return events
+    .filter((event) => event.tenantId === tenantId)
+    .map((event) => ({ ...event }));
 }
