@@ -84,6 +84,13 @@ flowchart TD
 and tries the next candidate. A terminal failure becomes a `GatewayError` and
 stops.
 
+Which failures are retryable is decided in `src/transport/failure-policy.ts`.
+An overflow (`context_length_exceeded`) is retryable because it names how large
+the prompt was against the window *that* candidate offered — a sibling with more
+room is tried with the request unchanged. Nothing in the loop shrinks or rewrites
+the prompt; a client that compacts does so on the 413 it receives once every
+candidate has overflowed.
+
 Streaming owns its own cleanup. `ProxyRequestStateStore.cleanup()` is the single
 release point for a request: normal completion, error, cancel, client abort,
 deadline, and stall. A pending pull owns its terminal outcome and must not be

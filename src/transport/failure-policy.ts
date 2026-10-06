@@ -348,6 +348,13 @@ export function classifyUpstreamFailure(error: unknown): UpstreamFailurePolicy {
     error.code === "authentication_failed" ||
     error.code === "proxy_auth_required" ||
     error.code === "deadline_exceeded" ||
+    // An overflow is a property of the window the *chosen* route offers, not
+    // of the request: a sibling on a larger window may take it unchanged. 413
+    // is not in `retryableByStatus`, so without this the client got the first
+    // candidate's overflow even when a candidate that fit was next in line.
+    // Nothing here shrinks or rewrites the prompt — a candidate that fits is
+    // tried verbatim, and only exhausting them returns the overflow.
+    error.code === "context_length_exceeded" ||
     retryableByStatus;
   return {
     retryable,
@@ -468,12 +475,6 @@ export function classifyTerminalOutcome(error: unknown, signal: AbortSignal): Te
  * client itself wrote, and prose scans for phrases like "context window" or
  * "too many tokens" misfire the same way. Those heuristics
  * mislabel unrelated failures, so we read only the machine-readable field.
- *
- * Consequence, stated plainly: an upstream that reports overflow *only* in
- * prose (Anthropic's `invalid_request_error` with "prompt is too long") is not
- * recognized here and keeps its generic code. That is the deliberate cost of
- * refusing text matching — a wrong `context_length_exceeded` is worse than a
- * missing one, because it tells the client to truncate a prompt that was fine.
  */
 const CONTEXT_LENGTH_CODES: ReadonlySet<string> = new Set([
   "context_length_exceeded",
@@ -481,12 +482,61 @@ const CONTEXT_LENGTH_CODES: ReadonlySet<string> = new Set([
   "model_context_window_exceeded",
 ]);
 
+/**
+ * The measured-size shape of a prose overflow, e.g.
+ * `"prompt is too long: 100001 tokens > 100000 maximum"`.
+ *
+ * This is not a prose scan. It requires the upstream to state two numbers and
+ * the comparison between them, which is the difference between an overflow
+ * report and a message that merely quotes one: a client whose own prompt text
+ * contains "prompt is too long" still does not match, because it states no
+ * measured size and no ceiling. Requiring `larger > smaller` rules out the
+ * remaining accidental matches, since a real overflow always reports more
+ * tokens than the window allows.
+ */
+const PROSE_OVERFLOW_PATTERN =
+  /(?:the\s+)?(?:prompt|request|input|context|messages?|conversation)\b[^.\n]{0,80}?(?:is\s+|are\s+)?too\s+long[^.\n]{0,40}?:?\s*(\d[\d_,]*)\s*(?:tokens?|chars?|characters?)\s*(?:>|>=|exceeds?|over)\s*(\d[\d_,]*)/i;
+
+/** Digits with optional thousands separators, as `Number` wants them. */
+function parseCount(raw: string): number {
+  return Number(raw.replace(/[_,]/g, ""));
+}
+
+/**
+ * Reads a prose overflow's measured size and ceiling, in tokens.
+ *
+ * Returns `undefined` unless the text states both numbers with the measured
+ * side larger — so a malformed or coincidental match cannot promote a 400 to
+ * a 413. When it does match, the numbers are returned so the error can quote
+ * them: a client that compacts on overflow needs to know how far it overshot.
+ */
+export function proseOverflowLimit(text: string): { used: number; maximum: number } | undefined {
+  const match = PROSE_OVERFLOW_PATTERN.exec(text);
+  if (!match) return undefined;
+  const used = parseCount(match[1]!);
+  const maximum = parseCount(match[2]!);
+  if (!Number.isFinite(used) || !Number.isFinite(maximum)) return undefined;
+  if (used <= maximum || maximum <= 0) return undefined;
+  return { used, maximum };
+}
+
 /** True when an upstream error body names a context-window overflow. */
 export function isContextLengthFailure(body: unknown): boolean {
   if (!isRecord(body)) return false;
   const envelope = isRecord(body.error) ? body.error : body;
   for (const candidate of [envelope.code, envelope.type, body.code, body.type]) {
     if (typeof candidate === "string" && CONTEXT_LENGTH_CODES.has(candidate.toLowerCase())) return true;
+  }
+  // Some upstreams report overflow only in prose, with a numeric `code` that
+  // says nothing (WorkBuddy sends `code: 11115`, `extError.type:
+  // invalid_request_error`, and the real cause in `msg`). Leaving that as a
+  // generic 400 hides the one thing a client acts on: Claude Code compacts when
+  // it is told the prompt exceeded the window, and does nothing on a 400 that
+  // looks like any other bad request. So the prose form is recognized too —
+  // but only in its measured-size shape, never as a bare phrase.
+  for (const candidate of [envelope.message, envelope.msg, body.message, body.msg]) {
+    if (typeof candidate !== "string") continue;
+    if (proseOverflowLimit(candidate) !== undefined) return true;
   }
   return false;
 }

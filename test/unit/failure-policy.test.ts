@@ -896,6 +896,10 @@ describe("classifyUpstreamFailure", () => {
       "authentication_failed",
       "proxy_auth_required",
       "deadline_exceeded",
+      // An overflow names how big the prompt was against *this* candidate's
+      // window. Another candidate may simply offer more room, and the request
+      // is retried verbatim — nothing here shrinks or rewrites it.
+      "context_length_exceeded",
     ];
     for (const code of retryableCodes) {
       expect(classifyUpstreamFailure(new GatewayError(code, 400, "m")).retryable).toBe(true);
@@ -906,11 +910,15 @@ describe("classifyUpstreamFailure", () => {
     // `platform_unavailable` is the important one: a 502 from a dead upstream
     // route is not worth another candidate for the *same* reason, and the
     // status-based arm below is what makes the 5xx retry decision.
+    //
+    // `context_length_exceeded` is deliberately absent from this list. An
+    // overflow is a property of the window the chosen route offers, not of the
+    // request, so a sibling on a larger window may take the request unchanged —
+    // see the retryable-code test above for the other side of that decision.
     const terminalCodes: readonly GatewayErrorCode[] = [
       "internal_error",
       "invalid_request",
       "upstream_not_found",
-      "context_length_exceeded",
       "policy_rejected",
       "transport_unavailable",
       "shutting_down",

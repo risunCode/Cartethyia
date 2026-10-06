@@ -1,5 +1,22 @@
 ## Unreleased
 
+- A context-window overflow that an upstream reports only in prose is now
+  classified as `context_length_exceeded` (413) instead of a generic
+  `invalid_request` (400). WorkBuddy reports it as `code: 11115` with
+  `extError.type: invalid_request_error` and the cause only in `msg`
+  ("prompt is too long: 100001 tokens > 100000 maximum"), so reading
+  structured identifiers alone told the client nothing it could act on:
+  Claude Code compacts when it is told the prompt exceeded the window and
+  does nothing on a 400 that looks like any other bad request. The prose form
+  is recognized in its measured-size shape (`N tokens > M`, with `N > M`)
+  and never as a bare phrase, so a message that merely quotes the phrase —
+  including one the client's own prompt wrote — still does not match.
+- `context_length_exceeded` is now retryable, so an overflow fails over to the
+  next candidate. An overflow is a property of the window the chosen route
+  offers, not of the request: a sibling on a larger window is tried verbatim
+  and nothing is shrunk or rewritten. Only exhausting the candidates returns
+  the 413, still carrying the measured size and ceiling.
+
 - A buddy-family channel rejection (`400 · 11128`, "Illegal API invocation
   from an unapproved channel") now parks the account for 6 h instead of
   leaving it in rotation. It is account-wide and repeats on every invocation,
