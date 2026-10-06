@@ -17,11 +17,37 @@ import { resolveDefaultGatewayApiKey } from "../../config/runtime";
 import { TENANT_KEY_SCOPES } from "../../security/access-control";
 import { isRecord } from "../../protocol/codecs";
 import { BackupService } from "../backup/service";
+import type { BackupInspection } from "../backup/service";
+import type { RestoreWarning } from "../backup/contracts";
 
 const FIRST_BOOT_SETUP_LOCK = sql`SELECT pg_advisory_xact_lock(hashtext('cartethyia:first_boot_setup'))`;
 
+/** The administrator to create when a restored backup left none to sign in with. */
+export interface AdminBootstrap {
+  readonly password: string;
+  readonly username?: string;
+  readonly displayName?: string;
+}
+
+/** What a first-boot restore did, so the console can report it honestly. */
+export interface RestoreBackupOutcome {
+  readonly restored: Record<string, number>;
+  readonly skipped: Record<string, number>;
+  /** Parts of the file that could not be restored. */
+  readonly warnings: readonly RestoreWarning[];
+  /** Whether the file's own accounts are what will sign in from now on. */
+  readonly hasConsoleUsers: boolean;
+  /** Whether this restore had to create an administrator to stay reachable. */
+  readonly createdAdmin: boolean;
+}
+
 export class FirstBootSetupService {
-  private setupInFlight: Promise<void> | undefined;
+  /**
+   * Single-flight guard. Typed as `unknown`-resolving because setup and restore
+   * return different shapes (`void` and an outcome), and the guard only ever
+   * awaits them to serialize callers — it never reads a value.
+   */
+  private setupInFlight: Promise<unknown> | undefined;
   private readonly db: CartethyiaDatabase;
 
   constructor(
@@ -94,21 +120,7 @@ export class FirstBootSetupService {
           isRecord(inserted) && typeof inserted.id === "string" ? inserted.id : candidateId;
       }
 
-      const passwordHash = await this.credentialService.hashPassword(password);
-      const adminUsername = username?.trim() || "admin";
-      const userInsert = db.insert(consoleUsers).values({
-        id: randomUUID(),
-        tenantId,
-        username: adminUsername,
-        email: `${adminUsername}@localhost`,
-        passwordHash,
-        displayName: displayName?.trim() || "Administrator",
-        isFirstBoot: false,
-        isActive: true,
-        isPlatformAdmin: true,
-      });
-      const insertedUser = await returningRows(userInsert);
-      assertMutationApplied(insertedUser, "Administrator user");
+      await this.createConsoleUser(db, tenantId, password, username, displayName);
       const defaultApiKey = resolveDefaultGatewayApiKey();
       if (defaultApiKey) {
         const keyHash = hashSecret(defaultApiKey);
@@ -145,40 +157,114 @@ export class FirstBootSetupService {
   }
 
   /**
-   * First boot from a backup. Creates an empty tenant, then restores the file
-   * into it. The file's console users are the accounts that can sign in; this
-   * path creates none of its own. Refuses once any user exists, same as setup.
+   * Describes a backup file without restoring it.
+   *
+   * The first-boot wizard peeks before it commits, and "which of these tables
+   * does this build actually have" is a question only the live schema can
+   * answer. Gated on first boot by the route, so it is not readable once an
+   * account exists.
    */
-  async restoreBackup(payload: unknown): Promise<void> {
+  inspectBackup(payload: unknown): BackupInspection {
+    const backup = new BackupService({ db: this.db, verifyPassword: async () => false });
+    return backup.inspect(payload);
+  }
+
+  /**
+   * First boot from a backup. Creates an empty tenant, then restores the file
+   * into it.
+   *
+   * The restore is partial by contract — a file from an older build recovers
+   * what still matches the schema and reports the rest — so this never refuses a
+   * backup for being incomplete. When the file carried no console user (or none
+   * that survived), the restored configuration would otherwise be unreachable:
+   * nobody could sign in to it. So this path then creates an administrator from
+   * `admin`, which the caller only supplies when the file left the console
+   * without an account. Refuses once any user exists, same as setup.
+   */
+  async restoreBackup(payload: unknown, admin?: AdminBootstrap): Promise<RestoreBackupOutcome> {
     const previous = this.setupInFlight;
     if (previous) await previous.catch(() => undefined);
-    const operation = this.restoreBackupOnce(payload);
+    const operation = this.restoreBackupOnce(payload, admin);
     this.setupInFlight = operation;
     try {
-      await operation;
+      return await operation;
     } finally {
       if (this.setupInFlight === operation) this.setupInFlight = undefined;
     }
   }
 
-  private async restoreBackupOnce(payload: unknown): Promise<void> {
+  private async restoreBackupOnce(payload: unknown, admin?: AdminBootstrap): Promise<RestoreBackupOutcome> {
     if (!(await this.requiresSetup())) throw new Error("Setup already completed");
     const tenantId = randomUUID();
     await this.db.insert(tenants).values({ id: tenantId, name: "Default", status: "active" });
+    let result: Awaited<ReturnType<BackupService["restoreFirstBoot"]>>;
     try {
       const backup = new BackupService({
         db: this.db,
         verifyPassword: async () => false,
       });
-      await backup.restoreFirstBoot(payload, tenantId);
+      result = await backup.restoreFirstBoot(payload, tenantId);
     } catch (error) {
       await this.db.delete(tenants).where(eq(tenants.id, tenantId));
       throw error;
     }
-    if (await this.requiresSetup()) {
-      await this.db.delete(tenants).where(eq(tenants.id, tenantId));
-      throw new Error("Backup did not restore a console user");
+
+    // The file left nobody to sign in with. Create the administrator rather
+    // than discarding a restore that worked, so the operator keeps the
+    // configuration and still gets a console.
+    if (!(await this.requiresSetup())) {
+      return { ...result, createdAdmin: false };
     }
+    if (admin === undefined || admin.password.length === 0) {
+      // Nothing forced the caller to supply one: it did not know the file was
+      // missing users until now. Roll the tenant back so a retry is clean, and
+      // say exactly what is needed.
+      await this.db.delete(tenants).where(eq(tenants.id, tenantId));
+      throw new Error("Backup has no console users; set an administrator username and password to finish");
+    }
+    try {
+      await this.createConsoleUser(
+        this.db,
+        tenantId,
+        admin.password,
+        admin.username,
+        admin.displayName,
+      );
+    } catch (error) {
+      await this.db.delete(tenants).where(eq(tenants.id, tenantId));
+      throw error;
+    }
+    return { ...result, createdAdmin: true };
+  }
+
+  /**
+   * Inserts one platform-admin console user.
+   *
+   * Shared by plain setup and by a restore that left the console without an
+   * account, so the two cannot drift into different admin shapes.
+   */
+  private async createConsoleUser(
+    db: CartethyiaDatabase,
+    tenantId: string,
+    password: string,
+    username?: string,
+    displayName?: string,
+  ): Promise<void> {
+    const adminUsername = username?.trim() || "admin";
+    const passwordHash = await this.credentialService.hashPassword(password);
+    const userInsert = db.insert(consoleUsers).values({
+      id: randomUUID(),
+      tenantId,
+      username: adminUsername,
+      email: `${adminUsername}@localhost`,
+      passwordHash,
+      displayName: displayName?.trim() || "Administrator",
+      isFirstBoot: false,
+      isActive: true,
+      isPlatformAdmin: true,
+    });
+    const insertedUser = await returningRows(userInsert);
+    assertMutationApplied(insertedUser, "Administrator user");
   }
 }
 

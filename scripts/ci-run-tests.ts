@@ -4,11 +4,13 @@
  * A bare `bun test` is not enough for this suite, and the reasons are worth
  * stating so the flags are not "helpfully" removed later:
  *
- * - **`.env.test` is loaded explicitly.** Bun loads `.env` by default, which
- *   holds a developer's *runtime* database. Without this the suites would
- *   migrate and write into the working database — the exact failure the old
- *   suite was deleted over. Loading it here (rather than relying on Bun's
- *   `.env.test` auto-load) means the file that is loaded is named in one place.
+ * - **`.env.test` is loaded explicitly, and it wins.** Bun loads `.env` by
+ *   default, which holds a developer's *runtime* database and mode. Without
+ *   this the suites would migrate and write into the working database — the
+ *   exact failure the old suite was deleted over. Loading it here (rather than
+ *   relying on Bun's `.env.test` auto-load) means the file that is loaded is
+ *   named in one place, and it overrides `.env` so a lite runtime mode cannot
+ *   reach the pg-backed suites.
  * - **`--timeout` is a hang detector, not a budget.** 15 s is far longer than
  *   any legitimate test in this suite; it exists so a deadlocked test fails
  *   with a name instead of stalling CI. A test that needs to wait is written
@@ -38,7 +40,18 @@ const DASHBOARD_TESTS = join(DASHBOARD_ROOT, "test");
 
 const rawArgs = process.argv.slice(2);
 
-/** Reads a dotenv file without overriding already-exported variables. */
+/**
+ * Reads a dotenv file, overriding already-exported variables.
+ *
+ * It overrides on purpose. Bun loads `.env` first, and a developer's runtime
+ * `.env` is `CARTETHYIA_DB_MODE=lite` (`.env.example` defaults to lite). The
+ * suites open a real pg pool — `getTestPool()` has no embedded path — so
+ * inheriting a lite runtime mode made 44 database tests fail with "Lite
+ * database is not booted". `.env.test` is the authority for the test
+ * environment, so a key it defines wins; a key it does not name is still
+ * inherited from `.env`, which is how the runtime encryption key reaches the
+ * suites that read it.
+ */
 function loadEnvFile(path: string): Record<string, string> {
   if (!existsSync(path)) return {};
   const values: Record<string, string> = {};
@@ -48,7 +61,7 @@ function loadEnvFile(path: string): Record<string, string> {
     if (separator <= 0) continue;
     const key = line.slice(0, separator).trim();
     const value = line.slice(separator + 1).trim();
-    if (key && process.env[key] === undefined) values[key] = value;
+    if (key) values[key] = value;
   }
   return values;
 }

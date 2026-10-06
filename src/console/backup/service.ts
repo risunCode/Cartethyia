@@ -18,8 +18,8 @@
  */
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { ConsoleDomainError } from "../shared/errors";
-import { tablesForSection } from "./contracts";
-import type { BackupSection } from "./contracts";
+import { tablesForSection, tableName } from "./contracts";
+import type { BackupSection, RestoreWarning } from "./contracts";
 import { deleteAll, exportBackup, applyRestore, type DeleteAllResult, type DeleteAllScope } from "./store";
 import { detectFormat, restoreOrder, validateRestorePayload } from "./validate";
 import { convert9RouterBackup, type ImportReport } from "./nine-router";
@@ -45,9 +45,36 @@ export interface ExportOptions {
   readonly tenantId: string;
 }
 
+/** One table as it appears in a backup file, and whether it can be restored. */
+export interface BackupInspectionRow {
+  readonly section: string;
+  readonly table: string;
+  readonly count: number;
+  /** False when the current schema has no such table: restore will skip it. */
+  readonly supported: boolean;
+}
+
+/**
+ * A backup's cover, read without writing.
+ *
+ * `warnings` carries what a real restore would leave out, so the operator sees
+ * the loss before committing rather than after.
+ */
+export interface BackupInspection {
+  readonly format: "native" | "nine_router";
+  readonly version: number;
+  readonly exportedAt: string;
+  readonly rows: readonly BackupInspectionRow[];
+  readonly total: number;
+  readonly hasConsoleUsers: boolean;
+  readonly warnings: readonly RestoreWarning[];
+}
+
 export interface ImportResult {
   readonly restored: Record<string, number>;
   readonly skipped: Record<string, number>;
+  /** Parts of the file that could not be restored. Empty means it all applied. */
+  readonly warnings: readonly RestoreWarning[];
   readonly report?: ImportReport;
   readonly format: "native" | "nine_router";
 }
@@ -120,10 +147,18 @@ export class BackupService {
    *
    * There is no operator to re-authenticate, and no tenant to scope the write
    * to. The caller has already proven that no console user exists and holds
-   * the setup lock. The file's own users become the accounts that can sign in,
-   * so this path does not create one.
+   * the setup lock.
+   *
+   * A file with no console users is restored, not refused: its configuration is
+   * worth recovering even when its accounts were not carried, and the caller
+   * decides what to do about sign-in. `hasConsoleUsers` reports what the file
+   * claimed, so the caller can tell "restored and its accounts sign in" from
+   * "restored, and now it needs an administrator".
    */
-  async restoreFirstBoot(payload: unknown, tenantId: string): Promise<ImportResult> {
+  async restoreFirstBoot(
+    payload: unknown,
+    tenantId: string,
+  ): Promise<ImportResult & { readonly hasConsoleUsers: boolean }> {
     const detected = detectFormat(payload);
     if (detected.kind !== "native") {
       throw new ConsoleDomainError(
@@ -132,29 +167,82 @@ export class BackupService {
         detected.kind === "unknown" ? detected.reason : "first-boot restore accepts a Cartethyia backup only",
       );
     }
-    const users = consoleUsersIn(detected.payload);
-    if (users.length === 0) {
-      throw new ConsoleDomainError(
-        "invalid_request",
-        400,
-        "backup has no console users; create an administrator instead",
-      );
-    }
     const result = await this.apply(detected.payload, tenantId);
-    return { ...result, format: "native" };
+    return {
+      ...result,
+      format: "native",
+      hasConsoleUsers: consoleUsersIn(detected.payload).length > 0,
+    };
+  }
+
+  /**
+   * Describes a backup without writing any of it.
+   *
+   * The dashboard's restore wizard peeks at a file before committing to it, and
+   * "which of these tables does the current build actually have" is a question
+   * only the live schema can answer — a hand-maintained list of table names in
+   * the browser would drift the moment a migration landed. So the answer comes
+   * from the same validation a restore runs, and writes nothing.
+   */
+  inspect(payload: unknown): BackupInspection {
+    const detected = detectFormat(payload);
+    if (detected.kind === "unknown") {
+      throw new ConsoleDomainError("invalid_request", 400, detected.reason);
+    }
+    const candidate = detected.kind === "native" ? detected.payload : null;
+    if (candidate === null) {
+      // A router export has no sections to list; it is converted at restore
+      // time, so all that can be said here is what it is.
+      return {
+        format: "nine_router",
+        version: 0,
+        exportedAt: "",
+        rows: [],
+        total: 0,
+        hasConsoleUsers: false,
+        warnings: [],
+      };
+    }
+    const validation = validateRestorePayload(candidate, "");
+    const warnings = validation.ok ? validation.value.warnings : [];
+    const supported = new Set(validation.ok ? [...validation.value.tables.keys()].map(tableName) : []);
+
+    const rows: BackupInspectionRow[] = [];
+    let total = 0;
+    const sections = isRecord(candidate.sections) ? candidate.sections : {};
+    for (const [section, value] of Object.entries(sections)) {
+      if (!isRecord(value)) continue;
+      for (const [table, list] of Object.entries(value)) {
+        if (!Array.isArray(list)) continue;
+        rows.push({ section, table, count: list.length, supported: supported.has(table) });
+        total += list.length;
+      }
+    }
+    rows.sort((left, right) => right.count - left.count || left.table.localeCompare(right.table));
+
+    return {
+      format: "native",
+      version: typeof candidate.version === "number" ? candidate.version : 0,
+      exportedAt: typeof candidate.exportedAt === "string" ? candidate.exportedAt : "",
+      rows,
+      total,
+      hasConsoleUsers: consoleUsersIn(candidate).length > 0,
+      warnings,
+    };
   }
 
   /** Validates and applies a native payload. Shared by both formats. */
   private async apply(
     payload: unknown,
     tenantId: string,
-  ): Promise<{ restored: Record<string, number>; skipped: Record<string, number> }> {
+  ): Promise<{ restored: Record<string, number>; skipped: Record<string, number>; warnings: readonly RestoreWarning[] }> {
     const validation = validateRestorePayload(payload, tenantId);
     if (!validation.ok) {
       throw new ConsoleDomainError("invalid_request", 400, validation.error);
     }
     try {
-      return await applyRestore(this.options.db, validation.value, restoreOrder(), tenantId);
+      const applied = await applyRestore(this.options.db, validation.value, restoreOrder(), tenantId);
+      return { ...applied, warnings: validation.value.warnings };
     } catch (error) {
       // The message carries table and column names only — the store never
       // interpolates a cell value — so a failed restore cannot leak credentials

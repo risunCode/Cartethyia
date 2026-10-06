@@ -413,11 +413,32 @@ export interface RestoreResult {
   readonly skipped: Record<string, number>;
 }
 
+/**
+ * One part of a backup that could not be restored, and why.
+ *
+ * Reported, never thrown: a restore is partial by contract. An old export
+ * legitimately names tables and columns that no longer exist, and the answer is
+ * to recover the rest and say what was left out — not to lose the whole file.
+ *
+ * A warning names schema objects only. It never carries a cell value, so a
+ * failed restore of a backup full of credentials cannot echo one.
+ */
+export interface RestoreWarning {
+  /** The table the payload named, when the cause belongs to one. */
+  readonly table?: string;
+  /** The column that did not resolve, when the cause is a column. */
+  readonly column?: string;
+  /** Operator-facing cause. */
+  readonly reason: string;
+}
+
 /** A payload that passed validation: tables resolved to real schema objects. */
 export interface ValidatedRestore {
   readonly tables: ReadonlyMap<Table, ValidatedTable>;
   readonly tenantRows: readonly BackupRow[];
   readonly counts: Record<string, number>;
+  /** What validation had to leave out. Empty means the whole file applied. */
+  readonly warnings: readonly RestoreWarning[];
 }
 
 export type RestoreValidation =

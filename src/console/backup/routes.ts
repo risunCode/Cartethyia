@@ -168,7 +168,9 @@ export function createBackupRoutes(config: BackupRoutesConfig): Elysia {
           }
         }
         set.status = 200;
-        return result;
+        // `partial` is the honest verdict: a 200 with warnings means the file
+        // was applied as far as the current schema allows, not in full.
+        return { ...result, partial: result.warnings.length > 0 };
       } catch (error) {
         return errorResponse(error, set, "Backup import failed");
       }

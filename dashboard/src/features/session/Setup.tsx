@@ -12,6 +12,56 @@ interface SetupResult {
   readonly message?: string;
 }
 
+/** One part of the file that the current schema cannot restore. */
+interface RestoreWarning {
+  readonly table?: string;
+  readonly column?: string;
+  readonly reason: string;
+}
+
+interface SetupInspectResult extends SetupResult {
+  readonly version?: number;
+  readonly exportedAt?: string;
+  readonly rows?: readonly {
+    readonly section: string;
+    readonly table: string;
+    readonly count: number;
+    readonly supported: boolean;
+  }[];
+  readonly total?: number;
+  readonly hasConsoleUsers?: boolean;
+  readonly warnings?: readonly RestoreWarning[];
+}
+
+interface SetupRestoreResult extends SetupResult {
+  readonly restored?: Record<string, number>;
+  readonly warnings?: readonly RestoreWarning[];
+  readonly hasConsoleUsers?: boolean;
+  readonly createdAdmin?: boolean;
+}
+
+/**
+ * What a backup holds, as the server described it.
+ *
+ * "Supported" comes from the live schema, not from a table list kept in the
+ * browser — a mirror like that drifts the moment a migration lands, and then
+ * the wizard would be confidently wrong about what it can restore.
+ */
+interface BackupPreview {
+  readonly fileName: string;
+  readonly version: number;
+  readonly exportedAt: string;
+  readonly rows: readonly {
+    readonly section: string;
+    readonly table: string;
+    readonly count: number;
+    readonly supported: boolean;
+  }[];
+  readonly total: number;
+  readonly hasConsoleUsers: boolean;
+  readonly warnings: readonly RestoreWarning[];
+}
+
 export default function Setup(): ReactNode {
   const navigate = useNavigate();
   const [username, setUsername] = useState("admin");
@@ -22,6 +72,12 @@ export default function Setup(): ReactNode {
   const [pending, setPending] = useState(false);
   const [mode, setMode] = useState<"create" | "restore">("create");
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<BackupPreview | null>(null);
+  /**
+   * The file is restored, but it carried no account, so the wizard has to ask
+   * for one — otherwise the configuration comes back and nobody can sign in.
+   */
+  const [needsAdmin, setNeedsAdmin] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement>(null);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -71,18 +127,25 @@ export default function Setup(): ReactNode {
     }
   };
 
-  const restore = async (file: File) => {
+  const restore = async (file: File, admin?: { password: string; username?: string; displayName?: string }) => {
     setPending(true);
     setError(null);
     try {
       const text = await file.text();
       const backup = JSON.parse(text) as unknown;
-      const result = await consoleRequest<SetupResult>("/auth/setup/restore", {
+      const result = await consoleRequest<SetupRestoreResult>("/auth/setup/restore", {
         method: "POST",
-        body: JSON.stringify({ backup }),
+        body: JSON.stringify({ backup, ...(admin ?? {}) }),
       });
       if (result.status !== "success") {
         setError(result.message ?? "Restore failed. Please try again.");
+        return;
+      }
+      // The file restored, but left nobody to sign in with. Ask once, using the
+      // restore that already happened rather than throwing it away.
+      if (result.hasConsoleUsers === false && result.createdAdmin !== true) {
+        setNeedsAdmin(true);
+        setPending(false);
         return;
       }
       queryClient.removeQueries({ queryKey: queryKeys.session.current });
@@ -103,6 +166,76 @@ export default function Setup(): ReactNode {
     } finally {
       setPending(false);
     }
+  };
+
+  const restoreWithAdmin = async () => {
+    if (!restoreFile) return;
+    if (password.length < 8) {
+      setError("Administrator password must be at least 8 characters.");
+      return;
+    }
+    if (password !== confirm) {
+      setError("Passwords do not match.");
+      return;
+    }
+    await restore(restoreFile, {
+      password,
+      username: username.trim(),
+      ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
+    });
+  };
+
+  const pickFile = (file: File | null) => {
+    setRestoreFile(file);
+    setError(null);
+    setNeedsAdmin(false);
+    if (file === null) {
+      setPreview(null);
+      return;
+    }
+    // Inspect on the server: only the live schema knows which of these tables
+    // still exist, so the "unsupported" verdict cannot be computed here.
+    void file
+      .text()
+      .then(async (text) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(text) as unknown;
+        } catch {
+          setPreview(null);
+          setError("That file is not a JSON backup.");
+          return;
+        }
+        try {
+          const result = await consoleRequest<SetupInspectResult>("/auth/setup/inspect", {
+            method: "POST",
+            body: JSON.stringify({ backup: parsed }),
+          });
+          if (result.status !== "success") {
+            setPreview(null);
+            setError(result.message ?? "Could not read that backup.");
+            return;
+          }
+          const hasUsers = result.hasConsoleUsers === true;
+          setPreview({
+            fileName: file.name,
+            version: result.version ?? 0,
+            exportedAt: result.exportedAt ?? "",
+            rows: result.rows ?? [],
+            total: result.total ?? 0,
+            hasConsoleUsers: hasUsers,
+            warnings: result.warnings ?? [],
+          });
+          // Ask up front, from what the peek already reported, rather than
+          // restoring first and trying to read a refusal back.
+          setNeedsAdmin(!hasUsers);
+        } catch {
+          // A failed peek must not block the restore: the button stays live and
+          // the real attempt reports the real reason.
+          setPreview(null);
+        }
+      })
+      .catch(() => setPreview(null));
   };
 
   return (
@@ -131,20 +264,7 @@ export default function Setup(): ReactNode {
 
         {mode === "restore" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-            <label
-              htmlFor="setup-backup"
-              style={{ fontSize: "12.5px", fontWeight: 600 }}
-            >
-              Cartethyia backup
-            </label>
             <div className="setup-restore-row">
-              <span
-                className="setup-restore-file"
-                aria-live="polite"
-                title={restoreFile?.name ?? ""}
-              >
-                {restoreFile ? restoreFile.name : "No file chosen"}
-              </span>
               <Button
                 type="button"
                 variant="secondary"
@@ -160,7 +280,11 @@ export default function Setup(): ReactNode {
                 size="sm"
                 disabled={pending || restoreFile === null}
                 onClick={() => {
-                  if (restoreFile) void restore(restoreFile);
+                  if (!restoreFile) return;
+                  // Without accounts the wizard has to supply one, so a single
+                  // click sends both rather than restoring into a dead console.
+                  if (needsAdmin) void restoreWithAdmin();
+                  else void restore(restoreFile);
                 }}
               >
                 {pending ? "Restoring…" : "Restore backup"}
@@ -175,11 +299,61 @@ export default function Setup(): ReactNode {
               style={{ display: "none" }}
               onChange={(event) => {
                 const file = event.target.files?.[0] ?? null;
-                setRestoreFile(file);
-                setError(null);
+                pickFile(file);
                 event.target.value = "";
               }}
             />
+
+            {preview ? <BackupSummary preview={preview} /> : null}
+
+            {needsAdmin ? (
+              <div className="setup-admin-needed">
+                <p className="setup-note">
+                  This backup has no console accounts, so nothing could sign in
+                  after restoring it. Set an administrator below — the rest of
+                  the file is restored either way.
+                </p>
+                <Input
+                  label="Administrator Username"
+                  id="restore-username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                  autoComplete="username"
+                />
+                <Input
+                  label="Master Password"
+                  hint="(min. 8 chars)"
+                  id="restore-password"
+                  type="password"
+                  required
+                  minLength={8}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="new-password"
+                />
+                <Input
+                  label="Confirm Password"
+                  id="restore-confirm"
+                  type="password"
+                  required
+                  minLength={8}
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  autoComplete="new-password"
+                />
+                <Button
+                  variant="primary"
+                  type="button"
+                  disabled={pending}
+                  onClick={() => void restoreWithAdmin()}
+                  style={{ width: "100%", height: "40px" }}
+                >
+                  {pending ? "Restoring…" : "Restore and create administrator"}
+                </Button>
+              </div>
+            ) : null}
+
             {error ? <SetupError message={error} /> : null}
           </div>
         ) : (
@@ -242,6 +416,80 @@ export default function Setup(): ReactNode {
         )}
       </div>
     </main>
+  );
+}
+
+/**
+ * What is inside the chosen backup.
+ *
+ * Tables the current build does not have are listed with a badge instead of
+ * being hidden: a backup from an older version still restores everything that
+ * does match, and the operator is entitled to see what will not.
+ */
+function BackupSummary({ preview }: { readonly preview: BackupPreview }): ReactNode {
+  const unsupported = preview.rows.filter((row) => !row.supported);
+  const supported = preview.rows.filter((row) => row.supported);
+  const exported = preview.exportedAt ? preview.exportedAt.replace("T", " ").slice(0, 19) : "unknown";
+
+  return (
+    <div className="setup-preview">
+      <div className="setup-preview-head">
+        <span className="setup-preview-file" title={preview.fileName}>
+          {preview.fileName}
+        </span>
+        <span className="setup-badge">v{preview.version}</span>
+        {preview.hasConsoleUsers ? (
+          <span className="setup-badge setup-badge-ok">accounts</span>
+        ) : (
+          <span className="setup-badge setup-badge-warn">no accounts</span>
+        )}
+        {unsupported.length > 0 ? (
+          <span className="setup-badge setup-badge-warn">
+            {unsupported.length} unsupported
+          </span>
+        ) : null}
+      </div>
+      <p className="setup-note">
+        {preview.total} rows across {preview.rows.length} tables · exported {exported}
+      </p>
+      {unsupported.length > 0 ? (
+        <p className="setup-note setup-note-warn">
+          {unsupported.length === preview.rows.length
+            ? "None of these tables exist in this build, so nothing can be restored."
+            : "This build no longer has some of these tables. The rest still restores."}
+        </p>
+      ) : null}
+      {preview.rows.length === 0 ? (
+        <p className="setup-note">This backup is empty.</p>
+      ) : (
+        <div className="setup-preview-scroll">
+          <table className="setup-table">
+            <thead>
+              <tr>
+                <th>Table</th>
+                <th>Section</th>
+                <th className="setup-col-count">Rows</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...supported, ...unsupported].map((row) => (
+                <tr key={`${row.section}/${row.table}`}>
+                  <td>{row.table}</td>
+                  <td>{row.section}</td>
+                  <td className="setup-col-count">
+                    {row.supported ? (
+                      row.count
+                    ) : (
+                      <span className="setup-badge setup-badge-warn">unsupported</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 

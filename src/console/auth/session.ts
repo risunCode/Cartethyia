@@ -58,6 +58,36 @@ export interface SetupResponse {
   readonly message?: string;
 }
 
+/**
+ * Result of a first-boot restore.
+ *
+ * `warnings` is what a partial restore had to leave out, and `createdAdmin`
+ * says whether the console then needed a new administrator to be reachable at
+ * all — so the wizard can report both instead of only "it worked".
+ */
+/** A backup's cover, so the wizard can show what a file holds before restoring. */
+export interface SetupInspectResponse extends SetupResponse {
+  readonly format?: "native" | "nine_router";
+  readonly version?: number;
+  readonly exportedAt?: string;
+  readonly rows?: readonly {
+    readonly section: string;
+    readonly table: string;
+    readonly count: number;
+    readonly supported: boolean;
+  }[];
+  readonly total?: number;
+  readonly hasConsoleUsers?: boolean;
+  readonly warnings?: readonly { readonly table?: string; readonly column?: string; readonly reason: string }[];
+}
+
+export interface SetupRestoreResponse extends SetupResponse {
+  readonly restored?: Record<string, number>;
+  readonly warnings?: readonly { readonly table?: string; readonly column?: string; readonly reason: string }[];
+  readonly hasConsoleUsers?: boolean;
+  readonly createdAdmin?: boolean;
+}
+
 export interface LogoutResponse {
   readonly status: "success";
 }
@@ -330,10 +360,42 @@ export function createConsoleAuthRoutes(
   );
 
   app.post(
+    "/setup/inspect",
+    {
+      body: t.Object({
+        backup: t.Unknown(),
+      }),
+    },
+    async ({ body, set }) => {
+      // Gated on first boot, like the restore itself: a backup's cover names the
+      // tables and row counts of a real configuration, and it must not be
+      // readable once an account exists to protect.
+      if (!(await setupService.requiresSetup())) {
+        set.status = 400;
+        return { status: "failed", message: "Setup already completed" } satisfies SetupResponse;
+      }
+      try {
+        return { status: "success", ...setupService.inspectBackup(body.backup) } satisfies SetupInspectResponse;
+      } catch (error) {
+        set.status = 400;
+        return {
+          status: "failed",
+          message: error instanceof Error ? error.message : "Could not read that backup",
+        } satisfies SetupInspectResponse;
+      }
+    },
+  );
+
+  app.post(
     "/setup/restore",
     {
       body: t.Object({
         backup: t.Unknown(),
+        // Supplied when the file carries no console user: the restore is still
+        // worth keeping, but nobody could sign in to it.
+        username: t.Optional(t.String()),
+        password: t.Optional(t.String()),
+        display_name: t.Optional(t.String()),
       }),
     },
     async ({ body, set }) => {
@@ -341,8 +403,17 @@ export function createConsoleAuthRoutes(
         set.status = 400;
         return { status: "failed", message: "Setup already completed" } satisfies SetupResponse;
       }
+      const admin =
+        typeof body.password === "string" && body.password.length > 0
+          ? {
+              password: body.password,
+              ...(typeof body.username === "string" ? { username: body.username } : {}),
+              ...(typeof body.display_name === "string" ? { displayName: body.display_name } : {}),
+            }
+          : undefined;
+      let outcome: Awaited<ReturnType<FirstBootSetupService["restoreBackup"]>>;
       try {
-        await setupService.restoreBackup(body.backup);
+        outcome = await setupService.restoreBackup(body.backup, admin);
       } catch (error) {
         if (error instanceof Error && error.message === "Setup already completed") {
           set.status = 400;
@@ -352,7 +423,20 @@ export function createConsoleAuthRoutes(
         set.status = 400;
         return { status: "failed", message } satisfies SetupResponse;
       }
-      return { status: "success", message: "Backup restored" } satisfies SetupResponse;
+      // The restore may have recovered only part of the file. Say so, rather
+      // than letting a 200 imply the whole backup came back.
+      const partial = outcome.warnings.length > 0;
+      const message = partial
+        ? `Backup restored partially: ${outcome.warnings.length} part${outcome.warnings.length === 1 ? "" : "s"} could not be recovered`
+        : "Backup restored";
+      return {
+        status: "success",
+        message,
+        restored: outcome.restored,
+        ...(partial ? { warnings: outcome.warnings } : {}),
+        hasConsoleUsers: outcome.hasConsoleUsers,
+        createdAdmin: outcome.createdAdmin,
+      } satisfies SetupRestoreResponse;
     },
   );
 

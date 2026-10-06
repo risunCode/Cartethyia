@@ -760,33 +760,110 @@
   min-height: 40px;
 }
 
-.setup-restore-file {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 40px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 12px;
-  border: 1px solid var(--inner-border);
-  border-radius: var(--radius-control);
-  background: var(--surface-2);
-  color: var(--text-secondary);
-  font-size: 12.5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .setup-restore-row .btn {
   flex: 0 0 auto;
   height: 40px;
   padding-block: 0;
 }
 
-.setup-restore-row .btn-sm {
-  /* size="sm" would shrink to 30px and visually misalign with the 40px
-     file label, so the row's own height forces a flat 40px instead. */
-  height: 40px;
+/* Backup peek: what the chosen file holds, before anything is restored. */
+.setup-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--inner-border);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+}
+
+.setup-preview-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.setup-preview-file {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.setup-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.setup-note-warn {
+  color: var(--status-warning);
+}
+
+.setup-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border: 1px solid var(--inner-border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.setup-badge-ok {
+  border-color: color-mix(in srgb, var(--green) 40%, transparent);
+  color: var(--green);
+}
+
+.setup-badge-warn {
+  border-color: color-mix(in srgb, var(--status-warning) 45%, transparent);
+  color: var(--status-warning);
+}
+
+.setup-preview-scroll {
+  max-height: 220px;
+  overflow: auto;
+}
+
+.setup-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.setup-table th,
+.setup-table td {
+  padding: 5px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--inner-border);
+}
+
+.setup-table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.setup-table td {
+  font-variant-numeric: tabular-nums;
+}
+
+.setup-col-count {
+  text-align: right;
+}
+
+.setup-admin-needed {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--status-warning) 35%, transparent);
+  border-radius: var(--radius-control);
 }
 
 /* File picker matches the height and radius of every other form control. */
