@@ -28,18 +28,40 @@ const AUTH_CACHE_MAX_ENTRIES = 10_000;
 interface AuthCacheEntry {
   readonly at: number;
   readonly value: ResolvedApiKey;
+  /** Owner of `value`; the reverse-index key this entry is registered under. */
+  readonly keyId: string;
 }
 
 const authCache = new Map<string, AuthCacheEntry>();
 /** Reverse index: keyId → set of token hashes that resolved to it. */
 const authCacheByKeyId = new Map<string, Set<string>>();
 
+/**
+ * Drops the oldest entries until `authCache` is within budget. Every removal
+ * must also unregister the hash from `authCacheByKeyId`, otherwise the reverse
+ * index keeps referencing hashes that no longer exist and grows without bound
+ * (one dead hash per eviction, forever).
+ */
 function evictAuthCacheOldest(): void {
   while (authCache.size > AUTH_CACHE_MAX_ENTRIES) {
     const oldest = authCache.keys().next().value;
     if (oldest === undefined) return;
+    const entry = authCache.get(oldest);
     authCache.delete(oldest);
+    if (entry === undefined) continue;
+    const hashes = authCacheByKeyId.get(entry.keyId);
+    if (hashes === undefined) continue;
+    hashes.delete(oldest);
+    if (hashes.size === 0) authCacheByKeyId.delete(entry.keyId);
   }
+}
+
+/** Registers a resolved hash in both the cache and the keyId reverse index. */
+function indexAuthCache(hash: string, entry: AuthCacheEntry): void {
+  authCache.set(hash, entry);
+  const hashes = authCacheByKeyId.get(entry.keyId) ?? new Set<string>();
+  hashes.add(hash);
+  authCacheByKeyId.set(entry.keyId, hashes);
 }
 
 /**
@@ -291,10 +313,7 @@ export async function resolveApiKeyAuthorization(
     ...(policy.modelPrefix ? { modelPrefix: policy.modelPrefix } : {}),
     ...(parent?.keyMode === "share" ? { cliMappingOwnerId: parent.id } : {}),
   };
-  authCache.set(hash, { at: Date.now(), value });
-  const hashes = authCacheByKeyId.get(value.id) ?? new Set<string>();
-  hashes.add(hash);
-  authCacheByKeyId.set(value.id, hashes);
+  indexAuthCache(hash, { at: Date.now(), value, keyId: value.id });
   evictAuthCacheOldest();
   return value;
 }

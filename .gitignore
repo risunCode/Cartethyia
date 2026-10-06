@@ -49,3 +49,4 @@ data/
 # repo entirely; a real backup belongs wherever the operator stores it.
 backup-probe.json
 cartethyia-backup-*.json
+.cleanup-work/

@@ -12,7 +12,7 @@ import type { ModelDefinition } from "../provider-registry";
 export const AIHUBMIX_FALLBACK_MODELS: readonly ModelDefinition[] = [
   defineModel({ id: "gpt-5", providerId: AIHUBMIX_PROVIDER_ID, reasoning: true, vision: true }),
   defineModel({ id: "gpt-5-mini", providerId: AIHUBMIX_PROVIDER_ID, reasoning: true }),
-  defineModel({ id: "", providerId: AIHUBMIX_PROVIDER_ID, reasoning: true, vision: true }),
+  defineModel({ id: "claude-sonnet-4-5", providerId: AIHUBMIX_PROVIDER_ID, reasoning: true, vision: true }),
   defineModel({ id: "gemini-3-pro", providerId: AIHUBMIX_PROVIDER_ID, reasoning: true, vision: true }),
 ];
 

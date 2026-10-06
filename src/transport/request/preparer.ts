@@ -5,8 +5,8 @@ import type { RouteCandidate as RouteCandidate, InMemoryRouteSnapshotService, Ro
 import { resolveAliasTarget, type RoutingEngine } from "../routing/router";
 import {
   deriveRequiredCapabilities,
-  isWebSearchTool,
   projectForRoute,
+  requestUsesWebSearch,
   routeCapabilitiesFor,
 } from "../translation/capabilities";
 import type { RequiredCapability } from "../translation/capabilities";
@@ -19,14 +19,6 @@ import { parseThinkingSuffix, withThinkingSuffixIntent } from "../translation/th
 import { nativeServicePathFor } from "../dispatch/native-services";
 import { log } from "../../observability/logger";
 import { BUDDY_PROVIDER_IDS } from "../../providers/provider-metadata";
-
-/** Returns true when a canonical request declares or invokes a web-search tool. */
-function requestUsesWebSearch(request: CanonicalRequest): boolean {
-  if (request.tools?.some(isWebSearchTool) === true) return true;
-  return request.messages.some((message) =>
-    message.content.some((part) => part.kind === "toolCall" && isWebSearchTool({ name: part.name })),
-  );
-}
 
 const DEFAULT_ESTIMATED_OUTPUT_TOKENS = 1024;
 

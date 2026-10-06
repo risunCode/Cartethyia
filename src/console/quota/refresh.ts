@@ -47,6 +47,9 @@ export interface QuotaRefreshDeps {
   readonly snapshotInvalidator?: { invalidate(): unknown } | undefined;
 }
 
+/** Bound on concurrently tracked single-flight quota refreshes; keys are account ids, so the real bound is the account count. */
+const MAX_INFLIGHT = 1_000;
+
 /**
  * In-flight promise deduplication map for account quota refreshes. Keyed by
  * accountId so concurrent callers (a manual refresh plus the sweep, or two
@@ -296,6 +299,15 @@ export async function refreshAccountQuota(
 ): Promise<QuotaRefreshOutcome> {
   const existing = inFlightAccountQuotaRefreshes.get(target.accountId);
   if (existing) return existing;
+  // Eviction guard: keys are account ids (bounded by the accounts table), but a
+  // runaway caller could still fan out unique keys; drop the oldest in-flight
+  // task rather than grow without bound. An evicted task's `.finally` delete is
+  // a no-op for a key no longer present, and the caller still awaits its own
+  // promise — eviction only costs it deduplication, never its result.
+  if (inFlightAccountQuotaRefreshes.size >= MAX_INFLIGHT) {
+    const oldestKey = inFlightAccountQuotaRefreshes.keys().next().value;
+    if (oldestKey !== undefined) inFlightAccountQuotaRefreshes.delete(oldestKey);
+  }
   const task = runQuotaRefresh(deps, target, fetcher).finally(() => {
     inFlightAccountQuotaRefreshes.delete(target.accountId);
   });

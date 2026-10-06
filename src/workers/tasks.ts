@@ -44,32 +44,45 @@ export async function runGrowingWaves<T>(
 
 export const DEFAULT_INITIAL_BATCH_SIZE = 2;
 
+/**
+ * Tasks may be registered at any time: before `start()`, they are scheduled
+ * when `start()` runs; after `start()`, each `register()` immediately starts
+ * the task's own interval timer. Registration order never decides whether a
+ * task runs.
+ */
 export class ScheduledTaskRegistry {
   private readonly tasks: ScheduledTask[] = [];
   private readonly timers: Timer[] = [];
+  /**
+   * Latched by `start()` and cleared by `stop()`. This is the idempotency and
+   * late-registration flag: unlike `timers.length`, it stays true when `start()`
+   * ran with no tasks yet, so a task registered afterwards is scheduled exactly
+   * once (immediately) and a later `start()` call does not stack a second timer.
+   */
+  private started = false;
   private readonly running = new Set<string>();
   private readonly inFlight = new Set<Promise<void>>();
 
   register(task: ScheduledTask): void {
     this.tasks.push(task);
+    if (this.started) this.schedule(task);
   }
 
   /**
    * Starts every registered task on its own interval timer. Idempotent: a
-   * second call while timers are running schedules nothing new, so `--hot`
-   * reloads cannot stack duplicate sweeps. `stop()` clears the timers, after
-   * which `start()` schedules again.
+   * second call while started schedules nothing new, so `--hot` reloads cannot
+   * stack duplicate sweeps — including for tasks registered after the first
+   * `start()`, which already run on their own timers. `stop()` clears the
+   * timers, after which `start()` schedules again.
    */
   start(): void {
-    if (this.timers.length > 0) return;
-    for (const task of this.tasks) {
-      const timer = setInterval(() => void this.runOnce(task), task.intervalMs);
-      if (typeof timer.unref === "function") timer.unref();
-      this.timers.push(timer);
-    }
+    if (this.started) return;
+    this.started = true;
+    for (const task of this.tasks) this.schedule(task);
   }
 
   async stop(): Promise<void> {
+    this.started = false;
     for (const timer of this.timers) clearInterval(timer);
     this.timers.length = 0;
     if (this.inFlight.size > 0) {
@@ -81,6 +94,13 @@ export class ScheduledTaskRegistry {
   async runNow(name: string): Promise<void> {
     const task = this.tasks.find((t) => t.name === name);
     if (task) await this.runOnce(task);
+  }
+
+  /** Starts one task's interval timer: unref'd, so it never holds the process open. */
+  private schedule(task: ScheduledTask): void {
+    const timer = setInterval(() => void this.runOnce(task), task.intervalMs);
+    if (typeof timer.unref === "function") timer.unref();
+    this.timers.push(timer);
   }
 
   private async runOnce(task: ScheduledTask): Promise<void> {

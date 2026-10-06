@@ -176,7 +176,13 @@ export async function resolveAllAddresses(
   if (signal.aborted) throw new GatewayError("transport_closed", 499, "request was cancelled");
   if (isIP(hostname)) return [hostname];
   const cached = dnsCache.get(hostname);
-  if (cached && Date.now() - cached.at < DNS_CACHE_TTL_MS) return cached.addrs;
+  if (cached) {
+    if (Date.now() - cached.at < DNS_CACHE_TTL_MS) return cached.addrs;
+    // Stale: a cached answer past the TTL must not pin a hostname to addresses
+    // the resolver may have already re-pointed (provider failover, DNS rebinding
+    // rotation). Drop it and fall through to a fresh lookup.
+    dnsCache.delete(hostname);
+  }
   try {
     // Happy-eyeballs style: block only on the IPv4 (A) lookup. Some edge
     // resolvers silently drop AAAA queries, so `resolve6` can stall for the

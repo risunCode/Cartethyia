@@ -67,6 +67,10 @@ export function useConsoleLogStream() {
   const [status, setStatus] = useState<ConsoleLogStatus>("idle");
   const attempt = useRef(0);
   const nextId = useRef(0);
+  // Every timer the stream effect schedules, tracked so unmount can cancel the
+  // pending ones — one highlight timer is scheduled per streamed line and would
+  // otherwise keep firing against a torn-down component.
+  const timers = useRef<Set<number>>(new Set());
   // Tag every stored line with a monotonic id so the view can key rows stably
   // and highlight the ones that arrived after the last snapshot.
   const tag = (line: ConsoleLogLine): ConsoleLogEntry => ({
@@ -77,8 +81,15 @@ export function useConsoleLogStream() {
   useEffect(() => {
     let stopped = false;
     let source: EventSource | undefined;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const runId = (attempt.current += 1);
+
+    const scheduleTimeout = (fn: () => void, delayMs: number): void => {
+      const handle = window.setTimeout(() => {
+        timers.current.delete(handle);
+        fn();
+      }, delayMs);
+      timers.current.add(handle);
+    };
 
     const append = (line: ConsoleLogLine) => {
       const stored = tag(line);
@@ -89,7 +100,7 @@ export function useConsoleLogStream() {
       });
       // Drop the "new" highlight shortly after arrival so the list settles
       // into a steady state instead of every recent line staying flagged.
-      window.setTimeout(() => {
+      scheduleTimeout(() => {
         setNewLineIds((prev) => {
           if (!prev.has(stored.id)) return prev;
           const next = new Set(prev);
@@ -140,7 +151,7 @@ export function useConsoleLogStream() {
         source?.close();
         if (stopped) return;
         setStatus("reconnecting");
-        retryTimer = setTimeout(() => {
+        scheduleTimeout(() => {
           if (!stopped && runId === attempt.current) void snapshotThenStream();
         }, STREAM_RETRY_MS);
       };
@@ -161,7 +172,8 @@ export function useConsoleLogStream() {
     void snapshotThenStream();
     return () => {
       stopped = true;
-      clearTimeout(retryTimer);
+      for (const handle of timers.current) window.clearTimeout(handle);
+      timers.current.clear();
       source?.close();
     };
   }, []);

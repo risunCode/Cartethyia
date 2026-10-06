@@ -142,6 +142,62 @@ function readPools(payload: unknown): readonly PoolUsageRow[] | null {
 const POOL_STREAM_RETRY_MS = 5_000;
 
 /**
+ * Hard bound on remembered per-pool byte peaks.
+ *
+ * Neither `pools` frame is a complete list of the tenant's configured pools:
+ * `NetworkPoolSelector.snapshotPoolUsage()` only rows pools that currently hold
+ * a slot (an idle pool drops out on release) and the live route unions that
+ * with the byte-accounting map. Entries therefore cannot be pruned against a
+ * snapshot without snapping a legitimately idle pool's peak to 0B — which is
+ * exactly what this map exists to prevent. Bound it the way
+ * `enforceInflightLimit` bounds the backend's inflight map instead: evict
+ * oldest-inserted entries past the cap.
+ */
+export const MAX_TRACKED_POOL_PEAKS = 500;
+
+function enforcePeakLimit(peaks: Map<string, PoolUsageRow>): void {
+  while (peaks.size > MAX_TRACKED_POOL_PEAKS) {
+    const oldest = peaks.keys().next().value;
+    if (oldest === undefined) break;
+    peaks.delete(oldest);
+  }
+}
+
+/**
+ * Folds one frame of pool rows into the remembered peaks and returns the rows
+ * to render. Shared by the snapshot fetch and the stream so both paths get the
+ * same merge and the same bound.
+ */
+export function mergePools(
+  peaks: Map<string, PoolUsageRow>,
+  parsed: readonly PoolUsageRow[],
+): PoolUsageRow[] {
+
+  const present = new Set<string>();
+  const next: PoolUsageRow[] = [];
+  for (const row of parsed) {
+    present.add(row.poolId);
+    const prev = peaks.get(row.poolId);
+    const merged: PoolUsageRow = prev
+      ? {
+          poolId: row.poolId,
+          currentInflight: row.currentInflight,
+          bytesSent: Math.max(prev.bytesSent, row.bytesSent),
+          bytesReceived: Math.max(prev.bytesReceived, row.bytesReceived),
+        }
+      : row;
+    peaks.set(row.poolId, merged);
+    next.push(merged);
+  }
+  enforcePeakLimit(peaks);
+  // Pools that dropped out of this frame keep their last max (union is backend-driven; this is the frontend guard).
+  for (const [poolId, prev] of peaks) {
+    if (!present.has(poolId)) next.push(prev);
+  }
+  return next;
+}
+
+/**
  * Live per-pool proxy usage over the console SSE stream
  * (`GET /live/pools/stream`, `pools` events). Same open pattern as
  * `useInFlight`: authenticated snapshot first, then the stream, with
@@ -169,27 +225,7 @@ export function usePoolUsage(): PoolUsageState {
           if (parsed !== null) {
             // Keep the highest bytesSent/received seen per pool so a reconnect
             // that temporarily yields an empty snapshot does not snap the bar to 0B.
-            const next: PoolUsageRow[] = [];
-            for (const row of parsed) {
-              const prev = maxBytesByPool.get(row.poolId);
-              const merged: PoolUsageRow = prev
-                ? {
-                    poolId: row.poolId,
-                    currentInflight: row.currentInflight,
-                    bytesSent: Math.max(prev.bytesSent, row.bytesSent),
-                    bytesReceived: Math.max(prev.bytesReceived, row.bytesReceived),
-                  }
-                : row;
-              maxBytesByPool.set(row.poolId, merged);
-              next.push(merged);
-            }
-            // Pools that dropped out of this snapshot keep their last max (union is backend-driven; this is the frontend guard).
-            for (const [poolId, prev] of maxBytesByPool) {
-              if (!parsed.some((r) => r.poolId === poolId)) {
-                next.push(prev);
-              }
-            }
-            setPools(next);
+            setPools(mergePools(maxBytesByPool, parsed));
             setLive(true);
           }
         } catch {
@@ -215,24 +251,7 @@ export function usePoolUsage(): PoolUsageState {
         if (stopped) return;
         const parsed2 = readPools(snapshot);
         if (parsed2 !== null) {
-          const next2: PoolUsageRow[] = [];
-          for (const row of parsed2) {
-            const prev = maxBytesByPool.get(row.poolId);
-            const merged: PoolUsageRow = prev
-              ? {
-                  poolId: row.poolId,
-                  currentInflight: row.currentInflight,
-                  bytesSent: Math.max(prev.bytesSent, row.bytesSent),
-                  bytesReceived: Math.max(prev.bytesReceived, row.bytesReceived),
-                }
-              : row;
-            maxBytesByPool.set(row.poolId, merged);
-            next2.push(merged);
-          }
-          for (const [poolId, prev] of maxBytesByPool) {
-            if (!parsed2.some((r) => r.poolId === poolId)) next2.push(prev);
-          }
-          setPools(next2);
+          setPools(mergePools(maxBytesByPool, parsed2));
         }
         openStream();
       } catch {

@@ -218,6 +218,51 @@ dbDescribe("web-search fallback dispatch", () => {
     expect(body.content.some((block) => block.text?.includes("risuncode is a developer"))).toBe(true);
   });
 
+  test("a search invocation in message content routes to the fallback too", async () => {
+    // A replayed assistant search round carries no hosted-tool declaration —
+    // the only signal is the `web_search` toolCall in message content. The
+    // preparer's private copy of `requestUsesWebSearch` matched that call via
+    // `isWebSearchTool({name})`, which reads `native_type`/`tool_type` fields a
+    // ContentPart never carries, so the check was always false and this path
+    // never reached the fallback. The shared predicate in capabilities.ts
+    // matches by name via `isWebSearchToolName`.
+    routesWithSearchProvider();
+    const searchAdapter = gateway.adapter("exa", {
+      searchResults: [
+        { title: "risuncode", url: "https://example.com/risuncode", snippet: "Profile" },
+      ],
+    });
+    const response = await gateway.json(
+      "/v1/messages",
+      {
+        model: world.qualifiedModel,
+        max_tokens: 1024,
+        stream: false,
+        // No declared tools: the search intent lives only in the replayed
+        // assistant round (tool_use answered by a prior tool_result).
+        messages: [
+          { role: "user", content: "Coba cari siapa itu risuncode" },
+          {
+            role: "assistant",
+            content: [
+              { type: "tool_use", id: "toolu_1", name: "web_search", input: { query: "siapa risuncode" } },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              { type: "tool_result", tool_use_id: "toolu_1", content: "prior placeholder result" },
+            ],
+          },
+        ],
+      },
+      { token: world.token },
+    );
+    expect(response.status).toBe(200);
+    // The fallback ran on the model-authored query from the replayed call.
+    expect(searchAdapter.searches).toEqual(["siapa risuncode"]);
+  });
+
   test("a failing configured provider advances to the next configured one", async () => {
     gateway.setRoutes([
       {

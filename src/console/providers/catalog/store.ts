@@ -1047,7 +1047,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
     const where = and(
       eq(providerAccounts.id, accountId),
       eq(providerAccounts.providerId, providerId),
-      eq(providerAccounts.tenantId, tenantId),
+      globalOrOwnedBy(providerAccounts.tenantId, tenantId),
     );
     try {
       const rows =
@@ -1160,7 +1160,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
         and(
           eq(providerAccounts.id, accountId),
           eq(providerAccounts.providerId, providerId),
-          eq(providerAccounts.tenantId, tenantId),
+          globalOrOwnedBy(providerAccounts.tenantId, tenantId),
         ),
       )
       .limit(1);
