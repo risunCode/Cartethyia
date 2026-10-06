@@ -25,7 +25,6 @@
  * it without a manual teardown of the rows it wrote.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { eq } from "drizzle-orm";
 import {
   adaptiveFlushIntervalMs,
   TelemetryBatchBuffer,
@@ -34,7 +33,8 @@ import {
 import { metrics } from "../../src/observability/metrics";
 import { getDb } from "../../src/persistence/boot";
 import { type CartethyiaDatabase } from "../../src/persistence/db-handle";
-import { telemetryEvents } from "../../src/persistence/schema";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createRunId, getTestPool, requireDatabase } from "../helpers/database";
 import { createTenant } from "../helpers/fixtures";
 
@@ -94,8 +94,19 @@ async function tenantScope(
 }
 
 /** The rows the buffer wrote for one tenant, read back through Drizzle. */
-async function rowsFor(tenantId: string): Promise<readonly (typeof telemetryEvents.$inferSelect)[]> {
-  return db().select().from(telemetryEvents).where(eq(telemetryEvents.tenantId, tenantId));
+async function rowsFor(tenantId: string): Promise<readonly Record<string, unknown>[]> {
+  const dir = "./data/telemetry-events";
+  const files = await readdir(dir).catch(() => [] as string[]);
+  const rows: Record<string, unknown>[] = [];
+  for (const file of files) {
+    const text = await readFile(join(dir, file), "utf8");
+    for (const line of text.split(String.fromCharCode(10))) {
+      if (!line) continue;
+      const row = JSON.parse(line) as Record<string, unknown>;
+      if (row.tenantId === tenantId) rows.push(row);
+    }
+  }
+  return rows;
 }
 
 function makeEvent(

@@ -1,3 +1,5 @@
+import { appendFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../db-handle";
 import {
@@ -62,6 +64,18 @@ function aggregateUsage(rows: readonly (typeof telemetryEvents.$inferInsert)[]) 
  * The observability buffer owns queueing and retry policy; this store owns table
  * operations, lifetime aggregates, and retention.
  */
+
+const EVENT_DIR = "./data/telemetry-events";
+
+/** Appends one JSON line per event. One file per hour, so retention is a file delete. */
+async function appendEvents(rows: readonly (typeof telemetryEvents.$inferInsert)[]): Promise<void> {
+  await mkdir(EVENT_DIR, { recursive: true });
+  const file = join(EVENT_DIR, new Date().toISOString().slice(0, 13).replaceAll(":", "-") + ".jsonl");
+  const newline = String.fromCharCode(10);
+  const body = rows.map((row) => JSON.stringify(row)).join(newline) + newline;
+  await appendFile(file, body, "utf8");
+}
+
 export class DrizzleTelemetryStore {
   constructor(private readonly db: CartethyiaDatabase) {}
 
@@ -69,8 +83,12 @@ export class DrizzleTelemetryStore {
   async insertEvents(rows: Array<typeof telemetryEvents.$inferInsert>): Promise<void> {
     if (rows.length === 0) return;
     const deltas = aggregateUsage(rows);
+    // The per-request row goes to an append-only file, not to Postgres. The
+    // database keeps only the durable aggregate below, so a request never
+    // adds a row to the largest table. Readers of recent requests read the
+    // file; readers of long-term totals read the aggregate.
+    await appendEvents(rows);
     await this.db.transaction(async (tx) => {
-      await tx.insert(telemetryEvents).values(rows);
       if (deltas.length === 0) return;
       const now = new Date();
       await tx
