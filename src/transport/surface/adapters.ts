@@ -1,7 +1,7 @@
 // Shared surface wire readers, detection, and adapter registry.
-import type { CanonicalEvent, SourceSurface } from "../canonical-model";
-import { getHeader } from "../canonical-model";
-import { isRecord } from "../../protocol/primitives";
+import type { CanonicalEvent, SourceSurface } from "../../protocol/canonical-model";
+import { getHeader } from "../../protocol/canonical-model";
+import { isRecord } from "../../protocol/codecs";
 
 /** Shared surface wire readers, detection, and adapter registry helpers. */
 

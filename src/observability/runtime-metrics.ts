@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { metrics } from "./metrics";
 import { trackMemoryUsage } from "./performance-metrics";
 import { log } from "./logger";
-import { resolveMemoryLimitOverrideBytes } from "../config";
+import { resolveMemoryLimitOverrideBytes } from "../config/timeouts";
 
 /** Live collection sizes sampled alongside process memory. */
 export interface RuntimeMetricSources {

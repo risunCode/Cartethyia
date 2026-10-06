@@ -1,7 +1,7 @@
-import { isBundledProviderId } from "../../providers/provider-registry";
-import type { ProviderDispatchContext, ProviderId, ProviderAdapter } from "../../providers/provider-registry";
-import { GatewayError } from "../gateway-error";
-import type { CanonicalEvent, CanonicalRequest } from "../canonical-model";
+import { isBundledProviderId } from "../../providers/contracts";
+import type { ProviderDispatchContext, ProviderId, ProviderAdapter } from "../../providers/contracts";
+import { GatewayError } from "../../protocol/gateway-error";
+import type { CanonicalEvent, CanonicalRequest } from "../../protocol/canonical-model";
 import { resolveCredentialForAccount } from "../../providers/operations/provider-credential-service";
 import type { OAuthTokenRefresher } from "../../providers/authentication/oauth-refresh-service";
 import type { OAuthRefreshService } from "../../providers/authentication/oauth-refresh-service";
@@ -15,7 +15,7 @@ import { messagesAdapter } from "../surface/messages/adapter";
 import { completionAdapter } from "../surface/completion";
 import { forwardedRequestHeaders, proxySuccessHeaders, buildUpstreamDispatchContext } from "./upstream";
 import { resolvePromptCacheKey } from "../../providers/operations/session-resolution";
-import { applyTenantPreferences } from "./tenant-preferences";
+import { applyTenantPreferences } from "../request/tenant-preferences";
 import { metrics } from "../../observability/metrics";
 import type { NetworkPoolSelector } from "../../network/pool/selector";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
@@ -33,8 +33,9 @@ import {
 } from "./attempt-finalize";
 import { runAttemptLoop } from "./attempt-loop";
 import { dispatchFusionRequest } from "./fusion-dispatch";
-import { projectForRoute, routeCapabilitiesFor, responseShowsWebSearch } from "../translation/capabilities";
-import { dispatchStreamingAttempt } from "./streaming-attempt";
+import { responseShowsWebSearch } from "../translation/search";
+import { projectForRoute, routeCapabilitiesFor } from "../translation/capabilities";
+import { dispatchStreamingAttempt } from "./streaming/stream";
 import { runWebSearchBridge, withServedWebSearch } from "./websearch-bridge";
 
 export interface ProviderProxyHandlerDeps {

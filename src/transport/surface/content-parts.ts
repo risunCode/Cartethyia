@@ -1,5 +1,5 @@
-import type { ContentPart } from "../canonical-model";
-import { splitDataUrl } from "../../protocol/primitives";
+import type { ContentPart } from "../../protocol/canonical-model";
+import { splitDataUrl } from "../../protocol/codecs";
 
 /** Creates a canonical text content part without applying wire-specific parsing. */
 export function textPart(text: string): ContentPart {

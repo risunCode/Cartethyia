@@ -10,8 +10,21 @@
 import { Elysia } from "elysia";
 import { errorResponse, requireScope } from "../shared/errors";
 import type { ConsoleAccessResolver } from "../auth/access";
-import type { ProxyRequestStateStore } from "../../transport/request/state";
-import type { InFlightSnapshot } from "../../transport/request/inflight";
+/**
+ * The slice of the request state store the live view reads. Declared here
+ * rather than imported from `transport/`: the console must not depend on the
+ * transport layer, and it only needs the gauge surface. `ProxyRequestStateStore`
+ * satisfies this structurally.
+ */
+export interface LiveInFlightSource {
+  inFlightSnapshot(): InFlightSnapshot;
+  subscribeInFlight(listener: (snapshot: InFlightSnapshot) => void): () => void;
+}
+
+export interface InFlightSnapshot {
+  readonly inFlight: number;
+  readonly uniqueIps: number;
+}
 import type { NetworkPoolSelector } from "../../network/pool/selector";
 import { eq } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
@@ -29,7 +42,7 @@ export interface LiveConfig {
    * shell, console stubs) mount the pool/health endpoints without the gauge;
    * absent means the in-flight endpoints report zero rather than failing.
    */
-  readonly stateStore?: ProxyRequestStateStore;
+  readonly stateStore?: LiveInFlightSource;
 }
 
 const EMPTY_IN_FLIGHT: InFlightSnapshot = { inFlight: 0, uniqueIps: 0 };

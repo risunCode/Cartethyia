@@ -30,20 +30,16 @@ import type {
   CanonicalRequest,
   CanonicalStopReason,
   UsageRecord,
-} from "../../../transport/canonical-model";
-import { GatewayError } from "../../../transport/gateway-error";
+} from "../../../protocol/canonical-model";
+import { GatewayError } from "../../../protocol/gateway-error";
 import { mapUpstreamHttpError } from "../../../transport/failure-policy";
-import type {
-  ProviderAdapter,
-  ProviderDispatchContext,
-  ProviderDispatchTarget,
-} from "../../provider-registry";
+import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget } from "../../contracts";
 import {
   buildKiroAmzUserAgent,
   buildKiroUserAgent,
   getKiroVersion,
 } from "../../operations/client-versions";
-import { FrameBuffer } from "../connect";
+import { FrameBuffer } from "../shared/connect";
 import { decodeEventStreamMessages } from "./aws-event-stream";
 import {
   buildKiroWireRequest,

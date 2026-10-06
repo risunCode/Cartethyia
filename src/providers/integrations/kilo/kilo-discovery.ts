@@ -14,13 +14,9 @@
  * So this module reads the OpenRouter shape directly and derives each row from
  * the provider's own declaration.
  */
-import type { ModelDefinition } from "../../provider-registry";
-import { isRecord } from "../../../protocol/primitives";
-import {
-  boundedUpstreamArray,
-  boundedUpstreamNumber,
-  sanitizeUpstreamLabel,
-} from "../../provider-metadata";
+import type { ModelDefinition } from "../../model-definition";
+import { isRecord } from "../../../protocol/codecs";
+import { boundedUpstreamArray, boundedUpstreamNumber, sanitizeUpstreamLabel } from "../../sanitize";
 import { modelsDevCatalog } from "../../discovery/models-dev-catalog";
 import type { DiscoveryInput } from "../../discovery/discovery-types";
 import { KILO_ENDPOINT_PATH, KILO_PROVIDER_ID } from "./kilo";

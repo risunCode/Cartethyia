@@ -1,6 +1,6 @@
-import { GatewayError, type GatewayErrorCode, type GatewayErrorOrigin } from "./gateway-error";
-import { isRecord } from "../protocol/primitives";
-import { resolveFallbackRetryBaseMs, resolveFallbackRetryCapMs } from "../config";
+import { GatewayError, type GatewayErrorCode, type GatewayErrorOrigin } from "../protocol/gateway-error";
+import { isRecord } from "../protocol/codecs";
+import { resolveFallbackRetryBaseMs, resolveFallbackRetryCapMs } from "../config/timeouts";
 
 const MAX_UPSTREAM_ERROR_BYTES = 500;
 const MAX_COOLDOWN_MS = 24 * 3600 * 1000;

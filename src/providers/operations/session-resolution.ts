@@ -1,5 +1,5 @@
-import type { CanonicalRequest, ContentPart } from "../../transport/canonical-model";
-import type { ProviderDispatchContext } from "../provider-registry";
+import type { CanonicalRequest, ContentPart } from "../../protocol/canonical-model";
+import type { ProviderDispatchContext } from "../contracts";
 import { createHash } from "node:crypto";
 const SESSION_HEADERS = [
   "x-conversation-id",

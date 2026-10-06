@@ -4,8 +4,8 @@ import {
   type OAuthExchangeResult,
 } from "../../authentication/oauth-flow-store";
 import type { OAuthTokenRefreshResult } from "../../authentication/oauth-refresh-service";
-import { GatewayError } from "../../../transport/gateway-error";
-import { oauthCallbackUrl } from "../../../config";
+import { GatewayError } from "../../../protocol/gateway-error";
+import { oauthCallbackUrl } from "../../../config/providers";
 import {
   parseMimoStudioCredential,
   encodeMimoStudioCredential,

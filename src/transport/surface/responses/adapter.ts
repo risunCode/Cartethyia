@@ -1,6 +1,6 @@
-import type { CanonicalEvent, CanonicalRequest } from "../../canonical-model";
+import type { CanonicalEvent, CanonicalRequest } from "../../../protocol/canonical-model";
 import { type SurfaceAdapter, type SurfaceOutput } from "../adapters";
-import { isRecord } from "../../../protocol/primitives";
+import { isRecord } from "../../../protocol/codecs";
 import { canonicalToResponsesPayload } from "../../../protocol/request/responses";
 import type { ResponsesEncodingContext, ResponsesRequestBody, ResponsesWireEvent } from "./contracts";
 import { hasOwn, parseResponsesRequest, unwrapBody } from "./parse";

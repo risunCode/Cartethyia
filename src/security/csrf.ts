@@ -2,7 +2,7 @@
 // These are generic HTTP security primitives used by both console and data plane.
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { isRecord } from "../protocol/primitives";
+import { isRecord } from "../protocol/codecs";
 
 /**
  * Stateless double-submit CSRF protection for the HTTP request pipeline.
@@ -20,7 +20,7 @@ export const CSRF_HEADER_NAME = "x-csrf-token";
 
 /**
  * Name of the session cookie whose presence gates CSRF validation in
- * `transport/middleware/gateway-guards.ts`. Defined once here (next to the CSRF check that reads
+ * `console/console-router-guards.ts`. Defined once here (next to the CSRF check that reads
  * it) instead of once per layer; `console/auth/session-resolver.ts` reuses it.
  */
 export const SESSION_COOKIE_NAME = "session_token";

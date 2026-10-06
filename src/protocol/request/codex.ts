@@ -7,9 +7,9 @@
  * - reasoning include/effort/summary/context wiring
  * - Responses Lite reasoning override + body shape mutation
  */
-import type { CanonicalMessage, CanonicalRequest, ContentPart } from "../../transport/canonical-model";
-import { canContainToolResult, toolResultParts } from "../../transport/canonical-model";
-import { isWebSearchTool } from "../../transport/translation/capabilities";
+import type { CanonicalMessage, CanonicalRequest, ContentPart } from "../../protocol/canonical-model";
+import { canContainToolResult, toolResultParts } from "../../protocol/canonical-model";
+import { isWebSearchTool } from "../../transport/translation/search";
 import { reasoningEffortFromIntent } from "../../providers/reasoning";
 import {
   decodeCodexToolCallId,
@@ -21,7 +21,7 @@ import {
   resolveImageSource,
   resolveOutputVerbosity,
   tryParseJsonObject,
-} from "../primitives";
+} from "../codecs";
 
 /**
  * Repairs branched/aborted tool-call histories before they hit the wire

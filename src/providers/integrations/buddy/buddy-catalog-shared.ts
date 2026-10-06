@@ -13,9 +13,9 @@
  * account-derived `x-user-id`/`x-machine-id`/`x-session-id`), and those stay
  * with their own provider.
  */
-import { GatewayError } from "../../../transport/gateway-error";
+import { GatewayError } from "../../../protocol/gateway-error";
 import { defineModel } from "../../model-definition";
-import type { ModelDefinition } from "../../provider-registry";
+import type { ModelDefinition } from "../../model-definition";
 
 /** One static catalog row: id, display name, flags, limits, optional tool override. */
 export type BuddyRawEntry = readonly [

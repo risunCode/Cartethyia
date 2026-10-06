@@ -34,7 +34,7 @@
  * and the request proceeds; the worst case is a missed strike, never a blocked
  * client.
  */
-import { GatewayError } from "../transport/gateway-error";
+import { GatewayError } from "../protocol/gateway-error";
 import { redisEvalTuple, type RedisClient } from "../persistence/redis";
 
 /** A ban row, for the console. */

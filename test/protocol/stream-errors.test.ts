@@ -25,7 +25,7 @@
 import { describe, expect, test } from "bun:test";
 import { gatewayErrorFromStreamError } from "../../src/protocol/stream-error-frames";
 import { mapClaudeHttpError, mapClaudeStreamError } from "../../src/protocol/messages-errors";
-import type { GatewayError } from "../../src/transport/gateway-error";
+import type { GatewayError } from "../../src/protocol/gateway-error";
 
 /** The classifier's view of one input, as a comparable tuple. */
 function classified(error: GatewayError | undefined): string {

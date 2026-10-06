@@ -1,5 +1,5 @@
 import { defineModel } from "../../model-definition";
-import type { ModelDefinition } from "../../provider-registry";
+import type { ModelDefinition } from "../../model-definition";
 
 /** Provider id this catalog belongs to. */
 export const KIRO_PROVIDER_ID = "kiro" as const;

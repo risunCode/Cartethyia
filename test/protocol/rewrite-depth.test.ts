@@ -1,7 +1,7 @@
 /**
  * The recursion bound shared by every request-supplied value rewriter.
  *
- * `primitives.ts` holds four helpers that walk a value the *caller* supplied —
+ * `codecs.ts` holds four helpers that walk a value the *caller* supplied —
  * a tool schema, a tool-call argument string, a thinking payload — and rewrite
  * it into something an upstream accepts. Each was plain recursion, and plain
  * recursion over caller data is a stack-overflow primitive: measured against
@@ -40,12 +40,12 @@ import {
   parseArguments,
   sanitizeSchemaForAnthropic,
   toWellFormedDeep,
-} from "../../src/protocol/primitives";
-import { GatewayError } from "../../src/transport/gateway-error";
+} from "../../src/protocol/codecs";
+import { GatewayError } from "../../src/protocol/gateway-error";
 import { canonicalToClaudeMessagesPayload } from "../../src/protocol/request/messages";
 import { buildGeminiPayload } from "../../src/protocol/request/gemini";
-import { buildClaudeMessagesRequest } from "../../src/providers/integrations/claude-messages";
-import type { CanonicalRequest } from "../../src/transport/canonical-model";
+import { buildClaudeMessagesRequest } from "../../src/providers/integrations/shared/claude-messages";
+import type { CanonicalRequest } from "../../src/protocol/canonical-model";
 
 /** Runs `body`, returning the thrown error — for asserting on rejections. */
 function thrownBy(body: () => unknown): unknown {

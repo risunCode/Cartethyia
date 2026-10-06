@@ -5,7 +5,7 @@
 // so the native config (`thinking_type` + `budget_tokens`) is dropped while the
 // request-level effort intent (OpenAI `reasoning_effort`) survives — that field
 // is a property of the request, not of the turn.
-import type { CanonicalRequest, ReasoningIntent, WireFamily } from "../canonical-model";
+import type { CanonicalRequest, ReasoningIntent, WireFamily } from "../../protocol/canonical-model";
 
 /**
  * Canonical reasoning effort ladder, ordered least to most intensive.

@@ -7,11 +7,12 @@
 // Payload: neutralize CN agent prompts, reasoning_summary auto only when reasoning_effort
 
 import { OpenAICompatibleAdapter } from "../../compatible-adapter";
-import type { ProviderDispatchTarget, ModelDefinition, ProviderAdapter } from "../../provider-registry";
+import type { ProviderDispatchTarget, ProviderAdapter } from "../../contracts";
+import type { ModelDefinition } from "../../model-definition";
 import type { DiscoveryInput } from "../../discovery/discovery-types";
-import type { CanonicalRequest } from "../../../transport/canonical-model";
-import { ensurePayloadModel } from "../configured-provider";
-import { providerBaseUrl } from "../../provider-metadata";
+import type { CanonicalRequest } from "../../../protocol/canonical-model";
+import { ensurePayloadModel } from "../shared/configured-provider";
+import { providerBaseUrl } from "../../metadata";
 import {
   codebuddyAdapterConfig,
 } from "./codebuddy-shared";

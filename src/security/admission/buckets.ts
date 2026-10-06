@@ -1,4 +1,4 @@
-import type { UsageRecord } from "../../transport/canonical-model";
+import type { UsageRecord } from "../../protocol/canonical-model";
 
 /**
  * Bucket-qualified counter key. Daily and monthly budgets must roll over on

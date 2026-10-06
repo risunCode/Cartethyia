@@ -1,6 +1,6 @@
-import { GatewayError } from "../transport/gateway-error";
-import type { CanonicalEvent, CanonicalRequest, WireFamily } from "../transport/canonical-model";
-import { isRecord } from "../protocol/primitives";
+import { GatewayError } from "../protocol/gateway-error";
+import type { CanonicalEvent, CanonicalRequest, WireFamily } from "../protocol/canonical-model";
+import { isRecord } from "../protocol/codecs";
 import {
   classifyUpstreamError,
   throwIfHtmlResponse,
@@ -9,16 +9,10 @@ import {
   extractHtmlTitle,
   upstreamErrorIdentifier,
 } from "../transport/failure-policy";
-import {
-  applyRouteUserAgent,
-  type ProviderAdapter,
-  type ProviderDispatchTarget,
-  type ProviderId,
-  type ProviderDispatchContext,
-} from "./provider-registry";
-import { abortGatewayError, createUpstreamDeadlineLifecycle } from "./operations/upstream-deadline";
+import { applyRouteUserAgent, type ProviderDispatchTarget, type ProviderId, type ProviderDispatchContext } from "./contracts";
+import { BaseProviderAdapter } from "./base-adapter";
 import { encodeWireRequest, decodeWireResponse, decodeWireStream } from "../protocol/registry";
-import { postUpstreamJson } from "../protocol/transport/openai";
+import { postUpstreamJson } from "../protocol/upstream/post-json";
 import { GATEWAY_USER_AGENT } from "./operations/gateway-user-agent";
 import {
   BUILTIN_DEFAULT_ENDPOINTS,
@@ -26,71 +20,8 @@ import {
   joinUrl,
   normalizeBearerToken,
   type AuthHeaderShape,
-} from "../protocol/primitives";
+} from "../protocol/codecs";
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: false });
-
-/** Shared template-method lifecycle for HTTP-backed provider adapters. */
-export abstract class BaseProviderAdapter implements ProviderAdapter {
-  abstract readonly provider_id: ProviderId;
-
-  async *dispatch(
-    request: CanonicalRequest,
-    target: ProviderDispatchTarget,
-    context: ProviderDispatchContext,
-  ): AsyncIterable<CanonicalEvent> {
-    if (request.model.includes("?")) {
-      throw new GatewayError("invalid_request", 400, "model must not contain query string");
-    }
-    const headers = await this.prepareHeaders(context, request, target);
-    const payload = await this.preparePayload(request, target);
-    const lifecycle = createUpstreamDeadlineLifecycle(context);
-    const transportContext: ProviderDispatchContext = { ...context, abort_signal: lifecycle.signal };
-    try {
-      const response = await this.executeTransport(headers, payload, transportContext, request, target);
-      // The HTTP headers establish the upstream stream. The original
-      // pre-stream deadline must not kill a healthy long response body; the
-      // outer request watchdog now owns inter-event stall detection.
-      lifecycle.release();
-      // Body reads must watch the *request* abort signal. transportContext
-      // still carries the released lifecycle signal, which is no longer
-      // bridged to state.abortController — stall/deadline aborts would
-      // otherwise never cancel the upstream reader.
-      yield* this.transformStream(response, request, target, {
-        ...transportContext,
-        abort_signal: context.abort_signal,
-      });
-    } catch (error) {
-      const abortError = abortGatewayError(lifecycle, error, context.abort_signal);
-      if (abortError) throw abortError;
-      throw error;
-    } finally {
-      lifecycle.release();
-    }
-  }
-
-  protected abstract prepareHeaders(
-    context: ProviderDispatchContext,
-    request: CanonicalRequest,
-    target: ProviderDispatchTarget,
-  ): Promise<Record<string, string>>;
-  protected abstract preparePayload(
-    request: CanonicalRequest,
-    target: ProviderDispatchTarget,
-  ): Promise<unknown>;
-  protected abstract executeTransport(
-    headers: Record<string, string>,
-    payload: unknown,
-    context: ProviderDispatchContext,
-    request?: CanonicalRequest,
-    target?: ProviderDispatchTarget,
-  ): Promise<Response>;
-  protected abstract transformStream(
-    response: Response,
-    request: CanonicalRequest,
-    target: ProviderDispatchTarget,
-    context: ProviderDispatchContext,
-  ): AsyncIterable<CanonicalEvent>;
-}
 
 /**
  * The subset of a canonical request a native-service header hook may read.

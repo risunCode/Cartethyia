@@ -9,10 +9,11 @@
 //          auto only when reasoning_effort requested
 
 import { OpenAICompatibleAdapter } from "../../compatible-adapter";
-import { providerBaseUrl } from "../../provider-metadata";
-import { GatewayError } from "../../../transport/gateway-error";
-import type { CanonicalRequest } from "../../../transport/canonical-model";
-import type { ProviderAdapter, ProviderDispatchTarget, ModelDefinition } from "../../provider-registry";
+import { providerBaseUrl } from "../../metadata";
+import { GatewayError } from "../../../protocol/gateway-error";
+import type { CanonicalRequest } from "../../../protocol/canonical-model";
+import type { ProviderAdapter, ProviderDispatchTarget } from "../../contracts";
+import type { ModelDefinition } from "../../model-definition";
 import type { DiscoveryInput } from "../../discovery/discovery-types";
 import {
   WORKBUDDY_CHAT_PATH,

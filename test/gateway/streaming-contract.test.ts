@@ -35,7 +35,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createTestGateway, type TestGateway } from "../helpers/gateway";
 import { createWorld, type GatewayWorld } from "../helpers/fixtures";
 import { dbDescribe } from "../helpers/database";
-import type { CanonicalEvent } from "../../src/transport/canonical-model";
+import type { CanonicalEvent } from "../../src/protocol/canonical-model";
 
 const USAGE = {
   input_tokens: 12,

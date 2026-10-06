@@ -13,15 +13,11 @@
  * account's host is recorded.
  */
 import { defineModel } from "../../model-definition";
-import type { ModelDefinition } from "../../provider-registry";
-import type {
-  ProviderAdapter,
-  ProviderDispatchContext,
-  ProviderDispatchTarget,
-} from "../../provider-registry";
-import type { CanonicalRequest } from "../../../transport/canonical-model";
+import type { ModelDefinition } from "../../model-definition";
+import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget } from "../../contracts";
+import type { CanonicalRequest } from "../../../protocol/canonical-model";
 import { OpenAICompatibleAdapter, withBearerAuthentication } from "../../compatible-adapter";
-import { providerBaseUrl } from "../../provider-metadata";
+import { providerBaseUrl } from "../../metadata";
 import {
   GITHUB_REQUEST_HEADERS,
   parseGithubCredential,
@@ -250,7 +246,7 @@ class GithubAdapter extends OpenAICompatibleAdapter {
       : GITHUB_ENDPOINT_PATH;
     const url = `${this.#baseUrl(context).replace(/\/+$/, "")}${endpointPath}`;
     const outboundFetch = context.outbound_fetch ?? this.#fetch ?? globalThis.fetch;
-    const { postUpstreamJson } = await import("../../../protocol/transport/openai");
+    const { postUpstreamJson } = await import("../../../protocol/upstream/post-json");
     const upstream = await postUpstreamJson(url, headers, payload as Record<string, unknown>, context, outboundFetch);
     upstream.release();
     return upstream.res;

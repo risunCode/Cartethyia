@@ -1,7 +1,7 @@
 import type { CartethyiaDatabase } from "../persistence/postgres";
 import { DrizzleTelemetryStore } from "../persistence/telemetry-store";
 import { prunePayloadFrames, writePayloadFrame } from "./payload-store";
-import { resolveTelemetryPayloadMaxBytes } from "../config";
+import { resolveTelemetryPayloadMaxBytes } from "../config/telemetry";
 export type CaptureScope = "tenant" | "debug_session" | "operator_flag";
 
 export interface PayloadCaptureInput {

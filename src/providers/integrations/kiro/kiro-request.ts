@@ -19,8 +19,8 @@
 // response side can restore the caller's own names.
 
 import { createHash, randomUUID } from "node:crypto";
-import type { CanonicalMessage, CanonicalRequest, ContentPart, ToolDefinition } from "../../../transport/canonical-model";
-import { resolveImageSource, splitDataUrl } from "../../../protocol/primitives";
+import type { CanonicalMessage, CanonicalRequest, ContentPart, ToolDefinition } from "../../../protocol/canonical-model";
+import { resolveImageSource, splitDataUrl } from "../../../protocol/codecs";
 import type { ReasoningEffortLevel } from "../../../transport/translation/thinking";
 
 /** Longest tool name the upstream accepts, counted in code points. */

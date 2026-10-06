@@ -1,5 +1,5 @@
-import type { CanonicalEvent, CanonicalStopReason, ContentPart, UsageRecord } from "../../canonical-model";
-import { assertBoundedJsonDepth, isRecord } from "../../../protocol/primitives";
+import type { CanonicalEvent, CanonicalStopReason, ContentPart, UsageRecord } from "../../../protocol/canonical-model";
+import { assertBoundedJsonDepth, isRecord } from "../../../protocol/codecs";
 import {
   reasoningSummaryHasBoundary,
   reasoningSummaryIdentity,
@@ -7,7 +7,7 @@ import {
   type ReasoningSummaryIdentity,
 } from "../reasoning-summary";
 import type { MessagesWireObject } from "./parse";
-import { GatewayError } from "../../gateway-error";
+import { GatewayError } from "../../../protocol/gateway-error";
 
 /**
  * Requires a provider-emitted tool call to carry a real name before it reaches

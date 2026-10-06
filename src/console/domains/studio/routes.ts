@@ -9,7 +9,7 @@ import type { AccessDecision } from "../../../security/access-control";
 import { ConsoleDomainError, errorResponse, requireTenantScope } from "../../shared/errors";
 import type { ConsoleAccessResolver } from "../../auth/access";
 import type { AuditSink } from "../audit/contracts";
-import { isRecord } from "../../../protocol/primitives";
+import { isRecord } from "../../../protocol/codecs";
 import type { ValidatedFetch } from "../../../network/outbound-fetch";
 import { decryptCredentialToString } from "../../../security/crypto";
 import { DEFAULT_API_KEY_LABEL } from "../api-keys/contracts";

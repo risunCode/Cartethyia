@@ -3,15 +3,11 @@ import type {
   CanonicalEvent,
   CanonicalRequest,
   ContentPart,
-} from "../../../transport/canonical-model";
-import { GatewayError } from "../../../transport/gateway-error";
+} from "../../../protocol/canonical-model";
+import { GatewayError } from "../../../protocol/gateway-error";
 import { defineModel } from "../../model-definition";
-import type {
-  ModelDefinition,
-  ProviderAdapter,
-  ProviderDispatchContext,
-  ProviderDispatchTarget,
-} from "../../provider-registry";
+import type { ModelDefinition } from "../../model-definition";
+import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget } from "../../contracts";
 import { usageFromProvider } from "../../usage";
 import { MimoStudioSessionStore } from "./mimostudio-session";
 import {

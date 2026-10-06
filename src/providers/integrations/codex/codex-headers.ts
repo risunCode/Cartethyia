@@ -1,11 +1,11 @@
 /**
  * Codex ChatGPT identity headers and the `client_metadata` / turn-metadata
- * envelope. Kept with the provider (not in `src/protocol/primitives.ts`)
+ * envelope. Kept with the provider (not in `src/protocol/codecs.ts`)
  * because it depends on Codex account identity via `getCodexAccountId`.
  */
 import { getCodexAccountId } from "./codex-identity";
-import type { ResolvedCredential } from "../../provider-registry";
-import { toAsciiJsonString } from "../../../protocol/primitives";
+import type { ResolvedCredential } from "../../contracts";
+import { toAsciiJsonString } from "../../../protocol/codecs";
 import { buildCodexUserAgent } from "../../operations/cli-platform";
 
 interface CodexIdentityHeadersOptions {

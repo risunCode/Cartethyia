@@ -23,7 +23,7 @@ import {
 import { getCachedQuotaEntries, type CachedQuotaEntry } from "../console/quota/cache";
 import { runSweep } from "./sweep";
 import type { ValidatedFetch } from "../network/outbound-fetch";
-import type { ProviderId } from "../providers/provider-registry";
+import type { ProviderId } from "../providers/contracts";
 import {
   attemptDailyGrowthPass,
   supportsDailyCheckin,

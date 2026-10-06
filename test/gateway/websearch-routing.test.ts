@@ -22,13 +22,13 @@ import { createTestGateway, type TestGateway } from "../helpers/gateway";
 import { createAccount, createWorld, type GatewayWorld } from "../helpers/fixtures";
 import { dbDescribe, getTestPool } from "../helpers/database";
 import { RoutingEngine } from "../../src/transport/routing/router";
-import { GatewayError } from "../../src/transport/gateway-error";
-import type { CanonicalEvent, CanonicalRequest } from "../../src/transport/canonical-model";
+import { GatewayError } from "../../src/protocol/gateway-error";
+import type { CanonicalEvent, CanonicalRequest } from "../../src/protocol/canonical-model";
 import {
   extractWebSearchInvocation,
   isWebSearchTool,
   isWebSearchToolName,
-} from "../../src/transport/translation/capabilities";
+} from "../../src/transport/translation/search";
 import type { RouteCandidate, RouteSnapshot } from "../../src/transport/routing/route-model";
 
 /** A Messages request that declares Anthropic's hosted web-search tool. */

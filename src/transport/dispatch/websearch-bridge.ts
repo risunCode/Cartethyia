@@ -13,16 +13,12 @@
  * and the canonical turns that carry them. Dispatch, encoding, accounting, and
  * failover remain the ordinary proxy path's job.
  */
-import { GatewayError } from "../gateway-error";
+import { GatewayError } from "../../protocol/gateway-error";
 import { log } from "../../observability/logger";
-import type { CanonicalRequest } from "../canonical-model";
+import type { CanonicalRequest } from "../../protocol/canonical-model";
 import type { RouteCandidate } from "../routing/route-model";
-import { extractWebSearchInvocation, isWebSearchTool } from "../translation/capabilities";
-import type {
-  ProviderAdapter,
-  ProviderDispatchTarget,
-  WebSearchOutcome,
-} from "../../providers/provider-registry";
+import { extractWebSearchInvocation, isWebSearchTool } from "../translation/search";
+import type { ProviderAdapter, ProviderDispatchTarget, WebSearchOutcome } from "../../providers/contracts";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import type { ValidatedNetworkBindingFactory } from "../../network/pool/resolver";
 import { resolveCredentialForAccount } from "../../providers/operations/provider-credential-service";

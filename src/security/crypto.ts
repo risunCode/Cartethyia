@@ -1,6 +1,6 @@
 // Credential encryption (AES-256-GCM) and secret hashing. Postgres never sees plaintext.
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
-import { decodeEncryptionKey, requireEncryptionKeyEnv } from "../config";
+import { decodeEncryptionKey, requireEncryptionKeyEnv } from "../config/security";
 
 /**
  * Application-layer AES-256-GCM credential encryption for upstream provider

@@ -10,7 +10,7 @@
 // rather than ignoring it.
 
 import type { FetchLike } from "../../quota/quota-contracts";
-import type { ModelDefinition } from "../../provider-registry";
+import type { ModelDefinition } from "../../model-definition";
 import { defineModel } from "../../model-definition";
 import {
   buildKiroAmzUserAgent,

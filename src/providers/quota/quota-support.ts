@@ -1,7 +1,8 @@
 import type { FetchLike, ProviderQuotaResult } from "./quota-contracts";
 import { cleanError, unsupportedQuota } from "./quota-contracts";
-import { type ProviderRegistry, parseProviderId } from "../provider-registry";
-import { providerBaseUrl } from "../provider-metadata";
+import type { ProviderRegistry } from "../registry";
+import { parseProviderId } from "../contracts";
+import { providerBaseUrl } from "../metadata";
 import { createProbeFetch } from "../operations/probe-fetch";
 /**
  * Verifies an API key against the provider's OpenAI-compatible `/models`

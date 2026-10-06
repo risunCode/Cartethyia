@@ -1,11 +1,11 @@
-import type { CanonicalMessage, CanonicalRequest, ContentPart, GenerationControls, ReasoningIntent, ToolDefinition } from "../../canonical-model";
-import { getHeader as readHeader } from "../../canonical-model";
+import type { CanonicalMessage, CanonicalRequest, ContentPart, GenerationControls, ReasoningIntent, ToolDefinition } from "../../../protocol/canonical-model";
+import { getHeader as readHeader } from "../../../protocol/canonical-model";
 import { requiredObject } from "../adapters";
-import { isRecord } from "../../../protocol/primitives";
+import { isRecord } from "../../../protocol/codecs";
 import { parseToolDefinition } from "../dialects";
-import { canContainToolResult } from "../../canonical-model";
+import { canContainToolResult } from "../../../protocol/canonical-model";
 import { MessagesLedgerError } from "./errors";
-import { finiteNumber, stringValue } from "../../../protocol/primitives";
+import { finiteNumber, stringValue } from "../../../protocol/codecs";
 
 export interface MessagesParseOptions {
   /** Explicit Claude model generation (for example `4.6` or `4.7`). */

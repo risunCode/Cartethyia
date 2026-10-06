@@ -1,4 +1,4 @@
-import { CARTETHYIA_VERSION } from "../../transport/version";
+import { CARTETHYIA_VERSION } from "../../version";
 
 /**
  * Gateway identity stamped on outbound upstream traffic.

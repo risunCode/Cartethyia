@@ -1,9 +1,9 @@
-import type { ReasoningIntent, ResponseFormat, ToolChoice } from "../canonical-model";
-import { REASONING_EFFORTS } from "../canonical-model";
-import { readString, readBoolean, readNumber } from "../../protocol/primitives";
-import { isRecord } from "../../protocol/primitives";
-import { completeRequiredSchema } from "../../protocol/primitives";
-import type { ToolDefinition } from "../canonical-model";
+import type { ReasoningIntent, ResponseFormat, ToolChoice } from "../../protocol/canonical-model";
+import { REASONING_EFFORTS } from "../../protocol/canonical-model";
+import { readString, readBoolean, readNumber } from "../../protocol/codecs";
+import { isRecord } from "../../protocol/codecs";
+import { completeRequiredSchema } from "../../protocol/codecs";
+import type { ToolDefinition } from "../../protocol/canonical-model";
 
 /** Tool-definition dialects preserve each surface's distinct wire fields. */
 export type ToolDialect = "chat" | "responses" | "messages";

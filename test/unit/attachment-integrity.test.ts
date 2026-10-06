@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { dropCorruptAttachments } from "../../src/transport/translation/attachment-integrity";
-import type { CanonicalRequest, ContentPart } from "../../src/transport/canonical-model";
+import type { CanonicalRequest, ContentPart } from "../../src/protocol/canonical-model";
 import { readFileSync } from "node:fs";
 
 const CORRUPT_SCREENSHOT = "C:\\Users\\Aria\\Desktop\\awok..txt";

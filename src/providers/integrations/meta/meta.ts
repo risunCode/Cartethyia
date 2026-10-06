@@ -10,9 +10,9 @@
  * paths, and the catalog is the same list `muse` uses — one declaration of the
  * `muse-spark` roster, not a copy that can drift.
  */
-import { createApiKeyAdapter } from "../configured-provider";
-import type { ProviderAdapter } from "../../provider-registry";
-import { providerBaseUrl } from "../../provider-metadata";
+import { createApiKeyAdapter } from "../shared/configured-provider";
+import type { ProviderAdapter } from "../../contracts";
+import { providerBaseUrl } from "../../metadata";
 import { MUSE_CODE_MODELS } from "../muse/muse";
 
 export const META_PROVIDER_ID = "meta" as const;

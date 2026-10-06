@@ -4,9 +4,9 @@
  * decoder. Pure data transformation — no network I/O (see
  * `../transport/messages.ts` for the executor).
  */
-import { canonicalTerminal } from "../../protocol/primitives";
-import { GatewayError } from "../../transport/gateway-error";
-import { type CanonicalEvent, type CanonicalRequest, type CanonicalStopReason, type ContentPart, type UsageRecord } from "../../transport/canonical-model";
+import { canonicalTerminal } from "../../protocol/codecs";
+import { GatewayError } from "../../protocol/gateway-error";
+import { type CanonicalEvent, type CanonicalRequest, type CanonicalStopReason, type ContentPart, type UsageRecord } from "../../protocol/canonical-model";
 import { decodeSseEvents } from '../../lib/sse-decoder';
 import { usageFromProvider } from '../../providers/usage';
 import { mapClaudeStreamError } from '../../protocol/messages-errors';
@@ -16,7 +16,7 @@ import {
   unprefixClaudeToolName,
   type ClaudeWireObject,
   isRecord,
-} from '../primitives';
+} from '../codecs';
 
 export function mapClaudeStopReason(raw: string): CanonicalStopReason {
   switch (raw) {

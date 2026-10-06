@@ -2,7 +2,7 @@
 
 import type { CartethyiaDatabase } from "../persistence/postgres";
 import { DrizzleApiKeyStore } from "../persistence/api-key-store";
-import { GatewayError } from "../transport/gateway-error";
+import { GatewayError } from "../protocol/gateway-error";
 import { hashSecret } from "./crypto";
 import type { AccessScope } from "./access-control";
 import type { ApiKeyModelAccessMode } from "../persistence/schema";

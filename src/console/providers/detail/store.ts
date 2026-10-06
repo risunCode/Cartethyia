@@ -3,9 +3,9 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../../persistence/postgres";
 import { providerRoutingSettings } from "../../../persistence/schema";
 import { resolveTenantOverride } from "../../../persistence/tenant-scope";
-import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS } from "../../../providers/provider-registry";
+import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS } from "../../../providers/metadata";
 import type { ProviderRoutingResponse, UpdateProviderRoutingRequest } from "../catalog/contracts";
-import { DEFAULT_PROVIDER_USER_AGENT } from "../../../transport/routing/route-model";
+import { DEFAULT_PROVIDER_USER_AGENT } from "../../../persistence/schema";
 import type { ProviderDetailStore } from "./contracts";
 function mapRow(row: typeof providerRoutingSettings.$inferSelect): ProviderRoutingResponse {
   return {

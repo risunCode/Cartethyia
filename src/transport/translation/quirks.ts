@@ -9,7 +9,7 @@
 // Add a row ONLY when a concrete upstream 400/422 proves the quirk; do not
 // speculate. The table is applied on the dispatch path before wire translation.
 
-import type { CanonicalRequest, GenerationControls } from "../canonical-model";
+import type { CanonicalRequest, GenerationControls } from "../../protocol/canonical-model";
 import {
   THINKING_STRIPPED_SAMPLING_CONTROLS,
   isThinkingEnabled,

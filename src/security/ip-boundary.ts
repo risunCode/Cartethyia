@@ -1,7 +1,7 @@
 // Pure network identity matching: CIDR/IP helpers and trusted-proxy client identity.
 
 import { isIP } from "node:net";
-import type { TrustedProxyBoundary } from "../config";
+import type { TrustedProxyBoundary } from "../config/network";
 
 function ipv4ToNumber(address: string): number | undefined {
   const parts = address.split(".");

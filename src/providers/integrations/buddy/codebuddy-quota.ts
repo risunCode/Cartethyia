@@ -1,5 +1,5 @@
 import type { FetchLike, ProviderQuotaResult } from "../../quota/quota-contracts";
-import { providerBaseUrl } from "../../provider-metadata";
+import { providerBaseUrl } from "../../metadata";
 import { buildCodeBuddyUserAgent } from "../../operations/client-versions";
 import { codebuddyDomain } from "./codebuddy-shared";
 import { fetchTencentBillingQuota } from "./buddy-quota-shared";

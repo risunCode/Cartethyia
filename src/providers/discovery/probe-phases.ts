@@ -20,8 +20,8 @@ import type {
   SourceSurface,
   UsageRecord,
   WireFamily,
-} from "../../transport/canonical-model";
-import type { CompatibilityProfile } from "../provider-metadata";
+} from "../../protocol/canonical-model";
+import type { CompatibilityProfile } from "../metadata";
 import type { ProbeModelRequest } from "./discovery-types";
 import {
   constrainWireFamily,
@@ -36,13 +36,10 @@ import { resolveByokWireProfile, stripEndpointBasePath } from "../operations/byo
 import { recordAccountFailure, recordAccountSuccess } from "../operations/account-health-service";
 import { buildCapabilityProfile } from "../../transport/routing/route-catalog";
 import { classifyUpstreamFailure } from "../../transport/failure-policy";
-import { GatewayError } from "../../transport/gateway-error";
-import type {
-  ModelDefinition,
-  ProviderAdapter,
-  ProviderId,
-  ProviderRegistry,
-} from "../provider-registry";
+import { GatewayError } from "../../protocol/gateway-error";
+import type { ModelDefinition } from "../model-definition";
+import type { ProviderAdapter, ProviderId } from "../contracts";
+import type { ProviderRegistry } from "../registry";
 
 /**
  * The provider row columns `loadProviderWireRow` selects, shared by the phases

@@ -26,7 +26,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { terminalFailure } from "../../src/transport/dispatch/attempt-finalize";
-import { GatewayError } from "../../src/transport/gateway-error";
+import { GatewayError } from "../../src/protocol/gateway-error";
 
 describe("terminalFailure", () => {
   describe("no terminal event at all", () => {

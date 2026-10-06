@@ -1,7 +1,7 @@
-import { GatewayError } from "../../../transport/gateway-error";
-import type { CredentialKind } from "../../provider-registry";
+import { GatewayError } from "../../../protocol/gateway-error";
+import type { CredentialKind } from "../../contracts";
 import { HEADER_CONTROL as CONTROL_CHARACTERS } from "../../../security/outbound-headers";
-import { filterClaudeCustomHeaders } from "../claude-messages";
+import { filterClaudeCustomHeaders } from "../shared/claude-messages";
 import { CLAUDE_CODE_SDK_VERSION, CLAUDE_CODE_VERSION } from "./claude-fingerprint";
 import { assertAnthropicBetaNegotiation, negotiateAnthropicBetas, parseAnthropicBeta, type AnthropicBetaInput, type AnthropicBetaNegotiation, type AnthropicBetaUnsupportedPolicy } from "./claude-betas";
 import { stainlessArch, stainlessOs } from "../../operations/cli-platform";

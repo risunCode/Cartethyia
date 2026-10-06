@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../persistence/postgres";
 import { healthEvents, networkPools } from "../persistence/schema";
 import { drainPoolByteDelta } from "./pool/byte-accounting";
-import { resolvePoolCooldownMs } from "../config";
+import { resolvePoolCooldownMs } from "../config/cooldowns";
 export interface PoolHealthEvent {
   readonly id: string;
   readonly networkPoolId: string;

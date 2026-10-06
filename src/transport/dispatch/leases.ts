@@ -1,4 +1,4 @@
-import { GatewayError } from "../gateway-error";
+import { GatewayError } from "../../protocol/gateway-error";
 import type { AdmissionLease } from "../../security/admission/contracts";
 import type { ApiKeyAdmissionService } from "../../security/admission/service";
 import type { ApiKeyAuthorizationSnapshot } from "../../security/api-key-auth";

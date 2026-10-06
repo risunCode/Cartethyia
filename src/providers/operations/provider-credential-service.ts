@@ -4,10 +4,11 @@ import { eq } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { providerAccounts, providerOauthStates } from "../../persistence/schema";
 import { decryptCredentialToString } from "../../security/crypto";
-import { GatewayError } from "../../transport/gateway-error";
+import { GatewayError } from "../../protocol/gateway-error";
 import type { OAuthRefreshService, OAuthTokenRefresher } from "../authentication/oauth-refresh-service";
-import { CredentialResolver, parseProviderId, type CredentialAlternative, type CredentialKind } from "../provider-registry";
-import type { ResolvedCredential } from "../provider-registry";
+import { CredentialResolver, type CredentialAlternative } from "../credential-resolver";
+import { parseProviderId, type CredentialKind } from "../contracts";
+import type { ResolvedCredential } from "../contracts";
 import { record } from "../authentication/oauth-flow-store";
 import { refreshLeadMs } from "./oauth-refresh-lead";
 

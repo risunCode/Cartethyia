@@ -14,7 +14,7 @@
  */
 import type { FetchLike, ProviderQuotaResult, ProviderQuotaWindow } from "../../quota/quota-contracts";
 import { getJson, isoDate, number, percentWindow, quotaRecord, text } from "../../quota/quota-contracts";
-import { resolveGithubEnterpriseDomain } from "../../../config";
+import { resolveGithubEnterpriseDomain } from "../../../config/providers";
 import { GITHUB_REQUEST_HEADERS, parseGithubCredential } from "./github-oauth";
 
 /**

@@ -18,9 +18,9 @@
 // only POSTs the claim when the account has not claimed today. A successful
 // claim short-circuits the day, so a restart cannot double-post.
 
-import { providerBaseUrl } from "../../provider-metadata";
+import { providerBaseUrl } from "../../metadata";
 import { WORKBUDDY_DOMAIN } from "./workbuddy-shared";
-import { BUDDY_PROVIDER_IDS } from "../../provider-metadata";
+import { BUDDY_PROVIDER_IDS } from "../../metadata";
 import { buildWorkBuddyUserAgent } from "../../operations/client-versions";
 import { buildCodeBuddyUserAgent } from "../../operations/client-versions";
 import { codebuddyDomain, type CodeBuddyVariant } from "./codebuddy-shared";

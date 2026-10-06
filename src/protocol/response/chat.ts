@@ -1,14 +1,14 @@
 /**
  * [OpenAI]-compatible /chat/completions response decoder: wire JSON/SSE → canonical events.
  */
-import { canonicalTerminal } from "../../protocol/primitives";
-import { GatewayError } from "../../transport/gateway-error";
-import { type CanonicalEvent, type CanonicalRequest } from "../../transport/canonical-model";
+import { canonicalTerminal } from "../../protocol/codecs";
+import { GatewayError } from "../../protocol/gateway-error";
+import { type CanonicalEvent, type CanonicalRequest } from "../../protocol/canonical-model";
 import { decodeSseEvents } from "../../lib/sse-decoder";
 import { gatewayErrorFromStreamError } from "../stream-error-frames";
 import { mergeResponsesUsage } from "./responses";
 import { usageFromProvider, readReasoningText } from "../../providers/usage";
-import { createToolEmitLedger } from "../../transport/tool-identity";
+import { createToolEmitLedger } from "../../protocol/tool-identity";
 
 export function mapChatStopReason(
   reason: unknown,

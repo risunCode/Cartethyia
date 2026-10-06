@@ -1,6 +1,6 @@
 /**
  * the assistant inference-fingerprint constants, kept in a leaf module so consumers
- * (`auth.ts`, `policy.ts`, `protocol/primitives.ts`) don't have to import the
+ * (`auth.ts`, `policy.ts`, `protocol/codecs.ts`) don't have to import the
  * heavy adapter/policy modules and no init cycle can form.
  */
 

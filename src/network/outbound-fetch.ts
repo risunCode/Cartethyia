@@ -1,11 +1,11 @@
 // Validated fetch: SSRF-guarded outbound fetch with optional pool-agent support.
-import { GatewayError } from "../transport/gateway-error";
+import { GatewayError } from "../protocol/gateway-error";
 import { Agent as HttpAgent, request as httpRequest, type RequestOptions } from "node:http";
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
 import { Readable, type Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { resolveAllAddresses, validateResolvedAddresses } from "./ssrf";
-import type { SsrfPolicy } from "../config";
+import type { SsrfPolicy } from "../config/network";
 import { isProxyAgentPair, shouldFallbackToBridgeRelay, type ProxyAgentPair } from "./pool/agent";
 import { metrics } from "../observability/metrics";
 import { trackNetworkCall } from "../observability/performance-metrics";

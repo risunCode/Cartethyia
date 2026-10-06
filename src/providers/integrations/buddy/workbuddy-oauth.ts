@@ -1,6 +1,6 @@
 // WorkBuddy OAuth — browser-assisted state polling (non-PKCE) plus refresh.
 // Canonical provider ID: workbuddy (international / WorkBuddy AI).
-import { providerBaseUrl } from "../../provider-metadata";
+import { providerBaseUrl } from "../../metadata";
 import { buildWorkBuddyUserAgent } from "../../operations/client-versions";
 import {
   BuddyOAuthClient,

@@ -27,9 +27,9 @@ import {
   isJsonProxyRoutePath,
   isProxyDispatchRoute,
   readIngressBody,
-} from "../../src/transport/middleware/body-policy";
-import { NATIVE_SERVICE_PATHS } from "../../src/transport/dispatch/native-services";
-import { GatewayError } from "../../src/transport/gateway-error";
+} from "../../src/transport/guards/body-policy";
+import { NATIVE_SERVICE_PATHS } from "../../src/transport/contracts";
+import { GatewayError } from "../../src/protocol/gateway-error";
 
 /** A request to `path` with the given body and headers. */
 function request(

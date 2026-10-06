@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  BUNDLED_PROVIDER_METADATA,
-  providerServiceKinds,
-  providerSupportsWebSearch,
-} from "../../src/providers/provider-metadata";
+import { BUNDLED_PROVIDER_METADATA, providerServiceKinds, providerSupportsWebSearch } from "../../src/providers/metadata";
 import { sanitizeProviderResponse } from "../../src/console/providers/catalog/provider-operations";
 describe("provider service taxonomy", () => {
   test("defaults providers to LLM and declares real search surfaces", () => {

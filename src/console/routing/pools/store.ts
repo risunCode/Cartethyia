@@ -24,7 +24,7 @@ import {
 } from "../../../network/pool/agent";
 import { DrizzleNetworkPoolLoader } from "../../../network/pool/loader";
 import { PoolAgentResolver } from "../../../network/pool/resolver";
-import type { SsrfPolicy } from "../../../config";
+import type { SsrfPolicy } from "../../../config/network";
 import {
   disablePoolForProxyHttpStatus,
   listNetworkPoolHealthEvents,

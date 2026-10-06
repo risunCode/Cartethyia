@@ -1,15 +1,15 @@
 /**
  * Canonical → Claude Messages request builder.
  */
-import type { CanonicalRequest, ContentPart } from "../../transport/canonical-model";
+import type { CanonicalRequest, ContentPart } from "../../protocol/canonical-model";
 import { buildAnthropicThinkingPayload } from "../../providers/reasoning";
 import { anthropicCacheControl } from "../../transport/translation/cache-controls";
 import {
   THINKING_STRIPPED_SAMPLING_CONTROLS,
   ensureMaxTokensForThinking,
   isThinkingEnabled,
-  normalizeWireMaxTokens,
 } from "../../transport/translation/capabilities";
+import { normalizeWireMaxTokens } from "../../transport/translation/normalize";
 import { resolveWireMaxTokens, WIRE_TOKEN_BOUNDS } from "../../transport/translation/quirks";
 import {
   isClaudeBillingHeaderText,
@@ -24,7 +24,7 @@ import {
   isRecord,
   resolveImageSource,
   splitDataUrl,
-} from "../primitives";
+} from "../codecs";
 import { log } from "../../observability/logger";
 import { clampReasoningEffort, claudeUsesAdaptiveThinking, LEVEL_TO_BUDGET, resolveSupportedReasoningEfforts } from "../../transport/translation/thinking";
 

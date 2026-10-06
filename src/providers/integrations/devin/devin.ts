@@ -48,23 +48,14 @@ import {
   MetadataSchema,
   StopReason,
 } from "./generated/exa/codeium_common_pb/codeium_common_pb";
-import { GatewayError } from "../../../transport/gateway-error";
+import { GatewayError } from "../../../protocol/gateway-error";
 import { classifyUpstreamError, mapUpstreamHttpError } from "../../../transport/failure-policy";
-import { joinTextParts, toolResultParts } from "../../../transport/canonical-model";
-import type { CanonicalEvent, CanonicalMessage, CanonicalRequest, ToolDefinition, UsageRecord } from "../../../transport/canonical-model";
+import { joinTextParts, toolResultParts } from "../../../protocol/canonical-model";
+import type { CanonicalEvent, CanonicalMessage, CanonicalRequest, ToolDefinition, UsageRecord } from "../../../protocol/canonical-model";
 import type { ModelDefinition } from "../../model-definition";
 import { modelsDevCatalog } from "../../discovery/models-dev-catalog";
-import type {
-  ProviderDispatchTarget,
-  ProviderAdapter,
-  ProviderDispatchContext,
-} from "../../provider-registry";
-import {
-  boundedUpstreamArray,
-  boundedUpstreamNumber,
-  sanitizeUpstreamLabel,
-  validateUpstreamBaseUrl,
-} from "../../provider-metadata";
+import type { ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext } from "../../contracts";
+import { boundedUpstreamArray, boundedUpstreamNumber, sanitizeUpstreamLabel, validateUpstreamBaseUrl } from "../../sanitize";
 import {
   DEVIN_BASE_URL,
   DEVIN_CHAT_PATH,
@@ -76,7 +67,7 @@ import {
   consumeConnectFrames,
   frameConnectMessage,
   FrameBuffer,
-} from "../connect";
+} from "../shared/connect";
 
 const DEVIN_AUTH_PATH = "/exa.auth_pb.AuthService/GetUserJwt" as const;
 const DEVIN_CONFIGS_PATH =

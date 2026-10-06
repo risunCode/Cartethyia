@@ -9,7 +9,7 @@ import type { OAuthExchangeResult } from "../../authentication/oauth-flow-store"
 import type { OAuthTokenRefreshResult } from "../../authentication/oauth-refresh-service";
 import { OAuthClient, type FetchLike } from "../../authentication/oauth-client";
 import { discoverAntigravityProject } from "./antigravity-protocol";
-import { isRecord } from "../../../protocol/primitives";
+import { isRecord } from "../../../protocol/codecs";
 import { log } from "../../../observability/logger";
 
 // The Google OAuth client identity is public provider configuration. These

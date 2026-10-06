@@ -1,5 +1,5 @@
-import type { CredentialKind } from "../../provider-registry";
-import { GatewayError, capabilityUnsupported } from "../../../transport/gateway-error";
+import type { CredentialKind } from "../../contracts";
+import { GatewayError, capabilityUnsupported } from "../../../protocol/gateway-error";
 
 export type AnthropicBetaInput = string | readonly string[] | undefined;
 

@@ -16,7 +16,7 @@
 //    the reasons are merged by severity rather than overwritten by whichever
 //    arrived last.
 
-import type { CanonicalStopReason } from "../../../transport/canonical-model";
+import type { CanonicalStopReason } from "../../../protocol/canonical-model";
 
 /** One parsed event from the upstream, before interpretation. */
 export interface KiroRawEvent {

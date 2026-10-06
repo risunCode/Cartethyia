@@ -19,8 +19,8 @@
  * slow or busy machine cannot make the suite flake.
  */
 import { describe, expect, test } from "bun:test";
-import type { GatewayErrorCode } from "../../src/transport/gateway-error";
-import { GatewayError } from "../../src/transport/gateway-error";
+import type { GatewayErrorCode } from "../../src/protocol/gateway-error";
+import { GatewayError } from "../../src/protocol/gateway-error";
 import {
   classifyTerminalCategory,
   classifyTerminalOutcome,

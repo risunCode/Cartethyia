@@ -4,7 +4,7 @@
  * usage/rate-limit error codes, `retry-after`, and canonical
  * upstream-request IDs into structured details the router honors.
  */
-import { GatewayError } from "../../../transport/gateway-error";
+import { GatewayError } from "../../../protocol/gateway-error";
 import {
   classifyUpstreamError,
   parseRetryAfter,
@@ -12,7 +12,7 @@ import {
   upstreamErrorIdentifier,
   upstreamRequestId,
 } from "../../../transport/failure-policy";
-import { tryParseJsonObject } from "../../../protocol/primitives";
+import { tryParseJsonObject } from "../../../protocol/codecs";
 
 function toNumberOrUndefined(value: string | null): number | undefined {
   if (value === null || value === undefined || value.trim().length === 0)

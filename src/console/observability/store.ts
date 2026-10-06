@@ -4,7 +4,7 @@ import type { CartethyiaDatabase } from "../../persistence/postgres";
 import type { RedisClient } from "../../persistence/redis";
 import { apiKeys, networkPools, telemetryEvents, telemetryPayloads } from "../../persistence/schema";
 import { decodeDatedCursor, encodeCursor } from "../../persistence/page-cursor";
-import { CARTETHYIA_VERSION } from "../../transport/version";
+import { CARTETHYIA_VERSION } from "../../version";
 import { CachedPreferencesReader, DrizzlePreferencesReader, type PreferencesReader } from "../../persistence/tenant-preferences";
 import type {
   ObservabilityStore,

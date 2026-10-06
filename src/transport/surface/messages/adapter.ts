@@ -1,8 +1,8 @@
-import type { CanonicalEvent, CanonicalRequest, GenerationControls, ReasoningIntent } from "../../canonical-model";
+import type { CanonicalEvent, CanonicalRequest, GenerationControls, ReasoningIntent } from "../../../protocol/canonical-model";
 import type { SurfaceAdapter } from "../adapters";
 import { requiredObject } from "../adapters";
-import { isRecord } from "../../../protocol/primitives";
-import { TEXT_ENCODER } from "../stream-frame";
+import { isRecord } from "../../../protocol/codecs";
+import { TEXT_ENCODER } from "../../../lib/sse-frame";
 import type { MessagesEncodingContext, MessagesErrorResponse, MessagesParseOptions, MessagesResponse } from "./parse";
 import {
   asSurfaceBody,
@@ -16,7 +16,7 @@ import {
 } from "./parse";
 import { CANONICAL_REASONING_EFFORTS, parseReasoningIntent, parseToolChoice } from "../dialects";
 import { groupedBlocks, startModel, stopData } from "./encode";
-import { finiteNumber, stringValue } from "../../../protocol/primitives";
+import { finiteNumber, stringValue } from "../../../protocol/codecs";
 import { usageToMessagesWire } from "../../../providers/usage";
 
 export class MessagesAdapter implements SurfaceAdapter {

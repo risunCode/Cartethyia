@@ -1,5 +1,5 @@
-import type { CanonicalMessage, CanonicalRequest, ContentPart, GenerationControls, ToolDefinition } from "../../canonical-model";
-import { isRecord } from "../../../protocol/primitives";
+import type { CanonicalMessage, CanonicalRequest, ContentPart, GenerationControls, ToolDefinition } from "../../../protocol/canonical-model";
+import { isRecord } from "../../../protocol/codecs";
 import { textPart, normalizeInlineFile } from "../content-parts";
 import {
   isServiceTier,
@@ -8,7 +8,7 @@ import {
   parseToolChoice,
   parseToolDefinition,
 } from "../dialects";
-import { readBoolean, readNumber, readString } from "../../../protocol/primitives";
+import { readBoolean, readNumber, readString } from "../../../protocol/codecs";
 import { ResponsesReasoningError } from "./errors";
 import type { ResponsesComputerAction, ResponsesInputItem, ResponsesItemMetadata } from "./contracts";
 const OPENAI_RESPONSE_INCLUDES = {

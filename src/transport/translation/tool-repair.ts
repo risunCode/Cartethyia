@@ -4,8 +4,8 @@
 // winning route's capabilities and before projection — keeps the request
 // dispatchable instead of failing upstream with a 400 the client cannot fix.
 
-import type { CanonicalMessage, CanonicalRequest } from "../canonical-model";
-import { canContainToolResult } from "../canonical-model";
+import type { CanonicalMessage, CanonicalRequest } from "../../protocol/canonical-model";
+import { canContainToolResult } from "../../protocol/canonical-model";
 
 const MISSING_TOOL_OUTPUT = "<missing tool output>";
 

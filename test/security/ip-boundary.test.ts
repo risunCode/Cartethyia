@@ -26,7 +26,7 @@ import {
   isTrustedProxyPeer,
   resolveClientIdentity,
 } from "../../src/security/ip-boundary";
-import type { TrustedProxyBoundary } from "../../src/config";
+import type { TrustedProxyBoundary } from "../../src/config/network";
 
 /** No proxy trust: the raw TCP peer is the client. */
 const DISABLED: TrustedProxyBoundary = { mode: "disabled" };
@@ -135,7 +135,7 @@ describe("isTrustedProxyPeer", () => {
    *
    * Reachable impact — this is the more serious of the two instances of this
    * bug (the SSRF guard in `src/network/ssrf.ts` has the same coercion):
-   * `resolveTrustedProxyBoundary` (`src/config.ts:362`) reads the list verbatim
+   * `resolveTrustedProxyBoundary` (`src/config/network.ts`) reads the list verbatim
    * from `TRUSTED_PROXY_CIDRS` through `readList`, which validates nothing. With
    * `TRUSTED_PROXY_CIDRS=10.0.0.0/`, `isTrustedProxyPeer` returns true for any
    * peer, so `resolveClientIdentity` believes the caller's own

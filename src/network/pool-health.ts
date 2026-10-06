@@ -1,7 +1,7 @@
 import type { CartethyiaDatabase } from "../persistence/postgres";
 import { healthEvents } from "../persistence/schema";
 import type { NetworkPoolSelector } from "./pool/selector";
-import type { GatewayError } from "../transport/gateway-error";
+import type { GatewayError } from "../protocol/gateway-error";
 import { metrics } from "../observability/metrics";
 import { log } from "../observability/logger";
 

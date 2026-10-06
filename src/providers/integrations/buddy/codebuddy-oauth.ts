@@ -1,6 +1,6 @@
 // CodeBuddy OAuth — browser-assisted state polling (non-PKCE) plus bespoke refresh.
 // Canonical provider IDs: cb and cbcn.
-import { providerBaseUrl } from "../../provider-metadata";
+import { providerBaseUrl } from "../../metadata";
 import { buildCodeBuddyUserAgent } from "../../operations/client-versions";
 import {
   BuddyOAuthClient,

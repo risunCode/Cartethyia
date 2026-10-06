@@ -1,6 +1,6 @@
 // Routing contracts and snapshots.
-import { GatewayError } from "../gateway-error";
-import { type ServiceKind, type WireFamily } from "../canonical-model";
+import { GatewayError } from "../../protocol/gateway-error";
+import { type ServiceKind, type WireFamily } from "../../protocol/canonical-model";
 
 
 export type RoutingRevision = number;
@@ -78,10 +78,6 @@ export interface RouteCandidate {
  * operations layer validates direct callers against the same list, so a new
  * strategy cannot land in one and be silently missing from the other.
  */
-export const DEFAULT_PROVIDER_USER_AGENT = "codex_cli_rs/0.156.1" as const;
-export const ROUTING_STRATEGIES = ["fallback", "round_robin"] as const;
-export type ProviderRoutingStrategy = (typeof ROUTING_STRATEGIES)[number];
-
 export interface ProviderRoutingSetting {
   readonly strategy: ProviderRoutingStrategy;
   /** Requests served by one account before round robin advances. */
@@ -112,7 +108,7 @@ export interface ProviderRoutingSetting {
  * `transport/routing/route-catalog.ts` so the two never drift.
  *
  * Single owner is the manifest `defaultBypassProxy` flags in
- * `providers/provider-registry.ts`; consumers import it directly from there.
+ * `providers/metadata.ts`; consumers import it directly from there.
  */
 
 /**
@@ -159,7 +155,14 @@ export interface RoutePlan {
   };
 }
 
-import type { ComboStrategy, PoolRoutingStrategy } from "../../persistence/schema";
+import type { ComboStrategy, PoolRoutingStrategy, ProviderRoutingStrategy } from "../../persistence/schema";
+import { DEFAULT_PROVIDER_USER_AGENT, providerRoutingStrategy } from "../../persistence/schema";
+
+export { DEFAULT_PROVIDER_USER_AGENT, type ProviderRoutingStrategy };
+
+/** Provider-routing strategies, derived from the persisted enum so the console
+ * body schema and the routing engine validate against one list. */
+export const ROUTING_STRATEGIES = providerRoutingStrategy.enumValues;
 
 export interface ComboDefinition {
   readonly members: readonly string[];

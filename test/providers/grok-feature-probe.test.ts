@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { CanonicalEvent } from "../../src/transport/canonical-model";
+import type { CanonicalEvent } from "../../src/protocol/canonical-model";
 import { classifyUpstreamFailure } from "../../src/transport/failure-policy";
-import { GatewayError } from "../../src/transport/gateway-error";
+import { GatewayError } from "../../src/protocol/gateway-error";
 import { classifyAccountError } from "../../src/providers/operations/account-health-service";
 import {
   GROK_407_PROBE_PROMPT,

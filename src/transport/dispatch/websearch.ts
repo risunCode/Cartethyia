@@ -14,8 +14,8 @@
  * it only validates the trust boundary, drives the loop, and serializes the
  * normalized envelope.
  */
-import type { ProviderAdapter, ProviderDispatchTarget } from "../../providers/provider-registry";
-import { GatewayError } from "../gateway-error";
+import type { ProviderAdapter, ProviderDispatchTarget } from "../../providers/contracts";
+import { GatewayError } from "../../protocol/gateway-error";
 import { resolveCredentialForAccount } from "../../providers/operations/provider-credential-service";
 import type { OAuthTokenRefresher, OAuthRefreshService } from "../../providers/authentication/oauth-refresh-service";
 import type { ValidatedNetworkBindingFactory } from "../../network/pool/resolver";

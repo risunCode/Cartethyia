@@ -1,8 +1,8 @@
 // Account health: error classification, failure/success recording, recovery and cooldown sweeps.
 import { and, desc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
-import { isRecord } from "../../protocol/primitives";
-import { BUDDY_PROVIDER_IDS } from "../provider-metadata";
+import { isRecord } from "../../protocol/codecs";
+import { BUDDY_PROVIDER_IDS } from "../metadata";
 import { healthEvents, providerAccounts } from "../../persistence/schema";
 
 import { parseProviderResetDuration, parseUpstreamBackoff } from "../../transport/failure-policy";
@@ -12,7 +12,7 @@ import {
   resolveAccountRateLimitCooldownMs,
   resolveAccountTransientCooldownMs,
   resolveAccountUnclassifiedCooldownMs,
-} from "../../config";
+} from "../../config/cooldowns";
 // ===== health/constants.ts =====
 /**
  * Account status is authoritative for routing: `disabled` is a hard exclusion
@@ -23,7 +23,7 @@ import {
  *
  * Every delay below is a *fallback*: an upstream `Retry-After`/reset header or
  * a duration stated in the provider message always wins. They are read through
- * `src/config.ts` so an operator can tune the health machine without a code
+ * `src/config/cooldowns.ts` so an operator can tune the health machine without a code
  * change (`CARTETHYIA_ACCOUNT_*_COOLDOWN_MS`).
  */
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = resolveAccountRateLimitCooldownMs;

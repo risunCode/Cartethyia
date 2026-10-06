@@ -1,12 +1,14 @@
 // Drizzle-backed provider, account, model, routing, and API-key repositories.
 import { and, asc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { ConsoleDomainError } from "../../shared/errors";
-import { parseCustomProviderId, isBundledProviderId, type ModelDefinition, type ProviderRegistry } from "../../../providers/provider-registry";
+import { parseCustomProviderId, isBundledProviderId } from "../../../providers/contracts";
+import type { ModelDefinition } from "../../../providers/model-definition";
+import type { ProviderRegistry } from "../../../providers/registry";
 import { globalOrOwnedBy, ownedByOnly } from "../../../persistence/tenant-scope";
 import { nextSortIndex, reorderSortIndex } from "../../../lib/sort-order";
 import type { CartethyiaDatabase } from "../../../persistence/postgres";
 import { models, providerAccounts, providerOauthStates, providers, telemetryEvents, telemetryUsageTotals, tenantDisabledModels } from "../../../persistence/schema";
-import type { WireFamily } from "../../../transport/canonical-model";
+import type { WireFamily } from "../../../protocol/canonical-model";
 import { listAccountHealthEvents, recoverAccount, type AccountHealthEventRecord } from "../../../providers/operations/account-health-service";
 import { invalidateCredentialCache } from "../../../providers/operations/provider-credential-service";
 import { encryptCredential, hashSecret } from "../../../security/crypto";

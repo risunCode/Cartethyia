@@ -6,7 +6,7 @@
 // strict wire encoder runs. The same original→sanitized mapping is applied to
 // both the `toolCall` and its matching `toolResult` so pairing is preserved.
 
-import type { CanonicalRequest } from "../canonical-model";
+import type { CanonicalRequest } from "../../protocol/canonical-model";
 
 /** Anthropic tool ID contract: alphanumerics, underscore, hyphen only. */
 export const TOOL_ID_PATTERN: RegExp = /^[a-zA-Z0-9_-]+$/;

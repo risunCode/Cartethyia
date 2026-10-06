@@ -13,9 +13,9 @@
  * panel model — is terminal, so it records the real outcome and emits the one
  * telemetry row the request is owed.
  */
-import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget } from "../../providers/provider-registry";
-import type { CanonicalEvent, CanonicalRequest } from "../canonical-model";
-import { GatewayError } from "../gateway-error";
+import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget } from "../../providers/contracts";
+import type { CanonicalEvent, CanonicalRequest } from "../../protocol/canonical-model";
+import { GatewayError } from "../../protocol/gateway-error";
 import { resolveCredentialForAccount } from "../../providers/operations/provider-credential-service";
 import type { OAuthTokenRefresher, OAuthRefreshService } from "../../providers/authentication/oauth-refresh-service";
 import type { ValidatedNetworkBindingFactory } from "../../network/pool/resolver";

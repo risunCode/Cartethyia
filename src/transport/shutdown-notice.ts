@@ -13,7 +13,7 @@
  * text, and both the readiness probe (`app.ts`) and the request gate
  * (`gateway-guards.ts`) render the same notice from it.
  */
-import { GatewayError, type GatewayErrorCode } from "./gateway-error";
+import { GatewayError, type GatewayErrorCode } from "../protocol/gateway-error";
 
 export interface ShutdownNotice {
   readonly code: Extract<GatewayErrorCode, "shutting_down" | "restart_for_update">;

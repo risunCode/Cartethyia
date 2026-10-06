@@ -29,7 +29,7 @@ import {
   hashSecret,
   setCredentialEncryptionKeyForTesting,
 } from "../../src/security/crypto";
-import { decodeEncryptionKey } from "../../src/config";
+import { decodeEncryptionKey } from "../../src/config/security";
 
 /** A 32-byte key, base64 encoded. Deterministic so assertions can compare. */
 const KEY_BYTES = Buffer.from("0123456789abcdef0123456789abcdef", "utf8");

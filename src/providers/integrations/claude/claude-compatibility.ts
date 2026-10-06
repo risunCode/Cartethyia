@@ -1,7 +1,7 @@
-import type { CredentialKind } from "../../provider-registry";
-import type { CanonicalRequest } from "../../../transport/canonical-model";
-import { allParts, hasExtension, hasKind, hasOpaqueReasoning } from "../../../transport/canonical-model";
-import { capabilityUnsupported } from "../../../transport/gateway-error";
+import type { CredentialKind } from "../../contracts";
+import type { CanonicalRequest } from "../../../protocol/canonical-model";
+import { allParts, hasExtension, hasKind, hasOpaqueReasoning } from "../../../protocol/canonical-model";
+import { capabilityUnsupported } from "../../../protocol/gateway-error";
 import { negotiateAnthropicBetas, type AnthropicBetaNegotiation, type AnthropicBetaUnsupportedPolicy } from "./claude-betas";
 
 /** A semantic capability required by a Claude Code request. */

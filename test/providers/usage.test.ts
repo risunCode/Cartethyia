@@ -39,7 +39,7 @@ import {
   usageToResponsesWire,
   type OpenAiUsage,
 } from "../../src/providers/usage";
-import type { UsageRecord } from "../../src/transport/canonical-model";
+import type { UsageRecord } from "../../src/protocol/canonical-model";
 
 describe("normalizeUsage: the OpenAI shape", () => {
   test("reads prompt and completion tokens", () => {

@@ -1,4 +1,4 @@
-import type { AssistantItemPhase } from "../../canonical-model";
+import type { AssistantItemPhase } from "../../../protocol/canonical-model";
 
 export interface ResponsesComputerAction {
   type:

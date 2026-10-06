@@ -12,7 +12,7 @@ export const ROUTING_ACTIVE_LABEL = {
 
 // Providers known to not reliably support plain HTTP/S proxying — routing
 // for these defaults to bypassProxy on the backend. Dashboard copy of the
-// backend `DEFAULT_PROXY_BYPASS_PROVIDER_IDS` (`src/providers/provider-metadata.ts`).
+// backend `DEFAULT_PROXY_BYPASS_PROVIDER_IDS` (`src/providers/metadata.ts`).
 // Intentionally duplicated, not imported: importing the backend value would
 // bundle the backend module graph (Elysia + `node:crypto`) into the browser
 // build and break Vite dev with "Module node:crypto has been externalized".

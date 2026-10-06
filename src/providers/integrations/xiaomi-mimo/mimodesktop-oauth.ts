@@ -9,8 +9,8 @@ import {
   type OAuthExchangeResult,
 } from "../../authentication/oauth-flow-store";
 import type { OAuthTokenRefreshResult } from "../../authentication/oauth-refresh-service";
-import { GatewayError } from "../../../transport/gateway-error";
-import { oauthCallbackUrl } from "../../../config";
+import { GatewayError } from "../../../protocol/gateway-error";
+import { oauthCallbackUrl } from "../../../config/providers";
 import { acquireMimoServiceSession, invalidateMimoSessionCache } from "./mimodesktop-sso";
 
 export const MIMO_DESKTOP_CLIENT_ID = "mimocode-desktop" as const;

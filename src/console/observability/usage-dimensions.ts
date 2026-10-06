@@ -9,7 +9,7 @@
  * This module is intentionally free of Elysia / node:crypto so the dashboard
  * can re-export the tuple as a value. The dashboard previously reached it
  * through `./contracts`, which imports Elysia and — through
- * `console/shared/errors` → `protocol/primitives` → `security/outbound-headers`
+ * `console/shared/errors` → `protocol/codecs` → `security/outbound-headers`
  * — `node:crypto`, so the browser bundle externalized a Node builtin and
  * carried a slice of the backend graph for one string list.
  */

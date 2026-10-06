@@ -25,7 +25,7 @@ import {
   InMemoryIpAbuseStore,
   IpAbuseProtectionService,
 } from "../../src/security/abuse";
-import { GatewayError } from "../../src/transport/gateway-error";
+import { GatewayError } from "../../src/protocol/gateway-error";
 import type { ClientIdentity } from "../../src/security/abuse";
 
 /** A controllable clock, so a window can be crossed without waiting. */

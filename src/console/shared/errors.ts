@@ -1,7 +1,7 @@
 import { ValidationError } from "elysia";
 import type { AccessDecision, AccessScope } from "../../security/access-control";
-import { isRecord } from "../../protocol/primitives";
-import { formatPublicErrorMessage } from "../../transport/gateway-error";
+import { isRecord } from "../../protocol/codecs";
+import { formatPublicErrorMessage } from "../../protocol/gateway-error";
 
 // Single console error/access contract. Every domain throws ConsoleDomainError
 // (or the storage-layer BackupError, same code/status/message shape) and

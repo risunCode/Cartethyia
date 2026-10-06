@@ -8,7 +8,7 @@
  */
 import { fetchOpenAICompatibleModels } from "../../discovery/openai-model-discovery";
 import type { DiscoveryInput } from "../../discovery/discovery-types";
-import type { ModelDefinition } from "../../provider-registry";
+import type { ModelDefinition } from "../../model-definition";
 import { XAI_BASE_URL, XAI_PROVIDER_ID } from "./xai";
 
 /** Reads the subscription's own model list. */

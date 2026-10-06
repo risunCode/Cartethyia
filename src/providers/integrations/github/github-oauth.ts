@@ -28,7 +28,7 @@ import type {
 import type { OAuthTokenRefreshResult } from "../../authentication/oauth-refresh-service";
 import { OAuthDeviceFlow } from "../../authentication/oauth-device-flow";
 import type { FetchLike } from "../../authentication/oauth-client";
-import { resolveGithubEnterpriseDomain } from "../../../config";
+import { resolveGithubEnterpriseDomain } from "../../../config/providers";
 
 /** Public GitHub OAuth app id the Copilot clients use; not a secret. */
 export const GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98" as const;

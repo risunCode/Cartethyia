@@ -18,16 +18,12 @@
  * gateway identity, operator custom headers, route user-agent) stays
  * exactly as every other provider gets it.
  */
-import type { CanonicalRequest } from "../../../transport/canonical-model";
-import { GatewayError } from "../../../transport/gateway-error";
+import type { CanonicalRequest } from "../../../protocol/canonical-model";
+import { GatewayError } from "../../../protocol/gateway-error";
 import { decodeMuseCredential } from "../../../lib/credential-codec";
 import { OpenAICompatibleAdapter, withBearerAuthentication } from "../../compatible-adapter";
-import type {
-  ProviderDispatchTarget,
-  ProviderDispatchContext,
-  ResolvedCredential,
-} from "../../provider-registry";
-import { providerBaseUrl } from "../../provider-metadata";
+import type { ProviderDispatchTarget, ProviderDispatchContext, ResolvedCredential } from "../../contracts";
+import { providerBaseUrl } from "../../metadata";
 
 export const MUSE_CODE_PROVIDER_ID = "muse" as const;
 /** Root URL; model endpoint paths carry the `/v1/...` suffix. */
@@ -36,7 +32,7 @@ export const MUSE_CODE_BASE_URL = providerBaseUrl("muse");
 // Model catalog — captured from provider models.json (`muse-code`)
 
 import { defineModel } from "../../model-definition";
-import type { ModelDefinition } from "../../provider-registry";
+import type { ModelDefinition } from "../../model-definition";
 
 const museModel = (
   modelId: string,

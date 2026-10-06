@@ -1,4 +1,4 @@
-import { GatewayError } from "../../gateway-error";
+import { GatewayError } from "../../../protocol/gateway-error";
 
 /** Typed failures for the OpenAI Responses surface. */
 export class ResponsesReasoningError extends GatewayError {

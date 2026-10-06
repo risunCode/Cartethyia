@@ -17,7 +17,7 @@
  * quota-side caller, so it stays in `kimi/kimi-oauth.ts` beside its encoder
  * and the device-id derivation it depends on.
  */
-import { isRecord } from "../protocol/primitives";
+import { isRecord } from "../protocol/codecs";
 
 const TEXT_DECODER = new TextDecoder();
 

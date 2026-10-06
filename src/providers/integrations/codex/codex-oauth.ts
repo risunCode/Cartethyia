@@ -13,7 +13,7 @@ import { OAuthDeviceFlow } from "../../authentication/oauth-device-flow";
 import type { FetchLike } from "../../authentication/oauth-client";
 import { resolveRedisClient } from "../../../persistence/redis";
 import type { RedisClient } from "../../../persistence/redis";
-import { isRecord } from "../../../protocol/primitives";
+import { isRecord } from "../../../protocol/codecs";
 import {
   CODEX_DEVICE_TTL_SECONDS,
   parseCodexDeviceStart,

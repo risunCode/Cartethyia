@@ -31,7 +31,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import Redis from "ioredis";
 import { RedisAdmissionCounterStore } from "../../src/security/admission/redis-store";
 import type { AdmissionReserveRequest } from "../../src/security/admission/contracts";
-import { GatewayError } from "../../src/transport/gateway-error";
+import { GatewayError } from "../../src/protocol/gateway-error";
 import { testRedisUrl } from "../helpers/database";
 
 const redisDescribe = testRedisUrl ? describe : describe.skip;

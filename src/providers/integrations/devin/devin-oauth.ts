@@ -24,7 +24,7 @@
  * this client intentionally declares no `refresher` capability.
  */
 import { decodeJwtPayload, readJsonResponse, record } from "../../authentication/oauth-flow-store";
-import { sanitizeUpstreamLabel } from "../../provider-metadata";
+import { sanitizeUpstreamLabel } from "../../sanitize";
 import type {
   OAuthAuthorizeRequest,
   OAuthExchangeResult,

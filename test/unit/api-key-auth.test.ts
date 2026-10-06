@@ -17,7 +17,7 @@ import {
   modelRejectionReason,
   requestToken,
 } from "../../src/security/api-key-auth";
-import { GatewayError } from "../../src/transport/gateway-error";
+import { GatewayError } from "../../src/protocol/gateway-error";
 
 /** Builds a snapshot with only the fields a case cares about. */
 function snapshot(input: {

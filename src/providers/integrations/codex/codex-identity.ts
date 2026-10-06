@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { decodeJwtPayload } from "../../authentication/oauth-flow-store";
-import { getOrCreateInstallId } from "../install-id";
+import { getOrCreateInstallId } from "../shared/install-id";
 
 interface CodexIdentity {
   readonly session_id: string;

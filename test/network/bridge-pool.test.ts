@@ -25,7 +25,7 @@ import {
   ProxyConnectRefusalError,
   shouldFallbackToBridgeRelay,
 } from "../../src/network/pool/agent";
-import type { SsrfPolicy } from "../../src/config";
+import type { SsrfPolicy } from "../../src/config/network";
 
 /** Loopback is the only host a test may dial, so the policy must allow it. */
 const LOOPBACK_POLICY: SsrfPolicy = { allowPrivate: true };

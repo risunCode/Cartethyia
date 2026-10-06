@@ -1,4 +1,4 @@
-import { GatewayError } from "../../transport/gateway-error";
+import { GatewayError } from "../../protocol/gateway-error";
 import { metrics } from "../../observability/metrics";
 import { getAdmissionIdentity, modelRejectionReason } from "../api-key-auth";
 import type {

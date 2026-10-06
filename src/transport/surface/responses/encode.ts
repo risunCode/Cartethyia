@@ -1,8 +1,8 @@
-import type { CanonicalEvent, CanonicalStopReason, ContentPart, UsageRecord } from "../../canonical-model";
-import { isRecord } from "../../../protocol/primitives";
+import type { CanonicalEvent, CanonicalStopReason, ContentPart, UsageRecord } from "../../../protocol/canonical-model";
+import { isRecord } from "../../../protocol/codecs";
 import { usageToResponsesWire } from "../../../providers/usage";
-import { TEXT_ENCODER } from "../stream-frame";
-import { SurfaceStreamEncoder } from "../stream-base";
+import { TEXT_ENCODER } from "../../../lib/sse-frame";
+import { SurfaceStreamEncoder } from "../stream-frame";
 import { ResponsesLifecycleError, ResponsesSequenceError } from "./errors";
 import type { ResponsesEncodingContext, ResponsesWireEvent } from "./contracts";
 import type { SurfaceOutput } from "../adapters";

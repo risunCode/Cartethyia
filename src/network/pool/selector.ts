@@ -8,7 +8,7 @@
  * the selection algorithm and the `NetworkPoolSelector` public surface.
  */
 import { redisEvalNumber, type RedisClient } from "../../persistence/redis";
-import { resolveInflightTtlSeconds } from "../../config";
+import { resolveInflightTtlSeconds } from "../../config/timeouts";
 import { log } from "../../observability/logger";
 import {
   COOLDOWN_CLEAR_SCRIPT,

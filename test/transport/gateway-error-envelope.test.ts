@@ -28,7 +28,7 @@ import {
   GatewayError,
   publicGatewayErrorDetails,
   type GatewayErrorCode,
-} from "../../src/transport/gateway-error";
+} from "../../src/protocol/gateway-error";
 
 describe("GatewayError", () => {
   test("carries its code, status, origin, and details", () => {

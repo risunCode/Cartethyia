@@ -7,7 +7,7 @@
  * provider share a single load, and lets the dynamic catalog imports run once
  * per process. A rejected load is evicted so a later call can retry.
  */
-import type { ModelDefinition } from "../provider-registry";
+import type { ModelDefinition } from "../model-definition";
 import { trackModelCatalogLoad } from "../../observability/performance-metrics";
 
 /**

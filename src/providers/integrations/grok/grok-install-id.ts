@@ -6,7 +6,7 @@
  * the read/mkdir/open dance, and a failure to write it escaped into dispatch and
  * failed the request.
  */
-import { getOrCreateInstallId } from "../install-id";
+import { getOrCreateInstallId } from "../shared/install-id";
 
 export function getGrokInstallId(path?: string): Promise<string> {
   return getOrCreateInstallId("grok", path);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { GatewayError } from "../../src/transport/gateway-error";
+import { GatewayError } from "../../src/protocol/gateway-error";
 import { abortGatewayError } from "../../src/providers/operations/upstream-deadline";
 
 describe("upstream deadline ownership", () => {

@@ -1,4 +1,4 @@
-import type { UsageRecord } from "../transport/canonical-model";
+import type { UsageRecord } from "../protocol/canonical-model";
 export interface OpenAiUsage {
   prompt_tokens: number;
   completion_tokens: number;

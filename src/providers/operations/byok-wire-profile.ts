@@ -13,9 +13,9 @@
  * a per-provider special case: the Anthropic Messages wire reads `x-api-key`,
  * while the OpenAI chat/responses wires read `Authorization: Bearer`.
  */
-import type { WireFamily } from "../../transport/canonical-model";
-import type { CompatibilityProfile } from "../provider-metadata";
-import { BARE_ROOT_ENDPOINTS, type AuthHeaderShape } from "../../protocol/primitives";
+import type { WireFamily } from "../../protocol/canonical-model";
+import type { CompatibilityProfile } from "../metadata";
+import { BARE_ROOT_ENDPOINTS, type AuthHeaderShape } from "../../protocol/codecs";
 
 /** The two wires an OpenAI-compatible root conventionally serves. */
 const OPENAI_WIRE_FAMILIES: readonly WireFamily[] = ["chat", "responses"];

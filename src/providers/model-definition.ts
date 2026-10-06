@@ -8,7 +8,7 @@
  * edit cannot silently drift from the shared defaults. Limits and pricing fall
  * back to the prebuilt base catalog; capability does not — see `defineModel`.
  */
-import type { ServiceKind, WireFamily } from "../transport/canonical-model";
+import type { ServiceKind, WireFamily } from "../protocol/canonical-model";
 import { modelsDevCatalog } from "./discovery/models-dev-catalog";
 
 /** Billing metadata for one provider model. */

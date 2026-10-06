@@ -1,8 +1,8 @@
 // SSRF guard: DNS resolution allowlists and destination validation for outbound fetch.
 import { resolve4, resolve6 } from "node:dns/promises";
 import { isIP } from "node:net";
-import { GatewayError } from "../transport/gateway-error";
-import type { SsrfPolicy } from "../config";
+import { GatewayError } from "../protocol/gateway-error";
+import type { SsrfPolicy } from "../config/network";
 
 const DNS_CACHE_TTL_MS = 60_000;
 const DNS_CACHE_MAX = 64;

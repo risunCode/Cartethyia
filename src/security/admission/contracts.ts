@@ -1,4 +1,4 @@
-import type { UsageRecord } from "../../transport/canonical-model";
+import type { UsageRecord } from "../../protocol/canonical-model";
 import type { ApiKeyAuthorizationSnapshot, ModelRejectionReason } from "../api-key-auth";
 
 export type AdmissionRejectionReason =

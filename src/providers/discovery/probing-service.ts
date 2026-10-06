@@ -7,11 +7,11 @@
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { models, providerAccounts, providers } from "../../persistence/schema";
-import type { CanonicalEvent, CanonicalRequest, WireFamily } from "../../transport/canonical-model";
-import { WIRE_FAMILIES } from "../../transport/canonical-model";
-import { isRecord } from "../../protocol/primitives";
+import type { CanonicalEvent, CanonicalRequest, WireFamily } from "../../protocol/canonical-model";
+import { WIRE_FAMILIES } from "../../protocol/canonical-model";
+import { isRecord } from "../../protocol/codecs";
 import type { FetchLike } from "../quota/quota-contracts";
-import type { CompatibilityProfile } from "../provider-metadata";
+import type { CompatibilityProfile } from "../metadata";
 import {
   type ByokConnectionTestRequest,
   type ByokConnectionTestResult,
@@ -55,18 +55,14 @@ import {
 import { resolveCustomCliHeaders } from "../operations/custom-cli-headers";
 import { resolveCredentialForAccount } from "../operations/provider-credential-service";
 import { decryptCredentialToString } from "../../security/crypto";
-import { GatewayError } from "../../transport/gateway-error";
+import { GatewayError } from "../../protocol/gateway-error";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
 import { computeTokensPerSec } from "../../observability/token-speed";
 import { TelemetryPayloadCapture } from "../../observability/payload-capture";
-import {
-  providerBaseUrl,
-  parseProviderId,
-  type ProviderDispatchTarget as AdapterDispatchTarget,
-  type ModelDefinition,
-  type ValidatedOutboundFetch,
-  type ProviderRegistry,
-} from "../provider-registry";
+import { providerBaseUrl } from "../metadata";
+import { parseProviderId, type ProviderDispatchTarget as AdapterDispatchTarget, type ValidatedOutboundFetch } from "../contracts";
+import type { ModelDefinition } from "../model-definition";
+import type { ProviderRegistry } from "../registry";
 
 /** Max models probed concurrently per batch (outside the sequential warm-up). */
 const PROBE_CONCURRENCY = 5;

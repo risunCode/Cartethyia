@@ -471,7 +471,7 @@ describe("PrometheusRegistry — histogram", () => {
    *
    * Reachable impact today is limited: both call sites
    * (`proxy_request_latency_ms` in `error-lifecycle.ts`,
-   * `proxy_provider_adapter_load_ms` in `provider-registry.ts`) observe without
+   * `proxy_provider_adapter_load_ms` in `providers/registry.ts`) observe without
    * labels, so nothing is mis-attributed right now. The defect is the contract.
    * A caller who follows the interface and writes `observe(ms, { route })` gets
    * one merged histogram across every route — no error, no missing-sample

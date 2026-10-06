@@ -28,8 +28,8 @@ import {
   mapChatStopReason,
   parseChatResponseToEvents,
 } from "../../src/protocol/response/chat";
-import { GatewayError } from "../../src/transport/gateway-error";
-import type { CanonicalEvent, CanonicalRequest, UsageRecord } from "../../src/transport/canonical-model";
+import { GatewayError } from "../../src/protocol/gateway-error";
+import type { CanonicalEvent, CanonicalRequest, UsageRecord } from "../../src/protocol/canonical-model";
 
 /** A canonical request; the decoder reads only `model`. */
 function request(overrides: { model?: string } = {}): CanonicalRequest {

@@ -16,9 +16,9 @@
  * read the current snapshot and never fetch the update manifest.
  */
 import { createHash } from "node:crypto";
-import { providerBaseUrl } from "../../provider-metadata";
-import type { ModelDefinition } from "../../provider-registry";
-import { isRecord } from "../../../protocol/primitives";
+import { providerBaseUrl } from "../../metadata";
+import type { ModelDefinition } from "../../model-definition";
+import { isRecord } from "../../../protocol/codecs";
 import { modelsDevCatalog } from "../../discovery/models-dev-catalog";
 import type { FetchLike } from "../../authentication/oauth-client";
 import { getAntigravityVersion } from "../../operations/client-versions";

@@ -28,8 +28,8 @@ import {
   validateResolvedAddresses,
   type ValidatedDestination,
 } from "../../src/network/ssrf";
-import type { SsrfPolicy } from "../../src/config";
-import { GatewayError } from "../../src/transport/gateway-error";
+import type { SsrfPolicy } from "../../src/config/network";
+import { GatewayError } from "../../src/protocol/gateway-error";
 
 /** The production default: a private destination is refused. */
 const STRICT: SsrfPolicy = {};
@@ -339,7 +339,7 @@ describe("isAddressAllowed — the policy overrides", () => {
    * which is `0 === 0` for every IPv4 address. One malformed entry therefore
    * admits *every* IPv4 destination.
    *
-   * Reachable impact: `resolveSsrfPolicy` (`src/config.ts:375`) reads this list
+   * Reachable impact: `resolveSsrfPolicy` (`src/config/network.ts`) reads this list
    * verbatim from `CARTETHYIA_ALLOWED_NETWORKS` through `readList`, which splits
    * on commas and trims but validates nothing. An operator writing
    * `CARTETHYIA_ALLOWED_NETWORKS=10.0.0.0/` — a truncated paste, or the prefix

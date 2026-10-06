@@ -1,4 +1,4 @@
-import type { CanonicalEvent } from "../canonical-model";
+import type { CanonicalEvent } from "../../protocol/canonical-model";
 
 export interface ReasoningSummaryIdentity {
   readonly itemId?: string;

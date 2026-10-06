@@ -9,15 +9,16 @@
  * OpenAI-compatible adapter.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { GatewayError } from "../../../transport/gateway-error";
-import type { CanonicalRequest } from "../../../transport/canonical-model";
+import { GatewayError } from "../../../protocol/gateway-error";
+import type { CanonicalEvent, CanonicalRequest } from "../../../protocol/canonical-model";
 import {
   OpenAICompatibleAdapter,
   withBearerAuthentication,
 } from "../../compatible-adapter";
-import type { ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext } from "../../provider-registry";
-import { providerBaseUrl, boundedUpstreamArray, boundedUpstreamNumber, sanitizeUpstreamLabel } from "../../provider-metadata";
-import { isRecord } from "../../../protocol/primitives";
+import type { ProviderAdapter, ProviderDispatchTarget, ProviderDispatchContext } from "../../contracts";
+import { providerBaseUrl } from "../../metadata";
+import { boundedUpstreamArray, boundedUpstreamNumber, sanitizeUpstreamLabel } from "../../sanitize";
+import { isRecord } from "../../../protocol/codecs";
 import { modelsDevCatalog } from "../../discovery/models-dev-catalog";
 import type { ReasoningEffortLevel } from "../../../transport/translation/thinking";
 import type { FetchLike } from "../../quota/quota-contracts";
@@ -73,7 +74,7 @@ interface GrokModelDiscoveryOptions {
   readonly fetcher?: FetchLike;
 }
 
-import type { ModelDefinition } from "../../provider-registry";
+import type { ModelDefinition } from "../../model-definition";
 
 const grokModel = (
   modelId: string,
@@ -507,16 +508,23 @@ const GrokConfig = withBearerAuthentication({
   prePayload: normalizeGrokPayload,
 });
 
-const GrokInnerAdapter = new OpenAICompatibleAdapter(GrokConfig);
+/**
+ * Dedicated Grok Build provider adapter.
+ *
+ * The only deviation from the shared OpenAI-compatible factory is the OAuth
+ * credential-kind guard; everything else (transport, SSE decoding, headers,
+ * payload normalization) is the declarative config below.
+ */
+class GrokAdapter extends OpenAICompatibleAdapter {
+  constructor() {
+    super(GrokConfig);
+  }
 
-/** Dedicated Grok Build provider adapter. */
-export const GrokAdapter: ProviderAdapter = {
-  provider_id: GROK_PROVIDER_ID,
-  async *dispatch(
+  public override async *dispatch(
     request: CanonicalRequest,
     candidate: ProviderDispatchTarget,
     context: ProviderDispatchContext,
-  ): AsyncIterable<import("../../../transport/canonical-model").CanonicalEvent> {
+  ): AsyncIterable<CanonicalEvent> {
     if (context.credential.credential_kind !== "oauth") {
       throw new GatewayError(
         "invalid_request",
@@ -524,7 +532,10 @@ export const GrokAdapter: ProviderAdapter = {
         "grok requires an xAI OAuth device credential",
       );
     }
-    yield* GrokInnerAdapter.dispatch(request, candidate, context);
-  },
-};
+    yield* super.dispatch(request, candidate, context);
+  }
+}
+
+/** Dedicated Grok Build provider adapter. */
+export const grokAdapter: ProviderAdapter = new GrokAdapter();
 

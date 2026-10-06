@@ -7,11 +7,12 @@
 // Payload: leading CodeBuddy system prompt + typed user content, reasoning_summary auto only when reasoning_effort
 
 import { OpenAICompatibleAdapter } from "../../compatible-adapter";
-import type { ProviderDispatchTarget, ModelDefinition, ProviderAdapter } from "../../provider-registry";
+import type { ProviderDispatchTarget, ProviderAdapter } from "../../contracts";
+import type { ModelDefinition } from "../../model-definition";
 import type { DiscoveryInput } from "../../discovery/discovery-types";
-import { GatewayError } from "../../../transport/gateway-error";
-import type { CanonicalRequest } from "../../../transport/canonical-model";
-import { providerBaseUrl } from "../../provider-metadata";
+import { GatewayError } from "../../../protocol/gateway-error";
+import type { CanonicalRequest } from "../../../protocol/canonical-model";
+import { providerBaseUrl } from "../../metadata";
 import {
   codebuddyAdapterConfig,
 } from "./codebuddy-shared";

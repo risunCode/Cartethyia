@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { GatewayError } from "../../../transport/gateway-error";
+import { GatewayError } from "../../../protocol/gateway-error";
 
 export const MIMO_ACCOUNT_HOST = "account.xiaomi.com";
 export const MIMO_DEFAULT_API_BASE = "https://mimo-server-sgp.xiaomimimo.com";

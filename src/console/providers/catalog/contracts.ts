@@ -2,12 +2,12 @@
 // boundary, and the compatibility-profile validator shared by the catalog
 // routes and the Drizzle catalog store.
 
-import { GatewayError } from "../../../transport/gateway-error";
-import { type ServiceKind, type WireFamily, SERVICE_KINDS, WIRE_FAMILIES } from "../../../transport/canonical-model";
-import { type ProviderRoutingSetting, type ProviderRoutingStrategy } from "../../../transport/routing/route-model";
+import { GatewayError } from "../../../protocol/gateway-error";
+import { type ServiceKind, type WireFamily, SERVICE_KINDS, WIRE_FAMILIES } from "../../../protocol/canonical-model";
+import type { ProviderRoutingStrategy } from "../../../persistence/schema";
 import { isProtectedHeader } from "../../../security/outbound-headers";
 import type { AccountHealthEventRecord } from "../../../providers/operations/account-health-service";
-import type { CompatibilityProfile } from "../../../providers/provider-metadata";
+import type { CompatibilityProfile } from "../../../providers/metadata";
 import type {
   ByokConnectionTestRequest,
   ByokConnectionTestResult,
@@ -694,4 +694,26 @@ export interface ProviderRoutingResponse {
  * let the request drift from `ProviderRoutingSetting` (and from the Elysia body
  * schema that validates it) without a compile error.
  */
-export type UpdateProviderRoutingRequest = Partial<ProviderRoutingSetting>;
+/**
+ * Patch accepted when editing a provider's routing settings. Declared here
+ * rather than as `Partial<ProviderRoutingSetting>`: that type lives in the
+ * routing engine, and the console must not depend on the transport layer for
+ * its own request contract. The fields mirror the persisted
+ * `provider_routing_settings` row.
+ */
+export interface UpdateProviderRoutingRequest {
+  readonly strategy?: ProviderRoutingStrategy;
+  /** Requests served by one account before round robin advances. */
+  readonly rotateCount?: number;
+  /** Per-account inflight ceiling; `null` = unlimited concurrency. */
+  readonly maxInflight?: number | null;
+  /** Minimum-balance protection for every account of this provider/tenant. */
+  readonly creditLimitEnabled?: boolean;
+  /** Minimum remaining balance to keep; credits or percent. */
+  readonly creditLimit?: number;
+  readonly enabled?: boolean;
+  /** When true, this provider's requests always dial direct. */
+  readonly bypassProxy?: boolean;
+  /** Built-in API-key upstream User-Agent. */
+  readonly userAgent?: string;
+}

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { CanonicalRequest, ContentPart } from "../../../transport/canonical-model";
-import type { ProviderDispatchContext } from "../../provider-registry";
+import type { CanonicalRequest, ContentPart } from "../../../protocol/canonical-model";
+import type { ProviderDispatchContext } from "../../contracts";
 import { resolveInboundSessionId } from "../../operations/session-resolution";
 
 /**

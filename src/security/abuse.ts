@@ -1,4 +1,4 @@
-import { GatewayError } from "../transport/gateway-error";
+import { GatewayError } from "../protocol/gateway-error";
 import { redisEvalTuple, type RedisClient } from "../persistence/redis";
 
 export interface ClientIdentity {

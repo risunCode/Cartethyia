@@ -8,7 +8,7 @@ import { ConsoleDomainError } from "../../shared/errors";
 import { isIP } from "node:net";
 import { isAddressAllowed } from "../../../network/ssrf";
 import { TRANSPORT_KINDS, type TransportKind } from "../../../network/pool/agent";
-import type { SsrfPolicy } from "../../../config";
+import type { SsrfPolicy } from "../../../config/network";
 import type { NetworkPoolSelector } from "../../../network/pool/selector";
 import type { PoolHealthEvent } from "../../../network/pool-health-machine";
 

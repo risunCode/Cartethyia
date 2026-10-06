@@ -11,7 +11,7 @@
  * and the agent resolver, so a malformed row fails loudly instead of producing
  * a silently-wrong agent.
  */
-import { isRecord } from "../protocol/primitives";
+import { isRecord } from "../protocol/codecs";
 
 /** Thrown when a stored/requested pool config cannot be decoded. */
 export class ProxyConfigError extends Error {

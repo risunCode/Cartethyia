@@ -13,7 +13,8 @@ import type { RedisClient } from "../../persistence/redis";
 import { log } from "../../observability/logger";
 import { fetchProviderQuota } from "../../providers/quota/quota-support";
 import { totalRemainingCredit, totalRemainingPercent, type FetchLike, type ProviderQuotaResult } from "../../providers/quota/quota-contracts";
-import type { ProviderId, ProviderRegistry } from "../../providers/provider-registry";
+import type { ProviderId } from "../../providers/contracts";
+import type { ProviderRegistry } from "../../providers/registry";
 import { GLOBAL_QUOTA_LENS, setCachedQuota } from "./cache";
 import { record } from "../../providers/authentication/oauth-flow-store";
 

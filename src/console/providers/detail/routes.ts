@@ -8,7 +8,11 @@ import {
   type UpdateProviderRoutingRequest,
 } from "../catalog/contracts";
 import type { AccountInflightReading, ProviderDetailConfig } from "./contracts";
-import { ROUTING_STRATEGIES } from "../../../transport/routing/route-model";
+import { providerRoutingStrategy } from "../../../persistence/schema";
+
+/** Provider-routing strategies, read from the persisted enum so the body
+ * schema and the database agree on the legal values. */
+const ROUTING_STRATEGIES = providerRoutingStrategy.enumValues;
 
 /**
  * Routing-tuning bounds, declared once because two layers enforce them: the

@@ -1,5 +1,5 @@
 /** Typed failure for the Anthropic Messages surface. */
-import { GatewayError } from "../../gateway-error";
+import { GatewayError } from "../../../protocol/gateway-error";
 
 export class MessagesLedgerError extends GatewayError {
   constructor(message: string) {

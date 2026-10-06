@@ -10,7 +10,7 @@ import { OAuthDeviceFlow } from "../../authentication/oauth-device-flow";
 import type { FetchLike } from "../../authentication/oauth-client";
 import { getKimiCliVersion } from "../../operations/client-versions";
 import { kimiDeviceModel, kimiDeviceName, kimiOsVersion } from "../../operations/cli-platform";
-import { resolveKimiOAuthHost } from "../../../config";
+import { resolveKimiOAuthHost } from "../../../config/providers";
 
 const KIMI_CODE_CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098";
 const KIMI_CODE_OAUTH_HOST = resolveKimiOAuthHost();

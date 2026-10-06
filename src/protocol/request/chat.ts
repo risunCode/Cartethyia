@@ -1,16 +1,18 @@
 /**
  * [OpenAI]-compatible /chat/completions request encoder: canonical → wire body.
  */
-import type { CanonicalRequest, ResponseFormat } from "../../transport/canonical-model";
-import { isRecord } from "../primitives";
+import type { CanonicalRequest, ResponseFormat } from "../../protocol/canonical-model";
+import { isRecord } from "../codecs";
 import { markLatestBreakpoint } from "../../transport/translation/cache-controls";
-import { isWebSearchTool, normalizeWireMaxTokens, pickWireSupportedControls } from "../../transport/translation/capabilities";
+import { isWebSearchTool } from "../../transport/translation/search";
+import { pickWireSupportedControls } from "../../transport/translation/capabilities";
+import { normalizeWireMaxTokens } from "../../transport/translation/normalize";
 import { resolveWireMaxTokens } from "../../transport/translation/quirks";
 import {
   clampReasoningEffort,
   resolveSupportedReasoningEfforts,
 } from "../../transport/translation/thinking";
-import { isClaudeBillingHeaderText, resolveImageSource } from "../primitives";
+import { isClaudeBillingHeaderText, resolveImageSource } from "../codecs";
 import { resolvePromptCacheKey } from "../../providers/operations/session-resolution";
 import { reasoningEffortFromIntent } from "../../providers/reasoning";
 

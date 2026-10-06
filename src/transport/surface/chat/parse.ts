@@ -1,9 +1,9 @@
-import type { CanonicalMessage, ContentPart, GenerationControls } from "../../canonical-model";
+import type { CanonicalMessage, ContentPart, GenerationControls } from "../../../protocol/canonical-model";
 import type { SurfaceInput } from "../adapters";
-import { isRecord } from "../../../protocol/primitives";
+import { isRecord } from "../../../protocol/codecs";
 import { textPart, normalizeInlineFile } from "../content-parts";
 import { SERVICE_TIERS } from "../dialects";
-import { readNumber, readString } from "../../../protocol/primitives";
+import { readNumber, readString } from "../../../protocol/codecs";
 import type { OpenAiUsage } from "../../../providers/usage";
 
 export interface ChatEncodeOptions {
@@ -39,7 +39,7 @@ export interface ParsedToolCall {
 }
 
 // Tool-call index pinning + arguments accumulation live in the shared
-// `ToolCallTracker` (transport/tool-identity.ts), also used by the Messages
+// `ToolCallTracker` (protocol/tool-identity.ts), also used by the Messages
 // ledger — this surface keeps only its wire encoding.
 
 export interface ChunkBase {

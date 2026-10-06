@@ -22,7 +22,7 @@ import { createTestGateway, type TestGateway } from "../helpers/gateway";
 import { createWorld, type GatewayWorld } from "../helpers/fixtures";
 import { dbDescribe } from "../helpers/database";
 import { EligibilityEvaluator } from "../../src/transport/routing/router";
-import { GatewayError } from "../../src/transport/gateway-error";
+import { GatewayError } from "../../src/protocol/gateway-error";
 import type { RouteCandidate } from "../../src/transport/routing/route-model";
 
 const CHAT_BODY = { model: "placeholder", messages: [{ role: "user", content: "hi" }], stream: false };

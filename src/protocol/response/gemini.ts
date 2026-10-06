@@ -8,14 +8,14 @@
  * `[DONE]` means (Gemini skips it, Antigravity stops) and in the label used
  * for an error payload, so those are the two inputs.
  */
-import type { CanonicalStopReason } from "../../transport/canonical-model";
-import { GatewayError } from "../../transport/gateway-error";
+import type { CanonicalStopReason } from "../../protocol/canonical-model";
+import { GatewayError } from "../../protocol/gateway-error";
 import {
   classifyUpstreamError,
   extractUpstreamMessage,
   upstreamErrorIdentifier,
 } from "../../transport/failure-policy";
-import { isRecord } from "../primitives";
+import { isRecord } from "../codecs";
 
 function nullableNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;

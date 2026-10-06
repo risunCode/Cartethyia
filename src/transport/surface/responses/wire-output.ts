@@ -6,9 +6,9 @@
  * `parse.ts`, so the inbound parser and the outbound projection stop sharing
  * a file they only happened to grow up in.
  */
-import type { ContentPart } from "../../canonical-model";
-import { isRecord } from "../../../protocol/primitives";
-import { resolveImageSource } from "../../../protocol/primitives";
+import type { ContentPart } from "../../../protocol/canonical-model";
+import { isRecord } from "../../../protocol/codecs";
+import { resolveImageSource } from "../../../protocol/codecs";
 
 export function computerOutputToWire(content: readonly ContentPart[] | string): Record<string, unknown> {
   if (typeof content === "string") return { type: "computer_screenshot", image_url: content };

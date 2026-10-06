@@ -12,7 +12,7 @@
  * conversation has advanced, so the count never regresses for one session.
  */
 
-import type { CanonicalRequest } from "../../../transport/canonical-model";
+import type { CanonicalRequest } from "../../../protocol/canonical-model";
 
 /** Idle window after which a session's remembered index is discarded. */
 const SESSION_TTL_MS = 30 * 60_000;

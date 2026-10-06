@@ -4,7 +4,7 @@ import type {
   CanonicalRequest,
   ContentPart,
   ToolDefinition,
-} from "../../../transport/canonical-model";
+} from "../../../protocol/canonical-model";
 
 /**
  * MiMo Studio's bot-chat endpoint takes one `query` string and has no tool

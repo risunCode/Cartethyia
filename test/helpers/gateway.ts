@@ -19,8 +19,8 @@
  * read the test database, because those are exactly the layers whose SQL a
  * stub would stop covering.
  */
-import { createGatewayApp } from "../../src/app";
-import type { App } from "../../src/app";
+import { createGatewayApp } from "../../src/boot/app";
+import type { App } from "../../src/boot/app";
 import { createDefaultProviderRegistry } from "../../src/providers/default-registry";
 import type { CartethyiaDatabase } from "../../src/persistence/postgres";
 import { getDb } from "../../src/persistence/postgres";
@@ -30,15 +30,9 @@ import type {
   CanonicalRequest,
   ContentPart,
   UsageRecord,
-} from "../../src/transport/canonical-model";
-import type {
-  ProviderAdapter,
-  ProviderDispatchContext,
-  ProviderDispatchTarget,
-  WebSearchOutcome,
-  WebSearchResult,
-} from "../../src/providers/provider-registry";
-import { parseProviderId } from "../../src/providers/provider-registry";
+} from "../../src/protocol/canonical-model";
+import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget, WebSearchOutcome, WebSearchResult } from "../../src/providers/contracts";
+import { parseProviderId } from "../../src/providers/contracts";
 import { ProxyRequestPreparer } from "../../src/transport/request/preparer";
 import { RoutingEngine } from "../../src/transport/routing/router";
 import { ApiKeyAdmissionService } from "../../src/security/admission/service";
@@ -50,8 +44,8 @@ import { TelemetryBatchBuffer } from "../../src/observability/telemetry-buffer";
 import { IpAbuseProtectionService, InMemoryIpAbuseStore } from "../../src/security/abuse";
 import { ValidatedNetworkBindingFactory } from "../../src/network/pool/resolver";
 import { NetworkPoolSelector } from "../../src/network/pool/selector";
-import { ShutdownCoordinator } from "../../src/runtime/lifecycle";
-import type { TrustedProxyBoundary } from "../../src/config";
+import { ShutdownCoordinator } from "../../src/boot/lifecycle";
+import type { TrustedProxyBoundary } from "../../src/config/network";
 import { getTestPool } from "./database";
 
 /**

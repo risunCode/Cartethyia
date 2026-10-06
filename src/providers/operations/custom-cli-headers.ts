@@ -18,7 +18,7 @@ import {
   getCodexVersion,
 } from "./client-versions";
 import { buildCodexUserAgent } from "./cli-platform";
-import type { WireFamily } from "../../transport/canonical-model";
+import type { WireFamily } from "../../protocol/canonical-model";
 
 /** Builds Codex CLI identity headers for OpenAI-compatible wire families. */
 export function buildCustomCodexCliHeaders(): Record<string, string> {

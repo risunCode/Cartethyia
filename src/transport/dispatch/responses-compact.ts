@@ -1,5 +1,5 @@
-import type { ProviderAdapter } from "../../providers/provider-registry";
-import { GatewayError } from "../gateway-error";
+import type { ProviderAdapter } from "../../providers/contracts";
+import { GatewayError } from "../../protocol/gateway-error";
 import { resolveCredentialForAccount } from "../../providers/operations/provider-credential-service";
 import type { OAuthTokenRefresher, OAuthRefreshService } from "../../providers/authentication/oauth-refresh-service";
 import type { ValidatedNetworkBindingFactory } from "../../network/pool/resolver";

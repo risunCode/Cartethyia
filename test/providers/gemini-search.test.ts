@@ -1,11 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { createGeminiAdapter } from "../../src/providers/integrations/gemini";
-import type {
-  ProviderDispatchContext,
-  ProviderDispatchTarget,
-  ResolvedCredential,
-  ValidatedOutboundFetch,
-} from "../../src/providers/provider-registry";
+import { createGeminiAdapter } from "../../src/providers/adapters/gemini";
+import type { ProviderDispatchContext, ProviderDispatchTarget, ResolvedCredential, ValidatedOutboundFetch } from "../../src/providers/contracts";
 
 function context(fetcher: ValidatedOutboundFetch): ProviderDispatchContext {
   const credential: ResolvedCredential = {

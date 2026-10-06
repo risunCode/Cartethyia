@@ -7,7 +7,7 @@ import { parseCookieValue, SESSION_COOKIE_NAME } from "../../security/csrf";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { consoleUsers } from "../../persistence/schema";
 import { createAccessDecision, consoleSessionScopes, type AccessDecision } from "../../security/access-control";
-import { isRecord } from "../../protocol/primitives";
+import { isRecord } from "../../protocol/codecs";
 import type { ConsoleSessionService } from "./service";
 
 interface CookieLike {

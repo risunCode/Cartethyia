@@ -21,7 +21,7 @@
  * (`RTK_RAW_CAP`), never rewrites a non-text part, and never grows a result —
  * `safeApplyFilter` guarantees the last two.
  */
-import type { CanonicalMessage, CanonicalRequest, ContentPart } from "../../canonical-model";
+import type { CanonicalMessage, CanonicalRequest, ContentPart } from "../../../protocol/canonical-model";
 import { autoDetectFilter, dedupLogFilter, safeApplyFilter, smartTruncateFilter } from "./rtk-filters";
 import { RTK_RAW_CAP, rtkProfile, type RtkLevel } from "./rtk-constants";
 import { ponyTailPrompt, type PonyTailLevel } from "./ponytail-prompt";

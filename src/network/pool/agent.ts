@@ -17,8 +17,8 @@ import * as tls from "node:tls";
 import type { Duplex } from "node:stream";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { resolveAllAddresses, validateResolvedAddresses } from "../ssrf";
-import type { SsrfPolicy } from "../../config";
-import { resolveProxyMaxFreeSockets, resolveProxyMaxSockets } from "../../config";
+import type { SsrfPolicy } from "../../config/network";
+import { resolveProxyMaxFreeSockets, resolveProxyMaxSockets } from "../../config/network";
 import type { AgentConfig } from "../types";
 
 /**

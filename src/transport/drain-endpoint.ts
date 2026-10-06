@@ -18,7 +18,7 @@
  * so the caller gets an acknowledgement rather than a dropped connection.
  */
 import { timingSafeEqual } from "node:crypto";
-import { GatewayError } from "./gateway-error";
+import { GatewayError } from "../protocol/gateway-error";
 
 export interface DrainEndpointDeps {
   /** Shared secret; the route is registered only when this is set. */

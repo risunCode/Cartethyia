@@ -2,12 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 
 import type { OpenAICompatibleAdapterConfig } from "../../compatible-adapter";
 import { withBearerAuthentication } from "../../compatible-adapter";
-import type { CanonicalRequest } from "../../../transport/canonical-model";
-import type {
-  ProviderDispatchContext,
-  ProviderDispatchTarget,
-  ProviderId,
-} from "../../provider-registry";
+import type { CanonicalRequest } from "../../../protocol/canonical-model";
+import type { ProviderDispatchContext, ProviderDispatchTarget, ProviderId } from "../../contracts";
 import { resolveInboundSessionId } from "../../operations/session-resolution";
 import {
   buildWorkBuddyUserAgent,

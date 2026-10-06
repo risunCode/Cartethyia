@@ -17,15 +17,11 @@
  * from an origin plus a wire-family suffix.
  */
 import { defineModel } from "../../model-definition";
-import type { ModelDefinition } from "../../provider-registry";
-import type {
-  ProviderAdapter,
-  ProviderDispatchContext,
-  ProviderDispatchTarget,
-} from "../../provider-registry";
-import type { CanonicalRequest } from "../../../transport/canonical-model";
+import type { ModelDefinition } from "../../model-definition";
+import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget } from "../../contracts";
+import type { CanonicalRequest } from "../../../protocol/canonical-model";
 import { OpenAICompatibleAdapter, withBearerAuthentication } from "../../compatible-adapter";
-import { providerBaseUrl } from "../../provider-metadata";
+import { providerBaseUrl } from "../../metadata";
 import { decodeKiloCredential } from "../../../lib/credential-codec";
 
 export const KILO_PROVIDER_ID = "kilo" as const;

@@ -462,6 +462,23 @@ export const providerRoutingStrategy = pgEnum("provider_routing_strategy", [
   "round_robin",
 ]);
 
+/**
+ * Canonical provider-routing strategy union, derived from the enum above so
+ * the persisted values and the type cannot drift. The console catalog and the
+ * routing engine both import this instead of restating the two literals.
+ */
+export type ProviderRoutingStrategy = (typeof providerRoutingStrategy.enumValues)[number];
+
+/** Requests served by one account before round robin advances. */
+export const DEFAULT_PROVIDER_ROTATE_COUNT = 1;
+
+/**
+ * Built-in API-key User-Agent applied when a provider has no routing row yet.
+ * One literal: the console default and the route catalog's fallback both read
+ * it, so a version bump cannot land in one and be missed by the other.
+ */
+export const DEFAULT_PROVIDER_USER_AGENT = "codex_cli_rs/0.156.1" as const;
+
 export const providerRoutingSettings = pgTable(
   "provider_routing_settings",
   {

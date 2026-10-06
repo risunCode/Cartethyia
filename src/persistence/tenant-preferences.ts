@@ -96,3 +96,25 @@ export function bumpSettingsRevision(): number {
   revisionCounter += 1;
   return revisionCounter;
 }
+
+// ===== process-wide reader singleton =====
+let preferencesCache: { db: CartethyiaDatabase; reader: CachedPreferencesReader } | undefined;
+
+/**
+ * Process-wide db-identity-keyed cached reader for the hot request path.
+ *
+ * A store singleton, so it lives here with the readers it composes rather than
+ * in any dispatch module. Rebound when the db identity changes (tests use a
+ * different database per file); production passes the same singleton every
+ * request. Consumers: the admission service's per-tenant concurrency read,
+ * tenant-preference request shaping, and telemetry payload capture.
+ */
+export function preferencesReaderFor(db: CartethyiaDatabase): CachedPreferencesReader {
+  if (!preferencesCache || preferencesCache.db !== db) {
+    preferencesCache = {
+      db,
+      reader: new CachedPreferencesReader(new DrizzlePreferencesReader(db)),
+    };
+  }
+  return preferencesCache.reader;
+}

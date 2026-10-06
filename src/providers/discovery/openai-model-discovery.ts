@@ -1,10 +1,6 @@
-import type { ModelDefinition } from "../provider-registry";
-import { isRecord } from "../../protocol/primitives";
-import {
-  boundedUpstreamArray,
-  boundedUpstreamNumber,
-  sanitizeUpstreamLabel,
-} from "../provider-metadata";
+import type { ModelDefinition } from "../model-definition";
+import { isRecord } from "../../protocol/codecs";
+import { boundedUpstreamArray, boundedUpstreamNumber, sanitizeUpstreamLabel } from "../sanitize";
 import { modelsDevCatalog } from "./models-dev-catalog";
 import { isResponsesNativeModelId } from "../model-definition";
 interface FetchModelsOptions {

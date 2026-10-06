@@ -1,22 +1,20 @@
 /**
  * [OpenAI]-compatible /v1/responses request encoder: canonical → wire body.
  */
-import type { CanonicalRequest } from "../../transport/canonical-model";
-import { isRecord } from "../primitives";
+import type { CanonicalRequest } from "../../protocol/canonical-model";
+import { isRecord } from "../codecs";
 import { markLatestBreakpoint } from "../../transport/translation/cache-controls";
-import {
-  normalizeGenerationControls,
-  pickWireSupportedControls,
-} from "../../transport/translation/capabilities";
+import { pickWireSupportedControls } from "../../transport/translation/capabilities";
+import { normalizeGenerationControls } from "../../transport/translation/normalize";
 import { resolveWireMaxTokens } from "../../transport/translation/quirks";
 import {
   clampReasoningEffort,
   resolveSupportedReasoningEfforts,
 } from "../../transport/translation/thinking";
-import { isClaudeBillingHeaderText, resolveImageSource, resolveOutputVerbosity } from "../primitives";
+import { isClaudeBillingHeaderText, resolveImageSource, resolveOutputVerbosity } from "../codecs";
 import { resolvePromptCacheKey } from "../../providers/operations/session-resolution";
 import { reasoningEffortFromIntent } from "../../providers/reasoning";
-import { isWebSearchTool } from "../../transport/translation/capabilities";
+import { isWebSearchTool } from "../../transport/translation/search";
 
 const RESPONSES_CACHEABLE_BLOCK_TYPES: ReadonlySet<string> = new Set([
   "input_text",

@@ -1,4 +1,4 @@
-import { GatewayError } from "../../transport/gateway-error";
+import { GatewayError } from "../../protocol/gateway-error";
 import type { AdmissionRejectionReason } from "./contracts";
 
 /**

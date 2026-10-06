@@ -15,23 +15,23 @@
  * Bespoke by wire protocol (Phase C5): verified Claude-pipeline reuse
  * (Messages envelope via `../claude/*`) — stays bespoke, never re-audit.
  */
-import type { ModelDefinition } from "../../provider-registry";
+import type { ModelDefinition } from "../../model-definition";
 import { createHash } from "node:crypto";
-import type { CanonicalEvent, CanonicalRequest } from "../../../transport/canonical-model";
-import { isRecord } from "../../../protocol/primitives";
+import type { CanonicalEvent, CanonicalRequest } from "../../../protocol/canonical-model";
+import { isRecord } from "../../../protocol/codecs";
 import { resolvePromptCacheKey } from "../../operations/session-resolution";
-import { GatewayError } from "../../../transport/gateway-error";
+import { GatewayError } from "../../../protocol/gateway-error";
 import {
   canonicalToClaudeMessagesPayload,
 } from "../../../protocol/request/messages";
-import { sendClaudeMessagesRequest } from "../../../protocol/transport/messages";
-import { endpointUrl } from "../../../protocol/primitives";
-import type { ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext } from "../../provider-registry";
+import { sendClaudeMessagesRequest } from "../../../protocol/upstream/send-claude-messages";
+import { endpointUrl } from "../../../protocol/codecs";
+import type { ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext } from "../../contracts";
 import {
   getKimiCommonHeaders,
   parseKimiCredential,
 } from "./kimi-oauth";
-import { providerBaseUrl } from "../../provider-metadata";
+import { providerBaseUrl } from "../../metadata";
 
 
 export const KIMI_CODE_PROVIDER_ID = "kimi" as const;

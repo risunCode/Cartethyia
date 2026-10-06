@@ -2,8 +2,8 @@
 import { DrizzleTelemetryStore } from "../persistence/telemetry-store";
 import type { CartethyiaDatabase } from "../persistence/postgres";
 import { metrics } from "./metrics";
-import { DEFAULT_BOUNDS } from "../transport/resources";
-import { type SourceSurface, type UsageRecord } from "../transport/canonical-model";
+import { DEFAULT_BOUNDS } from "../config/network";
+import { type SourceSurface, type UsageRecord } from "../protocol/canonical-model";
 import { log } from "./logger";
 
 /**

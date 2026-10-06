@@ -3,7 +3,6 @@
  * knows which backend is active. `full` (external PostgreSQL) behaves exactly
  * as before; `lite` (embedded PGlite) is built by the same seam.
  */
-import { GatewayError } from "../transport/gateway-error";
 import { log } from "../observability/logger";
 import { join } from "node:path";
 import { fullSchema } from "./db-handle";
@@ -150,12 +149,16 @@ export async function assertPoolFitsServerCapacity(poolMax: number): Promise<voi
   if (!Number.isFinite(serverMax) || serverMax < 1) return;
 
   if (poolMax >= serverMax) {
-    throw new GatewayError(
-      "max_connections_exceeded",
-      500,
-      `DATABASE_POOL_MAX (${poolMax}) must be below the server's max_connections (${serverMax}); ` +
-        "a single process could not serve a full pool, and every other connection would be refused",
-      { pool_max: poolMax, max_connections: serverMax },
+    // A plain Error, not a GatewayError: this fires during boot, before any
+    // request exists to shape an envelope for, and persistence must not depend
+    // on the protocol layer for a diagnostic the operator reads in the log.
+    // The `code` property keeps the stable identifier a boot log can match on.
+    throw Object.assign(
+      new Error(
+        `DATABASE_POOL_MAX (${poolMax}) must be below the server's max_connections (${serverMax}); ` +
+          "a single process could not serve a full pool, and every other connection would be refused",
+      ),
+      { code: "max_connections_exceeded", poolMax, serverMax },
     );
   }
 

@@ -12,7 +12,7 @@
  * `src/protocol/` plus provider-local modules:
  *   - `protocol/request/codex.ts`  — canonical → Codex Responses body + Responses Lite shape
  *   - `protocol/response/codex.ts` — Codex JSON → canonical events + SSE frame processor
- *   - `protocol/primitives.ts`     — tool-id encoding, Harmony escaping, ASCII JSON
+ *   - `protocol/codecs.ts`     — tool-id encoding, Harmony escaping, ASCII JSON
  *   - `headers.ts`  — Codex identity headers + client/turn metadata
  *   - `errors.ts`   upstream HTTP error → `GatewayError`
  *   - `identity.ts` — Codex account / install / residency lookups
@@ -21,23 +21,16 @@
  * envelope, session headers, frame processor) is outside the
  * OpenAI-compatible factory's reach — stays bespoke, never re-audit.
  */
-import type { CanonicalEvent, CanonicalRequest } from "../../../transport/canonical-model";
-import { GatewayError, capabilityUnsupported } from "../../../transport/gateway-error";
+import type { CanonicalEvent, CanonicalRequest } from "../../../protocol/canonical-model";
+import { GatewayError, capabilityUnsupported } from "../../../protocol/gateway-error";
 import { getCodexVersion } from "../../operations/client-versions";
 import { randomUUID } from "node:crypto";
 import { resolvePromptCacheKey } from "../../operations/session-resolution";
 import { decodeSseEvents } from "../../../lib/sse-decoder";
 
-import { joinUrl } from "../../../protocol/primitives";
-import { postUpstreamJson } from "../../../protocol/transport/openai";
-import type {
-  ProviderDispatchTarget,
-  ProviderAdapter,
-  ProviderDispatchContext,
-  ResolvedCredential,
-  WebSearchOutcome,
-  WebSearchResult,
-} from "../../provider-registry";
+import { joinUrl } from "../../../protocol/codecs";
+import { postUpstreamJson } from "../../../protocol/upstream/post-json";
+import type { ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext, ResolvedCredential, WebSearchOutcome, WebSearchResult } from "../../contracts";
 import {
   createCodexIdentity,
   getCodexInstallId,
@@ -53,9 +46,9 @@ import {
   buildCodexIdentityHeaders,
   createCodexRequestMetadata,
 } from "./codex-headers";
-import type { CodexSessionState } from "../../../protocol/primitives";
+import type { CodexSessionState } from "../../../protocol/codecs";
 import { defineModel } from "../../model-definition";
-import type { ModelDefinition } from "../../provider-registry";
+import type { ModelDefinition } from "../../model-definition";
 
 /**
  * Codex static model catalog.

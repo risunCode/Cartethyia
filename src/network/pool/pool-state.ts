@@ -1,6 +1,6 @@
 /** Local accounting state behind `NetworkPoolSelector`: inflight, rotation, cooldowns. */
 import { log } from "../../observability/logger";
-import { isRecord } from "../../protocol/primitives";
+import { isRecord } from "../../protocol/codecs";
 
 export interface ProxyCooldownEntry {
   readonly poolId: string;

@@ -1,11 +1,11 @@
-import { GatewayError } from "../gateway-error";
-import type { CanonicalRequest, UsageRecord } from "../canonical-model";
+import { GatewayError } from "../../protocol/gateway-error";
+import type { CanonicalRequest, UsageRecord } from "../../protocol/canonical-model";
 import type { ClientIdentity } from "../../security/abuse";
 import type { ResolvedApiKey } from "../../security/api-key-auth";
 import type { PreparedProxyRequest } from "./preparer";
 import { createInFlightRegistry, type InFlightSnapshot } from "./inflight";
 import { log } from "../../observability/logger";
-import { fastPathname } from "./pathname";
+import { fastPathname } from "../../lib/pathname";
 
 export interface ProxyRequestOutcome {
   readonly status: "completed" | "failed" | "cancelled" | "truncated";

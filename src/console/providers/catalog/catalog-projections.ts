@@ -8,12 +8,13 @@
  * provider's base path stripped so a versioned root cannot double a `/v1`
  * segment. `mapProviderRow` is the single `providers` row projection.
  */
-import { isBundledProviderId, providerBaseUrl } from "../../../providers/provider-registry";
-import { providerDisplayName, providerServiceKinds, providerSupportsWebSearch } from "../../../providers/provider-metadata";
-import type { CompatibilityProfile } from "../../../providers/provider-metadata";
+import { isBundledProviderId } from "../../../providers/contracts";
+import { providerBaseUrl } from "../../../providers/metadata";
+import { providerDisplayName, providerServiceKinds, providerSupportsWebSearch } from "../../../providers/metadata";
+import type { CompatibilityProfile } from "../../../providers/metadata";
 import { supportedWireFamiliesForProvider } from "../../../providers/discovery/probe-wire";
 import { providers } from "../../../persistence/schema";
-import type { WireFamily } from "../../../transport/canonical-model";
+import type { WireFamily } from "../../../protocol/canonical-model";
 import type { ProviderRecord } from "./contracts";
 
 export const DEFAULT_ENDPOINT_BY_WIRE_FAMILY: Record<WireFamily, string> = {

@@ -9,8 +9,8 @@
  * retryability (`../failure-policy.ts`), one place decides refresh and
  * cooldown eligibility (here).
  */
-import { GatewayError } from "../gateway-error";
-import { providerRateLimitIsIpScoped } from "../../providers/provider-registry";
+import { GatewayError } from "../../protocol/gateway-error";
+import { providerRateLimitIsIpScoped } from "../../providers/metadata";
 
 /**
  * Returns true only when an upstream failure is evidence that the OAuth

@@ -12,7 +12,7 @@ export interface SseSender {
 /** Register endpoint-specific SSE subscriptions; return their teardown callback. */
 export type SseSetup = (sender: SseSender) => () => void;
 
-import { buildSseEventFrame as formatSseFrame } from "../../transport/surface/stream-frame";
+import { buildSseEventFrame as formatSseFrame } from "../../lib/sse-frame";
 
 export { formatSseFrame };
 

@@ -1,0 +1,40 @@
+import type { CanonicalRequest } from "../../protocol/canonical-model";
+import type { ProviderDispatchTarget } from "../contracts";
+import type { ModelDefinition } from "../model-definition";
+import { ensurePayloadModel, type ApiKeyProviderSpec } from "../integrations/shared/configured-provider";
+
+const BAI_PROVIDER_ID = "bai" as const;
+
+/**
+ * B.AI serves OpenAI-compatible chat and responses on one base URL. It does not
+ * serve Anthropic Messages: no model is catalogued for that wire and the
+ * adapter declares only the two families it can serialize.
+ */
+
+
+import { defineModel } from "../model-definition";
+
+
+export const BAI_FALLBACK_MODELS: readonly ModelDefinition[] = [
+  defineModel({ id: "gpt-5", providerId: "bai", wireFamily: "chat", reasoning: true, vision: true,}),
+  defineModel({ id: "gemini-3-pro", providerId: "bai", wireFamily: "chat", reasoning: true, vision: true,}),
+];
+
+
+function baiPrePayload(
+  payload: Record<string, unknown>,
+  _request: CanonicalRequest,
+  candidate: ProviderDispatchTarget,
+): void {
+  ensurePayloadModel(payload, candidate, "B.AI");
+}
+
+/** B.AI adapter spec; the registry builds it via `createApiKeyAdapter`. */
+export const BAI_SPEC: ApiKeyProviderSpec = {
+  provider_id: BAI_PROVIDER_ID,
+  endpoint_paths_by_wire_family: {
+    chat: "/chat/completions",
+    responses: "/responses",
+  },
+  prePayload: baiPrePayload,
+};

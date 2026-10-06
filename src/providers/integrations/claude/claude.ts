@@ -2,10 +2,10 @@
  * Dedicated `claude` adapter.
  *
  * Wire mechanics live in `src/protocol/`:
- *   - `protocol/primitives.ts`         shared guards, tool-id/schema/tool-name helpers, endpoint URL
+ *   - `protocol/codecs.ts`         shared guards, tool-id/schema/tool-name helpers, endpoint URL
  *   - `protocol/request/messages.ts`   canonical -> Claude Messages body
  *   - `protocol/response/messages.ts`  Claude JSON/SSE -> canonical events
- *   - `protocol/transport/messages.ts` shared HTTP send helper
+ *   - `protocol/upstream/send-claude-messages.ts` shared HTTP send helper
  *   - `errors.ts`   upstream HTTP error -> `GatewayError`
  *   - `policy.ts`   header/beta/credential policy (unchanged)
  *   - `cch.ts`      CCH billing-header body patch (unchanged)
@@ -15,9 +15,9 @@
  * OpenAI-compatible factory's reach — stays bespoke, never re-audit.
  */
 import { createHash } from "node:crypto";
-import type { CanonicalEvent, CanonicalRequest } from "../../../transport/canonical-model";
-import { GatewayError } from "../../../transport/gateway-error";
-import { firstUserText, getHeader } from "../../../transport/canonical-model";
+import type { CanonicalEvent, CanonicalRequest } from "../../../protocol/canonical-model";
+import { GatewayError } from "../../../protocol/gateway-error";
+import { firstUserText, getHeader } from "../../../protocol/canonical-model";
 import { log } from "../../../observability/logger";
 import {
   assessClaudeCodeCompatibility,
@@ -25,27 +25,23 @@ import {
   requestHasClaudeTools,
 } from "./claude-compatibility";
 import { buildClaudeHeaders, type ClaudeHeaderOptions } from "./claude-credentials";
-import { isRecord } from "../../../protocol/primitives";
+import { isRecord } from "../../../protocol/codecs";
 import { resolvePromptCacheKey } from "../../operations/session-resolution";
-import { ensureAnthropicBeta, filterClaudeCustomHeaders } from "../claude-messages";
+import { ensureAnthropicBeta, filterClaudeCustomHeaders } from "../shared/claude-messages";
 import {
   CLAUDE_CODE_SYSTEM_INSTRUCTION,
   createClaudeBillingText,
   patchClaudeCchBody,
 } from "./claude-cch";
 import { getClaudeCliVersion, getClaudeSdkVersion } from "../../operations/client-versions";
-import { getOrCreateInstallId } from "../install-id";
+import { getOrCreateInstallId } from "../shared/install-id";
 import { canonicalToClaudeMessagesPayload } from "../../../protocol/request/messages";
 import { applyParamQuirks } from "../../../transport/translation/quirks";
-import { CLAUDE_BILLING_HEADER_PREFIX, endpointUrl } from "../../../protocol/primitives";
-import { sendClaudeMessagesRequest } from "../../../protocol/transport/messages";
-import type {
-  ProviderDispatchTarget,
-  ProviderAdapter,
-  ProviderDispatchContext,
-} from "../../provider-registry";
+import { CLAUDE_BILLING_HEADER_PREFIX, endpointUrl } from "../../../protocol/codecs";
+import { sendClaudeMessagesRequest } from "../../../protocol/upstream/send-claude-messages";
+import type { ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext } from "../../contracts";
 import { defineModel } from "../../model-definition";
-import type { ModelDefinition } from "../../provider-registry";
+import type { ModelDefinition } from "../../model-definition";
 
 const claudeMessagesModel = (
   modelId: string,

@@ -2,7 +2,7 @@ import { t } from "elysia";
 import type { Elysia } from "elysia";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { providerAccounts, providers } from "../../persistence/schema";
-import { providerDisplayName } from "../../providers/provider-metadata";
+import { providerDisplayName } from "../../providers/metadata";
 import { invalidateCredentialCache } from "../../providers/operations/provider-credential-service";
 import { requireTenantScope } from "../shared/errors";
 import {
@@ -19,7 +19,7 @@ import {
   type QuotaRefreshDeps,
   type QuotaRefreshFailureCode,
 } from "./refresh";
-import type { ProviderId } from "../../providers/provider-registry";
+import type { ProviderId } from "../../providers/contracts";
 import {
   DAILY_CHECKIN_PROVIDER_IDS,
   checkinDayKey,

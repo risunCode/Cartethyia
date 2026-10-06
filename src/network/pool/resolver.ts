@@ -12,8 +12,8 @@ import {
   type ValidatedDestination,
 } from "../ssrf";
 import { createValidatedFetch, type ValidatedFetch } from "../outbound-fetch";
-import { GatewayError } from "../../transport/gateway-error";
-import type { SsrfPolicy } from "../../config";
+import { GatewayError } from "../../protocol/gateway-error";
+import type { SsrfPolicy } from "../../config/network";
 import { log } from "../../observability/logger";
 import type { TransportKind, PoolAgent } from "./agent";
 import { isIP } from "node:net";
@@ -22,7 +22,7 @@ import WebSocket, { type ClientOptions, type RawData } from "ws";
 import { isProxyAgentPair, createHttpProxyAgent, createSocks5Agent, createBridgeAgent, normalizeBridgeEndpoint, PoolBindingError } from "./agent";
 import { Agent as HttpsAgent } from "node:https";
 import { parseAgentConfig, ProxyConfigError, type AgentConfig } from "../types";
-import type { ProviderWebSocketSession, ValidatedOutboundWebSocket } from "../../providers/provider-registry";
+import type { ProviderWebSocketSession, ValidatedOutboundWebSocket } from "../../providers/contracts";
 
 /** Idle time after which an unused pool agent is destroyed. */
 const POOL_AGENT_IDLE_MS = 10 * 60_000;

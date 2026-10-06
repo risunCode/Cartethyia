@@ -48,20 +48,19 @@ import { syncByokProvider } from "../providers/operations/provider-catalog-servi
 import { DrizzleApiKeyStore } from "../persistence/api-key-store";
 import { DrizzleShareLinkStore } from "../persistence/share-store";
 import { createShareUsagePort } from "./share/share-usage";
-import { resolveSsrfPolicy } from "../config";
+import { resolveSsrfPolicy } from "../config/network";
 import { createValidatedFetch } from "../network/outbound-fetch";
 import type { AuditRecorder } from "./auth/service";
 import type { CliToolService } from "./cli-tools/service";
 import type { NetworkPoolSelector } from "../network/pool/selector";
-import type { ProxyRequestStateStore } from "../transport/request/state";
-import type { RouteSnapshotService } from "../transport/routing/route-model";
+import type { LiveInFlightSource } from "./observability/live";
 import type { ApiKeyAdmissionService } from "../security/admission/service";
 import type { ModelStrikeService } from "../security/model-abuse";
 import type { TelemetryBatchBuffer } from "../observability/telemetry-buffer";
 import type { OAuthRefreshService } from "../providers/authentication/oauth-refresh-service";
 import { resolveRedisBackend } from "../persistence/redis";
 import type { RedisClient } from "../persistence/redis";
-import type { ProviderRegistry } from "../providers/provider-registry";
+import type { ProviderRegistry } from "../providers/registry";
 import type { BundledProviderCatalog } from "../providers/operations/provider-catalog-service";
 import type { ValidatedNetworkBindingFactory } from "../network/pool/resolver";
 import type { CartethyiaDatabase } from "../persistence/postgres";
@@ -77,11 +76,13 @@ export interface ConsoleDomainContext {
   readonly auditRecorder: AuditRecorder;
   readonly cliToolService: CliToolService;
   readonly redis: RedisClient | undefined;
-  readonly routeSnapshotService: RouteSnapshotService;
+  /** Drops the cached route snapshot after a catalog write. Structurally
+   * satisfied by `RouteSnapshotService`. */
+  readonly routeSnapshotService: { invalidate(): Promise<number> };
   readonly poolSelector: NetworkPoolSelector;
   readonly telemetryBuffer: TelemetryBatchBuffer;
   /** Owns the live in-flight gauge the console surfaces. */
-  readonly stateStore?: ProxyRequestStateStore;
+  readonly stateStore?: LiveInFlightSource;
   readonly admissionService: Pick<ApiKeyAdmissionService, "purgeKey">;
   /** Graduated model-abuse strikes: list and lift bans from the console. */
   readonly modelStrikes?: Pick<ModelStrikeService, "listBans" | "unban">;
@@ -102,7 +103,7 @@ export interface ConsoleDomainContext {
 import { and, eq, isNull, or } from "drizzle-orm";
 import { networkPools, providerRoutingSettings } from "../persistence/schema";
 import { resolveTenantOverride } from "../persistence/tenant-scope";
-import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS } from "../providers/provider-registry";
+import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS } from "../providers/metadata";
 import type { ProbeOutboundBinding } from "../providers/discovery/probing-service";
 
 

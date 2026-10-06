@@ -14,12 +14,12 @@
  * URL, the `/v1` endpoint paths, and the effort mapping below are xAI-specific.
  */
 import { OpenAICompatibleAdapter, withBearerAuthentication } from "../../compatible-adapter";
-import type { CanonicalRequest } from "../../../transport/canonical-model";
-import type { ProviderAdapter, ProviderDispatchContext } from "../../provider-registry";
-import { providerBaseUrl } from "../../provider-metadata";
+import type { CanonicalRequest } from "../../../protocol/canonical-model";
+import type { ProviderAdapter, ProviderDispatchContext } from "../../contracts";
+import { providerBaseUrl } from "../../metadata";
 import { getGrokVersion } from "../../operations/client-versions";
 import { defineModel } from "../../model-definition";
-import type { ModelDefinition } from "../../provider-registry";
+import type { ModelDefinition } from "../../model-definition";
 
 export const XAI_PROVIDER_ID = "xai" as const;
 export const XAI_BASE_URL = providerBaseUrl("xai");

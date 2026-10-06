@@ -8,10 +8,10 @@
  * route cannot drift. Route-specific behavior arrives as the `prepare` and
  * `attempt` closures; this module never forks retry policy.
  */
-import { GatewayError } from "../gateway-error";
-import type { ResolvedCredential } from "../../providers/provider-registry";
+import { GatewayError } from "../../protocol/gateway-error";
+import type { ResolvedCredential } from "../../providers/contracts";
 import { classifyTerminalOutcome, fallbackRetryDelayMs, isRetryableFailure, sleep } from "../failure-policy";
-import { resolveRouteMaxAttempts } from "../../config";
+import { resolveRouteMaxAttempts } from "../../config/timeouts";
 import type { OAuthTokenRefresher } from "../../providers/authentication/oauth-refresh-service";
 import type { OAuthRefreshService } from "../../providers/authentication/oauth-refresh-service";
 import type { ValidatedNetworkBindingFactory } from "../../network/pool/resolver";

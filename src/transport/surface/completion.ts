@@ -1,13 +1,13 @@
-import { GatewayError } from "../gateway-error";
-import type { CanonicalEvent, CanonicalRequest, GenerationControls } from "../canonical-model";
-import type { ReasoningIntent } from "../canonical-model";
+import { GatewayError } from "../../protocol/gateway-error";
+import type { CanonicalEvent, CanonicalRequest, GenerationControls } from "../../protocol/canonical-model";
+import type { ReasoningIntent } from "../../protocol/canonical-model";
 import type { SurfaceAdapter, SurfaceInput, SurfaceOutput } from "./adapters";
 import { eventText } from "./adapters";
-import { isRecord } from "../../protocol/primitives";
+import { isRecord } from "../../protocol/codecs";
 import { textPart } from "./content-parts";
 import { usageToChatWire, type OpenAiUsage } from "../../providers/usage";
-import { TEXT_ENCODER } from "./stream-frame";
-import { SurfaceStreamEncoder } from "./stream-base";
+import { TEXT_ENCODER } from "../../lib/sse-frame";
+import { SurfaceStreamEncoder } from "./stream-frame";
 
 export interface CompletionEncodingOptions {
   response_id?: string;

@@ -28,8 +28,8 @@ import type {
   AdmissionReserveRequest,
 } from "../../src/security/admission/contracts";
 import type { ApiKeyAuthorizationSnapshot } from "../../src/security/api-key-auth";
-import { GatewayError } from "../../src/transport/gateway-error";
-import type { UsageRecord } from "../../src/transport/canonical-model";
+import { GatewayError } from "../../src/protocol/gateway-error";
+import type { UsageRecord } from "../../src/protocol/canonical-model";
 
 /** Midnight UTC on 2026-03-15, so the daily and monthly buckets are unambiguous. */
 const NOW = Date.UTC(2026, 2, 15, 12, 0, 0);

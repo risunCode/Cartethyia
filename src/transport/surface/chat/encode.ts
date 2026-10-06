@@ -1,15 +1,15 @@
-import type { CanonicalEvent, CanonicalStopReason } from "../../canonical-model";
+import type { CanonicalEvent, CanonicalStopReason } from "../../../protocol/canonical-model";
 import { reasoningSummaryIdentity, reasoningSummarySeparator, type ReasoningSummaryIdentity } from "../reasoning-summary";
 import { eventText } from "../adapters";
-import { isRecord } from "../../../protocol/primitives";
+import { isRecord } from "../../../protocol/codecs";
 import {
   createToolCallTracker,
   trackToolCall,
   type ToolCallState,
-} from "../../tool-identity";
+} from "../../../protocol/tool-identity";
 import { usageToChatWire, type OpenAiUsage } from "../../../providers/usage";
-import { TEXT_ENCODER } from "../stream-frame";
-import { SurfaceStreamEncoder } from "../stream-base";
+import { TEXT_ENCODER } from "../../../lib/sse-frame";
+import { SurfaceStreamEncoder } from "../stream-frame";
 import type { ChatEncodeOptions, ChunkBase, JsonObject } from "./parse";
 
 export function bytesToString(value: string | Uint8Array): string {

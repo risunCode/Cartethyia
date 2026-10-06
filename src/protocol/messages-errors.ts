@@ -7,14 +7,14 @@
  * classifier is the single authority for codes, retries, and credential
  * evidence.
  */
-import { GatewayError } from "../transport/gateway-error";
+import { GatewayError } from "./gateway-error";
 import {
   classifyUpstreamError,
   extractUpstreamMessage,
   upstreamErrorIdentifier,
   upstreamRequestId,
 } from "../transport/failure-policy";
-import { isRecord } from "./primitives";
+import { isRecord } from "./codecs";
 
 interface ClaudeErrorExtras {
   readonly providerCode?: string;

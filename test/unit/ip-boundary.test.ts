@@ -19,7 +19,7 @@
  * do not collapse to a single key, a per-IP limit becomes a per-spelling limit.
  */
 import { describe, expect, test } from "bun:test";
-import type { TrustedProxyBoundary } from "../../src/config";
+import type { TrustedProxyBoundary } from "../../src/config/network";
 import {
   canonicalClientIpKey,
   isTrustedProxyPeer,

@@ -1,4 +1,4 @@
-import type { CanonicalEvent, CanonicalRequest, WireFamily } from "../transport/canonical-model";
+import type { CanonicalEvent, CanonicalRequest, WireFamily } from "./canonical-model";
 import { canonicalToChatPayload } from "./request/chat";
 import { canonicalToResponsesPayload } from "./request/responses";
 import { canonicalToClaudeMessagesPayload } from "./request/messages";

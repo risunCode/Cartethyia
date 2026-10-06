@@ -17,18 +17,11 @@ import {
   requireTenantAnyScope,
 } from "../../shared/errors";
 import type { AccessDecision } from "../../../security/access-control";
-import { isBundledProviderId, type ProviderRegistry } from "../../../providers/provider-registry";
+import { isBundledProviderId } from "../../../providers/contracts";
+import type { ProviderRegistry } from "../../../providers/registry";
 import { getProviderClientVersion } from "../../../providers/operations/client-versions";
 import type { OAuthLoginField } from "../../../providers/authentication/oauth-flow-store";
-import {
-  providerCredentialHint,
-  providerCredentialUrl,
-  providerDisplayName,
-  providerHasAdapterUserAgent,
-  providerServiceKinds,
-  providerSupportsWebSearch,
-  type CompatibilityProfile,
-} from "../../../providers/provider-metadata";
+import { providerCredentialHint, providerCredentialUrl, providerDisplayName, providerHasAdapterUserAgent, providerServiceKinds, providerSupportsWebSearch, type CompatibilityProfile } from "../../../providers/metadata";
 import type { AccountHealthEventRecord } from "../../../providers/operations/account-health-service";
 import { CREDENTIAL_MODES, PROVIDER_READ_SCOPES, PROVIDER_WRITE_SCOPES } from "./contracts";
 import {

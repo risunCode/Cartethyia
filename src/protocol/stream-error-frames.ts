@@ -17,9 +17,9 @@
  * beyond "the upstream declared a failure" becomes `platform_unavailable`,
  * which is honest: the upstream failed and we do not know more.
  */
-import { GatewayError } from "../transport/gateway-error";
+import { GatewayError } from "./gateway-error";
 import { classifyUpstreamError, extractUpstreamMessage, upstreamErrorIdentifier } from "../transport/failure-policy";
-import { isRecord } from "./primitives";
+import { isRecord } from "./codecs";
 
 
 function numericStatus(...candidates: unknown[]): number | undefined {

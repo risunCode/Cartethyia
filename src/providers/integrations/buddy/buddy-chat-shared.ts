@@ -17,9 +17,9 @@
  * Provider-specific identity headers and catalog tables stay in each variant's
  * own `*-shared.ts`.
  */
-import { completeRequiredSchema } from "../../../protocol/primitives";
-import type { CanonicalRequest } from "../../../transport/canonical-model";
-import { isRecord } from "../../../protocol/primitives";
+import { completeRequiredSchema } from "../../../protocol/codecs";
+import type { CanonicalRequest } from "../../../protocol/canonical-model";
+import { isRecord } from "../../../protocol/codecs";
 import { applyDeepSeekReasoning, applyOpenAIReasoning, backfillDeepSeekReasoningContent } from "../../reasoning";
 
 const BUDDY_TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;

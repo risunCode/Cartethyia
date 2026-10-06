@@ -1,37 +1,23 @@
-import { GatewayError, publicGatewayErrorBody } from "../gateway-error";
 // Attempt completion bookkeeping: one home for everything every dispatch attempt ends with.
-import type { ValidatedOutboundFetch } from "../../providers/provider-registry";
+import { GatewayError, publicGatewayErrorBody } from "../../protocol/gateway-error";
+import type { ValidatedOutboundFetch } from "../../providers/contracts";
 import { reportAttemptOutcome } from "../../providers/operations/account-health-service";
-import type { UsageRecord } from "../canonical-model";
+import type { UsageRecord } from "../../protocol/canonical-model";
 import { classifyUpstreamFailure } from "../failure-policy";
 import type { AdmissionLease } from "../../security/admission/contracts";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { TelemetryPayloadCapture } from "../../observability/payload-capture";
 import { payloadDirectory } from "../../observability/payload-store";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
-import { CachedPreferencesReader, DrizzlePreferencesReader } from "../../persistence/tenant-preferences";
+import { preferencesReaderFor } from "../../persistence/tenant-preferences";
 import type { TelemetryPayloadDepth, TelemetryPayloadMode } from "../../console/settings/contracts";
 import type { ProxyRequestOutcome, ProxyRequestState } from "../request/state";
-import { finalizeRequestTelemetry } from "../middleware/error-lifecycle";
+import { finalizeRequestTelemetry } from "../guards/error-lifecycle";
 import { log } from "../../observability/logger";
 import {
   disablePoolForProxyHttpStatus,
   recordPoolDispatchOutcome,
 } from "../../network/pool-health-machine";
-
-let preferencesCache: { db: CartethyiaDatabase; reader: CachedPreferencesReader } | undefined;
-
-export function preferencesReaderFor(db: CartethyiaDatabase): CachedPreferencesReader {
-  // Rebound when the db identity changes (tests use a different database
-  // per file); production passes the same singleton every request.
-  if (!preferencesCache || preferencesCache.db !== db) {
-    preferencesCache = {
-      db,
-      reader: new CachedPreferencesReader(new DrizzlePreferencesReader(db)),
-    };
-  }
-  return preferencesCache.reader;
-}
 
 /**
  * Settings-gated payload capture. Request-event metadata is always retained;

@@ -27,9 +27,10 @@ import {
   type RouteSnapshot,
   type SnapshotBuilder,
 } from "./route-model";
-import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS, isBundledProviderId } from "../../providers/provider-registry";
-import type { ServiceKind, WireFamily } from "../canonical-model";
-import { providerHasAdapterUserAgent, providerSupportsWebSearch, providerUsesBespokeWire } from "../../providers/provider-metadata";
+import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS } from "../../providers/metadata";
+import { isBundledProviderId } from "../../providers/contracts";
+import type { ServiceKind, WireFamily } from "../../protocol/canonical-model";
+import { providerHasAdapterUserAgent, providerSupportsWebSearch, providerUsesBespokeWire } from "../../providers/metadata";
 
 const CLAUDE_MODEL_FAMILIES = new Set(["opus", "sonnet", "haiku", "fable", "mythos"]);
 

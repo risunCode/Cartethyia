@@ -16,9 +16,10 @@
  * against. `discoveryPathsFor` now reads the registry, so a provider declares
  * its endpoint paths once.
  */
-import type { WireFamily } from "../../transport/canonical-model";
-import type { CompatibilityProfile } from "../provider-metadata";
-import { isBundledProviderId, type ModelDefinition } from "../provider-registry";
+import type { WireFamily } from "../../protocol/canonical-model";
+import type { CompatibilityProfile } from "../metadata";
+import { isBundledProviderId } from "../contracts";
+import type { ModelDefinition } from "../model-definition";
 import { PROVIDER_CAPABILITIES } from "../default-registry";
 import { stripEndpointBasePath, resolveByokWireProfile } from "../operations/byok-wire-profile";
 

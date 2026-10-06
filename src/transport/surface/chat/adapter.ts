@@ -1,7 +1,7 @@
-import type { CanonicalEvent, CanonicalMessage, CanonicalRequest, ContentPart } from "../../canonical-model";
+import type { CanonicalEvent, CanonicalMessage, CanonicalRequest, ContentPart } from "../../../protocol/canonical-model";
 import type { SurfaceAdapter, SurfaceInput, SurfaceOutput } from "../adapters";
-import { isRecord } from "../../../protocol/primitives";
-import { readString } from "../../../protocol/primitives";
+import { isRecord } from "../../../protocol/codecs";
+import { readString } from "../../../protocol/codecs";
 import type { ChatEncodeOptions } from "./parse";
 import {
   decodeBody,

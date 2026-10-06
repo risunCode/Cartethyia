@@ -1,7 +1,7 @@
 import { asCookie, clearCsrfCookie, newCsrfToken, setCsrfCookie } from "../../security/csrf";
 import { Elysia, t } from "elysia";
 import { eq } from "drizzle-orm";
-import { isRecord } from "../../protocol/primitives";
+import { isRecord } from "../../protocol/codecs";
 import {
   userRecord,
   readUsers,
@@ -20,7 +20,7 @@ import {
 import type { ConsoleLockoutService } from "./service";
 import type { FirstBootSetupService } from "./service";
 import { isTrustedProxyPeer, resolveClientIdentity } from "../../security/ip-boundary";
-import type { TrustedProxyBoundary } from "../../config";
+import type { TrustedProxyBoundary } from "../../config/network";
 import { readSessionCookie } from "./session-resolver";
 export interface LoginRequest {
   readonly username: string;

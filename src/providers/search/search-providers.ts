@@ -4,7 +4,7 @@
  * Each entry is a search spec served by the `/v1/search` native route: one
  * `serviceKind: "websearch"` model in the provider's catalog plus a
  * `createSearchAdapter` adapter. The provider ids, base URLs, and credential
- * hints live in `provider-metadata.ts` beside every other bundled identity;
+ * hints live in `metadata.ts` beside every other bundled identity;
  * this file owns only the per-provider request mapping and response
  * normalization, which is what makes a provider's wire local to one spec.
  *
@@ -13,7 +13,7 @@
  */
 import type { SearchParams, SearchProviderSpec, SearchRequestInit } from "./search-provider";
 import { asRecord, stringField } from "./search-provider";
-import { providerBaseUrl } from "../provider-metadata";
+import { providerBaseUrl } from "../metadata";
 
 function domainFilterParams(filter: readonly string[] | undefined): {
   includes: string[];

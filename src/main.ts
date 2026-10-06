@@ -1,7 +1,7 @@
-import { createGatewayApp, createGatewayShell } from "./app";
-import { bootstrap } from "./runtime/lifecycle";
-import type { CartethyiaBoot } from "./runtime/lifecycle";
-import { resolveDrainToken, resolveIdleTimeout, resolveMaxBodyBytes, resolvePort } from "./config";
+import { createGatewayApp, createGatewayShell } from "./boot/app";
+import { bootstrap } from "./boot/lifecycle";
+import type { CartethyiaBoot } from "./boot/lifecycle";
+import { resolveDrainToken, resolveIdleTimeout, resolveMaxBodyBytes, resolvePort } from "./config/runtime";
 import { Manifest } from "elysia";
 import { log } from "./observability/logger";
 

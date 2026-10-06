@@ -1,27 +1,23 @@
 // Provider assembly: builtin registry construction, BYOK wiring, and DB catalog materialization.
-import type { WireFamily } from "../../transport/canonical-model";
+import type { WireFamily } from "../../protocol/canonical-model";
 
 import { and, eq, isNotNull, isNull, notInArray, sql } from "drizzle-orm";
-import { GatewayError } from "../../transport/gateway-error";
-import {
-  isBundledProviderId,
-  parseProviderId,
-  type ProviderId,
-  type ModelDefinition,
-  ProviderRegistry,
-} from "../provider-registry";
+import { GatewayError } from "../../protocol/gateway-error";
+import { isBundledProviderId, parseProviderId, type ProviderId } from "../contracts";
+import type { ModelDefinition } from "../model-definition";
+import { ProviderRegistry } from "../registry";
 import { OpenAICompatibleAdapter } from "../compatible-adapter";
 import { resolveByokWireProfile } from "./byok-wire-profile";
 import { BUNDLED_PROVIDER_MODULES } from "../default-registry";
 import { getCachedModels } from "./model-catalog-cache";
 import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { providers } from "../../persistence/schema";
-import type { CompatibilityProfile } from "../provider-metadata";
+import type { CompatibilityProfile } from "../metadata";
 import { resolveCustomCliHeaders } from "./custom-cli-headers";
 import { GATEWAY_USER_AGENT } from "./gateway-user-agent";
 import { isIP } from "node:net";
 import { isAddressAllowed } from "../../network/ssrf";
-import type { SsrfPolicy } from "../../config";
+import type { SsrfPolicy } from "../../config/network";
 /**
  * Idempotently materializes every shipped provider in the database catalog.
  * The canonical provider definition supplies identity and routing defaults;
@@ -64,7 +60,7 @@ export async function seedBundledProviders(db: CartethyiaDatabase): Promise<void
  * Retires the global (`tenant_id IS NULL`) provider rows the bundle no longer
  * declares.
  *
- * Without this, dropping a provider from `provider-metadata.ts` left its
+ * Without this, dropping a provider from `metadata.ts` left its
  * `providers` row in place forever — the seed only ever adds. The row still
  * satisfied `list()`'s `globalOrOwnedBy`, but `isBundledProviderId`, the
  * predicate behind `isBuiltIn`, answered `false` for it, so the console drew it

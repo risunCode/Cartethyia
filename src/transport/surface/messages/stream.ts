@@ -1,4 +1,4 @@
-import type { CanonicalEvent, UsageRecord } from "../../canonical-model";
+import type { CanonicalEvent, UsageRecord } from "../../../protocol/canonical-model";
 import {
   reasoningSummaryHasBoundary,
   reasoningSummaryIdentity,
@@ -10,7 +10,7 @@ import {
   resetToolCallTracker,
   toolIdentityKey,
   trackToolCall,
-} from "../../tool-identity";
+} from "../../../protocol/tool-identity";
 import type { MessagesEncodingContext, MessagesStreamEvent } from "./parse";
 import {
   blockFromPart,
@@ -18,8 +18,8 @@ import {
   requireMessagesToolName,
 } from "./encode";
 import { usageToMessagesWire } from "../../../providers/usage";
-import type { ToolCallState } from "../../tool-identity";
-import { SurfaceStreamEncoder } from "../stream-base";
+import type { ToolCallState } from "../../../protocol/tool-identity";
+import { SurfaceStreamEncoder } from "../stream-frame";
 /**
  * Incremental streaming encoder for Anthropic Messages.
  * Emits `message_start` on first event and then translates each
@@ -34,7 +34,7 @@ export class MessagesStreamEncoder extends SurfaceStreamEncoder<CanonicalEvent, 
   private openReasoningIdentity: ReasoningSummaryIdentity | undefined;
   private previousReasoningText: string | undefined;
   // Tool index pinning + arguments accumulation via the shared tracker
-  // (transport/tool-identity.ts). `nextIndex` stays ledger-global (text and
+  // (protocol/tool-identity.ts). `nextIndex` stays ledger-global (text and
   // tool blocks share one numbering) and is passed as the tracker's
   // fallback for unseen ids.
   private tools = createToolCallTracker();

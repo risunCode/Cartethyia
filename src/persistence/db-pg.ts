@@ -1,7 +1,7 @@
 /** External-PostgreSQL backend: bounded `pg` Pool behind the shared handle. */
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool, type PoolClient } from "pg";
-import { DEFAULT_BOUNDS } from "../transport/resources";
+import { DEFAULT_BOUNDS } from "../config/network";
 import { log } from "../observability/logger";
 import {
   encodeConnectionComponent,

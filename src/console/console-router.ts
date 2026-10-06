@@ -8,17 +8,14 @@ import { Elysia } from "elysia";
 import { resolveConsoleAccess, resolveConsoleUser } from "./auth/session-resolver";
 import { ConsoleCredentialService, FirstBootSetupService, ConsoleSessionService, defaultSessionCookiePolicy, ConsoleLockoutService, AuditRecorder } from "./auth/service";
 import { createConsoleAuthRoutes } from "./auth/session";
-import {
-  createConsoleCsrfMiddleware,
-  createConsoleMutationLimiterMiddleware,
-} from "../transport/middleware/gateway-guards";
+import { createConsoleCsrfMiddleware } from "./console-router-guards";
+import { createConsoleMutationLimiterMiddleware } from "./console-router-guards";
 import { registerConsoleDomains, type ConsoleDomainContext } from "./domain-registration";
 import type { ConsoleAccessResolver } from "./auth/access";
 import type { CartethyiaDatabase } from "../persistence/postgres";
 import { createAccessDecision, type AccessDecision } from "../security/access-control";
 import { resolveApiKeyAuthorization } from "../security/api-key-auth";
-import type { RouteSnapshotService } from "../transport/routing/route-model";
-import type { ProxyRequestStateStore } from "../transport/request/state";
+import type { LiveInFlightSource } from "./observability/live";
 import type { NetworkPoolSelector } from "../network/pool/selector";
 import type { TelemetryBatchBuffer } from "../observability/telemetry-buffer";
 import type { OAuthRefreshService } from "../providers/authentication/oauth-refresh-service";
@@ -28,23 +25,28 @@ import type { RedisClient } from "../persistence/redis";
 import { CliToolMappingStore } from "./cli-tools/store";
 import { CliToolService } from "./cli-tools/service";
 import { DrizzleCliToolSecretSource } from "./cli-tools/secret-source";
-import type { ProviderRegistry } from "../providers/provider-registry";
+import type { ProviderRegistry } from "../providers/registry";
 import type { BundledProviderCatalog } from "../providers/operations/provider-catalog-service";
 import type { ValidatedNetworkBindingFactory } from "../network/pool/resolver";
-import type { TrustedProxyBoundary } from "../config";
+import type { TrustedProxyBoundary } from "../config/network";
 import { gzipResponse } from "./response-compression";
 
 export interface ConsoleApiCompositionDeps {
   readonly db: CartethyiaDatabase;
   readonly accessResolver: ConsoleAccessResolver;
-  readonly routeSnapshotService: RouteSnapshotService;
+  /**
+   * Drops the cached route snapshot after a console write changes the catalog.
+   * Structurally satisfied by `RouteSnapshotService`; declared here so the
+   * console composition root does not import the transport layer.
+   */
+  readonly routeSnapshotService: { invalidate(): Promise<number> };
   readonly poolSelector: NetworkPoolSelector;
   readonly telemetryBuffer: TelemetryBatchBuffer;
   /**
    * The request state store owns the live in-flight gauge, so the console reads
    * its snapshot/subscription from here rather than a free-standing module.
    */
-  readonly stateStore?: ProxyRequestStateStore;
+  readonly stateStore?: LiveInFlightSource;
   readonly providerRegistry: ProviderRegistry;
   readonly bundledModelCatalog: BundledProviderCatalog;
   readonly networkBindingFactory: ValidatedNetworkBindingFactory;

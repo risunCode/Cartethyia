@@ -1,10 +1,6 @@
 import { withBearerAuthentication, type OpenAICompatibleAdapterConfig } from "../../compatible-adapter";
-import type { CanonicalRequest } from "../../../transport/canonical-model";
-import type {
-  ProviderDispatchContext,
-  ProviderDispatchTarget,
-  ProviderId,
-} from "../../provider-registry";
+import type { CanonicalRequest } from "../../../protocol/canonical-model";
+import type { ProviderDispatchContext, ProviderDispatchTarget, ProviderId } from "../../contracts";
 import { resolveInboundSessionId } from "../../operations/session-resolution";
 import { buildCodeBuddyUserAgent } from "../../operations/client-versions";
 

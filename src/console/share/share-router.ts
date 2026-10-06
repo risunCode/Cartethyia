@@ -16,7 +16,7 @@ import { SHARED_CHILD_HINT_MAX_LENGTH, generateApiKeySecret } from "../domains/a
 import { popupImageBytes } from "../domains/api-keys/share-popup-image";
 import type { ShareFamilyStats, ShareStatsPort } from "./share-stats";
 import { consoleSseResponse, createConsoleSseStream } from "../observability/sse";
-import { GatewayError, publicGatewayErrorBody } from "../../transport/gateway-error";
+import { GatewayError, publicGatewayErrorBody } from "../../protocol/gateway-error";
 import {
   hashShareToken,
   type ShareLinkPolicy,

@@ -1,6 +1,6 @@
 import { defineModel } from "../../model-definition";
-import type { ModelDefinition } from "../../provider-registry";
-import { providerBaseUrl } from "../../provider-metadata";
+import type { ModelDefinition } from "../../model-definition";
+import { providerBaseUrl } from "../../metadata";
 
 export const DEVIN_PROVIDER_ID = "devin" as const;
 export const DEVIN_BASE_URL = providerBaseUrl(DEVIN_PROVIDER_ID);

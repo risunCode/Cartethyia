@@ -18,7 +18,7 @@
  * used for the deploy call and discarded. The resulting relay URL is a public
  * host, which is what the network pool stores.
  */
-import { GatewayError } from "../../../transport/gateway-error";
+import { GatewayError } from "../../../protocol/gateway-error";
 
 /** A hosted relay target. */
 export type RelayTarget = "cloudflare" | "vercel" | "deno";

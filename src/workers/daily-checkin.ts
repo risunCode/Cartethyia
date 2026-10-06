@@ -16,7 +16,7 @@
 //
 
 import type { RedisClient } from "../persistence/redis";
-import type { ProviderId } from "../providers/provider-registry";
+import type { ProviderId } from "../providers/contracts";
 import { log } from "../observability/logger";
 import { buddyAccountUid } from "../providers/integrations/buddy/buddy-oauth-shared";
 import {

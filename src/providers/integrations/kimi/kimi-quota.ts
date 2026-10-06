@@ -5,7 +5,7 @@ import type {
 } from "../../quota/quota-contracts";
 import { getJson, isoDate, number, percentWindow, record } from "../../quota/quota-contracts";
 import { getKimiCommonHeaders, parseKimiCredential } from "./kimi-oauth";
-import { resolveKimiQuotaBaseUrl } from "../../../config";
+import { resolveKimiQuotaBaseUrl } from "../../../config/providers";
 
 const SOURCE = "kimi";
 
