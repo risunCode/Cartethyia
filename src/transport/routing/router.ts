@@ -162,6 +162,11 @@ function resolveAlias(
  * candidates eligible, because the ordering above is what the plan needs to
  * build the healthy-first list.
  *
+ * `model_cooldown` reaches that same 429 by a different route: the evaluator
+ * excludes it outright, so when it is the only reason nothing is eligible
+ * `plan()` reports it as a time-bounded refusal rather than 503
+ * `accounts_unavailable`. See the branch in `plan()`.
+ *
  * `model_cooldown` is the exception, and a hard exclusion. It is the snapshot's
  * marker for an *unexpired per-model* entry on the candidate whose model is
  * being planned — the upstream stated this exact (account, model) pair is
@@ -355,8 +360,21 @@ export class RoutingEngine {
     const decisions = matching.map((candidate) => this.eligibility.evaluate(candidate));
     let eligible = decisions.filter((d) => d.eligible).map((d) => d.candidate);
     if (eligible.length === 0) {
-      const hardCooling = decisions.some((d) => d.reason === "cooldown_hard");
-      if (hardCooling) {
+      // A time-bounded exclusion answers 429, not 503. Both reasons here carry
+      // a deadline the upstream itself stated, so the request is not
+      // "unavailable" — it is "not until the reset", and the client is owed an
+      // answer it can retry against. `model_cooldown` belongs in the same
+      // bucket as `cooldown_hard` for exactly the reason the evaluator's own
+      // comment gives: the upstream said this (account, model) pair is
+      // exhausted until a named reset, so dialing it can only reproduce the
+      // refusal. Answering 503 there told the client the model was down when
+      // every account serving it was merely resting, which is the "503 DOWN
+      // while the model is allowed" report — and 503 invites a client to give
+      // up or fail a health check, where 429 says retry later.
+      const rateLimited = decisions.some(
+        (d) => d.reason === "cooldown_hard" || d.reason === "model_cooldown",
+      );
+      if (rateLimited) {
         throw accountsRateLimitedError(requestedModel, resolved.model);
       }
       // Combo members without any routable candidate never reach the client

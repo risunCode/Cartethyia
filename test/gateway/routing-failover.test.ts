@@ -111,6 +111,41 @@ describe("RoutingEngine.plan cooldown classes", () => {
     });
   });
 
+  /**
+   * A model-scoped cooldown is a deadline the upstream stated ("this pair is
+   * exhausted until a named reset"), so an all-`model_cooldown` plan is a
+   * bounded refusal, not an outage — it must answer 429 the way an all-hard
+   * account cooldown does. It used to answer 503 `accounts_unavailable`, which
+   * reached the client as "the model is DOWN" while every account serving it
+   * was healthy and merely resting, and which invites a client to fail a health
+   * check instead of retrying after the reset.
+   */
+  test("every candidate model-cooled answers accounts_rate_limited, not 503", async () => {
+    const a = candidate({
+      provider_account_id: "a",
+      health_status: "model_cooldown",
+    });
+    const b = candidate({
+      provider_account_id: "b",
+      health_status: "model_cooldown",
+    });
+    await expect(engine.plan(qualified, snapshot([a, b]))).rejects.toMatchObject({
+      code: "accounts_rate_limited",
+      status: 429,
+    });
+  });
+
+  test("one model-cooled account still fails over to a healthy sibling", async () => {
+    const cooled = candidate({
+      provider_account_id: "model-cooled",
+      health_status: "model_cooldown",
+    });
+    const healthy = candidate({ provider_account_id: "healthy" });
+    const plan = await engine.plan(qualified, snapshot([cooled, healthy]));
+    expect(plan.candidates).toHaveLength(1);
+    expect(plan.candidates[0]?.provider_account_id).toBe("healthy");
+  });
+
   test("soft-cooled candidates stay eligible and are ordered after healthy ones", async () => {
     const coolA = candidate({
       provider_account_id: "cool-a",
