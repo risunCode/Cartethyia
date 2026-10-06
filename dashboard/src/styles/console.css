@@ -749,6 +749,46 @@
   }
 }
 
+/* Setup / first-boot restore row — shows the chosen filename plus two
+   buttons (Choose file… opens the OS picker; Restore backup submits the
+   selected file). The picker itself stays hidden so its native chrome
+   does not clash with the dashboard. */
+.setup-restore-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+}
+
+.setup-restore-file {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--inner-border);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.setup-restore-row .btn {
+  flex: 0 0 auto;
+  height: 40px;
+  padding-block: 0;
+}
+
+.setup-restore-row .btn-sm {
+  /* size="sm" would shrink to 30px and visually misalign with the 40px
+     file label, so the row's own height forces a flat 40px instead. */
+  height: 40px;
+}
+
 /* File picker matches the height and radius of every other form control. */
 .form-file-input {
   flex: 1 1 auto;

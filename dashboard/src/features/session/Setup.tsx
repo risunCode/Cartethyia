@@ -1,5 +1,5 @@
 import { UserPlus } from "lucide-react";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -21,6 +21,8 @@ export default function Setup(): ReactNode {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [mode, setMode] = useState<"create" | "restore">("create");
+  const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const restoreInputRef = useRef<HTMLInputElement>(null);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -129,17 +131,53 @@ export default function Setup(): ReactNode {
 
         {mode === "restore" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-            <label htmlFor="setup-backup" style={{ fontSize: "12.5px", fontWeight: 600 }}>
+            <label
+              htmlFor="setup-backup"
+              style={{ fontSize: "12.5px", fontWeight: 600 }}
+            >
               Cartethyia backup
             </label>
+            <div className="setup-restore-row">
+              <span
+                className="setup-restore-file"
+                aria-live="polite"
+                title={restoreFile?.name ?? ""}
+              >
+                {restoreFile ? restoreFile.name : "No file chosen"}
+              </span>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => restoreInputRef.current?.click()}
+                disabled={pending}
+              >
+                Choose file…
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                disabled={pending || restoreFile === null}
+                onClick={() => {
+                  if (restoreFile) void restore(restoreFile);
+                }}
+              >
+                {pending ? "Restoring…" : "Restore backup"}
+              </Button>
+            </div>
             <input
+              ref={restoreInputRef}
               id="setup-backup"
               type="file"
               accept="application/json,.json"
               disabled={pending}
+              style={{ display: "none" }}
               onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void restore(file);
+                const file = event.target.files?.[0] ?? null;
+                setRestoreFile(file);
+                setError(null);
+                event.target.value = "";
               }}
             />
             {error ? <SetupError message={error} /> : null}
