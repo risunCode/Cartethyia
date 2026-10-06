@@ -3,10 +3,6 @@ import { consoleErrorHandler } from "../shared/errors";
 import { registerAccountQuotaGlobalRoutes } from "./account-quota-global";
 import { registerAccountQuotaTenantRoutes } from "./account-quota-tenant";
 import { createQuotaRefreshDeps, type AccountQuotaRoutesDeps } from "./account-quota-shared";
-import { resetBackgroundQuotaRefreshesForTests } from "./quota-view";
-
-export { resetBackgroundQuotaRefreshesForTests };
-export type { AccountQuotaRoutesDeps };
 
 /**
  * Mounts the account/quota console routes: the tenant-scoped group (the
