@@ -61,29 +61,33 @@ describe("GatewayError", () => {
 });
 
 describe("formatPublicErrorMessage", () => {
-  test("prefixes the code onto an explanatory message", () => {
+  test("leaves an explanatory message alone — no code stamped into the text", () => {
+    // The code already travels in `error.code` and the class in the HTTP status.
+    // Prefixing it (`accounts_unavailable: Model 'x' …`) put an internal enum
+    // in front of the operator's sentence and helped nobody read it.
     expect(formatPublicErrorMessage("quota_exceeded", "rpm limit exceeded")).toBe(
-      "quota_exceeded: rpm limit exceeded",
+      "rpm limit exceeded",
     );
   });
 
-  test("applies the prefix once, not twice", () => {
-    // The shaper can run more than once on a value that crossed two boundaries;
-    // a doubled prefix reads as a client bug in the gateway's own text.
+  test("strips a code prefix it is handed instead of adding one", () => {
+    // The shaper can run more than once on a value that crossed two boundaries,
+    // and older builders stamped `code:` into the message. Stripping is
+    // idempotent, so the text can never end up doubled or re-prefixed.
     expect(formatPublicErrorMessage("quota_exceeded", "quota_exceeded: rpm limit exceeded")).toBe(
-      "quota_exceeded: rpm limit exceeded",
+      "rpm limit exceeded",
     );
   });
 
   test("a message equal to the code is not doubled", () => {
-    // The error path can build a message from the code alone; `code: code`
-    // adds nothing and looks like a formatting defect to the client.
+    // The error path can build a message from the code alone; stripping it
+    // leaves nothing, so the bare code is the only thing left to say.
     expect(formatPublicErrorMessage("not_found", "not_found")).toBe("not_found");
   });
 
   test("an empty message collapses to the bare code", () => {
-    // A blank explanatory clause would render as `code: ` with a trailing
-    // separator, which reads as a truncated response.
+    // A blank explanatory clause would render an empty string, which reads as a
+    // truncated response. The code is the only fact left.
     expect(formatPublicErrorMessage("not_found", "")).toBe("not_found");
     expect(formatPublicErrorMessage("not_found", "   ")).toBe("not_found");
   });
@@ -95,19 +99,16 @@ describe("formatPublicErrorMessage", () => {
     // this shape into our error path. A client must never see the brand, and
     // blame lives in the structured `origin` field instead.
     expect(formatPublicErrorMessage("internal_error", "Cartethyia Error: something broke")).toBe(
-      "internal_error: something broke",
+      "something broke",
     );
     expect(formatPublicErrorMessage("platform_unavailable", "Upstream Error: bad gateway")).toBe(
-      "platform_unavailable: bad gateway",
+      "bad gateway",
     );
-    expect(formatPublicErrorMessage("transport_unavailable", "Network Error: reset")).toBe(
-      "transport_unavailable: reset",
-    );
+    expect(formatPublicErrorMessage("transport_unavailable", "Network Error: reset")).toBe("reset");
   });
 
   test("a legacy prefix alone collapses to the bare code", () => {
-    // Stripping leaves nothing; the result must not be `code: ` with a
-    // dangling separator.
+    // Stripping leaves nothing; the result must not be an empty message.
     expect(formatPublicErrorMessage("internal_error", "Cartethyia Error:")).toBe("internal_error");
     expect(formatPublicErrorMessage("internal_error", "  Cartethyia Error:   ")).toBe(
       "internal_error",
@@ -119,28 +120,31 @@ describe("formatPublicErrorMessage", () => {
     // stripping it would corrupt the explanation.
     expect(
       formatPublicErrorMessage("internal_error", "the Cartethyia Error: handler failed"),
-    ).toBe("internal_error: the Cartethyia Error: handler failed");
+    ).toBe("the Cartethyia Error: handler failed");
   });
 
-  test("a message that already starts with a DIFFERENT code is still prefixed", () => {
-    // The guard compares against this error's own code, so an unrelated prefix
-    // is treated as ordinary text.
-    expect(formatPublicErrorMessage("not_found", "quota_exceeded: nope")).toBe(
-      "not_found: quota_exceeded: nope",
+  test("an explanatory sentence survives intact", () => {
+    // The point of the change: the sentence the operator reads is the sentence
+    // the builder wrote, start to finish.
+    expect(
+      formatPublicErrorMessage(
+        "accounts_unavailable",
+        "No account in the pool can serve 'workbuddy/glm-5.3' right now (credit or quota is exhausted).",
+      ),
+    ).toBe(
+      "No account in the pool can serve 'workbuddy/glm-5.3' right now (credit or quota is exhausted).",
     );
   });
 
   test("surrounding whitespace is trimmed", () => {
-    expect(formatPublicErrorMessage("not_found", "  missing  ")).toBe("not_found: missing");
+    expect(formatPublicErrorMessage("not_found", "  missing  ")).toBe("missing");
   });
 });
 
 describe("explainGatewayError", () => {
   test("formats the error's own code and message", () => {
     const error = new GatewayError("accounts_rate_limited", 429, "all accounts are cooling down");
-    expect(explainGatewayError(error)).toBe(
-      "accounts_rate_limited: all accounts are cooling down",
-    );
+    expect(explainGatewayError(error)).toBe("all accounts are cooling down");
   });
 
   test("does not mutate the error it explains", () => {

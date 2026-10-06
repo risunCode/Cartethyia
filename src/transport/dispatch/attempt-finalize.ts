@@ -330,7 +330,7 @@ export function terminalFailure(
     return new GatewayError(
       "transport_unavailable",
       502,
-      "upstream produced no terminal event",
+      "The upstream closed the response without reporting a result. Retry; if it keeps happening, the account or pool is unstable.",
       {},
       "upstream",
     );

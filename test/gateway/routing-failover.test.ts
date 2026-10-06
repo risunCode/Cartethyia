@@ -207,11 +207,17 @@ describe("combo member routing", () => {
       },
       created_at: Date.now(),
     };
-    // The public message names only the request and the usable candidates —
-    // dead member ids stay server-side (server logs), never the envelope.
-    await expect(engine.plan("pool", snap, "t1")).rejects.toThrow(
-      "Model 'pool' has no available account (1 candidate(s) unusable: disabled)",
-    );
+    // The public message names only the request and the reason — dead member
+    // ids stay server-side (server logs), never the envelope. Asserted on the
+    // stable contract plus the non-leak, not on the exact wording: the sentence
+    // is free to be reworded for operators.
+    await expect(engine.plan("pool", snap, "t1")).rejects.toMatchObject({
+      code: "accounts_unavailable",
+      status: 503,
+    });
+    const thrown = await engine.plan("pool", snap, "t1").catch((error: unknown) => error);
+    expect(thrown).toBeInstanceOf(GatewayError);
+    expect((thrown as GatewayError).message).not.toContain("ghost-model");
   });
 });
 

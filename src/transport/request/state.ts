@@ -195,7 +195,7 @@ export class ProxyRequestStateStore {
     const abortReason =
       reason instanceof Error || reason instanceof DOMException
         ? reason
-        : new GatewayError("shutting_down", 503, "Service is shutting down");
+        : new GatewayError("shutting_down", 503, "The gateway is shutting down, so this request cannot be served. Retry against a live instance.");
     for (const controller of controllers) {
       try {
         if (!controller.signal.aborted) controller.abort(abortReason);
@@ -314,7 +314,7 @@ export class ProxyRequestStateStore {
   require(request: Request): ProxyRequestState {
     const state = this.states.get(request);
     if (!state)
-      throw new GatewayError("admission_unavailable", 503, "proxy request context unavailable");
+      throw new GatewayError("admission_unavailable", 503, "The request was never registered, so it cannot be served. Resend the request.");
     return state;
   }
 

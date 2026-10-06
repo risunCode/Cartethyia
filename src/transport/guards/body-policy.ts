@@ -67,21 +67,21 @@ export async function readIngressBody(
   const isJsonRoute = isJsonProxyRoute(p);
   const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (!contentType) {
-    if (isJsonRoute) throw new GatewayError("unsupported_media_type", 415, "content-type must be application/json");
+    if (isJsonRoute) throw new GatewayError("unsupported_media_type", 415, "This endpoint reads JSON, so the request needs a content-type: application/json header.");
     return undefined;
   }
   if (contentType !== "application/json") {
-    if (isJsonRoute) throw new GatewayError("unsupported_media_type", 415, "content-type must be application/json");
+    if (isJsonRoute) throw new GatewayError("unsupported_media_type", 415, `This endpoint reads JSON and cannot parse '${contentType}'. Send content-type: application/json.`);
     return undefined;
   }
   const maxBytes = options.maxBodyBytes ?? 1_048_576;
   const declared = request.headers.get("content-length");
   const parsed = declared === null ? undefined : Number(declared);
   if (declared !== null && (!/^\d+$/.test(declared) || parsed === undefined || parsed > maxBytes))
-    throw new GatewayError("invalid_request", 413, "request body exceeds configured limit");
+    throw new GatewayError("invalid_request", 413, `The request body is larger than this endpoint accepts (${maxBytes} bytes). Shorten the prompt or split the request.`);
 
   const reader = request.body?.getReader();
-  if (!reader) throw new GatewayError("invalid_request", 400, "malformed JSON request body");
+  if (!reader) throw new GatewayError("invalid_request", 400, "The request body could not be read. Resend it with a JSON body.");
   // Collect raw chunks then decode once. String `+=` on each chunk reallocates
   // the accumulating UTF-16 string (O(n²) for large Claude Code prompts);
   // Buffer.concat + one TextDecoder pass is linear and allocation-stable.
@@ -95,7 +95,7 @@ export async function readIngressBody(
       totalBytes += chunk.byteLength;
       if (totalBytes > maxBytes) {
         await reader.cancel().catch(() => undefined);
-        throw new GatewayError("invalid_request", 413, "request body exceeds configured limit");
+        throw new GatewayError("invalid_request", 413, `The request body is larger than this endpoint accepts (${maxBytes} bytes). Shorten the prompt or split the request.`);
       }
       chunks.push(chunk);
     }
@@ -116,7 +116,7 @@ export async function readIngressBody(
     return body;
   } catch (error) {
     if (error instanceof GatewayError) throw error;
-    throw new GatewayError("invalid_request", 400, "malformed JSON request body");
+    throw new GatewayError("invalid_request", 400, "The request body is not valid JSON. Check for a trailing comma or an unclosed brace.");
   }
 }
 

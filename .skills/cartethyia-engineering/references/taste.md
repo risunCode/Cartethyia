@@ -16,6 +16,20 @@ introduce a second style beside one that already exists.
   existing error type for that boundary (`GatewayError` on the gateway,
   `ConsoleDomainError` on the console).
 
+## Error messages
+
+- The public `message` is one plain, self-explanatory sentence for the person
+  reading it. Never stamp the machine code into the text — the code travels in
+  `error.code` and the class in the HTTP status, so `accounts_unavailable: Model
+  'x' …` only put an enum in front of the sentence.
+- A message names the cause and the action the caller can take, and it stays
+  true: do not claim "the store is unreachable" for a failure that is really an
+  internal integrity check. Say what the client can act on; the diagnostic
+  belongs in `details`.
+- Never assert on message wording in a test. Assert the stable contract (code,
+  status, allowlisted details) or a property the sentence must have (it names
+  the limit, it leaks no internal id). Wording is free to change.
+
 ## Types
 
 - No `any`, no `as unknown as`, no suppression, no widened compiler setting.

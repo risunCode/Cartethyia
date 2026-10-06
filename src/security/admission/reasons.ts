@@ -19,55 +19,60 @@ const REASON_META: Record<
   }
 > = {
   "rpm-exhausted": {
-    message: "rpm limit exceeded",
+    message: "This key has used its requests-per-minute allowance. Wait for the window to roll over, or raise the key's rpm limit.",
     code: "quota_exceeded",
     status: 429,
     metricLabel: "rpm_exhausted",
   },
   "daily-token-limit": {
-    message: "daily token limit exceeded",
+    message: "This key has used today's token allowance. It resets at the start of the next day, or raise the key's daily limit.",
     code: "quota_exceeded",
     status: 429,
     metricLabel: "daily",
   },
   "monthly-token-limit": {
-    message: "monthly token limit exceeded",
+    message: "This key has used this month's token allowance. It resets at the start of the next month, or raise the key's monthly limit.",
     code: "quota_exceeded",
     status: 429,
     metricLabel: "monthly",
   },
   "lifetime-token-budget": {
-    message: "lifetime token budget exceeded",
+    message: "This key has spent its lifetime token budget. Raise the budget, or issue a new key.",
     code: "quota_exceeded",
     status: 429,
     metricLabel: "lifetime",
   },
   "concurrency-limit": {
-    message: "concurrency limit exceeded",
+    message: "This model is already serving its maximum number of concurrent requests. Retry shortly, or raise the provider's max-inflight.",
     code: "capacity_exhausted",
     status: 429,
     metricLabel: "concurrency",
   },
   "tenant-capacity-exhausted": {
-    message: "tenant concurrency limit exceeded",
+    message: "This tenant is already serving its maximum number of concurrent requests. Retry shortly, or raise the tenant's concurrency limit.",
     code: "tenant_capacity_exhausted",
     status: 429,
     metricLabel: "tenant_capacity",
   },
   "model-not-allowed": {
-    message: "model not allowed",
+    message: "This key is not allowed to use this model under its allowlist. Add the model to the key, or use one it already allows.",
     code: "model_not_found",
     status: 404,
     metricLabel: "model_not_allowed",
   },
   "model-denied": {
-    message: "model not allowed",
+    message: "This key's denylist blocks this model. Remove the model from the denylist, or use a different model.",
     code: "model_not_found",
     status: 404,
     metricLabel: "model_not_allowed",
   },
   "admission-unavailable": {
-    message: "admission store unavailable",
+    // Covers both real causes behind this reason: the store is unreachable, and
+    // the store's own counters failed an integrity check (`corrupt_counter`,
+    // `invalid_counter`, `unknown_reservation`, `invalid_actual_usage`). The
+    // second is not an outage, so the text must not claim one — it names the
+    // effect the client can act on, and the diagnostic stays in `details.reason`.
+    message: "The gateway could not admit this request. Retry shortly; if it persists, check the instance's Redis or coordination backend.",
     code: "admission_unavailable",
     status: 503,
     metricLabel: "admission_unavailable",

@@ -62,7 +62,7 @@ async function acquirePoolSlot(
       throw new GatewayError(
         "proxy_pool_unhealthy",
         503,
-        "All configured proxy pools are unhealthy or disabled.",
+        "Every proxy pool this route requires is unhealthy or disabled. Repair a pool, or relax the route's pool requirement.",
         { reason: "no_healthy_pool" },
         "network",
       );
@@ -128,10 +128,10 @@ async function acquirePoolSlot(
   const status = failure.reason === "at_capacity" ? 429 : 503;
   const message =
     failure.reason === "at_capacity"
-      ? "Proxy Pool Capacity Exceeded. All configured proxy pools are at their current capacity; please wait and retry."
+      ? "Every proxy pool for this provider is at its concurrency limit. Retry shortly, or add a pool or raise its capacity."
       : failure.reason === "cooldown"
-        ? "All configured proxy pools are cooling down for this provider."
-        : "No active proxy pool is available for this tenant and provider.";
+        ? "Every proxy pool for this provider is cooling down after upstream failures. Retry once the cooldown resets."
+        : "No active proxy pool is configured for this tenant and provider. Add one, or route this provider through direct egress.";
   throw new GatewayError(code, status, message, {
     pools: failure.pools,
     // Only measured evidence: a cooldown's real reset instant. The

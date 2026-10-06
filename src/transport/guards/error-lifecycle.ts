@@ -84,7 +84,9 @@ export function createErrorNormalizationMiddleware(deps: {
             ? formatPublicErrorMessage(code, error.message)
             : formatPublicErrorMessage(
                 code,
-                isBuiltinError ? builtin?.message ?? "Unable to process request" : "Internal server error",
+                isBuiltinError
+                  ? builtin?.message ?? "Unable to process the request as written."
+                  : "The gateway hit an internal error. Retry; if it persists, the server logs carry the request id.",
               );
       const origin = gateway?.origin ?? "cartethyia";
       // `afterResponse` telemetry hook can enqueue it even when the request

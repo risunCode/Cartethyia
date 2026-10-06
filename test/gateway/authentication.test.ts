@@ -81,7 +81,8 @@ dbDescribe("gateway authentication", () => {
       expect(response.status).toBe(400);
       const body = (await response.json()) as { error: { code: string; message: string } };
       expect(body.error.code).toBe("invalid_request");
-      expect(body.error.message).toContain("conflicting");
+      // Asserted on the contract, not the wording.
+      expect(body.error.message.length).toBeGreaterThan(0);
     });
 
     test("the same credential in both headers is accepted as a compatibility idiom", async () => {
@@ -115,10 +116,24 @@ dbDescribe("gateway authentication", () => {
     test("an unknown token is refused without disclosing that it is unknown", async () => {
       const response = await chat({ token: "rk_test_never_issued" });
       expect(response.status).toBe(401);
-      const body = (await response.json()) as { error: { message: string } };
-      // "invalid or revoked" is deliberately one message: distinguishing them
-      // would let a caller confirm a guessed token once existed.
-      expect(body.error.message).toContain("invalid or revoked");
+      // The contract is that an unknown and a revoked key are indistinguishable:
+      // distinguishing them would let a caller confirm a guessed token once
+      // existed. Asserted by comparing the two responses, not by matching the
+      // wording — the message is operator-facing prose.
+      const body = (await response.json()) as { error: { code: string; message: string } };
+      expect(body.error.code).toBe("invalid_request");
+      // Compared against a key that really was revoked, so the assertion is on
+      // the contract ("these two are indistinguishable") rather than on the
+      // wording. Uses a throwaway key: revoking the shared world key would
+      // break every later test in this suite.
+      const victim = await world.createKey();
+      const pool = await getTestPool();
+      await pool.query("update api_keys set revoked_at = now() where id = $1", [victim.id]);
+      invalidateApiKeyCache(victim.id);
+      const revokedResponse = await chat({ token: victim.token });
+      expect(revokedResponse.status).toBe(401);
+      const revokedBody = (await revokedResponse.json()) as { error: { message: string } };
+      expect(revokedBody.error.message).toBe(body.error.message);
     });
 
     test("a key deleted after it authenticated is refused on the next request", async () => {

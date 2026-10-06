@@ -103,17 +103,33 @@ function stripLegacyOriginLabel(message: string): string {
 }
 
 /**
- * Public client-facing error text: `code: explanatory`.
+ * Public client-facing error text: a plain sentence, with no machine code
+ * stamped into it.
  *
- * Applied once: a message that already starts with `code:` is returned
- * unchanged. Origin is never written into the text — clients that need the
+ * The code is not lost — it travels in the envelope's `error.code` field, and
+ * the HTTP status carries the class. It used to be prefixed into the text
+ * (`accounts_unavailable: Model 'x' has no available account (52 candidate(s)
+ * unusable: credit_floor_reached, model_cooldown)`), which put internal enum
+ * names in front of the operator's sentence and made the message unreadable
+ * while adding nothing the field did not already carry.
+ *
+ * Stripping is idempotent, and that is the point: a message that already
+ * carries a `code:` prefix — stamped by an older builder, or by a code path
+ * that formats before it reaches here — loses it once instead of being
+ * doubled. Origin is never written into the text either; clients that need the
  * layer read `error.origin`.
  */
 export function formatPublicErrorMessage(code: string, message: string): string {
-  const explanatory = stripLegacyOriginLabel(message);
+  const strippedOrigin = stripLegacyOriginLabel(message);
+  // A leading `<code>:` is the old stamping; drop it so the sentence stands on
+  // its own. Matched against the code this call is formatting, so a message
+  // that legitimately begins with some other word is left alone.
+  const prefix = `${code}:`;
+  const explanatory = strippedOrigin.startsWith(prefix)
+    ? strippedOrigin.slice(prefix.length).trimStart()
+    : strippedOrigin;
   if (explanatory.length === 0) return code;
-  if (explanatory === code || explanatory.startsWith(`${code}:`)) return explanatory;
-  return `${code}: ${explanatory}`;
+  return explanatory;
 }
 
 /** Formats a gateway error for public/internal clients without mutating it. */

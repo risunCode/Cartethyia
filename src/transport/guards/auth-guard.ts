@@ -41,14 +41,14 @@ export function createApiKeyAuthenticationMiddleware(deps: {
       const token = requestToken(request.headers);
       const authorization = await resolveApiKeyAuthorization(deps.db, token);
       if (!authorization)
-        throw new GatewayError("invalid_request", 401, "invalid or revoked API key");
+        throw new GatewayError("invalid_request", 401, "This API key is unknown, revoked, or expired. Issue a new key and send it as: Authorization: Bearer <key>.");
       const decision = createAccessDecision({
         id: authorization.id,
         tenantId: authorization.tenantId,
         scopes: authorization.scopes,
       });
       if (!decision.scopes.includes("routing:invoke"))
-        throw new GatewayError("invalid_request", 403, "API key lacks routing:invoke scope");
+        throw new GatewayError("invalid_request", 403, "This API key is not allowed to invoke routing. Grant it the routing:invoke scope, or use a key that has it.");
       // A key may refuse a downstream router it has been resold to. This is a
       // policy check on the resolved key, so it belongs with the other
       // authorization decisions rather than in routing: the request is refused

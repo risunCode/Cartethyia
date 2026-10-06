@@ -167,7 +167,7 @@ export async function resolveCredentialForAccount(
   const parsedProviderId = parseProviderId(providerId);
   const account = await loadAccountWithFreshness(db, accountId);
   if (!account) {
-    throw new GatewayError("admission_unavailable", 503, "provider account no longer exists", {
+    throw new GatewayError("admission_unavailable", 503, "This provider account no longer exists, so its credential cannot be read. Re-select the account, or point the route at a live one.", {
       provider_id: providerId,
       account_id: accountId,
     });
@@ -237,7 +237,7 @@ export async function resolveAccountCredentialsForExport(
 ): Promise<{ readonly accessToken: string; readonly refreshToken?: string }> {
   let account = await loadAccountWithFreshness(db, accountId);
   if (!account) {
-    throw new GatewayError("admission_unavailable", 503, "provider account no longer exists", {
+    throw new GatewayError("admission_unavailable", 503, "This provider account no longer exists, so its credential cannot be read. Re-select the account, or point the route at a live one.", {
       provider_id: providerId,
       account_id: accountId,
     });
@@ -254,7 +254,7 @@ export async function resolveAccountCredentialsForExport(
       await oauth.refreshService.ensureFreshAccessToken(accountId, refresher);
       account = await loadAccountWithFreshness(db, accountId);
       if (!account) {
-        throw new GatewayError("admission_unavailable", 503, "provider account no longer exists", {
+        throw new GatewayError("admission_unavailable", 503, "This provider account no longer exists, so its credential cannot be read. Re-select the account, or point the route at a live one.", {
           provider_id: providerId,
           account_id: accountId,
         });

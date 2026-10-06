@@ -185,7 +185,7 @@ export function createCanonicalRequestMiddleware(deps: {
       // literal `null` body) is a valid single-read value and flows to the
       // surface adapter's parse error rather than triggering a second read.
       if (state.ingressBody === undefined)
-        throw new GatewayError("admission_unavailable", 503, "proxy request context unavailable");
+        throw new GatewayError("admission_unavailable", 503, "The request body was never read, so this route cannot be served. Resend the request.");
       const body = state.ingressBody;
       const headers: Record<string, string> = {};
       request.headers.forEach((value, key) => {
@@ -250,7 +250,7 @@ export function createProxyRoutePreparationMiddleware(deps: {
       if (!isJsonRoute || path === "/v1/responses/compact" || isNativeServicePath(path)) return;
       const state = deps.stateStore.require(request);
       if (!state.authorization || !state.canonicalRequest)
-        throw new GatewayError("admission_unavailable", 503, "proxy request context unavailable");
+        throw new GatewayError("admission_unavailable", 503, "The request was not authenticated and parsed, so this route cannot be served. Resend the request.");
       const strikes = deps.modelStrikes;
       const ip = state.clientIdentity?.address;
       const strikeIdentity = strikes && ip !== undefined ? { strikes, ip } : undefined;

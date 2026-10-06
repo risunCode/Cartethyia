@@ -168,7 +168,7 @@ export class StreamFinalizer {
       // origin is the upstream's: labelling it `cartethyia` reported a
       // provider that stopped sending as a gateway defect.
       this.input.state.abortController.abort(
-        new GatewayError("deadline_exceeded", 504, "upstream stream stalled", {}, "upstream"),
+        new GatewayError("deadline_exceeded", 504, "The upstream stopped sending data mid-stream. Retry; if it keeps happening, the account or pool is unstable.", {}, "upstream"),
       );
     }, timeoutMs);
   }
@@ -323,7 +323,7 @@ export class StreamFinalizer {
         ? new GatewayError(
             "transport_unavailable",
             502,
-            "upstream stream ended before terminal event",
+            "The upstream closed the stream before it reported a final result. Retry; if it keeps happening, the account or pool is unstable.",
             {},
             "upstream",
           )
@@ -439,7 +439,10 @@ export class StreamFinalizer {
       const origin = gatewayError?.origin ?? "network";
       const message = gatewayError
         ? explainGatewayError(gatewayError)
-        : formatPublicErrorMessage(code, "Upstream stream failed");
+        : formatPublicErrorMessage(
+            code,
+            "The upstream closed the stream before it finished. Retry; if it keeps happening, the account or pool is unstable.",
+          );
       // Merge upstream details when available so a provider-reported error keeps its requestId/code.
       const details = gatewayError ? publicGatewayErrorDetails(gatewayError) : {};
       // For cb gpt-6.1-sol style invoke errors, upstream extError is already in gatewayError details via provider pipeline.

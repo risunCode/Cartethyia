@@ -196,11 +196,40 @@ export interface AdmissionController {
   snapshotAccountInflight?(): Promise<ReadonlyMap<string, number>> | ReadonlyMap<string, number>;
 }
 
+/**
+ * Translates the evaluator's internal reason codes into operator English.
+ *
+ * These names are the vocabulary the routing layers use with each other —
+ * `model_cooldown`, `cooldown_hard`, `locked` — and they used to be printed
+ * verbatim into the public message, so the client read an enum instead of an
+ * explanation. The codes stay in the envelope's `reasons` field for anyone who
+ * wants them; the sentence carries what they mean.
+ *
+ * Unmapped names are still readable: they fall through as themselves rather
+ * than being dropped, so a new reason shows up in the message on the day it is
+ * added instead of vanishing until someone remembers this map.
+ */
+const ELIGIBILITY_REASON_LABELS: Readonly<Record<string, string>> = {
+  model_cooldown: "every account is cooling down for this model",
+  cooldown_hard: "every account is in a hard cooldown",
+  cooldown: "accounts are cooling down",
+  disabled: "all accounts are disabled",
+  locked: "all accounts are locked by another request",
+  credit_floor_reached: "credit or quota is exhausted",
+};
+
+function explainEligibilityReasons(reasons: readonly string[]): string {
+  if (reasons.length === 0) return "no eligible candidate";
+  const parts = reasons.map((reason) => ELIGIBILITY_REASON_LABELS[reason] ?? reason);
+  const distinct = [...new Set(parts)];
+  return distinct.length === 1 ? distinct[0]! : distinct.join("; ");
+}
+
 export function ambiguousModelError(bare: string, owners: string[]): GatewayError {
   return new GatewayError(
     "ambiguous_model",
     400,
-    `Model '${bare}' is ambiguous across providers: ${owners.join(", ")}`,
+    `'${bare}' matches more than one provider (${owners.join(", ")}). Qualify it as '${owners[0]}/${bare}', or add an alias to pick one.`,
     {
       model: bare,
       owners,
@@ -220,7 +249,9 @@ export function modelNotFoundError(requested: string, resolved: readonly string[
   return new GatewayError(
     "model_not_found",
     404,
-    `Model '${requested}'${targets.length > 0 ? ` (resolved to ${hint})` : ""} not found`,
+    `'${requested}' is not routed${
+      targets.length > 0 ? ` — it resolved to ${hint}, which no account serves` : ""
+    }. Enable the model on an account, or point the alias at one that exists.`,
     {
       model: requested,
       ...(targets.length > 0 ? { resolved_models: targets } : {}),
@@ -232,13 +263,17 @@ export function capabilityUnsupportedError(capability: string): GatewayError {
   return new GatewayError(
     "capability_unsupported",
     400,
-    `Capability '${capability}' not supported`,
+    `No account serving this model supports ${capability}. Drop the ${capability} part of the request, or route to a model that accepts it.`,
     { capability },
   );
 }
 
 export function capacityExhaustedError(): GatewayError {
-  return new GatewayError("capacity_exhausted", 429, "No capacity available");
+  return new GatewayError(
+    "capacity_exhausted",
+    429,
+    "Every account is at its concurrency limit. Retry shortly; if it persists, raise the provider's max-inflight or add an account.",
+  );
 }
 
 /**
@@ -260,7 +295,7 @@ export function accountsUnavailableError(
   return new GatewayError(
     "accounts_unavailable",
     503,
-    `Model '${requested}' has no available account (${reasons.length} candidate(s) unusable: ${distinct.join(", ")})`,
+    `No account in the pool can serve '${requested}' right now (${explainEligibilityReasons(distinct)}). Add an account, or wait for an operator to re-enable one.`,
     { model: requested, reasons: distinct, candidate_count: reasons.length },
   );
 }
@@ -281,11 +316,11 @@ export function accountsRateLimitedError(
   requested: string,
   routed: string = requested,
 ): GatewayError {
-  const routeNote = routed === requested ? "" : ` routed to '${routed}'`;
+  const routeNote = routed === requested ? "" : ` (routed to '${routed}')`;
   return new GatewayError(
     "accounts_rate_limited",
     429,
-    `Model '${requested}'${routeNote} has no healthy account: every account is rate limited or cooling down`,
+    `Every account serving '${requested}'${routeNote} is cooling down after hitting upstream limits. The request is fine — retry once the cooldown resets.`,
     { model: requested, routed_model: routed, reason: "all_accounts_cooling" },
   );
 }

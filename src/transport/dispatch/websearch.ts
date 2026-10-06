@@ -69,10 +69,10 @@ export function createWebsearchHandler(deps: WebsearchHandlerDeps) {
     const authorization = state.authorization;
     const body = state.ingressBody;
     if (!authorization || body === null || typeof body !== "object" || Array.isArray(body))
-      throw new GatewayError("invalid_request", 400, "search request body must be a JSON object");
+      throw new GatewayError("invalid_request", 400, "The search body must be a JSON object. Send one with at least a model and a query.");
     const search = body as Record<string, unknown>;
     if (typeof search.model !== "string" || search.model.trim().length === 0)
-      throw new GatewayError("invalid_request", 400, "model is required");
+      throw new GatewayError("invalid_request", 400, "A model is required: it names the search provider to use.");
     // The search "model" names the provider (or an alias/combo of one). A
     // thinking suffix is stripped for the same reason the canonical preparer
     // strips it: it is not part of any registered id.

@@ -161,11 +161,15 @@ describe("InMemoryAdmissionCounterStore — reconciliation arithmetic", () => {
   test("a non-integer actual is rejected as corrupt rather than rounded", async () => {
     // `finiteNonNegative` demands an integer. Rounding silently would let a
     // fractional delta accumulate into a counter the next reserve rejects.
+    // Asserted on the stable contract (code + structured reason), not on the
+    // human sentence — the message is free to be reworded for operators.
     const store = new InMemoryAdmissionCounterStore();
     await store.reserve(reserveRequest({ reservationId: "r-1", dailyLimit: 10_000 }));
-    await expect(store.reconcile("key-a", 100, 1.5, "r-1")).rejects.toThrow(
-      /corrupt admission counter|admission store unavailable/,
-    );
+    await expect(store.reconcile("key-a", 100, 1.5, "r-1")).rejects.toMatchObject({
+      code: "admission_unavailable",
+      status: 503,
+      details: { reason: "invalid_actual_usage" },
+    });
   });
 
   test("reconcile against an unknown reservation fails closed", async () => {

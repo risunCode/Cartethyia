@@ -404,7 +404,7 @@ export function assertBoundedJsonDepth(value: unknown): void {
 
 function assertBoundedDepthWalk(value: unknown, depth: number): void {
   if (depth > MAX_JSON_DEPTH)
-    throw new GatewayError("invalid_request", 400, "request body nesting exceeds the allowed depth");
+    throw new GatewayError("invalid_request", 400, `The request body is nested deeper than this endpoint accepts (${MAX_JSON_DEPTH} levels). Flatten the payload.`);
   if (Array.isArray(value)) {
     for (const item of value) assertBoundedDepthWalk(item, depth + 1);
     return;

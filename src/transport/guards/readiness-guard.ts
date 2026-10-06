@@ -22,7 +22,7 @@ export function createDependencyReadinessMiddleware(deps: ReadinessMiddlewareDep
       }
       const readiness = await deps.readiness();
       if (readiness.status !== "ready")
-        throw new GatewayError("platform_unavailable", 503, "Service dependencies are unavailable");
+        throw new GatewayError("platform_unavailable", 503, "The gateway's dependencies are not ready, so no request can be served. Retry shortly; if it persists, check the database and coordination backend.");
     })
     .as("plugin");
 }

@@ -197,7 +197,11 @@ describe("readIngressBody — content type", () => {
     );
     expect(failure.status).toBe(415);
     expect(failure.code).toBe("unsupported_media_type");
-    expect(failure.message).toBe("content-type must be application/json");
+    // Asserted on the contract, not the wording: the message is operator-facing
+    // prose and is free to be reworded. What must hold is that it names the
+    // content type the client sent, so the fix is obvious.
+    expect(failure.message).toContain("text/plain");
+    expect(failure.message).toContain("application/json");
   });
 
   test("a content-type with parameters is accepted", () => {
@@ -297,7 +301,9 @@ describe("readIngressBody — size limits", () => {
     );
     expect(failure.status).toBe(413);
     expect(failure.code).toBe("invalid_request");
-    expect(failure.message).toContain("exceeds configured limit");
+    // The message must name the real limit, not a vague "too large" — the
+    // client needs the number to size its requests.
+    expect(failure.message).toContain("1048576");
   });
 
   test("the default limit is one mebibyte", () => {
@@ -329,7 +335,8 @@ describe("readIngressBody — parsing", () => {
     const failure = await rejection(request("/v1/chat/completions", "{not json"));
     expect(failure.status).toBe(400);
     expect(failure.code).toBe("invalid_request");
-    expect(failure.message).toBe("malformed JSON request body");
+    // Asserted on the contract, not the wording.
+    expect(failure.message.length).toBeGreaterThan(0);
   });
 
   test("an empty body is a 400, not an undefined value", () => {
@@ -380,7 +387,8 @@ describe("readIngressBody — the nesting depth bound", () => {
     // This is the assertion that the bound exists.
     const failure = await rejection(request("/v1/chat/completions", nested(200)));
     expect(failure.status).toBe(400);
-    expect(failure.message).toContain("nesting exceeds the allowed depth");
+    // The message must name the depth limit, or the client cannot size its payload.
+    expect(failure.message).toContain("64");
   });
 
   test("the depth bound applies to objects as well as arrays", () => {
@@ -429,7 +437,11 @@ describe("readIngressBody — the reader lock", () => {
     );
     expect(fromRead.code).toBe(fromHeader.code);
     expect(fromRead.status).toBe(fromHeader.status);
-    expect(fromRead.message).toBe(fromHeader.message);
+    // Same *shape*, not the same string: each branch quotes the limit it
+    // enforced (100 here, the default there). Comparing the full text would
+    // demand the read path lie about the limit it actually applied.
+    expect(fromRead.message).toContain("100 bytes");
+    expect(fromHeader.message).toContain("1048576 bytes");
   });
 
   test("a request with no body at all is a 400, not a hang", () => {

@@ -200,7 +200,7 @@ export function createGatewayApp(deps: GatewayAppDeps) {
       (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
     );
     if (reserved) {
-      const notFound = new GatewayError("not_found", 404, "Route not found");
+      const notFound = new GatewayError("not_found", 404, "No endpoint exists at this path. Check the route against the API reference.");
       return new Response(JSON.stringify(publicGatewayErrorBody(notFound)), {
         status: notFound.status,
         headers: {
@@ -383,7 +383,7 @@ export function createGatewayApp(deps: GatewayAppDeps) {
     const handleModelsList = async ({ request }: { request: Request }): Promise<Response> => {
       const state = requestStateStore.require(request);
       const auth = state.authorization;
-      if (!auth) throw new GatewayError("invalid_request", 401, "invalid or revoked API key");
+      if (!auth) throw new GatewayError("invalid_request", 401, "This API key is unknown, revoked, or expired. Issue a new key and send it as: Authorization: Bearer <key>.");
       const data = await queryAllowedModels(auth);
       return new Response(JSON.stringify({ object: "list", data }), {
         headers: {
@@ -406,7 +406,7 @@ export function createGatewayApp(deps: GatewayAppDeps) {
     }): Promise<Response> => {
       const state = requestStateStore.require(request);
       const auth = state.authorization;
-      if (!auth) throw new GatewayError("invalid_request", 401, "invalid or revoked API key");
+      if (!auth) throw new GatewayError("invalid_request", 401, "This API key is unknown, revoked, or expired. Issue a new key and send it as: Authorization: Bearer <key>.");
       const raw = params?.["*"] ?? params?.id ?? "";
       const targetId = new URL(request.url).searchParams.get("id") ?? raw;
       const found = await publicModelStore.getPublicModelDetail(

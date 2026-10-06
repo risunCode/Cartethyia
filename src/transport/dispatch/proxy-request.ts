@@ -105,7 +105,7 @@ export async function handleProviderProxyRequest(
   const state = deps.stateStore.require(request);
   const prepared = state.preparedRequest;
   if (!prepared)
-    throw new GatewayError("admission_unavailable", 503, "proxy request context unavailable");
+    throw new GatewayError("admission_unavailable", 503, "The request was not prepared, so no route can be dialed. Resend the request.");
   const canonicalRequest = await applyTenantPreferences(prepared, deps.db);
   const candidates =
     prepared.eligibleRouteCandidates.length > 0 ? prepared.eligibleRouteCandidates : [prepared.candidate];
@@ -180,13 +180,13 @@ export async function handleProviderProxyRequest(
     tenantId: prepared.authorization.tenantId,
     strictPoolSelection: true,
     resolveHost: (candidate) => deps.byokUpstreamHosts?.get(candidate.provider_id),
-    exhaustedError: new GatewayError("admission_unavailable", 503, "no eligible route"),
+    exhaustedError: new GatewayError("admission_unavailable", 503, "No account could be leased for this request. Retry shortly; if it persists, add an account or check that one is healthy."),
     prepare: async (candidate) => {
       if (!candidate.provider_account_id && candidate.requires_account !== false)
         throw new GatewayError(
           "admission_unavailable",
           503,
-          "no upstream credential configured for this route",
+          "This route has no usable credential. Save one on the account, or route to a provider whose account is configured.",
         );
       const credential = candidate.provider_account_id
         ? await resolveCredentialForAccount(

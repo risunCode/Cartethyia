@@ -241,12 +241,12 @@ export function requestToken(headers: Headers | Record<string, string>): string 
     // *different* credentials stay a conflict — accepting whichever came first
     // would silently decide the request's identity.
     if (bearerMatch?.[1] === apiKey) return apiKey;
-    throw new GatewayError("invalid_request", 400, "conflicting credential headers");
+    throw new GatewayError("invalid_request", 400, "The request sends two different credentials. Send exactly one key, either as Authorization: Bearer <key> or as the api-key header.");
   }
   if (hasApiKey) return apiKey;
   const token = bearerMatch?.[1];
   if (token === undefined)
-    throw new GatewayError("invalid_request", 401, "missing or malformed Authorization header");
+    throw new GatewayError("invalid_request", 401, "The request carries no usable credential. Send the key as: Authorization: Bearer <key>.");
   return token;
 }
 

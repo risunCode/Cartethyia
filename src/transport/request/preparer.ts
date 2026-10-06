@@ -137,7 +137,7 @@ export class ProxyRequestPreparer {
       throw new GatewayError(
         "model_not_found",
         404,
-        "model does not match the key's required prefix",
+        `This key may only use models starting with '${authorization.modelPrefix}'. Ask for one inside that prefix, or have an operator widen the key.`,
         { model: request.model, required_prefix: authorization.modelPrefix },
       );
     if (!allowedForKey) {
@@ -366,7 +366,7 @@ export class ProxyRequestPreparer {
       throw new GatewayError(
         "model_not_found",
         404,
-        "model does not match the key's required prefix",
+        `This key may only use models starting with '${input.authorization.modelPrefix}'. Ask for one inside that prefix, or have an operator widen the key.`,
         { model: input.model, required_prefix: input.authorization.modelPrefix },
       );
     if (!allowedForKey)
