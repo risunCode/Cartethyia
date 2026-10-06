@@ -7,7 +7,7 @@
  * tenant isolation. Telemetry uses the append contract: re-importing the same
  * payload skips duplicates instead of duplicating or deleting.
  */
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import type { PGlite } from "@electric-sql/pglite";
 import { exportBackup, applyRestore } from "../../src/console/backup/store";
@@ -33,6 +33,15 @@ function sortedRows(rows: readonly Record<string, unknown>[]): string[] {
   return rows.map((row) => JSON.stringify(row)).sort();
 }
 
+/**
+ * These three boot a PGlite instance and migrate it. Measured alone that is
+ * ~2 s (1.7 s to construct the WASM backend, 0.35 s to migrate), but this file
+ * runs beside ~70 others on `--parallel`, and a boot starved of CPU has
+ * clocked 29 s. The runner's 15 s default is a hang detector, not a budget, so
+ * the real cost is claimed here instead: a hang still fails by name.
+ */
+setDefaultTimeout(90_000);
+
 dbDescribe("backup portability across backends", () => {
   let world: GatewayWorld;
   let liteClient: PGlite | undefined;
@@ -46,6 +55,7 @@ dbDescribe("backup portability across backends", () => {
   test("pg export restores identically on PGlite", async () => {
     world = await createWorld();
     const db = getDb();
+
     await db.insert(modelAliases).values({
       tenantId: world.tenantId,
       alias: "portable-alias",

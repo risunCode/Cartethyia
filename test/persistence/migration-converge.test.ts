@@ -2,16 +2,20 @@
  * The three forward files are the whole upgrade path.
  *
  * A database built from an older baseline still has the columns and enum labels
- * those files fold. Each file is read from disk and applied inside a transaction
- * that is always rolled back, so the shared test database is untouched. The
- * baseline itself is not executed here: an existing database records it without
- * running it, which `baselineAlreadySatisfied` pins.
+ * those files fold. Each file is read from disk and applied to a throwaway
+ * database built from the current baseline, then folded *backwards* into the
+ * old shape the upgrade has to survive — so the run proves convergence without
+ * taking DDL locks on the shared test database, where an `ALTER` would queue
+ * behind the reads other workers hold and deadlock against them.
+ *
+ * The baseline itself is not executed here as a migration: an existing database
+ * records it without running it, which `baselineAlreadySatisfied` pins.
  */
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { baselineAlreadySatisfied, splitStatements } from "../../src/persistence/migrate";
-import { dbDescribe, withRollback } from "../helpers/database";
+import { dbDescribe, withScratchDatabase } from "../helpers/database";
 
 function applyFile(
   client: { query: (text: string, values?: unknown[]) => Promise<unknown> },
@@ -33,8 +37,7 @@ dbDescribe("migration: three forward files", () => {
   });
 
   test("old columns fold into the current shape and the dead ones go", async () => {
-    await withRollback(async (client) => {
-      await client.query("SELECT pg_advisory_xact_lock(hashtext('cartethyia:migrations'))");
+    await withScratchDatabase(async (client) => {
       await client.query(`ALTER TABLE "api_keys" ADD COLUMN IF NOT EXISTS "model_allowlist" jsonb`);
       await client.query(`ALTER TABLE "api_keys" ADD COLUMN IF NOT EXISTS "model_denylist" jsonb`);
       await client.query(`ALTER TABLE "api_keys" DROP COLUMN IF EXISTS "model_list"`);

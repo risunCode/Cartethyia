@@ -23,6 +23,8 @@
 import { afterAll, beforeAll, describe } from "bun:test";
 import { Pool, type PoolClient } from "pg";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { applySqlMigrations } from "../../src/persistence/db-pg";
 
 /** Isolated PostgreSQL URL, or `undefined` when the suite must skip. */
@@ -131,6 +133,46 @@ export async function withRollback<T>(
     }
   } finally {
     client.release();
+  }
+}
+
+/**
+ * Runs `body` against a throwaway database built from the current baseline.
+ *
+ * Schema-evolution suites need DDL, and DDL takes `AccessExclusiveLock`. On the
+ * shared test database that lock queues behind — and then deadlocks against —
+ * the plain reads and writes other test workers are doing on the same tables at
+ * the same time; `withRollback` cannot help, because a rolled-back `ALTER` still
+ * took the lock. The only isolation that removes the contention is a database
+ * nothing else is connected to.
+ *
+ * The baseline is applied so the body starts from the shipped shape and folds
+ * it *backwards* into whatever older shape it wants to migrate from — which is
+ * also the honest direction: an upgrade test proves an old database converges,
+ * and an old database is what it makes, not what the repo ships.
+ *
+ * Cost is ~1 s per use (create + baseline), against a 15 s test budget.
+ */
+export async function withScratchDatabase<T>(body: (db: Pool) => Promise<T>): Promise<T> {
+  if (!testDatabaseUrl) throw new Error("CARTETHYIA_TEST_DATABASE_URL is not configured");
+  const name = `cartethyia_scratch_${randomUUID().replace(/-/g, "")}`;
+  const admin = new Pool({ connectionString: testDatabaseUrl, max: 2 });
+  let scratch: Pool | undefined;
+  try {
+    await admin.query(`CREATE DATABASE ${name}`);
+    const url = new URL(testDatabaseUrl);
+    url.pathname = `/${name}`;
+    scratch = new Pool({ connectionString: url.toString(), max: 2 });
+    const baseline = readFileSync(
+      resolve(process.cwd(), "migrations", "0000_baseline.sql"),
+      "utf8",
+    );
+    await scratch.query(baseline);
+    return await body(scratch);
+  } finally {
+    await scratch?.end().catch(() => undefined);
+    await admin.query(`DROP DATABASE IF EXISTS ${name}`).catch(() => undefined);
+    await admin.end().catch(() => undefined);
   }
 }
 
