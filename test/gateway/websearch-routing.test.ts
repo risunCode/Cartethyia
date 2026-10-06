@@ -19,8 +19,8 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createTestGateway, type TestGateway } from "../helpers/gateway";
-import { createWorld, type GatewayWorld } from "../helpers/fixtures";
-import { dbDescribe } from "../helpers/database";
+import { createAccount, createWorld, type GatewayWorld } from "../helpers/fixtures";
+import { dbDescribe, getTestPool } from "../helpers/database";
 import { RoutingEngine } from "../../src/transport/routing/router";
 import { GatewayError } from "../../src/transport/gateway-error";
 import type { CanonicalEvent, CanonicalRequest } from "../../src/transport/canonical-model";
@@ -109,14 +109,46 @@ describe("RoutingEngine web-search planning", () => {
 dbDescribe("web-search fallback dispatch", () => {
   let gateway: TestGateway;
   let world: GatewayWorld;
+  /**
+   * Real account rows owned by the search providers themselves. The fallback
+   * bridge resolves a candidate's credential from the database, and the cache
+   * keys by provider+account: a candidate cannot borrow another provider's
+   * account id (production's route catalog never emits one), so the fixture
+   * gives each search provider its own account.
+   */
+  let exaAccountId: string;
+  let codexAccountId: string;
 
   beforeAll(async () => {
     world = await createWorld();
     gateway = await createTestGateway();
+    const pool = await getTestPool();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const label = `websearch-${world.runId}`;
+      exaAccountId = await createAccount(client, "exa", { label });
+      codexAccountId = await createAccount(client, "codex", { label });
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   });
 
   afterAll(async () => {
     await gateway?.close();
+    // The search-provider accounts are global rows (tenantless, like the
+    // bundled providers they belong to), so they are removed by label rather
+    // than by the world's tenant cascade.
+    if (world) {
+      const teardown = await getTestPool();
+      await teardown
+        .query("delete from provider_accounts where label = $1", [`websearch-${world.runId}`])
+        .catch(() => undefined);
+    }
     await world?.cleanup();
   });
 
@@ -134,7 +166,7 @@ dbDescribe("web-search fallback dispatch", () => {
       {
         providerId: "exa",
         modelId: "exa-search",
-        accountId: world.accountId,
+        accountId: exaAccountId,
         serviceKind: "websearch",
         capabilities: { webSearch: true },
       },
@@ -274,14 +306,14 @@ dbDescribe("web-search fallback dispatch", () => {
       {
         providerId: "codex",
         modelId: "codex-search",
-        accountId: world.accountId,
+        accountId: codexAccountId,
         serviceKind: "websearch",
         capabilities: { webSearch: true },
       },
       {
         providerId: "exa",
         modelId: "exa-search",
-        accountId: world.accountId,
+        accountId: exaAccountId,
         serviceKind: "websearch",
         capabilities: { webSearch: true },
       },
@@ -320,7 +352,7 @@ dbDescribe("web-search fallback dispatch", () => {
       {
         providerId: "exa",
         modelId: "exa-search",
-        accountId: world.accountId,
+        accountId: exaAccountId,
         serviceKind: "websearch",
         capabilities: { webSearch: true },
       },
@@ -356,7 +388,7 @@ dbDescribe("web-search fallback dispatch", () => {
       {
         providerId: "exa",
         modelId: "exa-search",
-        accountId: world.accountId,
+        accountId: exaAccountId,
         serviceKind: "websearch",
         capabilities: { webSearch: true },
       },
@@ -413,7 +445,7 @@ dbDescribe("web-search fallback dispatch", () => {
       {
         providerId: "exa",
         modelId: "exa-search",
-        accountId: world.accountId,
+        accountId: exaAccountId,
         serviceKind: "websearch",
         capabilities: { webSearch: true },
       },
