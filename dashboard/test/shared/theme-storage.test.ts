@@ -30,7 +30,7 @@ import {
   STUDIO_PREFIX_STORAGE,
   writeLocal,
   writeSession,
-} from "../../src/shared/studio-session-storage";
+} from "../../src/features/studio/studio-session-storage";
 import {
   applyConsoleTheme,
   CONSOLE_THEME_KEY,
@@ -39,7 +39,7 @@ import {
   parseConsoleTheme,
   readConsoleTheme,
   writeConsoleTheme,
-} from "../../src/shared/theme";
+} from "../../src/lib/theme";
 
 registerDom();
 

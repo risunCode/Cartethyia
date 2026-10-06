@@ -2,7 +2,7 @@ import { consoleRequest, fetchSessionUser } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
 import { queryKeys } from "../data/query-keys";
 import type { SessionUser, UsageDimension } from "../data/contracts";
-import { assertAuditListPage, assertSystemHealth, assertUsageBy, assertUsageChart, assertUsageRequestDetail, assertUsageRequests, assertUsageSummary, querySignal } from "./common";
+import { assertAuditListPage, assertSystemHealth, assertUsageBy, assertUsageChart, assertUsageRequestDetail, assertUsageRequests, assertUsageSummary, querySignal } from "../lib/api/validators";
 import { DASHBOARD_QUERY_OPTIONS } from "../data/query-policy";
 import { useQuery } from "@tanstack/react-query";
 

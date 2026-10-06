@@ -26,7 +26,7 @@ import {
   type PoolSortKey,
   sortPools,
   summarizePools,
-} from "../../src/shared/proxy-metrics";
+} from "../../src/features/proxy/proxy-metrics";
 import { MAX_BATCH_PROBE_TARGETS as SERVER_MAX_BATCH_PROBE_TARGETS } from "../../../src/console/routing/pools/contracts";
 
 /** Minimal pool; only the fields the unit under test reads are set. */

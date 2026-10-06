@@ -34,7 +34,7 @@ import {
   useSyncProviderModels,
   useTestByokConnection,
 } from "../../hooks/providers";
-import { getErrorMessage } from "../../shared/helpers";
+import { getErrorMessage } from "../../lib/helpers";
 
 const wireFamilies = ["chat", "responses", "messages"] as const;
 type WireFamily = (typeof wireFamilies)[number];

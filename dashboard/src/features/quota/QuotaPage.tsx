@@ -28,7 +28,7 @@ import { HealthEventsModal } from "../../components/HealthEventsModal";
 import { Select } from "../../components/ui/select";
 import { Toolbar } from "../../components/ui/toolbar";
 import { Stack } from "../../components/ui/stack";
-import { toast } from "../../shared/toast";
+import { toast } from "../../lib/toast";
 import {
   useQuotaOverview,
   useRefreshAccountQuota,
@@ -52,7 +52,7 @@ import {
   paginateQuotaWindows,
   accountIdentity,
 } from "../../shared/quota-formatters";
-import { getErrorMessage } from "../../shared/helpers";
+import { getErrorMessage } from "../../lib/helpers";
 
 
 function isEmpty(account: QuotaEntry): boolean {

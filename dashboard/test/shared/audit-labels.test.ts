@@ -20,7 +20,7 @@
  * sites.
  */
 import { describe, expect, test } from "bun:test";
-import { auditActionLabel, prettifyAuditAction } from "../../src/shared/audit-labels";
+import { auditActionLabel, prettifyAuditAction } from "../../src/features/logs/audit-labels";
 
 /**
  * Every audit action id the backend writes, extracted from `src/` by grepping for

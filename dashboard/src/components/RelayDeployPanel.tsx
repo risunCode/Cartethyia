@@ -7,8 +7,8 @@ import { Select } from "./ui/select";
 import { Stack } from "./ui/stack";
 import { RELAY_TARGETS, type RelayTarget } from "../data/contracts";
 import { useDeployRelay } from "../hooks/network";
-import { getErrorMessage } from "../shared/helpers";
-import { toast } from "../shared/toast";
+import { getErrorMessage } from "../lib/helpers";
+import { toast } from "../lib/toast";
 
 /** Human labels and per-target fields for the deploy form. */
 const TARGET_META: Record<

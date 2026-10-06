@@ -1,7 +1,7 @@
 import { consoleRequest } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
 import { queryKeys } from "../data/query-keys";
-import { querySignal } from "./common";
+import { querySignal } from "../lib/api/validators";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 

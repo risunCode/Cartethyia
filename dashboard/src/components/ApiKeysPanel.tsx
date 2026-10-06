@@ -20,8 +20,8 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { ModelBansDialog } from "./ModelBansDialog";
 import { regenerateWarning, ShareManagementDialog } from "./ShareManagementDialog";
 import { SortableList } from "./SortableList";
-import { toast } from "../shared/toast";
-import { getErrorMessage } from "../shared/helpers";
+import { toast } from "../lib/toast";
+import { getErrorMessage } from "../lib/helpers";
 import { useSessionUser } from "../hooks/system";
 import type { ApiKeyResponse } from "../data/contracts";
 import {

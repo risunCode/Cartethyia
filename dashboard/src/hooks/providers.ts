@@ -3,10 +3,10 @@ import type { ApiErrorShape } from "../data/api";
 // Console-owned device-poll DTO; token material remains provider-internal.
 import type { AccountHealthEventRecord, ByokConnectionTestRequest, ByokConnectionTestResult, CreateProviderAccountRequest, CreateProviderRequest, OAuthDevicePollResponse as OAuthDevicePollResult, ProbeAllAccountsResult, ProbeModelRequest, ProbeModelResult, ProviderAccountResponse, ProviderAccountsExportResponse, ProviderResponse, SetModelEnabledRequest, UpdateProviderAccountRequest, UpdateProviderRequest } from "../data/contracts";
 import { queryKeys } from "../data/query-keys";
-import { assertModels, assertProviders, querySignal } from "./common";
+import { assertModels, assertProviders, querySignal } from "../lib/api/validators";
 import { DASHBOARD_QUERY_OPTIONS } from "../data/query-policy";
-import { getErrorMessage } from "../shared/helpers";
-import { toast } from "../shared/toast";
+import { getErrorMessage } from "../lib/helpers";
+import { toast } from "../lib/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 

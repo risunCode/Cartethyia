@@ -5,12 +5,12 @@ import { Button } from "../../components/ui/button";
 import { Card, CardBody } from "../../components/ui/card";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/state";
 import { ClipboardButton } from "../../components/patterns/clipboard-button";
-import { downloadTextFile } from "../../shared/download";
+import { downloadTextFile } from "../../lib/download";
 import { GithubBadge } from "../../components/patterns/github-badge";
-import { toast } from "../../shared/toast";
-import { formatModelTokens, UNKNOWN_LIMITS_TOOLTIP } from "../../shared/model-limits";
-import { formatProbeDuration } from "../../shared/format";
-import { readConsoleTheme, applyConsoleTheme, isDarkEffective, writeConsoleTheme, type ConsoleThemeChoice } from "../../shared/theme";
+import { toast } from "../../lib/toast";
+import { formatModelTokens, UNKNOWN_LIMITS_TOOLTIP } from "../../lib/model-limits";
+import { formatProbeDuration } from "../../lib/format";
+import { readConsoleTheme, applyConsoleTheme, isDarkEffective, writeConsoleTheme, type ConsoleThemeChoice } from "../../lib/theme";
 import { useShareData, type ShareLinkData, type ShareModelInfoData } from "../../hooks/share-data";
 import {
   LiveShareQuotaPanel,
@@ -22,7 +22,7 @@ import {
   readStoredShareKey,
   writeStoredShareKey,
   type StoredShareKey,
-} from "../../shared/share-key-storage";
+} from "../../apps/share/share-key-storage";
 
 interface IssueResult { key: string; keyId: string; keyPrefix: string; createdAt: string }
 interface ApiError { error?: string | { code?: string; message?: string }; message?: string }

@@ -5,8 +5,8 @@ import { Switch } from "./ui/switch";
 import { ModelPickerModal } from "./ModelPicker";
 import { useResetToolMappings, useSaveToolMappings, useToolMappings, useToolRegistry } from "../hooks/cli-tools";
 import { useUpdateApiKey } from "../hooks/api-keys";
-import { toast } from "../shared/toast";
-import { getErrorMessage } from "../shared/helpers";
+import { toast } from "../lib/toast";
+import { getErrorMessage } from "../lib/helpers";
 import {
   CLIENT_ROUTERS,
   SHARE_POPUP_IMAGE_MAX_BYTES,

@@ -28,7 +28,7 @@ import {
   TOKEN_SCALES,
   tokenScaleIndex,
   tokenScaleValue,
-} from "../../src/shared/format";
+} from "../../src/lib/format";
 
 /** A locale with `,` thousands and `.` decimals, pinned for determinism. */
 const EN = "en-US";

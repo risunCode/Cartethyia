@@ -9,7 +9,7 @@ import type {
   UpdateApiKeyResponse,
 } from "../data/contracts";
 import { queryKeys } from "../data/query-keys";
-import { assertApiKeys, querySignal } from "./common";
+import { assertApiKeys, querySignal } from "../lib/api/validators";
 import { DASHBOARD_QUERY_OPTIONS } from "../data/query-policy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 

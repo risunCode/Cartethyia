@@ -6,8 +6,8 @@ import { DataTable } from "./ui/layout";
 import { Inline } from "./ui/inline";
 import { EmptyState, ErrorState, LoadingState } from "./ui/state";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { toast } from "../shared/toast";
-import { getErrorMessage } from "../shared/helpers";
+import { toast } from "../lib/toast";
+import { getErrorMessage } from "../lib/helpers";
 import type { ModelAbuseBan } from "../data/contracts";
 import { useModelBans, useUnbanModel } from "../hooks/model-bans";
 

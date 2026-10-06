@@ -14,7 +14,7 @@ import {
   TOKEN_SCALES,
   TOKEN_SCALE_AUTO,
   tokenScaleValue,
-} from "../../shared/format";
+} from "../../lib/format";
 
 /**
  * Live stats subscription shared by every consumer on the page.

@@ -22,7 +22,7 @@ import {
   httpStatusShortLabel,
   httpStatusTone,
   type HttpStatusTone,
-} from "../../src/shared/http-status";
+} from "../../src/features/usage/http-status";
 
 /**
  * Every status the gateway is documented to return.

@@ -5,7 +5,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from
 import { Toaster } from "sonner";
 import { DashboardShell } from "./components/Shell";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { lazyWithRetry } from "./shared/lazy-retry";
+import { lazyWithRetry } from "./lib/lazy-retry";
 import { consoleRequest, fetchSessionUser, setSessionTransitionListener } from "./data/api";
 import { queryClient } from "./data/query-client";
 import { queryKeys } from "./data/query-keys";
@@ -36,21 +36,21 @@ function RouteLoadingShell(): ReactNode {
 // Route chunks are content-hashed: after a rebuild the previous page's chunk
 // URLs 404. lazyWithRetry reloads once to pick up the fresh index.html, then
 // surfaces to the ErrorBoundary instead of looping.
-const Login = lazyWithRetry(() => import("./routes/Login"), "login");
-const Setup = lazyWithRetry(() => import("./routes/Setup"), "setup");
-const Banned = lazyWithRetry(() => import("./routes/Banned"), "banned");
-const Overview = lazyWithRetry(() => import("./routes/Overview"), "overview");
+const Login = lazyWithRetry(() => import("./features/session/Login"), "login");
+const Setup = lazyWithRetry(() => import("./features/session/Setup"), "setup");
+const Banned = lazyWithRetry(() => import("./features/session/Banned"), "banned");
+const Overview = lazyWithRetry(() => import("./features/overview/OverviewPage"), "overview");
 const Usage = lazyWithRetry(() => import("./features/usage/UsagePage"), "usage");
-const ProviderDetail = lazyWithRetry(() => import("./routes/ProviderDetail"), "provider-detail");
+const ProviderDetail = lazyWithRetry(() => import("./features/provider-detail/ProviderDetailPage"), "provider-detail");
 const Providers = lazyWithRetry(() => import("./features/providers/ProvidersPage"), "providers");
-const Combos = lazyWithRetry(() => import("./routes/Combos"), "combos");
+const Combos = lazyWithRetry(() => import("./features/routing/CombosPage"), "combos");
 const Quota = lazyWithRetry(() => import("./features/quota/QuotaPage"), "quota");
-const Proxy = lazyWithRetry(() => import("./routes/Proxy"), "proxy");
-const Settings = lazyWithRetry(() => import("./routes/Settings"), "settings");
-const CliTools = lazyWithRetry(() => import("./routes/CliTools"), "cli-tools");
-const CliToolDetail = lazyWithRetry(() => import("./routes/CliToolDetail"), "cli-tool-detail");
+const Proxy = lazyWithRetry(() => import("./features/proxy/ProxyPage"), "proxy");
+const Settings = lazyWithRetry(() => import("./features/settings/SettingsPage"), "settings");
+const CliTools = lazyWithRetry(() => import("./features/cli-tools/CliToolsPage"), "cli-tools");
+const CliToolDetail = lazyWithRetry(() => import("./features/cli-tools/CliToolDetailPage"), "cli-tool-detail");
 const ConsoleLogPage = lazyWithRetry(() => import("./features/logs/ConsoleLogPage"), "console-log");
-const Studio = lazyWithRetry(() => import("./routes/Studio"), "studio");
+const Studio = lazyWithRetry(() => import("./features/studio/StudioPage"), "studio");
 
 /**
  * Forwards shell-wide session transitions into router navigation. A 401 means

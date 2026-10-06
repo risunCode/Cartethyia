@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { copyToClipboard } from "../shared/helpers";
+import { copyToClipboard } from "../lib/helpers";
 
 export interface ClipboardState {
   copied: boolean;

@@ -6,8 +6,8 @@ import { Switch } from "./ui/switch";
 import { Inline } from "./ui/inline";
 import { Stack } from "./ui/stack";
 import { ErrorState, LoadingState } from "./ui/state";
-import { toast } from "../shared/toast";
-import { getErrorMessage } from "../shared/helpers";
+import { toast } from "../lib/toast";
+import { getErrorMessage } from "../lib/helpers";
 import { useRuntimeSettings, useUpdateRuntimeSettings } from "../hooks/settings";
 
 /**

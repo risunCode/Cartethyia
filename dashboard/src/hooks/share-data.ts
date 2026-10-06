@@ -1,5 +1,5 @@
-import { shareCodeMessage } from "../shared/helpers";
-import { STREAM_RETRY_MS } from "../shared/constants";
+import { shareCodeMessage } from "../lib/helpers";
+import { STREAM_RETRY_MS } from "../lib/constants";
 import { useEffect, useState } from "react";
 
 /** Context and capabilities for one allowed model, from the model catalog. */

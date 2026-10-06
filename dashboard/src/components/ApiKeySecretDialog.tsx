@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
 import { ClipboardButton } from "./patterns/clipboard-button";
-import { downloadTextFile } from "../shared/download";
-import { toast } from "../shared/toast";
+import { downloadTextFile } from "../lib/download";
+import { toast } from "../lib/toast";
 
 /**
  * The one-time reveal of a freshly generated key secret.

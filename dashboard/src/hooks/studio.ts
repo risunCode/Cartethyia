@@ -2,7 +2,7 @@ import { consoleRequest, isRecord } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
 import type { StudioSessionView, StudioSessionSummary } from "../data/contracts";
 import { queryKeys } from "../data/query-keys";
-import { querySignal } from "./common";
+import { querySignal } from "../lib/api/validators";
 import { DASHBOARD_QUERY_OPTIONS } from "../data/query-policy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 

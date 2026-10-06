@@ -49,14 +49,14 @@ import {
   useUsageRequests,
   useUsageSummary,
 } from "../../hooks/system";
-import { requestProviderId } from "../../shared/request-provider";
-import { usageApiKeyLabel, usageClientLabel } from "../../shared/usage-labels";
+import { requestProviderId } from "../../features/usage/request-provider";
+import { usageApiKeyLabel, usageClientLabel } from "../../features/usage/usage-labels";
 
 import { useProviderAccounts, useProviders } from "../../hooks/providers";
 import { useInFlight, type InFlightState } from "../../hooks/live";
 import { useTrackedTimeout } from "../../hooks/use-timeout";
 import { USAGE_PERIODS, type UsagePeriod as Period } from "../../data/usage-periods";
-import { httpStatusLabel, httpStatusShortLabel, httpStatusTone } from "../../shared/http-status";
+import { httpStatusLabel, httpStatusShortLabel, httpStatusTone } from "../../features/usage/http-status";
 import { USAGE_DIMENSIONS, type UsageDimension } from "../../data/contracts";
 import {
   DEFAULT_TOKEN_SCALE,
@@ -72,7 +72,7 @@ import {
   formatTokens,
   tokenScaleIndex,
   tokenScaleValue,
-} from "../../shared/format";
+} from "../../lib/format";
 
 type Metric = "requests" | "tokens" | "cached";
 /** Mirrors the backend `USAGE_DIMENSIONS`; keep in sync by hand. */

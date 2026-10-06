@@ -2,7 +2,7 @@ import { consoleRequest } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
 import type { ModelAbuseBan } from "../data/contracts";
 import { queryKeys } from "../data/query-keys";
-import { assertModelBans, querySignal } from "./common";
+import { assertModelBans, querySignal } from "../lib/api/validators";
 import { DASHBOARD_MUTATION_OPTIONS, DASHBOARD_QUERY_OPTIONS } from "../data/query-policy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 

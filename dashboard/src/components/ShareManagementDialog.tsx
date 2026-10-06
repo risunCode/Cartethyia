@@ -5,8 +5,8 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { Dialog } from "./ui/dialog";
 import { EmptyState, ErrorState, LoadingState } from "./ui/state";
 import { ClipboardButton } from "./patterns/clipboard-button";
-import { toast } from "../shared/toast";
-import { getErrorMessage } from "../shared/helpers";
+import { toast } from "../lib/toast";
+import { getErrorMessage } from "../lib/helpers";
 import { quotaBarTone } from "../shared/quota-formatters";
 import type { ApiKeyResponse, SharedKeyActivityDetail, SharedKeySummary } from "../data/contracts";
 import {

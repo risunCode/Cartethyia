@@ -19,12 +19,12 @@
  * its comments.
  */
 import { describe, expect, test } from "bun:test";
-import { resolveDashboardApp, type DashboardApp } from "../../src/shared/app-entry";
-import { COMBO_STRATEGY_OPTIONS } from "../../src/shared/combo-strategy";
+import { resolveDashboardApp, type DashboardApp } from "../../src/lib/app-entry";
+import { COMBO_STRATEGY_OPTIONS } from "../../src/features/routing/combo-strategy";
 import { providerCanConfigureUserAgent } from "../../src/shared/provider-user-agent";
-import { formatModelTokens, UNKNOWN_LIMITS_TOOLTIP } from "../../src/shared/model-limits";
-import { requestProviderId } from "../../src/shared/request-provider";
-import { DASHBOARD_CODENAME, DASHBOARD_RELEASE_LABEL, DASHBOARD_VERSION } from "../../src/shared/version";
+import { formatModelTokens, UNKNOWN_LIMITS_TOOLTIP } from "../../src/lib/model-limits";
+import { requestProviderId } from "../../src/features/usage/request-provider";
+import { DASHBOARD_CODENAME, DASHBOARD_RELEASE_LABEL, DASHBOARD_VERSION } from "../../src/lib/version";
 
 describe("formatModelTokens", () => {
   test("an absent limit renders as an em-dash, never as a number", () => {

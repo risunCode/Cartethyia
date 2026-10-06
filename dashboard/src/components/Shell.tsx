@@ -27,16 +27,16 @@ import { createPortal } from "react-dom";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { usePresence } from "../hooks/use-presence";
 import { useModalFocus } from "../hooks/use-modal-focus";
-import { applyConsoleTheme, isDarkEffective, readConsoleTheme, writeConsoleTheme } from "../shared/theme";
+import { applyConsoleTheme, isDarkEffective, readConsoleTheme, writeConsoleTheme } from "../lib/theme";
 import { consoleRequest } from "../data/api";
 import { queryClient } from "../data/query-client";
 import { prefetchRouteIntent } from "../data/route-prefetch";
 import { usePullToRefresh } from "../hooks/use-pull-to-refresh";
 import { useSystemHealth } from "../hooks/system";
 import { useProviders } from "../hooks/providers";
-import { DASHBOARD_RELEASE_LABEL } from "../shared/version";
+import { DASHBOARD_RELEASE_LABEL } from "../lib/version";
 import type { SessionUser } from "../data/contracts";
-import { formatUptime } from "../shared/format";
+import { formatUptime } from "../lib/format";
 
 interface NavItemDef {
   readonly label: string;

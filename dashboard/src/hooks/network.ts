@@ -1,6 +1,6 @@
 import { consoleRequest } from "../data/api";
-import { getErrorMessage } from "../shared/helpers";
-import { toast } from "../shared/toast";
+import { getErrorMessage } from "../lib/helpers";
+import { toast } from "../lib/toast";
 import type { ApiErrorShape } from "../data/api";
 import type {
   CreateNetworkPoolRequest,
@@ -14,7 +14,7 @@ import type {
   RelayDeployResult,
 } from "../data/contracts";
 import { queryKeys } from "../data/query-keys";
-import { assertNetworkPools, assertPoolStrategy, querySignal } from "./common";
+import { assertNetworkPools, assertPoolStrategy, querySignal } from "../lib/api/validators";
 import { DASHBOARD_QUERY_OPTIONS } from "../data/query-policy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 

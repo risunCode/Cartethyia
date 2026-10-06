@@ -9,7 +9,7 @@ import { DataTable } from "./ui/layout";
 import { Inline } from "./ui/inline";
 import { EmptyState, ErrorState, LoadingState } from "./ui/state";
 import { useAccountHealthEvents, useRecoverAccount, useUpdateProviderAccount } from "../hooks/providers";
-import { toast } from "../shared/toast";
+import { toast } from "../lib/toast";
 /**
  * The account health & error log dialog shared by the Quota page and provider detail.
  */
