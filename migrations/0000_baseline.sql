@@ -24,7 +24,9 @@ CREATE TABLE "tenants" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "name" text NOT NULL,
   "status" text NOT NULL,
-  "created_at" timestamptz DEFAULT now() NOT NULL
+  "created_at" timestamptz DEFAULT now() NOT NULL,
+  "updated_at" timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT "tenants_status_check" CHECK ("status" IN ('active', 'suspended', 'deleted'))
 );
 --> statement-breakpoint
 CREATE TABLE "providers" (
@@ -233,6 +235,8 @@ CREATE TABLE "api_keys" (
   "share_popup_body" text,
   CONSTRAINT "api_keys_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade,
   CONSTRAINT "api_keys_parent_key_id_api_keys_id_fk" FOREIGN KEY ("parent_key_id") REFERENCES "api_keys"("id") ON DELETE cascade,
+  CONSTRAINT "api_keys_share_popup_image_mime_check" CHECK ("share_popup_image_mime" IS NULL OR "share_popup_image_mime" IN ('image/png', 'image/jpeg', 'image/webp', 'image/gif')),
+  CONSTRAINT "api_keys_share_popup_image_size_check" CHECK ("share_popup_image" IS NULL OR octet_length("share_popup_image") <= 2097152),
   CONSTRAINT "api_keys_mode_shape_check" CHECK (
     ("key_mode" = 'personal' AND "key_hash" IS NOT NULL AND "parent_key_id" IS NULL
       AND "issued_client_ip" IS NULL AND "issued_client_ip_key" IS NULL)
@@ -399,6 +403,8 @@ CREATE UNIQUE INDEX "api_keys_key_hash_idx" ON "api_keys" USING btree ("key_hash
 --> statement-breakpoint
 CREATE INDEX "api_keys_tenant_id_idx" ON "api_keys" USING btree ("tenant_id");
 --> statement-breakpoint
+CREATE INDEX "api_keys_enabled_tenant_idx" ON "api_keys" USING btree ("tenant_id") WHERE "enabled" = true;
+--> statement-breakpoint
 CREATE INDEX "api_keys_parent_key_id_idx" ON "api_keys" USING btree ("parent_key_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "api_keys_active_shared_ip_uidx" ON "api_keys" USING btree ("issued_client_ip_key") WHERE "parent_key_id" IS NOT NULL AND "revoked_at" IS NULL;
@@ -421,6 +427,8 @@ CREATE INDEX "network_pools_status_cooldown_idx" ON "network_pools" USING btree 
 --> statement-breakpoint
 CREATE INDEX "health_events_account_id_created_at_idx" ON "health_events" USING btree ("account_id", "created_at");
 --> statement-breakpoint
+CREATE INDEX "health_events_account_model_created_idx" ON "health_events" USING btree ("account_id", "model_id", "created_at" DESC);
+--> statement-breakpoint
 CREATE INDEX "health_events_network_pool_id_created_at_idx" ON "health_events" USING btree ("network_pool_id", "created_at");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "model_aliases_tenant_alias_uidx" ON "model_aliases" USING btree ("tenant_id", "alias");
@@ -433,9 +441,9 @@ CREATE UNIQUE INDEX "provider_routing_settings_global_provider_idx" ON "provider
 --> statement-breakpoint
 CREATE UNIQUE INDEX "idx_console_lockouts_ip" ON "console_lockouts" USING btree ("ip");
 --> statement-breakpoint
-CREATE INDEX "idx_console_sessions_user_id" ON "console_sessions" USING btree ("user_id");
+CREATE INDEX "console_sessions_user_id_idx" ON "console_sessions" USING btree ("user_id");
 --> statement-breakpoint
-CREATE INDEX "idx_console_users_tenant_id" ON "console_users" USING btree ("tenant_id");
+CREATE INDEX "console_users_tenant_id_idx" ON "console_users" USING btree ("tenant_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "idx_console_users_username" ON "console_users" USING btree ("username");
 --> statement-breakpoint
@@ -443,7 +451,7 @@ CREATE UNIQUE INDEX "cli_tool_mappings_key" ON "cli_tool_mappings" USING btree (
 --> statement-breakpoint
 CREATE INDEX "admin_audit_log_tenant_id_created_at_id_idx" ON "admin_audit_log" USING btree ("tenant_id", "created_at", "id");
 --> statement-breakpoint
-CREATE INDEX "idx_telemetry_created_at" ON "telemetry_events" USING btree ("created_at");
+CREATE INDEX "telemetry_events_created_at_idx" ON "telemetry_events" USING btree ("created_at");
 --> statement-breakpoint
 CREATE INDEX "telemetry_events_tenant_created_idx" ON "telemetry_events" USING btree ("tenant_id", "created_at");
 --> statement-breakpoint
@@ -468,7 +476,6 @@ CREATE TABLE "share_links" (
   "active" boolean NOT NULL DEFAULT true,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "expires_at" timestamptz,
-  "used_at" timestamptz,
   "last_viewed_at" timestamptz,
   CONSTRAINT "share_links_kind_check" CHECK ("kind" IN ('enroll', 'handoff'))
 );
@@ -489,7 +496,7 @@ CREATE INDEX "studio_sessions_tenant_updated_idx" ON "studio_sessions" ("tenant_
 --> statement-breakpoint
 CREATE UNIQUE INDEX "share_links_token_hash_idx" ON "share_links" USING btree ("token_hash");
 --> statement-breakpoint
-CREATE INDEX "idx_share_links_api_key" ON "share_links" USING btree ("api_key_id");
+CREATE INDEX "share_links_api_key_idx" ON "share_links" USING btree ("api_key_id");
 --> statement-breakpoint
-CREATE INDEX "idx_share_links_active" ON "share_links" USING btree ("active", "kind", "expires_at");
+CREATE INDEX "share_links_active_kind_expires_idx" ON "share_links" USING btree ("active", "kind", "expires_at");
 --> statement-breakpoint

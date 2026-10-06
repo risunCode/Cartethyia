@@ -5,16 +5,24 @@ import {
   primaryKey, text, timestamp, uniqueIndex, uuid, type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
-// Exactly id, name, status, created_at — no status enum/default or extra
-// lifecycle column.
-export const tenants = pgTable("tenants", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  status: text("status").notNull(),
-  // Intentionally inline (not createdAtColumn()): this root table is imported
-  // by the helpers below sharing the helper here would make a use-before-define.
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const TENANT_STATUSES = ["active", "suspended", "deleted"] as const;
+export type TenantStatus = (typeof TENANT_STATUSES)[number];
+
+export const tenants = pgTable(
+  "tenants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    status: text("status").$type<TenantStatus>().notNull(),
+    // Intentionally inline (not createdAtColumn()): this root table is imported
+    // by the helpers below; sharing the helper here would make a use-before-define.
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("tenants_status_check", sql`${table.status} IN ('active', 'suspended', 'deleted')`),
+  ],
+);
 
 // Canonical tenant/timestamp column definitions shared by every table.
 
@@ -76,6 +84,24 @@ export const bytea = customType<{ data: Buffer }>({
 // exactly one thing: a fault that clears on its own is `cooldown` (with a
 // deadline the sweep honors), and a fault that needs an operator is `disabled`.
 export const healthStatus = pgEnum("health_status", ["active", "cooldown", "disabled"]);
+
+/**
+ * The health state machine shared by `provider_accounts` and `network_pools`.
+ * One definition, because the two tables are driven by the same transitions and
+ * a column added to one of them by hand is how they drift.
+ */
+export function healthColumns() {
+  return {
+    status: healthStatus("status").notNull().default("active"),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    lastErrorCategory: text("last_error_category"),
+    lastErrorAt: timestamp("last_error_at", { withTimezone: true }),
+    cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
+    lastRecoveredAt: timestamp("last_recovered_at", { withTimezone: true }),
+  };
+}
 
 export const credentialKind = pgEnum("credential_kind", ["api_key", "oauth", "none"]);
 
@@ -169,15 +195,7 @@ export const providerAccounts = pgTable("provider_accounts", {
   authState: jsonb("auth_state"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 
-  // Health state machine columns.
-  status: healthStatus("status").notNull().default("active"),
-  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
-  lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
-  lastError: text("last_error"),
-  lastErrorCategory: text("last_error_category"),
-  lastErrorAt: timestamp("last_error_at", { withTimezone: true }),
-  cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
-  lastRecoveredAt: timestamp("last_recovered_at", { withTimezone: true }),
+  ...healthColumns(),
   modelCooldowns: jsonb("model_cooldowns").notNull().default({}),
   /**
    * Stable list position within (tenant, provider). Accounts were ordered by
@@ -343,15 +361,8 @@ export const networkPools = pgTable("network_pools", {
   weight: integer("weight"),
   tenantId: tenantRefRequired(),
 
-  status: healthStatus("status").notNull().default("active"),
-  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
-  lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+  ...healthColumns(),
   lastLatencyMs: integer("last_latency_ms"),
-  lastError: text("last_error"),
-  lastErrorCategory: text("last_error_category"),
-  lastErrorAt: timestamp("last_error_at", { withTimezone: true }),
-  cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
-  lastRecoveredAt: timestamp("last_recovered_at", { withTimezone: true }),
   lastHealthCheckAt: timestamp("last_health_check_at", { withTimezone: true }),
   /** Public egress address reported by the last successful probe; null until probed. */
   egressIp: text("egress_ip"),
@@ -401,6 +412,7 @@ export const healthEvents = pgTable(
   },
   (table) => [
     index("health_events_account_id_created_at_idx").on(table.accountId, table.createdAt),
+    index("health_events_account_model_created_idx").on(table.accountId, table.modelId, table.createdAt),
     index("health_events_network_pool_id_created_at_idx").on(table.networkPoolId, table.createdAt),
     check(
       "health_events_entity_reference_check",
@@ -635,7 +647,16 @@ export const apiKeys = pgTable(
       .on(table.issuedClientIpKey)
       .where(sql`${table.parentKeyId} IS NOT NULL AND ${table.revokedAt} IS NULL`),
     index("api_keys_tenant_id_idx").on(table.tenantId),
+    index("api_keys_enabled_tenant_idx").on(table.tenantId).where(sql`${table.enabled} = true`),
     index("api_keys_parent_key_id_idx").on(table.parentKeyId),
+    check(
+      "api_keys_share_popup_image_mime_check",
+      sql`${table.sharePopupImageMime} IS NULL OR ${table.sharePopupImageMime} IN ('image/png', 'image/jpeg', 'image/webp', 'image/gif')`,
+    ),
+    check(
+      "api_keys_share_popup_image_size_check",
+      sql`${table.sharePopupImage} IS NULL OR octet_length(${table.sharePopupImage}) <= 2097152`,
+    ),
     check(
       "api_keys_mode_shape_check",
       sql`(
@@ -690,14 +711,12 @@ export const shareLinks = pgTable(
     active: boolean("active").notNull().default(true),
     createdAt: createdAtColumn(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
-    // Retained for historical rows from the retired one-time setup-link flow.
-    usedAt: timestamp("used_at", { withTimezone: true }),
     lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("share_links_token_hash_idx").on(table.tokenHash),
-    index("idx_share_links_api_key").on(table.apiKeyId),
-    index("idx_share_links_active").on(table.active, table.kind, table.expiresAt),
+    index("share_links_api_key_idx").on(table.apiKeyId),
+    index("share_links_active_kind_expires_idx").on(table.active, table.kind, table.expiresAt),
     check("share_links_kind_check", sql`${table.kind} IN ('enroll', 'handoff')`),
   ],
 );
@@ -721,7 +740,7 @@ export const consoleUsers = pgTable(
     ...timestampColumns(),
   },
   (table) => [
-    index("idx_console_users_tenant_id").on(table.tenantId),
+    index("console_users_tenant_id_idx").on(table.tenantId),
     uniqueIndex("idx_console_users_username").on(table.username),
   ],
 );
@@ -746,7 +765,7 @@ export const consoleSessions = pgTable(
     createdAt: createdAtColumn(),
   },
   (table) => [
-    index("idx_console_sessions_user_id").on(table.userId),
+    index("console_sessions_user_id_idx").on(table.userId),
   ],
 );
 
@@ -904,7 +923,7 @@ export const telemetryEvents = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     createdAt: createdAtColumn(),
-    tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+    tenantId: tenantRefRequired(),
     requestId: uuid("request_id").notNull(),
     sourceSurface: telemetrySourceSurface("source_surface"),
     requestedModel: text("requested_model"),
@@ -962,7 +981,7 @@ export const telemetryEvents = pgTable(
     lastEventAtMs: bigint("last_event_at_ms", { mode: "number" }),
   },
   (table) => [
-    index("idx_telemetry_created_at").on(table.createdAt),
+    index("telemetry_events_created_at_idx").on(table.createdAt),
     index("telemetry_events_tenant_created_idx").on(table.tenantId, table.createdAt),
     index("telemetry_events_request_id_idx").on(table.requestId),
     index("telemetry_events_tenant_account_created_idx").on(
@@ -986,9 +1005,7 @@ export type TelemetryUsageIdentityType = (typeof TELEMETRY_USAGE_IDENTITY_TYPES)
 export const telemetryUsageTotals = pgTable(
   "telemetry_usage_totals",
   {
-    tenantId: uuid("tenant_id")
-      .notNull()
-      .references(() => tenants.id, { onDelete: "cascade" }),
+    tenantId: tenantRefRequired(),
     identityType: text("identity_type").$type<TelemetryUsageIdentityType>().notNull(),
     entityId: uuid("entity_id").notNull(),
     requests: bigint("requests", { mode: "number" }).notNull().default(0),
@@ -1015,7 +1032,7 @@ export const telemetryPayloads = pgTable(
   "telemetry_payloads",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+    tenantId: tenantRefRequired(),
     requestId: uuid("request_id"),
     capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),

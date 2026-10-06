@@ -29,6 +29,7 @@ import { RedisAdmissionCounterStore } from "../security/admission/redis-store";
 import { sweepLeases } from "../security/admission/lease-sweep";
 import { DrizzleApiKeyStore } from "../persistence/stores/api-key-store";
 import { UsageFlushBuffer } from "../persistence/usage-flush";
+import { deleteExpiredSessions } from "../console/auth/session-service";
 import { InMemoryIpAbuseStore, IpAbuseProtectionService, RedisIpAbuseStore } from "../security/abuse";
 import {
   InMemoryModelAbuseStore,
@@ -244,6 +245,11 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
     name: "telemetry-payload-cleanup",
     intervalMs: 15 * 60_000,
     run: () => payloadCapture.cleanupExpired(),
+  });
+  scheduledTasks.register({
+    name: "console-session-sweep",
+    intervalMs: 60 * 60_000,
+    run: () => deleteExpiredSessions(db),
   });
   scheduledTasks.register({
     name: "telemetry-retention",

@@ -1,7 +1,7 @@
 import { returningRows, assertMutationApplied, sessionRecord } from "./row-coercion";
 // Console authentication, sessions, lockouts, first-boot setup, and audit.
 import { randomBytes, randomUUID } from "node:crypto";
-import { and, eq, gt, ne } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, ne } from "drizzle-orm";
 import type { ConsoleSession } from "../../persistence/schema";
 import {
   consoleSessions,
@@ -18,6 +18,26 @@ export interface SessionCookiePolicy {
 }
 
 const SESSION_MAX_AGE_SECONDS = 48 * 60 * 60;
+
+/**
+ * Deletes sessions whose cookie has already expired. Reads filter them out,
+ * but nothing removed the rows, so the table grew for the life of the
+ * deployment. Bounded so one pass cannot hold a long lock.
+ */
+export async function deleteExpiredSessions(
+  db: CartethyiaDatabase,
+  now: Date = new Date(),
+  limit = 1000,
+): Promise<number> {
+  const stale = await db
+    .select({ id: consoleSessions.id })
+    .from(consoleSessions)
+    .where(lt(consoleSessions.expiresAt, now))
+    .limit(limit);
+  if (stale.length === 0) return 0;
+  await db.delete(consoleSessions).where(inArray(consoleSessions.id, stale.map((row) => row.id)));
+  return stale.length;
+}
 
 function shouldUseSecureSessionCookie(): boolean {
   if (process.env.NODE_ENV === "production") return true;
