@@ -19,7 +19,7 @@ flowchart TD
 ## Current state
 
 - `0000_baseline.sql` declares the complete current schema for a new database, including types, tables, constraints, and indexes. Keep it aligned with `src/persistence/schema.ts`. It is the baseline a fresh install starts from, so it always describes the *current* shape — a schema change edits it and adds a forward migration beside it.
-- `0001_*.sql` and later are **forward migrations**: the change needed by a database that already recorded an earlier file. They are applied in filename order after the baseline, so a fresh database runs the baseline and then converges through them.
+- `0001_converge_schema.sql`, `0002_share_popups_and_usernames.sql`, and `0003_drop_fusion_and_minimum_balance.sql` are the only forward migrations. They converge a database built from any older baseline. A database whose ledger names a baseline file this release no longer ships is treated as already having `0000`: the runner records that id without executing it, because the tables already exist, then runs these three files. A fresh database runs `0000` and finds each later step a no-op.
 - `src/persistence/db-pg.ts` (`applySqlMigrations`) resolves this directory relative to the process working directory, reads only top-level `NNNN_*.sql` files in filename order, and applies each file transactionally under a cross-process advisory lock. Successful filenames are stored in `cartethyia_schema_migrations`. A migration failure aborts startup; a failed transaction does not record its filename.
 - `src/boot/dependencies.ts` calls `ensureMigrated()` (`src/persistence/boot.ts`) before provider/catalog seeding. `src/persistence/readiness.ts` checks that every shipped filename is recorded before reporting ready.
 - The Docker image copies this directory to `/app/migrations` (`Dockerfile`); `bun run start` spawns the compiled binary with no `cwd` override (`scripts/commands/start-production.ts`), so it inherits the caller's working directory and the folder resolves there. Both read the same committed SQL, with no generated staging copy.
@@ -27,7 +27,7 @@ flowchart TD
 ## Next schema change
 
 1. Change `src/persistence/schema.ts` and fold the complete new shape into `0000_baseline.sql` for fresh installations.
-2. Add the next `<NNNN>_<description>.sql` **beside the baseline** with only the forward change needed by databases that already recorded an earlier file — the next number is one past the highest already shipped in this directory. Never put runnable SQL in a `manual/` subdirectory: the runner is non-recursive.
+2. Add the next `<NNNN>_<description>.sql` **beside the baseline** with only the forward change needed by databases that already recorded an earlier file — the next number is one past the highest already shipped in this directory (`0004` after the current three). Never put runnable SQL in a `manual/` subdirectory: the runner is non-recursive. Do not delete a shipped forward file: a database that recorded it would otherwise have no record of the change, and a database that has not yet run it would skip the change.
 3. Make each forward migration safe to retry where possible (for example, `ADD COLUMN IF NOT EXISTS`), and do not edit an already-shipped forward migration to change what a ledger entry means.
 4. Update this README when the migration flow or schema policy changes. Run `bun run typecheck` and verify a fresh schema against an isolated database.
 

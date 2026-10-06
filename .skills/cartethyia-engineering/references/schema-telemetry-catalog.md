@@ -8,7 +8,8 @@ migration already recorded by a database.
 1. Update `src/persistence/schema.ts`.
 2. Update `migrations/0000_baseline.sql` for fresh installs.
 3. Add the next numbered forward migration with idempotent SQL and statement
-   breakpoints.
+   breakpoints. The shipped set is the baseline plus `0001`, `0002`, and `0003`;
+   the next file is `0004`. Do not delete a shipped forward file.
 4. Verify the live schema and migration ledger on an isolated database.
 
 Drizzle numeric columns may require string persistence. Use bigint number mode for

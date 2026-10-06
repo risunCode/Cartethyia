@@ -34,6 +34,23 @@ export function migrationIdFor(file: string): string {
   return basename(file);
 }
 
+/** The file a fresh database builds from. An older database already has its tables. */
+export const BASELINE_MIGRATION_ID = "0000_baseline.sql";
+
+/**
+ * True when this database was built by a baseline this release no longer ships.
+ *
+ * The ledger names that file, and `tenants` exists, so the current baseline must
+ * be recorded rather than executed: executing it would try to create tables the
+ * database already has. The numbered files after it converge the old shape.
+ */
+export function baselineAlreadySatisfied(
+  applied: ReadonlySet<string>,
+  hasTenants: boolean,
+): boolean {
+  return hasTenants && !applied.has(BASELINE_MIGRATION_ID);
+}
+
 /**
  * Splits a migration file on the drizzle `statement-breakpoint` markers the
  * files already carry. Only the embedded backend needs per-statement

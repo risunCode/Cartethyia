@@ -411,7 +411,7 @@ class RouteCatalogRepository {
      * means UNLIMITED — an empty field never falls back to the deployment
      * ceiling. Per-account overrides are intentionally unsupported: the only
      * per-account column ever to hold one was `provider_accounts.max_inflight`,
-     * dropped by `0029_retire_per_account_max_inflight.sql`. */
+     * dropped by `0001_converge_schema.sql`. */
     function resolveMaxInflight(
       providerId: string,
       rowTenantId: string | null,

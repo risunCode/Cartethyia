@@ -169,7 +169,7 @@ export const providers = pgTable(
 // tenant-owned/BYOK. The concurrency ceiling lives in provider routing
 // (`provider_routing_settings.max_inflight`) and network pools
 // (`network_pools.max_inflight`); the per-account override that once sat here
-// was retired by `0029_retire_per_account_max_inflight.sql`.
+// was retired by `0001_converge_schema.sql`.
 export const providerAccounts = pgTable("provider_accounts", {
   id: uuid("id").primaryKey().defaultRandom(),
   providerId: text("provider_id")

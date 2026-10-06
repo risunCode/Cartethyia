@@ -289,23 +289,27 @@ CREATE TABLE "console_settings" (
 CREATE TABLE "cli_tool_mappings" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "tenant_id" uuid NOT NULL,
+  "api_key_id" uuid NOT NULL,
   "tool_id" text NOT NULL,
   "slot_key" text NOT NULL,
   "source_model" text NOT NULL,
   "target_model" text NOT NULL,
   "enabled" boolean DEFAULT true NOT NULL,
   "updated_at" timestamptz DEFAULT now() NOT NULL,
-  CONSTRAINT "cli_tool_mappings_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade
+  CONSTRAINT "cli_tool_mappings_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade,
+  CONSTRAINT "cli_tool_mappings_api_key_id_api_keys_id_fk" FOREIGN KEY ("api_key_id") REFERENCES "api_keys"("id") ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE TABLE "cli_tool_settings" (
   "tenant_id" uuid NOT NULL,
+  "api_key_id" uuid NOT NULL,
   "tool_id" text NOT NULL,
   "mappings_enabled" boolean DEFAULT false NOT NULL,
   "mode" text DEFAULT 'remote' NOT NULL,
   "updated_at" timestamptz DEFAULT now() NOT NULL,
-  CONSTRAINT "cli_tool_settings_tenant_id_tool_id_pk" PRIMARY KEY ("tenant_id", "tool_id"),
-  CONSTRAINT "cli_tool_settings_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade
+  CONSTRAINT "cli_tool_settings_pkey" PRIMARY KEY ("tenant_id", "tool_id", "api_key_id"),
+  CONSTRAINT "cli_tool_settings_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade,
+  CONSTRAINT "cli_tool_settings_api_key_id_api_keys_id_fk" FOREIGN KEY ("api_key_id") REFERENCES "api_keys"("id") ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE TABLE "admin_audit_log" (
@@ -436,7 +440,7 @@ CREATE INDEX "console_users_tenant_id_idx" ON "console_users" USING btree ("tena
 --> statement-breakpoint
 CREATE UNIQUE INDEX "console_users_tenant_username_uidx" ON "console_users" USING btree ("tenant_id", "username");
 --> statement-breakpoint
-CREATE UNIQUE INDEX "cli_tool_mappings_key" ON "cli_tool_mappings" USING btree ("tenant_id", "tool_id", "slot_key");
+CREATE UNIQUE INDEX "cli_tool_mappings_key" ON "cli_tool_mappings" USING btree ("tenant_id", "tool_id", "api_key_id", "slot_key");
 --> statement-breakpoint
 CREATE INDEX "admin_audit_log_tenant_id_created_at_id_idx" ON "admin_audit_log" USING btree ("tenant_id", "created_at", "id");
 --> statement-breakpoint

@@ -9,6 +9,8 @@ import {
   isToleratedMissingExtension,
   LEDGER_DDL,
   MIGRATION_LEDGER_TABLE,
+  BASELINE_MIGRATION_ID,
+  baselineAlreadySatisfied,
   migrationFiles,
   migrationIdFor,
   resolveMigrationsFolder,
@@ -94,6 +96,16 @@ export async function applyPgliteMigrations(
     `SELECT migration_id FROM ${MIGRATION_LEDGER_TABLE}`,
   );
   const applied = new Set(appliedRows.rows.map((row) => row.migration_id));
+  const tenants = await client.query<{ present: boolean }>(
+    `SELECT to_regclass('public.tenants') IS NOT NULL AS present`,
+  );
+  if (baselineAlreadySatisfied(applied, tenants.rows[0]?.present === true)) {
+    await client.query(
+      `INSERT INTO ${MIGRATION_LEDGER_TABLE} (migration_id) VALUES ($1) ON CONFLICT DO NOTHING`,
+      [BASELINE_MIGRATION_ID],
+    );
+    applied.add(BASELINE_MIGRATION_ID);
+  }
 
   for (const file of migrationFiles(folder)) {
     const migrationId = migrationIdFor(file);
