@@ -1,6 +1,14 @@
 import { expect, test } from "bun:test";
+import { eq } from "drizzle-orm";
 import { UsageFlushBuffer } from "../../src/persistence/usage-flush";
 import type { CartethyiaDatabase } from "../../src/persistence/db-handle";
+import {
+  applyPgliteMigrations,
+  buildPgliteHandle,
+  createPgliteClient,
+} from "../../src/persistence/db-pglite";
+import { apiKeys, tenants } from "../../src/persistence/schema";
+import { dbDescribe } from "../helpers/database";
 
 /** Records writes and fails for ids in `failing`, so the buffer's retry is observable. */
 function recordingWrite(failing: Set<string> = new Set()) {
@@ -51,4 +59,107 @@ test("retries a key whose write failed and keeps deltas enqueued during the fail
   await buffer.flush();
   await buffer.stop();
   expect(calls.find((call) => call.id === "key-1")?.delta).toBe(8);
+});
+
+/**
+ * The real flush path, against the embedded backend it exists for.
+ *
+ * The mocked tests above prove the buffer's bookkeeping; they cannot see the
+ * SQL. This one can, and what it pins is the property the buffer is for: the
+ * whole batch goes as ONE statement. A flush that fans back out to one UPDATE
+ * per key still passes every test above, because `write` is called once per key
+ * either way — so without this the regression is invisible until the embedded
+ * backend is measured under load.
+ *
+ * It counts statements by wrapping the client's `query`, which is what
+ * Drizzle's pglite session calls for an `execute()`.
+ */
+dbDescribe("UsageFlushBuffer on the embedded backend", () => {
+  test("one flush of many keys is a single statement, and every delta lands", async () => {
+    const client = await createPgliteClient("memory://");
+    try {
+      await applyPgliteMigrations(client);
+
+      let statements = 0;
+      const realQuery = client.query.bind(client);
+      client.query = async (...args: Parameters<typeof realQuery>) => {
+        statements += 1;
+        return realQuery(...args);
+      };
+
+      const { db } = buildPgliteHandle(client);
+      const [tenant] = await db
+        .insert(tenants)
+        .values({ name: "usage-flush-embedded", status: "active" })
+        .returning({ id: tenants.id });
+      const tenantId = tenant?.id;
+      if (!tenantId) throw new Error("tenant insert returned no id");
+      const keys = await db
+        .insert(apiKeys)
+        .values(
+          Array.from({ length: 25 }, (_, index) => ({
+            tenantId,
+            keyMode: "personal" as const,
+            keyHash: `usage-flush-${index}`,
+            label: `key-${index}`,
+            scopes: ["routing:invoke"],
+          })),
+        )
+        .returning({ id: apiKeys.id });
+
+      const buffer = new UsageFlushBuffer(db, 60_000);
+      for (const key of keys) buffer.enqueue(key.id, 7);
+      statements = 0;
+      await buffer.flush();
+      await buffer.stop();
+
+      expect(statements).toBe(1);
+      const rows = await db.select().from(apiKeys).where(eq(apiKeys.tenantId, tenantId));
+      const total = rows.reduce((sum, row) => sum + Number(row.lifetimeTokensConsumed ?? 0), 0);
+      expect(total).toBe(keys.length * 7);
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("a bad key cannot cost the others their delta", async () => {
+    const client = await createPgliteClient("memory://");
+    try {
+      await applyPgliteMigrations(client);
+      const { db } = buildPgliteHandle(client);
+      const [tenant] = await db
+        .insert(tenants)
+        .values({ name: "usage-flush-fallback", status: "active" })
+        .returning({ id: tenants.id });
+      const tenantId = tenant?.id;
+      if (!tenantId) throw new Error("tenant insert returned no id");
+      const keys = await db
+        .insert(apiKeys)
+        .values(
+          Array.from({ length: 3 }, (_, index) => ({
+            tenantId,
+            keyMode: "personal" as const,
+            keyHash: `usage-flush-fb-${index}`,
+            label: `key-${index}`,
+            scopes: ["routing:invoke"],
+          })),
+        )
+        .returning({ id: apiKeys.id });
+
+      // A value that is not a uuid is refused before it reaches SQL, so the
+      // batch statement throws; the per-key fallback must still persist the
+      // real keys rather than returning them all to pending.
+      const buffer = new UsageFlushBuffer(db, 60_000);
+      buffer.enqueue("not-a-uuid", 7);
+      for (const key of keys) buffer.enqueue(key.id, 7);
+      await buffer.flush();
+      await buffer.stop();
+
+      const rows = await db.select().from(apiKeys).where(eq(apiKeys.tenantId, tenantId));
+      const total = rows.reduce((sum, row) => sum + Number(row.lifetimeTokensConsumed ?? 0), 0);
+      expect(total).toBe(keys.length * 7);
+    } finally {
+      await client.close();
+    }
+  });
 });
