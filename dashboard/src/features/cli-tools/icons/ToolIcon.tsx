@@ -7,7 +7,7 @@ const TOOL_ICONS: Record<string, { file: string; ext: "svg" | "webp" }> = {
   opencode: { file: "opencode", ext: "webp" },
   droid: { file: "droid", ext: "webp" },
   hermes: { file: "hermes", ext: "webp" },
-  "grok-build": { file: "grok-build", ext: "webp" },
+  "grok-build": { file: "grok-build", ext: "svg" },
   copilot: { file: "copilot", ext: "webp" },
   "deepseek-tui": { file: "deepseek-tui", ext: "webp" },
   jcode: { file: "jcode", ext: "webp" },
@@ -85,7 +85,7 @@ export function ToolIcon({
       aria-label={`${name} icon`}
     >
       <img
-        src={`${import.meta.env.BASE_URL}providers/${asset.file}.${asset.ext}`}
+        src={`${import.meta.env.BASE_URL}assets/providers/${asset.file}.${asset.ext}`}
         alt=""
         width={size}
         height={size}
