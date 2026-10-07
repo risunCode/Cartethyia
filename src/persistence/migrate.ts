@@ -98,12 +98,3 @@ export async function readMigrationLedgerStatus(
 }
 
 
-/**
- * True when `error` is a missing-extension failure for a `CREATE EXTENSION`
- * statement. No query calls the extension's functions — every hash is
- * `node:crypto` — so a backend that does not ship it still migrates.
- * Anything else, or any other statement, still throws.
- */
-export function isToleratedMissingExtension(statement: string, error: unknown): boolean {
-  return /^CREATE EXTENSION/i.test(statement) && String(error).includes("is not available");
-}

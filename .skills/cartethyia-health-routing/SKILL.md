@@ -30,8 +30,11 @@ Before changing a status or timeout, trace every reader and branch that uses it.
   - **soft** — stays eligible but is ordered after every healthy sibling.
 - `model_cooldown` is a hard exclusion per (account, model).
 - When nothing eligible remains, `plan()` answers **429
-  `accounts_rate_limited`** if any candidate is hard-cooled, else **503
-  `accounts_unavailable`**.
+  `accounts_rate_limited`** when a decision reason is `cooldown_hard` or
+  `model_cooldown`, and again when every eligible account is cooling
+  (`healthyCount === 0`); otherwise **503 `accounts_unavailable`**. Both 429
+  paths exist so a client retries after the reset instead of reading a
+  resting deployment as down.
 - An active account may still have model-level cooling entries.
 - Quota exhaustion, disabled state, cooldown, and model cooling must stay
   distinguishable in API and UI; do not sum them into a misleading total.

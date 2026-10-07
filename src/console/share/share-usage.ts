@@ -7,7 +7,7 @@ import { queryTelemetryEvents, type TelemetryEventRecord } from "../../observabi
 import { isGatewayError } from "../../observability/telemetry-status";
 import { telemetryUsageTotals } from "../../persistence/schema";
 import { shouldMaskClientIp } from "../shared/ip-privacy";
-import { utcDayStart } from "./day";
+import { utcDayStart } from "../shared/day";
 
 export interface SharedKeyTokenUsage {
   readonly requests: number;

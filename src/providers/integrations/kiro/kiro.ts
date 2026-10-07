@@ -226,32 +226,7 @@ export function kiroHeaders(
 function kiroUsage(usage: KiroUsage, modelId: string, outputText: string): UsageRecord {
   const cacheRead = usage.cacheReadTokens ?? 0;
   const cacheWrite = usage.cacheWriteTokens ?? 0;
-  // An explicit token field always wins: it is the upstream stating the number
-  // rather than us recovering it. No event observed from this surface carries
-  // one, but a `metricsEvent` that did would be authoritative.
-  if (usage.inputTokens !== undefined || usage.outputTokens !== undefined) {
-    const input = usage.inputTokens ?? 0;
-    const output = usage.outputTokens ?? 0;
-    return {
-      input_tokens: input,
-      cached_input_tokens: cacheRead > 0 ? cacheRead : "unavailable",
-      cache_write_tokens: cacheWrite > 0 ? cacheWrite : "unavailable",
-      uncached_input_tokens: cacheRead > 0 ? Math.max(0, input - cacheRead) : "unavailable",
-      output_tokens: output,
-      reasoning_tokens: "unavailable",
-      estimated_cost: null,
-      total_tokens: input + output,
-      ...(usage.credits === undefined ? {} : { credit_used: usage.credits }),
-    };
-  }
-  const completionTokens = outputText.length === 0 ? 0 : Math.max(1, Math.floor(outputText.length / 4));
-  const percentage = usage.contextUsagePercentage;
-  const measuredTotal =
-    percentage === undefined || percentage <= 0
-      ? undefined
-      : Math.round((kiroContextWindow(modelId) * percentage) / 100);
-  const input = measuredTotal === undefined ? 0 : Math.max(0, measuredTotal - completionTokens);
-  const output = measuredTotal === undefined ? 0 : completionTokens;
+  const [input, output] = kiroTokenCounts(usage, modelId, outputText);
   return {
     input_tokens: input,
     cached_input_tokens: cacheRead > 0 ? cacheRead : "unavailable",
@@ -266,6 +241,33 @@ function kiroUsage(usage: KiroUsage, modelId: string, outputText: string): Usage
     total_tokens: input + output,
     ...(usage.credits === undefined ? {} : { credit_used: usage.credits }),
   };
+}
+
+/**
+ * Input and output token counts for one Kiro response, as `[input, output]`.
+ *
+ * An explicit token field always wins: it is the upstream stating the number
+ * rather than us recovering it. No event observed from this surface carries
+ * one, but a `metricsEvent` that did would be authoritative. Otherwise the
+ * counts are recovered from the context window and the response text, which
+ * is the only figure this surface reports.
+ */
+function kiroTokenCounts(
+  usage: KiroUsage,
+  modelId: string,
+  outputText: string,
+): readonly [number, number] {
+  if (usage.inputTokens !== undefined || usage.outputTokens !== undefined) {
+    return [usage.inputTokens ?? 0, usage.outputTokens ?? 0];
+  }
+  const completionTokens = outputText.length === 0 ? 0 : Math.max(1, Math.floor(outputText.length / 4));
+  const percentage = usage.contextUsagePercentage;
+  const measuredTotal =
+    percentage === undefined || percentage <= 0
+      ? undefined
+      : Math.round((kiroContextWindow(modelId) * percentage) / 100);
+  if (measuredTotal === undefined) return [0, 0];
+  return [Math.max(0, measuredTotal - completionTokens), completionTokens];
 }
 
 /**

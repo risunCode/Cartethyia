@@ -112,14 +112,6 @@ export async function getCachedQuotaEntry(
   return entry;
 }
 
-export async function getCachedQuota(
-  lens: string,
-  accountId: string,
-  redis: RedisClient | undefined,
-): Promise<ProviderQuotaResult | null> {
-  return (await getCachedQuotaEntry(lens, accountId, redis))?.quota ?? null;
-}
-
 /**
  * Batch read for one lens: the memory tier answers what it can, then the
  * remaining keys go to Redis in a single `MGET`. The overview renders every

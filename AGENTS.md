@@ -24,6 +24,7 @@ starting — it holds the procedure, the pitfalls, and the owner of the layer.
 | Schema change, migration, new usage/telemetry field | `cartethyia-schema-telemetry` |
 | Add/remove/authenticate a provider; catalog, `/v1/models`, capabilities | `cartethyia-provider-catalog` |
 | Account health, cooldown class, pool selection, retries, leases | `cartethyia-health-routing` |
+| Add/change a `src/console/` domain; contract→store→dashboard mirror | `cartethyia-console-api` |
 | `dashboard/` React, layout, social metadata, browser verification | `cartethyia-dashboard` |
 | Orientation, invariants/deadness, house style, gates | `cartethyia-engineering` |
 

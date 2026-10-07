@@ -468,7 +468,7 @@ export function classifyAccountError(
     // provider and the `scope === "account"` gate the throttles use would
     // forbid the mutation outright — leaving the probe reporting a failure that
     // cooled nothing. The verdict is still about one (account, model) pair:
-    // `persistAccountFailure` writes `modelCooldowns[modelId]` and leaves the
+    // `recordAccountFailure` writes `modelCooldowns[modelId]` and leaves the
     // account's own status untouched, so all that is required is a model to
     // write against.
     const modelScopedMutation = origin === "upstream" && options?.modelId !== undefined;
@@ -517,7 +517,7 @@ export function classifyAccountError(
 
 
 /** Persists one classified failure to the account row and appends a health event. */
-async function persistAccountFailure(
+export async function recordAccountFailure(
   db: CartethyiaDatabase,
   accountId: string,
   error: unknown,
@@ -653,7 +653,7 @@ async function persistAccountFailure(
 }
 
 /** Clears failure state after a successful dispatch; true when the account changed. */
-async function persistAccountSuccess(
+export async function recordAccountSuccess(
   db: CartethyiaDatabase,
   accountId: string,
 ): Promise<boolean> {
@@ -702,10 +702,10 @@ async function persistAccountSuccess(
 }
 
 /** Operator-initiated recovery: forces the account back to active and logs the transition. */
-async function persistAccountRecovery(
+export async function recoverAccount(
   db: CartethyiaDatabase,
   accountId: string,
-  reason: string,
+  reason = "manual_operator_recovery",
 ): Promise<boolean> {
   const recover = async (client: CartethyiaDatabase): Promise<boolean> => {
     const accountRows = await client
@@ -762,7 +762,7 @@ async function persistAccountRecovery(
 }
 
 /** Recovers accounts whose cooldown elapsed and prunes expired per-model keys. */
-async function sweepExpiredCooldownsFor(db: CartethyiaDatabase): Promise<number> {
+export async function sweepExpiredCooldowns(db: CartethyiaDatabase): Promise<number> {
   const recover = async (client: CartethyiaDatabase): Promise<number> => {
     const now = new Date();
     const nowIso = now.toISOString();
@@ -837,22 +837,6 @@ async function sweepExpiredCooldownsFor(db: CartethyiaDatabase): Promise<number>
   }
 }
 
-export async function recordAccountFailure(
-  db: CartethyiaDatabase,
-  accountId: string,
-  error: unknown,
-  options?: AccountFailureEvidence,
-): Promise<AccountErrorClassification | null> {
-  return persistAccountFailure(db, accountId, error, options);
-}
-
-export async function recordAccountSuccess(
-  db: CartethyiaDatabase,
-  accountId: string,
-): Promise<boolean> {
-  return persistAccountSuccess(db, accountId);
-}
-
 /**
  * Single attempt health reporter: one home for the success/failure writes
  * every dispatch attempt ends with. Success records recovery; failure
@@ -883,18 +867,6 @@ export async function reportAttemptOutcome(
     ...(report.modelId === undefined ? {} : { modelId: report.modelId }),
   }).catch(() => null);
   if (classification?.mutatesAccount) await report.snapshotService?.invalidate();
-}
-
-export async function recoverAccount(
-  db: CartethyiaDatabase,
-  accountId: string,
-  reason = "manual_operator_recovery",
-): Promise<boolean> {
-  return persistAccountRecovery(db, accountId, reason);
-}
-
-export async function sweepExpiredCooldowns(db: CartethyiaDatabase): Promise<number> {
-  return sweepExpiredCooldownsFor(db);
 }
 
 export async function listAccountHealthEvents(

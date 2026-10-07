@@ -65,11 +65,6 @@ export function caseInsensitiveLike(column: SQL, pattern: SQL): SQL {
     : sql`${column} ilike ${pattern}`;
 }
 
-/** Byte length of a blob column. */
-export function byteLength(column: SQL): SQL {
-  return sqliteDialect() ? sql`length(${column})` : sql`octet_length(${column})`;
-}
-
 /** The later of two timestamps. */
 export function laterOf(left: SQL, right: SQL): SQL {
   return sqliteDialect() ? sql`max(${left}, ${right})` : sql`greatest(${left}, ${right})`;

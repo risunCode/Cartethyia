@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { apiKeys } from "../../persistence/schema";
 import { queryTelemetryEvents } from "../../observability/event-log";
+import { utcDayStart, utcMonthStart } from "../shared/day";
 
 /**
  * Tokens already recorded for the current daily and monthly admission buckets.
@@ -21,14 +22,6 @@ import { queryTelemetryEvents } from "../../observability/event-log";
  * attributed to their own child row, so the family is summed — otherwise
  * seeding a template would miss everything its recipients already used.
  */
-export function utcDayStart(now: Date): Date {
-  return new Date(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`);
-}
-
-export function utcMonthStart(now: Date): Date {
-  return new Date(`${now.toISOString().slice(0, 7)}-01T00:00:00.000Z`);
-}
-
 export async function familyBucketSpend(
   db: CartethyiaDatabase,
   keyId: string,

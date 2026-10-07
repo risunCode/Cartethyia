@@ -1,5 +1,53 @@
 ## Unreleased
 
+- Documentation is rebuilt around what the code actually is. `configuration.md`
+  is generated from `CONFIG_SPEC` by `scripts/generate/config-reference.ts` and
+  guarded by `test/config`, so the operator's variable list cannot drift from
+  the reader that enforces it. `protocol-and-translation.md`, `providers.md`,
+  and `console-api.md` are new; `documentation/README.md` indexes all eight and
+  points at `.skills/`. `cartethyia-console-api` is a new skill owning console
+  authoring, which no skill owned before, and `AGENTS.md` routes to it.
+
+- Four skills and two docs told contributors to create migration `0004` or
+  `0005` when both already shipped, so the next forward file would have reused a
+  number a live database has recorded — and a recorded number is skipped. Both
+  now say to read the highest file in `migrations/full-postgres/` instead of
+  carrying a count. Also corrected: `dashboard.md` had dialog `xl` at 1160 (the
+  expanded cap) where `dialog.tsx` sets 960, `provider-catalog` filed
+  `resolveByokWireProfile` under `probe-phases.ts` when it is defined in
+  `operations/byok-wire-profile.ts`, and `health-routing` described one 429
+  path in `plan()` where `router.ts` has two.
+
+- Dead exports removed: `getCachedQuota`, `resetBackgroundQuotaRefreshesForTests`,
+  `resetSweepLogMemory`, `setPoolForTesting`, `isToleratedMissingExtension`,
+  `byteLength`, `groupEvents`, `installIdPath`, `DEFAULT_PROVIDER_ROTATE_COUNT`,
+  and the `ApiKey` type that duplicated `apiKeys.$inferSelect`. Each was
+  verified to have no reader in `src/`, `test/`, `scripts/`, or `dashboard/`.
+  `groupEvents` went alone: `emptyTotals` and `accumulate` beside it are used by
+  `test/observability/cached-token-totals.test.ts`.
+
+- `utcDayStart` and `utcMonthStart` each had two implementations — one in
+  `api-keys/bucket-spend.ts`, one in `share/` — cutting the spend and usage
+  windows two domains share. Both now live in `console/shared/day.ts`, with the
+  reason they are UTC (the admission counters in `admission.ts` cut theirs the
+  same way) carried over rather than dropped. Equivalence was checked by
+  execution across boundary dates, not by inspection.
+
+- Four wrappers in `account-health-service.ts` existed only to re-export a
+  private function under a public name. The private functions now carry the
+  public names, so `probe-phases.ts`, `console/providers/catalog/store.ts`, and
+  `boot/dependencies.ts` are unchanged. `reportAttemptOutcome` stays: it is the
+  one that invalidates the route snapshot and never throws.
+
+- `credential-resolver.ts` carried a `token_envelope` field no caller ever set,
+  so `unwrapProviderToken` was always called with `undefined`; the field and its
+  plumbing are gone. `KimiModelBootstrap.tokenizer` was written on six rows and
+  read nowhere. `kiroUsage` built the same ten-field envelope in both branches;
+  the two branches now differ only in how they compute `[input, output]`, and
+  the merge was checked against the old behaviour on fourteen boundary cases
+  including an explicit-input-only response, a non-positive context percentage,
+  and a measured total below the completion estimate.
+
 - A Cursor `not_found` now cools the model down instead of being reported and
   retried forever. Cursor answers it for a model the credential's plan does not
   reach, and the adapter collapsed it into a generic 502 with no provider code,

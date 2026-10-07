@@ -178,18 +178,3 @@ export function accumulate(totals: EventTotals, event: TelemetryEventRecord): vo
   if (event.tokensPerSec !== null) { totals.tokensPerSecSum += event.tokensPerSec; totals.tokensPerSecCount += 1; }
 }
 
-/** Groups events by a key the caller derives, largest group first. */
-export function groupEvents(
-  events: readonly TelemetryEventRecord[],
-  keyOf: (event: TelemetryEventRecord) => string | null,
-): Array<{ key: string; totals: EventTotals }> {
-  const groups = new Map<string, EventTotals>();
-  for (const event of events) {
-    const key = keyOf(event);
-    if (!key) continue;
-    const totals = groups.get(key) ?? emptyTotals();
-    accumulate(totals, event);
-    groups.set(key, totals);
-  }
-  return [...groups].map(([key, totals]) => ({ key, totals })).sort((a, b) => b.totals.requests - a.totals.requests);
-}

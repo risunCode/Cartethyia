@@ -2,7 +2,7 @@
 // credential alternative in operator order.
 
 import { GatewayError } from "../protocol/gateway-error";
-import { unwrapProviderToken, type TokenEnvelope } from "./credential-envelope";
+import { unwrapProviderToken } from "./credential-envelope";
 import type { CredentialKind, ProviderId, ResolvedCredential } from "./contracts";
 
 /** One control-plane credential alternative, ordered by operator preference. */
@@ -12,8 +12,6 @@ export interface CredentialAlternative {
   readonly credential_kind: CredentialKind;
   /** Secret supplied by the control plane, never read from a client request. */
   readonly secret?: string | Uint8Array | undefined;
-  /** Explicit envelope label for provider-issued token normalization. */
-  readonly token_envelope?: TokenEnvelope | undefined;
   /** Health/expiry/quota result from the account control plane. */
   readonly usable?: boolean | undefined;
   /** Non-secret per-account upstream auth configuration; see `ResolvedCredential`. */
@@ -53,7 +51,7 @@ export class CredentialResolver {
           alternative_index: alternativeIndex,
         };
       }
-      const secret = resolveSecret(alternative.secret, alternative.token_envelope);
+      const secret = resolveSecret(alternative.secret);
       if (secret === undefined) continue;
       return {
         credential: {
@@ -76,11 +74,8 @@ export class CredentialResolver {
   }
 }
 
-function resolveSecret(
-  value: CredentialAlternative["secret"],
-  envelope: TokenEnvelope | undefined,
-): Uint8Array | undefined {
+function resolveSecret(value: CredentialAlternative["secret"]): Uint8Array | undefined {
   if (value === undefined) return undefined;
-  const unwrapped = unwrapProviderToken(value, envelope);
+  const unwrapped = unwrapProviderToken(value);
   return unwrapped.length === 0 ? undefined : unwrapped;
 }

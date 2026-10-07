@@ -465,9 +465,6 @@ export const providerRoutingStrategy = pgEnum("provider_routing_strategy", [
  */
 export type ProviderRoutingStrategy = (typeof providerRoutingStrategy.enumValues)[number];
 
-/** Requests served by one account before round robin advances. */
-export const DEFAULT_PROVIDER_ROTATE_COUNT = 1;
-
 /**
  * Built-in API-key User-Agent applied when a provider has no routing row yet.
  * One literal: the console default and the route catalog's fallback both read
@@ -643,8 +640,6 @@ export const apiKeys = pgTable(
     ),
   ],
 );
-
-export type ApiKey = typeof apiKeys.$inferSelect;
 
 /**
  * The optional popup a share link shows its recipient. Kept off `api_keys`

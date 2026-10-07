@@ -149,15 +149,6 @@ export function getPool(): Pool {
   return pool;
 }
 
-/**
- * Installs a test pool so code paths that only need the pool's *shape* (such as
- * the capacity check) can run without a server. Mirrors `setRedisForTesting`:
- * the test owns the lifetime and must clear it with `closeDb()`.
- */
-export function setPoolForTesting(testPool: Pool): void {
-  globalThis.__cartethyiaPool = testPool;
-}
-
 /** Applies numbered SQL files in order under one cross-process advisory lock. */
 export async function applySqlMigrations(
   pool: Pool,

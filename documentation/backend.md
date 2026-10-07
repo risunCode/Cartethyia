@@ -181,6 +181,8 @@ must match it. Forward files are only:
 | `0001_converge_schema.sql` | Current columns, folded enums, model access, OAuth, CLI key scope |
 | `0002_share_popups_and_usernames.sql` | Popup rows copied off `api_keys`, username unique per tenant |
 | `0003_drop_fusion_and_minimum_balance.sql` | Fusion combos become fallback, floor columns dropped |
+| `0004_api_keys_is_default.sql` | `api_keys.is_default` marks the key created for a new tenant |
+| `0005_payload_jsonl_storage.sql` | Telemetry payloads move to `jsonl-file`/`jsonb-file` storage |
 
 Stores live in `src/persistence/stores/` and under the console domain that owns
 the table. `tenant-scope.ts` holds `globalOrOwnedBy`. A `NULL` tenant id is a
@@ -251,4 +253,4 @@ a second pool.
 | New provider | `specs/`, adapter, registry, discovery catalog |
 | Routing rule | `router.ts` and `route-model.ts`, then the snapshot builder |
 | Console resource | the domain under `src/console/`, then the dashboard hook that calls it |
-| Schema | `schema.ts`, `0000_baseline.sql`, next forward file `0004_*.sql` |
+| Schema | `schema.ts`, `0000_baseline.sql`, and the next unused number in `migrations/` |

@@ -76,13 +76,6 @@ export function enqueueBackgroundQuotaRefresh(
   drainBackgroundQuotaRefreshes();
 }
 
-/** Test seam: the queue is process-wide state. */
-export function resetBackgroundQuotaRefreshesForTests(): void {
-  backgroundQuotaRefreshQueue.length = 0;
-  queuedBackgroundQuotaRefreshes.clear();
-  activeBackgroundQuotaRefreshes.clear();
-}
-
 /** Shared quota-view projection used by the dashboard account endpoints. */
 export function toQuotaView(
   quota: ProviderQuotaResult,

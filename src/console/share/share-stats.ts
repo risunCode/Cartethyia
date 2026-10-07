@@ -13,7 +13,7 @@
 import { maskClientIp } from "../../observability/redaction";
 import { queryTelemetryEvents, type TelemetryEventRecord } from "../../observability/event-log";
 import { isGatewayError } from "../../observability/telemetry-status";
-import { utcDayStart } from "./day";
+import { utcDayStart, utcMonthStart } from "../shared/day";
 
 /** Totals for the whole share family, all-time plus the windows the UI draws. */
 export interface ShareFamilyTotals {
@@ -123,14 +123,6 @@ function modelAllowed(requested: string, allowed: ReadonlySet<string>): boolean 
   if (allowed.has(requested)) return true;
   const slash = requested.lastIndexOf("/");
   return slash > 0 && allowed.has(requested.slice(slash + 1));
-}
-
-/** Start of the current UTC month. */
-function utcMonthStart(now: Date): Date {
-  const start = new Date(now);
-  start.setUTCDate(1);
-  start.setUTCHours(0, 0, 0, 0);
-  return start;
 }
 
 /** Top of the hour containing `now`, in UTC. */

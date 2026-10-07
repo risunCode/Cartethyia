@@ -131,9 +131,9 @@ Two database modes share one schema:
 | Full | external PostgreSQL | Redis when `REDIS_URL` is set, else memory |
 
 `migrations/full-postgres/0000_baseline.sql` is the current schema for a new database. Lite builds from `migrations/lite-sqlite3/0000_baseline.sql`, derived from it.
-`0001`, `0002`, and `0003` converge a database built from an older baseline.
+`0001` through `0005` converge a database built from an older baseline.
 A database whose ledger names a baseline this release no longer ships records
-`0000_baseline.sql` without executing it, then runs the three files.
+`0000_baseline.sql` without executing it, then runs the five files.
 
 ## Console and dashboard
 

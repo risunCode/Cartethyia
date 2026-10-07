@@ -19,8 +19,10 @@ migration already recorded by a database.
    baseline, and `test/persistence/sqlite-baseline.test.ts` fails when the two
    disagree. Do not edit the SQLite baseline by hand.
 4. Add the next numbered forward migration with idempotent SQL and statement
-   breakpoints. The shipped set is the baseline plus `0001`, `0002`, `0003`,
-   and `0004`; the next file is `0005`. Do not delete a shipped forward file.
+   breakpoints. Take the number from the highest file already in
+   `migrations/full-postgres/` — never from a count remembered from a previous
+   session, and never reuse a number: a number a database has already recorded
+   is a file that database will skip. Do not delete a shipped forward file.
 5. Write the SQLite twin of that forward file at the same name in
    `migrations/lite-sqlite3/`. Both runners apply every `*.sql` in their folder
    in filename order and record it by filename, so a PostgreSQL file with no

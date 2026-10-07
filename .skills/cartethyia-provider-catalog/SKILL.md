@@ -39,7 +39,7 @@ Derive the wire contract from the compatibility profile. Validate base URL,
 model, auth, allowed wire families, and network policy at the server boundary.
 Dashboard forms submit data; they do not implement auth or routing policy.
 
-`resolveByokWireProfile` (`src/providers/discovery/probe-phases.ts`) is the
+`resolveByokWireProfile` (`src/providers/operations/byok-wire-profile.ts`) is the
 authority. Do not re-hardcode authentication or wire-family mappings in
 registration, discovery, or connection-test paths.
 

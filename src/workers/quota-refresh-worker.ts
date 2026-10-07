@@ -79,8 +79,7 @@ const DEFAULT_MAX_CHECKINS_PER_PASS = 10;
  * An account is re-announced only when its outcome actually changes.
  *
  * Module scope, not per-call: suppression must survive across passes, and one
- * `quotaRefreshSweep` call is one pass. Tests reset it via
- * `resetSweepLogMemory`.
+ * `quotaRefreshSweep` call is one pass.
  */
 const lastSweepLine = new Map<string, string>();
 
@@ -100,11 +99,6 @@ const sharedCredentialCache = new Map<string, string>();
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** Test-only: forget suppression state between tests. */
-export function resetSweepLogMemory(): void {
-  lastSweepLine.clear();
 }
 
 /** `provider/identity` — the account's own label, else its id. */

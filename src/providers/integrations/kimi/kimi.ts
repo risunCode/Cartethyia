@@ -8,8 +8,8 @@
  * tool-use pairing, streaming, and `cache_control` prompt-cache markers.
  *
  * Kimi's reference catalog carries model bootstrap metadata that is not part
- * of Cartethyia's generic `ModelDefinition`: tokenizer family and prompt-cache
- * / max-token defaults. The exported lookup keeps this metadata centralized
+ * of Cartethyia's generic `ModelDefinition`: prompt-cache support and
+ * max-token defaults. The exported lookup keeps this metadata centralized
  * and the adapter uses it when selecting request defaults.
  *
  * Bespoke by wire protocol (Phase C5): verified Claude-pipeline reuse
@@ -38,7 +38,6 @@ export const KIMI_CODE_PROVIDER_ID = "kimi" as const;
 export const KIMI_CODE_BASE_URL = providerBaseUrl("kimi");
 
 export interface KimiModelBootstrap {
-  readonly tokenizer?: "kimi-k2";
   readonly supportsPromptCache: boolean;
   readonly alwaysSendMaxTokens: boolean;
   readonly maxOutputTokens: number;
@@ -56,37 +55,32 @@ const KIMI_MODEL_BOOTSTRAP: Readonly<Record<string, KimiModelBootstrap>> = {
     maxOutputTokens: 131_072,
   },
   "kimi-for-coding": {
-    tokenizer: "kimi-k2",
     supportsPromptCache: true,
     alwaysSendMaxTokens: true,
     maxOutputTokens: 32_768,
   },
   "kimi-for-coding-highspeed": {
-    tokenizer: "kimi-k2",
     supportsPromptCache: true,
     alwaysSendMaxTokens: true,
     maxOutputTokens: 32_768,
   },
   "kimi-k2": {
-    tokenizer: "kimi-k2",
     supportsPromptCache: true,
     alwaysSendMaxTokens: true,
     maxOutputTokens: 262_144,
   },
   "kimi-k2-turbo-preview": {
-    tokenizer: "kimi-k2",
     supportsPromptCache: true,
     alwaysSendMaxTokens: true,
     maxOutputTokens: 32_000,
   },
   "kimi-k2.5": {
-    tokenizer: "kimi-k2",
     supportsPromptCache: true,
     alwaysSendMaxTokens: true,
     maxOutputTokens: 65_536,
   },
 };
-/** Looks up Kimi's bootstrap tokenizer/cache metadata by model id. */
+/** Looks up Kimi's bootstrap cache/max-token metadata by model id. */
 export function lookupKimiModelBootstrap(
   modelId: string,
 ): KimiModelBootstrap | undefined {

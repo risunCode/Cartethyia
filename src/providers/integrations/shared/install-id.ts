@@ -27,7 +27,7 @@ import { randomUUID } from "node:crypto";
 import { log } from "../../../observability/logger";
 
 /** Overrides the directory the install ids are persisted in. */
-export const INSTALL_ID_DIR_ENV = "CARTETHYIA_INSTALL_ID_DIR";
+const INSTALL_ID_DIR_ENV = "CARTETHYIA_INSTALL_ID_DIR";
 
 /**
  * Candidate directories for install ids, most specific first.
@@ -40,18 +40,12 @@ export const INSTALL_ID_DIR_ENV = "CARTETHYIA_INSTALL_ID_DIR";
  */
 function installIdDirectories(): readonly string[] {
   const candidates: string[] = [];
-  const configured = process.env.CARTETHYIA_INSTALL_ID_DIR?.trim();
+  const configured = process.env[INSTALL_ID_DIR_ENV]?.trim();
   if (configured && configured.length > 0) candidates.push(configured);
   const home = (process.env["HOME"] ?? process.env["USERPROFILE"])?.trim();
   if (home && home.length > 0) candidates.push(join(home, ".cartethyia"));
   candidates.push(join("data", ".cartethyia"));
   return candidates;
-}
-
-/** The primary location, i.e. the first candidate. */
-export function installIdPath(name: string, directory?: string): string {
-  const base = directory ?? installIdDirectories()[0] ?? join("data", ".cartethyia");
-  return join(base, `${name}-install-id`);
 }
 
 /**
