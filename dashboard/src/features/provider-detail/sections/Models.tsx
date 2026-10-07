@@ -15,6 +15,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { memo, useMemo, useState, type ReactNode } from "react";
+import { probeFailureToast, probeFailureToastArgs } from "./probe-toast";
 import { Button } from "../../../components/ui/button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 import { Dialog } from "../../../components/ui/dialog";
@@ -434,7 +435,8 @@ function ModelCard({
         onSuccess: (result) => {
           setProbeResult({ ok: result.ok, latencyMs: result.latencyMs });
           if (!result.ok) {
-            toast.error(`${qualifiedId} probe failed`, result.error ?? "Unknown error");
+            const { title, detail } = probeFailureToast(providerId, qualifiedId, result.error);
+            toast.error(title, detail);
             return;
           }
           const sample = result.sample?.trim() ?? "";
@@ -446,8 +448,11 @@ function ModelCard({
         onError: (err) => {
           setProbeResult({ ok: false, latencyMs: 0 });
           toast.error(
-            `${qualifiedId} probe failed`,
-            (err as { message?: string }).message ?? "Model probe failed",
+            ...probeFailureToastArgs(
+              providerId,
+              qualifiedId,
+              (err as { message?: string }).message,
+            ),
           );
         },
       },

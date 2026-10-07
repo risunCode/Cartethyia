@@ -671,7 +671,6 @@ export function computeProbeVerdict(args: {
       typeof details?.upstreamRequestId === "string"
         ? String(details.upstreamRequestId)
         : undefined;
-    const wireLabel = `${wireFamily} ${endpointPath}`;
     const statusTag =
       providerCode !== undefined && providerStatus !== undefined
         ? `${providerCode} (upstream ${status ?? providerStatus})`
@@ -680,12 +679,12 @@ export function computeProbeVerdict(args: {
           : status !== undefined
             ? `upstream ${status}`
             : undefined;
-    errorMessage =
-      statusTag !== undefined
-        ? `${providerId}/${modelId} via ${wireLabel} — ${pretty} (${statusTag})${upstreamReq ? ` [req ${upstreamReq}]` : ""}`
-        : upstreamReq !== undefined
-          ? `${providerId}/${modelId} via ${wireLabel} — ${pretty} [req ${upstreamReq}]`
-          : `${providerId}/${modelId} via ${wireLabel} — ${pretty}`;
+    // The toast title already names the model. Repeating `provider/model via
+    // wire path` in the body made the operator read the same identity twice
+    // and buried the upstream sentence. The wire family stays, because that is
+    // the one fact the title does not carry; the path is noise next to it.
+    const tagged = statusTag !== undefined ? `${pretty} (${statusTag})` : pretty;
+    errorMessage = `${wireFamily} — ${tagged}${upstreamReq ? ` [req ${upstreamReq}]` : ""}`;
 
   } else if (terminal?.type === "terminal" && terminal.state !== "complete") {
     errorMessage = terminal.stop_reason ?? "Model probe failed";
