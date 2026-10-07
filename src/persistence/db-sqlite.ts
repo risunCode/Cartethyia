@@ -105,16 +105,33 @@ export function buildSqliteHandle(sqlite: Database): DatabaseHandle {
   // goes through `exec` rather than `run`: `run` prepares a statement per
   // call, and a raw statement here carries its values inlined, so there is
   // nothing to bind. Affected rows are read back from `changes()`.
+  const execute = (query: unknown): { rowCount: number; rows: unknown[] } => {
+    const rendered = (query as { queryChunks?: { value?: string[] }[] }).queryChunks
+      ?.flatMap((chunk) => chunk.value ?? [])
+      .join("");
+    if (rendered === undefined) throw new Error("sqlite execute: query has no SQL text");
+    // `all` for a statement that returns rows, `exec` otherwise. Readiness
+    // reads the migration ledger through `execute` and decides "applied" from
+    // `result.rows`; an alias that only reported `changes()` made every select
+    // look empty, so a migrated database stayed "not ready" forever.
+    const returnsRows = /^\s*(select|with|pragma)\b/i.test(rendered);
+    if (returnsRows) {
+      const rows = sqlite.prepare(rendered).all();
+      return { rowCount: rows.length, rows };
+    }
+    sqlite.exec(rendered);
+    const changed = sqlite.prepare("SELECT changes() AS c").get() as { c: number } | null;
+    return { rowCount: changed?.c ?? 0, rows: [] };
+  };
+  // A transaction callback receives a fresh builder, not this handle, so the
+  // `execute` alias above would not reach it. First-boot setup takes its lock
+  // through `transaction.execute`, and without the alias that call throws and
+  // setup can never complete on the SQLite backend.
+  const transaction = built.transaction.bind(built);
   const db = Object.assign(built, {
-    execute: (query: unknown) => {
-      const rendered = (query as { queryChunks?: { value?: string[] }[] }).queryChunks
-        ?.flatMap((chunk) => chunk.value ?? [])
-        .join("");
-      if (rendered === undefined) throw new Error("sqlite execute: query has no SQL text");
-      sqlite.exec(rendered);
-      const changed = sqlite.prepare("SELECT changes() AS c").get() as { c: number } | null;
-      return { rowCount: changed?.c ?? 0 };
-    },
+    execute,
+    transaction: (fn: (tx: unknown) => unknown) =>
+      transaction((tx: object) => fn(Object.assign(tx, { execute }))),
   });
   return {
     kind: "sqlite",
@@ -237,9 +254,11 @@ export async function applySqliteMigrations(
           if (addColumn) {
             const table = addColumn[1];
             const column = addColumn[2];
-            const present = sqlite
-              .prepare(`SELECT 1 AS present FROM pragma_table_info('${table}') WHERE name = ?`)
-              .get(column) as { present: number } | null;
+            const present = column === undefined
+              ? null
+              : sqlite
+                  .prepare(`SELECT 1 AS present FROM pragma_table_info('${table}') WHERE name = ?`)
+                  .get(column) as { present: number } | null;
             if (present !== null) continue;
           }
           sqlite.exec(sql);

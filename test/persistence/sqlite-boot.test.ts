@@ -16,6 +16,7 @@ import {
   buildSqliteHandle,
   createSqliteDatabase,
 } from "../../src/persistence/db-sqlite";
+import { sql } from "drizzle-orm";
 import { DrizzleApiKeyStore } from "../../src/persistence/stores/api-key-store";
 import { apiKeys, tenants } from "../../src/persistence/schema";
 
@@ -199,6 +200,35 @@ test("the prepared auth lookup returns the camelCase fields auth reads", async (
 
     if (previous === undefined) delete globals.__cartethyiaHandle;
     else globals.__cartethyiaHandle = previous;
+    await handle.close();
+  } finally {
+    removeDir(dir);
+  }
+});
+
+test("execute returns rows, and a transaction can call it", async () => {
+  const dir = freshDir();
+  try {
+    const sqlite = createSqliteDatabase(join(dir, "cartethyia.sqlite"));
+    await applySqliteMigrations(sqlite);
+    const handle = buildSqliteHandle(sqlite);
+
+    // Readiness reads the migration ledger through `execute` and treats an
+    // empty `rows` as "not applied", so a select that returns nothing here
+    // would leave a migrated database permanently not ready.
+    const ledger = await handle.db.execute(
+      sql`SELECT count(*) AS c FROM cartethyia_schema_migrations`,
+    );
+    expect((ledger as unknown as { rows: { c: number }[] }).rows[0]?.c).toBeGreaterThan(0);
+
+    // First-boot setup takes its lock through `transaction.execute`. The
+    // transaction builder is a fresh object, so the handle's alias does not
+    // reach it unless the wrapper adds it.
+    await handle.db.transaction(async (tx) => {
+      const inside = await tx.execute(sql`SELECT 1 AS n`);
+      expect((inside as unknown as { rows: { n: number }[] }).rows).toEqual([{ n: 1 }]);
+    });
+
     await handle.close();
   } finally {
     removeDir(dir);

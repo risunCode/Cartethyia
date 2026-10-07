@@ -1,5 +1,14 @@
 ## Unreleased
 
+- First-boot setup completes on the SQLite backend, and a migrated database
+  reports ready. The bun-sqlite transaction builder has no `execute`, so the
+  setup lock threw and the wizard answered with an internal error; the handle
+  now adds `execute` to the transaction it hands the callback. The same alias
+  returned only `changes()` and no rows, so the readiness check read an empty
+  migration ledger and held every request at "not ready". A select through it
+  now returns its rows. Found by booting Lite and sending a real request, not
+  by the suite.
+
 - A schema change now has to land in both migration sets. Every file in
   `migrations/full-postgres/` needs a same-named file in
   `migrations/lite-sqlite3/`, and `test/persistence/sqlite-baseline.test.ts`
