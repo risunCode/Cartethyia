@@ -1498,17 +1498,10 @@ html[data-theme="dark"] .app-bg {
 
 .stat-card {
   padding: 10px 12px;
-  border-radius: var(--radius-card);
-  border: 1px solid var(--inner-border);
-  background: var(--surface-2);
   display: flex;
   flex-direction: column;
   gap: 3px;
   min-width: 0;
-  transition:
-    transform var(--dur-micro) var(--ease-spring),
-    box-shadow var(--dur-micro) var(--ease-spring),
-    border-color var(--dur-micro) ease;
 }
 /* Named container for the proxy table: the labeled action buttons in
  * `base.css` collapse to square icon buttons against this width, so a narrow
@@ -1548,11 +1541,6 @@ html[data-theme="dark"] .app-bg {
   white-space: nowrap;
 }
 
-.stat-card:hover {
-  transform: translateY(-1px);
-  border-color: var(--border-soft);
-  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.12);
-}
 
 /* Health Card & Overview Resource Widgets */
 .health-resource-grid {
@@ -1635,9 +1623,6 @@ html[data-theme="dark"] .app-bg {
   min-height: 218px;
   display: flex;
   flex-direction: column;
-  border-radius: var(--radius-card);
-  border: 1px solid var(--inner-border);
-  background: var(--surface-2);
   padding: 10px 12px;
   box-sizing: border-box;
   min-width: 0;
