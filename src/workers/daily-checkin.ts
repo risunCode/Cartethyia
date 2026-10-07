@@ -149,9 +149,13 @@ export async function attemptDailyGrowthPass(args: {
     };
   }
 
-  if (checkin.state === "error") {
-    // Same release rule as the check-in-only path: a transient failure retries
-    // on a later pass today, and the report is skipped with it.
+  if (checkin.state === "error" || checkin.state === "unavailable") {
+    // Release the slot so a later pass today can retry. `error` is a transient
+    // failure (network, 5xx); `unavailable` is the status probe answering that
+    // no activity is running or the envelope could not be read — both are
+    // worth another attempt, and holding the slot until tomorrow is what made
+    // an account look "done" when nothing had been claimed. `already_claimed`,
+    // `not_eligible`, and `event_ended` are terminal for the day and keep it.
     if (redis !== undefined) await redis.del(ledgerKey(dayKey, accountId)).catch(() => undefined);
     return {
       checkin,

@@ -73,6 +73,26 @@ export interface QuotaRefreshSweepDeps extends QuotaRefreshDeps {
 const DEFAULT_MAX_CHECKINS_PER_PASS = 10;
 
 /**
+ * Whether this account may take a daily check-in slot in the current pass.
+ *
+ * The provider filter is applied *before* the slot count is consulted, and
+ * that ordering is the whole point of the function: the sweep's batch is
+ * oldest-first across every provider, so a cap checked first was spent on
+ * non-buddy accounts the ride-along would have skipped anyway. A buddy
+ * account sitting behind them (a `cbcn` row past the tenth older non-buddy
+ * row) then never got its automatic check-in — only a manual press, which
+ * bypasses the cap, ever reached it.
+ */
+export function checkinSlotAvailable(
+  providerId: string,
+  checkinsSoFar: number,
+  maxCheckins: number,
+): boolean {
+  if (!supportsDailyCheckin(providerId)) return false;
+  return maxCheckins > 0 && checkinsSoFar < maxCheckins;
+}
+
+/**
  * Last line emitted per account. The sweep runs every minute over dozens of
  * accounts, and most outcomes ("quota ok, daily already claimed") repeat
  * verbatim every pass — printing them all buries the one line that matters.
@@ -324,9 +344,22 @@ export async function quotaRefreshSweep(deps: QuotaRefreshSweepDeps): Promise<vo
     },
     // Oldest first, capped so one pass cannot run unbounded. Fresh accounts
     // are dropped as skips rather than carried into the wave.
+    //
+    // Buddy accounts are pulled to the front, ahead of the age ordering. The
+    // check-in ride-along has its own per-pass cap and the waves run
+    // concurrently, so a buddy account buried behind older non-buddy rows
+    // could lose the race for a slot entirely — its attendance then only
+    // happened when an operator pressed the button. Attendance is once a day
+    // and quota is refreshed every pass, so letting the check-in go first
+    // costs the quota leg nothing.
     select: (entries) => {
       const due = entries.filter((entry) => entry.ageMs >= minAgeMs);
-      due.sort((left, right) => right.ageMs - left.ageMs);
+      due.sort((left, right) => {
+        const leftBuddy = supportsDailyCheckin(left.target.providerId) ? 0 : 1;
+        const rightBuddy = supportsDailyCheckin(right.target.providerId) ? 0 : 1;
+        if (leftBuddy !== rightBuddy) return leftBuddy - rightBuddy;
+        return right.ageMs - left.ageMs;
+      });
       const batch = due.slice(0, maxPerPass);
       return { batch, skipped: entries.length - due.length + (due.length - batch.length) };
     },
@@ -351,8 +384,19 @@ export async function quotaRefreshSweep(deps: QuotaRefreshSweepDeps): Promise<vo
       // check-in claim first and then the growth-activity report. Bounded per
       // pass, and skipped for providers without the billing route — a day
       // marker makes this a no-op on every pass after the first of the day.
-      if (maxCheckins <= 0 || checkins >= maxCheckins) return;
-      if (!supportsDailyCheckin(entry.target.providerId)) return;
+      //
+      // The provider filter comes *before* the slot is consumed. The batch is
+      // oldest-first across every provider, so checking the cap first spent the
+      // whole per-pass budget on non-buddy accounts that the next line would
+      // have skipped anyway — a buddy account past the cap (a cbcn row behind
+      // ten older non-buddy rows) was never checked in automatically, only when
+      // an operator pressed the button, which bypasses this cap entirely.
+      if (!checkinSlotAvailable(entry.target.providerId, checkins, maxCheckins)) return;
+      // Claim the slot before the first await. The wave runs its items
+      // concurrently, and reading `checkins` only after the growth pass
+      // resolved let every item in the wave pass the cap check against the
+      // same stale count — the cap then bounded nothing.
+      checkins += 1;
       try {
         // `ValidatedFetch` is call-compatible with `typeof fetch`; the cast
         // is only for the `preconnect` static Bun adds to its own fetch (the
@@ -372,7 +416,6 @@ export async function quotaRefreshSweep(deps: QuotaRefreshSweepDeps): Promise<vo
           ...(fetcher ? { fetcher } : {}),
         });
         if (pass !== null) {
-          checkins += 1;
           if (pass.checkin.state === "claimed") claimed += 1;
           checkinOutcomes.set(entry.target.accountId, pass.checkin);
           reportOutcomes.set(entry.target.accountId, pass.report);
