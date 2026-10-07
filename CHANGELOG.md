@@ -1,5 +1,13 @@
 ## Unreleased
 
+- Cursor is a bundled provider. A signed-in account dispatches chat through
+  Cursor's own `agent.v1.AgentService` backend over Connect-RPC/HTTP2, with
+  the deep-link login and automatic token refresh the console already drives
+  for other providers. The model list comes from the account
+  (`GetUsableModels`), so it reflects what that plan can actually reach. A
+  caller's system message is delivered as labelled history, because Cursor
+  composes the model prompt itself and discards a real system role.
+
 - The Devin provider is removed. Its adapter, OAuth client, quota collector,
   model discovery, client-version tracking, catalog metadata, and dashboard
   icons are gone, and nothing references it. On the next boot the unowned

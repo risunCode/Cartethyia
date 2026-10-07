@@ -242,6 +242,15 @@ export const VERSION_SOURCES = {
     fallback: "1.52.0",
     sources: [{ url: "https://pypi.org/pypi/kimi-cli/json", extract: kimiVersion }],
   },
+  cursor: {
+    key: "cursor",
+    // Tracks the Cursor CLI line the wire advertises. The pinned floor is the
+    // version the adapter sends, so discovery can move it forward but an
+    // upstream feed lagging behind can never silently downgrade the badge.
+    fallback: "cli-2026.08.11",
+    minVersion: "cli-2026.08.11",
+    sources: [],
+  },
   kiro: {
     key: "kiro",
     fallback: "1.2.4",
@@ -341,6 +350,7 @@ const resolvers = {
   claudeCli: createClientVersionResolver(VERSION_SOURCES.claudeCli),
   claudeSdk: createClientVersionResolver(VERSION_SOURCES.claudeSdk),
   kiro: createClientVersionResolver(VERSION_SOURCES.kiro),
+  cursor: createClientVersionResolver(VERSION_SOURCES.cursor),
   github: createClientVersionResolver(VERSION_SOURCES.github),
   kilo: createClientVersionResolver(VERSION_SOURCES.kilo),
   mimo: createClientVersionResolver(VERSION_SOURCES.mimo),
@@ -364,6 +374,7 @@ const PROVIDER_VERSION_RESOLVERS: Readonly<Record<string, ClientVersionResolver>
   cbcn: resolvers.codebuddyCn,
   kimi: resolvers.kimiCli,
   kiro: resolvers.kiro,
+  cursor: resolvers.cursor,
   anthropic: resolvers.claudeCli,
   claude: resolvers.claudeCli,
   github: resolvers.github,

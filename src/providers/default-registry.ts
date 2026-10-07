@@ -173,6 +173,19 @@ export const PROVIDER_CAPABILITIES = {
     // Meta developer dashboard, so the default key-only credential path applies
     // and `probeApiKeyConnectivity` is the account test.
   },
+  cursor: {
+    loadAdapter: async () => (await import("./integrations/cursor/cursor")).cursorAdapter,
+    loadModels: async () => (await import("./integrations/cursor/cursor-catalog")).CURSOR_MODELS,
+    loadAuthentication: oauthCapability(() => import("./integrations/cursor/cursor-oauth"), "cursorOAuthClient", {
+      withRefresher: true,
+    }),
+    // Cursor's catalog is per-account: `GetUsableModels` answers with the
+    // models the credential's plan reaches, so the static rows are only the
+    // offline seed and discovery needs the credential.
+    loadModelDiscovery: async () => async (context) =>
+      (await import("./integrations/cursor/cursor-discovery")).fetchCursorModels(context),
+    modelDiscoveryRequiresCredential: true,
+  },
   kiro: {
     loadAdapter: async () => (await import("./integrations/kiro/kiro")).kiroAdapter,
     loadModels: async () => (await import("./integrations/kiro/kiro-catalog")).KIRO_MODELS,
