@@ -89,41 +89,46 @@ export default function ConsoleLogPage(): ReactNode {
   const sessionQuery = useSessionUser();
   const isPlatformAdmin = sessionQuery.data?.isPlatformAdmin ?? false;
   const activeTab = tab === "audit" && !isPlatformAdmin ? "logs" : tab;
+  const tabAction = (
+    <div style={{ display: "flex", gap: "8px" }}>
+      <Button
+        variant={activeTab === "logs" ? "primary" : "secondary"}
+        size="sm"
+        onClick={() => setTab("logs")}
+        icon={<ScrollText size={13} />}
+        aria-pressed={activeTab === "logs"}
+      >
+        Console Log
+      </Button>
+      {isPlatformAdmin ? (
+        <Button
+          variant={activeTab === "audit" ? "primary" : "secondary"}
+          size="sm"
+          onClick={() => setTab("audit")}
+          icon={<ShieldCheck size={13} />}
+          aria-pressed={activeTab === "audit"}
+        >
+          Admin Audit
+        </Button>
+      ) : null}
+    </div>
+  );
   return (
     <div
       className="console-log-page"
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: "12px",
         height: "calc(100vh - 160px)",
         minHeight: "480px",
       }}
     >
-      <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
-        <Button
-          variant={activeTab === "logs" ? "primary" : "secondary"}
-          size="sm"
-          onClick={() => setTab("logs")}
-          icon={<ScrollText size={13} />}
-          aria-pressed={activeTab === "logs"}
-        >
-          Console Log
-        </Button>
-        {isPlatformAdmin ? (
-          <Button
-            variant={activeTab === "audit" ? "primary" : "secondary"}
-            size="sm"
-            onClick={() => setTab("audit")}
-            icon={<ShieldCheck size={13} />}
-            aria-pressed={activeTab === "audit"}
-          >
-            Admin Audit
-          </Button>
-        ) : null}
-      </div>
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-        {activeTab === "logs" ? <LiveLogsPanel /> : <AuditPanel />}
+        {activeTab === "logs" ? (
+          <LiveLogsPanel tabAction={tabAction} />
+        ) : (
+          <AuditPanel tabAction={tabAction} />
+        )}
       </div>
     </div>
   );
@@ -254,7 +259,7 @@ function RequestFields({ line }: { readonly line: ConsoleLogEntry }): ReactNode 
 }
 
 
-function LiveLogsPanel(): ReactNode {
+function LiveLogsPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
   const { lines, newLineIds, clear } = useConsoleLogStream();
   const [level, setLevel] = useState<"all" | ConsoleLogLevel>("all");
   const [search, setSearch] = useState("");
@@ -304,6 +309,7 @@ function LiveLogsPanel(): ReactNode {
         title="Console Log"
         subtitle={`${visible.length} of ${lines.length} lines`}
         icon={<ScrollText size={16} />}
+        action={tabAction}
       />
       <CardBody className="console-log-toolbar">
         <div className="console-log-filters" role="group" aria-label="Log level">
@@ -388,7 +394,7 @@ function LiveLogsPanel(): ReactNode {
 }
 
 
-function AuditPanel(): ReactNode {
+function AuditPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
   const [actionFilter, setActionFilter] = useState("");
   const [actorFilter, setActorFilter] = useState("");
   const [debouncedAction, setDebouncedAction] = useState("");
@@ -435,15 +441,18 @@ function AuditPanel(): ReactNode {
         subtitle="Every privileged console mutation, retained on its own lifecycle"
         icon={<ShieldCheck size={16} />}
         action={
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void query.refetch()}
-            disabled={query.isFetching}
-            icon={<RefreshCw size={13} className={query.isFetching ? "animate-spin" : ""} />}
-          >
-            Refresh
-          </Button>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            {tabAction}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void query.refetch()}
+              disabled={query.isFetching}
+              icon={<RefreshCw size={13} className={query.isFetching ? "animate-spin" : ""} />}
+            >
+              Refresh
+            </Button>
+          </div>
         }
       />
       <CardBody
