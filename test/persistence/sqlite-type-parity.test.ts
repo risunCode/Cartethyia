@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   applySqliteMigrations,
   buildSqliteHandle,
@@ -121,6 +121,32 @@ test("a timestamp stored as epoch milliseconds reads back as that instant", asyn
     const [row] = await db.select().from(telemetryEvents).where(eq(telemetryEvents.id, id));
     expect(row?.createdAt).toBeInstanceOf(Date);
     expect(row?.createdAt.getTime()).toBe(instant.getTime());
+  } finally {
+    sqlite.close();
+    removeDir(dir);
+  }
+});
+
+test("a raw execute returns the same types the query builder returns", async () => {
+  const { sqlite, db, dir, tenantId } = await migrated();
+  try {
+    const id = randomUUID();
+    await db.insert(telemetryEvents).values({
+      id,
+      tenantId,
+      requestId: randomUUID(),
+      stream: true,
+      estimatedCostUsd: "0.000001",
+    });
+    const result = await db.execute(sql`SELECT stream, created_at, estimated_cost_usd FROM telemetry_events WHERE id = ${id}`);
+    const rows = (result as unknown as { rows: Array<Record<string, unknown>> }).rows;
+    const row = rows[0];
+    if (row === undefined) throw new Error("execute returned no row");
+    // The backup import reads through execute and compares against rows the
+    // builder read. The two paths have to agree, or a re-import doubles history.
+    expect(row["stream"]).toBe(true);
+    expect(row["created_at"]).toBeInstanceOf(Date);
+    expect(row["estimated_cost_usd"]).toBe("0.000001");
   } finally {
     sqlite.close();
     removeDir(dir);

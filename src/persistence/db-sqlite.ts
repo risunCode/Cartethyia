@@ -1,7 +1,7 @@
 /** Embedded backend: bun:sqlite in the gateway's data dir. */
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { getTableColumns } from "drizzle-orm";
+import { getTableColumns, getTableName } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -89,6 +89,7 @@ function installSqliteColumnMapping(schema: Record<string, unknown>): void {
   for (const value of Object.values(schema)) {
     const columns = tableColumns(value);
     if (columns === undefined) continue;
+    const table = getTableName(Object.values(columns)[0]!.table as Parameters<typeof getTableName>[0]);
     for (const column of Object.values(columns)) {
       if (column.columnType === "PgBoolean") {
         column.mapFromDriverValue = (read) => read === null ? null : read === 1 || read === true;
@@ -106,13 +107,98 @@ function installSqliteColumnMapping(schema: Record<string, unknown>): void {
           return convert(read);
         };
       }
+      // Registered after the branches above replace it, so execute and the
+      // builder call the same function. A column neither branch touches keeps
+      // its own mapper, which is what already stringifies a numeric and parses
+      // jsonb. execute is the one read that never called it.
+      if (table !== undefined) {
+        columnMapping.set(mappingKey(table, column.name), column.mapFromDriverValue.bind(column));
+      }
     }
   }
 }
 
 interface MappedColumn {
+  readonly name: string;
   readonly columnType: string;
+  readonly table: object;
   mapFromDriverValue: (value: unknown) => unknown;
+}
+
+/**
+ * `table.column` to the mapper that turns bun:sqlite's stored value into the
+ * type the schema declares. `db.execute` reads through `prepare().all()`, which
+ * never calls a column mapper, so the alias applies these itself. A name that
+ * two tables share maps to the same type everywhere in this schema, and a
+ * column with no entry is returned as stored.
+ */
+const columnMapping = new Map<string, (value: unknown) => unknown>();
+
+function mappingKey(table: string, column: string): string {
+  return `${table}.${column}`;
+}
+
+/** One row from `prepare().all()`, with every known column mapped. */
+function mapExecuteRow(row: Record<string, unknown>, table: string | undefined): Record<string, unknown> {
+  if (table === undefined) return row;
+  const mapped: Record<string, unknown> = {};
+  for (const [column, value] of Object.entries(row)) {
+    const convert = columnMapping.get(mappingKey(table, column));
+    mapped[column] = value === null || convert === undefined ? value : convert(value);
+  }
+  return mapped;
+}
+
+/**
+ * The table a raw statement reads, when it reads exactly one.
+ *
+ * `SELECT 1` and a join read columns from nowhere or from several tables, and
+ * neither can be mapped by name. Both are returned as stored, which is what
+ * they already were.
+ */
+interface RenderedStatement {
+  readonly sql: string;
+  readonly params: SQLQueryBindings[];
+}
+
+/**
+ * A Drizzle `sql` value as bun:sqlite runs it: `?` placeholders and the values
+ * that fill them, in order.
+ *
+ * A chunk is text, a nested statement, or a bound value. Text is concatenated,
+ * a nested statement is rendered in place, and everything else is one `?`.
+ * `Date` values are converted here too, because this path prepares through the
+ * raw database rather than through the wrapper in `createSqliteDatabase`.
+ */
+function renderExecute(query: unknown): RenderedStatement | undefined {
+  const chunks = (query as { queryChunks?: unknown[] }).queryChunks;
+  if (chunks === undefined) return undefined;
+  const params: SQLQueryBindings[] = [];
+  const sql = chunks.map((chunk) => renderChunk(chunk, params)).join("");
+  return { sql, params };
+}
+
+function renderChunk(chunk: unknown, params: SQLQueryBindings[]): string {
+  if (Array.isArray(chunk)) {
+    return `(${chunk.map((part) => renderChunk(part, params)).join(", ")})`;
+  }
+  if (typeof chunk === "object" && chunk !== null && "queryChunks" in chunk) {
+    return (chunk as { queryChunks: unknown[] }).queryChunks
+      .map((part) => renderChunk(part, params))
+      .join("");
+  }
+  if (typeof chunk === "object" && chunk !== null && Array.isArray((chunk as { value?: unknown }).value)) {
+    return ((chunk as { value: string[] }).value).join("");
+  }
+  const value = chunk instanceof Date ? chunk.toISOString() : chunk;
+  params.push(value as SQLQueryBindings);
+  return "?";
+}
+
+function singleTable(sql: string): string | undefined {
+    const tables = [...sql.matchAll(/\b(?:from|join)\s+"?([a-z0-9_]+)"?/gi)].map((match) => match[1]);
+  const distinct = new Set(tables);
+  return distinct.size === 1 ? [...distinct][0] : undefined;
 }
 
 /** The columns of one Drizzle table, or undefined for everything else in the schema. */
@@ -184,20 +270,27 @@ export function buildSqliteHandle(sqlite: Database): DatabaseHandle {
   // call, and a raw statement here carries its values inlined, so there is
   // nothing to bind. Affected rows are read back from `changes()`.
   const execute = (query: unknown): { rowCount: number; rows: unknown[] } => {
-    const rendered = (query as { queryChunks?: { value?: string[] }[] }).queryChunks
-      ?.flatMap((chunk) => chunk.value ?? [])
-      .join("");
+    // Rendered the way the bun-sqlite session renders it: `?` placeholders and
+    // a params list. Joining the chunks kept only their text, so an
+    // interpolated value was dropped and the statement reached SQLite with a
+    // hole in it.
+    const rendered = renderExecute(query);
     if (rendered === undefined) throw new Error("sqlite execute: query has no SQL text");
     // `all` for a statement that returns rows, `exec` otherwise. Readiness
     // reads the migration ledger through `execute` and decides "applied" from
     // `result.rows`; an alias that only reported `changes()` made every select
     // look empty, so a migrated database stayed "not ready" forever.
-    const returnsRows = /^\s*(select|with|pragma)\b/i.test(rendered);
+    const returnsRows = /^\s*(select|with|pragma)\b/i.test(rendered.sql);
     if (returnsRows) {
-      const rows = sqlite.prepare(rendered).all();
-      return { rowCount: rows.length, rows };
+      // `all()` returns stored values, not mapped ones, so a timestamp comes
+      // back as text and a boolean as 0 or 1. The builder path maps through
+      // the column; this is the only read that does not, and the backup
+      // import compares these values against the builder's. Map them here.
+      const rows = sqlite.prepare(rendered.sql).all(...rendered.params) as Record<string, unknown>[];
+      const table = singleTable(rendered.sql);
+      return { rowCount: rows.length, rows: rows.map((row) => mapExecuteRow(row, table)) };
     }
-    sqlite.exec(rendered);
+    sqlite.prepare(rendered.sql).run(...rendered.params);
     const changed = sqlite.prepare("SELECT changes() AS c").get() as { c: number } | null;
     return { rowCount: changed?.c ?? 0, rows: [] };
   };

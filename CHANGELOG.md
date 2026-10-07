@@ -1,5 +1,13 @@
 ## Unreleased
 
+- `db.execute` on the SQLite backend returns the types the schema declares.
+  It read through `prepare().all()` and handed back stored values, so a
+  timestamp came back as text and a boolean as an integer — the mismatch that
+  rejected a correct login, on the read the backup import uses to decide
+  whether a row already exists. It now maps each column the way the query
+  builder does. The same path dropped every interpolated value and sent the
+  statement to SQLite with a hole in it; the values are bound now.
+
 - Telemetry payload frames are gzipped. Each capture wrote its JSON to disk
   uncompressed, and the bodies are the same prompt and tool schema repeated
   per request, so the files were almost entirely repetition. A frame is now

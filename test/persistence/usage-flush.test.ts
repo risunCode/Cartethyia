@@ -79,16 +79,25 @@ test("retries a key whose write failed and keeps deltas enqueued during the fail
  */
 dbDescribe("UsageFlushBuffer on the embedded backend", () => {
   test("one flush of many keys is a single statement, and every delta lands", async () => {
+    const previousMode = process.env.CARTETHYIA_DB_MODE;
+    process.env.CARTETHYIA_DB_MODE = "lite";
     const sqlite = createSqliteDatabase(":memory:");
     try {
       await applySqliteMigrations(sqlite);
-
+      // The batch statement branches on the mode, and the test environment
+      // loads `.env`, which may say `full`. The database under test is
+      // SQLite, so the branch must be too — otherwise the flush sends
+      // PostgreSQL casts and the fallback hides it by writing per key.
       let statements = 0;
-      const realExec = sqlite.exec.bind(sqlite);
-      sqlite.exec = ((sql: string) => {
+      // `db.execute` reaches `prepare().run()`, not `exec`: a statement with
+      // bound parameters cannot go through `exec`, which takes no bindings.
+      // Counting prepares counts the flush. The inserts above run first, so
+      // the counter starts after them.
+      const realPrepare = sqlite.prepare.bind(sqlite);
+      sqlite.prepare = ((sql: string) => {
         statements += 1;
-        return realExec(sql);
-      }) as Database["exec"];
+        return realPrepare(sql);
+      }) as Database["prepare"];
 
       const { db } = buildSqliteHandle(sqlite);
       const [tenant] = await db
@@ -112,15 +121,20 @@ dbDescribe("UsageFlushBuffer on the embedded backend", () => {
 
       const buffer = new UsageFlushBuffer(db, 60_000);
       for (const key of keys) buffer.enqueue(key.id, 7);
+      // The inserts above prepare their own statements. Only the flush counts.
       statements = 0;
       await buffer.flush();
       await buffer.stop();
 
-      expect(statements).toBe(1);
+      // The flush prepares its UPDATE, then reads changes() to report
+      // the affected rows. Two prepares, one write.
+      expect(statements).toBe(2);
       const rows = await db.select().from(apiKeys).where(eq(apiKeys.tenantId, tenantId));
       const total = rows.reduce((sum, row) => sum + Number(row.lifetimeTokensConsumed ?? 0), 0);
       expect(total).toBe(keys.length * 7);
     } finally {
+      if (previousMode === undefined) delete process.env.CARTETHYIA_DB_MODE;
+      else process.env.CARTETHYIA_DB_MODE = previousMode;
       sqlite.close();
     }
   });

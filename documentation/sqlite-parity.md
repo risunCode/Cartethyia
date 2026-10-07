@@ -81,3 +81,13 @@ file, and the tests in `test/persistence/sqlite-type-parity.test.ts` and
 - The payload frame store is not a database column. `telemetry_payloads`
   holds a pointer; the body is a gzipped frame in a file, named `jsonl-file`,
   and a frame written before compression stays readable as `jsonb-file`.
+- `db.execute` returns the same types the query builder returns. It used to
+  read through `prepare().all()` and hand back stored values, so a timestamp
+  came back as text and a boolean as `0` or `1` — the same mismatch that
+  rejected a correct login, on the one read the backup import uses to decide
+  whether a row already exists. It now maps each column through the same
+  function the builder calls. A statement that reads one table is mapped; a
+  `SELECT 1` or a join is returned as stored, because no single table owns
+  its columns. The same change binds interpolated values: the alias used to
+  join the SQL text and drop every parameter, so a statement with a `${}`
+  value reached SQLite with a hole in it.
