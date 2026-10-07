@@ -98,15 +98,18 @@ function readVarint(bytes: Uint8Array, start: number): { readonly value: number;
   let value = 0;
   let shift = 0;
   let offset = start;
-  while (offset < bytes.length) {
+  // Ten bytes is the protobuf maximum for a varint. The previous cap of 28
+  // bits rejected legal values mid-stream: a blob id length and a frame
+  // length both exceed it, and the probe died with `varint too long` before
+  // the turn produced anything.
+  for (let count = 0; offset < bytes.length && count < 10; count += 1) {
     const byte = bytes[offset]!;
     offset += 1;
-    value |= (byte & 0x7f) << shift;
-    if ((byte & 0x80) === 0) return { value: value >>> 0, offset };
+    value += (byte & 0x7f) * 2 ** shift;
+    if ((byte & 0x80) === 0) return { value, offset };
     shift += 7;
-    if (shift > 28) throw new Error("varint too long");
   }
-  throw new Error("truncated varint");
+  throw new Error(offset >= bytes.length ? "truncated varint" : "varint too long");
 }
 
 export function firstBytes(fields: WireFields, field: number): Uint8Array | undefined {

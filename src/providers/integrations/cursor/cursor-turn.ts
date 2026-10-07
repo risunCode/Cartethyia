@@ -158,14 +158,14 @@ function readVarint(bytes: Uint8Array, start: number): { readonly value: number;
   let value = 0;
   let shift = 0;
   let offset = start;
-  while (offset < bytes.length) {
+  for (let count = 0; offset < bytes.length && count < 10; count += 1) {
     const byte = bytes[offset]!;
     offset += 1;
-    value |= (byte & 0x7f) << shift;
-    if ((byte & 0x80) === 0) return { value: value >>> 0, offset };
+    value += (byte & 0x7f) * 2 ** shift;
+    if ((byte & 0x80) === 0) return { value, offset };
     shift += 7;
   }
-  throw new Error("truncated varint");
+  throw new Error(offset >= bytes.length ? "truncated varint" : "varint too long");
 }
 
 function endStreamEvent(payload: Uint8Array, toolCallSeen: boolean): TurnEvent {

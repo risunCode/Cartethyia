@@ -25,6 +25,14 @@ export const CURSOR_PROVIDER_ID = "cursor" as const;
  */
 export const CURSOR_RUN_PATH = "/agent.v1.AgentService/Run" as const;
 
+/**
+ * Cursor does not publish per-model limits, and the shared base catalog
+ * guesses wildly for these ids — `auto` resolves to 2M by majority vote over
+ * unrelated rows that happen to share the name. Every Cursor row carries this
+ * fixed window instead, which is what the account actually serves.
+ */
+export const CURSOR_CONTEXT_LIMIT = 200_000;
+
 /** What the catalog exposes for Cursor's automatic routing. */
 export const CURSOR_AUTO_MODEL_ID = "auto" as const;
 /** What Cursor's backend expects for that same routing. */
@@ -60,7 +68,12 @@ export function upstreamModelId(modelId: string): string {
   return modelId === CURSOR_AUTO_MODEL_ID ? CURSOR_AUTO_UPSTREAM_ID : modelId;
 }
 
-/** One model row. Limits are left unset: Cursor does not publish them. */
+/** One model row, with the fixed window rather than the base catalog's guess. */
 export function cursorModel(modelId: string): ModelDefinition {
-  return defineModel({ id: modelId, providerId: CURSOR_PROVIDER_ID, endpoint: CURSOR_RUN_PATH });
+  return defineModel({
+    id: modelId,
+    providerId: CURSOR_PROVIDER_ID,
+    endpoint: CURSOR_RUN_PATH,
+    ctx: CURSOR_CONTEXT_LIMIT,
+  });
 }

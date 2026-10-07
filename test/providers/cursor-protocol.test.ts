@@ -5,7 +5,7 @@
  * caller's agent loop.
  */
 import { expect, test } from "bun:test";
-import { decodeMessage, firstBytes, firstString } from "../../src/providers/integrations/cursor/cursor-wire";
+import { decodeMessage, encodeVarint, firstBytes, firstString } from "../../src/providers/integrations/cursor/cursor-wire";
 import { decodeServerMessage, decodeUsableModels, encodeRunRequest } from "../../src/providers/integrations/cursor/cursor-messages";
 import { buildTurnInput } from "../../src/providers/integrations/cursor/cursor-translate";
 import { decodeArgValue, safeToolCallId } from "../../src/providers/integrations/cursor/cursor-turn";
@@ -43,6 +43,17 @@ test("the catalog keeps auto, grok, opus, and composer, and drops the rest", () 
   // `auto` is the exposed name; the wire still speaks `default`.
   expect(upstreamModelId("auto")).toBe("default");
   expect(upstreamModelId("composer-2.5")).toBe("composer-2.5");
+});
+
+test("a varint wider than 28 bits round-trips", () => {
+  // A blob id length and a frame length both exceed 28 bits, and the probe
+  // died on exactly that with `varint too long`.
+  const value = 0x8000_0000;
+  const encoded = encodeVarint(value);
+  expect(encoded.length).toBeGreaterThan(4);
+  const key = encodeVarint((1 << 3) | 0);
+  const fields = decodeMessage(concatFields(key, encoded));
+  expect(fields.get(1)?.[0]).toEqual({ kind: "varint", value });
 });
 
 test("a run request carries history ids, the model, and the active user text", () => {
