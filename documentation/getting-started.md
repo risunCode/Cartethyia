@@ -96,8 +96,9 @@ bun setup
 2. creates `.env` from the mandatory rows of `.env.example` when it does not exist;
 3. generates `CARTETHYIA_ENCRYPTION_KEY` when it is missing or still a placeholder;
 4. asks Lite or Full on a fresh install (press Enter for Lite);
-5. asks which port to listen on (press Enter for 12800; use 8080 or another
-   open port when a VPS does not forward 12800);
+5. probes 12800, 8080, 3000, and 8081, then asks which port to listen on —
+   it prints which of those are actually free before the prompt, and pressing
+   Enter keeps 12800; use an available port when a VPS does not forward 12800;
 6. prepares the Lite data directory, or finds a local PostgreSQL and asks for
    `DATABASE_URL` in Full mode;
 7. checks Redis only when `REDIS_URL` is configured — leaving it empty is normal;

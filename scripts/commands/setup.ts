@@ -3,6 +3,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { existsSync, mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { createServer } from "node:net";
 import {
   MINIMUM_BUN_VERSION,
   bunVersionAtLeast,
@@ -176,20 +177,63 @@ async function chooseDbMode(envExisted: boolean): Promise<void> {
 /** Port the example ships with. A VPS NAT often does not forward it. */
 const DEFAULT_PORT = "12800";
 
+/** Ports this installer suggests when 12800 is taken. */
+const PORT_SUGGESTIONS: readonly string[] = ["8080", "3000", "8081"];
+
 /**
- * Asks which port the gateway should listen on. Enter keeps 12800. A VPS whose
- * forwarded range does not include 12800 should pick one that is open, commonly
- * 8080. The same PORT serves `bun dev` and the production build; the dashboard
- * dev server stays on 5173 and proxies to it.
+ * True when nothing is listening on the port yet.
+ *
+ * Binding is the test, not connecting: only a real bind proves the port is
+ * free, and the socket is closed immediately so the probe never holds it.
+ */
+function isPortFree(host: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once("error", () => resolve(false));
+    server.listen(port, host, () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
+
+/**
+ * Asks which port the gateway should listen on. Enter keeps 12800. The
+ * candidates are probed before the prompt so the operator is told what is
+ * actually free instead of guessing. The same PORT serves `bun run dev` and the
+ * production build; the dashboard dev server stays on 5173 and proxies to it.
  */
 async function choosePort(envExisted: boolean): Promise<void> {
   const alreadyChosen = envExisted && Boolean(process.env.PORT?.trim());
   if (alreadyChosen || nonInteractive()) return;
-  console.log("The gateway listens on this port for both bun dev and the production build.");
-  console.log("12800 is the default. Pick 8080, or any open port, when a VPS does not forward 12800.");
+
+  const candidates = [DEFAULT_PORT, ...PORT_SUGGESTIONS];
+  const states = await Promise.all(
+    candidates.map(async (port) => ({
+      port,
+      free: await isPortFree("127.0.0.1", Number(port)),
+    })),
+  );
+  const free = states.filter((s) => s.free).map((s) => s.port);
+  const taken = states.filter((s) => !s.free).map((s) => s.port);
+  const defaultFree = states[0]?.free === true;
+
+  console.log("Which port should the gateway listen on?");
+  console.log(`Cartethyia defaults to ${DEFAULT_PORT} — press Enter to keep it.`);
+  if (defaultFree) {
+    console.log(`✓ ${DEFAULT_PORT} is free, so it will not clash with anything else on this machine.`);
+  } else {
+    console.log(`✗ ${DEFAULT_PORT} is already in use, so keeping it would fail to start.`);
+  }
+  if (free.length > 0) console.log(`Available: ${free.join(", ")}`);
+  if (taken.length > 0) console.log(`In use:    ${taken.join(", ")}`);
+  console.log("Pick 8080 (or any open port) when a VPS does not forward 12800.");
+
   const answer = await ask("Port", DEFAULT_PORT);
   if (!/^[1-9][0-9]{0,4}$/.test(answer) || Number(answer) > 65535) {
     throw new Error(`Port must be a number from 1 to 65535 (got "${answer}")`);
+  }
+  if (!defaultFree && answer === DEFAULT_PORT) {
+    console.log(`⚠ ${DEFAULT_PORT} is in use — starting will fail unless whatever holds it is stopped first.`);
   }
   const values: Record<string, string> = { PORT: answer };
   const origin = process.env.CARTETHYIA_PUBLIC_ORIGIN?.trim() ?? "";

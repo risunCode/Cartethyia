@@ -1,6 +1,6 @@
 import { UserPlus } from "lucide-react";
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { consoleRequest } from "../../data/api";
@@ -64,6 +64,12 @@ interface BackupPreview {
 
 export default function Setup(): ReactNode {
   const navigate = useNavigate();
+  /**
+   * Whether this console can still take a first account. `null` while the
+   * answer is in flight — the form stays disabled until it is known, so a
+   * console that already has an account cannot be raced into a second one.
+   */
+  const [open, setOpen] = useState<boolean | null>(null);
   const [username, setUsername] = useState("admin");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -80,8 +86,31 @@ export default function Setup(): ReactNode {
   const [needsAdmin, setNeedsAdmin] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    let active = true;
+    void consoleRequest<{ requires_setup: boolean }>("/auth/first-boot")
+      .then((result) => {
+        if (!active) return;
+        setOpen(result.requires_setup);
+        if (!result.requires_setup) navigate("/login", { replace: true });
+      })
+      .catch(() => {
+        // A failed check must not disable the wizard outright — the submit
+        // itself reports the real reason — but the form stays disabled until
+        // an answer arrives so nothing is submitted blind.
+        if (active) setOpen(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [navigate]);
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (open === false) {
+      setError("This console already has an account. Sign in instead.");
+      return;
+    }
     if (!username.trim()) {
       setError("Administrator username is required.");
       return;
@@ -238,6 +267,33 @@ export default function Setup(): ReactNode {
       .catch(() => setPreview(null));
   };
 
+  if (open === false) {
+    return (
+      <main className="auth-viewport">
+        <div className="card-solid auth-window">
+          <div className="auth-header">
+            <div className="auth-logo" aria-hidden="true">
+              C
+            </div>
+            <h1 className="auth-title">Account Already Registered</h1>
+            <p className="auth-desc">
+              This console already has an administrator account, so setup is closed.
+              Sign in with the account that was created.
+            </p>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            <SetupError message="Setup is already finished. Creating a second administrator is not possible from here." />
+            <Link to="/login" style={{ textDecoration: "none" }}>
+              <Button variant="primary" type="button" style={{ width: "100%", height: "40px" }}>
+                Go to sign in
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="auth-viewport">
       <div className="card-solid auth-window">
@@ -270,7 +326,7 @@ export default function Setup(): ReactNode {
                 variant="secondary"
                 size="sm"
                 onClick={() => restoreInputRef.current?.click()}
-                disabled={pending}
+                disabled={pending || open === null}
               >
                 Choose file…
               </Button>
@@ -278,7 +334,7 @@ export default function Setup(): ReactNode {
                 type="button"
                 variant="primary"
                 size="sm"
-                disabled={pending || restoreFile === null}
+                disabled={pending || open === null || restoreFile === null}
                 onClick={() => {
                   if (!restoreFile) return;
                   // Without accounts the wizard has to supply one, so a single
@@ -345,7 +401,7 @@ export default function Setup(): ReactNode {
                 <Button
                   variant="primary"
                   type="button"
-                  disabled={pending}
+                  disabled={pending || open === null}
                   onClick={() => void restoreWithAdmin()}
                   style={{ width: "100%", height: "40px" }}
                 >
@@ -406,7 +462,7 @@ export default function Setup(): ReactNode {
           <Button
             variant="primary"
             type="submit"
-            disabled={pending}
+            disabled={pending || open === null}
             style={{ width: "100%", marginTop: "6px", height: "40px" }}
             icon={<UserPlus size={15} />}
           >
