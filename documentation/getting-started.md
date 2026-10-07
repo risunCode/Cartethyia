@@ -105,8 +105,9 @@ bun setup
 8. checks Docker Compose when `CARTETHYIA_SETUP_MODE=docker` is selected.
 
 It does not install PostgreSQL. Full mode needs a server that is already
-running. When setup finishes, run `bun dev` and open the console; the first
-visit creates the admin user.
+running. Setup configures the installation; it does not start it. Pick one of
+the two ways in below, then open the console — the first visit creates the
+admin user.
 
 To choose Full without the prompt, set `CARTETHYIA_DB_MODE=full` and a reachable
 `DATABASE_URL` in `.env`, then run:
@@ -158,21 +159,36 @@ accepted.
 
 ## 6. Start Cartethyia
 
-After setup succeeds, start the development stack:
+After setup succeeds, pick one of two ways in.
+
+**Production** — build first, then start. `bun run start` runs the compiled
+binary and stops with "binary is missing; run bun run build first" if that
+build has not happened, so the build is part of the command, not a separate
+step you can skip:
 
 ```bash
-bun dev
+bun run build && bun run start
 ```
+
+**Development** — no build. Hot reloads the backend and serves the dashboard
+from its own dev server:
+
+```bash
+bun run dev
+```
+
+Use this while changing source; use the build-and-start form to run it the way
+a deployment would.
 
 Open the dashboard at `http://localhost:<PORT>/console`. `PORT` comes from
 `.env`; 12800 unless setup was told otherwise.
 
-`bun dev` and the production build (`bun run build` then `bun run start`)
-listen on that same `PORT`. They are not two ports. The only separate one is
-the dashboard's own dev server, which stays on 5173 and proxies API calls to
-`PORT` — that 5173 never needs to be opened on a VPS. When `PORT` changes,
-`CARTETHYIA_PUBLIC_ORIGIN` must use it too, or OAuth callbacks point at the
-wrong place. Setup rewrites the origin when it is still the default.
+Both listen on that same `PORT`. They are not two ports. The only separate one
+is the dashboard's own dev server, which stays on 5173 and proxies API calls to
+`PORT` — that 5173 never needs to be opened on a VPS, and it only exists in the
+development form. When `PORT` changes, `CARTETHYIA_PUBLIC_ORIGIN` must use it
+too, or OAuth callbacks point at the wrong place. Setup rewrites the origin
+when it is still the default.
 
 For backend and dashboard processes separately:
 

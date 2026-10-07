@@ -399,7 +399,21 @@ async function setup(): Promise<void> {
   console.log("✅ Setup complete.");
   console.log("");
   const port = process.env.PORT?.trim() || DEFAULT_PORT;
-  console.log("Next: bun dev");
+  // Two ways in, and which one is right depends on why the operator is here.
+  // `bun run start` runs the compiled binary and refuses when it is missing, so
+  // naming it without the build that produces it sends a first-timer straight
+  // into "binary is missing; run bun run build first". `bun run dev` skips the
+  // build and serves the dashboard from its own dev server, which is the one to
+  // use while changing source.
+  console.log("Next — pick one:");
+  console.log("");
+  console.log("  bun run build && bun run start");
+  console.log("    Production. Builds the dashboard, AOT manifest, and binary first.");
+  console.log("");
+  console.log("  bun run dev");
+  console.log("    Development. No build; hot reload, dashboard on 5173, API on");
+  console.log(`    ${port}. Use this while changing source.`);
+  console.log("");
   console.log(`Then open http://localhost:${port}/console — the first visit asks you to create the admin user.`);
 }
 
