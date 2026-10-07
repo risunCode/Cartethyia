@@ -5,7 +5,13 @@ import { Dialog } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { Select } from "./ui/select";
 import { Stack } from "./ui/stack";
-import { RELAY_TARGETS, type RelayTarget } from "../data/contracts";
+import {
+  DEFAULT_RELAY_REGION,
+  RELAY_REGION_GROUPS,
+  RELAY_TARGETS,
+  type RelayRegion,
+  type RelayTarget,
+} from "../data/contracts";
 import { useDeployRelay } from "../hooks/network";
 import { getErrorMessage } from "../lib/helpers";
 import { toast } from "../lib/toast";
@@ -13,27 +19,44 @@ import { toast } from "../lib/toast";
 /** Human labels and per-target fields for the deploy form. */
 const TARGET_META: Record<
   RelayTarget,
-  { readonly label: string; readonly tokenLabel: string; readonly needsAccount: boolean; readonly host: string }
+  {
+    readonly label: string;
+    readonly tokenLabel: string;
+    readonly needsAccount: boolean;
+    readonly host: string;
+    /** Whether traffic leaves from a country the operator picks. */
+    readonly hasRegion: boolean;
+  }
 > = {
   cloudflare: {
     label: "Cloudflare Workers",
     tokenLabel: "Cloudflare API token",
     needsAccount: true,
     host: "*.workers.dev",
+    // Workers runs at the edge nearest the caller, not in a chosen region, so
+    // offering a country picker here would be a control that does nothing.
+    hasRegion: false,
   },
   vercel: {
     label: "Vercel",
     tokenLabel: "Vercel API token",
     needsAccount: false,
     host: "*.vercel.app",
+    hasRegion: true,
   },
   deno: {
     label: "Deno Deploy",
     tokenLabel: "Deno Deploy token",
     needsAccount: false,
     host: "*.deno.dev",
+    hasRegion: false,
   },
 };
+
+/** Flat options for the region picker; the group name leads each label. */
+const REGION_OPTIONS = RELAY_REGION_GROUPS.flatMap((group) =>
+  group.regions.map((entry) => ({ value: entry.id, label: `${group.label} — ${entry.label}` })),
+);
 
 /**
  * Deploy a hosted relay (Cloudflare Workers / Vercel / Deno Deploy) and register
@@ -55,6 +78,7 @@ export function RelayDeployModal({
 }): ReactNode {
   const deploy = useDeployRelay();
   const [target, setTarget] = useState<RelayTarget>("cloudflare");
+  const [region, setRegion] = useState<RelayRegion>(DEFAULT_RELAY_REGION);
   const [token, setToken] = useState("");
   const [accountId, setAccountId] = useState("");
   const [projectName, setProjectName] = useState("");
@@ -72,6 +96,9 @@ export function RelayDeployModal({
         token: token.trim(),
         ...(meta.needsAccount && accountId.trim() ? { accountId: accountId.trim() } : {}),
         ...(projectName.trim() ? { projectName: projectName.trim() } : {}),
+        // Only Vercel runs in a region an operator chooses; sending it to the
+        // others would be a control that does nothing.
+        ...(meta.hasRegion ? { region } : {}),
       },
       {
         onSuccess: (result) => {
@@ -132,6 +159,22 @@ export function RelayDeployModal({
           placeholder="e.g. cartethyia-relay"
           onChange={(event) => setProjectName(event.target.value)}
         />
+        {meta.hasRegion ? (
+          <Select
+            label="Deploy region"
+            id="relay-region"
+            value={region}
+            onValueChange={(value) => setRegion(value as RelayRegion)}
+            options={REGION_OPTIONS}
+          />
+        ) : null}
+        {meta.hasRegion ? (
+          <p style={{ fontSize: "11px", color: "var(--text-tertiary)", margin: 0 }}>
+            Sets the region on the Vercel project, which is what decides the country
+            outbound traffic leaves from. A region sent on the deployment alone is
+            accepted but does not move the Function.
+          </p>
+        ) : null}
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <Button variant="primary" size="sm" onClick={submit} disabled={!canSubmit || deploy.isPending}>
             {deploy.isPending ? "Deploying…" : "Deploy relay"}

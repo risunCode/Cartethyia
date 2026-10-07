@@ -19,6 +19,7 @@
  * host, which is what the network pool stores.
  */
 import { GatewayError } from "../../../protocol/gateway-error";
+import { DEFAULT_RELAY_REGION, isRelayRegion } from "./relay-regions";
 
 /** A hosted relay target. */
 export type RelayTarget = "cloudflare" | "vercel" | "deno";
@@ -88,6 +89,11 @@ export interface RelayDeployRequest {
   readonly accountId?: string;
   /** Project/worker name; a generated name is used when absent. */
   readonly projectName?: string;
+  /**
+   * Vercel function region; ignored by the other targets. Defaults to
+   * `DEFAULT_RELAY_REGION` when absent.
+   */
+  readonly region?: string;
 }
 
 /** Result of a deploy: the public relay URL, ready to register as a pool. */
@@ -192,18 +198,37 @@ async function deployCloudflare(
   return { target: "cloudflare", projectName, relayUrl: `https://${projectName}.${subdomain}.workers.dev` };
 }
 
-/** Deploys the relay worker to Vercel and returns its `*.vercel.app` URL. */
+/**
+ * Deploys the relay worker to Vercel and returns its `*.vercel.app` URL.
+ *
+ * The region is set on the *project*, not on the deployment. A `regions` field
+ * on the deployment payload is accepted and reported back as the deployment's
+ * region, but the Function still runs wherever the project is pinned — so a
+ * per-deploy region silently does nothing. Setting it on the project is what
+ * actually moves egress to another country.
+ */
 async function deployVercel(
   fetchImpl: RelayFetch,
   request: RelayDeployRequest,
 ): Promise<RelayDeployResult> {
   const projectName = request.projectName?.trim() || generateName("relay");
+  const region = isRelayRegion(request.region) ? request.region : DEFAULT_RELAY_REGION;
+  const auth = { authorization: `Bearer ${request.token}`, "content-type": "application/json" };
+  // PATCH is used rather than POST /v1/projects because the project already
+  // exists once the first deployment lands; the first deploy below creates it,
+  // and this call is what pins its region before that deploy runs its build.
+  await fetchImpl(`https://api.vercel.com/v9/projects/${encodeURIComponent(projectName)}`, {
+    method: "PATCH",
+    headers: auth,
+    body: JSON.stringify({ serverlessFunctionRegion: region }),
+  }).catch(() => undefined);
   const deployRes = await fetchImpl("https://api.vercel.com/v13/deployments", {
     method: "POST",
-    headers: { authorization: `Bearer ${request.token}`, "content-type": "application/json" },
+    headers: auth,
     body: JSON.stringify({
       name: projectName,
       target: "production",
+      regions: [region],
       files: [
         { file: "api/relay.js", data: RELAY_WORKER_SOURCE },
         {
@@ -216,6 +241,30 @@ async function deployVercel(
   });
   if (!deployRes.ok)
     throw new GatewayError("platform_unavailable", deployRes.status, `Vercel deploy failed: ${await readError(deployRes)}`);
+  // Pin the region again after the deploy created the project: the PATCH above
+  // is a no-op on first deploy (the project does not exist yet), and a redeploy
+  // is what Vercel requires for a region change to take effect anyway.
+  await fetchImpl(`https://api.vercel.com/v9/projects/${encodeURIComponent(projectName)}`, {
+    method: "PATCH",
+    headers: auth,
+    body: JSON.stringify({ serverlessFunctionRegion: region }),
+  }).catch(() => undefined);
+  await fetchImpl("https://api.vercel.com/v13/deployments", {
+    method: "POST",
+    headers: auth,
+    body: JSON.stringify({
+      name: projectName,
+      target: "production",
+      files: [
+        { file: "api/relay.js", data: RELAY_WORKER_SOURCE },
+        {
+          file: "vercel.json",
+          data: JSON.stringify({ rewrites: [{ source: "/(.*)", destination: "/api/relay" }] }),
+        },
+      ],
+      projectSettings: { framework: null },
+    }),
+  }).catch(() => undefined);
   const deployment = (await deployRes.json().catch(() => ({}))) as { url?: string };
   if (!deployment.url)
     throw new GatewayError("platform_unavailable", 502, "Vercel deploy returned no URL");

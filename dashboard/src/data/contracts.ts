@@ -190,6 +190,15 @@ export type {
   RelayTarget,
 } from "../../../src/console/routing/pools/relay-deploy";
 export { RELAY_TARGETS } from "../../../src/console/routing/pools/relay-deploy";
+// The region picker renders the backend's own list, so the form cannot offer a
+// region the deployer rejects. Both modules are pure, so these are safe values
+// in the browser bundle.
+export {
+  DEFAULT_RELAY_REGION,
+  RELAY_REGION_GROUPS,
+  RELAY_REGIONS,
+} from "../../../src/console/routing/pools/relay-regions";
+export type { RelayRegion } from "../../../src/console/routing/pools/relay-regions";
 export type { PoolHealthEvent } from "../../../src/network/pool-health-machine";
 
 

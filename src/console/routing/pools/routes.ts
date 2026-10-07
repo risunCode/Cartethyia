@@ -3,6 +3,7 @@ import { Elysia, t } from "elysia";
 import { consoleErrorHandler } from "../../shared/errors";
 import { literalUnion } from "../../shared/elysia-schema";
 import { RELAY_TARGETS, type RelayDeployRequest } from "./relay-deploy";
+import { RELAY_REGIONS } from "./relay-regions";
 import { SPEED_TEST_DEFAULT_BYTES } from "./speed-test-sizes";
 import {
   MAX_BATCH_PROBE_TARGETS,
@@ -33,6 +34,8 @@ const deployRelayBody = t.Object({
   token: t.String({ minLength: 1 }),
   accountId: t.Optional(t.String()),
   projectName: t.Optional(t.String()),
+  /** Vercel function region; ignored for targets that have no region control. */
+  region: t.Optional(literalUnion(RELAY_REGIONS)),
 });
 const testBatchBody = t.Object({
   targets: t.Array(createPoolBody, { minItems: 1, maxItems: MAX_BATCH_PROBE_TARGETS }),
